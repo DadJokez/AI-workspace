@@ -2,7 +2,7 @@
 
 Internal AI front door. Single login, chat with your work data, share workflows.
 
-See [`PLAN.md`](./PLAN.md) for architecture, decisions, and weekly roadmap. (Currently on the `claude/planning-architecture-Vudqw` branch — landing on `main` separately.)
+See [`PLAN.md`](./PLAN.md) for architecture, decisions, and weekly roadmap.
 
 ## Stack
 
