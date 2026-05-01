@@ -1,0 +1,12 @@
+**/node_modules
+**/.next
+**/.turbo
+**/dist
+.git
+.github
+.vscode
+.idea
+*.md
+!apps/web/README.md
+.env*
+!.env.example
