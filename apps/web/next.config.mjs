@@ -5,9 +5,10 @@ const nextConfig = {
   transpilePackages: [
     "@ai-workspace/agent",
     "@ai-workspace/auth",
+    "@ai-workspace/cursor-runtime",
     "@ai-workspace/db",
   ],
-  serverExternalPackages: ["postgres"],
+  serverExternalPackages: ["postgres", "@cursor/sdk"],
 };
 
 export default nextConfig;
