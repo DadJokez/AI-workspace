@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-workspace/agent": "workspace:*"
+    "@ai-workspace/agent": "workspace:*",
+    "@cursor/sdk": "^1.0.12"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",

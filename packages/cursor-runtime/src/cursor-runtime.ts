@@ -1,18 +1,18 @@
 import type { AgentEvent } from "@ai-workspace/agent";
 
-// Real package — confirmed on npm 2026-05-02 as @cursor/sdk@1.0.12 (Anysphere).
-// Spike imports are commented out until we wire a live integration: pulling
-// the SDK in adds a ~12 MB native dep (sqlite3) and a runtime auth requirement
-// (`CURSOR_API_KEY`), and we don't want either gating `pnpm install` until the
-// promotion conversation. Real surface, per the SDK's `dist/esm/stubs.d.ts`:
+// Real package — `@cursor/sdk@1.0.12` (Anysphere). Now installed as a direct
+// dep so `runTurn` can wire to it. The SDK pulls in a ~12 MB `sqlite3` native
+// binding and expects `CURSOR_API_KEY` at runtime; both are accepted costs
+// now that we're committed to the spike. Surface, per `dist/esm/index.d.ts`:
 //
-//   import { Agent, Cursor } from "@cursor/sdk";
 //   const agent = await Agent.create({ model: { id: "..." }, ... });
 //   const run = await agent.send("hello", { mcpServers: [...] });
 //   for await (const m of run.stream()) { ... }
 //
 // `Agent.resume(agentId)` rehydrates a durable agent across processes, which
 // is what makes this a real "runtime" rather than another stateless client.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { Agent, Cursor } from "@cursor/sdk";
 
 import type { AgentRuntime, TurnInput } from "./types";
 
