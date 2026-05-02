@@ -4,6 +4,9 @@ Internal AI front door. Single login, chat with your work data, share workflows.
 
 See [`PLAN.md`](./PLAN.md) for architecture, decisions, and weekly roadmap.
 
+When you're ready to point the chat at real AWS Bedrock instead of the
+local fake, follow [`AWS_SETUP.md`](./AWS_SETUP.md) (one-time, ~30–60 min).
+
 ## Stack
 
 - **Next.js 15** (App Router) + **TypeScript** + **Tailwind**
