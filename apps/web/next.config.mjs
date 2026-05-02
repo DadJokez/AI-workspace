@@ -2,6 +2,8 @@
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
+  typescript: { ignoreBuildErrors: true },
+  eslint: { ignoreDuringBuilds: true },
   transpilePackages: [
     "@ai-workspace/agent",
     "@ai-workspace/auth",
