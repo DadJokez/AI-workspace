@@ -109,6 +109,28 @@ importers:
         specifier: ^8.16.0
         version: 8.59.1(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
 
+  packages/cursor-runtime:
+    dependencies:
+      '@ai-workspace/agent':
+        specifier: workspace:*
+        version: link:../agent
+    devDependencies:
+      '@eslint/js':
+        specifier: ^9.15.0
+        version: 9.39.4
+      '@types/node':
+        specifier: ^22.9.0
+        version: 22.19.17
+      eslint:
+        specifier: ^9.15.0
+        version: 9.39.4(jiti@1.21.7)
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      typescript-eslint:
+        specifier: ^8.16.0
+        version: 8.59.1(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
+
   packages/db:
     dependencies:
       drizzle-orm:
@@ -133,6 +155,28 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.21.0
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      typescript-eslint:
+        specifier: ^8.16.0
+        version: 8.59.1(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
+
+  packages/mcp-servers:
+    dependencies:
+      '@ai-workspace/cursor-runtime':
+        specifier: workspace:*
+        version: link:../cursor-runtime
+    devDependencies:
+      '@eslint/js':
+        specifier: ^9.15.0
+        version: 9.39.4
+      '@types/node':
+        specifier: ^22.9.0
+        version: 22.19.17
+      eslint:
+        specifier: ^9.15.0
+        version: 9.39.4(jiti@1.21.7)
       typescript:
         specifier: ^5.6.3
         version: 5.9.3

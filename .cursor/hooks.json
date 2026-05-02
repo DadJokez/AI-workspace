@@ -1,0 +1,19 @@
+{
+  "$comment": [
+    "SPIKE-ONLY: hook skeleton for the Cursor SDK runtime spike.",
+    "Establishes the file location and shape so promotion is mechanical.",
+    "All entries are no-ops; no policy is enforced from this file yet.",
+    "",
+    "When the Cursor SDK is wired in for real, replace these stubs with",
+    "shell commands or HTTP webhooks per the SDK's hook spec. Likely",
+    "first uses: redact PII before tool calls, block writes to forbidden",
+    "Workfront fields, audit-log every Databricks query."
+  ],
+  "version": 1,
+  "hooks": {
+    "preToolUse": [],
+    "postToolUse": [],
+    "preMessage": [],
+    "postMessage": []
+  }
+}
