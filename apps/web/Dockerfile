@@ -9,6 +9,11 @@ WORKDIR /repo
 FROM base AS deps
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml* ./
 COPY apps/web/package.json apps/web/package.json
+COPY packages/agent/package.json packages/agent/package.json
+COPY packages/auth/package.json packages/auth/package.json
+COPY packages/cursor-runtime/package.json packages/cursor-runtime/package.json
+COPY packages/db/package.json packages/db/package.json
+COPY packages/mcp-servers/package.json packages/mcp-servers/package.json
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
