@@ -22,5 +22,18 @@ export type { ModelId, ModelMetadata } from "./models";
 export { ToolRegistry } from "./registry";
 export type { BedrockToolConfig } from "./registry";
 
+export {
+  FakeBedrockClient,
+  getBedrockClient,
+} from "./clients";
+export type {
+  BedrockClient,
+  BedrockContentBlock,
+  BedrockMessage,
+  BedrockStreamEvent,
+  ConverseStreamParams,
+  FakeBedrockClientOptions,
+} from "./clients";
+
 export { DEFAULT_MAX_TOOL_ITERATIONS, runAgentLoop } from "./loop";
 export type { RunAgentLoopParams } from "./loop";
