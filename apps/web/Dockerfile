@@ -2,7 +2,7 @@
 
 ARG NODE_VERSION=20-alpine
 
-FROM node:${NODE_VERSION} AS base
+FROM public.ecr.aws/docker/library/node:${NODE_VERSION} AS base
 RUN corepack enable
 WORKDIR /repo
 
@@ -23,7 +23,7 @@ COPY --from=deps /repo/apps/web/node_modules ./apps/web/node_modules
 COPY . .
 RUN pnpm --filter @ai-workspace/web build
 
-FROM node:${NODE_VERSION} AS runtime
+FROM public.ecr.aws/docker/library/node:${NODE_VERSION} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
