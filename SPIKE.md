@@ -4,6 +4,14 @@
 **Status:** sandbox — not for merge
 **Date opened:** 2026-05-02
 
+**Companion docs:**
+[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — end-state architecture
+(layer ownership, three-layer auth flow, end-to-end request trace,
+Agent Wire, ai-intake migration). ·
+[`docs/ROADMAP.md`](./docs/ROADMAP.md) — integration tiering and flagship
+use cases (the "where does the catalog grow next" view alongside
+[`PLAN.md`](./PLAN.md)'s weekly ship plan).
+
 ## Why this branch exists
 
 The architecture in [`PLAN.md`](./PLAN.md) commits to AWS Bedrock as the
@@ -40,6 +48,9 @@ packages/
       teams.ts                same shape
       index.ts
     README.md
+docs/
+  ARCHITECTURE.md             end-state architecture (layers, auth, request trace, Agent Wire)
+  ROADMAP.md                  integration tiering, flagship use cases, catalog flywheel
 SPIKE.md                      this file
 apps/web/.env.example         documents RUNTIME and CURSOR_API_KEY (not yet wired)
 ```
@@ -180,6 +191,16 @@ Read in this order:
    shows the existing loop fits behind the same interface.
 4. [`packages/mcp-servers/README.md`](./packages/mcp-servers/README.md) —
    what each internal system MCP server would expose.
+
+For the wider picture beyond this spike:
+
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — end-state layer
+  ownership, the three-layer auth flow (Ping → shell → MCP), an
+  end-to-end request trace, and the Agent Wire / ai-intake migration
+  threads.
+- [`docs/ROADMAP.md`](./docs/ROADMAP.md) — integration tiering, the
+  flagship use cases each tier unlocks, the use-case → MCP dependency
+  matrix, and the catalog flywheel.
 
 ## Decision
 
