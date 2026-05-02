@@ -1,18 +1,10 @@
-import type { AgentEvent } from "@ai-workspace/agent";
-
-// Real package — `@cursor/sdk@1.0.12` (Anysphere). Now installed as a direct
-// dep so `runTurn` can wire to it. The SDK pulls in a ~12 MB `sqlite3` native
-// binding and expects `CURSOR_API_KEY` at runtime; both are accepted costs
-// now that we're committed to the spike. Surface, per `dist/esm/index.d.ts`:
-//
-//   const agent = await Agent.create({ model: { id: "..." }, ... });
-//   const run = await agent.send("hello", { mcpServers: [...] });
-//   for await (const m of run.stream()) { ... }
-//
-// `Agent.resume(agentId)` rehydrates a durable agent across processes, which
-// is what makes this a real "runtime" rather than another stateless client.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { Agent, Cursor } from "@cursor/sdk";
+import type { AgentEvent, AgentMessage } from "@ai-workspace/agent";
+import { Agent } from "@cursor/sdk";
+import type {
+  McpServerConfig,
+  SDKAgent,
+  SDKMessage,
+} from "@cursor/sdk";
 
 import type { AgentRuntime, TurnInput } from "./types";
 
@@ -26,33 +18,26 @@ import type { AgentRuntime, TurnInput } from "./types";
  *      subsequent turns) and only forward the newest user message.
  *   2. Tools via MCP, not in-process functions. Tool registration moves out
  *      of `ToolRegistry` and into `mcpServers` config on `Agent.create()`.
- *      See `packages/mcp-servers/` for the placeholder structure.
  *   3. Policy via `.cursor/hooks.json`. Pre/post-tool hooks intercept the
  *      run; the SDK respects the hook config without app-level plumbing.
  *
- * SPIKE-ONLY: this class compiles without the SDK installed at runtime.
- * Methods throw a clear error if invoked. Promote by:
- *   - uncommenting the `@cursor/sdk` import
- *   - implementing the body of `getOrCreateAgent` and `runTurn`
- *   - adding `CURSOR_API_KEY` to env validation
- *   - persisting the `threadId → agentId` mapping (likely a column on
- *     `chat_threads`, e.g. `cursor_agent_id text`)
+ * Step 3 of the spike: real `runTurn` implementation. The `threadId → agentId`
+ * map is in-memory here; step 4 swaps in a DB-backed `ThreadAgentStore`.
  */
 export interface CursorRuntimeOptions {
-  /** Cursor API key. Required when `runTurn` is actually invoked. */
+  /** Cursor API key. Falls back to `process.env.CURSOR_API_KEY` if omitted. */
   apiKey?: string;
   /**
-   * Maps our logical thread id to a persisted Cursor `agentId`. The real impl
-   * reads/writes a column on `chat_threads`; the spike accepts an in-memory
-   * Map for testability.
+   * Maps our logical thread id to a persisted Cursor `agentId`. Defaults to
+   * an in-memory map; step 4 swaps in a `chat_threads.cursor_agent_id` store.
    */
   threadAgentStore?: ThreadAgentStore;
   /**
-   * MCP server configs to pass to `Agent.create({ mcpServers: [...] })`.
-   * Lives here, not in the runtime contract, because Bedrock doesn't have
-   * an analogue.
+   * MCP server configs to pass to `Agent.create({ mcpServers })`. Wrapped in
+   * a structural stub so the placeholder MCP packages don't need a real SDK
+   * install.
    */
-  mcpServers?: McpServerConfigStub[];
+  mcpServers?: readonly McpServerConfigStub[];
 }
 
 /** Read/write the persisted `threadId → cursor agentId` mapping. */
@@ -79,48 +64,175 @@ export class CursorRuntime implements AgentRuntime {
   readonly name = "cursor" as const;
 
   private readonly opts: CursorRuntimeOptions;
+  private readonly store: ThreadAgentStore;
 
   constructor(opts: CursorRuntimeOptions = {}) {
     this.opts = opts;
+    this.store = opts.threadAgentStore ?? new InMemoryThreadAgentStore();
   }
 
-  // eslint-disable-next-line require-yield
-  async *runTurn(_input: TurnInput): AsyncIterable<AgentEvent> {
-    // Sketch of the real implementation:
-    //
-    //   const agentId = await this.opts.threadAgentStore?.get(input.threadId);
-    //   const agent = agentId
-    //     ? await Agent.resume(agentId, { apiKey: this.opts.apiKey })
-    //     : await Agent.create({
-    //         apiKey: this.opts.apiKey,
-    //         model: { id: mapModelId(input.modelId) },
-    //         systemPrompt: input.systemPrompt,
-    //         mcpServers: this.opts.mcpServers,
-    //       });
-    //   if (!agentId) {
-    //     await this.opts.threadAgentStore?.set(input.threadId, agent.agentId);
-    //   }
-    //
-    //   const lastUser = lastUserMessage(input.messages);
-    //   const run = await agent.send(lastUser, { signal: input.signal });
-    //   for await (const m of run.stream()) {
-    //     yield* mapSdkMessageToAgentEvents(m);
-    //   }
-    //   const result = await run.wait();
-    //   yield { type: "usage", tokensIn: result.usage.input, tokensOut: result.usage.output };
-    //   yield { type: "done" };
+  async *runTurn(input: TurnInput): AsyncIterable<AgentEvent> {
+    const lastUser = lastUserText(input.messages);
+    if (!lastUser) {
+      yield {
+        type: "error",
+        message:
+          "CursorRuntime.runTurn: no user message in input.messages — Cursor agents are turn-based and need at least one user turn.",
+      };
+      return;
+    }
 
-    throw new Error(
-      "CursorRuntime.runTurn: spike-only stub. Promote by uncommenting the " +
-        "`@cursor/sdk` import in cursor-runtime.ts and implementing the body. " +
-        "See SPIKE.md for the promotion checklist.",
-    );
+    let agent: SDKAgent;
+    try {
+      agent = await this.getOrCreateAgent(input);
+    } catch (err) {
+      yield { type: "error", message: `CursorRuntime: ${errorMessage(err)}` };
+      return;
+    }
+
+    if (input.signal?.aborted) {
+      yield { type: "done" };
+      return;
+    }
+
+    let run;
+    try {
+      run = await agent.send(lastUser);
+    } catch (err) {
+      yield {
+        type: "error",
+        message: `CursorRuntime.send: ${errorMessage(err)}`,
+      };
+      return;
+    }
+
+    const onAbort = () => {
+      void run.cancel().catch(() => {});
+    };
+    input.signal?.addEventListener("abort", onAbort, { once: true });
+
+    try {
+      for await (const m of run.stream()) {
+        yield* mapSdkMessage(m);
+      }
+    } catch (err) {
+      yield { type: "error", message: `CursorRuntime.stream: ${errorMessage(err)}` };
+      return;
+    } finally {
+      input.signal?.removeEventListener("abort", onAbort);
+    }
+
+    yield { type: "done" };
+  }
+
+  private async getOrCreateAgent(input: TurnInput): Promise<SDKAgent> {
+    const existingId = await this.store.get(input.threadId);
+    if (existingId) {
+      return Agent.resume(existingId, { apiKey: this.opts.apiKey });
+    }
+
+    const mcpServers = toMcpRecord(this.opts.mcpServers);
+    const agent = await Agent.create({
+      apiKey: this.opts.apiKey,
+      model: { id: input.modelId },
+      ...(mcpServers ? { mcpServers } : {}),
+    });
+    await this.store.set(input.threadId, agent.agentId);
+    return agent;
   }
 }
 
 /**
- * In-memory `ThreadAgentStore` for tests and the dev loop. The real
- * implementation reads/writes `chat_threads.cursor_agent_id`.
+ * Map a single Cursor SDK stream message onto zero or more `AgentEvent`s.
+ *
+ * - `assistant` → emit `text-delta` for each text block. Tool-use blocks
+ *   inside an assistant message are skipped because the SDK also surfaces
+ *   them as standalone `tool_call` messages, which carry richer status.
+ * - `tool_call` (running) → `tool-call`.
+ * - `tool_call` (completed | error) → `tool-result`.
+ * - everything else (system / user echo / thinking / status / request / task)
+ *   is dropped: the web layer doesn't render those today.
+ */
+function* mapSdkMessage(m: SDKMessage): Generator<AgentEvent, void> {
+  switch (m.type) {
+    case "assistant": {
+      for (const block of m.message.content) {
+        if (block.type === "text" && block.text) {
+          yield { type: "text-delta", delta: block.text };
+        }
+      }
+      return;
+    }
+    case "tool_call": {
+      if (m.status === "running") {
+        yield {
+          type: "tool-call",
+          call: {
+            id: m.call_id,
+            name: m.name,
+            input: toRecord(m.args),
+          },
+        };
+      } else {
+        yield {
+          type: "tool-result",
+          result: {
+            toolCallId: m.call_id,
+            output: m.result,
+            isError: m.status === "error",
+          },
+        };
+      }
+      return;
+    }
+    default:
+      return;
+  }
+}
+
+function lastUserText(messages: readonly AgentMessage[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg?.role === "user" && msg.content) return msg.content;
+  }
+  return undefined;
+}
+
+function toMcpRecord(
+  stubs: readonly McpServerConfigStub[] | undefined,
+): Record<string, McpServerConfig> | undefined {
+  if (!stubs?.length) return undefined;
+  const out: Record<string, McpServerConfig> = {};
+  for (const s of stubs) {
+    if (s.command) {
+      out[s.name] = {
+        type: "stdio",
+        command: s.command,
+        ...(s.args ? { args: [...s.args] } : {}),
+        ...(s.env ? { env: s.env } : {}),
+      };
+    } else if (s.url) {
+      out[s.name] = { type: "http", url: s.url };
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err == null) return "unknown error";
+  return String(err);
+}
+
+/**
+ * In-memory `ThreadAgentStore` for tests and the dev loop. Step 4 swaps in
+ * a `chat_threads.cursor_agent_id`-backed store so agents survive restarts.
  */
 export class InMemoryThreadAgentStore implements ThreadAgentStore {
   private readonly map = new Map<string, string>();
