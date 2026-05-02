@@ -1,0 +1,25 @@
+version: 0.2
+
+env:
+  variables:
+    IMAGE_REPO_NAME: ai-workspace
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME
+      - COMMIT_TAG=${CODEBUILD_RESOLVED_SOURCE_VERSION:-manual}
+  build:
+    commands:
+      - echo Build started on `date`
+      - docker build -f apps/web/Dockerfile -t $IMAGE_REPO_NAME .
+      - docker tag $IMAGE_REPO_NAME:latest $REPOSITORY_URI:latest
+      - docker tag $IMAGE_REPO_NAME:latest $REPOSITORY_URI:$COMMIT_TAG
+  post_build:
+    commands:
+      - echo Pushing the Docker images...
+      - docker push $REPOSITORY_URI:latest
+      - docker push $REPOSITORY_URI:$COMMIT_TAG
+      - echo Build completed on `date`
