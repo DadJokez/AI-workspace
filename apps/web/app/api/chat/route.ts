@@ -1,11 +1,10 @@
 import {
   DEFAULT_MODEL_ID,
   type ModelId,
-  ToolRegistry,
   isValidModelId,
-  runAgentLoop,
 } from "@ai-workspace/agent";
 import { AuthConfigError, getCurrentUser } from "@ai-workspace/auth";
+import { getRuntime } from "@ai-workspace/cursor-runtime";
 import {
   type ChatThread,
   chatMessages,
@@ -117,7 +116,7 @@ export async function POST(req: Request) {
     content: m.content,
   }));
 
-  const registry = new ToolRegistry(); // empty in v1; tools land later
+  const runtime = getRuntime({ db });
   const encoder = new TextEncoder();
   const abort = new AbortController();
   req.signal.addEventListener("abort", () => abort.abort());
@@ -141,10 +140,10 @@ export async function POST(req: Request) {
       let tokensOut = 0;
 
       try {
-        for await (const ev of runAgentLoop({
+        for await (const ev of runtime.runTurn({
+          threadId: thread.id,
           modelId,
           messages: agentMessages,
-          registry,
           context: { userId: dbUser.id },
           signal: abort.signal,
         })) {

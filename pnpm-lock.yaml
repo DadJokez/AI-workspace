@@ -16,6 +16,9 @@ importers:
       '@ai-workspace/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@ai-workspace/cursor-runtime':
+        specifier: workspace:*
+        version: link:../../packages/cursor-runtime
       '@ai-workspace/db':
         specifier: workspace:*
         version: link:../../packages/db
