@@ -14,5 +14,6 @@ export type {
   McpServerConfigStub,
   ThreadAgentStore,
 } from "./cursor-runtime";
+export { DbThreadAgentStore } from "./db-thread-agent-store";
 
 export { getRuntime } from "./factory";

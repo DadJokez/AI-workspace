@@ -8,6 +8,13 @@
       "when": 1777683413360,
       "tag": "0000_public_tomorrow_man",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777744139034,
+      "tag": "0001_wandering_famine",
+      "breakpoints": true
     }
   ]
 }

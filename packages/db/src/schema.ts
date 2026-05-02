@@ -55,6 +55,12 @@ export const chatThreads = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     title: text("title"),
     defaultModelId: text("default_model_id").notNull(),
+    /**
+     * Persisted Cursor `agentId` for this thread. Null until the first turn
+     * with the cursor runtime; populated by `DbThreadAgentStore` so agents
+     * survive restarts.
+     */
+    cursorAgentId: text("cursor_agent_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

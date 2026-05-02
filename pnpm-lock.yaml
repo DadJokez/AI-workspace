@@ -114,9 +114,15 @@ importers:
       '@ai-workspace/agent':
         specifier: workspace:*
         version: link:../agent
+      '@ai-workspace/db':
+        specifier: workspace:*
+        version: link:../db
       '@cursor/sdk':
         specifier: ^1.0.12
         version: 1.0.12
+      drizzle-orm:
+        specifier: ^0.36.4
+        version: 0.36.4(@types/react@19.2.14)(postgres@3.4.9)(react@19.2.5)(sqlite3@5.1.7)
     devDependencies:
       '@eslint/js':
         specifier: ^9.15.0
