@@ -53,7 +53,7 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
   },
   "sonnet-4-6": {
     id: "sonnet-4-6",
-    bedrockModelId: "us.anthropic.claude-sonnet-4-6-v1:0",
+    bedrockModelId: "us.anthropic.claude-sonnet-4-6",
     displayName: "Sonnet 4.6",
     blurb: "Balanced default. Most chat, recipes, and tool use.",
     costPer1MInput: 3,
@@ -70,7 +70,7 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
   },
   "opus-4-7": {
     id: "opus-4-7",
-    bedrockModelId: "us.anthropic.claude-opus-4-7-v1:0",
+    bedrockModelId: "us.anthropic.claude-opus-4-7",
     displayName: "Opus 4.7",
     blurb: "Heavy reasoning. Planning, complex analysis, recipe authoring.",
     costPer1MInput: 15,
