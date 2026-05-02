@@ -1,3 +1,12 @@
+import {
+  BedrockRuntimeClient,
+  ConverseStreamCommand,
+  type ContentBlock,
+  type Message,
+  type Tool,
+  type ToolConfiguration,
+} from "@aws-sdk/client-bedrock-runtime";
+import type { DocumentType } from "@smithy/types";
 import type { BedrockToolConfig } from "./registry";
 
 /**
@@ -138,17 +147,135 @@ export class FakeBedrockClient implements BedrockClient {
   }
 }
 
+export class RealBedrockClient implements BedrockClient {
+  private readonly client: BedrockRuntimeClient;
+
+  constructor() {
+    const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
+    if (!region) {
+      throw new Error(
+        "RealBedrockClient requires AWS_REGION or AWS_DEFAULT_REGION to be set.",
+      );
+    }
+    this.client = new BedrockRuntimeClient({ region });
+  }
+
+  async *converseStream(
+    params: ConverseStreamParams,
+  ): AsyncIterable<BedrockStreamEvent> {
+    const messages: Message[] = params.messages.map((m) => ({
+      role: m.role,
+      content: m.content.map((b): ContentBlock => {
+        if (b.kind === "text") {
+          return { text: b.text };
+        }
+        if (b.kind === "tool-use") {
+          return {
+            toolUse: {
+              toolUseId: b.id,
+              name: b.name,
+              input: b.input as unknown as DocumentType,
+            },
+          };
+        }
+        return {
+          toolResult: {
+            toolUseId: b.toolUseId,
+            content: [{ text: b.content }],
+            status: b.isError ? "error" : "success",
+          },
+        };
+      }),
+    }));
+
+    const toolConfig: ToolConfiguration | undefined = params.toolConfig
+      ? {
+          tools: params.toolConfig.tools.map(
+            (t): Tool => ({
+              toolSpec: {
+                name: t.toolSpec.name,
+                description: t.toolSpec.description,
+                inputSchema: { json: t.toolSpec.inputSchema as unknown as DocumentType },
+              },
+            }),
+          ),
+        }
+      : undefined;
+
+    const command = new ConverseStreamCommand({
+      modelId: params.bedrockModelId,
+      system: params.systemPrompt ? [{ text: params.systemPrompt }] : undefined,
+      messages,
+      toolConfig,
+      inferenceConfig: { maxTokens: params.maxTokens },
+    });
+
+    const response = await this.client.send(command);
+    if (!response.stream) return;
+
+    let pendingToolId: string | undefined;
+    let pendingToolName: string | undefined;
+    let pendingInputJson = "";
+
+    for await (const chunk of response.stream) {
+      if (params.signal?.aborted) return;
+
+      if (chunk.contentBlockStart) {
+        const start = chunk.contentBlockStart.start;
+        if (start?.toolUse) {
+          pendingToolId = start.toolUse.toolUseId;
+          pendingToolName = start.toolUse.name;
+          pendingInputJson = "";
+        }
+      } else if (chunk.contentBlockDelta) {
+        const delta = chunk.contentBlockDelta.delta;
+        if (delta?.text) {
+          yield { type: "text-delta", text: delta.text };
+        } else if (delta?.toolUse?.input) {
+          pendingInputJson += delta.toolUse.input;
+        }
+      } else if (chunk.contentBlockStop) {
+        if (pendingToolId && pendingToolName) {
+          let input: Record<string, unknown> = {};
+          try {
+            input = JSON.parse(pendingInputJson || "{}");
+          } catch {
+            // malformed — pass empty, handler will reject
+          }
+          yield { type: "tool-use", id: pendingToolId, name: pendingToolName, input };
+          pendingToolId = undefined;
+          pendingToolName = undefined;
+          pendingInputJson = "";
+        }
+      } else if (chunk.messageStop) {
+        const raw = chunk.messageStop.stopReason;
+        const reason =
+          raw === "tool_use"
+            ? "tool_use"
+            : raw === "max_tokens"
+              ? "max_tokens"
+              : raw === "stop_sequence"
+                ? "stop_sequence"
+                : "end_turn";
+        yield { type: "stop", reason };
+      } else if (chunk.metadata?.usage) {
+        yield {
+          type: "usage",
+          tokensIn: chunk.metadata.usage.inputTokens ?? 0,
+          tokensOut: chunk.metadata.usage.outputTokens ?? 0,
+        };
+      }
+    }
+  }
+}
+
 /**
- * Resolves a `BedrockClient` based on env. Default `fake`. Real client
- * (`real`) lands in PR #7.
+ * Resolves a `BedrockClient` based on env. Defaults to `fake` so local dev
+ * works without AWS credentials. Set `BEDROCK_CLIENT=real` to use live Bedrock.
  */
 export function getBedrockClient(): BedrockClient {
   const which = (process.env.BEDROCK_CLIENT ?? "fake").toLowerCase();
   if (which === "fake") return new FakeBedrockClient();
-  if (which === "real") {
-    throw new Error(
-      "BEDROCK_CLIENT=real requires the real client (lands in PR #7).",
-    );
-  }
+  if (which === "real") return new RealBedrockClient();
   throw new Error(`Unknown BEDROCK_CLIENT=${which}; expected 'fake' or 'real'`);
 }
