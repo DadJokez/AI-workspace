@@ -184,3 +184,15 @@ Read in this order:
 ## Decision
 
 _To be filled in by Rob after review._
+
+## Further reading
+
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — full architecture
+  doc: stack diagram, component ownership, three-layer auth flow,
+  end-to-end request trace, Agent Wire, ai-intake migration as
+  Recipe 001, open questions.
+- [`docs/ROADMAP.md`](./docs/ROADMAP.md) — integration roadmap:
+  Tier 1/2/3 systems, flagship use cases (Meeting Prep, Weekly
+  Status, Data Exploration, Customer Account Briefing, IT Request
+  Agent, Developer Workflow, SAP Budget Query) with MCP
+  dependencies, skills catalog flywheel.
