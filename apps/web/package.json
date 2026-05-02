@@ -12,6 +12,8 @@
   "dependencies": {
     "@ai-workspace/agent": "workspace:*",
     "@ai-workspace/auth": "workspace:*",
+    "@ai-workspace/db": "workspace:*",
+    "drizzle-orm": "^0.36.4",
     "next": "^15.0.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
