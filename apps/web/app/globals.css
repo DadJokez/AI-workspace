@@ -38,18 +38,17 @@ body {
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
-/* Pad the bottom of the chat input rail so it stays clear of the iOS
- * software keyboard. `env(keyboard-inset-height)` is set by Safari 17+
- * (and by Chrome/Edge on supporting platforms) to the visible keyboard
- * height; on browsers that don't support it the fallback `0px` keeps
- * normal spacing. The `max(...)` floor preserves the original padding
- * when the keyboard isn't open. */
+/* Pad the bottom of the chat input rail so it sits above the iPhone home
+ * indicator on devices that report a non-zero safe-area-inset-bottom.
+ * Requires `viewport-fit=cover` on the viewport meta to expose the inset.
+ * The max() floor keeps normal padding when there's no inset (desktop,
+ * Android phones without gesture-bar, browsers without env() support). */
 .kb-safe-bottom {
-  padding-bottom: max(env(keyboard-inset-height, 0px), 0.75rem);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 0.75rem);
 }
 @media (min-width: 640px) {
   .kb-safe-bottom {
-    padding-bottom: max(env(keyboard-inset-height, 0px), 1rem);
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 1rem);
   }
 }
 

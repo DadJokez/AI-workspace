@@ -9,9 +9,12 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  // iOS Safari 17+ / Android Chrome: shrink the layout viewport when the
-  // on-screen keyboard opens so `dvh`-sized content reflows above it.
-  interactiveWidget: "resizes-content",
+  // viewport-fit=cover lets the page extend under the iPhone home indicator /
+  // notch and exposes env(safe-area-inset-*) so the chat input rail can pad
+  // itself off the home indicator. interactive-widget=resizes-content was
+  // tried earlier but isn't supported in iOS Safari and was suspected of
+  // contributing to horizontal-overflow issues, so it's been removed.
+  viewportFit: "cover",
 };
 
 const themeInitScript = `

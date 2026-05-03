@@ -11,8 +11,8 @@ interface Props {
 export function MessageBubble({ role, content, modelId, pending }: Props) {
   if (role === "user") {
     return (
-      <div className="flex w-full justify-end">
-        <div className="max-w-[80%] rounded-lg bg-subtle px-3.5 py-2 text-[14px] leading-relaxed text-ink whitespace-pre-wrap">
+      <div className="flex w-full min-w-0 justify-end">
+        <div className="max-w-[80%] overflow-hidden whitespace-pre-wrap break-words rounded-lg bg-subtle px-3.5 py-2 text-[14px] leading-relaxed text-ink">
           {content}
         </div>
       </div>
@@ -23,11 +23,11 @@ export function MessageBubble({ role, content, modelId, pending }: Props) {
     role === "tool" ? "Tool" : modelId ? `Assistant · ${modelId}` : "Assistant";
 
   return (
-    <div className="flex w-full flex-col gap-1">
+    <div className="flex w-full min-w-0 flex-col gap-1">
       <div className="text-[11px] font-medium tracking-wide text-muted">
         {label}
       </div>
-      <div className="text-[14px] leading-relaxed text-ink">
+      <div className="min-w-0 max-w-full overflow-hidden break-words text-[14px] leading-relaxed text-ink">
         {role === "assistant" ? (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
