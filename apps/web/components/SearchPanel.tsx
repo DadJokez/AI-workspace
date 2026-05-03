@@ -98,6 +98,10 @@ export function SearchPanel({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search conversations…"
+            // Inline font-size beats every class-level rule. Sub-16px lets
+            // iOS Safari (and Comet, which inherits the WebKit zoom rule) zoom
+            // the page on focus.
+            style={{ fontSize: "16px" }}
             className="flex-1 bg-transparent py-2 text-base text-ink outline-none placeholder:text-muted"
           />
         </div>

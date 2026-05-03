@@ -78,7 +78,7 @@ const MARKDOWN_COMPONENTS: Components = {
   ),
   pre: (props) => (
     <pre
-      className="my-2 w-full min-w-0 max-w-full overflow-x-auto rounded bg-subtle p-2 font-mono text-[12px] first:mt-0 last:mb-0"
+      className="my-2 w-full min-w-0 max-w-full whitespace-pre-wrap break-words rounded bg-subtle p-2 font-mono text-[12px] first:mt-0 last:mb-0"
       {...props}
     />
   ),
@@ -90,7 +90,7 @@ const MARKDOWN_COMPONENTS: Components = {
       </code>
     ) : (
       <code
-        className="rounded bg-subtle px-1 py-0.5 font-mono text-[12px]"
+        className="break-all rounded bg-subtle px-1 py-0.5 font-mono text-[12px]"
         {...rest}
       >
         {children}
