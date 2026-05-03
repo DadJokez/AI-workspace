@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 interface NavItem {
   id: string;
@@ -45,12 +45,69 @@ const groups: NavGroup[] = [
   },
 ];
 
+export interface ThreadSummary {
+  id: string;
+  title: string | null;
+  defaultModelId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface Props {
   userName?: string;
   userEmail?: string;
   open: boolean;
   onClose: () => void;
   onNewChat: () => void;
+  threads: ThreadSummary[];
+  threadsLoading: boolean;
+  threadsError?: string;
+  activeThreadId?: string;
+  onOpenThread: (threadId: string, title: string) => void;
+}
+
+interface ThreadGroup {
+  label: string;
+  threads: ThreadSummary[];
+}
+
+function groupThreadsByRecency(threads: ThreadSummary[]): ThreadGroup[] {
+  const now = new Date();
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  );
+  const startOfYesterday = new Date(startOfToday);
+  startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+  const startOfPrevious7 = new Date(startOfToday);
+  startOfPrevious7.setDate(startOfPrevious7.getDate() - 7);
+
+  const buckets: Record<string, ThreadSummary[]> = {
+    today: [],
+    yesterday: [],
+    previous7: [],
+    older: [],
+  };
+
+  for (const t of threads) {
+    const d = new Date(t.updatedAt);
+    if (d >= startOfToday) buckets.today!.push(t);
+    else if (d >= startOfYesterday) buckets.yesterday!.push(t);
+    else if (d >= startOfPrevious7) buckets.previous7!.push(t);
+    else buckets.older!.push(t);
+  }
+
+  const out: ThreadGroup[] = [];
+  if (buckets.today!.length)
+    out.push({ label: "Today", threads: buckets.today! });
+  if (buckets.yesterday!.length)
+    out.push({ label: "Yesterday", threads: buckets.yesterday! });
+  if (buckets.previous7!.length)
+    out.push({ label: "Previous 7 days", threads: buckets.previous7! });
+  if (buckets.older!.length)
+    out.push({ label: "Older", threads: buckets.older! });
+  return out;
 }
 
 export function Sidebar({
@@ -59,14 +116,26 @@ export function Sidebar({
   open,
   onClose,
   onNewChat,
+  threads,
+  threadsLoading,
+  threadsError,
+  activeThreadId,
+  onOpenThread,
 }: Props) {
   const [activeId, setActiveId] = useState("chat");
+  const [chatsOpen, setChatsOpen] = useState(true);
+
   const initials = (userName ?? userEmail ?? "?")
     .split(/[\s@.]+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((s) => s[0]?.toUpperCase() ?? "")
     .join("");
+
+  const threadGroups = useMemo(
+    () => groupThreadsByRecency(threads),
+    [threads],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -87,6 +156,11 @@ export function Sidebar({
     onClose();
   }
 
+  function handleThreadClick(threadId: string, title: string) {
+    onOpenThread(threadId, title);
+    onClose();
+  }
+
   return (
     <>
       <div
@@ -98,11 +172,11 @@ export function Sidebar({
       />
       <aside
         aria-label="Primary"
-        className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col border-r border-hairline bg-sidebar transition-transform duration-200 md:static md:z-auto md:w-60 md:max-w-none md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col overflow-y-auto border-r border-hairline bg-sidebar transition-transform duration-200 md:static md:z-auto md:w-60 md:max-w-none md:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="flex items-center gap-2.5 px-3 py-3">
+        <div className="flex shrink-0 items-center gap-2.5 px-3 py-3">
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-subtle text-[11px] font-medium text-ink">
             {initials || "AI"}
           </div>
@@ -135,7 +209,7 @@ export function Sidebar({
           </button>
         </div>
 
-        <div className="px-2">
+        <div className="shrink-0 px-2">
           <button
             type="button"
             onClick={handleNewChat}
@@ -146,12 +220,86 @@ export function Sidebar({
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-2 py-2">
+        <div className="shrink-0 px-2 pb-1.5 pt-2">
+          <div className="mx-2 mb-1.5 h-px bg-hairline" aria-hidden />
+          <button
+            type="button"
+            onClick={() => setChatsOpen((v) => !v)}
+            aria-expanded={chatsOpen}
+            className="flex min-h-[28px] w-full items-center justify-between gap-2 rounded-md px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted hover:text-ink"
+          >
+            <span>Chats</span>
+            <svg
+              viewBox="0 0 16 16"
+              width="10"
+              height="10"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`transition-transform ${chatsOpen ? "rotate-90" : ""}`}
+              aria-hidden="true"
+            >
+              <path d="m6 4 4 4-4 4" />
+            </svg>
+          </button>
+          {chatsOpen ? (
+            <div className="max-h-[40vh] overflow-y-auto">
+              {threadsLoading && threads.length === 0 ? (
+                <ThreadsSkeleton />
+              ) : threadsError && threads.length === 0 ? (
+                <div className="px-2 py-2 text-[12px] text-muted">
+                  Couldn&apos;t load chats. Try again later.
+                </div>
+              ) : threads.length === 0 ? (
+                <div className="px-2 py-2 text-[12px] text-muted">
+                  No chats yet.
+                </div>
+              ) : (
+                <div className="flex flex-col">
+                  {threadGroups.map((group) => (
+                    <div key={group.label} className="pb-1.5">
+                      <div className="px-2 pb-0.5 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted/80">
+                        {group.label}
+                      </div>
+                      <ul className="flex flex-col">
+                        {group.threads.map((t) => {
+                          const active = t.id === activeThreadId;
+                          const title = t.title?.trim() || "Untitled";
+                          return (
+                            <li key={t.id}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleThreadClick(t.id, t.title ?? "")
+                                }
+                                aria-current={active ? "page" : undefined}
+                                title={title}
+                                className={`flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] md:min-h-0 md:py-1.5 ${
+                                  active
+                                    ? "bg-subtle text-ink"
+                                    : "text-muted hover:bg-subtle hover:text-ink"
+                                }`}
+                              >
+                                <span className="flex-1 truncate">{title}</span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
+        </div>
+
+        <nav className="shrink-0 px-2 pb-2">
           {groups.map((group, gi) => (
             <div key={gi} className="py-1.5">
-              {gi > 0 ? (
-                <div className="mx-2 mb-1.5 h-px bg-hairline" aria-hidden />
-              ) : null}
+              <div className="mx-2 mb-1.5 h-px bg-hairline" aria-hidden />
               {group.label ? (
                 <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted">
                   {group.label}
@@ -190,11 +338,27 @@ export function Sidebar({
           ))}
         </nav>
 
-        <div className="border-t border-hairline px-3 py-2 text-[11px] text-muted">
+        <div aria-hidden className="flex-1" />
+
+        <div className="shrink-0 border-t border-hairline px-3 py-2 text-[11px] text-muted">
           Week 1 build · Hardcoded auth
         </div>
       </aside>
     </>
+  );
+}
+
+function ThreadsSkeleton() {
+  return (
+    <div className="flex flex-col gap-1.5 px-2 py-1.5">
+      {[0, 1, 2, 3].map((i) => (
+        <div
+          key={i}
+          className="h-5 w-full animate-pulse rounded bg-subtle"
+          aria-hidden
+        />
+      ))}
+    </div>
   );
 }
 

@@ -3,7 +3,7 @@
 import { ChatInput } from "@/components/ChatInput";
 import { MessageBubble } from "@/components/MessageBubble";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
-import { Sidebar } from "@/components/Sidebar";
+import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { readSseStream } from "@/lib/sse";
 import type { ModelId } from "@ai-workspace/agent";
@@ -51,14 +51,6 @@ interface MeResponse {
   user: { id: string; email: string; displayName: string };
 }
 
-interface ThreadSummary {
-  id: string;
-  title: string | null;
-  defaultModelId: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 interface ThreadsResponse {
   threads: ThreadSummary[];
 }
@@ -74,6 +66,9 @@ interface ThreadMessage {
 interface ThreadMessagesResponse {
   messages: ThreadMessage[];
 }
+
+const THREADS_LIMIT = 50;
+const TAB_RESTORE_LIMIT = 8;
 
 function makeFreshTab(modelId?: ModelId): ChatTab {
   return {
@@ -115,11 +110,38 @@ export function ChatClient() {
   const [activeId, setActiveId] = useState<string>(() => tabs[0]!.id);
   const [user, setUser] = useState<MeResponse["user"] | undefined>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [threadsLoading, setThreadsLoading] = useState(true);
+  const [threadsError, setThreadsError] = useState<string | undefined>();
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const loadingThreadsRef = useRef<Set<string>>(new Set());
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0];
+
+  function validateModelId(
+    id: string | undefined,
+    knownIds: Set<string>,
+    fallback: ModelId,
+  ): ModelId {
+    return id && knownIds.has(id) ? (id as ModelId) : fallback;
+  }
+
+  async function refreshThreads() {
+    try {
+      const r = await fetch(`/api/threads?limit=${THREADS_LIMIT}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = (await r.json()) as ThreadsResponse;
+      setThreads(data.threads);
+      setThreadsError(undefined);
+    } catch (err) {
+      setThreadsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setThreadsLoading(false);
+    }
+  }
 
   // Bootstrap: fetch models + threads in parallel, then restore tabs.
   useEffect(() => {
@@ -128,10 +150,14 @@ export function ChatClient() {
       fetch("/api/models")
         .then((r) => (r.ok ? (r.json() as Promise<ModelsResponse>) : null))
         .catch(() => null),
-      fetch("/api/threads?limit=8")
-        .then((r) => (r.ok ? (r.json() as Promise<ThreadsResponse>) : null))
-        .catch(() => null),
-    ]).then(([modelsData, threadsData]) => {
+      fetch(`/api/threads?limit=${THREADS_LIMIT}`)
+        .then((r) =>
+          r.ok
+            ? (r.json() as Promise<ThreadsResponse>)
+            : Promise.reject(new Error(`HTTP ${r.status}`)),
+        )
+        .catch((err) => err as Error),
+    ]).then(([modelsData, threadsResult]) => {
       if (cancelled) return;
 
       if (modelsData) {
@@ -142,11 +168,25 @@ export function ChatClient() {
       const validIds = new Set((modelsData?.models ?? []).map((m) => m.id));
       const fallback = (modelsData?.defaultModelId ?? "sonnet-4-6") as ModelId;
       const validate = (id: string | undefined): ModelId =>
-        id && validIds.has(id as ModelId) ? (id as ModelId) : fallback;
+        validateModelId(id, validIds, fallback);
 
-      const restored = (threadsData?.threads ?? []).map((t) =>
-        makeTabFromThread(t, validate(t.defaultModelId)),
-      );
+      setThreadsLoading(false);
+      if (threadsResult instanceof Error) {
+        setThreadsError(threadsResult.message);
+        // Still keep the initial fresh tab; just update its modelId
+        setTabs((prev) =>
+          prev.map((t) => ({ ...t, modelId: validate(t.modelId) })),
+        );
+        return;
+      }
+
+      const fetched = threadsResult?.threads ?? [];
+      setThreads(fetched);
+      setThreadsError(undefined);
+
+      const restored = fetched
+        .slice(0, TAB_RESTORE_LIMIT)
+        .map((t) => makeTabFromThread(t, validate(t.defaultModelId)));
 
       if (restored.length > 0) {
         setTabs(restored);
@@ -283,6 +323,33 @@ export function ChatClient() {
     });
   }
 
+  function openThread(threadId: string, title: string) {
+    const existing = tabs.find((t) => t.threadId === threadId);
+    if (existing) {
+      setActiveId(existing.id);
+      return;
+    }
+    const thread = threads.find((t) => t.id === threadId);
+    const validIds = new Set(models.map((m) => m.id));
+    const modelId = validateModelId(
+      thread?.defaultModelId,
+      validIds,
+      defaultModelId,
+    );
+    const trimmed = title.trim();
+    const tab: ChatTab = {
+      id: crypto.randomUUID(),
+      title: trimmed.length > 0 ? trimmed : "Untitled",
+      threadId,
+      messages: [],
+      modelId,
+      busy: false,
+      loaded: false,
+    };
+    setTabs((prev) => [...prev, tab]);
+    setActiveId(tab.id);
+  }
+
   async function send(text: string) {
     if (!activeTab || activeTab.busy) return;
     const tabId = activeTab.id;
@@ -368,6 +435,9 @@ export function ChatClient() {
           m.id === assistantMsgId ? { ...m, pending: false } : m,
         ),
       );
+
+      // Sidebar history may now have a new or moved-up entry.
+      void refreshThreads();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       patchTab(tabId, { error: message });
@@ -413,6 +483,11 @@ export function ChatClient() {
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onNewChat={newTab}
+        threads={threads}
+        threadsLoading={threadsLoading}
+        threadsError={threadsError}
+        activeThreadId={activeTab.threadId}
+        onOpenThread={openThread}
       />
 
       <main className="flex h-full min-w-0 flex-1 flex-col">
