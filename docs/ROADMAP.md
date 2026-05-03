@@ -50,6 +50,74 @@ top of this base.
 | **SAP ERP** | `sap-erp` (TBD; possibly split by module — FI, MM, etc.) | OAuth via SAP BTP, or service-principal via SAP API Gateway. Likely both, depending on the module. Auth is the hard part. | Highest-value strategic target — finance, procurement, supply chain. SAP Budget Query (below) is the wedge use case. Risk: SAP API surface is module-specific, naming is its own dialect, every transaction code is its own auth scope. | RFC first. PoC against one module (likely FI for the budget use case). Re-tier after PoC. |
 | **Cursor as a coding agent on Databricks** | n/a — this is a workload, not an integration | Cursor SDK using Databricks workspace credentials (service principal); reads/writes notebooks via Workspace API. | Different shape than the others: instead of "use Cursor to chat about Databricks data", this is "use Cursor to **write the notebook** that does the analysis, and run it". Closes the loop from "ask a question" to "ship the analysis". Architecturally novel — needs the runtime seam to be solid first. | RFC after Tier 1 Databricks ships. Likely a separate recipe pattern, not an MCP server. |
 
+## Agent Platform
+
+The integration catalog above defines **what data agents can reach**.
+The agent platform defines **what agents can do** with that data —
+how they take action, how they run on a schedule, and how they react
+to outside events. It's the runtime layer the catalog plugs into.
+
+### Capabilities progression
+
+1. **Tool use via MCP.** Every action an agent takes — read a
+   calendar event, send a Slack message, query a warehouse, write a
+   file in SharePoint — is a tool exposed by an MCP server pointed
+   at one of the integrations above. There are no in-process tool
+   handlers and no agent-side closures masquerading as tools: a new
+   capability is always a new MCP tool, never a new shim in the
+   agent code. This is the bridge between the integrations catalog
+   and agents that **actually do things**, and it's the precondition
+   for everything below.
+2. **Scheduling layer.** A thin wrapper on top of the SDK: schedules
+   live in a DB table, a cron worker wakes on the cadence, calls
+   `agent.send()` with the recipe's prompt, and streams the result
+   back into the originating thread (or a designated output
+   channel). The SDK has no native cron, so this is our own layer —
+   but it's small (a worker, one table, one trigger row per
+   schedule). Unlocks "Monday 8am: send me my weekly status" without
+   the user remembering to invoke anything. PLAN.md week-5 already
+   sequences this; the dependency on tool-use is implicit.
+3. **Event / webhook triggers.** "Run agent when X happens" — new
+   email matching a filter, calendar event 15 minutes out, form
+   submission, GitHub PR opened, ServiceNow ticket assigned to me.
+   Same shape as scheduling but the trigger is an inbound event
+   rather than a clock. This is the step that turns recipes from
+   user-invoked tools into **autonomous agents**.
+
+The order is load-bearing: tool use is the foundation, scheduling
+is the first form of autonomy (time-driven), event triggers are
+the second (state-change-driven). Each builds on the prior — there's
+no "schedule a recipe" without tool calls to schedule, and no useful
+event trigger without both.
+
+### Constraints
+
+- **All tools must be MCP servers.** No in-process function
+  handlers, no agent-side closures pretending to be tools. This
+  keeps the capability surface inspectable, auditable, and reusable
+  across recipes; it's also what lets the audit log and the
+  `preToolUse` attestation gate work uniformly across every action
+  the system can take.
+- **stdio MCP servers don't work in Cursor cloud VMs.** The Cursor
+  runtime doesn't pipe stdio between the agent process and a
+  separate MCP child process the way a local IDE does. Production
+  servers must speak **remote HTTP MCP** with appropriate auth
+  (per-user Bearer for delegated, IAM / service-principal for M2M).
+  Local development can still use stdio for fast iteration, but the
+  same server has to be deployable in HTTP mode for production —
+  pick frameworks (e.g. FastMCP, the official MCP SDKs) that make
+  this a config flag, not a rewrite.
+- **Subagents and parallel task execution are free.** The SDK
+  supports spawning subagents and running task graphs in parallel
+  out of the box. We don't have to build that machinery; we have to
+  **use it judiciously** — parallel where the work is independent
+  (e.g. fetch mail + calendar + Salesforce concurrently for a
+  Meeting Prep brief), sequential where one tool's output feeds the
+  next (write SQL → run SQL → summarize results). Recipes that get
+  this wrong will either be slow (avoidable serial calls) or chatty
+  (parallel calls that step on each other's auth tokens or rate
+  limits).
+
 ## Flagship use cases
 
 Each one is a recipe (or a tight family of recipes) with a known
