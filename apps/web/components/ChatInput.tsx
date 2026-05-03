@@ -1,6 +1,14 @@
 "use client";
 
-import { useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
+
+const MAX_HEIGHT_PX = 200;
 
 interface Props {
   onSubmit: (text: string) => void;
@@ -14,6 +22,16 @@ export function ChatInput({
   placeholder = "Ask anything…",
 }: Props) {
   const [text, setText] = useState("");
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    const next = Math.min(ta.scrollHeight, MAX_HEIGHT_PX);
+    ta.style.height = `${next}px`;
+    ta.style.overflowY = ta.scrollHeight > MAX_HEIGHT_PX ? "auto" : "hidden";
+  }, [text]);
 
   function send() {
     const trimmed = text.trim();
@@ -28,7 +46,7 @@ export function ChatInput({
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       send();
     }
@@ -40,13 +58,14 @@ export function ChatInput({
       className="flex w-full items-end gap-2 rounded-lg border border-hairline bg-canvas p-2 focus-within:border-ink/40"
     >
       <textarea
+        ref={taRef}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
         rows={1}
         placeholder={placeholder}
         disabled={disabled}
-        className="min-h-[2.75rem] flex-1 resize-none bg-transparent px-2 py-2 text-base text-ink outline-none placeholder:text-muted disabled:opacity-50 sm:min-h-[2.25rem] sm:py-1.5 sm:text-[14px]"
+        className="flex-1 resize-none bg-transparent px-2 py-2 text-base text-ink outline-none placeholder:text-muted disabled:opacity-50 sm:py-1.5 sm:text-[14px]"
       />
       <button
         type="submit"

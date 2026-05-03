@@ -25,6 +25,8 @@ interface ChatTab {
   modelId?: ModelId;
   busy: boolean;
   error?: string;
+  /** True once messages have been loaded (or for fresh empty tabs). */
+  loaded: boolean;
 }
 
 interface ChatStreamEvent {
@@ -49,7 +51,31 @@ interface MeResponse {
   user: { id: string; email: string; displayName: string };
 }
 
-function makeTab(modelId?: ModelId): ChatTab {
+interface ThreadSummary {
+  id: string;
+  title: string | null;
+  defaultModelId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface ThreadsResponse {
+  threads: ThreadSummary[];
+}
+
+interface ThreadMessage {
+  id: string;
+  role: "user" | "assistant" | "tool";
+  content: string;
+  modelId: string | null;
+  createdAt: string;
+}
+
+interface ThreadMessagesResponse {
+  messages: ThreadMessage[];
+}
+
+function makeFreshTab(modelId?: ModelId): ChatTab {
   return {
     id: crypto.randomUUID(),
     title: "New chat",
@@ -57,6 +83,20 @@ function makeTab(modelId?: ModelId): ChatTab {
     messages: [],
     modelId,
     busy: false,
+    loaded: true,
+  };
+}
+
+function makeTabFromThread(thread: ThreadSummary, modelId: ModelId): ChatTab {
+  const trimmed = thread.title?.trim();
+  return {
+    id: crypto.randomUUID(),
+    title: trimmed && trimmed.length > 0 ? trimmed : "Untitled",
+    threadId: thread.id,
+    messages: [],
+    modelId,
+    busy: false,
+    loaded: false,
   };
 }
 
@@ -66,30 +106,60 @@ function deriveTitle(text: string): string {
   return trimmed.slice(0, 32).trimEnd() + "…";
 }
 
+const STICK_BOTTOM_THRESHOLD = 100;
+
 export function ChatClient() {
   const [models, setModels] = useState<ModelOption[]>([]);
   const [defaultModelId, setDefaultModelId] = useState<ModelId>("sonnet-4-6");
-  const [tabs, setTabs] = useState<ChatTab[]>(() => [makeTab()]);
+  const [tabs, setTabs] = useState<ChatTab[]>(() => [makeFreshTab()]);
   const [activeId, setActiveId] = useState<string>(() => tabs[0]!.id);
   const [user, setUser] = useState<MeResponse["user"] | undefined>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+  const loadingThreadsRef = useRef<Set<string>>(new Set());
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0];
 
+  // Bootstrap: fetch models + threads in parallel, then restore tabs.
   useEffect(() => {
-    fetch("/api/models")
-      .then((r) => r.json() as Promise<ModelsResponse>)
-      .then((data) => {
-        setModels(data.models);
-        setDefaultModelId(data.defaultModelId);
+    let cancelled = false;
+    Promise.all([
+      fetch("/api/models")
+        .then((r) => (r.ok ? (r.json() as Promise<ModelsResponse>) : null))
+        .catch(() => null),
+      fetch("/api/threads?limit=8")
+        .then((r) => (r.ok ? (r.json() as Promise<ThreadsResponse>) : null))
+        .catch(() => null),
+    ]).then(([modelsData, threadsData]) => {
+      if (cancelled) return;
+
+      if (modelsData) {
+        setModels(modelsData.models);
+        setDefaultModelId(modelsData.defaultModelId);
+      }
+
+      const validIds = new Set((modelsData?.models ?? []).map((m) => m.id));
+      const fallback = (modelsData?.defaultModelId ?? "sonnet-4-6") as ModelId;
+      const validate = (id: string | undefined): ModelId =>
+        id && validIds.has(id as ModelId) ? (id as ModelId) : fallback;
+
+      const restored = (threadsData?.threads ?? []).map((t) =>
+        makeTabFromThread(t, validate(t.defaultModelId)),
+      );
+
+      if (restored.length > 0) {
+        setTabs(restored);
+        setActiveId(restored[0]!.id);
+      } else {
         setTabs((prev) =>
-          prev.map((t) => ({ ...t, modelId: t.modelId ?? data.defaultModelId })),
+          prev.map((t) => ({ ...t, modelId: validate(t.modelId) })),
         );
-      })
-      .catch(() => {
-        /* surface inline if first send fails */
-      });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -101,12 +171,78 @@ export function ChatClient() {
       .catch(() => {});
   }, []);
 
+  // Lazy-load messages for the active tab when it becomes active.
   useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [activeTab?.messages, activeId]);
+    const tab = tabs.find((t) => t.id === activeId);
+    if (!tab || tab.loaded || !tab.threadId) return;
+    if (loadingThreadsRef.current.has(tab.id)) return;
+    loadingThreadsRef.current.add(tab.id);
+    let cancelled = false;
+    const tabId = tab.id;
+    const threadId = tab.threadId;
+    fetch(`/api/threads/${threadId}/messages`)
+      .then((r) =>
+        r.ok
+          ? (r.json() as Promise<ThreadMessagesResponse>)
+          : Promise.reject(new Error(`HTTP ${r.status}`)),
+      )
+      .then((data) => {
+        if (cancelled) return;
+        const msgs: UiMessage[] = data.messages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          modelId: m.modelId ?? undefined,
+        }));
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.id === tabId ? { ...t, messages: msgs, loaded: true } : t,
+          ),
+        );
+        // Reset stick-to-bottom on initial load so we land at the latest message.
+        stickToBottomRef.current = true;
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.id === tabId
+              ? { ...t, error: `failed to load messages: ${message}` }
+              : t,
+          ),
+        );
+      })
+      .finally(() => {
+        loadingThreadsRef.current.delete(tabId);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId, tabs]);
+
+  // Auto-scroll: only if user is at (or near) the bottom.
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [activeTab?.messages]);
+
+  // Tab switch: re-stick to bottom and jump there.
+  useEffect(() => {
+    stickToBottomRef.current = true;
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [activeId]);
+
+  function handleScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.clientHeight - el.scrollTop;
+    stickToBottomRef.current = distance < STICK_BOTTOM_THRESHOLD;
+  }
 
   function patchTab(id: string, patch: Partial<ChatTab>) {
     setTabs((prev) =>
@@ -124,7 +260,7 @@ export function ChatClient() {
   }
 
   function newTab() {
-    const t = makeTab(defaultModelId);
+    const t = makeFreshTab(defaultModelId);
     setTabs((prev) => [...prev, t]);
     setActiveId(t.id);
   }
@@ -135,7 +271,7 @@ export function ChatClient() {
       if (idx === -1) return prev;
       const next = prev.filter((t) => t.id !== id);
       if (next.length === 0) {
-        const fresh = makeTab(defaultModelId);
+        const fresh = makeFreshTab(defaultModelId);
         setActiveId(fresh.id);
         return [fresh];
       }
@@ -167,6 +303,9 @@ export function ChatClient() {
       { id: userMsgId, role: "user", content: text },
       { id: assistantMsgId, role: "assistant", content: "", pending: true },
     ]);
+
+    // New message from the user — re-stick to bottom.
+    stickToBottomRef.current = true;
 
     try {
       const res = await fetch("/api/chat", {
@@ -242,6 +381,24 @@ export function ChatClient() {
     } finally {
       patchTab(tabId, { busy: false });
     }
+  }
+
+  function retry() {
+    if (!activeTab) return;
+    const msgs = activeTab.messages;
+    let lastUserIdx = -1;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i]!.role === "user") {
+        lastUserIdx = i;
+        break;
+      }
+    }
+    if (lastUserIdx === -1) return;
+    const lastUserText = msgs[lastUserIdx]!.content;
+    const tabId = activeTab.id;
+    patchTab(tabId, { error: undefined });
+    patchTabMessages(tabId, (prev) => prev.slice(0, lastUserIdx));
+    void send(lastUserText);
   }
 
   if (!activeTab) return null;
@@ -365,7 +522,11 @@ export function ChatClient() {
           </div>
         </header>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto"
+        >
           <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
             {messages.length === 0 ? (
               <EmptyState onPick={send} />
@@ -381,8 +542,16 @@ export function ChatClient() {
               ))
             )}
             {error ? (
-              <div className="rounded-md border border-hairline bg-subtle px-3 py-2 text-sm text-ink">
-                {error}
+              <div className="flex flex-col gap-2 rounded-md border border-hairline bg-subtle px-3 py-2 text-sm text-ink sm:flex-row sm:items-center sm:justify-between">
+                <span className="break-words">{error}</span>
+                <button
+                  type="button"
+                  onClick={retry}
+                  disabled={busy}
+                  className="self-start rounded-md border border-hairline bg-canvas px-2.5 py-1 text-xs font-medium text-ink hover:bg-canvas/60 disabled:opacity-50 sm:self-auto"
+                >
+                  Try again
+                </button>
               </div>
             ) : null}
           </div>
@@ -410,9 +579,10 @@ export function ChatClient() {
 
 function EmptyState({ onPick }: { onPick: (s: string) => void }) {
   const samples = [
-    "Summarize what's on my calendar tomorrow",
-    "Draft a quick reply to the most recent email from finance",
-    "What are my unread Slack mentions today?",
+    "Summarize this document for me",
+    "Help me draft a message to my team",
+    "Walk me through a complex topic step by step",
+    "Help me think through a decision",
   ];
   return (
     <div className="flex flex-col items-center gap-4 py-24 text-center">
@@ -421,7 +591,7 @@ function EmptyState({ onPick }: { onPick: (s: string) => void }) {
       </div>
       <p className="max-w-md text-sm text-muted">
         Ask anything. Pick the model that fits the job — Haiku for fast, Sonnet
-        for default, Opus for hard. Tools land later this week.
+        for default, Opus for hard.
       </p>
       <div className="flex flex-wrap justify-center gap-2 pt-4">
         {samples.map((s) => (
