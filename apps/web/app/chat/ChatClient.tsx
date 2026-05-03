@@ -68,7 +68,19 @@ interface ThreadMessagesResponse {
 }
 
 const THREADS_LIMIT = 50;
-const TAB_RESTORE_LIMIT = 8;
+const PERSISTED_TAB_LIMIT = 10;
+const TAB_STORAGE_PREFIX = "ai-workspace-tabs:";
+
+interface PersistedTab {
+  threadId: string;
+  title: string;
+  modelId?: string;
+}
+
+interface PersistedSession {
+  tabs: PersistedTab[];
+  activeIdx: number;
+}
 
 function makeFreshTab(modelId?: ModelId): ChatTab {
   return {
@@ -82,17 +94,42 @@ function makeFreshTab(modelId?: ModelId): ChatTab {
   };
 }
 
-function makeTabFromThread(thread: ThreadSummary, modelId: ModelId): ChatTab {
-  const trimmed = thread.title?.trim();
+function tabFromPersisted(p: PersistedTab, modelId: ModelId): ChatTab {
+  const trimmed = p.title?.trim();
   return {
     id: crypto.randomUUID(),
     title: trimmed && trimmed.length > 0 ? trimmed : "Untitled",
-    threadId: thread.id,
+    threadId: p.threadId,
     messages: [],
     modelId,
     busy: false,
     loaded: false,
   };
+}
+
+function readSession(userId: string): PersistedSession | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(`${TAB_STORAGE_PREFIX}${userId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedSession;
+    if (!parsed || !Array.isArray(parsed.tabs)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(userId: string, session: PersistedSession): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(
+      `${TAB_STORAGE_PREFIX}${userId}`,
+      JSON.stringify(session),
+    );
+  } catch {
+    /* quota / disabled — ignore */
+  }
 }
 
 function deriveTitle(text: string): string {
@@ -114,6 +151,8 @@ export function ChatClient() {
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(true);
   const [threadsError, setThreadsError] = useState<string | undefined>();
+
+  const [bootstrapped, setBootstrapped] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -143,7 +182,9 @@ export function ChatClient() {
     }
   }
 
-  // Bootstrap: fetch models + threads in parallel, then restore tabs.
+  // Bootstrap: fetch models + threads in parallel. Tabs are restored separately
+  // from localStorage once /api/me resolves; we no longer auto-open recent
+  // threads as tabs.
   useEffect(() => {
     let cancelled = false;
     Promise.all([
@@ -165,36 +206,12 @@ export function ChatClient() {
         setDefaultModelId(modelsData.defaultModelId);
       }
 
-      const validIds = new Set((modelsData?.models ?? []).map((m) => m.id));
-      const fallback = (modelsData?.defaultModelId ?? "sonnet-4-6") as ModelId;
-      const validate = (id: string | undefined): ModelId =>
-        validateModelId(id, validIds, fallback);
-
       setThreadsLoading(false);
       if (threadsResult instanceof Error) {
         setThreadsError(threadsResult.message);
-        // Still keep the initial fresh tab; just update its modelId
-        setTabs((prev) =>
-          prev.map((t) => ({ ...t, modelId: validate(t.modelId) })),
-        );
-        return;
-      }
-
-      const fetched = threadsResult?.threads ?? [];
-      setThreads(fetched);
-      setThreadsError(undefined);
-
-      const restored = fetched
-        .slice(0, TAB_RESTORE_LIMIT)
-        .map((t) => makeTabFromThread(t, validate(t.defaultModelId)));
-
-      if (restored.length > 0) {
-        setTabs(restored);
-        setActiveId(restored[0]!.id);
       } else {
-        setTabs((prev) =>
-          prev.map((t) => ({ ...t, modelId: validate(t.modelId) })),
-        );
+        setThreads(threadsResult?.threads ?? []);
+        setThreadsError(undefined);
       }
     });
     return () => {
@@ -210,6 +227,77 @@ export function ChatClient() {
       })
       .catch(() => {});
   }, []);
+
+  // Validate every tab's modelId against the loaded model registry.
+  // Runs whenever the registry changes; idempotent for already-valid tabs.
+  useEffect(() => {
+    if (models.length === 0) return;
+    const validIds = new Set(models.map((m) => m.id));
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.modelId && validIds.has(t.modelId)
+          ? t
+          : { ...t, modelId: defaultModelId },
+      ),
+    );
+  }, [models, defaultModelId]);
+
+  // Restore tabs from localStorage once we know who the user is.
+  // Runs at most once per session (gated by `bootstrapped`).
+  useEffect(() => {
+    if (!user?.id || bootstrapped) return;
+    const session = readSession(user.id);
+    if (session && session.tabs.length > 0) {
+      const fallback = defaultModelId;
+      const validIds = new Set(models.map((m) => m.id));
+      const restored = session.tabs
+        .slice(0, PERSISTED_TAB_LIMIT)
+        .map((p) =>
+          tabFromPersisted(p, validateModelId(p.modelId, validIds, fallback)),
+        );
+      setTabs(restored);
+      const idx = Math.max(
+        0,
+        Math.min(session.activeIdx ?? 0, restored.length - 1),
+      );
+      setActiveId(restored[idx]!.id);
+    }
+    setBootstrapped(true);
+  }, [user?.id, bootstrapped, models, defaultModelId]);
+
+  // Persist session whenever tabs / activeId change. Only after bootstrap, so
+  // we don't clobber stored state with the initial empty-tab placeholder.
+  useEffect(() => {
+    if (!bootstrapped || !user?.id) return;
+    const persistedTabs: PersistedTab[] = tabs
+      .filter((t): t is ChatTab & { threadId: string } => !!t.threadId)
+      .slice(0, PERSISTED_TAB_LIMIT)
+      .map((t) => ({
+        threadId: t.threadId,
+        title: t.title,
+        modelId: t.modelId,
+      }));
+
+    let activeIdx = 0;
+    const activeWithThread = tabs.find((t) => t.id === activeId);
+    if (activeWithThread?.threadId) {
+      const i = persistedTabs.findIndex(
+        (p) => p.threadId === activeWithThread.threadId,
+      );
+      if (i >= 0) activeIdx = i;
+    }
+
+    writeSession(user.id, { tabs: persistedTabs, activeIdx });
+  }, [tabs, activeId, bootstrapped, user?.id]);
+
+  // Keep activeId pointing at a real tab. If the active tab is removed (e.g.
+  // a stale thread is dropped after a 404), fall back to the first tab.
+  useEffect(() => {
+    if (tabs.length === 0) return;
+    if (!tabs.some((t) => t.id === activeId)) {
+      setActiveId(tabs[0]!.id);
+    }
+  }, [tabs, activeId]);
 
   // Lazy-load messages for the active tab when it becomes active.
   useEffect(() => {
@@ -245,6 +333,16 @@ export function ChatClient() {
       .catch((err) => {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : String(err);
+        const isMissing = /HTTP 404|thread_not_found/i.test(message);
+        if (isMissing) {
+          // Stale persisted tab — silently drop it. If that leaves no tabs,
+          // open a fresh one. The activeId-validity effect picks a neighbor.
+          setTabs((prev) => {
+            const next = prev.filter((t) => t.id !== tabId);
+            return next.length > 0 ? next : [makeFreshTab(defaultModelId)];
+          });
+          return;
+        }
         setTabs((prev) =>
           prev.map((t) =>
             t.id === tabId
