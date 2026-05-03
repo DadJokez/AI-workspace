@@ -3,6 +3,7 @@
 import { ChatInput } from "@/components/ChatInput";
 import { MessageBubble } from "@/components/MessageBubble";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
+import { SearchPanel } from "@/components/SearchPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -10,7 +11,7 @@ import { readSseStream } from "@/lib/sse";
 import type { ModelId } from "@ai-workspace/agent";
 import { useEffect, useRef, useState } from "react";
 
-type View = "chat" | "settings";
+type View = "chat" | "settings" | "search";
 
 const DISPLAY_NAME_PREFIX = "ai-workspace-display-name:";
 const DEFAULT_MODEL_PREFIX = "ai-workspace-default-model:";
@@ -528,6 +529,7 @@ export function ChatClient() {
   function handleNavSelect(id: string) {
     if (id === "chat") setView("chat");
     else if (id === "settings") setView("settings");
+    else if (id === "search") setView("search");
   }
 
   async function send(text: string) {
@@ -670,7 +672,7 @@ export function ChatClient() {
         threadsError={threadsError}
         activeThreadId={isChatView ? activeTab.threadId : undefined}
         onOpenThread={openThread}
-        activeNavId={view === "settings" ? "settings" : "chat"}
+        activeNavId={view}
         onNavSelect={handleNavSelect}
       />
 
@@ -684,6 +686,14 @@ export function ChatClient() {
             defaultModelId={defaultModelId}
             userDefaultModelId={userDefaultModelId}
             onUserDefaultModelChange={updateUserDefaultModel}
+            onClose={() => setView("chat")}
+            onOpenSidebar={() => setSidebarOpen(true)}
+          />
+        ) : view === "search" ? (
+          <SearchPanel
+            threads={threads}
+            threadsLoading={threadsLoading}
+            onOpenThread={openThread}
             onClose={() => setView("chat")}
             onOpenSidebar={() => setSidebarOpen(true)}
           />
@@ -833,7 +843,7 @@ export function ChatClient() {
           </div>
         </div>
 
-        <div className="border-t border-hairline bg-canvas px-3 py-3 sm:px-6 sm:py-4">
+        <div className="kb-safe-bottom border-t border-hairline bg-canvas px-3 pt-3 sm:px-6 sm:pt-4">
           <div className="mx-auto max-w-3xl">
             <ChatInput
               onSubmit={send}

@@ -1,9 +1,17 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "AI Hub",
   description: "Internal AI front door",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  // iOS Safari 17+ / Android Chrome: shrink the layout viewport when the
+  // on-screen keyboard opens so `dvh`-sized content reflows above it.
+  interactiveWidget: "resizes-content",
 };
 
 const themeInitScript = `
