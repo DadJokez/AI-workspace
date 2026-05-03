@@ -72,6 +72,7 @@ export function ChatClient() {
   const [tabs, setTabs] = useState<ChatTab[]>(() => [makeTab()]);
   const [activeId, setActiveId] = useState<string>(() => tabs[0]!.id);
   const [user, setUser] = useState<MeResponse["user"] | undefined>();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0];
@@ -248,15 +249,36 @@ export function ChatClient() {
   const inputDisabled = busy || models.length === 0;
 
   return (
-    <div className="flex h-screen w-full bg-canvas text-ink">
+    <div className="flex h-dvh w-full overflow-hidden bg-canvas text-ink">
       <Sidebar
         userName={user?.displayName}
         userEmail={user?.email}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
         onNewChat={newTab}
       />
 
       <main className="flex h-full min-w-0 flex-1 flex-col">
         <header className="flex h-11 shrink-0 items-end justify-between border-b border-hairline bg-canvas">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open menu"
+            className="flex h-11 w-11 shrink-0 items-center justify-center self-center text-muted hover:bg-subtle hover:text-ink md:hidden"
+          >
+            <svg
+              viewBox="0 0 16 16"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M2 4h12M2 8h12M2 12h12" />
+            </svg>
+          </button>
           <div className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto px-2">
             {tabs.map((t) => {
               const active = t.id === activeId;
@@ -287,7 +309,7 @@ export function ChatClient() {
                         closeTab(t.id);
                       }}
                       aria-label="Close tab"
-                      className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted opacity-0 hover:bg-subtle hover:text-ink group-hover:opacity-100"
+                      className="ml-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-subtle hover:text-ink md:h-4 md:w-4 md:opacity-0 md:group-hover:opacity-100"
                     >
                       <svg
                         viewBox="0 0 16 16"
@@ -315,7 +337,7 @@ export function ChatClient() {
               type="button"
               onClick={newTab}
               aria-label="New tab"
-              className="ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink"
+              className="ml-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink md:h-7 md:w-7"
             >
               <svg
                 viewBox="0 0 16 16"
@@ -330,7 +352,7 @@ export function ChatClient() {
               </svg>
             </button>
           </div>
-          <div className="flex shrink-0 items-center gap-1.5 px-3 pb-1">
+          <div className="flex shrink-0 items-center gap-1 self-center px-2 sm:gap-1.5 sm:px-3 sm:self-end sm:pb-1">
             {models.length > 0 && modelId ? (
               <ModelSelector
                 value={modelId}
@@ -344,7 +366,7 @@ export function ChatClient() {
         </header>
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
-          <div className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-8">
+          <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
             {messages.length === 0 ? (
               <EmptyState onPick={send} />
             ) : (
@@ -366,7 +388,7 @@ export function ChatClient() {
           </div>
         </div>
 
-        <div className="border-t border-hairline bg-canvas px-6 py-4">
+        <div className="border-t border-hairline bg-canvas px-3 py-3 sm:px-6 sm:py-4">
           <div className="mx-auto max-w-3xl">
             <ChatInput
               onSubmit={send}

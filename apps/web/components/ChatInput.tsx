@@ -46,13 +46,13 @@ export function ChatInput({
         rows={1}
         placeholder={placeholder}
         disabled={disabled}
-        className="min-h-[2.25rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-[14px] text-ink outline-none placeholder:text-muted disabled:opacity-50"
+        className="min-h-[2.75rem] flex-1 resize-none bg-transparent px-2 py-2 text-base text-ink outline-none placeholder:text-muted disabled:opacity-50 sm:min-h-[2.25rem] sm:py-1.5 sm:text-[14px]"
       />
       <button
         type="submit"
         disabled={disabled || !text.trim()}
         aria-label="Send"
-        className="flex h-7 w-7 items-center justify-center rounded-md bg-ink text-canvas disabled:opacity-30"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-ink text-canvas disabled:opacity-30 sm:h-7 sm:w-7"
       >
         <svg
           viewBox="0 0 16 16"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface NavItem {
   id: string;
@@ -48,10 +48,18 @@ const groups: NavGroup[] = [
 interface Props {
   userName?: string;
   userEmail?: string;
+  open: boolean;
+  onClose: () => void;
   onNewChat: () => void;
 }
 
-export function Sidebar({ userName, userEmail, onNewChat }: Props) {
+export function Sidebar({
+  userName,
+  userEmail,
+  open,
+  onClose,
+  onNewChat,
+}: Props) {
   const [activeId, setActiveId] = useState("chat");
   const initials = (userName ?? userEmail ?? "?")
     .split(/[\s@.]+/)
@@ -60,81 +68,133 @@ export function Sidebar({ userName, userEmail, onNewChat }: Props) {
     .map((s) => s[0]?.toUpperCase() ?? "")
     .join("");
 
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, onClose]);
+
+  function handleNewChat() {
+    onNewChat();
+    onClose();
+  }
+
+  function handleNavClick(id: string) {
+    setActiveId(id);
+    onClose();
+  }
+
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-hairline bg-sidebar">
-      <div className="flex items-center gap-2.5 px-3 py-3">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-subtle text-[11px] font-medium text-ink">
-          {initials || "AI"}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-ink">
-            {userName ?? "Workspace"}
+    <>
+      <div
+        aria-hidden="true"
+        onClick={onClose}
+        className={`fixed inset-0 z-30 bg-black/40 transition-opacity md:hidden ${
+          open ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+      />
+      <aside
+        aria-label="Primary"
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col border-r border-hairline bg-sidebar transition-transform duration-200 md:static md:z-auto md:w-60 md:max-w-none md:translate-x-0 ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="flex items-center gap-2.5 px-3 py-3">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-subtle text-[11px] font-medium text-ink">
+            {initials || "AI"}
           </div>
-          {userEmail ? (
-            <div className="truncate text-[11px] text-muted">{userEmail}</div>
-          ) : null}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium text-ink">
+              {userName ?? "Workspace"}
+            </div>
+            {userEmail ? (
+              <div className="truncate text-[11px] text-muted">{userEmail}</div>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close menu"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink md:hidden"
+          >
+            <svg
+              viewBox="0 0 16 16"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="m4 4 8 8M12 4l-8 8" />
+            </svg>
+          </button>
         </div>
-      </div>
 
-      <div className="px-2">
-        <button
-          type="button"
-          onClick={onNewChat}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-ink hover:bg-subtle"
-        >
-          <IconPlus />
-          <span>New chat</span>
-        </button>
-      </div>
+        <div className="px-2">
+          <button
+            type="button"
+            onClick={handleNewChat}
+            className="flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-ink hover:bg-subtle md:min-h-0 md:py-1.5"
+          >
+            <IconPlus />
+            <span>New chat</span>
+          </button>
+        </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 py-2">
-        {groups.map((group, gi) => (
-          <div key={gi} className="py-1.5">
-            {gi > 0 ? (
-              <div className="mx-2 mb-1.5 h-px bg-hairline" aria-hidden />
-            ) : null}
-            {group.label ? (
-              <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted">
-                {group.label}
-              </div>
-            ) : null}
-            <ul className="flex flex-col">
-              {group.items.map((item) => {
-                const active = item.id === activeId;
-                return (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      onClick={() => setActiveId(item.id)}
-                      aria-current={active ? "page" : undefined}
-                      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] ${
-                        active
-                          ? "bg-subtle text-ink"
-                          : "text-muted hover:bg-subtle hover:text-ink"
-                      }`}
-                    >
-                      <span className="flex h-4 w-4 items-center justify-center text-current">
-                        {item.icon}
-                      </span>
-                      <span className="flex-1 truncate">{item.label}</span>
-                      {item.badge ? (
-                        <span className="rounded bg-subtle px-1.5 text-[10px] text-muted">
-                          {item.badge}
+        <nav className="flex-1 overflow-y-auto px-2 py-2">
+          {groups.map((group, gi) => (
+            <div key={gi} className="py-1.5">
+              {gi > 0 ? (
+                <div className="mx-2 mb-1.5 h-px bg-hairline" aria-hidden />
+              ) : null}
+              {group.label ? (
+                <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted">
+                  {group.label}
+                </div>
+              ) : null}
+              <ul className="flex flex-col">
+                {group.items.map((item) => {
+                  const active = item.id === activeId;
+                  return (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        onClick={() => handleNavClick(item.id)}
+                        aria-current={active ? "page" : undefined}
+                        className={`flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] md:min-h-0 md:py-1.5 ${
+                          active
+                            ? "bg-subtle text-ink"
+                            : "text-muted hover:bg-subtle hover:text-ink"
+                        }`}
+                      >
+                        <span className="flex h-4 w-4 items-center justify-center text-current">
+                          {item.icon}
                         </span>
-                      ) : null}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
-      </nav>
+                        <span className="flex-1 truncate">{item.label}</span>
+                        {item.badge ? (
+                          <span className="rounded bg-subtle px-1.5 text-[10px] text-muted">
+                            {item.badge}
+                          </span>
+                        ) : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
 
-      <div className="border-t border-hairline px-3 py-2 text-[11px] text-muted">
-        Week 1 build · Hardcoded auth
-      </div>
-    </aside>
+        <div className="border-t border-hairline px-3 py-2 text-[11px] text-muted">
+          Week 1 build · Hardcoded auth
+        </div>
+      </aside>
+    </>
   );
 }
 
