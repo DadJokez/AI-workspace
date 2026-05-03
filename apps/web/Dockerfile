@@ -35,12 +35,15 @@ COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/standalone ./
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/public ./apps/web/public
 
-# Ship the full pnpm-installed deps tree as a NODE_PATH fallback so packages
-# Next.js leaves un-bundled (serverExternalPackages, e.g. @cursor/sdk) can be
-# required at runtime. Standalone's traced /app/node_modules takes precedence;
-# this only fills resolution gaps.
+# Next.js standalone doesn't bundle serverExternalPackages and pnpm's strict
+# mode hides them under .pnpm/. Copy the full deps store, then symlink the
+# @cursor scope into web's node_modules so require("@cursor/sdk") from the
+# bundled chat route resolves; pnpm's in-store layout handles transitive deps.
 COPY --from=deps --chown=nextjs:nextjs /repo/node_modules /app/node_modules-deps
-ENV NODE_PATH=/app/node_modules-deps
+RUN mkdir -p /app/apps/web/node_modules && \
+    ln -sfn "$(ls -d /app/node_modules-deps/.pnpm/@cursor+sdk@*/node_modules/@cursor | head -n 1)" \
+      /app/apps/web/node_modules/@cursor && \
+    chown -h nextjs:nextjs /app/apps/web/node_modules/@cursor
 
 USER nextjs
 EXPOSE 3000
