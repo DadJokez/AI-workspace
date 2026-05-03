@@ -3,11 +3,17 @@
 import { ChatInput } from "@/components/ChatInput";
 import { MessageBubble } from "@/components/MessageBubble";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
+import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { readSseStream } from "@/lib/sse";
 import type { ModelId } from "@ai-workspace/agent";
 import { useEffect, useRef, useState } from "react";
+
+type View = "chat" | "settings";
+
+const DISPLAY_NAME_PREFIX = "ai-workspace-display-name:";
+const DEFAULT_MODEL_PREFIX = "ai-workspace-default-model:";
 
 interface UiMessage {
   id: string;
@@ -153,6 +159,13 @@ export function ChatClient() {
   const [threadsError, setThreadsError] = useState<string | undefined>();
 
   const [bootstrapped, setBootstrapped] = useState(false);
+  const [view, setView] = useState<View>("chat");
+  const [displayNameOverride, setDisplayNameOverride] = useState<
+    string | undefined
+  >();
+  const [userDefaultModelId, setUserDefaultModelId] = useState<
+    ModelId | undefined
+  >();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -227,6 +240,56 @@ export function ChatClient() {
       })
       .catch(() => {});
   }, []);
+
+  // Per-user prefs (display name override + default model) kept in localStorage.
+  useEffect(() => {
+    if (!user?.id || typeof window === "undefined") return;
+    try {
+      const name = localStorage.getItem(`${DISPLAY_NAME_PREFIX}${user.id}`);
+      if (name) setDisplayNameOverride(name);
+      const dm = localStorage.getItem(`${DEFAULT_MODEL_PREFIX}${user.id}`);
+      if (dm) setUserDefaultModelId(dm as ModelId);
+    } catch {
+      /* ignore */
+    }
+  }, [user?.id]);
+
+  // Open settings via ⌘,/Ctrl,
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        setView("settings");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  function updateDisplayName(name: string) {
+    if (!user?.id || typeof window === "undefined") return;
+    const trimmed = name.trim();
+    try {
+      if (trimmed) {
+        localStorage.setItem(`${DISPLAY_NAME_PREFIX}${user.id}`, trimmed);
+      } else {
+        localStorage.removeItem(`${DISPLAY_NAME_PREFIX}${user.id}`);
+      }
+    } catch {
+      /* ignore */
+    }
+    setDisplayNameOverride(trimmed || undefined);
+  }
+
+  function updateUserDefaultModel(id: ModelId) {
+    if (!user?.id || typeof window === "undefined") return;
+    try {
+      localStorage.setItem(`${DEFAULT_MODEL_PREFIX}${user.id}`, id);
+    } catch {
+      /* ignore */
+    }
+    setUserDefaultModelId(id);
+  }
 
   // Validate every tab's modelId against the loaded model registry.
   // Runs whenever the registry changes; idempotent for already-valid tabs.
@@ -397,10 +460,18 @@ export function ChatClient() {
     );
   }
 
+  function freshTabModel(): ModelId {
+    if (userDefaultModelId && models.some((m) => m.id === userDefaultModelId)) {
+      return userDefaultModelId;
+    }
+    return defaultModelId;
+  }
+
   function newTab() {
-    const t = makeFreshTab(defaultModelId);
+    const t = makeFreshTab(freshTabModel());
     setTabs((prev) => [...prev, t]);
     setActiveId(t.id);
+    setView("chat");
   }
 
   function closeTab(id: string) {
@@ -422,6 +493,7 @@ export function ChatClient() {
   }
 
   function openThread(threadId: string, title: string) {
+    setView("chat");
     const existing = tabs.find((t) => t.threadId === threadId);
     if (existing) {
       setActiveId(existing.id);
@@ -446,6 +518,16 @@ export function ChatClient() {
     };
     setTabs((prev) => [...prev, tab]);
     setActiveId(tab.id);
+  }
+
+  function selectTab(tabId: string) {
+    setActiveId(tabId);
+    setView("chat");
+  }
+
+  function handleNavSelect(id: string) {
+    if (id === "chat") setView("chat");
+    else if (id === "settings") setView("settings");
   }
 
   async function send(text: string) {
@@ -572,11 +654,13 @@ export function ChatClient() {
   if (!activeTab) return null;
   const { busy, error, messages, modelId } = activeTab;
   const inputDisabled = busy || models.length === 0;
+  const sidebarDisplayName = displayNameOverride ?? user?.displayName;
+  const isChatView = view === "chat";
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-canvas text-ink">
       <Sidebar
-        userName={user?.displayName}
+        userName={sidebarDisplayName}
         userEmail={user?.email}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
@@ -584,11 +668,27 @@ export function ChatClient() {
         threads={threads}
         threadsLoading={threadsLoading}
         threadsError={threadsError}
-        activeThreadId={activeTab.threadId}
+        activeThreadId={isChatView ? activeTab.threadId : undefined}
         onOpenThread={openThread}
+        activeNavId={view === "settings" ? "settings" : "chat"}
+        onNavSelect={handleNavSelect}
       />
 
       <main className="flex h-full min-w-0 flex-1 flex-col">
+        {view === "settings" ? (
+          <SettingsPanel
+            userEmail={user?.email}
+            displayName={sidebarDisplayName ?? ""}
+            onDisplayNameChange={updateDisplayName}
+            models={models}
+            defaultModelId={defaultModelId}
+            userDefaultModelId={userDefaultModelId}
+            onUserDefaultModelChange={updateUserDefaultModel}
+            onClose={() => setView("chat")}
+            onOpenSidebar={() => setSidebarOpen(true)}
+          />
+        ) : (
+          <>
         <header className="flex h-11 shrink-0 items-end justify-between border-b border-hairline bg-canvas">
           <button
             type="button"
@@ -623,7 +723,7 @@ export function ChatClient() {
                 >
                   <button
                     type="button"
-                    onClick={() => setActiveId(t.id)}
+                    onClick={() => selectTab(t.id)}
                     className="flex min-w-0 flex-1 items-center gap-1.5"
                   >
                     {t.busy ? (
@@ -700,7 +800,10 @@ export function ChatClient() {
           onScroll={handleScroll}
           className="flex-1 overflow-y-auto"
         >
-          <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
+          <div
+            data-density="messages"
+            className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8"
+          >
             {messages.length === 0 ? (
               <EmptyState onPick={send} />
             ) : (
@@ -745,6 +848,8 @@ export function ChatClient() {
             />
           </div>
         </div>
+          </>
+        )}
       </main>
     </div>
   );

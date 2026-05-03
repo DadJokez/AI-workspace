@@ -2,30 +2,77 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-export type Theme = "light" | "dark";
+export type Theme = "light" | "dark" | "system";
 
-function getInitialTheme(): Theme {
-  if (typeof document === "undefined") return "light";
-  return document.documentElement.classList.contains("dark") ? "dark" : "light";
+const STORAGE_KEY = "theme";
+
+function readStoredTheme(): Theme {
+  if (typeof localStorage === "undefined") return "system";
+  const v = localStorage.getItem(STORAGE_KEY);
+  if (v === "light" || v === "dark" || v === "system") return v;
+  return "system";
+}
+
+function systemPrefersDark(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+function effectivelyDark(theme: Theme): boolean {
+  if (theme === "dark") return true;
+  if (theme === "light") return false;
+  return systemPrefersDark();
+}
+
+function applyClass(dark: boolean) {
+  if (typeof document === "undefined") return;
+  document.documentElement.classList.toggle("dark", dark);
 }
 
 export function useTheme() {
-  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const [theme, setThemeState] = useState<Theme>(readStoredTheme);
+  const [isDark, setIsDark] = useState<boolean>(() =>
+    effectivelyDark(readStoredTheme()),
+  );
 
+  // Apply theme + persist whenever it changes.
   useEffect(() => {
-    if (theme === "dark") {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
+    const dark = effectivelyDark(theme);
+    setIsDark(dark);
+    applyClass(dark);
     try {
-      localStorage.setItem("theme", theme);
-    } catch {}
+      localStorage.setItem(STORAGE_KEY, theme);
+    } catch {
+      /* quota / disabled */
+    }
   }, [theme]);
 
-  const toggle = useCallback(() => {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
+  // While in "system" mode, react to OS-level theme changes.
+  useEffect(() => {
+    if (theme !== "system") return;
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = () => {
+      const dark = mq.matches;
+      setIsDark(dark);
+      applyClass(dark);
+    };
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [theme]);
+
+  const setTheme = useCallback((t: Theme) => {
+    setThemeState(t);
   }, []);
 
-  return { theme, setTheme, toggle };
+  // Quick top-bar toggle: dark <-> light. From "system", picks the opposite of
+  // the currently effective state so the user gets immediate visible feedback.
+  const toggle = useCallback(() => {
+    setThemeState((current) => {
+      const dark = effectivelyDark(current);
+      return dark ? "light" : "dark";
+    });
+  }, []);
+
+  return { theme, setTheme, toggle, isDark };
 }

@@ -37,3 +37,20 @@ body {
     Inter, "Helvetica Neue", sans-serif;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
+
+/* Density: compact mode reduces padding on nav rows and message stacks
+ * by ~25%. Mobile touch targets (min-h: 44px) are preserved. */
+@media (min-width: 768px) {
+  html.density-compact [data-density="nav"] button {
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+  html.density-compact [data-density="messages"] {
+    gap: 1.125rem;
+    padding-top: 1.5rem;
+    padding-bottom: 1.5rem;
+  }
+}
+html.density-compact [data-density="messages"] {
+  gap: 1.125rem;
+}

@@ -64,6 +64,10 @@ interface Props {
   threadsError?: string;
   activeThreadId?: string;
   onOpenThread: (threadId: string, title: string) => void;
+  /** Currently-active top-level view. Drives nav-item highlight. */
+  activeNavId?: string;
+  /** Fired when a static nav item is clicked. Parent decides whether the id maps to a real view. */
+  onNavSelect?: (id: string) => void;
 }
 
 interface ThreadGroup {
@@ -121,8 +125,9 @@ export function Sidebar({
   threadsError,
   activeThreadId,
   onOpenThread,
+  activeNavId,
+  onNavSelect,
 }: Props) {
-  const [activeId, setActiveId] = useState("chat");
   const [chatsOpen, setChatsOpen] = useState(true);
 
   const initials = (userName ?? userEmail ?? "?")
@@ -152,7 +157,7 @@ export function Sidebar({
   }
 
   function handleNavClick(id: string) {
-    setActiveId(id);
+    onNavSelect?.(id);
     onClose();
   }
 
@@ -172,6 +177,7 @@ export function Sidebar({
       />
       <aside
         aria-label="Primary"
+        data-density="nav"
         className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col overflow-y-auto border-r border-hairline bg-sidebar transition-transform duration-200 md:static md:z-auto md:w-60 md:max-w-none md:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
@@ -307,7 +313,7 @@ export function Sidebar({
               ) : null}
               <ul className="flex flex-col">
                 {group.items.map((item) => {
-                  const active = item.id === activeId;
+                  const active = item.id === activeNavId;
                   return (
                     <li key={item.id}>
                       <button
