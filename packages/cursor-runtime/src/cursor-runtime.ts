@@ -134,7 +134,7 @@ export class CursorRuntime implements AgentRuntime {
     const mcpServers = toMcpRecord(this.opts.mcpServers);
     const agent = await Agent.create({
       apiKey: this.opts.apiKey,
-      model: { id: input.modelId },
+      model: { id: toCursorModelId(input.modelId) },
       ...(mcpServers ? { mcpServers } : {}),
     });
     await this.store.set(input.threadId, agent.agentId);
@@ -228,6 +228,25 @@ function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (err == null) return "unknown error";
   return String(err);
+}
+
+// Cursor's Agent.create rejects model ids it doesn't recognize. The web UI
+// and legacy API callers send Bedrock ARN-style or short-form ids; translate
+// those to Cursor's `claude-*` ids here. Unknown ids pass through unchanged
+// so already-valid Cursor ids and `default` keep working.
+function toCursorModelId(modelId: string): string {
+  const map: Record<string, string> = {
+    "anthropic.claude-3-5-sonnet-20240620-v1:0": "claude-sonnet-4-5",
+    "anthropic.claude-3-5-haiku-20241022-v1:0": "claude-haiku-4-5",
+    "anthropic.claude-opus-4-5-20250514-v1:0": "claude-opus-4-5",
+    "sonnet-4-6": "claude-sonnet-4-6",
+    "opus-4-7": "claude-opus-4-7",
+    "haiku-4-5": "claude-haiku-4-5",
+    "sonnet-4-5": "claude-sonnet-4-5",
+    "opus-4-5": "claude-opus-4-5",
+    "opus-4-6": "claude-opus-4-6",
+  };
+  return map[modelId] ?? modelId;
 }
 
 /**
