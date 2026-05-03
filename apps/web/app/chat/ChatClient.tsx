@@ -3,6 +3,8 @@
 import { ChatInput } from "@/components/ChatInput";
 import { MessageBubble } from "@/components/MessageBubble";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
+import { Sidebar } from "@/components/Sidebar";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { readSseStream } from "@/lib/sse";
 import type { ModelId } from "@ai-workspace/agent";
 import { useEffect, useRef, useState } from "react";
@@ -13,6 +15,16 @@ interface UiMessage {
   content: string;
   modelId?: string;
   pending?: boolean;
+}
+
+interface ChatTab {
+  id: string;
+  title: string;
+  threadId?: string;
+  messages: UiMessage[];
+  modelId?: ModelId;
+  busy: boolean;
+  error?: string;
 }
 
 interface ChatStreamEvent {
@@ -33,23 +45,59 @@ interface ModelsResponse {
   models: ModelOption[];
 }
 
+interface MeResponse {
+  user: { id: string; email: string; displayName: string };
+}
+
+function makeTab(modelId?: ModelId): ChatTab {
+  return {
+    id: crypto.randomUUID(),
+    title: "New chat",
+    threadId: undefined,
+    messages: [],
+    modelId,
+    busy: false,
+  };
+}
+
+function deriveTitle(text: string): string {
+  const trimmed = text.trim().replace(/\s+/g, " ");
+  if (trimmed.length <= 32) return trimmed;
+  return trimmed.slice(0, 32).trimEnd() + "…";
+}
+
 export function ChatClient() {
   const [models, setModels] = useState<ModelOption[]>([]);
-  const [modelId, setModelId] = useState<ModelId>("sonnet-4-6");
-  const [threadId, setThreadId] = useState<string | undefined>();
-  const [messages, setMessages] = useState<UiMessage[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | undefined>();
+  const [defaultModelId, setDefaultModelId] = useState<ModelId>("sonnet-4-6");
+  const [tabs, setTabs] = useState<ChatTab[]>(() => [makeTab()]);
+  const [activeId, setActiveId] = useState<string>(() => tabs[0]!.id);
+  const [user, setUser] = useState<MeResponse["user"] | undefined>();
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0];
 
   useEffect(() => {
     fetch("/api/models")
       .then((r) => r.json() as Promise<ModelsResponse>)
       .then((data) => {
         setModels(data.models);
-        setModelId(data.defaultModelId);
+        setDefaultModelId(data.defaultModelId);
+        setTabs((prev) =>
+          prev.map((t) => ({ ...t, modelId: t.modelId ?? data.defaultModelId })),
+        );
       })
-      .catch((e) => setError(`failed to load models: ${String(e)}`));
+      .catch(() => {
+        /* surface inline if first send fails */
+      });
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => (r.ok ? (r.json() as Promise<MeResponse>) : null))
+      .then((data) => {
+        if (data?.user) setUser(data.user);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -57,26 +105,77 @@ export function ChatClient() {
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [messages]);
+  }, [activeTab?.messages, activeId]);
+
+  function patchTab(id: string, patch: Partial<ChatTab>) {
+    setTabs((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+    );
+  }
+
+  function patchTabMessages(
+    id: string,
+    fn: (msgs: UiMessage[]) => UiMessage[],
+  ) {
+    setTabs((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, messages: fn(t.messages) } : t)),
+    );
+  }
+
+  function newTab() {
+    const t = makeTab(defaultModelId);
+    setTabs((prev) => [...prev, t]);
+    setActiveId(t.id);
+  }
+
+  function closeTab(id: string) {
+    setTabs((prev) => {
+      const idx = prev.findIndex((t) => t.id === id);
+      if (idx === -1) return prev;
+      const next = prev.filter((t) => t.id !== id);
+      if (next.length === 0) {
+        const fresh = makeTab(defaultModelId);
+        setActiveId(fresh.id);
+        return [fresh];
+      }
+      if (id === activeId) {
+        const neighbor = next[Math.max(0, idx - 1)] ?? next[0]!;
+        setActiveId(neighbor.id);
+      }
+      return next;
+    });
+  }
 
   async function send(text: string) {
-    if (busy) return;
-    setError(undefined);
-    setBusy(true);
+    if (!activeTab || activeTab.busy) return;
+    const tabId = activeTab.id;
+    const userMsgId = crypto.randomUUID();
+    const assistantMsgId = crypto.randomUUID();
+    const modelId = activeTab.modelId ?? defaultModelId;
 
-    const userId = crypto.randomUUID();
-    const assistantId = crypto.randomUUID();
-    setMessages((prev) => [
+    patchTab(tabId, {
+      busy: true,
+      error: undefined,
+      title:
+        activeTab.messages.length === 0
+          ? deriveTitle(text)
+          : activeTab.title,
+    });
+    patchTabMessages(tabId, (prev) => [
       ...prev,
-      { id: userId, role: "user", content: text },
-      { id: assistantId, role: "assistant", content: "", pending: true },
+      { id: userMsgId, role: "user", content: text },
+      { id: assistantMsgId, role: "assistant", content: "", pending: true },
     ]);
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, threadId, modelId }),
+        body: JSON.stringify({
+          message: text,
+          threadId: activeTab.threadId,
+          modelId,
+        }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as {
@@ -91,13 +190,15 @@ export function ChatClient() {
 
       for await (const ev of readSseStream<ChatStreamEvent>(res)) {
         if (ev.type === "meta") {
-          if (typeof ev.threadId === "string") setThreadId(ev.threadId);
+          if (typeof ev.threadId === "string") {
+            patchTab(tabId, { threadId: ev.threadId });
+          }
           if (typeof ev.modelId === "string") assistantModel = ev.modelId;
         } else if (ev.type === "text-delta" && typeof ev.delta === "string") {
           assistantText += ev.delta;
-          setMessages((prev) =>
+          patchTabMessages(tabId, (prev) =>
             prev.map((m) =>
-              m.id === assistantId
+              m.id === assistantMsgId
                 ? {
                     ...m,
                     content: assistantText,
@@ -110,11 +211,11 @@ export function ChatClient() {
         } else if (ev.type === "error" && typeof ev.message === "string") {
           throw new Error(ev.message);
         } else if (ev.type === "done") {
-          // wait for `persisted` to drop pending
+          // wait for `persisted`
         } else if (ev.type === "persisted") {
-          setMessages((prev) =>
+          patchTabMessages(tabId, (prev) =>
             prev.map((m) =>
-              m.id === assistantId
+              m.id === assistantMsgId
                 ? { ...m, pending: false, modelId: assistantModel }
                 : m,
             ),
@@ -122,94 +223,165 @@ export function ChatClient() {
         }
       }
 
-      // If the stream ended without a `persisted` event, still drop the pending flag.
-      setMessages((prev) =>
+      patchTabMessages(tabId, (prev) =>
         prev.map((m) =>
-          m.id === assistantId ? { ...m, pending: false } : m,
+          m.id === assistantMsgId ? { ...m, pending: false } : m,
         ),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setMessages((prev) =>
+      const message = err instanceof Error ? err.message : String(err);
+      patchTab(tabId, { error: message });
+      patchTabMessages(tabId, (prev) =>
         prev.map((m) =>
-          m.id === assistantId
+          m.id === assistantMsgId
             ? { ...m, content: m.content || "(error)", pending: false }
             : m,
         ),
       );
     } finally {
-      setBusy(false);
+      patchTab(tabId, { busy: false });
     }
   }
 
-  function newChat() {
-    setThreadId(undefined);
-    setMessages([]);
-    setError(undefined);
-  }
+  if (!activeTab) return null;
+  const { busy, error, messages, modelId } = activeTab;
+  const inputDisabled = busy || models.length === 0;
 
   return (
-    <div className="flex h-screen flex-col">
-      <header className="flex items-center justify-between border-b border-zinc-200 bg-white/80 px-4 py-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
-        <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold tracking-tight">AI Hub</h1>
-          <button
-            type="button"
-            onClick={newChat}
-            disabled={busy}
-            className="rounded-md border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
-          >
-            New chat
-          </button>
-        </div>
-        {models.length > 0 ? (
-          <ModelSelector
-            value={modelId}
-            onChange={setModelId}
-            options={models}
-            disabled={busy}
-          />
-        ) : null}
-      </header>
+    <div className="flex h-screen w-full bg-canvas text-ink">
+      <Sidebar
+        userName={user?.displayName}
+        userEmail={user?.email}
+        onNewChat={newTab}
+      />
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="mx-auto flex max-w-2xl flex-col gap-4">
-          {messages.length === 0 ? (
-            <EmptyState onPick={send} />
-          ) : (
-            messages.map((m) => (
-              <MessageBubble
-                key={m.id}
-                role={m.role}
-                content={m.content}
-                modelId={m.modelId}
-                pending={m.pending}
+      <main className="flex h-full min-w-0 flex-1 flex-col">
+        <header className="flex h-11 shrink-0 items-end justify-between border-b border-hairline bg-canvas">
+          <div className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto px-2">
+            {tabs.map((t) => {
+              const active = t.id === activeId;
+              return (
+                <div
+                  key={t.id}
+                  className={`group relative flex h-9 max-w-[180px] shrink-0 items-center gap-1.5 px-3 text-[13px] ${
+                    active
+                      ? "text-ink"
+                      : "text-muted hover:text-ink"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setActiveId(t.id)}
+                    className="flex min-w-0 flex-1 items-center gap-1.5"
+                  >
+                    {t.busy ? (
+                      <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-current" />
+                    ) : null}
+                    <span className="truncate">{t.title}</span>
+                  </button>
+                  {tabs.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        closeTab(t.id);
+                      }}
+                      aria-label="Close tab"
+                      className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted opacity-0 hover:bg-subtle hover:text-ink group-hover:opacity-100"
+                    >
+                      <svg
+                        viewBox="0 0 16 16"
+                        width="10"
+                        height="10"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                      >
+                        <path d="m4 4 8 8M12 4l-8 8" />
+                      </svg>
+                    </button>
+                  ) : null}
+                  <span
+                    aria-hidden
+                    className={`absolute inset-x-2 bottom-0 h-px ${
+                      active ? "bg-ink" : "bg-transparent"
+                    }`}
+                  />
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              onClick={newTab}
+              aria-label="New tab"
+              className="ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                width="13"
+                height="13"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              >
+                <path d="M8 3v10M3 8h10" />
+              </svg>
+            </button>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5 px-3 pb-1">
+            {models.length > 0 && modelId ? (
+              <ModelSelector
+                value={modelId}
+                onChange={(id) => patchTab(activeId, { modelId: id })}
+                options={models}
+                disabled={busy}
               />
-            ))
-          )}
-          {error ? (
-            <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
-              {error}
-            </div>
-          ) : null}
-        </div>
-      </div>
+            ) : null}
+            <ThemeToggle />
+          </div>
+        </header>
 
-      <div className="border-t border-zinc-200 bg-white/80 px-4 py-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
-        <div className="mx-auto max-w-2xl">
-          <ChatInput
-            onSubmit={send}
-            disabled={busy || models.length === 0}
-            placeholder={
-              models.length === 0
-                ? "Loading models…"
-                : busy
-                  ? "Generating…"
-                  : "Ask anything (Shift+Enter for newline)"
-            }
-          />
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
+          <div className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-8">
+            {messages.length === 0 ? (
+              <EmptyState onPick={send} />
+            ) : (
+              messages.map((m) => (
+                <MessageBubble
+                  key={m.id}
+                  role={m.role}
+                  content={m.content}
+                  modelId={m.modelId}
+                  pending={m.pending}
+                />
+              ))
+            )}
+            {error ? (
+              <div className="rounded-md border border-hairline bg-subtle px-3 py-2 text-sm text-ink">
+                {error}
+              </div>
+            ) : null}
+          </div>
         </div>
-      </div>
+
+        <div className="border-t border-hairline bg-canvas px-6 py-4">
+          <div className="mx-auto max-w-3xl">
+            <ChatInput
+              onSubmit={send}
+              disabled={inputDisabled}
+              placeholder={
+                models.length === 0
+                  ? "Loading models…"
+                  : busy
+                    ? "Generating…"
+                    : "Ask anything (Shift+Enter for newline)"
+              }
+            />
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
@@ -221,11 +393,11 @@ function EmptyState({ onPick }: { onPick: (s: string) => void }) {
     "What are my unread Slack mentions today?",
   ];
   return (
-    <div className="flex flex-col items-center gap-4 py-16 text-center">
-      <div className="text-2xl font-semibold tracking-tight">
+    <div className="flex flex-col items-center gap-4 py-24 text-center">
+      <div className="text-2xl font-medium tracking-tight text-ink">
         Talk to your work
       </div>
-      <p className="max-w-md text-sm text-zinc-500 dark:text-zinc-400">
+      <p className="max-w-md text-sm text-muted">
         Ask anything. Pick the model that fits the job — Haiku for fast, Sonnet
         for default, Opus for hard. Tools land later this week.
       </p>
@@ -235,7 +407,7 @@ function EmptyState({ onPick }: { onPick: (s: string) => void }) {
             key={s}
             type="button"
             onClick={() => onPick(s)}
-            className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+            className="rounded-md border border-hairline bg-canvas px-3 py-1.5 text-xs text-muted hover:bg-subtle hover:text-ink"
           >
             {s}
           </button>

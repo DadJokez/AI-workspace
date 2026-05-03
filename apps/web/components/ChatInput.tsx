@@ -28,7 +28,6 @@ export function ChatInput({
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    // Enter sends; Shift+Enter inserts newline.
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();
@@ -38,7 +37,7 @@ export function ChatInput({
   return (
     <form
       onSubmit={handleSubmit}
-      className="flex w-full items-end gap-2 rounded-2xl border border-zinc-300 bg-white p-2 focus-within:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-within:border-zinc-400"
+      className="flex w-full items-end gap-2 rounded-lg border border-hairline bg-canvas p-2 focus-within:border-ink/40"
     >
       <textarea
         value={text}
@@ -47,14 +46,27 @@ export function ChatInput({
         rows={1}
         placeholder={placeholder}
         disabled={disabled}
-        className="min-h-[2.25rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-zinc-400 disabled:opacity-50 dark:placeholder:text-zinc-500"
+        className="min-h-[2.25rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-[14px] text-ink outline-none placeholder:text-muted disabled:opacity-50"
       />
       <button
         type="submit"
         disabled={disabled || !text.trim()}
-        className="rounded-xl bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40 dark:bg-white dark:text-zinc-900"
+        aria-label="Send"
+        className="flex h-7 w-7 items-center justify-center rounded-md bg-ink text-canvas disabled:opacity-30"
       >
-        Send
+        <svg
+          viewBox="0 0 16 16"
+          width="13"
+          height="13"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
+        </svg>
       </button>
     </form>
   );
