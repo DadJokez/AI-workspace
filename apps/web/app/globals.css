@@ -29,6 +29,12 @@ html.dark {
 html,
 body {
   height: 100%;
+  /* Cap the page at the visual viewport so a runaway-wide child (e.g. a
+   * markdown <pre> with no soft-break points) can never widen the document.
+   * iOS Safari otherwise zooms the whole page OUT to fit, which reads as
+   * "the page is shrunk" but is really fit-to-content. */
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 body {
