@@ -98,7 +98,7 @@ export function SearchPanel({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search conversations…"
-            className="flex-1 bg-transparent py-2 text-base text-ink outline-none placeholder:text-muted sm:text-sm"
+            className="flex-1 bg-transparent py-2 text-base text-ink outline-none placeholder:text-muted"
           />
         </div>
         <button

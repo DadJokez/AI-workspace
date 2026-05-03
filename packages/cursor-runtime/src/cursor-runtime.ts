@@ -130,7 +130,15 @@ export class CursorRuntime implements AgentRuntime {
   private async getOrCreateAgent(input: TurnInput): Promise<SDKAgent> {
     const existingId = await this.store.get(input.threadId);
     if (existingId) {
-      return Agent.resume(existingId, { apiKey: this.opts.apiKey });
+      try {
+        return await Agent.resume(existingId, { apiKey: this.opts.apiKey });
+      } catch (err) {
+        if (!isAgentMissingError(errorMessage(err))) throw err;
+        // The persisted agent id is stale — Cursor's server no longer has
+        // it (deleted, expired, or different account). Fall through to
+        // create a fresh agent; the store.set below overwrites the dead
+        // id so subsequent turns hit the new agent on the resume path.
+      }
     }
 
     const mcpServers = toMcpRecord(this.opts.mcpServers);
@@ -142,6 +150,17 @@ export class CursorRuntime implements AgentRuntime {
     await this.store.set(input.threadId, agent.agentId);
     return agent;
   }
+}
+
+/**
+ * Heuristic for "the agent id we have is no longer valid on Cursor's side."
+ * The SDK doesn't expose a typed error class for this case yet; match on the
+ * error message lenient — better to start a fresh agent session than to keep
+ * surfacing the same dead-id error to the user. */
+function isAgentMissingError(message: string): boolean {
+  return /\bnot[ -]?found\b|\b404\b|no such agent|does not exist/i.test(
+    message,
+  );
 }
 
 /**

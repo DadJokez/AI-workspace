@@ -237,7 +237,7 @@ export function SettingsPanel({
                           handleNameSave();
                         }
                       }}
-                      className="flex-1 rounded-md border border-hairline bg-canvas px-3 py-2 text-sm text-ink outline-none placeholder:text-muted focus:border-ink/40"
+                      className="flex-1 rounded-md border border-hairline bg-canvas px-3 py-2 text-base text-ink outline-none placeholder:text-muted focus:border-ink/40"
                       placeholder="Your name"
                     />
                     {savedFlash ? (

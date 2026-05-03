@@ -65,7 +65,7 @@ export function ChatInput({
         rows={1}
         placeholder={placeholder}
         disabled={disabled}
-        className="flex-1 resize-none bg-transparent px-2 py-2 text-base text-ink outline-none placeholder:text-muted disabled:opacity-50 sm:py-1.5 sm:text-[14px]"
+        className="flex-1 resize-none bg-transparent px-2 py-2 text-base text-ink outline-none placeholder:text-muted disabled:opacity-50 sm:py-1.5"
       />
       <button
         type="submit"

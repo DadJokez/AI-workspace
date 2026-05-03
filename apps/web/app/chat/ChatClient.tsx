@@ -808,11 +808,11 @@ export function ChatClient() {
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto"
+          className="flex-1 overflow-x-hidden overflow-y-auto"
         >
           <div
             data-density="messages"
-            className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8"
+            className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8"
           >
             {messages.length === 0 ? (
               <EmptyState onPick={send} />
