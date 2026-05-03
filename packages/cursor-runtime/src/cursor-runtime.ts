@@ -97,7 +97,9 @@ export class CursorRuntime implements AgentRuntime {
 
     let run;
     try {
-      run = await agent.send(lastUser);
+      run = await agent.send(lastUser, {
+        model: { id: toCursorModelId(input.modelId) },
+      });
     } catch (err) {
       yield {
         type: "error",
@@ -230,23 +232,11 @@ function errorMessage(err: unknown): string {
   return String(err);
 }
 
-// Cursor's Agent.create rejects model ids it doesn't recognize. The web UI
-// and legacy API callers send Bedrock ARN-style or short-form ids; translate
-// those to Cursor's `claude-*` ids here. Unknown ids pass through unchanged
-// so already-valid Cursor ids and `default` keep working.
-function toCursorModelId(modelId: string): string {
-  const map: Record<string, string> = {
-    "anthropic.claude-3-5-sonnet-20240620-v1:0": "claude-sonnet-4-5",
-    "anthropic.claude-3-5-haiku-20241022-v1:0": "claude-haiku-4-5",
-    "anthropic.claude-opus-4-5-20250514-v1:0": "claude-opus-4-5",
-    "sonnet-4-6": "claude-sonnet-4-6",
-    "opus-4-7": "claude-opus-4-7",
-    "haiku-4-5": "claude-haiku-4-5",
-    "sonnet-4-5": "claude-sonnet-4-5",
-    "opus-4-5": "claude-opus-4-5",
-    "opus-4-6": "claude-opus-4-6",
-  };
-  return map[modelId] ?? modelId;
+// Defer model selection to Cursor's auto-router instead of mapping caller
+// ids. The incoming modelId is intentionally ignored for now; reinstate a
+// translation table here if the product needs deterministic per-call routing.
+function toCursorModelId(_modelId: string): string {
+  return "default";
 }
 
 /**
