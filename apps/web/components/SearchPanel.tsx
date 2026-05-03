@@ -56,7 +56,7 @@ export function SearchPanel({
   }, [threads, trimmed, isComingSoon]);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-1 flex-col">
       <header className="flex h-11 shrink-0 items-center gap-1 border-b border-hairline bg-canvas">
         <button
           type="button"
@@ -98,7 +98,7 @@ export function SearchPanel({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search conversations…"
-            className="flex-1 bg-transparent py-2 text-sm text-ink outline-none placeholder:text-muted"
+            className="flex-1 bg-transparent py-2 text-base text-ink outline-none placeholder:text-muted sm:text-sm"
           />
         </div>
         <button
@@ -145,7 +145,7 @@ export function SearchPanel({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl px-3 py-3 sm:px-6 sm:py-4">
           {isComingSoon ? (
             <ComingSoon kind={filter} />
