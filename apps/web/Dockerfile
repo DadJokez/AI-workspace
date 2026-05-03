@@ -35,6 +35,13 @@ COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/standalone ./
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/public ./apps/web/public
 
+# Ship the full pnpm-installed deps tree as a NODE_PATH fallback so packages
+# Next.js leaves un-bundled (serverExternalPackages, e.g. @cursor/sdk) can be
+# required at runtime. Standalone's traced /app/node_modules takes precedence;
+# this only fills resolution gaps.
+COPY --from=deps --chown=nextjs:nextjs /repo/node_modules /app/node_modules-deps
+ENV NODE_PATH=/app/node_modules-deps
+
 USER nextjs
 EXPOSE 3000
 
