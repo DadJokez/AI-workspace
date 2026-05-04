@@ -28,36 +28,92 @@ interface ChatStreamEvent {
   [k: string]: unknown;
 }
 
-interface ModelsResponse {
-  defaultModelId: ModelId;
-  models: ModelOption[];
+interface ServerThreadResponse {
+  thread: { id: string; title: string | null; defaultModelId: string };
+  messages: Array<{
+    id: string;
+    role: "user" | "assistant" | "tool";
+    content: string;
+    modelId: string | null;
+  }>;
 }
 
-export function ChatClient() {
-  const [models, setModels] = useState<ModelOption[]>([]);
-  const [modelId, setModelId] = useState<ModelId>("sonnet-4-6");
-  const [threadId, setThreadId] = useState<string | undefined>();
+interface ChatTabProps {
+  /** Existing thread to load, or undefined for a brand-new chat. */
+  threadId?: string;
+  models: readonly ModelOption[];
+  defaultModelId: ModelId;
+  visible: boolean;
+  /** Called once after the first send creates a new thread server-side. */
+  onThreadCreated?: (newThreadId: string) => void;
+  /** Called whenever a message is persisted, so the sidebar can re-fetch. */
+  onMessagePersisted?: () => void;
+}
+
+export function ChatTab({
+  threadId,
+  models,
+  defaultModelId,
+  visible,
+  onThreadCreated,
+  onMessagePersisted,
+}: ChatTabProps) {
+  const [modelId, setModelId] = useState<ModelId>(defaultModelId);
+  const [currentThreadId, setCurrentThreadId] = useState<string | undefined>(
+    threadId,
+  );
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [loadingHistory, setLoadingHistory] = useState(Boolean(threadId));
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Load history when this tab represents an existing thread.
   useEffect(() => {
-    fetch("/api/models")
-      .then((r) => r.json() as Promise<ModelsResponse>)
-      .then((data) => {
-        setModels(data.models);
-        setModelId(data.defaultModelId);
+    if (!threadId) {
+      setLoadingHistory(false);
+      setMessages([]);
+      setCurrentThreadId(undefined);
+      return;
+    }
+    let cancelled = false;
+    setLoadingHistory(true);
+    fetch(`/api/threads/${threadId}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json() as Promise<ServerThreadResponse>;
       })
-      .catch((e) => setError(`failed to load models: ${String(e)}`));
-  }, []);
+      .then((data) => {
+        if (cancelled) return;
+        setCurrentThreadId(data.thread.id);
+        setModelId((data.thread.defaultModelId as ModelId) ?? defaultModelId);
+        setMessages(
+          data.messages.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            modelId: m.modelId ?? undefined,
+          })),
+        );
+        setLoadingHistory(false);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(`Failed to load thread: ${String(e)}`);
+        setLoadingHistory(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [threadId, defaultModelId]);
 
   useEffect(() => {
+    if (!visible) return;
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [messages]);
+  }, [messages, visible]);
 
   async function send(text: string) {
     if (busy) return;
@@ -76,7 +132,11 @@ export function ChatClient() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, threadId, modelId }),
+        body: JSON.stringify({
+          message: text,
+          threadId: currentThreadId,
+          modelId,
+        }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as {
@@ -88,10 +148,16 @@ export function ChatClient() {
 
       let assistantText = "";
       let assistantModel: string | undefined;
+      let createdThreadId: string | undefined;
 
       for await (const ev of readSseStream<ChatStreamEvent>(res)) {
         if (ev.type === "meta") {
-          if (typeof ev.threadId === "string") setThreadId(ev.threadId);
+          if (typeof ev.threadId === "string") {
+            if (!currentThreadId) {
+              createdThreadId = ev.threadId;
+              setCurrentThreadId(ev.threadId);
+            }
+          }
           if (typeof ev.modelId === "string") assistantModel = ev.modelId;
         } else if (ev.type === "text-delta" && typeof ev.delta === "string") {
           assistantText += ev.delta;
@@ -109,8 +175,6 @@ export function ChatClient() {
           );
         } else if (ev.type === "error" && typeof ev.message === "string") {
           throw new Error(ev.message);
-        } else if (ev.type === "done") {
-          // wait for `persisted` to drop pending
         } else if (ev.type === "persisted") {
           setMessages((prev) =>
             prev.map((m) =>
@@ -122,12 +186,16 @@ export function ChatClient() {
         }
       }
 
-      // If the stream ended without a `persisted` event, still drop the pending flag.
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId ? { ...m, pending: false } : m,
         ),
       );
+
+      if (createdThreadId && onThreadCreated) {
+        onThreadCreated(createdThreadId);
+      }
+      onMessagePersisted?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setMessages((prev) =>
@@ -142,26 +210,12 @@ export function ChatClient() {
     }
   }
 
-  function newChat() {
-    setThreadId(undefined);
-    setMessages([]);
-    setError(undefined);
-  }
-
   return (
-    <div className="flex h-screen flex-col">
-      <header className="flex items-center justify-between border-b border-zinc-200 bg-white/80 px-4 py-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
-        <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold tracking-tight">AI Hub</h1>
-          <button
-            type="button"
-            onClick={newChat}
-            disabled={busy}
-            className="rounded-md border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
-          >
-            New chat
-          </button>
-        </div>
+    <div
+      className={`flex h-full flex-col ${visible ? "" : "hidden"}`}
+      aria-hidden={!visible}
+    >
+      <div className="flex h-10 shrink-0 items-center justify-end border-b border-zinc-200/60 px-4 dark:border-zinc-800/60">
         {models.length > 0 ? (
           <ModelSelector
             value={modelId}
@@ -170,11 +224,15 @@ export function ChatClient() {
             disabled={busy}
           />
         ) : null}
-      </header>
+      </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-8">
         <div className="mx-auto flex max-w-2xl flex-col gap-4">
-          {messages.length === 0 ? (
+          {loadingHistory ? (
+            <div className="text-sm text-zinc-400 dark:text-zinc-500">
+              Loading thread…
+            </div>
+          ) : messages.length === 0 ? (
             <EmptyState onPick={send} />
           ) : (
             messages.map((m) => (
@@ -188,18 +246,18 @@ export function ChatClient() {
             ))
           )}
           {error ? (
-            <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
+            <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
               {error}
             </div>
           ) : null}
         </div>
       </div>
 
-      <div className="border-t border-zinc-200 bg-white/80 px-4 py-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
+      <div className="border-t border-zinc-200/60 px-6 py-4 dark:border-zinc-800/60">
         <div className="mx-auto max-w-2xl">
           <ChatInput
             onSubmit={send}
-            disabled={busy || models.length === 0}
+            disabled={busy || models.length === 0 || loadingHistory}
             placeholder={
               models.length === 0
                 ? "Loading models…"
@@ -222,12 +280,12 @@ function EmptyState({ onPick }: { onPick: (s: string) => void }) {
   ];
   return (
     <div className="flex flex-col items-center gap-4 py-16 text-center">
-      <div className="text-2xl font-semibold tracking-tight">
+      <div className="text-2xl font-medium tracking-tight text-zinc-900 dark:text-zinc-100">
         Talk to your work
       </div>
-      <p className="max-w-md text-sm text-zinc-500 dark:text-zinc-400">
+      <p className="max-w-md text-sm text-zinc-500 dark:text-zinc-500">
         Ask anything. Pick the model that fits the job — Haiku for fast, Sonnet
-        for default, Opus for hard. Tools land later this week.
+        for default, Opus for hard.
       </p>
       <div className="flex flex-wrap justify-center gap-2 pt-4">
         {samples.map((s) => (
@@ -235,7 +293,7 @@ function EmptyState({ onPick }: { onPick: (s: string) => void }) {
             key={s}
             type="button"
             onClick={() => onPick(s)}
-            className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+            className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900"
           >
             {s}
           </button>
