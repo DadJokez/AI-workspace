@@ -1,4 +1,13 @@
+"use client";
+
+import { useTheme } from "@/lib/theme";
+import { useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import {
+  oneDark,
+  oneLight,
+} from "react-syntax-highlighter/dist/esm/styles/prism";
 import remarkGfm from "remark-gfm";
 
 interface Props {
@@ -76,19 +85,16 @@ const MARKDOWN_COMPONENTS: Components = {
   a: (props) => (
     <a className="underline" target="_blank" rel="noreferrer" {...props} />
   ),
-  pre: (props) => (
-    <pre
-      className="my-2 w-full min-w-0 max-w-full whitespace-pre-wrap break-words rounded bg-subtle p-2 font-mono text-[12px] first:mt-0 last:mb-0"
-      {...props}
-    />
-  ),
+  // Fenced blocks are rendered fully by `code` (below). Strip the wrapping
+  // <pre> ReactMarkdown would otherwise emit so we don't get nested pres.
+  pre: ({ children }) => <>{children}</>,
   code: ({ className, children, ...rest }) => {
-    const isBlock = !!className && /^language-/.test(className);
-    return isBlock ? (
-      <code className={className} {...rest}>
-        {children}
-      </code>
-    ) : (
+    const match = /language-(\w+)/.exec(className ?? "");
+    if (match) {
+      const code = String(children ?? "").replace(/\n$/, "");
+      return <CodeBlock language={match[1] ?? "text"} code={code} />;
+    }
+    return (
       <code
         className="break-all rounded bg-subtle px-1 py-0.5 font-mono text-[12px]"
         {...rest}
@@ -98,3 +104,105 @@ const MARKDOWN_COMPONENTS: Components = {
     );
   },
 };
+
+function CodeBlock({ language, code }: { language: string; code: string }) {
+  const { isDark } = useTheme();
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable — silently no-op */
+    }
+  }
+
+  return (
+    <div className="relative my-2 overflow-hidden rounded-md border border-hairline first:mt-0 last:mb-0">
+      <button
+        type="button"
+        onClick={copy}
+        aria-label={copied ? "Copied" : "Copy code"}
+        className="absolute right-2 top-2 z-10 flex h-7 items-center gap-1 rounded bg-canvas/80 px-2 py-1 text-[11px] text-muted backdrop-blur transition-colors hover:text-ink"
+      >
+        {copied ? (
+          <>
+            <CheckIcon />
+            <span>Copied</span>
+          </>
+        ) : (
+          <>
+            <ClipboardIcon />
+            <span>Copy</span>
+          </>
+        )}
+      </button>
+      <SyntaxHighlighter
+        language={language}
+        style={isDark ? oneDark : oneLight}
+        customStyle={{
+          margin: 0,
+          padding: "0.75rem",
+          background: "transparent",
+          fontSize: "0.8rem",
+          borderRadius: 0,
+          // Ensure long lines wrap on narrow viewports instead of forcing a
+          // horizontal scrollbar.
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          overflowWrap: "anywhere",
+        }}
+        codeTagProps={{
+          style: {
+            fontFamily:
+              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            overflowWrap: "anywhere",
+          },
+        }}
+        wrapLongLines
+      >
+        {code}
+      </SyntaxHighlighter>
+    </div>
+  );
+}
+
+function ClipboardIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="11"
+      height="11"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="4" y="3" width="8" height="11" rx="1.2" />
+      <path d="M6 3V2.4A0.6 0.6 0 0 1 6.6 1.8h2.8a0.6 0.6 0 0 1 0.6 0.6V3" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="11"
+      height="11"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m3 8.5 3 3 7-7" />
+    </svg>
+  );
+}
