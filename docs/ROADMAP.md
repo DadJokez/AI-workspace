@@ -82,6 +82,63 @@ OIDC handing off to the deployed app) + an **Apps** registry surfaced
 in the sidebar. Nothing in the current build covers any of this; J4
 is its own epic.
 
+#### Git abstraction
+
+Git is the storage and pipeline substrate, but it is **invisible to
+end users**. Nobody sees a branch name, a diff hunk, a merge button,
+or a commit hash. The user-facing surface is two verbs:
+
+- **Save draft** — the agent commits the current state on the user's
+  behalf and writes the commit message itself, summarized from what
+  it just changed ("Added the export-to-CSV button on the dashboard
+  page"). Cheap, frequent, on every meaningful agent edit.
+- **Deploy** — the agent merges the session's work to `main`, kicks
+  the build pipeline, and reports back when the new version is live.
+
+**Branching is fully managed.** Every chat session that touches an
+app gets its own feature branch behind the scenes; "Deploy" merges
+that branch into `main` and triggers the pipeline. If the user
+abandons the session, the branch is orphaned, not surfaced. If two
+sessions edit the same app, the workspace serializes them — start
+with a simple lock per app (one editor at a time) and consider
+last-write-wins or three-way merge later if collaboration patterns
+demand it.
+
+**No-secrets policy is enforced by the agent.** The codegen loop
+never writes `.env` values, API tokens, signing keys, or other
+credentials into committed files. Anything credential-shaped goes to
+the runtime config (App Runner environment variables, AWS Secrets
+Manager) via the deploy controller, not into the git history.
+
+**Version history is "previous versions", not git log.** The Apps
+detail view shows a list of "saved drafts" and "deployed versions"
+with timestamps and the agent's plain-English summary of each. "Go
+back to the version from yesterday" is a one-click action; the
+underlying mechanic (revert commit, redeploy) is hidden.
+
+**Failure messages are plain English.** The two edge cases that need
+the most design care:
+
+1. **Concurrent edits.** When the lock blocks a second session, the
+   user sees "Alice is editing this app right now — try again in a
+   few minutes" rather than a merge conflict. When a true conflict
+   is unavoidable (rare, but possible in an unlock-and-merge model),
+   the agent reconciles in conversation: "I have two sets of changes
+   here — let me show you both and ask which to keep."
+2. **Deploy failures.** Build / pipeline / App Runner errors get
+   translated by the agent into actionable text — "The new version
+   didn't build because of a typo in the dashboard page (line 42).
+   I'll fix and try again." — not a stack trace or a CodeBuild log
+   id. Raw errors stay in the deploy controller's logs for us; the
+   user sees what to do next.
+
+**Change-management burden** for non-technical users with this
+framing is essentially zero. "Save draft" and "Deploy" are concepts
+anyone who has used Google Docs and clicked a Publish button already
+understands. The complexity of git, branches, conflicts, and CI lives
+behind the agent — surfaced only when (and how) the agent decides
+the user needs to make a decision.
+
 ### J5 — Share
 
 Any artifact in the workspace — a chat thread, a scheduled agent
