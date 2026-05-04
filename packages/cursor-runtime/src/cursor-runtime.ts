@@ -251,16 +251,19 @@ function errorMessage(err: unknown): string {
   return String(err);
 }
 
-// Translate our internal model ids (haiku-4-5 / sonnet-4-6 / opus-4-7) to the
-// Cursor / Anthropic ids the SDK actually routes on. Unknown ids fall back to
-// Sonnet — same default as DEFAULT_MODEL_ID in @ai-workspace/agent.
+// Translate caller's modelId for the Cursor SDK. The web app's /api/models
+// endpoint now sources its list from Cursor.models.list() directly, so the
+// id arriving here is typically already a Cursor id and should pass through.
+// Older threads / older localStorage may still carry our legacy short ids
+// (haiku-4-5 / sonnet-4-6 / opus-4-7) — the LEGACY_MAP upgrades those.
+// Anything else is forwarded as-is; the SDK rejects unknown ids at send-time.
 function toCursorModelId(modelId: string): string {
-  const map: Record<string, string> = {
+  const LEGACY_MAP: Record<string, string> = {
     "haiku-4-5": "claude-haiku-4-5-20251001",
     "sonnet-4-6": "claude-sonnet-4-6",
     "opus-4-7": "claude-opus-4-7",
   };
-  return map[modelId] ?? "claude-sonnet-4-6";
+  return LEGACY_MAP[modelId] ?? modelId;
 }
 
 /**

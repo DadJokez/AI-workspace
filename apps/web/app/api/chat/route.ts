@@ -1,8 +1,4 @@
-import {
-  DEFAULT_MODEL_ID,
-  type ModelId,
-  isValidModelId,
-} from "@ai-workspace/agent";
+import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import { AuthConfigError, getCurrentUser } from "@ai-workspace/auth";
 import { getRuntime } from "@ai-workspace/cursor-runtime";
 import {
@@ -62,8 +58,14 @@ export async function POST(req: Request) {
     );
   }
 
-  const modelId: ModelId =
-    body.modelId && isValidModelId(body.modelId) ? body.modelId : DEFAULT_MODEL_ID;
+  // Accept any non-empty string for modelId. The runtime layer is the
+  // source of truth on what's actually valid (it calls toCursorModelId,
+  // which legacy-maps our short ids and passes Cursor ids through; the
+  // SDK rejects unknown ids at the agent.send call).
+  const modelId: string =
+    typeof body.modelId === "string" && body.modelId.trim().length > 0
+      ? body.modelId
+      : DEFAULT_MODEL_ID;
 
   const dbUser = await ensureUser(authUser);
   const db = getDb();

@@ -16,4 +16,6 @@ export type {
 } from "./cursor-runtime";
 export { DbThreadAgentStore } from "./db-thread-agent-store";
 
+export { listCursorModels, type SDKModel } from "./list-models";
+
 export { getRuntime } from "./factory";

@@ -8,8 +8,13 @@ import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { readSseStream } from "@/lib/sse";
-import type { ModelId } from "@ai-workspace/agent";
 import { useEffect, useRef, useState } from "react";
+
+// Model ids are now whatever Cursor's SDK reports back from /api/models —
+// the union of "the 3 we have local metadata for" plus any others Cursor
+// supports (GPT, Gemini, additional Claude variants). We treat them as
+// opaque strings; the runtime layer is the source of truth on what's valid.
+const FALLBACK_DEFAULT_MODEL_ID = "claude-sonnet-4-6";
 
 type View = "chat" | "settings" | "search";
 
@@ -29,7 +34,7 @@ interface ChatTab {
   title: string;
   threadId?: string;
   messages: UiMessage[];
-  modelId?: ModelId;
+  modelId?: string;
   busy: boolean;
   error?: string;
   /** True once messages have been loaded (or for fresh empty tabs). */
@@ -50,7 +55,7 @@ interface ChatStreamEvent {
 }
 
 interface ModelsResponse {
-  defaultModelId: ModelId;
+  defaultModelId: string;
   models: ModelOption[];
 }
 
@@ -89,7 +94,7 @@ interface PersistedSession {
   activeIdx: number;
 }
 
-function makeFreshTab(modelId?: ModelId): ChatTab {
+function makeFreshTab(modelId?: string): ChatTab {
   return {
     id: crypto.randomUUID(),
     title: "New chat",
@@ -101,7 +106,7 @@ function makeFreshTab(modelId?: ModelId): ChatTab {
   };
 }
 
-function tabFromPersisted(p: PersistedTab, modelId: ModelId): ChatTab {
+function tabFromPersisted(p: PersistedTab, modelId: string): ChatTab {
   const trimmed = p.title?.trim();
   return {
     id: crypto.randomUUID(),
@@ -149,7 +154,8 @@ const STICK_BOTTOM_THRESHOLD = 100;
 
 export function ChatClient() {
   const [models, setModels] = useState<ModelOption[]>([]);
-  const [defaultModelId, setDefaultModelId] = useState<ModelId>("sonnet-4-6");
+  const [defaultModelId, setDefaultModelId] =
+    useState<string>(FALLBACK_DEFAULT_MODEL_ID);
   const [tabs, setTabs] = useState<ChatTab[]>(() => [makeFreshTab()]);
   const [activeId, setActiveId] = useState<string>(() => tabs[0]!.id);
   const [user, setUser] = useState<MeResponse["user"] | undefined>();
@@ -165,7 +171,7 @@ export function ChatClient() {
     string | undefined
   >();
   const [userDefaultModelId, setUserDefaultModelId] = useState<
-    ModelId | undefined
+    string | undefined
   >();
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -174,12 +180,12 @@ export function ChatClient() {
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0];
 
-  function validateModelId(
+  function validatestring(
     id: string | undefined,
     knownIds: Set<string>,
-    fallback: ModelId,
-  ): ModelId {
-    return id && knownIds.has(id) ? (id as ModelId) : fallback;
+    fallback: string,
+  ): string {
+    return id && knownIds.has(id) ? (id as string) : fallback;
   }
 
   async function refreshThreads() {
@@ -249,7 +255,7 @@ export function ChatClient() {
       const name = localStorage.getItem(`${DISPLAY_NAME_PREFIX}${user.id}`);
       if (name) setDisplayNameOverride(name);
       const dm = localStorage.getItem(`${DEFAULT_MODEL_PREFIX}${user.id}`);
-      if (dm) setUserDefaultModelId(dm as ModelId);
+      if (dm) setUserDefaultModelId(dm as string);
     } catch {
       /* ignore */
     }
@@ -282,7 +288,7 @@ export function ChatClient() {
     setDisplayNameOverride(trimmed || undefined);
   }
 
-  function updateUserDefaultModel(id: ModelId) {
+  function updateUserDefaultModel(id: string) {
     if (!user?.id || typeof window === "undefined") return;
     try {
       localStorage.setItem(`${DEFAULT_MODEL_PREFIX}${user.id}`, id);
@@ -317,7 +323,7 @@ export function ChatClient() {
       const restored = session.tabs
         .slice(0, PERSISTED_TAB_LIMIT)
         .map((p) =>
-          tabFromPersisted(p, validateModelId(p.modelId, validIds, fallback)),
+          tabFromPersisted(p, validatestring(p.modelId, validIds, fallback)),
         );
       setTabs(restored);
       const idx = Math.max(
@@ -461,7 +467,7 @@ export function ChatClient() {
     );
   }
 
-  function freshTabModel(): ModelId {
+  function freshTabModel(): string {
     if (userDefaultModelId && models.some((m) => m.id === userDefaultModelId)) {
       return userDefaultModelId;
     }
@@ -502,7 +508,7 @@ export function ChatClient() {
     }
     const thread = threads.find((t) => t.id === threadId);
     const validIds = new Set(models.map((m) => m.id));
-    const modelId = validateModelId(
+    const modelId = validatestring(
       thread?.defaultModelId,
       validIds,
       defaultModelId,

@@ -3,7 +3,6 @@
 import type { ModelOption } from "@/components/ModelSelector";
 import { useDensity, type Density } from "@/lib/density";
 import { useTheme, type Theme } from "@/lib/theme";
-import type { ModelId } from "@ai-workspace/agent";
 import { useEffect, useMemo, useState } from "react";
 
 interface Props {
@@ -11,9 +10,9 @@ interface Props {
   displayName: string;
   onDisplayNameChange: (name: string) => void;
   models: readonly ModelOption[];
-  defaultModelId: ModelId;
-  userDefaultModelId?: ModelId;
-  onUserDefaultModelChange: (id: ModelId) => void;
+  defaultModelId: string;
+  userDefaultModelId?: string;
+  onUserDefaultModelChange: (id: string) => void;
   onClose: () => void;
   onOpenSidebar: () => void;
 }
@@ -157,7 +156,7 @@ export function SettingsPanel({
     [nameDraft, userEmail],
   );
 
-  const currentDefault: ModelId = userDefaultModelId ?? defaultModelId;
+  const currentDefault: string = userDefaultModelId ?? defaultModelId;
 
   function handleNameSave() {
     const trimmed = nameDraft.trim();
@@ -291,7 +290,7 @@ export function SettingsPanel({
               <select
                 value={currentDefault}
                 onChange={(e) =>
-                  onUserDefaultModelChange(e.target.value as ModelId)
+                  onUserDefaultModelChange(e.target.value)
                 }
                 disabled={models.length === 0}
                 className="rounded-md border border-hairline bg-canvas px-2 py-2 text-sm text-ink disabled:opacity-50 focus:outline-none"
