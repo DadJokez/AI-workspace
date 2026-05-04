@@ -128,7 +128,7 @@ export function Sidebar({
   activeNavId,
   onNavSelect,
 }: Props) {
-  const [chatsOpen, setChatsOpen] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(true);
 
   const initials = (userName ?? userEmail ?? "?")
     .split(/[\s@.]+/)
@@ -230,11 +230,12 @@ export function Sidebar({
           <div className="mx-2 mb-1.5 h-px bg-hairline" aria-hidden />
           <button
             type="button"
-            onClick={() => setChatsOpen((v) => !v)}
-            aria-expanded={chatsOpen}
+            onClick={() => setHistoryOpen((v) => !v)}
+            aria-expanded={historyOpen}
+            aria-label={historyOpen ? "Collapse history" : "Expand history"}
             className="flex min-h-[28px] w-full items-center justify-between gap-2 rounded-md px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted hover:text-ink"
           >
-            <span>Chats</span>
+            <span>History</span>
             <svg
               viewBox="0 0 16 16"
               width="10"
@@ -244,23 +245,23 @@ export function Sidebar({
               strokeWidth="1.8"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className={`transition-transform ${chatsOpen ? "rotate-90" : ""}`}
+              className={`transition-transform ${historyOpen ? "rotate-90" : ""}`}
               aria-hidden="true"
             >
               <path d="m6 4 4 4-4 4" />
             </svg>
           </button>
-          {chatsOpen ? (
+          {historyOpen ? (
             <div className="max-h-[40vh] overflow-y-auto">
               {threadsLoading && threads.length === 0 ? (
                 <ThreadsSkeleton />
               ) : threadsError && threads.length === 0 ? (
                 <div className="px-2 py-2 text-[12px] text-muted">
-                  Couldn&apos;t load chats. Try again later.
+                  Couldn&apos;t load history. Try again later.
                 </div>
               ) : threads.length === 0 ? (
                 <div className="px-2 py-2 text-[12px] text-muted">
-                  No chats yet.
+                  No conversations yet.
                 </div>
               ) : (
                 <div className="flex flex-col">

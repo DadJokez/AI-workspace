@@ -867,19 +867,18 @@ export function ChatClient() {
 
 function EmptyState({ onPick }: { onPick: (s: string) => void }) {
   const samples = [
-    "Summarize this document for me",
-    "Help me draft a message to my team",
-    "Walk me through a complex topic step by step",
-    "Help me think through a decision",
+    "Summarize my emails from this week",
+    "What's on my calendar today?",
+    "Draft a follow-up based on my last meeting",
+    "Pull my open tasks and help me prioritize",
   ];
   return (
     <div className="flex flex-col items-center gap-4 py-24 text-center">
       <div className="text-2xl font-medium tracking-tight text-ink">
-        Talk to your work
+        Talk to your work.
       </div>
       <p className="max-w-md text-sm text-muted">
-        Ask anything. Pick the model that fits the job — Haiku for fast, Sonnet
-        for default, Opus for hard.
+        Connect your tools and let AI get things done across your stack.
       </p>
       <div className="flex flex-wrap justify-center gap-2 pt-4">
         {samples.map((s) => (
