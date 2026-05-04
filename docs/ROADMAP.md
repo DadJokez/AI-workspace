@@ -1,14 +1,119 @@
-# Integration roadmap — MCP servers and flagship use cases
+# Roadmap — user journeys, integrations, and flagship use cases
 
 > Companion to [`ARCHITECTURE.md`](./ARCHITECTURE.md) (the end-state
 > picture) and [`PLAN.md`](../PLAN.md) (the weekly ship plan).
 >
 > [`PLAN.md`](../PLAN.md) sequences **construction** (which week each
-> piece ships). This doc sequences **integration coverage** (which
-> systems we go after, in what tier, and which use cases each one
-> unlocks). The two map onto each other but answer different
-> questions: PLAN is "what am I building this Friday"; this doc is
-> "where does the catalog grow next, and why".
+> piece ships). This doc sequences **product surface** — the user
+> journeys we're building toward, the integrations that feed them,
+> and the named use cases each integration unlocks. The two map onto
+> each other but answer different questions: PLAN is "what am I
+> building this Friday"; this doc is "what experience are we shaping,
+> and how does the catalog grow to support it".
+
+## User journeys
+
+The workspace is built around **five canonical user journeys**,
+sequenced by build order. Everything else in this doc — agent
+platform, integration tiering, flagship use cases — is in service
+of moving users through these. They're the north star.
+
+### J1 — Chat
+
+A user opens the workspace, types into a thread, gets a streamed
+response. Multi-turn, personal, interactive. **Already built**:
+chat tabs with independent histories, persisted across sessions per
+user, sidebar history grouped by recency, search, settings (profile,
+theme, density, default model, integrations placeholder, keyboard
+shortcuts), full mobile responsiveness, dynamic model catalog from
+the Cursor SDK.
+
+### J2 — Chat with Tools
+
+The same chat surface, but the agent has access to the user's actual
+work systems — calendar, email, Slack, CRM, file storage, ticketing —
+and can both **read** and **act**. "What's on my calendar today?"
+returns a real answer; "Send Bob the deck from yesterday's deal
+review" performs a real action. This is what makes "talk to your
+work" real rather than aspirational.
+
+**Requires:** real MCP tool servers per integration + delegated auth
+(Entra / Salesforce OAuth / etc.) + the `preToolUse` attestation gate
+for any write-side call. The Cursor SDK runtime and MCP placeholders
+are already wired; the remaining work is the per-integration servers
+in the tier table below and the OAuth plumbing per the v2 plan.
+
+### J3 — Scheduled Agent
+
+The same chat-with-tools agent, invoked on a **schedule** or in
+response to an **event** instead of a user keystroke. "Every Monday
+at 8am, summarize the past week and post it as the week's Status
+thread." "When a new email matching `from:ceo@*` arrives, draft a
+reply for me to review."
+
+**Requires:** J2 done + a scheduling layer (DB table holding
+schedules, a cron worker that calls `agent.send()` and streams the
+result back into a designated thread) + an event-trigger layer
+(inbound webhooks or polling that fires the same hook on state
+changes). Scheduling is the easier half; webhooks are where this
+graduates from "tool" to "autonomous agent". PLAN.md week 5 sequences
+the scheduling piece; webhooks are a follow-on.
+
+### J4 — App Build and Deploy
+
+A user describes a small internal web app in conversation. The
+workspace agent writes the code, shows a preview, iterates with the
+user, and on **Deploy** provisions everything needed to run it:
+a GitHub repo, a build pipeline, and a new App Runner service. The
+app is reachable only through the workspace — the workspace is the
+**IdP**, and apps trust workspace-issued tokens via SSO. New apps
+appear in the sidebar under **Apps**, where teammates with the right
+access can discover and use them.
+
+This is the biggest value unlock in the product: a non-technical user
+goes from "I wish we had a tool that…" to a live running app, with
+auth and discoverability and shareability handled, without leaving
+chat.
+
+**Requires:** code-generation loop (shaped by the Cursor SDK runtime)
++ a deploy controller (creates the repo, kicks the pipeline,
+provisions App Runner) + the SSO seam (workspace-issued bearer or
+OIDC handing off to the deployed app) + an **Apps** registry surfaced
+in the sidebar. Nothing in the current build covers any of this; J4
+is its own epic.
+
+### J5 — Share
+
+Any artifact in the workspace — a chat thread, a scheduled agent
+config, a deployed app — can be shared with named teammates,
+distributed via a catalog (the recipes / skills surface in
+ARCHITECTURE.md), or made discoverable workspace-wide. Access control
+lives in the workspace, not in the underlying integrations or apps.
+Shared items appear in recipients' sidebars in the appropriate
+section (History, Scheduled, Apps).
+
+**Cuts across J1–J4.** Sharing a chat thread is one shape; sharing a
+recurring scheduled agent ("subscribe to Rob's weekly status") is
+another; sharing a deployed app (granting access to the app's
+workspace-SSO realm) is another. The mechanics differ; the user
+mental model — "make this available to Alice" — is the same.
+
+### How the rest of this doc maps onto the journeys
+
+- **Agent Platform** (Tool use via MCP → Scheduling → Event triggers)
+  is the runtime substrate for **J2 and J3**.
+- **Integration catalog** (Tier 1 / 2 / 3) populates the set of tools
+  available to **J2**, and by extension to **J3** and the flagship
+  use cases.
+- **Flagship use cases** (Meeting Prep, Weekly Status, Customer
+  Account Briefing, etc.) are concrete instances of **J2** — recipes
+  that exercise specific tool bundles to deliver named value props.
+  Some of them (recurring status, ticket triage) graduate naturally
+  to **J3** once scheduling lands.
+- **J4 (App Build and Deploy)** has no home in the rest of this doc
+  yet; it's the next major scope expansion and will get its own epic.
+- **J5 (Share)** is cross-cutting: every artifact this doc describes
+  needs a shareability story before the workspace is "done".
 
 ## Tiering
 
