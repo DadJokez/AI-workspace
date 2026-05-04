@@ -251,11 +251,16 @@ function errorMessage(err: unknown): string {
   return String(err);
 }
 
-// Defer model selection to Cursor's auto-router instead of mapping caller
-// ids. The incoming modelId is intentionally ignored for now; reinstate a
-// translation table here if the product needs deterministic per-call routing.
-function toCursorModelId(_modelId: string): string {
-  return "default";
+// Translate our internal model ids (haiku-4-5 / sonnet-4-6 / opus-4-7) to the
+// Cursor / Anthropic ids the SDK actually routes on. Unknown ids fall back to
+// Sonnet — same default as DEFAULT_MODEL_ID in @ai-workspace/agent.
+function toCursorModelId(modelId: string): string {
+  const map: Record<string, string> = {
+    "haiku-4-5": "claude-haiku-4-5-20251001",
+    "sonnet-4-6": "claude-sonnet-4-6",
+    "opus-4-7": "claude-opus-4-7",
+  };
+  return map[modelId] ?? "claude-sonnet-4-6";
 }
 
 /**

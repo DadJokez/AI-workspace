@@ -2,7 +2,7 @@
 
 import { ChatInput } from "@/components/ChatInput";
 import { MessageBubble } from "@/components/MessageBubble";
-import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
+import { type ModelOption } from "@/components/ModelSelector";
 import { SearchPanel } from "@/components/SearchPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
@@ -654,7 +654,7 @@ export function ChatClient() {
   }
 
   if (!activeTab) return null;
-  const { busy, error, messages, modelId } = activeTab;
+  const { busy, error, messages } = activeTab;
   const inputDisabled = busy || models.length === 0;
   const sidebarDisplayName = displayNameOverride ?? user?.displayName;
   const isChatView = view === "chat";
@@ -793,14 +793,6 @@ export function ChatClient() {
             </button>
           </div>
           <div className="flex shrink-0 items-center gap-1 self-center px-2 sm:gap-1.5 sm:px-3 sm:self-end sm:pb-1">
-            {models.length > 0 && modelId ? (
-              <ModelSelector
-                value={modelId}
-                onChange={(id) => patchTab(activeId, { modelId: id })}
-                options={models}
-                disabled={busy}
-              />
-            ) : null}
             <ThemeToggle />
           </div>
         </header>
