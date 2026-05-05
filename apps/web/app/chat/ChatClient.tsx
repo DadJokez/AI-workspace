@@ -6,6 +6,7 @@ import { type ModelOption } from "@/components/ModelSelector";
 import { SearchPanel } from "@/components/SearchPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
+import { ToolsPanel } from "@/components/ToolsPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { readSseStream } from "@/lib/sse";
 import { useEffect, useRef, useState } from "react";
@@ -16,7 +17,7 @@ import { useEffect, useRef, useState } from "react";
 // opaque strings; the runtime layer is the source of truth on what's valid.
 const FALLBACK_DEFAULT_MODEL_ID = "claude-sonnet-4-6";
 
-type View = "chat" | "settings" | "search";
+type View = "chat" | "settings" | "search" | "tools";
 
 const DISPLAY_NAME_PREFIX = "ai-workspace-display-name:";
 const DEFAULT_MODEL_PREFIX = "ai-workspace-default-model:";
@@ -536,6 +537,7 @@ export function ChatClient() {
     if (id === "chat") setView("chat");
     else if (id === "settings") setView("settings");
     else if (id === "search") setView("search");
+    else if (id === "tools") setView("tools");
   }
 
   async function send(text: string) {
@@ -700,6 +702,11 @@ export function ChatClient() {
             threads={threads}
             threadsLoading={threadsLoading}
             onOpenThread={openThread}
+            onClose={() => setView("chat")}
+            onOpenSidebar={() => setSidebarOpen(true)}
+          />
+        ) : view === "tools" ? (
+          <ToolsPanel
             onClose={() => setView("chat")}
             onOpenSidebar={() => setSidebarOpen(true)}
           />

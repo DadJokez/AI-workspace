@@ -22,21 +22,18 @@ interface NavGroup {
 /**
  * Nav layout maps to journeys J2-J5 — chat (J1) is the whole app, so it
  * doesn't appear as a nav item. New chats start from the "+" next to the
- * History header. Everything else is visible-but-disabled so the roadmap
- * is legible at a glance.
+ * History header. Tools (J2) is live for connecting integrations; the
+ * rest are visible-but-disabled so the roadmap is legible at a glance.
  */
 const groups: NavGroup[] = [
   {
+    items: [
+      { id: "tools", label: "Tools", icon: <IconTool /> },
+    ],
+  },
+  {
     label: "Coming soon",
     items: [
-      {
-        id: "tools",
-        label: "Tools",
-        icon: <IconTool />,
-        disabled: true,
-        badge: "Soon",
-        tooltip: "Coming soon — chat with access to your connected tools",
-      },
       {
         id: "scheduled",
         label: "Scheduled",

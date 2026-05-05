@@ -17,92 +17,6 @@ interface Props {
   onOpenSidebar: () => void;
 }
 
-interface Integration {
-  id: string;
-  name: string;
-  description: string;
-  initial: string;
-  bg: string;
-  fg: string;
-}
-
-const INTEGRATIONS: Integration[] = [
-  {
-    id: "ms365",
-    name: "Microsoft 365",
-    description: "Access emails, calendar, Teams, and SharePoint",
-    initial: "M",
-    bg: "#1E6FD9",
-    fg: "#ffffff",
-  },
-  {
-    id: "slack",
-    name: "Slack",
-    description: "Search messages, channels, and files",
-    initial: "S",
-    bg: "#4A154B",
-    fg: "#ffffff",
-  },
-  {
-    id: "google",
-    name: "Google Workspace",
-    description: "Gmail, Drive, Docs, and Calendar",
-    initial: "G",
-    bg: "#188038",
-    fg: "#ffffff",
-  },
-  {
-    id: "salesforce",
-    name: "Salesforce",
-    description: "CRM data, accounts, and opportunities",
-    initial: "S",
-    bg: "#00A1E0",
-    fg: "#ffffff",
-  },
-  {
-    id: "github",
-    name: "GitHub",
-    description: "Repositories, issues, and pull requests",
-    initial: "G",
-    bg: "#1F2328",
-    fg: "#ffffff",
-  },
-  {
-    id: "sap",
-    name: "SAP",
-    description: "ERP data and business processes",
-    initial: "S",
-    bg: "#0A6ED1",
-    fg: "#ffffff",
-  },
-  {
-    id: "jira",
-    name: "Jira",
-    description: "Issues, sprints, and project tracking",
-    initial: "J",
-    bg: "#2684FF",
-    fg: "#ffffff",
-  },
-  {
-    id: "servicenow",
-    name: "ServiceNow",
-    description: "Tickets, incidents, and ITSM workflows",
-    initial: "S",
-    bg: "#00754A",
-    fg: "#ffffff",
-  },
-];
-
-const SHORTCUTS: Array<{ keys: string; label: string }> = [
-  { keys: "⌘ K  /  Ctrl K", label: "Search" },
-  { keys: "⌘ N  /  Ctrl N", label: "New chat" },
-  { keys: "⌘ W  /  Ctrl W", label: "Close tab" },
-  { keys: "⌘ \\  /  Ctrl \\", label: "Toggle sidebar" },
-  { keys: "⌘ ,  /  Ctrl ,", label: "Open settings" },
-  { keys: "↑", label: "Edit last message" },
-  { keys: "Esc", label: "Cancel / close" },
-];
-
 function deriveInitials(name: string, fallback: string): string {
   const source = name.trim() || fallback;
   return source
@@ -128,46 +42,20 @@ export function SettingsPanel({
   const { density, setDensity } = useDensity();
   const [nameDraft, setNameDraft] = useState(displayName);
   const [savedFlash, setSavedFlash] = useState(false);
-  const [activeIntegration, setActiveIntegration] = useState<
-    Integration | undefined
-  >();
-  const [oauthStatus, setOauthStatus] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/oauth/status", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!cancelled && data && typeof data === "object") {
-          setOauthStatus(data as Record<string, boolean>);
-        }
-      })
-      .catch(() => {
-        /* network errors → tiles stay "not connected" */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // Keep input in sync if displayName changes upstream
   useEffect(() => {
     setNameDraft(displayName);
   }, [displayName]);
 
-  // Escape closes the panel (or the modal if open)
+  // Escape closes the panel
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (activeIntegration) {
-        setActiveIntegration(undefined);
-        return;
-      }
-      onClose();
+      if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeIntegration, onClose]);
+  }, [onClose]);
 
   const initials = useMemo(
     () => deriveInitials(nameDraft, userEmail ?? "?"),
@@ -329,126 +217,8 @@ export function SettingsPanel({
               </p>
             </Field>
           </Section>
-
-          <Divider />
-
-          <Section title="Integrations">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {INTEGRATIONS.map((it) => {
-                const isReal = it.id === "github";
-                const connected = oauthStatus[it.id] === true;
-                return (
-                  <div
-                    key={it.id}
-                    className="flex flex-col gap-3 rounded-lg border border-hairline p-4 transition-colors hover:bg-subtle"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-base font-semibold"
-                        style={{
-                          backgroundColor: it.bg,
-                          color: it.fg,
-                        }}
-                        aria-hidden
-                      >
-                        {it.initial}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-ink">
-                          {it.name}
-                        </div>
-                        <div className="line-clamp-2 text-[12px] text-muted">
-                          {it.description}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      {connected ? (
-                        <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-ink">
-                          <svg
-                            viewBox="0 0 16 16"
-                            width="12"
-                            height="12"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <path d="m3 8 3.5 3.5L13 5" />
-                          </svg>
-                          Connected
-                        </span>
-                      ) : (
-                        <span className="rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
-                          Not connected
-                        </span>
-                      )}
-                      {isReal ? (
-                        connected ? (
-                          <span className="text-[11px] text-muted">
-                            Linked to your account
-                          </span>
-                        ) : (
-                          <a
-                            href="/api/oauth/github/start"
-                            className="rounded-md border border-hairline bg-canvas px-3 py-1 text-xs font-medium text-ink hover:bg-subtle"
-                          >
-                            Connect
-                          </a>
-                        )
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setActiveIntegration(it)}
-                          className="rounded-md border border-hairline bg-canvas px-3 py-1 text-xs font-medium text-ink hover:bg-subtle"
-                        >
-                          Connect
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <button
-              type="button"
-              className="self-start text-[12px] text-muted hover:text-ink"
-              onClick={() => {
-                /* placeholder */
-              }}
-            >
-              Browse all integrations →
-            </button>
-          </Section>
-
-          <Divider />
-
-          <Section title="Keyboard shortcuts">
-            <ul className="flex flex-col divide-y divide-hairline rounded-md border border-hairline">
-              {SHORTCUTS.map((s, i) => (
-                <li
-                  key={i}
-                  className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
-                >
-                  <span className="text-ink">{s.label}</span>
-                  <span className="font-mono text-[12px] text-muted">
-                    {s.keys}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </Section>
         </div>
       </div>
-
-      {activeIntegration ? (
-        <IntegrationModal
-          integration={activeIntegration}
-          onClose={() => setActiveIntegration(undefined)}
-        />
-      ) : null}
     </div>
   );
 }
@@ -527,65 +297,6 @@ function SegmentedControl<T extends string>({
           </button>
         );
       })}
-    </div>
-  );
-}
-
-function IntegrationModal({
-  integration,
-  onClose,
-}: {
-  integration: Integration;
-  onClose: () => void;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="integration-modal-title"
-    >
-      <div
-        aria-hidden="true"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/40"
-      />
-      <div className="relative z-10 flex w-full max-w-sm flex-col gap-4 rounded-lg border border-hairline bg-canvas p-5 text-ink">
-        <div className="flex items-start gap-3">
-          <div
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-base font-semibold"
-            style={{
-              backgroundColor: integration.bg,
-              color: integration.fg,
-            }}
-            aria-hidden
-          >
-            {integration.initial}
-          </div>
-          <div className="min-w-0 flex-1">
-            <h3
-              id="integration-modal-title"
-              className="text-sm font-medium text-ink"
-            >
-              {integration.name}
-            </h3>
-            <p className="text-[12px] text-muted">{integration.description}</p>
-          </div>
-        </div>
-        <p className="text-sm text-ink">
-          OAuth connection coming soon. {integration.name} integration is on
-          our roadmap.
-        </p>
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md bg-ink px-3 py-1.5 text-xs font-medium text-canvas hover:opacity-90"
-          >
-            Got it
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
