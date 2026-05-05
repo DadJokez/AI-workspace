@@ -12,6 +12,7 @@ import {
   GITHUB_PROVIDER,
   GITHUB_REDIRECT_URI,
   GITHUB_TOKEN_URL,
+  PUBLIC_BASE_URL,
   STATE_COOKIE,
 } from "@/lib/oauth/github";
 import { ensureUser } from "@/lib/users";
@@ -28,8 +29,8 @@ interface GitHubTokenResponse {
   error_description?: string;
 }
 
-function settingsRedirect(req: Request, params: Record<string, string>) {
-  const url = new URL("/chat", req.url);
+function settingsRedirect(_req: Request, params: Record<string, string>) {
+  const url = new URL("/chat", PUBLIC_BASE_URL);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   const res = NextResponse.redirect(url.toString(), { status: 302 });
   res.cookies.set(STATE_COOKIE, "", { path: "/", maxAge: 0 });
