@@ -20,16 +20,12 @@ interface NavGroup {
 }
 
 /**
- * Nav layout maps to the five user journeys: J1 Chat, J2 Chat with Tools,
- * J3 Scheduled Agent, J4 App Build/Deploy, J5 Share. Only J1 ships today.
- * The rest are visible-but-disabled so the roadmap is legible at a glance.
+ * Nav layout maps to journeys J2-J5 — chat (J1) is the whole app, so it
+ * doesn't appear as a nav item. New chats start from the "+" next to the
+ * History header. Everything else is visible-but-disabled so the roadmap
+ * is legible at a glance.
  */
 const groups: NavGroup[] = [
-  {
-    items: [
-      { id: "chat", label: "Chat", icon: <IconChat /> },
-    ],
-  },
   {
     label: "Coming soon",
     items: [
@@ -250,42 +246,41 @@ export function Sidebar({
           </button>
         </div>
 
-        <div className="shrink-0 px-2">
-          <button
-            type="button"
-            onClick={handleNewChat}
-            className="flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-ink hover:bg-subtle md:min-h-0 md:py-1.5"
-          >
-            <IconPlus />
-            <span>New chat</span>
-          </button>
-        </div>
-
         <div className="shrink-0 px-2 pb-1.5 pt-2">
-          <div className="mx-2 mb-1.5 h-px bg-hairline" aria-hidden />
-          <button
-            type="button"
-            onClick={() => setHistoryOpen((v) => !v)}
-            aria-expanded={historyOpen}
-            aria-label={historyOpen ? "Collapse history" : "Expand history"}
-            className="flex min-h-[28px] w-full items-center justify-between gap-2 rounded-md px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted hover:text-ink"
-          >
-            <span>History</span>
-            <svg
-              viewBox="0 0 16 16"
-              width="10"
-              height="10"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className={`transition-transform ${historyOpen ? "rotate-90" : ""}`}
-              aria-hidden="true"
+          <div className="flex min-h-[28px] items-center gap-1 px-2 pb-1 pt-1">
+            <button
+              type="button"
+              onClick={() => setHistoryOpen((v) => !v)}
+              aria-expanded={historyOpen}
+              aria-label={historyOpen ? "Collapse history" : "Expand history"}
+              className="flex flex-1 items-center gap-1.5 rounded-md text-left text-[10px] font-medium uppercase tracking-wider text-muted hover:text-ink"
             >
-              <path d="m6 4 4 4-4 4" />
-            </svg>
-          </button>
+              <svg
+                viewBox="0 0 16 16"
+                width="10"
+                height="10"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={`transition-transform ${historyOpen ? "rotate-90" : ""}`}
+                aria-hidden="true"
+              >
+                <path d="m6 4 4 4-4 4" />
+              </svg>
+              <span>History</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleNewChat}
+              aria-label="New chat"
+              title="New chat"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-subtle hover:text-ink"
+            >
+              <IconPlus />
+            </button>
+          </div>
           {historyOpen ? (
             <div className="max-h-[40vh] overflow-y-auto">
               {threadsLoading && threads.length === 0 ? (
@@ -422,22 +417,6 @@ function IconPlus() {
       strokeLinecap="round"
     >
       <path d="M8 3v10M3 8h10" />
-    </svg>
-  );
-}
-
-function IconChat() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinejoin="round"
-    >
-      <path d="M2.5 4.5A1.5 1.5 0 0 1 4 3h8a1.5 1.5 0 0 1 1.5 1.5v5A1.5 1.5 0 0 1 12 11H6.5L4 13.5V11a1.5 1.5 0 0 1-1.5-1.5z" />
     </svg>
   );
 }
