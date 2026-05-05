@@ -40,10 +40,23 @@ export interface CursorRuntimeOptions {
   mcpServers?: readonly McpServerConfigStub[];
 }
 
+export interface ThreadAgentRecord {
+  agentId: string;
+  /**
+   * Stable identity of the MCP-server set the agent was created with.
+   * Empty string = no MCP servers. NULL = legacy agent (predates the column).
+   * The runtime force-recreates the agent when this differs from the
+   * current turn's signature.
+   */
+  mcpSignature: string | null;
+}
+
 /** Read/write the persisted `threadId → cursor agentId` mapping. */
 export interface ThreadAgentStore {
-  get(threadId: string): Promise<string | null>;
-  set(threadId: string, agentId: string): Promise<void>;
+  get(threadId: string): Promise<ThreadAgentRecord | null>;
+  set(threadId: string, record: ThreadAgentRecord): Promise<void>;
+  /** Force a fresh agent on the next turn (used when MCP signature changes). */
+  clear(threadId: string): Promise<void>;
 }
 
 /**
@@ -135,28 +148,75 @@ export class CursorRuntime implements AgentRuntime {
   }
 
   private async getOrCreateAgent(input: TurnInput): Promise<SDKAgent> {
-    const existingId = await this.store.get(input.threadId);
-    if (existingId) {
-      try {
-        return await Agent.resume(existingId, { apiKey: this.opts.apiKey });
-      } catch (err) {
-        if (!isAgentMissingError(errorMessage(err))) throw err;
-        // The persisted agent id is stale — Cursor's server no longer has
-        // it (deleted, expired, or different account). Fall through to
-        // create a fresh agent; the store.set below overwrites the dead
-        // id so subsequent turns hit the new agent on the resume path.
+    const turnMcp = input.mcpServers as
+      | Record<string, McpServerConfig>
+      | undefined;
+    const turnSignature = computeMcpSignature(input.mcpServers);
+
+    const existing = await this.store.get(input.threadId);
+    if (existing) {
+      // A stored mcpSignature of `null` means a legacy agent created before
+      // we tracked signatures — treat those as mismatched if the current
+      // turn brings any MCP, so the agent is recreated with tools bound.
+      const sigMatches = (existing.mcpSignature ?? "") === turnSignature;
+      if (sigMatches) {
+        try {
+          return await Agent.resume(existing.agentId, {
+            apiKey: this.opts.apiKey,
+          });
+        } catch (err) {
+          if (!isAgentMissingError(errorMessage(err))) throw err;
+          // Stale agent id on Cursor's side — fall through to create a fresh
+          // one. The store.set below overwrites the dead id.
+        }
+      } else {
+        // The user connected/disconnected a provider since this thread's
+        // agent was created. The cloud agent's tool surface is bound at
+        // create time, so we abandon it and create a new one with the
+        // current MCP set. Conversation history on Cursor's side is lost
+        // for this thread; chat history in our DB still drives `messages`.
+        await this.store.clear(input.threadId);
       }
     }
 
-    const mcpServers = toMcpRecord(this.opts.mcpServers);
+    // Constructor-level mcpServers are merged with per-turn so a future
+    // dev-loop can pre-bind a fixed server (e.g. an audit-log MCP) without
+    // the route having to know about it.
+    const baseMcp = toMcpRecord(this.opts.mcpServers);
+    const mergedMcp = mergeMcp(baseMcp, turnMcp);
     const agent = await Agent.create({
       apiKey: this.opts.apiKey,
       model: { id: toCursorModelId(input.modelId) },
-      ...(mcpServers ? { mcpServers } : {}),
+      ...(mergedMcp ? { mcpServers: mergedMcp } : {}),
     });
-    await this.store.set(input.threadId, agent.agentId);
+    await this.store.set(input.threadId, {
+      agentId: agent.agentId,
+      mcpSignature: turnSignature,
+    });
     return agent;
   }
+}
+
+/**
+ * Stable identity of an `mcpServers` map. Just the sorted provider names
+ * joined with `,`. Empty string for "no MCP". Tokens / URLs / headers are
+ * NOT in the signature — token rotation must not force agent recreation.
+ */
+function computeMcpSignature(
+  mcpServers: Record<string, unknown> | undefined,
+): string {
+  if (!mcpServers) return "";
+  const keys = Object.keys(mcpServers);
+  if (keys.length === 0) return "";
+  return [...keys].sort().join(",");
+}
+
+function mergeMcp(
+  a: Record<string, McpServerConfig> | undefined,
+  b: Record<string, McpServerConfig> | undefined,
+): Record<string, McpServerConfig> | undefined {
+  if (!a && !b) return undefined;
+  return { ...(a ?? {}), ...(b ?? {}) };
 }
 
 /**
@@ -278,11 +338,14 @@ function toCursorModelId(modelId: string): string {
  * a `chat_threads.cursor_agent_id`-backed store so agents survive restarts.
  */
 export class InMemoryThreadAgentStore implements ThreadAgentStore {
-  private readonly map = new Map<string, string>();
-  async get(threadId: string): Promise<string | null> {
+  private readonly map = new Map<string, ThreadAgentRecord>();
+  async get(threadId: string): Promise<ThreadAgentRecord | null> {
     return this.map.get(threadId) ?? null;
   }
-  async set(threadId: string, agentId: string): Promise<void> {
-    this.map.set(threadId, agentId);
+  async set(threadId: string, record: ThreadAgentRecord): Promise<void> {
+    this.map.set(threadId, record);
+  }
+  async clear(threadId: string): Promise<void> {
+    this.map.delete(threadId);
   }
 }

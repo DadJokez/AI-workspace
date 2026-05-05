@@ -61,6 +61,15 @@ export const chatThreads = pgTable(
      * survive restarts.
      */
     cursorAgentId: text("cursor_agent_id"),
+    /**
+     * Stable identity of the MCP-server set this agent was created with.
+     * Today: sorted provider names joined with `,` (e.g. `"github"` or
+     * `"github,notion"`). Empty string = no MCP. NULL = legacy agent created
+     * before MCP wiring. When the current turn's signature differs, the
+     * runtime force-recreates the agent so its tool surface stays in sync
+     * with the user's connected providers.
+     */
+    mcpSignature: text("mcp_signature"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

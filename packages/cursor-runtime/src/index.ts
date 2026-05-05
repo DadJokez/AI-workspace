@@ -13,6 +13,7 @@ export {
 export type {
   CursorRuntimeOptions,
   McpServerConfigStub,
+  ThreadAgentRecord,
   ThreadAgentStore,
 } from "./cursor-runtime";
 export { DbThreadAgentStore } from "./db-thread-agent-store";
