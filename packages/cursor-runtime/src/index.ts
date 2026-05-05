@@ -1,5 +1,6 @@
 export type {
   AgentRuntime,
+  McpServerSpec,
   RuntimeName,
   TurnInput,
 } from "./types";

@@ -9,6 +9,7 @@ import {
 } from "@ai-workspace/db";
 import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
 import { ensureUser } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
@@ -119,6 +120,18 @@ export async function POST(req: Request) {
   }));
 
   const runtime = getRuntime({ db });
+
+  // Per-user MCP servers from connected integrations (oauth_tokens).
+  // Wrapped in its own try so an MCP plumbing problem can never tank the
+  // chat — the user just doesn't get tools this turn.
+  let mcpServers;
+  try {
+    mcpServers = await buildUserMcpServers(db, dbUser.id);
+  } catch (err) {
+    console.warn("[mcp] buildUserMcpServers threw:", err);
+    mcpServers = undefined;
+  }
+
   const encoder = new TextEncoder();
   const abort = new AbortController();
   req.signal.addEventListener("abort", () => abort.abort());
@@ -148,6 +161,7 @@ export async function POST(req: Request) {
           messages: agentMessages,
           context: { userId: dbUser.id },
           signal: abort.signal,
+          ...(mcpServers ? { mcpServers } : {}),
         })) {
           if (ev.type === "text-delta") {
             assistantText += ev.delta;

@@ -1,6 +1,25 @@
 import type { AgentEvent, AgentMessage, ToolContext } from "@ai-workspace/agent";
 
 /**
+ * Per-turn MCP server config. Structurally mirrors `@cursor/sdk`'s
+ * `McpServerConfig` so this contract stays SDK-agnostic; the Cursor adapter
+ * casts directly. Bedrock ignores it.
+ */
+export type McpServerSpec =
+  | {
+      type?: "stdio";
+      command: string;
+      args?: string[];
+      env?: Record<string, string>;
+      cwd?: string;
+    }
+  | {
+      type: "http" | "sse";
+      url: string;
+      headers?: Record<string, string>;
+    };
+
+/**
  * Runtime-agnostic turn input. Both runtimes accept this shape; the adapter
  * decides how to map it onto its native call.
  *
@@ -10,8 +29,8 @@ import type { AgentEvent, AgentMessage, ToolContext } from "@ai-workspace/agent"
  *   `SDKAgent` keyed on `threadId` (creating one on first turn) and only the
  *   newest user message is forwarded via `agent.send()`.
  *
- * Anything that's truly runtime-specific (Bedrock toolConfig, Cursor MCP
- * server config) lives behind the runtime, not in this contract.
+ * Anything that's truly runtime-specific (Bedrock toolConfig) lives behind
+ * the runtime, not in this contract.
  */
 export interface TurnInput {
   /** Stable per-conversation key. For Cursor this maps to an `agentId`. */
@@ -26,6 +45,12 @@ export interface TurnInput {
   context: ToolContext;
   /** Hook for cancellation from the route layer. */
   signal?: AbortSignal;
+  /**
+   * Per-turn MCP servers (e.g. user's connected GitHub via OAuth). Cursor
+   * forwards them to `agent.send({ mcpServers })` so connection state can
+   * change between turns without recreating the agent. Bedrock ignores.
+   */
+  mcpServers?: Record<string, McpServerSpec>;
 }
 
 /**

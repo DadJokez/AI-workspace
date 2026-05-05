@@ -97,8 +97,15 @@ export class CursorRuntime implements AgentRuntime {
 
     let run;
     try {
+      // Per-turn mcpServers override anything baked in at agent.create() time.
+      // The TurnInput shape mirrors McpServerConfig structurally — see
+      // packages/cursor-runtime/src/types.ts — so the cast is safe.
+      const turnMcp = input.mcpServers as
+        | Record<string, McpServerConfig>
+        | undefined;
       run = await agent.send(lastUser, {
         model: { id: toCursorModelId(input.modelId) },
+        ...(turnMcp ? { mcpServers: turnMcp } : {}),
       });
     } catch (err) {
       yield {
