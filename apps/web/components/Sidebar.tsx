@@ -6,7 +6,12 @@ interface NavItem {
   id: string;
   label: string;
   icon: React.ReactNode;
+  /** When true: rendered dimmed, click is a no-op. */
+  disabled?: boolean;
+  /** Tiny right-side label, e.g. "Soon" / "Later" for roadmap placeholders. */
   badge?: string;
+  /** Tooltip on hover. */
+  tooltip?: string;
 }
 
 interface NavGroup {
@@ -14,33 +19,62 @@ interface NavGroup {
   items: NavItem[];
 }
 
+/**
+ * Nav layout maps to the five user journeys: J1 Chat, J2 Chat with Tools,
+ * J3 Scheduled Agent, J4 App Build/Deploy, J5 Share. Only J1 ships today.
+ * The rest are visible-but-disabled so the roadmap is legible at a glance.
+ */
 const groups: NavGroup[] = [
   {
     items: [
       { id: "chat", label: "Chat", icon: <IconChat /> },
-      { id: "search", label: "Search", icon: <IconSearch /> },
     ],
   },
   {
-    label: "Workspace",
+    label: "Coming soon",
     items: [
-      { id: "tools", label: "Tools", icon: <IconTool /> },
-      { id: "skills", label: "Skills", icon: <IconSparkle /> },
-      { id: "recipes", label: "Recipes", icon: <IconBook /> },
+      {
+        id: "tools",
+        label: "Tools",
+        icon: <IconTool />,
+        disabled: true,
+        badge: "Soon",
+        tooltip: "Coming soon — chat with access to your connected tools",
+      },
+      {
+        id: "scheduled",
+        label: "Scheduled",
+        icon: <IconCalendar />,
+        disabled: true,
+        badge: "Soon",
+        tooltip: "Coming soon — agents that run on a schedule",
+      },
     ],
   },
   {
-    label: "Library",
+    label: "Later",
     items: [
-      { id: "history", label: "History", icon: <IconClock /> },
-      { id: "shared", label: "Shared with me", icon: <IconShare /> },
+      {
+        id: "apps",
+        label: "Apps",
+        icon: <IconGrid />,
+        disabled: true,
+        badge: "Later",
+        tooltip: "Future — build and deploy apps from chat",
+      },
+      {
+        id: "shared",
+        label: "Shared",
+        icon: <IconShare />,
+        disabled: true,
+        badge: "Later",
+        tooltip: "Future — share threads, tools, and apps with teammates",
+      },
     ],
   },
   {
-    label: "Account",
     items: [
       { id: "settings", label: "Settings", icon: <IconCog /> },
-      { id: "help", label: "Help", icon: <IconHelp /> },
     ],
   },
 ];
@@ -156,8 +190,9 @@ export function Sidebar({
     onClose();
   }
 
-  function handleNavClick(id: string) {
-    onNavSelect?.(id);
+  function handleNavClick(item: NavItem) {
+    if (item.disabled) return;
+    onNavSelect?.(item.id);
     onClose();
   }
 
@@ -315,16 +350,22 @@ export function Sidebar({
               <ul className="flex flex-col">
                 {group.items.map((item) => {
                   const active = item.id === activeNavId;
+                  const disabled = !!item.disabled;
                   return (
                     <li key={item.id}>
                       <button
                         type="button"
-                        onClick={() => handleNavClick(item.id)}
+                        onClick={() => handleNavClick(item)}
+                        disabled={disabled}
                         aria-current={active ? "page" : undefined}
+                        aria-disabled={disabled || undefined}
+                        title={item.tooltip}
                         className={`flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] md:min-h-0 md:py-1.5 ${
-                          active
-                            ? "bg-subtle text-ink"
-                            : "text-muted hover:bg-subtle hover:text-ink"
+                          disabled
+                            ? "cursor-not-allowed text-muted/60"
+                            : active
+                              ? "bg-subtle text-ink"
+                              : "text-muted hover:bg-subtle hover:text-ink"
                         }`}
                       >
                         <span className="flex h-4 w-4 items-center justify-center text-current">
@@ -332,7 +373,7 @@ export function Sidebar({
                         </span>
                         <span className="flex-1 truncate">{item.label}</span>
                         {item.badge ? (
-                          <span className="rounded bg-subtle px-1.5 text-[10px] text-muted">
+                          <span className="rounded bg-subtle px-1.5 text-[10px] uppercase tracking-wider text-muted">
                             {item.badge}
                           </span>
                         ) : null}
@@ -401,23 +442,6 @@ function IconChat() {
   );
 }
 
-function IconSearch() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-    >
-      <circle cx="7" cy="7" r="4" />
-      <path d="m13 13-3-3" />
-    </svg>
-  );
-}
-
 function IconTool() {
   return (
     <svg
@@ -434,7 +458,7 @@ function IconTool() {
   );
 }
 
-function IconSparkle() {
+function IconCalendar() {
   return (
     <svg
       viewBox="0 0 16 16"
@@ -445,12 +469,13 @@ function IconSparkle() {
       strokeWidth="1.4"
       strokeLinejoin="round"
     >
-      <path d="M8 2v4M8 10v4M2 8h4M10 8h4" />
+      <rect x="2.5" y="3.5" width="11" height="10" rx="1.5" />
+      <path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" />
     </svg>
   );
 }
 
-function IconBook() {
+function IconGrid() {
   return (
     <svg
       viewBox="0 0 16 16"
@@ -461,24 +486,10 @@ function IconBook() {
       strokeWidth="1.4"
       strokeLinejoin="round"
     >
-      <path d="M3 3h6a2 2 0 0 1 2 2v8H5a2 2 0 0 0-2 2zM11 5a2 2 0 0 1 2-2v10a2 2 0 0 0-2 2" />
-    </svg>
-  );
-}
-
-function IconClock() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinecap="round"
-    >
-      <circle cx="8" cy="8" r="5.5" />
-      <path d="M8 5v3l2 1.5" />
+      <rect x="2.5" y="2.5" width="4" height="4" rx="0.6" />
+      <rect x="9.5" y="2.5" width="4" height="4" rx="0.6" />
+      <rect x="2.5" y="9.5" width="4" height="4" rx="0.6" />
+      <rect x="9.5" y="9.5" width="4" height="4" rx="0.6" />
     </svg>
   );
 }
@@ -519,21 +530,3 @@ function IconCog() {
   );
 }
 
-function IconHelp() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="8" cy="8" r="5.5" />
-      <path d="M6.5 6.2A1.5 1.5 0 0 1 9.5 6.2c0 1.3-1.5 1.3-1.5 2.3" />
-      <circle cx="8" cy="11" r="0.6" fill="currentColor" />
-    </svg>
-  );
-}

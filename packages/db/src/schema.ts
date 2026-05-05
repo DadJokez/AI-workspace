@@ -102,9 +102,45 @@ export const chatMessages = pgTable(
   }),
 );
 
+/**
+ * Per-user OAuth tokens for connected providers (GitHub, Notion, Google, …).
+ *
+ * `access_token` and `refresh_token` are stored as opaque strings produced by
+ * `encryptSecret(...)` in apps/web/lib/oauth/crypto.ts (AES-256-GCM with the
+ * key from `OAUTH_ENCRYPTION_KEY`). Never write a plaintext token here.
+ */
+export const oauthTokens = pgTable(
+  "oauth_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    accessToken: text("access_token").notNull(),
+    refreshToken: text("refresh_token"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    scope: text("scope"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userProviderUnique: uniqueIndex("oauth_tokens_user_provider_idx").on(
+      t.userId,
+      t.provider,
+    ),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type ChatThread = typeof chatThreads.$inferSelect;
 export type NewChatThread = typeof chatThreads.$inferInsert;
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type NewChatMessage = typeof chatMessages.$inferInsert;
+export type OAuthToken = typeof oauthTokens.$inferSelect;
+export type NewOAuthToken = typeof oauthTokens.$inferInsert;

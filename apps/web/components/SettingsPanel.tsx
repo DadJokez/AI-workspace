@@ -131,6 +131,24 @@ export function SettingsPanel({
   const [activeIntegration, setActiveIntegration] = useState<
     Integration | undefined
   >();
+  const [oauthStatus, setOauthStatus] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/oauth/status", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data && typeof data === "object") {
+          setOauthStatus(data as Record<string, boolean>);
+        }
+      })
+      .catch(() => {
+        /* network errors → tiles stay "not connected" */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Keep input in sync if displayName changes upstream
   useEffect(() => {
@@ -316,45 +334,83 @@ export function SettingsPanel({
 
           <Section title="Integrations">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {INTEGRATIONS.map((it) => (
-                <div
-                  key={it.id}
-                  className="flex flex-col gap-3 rounded-lg border border-hairline p-4 transition-colors hover:bg-subtle"
-                >
-                  <div className="flex items-start gap-3">
-                    <div
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-base font-semibold"
-                      style={{
-                        backgroundColor: it.bg,
-                        color: it.fg,
-                      }}
-                      aria-hidden
-                    >
-                      {it.initial}
+              {INTEGRATIONS.map((it) => {
+                const isReal = it.id === "github";
+                const connected = oauthStatus[it.id] === true;
+                return (
+                  <div
+                    key={it.id}
+                    className="flex flex-col gap-3 rounded-lg border border-hairline p-4 transition-colors hover:bg-subtle"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-base font-semibold"
+                        style={{
+                          backgroundColor: it.bg,
+                          color: it.fg,
+                        }}
+                        aria-hidden
+                      >
+                        {it.initial}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-ink">
+                          {it.name}
+                        </div>
+                        <div className="line-clamp-2 text-[12px] text-muted">
+                          {it.description}
+                        </div>
+                      </div>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-ink">
-                        {it.name}
-                      </div>
-                      <div className="line-clamp-2 text-[12px] text-muted">
-                        {it.description}
-                      </div>
+                    <div className="flex items-center justify-between gap-2">
+                      {connected ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-ink">
+                          <svg
+                            viewBox="0 0 16 16"
+                            width="12"
+                            height="12"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="m3 8 3.5 3.5L13 5" />
+                          </svg>
+                          Connected
+                        </span>
+                      ) : (
+                        <span className="rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+                          Not connected
+                        </span>
+                      )}
+                      {isReal ? (
+                        connected ? (
+                          <span className="text-[11px] text-muted">
+                            Linked to your account
+                          </span>
+                        ) : (
+                          <a
+                            href="/api/oauth/github/start"
+                            className="rounded-md border border-hairline bg-canvas px-3 py-1 text-xs font-medium text-ink hover:bg-subtle"
+                          >
+                            Connect
+                          </a>
+                        )
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setActiveIntegration(it)}
+                          className="rounded-md border border-hairline bg-canvas px-3 py-1 text-xs font-medium text-ink hover:bg-subtle"
+                        >
+                          Connect
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
-                      Not connected
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setActiveIntegration(it)}
-                      className="rounded-md border border-hairline bg-canvas px-3 py-1 text-xs font-medium text-ink hover:bg-subtle"
-                    >
-                      Connect
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             <button
               type="button"

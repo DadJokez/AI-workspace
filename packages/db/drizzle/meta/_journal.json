@@ -15,6 +15,13 @@
       "when": 1777744139034,
       "tag": "0001_wandering_famine",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778025600000,
+      "tag": "0002_oauth_tokens",
+      "breakpoints": true
     }
   ]
 }
