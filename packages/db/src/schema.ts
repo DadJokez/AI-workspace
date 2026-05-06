@@ -160,6 +160,46 @@ export const oauthTokens = pgTable(
   }),
 );
 
+/**
+ * Workspace invitations issued by admins.
+ *
+ * An admin generates a row here with `email`, `role`, and a one-shot
+ * `token`; the resulting `/invite/<token>` URL is shared out-of-band. When
+ * the invitee signs in for the first time and `ensureUser` upserts their
+ * row, it looks for a pending invitation matching their email and applies
+ * the pre-assigned `role`, marking `accepted_at` so the invite can't be
+ * reused. Rows where `expires_at < now()` are treated as expired even if
+ * `accepted_at` is still null.
+ *
+ * `email` is intentionally NOT unique — re-inviting the same address
+ * supersedes the older pending invite at consumption time (newest pending
+ * row wins).
+ */
+export const invitations = pgTable(
+  "invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    role: userRoleEnum("role").notNull().default("user"),
+    /** Cryptographically random hex token used in the invite URL. */
+    token: text("token").notNull(),
+    invitedBy: uuid("invited_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Null while pending; set to now() when consumed by `ensureUser`. */
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    /** Hard cutoff — 7 days after `created_at` by convention. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    tokenUnique: uniqueIndex("invitations_token_idx").on(t.token),
+    emailIdx: index("invitations_email_idx").on(t.email),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type ChatThread = typeof chatThreads.$inferSelect;
@@ -168,3 +208,5 @@ export type ChatMessage = typeof chatMessages.$inferSelect;
 export type NewChatMessage = typeof chatMessages.$inferInsert;
 export type OAuthToken = typeof oauthTokens.$inferSelect;
 export type NewOAuthToken = typeof oauthTokens.$inferInsert;
+export type Invitation = typeof invitations.$inferSelect;
+export type NewInvitation = typeof invitations.$inferInsert;

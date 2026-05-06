@@ -5,10 +5,12 @@ import {
 } from "@ai-workspace/db";
 import type { User as AuthUser, UserRole } from "@ai-workspace/auth";
 import { eq, sql } from "drizzle-orm";
+import { consumePendingInvitationForEmail } from "@/lib/invitations";
 
 /**
  * The first user ever to sign in is promoted to `admin`. Pure helper so the
- * decision is unit-testable without spinning up the DB. Used by `ensureUser`.
+ * decision is unit-testable without spinning up the DB. Used by `ensureUser`
+ * as the fallback when no pending invitation matches the new user's email.
  */
 export function decideInitialRole(existingUserCount: number): UserRole {
   return existingUserCount === 0 ? "admin" : "user";
@@ -54,13 +56,18 @@ export async function ensureUser(authUser: AuthUser): Promise<DbUser> {
     return row;
   }
 
-  // First-user-becomes-admin. We check the count *before* insert so a race
-  // between two simultaneous first-ever sign-ins can't mint two admins —
-  // the second insert sees count = 1 and falls through to the user role.
+  // Invitation wins over the default role logic: if an admin invited this
+  // email with a specific role, honor it (and mark the invite consumed so
+  // it can't be reused). Falls back to first-user-becomes-admin / `user`.
+  const invitedRole = await consumePendingInvitationForEmail(authUser.email);
+
+  // We check the count *before* insert so a race between two simultaneous
+  // first-ever sign-ins can't mint two admins — the second insert sees
+  // count = 1 and falls through to the user role.
   const countRows = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(users);
-  const role = decideInitialRole(countRows[0]?.count ?? 0);
+  const role = invitedRole ?? decideInitialRole(countRows[0]?.count ?? 0);
 
   const inserted = await db
     .insert(users)
