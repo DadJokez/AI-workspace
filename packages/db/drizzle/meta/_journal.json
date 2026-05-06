@@ -43,6 +43,13 @@
       "when": 1778026000000,
       "tag": "0005_users_role",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1778026100000,
+      "tag": "0006_invitations",
+      "breakpoints": true
     }
   ]
 }

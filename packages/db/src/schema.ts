@@ -160,6 +160,40 @@ export const oauthTokens = pgTable(
   }),
 );
 
+/**
+ * Admin-issued invitation links for onboarding new users. An admin generates
+ * a row here (with a random token + 7-day expiry); the prospective user
+ * follows /invite/<token> to a sign-in page. When they actually authenticate
+ * for the first time, `ensureUser` looks for a matching pending invitation
+ * by email and applies the invited role atomically (also stamping
+ * `acceptedAt` so the token can't be reused).
+ *
+ * `email` is not unique — re-issuing an invite for the same address is
+ * legitimate (lost link, expired link). Lookup filters on `acceptedAt IS
+ * NULL AND expiresAt > now()` to find the active invite.
+ */
+export const invitations = pgTable(
+  "invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    role: userRoleEnum("role").notNull().default("user"),
+    token: text("token").notNull(),
+    invitedBy: uuid("invited_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    tokenUnique: uniqueIndex("invitations_token_idx").on(t.token),
+    emailIdx: index("invitations_email_idx").on(t.email),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type ChatThread = typeof chatThreads.$inferSelect;
@@ -168,3 +202,5 @@ export type ChatMessage = typeof chatMessages.$inferSelect;
 export type NewChatMessage = typeof chatMessages.$inferInsert;
 export type OAuthToken = typeof oauthTokens.$inferSelect;
 export type NewOAuthToken = typeof oauthTokens.$inferInsert;
+export type Invitation = typeof invitations.$inferSelect;
+export type NewInvitation = typeof invitations.$inferInsert;

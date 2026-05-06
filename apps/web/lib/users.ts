@@ -1,10 +1,11 @@
 import {
   type User as DbUser,
   getDb,
+  invitations,
   users,
 } from "@ai-workspace/db";
 import type { User as AuthUser, UserRole } from "@ai-workspace/auth";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 
 /**
  * The first user ever to sign in is promoted to `admin`. Pure helper so the
@@ -12,6 +13,28 @@ import { eq, sql } from "drizzle-orm";
  */
 export function decideInitialRole(existingUserCount: number): UserRole {
   return existingUserCount === 0 ? "admin" : "user";
+}
+
+/**
+ * Look up a redeemable invitation for `email`: not yet accepted, not expired.
+ * Returns null when there is no pending invite. Exported only for testing.
+ */
+export async function findPendingInvitation(
+  email: string,
+): Promise<{ id: string; role: UserRole } | null> {
+  const db = getDb();
+  const rows = await db
+    .select({ id: invitations.id, role: invitations.role })
+    .from(invitations)
+    .where(
+      and(
+        eq(invitations.email, email),
+        isNull(invitations.acceptedAt),
+        gt(invitations.expiresAt, new Date()),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 /**
@@ -60,7 +83,14 @@ export async function ensureUser(authUser: AuthUser): Promise<DbUser> {
   const countRows = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(users);
-  const role = decideInitialRole(countRows[0]?.count ?? 0);
+  const baseRole = decideInitialRole(countRows[0]?.count ?? 0);
+
+  // If an admin pre-issued an invitation for this email, the invited role
+  // wins over the default `user` (but never over `admin`-by-first-signup —
+  // that path skips the invite check because there's no admin to issue one).
+  const pendingInvite =
+    baseRole === "admin" ? null : await findPendingInvitation(authUser.email);
+  const role: UserRole = pendingInvite?.role ?? baseRole;
 
   const inserted = await db
     .insert(users)
@@ -71,5 +101,13 @@ export async function ensureUser(authUser: AuthUser): Promise<DbUser> {
       role,
     })
     .returning();
+
+  if (pendingInvite) {
+    await db
+      .update(invitations)
+      .set({ acceptedAt: new Date() })
+      .where(eq(invitations.id, pendingInvite.id));
+  }
+
   return inserted[0]!;
 }
