@@ -159,6 +159,7 @@ export class CursorRuntime implements AgentRuntime {
 
     try {
       for await (const m of run.stream()) {
+        logSdkMessage(m, input.threadId, agent.agentId);
         yield* mapSdkMessage(m);
       }
     } catch (err) {
@@ -375,6 +376,63 @@ function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (err == null) return "unknown error";
   return String(err);
+}
+
+/**
+ * Stream-level diagnostic. Logs every tool_call (running / completed /
+ * error) so we can see which MCP tools were attempted and what they
+ * returned, plus every non-RUNNING status message — covers both the
+ * "tool result with isError" failure mode and SDK-level status errors.
+ * Result payloads are truncated at 8KB to stay well under CloudWatch's
+ * 256KB per-event limit while still capturing typical MCP error bodies.
+ */
+function logSdkMessage(
+  m: SDKMessage,
+  threadId: string,
+  agentId: string,
+): void {
+  if (m.type === "tool_call") {
+    const isError = m.status === "error";
+    const payload: Record<string, unknown> = {
+      threadId,
+      agentId,
+      callId: m.call_id,
+      name: m.name,
+      status: m.status,
+    };
+    if (m.truncated) payload.truncated = m.truncated;
+    if (m.status !== "running") {
+      payload.result = truncateJson(m.result, 8000);
+    }
+    const tag = isError ? "tool-error" : "tool-call";
+    process.stderr.write(
+      `[mcp-debug:${tag}] ${JSON.stringify(payload)}\n`,
+    );
+    return;
+  }
+  if (m.type === "status" && m.status !== "RUNNING") {
+    process.stderr.write(
+      `[mcp-debug:status] ${JSON.stringify({
+        threadId,
+        agentId,
+        status: m.status,
+        message: m.message,
+      })}\n`,
+    );
+    return;
+  }
+}
+
+function truncateJson(value: unknown, maxChars: number): unknown {
+  if (value === undefined) return undefined;
+  let s: string;
+  try {
+    s = JSON.stringify(value);
+  } catch {
+    s = String(value);
+  }
+  if (s.length <= maxChars) return value;
+  return { __truncated: true, length: s.length, preview: s.slice(0, maxChars) };
 }
 
 function logRuntimeError(
