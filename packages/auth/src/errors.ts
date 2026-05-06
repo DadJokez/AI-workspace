@@ -10,9 +10,10 @@ export class UnauthorizedError extends Error {
 }
 
 /**
- * Thrown when the auth shim itself is misconfigured (e.g. week-1 env vars
- * missing in a deployment). This is a deploy bug, not an auth failure —
- * surfacing it as 500 not 401.
+ * Thrown when the auth layer itself is misconfigured (e.g. missing OAuth
+ * env vars in a deployment). This is a deploy bug, not an auth failure —
+ * surfacing it as 500 not 401. Retained for callers that still catch it
+ * even though NextAuth handles most config errors itself.
  */
 export class AuthConfigError extends Error {
   override readonly name = "AuthConfigError";

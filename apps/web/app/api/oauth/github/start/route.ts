@@ -1,10 +1,7 @@
-import {
-  AuthConfigError,
-  UnauthorizedError,
-  requireUser,
-} from "@ai-workspace/auth";
+import { AuthConfigError, UnauthorizedError } from "@ai-workspace/auth";
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/auth/session";
 import {
   GITHUB_AUTHORIZE_URL,
   GITHUB_CLIENT_ID,

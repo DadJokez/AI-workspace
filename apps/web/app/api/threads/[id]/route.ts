@@ -8,12 +8,12 @@ import { userScope } from "@/lib/auth/scope";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  req: Request,
+  _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
   try {
-    const sessionUser = await getSessionUser(req);
+    const sessionUser = await getSessionUser();
     if (!sessionUser) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
@@ -66,12 +66,12 @@ export async function GET(
  * separate admin endpoint with audit logging, not here.
  */
 export async function DELETE(
-  req: Request,
+  _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
   try {
-    const sessionUser = await getSessionUser(req);
+    const sessionUser = await getSessionUser();
     if (!sessionUser) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }

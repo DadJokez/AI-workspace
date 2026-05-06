@@ -189,7 +189,7 @@ describe("GET /api/admin/invitations", () => {
     setSession(userSession);
     installDbMock();
     const { GET } = await import("@/app/api/admin/invitations/route");
-    const res = await GET(new Request("http://localhost/api/admin/invitations"));
+    const res = await GET();
     expect(res.status).toBe(403);
   });
 
@@ -208,7 +208,7 @@ describe("GET /api/admin/invitations", () => {
     ];
 
     const { GET } = await import("@/app/api/admin/invitations/route");
-    const res = await GET(new Request("http://localhost/api/admin/invitations"));
+    const res = await GET();
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       invitations: Array<{ inviteUrl: string; expiresAt: string }>;

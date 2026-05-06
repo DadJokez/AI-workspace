@@ -1,11 +1,8 @@
-import {
-  AuthConfigError,
-  UnauthorizedError,
-  requireUser,
-} from "@ai-workspace/auth";
+import { AuthConfigError, UnauthorizedError } from "@ai-workspace/auth";
 import { getDb, oauthTokens } from "@ai-workspace/db";
 import { sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/auth/session";
 import { encryptSecret } from "@/lib/oauth/crypto";
 import {
   GITHUB_CLIENT_ID,
