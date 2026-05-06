@@ -5,6 +5,10 @@ import {
 } from "@ai-workspace/db";
 import type { User as AuthUser, UserRole } from "@ai-workspace/auth";
 import { eq, sql } from "drizzle-orm";
+import {
+  findPendingInvitationForEmail,
+  markInvitationAccepted,
+} from "@/lib/invitations";
 
 /**
  * The first user ever to sign in is promoted to `admin`. Pure helper so the
@@ -60,7 +64,17 @@ export async function ensureUser(authUser: AuthUser): Promise<DbUser> {
   const countRows = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(users);
-  const role = decideInitialRole(countRows[0]?.count ?? 0);
+  const defaultRole = decideInitialRole(countRows[0]?.count ?? 0);
+
+  // An admin-issued invitation overrides the first-user-admin default. We
+  // match by email (case-insensitive) and require a live row — pending and
+  // unexpired. The invite is consumed only on first user creation; later
+  // sign-ins by the same email are no-ops here. Realistically, the
+  // first-ever signup has no invitations to redeem (the table is empty
+  // until an admin exists), but we don't gate on that — the spec says the
+  // invited role wins.
+  const invitation = await findPendingInvitationForEmail(authUser.email);
+  const role = invitation ? invitation.role : defaultRole;
 
   const inserted = await db
     .insert(users)
@@ -71,5 +85,10 @@ export async function ensureUser(authUser: AuthUser): Promise<DbUser> {
       role,
     })
     .returning();
+
+  if (invitation) {
+    await markInvitationAccepted(invitation.id);
+  }
+
   return inserted[0]!;
 }

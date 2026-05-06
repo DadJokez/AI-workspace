@@ -160,6 +160,37 @@ export const oauthTokens = pgTable(
   }),
 );
 
+/**
+ * Admin-issued workspace invitations. An admin generates a row with a random
+ * `token`; the invitee opens `/invite/<token>`, signs in with their identity
+ * provider, and `ensureUser` redeems the invitation on first user creation
+ * by matching `email` (case-insensitive) and stamping `accepted_at`.
+ *
+ * Pending = `accepted_at IS NULL AND expires_at > now()`. We don't garbage
+ * collect expired/used rows; they're a small audit trail of who-invited-whom.
+ */
+export const invitations = pgTable(
+  "invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    role: userRoleEnum("role").notNull().default("user"),
+    token: text("token").notNull(),
+    invitedBy: uuid("invited_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    tokenUnique: uniqueIndex("invitations_token_idx").on(t.token),
+    emailIdx: index("invitations_email_idx").on(t.email),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type ChatThread = typeof chatThreads.$inferSelect;
@@ -168,3 +199,5 @@ export type ChatMessage = typeof chatMessages.$inferSelect;
 export type NewChatMessage = typeof chatMessages.$inferInsert;
 export type OAuthToken = typeof oauthTokens.$inferSelect;
 export type NewOAuthToken = typeof oauthTokens.$inferInsert;
+export type Invitation = typeof invitations.$inferSelect;
+export type NewInvitation = typeof invitations.$inferInsert;
