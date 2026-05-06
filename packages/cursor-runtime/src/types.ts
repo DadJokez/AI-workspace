@@ -51,6 +51,14 @@ export interface TurnInput {
    * change between turns without recreating the agent. Bedrock ignores.
    */
   mcpServers?: Record<string, McpServerSpec>;
+  /**
+   * Steering text prepended to the first user message of a freshly-created
+   * agent. The Cursor SDK has no system-prompt option on `Agent.create`, so
+   * this is how the route educates the model about user identity, connected
+   * tools, and any custom instructions. Ignored on resumed agents — Cursor's
+   * durable agents retain context across turns. Bedrock ignores.
+   */
+  firstTurnPreamble?: string;
 }
 
 /**

@@ -34,6 +34,12 @@ export const users = pgTable(
     email: text("email").notNull(),
     displayName: text("display_name").notNull(),
     isAdmin: boolean("is_admin").notNull().default(false),
+    /**
+     * Free-form per-user steering text injected into the agent's first turn
+     * (alongside the connected-tools list). Set via Settings → Custom
+     * instructions. NULL = no extra steering.
+     */
+    customInstructions: text("custom_instructions"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

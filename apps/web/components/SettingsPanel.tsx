@@ -8,7 +8,12 @@ import { useEffect, useMemo, useState } from "react";
 interface Props {
   userEmail?: string;
   displayName: string;
-  onDisplayNameChange: (name: string) => void;
+  customInstructions: string | null;
+  /** Fired after a successful PATCH so the parent can refresh its profile state. */
+  onProfileUpdated: (next: {
+    displayName: string;
+    customInstructions: string | null;
+  }) => void;
   models: readonly ModelOption[];
   defaultModelId: string;
   userDefaultModelId?: string;
@@ -16,6 +21,8 @@ interface Props {
   onClose: () => void;
   onOpenSidebar: () => void;
 }
+
+const CUSTOM_INSTRUCTIONS_MAX = 4000;
 
 function deriveInitials(name: string, fallback: string): string {
   const source = name.trim() || fallback;
@@ -27,10 +34,34 @@ function deriveInitials(name: string, fallback: string): string {
     .join("");
 }
 
+async function patchUser(
+  patch: { displayName?: string; customInstructions?: string | null },
+): Promise<{
+  displayName: string;
+  customInstructions: string | null;
+} | null> {
+  try {
+    const res = await fetch("/api/user", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as {
+      user: { displayName: string; customInstructions: string | null };
+    };
+    return body.user;
+  } catch {
+    return null;
+  }
+}
+
 export function SettingsPanel({
   userEmail,
   displayName,
-  onDisplayNameChange,
+  customInstructions,
+  onProfileUpdated,
   models,
   defaultModelId,
   userDefaultModelId,
@@ -42,11 +73,19 @@ export function SettingsPanel({
   const { density, setDensity } = useDensity();
   const [nameDraft, setNameDraft] = useState(displayName);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [instructionsDraft, setInstructionsDraft] = useState(
+    customInstructions ?? "",
+  );
+  const [instructionsSaving, setInstructionsSaving] = useState(false);
+  const [instructionsSavedFlash, setInstructionsSavedFlash] = useState(false);
 
-  // Keep input in sync if displayName changes upstream
+  // Keep drafts in sync if the parent profile changes upstream.
   useEffect(() => {
     setNameDraft(displayName);
   }, [displayName]);
+  useEffect(() => {
+    setInstructionsDraft(customInstructions ?? "");
+  }, [customInstructions]);
 
   // Escape closes the panel
   useEffect(() => {
@@ -64,13 +103,37 @@ export function SettingsPanel({
 
   const currentDefault: string = userDefaultModelId ?? defaultModelId;
 
-  function handleNameSave() {
+  async function handleNameSave() {
     const trimmed = nameDraft.trim();
-    if (trimmed === displayName) return;
-    onDisplayNameChange(trimmed);
-    setSavedFlash(true);
-    setTimeout(() => setSavedFlash(false), 1500);
+    if (!trimmed || trimmed === displayName) return;
+    const updated = await patchUser({ displayName: trimmed });
+    if (updated) {
+      onProfileUpdated(updated);
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 1500);
+    }
   }
+
+  async function handleInstructionsSave() {
+    const trimmed = instructionsDraft.trim();
+    const stored = customInstructions ?? "";
+    if (trimmed === stored) return;
+    setInstructionsSaving(true);
+    const updated = await patchUser({
+      customInstructions: trimmed.length > 0 ? trimmed : null,
+    });
+    setInstructionsSaving(false);
+    if (updated) {
+      onProfileUpdated(updated);
+      setInstructionsSavedFlash(true);
+      setTimeout(() => setInstructionsSavedFlash(false), 1500);
+    }
+  }
+
+  const instructionsDirty =
+    instructionsDraft.trim() !== (customInstructions ?? "");
+  const instructionsTooLong =
+    instructionsDraft.length > CUSTOM_INSTRUCTIONS_MAX;
 
   return (
     <div className="flex h-full flex-col">
@@ -139,7 +202,7 @@ export function SettingsPanel({
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();
-                          handleNameSave();
+                          (e.target as HTMLInputElement).blur();
                         }
                       }}
                       className="flex-1 rounded-md border border-hairline bg-canvas px-3 py-2 text-base text-ink outline-none placeholder:text-muted focus:border-ink/40"
@@ -157,6 +220,49 @@ export function SettingsPanel({
                 </Field>
               </div>
             </div>
+          </Section>
+
+          <Divider />
+
+          <Section title="Custom instructions">
+            <Field label="Tell the assistant about yourself or how you'd like it to respond">
+              <textarea
+                value={instructionsDraft}
+                onChange={(e) => setInstructionsDraft(e.target.value)}
+                rows={5}
+                placeholder="E.g. 'I'm a sales rep. Keep responses concise and action-oriented.'"
+                className="w-full resize-y rounded-md border border-hairline bg-canvas px-3 py-2 text-sm text-ink outline-none placeholder:text-muted focus:border-ink/40"
+              />
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] text-muted">
+                  Sent to the assistant on every new chat. Updates apply to
+                  new conversations.
+                </p>
+                <div className="flex shrink-0 items-center gap-2">
+                  {instructionsTooLong ? (
+                    <span className="text-[11px] text-red-500">
+                      Too long ({instructionsDraft.length} /{" "}
+                      {CUSTOM_INSTRUCTIONS_MAX})
+                    </span>
+                  ) : null}
+                  {instructionsSavedFlash ? (
+                    <span className="text-[11px] text-muted">Saved</span>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={handleInstructionsSave}
+                    disabled={
+                      !instructionsDirty ||
+                      instructionsTooLong ||
+                      instructionsSaving
+                    }
+                    className="rounded-md bg-ink px-3 py-1 text-xs font-medium text-canvas hover:opacity-90 disabled:opacity-40"
+                  >
+                    {instructionsSaving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
+            </Field>
           </Section>
 
           <Divider />

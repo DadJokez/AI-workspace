@@ -9,6 +9,7 @@ import {
 } from "@ai-workspace/db";
 import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { buildAgentPreamble } from "@/lib/agent-preamble";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
 import { ensureUser } from "@/lib/users";
 
@@ -132,6 +133,16 @@ export async function POST(req: Request) {
     mcpServers = undefined;
   }
 
+  // Steering preamble for fresh agents (first turn only). The runtime
+  // ignores this on resumed agents, so it's safe to send unconditionally.
+  const firstTurnPreamble = buildAgentPreamble({
+    user: {
+      displayName: dbUser.displayName,
+      customInstructions: dbUser.customInstructions,
+    },
+    connectedProviders: mcpServers ? Object.keys(mcpServers) : [],
+  });
+
   const encoder = new TextEncoder();
   const abort = new AbortController();
   req.signal.addEventListener("abort", () => abort.abort());
@@ -161,6 +172,7 @@ export async function POST(req: Request) {
           messages: agentMessages,
           context: { userId: dbUser.id },
           signal: abort.signal,
+          firstTurnPreamble,
           ...(mcpServers ? { mcpServers } : {}),
         })) {
           if (ev.type === "text-delta") {

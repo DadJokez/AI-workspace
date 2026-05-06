@@ -10,6 +10,11 @@ import { eq } from "drizzle-orm";
  * Upsert the authenticated user into the `users` table on each request that
  * needs a DB row. `pingSubject` is the canonical identity (env-var hardcoded
  * id in week 1; OIDC `sub` in week 2+).
+ *
+ * On update we deliberately do NOT overwrite `display_name` from the auth
+ * payload — the DB row is authoritative once a user has set a name via
+ * Settings. Email is still refreshed (the IdP owns that). `lastSeenAt` is
+ * always bumped.
  */
 export async function ensureUser(authUser: AuthUser): Promise<DbUser> {
   const db = getDb();
@@ -22,17 +27,10 @@ export async function ensureUser(authUser: AuthUser): Promise<DbUser> {
 
   if (existing[0]) {
     const row = existing[0];
-    if (
-      row.email !== authUser.email ||
-      row.displayName !== authUser.displayName
-    ) {
+    if (row.email !== authUser.email) {
       const updated = await db
         .update(users)
-        .set({
-          email: authUser.email,
-          displayName: authUser.displayName,
-          lastSeenAt: new Date(),
-        })
+        .set({ email: authUser.email, lastSeenAt: new Date() })
         .where(eq(users.id, row.id))
         .returning();
       return updated[0]!;

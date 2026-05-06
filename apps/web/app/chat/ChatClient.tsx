@@ -19,7 +19,6 @@ const FALLBACK_DEFAULT_MODEL_ID = "claude-sonnet-4-6";
 
 type View = "chat" | "settings" | "search" | "tools";
 
-const DISPLAY_NAME_PREFIX = "ai-workspace-display-name:";
 const DEFAULT_MODEL_PREFIX = "ai-workspace-default-model:";
 
 interface UiMessage {
@@ -60,8 +59,13 @@ interface ModelsResponse {
   models: ModelOption[];
 }
 
-interface MeResponse {
-  user: { id: string; email: string; displayName: string };
+interface UserResponse {
+  user: {
+    id: string;
+    email: string;
+    displayName: string;
+    customInstructions: string | null;
+  };
 }
 
 interface ThreadsResponse {
@@ -159,7 +163,7 @@ export function ChatClient() {
     useState<string>(FALLBACK_DEFAULT_MODEL_ID);
   const [tabs, setTabs] = useState<ChatTab[]>(() => [makeFreshTab()]);
   const [activeId, setActiveId] = useState<string>(() => tabs[0]!.id);
-  const [user, setUser] = useState<MeResponse["user"] | undefined>();
+  const [user, setUser] = useState<UserResponse["user"] | undefined>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
@@ -168,9 +172,6 @@ export function ChatClient() {
 
   const [bootstrapped, setBootstrapped] = useState(false);
   const [view, setView] = useState<View>("chat");
-  const [displayNameOverride, setDisplayNameOverride] = useState<
-    string | undefined
-  >();
   const [userDefaultModelId, setUserDefaultModelId] = useState<
     string | undefined
   >();
@@ -241,20 +242,19 @@ export function ChatClient() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/me")
-      .then((r) => (r.ok ? (r.json() as Promise<MeResponse>) : null))
+    fetch("/api/user")
+      .then((r) => (r.ok ? (r.json() as Promise<UserResponse>) : null))
       .then((data) => {
         if (data?.user) setUser(data.user);
       })
       .catch(() => {});
   }, []);
 
-  // Per-user prefs (display name override + default model) kept in localStorage.
+  // Default-model preference is per-user but stored in localStorage rather
+  // than the DB — it's a UI affordance, not a profile field.
   useEffect(() => {
     if (!user?.id || typeof window === "undefined") return;
     try {
-      const name = localStorage.getItem(`${DISPLAY_NAME_PREFIX}${user.id}`);
-      if (name) setDisplayNameOverride(name);
       const dm = localStorage.getItem(`${DEFAULT_MODEL_PREFIX}${user.id}`);
       if (dm) setUserDefaultModelId(dm as string);
     } catch {
@@ -274,19 +274,11 @@ export function ChatClient() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  function updateDisplayName(name: string) {
-    if (!user?.id || typeof window === "undefined") return;
-    const trimmed = name.trim();
-    try {
-      if (trimmed) {
-        localStorage.setItem(`${DISPLAY_NAME_PREFIX}${user.id}`, trimmed);
-      } else {
-        localStorage.removeItem(`${DISPLAY_NAME_PREFIX}${user.id}`);
-      }
-    } catch {
-      /* ignore */
-    }
-    setDisplayNameOverride(trimmed || undefined);
+  function handleProfileUpdated(next: {
+    displayName: string;
+    customInstructions: string | null;
+  }) {
+    setUser((prev) => (prev ? { ...prev, ...next } : prev));
   }
 
   function updateUserDefaultModel(id: string) {
@@ -664,13 +656,12 @@ export function ChatClient() {
   if (!activeTab) return null;
   const { busy, error, messages } = activeTab;
   const inputDisabled = busy || models.length === 0;
-  const sidebarDisplayName = displayNameOverride ?? user?.displayName;
   const isChatView = view === "chat";
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-canvas text-ink">
       <Sidebar
-        userName={sidebarDisplayName}
+        userName={user?.displayName}
         userEmail={user?.email}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
@@ -688,8 +679,9 @@ export function ChatClient() {
         {view === "settings" ? (
           <SettingsPanel
             userEmail={user?.email}
-            displayName={sidebarDisplayName ?? ""}
-            onDisplayNameChange={updateDisplayName}
+            displayName={user?.displayName ?? ""}
+            customInstructions={user?.customInstructions ?? null}
+            onProfileUpdated={handleProfileUpdated}
             models={models}
             defaultModelId={defaultModelId}
             userDefaultModelId={userDefaultModelId}

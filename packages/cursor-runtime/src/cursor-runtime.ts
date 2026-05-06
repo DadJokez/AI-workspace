@@ -96,8 +96,9 @@ export class CursorRuntime implements AgentRuntime {
     }
 
     let agent: SDKAgent;
+    let createdFresh: boolean;
     try {
-      agent = await this.getOrCreateAgent(input);
+      ({ agent, createdFresh } = await this.getOrCreateAgent(input));
     } catch (err) {
       yield { type: "error", message: `CursorRuntime: ${errorMessage(err)}` };
       return;
@@ -108,6 +109,16 @@ export class CursorRuntime implements AgentRuntime {
       return;
     }
 
+    // The Cursor SDK has no system-prompt option on `Agent.create`. To steer
+    // a brand-new agent (identity, connected tools, custom instructions),
+    // the route assembles a preamble and we prepend it to the first user
+    // message. The cloud agent retains context across subsequent turns, so
+    // this only fires once per agent lifetime.
+    const messageText =
+      createdFresh && input.firstTurnPreamble
+        ? input.firstTurnPreamble + "\n\n" + lastUser
+        : lastUser;
+
     let run;
     try {
       // Per-turn mcpServers override anything baked in at agent.create() time.
@@ -116,7 +127,7 @@ export class CursorRuntime implements AgentRuntime {
       const turnMcp = input.mcpServers as
         | Record<string, McpServerConfig>
         | undefined;
-      run = await agent.send(lastUser, {
+      run = await agent.send(messageText, {
         model: { id: toCursorModelId(input.modelId) },
         ...(turnMcp ? { mcpServers: turnMcp } : {}),
       });
@@ -147,7 +158,9 @@ export class CursorRuntime implements AgentRuntime {
     yield { type: "done" };
   }
 
-  private async getOrCreateAgent(input: TurnInput): Promise<SDKAgent> {
+  private async getOrCreateAgent(
+    input: TurnInput,
+  ): Promise<{ agent: SDKAgent; createdFresh: boolean }> {
     const turnMcp = input.mcpServers as
       | Record<string, McpServerConfig>
       | undefined;
@@ -161,9 +174,10 @@ export class CursorRuntime implements AgentRuntime {
       const sigMatches = (existing.mcpSignature ?? "") === turnSignature;
       if (sigMatches) {
         try {
-          return await Agent.resume(existing.agentId, {
+          const agent = await Agent.resume(existing.agentId, {
             apiKey: this.opts.apiKey,
           });
+          return { agent, createdFresh: false };
         } catch (err) {
           if (!isAgentMissingError(errorMessage(err))) throw err;
           // Stale agent id on Cursor's side — fall through to create a fresh
@@ -193,9 +207,10 @@ export class CursorRuntime implements AgentRuntime {
       agentId: agent.agentId,
       mcpSignature: turnSignature,
     });
-    return agent;
+    return { agent, createdFresh: true };
   }
 }
+
 
 /**
  * Stable identity of an `mcpServers` map. Just the sorted provider names
