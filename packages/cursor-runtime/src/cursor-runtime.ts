@@ -198,11 +198,39 @@ export class CursorRuntime implements AgentRuntime {
     // the route having to know about it.
     const baseMcp = toMcpRecord(this.opts.mcpServers);
     const mergedMcp = mergeMcp(baseMcp, turnMcp);
+    // TEMP DEBUG: confirm mcpServers actually reaches Agent.create.
+    process.stderr.write(
+      `[mcp-debug:agent.create] ${JSON.stringify({
+        threadId: input.threadId,
+        modelId: toCursorModelId(input.modelId),
+        mergedMcpDefined: !!mergedMcp,
+        mergedMcpKeys: mergedMcp ? Object.keys(mergedMcp) : [],
+        // Per-key shape (no token leak — just whether headers present)
+        perKey: mergedMcp
+          ? Object.fromEntries(
+              Object.entries(mergedMcp).map(([k, v]) => [
+                k,
+                {
+                  type: (v as { type?: string }).type,
+                  hasUrl: !!(v as { url?: string }).url,
+                  hasHeaders: !!(v as { headers?: unknown }).headers,
+                  headerKeys: Object.keys(
+                    ((v as { headers?: Record<string, string> }).headers ?? {}),
+                  ),
+                },
+              ]),
+            )
+          : null,
+      })}\n`,
+    );
     const agent = await Agent.create({
       apiKey: this.opts.apiKey,
       model: { id: toCursorModelId(input.modelId) },
       ...(mergedMcp ? { mcpServers: mergedMcp } : {}),
     });
+    process.stderr.write(
+      `[mcp-debug:agent.create] created agentId=${agent.agentId}\n`,
+    );
     await this.store.set(input.threadId, {
       agentId: agent.agentId,
       mcpSignature: turnSignature,

@@ -143,6 +143,18 @@ export async function POST(req: Request) {
     connectedProviders: mcpServers ? Object.keys(mcpServers) : [],
   });
 
+  // TEMP DEBUG: confirm what's reaching the runtime. stderr is usually
+  // unbuffered in Node; console.log via Next.js standalone has been seen
+  // to not flush to App Runner's CloudWatch group.
+  process.stderr.write(
+    `[mcp-debug:route] ${JSON.stringify({
+      threadId: thread.id,
+      userId: dbUser.id,
+      mcpServerKeys: mcpServers ? Object.keys(mcpServers) : [],
+      preambleChars: firstTurnPreamble.length,
+    })}\n`,
+  );
+
   const encoder = new TextEncoder();
   const abort = new AbortController();
   req.signal.addEventListener("abort", () => abort.abort());

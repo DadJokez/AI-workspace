@@ -85,12 +85,19 @@ const MARKDOWN_COMPONENTS: Components = {
   a: (props) => (
     <a className="underline" target="_blank" rel="noreferrer" {...props} />
   ),
-  // GFM tables. The outer div gives mobile a horizontal scroll instead of
-  // breaking layout when a wide table arrives. Borders use `border-hairline`
-  // and the header bg uses `bg-subtle` so it inherits the active theme.
+  // GFM tables. The outer div gives mobile a horizontal scroll. The table
+  // itself uses `width: min-content` so columns expand to their natural
+  // width instead of squishing — wide tables overflow into the scroller
+  // rather than wrapping cell text. `whitespace-nowrap` on cells keeps
+  // each cell on a single line; readers scroll horizontally to see more.
   table: ({ children }) => (
     <div className="my-2 w-full overflow-x-auto first:mt-0 last:mb-0">
-      <table className="w-full border-collapse text-[13px]">{children}</table>
+      <table
+        className="border-collapse text-[13px]"
+        style={{ width: "min-content", minWidth: "100%" }}
+      >
+        {children}
+      </table>
     </div>
   ),
   thead: (props) => <thead className="bg-subtle" {...props} />,
@@ -100,12 +107,15 @@ const MARKDOWN_COMPONENTS: Components = {
   ),
   th: (props) => (
     <th
-      className="border-b border-hairline px-3 py-2 text-left align-top font-semibold text-ink"
+      className="whitespace-nowrap border-b border-hairline px-3 py-2 text-left align-top font-semibold text-ink"
       {...props}
     />
   ),
   td: (props) => (
-    <td className="px-3 py-2 align-top text-ink" {...props} />
+    <td
+      className="whitespace-nowrap px-3 py-2 align-top text-ink"
+      {...props}
+    />
   ),
   blockquote: (props) => (
     <blockquote
