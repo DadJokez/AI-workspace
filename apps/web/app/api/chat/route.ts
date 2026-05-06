@@ -197,6 +197,17 @@ export async function POST(req: Request) {
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        const stack = err instanceof Error ? err.stack : undefined;
+        process.stderr.write(
+          `[chat-error] ${JSON.stringify({
+            threadId: thread.id,
+            userId: dbUser.id,
+            modelId,
+            mcpKeys: mcpServers ? Object.keys(mcpServers) : [],
+            message: msg,
+            stack,
+          })}\n`,
+        );
         send({ type: "error", message: msg });
         controller.close();
         return;

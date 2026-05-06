@@ -127,6 +127,14 @@ export class CursorRuntime implements AgentRuntime {
       const turnMcp = input.mcpServers as
         | Record<string, McpServerConfig>
         | undefined;
+      process.stderr.write(
+        `[mcp-debug:agent.send] ${JSON.stringify({
+          threadId: input.threadId,
+          agentId: agent.agentId,
+          createdFresh,
+          mcpKeys: turnMcp ? Object.keys(turnMcp) : [],
+        })}\n`,
+      );
       run = await agent.send(messageText, {
         model: { id: toCursorModelId(input.modelId) },
         ...(turnMcp ? { mcpServers: turnMcp } : {}),
