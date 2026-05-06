@@ -15,9 +15,16 @@ interface Props {
   content: string;
   modelId?: string;
   pending?: boolean;
+  status?: string;
 }
 
-export function MessageBubble({ role, content, modelId, pending }: Props) {
+export function MessageBubble({
+  role,
+  content,
+  modelId,
+  pending,
+  status,
+}: Props) {
   if (role === "user") {
     return (
       <div className="flex w-full min-w-0 max-w-full justify-end overflow-hidden">
@@ -31,13 +38,26 @@ export function MessageBubble({ role, content, modelId, pending }: Props) {
   const label =
     role === "tool" ? "Tool" : modelId ? `Assistant · ${modelId}` : "Assistant";
 
+  // While the assistant is working but no text has streamed yet, surface
+  // an animated indicator with the current activity (e.g. "Calling github…").
+  // Without this, the bubble looks frozen between the user's send and the
+  // first text-delta — a window that can be many seconds long when MCP
+  // tool calls are in flight.
+  const showThinking = role === "assistant" && pending && content.length === 0;
+
+  // Suppress the "Assistant" label-only stub left behind when a turn errors
+  // out before any text streamed. The error bar carries the message instead.
+  if (role === "assistant" && !pending && content.length === 0) return null;
+
   return (
     <div className="flex w-full min-w-0 max-w-full flex-col gap-1 overflow-hidden">
       <div className="text-[11px] font-medium tracking-wide text-muted">
         {label}
       </div>
       <div className="min-w-0 max-w-full overflow-hidden text-[14px] leading-relaxed text-ink [overflow-wrap:anywhere]">
-        {role === "assistant" ? (
+        {showThinking ? (
+          <ThinkingIndicator status={status} />
+        ) : role === "assistant" ? (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={MARKDOWN_COMPONENTS}
@@ -47,10 +67,23 @@ export function MessageBubble({ role, content, modelId, pending }: Props) {
         ) : (
           <span className="whitespace-pre-wrap">{content}</span>
         )}
-        {pending ? (
+        {pending && !showThinking ? (
           <span className="ml-0.5 inline-block h-3 w-[2px] translate-y-[1px] animate-pulse bg-current align-baseline" />
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function ThinkingIndicator({ status }: { status?: string }) {
+  return (
+    <div className="flex items-center gap-2 text-muted">
+      <span className="inline-flex items-end gap-[3px]" aria-hidden="true">
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current" />
+      </span>
+      <span className="text-[13px]">{status ?? "Thinking…"}</span>
     </div>
   );
 }

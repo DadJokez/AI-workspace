@@ -27,6 +27,9 @@ interface UiMessage {
   content: string;
   modelId?: string;
   pending?: boolean;
+  /** Live activity label shown while pending and no text has streamed yet
+   *  (e.g. "Thinking…", "Calling github_list_repos…"). */
+  status?: string;
 }
 
 interface ChatTab {
@@ -153,6 +156,16 @@ function deriveTitle(text: string): string {
   const trimmed = text.trim().replace(/\s+/g, " ");
   if (trimmed.length <= 32) return trimmed;
   return trimmed.slice(0, 32).trimEnd() + "…";
+}
+
+/** Render an MCP tool name as a compact label for status text.
+ *  Examples: "github_list_repos" → "github_list_repos",
+ *  "mcp__github__list_repos" → "github · list_repos". Truncates very long
+ *  names so the indicator stays one line. */
+function formatToolName(raw: string): string {
+  const m = /^mcp__([^_]+)__(.+)$/.exec(raw);
+  const pretty = m ? `${m[1]} · ${m[2]}` : raw;
+  return pretty.length > 48 ? pretty.slice(0, 47) + "…" : pretty;
 }
 
 const STICK_BOTTOM_THRESHOLD = 100;
@@ -550,7 +563,13 @@ export function ChatClient() {
     patchTabMessages(tabId, (prev) => [
       ...prev,
       { id: userMsgId, role: "user", content: text },
-      { id: assistantMsgId, role: "assistant", content: "", pending: true },
+      {
+        id: assistantMsgId,
+        role: "assistant",
+        content: "",
+        pending: true,
+        status: "Thinking…",
+      },
     ]);
 
     // New message from the user — re-stick to bottom.
@@ -592,8 +611,32 @@ export function ChatClient() {
                     ...m,
                     content: assistantText,
                     pending: true,
+                    status: undefined,
                     modelId: assistantModel,
                   }
+                : m,
+            ),
+          );
+        } else if (ev.type === "tool-call") {
+          const call = ev.call as { name?: unknown } | undefined;
+          const name =
+            call && typeof call.name === "string" ? call.name : undefined;
+          const status = name
+            ? `Calling ${formatToolName(name)}…`
+            : "Calling tool…";
+          patchTabMessages(tabId, (prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId ? { ...m, status } : m,
+            ),
+          );
+        } else if (ev.type === "tool-result") {
+          // Tool finished. If no text has streamed yet, fall back to a
+          // generic "Working…" so the indicator doesn't blink back to the
+          // initial "Thinking…" between chained tool calls.
+          patchTabMessages(tabId, (prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId && m.content.length === 0
+                ? { ...m, status: "Working…" }
                 : m,
             ),
           );
@@ -605,7 +648,12 @@ export function ChatClient() {
           patchTabMessages(tabId, (prev) =>
             prev.map((m) =>
               m.id === assistantMsgId
-                ? { ...m, pending: false, modelId: assistantModel }
+                ? {
+                    ...m,
+                    pending: false,
+                    status: undefined,
+                    modelId: assistantModel,
+                  }
                 : m,
             ),
           );
@@ -614,7 +662,9 @@ export function ChatClient() {
 
       patchTabMessages(tabId, (prev) =>
         prev.map((m) =>
-          m.id === assistantMsgId ? { ...m, pending: false } : m,
+          m.id === assistantMsgId
+            ? { ...m, pending: false, status: undefined }
+            : m,
         ),
       );
 
@@ -626,7 +676,7 @@ export function ChatClient() {
       patchTabMessages(tabId, (prev) =>
         prev.map((m) =>
           m.id === assistantMsgId
-            ? { ...m, content: m.content || "(error)", pending: false }
+            ? { ...m, pending: false, status: undefined }
             : m,
         ),
       );
@@ -821,12 +871,20 @@ export function ChatClient() {
                   content={m.content}
                   modelId={m.modelId}
                   pending={m.pending}
+                  status={m.status}
                 />
               ))
             )}
             {error ? (
-              <div className="flex flex-col gap-2 rounded-md border border-hairline bg-subtle px-3 py-2 text-sm text-ink sm:flex-row sm:items-center sm:justify-between">
-                <span className="break-words">{error}</span>
+              <div className="flex flex-col gap-2 rounded-md border border-hairline bg-subtle px-3 py-2 text-sm text-ink sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                    Error
+                  </span>
+                  <span className="break-words [overflow-wrap:anywhere]">
+                    {error}
+                  </span>
+                </div>
                 <button
                   type="button"
                   onClick={retry}

@@ -243,28 +243,49 @@ export async function POST(req: Request) {
         return;
       }
 
-      const persisted = await db
-        .insert(chatMessages)
-        .values({
+      // Anything that throws after the runtime loop ends (DB persist, etc.)
+      // would otherwise tear down the ReadableStream with no detail — the
+      // browser surfaces that as a generic "Load failed". Catch it, mirror
+      // to stderr with the same `[chat-error]` tag the route uses elsewhere,
+      // and send the detail to the client as an `error` SSE event.
+      try {
+        const persisted = await db
+          .insert(chatMessages)
+          .values({
+            threadId: thread.id,
+            role: "assistant",
+            content: assistantText,
+            modelId,
+            tokensIn,
+            tokensOut,
+          })
+          .returning();
+
+        await db
+          .update(chatThreads)
+          .set({ updatedAt: new Date() })
+          .where(eq(chatThreads.id, thread.id));
+
+        send({
+          type: "persisted",
+          assistantMessageId: persisted[0]!.id,
           threadId: thread.id,
-          role: "assistant",
-          content: assistantText,
-          modelId,
-          tokensIn,
-          tokensOut,
-        })
-        .returning();
-
-      await db
-        .update(chatThreads)
-        .set({ updatedAt: new Date() })
-        .where(eq(chatThreads.id, thread.id));
-
-      send({
-        type: "persisted",
-        assistantMessageId: persisted[0]!.id,
-        threadId: thread.id,
-      });
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const stack = err instanceof Error ? err.stack : undefined;
+        process.stderr.write(
+          `[chat-error] ${JSON.stringify({
+            site: "persist",
+            threadId: thread.id,
+            userId: dbUser.id,
+            modelId,
+            message: msg,
+            stack,
+          })}\n`,
+        );
+        send({ type: "error", message: msg });
+      }
 
       controller.close();
     },
