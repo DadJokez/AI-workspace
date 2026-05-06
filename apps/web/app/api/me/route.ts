@@ -1,15 +1,12 @@
-import {
-  AuthConfigError,
-  UnauthorizedError,
-  getCurrentUser,
-} from "@ai-workspace/auth";
+import { AuthConfigError, UnauthorizedError } from "@ai-workspace/auth";
 import { NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth/getSessionUser";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
-    const user = await getCurrentUser(req);
+    const user = await getSessionUser(req);
     if (!user) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }

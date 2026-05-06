@@ -22,12 +22,14 @@ function profileFromRow(row: {
   id: string;
   email: string;
   displayName: string;
+  role: "admin" | "user";
   customInstructions: string | null;
 }) {
   return {
     id: row.id,
     email: row.email,
     displayName: row.displayName,
+    role: row.role,
     customInstructions: row.customInstructions,
   };
 }

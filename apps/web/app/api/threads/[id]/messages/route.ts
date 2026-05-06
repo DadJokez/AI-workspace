@@ -1,21 +1,25 @@
-import { AuthConfigError, getCurrentUser } from "@ai-workspace/auth";
+import { AuthConfigError } from "@ai-workspace/auth";
 import { chatMessages, chatThreads, getDb } from "@ai-workspace/db";
 import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { ensureUser } from "@/lib/users";
+import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { userScope } from "@/lib/auth/scope";
 
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/threads/[id]/messages — list messages on a thread the caller owns.
+ * GET /api/threads/[id]/messages — list messages on a thread.
+ *
+ * `role = 'user'`  → only messages on a thread the caller owns.
+ * `role = 'admin'` → messages on any thread.
  */
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  let authUser;
+  let sessionUser;
   try {
-    authUser = await getCurrentUser(req);
+    sessionUser = await getSessionUser(req);
   } catch (err) {
     if (err instanceof AuthConfigError) {
       return NextResponse.json(
@@ -25,7 +29,7 @@ export async function GET(
     }
     throw err;
   }
-  if (!authUser) {
+  if (!sessionUser) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -34,13 +38,17 @@ export async function GET(
     return NextResponse.json({ error: "missing_id" }, { status: 400 });
   }
 
-  const dbUser = await ensureUser(authUser);
   const db = getDb();
 
   const owned = await db
     .select({ id: chatThreads.id })
     .from(chatThreads)
-    .where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, dbUser.id)))
+    .where(
+      and(
+        eq(chatThreads.id, threadId),
+        userScope(sessionUser, chatThreads.userId),
+      ),
+    )
     .limit(1);
   if (!owned[0]) {
     return NextResponse.json({ error: "thread_not_found" }, { status: 404 });

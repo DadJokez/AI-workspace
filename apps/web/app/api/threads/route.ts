@@ -1,8 +1,9 @@
-import { AuthConfigError, getCurrentUser } from "@ai-workspace/auth";
+import { AuthConfigError } from "@ai-workspace/auth";
 import { chatThreads, getDb } from "@ai-workspace/db";
-import { desc, eq } from "drizzle-orm";
+import { and, desc } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { ensureUser } from "@/lib/users";
+import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { userScope } from "@/lib/auth/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -10,12 +11,15 @@ const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 50;
 
 /**
- * GET /api/threads?limit=8 — list the caller's threads, most recently updated first.
+ * GET /api/threads?limit=8 — list threads, most recently updated first.
+ *
+ * `role = 'user'`  → caller's threads only.
+ * `role = 'admin'` → all threads across the workspace (for the admin UI).
  */
 export async function GET(req: Request) {
-  let authUser;
+  let sessionUser;
   try {
-    authUser = await getCurrentUser(req);
+    sessionUser = await getSessionUser(req);
   } catch (err) {
     if (err instanceof AuthConfigError) {
       return NextResponse.json(
@@ -25,7 +29,7 @@ export async function GET(req: Request) {
     }
     throw err;
   }
-  if (!authUser) {
+  if (!sessionUser) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -37,7 +41,6 @@ export async function GET(req: Request) {
       ? Math.min(parsed, MAX_LIMIT)
       : DEFAULT_LIMIT;
 
-  const dbUser = await ensureUser(authUser);
   const db = getDb();
 
   const rows = await db
@@ -47,9 +50,10 @@ export async function GET(req: Request) {
       defaultModelId: chatThreads.defaultModelId,
       createdAt: chatThreads.createdAt,
       updatedAt: chatThreads.updatedAt,
+      userId: chatThreads.userId,
     })
     .from(chatThreads)
-    .where(eq(chatThreads.userId, dbUser.id))
+    .where(and(userScope(sessionUser, chatThreads.userId)))
     .orderBy(desc(chatThreads.updatedAt))
     .limit(limit);
 

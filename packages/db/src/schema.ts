@@ -1,6 +1,5 @@
 import { sql } from "drizzle-orm";
 import {
-  boolean,
   index,
   integer,
   jsonb,
@@ -26,6 +25,10 @@ export const messageRoleEnum = pgEnum("message_role", [
   "tool",
 ]);
 
+export const userRoleEnum = pgEnum("user_role", ["admin", "user"]);
+
+export type UserRole = (typeof userRoleEnum.enumValues)[number];
+
 export const users = pgTable(
   "users",
   {
@@ -33,7 +36,13 @@ export const users = pgTable(
     pingSubject: text("ping_subject").notNull(),
     email: text("email").notNull(),
     displayName: text("display_name").notNull(),
-    isAdmin: boolean("is_admin").notNull().default(false),
+    /**
+     * Coarse permission tier. The first user ever to sign in is promoted to
+     * `admin`; everyone else defaults to `user`. Admins bypass per-user
+     * scoping on threads/messages/usage queries; users see only their own
+     * rows. Assigned in the sign-in path (`ensureUser`), not by the IdP.
+     */
+    role: userRoleEnum("role").notNull().default("user"),
     /**
      * Free-form per-user steering text injected into the agent's first turn
      * (alongside the connected-tools list). Set via Settings → Custom
