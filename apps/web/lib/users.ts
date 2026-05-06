@@ -1,10 +1,11 @@
 import {
   type User as DbUser,
   getDb,
+  invitations,
   users,
 } from "@ai-workspace/db";
 import type { User as AuthUser, UserRole } from "@ai-workspace/auth";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 
 /**
  * The first user ever to sign in is promoted to `admin`. Pure helper so the
@@ -54,13 +55,37 @@ export async function ensureUser(authUser: AuthUser): Promise<DbUser> {
     return row;
   }
 
-  // First-user-becomes-admin. We check the count *before* insert so a race
-  // between two simultaneous first-ever sign-ins can't mint two admins —
-  // the second insert sees count = 1 and falls through to the user role.
-  const countRows = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(users);
-  const role = decideInitialRole(countRows[0]?.count ?? 0);
+  // Role precedence on first sign-in:
+  //   1. An admin-issued, still-pending invitation wins. We match on email
+  //      case-insensitively (the API normalizes to lowercase, but auth
+  //      payloads aren't guaranteed to). Stamping `accepted_at` consumes the
+  //      invitation so a second sign-in with the same email doesn't keep
+  //      reapplying the role.
+  //   2. Otherwise the first user ever in the table is promoted to `admin`,
+  //      everyone else defaults to `user`. We count *before* insert so a
+  //      race between two simultaneous first-ever sign-ins can't mint two
+  //      admins.
+  const pendingInvite = await db
+    .select({ id: invitations.id, role: invitations.role })
+    .from(invitations)
+    .where(
+      and(
+        sql`lower(${invitations.email}) = lower(${authUser.email})`,
+        isNull(invitations.acceptedAt),
+        gt(invitations.expiresAt, sql`now()`),
+      ),
+    )
+    .limit(1);
+
+  let role: UserRole;
+  if (pendingInvite[0]) {
+    role = pendingInvite[0].role;
+  } else {
+    const countRows = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(users);
+    role = decideInitialRole(countRows[0]?.count ?? 0);
+  }
 
   const inserted = await db
     .insert(users)
@@ -71,5 +96,13 @@ export async function ensureUser(authUser: AuthUser): Promise<DbUser> {
       role,
     })
     .returning();
+
+  if (pendingInvite[0]) {
+    await db
+      .update(invitations)
+      .set({ acceptedAt: new Date() })
+      .where(eq(invitations.id, pendingInvite[0].id));
+  }
+
   return inserted[0]!;
 }

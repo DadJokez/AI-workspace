@@ -1,9 +1,11 @@
-import { getDb, users } from "@ai-workspace/db";
-import { desc } from "drizzle-orm";
+import { getDb, invitations, users } from "@ai-workspace/db";
+import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import type { AdminUserRow } from "@/app/api/admin/users/route";
+import { type AdminInvitationRow, buildInviteUrl } from "@/lib/invitations";
 import { UsersTable } from "./UsersTable";
+import { InvitePanel } from "./InvitePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -14,25 +16,58 @@ export default async function AdminUsersPage() {
   }
 
   const db = getDb();
-  const rows = await db
-    .select({
-      id: users.id,
-      email: users.email,
-      displayName: users.displayName,
-      role: users.role,
-      createdAt: users.createdAt,
-      lastSeenAt: users.lastSeenAt,
-    })
-    .from(users)
-    .orderBy(desc(users.createdAt));
+  const [userRows, inviteRows] = await Promise.all([
+    db
+      .select({
+        id: users.id,
+        email: users.email,
+        displayName: users.displayName,
+        role: users.role,
+        createdAt: users.createdAt,
+        lastSeenAt: users.lastSeenAt,
+      })
+      .from(users)
+      .orderBy(desc(users.createdAt)),
+    db
+      .select({
+        id: invitations.id,
+        email: invitations.email,
+        role: invitations.role,
+        token: invitations.token,
+        invitedBy: invitations.invitedBy,
+        invitedByEmail: users.email,
+        expiresAt: invitations.expiresAt,
+        createdAt: invitations.createdAt,
+      })
+      .from(invitations)
+      .leftJoin(users, eq(users.id, invitations.invitedBy))
+      .where(
+        and(
+          isNull(invitations.acceptedAt),
+          gt(invitations.expiresAt, sql`now()`),
+        ),
+      )
+      .orderBy(desc(invitations.createdAt)),
+  ]);
 
-  const initialUsers: AdminUserRow[] = rows.map((r) => ({
+  const initialUsers: AdminUserRow[] = userRows.map((r) => ({
     id: r.id,
     email: r.email,
     displayName: r.displayName,
     role: r.role,
     createdAt: r.createdAt.toISOString(),
     lastSeenAt: r.lastSeenAt.toISOString(),
+  }));
+
+  const initialInvitations: AdminInvitationRow[] = inviteRows.map((r) => ({
+    id: r.id,
+    email: r.email,
+    role: r.role,
+    invitedBy: r.invitedBy,
+    invitedByEmail: r.invitedByEmail,
+    expiresAt: r.expiresAt.toISOString(),
+    createdAt: r.createdAt.toISOString(),
+    inviteUrl: buildInviteUrl(r.token),
   }));
 
   return (
@@ -48,6 +83,7 @@ export default async function AdminUsersPage() {
         initialUsers={initialUsers}
         currentUserId={sessionUser.id}
       />
+      <InvitePanel initialInvitations={initialInvitations} />
     </section>
   );
 }

@@ -160,6 +160,38 @@ export const oauthTokens = pgTable(
   }),
 );
 
+/**
+ * Pending and consumed invitations. Admins generate a row + token; the
+ * `/invite/[token]` page validates it and asks the user to sign in. On first
+ * sign-in `ensureUser` consumes the matching row (by email) — using the
+ * invitation's `role` for the new user and stamping `accepted_at`.
+ *
+ * A token is "pending" iff `accepted_at IS NULL AND expires_at > now()`. We
+ * never delete rows: accepted invitations are kept for audit, expired ones
+ * stay around but won't show in the pending list.
+ */
+export const invitations = pgTable(
+  "invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    role: userRoleEnum("role").notNull().default("user"),
+    token: text("token").notNull(),
+    invitedBy: uuid("invited_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    tokenUnique: uniqueIndex("invitations_token_idx").on(t.token),
+    emailIdx: index("invitations_email_idx").on(t.email),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type ChatThread = typeof chatThreads.$inferSelect;
@@ -168,3 +200,5 @@ export type ChatMessage = typeof chatMessages.$inferSelect;
 export type NewChatMessage = typeof chatMessages.$inferInsert;
 export type OAuthToken = typeof oauthTokens.$inferSelect;
 export type NewOAuthToken = typeof oauthTokens.$inferInsert;
+export type Invitation = typeof invitations.$inferSelect;
+export type NewInvitation = typeof invitations.$inferInsert;
