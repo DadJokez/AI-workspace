@@ -14,3 +14,24 @@ export interface User {
   email: string;
   displayName: string;
 }
+
+/**
+ * Coarse permission tier. Admins bypass per-user data scoping; everyone else
+ * sees only their own rows. The first user ever to sign in is promoted to
+ * `admin` in `ensureUser`.
+ *
+ * Mirrors `users.role` in the DB; kept in this package so callers that don't
+ * (or can't) depend on `@ai-workspace/db` still get a type-safe handle on it.
+ */
+export type UserRole = "admin" | "user";
+
+/**
+ * What lives on the server-side session: the IdP claims (`User`) plus the
+ * application-side role looked up against the `users` table.
+ *
+ * In a NextAuth world this is the shape of `session.user`; here it's the
+ * return value of `getSessionUser` (apps/web/lib/auth/getSessionUser.ts).
+ */
+export interface SessionUser extends User {
+  role: UserRole;
+}

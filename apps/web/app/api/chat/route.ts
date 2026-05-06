@@ -10,6 +10,7 @@ import {
 import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
+import { userScope } from "@/lib/auth/scope";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
 import { ensureUser } from "@/lib/users";
 
@@ -92,13 +93,16 @@ export async function POST(req: Request) {
 
   let thread: ChatThread;
   if (body.threadId) {
+    // Admin can resume any thread; users only their own. Persistence below
+    // still writes against whatever thread is found, so an admin replying
+    // into a user's thread will append messages to that user's thread row.
     const owned = await db
       .select()
       .from(chatThreads)
       .where(
         and(
           eq(chatThreads.id, body.threadId),
-          eq(chatThreads.userId, dbUser.id),
+          userScope(dbUser, chatThreads.userId),
         ),
       )
       .limit(1);

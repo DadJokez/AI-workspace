@@ -3,8 +3,16 @@ import {
   getDb,
   users,
 } from "@ai-workspace/db";
-import type { User as AuthUser } from "@ai-workspace/auth";
-import { eq } from "drizzle-orm";
+import type { User as AuthUser, UserRole } from "@ai-workspace/auth";
+import { eq, sql } from "drizzle-orm";
+
+/**
+ * The first user ever to sign in is promoted to `admin`. Pure helper so the
+ * decision is unit-testable without spinning up the DB. Used by `ensureUser`.
+ */
+export function decideInitialRole(existingUserCount: number): UserRole {
+  return existingUserCount === 0 ? "admin" : "user";
+}
 
 /**
  * Upsert the authenticated user into the `users` table on each request that
@@ -15,6 +23,10 @@ import { eq } from "drizzle-orm";
  * payload — the DB row is authoritative once a user has set a name via
  * Settings. Email is still refreshed (the IdP owns that). `lastSeenAt` is
  * always bumped.
+ *
+ * The first user ever to land here is promoted to `admin`. This is the
+ * sign-in callback for the hardcoded shim; when NextAuth/OIDC lands, the
+ * same admin-on-first-signup rule moves into the NextAuth `signIn` callback.
  */
 export async function ensureUser(authUser: AuthUser): Promise<DbUser> {
   const db = getDb();
@@ -42,12 +54,21 @@ export async function ensureUser(authUser: AuthUser): Promise<DbUser> {
     return row;
   }
 
+  // First-user-becomes-admin. We check the count *before* insert so a race
+  // between two simultaneous first-ever sign-ins can't mint two admins —
+  // the second insert sees count = 1 and falls through to the user role.
+  const countRows = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(users);
+  const role = decideInitialRole(countRows[0]?.count ?? 0);
+
   const inserted = await db
     .insert(users)
     .values({
       pingSubject: authUser.id,
       email: authUser.email,
       displayName: authUser.displayName,
+      role,
     })
     .returning();
   return inserted[0]!;
