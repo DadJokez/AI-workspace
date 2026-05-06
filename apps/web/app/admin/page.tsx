@@ -1,14 +1,53 @@
+import { getDb, users } from "@ai-workspace/db";
+import { desc } from "drizzle-orm";
+import { redirect } from "next/navigation";
+import { getSessionUser } from "@/lib/auth/getSessionUser";
+import type { AdminUserRow } from "@/app/api/admin/users/route";
+import { UsersTable } from "./UsersTable";
+
 export const dynamic = "force-dynamic";
 
-export default function AdminPage() {
+export default async function AdminUsersPage() {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser || sessionUser.role !== "admin") {
+    redirect("/chat");
+  }
+
+  const db = getDb();
+  const rows = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      displayName: users.displayName,
+      role: users.role,
+      createdAt: users.createdAt,
+      lastSeenAt: users.lastSeenAt,
+    })
+    .from(users)
+    .orderBy(desc(users.createdAt));
+
+  const initialUsers: AdminUserRow[] = rows.map((r) => ({
+    id: r.id,
+    email: r.email,
+    displayName: r.displayName,
+    role: r.role,
+    createdAt: r.createdAt.toISOString(),
+    lastSeenAt: r.lastSeenAt.toISOString(),
+  }));
+
   return (
-    <main className="p-8">
-      <h1 className="text-xl font-semibold">Admin</h1>
-      <p className="mt-2 text-sm opacity-75">
-        Phase 1 placeholder. Admin tooling (user list, all-thread view, usage
-        rollups) lands in subsequent phases. Reaching this page confirms the
-        role gate works end-to-end.
-      </p>
-    </main>
+    <section className="py-2">
+      <div className="px-6 pb-3 pt-4">
+        <h2 className="text-base font-semibold text-ink">Users</h2>
+        <p className="mt-1 text-[12px] text-muted">
+          {initialUsers.length} {initialUsers.length === 1 ? "user" : "users"}.
+          Promote or demote with the role selector. You can&apos;t demote yourself.
+        </p>
+      </div>
+      <UsersTable
+        initialUsers={initialUsers}
+        currentUserId={sessionUser.id}
+      />
+    </section>
   );
 }

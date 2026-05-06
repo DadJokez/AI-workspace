@@ -95,6 +95,8 @@ interface Props {
   activeNavId?: string;
   /** Fired when a static nav item is clicked. Parent decides whether the id maps to a real view. */
   onNavSelect?: (id: string) => void;
+  /** When true, the Admin nav group is rendered. Driven by the session role. */
+  isAdmin?: boolean;
 }
 
 interface ThreadGroup {
@@ -154,8 +156,21 @@ export function Sidebar({
   onOpenThread,
   activeNavId,
   onNavSelect,
+  isAdmin,
 }: Props) {
   const [historyOpen, setHistoryOpen] = useState(true);
+
+  const navGroups = useMemo<NavGroup[]>(() => {
+    if (!isAdmin) return groups;
+    // Insert an Admin entry above the trailing Settings group.
+    const adminGroup: NavGroup = {
+      label: "Admin",
+      items: [
+        { id: "admin", label: "Admin", icon: <IconShield /> },
+      ],
+    };
+    return [...groups.slice(0, -1), adminGroup, groups[groups.length - 1]!];
+  }, [isAdmin]);
 
   const initials = (userName ?? userEmail ?? "?")
     .split(/[\s@.]+/)
@@ -331,7 +346,7 @@ export function Sidebar({
         </div>
 
         <nav className="shrink-0 px-2 pb-2">
-          {groups.map((group, gi) => (
+          {navGroups.map((group, gi) => (
             <div key={gi} className="py-1.5">
               <div className="mx-2 mb-1.5 h-px bg-hairline" aria-hidden />
               {group.label ? (
@@ -485,6 +500,22 @@ function IconShare() {
       <circle cx="12" cy="4" r="1.6" />
       <circle cx="12" cy="12" r="1.6" />
       <path d="m5.5 7.2 5-2.4M5.5 8.8l5 2.4" />
+    </svg>
+  );
+}
+
+function IconShield() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinejoin="round"
+    >
+      <path d="M8 1.8 2.8 3.6v4.2c0 3 2.2 5.5 5.2 6.4 3-.9 5.2-3.4 5.2-6.4V3.6L8 1.8Z" />
     </svg>
   );
 }

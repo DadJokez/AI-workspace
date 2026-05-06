@@ -67,6 +67,7 @@ interface UserResponse {
     id: string;
     email: string;
     displayName: string;
+    role: "admin" | "user";
     customInstructions: string | null;
   };
 }
@@ -543,6 +544,10 @@ export function ChatClient() {
     else if (id === "settings") setView("settings");
     else if (id === "search") setView("search");
     else if (id === "tools") setView("tools");
+    else if (id === "admin") {
+      // Admin lives at its own route, not as a chat-level view.
+      window.location.assign("/admin");
+    }
   }
 
   async function send(text: string) {
@@ -723,6 +728,7 @@ export function ChatClient() {
         onOpenThread={openThread}
         activeNavId={view}
         onNavSelect={handleNavSelect}
+        isAdmin={user?.role === "admin"}
       />
 
       <main className="flex h-full min-w-0 flex-1 flex-col">
