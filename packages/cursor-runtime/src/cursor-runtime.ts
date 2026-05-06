@@ -110,15 +110,20 @@ export class CursorRuntime implements AgentRuntime {
       return;
     }
 
-    // The Cursor SDK has no system-prompt option on `Agent.create`. To steer
-    // a brand-new agent (identity, connected tools, custom instructions),
-    // the route assembles a preamble and we prepend it to the first user
-    // message. The cloud agent retains context across subsequent turns, so
-    // this only fires once per agent lifetime.
-    const messageText =
-      createdFresh && input.firstTurnPreamble
-        ? input.firstTurnPreamble + "\n\n" + lastUser
-        : lastUser;
+    // We create a fresh cloud agent every turn (resumed agents accumulate
+    // MCP transport state and silently drop tool results on subsequent
+    // tool calls). That means cloud-side conversation context is gone, so
+    // we bundle prior history into the user message body and only send
+    // the steering preamble on the very first turn of the thread.
+    const isFirstThreadTurn = input.messages.length === 1;
+    const priorBlock = buildPriorConversationBlock(input.messages);
+    const parts: string[] = [];
+    if (isFirstThreadTurn && input.firstTurnPreamble) {
+      parts.push(input.firstTurnPreamble);
+    }
+    if (priorBlock) parts.push(priorBlock);
+    parts.push(lastUser);
+    const messageText = parts.join("\n\n");
 
     // Per-turn mcpServers override anything baked in at agent.create() time.
     // The TurnInput shape mirrors McpServerConfig structurally — see
@@ -178,51 +183,24 @@ export class CursorRuntime implements AgentRuntime {
   private async getOrCreateAgent(
     input: TurnInput,
   ): Promise<{ agent: SDKAgent; createdFresh: boolean }> {
+    // Always create a fresh agent. Resumed cloud agents accumulate MCP
+    // transport state across `agent.send` calls — the second tool call
+    // hangs and the run finishes with no completion message, so the
+    // model never sees a tool result. Conversation continuity is
+    // preserved by bundling prior messages into the user message body
+    // in `runTurn`. The `ThreadAgentStore` row is updated for visibility
+    // but is no longer read.
     const turnMcp = input.mcpServers as
       | Record<string, McpServerConfig>
       | undefined;
-    const turnSignature = computeMcpSignature(input.mcpServers);
-
-    const existing = await this.store.get(input.threadId);
-    if (existing) {
-      // A stored mcpSignature of `null` means a legacy agent created before
-      // we tracked signatures — treat those as mismatched if the current
-      // turn brings any MCP, so the agent is recreated with tools bound.
-      const sigMatches = (existing.mcpSignature ?? "") === turnSignature;
-      if (sigMatches) {
-        try {
-          const agent = await Agent.resume(existing.agentId, {
-            apiKey: this.opts.apiKey,
-          });
-          return { agent, createdFresh: false };
-        } catch (err) {
-          if (!isAgentMissingError(errorMessage(err))) throw err;
-          // Stale agent id on Cursor's side — fall through to create a fresh
-          // one. The store.set below overwrites the dead id.
-        }
-      } else {
-        // The user connected/disconnected a provider since this thread's
-        // agent was created. The cloud agent's tool surface is bound at
-        // create time, so we abandon it and create a new one with the
-        // current MCP set. Conversation history on Cursor's side is lost
-        // for this thread; chat history in our DB still drives `messages`.
-        await this.store.clear(input.threadId);
-      }
-    }
-
-    // Constructor-level mcpServers are merged with per-turn so a future
-    // dev-loop can pre-bind a fixed server (e.g. an audit-log MCP) without
-    // the route having to know about it.
     const baseMcp = toMcpRecord(this.opts.mcpServers);
     const mergedMcp = mergeMcp(baseMcp, turnMcp);
-    // TEMP DEBUG: confirm mcpServers actually reaches Agent.create.
     process.stderr.write(
       `[mcp-debug:agent.create] ${JSON.stringify({
         threadId: input.threadId,
         modelId: toCursorModelId(input.modelId),
         mergedMcpDefined: !!mergedMcp,
         mergedMcpKeys: mergedMcp ? Object.keys(mergedMcp) : [],
-        // Per-key shape (no token leak — just whether headers present)
         perKey: mergedMcp
           ? Object.fromEntries(
               Object.entries(mergedMcp).map(([k, v]) => [
@@ -250,7 +228,7 @@ export class CursorRuntime implements AgentRuntime {
     );
     await this.store.set(input.threadId, {
       agentId: agent.agentId,
-      mcpSignature: turnSignature,
+      mcpSignature: computeMcpSignature(input.mcpServers),
     });
     return { agent, createdFresh: true };
   }
@@ -280,14 +258,28 @@ function mergeMcp(
 }
 
 /**
- * Heuristic for "the agent id we have is no longer valid on Cursor's side."
- * The SDK doesn't expose a typed error class for this case yet; match on the
- * error message lenient — better to start a fresh agent session than to keep
- * surfacing the same dead-id error to the user. */
-function isAgentMissingError(message: string): boolean {
-  return /\bnot[ -]?found\b|\b404\b|no such agent|does not exist/i.test(
-    message,
-  );
+ * Render the messages that precede the just-arrived user message into a
+ * single text block. The fresh-agent-per-turn strategy means cloud-side
+ * conversation context is gone; we restore it by prepending this block
+ * to the user message body.
+ */
+function buildPriorConversationBlock(
+  messages: readonly AgentMessage[],
+): string | null {
+  if (messages.length <= 1) return null;
+  const prior = messages.slice(0, -1);
+  const lines: string[] = ["[Prior conversation]"];
+  for (const m of prior) {
+    const label =
+      m.role === "user"
+        ? "User"
+        : m.role === "assistant"
+          ? "Assistant"
+          : "Tool";
+    lines.push(`${label}: ${m.content}`);
+  }
+  lines.push("[End prior conversation]");
+  return lines.join("\n");
 }
 
 /**
