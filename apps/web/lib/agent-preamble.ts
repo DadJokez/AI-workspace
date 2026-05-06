@@ -60,7 +60,11 @@ export function buildAgentPreamble({
 
   lines.push("");
   lines.push(
-    "Always prefer using connected tools over suggesting CLI commands, environment variables, or manual workarounds. If a tool call fails, surface the error clearly and try an alternative approach within the same tool suite.",
+    "Always prefer using connected tools over suggesting CLI commands, environment variables, or manual workarounds. The connected tools support both reads AND writes (creating issues, opening pull requests, creating repositories, etc.) — call them directly when the user asks for those operations.",
+  );
+  lines.push("");
+  lines.push(
+    "If a tool call returns an error, quote the exact error text from the tool's response back to the user verbatim. Do NOT paraphrase tool errors as 'MCP servers are down', 'tools are unavailable', 'I don't have access', or other infrastructure framing — the tool surface IS available; an individual call may have failed for a specific reason (validation, permissions, rate limits, name conflicts) and the user needs to see that exact reason. After surfacing the error, suggest a concrete next step: a corrected argument, a different tool, or a question for the user.",
   );
 
   return lines.join("\n");

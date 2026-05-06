@@ -85,6 +85,35 @@ const MARKDOWN_COMPONENTS: Components = {
   a: (props) => (
     <a className="underline" target="_blank" rel="noreferrer" {...props} />
   ),
+  // GFM tables. The outer div gives mobile a horizontal scroll instead of
+  // breaking layout when a wide table arrives. Borders use `border-hairline`
+  // and the header bg uses `bg-subtle` so it inherits the active theme.
+  table: ({ children }) => (
+    <div className="my-2 w-full overflow-x-auto first:mt-0 last:mb-0">
+      <table className="w-full border-collapse text-[13px]">{children}</table>
+    </div>
+  ),
+  thead: (props) => <thead className="bg-subtle" {...props} />,
+  tbody: (props) => <tbody {...props} />,
+  tr: (props) => (
+    <tr className="border-b border-hairline last:border-b-0" {...props} />
+  ),
+  th: (props) => (
+    <th
+      className="border-b border-hairline px-3 py-2 text-left align-top font-semibold text-ink"
+      {...props}
+    />
+  ),
+  td: (props) => (
+    <td className="px-3 py-2 align-top text-ink" {...props} />
+  ),
+  blockquote: (props) => (
+    <blockquote
+      className="my-2 border-l-2 border-hairline pl-3 text-muted first:mt-0 last:mb-0"
+      {...props}
+    />
+  ),
+  hr: () => <hr className="my-3 border-hairline" />,
   // Fenced blocks are rendered fully by `code` (below). Strip the wrapping
   // <pre> ReactMarkdown would otherwise emit so we don't get nested pres.
   pre: ({ children }) => <>{children}</>,
