@@ -82,9 +82,11 @@ export class CursorRuntime implements AgentRuntime {
       return;
     }
 
+    const mcpServers = toMcpRecord(this.opts.mcpServers);
+
     let agent: SDKAgent;
     try {
-      agent = await this.getOrCreateAgent(input);
+      agent = await this.getOrCreateAgent(input, mcpServers);
     } catch (err) {
       yield { type: "error", message: `CursorRuntime: ${errorMessage(err)}` };
       return;
@@ -97,8 +99,14 @@ export class CursorRuntime implements AgentRuntime {
 
     let run;
     try {
+      // Pass `mcpServers` on every send, not just Agent.create. Streamable-HTTP
+      // MCPs (e.g. GitHub Copilot at api.githubcopilot.com/mcp) are stateful —
+      // their session is bound to the call, not the agent — so omitting the
+      // config on follow-up turns drops the connection and the second tool
+      // call fails with "MCP server appears to have gone offline".
       run = await agent.send(lastUser, {
         model: { id: toCursorModelId(input.modelId) },
+        ...(mcpServers ? { mcpServers } : {}),
       });
     } catch (err) {
       yield {
@@ -127,7 +135,10 @@ export class CursorRuntime implements AgentRuntime {
     yield { type: "done" };
   }
 
-  private async getOrCreateAgent(input: TurnInput): Promise<SDKAgent> {
+  private async getOrCreateAgent(
+    input: TurnInput,
+    mcpServers: Record<string, McpServerConfig> | undefined,
+  ): Promise<SDKAgent> {
     const existingId = await this.store.get(input.threadId);
     if (existingId) {
       try {
@@ -141,7 +152,6 @@ export class CursorRuntime implements AgentRuntime {
       }
     }
 
-    const mcpServers = toMcpRecord(this.opts.mcpServers);
     const agent = await Agent.create({
       apiKey: this.opts.apiKey,
       model: { id: toCursorModelId(input.modelId) },
