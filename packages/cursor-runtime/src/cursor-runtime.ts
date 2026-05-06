@@ -100,6 +100,7 @@ export class CursorRuntime implements AgentRuntime {
     try {
       ({ agent, createdFresh } = await this.getOrCreateAgent(input));
     } catch (err) {
+      logRuntimeError("getOrCreateAgent", input.threadId, err);
       yield { type: "error", message: `CursorRuntime: ${errorMessage(err)}` };
       return;
     }
@@ -119,14 +120,14 @@ export class CursorRuntime implements AgentRuntime {
         ? input.firstTurnPreamble + "\n\n" + lastUser
         : lastUser;
 
+    // Per-turn mcpServers override anything baked in at agent.create() time.
+    // The TurnInput shape mirrors McpServerConfig structurally — see
+    // packages/cursor-runtime/src/types.ts — so the cast is safe.
+    const turnMcp = input.mcpServers as
+      | Record<string, McpServerConfig>
+      | undefined;
     let run;
     try {
-      // Per-turn mcpServers override anything baked in at agent.create() time.
-      // The TurnInput shape mirrors McpServerConfig structurally — see
-      // packages/cursor-runtime/src/types.ts — so the cast is safe.
-      const turnMcp = input.mcpServers as
-        | Record<string, McpServerConfig>
-        | undefined;
       process.stderr.write(
         `[mcp-debug:agent.send] ${JSON.stringify({
           threadId: input.threadId,
@@ -140,6 +141,10 @@ export class CursorRuntime implements AgentRuntime {
         ...(turnMcp ? { mcpServers: turnMcp } : {}),
       });
     } catch (err) {
+      logRuntimeError("send", input.threadId, err, {
+        agentId: agent.agentId,
+        mcpKeys: turnMcp ? Object.keys(turnMcp) : [],
+      });
       yield {
         type: "error",
         message: `CursorRuntime.send: ${errorMessage(err)}`,
@@ -157,6 +162,9 @@ export class CursorRuntime implements AgentRuntime {
         yield* mapSdkMessage(m);
       }
     } catch (err) {
+      logRuntimeError("stream", input.threadId, err, {
+        agentId: agent.agentId,
+      });
       yield { type: "error", message: `CursorRuntime.stream: ${errorMessage(err)}` };
       return;
     } finally {
@@ -367,6 +375,25 @@ function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (err == null) return "unknown error";
   return String(err);
+}
+
+function logRuntimeError(
+  site: "getOrCreateAgent" | "send" | "stream",
+  threadId: string,
+  err: unknown,
+  extra: Record<string, unknown> = {},
+): void {
+  const stack = err instanceof Error ? err.stack : undefined;
+  const name = err instanceof Error ? err.name : undefined;
+  process.stderr.write(
+    `[cursor-runtime-error:${site}] ${JSON.stringify({
+      threadId,
+      name,
+      message: errorMessage(err),
+      stack,
+      ...extra,
+    })}\n`,
+  );
 }
 
 // Translate caller's modelId for the Cursor SDK. The web app's /api/models

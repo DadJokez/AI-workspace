@@ -15,6 +15,24 @@ import { ensureUser } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
 
+// One-time diagnostic: surface Node's `warning` events with their stack so
+// MaxListenersExceeded (and similar) point at the actual leaking call site.
+// Guarded against multiple registrations under HMR / serverless cold starts.
+const WARNING_HANDLER = Symbol.for("ai-workspace.process-warning-logger");
+type WithSymbolFlag = NodeJS.Process & Record<symbol, boolean | undefined>;
+if (!((process as WithSymbolFlag)[WARNING_HANDLER])) {
+  (process as WithSymbolFlag)[WARNING_HANDLER] = true;
+  process.on("warning", (warning) => {
+    process.stderr.write(
+      `[node-warning] ${JSON.stringify({
+        name: warning.name,
+        message: warning.message,
+        stack: warning.stack,
+      })}\n`,
+    );
+  });
+}
+
 interface ChatRequestBody {
   message: string;
   threadId?: string;
@@ -192,6 +210,18 @@ export async function POST(req: Request) {
           } else if (ev.type === "usage") {
             tokensIn = ev.tokensIn;
             tokensOut = ev.tokensOut;
+          } else if (ev.type === "error") {
+            // Yielded error events go to SSE without the route's try/catch
+            // ever firing. Mirror to stderr so CloudWatch sees them too.
+            process.stderr.write(
+              `[chat-error:event] ${JSON.stringify({
+                threadId: thread.id,
+                userId: dbUser.id,
+                modelId,
+                mcpKeys: mcpServers ? Object.keys(mcpServers) : [],
+                message: ev.message,
+              })}\n`,
+            );
           }
           send(ev);
         }
