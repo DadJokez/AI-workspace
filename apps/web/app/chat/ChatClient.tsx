@@ -2,13 +2,14 @@
 
 import { ChatInput } from "@/components/ChatInput";
 import { MessageBubble } from "@/components/MessageBubble";
-import { type ModelOption } from "@/components/ModelSelector";
+import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
 import { SearchPanel } from "@/components/SearchPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
 import { ToolsPanel } from "@/components/ToolsPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { readSseStream } from "@/lib/sse";
+import { signOut } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 
 // Model ids are now whatever Cursor's SDK reports back from /api/models —
@@ -256,12 +257,33 @@ export function ChatClient() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     fetch("/api/user")
-      .then((r) => (r.ok ? (r.json() as Promise<UserResponse>) : null))
-      .then((data) => {
-        if (data?.user) setUser(data.user);
+      .then(async (r) => {
+        // Middleware redirects unauthenticated users to /login before this
+        // page mounts, so a 401 here means the session expired between
+        // mount and this fetch. Bounce them to /login so they re-auth.
+        if (r.status === 401) {
+          window.location.assign("/login");
+          return null;
+        }
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return (await r.json()) as UserResponse;
       })
-      .catch(() => {});
+      .then((data) => {
+        if (cancelled || !data?.user) return;
+        setUser(data.user);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // Surface the failure rather than silently dropping it. The user
+        // chip simply stays empty until /api/user succeeds — useful when
+        // debugging an auth/DB outage.
+        console.error("failed to load /api/user", err);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Default-model preference is per-user but stored in localStorage rather
@@ -539,6 +561,45 @@ export function ChatClient() {
     setView("chat");
   }
 
+  function handleModelChange(id: string) {
+    if (!activeTab) return;
+    patchTab(activeTab.id, { modelId: id });
+  }
+
+  async function handleRenameThread(threadId: string, title: string) {
+    const res = await fetch(`/api/threads/${threadId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    setThreads((prev) =>
+      prev.map((t) => (t.id === threadId ? { ...t, title } : t)),
+    );
+    setTabs((prev) =>
+      prev.map((t) => (t.threadId === threadId ? { ...t, title } : t)),
+    );
+  }
+
+  async function handleDeleteThread(threadId: string) {
+    const res = await fetch(`/api/threads/${threadId}`, { method: "DELETE" });
+    if (!res.ok && res.status !== 404) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    setThreads((prev) => prev.filter((t) => t.id !== threadId));
+    setTabs((prev) => {
+      const next = prev.filter((t) => t.threadId !== threadId);
+      if (next.length === 0) {
+        const fresh = makeFreshTab(defaultModelId);
+        setActiveId(fresh.id);
+        return [fresh];
+      }
+      return next;
+    });
+  }
+
   function handleNavSelect(id: string) {
     if (id === "chat") setView("chat");
     else if (id === "settings") setView("settings");
@@ -729,6 +790,9 @@ export function ChatClient() {
         activeNavId={view}
         onNavSelect={handleNavSelect}
         isAdmin={user?.role === "admin"}
+        onSignOut={() => signOut({ callbackUrl: "/login" })}
+        onRenameThread={handleRenameThread}
+        onDeleteThread={handleDeleteThread}
       />
 
       <main className="flex h-full min-w-0 flex-1 flex-col">
@@ -854,6 +918,14 @@ export function ChatClient() {
             </button>
           </div>
           <div className="flex shrink-0 items-center gap-1 self-center px-2 sm:gap-1.5 sm:px-3 sm:self-end sm:pb-1">
+            {models.length > 0 && activeTab.modelId ? (
+              <ModelSelector
+                value={activeTab.modelId}
+                onChange={handleModelChange}
+                options={models}
+                disabled={busy}
+              />
+            ) : null}
             <ThemeToggle />
           </div>
         </header>

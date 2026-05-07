@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// `next-auth/jwt`.getToken is mocked per-test. Hoisting via vi.mock so the
+// import in middleware.ts picks up our stub.
+const getTokenMock = vi.fn();
+vi.mock("next-auth/jwt", () => ({
+  getToken: (...args: unknown[]) => getTokenMock(...args),
+}));
+
 import { middleware } from "@/middleware";
 
 function makeReq(pathname: string, cookieHeader = "") {
-  // NextRequest is structurally compatible with what `middleware` reads:
-  // `nextUrl` (with a `clone()` that returns a mutable URL), the request
-  // URL string, and a Headers bag. We hand-roll the minimum used.
   const base = `http://localhost${pathname}`;
   const url = new URL(base);
   const nextUrl = Object.assign(url, {
@@ -18,58 +23,53 @@ function makeReq(pathname: string, cookieHeader = "") {
 }
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  getTokenMock.mockReset();
 });
 
-describe("middleware — /admin gate", () => {
-  it("passes through non-/admin paths without calling /api/me", async () => {
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
-
+describe("middleware — auth gate", () => {
+  it("redirects unauthenticated /chat to /login with callbackUrl", async () => {
+    getTokenMock.mockResolvedValueOnce(null);
     const res = await middleware(makeReq("/chat"));
-    expect(fetchSpy).not.toHaveBeenCalled();
-    // NextResponse.next() doesn't redirect.
-    expect(res.headers.get("location")).toBeNull();
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe(
+      "http://localhost/login?callbackUrl=%2Fchat",
+    );
+  });
+
+  it("redirects unauthenticated / to /login", async () => {
+    getTokenMock.mockResolvedValueOnce(null);
+    const res = await middleware(makeReq("/"));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe(
+      "http://localhost/login?callbackUrl=%2F",
+    );
+  });
+
+  it("redirects unauthenticated /admin to /login", async () => {
+    getTokenMock.mockResolvedValueOnce(null);
+    const res = await middleware(makeReq("/admin/users"));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe(
+      "http://localhost/login?callbackUrl=%2Fadmin%2Fusers",
+    );
   });
 
   it("redirects role=user away from /admin to /chat", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response(JSON.stringify({ user: { role: "user" } }), {
-          status: 200,
-        }),
-      ),
-    );
-
+    getTokenMock.mockResolvedValueOnce({ role: "user", userId: "u1" });
     const res = await middleware(makeReq("/admin"));
-    expect(res.status).toBe(307);
-    expect(res.headers.get("location")).toBe("http://localhost/chat");
-  });
-
-  it("redirects unauthenticated requests away from /admin", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("unauthorized", { status: 401 })),
-    );
-
-    const res = await middleware(makeReq("/admin/users"));
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toBe("http://localhost/chat");
   });
 
   it("lets role=admin through to /admin", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response(JSON.stringify({ user: { role: "admin" } }), {
-          status: 200,
-        }),
-      ),
-    );
-
+    getTokenMock.mockResolvedValueOnce({ role: "admin", userId: "u1" });
     const res = await middleware(makeReq("/admin"));
-    // NextResponse.next() — no Location header.
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("lets authenticated users through to /chat", async () => {
+    getTokenMock.mockResolvedValueOnce({ role: "user", userId: "u1" });
+    const res = await middleware(makeReq("/chat"));
     expect(res.headers.get("location")).toBeNull();
   });
 });

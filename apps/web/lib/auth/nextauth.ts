@@ -44,6 +44,12 @@ export const authOptions: NextAuthOptions = {
   ],
   session: { strategy: "jwt" },
   secret: NEXTAUTH_SECRET,
+  pages: {
+    // Replace NextAuth's default sign-in / error pages with our own /login.
+    // Errors land back here as `?error=AccessDenied` etc, surfaced inline.
+    signIn: "/login",
+    error: "/login",
+  },
   callbacks: {
     /**
      * Gate sign-up. Allow when:

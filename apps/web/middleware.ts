@@ -1,44 +1,40 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
 
 /**
- * Gate `/admin/*` to `role = 'admin'`.
+ * Auth gate for the app's primary surfaces.
  *
- * Edge runtime can't open a postgres connection, so we delegate the role
- * lookup to `/api/me` (Node runtime, hits the DB). The session cookie/header
- * is forwarded so the API sees the same identity as the page request.
+ * - `/`, `/chat/*`     → require any authenticated session; redirect to /login.
+ * - `/admin/*`         → require role=admin; non-admins go to /chat,
+ *                        unauthenticated to /login.
  *
- * Defense in depth — `app/admin/layout.tsx` also runs the role check
- * server-side; this middleware is the early redirect.
+ * `getToken` decodes the NextAuth JWT cookie locally on the edge — no
+ * fetch loopback to `/api/me`. The role is stamped onto the token in the
+ * `jwt` callback (apps/web/lib/auth/nextauth.ts), so it's available here
+ * without a DB lookup. `app/admin/layout.tsx` re-checks server-side as
+ * defense in depth.
  */
 export async function middleware(req: NextRequest) {
-  if (!req.nextUrl.pathname.startsWith("/admin")) {
-    return NextResponse.next();
-  }
+  const { pathname } = req.nextUrl;
+  const isAdminRoute = pathname.startsWith("/admin");
 
-  const meUrl = new URL("/api/me", req.url);
-  const meReq = new Request(meUrl, {
-    headers: {
-      cookie: req.headers.get("cookie") ?? "",
-      // Forward auth-relevant headers; `/api/me` itself reads identity via
-      // `getCurrentUser`, which today is env-driven and ignores the request.
-      authorization: req.headers.get("authorization") ?? "",
-    },
+  const token = await getToken({
+    req,
+    secret: process.env.NEXTAUTH_SECRET,
   });
 
-  let role: string | undefined;
-  try {
-    const res = await fetch(meReq);
-    if (res.ok) {
-      const json = (await res.json()) as { user?: { role?: string } };
-      role = json.user?.role;
-    }
-  } catch {
-    // Fall through to the redirect on any failure — the layout-level check
-    // will produce a useful error if it's a real outage rather than auth.
+  if (!token) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/login";
+    url.search =
+      pathname && pathname !== "/login"
+        ? `?callbackUrl=${encodeURIComponent(pathname)}`
+        : "";
+    return NextResponse.redirect(url);
   }
 
-  if (role !== "admin") {
+  if (isAdminRoute && token.role !== "admin") {
     const url = req.nextUrl.clone();
     url.pathname = "/chat";
     url.search = "";
@@ -49,5 +45,8 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  // Protect the app's authenticated surfaces. `/login`, NextAuth's own
+  // /api/auth/*, and Next's static assets (_next/*) are excluded so the
+  // sign-in flow itself isn't gated.
+  matcher: ["/", "/chat/:path*", "/admin/:path*"],
 };
