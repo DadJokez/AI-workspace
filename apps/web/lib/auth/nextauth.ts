@@ -47,9 +47,11 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     /**
      * Gate sign-up. Allow when:
-     *   1. The `users` table is empty — first signer becomes admin.
-     *   2. A user row already exists for this GitHub identity.
-     *   3. There's a pending, unexpired invitation for this email.
+     *   1. A user row already exists for this GitHub identity.
+     *   2. A user row exists for this email but with a non-OAuth ping_subject
+     *      (legacy week-1 shim row): migrate ping_subject to the GitHub id.
+     *   3. The `users` table is empty — first signer becomes admin.
+     *   4. There's a pending, unexpired invitation for this email.
      * Otherwise: deny. NextAuth surfaces this to the browser as the default
      * AccessDenied error page.
      */
@@ -70,6 +72,26 @@ export const authOptions: NextAuthOptions = {
         .where(eq(users.pingSubject, ghSub))
         .limit(1);
       if (existing[0]) return true;
+
+      // Legacy shim rows had `ping_subject` set to HARDCODED_USER_ID rather
+      // than the GitHub numeric id. If a row exists for this verified email,
+      // adopt it by migrating its `ping_subject` to the OAuth identity. The
+      // lookup + update share a transaction so two concurrent sign-ins can't
+      // race the migration.
+      const migrated = await db.transaction(async (tx) => {
+        const byEmail = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, email))
+          .limit(1);
+        if (!byEmail[0]) return false;
+        await tx
+          .update(users)
+          .set({ pingSubject: ghSub })
+          .where(eq(users.id, byEmail[0].id));
+        return true;
+      });
+      if (migrated) return true;
 
       const counts = await db
         .select({ count: sql<number>`count(*)::int` })

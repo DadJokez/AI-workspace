@@ -1,15 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Verifies the `signIn` callback in apps/web/lib/auth/nextauth.ts. The four
+ * Verifies the `signIn` callback in apps/web/lib/auth/nextauth.ts. The
  * accept/deny paths it has to get right:
- *   - first-ever sign-in is allowed (becomes admin via ensureUser later)
  *   - existing GitHub identity is allowed
+ *   - email matches a legacy shim row → adopt + migrate ping_subject
+ *   - first-ever sign-in is allowed (becomes admin via ensureUser later)
  *   - pending invitation for the email is allowed
  *   - no existing user, no invite → deny (keeps random GitHub users out)
  *
  * The drizzle proxy distinguishes selects against `users` from selects
- * against `invitations` so we can drive each case independently.
+ * against `invitations`, and counts users-table selects so the second one
+ * (the email-fallback inside the migration transaction) returns its own
+ * configured result independent of the first (ghSub) lookup.
  */
 
 afterEach(() => {
@@ -19,11 +22,18 @@ afterEach(() => {
 interface ProxyOpts {
   existingUserCount: number;
   userExistsByGhSub: boolean;
+  /**
+   * Result of the second users-select in the signIn callback (the email
+   * fallback inside the migration transaction). Defaults to false so existing
+   * tests that don't exercise the migration path don't need to set it.
+   */
+  userExistsByEmail?: boolean;
   pendingInviteForEmail: boolean;
 }
 
 function makeProxy(opts: ProxyOpts): unknown {
   let currentTarget: "users" | "invitations" | "unknown" = "unknown";
+  let usersLimitCalls = 0;
 
   function tableName(arg: unknown): typeof currentTarget {
     const s = String(
@@ -48,11 +58,23 @@ function makeProxy(opts: ProxyOpts): unknown {
             return proxy;
           };
         }
+        if (prop === "transaction") {
+          // `db.transaction(async (tx) => …)` — invoke the callback with the
+          // same proxy as the tx handle. Counters are shared so the in-tx
+          // users-select counts as the second users lookup.
+          return async (cb: (tx: unknown) => unknown) => cb(proxy);
+        }
         if (prop === "limit") {
           return () => {
             if (currentTarget === "users") {
+              usersLimitCalls += 1;
+              // 1st users-select = lookup by ghSub; 2nd = email fallback.
+              const exists =
+                usersLimitCalls === 1
+                  ? opts.userExistsByGhSub
+                  : (opts.userExistsByEmail ?? false);
               return Promise.resolve(
-                opts.userExistsByGhSub ? [{ id: "existing-user-uuid" }] : [],
+                exists ? [{ id: "existing-user-uuid" }] : [],
               );
             }
             if (currentTarget === "invitations") {
@@ -158,6 +180,16 @@ describe("nextauth — signIn gate", () => {
     const ok = await callSignIn({
       existingUserCount: 5,
       userExistsByGhSub: true,
+      pendingInviteForEmail: false,
+    });
+    expect(ok).toBe(true);
+  });
+
+  it("adopts a legacy shim row when GitHub sub misses but email matches", async () => {
+    const ok = await callSignIn({
+      existingUserCount: 1,
+      userExistsByGhSub: false,
+      userExistsByEmail: true,
       pendingInviteForEmail: false,
     });
     expect(ok).toBe(true);
