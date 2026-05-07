@@ -9,6 +9,7 @@ import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
 import { ToolsPanel } from "@/components/ToolsPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { readSseStream } from "@/lib/sse";
+import { signOut } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 
 // Model ids are now whatever Cursor's SDK reports back from /api/models —
@@ -729,6 +730,7 @@ export function ChatClient() {
         activeNavId={view}
         onNavSelect={handleNavSelect}
         isAdmin={user?.role === "admin"}
+        onSignOut={() => signOut({ callbackUrl: "/" })}
       />
 
       <main className="flex h-full min-w-0 flex-1 flex-col">

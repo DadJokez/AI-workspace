@@ -97,6 +97,8 @@ interface Props {
   onNavSelect?: (id: string) => void;
   /** When true, the Admin nav group is rendered. Driven by the session role. */
   isAdmin?: boolean;
+  /** Sign the user out. */
+  onSignOut?: () => void;
 }
 
 interface ThreadGroup {
@@ -157,6 +159,7 @@ export function Sidebar({
   activeNavId,
   onNavSelect,
   isAdmin,
+  onSignOut,
 }: Props) {
   const [historyOpen, setHistoryOpen] = useState(true);
 
@@ -395,6 +398,21 @@ export function Sidebar({
 
         <div aria-hidden className="flex-1" />
 
+        {onSignOut ? (
+          <div className="shrink-0 border-t border-hairline px-2 py-2">
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] text-muted hover:bg-subtle hover:text-ink md:min-h-0 md:py-1.5"
+            >
+              <span className="flex h-4 w-4 items-center justify-center text-current">
+                <IconSignOut />
+              </span>
+              <span className="flex-1 truncate">Sign out</span>
+            </button>
+          </div>
+        ) : null}
+
         <div className="shrink-0 border-t border-hairline px-3 py-2 text-[11px] text-muted">
           Week 1 build · Hardcoded auth
         </div>
@@ -516,6 +534,24 @@ function IconShield() {
       strokeLinejoin="round"
     >
       <path d="M8 1.8 2.8 3.6v4.2c0 3 2.2 5.5 5.2 6.4 3-.9 5.2-3.4 5.2-6.4V3.6L8 1.8Z" />
+    </svg>
+  );
+}
+
+function IconSignOut() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M6.5 2.5h-3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3" />
+      <path d="M10 5.5 13 8l-3 2.5M6.5 8h6.5" />
     </svg>
   );
 }
