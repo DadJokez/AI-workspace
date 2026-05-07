@@ -19,7 +19,7 @@ const MAX_LIMIT = 50;
 export async function GET(req: Request) {
   let sessionUser;
   try {
-    sessionUser = await getSessionUser(req);
+    sessionUser = await getSessionUser();
   } catch (err) {
     if (err instanceof AuthConfigError) {
       return NextResponse.json(

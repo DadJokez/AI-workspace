@@ -14,12 +14,12 @@ export const dynamic = "force-dynamic";
  * `role = 'admin'` → messages on any thread.
  */
 export async function GET(
-  req: Request,
+  _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   let sessionUser;
   try {
-    sessionUser = await getSessionUser(req);
+    sessionUser = await getSessionUser();
   } catch (err) {
     if (err instanceof AuthConfigError) {
       return NextResponse.json(

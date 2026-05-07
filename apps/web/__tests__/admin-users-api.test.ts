@@ -116,7 +116,7 @@ describe("GET /api/admin/users", () => {
     setSession(null);
     installDbMock();
     const { GET } = await import("@/app/api/admin/users/route");
-    const res = await GET(new Request("http://localhost/api/admin/users"));
+    const res = await GET();
     expect(res.status).toBe(401);
   });
 
@@ -124,7 +124,7 @@ describe("GET /api/admin/users", () => {
     setSession(userSession);
     installDbMock();
     const { GET } = await import("@/app/api/admin/users/route");
-    const res = await GET(new Request("http://localhost/api/admin/users"));
+    const res = await GET();
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("forbidden");
@@ -134,7 +134,7 @@ describe("GET /api/admin/users", () => {
     setSession(adminSession);
     installDbMock();
     const { GET } = await import("@/app/api/admin/users/route");
-    const res = await GET(new Request("http://localhost/api/admin/users"));
+    const res = await GET();
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       users: Array<{ id: string; role: string; createdAt: string }>;

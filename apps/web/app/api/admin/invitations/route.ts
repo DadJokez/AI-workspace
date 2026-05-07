@@ -28,7 +28,7 @@ function inviteUrl(token: string): string {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireAdmin(req);
+  const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
 
   let body: PostBody;
@@ -81,8 +81,8 @@ export async function POST(req: Request) {
   return NextResponse.json({ invitation: out }, { status: 201 });
 }
 
-export async function GET(req: Request) {
-  const auth = await requireAdmin(req);
+export async function GET() {
+  const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
 
   const db = getDb();

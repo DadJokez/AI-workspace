@@ -14,8 +14,8 @@ export interface AdminUserRow {
   lastSeenAt: string;
 }
 
-export async function GET(req: Request) {
-  const auth = await requireAdmin(req);
+export async function GET() {
+  const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
 
   const db = getDb();

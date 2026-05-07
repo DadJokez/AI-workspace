@@ -14,11 +14,11 @@ import { getSessionUser } from "@/lib/auth/getSessionUser";
  * 500 auth misconfig). Mirrors the `authOrError` pattern in /api/user so
  * route handlers stay terse: `if ("error" in r) return r.error;`.
  */
-export async function requireAdmin(
-  req: Request,
-): Promise<{ user: SessionUser } | { error: NextResponse }> {
+export async function requireAdmin(): Promise<
+  { user: SessionUser } | { error: NextResponse }
+> {
   try {
-    const user = await getSessionUser(req);
+    const user = await getSessionUser();
     if (!user) {
       return {
         error: NextResponse.json({ error: "unauthorized" }, { status: 401 }),

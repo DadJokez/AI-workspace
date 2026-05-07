@@ -1,5 +1,5 @@
 import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
-import { AuthConfigError, getCurrentUser } from "@ai-workspace/auth";
+import { AuthConfigError } from "@ai-workspace/auth";
 import { getRuntime } from "@ai-workspace/cursor-runtime";
 import {
   type ChatThread,
@@ -10,6 +10,7 @@ import {
 import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
+import { getCurrentUser } from "@/lib/auth/session";
 import { userScope } from "@/lib/auth/scope";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
 import { ensureUser } from "@/lib/users";

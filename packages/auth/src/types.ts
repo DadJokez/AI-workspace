@@ -1,11 +1,9 @@
 /**
  * The authenticated user, as the rest of the app sees them.
  *
- * Week 1: populated from env vars (HARDCODED_USER_*).
- * Week 2: populated from a PingOne OIDC session. Same shape, same call sites.
- *
- * Field meanings stay stable across the swap:
- *   - `id` is the canonical user id (week 2: `users.ping_subject` upserted to `users.id`)
+ * Populated from the NextAuth session in apps/web/lib/auth/session.ts. Field
+ * meanings:
+ *   - `id` is the canonical DB user id (UUID, primary key in `users`)
  *   - `email` is the primary work email
  *   - `displayName` is what the UI shows
  */
@@ -29,8 +27,9 @@ export type UserRole = "admin" | "user";
  * What lives on the server-side session: the IdP claims (`User`) plus the
  * application-side role looked up against the `users` table.
  *
- * In a NextAuth world this is the shape of `session.user`; here it's the
- * return value of `getSessionUser` (apps/web/lib/auth/getSessionUser.ts).
+ * In NextAuth this is the shape of `session.user` (augmented in
+ * apps/web/types/next-auth.d.ts); in the rest of the app it's the return
+ * value of `getSessionUser` (apps/web/lib/auth/getSessionUser.ts).
  */
 export interface SessionUser extends User {
   role: UserRole;
