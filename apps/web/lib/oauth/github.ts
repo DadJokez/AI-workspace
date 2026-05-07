@@ -1,5 +1,5 @@
 export const GITHUB_PROVIDER = "github";
-export const GITHUB_CLIENT_ID = "Ov23liX7ZerUBUHoEQXg";
+export const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? "";
 
 /**
  * Public origin of the deployed app. Hardcoded — must NOT be derived from
