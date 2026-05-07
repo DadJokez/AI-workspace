@@ -6,14 +6,14 @@ import {
   chatMessages,
   chatThreads,
   getDb,
+  users,
 } from "@ai-workspace/db";
 import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
-import { getCurrentUser } from "@/lib/auth/session";
+import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
-import { ensureUser } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
 
@@ -50,9 +50,9 @@ interface ChatRequestBody {
  *           the client can navigate to the thread.
  */
 export async function POST(req: Request) {
-  let authUser;
+  let sessionUser;
   try {
-    authUser = await getCurrentUser(req);
+    sessionUser = await getSessionUser();
   } catch (err) {
     if (err instanceof AuthConfigError) {
       return NextResponse.json(
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
     }
     throw err;
   }
-  if (!authUser) {
+  if (!sessionUser) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -89,8 +89,18 @@ export async function POST(req: Request) {
       ? body.modelId
       : DEFAULT_MODEL_ID;
 
-  const dbUser = await ensureUser(authUser);
   const db = getDb();
+
+  // The session carries (id, email, displayName, role); we still need
+  // customInstructions for the agent preamble. One direct lookup against
+  // the canonical users.id (which IS session.user.id, set in the JWT
+  // callback) — no upsert needed.
+  const userRows = await db
+    .select({ customInstructions: users.customInstructions })
+    .from(users)
+    .where(eq(users.id, sessionUser.id))
+    .limit(1);
+  const customInstructions = userRows[0]?.customInstructions ?? null;
 
   let thread: ChatThread;
   if (body.threadId) {
@@ -103,7 +113,7 @@ export async function POST(req: Request) {
       .where(
         and(
           eq(chatThreads.id, body.threadId),
-          userScope(dbUser, chatThreads.userId),
+          userScope(sessionUser, chatThreads.userId),
         ),
       )
       .limit(1);
@@ -115,7 +125,7 @@ export async function POST(req: Request) {
     const created = await db
       .insert(chatThreads)
       .values({
-        userId: dbUser.id,
+        userId: sessionUser.id,
         defaultModelId: modelId,
         title: deriveTitle(body.message),
       })
@@ -150,7 +160,7 @@ export async function POST(req: Request) {
   // chat — the user just doesn't get tools this turn.
   let mcpServers;
   try {
-    mcpServers = await buildUserMcpServers(db, dbUser.id);
+    mcpServers = await buildUserMcpServers(db, sessionUser.id);
   } catch (err) {
     console.warn("[mcp] buildUserMcpServers threw:", err);
     mcpServers = undefined;
@@ -160,8 +170,8 @@ export async function POST(req: Request) {
   // ignores this on resumed agents, so it's safe to send unconditionally.
   const firstTurnPreamble = buildAgentPreamble({
     user: {
-      displayName: dbUser.displayName,
-      customInstructions: dbUser.customInstructions,
+      displayName: sessionUser.displayName,
+      customInstructions,
     },
     connectedProviders: mcpServers ? Object.keys(mcpServers) : [],
   });
@@ -172,7 +182,7 @@ export async function POST(req: Request) {
   process.stderr.write(
     `[mcp-debug:route] ${JSON.stringify({
       threadId: thread.id,
-      userId: dbUser.id,
+      userId: sessionUser.id,
       mcpServerKeys: mcpServers ? Object.keys(mcpServers) : [],
       preambleChars: firstTurnPreamble.length,
     })}\n`,
@@ -205,7 +215,7 @@ export async function POST(req: Request) {
           threadId: thread.id,
           modelId,
           messages: agentMessages,
-          context: { userId: dbUser.id },
+          context: { userId: sessionUser.id },
           signal: abort.signal,
           firstTurnPreamble,
           ...(mcpServers ? { mcpServers } : {}),
@@ -221,7 +231,7 @@ export async function POST(req: Request) {
             process.stderr.write(
               `[chat-error:event] ${JSON.stringify({
                 threadId: thread.id,
-                userId: dbUser.id,
+                userId: sessionUser.id,
                 modelId,
                 mcpKeys: mcpServers ? Object.keys(mcpServers) : [],
                 message: ev.message,
@@ -236,7 +246,7 @@ export async function POST(req: Request) {
         process.stderr.write(
           `[chat-error] ${JSON.stringify({
             threadId: thread.id,
-            userId: dbUser.id,
+            userId: sessionUser.id,
             modelId,
             mcpKeys: mcpServers ? Object.keys(mcpServers) : [],
             message: msg,
@@ -283,7 +293,7 @@ export async function POST(req: Request) {
           `[chat-error] ${JSON.stringify({
             site: "persist",
             threadId: thread.id,
-            userId: dbUser.id,
+            userId: sessionUser.id,
             modelId,
             message: msg,
             stack,

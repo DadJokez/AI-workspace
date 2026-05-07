@@ -1,9 +1,8 @@
-import { AuthConfigError, UnauthorizedError } from "@ai-workspace/auth";
+import { AuthConfigError } from "@ai-workspace/auth";
 import { getDb, users } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/session";
-import { ensureUser } from "@/lib/users";
+import { getSessionUser } from "@/lib/auth/getSessionUser";
 
 export const dynamic = "force-dynamic";
 
@@ -31,13 +30,16 @@ function profileFromRow(row: {
   };
 }
 
-async function authOrError(req: Request) {
+async function authOrError() {
   try {
-    return { user: await requireUser(req) } as const;
-  } catch (err) {
-    if (err instanceof UnauthorizedError) {
-      return { error: NextResponse.json({ error: "unauthorized" }, { status: 401 }) } as const;
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return {
+        error: NextResponse.json({ error: "unauthorized" }, { status: 401 }),
+      } as const;
     }
+    return { sessionUser } as const;
+  } catch (err) {
     if (err instanceof AuthConfigError) {
       return {
         error: NextResponse.json(
@@ -50,15 +52,25 @@ async function authOrError(req: Request) {
   }
 }
 
-export async function GET(req: Request) {
-  const auth = await authOrError(req);
+export async function GET() {
+  const auth = await authOrError();
   if ("error" in auth) return auth.error;
-  const dbUser = await ensureUser(auth.user);
-  return NextResponse.json({ user: profileFromRow(dbUser) });
+
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, auth.sessionUser.id))
+    .limit(1);
+  const row = rows[0];
+  if (!row) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  return NextResponse.json({ user: profileFromRow(row) });
 }
 
 export async function PATCH(req: Request) {
-  const auth = await authOrError(req);
+  const auth = await authOrError();
   if ("error" in auth) return auth.error;
 
   let body: PatchBody;
@@ -113,16 +125,29 @@ export async function PATCH(req: Request) {
     }
   }
 
-  const dbUser = await ensureUser(auth.user);
+  const db = getDb();
+
   if (Object.keys(patch).length === 0) {
-    return NextResponse.json({ user: profileFromRow(dbUser) });
+    const rows = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, auth.sessionUser.id))
+      .limit(1);
+    const row = rows[0];
+    if (!row) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+    return NextResponse.json({ user: profileFromRow(row) });
   }
 
-  const db = getDb();
   const updated = await db
     .update(users)
     .set(patch)
-    .where(eq(users.id, dbUser.id))
+    .where(eq(users.id, auth.sessionUser.id))
     .returning();
-  return NextResponse.json({ user: profileFromRow(updated[0]!) });
+  const row = updated[0];
+  if (!row) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  return NextResponse.json({ user: profileFromRow(row) });
 }

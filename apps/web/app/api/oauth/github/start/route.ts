@@ -1,7 +1,7 @@
-import { AuthConfigError, UnauthorizedError } from "@ai-workspace/auth";
+import { AuthConfigError } from "@ai-workspace/auth";
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/session";
+import { getSessionUser } from "@/lib/auth/getSessionUser";
 import {
   GITHUB_AUTHORIZE_URL,
   GITHUB_CLIENT_ID,
@@ -17,13 +17,11 @@ export const dynamic = "force-dynamic";
  * GET /api/oauth/github/start — kick off the GitHub OAuth flow.
  * Sets a short-lived signed state cookie and redirects to GitHub's authorize URL.
  */
-export async function GET(req: Request) {
+export async function GET() {
+  let sessionUser;
   try {
-    await requireUser(req);
+    sessionUser = await getSessionUser();
   } catch (err) {
-    if (err instanceof UnauthorizedError) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
     if (err instanceof AuthConfigError) {
       return NextResponse.json(
         { error: "auth_config_error", message: err.message },
@@ -31,6 +29,9 @@ export async function GET(req: Request) {
       );
     }
     throw err;
+  }
+  if (!sessionUser) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const state = randomBytes(32).toString("base64url");

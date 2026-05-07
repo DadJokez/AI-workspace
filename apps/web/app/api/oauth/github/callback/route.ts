@@ -1,8 +1,8 @@
-import { AuthConfigError, UnauthorizedError } from "@ai-workspace/auth";
+import { AuthConfigError } from "@ai-workspace/auth";
 import { getDb, oauthTokens } from "@ai-workspace/db";
 import { sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/session";
+import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { encryptSecret } from "@/lib/oauth/crypto";
 import {
   GITHUB_CLIENT_ID,
@@ -12,7 +12,6 @@ import {
   PUBLIC_BASE_URL,
   STATE_COOKIE,
 } from "@/lib/oauth/github";
-import { ensureUser } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
 
@@ -35,13 +34,10 @@ function settingsRedirect(_req: Request, params: Record<string, string>) {
 }
 
 export async function GET(req: Request) {
-  let authUser;
+  let sessionUser;
   try {
-    authUser = await requireUser(req);
+    sessionUser = await getSessionUser();
   } catch (err) {
-    if (err instanceof UnauthorizedError) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
     if (err instanceof AuthConfigError) {
       return NextResponse.json(
         { error: "auth_config_error", message: err.message },
@@ -49,6 +45,9 @@ export async function GET(req: Request) {
       );
     }
     throw err;
+  }
+  if (!sessionUser) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const url = new URL(req.url);
@@ -117,7 +116,6 @@ export async function GET(req: Request) {
     });
   }
 
-  const dbUser = await ensureUser(authUser);
   const accessTokenEnc = encryptSecret(tokenJson.access_token);
   const refreshTokenEnc = tokenJson.refresh_token
     ? encryptSecret(tokenJson.refresh_token)
@@ -130,7 +128,7 @@ export async function GET(req: Request) {
   await db
     .insert(oauthTokens)
     .values({
-      userId: dbUser.id,
+      userId: sessionUser.id,
       provider: GITHUB_PROVIDER,
       accessToken: accessTokenEnc,
       refreshToken: refreshTokenEnc,
