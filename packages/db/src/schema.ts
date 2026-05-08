@@ -85,6 +85,13 @@ export const chatThreads = pgTable(
      * with the user's connected providers.
      */
     mcpSignature: text("mcp_signature"),
+    /**
+     * Rolling summary of durable thread context. Used by fresh-agent-per-turn
+     * execution to avoid replaying the entire raw conversation forever.
+     */
+    summary: text("summary"),
+    /** Last time the rolling summary was regenerated. NULL = never summarized. */
+    summaryUpdatedAt: timestamp("summary_updated_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
