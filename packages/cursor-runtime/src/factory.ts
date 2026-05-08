@@ -18,14 +18,14 @@ export interface GetRuntimeOptions {
 
 /**
  * Resolve the active runtime from `process.env.RUNTIME`. Defaults to
- * `bedrock` so existing dev loops keep working when this env var is unset.
+ * `cursor`. Set `RUNTIME=bedrock` to use Bedrock instead.
  *
  * The whole point of this seam: swapping the runtime is one env var, no
  * route-handler changes. `apps/web/app/api/chat/route.ts` only ever sees
  * `AgentRuntime`.
  */
 export function getRuntime(opts: GetRuntimeOptions = {}): AgentRuntime {
-  const raw = (process.env.RUNTIME ?? "bedrock").toLowerCase();
+  const raw = (process.env.RUNTIME ?? "cursor").toLowerCase();
   if (!isValidRuntime(raw)) {
     throw new Error(
       `Unknown RUNTIME='${raw}'. Expected one of: ${VALID_RUNTIMES.join(", ")}.`,

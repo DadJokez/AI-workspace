@@ -1,29 +1,37 @@
 # AI Hub
 
-Internal AI front door. Single login, chat with your work data, share workflows.
+Internal AI front door for Georgia-Pacific. Single login, chat with your work data, run scheduled agents, share workflows.
 
-See [`PLAN.md`](./PLAN.md) for architecture, decisions, and weekly roadmap.
-
-When you're ready to point the chat at real AWS Bedrock instead of the
-local fake, follow [`AWS_SETUP.md`](./AWS_SETUP.md) (one-time, ~30–60 min).
+See [`docs/ROADMAP.md`](./docs/ROADMAP.md) for the five journeys and integration roadmap.
+See [`PLAN.md`](./PLAN.md) for weekly ship plan and architectural decisions.
 
 ## Stack
 
 - **Next.js 15** (App Router) + **TypeScript** + **Tailwind**
 - **pnpm** workspaces
-- **Drizzle** + **RDS Postgres** (later phases)
-- **AWS Bedrock** (Claude Haiku / Sonnet / Opus)
-- **AWS Fargate** + ALB + CloudFront
+- **Drizzle** + **RDS Postgres**
+- **NextAuth v4** with GitHub OAuth (POC identity — swaps to PingOne OIDC for enterprise)
+- **Cursor SDK** (`@cursor/sdk`) — default agent runtime
+- **AWS Bedrock** (`converseStream`) — fallback runtime (`RUNTIME=bedrock`)
+- **GitHub MCP** (`api.githubcopilot.com/mcp/`) — first working tool integration
+- **AWS App Runner** — hosting (CI/CD via CodeBuild on push to `main`)
 
 ## Repo layout
 
 ```
 apps/
-  web/          Next.js app (UI + API routes)
-packages/       (added in later PRs)
-infra/          Terraform (added in later PRs)
+  web/            Next.js app (UI + API routes + auth)
+packages/
+  db/             Drizzle schema + client + migrations
+  cursor-runtime/ AgentRuntime seam (CursorRuntime + BedrockRuntime + factory)
+  agent/          Tool/model registries + Bedrock loop
+  mcp-servers/    One file per integration (github live; others stubbed)
+  encryption/     KMS envelope helpers
 .github/
-  workflows/    CI
+  workflows/      CI (lint + typecheck + build on every PR and main push)
+docs/
+  ARCHITECTURE.md End-state component design and request flow
+  ROADMAP.md      Five journeys, integration tiers, flagship use cases
 ```
 
 ## Local dev
@@ -37,23 +45,23 @@ docker compose up -d
 pnpm --filter @ai-workspace/db db:migrate
 # 3. env
 cp apps/web/.env.example apps/web/.env.local
+# edit .env.local — fill in NEXTAUTH_SECRET, GITHUB_AUTH_CLIENT_ID/SECRET, DATABASE_URL, CURSOR_API_KEY
 # 4. install + run
 pnpm install
 pnpm dev          # http://localhost:3000
 ```
 
-Try it:
-```bash
-curl http://localhost:3000/api/health
-curl http://localhost:3000/api/models
-curl -N -X POST http://localhost:3000/api/chat \
-  -H 'Content-Type: application/json' \
-  -d '{"message":"hello","modelId":"haiku-4-5"}'
-```
+## Key env vars
 
-`BEDROCK_CLIENT=fake` (default) echoes responses without AWS. Set
-`BEDROCK_CLIENT=real` once the real client lands (PR #7) and your AWS
-credentials are configured.
+| Var | Purpose |
+|---|---|
+| `RUNTIME` | `cursor` (default) or `bedrock` |
+| `CURSOR_API_KEY` | Required for Cursor runtime |
+| `NEXTAUTH_SECRET` | NextAuth JWT signing secret |
+| `GITHUB_AUTH_CLIENT_ID` / `GITHUB_AUTH_CLIENT_SECRET` | GitHub OAuth App for sign-in |
+| `GITHUB_CLIENT_SECRET` | Separate GitHub OAuth App for per-user MCP tokens |
+| `OAUTH_ENCRYPTION_KEY` | AES-256-GCM key for encrypting stored OAuth tokens |
+| `DATABASE_URL` | Postgres connection string |
 
 ## Scripts (run from repo root)
 
@@ -65,6 +73,7 @@ credentials are configured.
 | `pnpm typecheck` | `tsc --noEmit` across all packages |
 | `pnpm start` | Start the production build |
 
-## CI
+## CI / Deploy
 
-GitHub Actions runs lint + typecheck + build on every PR and on push to `main`. See [`.github/workflows/ci.yml`](./.github/workflows/ci.yml).
+GitHub Actions runs lint + typecheck + build on every PR and on push to `main`.
+Merging to `main` triggers a CodeBuild pipeline that builds the Docker image and deploys to App Runner automatically.

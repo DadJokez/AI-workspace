@@ -10,6 +10,8 @@
 > each other but answer different questions: PLAN is "what am I
 > building this Friday"; this doc is "what experience are we shaping,
 > and how does the catalog grow to support it".
+>
+> **Status as of May 2026:** J1 is fully shipped. J2 is underway — GitHub MCP is live per-user; M365/Salesforce/Workfront integrations are next. J3–J5 are not yet started.
 
 ## User journeys
 
@@ -18,32 +20,28 @@ sequenced by build order. Everything else in this doc — agent
 platform, integration tiering, flagship use cases — is in service
 of moving users through these. They're the north star.
 
-### J1 — Chat
+### J1 — Chat ✅ Shipped
 
 A user opens the workspace, types into a thread, gets a streamed
-response. Multi-turn, personal, interactive. **Already built**:
-chat tabs with independent histories, persisted across sessions per
-user, sidebar history grouped by recency, search, settings (profile,
-theme, density, default model, integrations placeholder, keyboard
-shortcuts), full mobile responsiveness, dynamic model catalog from
-the Cursor SDK.
+response. Multi-turn, personal, interactive.
 
-### J2 — Chat with Tools
+**Shipped:** chat threads with independent histories persisted per user, sidebar history grouped by recency with rename and delete, model selector (Haiku / Sonnet / Opus), GitHub OAuth sign-in / sign-out, admin panel (users + invitations), settings (theme, default model), full mobile responsiveness. Cursor SDK is the default runtime; Bedrock is the fallback. Deployed on AWS App Runner with automatic deploys on push to `main`.
+
+### J2 — Chat with Tools 🔄 In Progress
 
 The same chat surface, but the agent has access to the user's actual
-work systems — calendar, email, Slack, CRM, file storage, ticketing —
-and can both **read** and **act**. "What's on my calendar today?"
-returns a real answer; "Send Bob the deck from yesterday's deal
-review" performs a real action. This is what makes "talk to your
-work" real rather than aspirational.
+work systems — GitHub, calendar, email, CRM, file storage, ticketing —
+and can both **read** and **act**. "What PRs do I have open?"
+returns a real answer; "Send Bob the summary" performs a real action.
+This is what makes "talk to your work" real rather than aspirational.
 
-**Requires:** real MCP tool servers per integration + delegated auth
-(Entra / Salesforce OAuth / etc.) + the `preToolUse` attestation gate
-for any write-side call. The Cursor SDK runtime and MCP placeholders
-are already wired; the remaining work is the per-integration servers
-in the tier table below and the OAuth plumbing per the v2 plan.
+**What's live:** GitHub MCP is working end-to-end — users connect via OAuth, tokens are stored encrypted in `oauth_tokens`, and the Cursor runtime mounts the GitHub MCP server (`api.githubcopilot.com/mcp/`) per-user with a short-lived Bearer token on each turn.
 
-### J3 — Scheduled Agent
+**What's next (Weeks 4–8):** M365 Graph (Mail + Calendar), Workfront, Databricks, Salesforce. See the integration tier table below. The auth pattern (HTTP MCP + per-turn Bearer) is proven; the remaining work is per-integration MCP servers and the OAuth plumbing for each provider.
+
+**Requires for full J2:** `preToolUse` attestation gate (Week 7) for any write-side call across all integrations.
+
+### J3 — Scheduled Agent ⏳ Not started
 
 The same chat-with-tools agent, invoked on a **schedule** or in
 response to an **event** instead of a user keystroke. "Every Monday
@@ -59,7 +57,7 @@ changes). Scheduling is the easier half; webhooks are where this
 graduates from "tool" to "autonomous agent". PLAN.md week 5 sequences
 the scheduling piece; webhooks are a follow-on.
 
-### J4 — App Build and Deploy
+### J4 — App Build and Deploy ⏳ Not started
 
 A user describes a small internal web app in conversation. The
 workspace agent writes the code, shows a preview, iterates with the
@@ -139,7 +137,7 @@ understands. The complexity of git, branches, conflicts, and CI lives
 behind the agent — surfaced only when (and how) the agent decides
 the user needs to make a decision.
 
-### J5 — Share
+### J5 — Share ⏳ Not started
 
 Any artifact in the workspace — a chat thread, a scheduled agent
 config, a deployed app — can be shared with named teammates,
@@ -185,12 +183,13 @@ Every system of record is one of three tiers based on the ratio of
 
 ## Tier 1 — Core integrations
 
-| System | MCP slug(s) | Auth model | Why Tier 1 | Earliest week |
+| System | MCP slug(s) | Auth model | Why Tier 1 | Status |
 |---|---|---|---|---|
-| **Office 365** (Teams, Mail, Calendar, OneDrive, SharePoint) | `teams`, `graph-mail`, `graph-calendar`, `graph-files` | Entra delegated OAuth (per-user); short-lived Bearer over HTTP MCP | Universal reach — every employee. Every flagship use case touches it. Auth pattern (Entra delegated, KMS-encrypted refresh tokens) is already in the v2 plan. | Teams: wk 3 · Graph mail+cal: wk 4 · Files+SP: wk 8 |
-| **Salesforce** | `salesforce` | Salesforce OAuth 2.0 user-agent flow (per-user); HTTP MCP with per-turn token | Account-and-pipeline data is the highest-value non-Microsoft surface. Powers Customer Account Briefing on its own and Weekly Status when crossed with Workfront. | wk 9–10 (after Tier 1 Microsoft is stable) |
-| **Databricks + S3 + Redshift (unified)** | `data-lake` (single MCP server, three backends) | Databricks service principal (M2M); IAM role for S3; Redshift via IAM-auth or short-lived password from Secrets Manager. Stdio transport. | Data team's three sources are always asked together ("the warehouse"). Splitting them into 3 MCP servers makes recipes brittle — every "explore the data" recipe would have to declare all three. One server with backend-aware tools (`query_warehouse`, `list_lake_paths`, `read_lake_object`) lets the model and the recipe think in terms of the **data**, not the **store**. | wk 8 (the v2-plan "second integration" slot) |
-| **Workfront** | `workfront` | Workfront OAuth (per-user); HTTP MCP with per-turn token | Project, task, status, capacity — the structured side of "what am I supposed to be doing". Pairs with Mail/Cal for Weekly Status and Meeting Prep. Cross-system test for the per-user-delegated-non-Microsoft pattern. | wk 8 (alternative second-integration; pick whichever IT clears first) |
+| **GitHub** | `github` | GitHub OAuth per-user; short-lived Bearer over HTTP MCP at `api.githubcopilot.com/mcp/` | First live integration — proven the auth pattern (OAuth flow → `oauth_tokens` → per-turn Bearer). Powers Developer Workflow; feeds Agent Wire. | ✅ **Live** |
+| **Office 365** (Mail, Calendar, OneDrive, SharePoint, Teams) | `graph-mail`, `graph-calendar`, `graph-files`, `teams` | Entra delegated OAuth (per-user); short-lived Bearer over HTTP MCP | Universal reach — every employee. Powers Meeting Prep, Weekly Status, Morning Briefing. Auth pattern matches GitHub MCP exactly; needs GP IT Entra app registration approval. | wk 4 (Graph mail+cal) · wk 8 (Files+Teams) |
+| **Salesforce** | `salesforce` | Salesforce OAuth 2.0 per-user; HTTP MCP with per-turn token | Account-and-pipeline data is the highest-value non-Microsoft surface. Powers Customer Account Briefing and enriches Weekly Status. | wk 9–10 (after M365 stable) |
+| **Databricks + S3 + Redshift** | `data-lake` (single MCP, three backends) | Databricks service principal (M2M); IAM role for S3/Redshift. Stdio. | Data team's three sources are always queried together. One unified server with backend-aware tools keeps recipe definitions clean. | wk 8 |
+| **Workfront** | `workfront` | Workfront OAuth per-user; HTTP MCP | Project, task, status, capacity. Pairs with Mail/Cal for Weekly Status. Cross-system test for non-Microsoft delegated OAuth. | wk 8 (pick Workfront or Databricks whichever IT clears first) |
 
 **Why these four together:** any Tier 1 user can answer "what am I
 working on, who do I owe what, who's asking me about it, what's the
