@@ -32,7 +32,7 @@ The AI Hub is that front door. The model and the runtime are
         │   • persistence (RDS Postgres): threads, messages,      │
         │     recipe runs, audit log, tools, future recipes/authz │
         │   • token vault (AES-256-GCM encrypted oauth_tokens)   │
-        │   • policy layer (.cursor/hooks.json)                   │
+        │   • policy layer (provider gate now; hooks/proxy later) │
         │   • /api/chat → AgentRuntime seam                       │
         └────────────────────────────┬────────────────────────────┘
                                      │  AgentRuntime.runTurn(...)
@@ -42,7 +42,7 @@ The AI Hub is that front door. The model and the runtime are
         │   • streaming, tool-use protocol, MCP client            │
         │   • model selection (Haiku / Sonnet / Opus)             │
         │   • mcpServers[] mounted per agent                      │
-        │   • hooks available for future policy enforcement       │
+        │   • hooks available for future observation/control      │
         │   ── fallback: BedrockRuntime (RUNTIME=bedrock) ────── │
         └────────────────────────────┬────────────────────────────┘
                                      │  MCP (HTTP+Bearer per-user | stdio M2M)
@@ -64,11 +64,56 @@ The AI Hub is that front door. The model and the runtime are
 | Layer | Owns | Does not own |
 |---|---|---|
 | **User** | The intent. Picks the recipe or types the chat. | Tokens, model choice, transport. |
-| **Enterprise Shell** (`apps/web`) | Identity, persistence, audit, policy, UI, recipe storage, token vault, rolling thread summaries, and bounded context assembly. The seam (`AgentRuntime`) is the only thing it knows about the runtime. | Tool-use loop, model API protocol, MCP transport. |
+| **Enterprise Shell** (`apps/web`) | Identity, persistence, audit, policy, UI, recipe storage, token vault, thread-summary schema/helper, and bounded context assembly. The seam (`AgentRuntime`) is the only thing it knows about the runtime. | Tool-use loop, model API protocol, MCP transport. |
 | **Cursor SDK runtime** | Streaming, tool-use protocol, model dispatch, MCP client. Current production flow starts a fresh runtime turn and receives bounded context from the shell. | Identity, business policy, Postgres persistence, long-term conversation memory. |
 | **Bedrock runtime** (fallback) | Same `AgentRuntime` contract via `converseStream`. Stateless turns. | Durable agent state (turns are stateless). |
 | **MCP servers** (our code, one per system) | The auth handshake to a single system, a small surface of tools (`list_*`, `search_*`, `read_*`, `write_*`). HTTP transport for per-user delegated auth; stdio for M2M service-principal cases. | The agent loop, the model, the recipe definition, cross-system orchestration. |
 | **Internal systems** | The actual data and side effects. | Anything about how AI Hub talks to them. |
+
+## Product boundary: thin enterprise wrapper
+
+AI Hub is not trying to rebuild Cursor, Bedrock, M365, Salesforce,
+Workfront, Databricks, or the foundation-model layer. Its job is to make
+those capabilities safe and usable for normal employees by adding the thin
+enterprise shell they do not get from the raw platforms.
+
+AI Hub should own:
+- the single front door and future enterprise SSO;
+- tool connection UX, provider attestations, authorization checks, and token
+  storage;
+- recipes, schedules, run history, sharing, and discoverability;
+- audit, redaction, retention, logging standards, quotas, and cost controls;
+- the durable product data in Postgres: users, threads, messages, runs,
+  tools, attestations, integration registry, and admin activity;
+- the runtime seam that lets Cursor stay the default while Bedrock remains a
+  fallback.
+
+AI Hub should avoid owning:
+- foundation model hosting or low-level model APIs;
+- a generic orchestration framework when Cursor already supplies the agent
+  loop;
+- a full coding IDE or app deployment platform before J1-J3 are proven;
+- custom one-off integration shims when an MCP server can expose the same
+  capability in an inspectable, reusable way.
+
+The product rule for future work is: remove enterprise friction, do not
+rebuild a platform unless AI Hub needs that layer for control, audit,
+governance, user experience, or portability.
+
+## Cursor SDK capability matrix
+
+This matrix captures the current J1-J3 runtime boundary for `@cursor/sdk`
+v1.0.12 and Cursor's public SDK guidance from April 2026.
+
+| Journey | Cursor SDK supports | AI Hub must own | Current stance |
+|---|---|---|---|
+| **J1 Chat** | `Agent.create`, `agent.send`, model selection, `run.stream()`, cancellation, and local/cloud execution options. | Auth, thread ownership, Postgres messages, bounded context, user settings, model labels, UI state, and fallback runtime selection. | Supported. Fresh-agent-per-turn remains the default; AI Hub supplies bounded prior context instead of depending on Cursor for product memory. |
+| **J2 Chat with Tools** | MCP servers passed inline or loaded from Cursor config; HTTP/SSE/stdio MCP shapes are represented by the SDK; streamed run events expose tool activity enough for the chat activity timeline. | Per-user OAuth token vault, provider-level mount gating, audit rows, tool/result persistence, lower-level tool/category policy, user-facing connection flows, and redaction. | Supported with constraints. The current gate controls whether a provider is mounted. Tool/category enforcement is not yet enforced by `.cursor/hooks.json`; it needs a verified hook workflow or an MCP proxy. |
+| **J3 Scheduled Agents** | Programmatic agent runs can be started by backend code, streamed, waited on, cancelled, and tied to the same runtime seam. | Schedule definitions, worker/cron trigger, `recipe_runs`, idempotency, retries, timeouts, quotas, delivery destinations, reconnect UI, and failure handling. | Feasible, but not a Cursor feature by itself. Treat scheduling as an AI Hub control-plane layer around the SDK. |
+
+Do not assume Cursor owns enterprise scheduling, quota enforcement, data
+retention, redaction, or long-term product memory. Cursor is the runtime
+harness; AI Hub is the enterprise control plane.
 
 ## Auth model
 
@@ -114,7 +159,7 @@ A **recipe** (or "skill" — same concept; naming TBD) is a row in `recipes` tha
 
 Two things make this a catalog and not just "saved prompts":
 1. **MCP servers are first-class.** A recipe declares which servers it needs. The shell mounts only those at agent start, so a "summarize my mail" recipe cannot reach GitHub even if the model tries.
-2. **Attestations gate the catalog.** A user only sees recipes whose `mcp_server_slugs` intersect with tools they've attested to. Same gate applies to chat tool calls via the `preToolUse` hook.
+2. **Attestations gate the catalog.** A user only sees recipes whose `mcp_server_slugs` intersect with tools they've attested to. The shipped chat path enforces this at provider mount time before the turn starts. Category/tool-scoped enforcement remains backlog work for a verified hook path or MCP proxy.
 
 See [`ROADMAP.md`](./ROADMAP.md) for the use-case-driven view and the skills catalog flywheel.
 
@@ -131,7 +176,7 @@ Concrete example: user asks **"What PRs do I have open?"** in chat, GitHub MCP m
 7. **Model** plans: `github.list_pull_requests(state='open', author='@me')`.
 8. **MCP call** goes to `api.githubcopilot.com/mcp/` with the user's Bearer token. Returns the PR list.
 9. **Model** assembles the answer. SSE events stream back through the shell to the browser.
-10. **Shell** persists the assistant message to `chat_messages` with `model_id='sonnet-4-6'`, `runtime='cursor'`, token metadata, structured tool calls/results, and one `audit_log` row per MCP tool execution. It then refreshes the thread summary.
+10. **Shell** persists the assistant message to `chat_messages` with `model_id='sonnet-4-6'`, `runtime='cursor'`, token metadata, structured tool calls/results, and one `audit_log` row per MCP tool execution. The schema and helper for rolling summaries exist; summary generation is still pending.
 
 If `RUNTIME=bedrock` is set, steps 5–8 collapse into a stateless `runAgentLoop` call. Steps 1–4 and 9–10 are identical.
 
@@ -208,6 +253,27 @@ The current user message is always preserved exactly. When older history or a
 summary is dropped/truncated, `/api/chat` emits a structured
 `turn-context-guardrail` log with the thread, user, limit values, and retained
 or dropped character counts.
+
+## Enterprise scale posture
+
+The current App Runner + RDS Postgres deployment is appropriate for the POC
+and pilot path, but it is not yet a 100k-user architecture. Before enterprise
+scale, AI Hub needs explicit decisions and tests for:
+
+- request and tool-call quotas per user, team, provider, and model;
+- body-size and max-output-token limits on `/api/chat`;
+- DB connection pooling, likely RDS Proxy or equivalent pooling before large
+  concurrency;
+- health checks that include database and runtime dependency checks, not only
+  process liveness;
+- redaction and retention rules for `audit_log`, chat messages, tool inputs,
+  and tool outputs;
+- secrets management through AWS Secrets Manager/KMS and infrastructure as
+  code;
+- the hosting path. AWS now recommends ECS Express Mode for App Runner
+  migration because App Runner closed to new customers on April 30, 2026 and
+  will not receive new features, even though existing customers can continue
+  using it.
 
 ## Developer Briefing workflow
 

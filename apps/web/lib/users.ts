@@ -39,8 +39,8 @@ export async function findPendingInvitation(
 
 /**
  * Upsert the authenticated user into the `users` table on each request that
- * needs a DB row. `pingSubject` is the canonical identity (env-var hardcoded
- * id in week 1; OIDC `sub` in week 2+).
+ * needs a DB row. `pingSubject` is the canonical external identity subject
+ * (GitHub OAuth id today; PingOne/PingFederate OIDC `sub` in enterprise).
  *
  * On update we deliberately do NOT overwrite `display_name` from the auth
  * payload — the DB row is authoritative once a user has set a name via
@@ -48,8 +48,8 @@ export async function findPendingInvitation(
  * always bumped.
  *
  * The first user ever to land here is promoted to `admin`. This is the
- * sign-in callback for the hardcoded shim; when NextAuth/OIDC lands, the
- * same admin-on-first-signup rule moves into the NextAuth `signIn` callback.
+ * sign-in callback path used by NextAuth. The same admin-on-first-signup rule
+ * should remain when the provider swaps from GitHub OAuth to enterprise OIDC.
  */
 export async function ensureUser(authUser: AuthUser): Promise<DbUser> {
   const db = getDb();

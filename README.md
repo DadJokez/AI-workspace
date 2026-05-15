@@ -14,7 +14,7 @@ See [`PLAN.md`](./PLAN.md) for weekly ship plan and architectural decisions.
 - **Cursor SDK** (`@cursor/sdk`) — default agent runtime
 - **AWS Bedrock** (`converseStream`) — fallback runtime (`RUNTIME=bedrock`)
 - **GitHub MCP** (`api.githubcopilot.com/mcp/`) — first working tool integration
-- **AWS App Runner** — hosting (CI/CD via CodeBuild on push to `main`)
+- **AWS App Runner** — current POC hosting (CI/CD via CodeBuild on push to `main`)
 
 ## Repo layout
 
@@ -25,7 +25,7 @@ packages/
   db/             Drizzle schema + client + migrations
   cursor-runtime/ AgentRuntime seam (CursorRuntime + BedrockRuntime + factory)
   agent/          Tool/model registries + Bedrock loop
-  mcp-servers/    One file per integration (github live; others stubbed)
+  mcp-servers/    Local integration stubs; GitHub MCP is remote and mounted by apps/web/lib/oauth/mcp-servers.ts
 .github/
   workflows/      CI (lint + typecheck + build on every PR and main push)
 docs/
@@ -76,3 +76,11 @@ pnpm dev          # http://localhost:3000
 
 GitHub Actions runs lint + typecheck + build on every PR and on push to `main`.
 Merging to `main` triggers a CodeBuild pipeline that builds the Docker image and a small migration image. CodeBuild runs Drizzle migrations against the App Runner database before pushing the new app image to ECR; App Runner then auto-deploys the updated `latest` image.
+
+## Enterprise Readiness
+
+The current stack is ready for POC/pilot work, not yet for broad enterprise
+scale. The active readiness backlog covers dependency audit cleanup, deeper
+health checks, rate limits and quotas, logging redaction/retention, Secrets
+Manager/KMS/IaC, the App Runner vs. ECS/Fargate/Aurora hosting decision, and a
+load-test model for 1k/10k/100k users.

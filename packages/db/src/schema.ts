@@ -15,9 +15,9 @@ import {
 /**
  * Core workspace schema. Recipe definitions land in later PRs.
  *
- * `users.ping_subject` holds:
- *   - week 1: the HARDCODED_USER_ID env var value (so dev users have stable rows)
- *   - week 2+: the OIDC `sub` claim from PingOne
+ * `users.ping_subject` holds the external identity-provider subject:
+ *   - current POC: GitHub OAuth account id from NextAuth
+ *   - enterprise: the OIDC `sub` claim from PingOne/PingFederate
  */
 
 export const messageRoleEnum = pgEnum("message_role", [
@@ -125,18 +125,15 @@ export const chatThreads = pgTable(
     title: text("title"),
     defaultModelId: text("default_model_id").notNull(),
     /**
-     * Persisted Cursor `agentId` for this thread. Null until the first turn
-     * with the cursor runtime; populated by `DbThreadAgentStore` so agents
-     * survive restarts.
+     * Latest Cursor `agentId` recorded for this thread. Null until the first
+     * Cursor turn. With fresh-agent-per-turn execution this is a
+     * visibility/debug field, not the source of conversation continuity.
      */
     cursorAgentId: text("cursor_agent_id"),
     /**
-     * Stable identity of the MCP-server set this agent was created with.
+     * Stable identity of the MCP-server set the latest agent was created with.
      * Today: sorted provider names joined with `,` (e.g. `"github"` or
-     * `"github,notion"`). Empty string = no MCP. NULL = legacy agent created
-     * before MCP wiring. When the current turn's signature differs, the
-     * runtime force-recreates the agent so its tool surface stays in sync
-     * with the user's connected providers.
+     * `"github,notion"`). Empty string = no MCP. NULL = legacy/missing value.
      */
     mcpSignature: text("mcp_signature"),
     /**
