@@ -126,7 +126,7 @@ Concrete example: user asks **"What PRs do I have open?"** in chat, GitHub MCP m
 2. **Shell** calls `getSessionUser(req)` → user row. Loads the `chat_threads` row, including the rolling `summary`, recent `chat_messages`, and the `cursor_agent_id` retained for visibility/backward compatibility.
 3. **Shell** loads the user's GitHub access token from `oauth_tokens`, mints a short-lived token if needed.
 4. **Shell** calls `getRuntime().runTurn({...})` with the thread, message, model, and `mcp_server_slugs: ['github']`.
-5. **Shell** builds bounded context with `buildTurnContext(...)`: rolling thread summary, the recent messages that still fit the budget, and the user's current message. **CursorRuntime** starts a fresh runtime turn with that context.
+5. **Shell** builds bounded context with `buildTurnContext(...)`: rolling thread summary, the recent messages that still fit the configured count/size budget, and the user's current message. **CursorRuntime** starts a fresh runtime turn with that context.
 6. **Cursor SDK** mounts the GitHub MCP server (HTTP transport, per-turn `Authorization: Bearer <token>`). Begins the turn.
 7. **Model** plans: `github.list_pull_requests(state='open', author='@me')`.
 8. **MCP call** goes to `api.githubcopilot.com/mcp/` with the user's Bearer token. Returns the PR list.
@@ -188,6 +188,18 @@ before mounting MCP servers for the turn. Denied providers are written to the
 audit log with `status='denied'`. Category/tool-scoped rows are preserved for
 the future lower-level MCP proxy, where individual tool calls can be filtered
 without exposing an entire provider.
+
+## Prompt guardrails
+
+Fresh-agent-per-turn execution means AI Hub owns the context pack that gets
+sent to the runtime. `buildTurnContext(...)` applies three deterministic
+guardrails: `CHAT_RECENT_MESSAGE_LIMIT` bounds raw history count,
+`CHAT_CONTEXT_CHAR_LIMIT` bounds total prompt context size, and
+`CHAT_CONTEXT_MESSAGE_CHAR_LIMIT` bounds any single prior message or summary.
+The current user message is always preserved exactly. When older history or a
+summary is dropped/truncated, `/api/chat` emits a structured
+`turn-context-guardrail` log with the thread, user, limit values, and retained
+or dropped character counts.
 
 ## Agent Wire
 

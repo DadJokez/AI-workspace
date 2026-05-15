@@ -61,7 +61,7 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 | **Repo** | GitHub-hosted, monorepo, pnpm workspaces |
 | **Identity (POC)** | GitHub OAuth via NextAuth v4. `users.ping_subject` stores the GitHub numeric user ID. Admins set by `role` column in DB. |
 | **Identity (enterprise)** | PingOne / PingFederate OIDC. The NextAuth provider swaps; the `users` table and `getSessionUser()` helper do not change. `ping_subject` will hold the PingOne subject claim as originally intended. |
-| **Agent runtime (default)** | **Cursor SDK** (`@cursor/sdk`, Anysphere). MCP-native. `RUNTIME=cursor` (now the default). Thread continuity currently comes from AI Hub's bounded context layer: rolling summary + recent messages. |
+| **Agent runtime (default)** | **Cursor SDK** (`@cursor/sdk`, Anysphere). MCP-native. `RUNTIME=cursor` (now the default). Thread continuity currently comes from AI Hub's bounded context layer: rolling summary + budgeted recent messages. |
 | **Agent runtime (fallback)** | **AWS Bedrock** (`converseStream`). Selected via `RUNTIME=bedrock`. |
 | **Models** | Three Claude models — **Haiku 4.5**, **Sonnet 4.6** (default), **Opus 4.7**. Logical IDs map per runtime. |
 | **Integration model** | **MCP servers** for every external system. HTTP for per-user delegated auth. GitHub MCP is live; others stubbed. |
@@ -94,7 +94,7 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 | Bedrock runtime (fallback via `RUNTIME=bedrock`) | ✅ |
 | GitHub MCP per-user (OAuth flow + token vault + live calls) | ✅ |
 | AWS App Runner + CodeBuild CI/CD | ✅ |
-| Rolling thread summaries + bounded turn context | ✅ |
+| Rolling thread summaries + prompt/context guardrails | ✅ |
 | Safe closed-stream handling for long turns | ✅ |
 
 ### What's in the DB schema
@@ -263,7 +263,7 @@ docs/
 1. **Cursor SDK surface stability** — v1 published May 2026; surface still moving. `BedrockRuntime` is the insurance policy. Mitigate by pinning a minor version and accepting the security-patch lag.
 2. **Per-user delegated auth at MCP scale** — the pattern (HTTP transport + per-turn Bearer tokens) is proven with GitHub. Will it hold for Graph's token-refresh frequency when scheduling kicks in? Decide before week 5.
 3. **M365 Entra app registration timing** — IT critical path for Graph MCP. Have a ready fallback (Salesforce or Workfront OAuth) if approval slips past week 4.
-4. **Cost runaway** — cap `max_tokens`, ≤8 tool-use iterations per turn (hook enforcement), per-user daily token quotas, CloudWatch alarms at $50 / $200 / $500.
+4. **Cost runaway** — context-size guardrails are in place for chat turns. Still add `max_tokens`, ≤8 tool-use iterations per turn (hook enforcement), per-user daily token quotas, CloudWatch alarms at $50 / $200 / $500.
 5. **Audit-log discipline** — MCP tool calls now land in `audit_log`; recipe-run and admin-action producers still need to be wired before week 8 hardening.
 6. **Burnout** — 10–15 focused hrs/week, blocks not scraps. If shipping slips two weeks in a row, reassess scope.
 
