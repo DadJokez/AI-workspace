@@ -82,6 +82,7 @@ interface ThreadMessage {
   role: "user" | "assistant" | "tool";
   content: string;
   modelId: string | null;
+  runtime: "cursor" | "bedrock" | string | null;
   createdAt: string;
 }
 
