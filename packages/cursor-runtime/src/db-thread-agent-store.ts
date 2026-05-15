@@ -5,10 +5,9 @@ import type { ThreadAgentRecord, ThreadAgentStore } from "./cursor-runtime";
 
 /**
  * `ThreadAgentStore` backed by `chat_threads.cursor_agent_id` (+
- * `chat_threads.mcp_signature`). Lets a Cursor agent survive process
- * restarts: the next turn resumes the same `agentId` instead of creating a
- * fresh one and losing conversation state — provided its MCP signature
- * still matches the user's current connected providers.
+ * `chat_threads.mcp_signature`). While fresh-agent-per-turn is active, this
+ * is a visibility/debug record for the latest Cursor agent created for a
+ * thread. It is not the source of conversation continuity.
  */
 export class DbThreadAgentStore implements ThreadAgentStore {
   constructor(private readonly db: Database) {}

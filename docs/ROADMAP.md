@@ -12,6 +12,8 @@
 > and how does the catalog grow to support it".
 >
 > **Status as of May 2026:** J1 is fully shipped. J2 is underway — GitHub MCP is live per-user behind the provider attestation gate, bounded turn context is shipped, tool calls/results and MCP audit rows are persisted, chat now shows a compact agent activity timeline, MCP server/tools catalog/user attestation schemas are in place, and the first durable `recipe_runs` ledger is available for workflow/scheduled execution. M365/Salesforce/Workfront integrations are next. J3–J5 are not yet started.
+>
+> **Product boundary:** AI Hub is a thin enterprise wrapper around existing AI and work platforms. It should remove friction, centralize governance, and make tools discoverable; it should not rebuild Cursor, Bedrock, M365, Salesforce, Workfront, Databricks, or deployment platforms unless that layer is needed for control, audit, portability, or user experience.
 
 ## User journeys
 
@@ -25,7 +27,7 @@ of moving users through these. They're the north star.
 A user opens the workspace, types into a thread, gets a streamed
 response. Multi-turn, personal, interactive.
 
-**Shipped:** chat threads with independent histories persisted per user, rolling summaries and prompt/context guardrails, sidebar history grouped by recency with rename and delete, model selector (Haiku / Sonnet / Opus), GitHub OAuth sign-in / sign-out, admin panel (users + invitations), settings (theme, default model), full mobile responsiveness. Cursor SDK is the default runtime; Bedrock is the fallback. Deployed on AWS App Runner with automatic image builds, database migrations, and deploys on push to `main`.
+**Shipped:** chat threads with independent histories persisted per user, prompt/context guardrails plus the summary schema/helper, sidebar history grouped by recency with rename and delete, model selector (Haiku / Sonnet / Opus), GitHub OAuth sign-in / sign-out, admin panel (users + invitations), settings (theme, default model), full mobile responsiveness. Cursor SDK is the default runtime; Bedrock is the fallback. Deployed on AWS App Runner with automatic image builds, database migrations, and deploys on push to `main`. Rolling summary generation itself remains pending.
 
 ### J2 — Chat with Tools 🔄 In Progress
 
@@ -39,7 +41,7 @@ This is what makes "talk to your work" real rather than aspirational.
 
 **What's next (Weeks 4–8):** M365 Graph (Mail + Calendar), Workfront, Databricks, Salesforce. See the integration tier table below. The auth pattern (HTTP MCP + per-turn Bearer) is proven; the remaining work is per-integration MCP servers and the OAuth plumbing for each provider.
 
-**Requires for full J2:** lower-level tool/category filtering for write-side calls across all integrations, plus a recipe/run-detail UI that reuses the shipped chat activity timeline for `recipe_runs`.
+**Requires for full J2:** lower-level tool/category filtering for write-side calls across all integrations, a verified hook workflow or MCP proxy for policy enforcement, redaction rules for tool inputs/results, rate limits and quotas, plus a recipe/run-detail UI that reuses the shipped chat activity timeline for `recipe_runs`.
 
 ### J3 — Scheduled Agent ⏳ Not started
 
@@ -218,6 +220,28 @@ The agent platform defines **what agents can do** with that data —
 how they take action, how they run on a schedule, and how they react
 to outside events. It's the runtime layer the catalog plugs into.
 
+### Cursor SDK reality check
+
+Cursor is the right default runtime for J1-J3 because the SDK gives AI
+Hub programmatic agents, streaming runs, model selection, MCP server
+mounting, cancellation/wait semantics, hooks, skills, and subagents. It
+also offers local, cloud, and self-hosted execution modes. That lets AI Hub
+avoid building the low-level agent harness.
+
+The SDK is not the enterprise product boundary. AI Hub still owns identity,
+thread/runs persistence, bounded context, token storage, provider
+attestations, audit logging, quotas, redaction, retention, schedules,
+delivery destinations, and the user-facing recipe catalog.
+
+Current implementation notes:
+- Fresh-agent-per-turn remains the default execution strategy. AI Hub passes
+  bounded prior context into each turn and keeps product memory in Postgres.
+- Provider-level attestations are enforced before MCP servers are mounted.
+  `.cursor/hooks.json` is still a stub; do not treat it as the active
+  enforcement layer until it is verified in production.
+- Subagents and parallel tool work are promising, but they are not a J1-J3
+  dependency. Use them only after the simpler tool/schedule path is stable.
+
 ### Capabilities progression
 
 1. **Tool use via MCP.** Every action an agent takes — read a
@@ -256,9 +280,10 @@ event trigger without both.
 - **All tools must be MCP servers.** No in-process function
   handlers, no agent-side closures pretending to be tools. This
   keeps the capability surface inspectable, auditable, and reusable
-  across recipes; it's also what lets the audit log and the
-  `preToolUse` attestation gate work uniformly across every action
-  the system can take.
+  across recipes; it's also what lets the audit log and the provider
+  attestation gate work uniformly across every mounted integration.
+  Lower-level tool/category filtering still needs a verified hook path
+  or MCP proxy.
 - **stdio MCP servers don't work in Cursor cloud VMs.** The Cursor
   runtime doesn't pipe stdio between the agent process and a
   separate MCP child process the way a local IDE does. Production
@@ -268,16 +293,11 @@ event trigger without both.
   same server has to be deployable in HTTP mode for production —
   pick frameworks (e.g. FastMCP, the official MCP SDKs) that make
   this a config flag, not a rewrite.
-- **Subagents and parallel task execution are free.** The SDK
-  supports spawning subagents and running task graphs in parallel
-  out of the box. We don't have to build that machinery; we have to
-  **use it judiciously** — parallel where the work is independent
-  (e.g. fetch mail + calendar + Salesforce concurrently for a
-  Meeting Prep brief), sequential where one tool's output feeds the
-  next (write SQL → run SQL → summarize results). Recipes that get
-  this wrong will either be slow (avoidable serial calls) or chatty
-  (parallel calls that step on each other's auth tokens or rate
-  limits).
+- **Subagents and parallel task execution are optional acceleration.**
+  Cursor exposes subagents, but AI Hub should prove the simple J2/J3
+  tool-and-schedule path first. Parallelism belongs in recipes only where
+  the work is independent, quotas are understood, and audit output stays
+  legible.
 
 ## Flagship use cases
 
@@ -359,7 +379,7 @@ Tier 1, later ones reach into Tier 2/3.
   escape hatch.
 - **Earliest:** week 12+ (ServiceNow).
 - **Note:** the **first recipe with destructive side effects** —
-  needs the `preToolUse` attestation gate to be solid and a
+  needs lower-level tool/category policy enforcement to be solid and a
   human-in-the-loop confirmation step before any `create_*` call.
 
 ### 6. Developer Workflow

@@ -87,7 +87,7 @@ unmarked items need a human eye for visual / device-specific verification.
 - [ ] **`[AUTOMATE]` Closing the active tab.** Click X on the active tab (when others exist) → expect the previous tab (left neighbor, falling back to first) becomes active.
 - [ ] **Last tab cannot be closed.** With only one tab open, expect no X button is shown on it.
 - [ ] **Per-tab model selection.** In tab 1 select Sonnet, in tab 2 select Haiku → switch between tabs and expect the model selector in the top bar reflects each tab's choice.
-- [ ] **Tabs do NOT persist across reload.** Open 3 tabs, refresh the page → expect to land back on a single fresh "New chat" tab. (This is by design; threads still exist server-side but are not reloaded as tabs.)
+- [ ] **Tabs persist across reload.** Open 3 tabs, refresh the page → expect the same tab set and active tab to return from local storage. Server-side threads still remain the source of truth for persisted conversations.
 
 ---
 
@@ -99,14 +99,14 @@ unmarked items need a human eye for visual / device-specific verification.
 - [ ] **`[AUTOMATE]` Stream interrupted mid-response.** Kill the connection during streaming (devtools offline toggle) → expect pending=false eventually, partial content remains in the assistant bubble.
 - [ ] **`[AUTOMATE]` Resending after an error.** After a failed send, type a new message and Enter → expect a fresh request fires.
 - [ ] **Thread ownership / 404.** Manipulate localStorage / send a stale `threadId` → API returns 404 thread_not_found, error surfaces in the banner.
-- [ ] **No retry button.** Currently the error banner has no "retry" affordance — user must re-type or paste their last message. Logged in Punch List.
+- [ ] **Retry button appears after a failed send.** Force a `/api/chat` failure → expect the error card to show a "Try again" button that resends the failed user message.
 
 ---
 
 ## API / Health
 
-- [ ] **`[AUTOMATE]` `/api/health` returns 200.** `curl https://vacwacwrxu.us-east-1.awsapprunner.com/api/health` → expect `{"status":"ok",...,"checks":{"db":{"ok":true,"latencyMs":<number>}}}`.
-- [ ] **`[AUTOMATE]` `/api/health` reports DB connectivity.** Response includes `checks.db.ok = true`.
+- [ ] **`[AUTOMATE]` `/api/health` returns 200.** `curl https://vacwacwrxu.us-east-1.awsapprunner.com/api/health` → expect `{"status":"ok","service":"ai-workspace-web","timestamp":"..."}`.
+- [ ] **DB/runtime health checks are not shipped yet.** Track this as enterprise-readiness work before IT review.
 - [ ] **`[AUTOMATE]` `/api/me` returns the current user.** `curl …/api/me` (with auth) → `{"user":{"id":"…","email":"…","displayName":"…"}}`.
 - [ ] **`[AUTOMATE]` `/api/models` returns model list + default.** `curl …/api/models` → `{"defaultModelId":"…","models":[…]}` with at least one entry containing `id`, `displayName`, `costPer1MInput`, `costPer1MOutput`.
 - [ ] **`[AUTOMATE]` `/api/chat` rejects empty body.** POST `{}` → 400 `missing_message`.
@@ -114,13 +114,13 @@ unmarked items need a human eye for visual / device-specific verification.
 - [ ] **`[AUTOMATE]` `/api/chat` rejects unauthenticated requests.** POST without auth → 401 `unauthorized`.
 - [ ] **`[AUTOMATE]` `/api/chat` rejects another user's threadId.** POST with someone else's `threadId` → 404 `thread_not_found`.
 - [ ] **`[AUTOMATE]` SSE response shape.** Successful POST returns `Content-Type: text/event-stream` and the body contains `data: {"type":"meta",…}` line, then `text-delta` lines, ending with `persisted`.
-- [ ] **`[AUTOMATE]` Invalid modelId falls back to default.** POST with `modelId: "fake-model"` → 200, response stream's `meta` event reports the default model id.
+- [ ] **`[AUTOMATE]` Invalid modelId surfaces a runtime error.** POST with `modelId: "fake-model"` → expect the Cursor runtime to reject it and the UI to show the error state. The route only defaults when `modelId` is missing or blank.
 
 ---
 
 ## Notes for automation
 
 - Suggested test rig: Playwright + Vitest. Use `BASE_URL` env to flip between local and the App Runner URL.
-- The auth model is currently a hardcoded user (week 1). Playwright tests can hit the deployed URL directly without sign-in.
+- The auth model is GitHub OAuth through NextAuth. Browser automation against deployed pages needs a signed-in session; API-level tests should seed or mock auth instead of assuming anonymous access.
 - For mobile checks, use Playwright's `iPhone 14` device descriptor or set viewport to `{ width: 375, height: 812 }` and `hasTouch: true`.
 - For SSE assertions, use `request.post(...)` and read the response body with `response.body()` then split on `\n\n`.

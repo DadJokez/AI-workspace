@@ -13,23 +13,20 @@ import type { AgentRuntime, TurnInput } from "./types";
  *
  * Differs from Bedrock in three ways:
  *
- *   1. Durable conversation state. The SDK owns it: we resolve an `SDKAgent`
- *      keyed on our `threadId` (creating one on first turn, resuming on
- *      subsequent turns) and only forward the newest user message.
+ *   1. Fresh-agent-per-turn execution. AI Hub owns product memory in Postgres
+ *      and passes bounded prior context into the turn.
  *   2. Tools via MCP, not in-process functions. Tool registration moves out
- *      of `ToolRegistry` and into `mcpServers` config on `Agent.create()`.
- *   3. Policy via `.cursor/hooks.json`. Pre/post-tool hooks intercept the
- *      run; the SDK respects the hook config without app-level plumbing.
- *
- * Step 3 of the spike: real `runTurn` implementation. The `threadId → agentId`
- * map is in-memory here; step 4 swaps in a DB-backed `ThreadAgentStore`.
+ *      of `ToolRegistry` and into per-turn `mcpServers` config.
+ *   3. Provider-level policy is enforced before MCP providers are mounted.
+ *      Lower-level hook/proxy enforcement is still future work.
  */
 export interface CursorRuntimeOptions {
   /** Cursor API key. Falls back to `process.env.CURSOR_API_KEY` if omitted. */
   apiKey?: string;
   /**
-   * Maps our logical thread id to a persisted Cursor `agentId`. Defaults to
-   * an in-memory map; step 4 swaps in a `chat_threads.cursor_agent_id` store.
+   * Stores the most recent Cursor `agentId` for visibility/debugging. The
+   * runtime does not read it for continuity while fresh-agent-per-turn is in
+   * place.
    */
   threadAgentStore?: ThreadAgentStore;
   /**
@@ -43,10 +40,8 @@ export interface CursorRuntimeOptions {
 export interface ThreadAgentRecord {
   agentId: string;
   /**
-   * Stable identity of the MCP-server set the agent was created with.
-   * Empty string = no MCP servers. NULL = legacy agent (predates the column).
-   * The runtime force-recreates the agent when this differs from the
-   * current turn's signature.
+   * Stable identity of the MCP-server set the latest agent was created with.
+   * Empty string = no MCP servers. NULL = legacy/missing value.
    */
   mcpSignature: string | null;
 }
@@ -55,7 +50,7 @@ export interface ThreadAgentRecord {
 export interface ThreadAgentStore {
   get(threadId: string): Promise<ThreadAgentRecord | null>;
   set(threadId: string, record: ThreadAgentRecord): Promise<void>;
-  /** Force a fresh agent on the next turn (used when MCP signature changes). */
+  /** Clear the stored visibility record. Fresh-agent-per-turn already creates a new agent. */
   clear(threadId: string): Promise<void>;
 }
 
@@ -461,10 +456,7 @@ function toCursorModelId(modelId: string): string {
   return LEGACY_MAP[modelId] ?? modelId;
 }
 
-/**
- * In-memory `ThreadAgentStore` for tests and the dev loop. Step 4 swaps in
- * a `chat_threads.cursor_agent_id`-backed store so agents survive restarts.
- */
+/** In-memory `ThreadAgentStore` for tests and the dev loop. */
 export class InMemoryThreadAgentStore implements ThreadAgentStore {
   private readonly map = new Map<string, ThreadAgentRecord>();
   async get(threadId: string): Promise<ThreadAgentRecord | null> {

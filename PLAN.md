@@ -6,6 +6,13 @@
 
 Internal "AI front door" for Georgia-Pacific. Non-technical employees log in once and can do anything they'd want with AI — chat, run workflows against their work data, schedule recurring jobs — without thinking about which tool, which integration, which API. Rob is solo at ~10–15 focused hrs/week. Architecture must let new integrations (Workfront, Databricks, M365, GitHub, Salesforce, internal APIs) snap in without re-architecting, but must not pre-pay for that flexibility.
 
+AI Hub is intentionally a **thin enterprise wrapper**: one simple front door
+plus the governance, audit, token, recipe, schedule, quota, and sharing layers
+that make existing platforms usable inside an enterprise. It should not rebuild
+Cursor, Bedrock, M365, Salesforce, Workfront, Databricks, or deployment
+platforms unless AI Hub needs that layer for control, audit, portability, or a
+clear user-experience win.
+
 ## Architecture in one picture
 
 ```
@@ -40,8 +47,8 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 └─────┘  └─────┘  └───────┘  └──────┘  └─────────┘
 ```
 
-- **Cursor SDK owns the runtime mechanics.** Streaming, tool-use protocol, model dispatch, and MCP client behavior live behind the runtime seam. AI Hub owns durable conversation context in Postgres.
-- **Our app owns the enterprise shell.** Auth, persistence (chat history, audit log), the policy layer (`.cursor/hooks.json`), and the MCP servers exposing internal systems.
+- **Cursor SDK owns the runtime mechanics.** Streaming, tool-use protocol, model dispatch, MCP client behavior, and optional cloud/local/self-hosted execution live behind the runtime seam. AI Hub owns durable conversation context in Postgres.
+- **Our app owns the enterprise shell.** Auth, persistence (chat history, run history, audit log), provider attestations, quota/redaction/retention policy, and the MCP integration registry. `.cursor/hooks.json` is still a stub, not the active enforcement layer.
 - **MCP is the integration pattern.** Every external system gets an MCP server. Standard transport, standard tool shape, standard auth seam. No bespoke tool wrappers per integration.
 - **Bedrock stays.** Fallback runtime behind `RUNTIME=bedrock`. Both implement the same `AgentRuntime` interface; the chat route never knows which ran.
 
@@ -50,7 +57,7 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 1. **Single runtime seam.** `AgentRuntime` is the only contract `apps/web` knows. `RUNTIME=cursor` and `RUNTIME=bedrock` both produce one. No code path branches on runtime above the seam.
 2. **MCP is the integration pattern.** Every external system gets an MCP server. No bespoke tool wrappers.
 3. **Recipes are the user-facing primitive.** A recipe is a Cursor agent definition — `{system_prompt, mcp_servers, model, params}`. Business users clone, edit, schedule.
-4. **Permissions first-class.** `user_tool_attestations` from day one. The hook layer enforces them.
+4. **Permissions first-class.** `user_tool_attestations` from day one. Provider-level gates enforce what can be mounted today; tool/category enforcement needs a verified hook path or MCP proxy.
 5. **Multi-model by design.** Haiku for fast/cheap inner loops; Sonnet as default; Opus for hard reasoning. Selectable per chat thread and per recipe.
 6. **Defer abstractions until a second use case forces them.**
 
@@ -61,12 +68,12 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 | **Repo** | GitHub-hosted, monorepo, pnpm workspaces |
 | **Identity (POC)** | GitHub OAuth via NextAuth v4. `users.ping_subject` stores the GitHub numeric user ID. Admins set by `role` column in DB. |
 | **Identity (enterprise)** | PingOne / PingFederate OIDC. The NextAuth provider swaps; the `users` table and `getSessionUser()` helper do not change. `ping_subject` will hold the PingOne subject claim as originally intended. |
-| **Agent runtime (default)** | **Cursor SDK** (`@cursor/sdk`, Anysphere). MCP-native. `RUNTIME=cursor` (now the default). Thread continuity currently comes from AI Hub's bounded context layer: rolling summary + budgeted recent messages. |
+| **Agent runtime (default)** | **Cursor SDK** (`@cursor/sdk`, Anysphere). MCP-native. `RUNTIME=cursor` (now the default). Thread continuity currently comes from AI Hub's bounded context layer: summary schema/helper + budgeted recent messages. Summary generation itself is still pending. |
 | **Agent runtime (fallback)** | **AWS Bedrock** (`converseStream`). Selected via `RUNTIME=bedrock`. |
 | **Models** | Three Claude models — **Haiku 4.5**, **Sonnet 4.6** (default), **Opus 4.7**. Logical IDs map per runtime. |
 | **Integration model** | **MCP servers** for every external system. HTTP for per-user delegated auth. GitHub MCP is live; others stubbed. |
 | **Stack** | Next.js 15 (App Router) + TypeScript + Tailwind + Drizzle |
-| **Hosting** | **AWS App Runner** behind a CodeBuild CI/CD pipeline. Image builds, DB migrations, and deploys run automatically on push to `main`. |
+| **Hosting** | **AWS App Runner** behind a CodeBuild CI/CD pipeline for the POC/pilot. Image builds, DB migrations, and deploys run automatically on push to `main`. App Runner closed to new AWS customers on April 30, 2026 and will not receive new features, so the production architecture decision must compare App Runner against ECS/Fargate/Aurora before enterprise scale. |
 | **Database** | **RDS Postgres** via Drizzle. Migrations in `packages/db/drizzle/`. |
 | **First working integration** | GitHub MCP — per-user, HTTP transport, tokens stored in `oauth_tokens`, accessed via `api.githubcopilot.com/mcp/` |
 
@@ -94,10 +101,14 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 | Bedrock runtime (fallback via `RUNTIME=bedrock`) | ✅ |
 | GitHub MCP per-user (OAuth flow + token vault + live calls) | ✅ |
 | AWS App Runner + CodeBuild CI/CD | ✅ |
-| Rolling thread summaries + prompt/context guardrails | ✅ |
+| Prompt/context guardrails + summary schema/helper | ✅ |
 | Safe closed-stream handling for long turns | ✅ |
 | Agent activity timeline for chat tool calls/results | ✅ |
 | Developer Briefing execution route (manual GitHub workflow) | ✅ |
+| Rolling summary generation | ❌ pending |
+| Rate limits / quotas / max-output guardrails | ❌ pending |
+| Dependency audit cleanup | ❌ pending |
+| Health check with DB/runtime dependency checks | ❌ pending |
 
 ### What's in the DB schema
 
@@ -127,7 +138,7 @@ All code is on `main`. PRs #1–#22 merged. Only `origin/main` on remote.
 
 **Ship:** "What's on my calendar tomorrow, and which mails reference it?" — one agent turn calling two MCP servers.
 
-- Promote `packages/mcp-servers/src/graph.ts` from stub → real. Microsoft Graph API (Mail + Calendar). Share the Entra app registration and the token store pattern already proven with GitHub MCP.
+- Add the Microsoft Graph MCP server for Mail + Calendar. Share the Entra app registration and the token store pattern already proven with GitHub MCP.
 - Recipe: hardcoded "Morning Briefing" — system prompt + `mcp_servers: [graph-mail, graph-cal]` + Sonnet.
 - Use the new `recipe_runs` table for the hardcoded "Morning Briefing" execution log.
 - SES integration for outbound mail (briefing delivery).
@@ -230,7 +241,7 @@ For all MCP integrations (GitHub, M365, Salesforce, Workfront):
 apps/
   web/                     Next.js on App Runner; UI + auth + API routes
 packages/
-  db/                      Drizzle schema + client + migrations (0000–0010)
+  db/                      Drizzle schema + client + migrations
   agent/                   Tool/model registries + Bedrock loop
   cursor-runtime/          AgentRuntime seam
     src/
@@ -241,10 +252,11 @@ packages/
       factory.ts           getRuntime() — defaults to 'cursor'
   mcp-servers/
     src/
-      github.ts            ✅ GitHub MCP (per-user HTTP transport)
-      graph.ts             stub — Week 4
+      teams.ts             stub — Week 8
       workfront.ts         stub — Week 8
       databricks.ts        stub — Week 8
+      # GitHub MCP is remote: https://api.githubcopilot.com/mcp/
+      # mounted by apps/web/lib/oauth/mcp-servers.ts
 .cursor/
       hooks.json               policy layer stubs — lower-level tool hooks still to be wired
 .github/workflows/         ci.yml (lint + typecheck + build)
@@ -268,9 +280,11 @@ docs/
 1. **Cursor SDK surface stability** — v1 published May 2026; surface still moving. `BedrockRuntime` is the insurance policy. Mitigate by pinning a minor version and accepting the security-patch lag.
 2. **Per-user delegated auth at MCP scale** — the pattern (HTTP transport + per-turn Bearer tokens) is proven with GitHub. Will it hold for Graph's token-refresh frequency when scheduling kicks in? Decide before week 5.
 3. **M365 Entra app registration timing** — IT critical path for Graph MCP. Have a ready fallback (Salesforce or Workfront OAuth) if approval slips past week 4.
-4. **Cost runaway** — context-size guardrails are in place for chat turns. Still add `max_tokens`, ≤8 tool-use iterations per turn (hook enforcement), per-user daily token quotas, CloudWatch alarms at $50 / $200 / $500.
-5. **Audit-log discipline** — MCP tool calls now land in `audit_log`; recipe-run and admin-action producers still need to be wired before week 8 hardening.
-6. **Burnout** — 10–15 focused hrs/week, blocks not scraps. If shipping slips two weeks in a row, reassess scope.
+4. **Cost runaway** — context-size guardrails are in place for chat turns. Still add request/body limits, `max_tokens`, tool-use iteration caps, per-user daily token quotas, and CloudWatch alarms at $50 / $200 / $500.
+5. **Audit-log discipline** — MCP tool calls now land in `audit_log`, but retention/redaction rules are not defined and recipe-run/admin-action producers still need to be wired before week 8 hardening.
+6. **Dependency audit debt** — `pnpm audit --prod` currently reports production vulnerabilities across transitive packages, including Next.js advisories fixed in `>=15.5.16`, `tar` via `sqlite3`, `undici` via `@cursor/sdk`, and AWS SDK XML parsing. Track and clean up before IT review.
+7. **Hosting path** — App Runner is fine for the existing POC account, but AWS has closed it to new customers and frozen new features. Decide App Runner vs. ECS/Fargate/Aurora/RDS Proxy before enterprise rollout.
+8. **Burnout** — 10–15 focused hrs/week, blocks not scraps. If shipping slips two weeks in a row, reassess scope.
 
 ## Open questions
 

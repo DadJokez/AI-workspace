@@ -211,8 +211,9 @@ export async function POST(req: Request) {
     );
   }
 
-  // Steering preamble for fresh agents (first turn only). The runtime
-  // ignores this on resumed agents, so it's safe to send unconditionally.
+  // Steering preamble for fresh agents. The Cursor runtime includes it only
+  // on the first thread turn so identity/custom-instruction steering does not
+  // bloat every follow-up.
   const firstTurnPreamble = buildAgentPreamble({
     user: {
       displayName: sessionUser.displayName,

@@ -25,9 +25,9 @@ export type McpServerSpec =
  *
  * - `bedrock`: stateless, so the full `messages` history is forwarded to
  *   `converseStream` on every turn.
- * - `cursor`: durable agents own their own state. The runtime resolves an
- *   `SDKAgent` keyed on `threadId` (creating one on first turn) and only the
- *   newest user message is forwarded via `agent.send()`.
+ * - `cursor`: fresh-agent-per-turn today. The runtime sends a bounded context
+ *   pack assembled by the shell, because AI Hub owns product memory in
+ *   Postgres and does not depend on Cursor agent state for continuity.
  *
  * Anything that's truly runtime-specific (Bedrock toolConfig) lives behind
  * the runtime, not in this contract.
@@ -39,7 +39,7 @@ export interface TurnInput {
   modelId: string;
   /** Optional system prompt override. */
   systemPrompt?: string;
-  /** Full chat history. Bedrock consumes all; Cursor reads only the newest user turn. */
+  /** Bounded chat context. Bedrock consumes all; Cursor packs it into one turn. */
   messages: AgentMessage[];
   /** Per-request context passed to tool handlers (and hooks, when wired). */
   context: ToolContext;
@@ -47,16 +47,15 @@ export interface TurnInput {
   signal?: AbortSignal;
   /**
    * Per-turn MCP servers (e.g. user's connected GitHub via OAuth). Cursor
-   * forwards them to `agent.send({ mcpServers })` so connection state can
-   * change between turns without recreating the agent. Bedrock ignores.
+   * forwards them to the fresh agent/send path for this turn. Bedrock ignores.
    */
   mcpServers?: Record<string, McpServerSpec>;
   /**
-   * Steering text prepended to the first user message of a freshly-created
-   * agent. The Cursor SDK has no system-prompt option on `Agent.create`, so
-   * this is how the route educates the model about user identity, connected
-   * tools, and any custom instructions. Ignored on resumed agents — Cursor's
-   * durable agents retain context across turns. Bedrock ignores.
+   * Steering text prepended to the first user message of a thread. The Cursor
+   * SDK has no system-prompt option on `Agent.create`, so this is how the
+   * route educates the model about user identity, connected tools, and custom
+   * instructions without repeating that preamble on every turn. Bedrock
+   * ignores.
    */
   firstTurnPreamble?: string;
 }
