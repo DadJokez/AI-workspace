@@ -195,17 +195,46 @@ export async function POST(req: Request) {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (obj: unknown) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      let closed = false;
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        try {
+          controller.close();
+        } catch {
+          /* stream was already closed by the client */
+        }
+      };
+      const send = (obj: unknown): boolean => {
+        if (closed || abort.signal.aborted) return false;
+        try {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify(obj)}\n\n`),
+          );
+          return true;
+        } catch (err) {
+          closed = true;
+          abort.abort();
+          process.stderr.write(
+            `[chat-stream-closed] ${JSON.stringify({
+              threadId: thread.id,
+              message: err instanceof Error ? err.message : String(err),
+            })}\n`,
+          );
+          return false;
+        }
       };
 
       // Tell the client which thread this turn is on, before model output.
-      send({
+      if (!send({
         type: "meta",
         threadId: thread.id,
         userMessageId: userMsg[0]!.id,
         modelId,
-      });
+      })) {
+        close();
+        return;
+      }
 
       let assistantText = "";
       let tokensIn = 0;
@@ -239,9 +268,10 @@ export async function POST(req: Request) {
               })}\n`,
             );
           }
-          send(ev);
+          if (!send(ev)) return;
         }
       } catch (err) {
+        if (closed || abort.signal.aborted) return;
         const msg = err instanceof Error ? err.message : String(err);
         const stack = err instanceof Error ? err.stack : undefined;
         process.stderr.write(
@@ -255,7 +285,7 @@ export async function POST(req: Request) {
           })}\n`,
         );
         send({ type: "error", message: msg });
-        controller.close();
+        close();
         return;
       }
 
@@ -288,6 +318,7 @@ export async function POST(req: Request) {
           threadId: thread.id,
         });
       } catch (err) {
+        if (closed || abort.signal.aborted) return;
         const msg = err instanceof Error ? err.message : String(err);
         const stack = err instanceof Error ? err.stack : undefined;
         process.stderr.write(
@@ -303,7 +334,7 @@ export async function POST(req: Request) {
         send({ type: "error", message: msg });
       }
 
-      controller.close();
+      close();
     },
     cancel() {
       abort.abort();
