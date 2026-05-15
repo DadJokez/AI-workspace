@@ -5,8 +5,9 @@ import type {
 
 export interface BuildToolAuditRowsInput {
   actorUserId: string;
-  chatThreadId: string;
-  chatMessageId: string;
+  chatThreadId?: string | null;
+  chatMessageId?: string | null;
+  recipeRunId?: string | null;
   modelId: string;
   runtime: string;
   calls: readonly PersistedToolCall[];
@@ -20,8 +21,9 @@ export interface ToolAuditRow {
   provider: string | null;
   toolName: string;
   toolCallId: string;
-  chatThreadId: string;
-  chatMessageId: string;
+  chatThreadId: string | null;
+  chatMessageId: string | null;
+  recipeRunId: string | null;
   input: Record<string, unknown> | null;
   output: unknown;
   error: string | null;
@@ -38,6 +40,7 @@ export function buildToolAuditRows({
   actorUserId,
   chatThreadId,
   chatMessageId,
+  recipeRunId = null,
   modelId,
   runtime,
   calls,
@@ -54,6 +57,7 @@ export function buildToolAuditRows({
         actorUserId,
         chatThreadId,
         chatMessageId,
+        recipeRunId,
         modelId,
         runtime,
         call,
@@ -69,6 +73,7 @@ export function buildToolAuditRows({
         actorUserId,
         chatThreadId,
         chatMessageId,
+        recipeRunId,
         modelId,
         runtime,
         result,
@@ -83,14 +88,16 @@ function buildRow({
   actorUserId,
   chatThreadId,
   chatMessageId,
+  recipeRunId,
   modelId,
   runtime,
   call,
   result,
 }: {
   actorUserId: string;
-  chatThreadId: string;
-  chatMessageId: string;
+  chatThreadId?: string | null;
+  chatMessageId?: string | null;
+  recipeRunId?: string | null;
   modelId: string;
   runtime: string;
   call?: PersistedToolCall;
@@ -112,8 +119,9 @@ function buildRow({
     provider,
     toolName,
     toolCallId: call?.id ?? result!.toolCallId,
-    chatThreadId,
-    chatMessageId,
+    chatThreadId: chatThreadId ?? null,
+    chatMessageId: chatMessageId ?? null,
+    recipeRunId: recipeRunId ?? null,
     input: call?.input ?? null,
     output: result?.isError ? null : (result?.output ?? null),
     error: result?.isError ? stringifyAuditError(result.output) : null,
