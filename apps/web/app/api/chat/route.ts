@@ -14,6 +14,7 @@ import { buildAgentPreamble } from "@/lib/agent-preamble";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
+import { createToolEventAccumulator } from "@/lib/tool-events";
 import { buildTurnContext } from "@/lib/turn-context";
 
 export const dynamic = "force-dynamic";
@@ -239,6 +240,9 @@ export async function POST(req: Request) {
       let assistantText = "";
       let tokensIn = 0;
       let tokensOut = 0;
+      const toolEvents = createToolEventAccumulator(
+        mcpServers ? Object.keys(mcpServers) : [],
+      );
 
       try {
         for await (const ev of runtime.runTurn({
@@ -255,6 +259,10 @@ export async function POST(req: Request) {
           } else if (ev.type === "usage") {
             tokensIn = ev.tokensIn;
             tokensOut = ev.tokensOut;
+          } else if (ev.type === "tool-call") {
+            toolEvents.recordCall(ev.call);
+          } else if (ev.type === "tool-result") {
+            toolEvents.recordResult(ev.result);
           } else if (ev.type === "error") {
             // Yielded error events go to SSE without the route's try/catch
             // ever firing. Mirror to stderr so CloudWatch sees them too.
@@ -304,6 +312,8 @@ export async function POST(req: Request) {
             modelId,
             tokensIn,
             tokensOut,
+            toolCalls: toolEvents.calls(),
+            toolResults: toolEvents.results(),
           })
           .returning();
 
