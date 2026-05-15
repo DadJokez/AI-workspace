@@ -66,6 +66,23 @@ export const userToolAttestationScopeEnum = pgEnum(
 export type UserToolAttestationScope =
   (typeof userToolAttestationScopeEnum.enumValues)[number];
 
+export const mcpServerTransportEnum = pgEnum("mcp_server_transport", [
+  "http",
+  "sse",
+  "stdio",
+]);
+
+export type McpServerTransport =
+  (typeof mcpServerTransportEnum.enumValues)[number];
+
+export const mcpServerStatusEnum = pgEnum("mcp_server_status", [
+  "active",
+  "disabled",
+  "planned",
+]);
+
+export type McpServerStatus = (typeof mcpServerStatusEnum.enumValues)[number];
+
 export const users = pgTable(
   "users",
   {
@@ -286,15 +303,47 @@ export const recipeRuns = pgTable(
 );
 
 /**
+ * Admin-curated registry of MCP servers AI Hub can mount. Provider slugs stay
+ * stable across OAuth, catalog, attestation, and runtime code.
+ */
+export const mcpServers = pgTable(
+  "mcp_servers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    slug: text("slug").notNull(),
+    displayName: text("display_name").notNull(),
+    description: text("description"),
+    transport: mcpServerTransportEnum("transport").notNull(),
+    status: mcpServerStatusEnum("status").notNull().default("active"),
+    endpointUrl: text("endpoint_url"),
+    authMode: text("auth_mode"),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    slugUnique: uniqueIndex("mcp_servers_slug_idx").on(t.slug),
+    statusIdx: index("mcp_servers_status_idx").on(t.status),
+    transportIdx: index("mcp_servers_transport_idx").on(t.transport),
+  }),
+);
+
+/**
  * Admin-curated catalog of user-visible tools exposed through MCP providers.
- * This intentionally keys tools by provider + provider-native tool name rather
- * than a future MCP server FK, so GitHub tools can be cataloged before the MCP
- * server registry table lands.
+ * The provider + provider-native tool name remains the stable lookup key; the
+ * optional MCP server FK links catalog rows to the admin registry.
  */
 export const toolsCatalog = pgTable(
   "tools_catalog",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    mcpServerId: uuid("mcp_server_id").references(() => mcpServers.id, {
+      onDelete: "set null",
+    }),
     provider: text("provider").notNull(),
     toolName: text("tool_name").notNull(),
     displayName: text("display_name").notNull(),
@@ -321,6 +370,7 @@ export const toolsCatalog = pgTable(
     providerIdx: index("tools_catalog_provider_idx").on(t.provider),
     categoryIdx: index("tools_catalog_category_idx").on(t.category),
     enabledIdx: index("tools_catalog_enabled_idx").on(t.enabled),
+    mcpServerIdx: index("tools_catalog_mcp_server_idx").on(t.mcpServerId),
   }),
 );
 
@@ -456,6 +506,8 @@ export type Invitation = typeof invitations.$inferSelect;
 export type NewInvitation = typeof invitations.$inferInsert;
 export type RecipeRun = typeof recipeRuns.$inferSelect;
 export type NewRecipeRun = typeof recipeRuns.$inferInsert;
+export type McpServer = typeof mcpServers.$inferSelect;
+export type NewMcpServer = typeof mcpServers.$inferInsert;
 export type AuditLog = typeof auditLog.$inferSelect;
 export type NewAuditLog = typeof auditLog.$inferInsert;
 export type ToolCatalogEntry = typeof toolsCatalog.$inferSelect;

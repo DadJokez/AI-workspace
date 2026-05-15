@@ -110,8 +110,8 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 | `audit_log` | ✅ schema + MCP tool execution writes |
 | `tools_catalog` | ✅ |
 | `user_tool_attestations` | ✅ |
+| `mcp_servers` | ✅ |
 | `recipes` | ❌ not yet |
-| `mcp_servers` | ❌ not yet |
 
 ## Roadmap (weekly ships)
 
@@ -185,14 +185,14 @@ Agent Wire (S3/Athena telemetry), Salesforce MCP, ServiceNow MCP, GitHub/ADO cod
 | `invitations` | `id`, `email`, `token`, `invited_by`, `redeemed_at`, `created_at` |
 | `recipe_runs` | `id`, `user_id`, `recipe_id` (nullable), `recipe_slug`, `thread_id`, `trigger_type`, `status`, `runtime`, `model_id`, `inputs`, `outputs`, `error`, `started_at`, `completed_at`, `created_at`, `updated_at` |
 | `audit_log` | `id`, `actor_user_id`, `action_type`, `status`, `provider`, `tool_name`, `tool_call_id`, `chat_thread_id`, `chat_message_id`, `recipe_run_id`, `input`, `output`, `error`, `metadata`, `started_at`, `completed_at`, `created_at` |
-| `tools_catalog` | `id`, `provider`, `tool_name`, `display_name`, `description`, `category`, `action`, `requires_attestation`, `enabled`, `metadata`, `created_at`, `updated_at` |
+| `mcp_servers` | `id`, `slug`, `display_name`, `description`, `transport`, `status`, `endpoint_url`, `auth_mode`, `metadata`, `created_at`, `updated_at` |
+| `tools_catalog` | `id`, `mcp_server_id`, `provider`, `tool_name`, `display_name`, `description`, `category`, `action`, `requires_attestation`, `enabled`, `metadata`, `created_at`, `updated_at` |
 | `user_tool_attestations` | `id`, `user_id`, `scope_type`, `provider`, `category`, `tool_catalog_id`, `tool_name`, `action`, `approved_at`, `approved_by`, `revoked_at`, `revoked_by`, `reason`, `metadata`, `created_at`, `updated_at` |
 
 ### Tables to add
 
 | Table | When | Purpose |
 |---|---|---|
-| `mcp_servers` | Week 4 | Admin-curated MCP server registry |
 | `recipes` | Week 6 | Saved agent definitions |
 
 ## Auth model
