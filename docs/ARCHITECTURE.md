@@ -142,11 +142,19 @@ and workflow-style agent turns. It stores the user, optional future
 `recipe_id`, early `recipe_slug`, trigger type (`manual`, `scheduled`, etc.),
 runtime/model metadata, inputs, outputs, error text, and lifecycle timestamps.
 
-The user-facing activity timeline is a follow-on to this foundation: each
-long turn should show visible progress states such as thinking, calling tools,
-running a workflow step, saving output, reconnecting, and finished/failed. The
-timeline events will hang off this run record or a sibling event table once the
-first scheduled/workflow route lands.
+The chat surface now has the first user-facing activity timeline. During a
+streaming turn, tool-call and tool-result events update a compact activity row
+inside the assistant message. After refresh or reconnect, the same component is
+rebuilt from `chat_messages.tool_calls/tool_results`, so completed tool work
+remains visible even when the live SSE stream is gone. Network/browser stream
+drops are labeled as connection loss rather than model failure.
+
+Workflow runs use the same event shape. The Developer Briefing route stores
+`toolCalls` and `toolResults` in `recipe_runs.outputs`; the future recipe/run
+detail UI should render those with the same activity component. If scheduled or
+background runs need mid-run reconnect before completion, add a sibling
+`run_events` table keyed by `recipe_run_id` rather than changing the event
+shape.
 
 ## Audit ledger
 
@@ -207,8 +215,9 @@ or dropped character counts.
 manual workflow route. It creates a `recipe_runs` row, mounts the user's
 attested GitHub MCP server, runs a fixed Developer Briefing prompt through the
 same `AgentRuntime` seam as chat, stores structured output/failure state on
-the run, and writes tool execution audit rows linked by `recipe_run_id`. This
-proves the recipe execution path before the full recipes table and UI exist.
+the run, including `toolCalls`/`toolResults` for the shared activity UI, and
+writes tool execution audit rows linked by `recipe_run_id`. This proves the
+recipe execution path before the full recipes table and UI exist.
 
 ## Agent Wire
 

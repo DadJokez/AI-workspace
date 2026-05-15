@@ -9,6 +9,11 @@ import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
 import { ToolsPanel } from "@/components/ToolsPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { readSseStream } from "@/lib/sse";
+import {
+  parseToolName,
+  type PersistedToolCall,
+  type PersistedToolResult,
+} from "@/lib/tool-events";
 import { signOut } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 
@@ -31,6 +36,8 @@ interface UiMessage {
   /** Live activity label shown while pending and no text has streamed yet
    *  (e.g. "Thinking…", "Calling github_list_repos…"). */
   status?: string;
+  toolCalls?: PersistedToolCall[];
+  toolResults?: PersistedToolResult[];
 }
 
 interface ChatTab {
@@ -83,6 +90,8 @@ interface ThreadMessage {
   content: string;
   modelId: string | null;
   runtime: "cursor" | "bedrock" | string | null;
+  toolCalls: PersistedToolCall[] | null;
+  toolResults: PersistedToolResult[] | null;
   createdAt: string;
 }
 
@@ -169,6 +178,84 @@ function formatToolName(raw: string): string {
   const m = /^mcp__([^_]+)__(.+)$/.exec(raw);
   const pretty = m ? `${m[1]} · ${m[2]}` : raw;
   return pretty.length > 48 ? pretty.slice(0, 47) + "…" : pretty;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function streamToolCallToPersisted(value: unknown): PersistedToolCall | null {
+  if (!isPlainRecord(value)) return null;
+  const id = typeof value.id === "string" ? value.id : crypto.randomUUID();
+  const name = typeof value.name === "string" ? value.name : "tool";
+  const parsed = parseToolName(name);
+  return {
+    id,
+    name,
+    provider: parsed.provider,
+    toolName: parsed.toolName,
+    input: isPlainRecord(value.input) ? value.input : {},
+    startedAt: new Date().toISOString(),
+  };
+}
+
+function streamToolResultToPersisted(
+  value: unknown,
+  calls: readonly PersistedToolCall[],
+): PersistedToolResult | null {
+  if (!isPlainRecord(value) || typeof value.toolCallId !== "string") {
+    return null;
+  }
+  const call = calls.find((candidate) => candidate.id === value.toolCallId);
+  return {
+    toolCallId: value.toolCallId,
+    ...(call
+      ? {
+          name: call.name,
+          provider: call.provider,
+          toolName: call.toolName,
+        }
+      : {}),
+    output: value.output,
+    isError: value.isError === true,
+    completedAt: new Date().toISOString(),
+  };
+}
+
+function upsertToolCall(
+  calls: PersistedToolCall[] | undefined,
+  call: PersistedToolCall,
+): PersistedToolCall[] {
+  const existing = calls ?? [];
+  if (existing.some((candidate) => candidate.id === call.id)) {
+    return existing.map((candidate) =>
+      candidate.id === call.id ? { ...candidate, ...call } : candidate,
+    );
+  }
+  return [...existing, call];
+}
+
+function upsertToolResult(
+  results: PersistedToolResult[] | undefined,
+  result: PersistedToolResult,
+): PersistedToolResult[] {
+  const existing = results ?? [];
+  if (existing.some((candidate) => candidate.toolCallId === result.toolCallId)) {
+    return existing.map((candidate) =>
+      candidate.toolCallId === result.toolCallId
+        ? { ...candidate, ...result }
+        : candidate,
+    );
+  }
+  return [...existing, result];
+}
+
+function formatChatError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/network|failed to fetch|load failed|terminated|aborted/i.test(message)) {
+    return "Connection lost while receiving updates. The run may have stopped or the browser stream may have dropped; retry to continue.";
+  }
+  return message;
 }
 
 const STICK_BOTTOM_THRESHOLD = 100;
@@ -421,6 +508,8 @@ export function ChatClient() {
           role: m.role,
           content: m.content,
           modelId: m.modelId ?? undefined,
+          toolCalls: m.toolCalls ?? undefined,
+          toolResults: m.toolResults ?? undefined,
         }));
         setTabs((prev) =>
           prev.map((t) =>
@@ -685,15 +774,22 @@ export function ChatClient() {
             ),
           );
         } else if (ev.type === "tool-call") {
-          const call = ev.call as { name?: unknown } | undefined;
-          const name =
-            call && typeof call.name === "string" ? call.name : undefined;
+          const persistedCall = streamToolCallToPersisted(ev.call);
+          const name = persistedCall?.name;
           const status = name
             ? `Calling ${formatToolName(name)}…`
             : "Calling tool…";
           patchTabMessages(tabId, (prev) =>
             prev.map((m) =>
-              m.id === assistantMsgId ? { ...m, status } : m,
+              m.id === assistantMsgId
+                ? {
+                    ...m,
+                    status,
+                    toolCalls: persistedCall
+                      ? upsertToolCall(m.toolCalls, persistedCall)
+                      : m.toolCalls,
+                  }
+                : m,
             ),
           );
         } else if (ev.type === "tool-result") {
@@ -702,8 +798,20 @@ export function ChatClient() {
           // initial "Thinking…" between chained tool calls.
           patchTabMessages(tabId, (prev) =>
             prev.map((m) =>
-              m.id === assistantMsgId && m.content.length === 0
-                ? { ...m, status: "Working…" }
+              m.id === assistantMsgId
+                ? {
+                    ...m,
+                    status: m.content.length === 0 ? "Working…" : m.status,
+                    toolResults: (() => {
+                      const persistedResult = streamToolResultToPersisted(
+                        ev.result,
+                        m.toolCalls ?? [],
+                      );
+                      return persistedResult
+                        ? upsertToolResult(m.toolResults, persistedResult)
+                        : m.toolResults;
+                    })(),
+                  }
                 : m,
             ),
           );
@@ -738,7 +846,7 @@ export function ChatClient() {
       // Sidebar history may now have a new or moved-up entry.
       void refreshThreads();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatChatError(err);
       patchTab(tabId, { error: message });
       patchTabMessages(tabId, (prev) =>
         prev.map((m) =>
@@ -951,6 +1059,8 @@ export function ChatClient() {
                   modelId={m.modelId}
                   pending={m.pending}
                   status={m.status}
+                  toolCalls={m.toolCalls}
+                  toolResults={m.toolResults}
                 />
               ))
             )}

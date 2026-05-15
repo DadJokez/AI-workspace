@@ -18,6 +18,10 @@ describe("parseToolName", () => {
       provider: "github",
       toolName: "search_repositories",
     });
+    expect(parseToolName("mcp__github__list_pull_requests")).toEqual({
+      provider: "github",
+      toolName: "list_pull_requests",
+    });
   });
 
   it("uses connected provider hints for underscore-prefixed tool names", () => {

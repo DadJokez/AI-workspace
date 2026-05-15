@@ -75,6 +75,11 @@ export function parseToolName(
   name: string,
   providerHints: readonly string[] = [],
 ): { provider: string | null; toolName: string } {
+  const mcpName = /^mcp__([^_]+)__(.+)$/.exec(name);
+  if (mcpName) {
+    return { provider: mcpName[1]!, toolName: mcpName[2]! };
+  }
+
   for (const separator of [".", "/", "__"]) {
     const idx = name.indexOf(separator);
     if (idx > 0 && idx < name.length - separator.length) {
