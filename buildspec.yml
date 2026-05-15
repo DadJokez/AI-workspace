@@ -3,6 +3,7 @@ version: 0.2
 env:
   variables:
     IMAGE_REPO_NAME: ai-workspace
+    APP_RUNNER_SERVICE_ARN: arn:aws:apprunner:us-east-1:351478076796:service/ai-workspace/e78909142ef74a37ba25f7cd95fe0d09
 
 phases:
   pre_build:
@@ -18,10 +19,15 @@ phases:
     commands:
       - 'echo Build started on $(date)'
       - 'docker build -f apps/web/Dockerfile -t $IMAGE_REPO_NAME .'
+      - 'docker build -f apps/web/Dockerfile --target migrator -t $IMAGE_REPO_NAME:migrator .'
       - 'docker tag $IMAGE_REPO_NAME:latest $REPOSITORY_URI:latest'
       - 'docker tag $IMAGE_REPO_NAME:latest $REPOSITORY_URI:$COMMIT_TAG'
   post_build:
     commands:
+      - 'echo Running database migrations...'
+      - 'DATABASE_URL=$(aws apprunner describe-service --region $AWS_DEFAULT_REGION --service-arn $APP_RUNNER_SERVICE_ARN --query "Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.DATABASE_URL" --output text)'
+      - 'test -n "$DATABASE_URL" && test "$DATABASE_URL" != "None"'
+      - 'docker run --rm -e DATABASE_URL="$DATABASE_URL" $IMAGE_REPO_NAME:migrator'
       - 'echo Pushing the Docker images...'
       - 'docker push $REPOSITORY_URI:latest'
       - 'docker push $REPOSITORY_URI:$COMMIT_TAG'
