@@ -96,6 +96,7 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 | AWS App Runner + CodeBuild CI/CD | ✅ |
 | Rolling thread summaries + prompt/context guardrails | ✅ |
 | Safe closed-stream handling for long turns | ✅ |
+| Agent activity timeline for chat tool calls/results | ✅ |
 | Developer Briefing execution route (manual GitHub workflow) | ✅ |
 
 ### What's in the DB schema
@@ -148,6 +149,8 @@ All code is on `main`. PRs #1–#22 merged. Only `origin/main` on remote.
 - `recipes` table + CRUD UI at `/recipes`.
 - Each recipe row materializes into a Cursor agent definition at runtime.
 - Developer Briefing and Morning Briefing become rows. Users clone and edit.
+- Reuse the chat activity timeline component for recipe run details by reading
+  `recipe_runs.outputs.toolCalls/toolResults`.
 - 2–3 starter recipes (Morning Briefing, Weekly Status stub, etc.).
 - Port `ai-intake` as Recipe 001 — proving the catalog can absorb an existing production use case.
 
@@ -181,7 +184,7 @@ Agent Wire (S3/Athena telemetry), Salesforce MCP, ServiceNow MCP, GitHub/ADO cod
 |---|---|
 | `users` | `id` (uuid), `ping_subject` (GitHub numeric user ID, unique), `email`, `display_name`, `role` (`user`/`admin`), `created_at` |
 | `chat_threads` | `id`, `user_id`, `title`, `default_model_id`, `cursor_agent_id` (nullable), `mcp_signature`, `summary`, `summary_updated_at`, `created_at`, `updated_at` |
-| `chat_messages` | `id`, `thread_id`, `role`, `content`, `model_id`, `runtime`, `tokens_in`, `tokens_out`, `tool_calls` (jsonb), `tool_results` (jsonb), `created_at` |
+| `chat_messages` | `id`, `thread_id`, `role`, `content`, `model_id`, `runtime`, `tokens_in`, `tokens_out`, `tool_calls` (jsonb, powers visible activity), `tool_results` (jsonb, powers visible activity), `created_at` |
 | `oauth_tokens` | `id`, `user_id`, `provider`, `access_token`, `refresh_token`, `expires_at`, `scope`, `created_at`, `updated_at` |
 | `invitations` | `id`, `email`, `token`, `invited_by`, `redeemed_at`, `created_at` |
 | `recipe_runs` | `id`, `user_id`, `recipe_id` (nullable), `recipe_slug`, `thread_id`, `trigger_type`, `status`, `runtime`, `model_id`, `inputs`, `outputs`, `error`, `started_at`, `completed_at`, `created_at`, `updated_at` |

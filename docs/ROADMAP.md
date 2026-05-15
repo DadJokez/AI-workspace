@@ -11,7 +11,7 @@
 > building this Friday"; this doc is "what experience are we shaping,
 > and how does the catalog grow to support it".
 >
-> **Status as of May 2026:** J1 is fully shipped. J2 is underway — GitHub MCP is live per-user behind the provider attestation gate, bounded turn context is shipped, tool calls/results and MCP audit rows are persisted, MCP server/tools catalog/user attestation schemas are in place, and the first durable `recipe_runs` ledger is available for workflow/scheduled execution. M365/Salesforce/Workfront integrations are next. J3–J5 are not yet started.
+> **Status as of May 2026:** J1 is fully shipped. J2 is underway — GitHub MCP is live per-user behind the provider attestation gate, bounded turn context is shipped, tool calls/results and MCP audit rows are persisted, chat now shows a compact agent activity timeline, MCP server/tools catalog/user attestation schemas are in place, and the first durable `recipe_runs` ledger is available for workflow/scheduled execution. M365/Salesforce/Workfront integrations are next. J3–J5 are not yet started.
 
 ## User journeys
 
@@ -35,11 +35,11 @@ and can both **read** and **act**. "What PRs do I have open?"
 returns a real answer; "Send Bob the summary" performs a real action.
 This is what makes "talk to your work" real rather than aspirational.
 
-**What's live:** GitHub MCP is working end-to-end — users connect via OAuth, tokens are stored encrypted in `oauth_tokens`, the GitHub server is represented in `mcp_servers`, and the Cursor runtime mounts it per-user with a short-lived Bearer token on each turn. Tool calls/results persist on chat messages, MCP tool executions write audit rows, long turns tolerate browser disconnects cleanly, and the manual Developer Briefing route persists GitHub workflow runs in `recipe_runs`.
+**What's live:** GitHub MCP is working end-to-end — users connect via OAuth, tokens are stored encrypted in `oauth_tokens`, the GitHub server is represented in `mcp_servers`, and the Cursor runtime mounts it per-user with a short-lived Bearer token on each turn. Tool calls/results persist on chat messages and render as compact, expandable agent activity inside chat, MCP tool executions write audit rows, long turns tolerate browser disconnects cleanly, and the manual Developer Briefing route persists GitHub workflow runs in `recipe_runs`.
 
 **What's next (Weeks 4–8):** M365 Graph (Mail + Calendar), Workfront, Databricks, Salesforce. See the integration tier table below. The auth pattern (HTTP MCP + per-turn Bearer) is proven; the remaining work is per-integration MCP servers and the OAuth plumbing for each provider.
 
-**Requires for full J2:** visible activity/run status and lower-level tool/category filtering for write-side calls across all integrations.
+**Requires for full J2:** lower-level tool/category filtering for write-side calls across all integrations, plus a recipe/run-detail UI that reuses the shipped chat activity timeline for `recipe_runs`.
 
 ### J3 — Scheduled Agent ⏳ Not started
 

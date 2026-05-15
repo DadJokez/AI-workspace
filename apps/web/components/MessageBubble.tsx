@@ -1,6 +1,15 @@
 "use client";
 
 import { useTheme } from "@/lib/theme";
+import {
+  buildToolActivityEvents,
+  summarizeActivity,
+  type AgentActivityEvent,
+} from "@/lib/activity-events";
+import type {
+  PersistedToolCall,
+  PersistedToolResult,
+} from "@/lib/tool-events";
 import { useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -16,6 +25,8 @@ interface Props {
   modelId?: string;
   pending?: boolean;
   status?: string;
+  toolCalls?: PersistedToolCall[];
+  toolResults?: PersistedToolResult[];
 }
 
 export function MessageBubble({
@@ -24,6 +35,8 @@ export function MessageBubble({
   modelId,
   pending,
   status,
+  toolCalls = [],
+  toolResults = [],
 }: Props) {
   if (role === "user") {
     return (
@@ -44,6 +57,13 @@ export function MessageBubble({
   // first text-delta — a window that can be many seconds long when MCP
   // tool calls are in flight.
   const showThinking = role === "assistant" && pending && content.length === 0;
+  const activityEvents =
+    role === "assistant"
+      ? buildToolActivityEvents(toolCalls, toolResults)
+      : [];
+  const activitySummary = summarizeActivity(activityEvents, pending, status);
+  const showActivity =
+    role === "assistant" && (activityEvents.length > 0 || showThinking);
 
   // Suppress the "Assistant" label-only stub left behind when a turn errors
   // out before any text streamed. The error bar carries the message instead.
@@ -71,6 +91,13 @@ export function MessageBubble({
           <span className="ml-0.5 inline-block h-3 w-[2px] translate-y-[1px] animate-pulse bg-current align-baseline" />
         ) : null}
       </div>
+      {showActivity ? (
+        <ActivityTimeline
+          events={activityEvents}
+          summary={activitySummary ?? "Thinking..."}
+          pending={pending}
+        />
+      ) : null}
     </div>
   );
 }
@@ -85,6 +112,77 @@ function ThinkingIndicator({ status }: { status?: string }) {
       </span>
       <span className="text-[13px]">{status ?? "Thinking…"}</span>
     </div>
+  );
+}
+
+function ActivityTimeline({
+  events,
+  summary,
+  pending,
+}: {
+  events: AgentActivityEvent[];
+  summary: string;
+  pending?: boolean;
+}) {
+  if (events.length === 0) {
+    return (
+      <div className="mt-1 flex items-center gap-2 text-[12px] text-muted">
+        <ActivityDot state={pending ? "pending" : "succeeded"} />
+        <span>{summary}</span>
+      </div>
+    );
+  }
+
+  return (
+    <details className="group mt-1 max-w-full overflow-hidden rounded-md border border-hairline bg-subtle/45 px-2.5 py-1.5 text-[12px] text-muted">
+      <summary className="flex cursor-pointer list-none items-center gap-2 [overflow-wrap:anywhere] marker:hidden">
+        <ActivityDot
+          state={
+            events.some((e) => e.state === "failed")
+              ? "failed"
+              : pending
+                ? "pending"
+                : "succeeded"
+          }
+        />
+        <span>{summary}</span>
+        <span className="ml-auto text-[11px] text-muted/80 group-open:hidden">
+          Details
+        </span>
+      </summary>
+      <div className="mt-2 flex flex-col gap-1.5 border-t border-hairline pt-2">
+        {events.map((event) => (
+          <div key={event.id} className="flex min-w-0 gap-2">
+            <ActivityDot state={event.state} />
+            <div className="min-w-0 flex-1">
+              <div className="text-ink [overflow-wrap:anywhere]">
+                {event.label}
+              </div>
+              {event.detail ? (
+                <div className="mt-0.5 line-clamp-2 font-mono text-[11px] leading-snug [overflow-wrap:anywhere]">
+                  {event.detail}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function ActivityDot({ state }: { state: AgentActivityEvent["state"] }) {
+  const className =
+    state === "failed"
+      ? "bg-red-500"
+      : state === "pending"
+        ? "animate-pulse bg-muted"
+        : "bg-emerald-500";
+  return (
+    <span
+      className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${className}`}
+      aria-hidden="true"
+    />
   );
 }
 
