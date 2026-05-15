@@ -4,6 +4,10 @@ import type { McpServerSpec } from "@ai-workspace/cursor-runtime";
 import { eq } from "drizzle-orm";
 
 import { decryptSecret } from "./crypto";
+import {
+  filterAttestedProviders,
+  loadActiveToolAttestations,
+} from "@/lib/tool-attestations";
 
 const MCP_ENDPOINTS: Record<string, { url: string }> = {
   github: { url: "https://api.githubcopilot.com/mcp/" },
@@ -23,7 +27,10 @@ const MCP_ENDPOINTS: Record<string, { url: string }> = {
 export async function buildUserMcpServers(
   db: Database,
   userId: string,
-): Promise<Record<string, McpServerSpec> | undefined> {
+): Promise<{
+  mcpServers: Record<string, McpServerSpec> | undefined;
+  deniedProviders: string[];
+}> {
   let rows;
   try {
     rows = await db
@@ -35,13 +42,31 @@ export async function buildUserMcpServers(
       .where(eq(oauthTokens.userId, userId));
   } catch (err) {
     console.warn("[mcp] oauth_tokens lookup failed:", err);
-    return undefined;
+    return { mcpServers: undefined, deniedProviders: [] };
   }
+
+  const requestedProviders = rows
+    .map((row) => row.provider)
+    .filter((provider) => MCP_ENDPOINTS[provider]);
+  let allowedProviders = requestedProviders;
+  let deniedProviders: string[] = [];
+  try {
+    const attestations = await loadActiveToolAttestations(db, userId);
+    const gated = filterAttestedProviders(requestedProviders, attestations);
+    allowedProviders = gated.allowedProviders;
+    deniedProviders = gated.deniedProviders;
+  } catch (err) {
+    console.warn("[mcp] attestation lookup failed; denying MCP providers:", err);
+    allowedProviders = [];
+    deniedProviders = requestedProviders;
+  }
+  const allowed = new Set(allowedProviders);
 
   const out: Record<string, McpServerSpec> = {};
   for (const row of rows) {
     const endpoint = MCP_ENDPOINTS[row.provider];
     if (!endpoint) continue;
+    if (!allowed.has(row.provider)) continue;
     let token: string;
     try {
       token = decryptSecret(row.accessToken);
@@ -55,5 +80,8 @@ export async function buildUserMcpServers(
       headers: { Authorization: `Bearer ${token}` },
     };
   }
-  return Object.keys(out).length > 0 ? out : undefined;
+  return {
+    mcpServers: Object.keys(out).length > 0 ? out : undefined,
+    deniedProviders,
+  };
 }
