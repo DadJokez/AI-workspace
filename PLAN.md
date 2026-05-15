@@ -107,7 +107,7 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 | `oauth_tokens` (AES-256-GCM encrypted, per-user) | ✅ |
 | `invitations` | ✅ |
 | `recipe_runs` | ✅ |
-| `audit_log` | ✅ schema only; writes land in #40 |
+| `audit_log` | ✅ schema + MCP tool execution writes |
 | `recipes` | ❌ not yet |
 | `mcp_servers` | ❌ not yet |
 | `tools_catalog` | ❌ not yet |
@@ -164,7 +164,7 @@ All code is on `main`. PRs #1–#22 merged. Only `origin/main` on remote.
 **Ship:** Cross-system recipe works ("search Workfront tasks and email me a summary").
 
 - Promote `packages/mcp-servers/src/workfront.ts` or `databricks.ts` from stub → real. Picks whichever GP IT / GP data team clears first.
-- Full `audit_log` writes (every MCP tool call, recipe run, admin change) via `postToolUse` hook.
+- Expand `audit_log` writes from MCP tool calls to recipe runs and admin changes.
 - Admin pages: catalog CRUD, user list, audit view, MCP-server health.
 - Threat model doc, CSP, rate limits on `/api/chat`.
 
@@ -264,7 +264,7 @@ docs/
 2. **Per-user delegated auth at MCP scale** — the pattern (HTTP transport + per-turn Bearer tokens) is proven with GitHub. Will it hold for Graph's token-refresh frequency when scheduling kicks in? Decide before week 5.
 3. **M365 Entra app registration timing** — IT critical path for Graph MCP. Have a ready fallback (Salesforce or Workfront OAuth) if approval slips past week 4.
 4. **Cost runaway** — cap `max_tokens`, ≤8 tool-use iterations per turn (hook enforcement), per-user daily token quotas, CloudWatch alarms at $50 / $200 / $500.
-5. **Audit-log discipline** — `postToolUse` is the natural audit point. Integration test verifying every MCP call lands in `audit_log` before week 8 hardens.
+5. **Audit-log discipline** — MCP tool calls now land in `audit_log`; recipe-run and admin-action producers still need to be wired before week 8 hardening.
 6. **Burnout** — 10–15 focused hrs/week, blocks not scraps. If shipping slips two weeks in a row, reassess scope.
 
 ## Open questions

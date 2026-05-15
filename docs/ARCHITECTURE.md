@@ -91,7 +91,7 @@ This layer is **independent of the identity provider** in Layer 1. It uses the s
 - For **delegated** systems (GitHub today; M365 / Salesforce / Workfront in future): the shell holds the user's OAuth tokens in `oauth_tokens` (AES-256-GCM encrypted with `OAUTH_ENCRYPTION_KEY`). At turn start it mints a short-lived access token and injects it into the MCP server's request as `Authorization: Bearer <token>`. **HTTP transport** is used so the header is per-request.
 - For **service-principal / M2M** systems (Databricks, S3, Redshift): stdio transport with credentials in `mcpServers[].env` at process start.
 - The `preToolUse` hook will check `user_tool_attestations` before the call goes out (wired in Week 7).
-- The `postToolUse` hook will write one `audit_log` row per call (wired in Week 8).
+- The chat route writes one `audit_log` row per MCP tool execution after each assistant message is persisted. Future hooks/admin routes can reuse the same ledger shape.
 
 **Current OAuth apps in use (POC):**
 1. `GITHUB_AUTH_CLIENT_ID` / `GITHUB_AUTH_CLIENT_SECRET` — sign-in identity app (NextAuth callback at `/api/auth/callback/github`). **Replaced by PingOne OIDC config in enterprise.**
@@ -150,12 +150,12 @@ first scheduled/workflow route lands.
 
 ## Audit ledger
 
-`audit_log` is the central append-only compliance ledger. The table is ready for
-MCP tool execution events and future admin/security events: it stores the actor,
-action type, status, provider/tool names, tool-call id, optional links to chat
-threads/messages and recipe runs, input/output/error payloads, metadata, and
-lifecycle timestamps. #40 wires the first producer into this table by writing
-one row per MCP tool execution.
+`audit_log` is the central append-only compliance ledger. MCP tool execution is
+the first producer: after a chat turn persists its assistant message, the route
+writes one audit row per tool call/result with the actor, action type, status,
+provider/tool names, tool-call id, links to the chat thread/message, input,
+output or error payload, metadata, and lifecycle timestamps. Future admin,
+recipe-run, and security events reuse the same table.
 
 ## Agent Wire
 
@@ -167,7 +167,7 @@ Key schema decisions to make before building:
 - **Identity model:** AI Hub `user_id` vs. GitHub username — the join table makes Athena queries work.
 - **Schema evolution:** JSONL (fast start, harder to evolve) vs. Avro/Parquet + registry.
 
-Until those are settled, Agent Wire stays as a stub in `mcp-servers/`; the hook is a no-op write to `audit_log`; the S3 write path is a separate workstream.
+Until those are settled, Agent Wire stays as a stub in `mcp-servers/`; the S3 write path is a separate workstream.
 
 ## Migration path: ai-intake as Recipe 001
 
