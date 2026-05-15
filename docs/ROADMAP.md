@@ -11,7 +11,7 @@
 > building this Friday"; this doc is "what experience are we shaping,
 > and how does the catalog grow to support it".
 >
-> **Status as of May 2026:** J1 is fully shipped. J2 is underway — GitHub MCP is live per-user; M365/Salesforce/Workfront integrations are next. J3–J5 are not yet started.
+> **Status as of May 2026:** J1 is fully shipped. J2 is underway — GitHub MCP is live per-user, bounded turn context is shipped, and the first durable `recipe_runs` ledger is in place for workflow/scheduled execution. M365/Salesforce/Workfront integrations are next. J3–J5 are not yet started.
 
 ## User journeys
 
@@ -25,7 +25,7 @@ of moving users through these. They're the north star.
 A user opens the workspace, types into a thread, gets a streamed
 response. Multi-turn, personal, interactive.
 
-**Shipped:** chat threads with independent histories persisted per user, sidebar history grouped by recency with rename and delete, model selector (Haiku / Sonnet / Opus), GitHub OAuth sign-in / sign-out, admin panel (users + invitations), settings (theme, default model), full mobile responsiveness. Cursor SDK is the default runtime; Bedrock is the fallback. Deployed on AWS App Runner with automatic deploys on push to `main`.
+**Shipped:** chat threads with independent histories persisted per user, rolling summaries and bounded recent-message context, sidebar history grouped by recency with rename and delete, model selector (Haiku / Sonnet / Opus), GitHub OAuth sign-in / sign-out, admin panel (users + invitations), settings (theme, default model), full mobile responsiveness. Cursor SDK is the default runtime; Bedrock is the fallback. Deployed on AWS App Runner with automatic image builds, database migrations, and deploys on push to `main`.
 
 ### J2 — Chat with Tools 🔄 In Progress
 
@@ -35,11 +35,11 @@ and can both **read** and **act**. "What PRs do I have open?"
 returns a real answer; "Send Bob the summary" performs a real action.
 This is what makes "talk to your work" real rather than aspirational.
 
-**What's live:** GitHub MCP is working end-to-end — users connect via OAuth, tokens are stored encrypted in `oauth_tokens`, and the Cursor runtime mounts the GitHub MCP server (`api.githubcopilot.com/mcp/`) per-user with a short-lived Bearer token on each turn.
+**What's live:** GitHub MCP is working end-to-end — users connect via OAuth, tokens are stored encrypted in `oauth_tokens`, and the Cursor runtime mounts the GitHub MCP server (`api.githubcopilot.com/mcp/`) per-user with a short-lived Bearer token on each turn. Long turns tolerate browser disconnects cleanly, so the server can stop the run without turning a closed tab into a chat failure.
 
 **What's next (Weeks 4–8):** M365 Graph (Mail + Calendar), Workfront, Databricks, Salesforce. See the integration tier table below. The auth pattern (HTTP MCP + per-turn Bearer) is proven; the remaining work is per-integration MCP servers and the OAuth plumbing for each provider.
 
-**Requires for full J2:** `preToolUse` attestation gate (Week 7) for any write-side call across all integrations.
+**Requires for full J2:** structured tool-call persistence, visible activity/run status, and the `preToolUse` attestation gate (Week 7) for any write-side call across all integrations.
 
 ### J3 — Scheduled Agent ⏳ Not started
 
@@ -50,8 +50,8 @@ thread." "When a new email matching `from:ceo@*` arrives, draft a
 reply for me to review."
 
 **Requires:** J2 done + a scheduling layer (DB table holding
-schedules, a cron worker that calls `agent.send()` and streams the
-result back into a designated thread) + an event-trigger layer
+schedules, a cron worker that creates a `recipe_runs` row, calls the
+runtime, and streams the result back into a designated thread) + an event-trigger layer
 (inbound webhooks or polling that fires the same hook on state
 changes). Scheduling is the easier half; webhooks are where this
 graduates from "tool" to "autonomous agent". PLAN.md week 5 sequences

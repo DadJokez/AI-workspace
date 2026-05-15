@@ -26,7 +26,6 @@ packages/
   cursor-runtime/ AgentRuntime seam (CursorRuntime + BedrockRuntime + factory)
   agent/          Tool/model registries + Bedrock loop
   mcp-servers/    One file per integration (github live; others stubbed)
-  encryption/     KMS envelope helpers
 .github/
   workflows/      CI (lint + typecheck + build on every PR and main push)
 docs/
@@ -59,8 +58,8 @@ pnpm dev          # http://localhost:3000
 | `CURSOR_API_KEY` | Required for Cursor runtime |
 | `NEXTAUTH_SECRET` | NextAuth JWT signing secret |
 | `GITHUB_AUTH_CLIENT_ID` / `GITHUB_AUTH_CLIENT_SECRET` | GitHub OAuth App for sign-in |
-| `GITHUB_CLIENT_SECRET` | Separate GitHub OAuth App for per-user MCP tokens |
-| `OAUTH_ENCRYPTION_KEY` | AES-256-GCM key for encrypting stored OAuth tokens |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Separate GitHub OAuth App for per-user MCP tokens |
+| `OAUTH_ENCRYPTION_KEY` | 32-byte AES-256-GCM key for encrypting stored OAuth tokens |
 | `DATABASE_URL` | Postgres connection string |
 
 ## Scripts (run from repo root)

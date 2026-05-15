@@ -30,7 +30,7 @@ The AI Hub is that front door. The model and the runtime are
         │   • Auth: GitHub OAuth (POC) → PingOne OIDC (enterprise)│
         │   • chat UI / recipes UI / tools catalog UI             │
         │   • persistence (RDS Postgres): threads, messages,      │
-        │     recipes, runs, attestations, audit log              │
+        │     recipe runs, future recipes/attestations/audit log  │
         │   • token vault (AES-256-GCM encrypted oauth_tokens)   │
         │   • policy layer (.cursor/hooks.json)                   │
         │   • /api/chat → AgentRuntime seam                       │
@@ -39,7 +39,7 @@ The AI Hub is that front door. The model and the runtime are
                                      ▼
         ┌─────────────────────────────────────────────────────────┐
         │  Cursor SDK runtime (default — RUNTIME=cursor)          │
-        │   • durable agents, streaming, tool-use protocol        │
+        │   • streaming, tool-use protocol, MCP client            │
         │   • model selection (Haiku / Sonnet / Opus)             │
         │   • mcpServers[] mounted per agent                      │
         │   • hooks fire preToolUse / postToolUse                 │
@@ -64,8 +64,8 @@ The AI Hub is that front door. The model and the runtime are
 | Layer | Owns | Does not own |
 |---|---|---|
 | **User** | The intent. Picks the recipe or types the chat. | Tokens, model choice, transport. |
-| **Enterprise Shell** (`apps/web`) | Identity, persistence, audit, policy, UI, recipe storage, token vault. The seam (`AgentRuntime`) is the only thing it knows about the runtime. | Tool-use loop, model API protocol, MCP transport, durable agent state. |
-| **Cursor SDK runtime** | Durable agent state (`agentId`), streaming, tool-use protocol, model dispatch, MCP client. | Identity, business policy, persistence beyond the agent's own state. |
+| **Enterprise Shell** (`apps/web`) | Identity, persistence, audit, policy, UI, recipe storage, token vault, rolling thread summaries, and bounded context assembly. The seam (`AgentRuntime`) is the only thing it knows about the runtime. | Tool-use loop, model API protocol, MCP transport. |
+| **Cursor SDK runtime** | Streaming, tool-use protocol, model dispatch, MCP client. Current production flow starts a fresh runtime turn and receives bounded context from the shell. | Identity, business policy, Postgres persistence, long-term conversation memory. |
 | **Bedrock runtime** (fallback) | Same `AgentRuntime` contract via `converseStream`. Stateless turns. | Durable agent state (turns are stateless). |
 | **MCP servers** (our code, one per system) | The auth handshake to a single system, a small surface of tools (`list_*`, `search_*`, `read_*`, `write_*`). HTTP transport for per-user delegated auth; stdio for M2M service-principal cases. | The agent loop, the model, the recipe definition, cross-system orchestration. |
 | **Internal systems** | The actual data and side effects. | Anything about how AI Hub talks to them. |
@@ -88,7 +88,7 @@ In both cases:
 
 This layer is **independent of the identity provider** in Layer 1. It uses the same `oauth_tokens` table regardless of whether the user authenticated via GitHub or PingOne.
 
-- For **delegated** systems (GitHub today; M365 / Salesforce / Workfront in future): the shell holds the user's OAuth tokens in `oauth_tokens` (AES-256-GCM encrypted with a per-row DEK). At turn start it mints a short-lived access token and injects it into the MCP server's request as `Authorization: Bearer <token>`. **HTTP transport** is used so the header is per-request.
+- For **delegated** systems (GitHub today; M365 / Salesforce / Workfront in future): the shell holds the user's OAuth tokens in `oauth_tokens` (AES-256-GCM encrypted with `OAUTH_ENCRYPTION_KEY`). At turn start it mints a short-lived access token and injects it into the MCP server's request as `Authorization: Bearer <token>`. **HTTP transport** is used so the header is per-request.
 - For **service-principal / M2M** systems (Databricks, S3, Redshift): stdio transport with credentials in `mcpServers[].env` at process start.
 - The `preToolUse` hook will check `user_tool_attestations` before the call goes out (wired in Week 7).
 - The `postToolUse` hook will write one `audit_log` row per call (wired in Week 8).
@@ -123,17 +123,30 @@ See [`ROADMAP.md`](./ROADMAP.md) for the use-case-driven view and the skills cat
 Concrete example: user asks **"What PRs do I have open?"** in chat, GitHub MCP mounted.
 
 1. **Browser → App Runner.** SSE POST to `/api/chat` with the thread id and the user's message. Cookie carries the NextAuth JWT.
-2. **Shell** calls `getSessionUser(req)` → user row. Loads `chat_threads` row, including `cursor_agent_id` (may be NULL on first Cursor-runtime turn for a thread).
+2. **Shell** calls `getSessionUser(req)` → user row. Loads the `chat_threads` row, including the rolling `summary`, recent `chat_messages`, and the `cursor_agent_id` retained for visibility/backward compatibility.
 3. **Shell** loads the user's GitHub access token from `oauth_tokens`, mints a short-lived token if needed.
 4. **Shell** calls `getRuntime().runTurn({...})` with the thread, message, model, and `mcp_server_slugs: ['github']`.
-5. **CursorRuntime** finds (or creates) the durable agent for this thread. If created, `cursor_agent_id` is persisted.
+5. **Shell** builds bounded context with `buildTurnContext(...)`: rolling thread summary, the recent messages that still fit the budget, and the user's current message. **CursorRuntime** starts a fresh runtime turn with that context.
 6. **Cursor SDK** mounts the GitHub MCP server (HTTP transport, per-turn `Authorization: Bearer <token>`). Begins the turn.
 7. **Model** plans: `github.list_pull_requests(state='open', author='@me')`.
 8. **MCP call** goes to `api.githubcopilot.com/mcp/` with the user's Bearer token. Returns the PR list.
 9. **Model** assembles the answer. SSE events stream back through the shell to the browser.
-10. **Shell** persists the assistant message to `chat_messages` with `model_id='sonnet-4-6'` and the tool-call JSON.
+10. **Shell** persists the assistant message to `chat_messages` with `model_id='sonnet-4-6'`, updates token metadata when present, and later refreshes the thread summary. Structured tool-call persistence is the next J2 follow-up.
 
 If `RUNTIME=bedrock` is set, steps 5–8 collapse into a stateless `runAgentLoop` call. Steps 1–4 and 9–10 are identical.
+
+## Long-running runs and activity state
+
+`recipe_runs` is the durable execution ledger for recipes, scheduled jobs,
+and workflow-style agent turns. It stores the user, optional future
+`recipe_id`, early `recipe_slug`, trigger type (`manual`, `scheduled`, etc.),
+runtime/model metadata, inputs, outputs, error text, and lifecycle timestamps.
+
+The user-facing activity timeline is a follow-on to this foundation: each
+long turn should show visible progress states such as thinking, calling tools,
+running a workflow step, saving output, reconnecting, and finished/failed. The
+timeline events will hang off this run record or a sibling event table once the
+first scheduled/workflow route lands.
 
 ## Agent Wire
 
@@ -168,7 +181,7 @@ Migration plan:
 
 ## Open questions
 
-1. **Cursor data residency.** Anysphere stores durable agent state. GP data classification may rule out some content categories. Written answer from Anysphere needed before week 8 hardening.
+1. **Cursor data residency.** Anysphere may store runtime-side agent state and tool transcripts. AI Hub keeps bounded conversation context in Postgres, but GP data classification still needs a written answer from Anysphere before week 8 hardening.
 2. **Cursor SDK SLA and surface stability.** No published SLA as of v1.0.12 (May 2026). `RUNTIME=bedrock` is the insurance policy. Policy on version pinning vs. floating TBD.
 3. **Short-lived per-turn vs. session-scoped tokens.** Current pattern: refresh per turn for each delegated MCP server. Alternative: cache session-scoped token in Redis with 50-minute TTL. Cost difference compounds with recipe scheduling. Decide before week 5.
 4. **Catalog cold start.** Seed starter recipes ourselves (faster) or pair-author with 3 design-partner users (better recipes + adoption channel)? Decide end of week 5.
