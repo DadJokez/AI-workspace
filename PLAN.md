@@ -107,11 +107,11 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 | `oauth_tokens` (AES-256-GCM encrypted, per-user) | ✅ |
 | `invitations` | ✅ |
 | `recipe_runs` | ✅ |
+| `audit_log` | ✅ schema only; writes land in #40 |
 | `recipes` | ❌ not yet |
 | `mcp_servers` | ❌ not yet |
 | `tools_catalog` | ❌ not yet |
 | `user_tool_attestations` | ❌ not yet |
-| `audit_log` | ❌ not yet |
 
 ## Roadmap (weekly ships)
 
@@ -184,6 +184,7 @@ Agent Wire (S3/Athena telemetry), Salesforce MCP, ServiceNow MCP, GitHub/ADO cod
 | `oauth_tokens` | `id`, `user_id`, `provider`, `access_token`, `refresh_token`, `expires_at`, `scope`, `created_at`, `updated_at` |
 | `invitations` | `id`, `email`, `token`, `invited_by`, `redeemed_at`, `created_at` |
 | `recipe_runs` | `id`, `user_id`, `recipe_id` (nullable), `recipe_slug`, `thread_id`, `trigger_type`, `status`, `runtime`, `model_id`, `inputs`, `outputs`, `error`, `started_at`, `completed_at`, `created_at`, `updated_at` |
+| `audit_log` | `id`, `actor_user_id`, `action_type`, `status`, `provider`, `tool_name`, `tool_call_id`, `chat_thread_id`, `chat_message_id`, `recipe_run_id`, `input`, `output`, `error`, `metadata`, `started_at`, `completed_at`, `created_at` |
 
 ### Tables to add
 
@@ -193,7 +194,6 @@ Agent Wire (S3/Athena telemetry), Salesforce MCP, ServiceNow MCP, GitHub/ADO cod
 | `recipes` | Week 6 | Saved agent definitions |
 | `tools_catalog` | Week 7 | Admin-curated tool list (maps to MCP server + tool name) |
 | `user_tool_attestations` | Week 7 | Per-user tool access grants |
-| `audit_log` | Week 8 | Compliance trail — one row per MCP tool call |
 
 ## Auth model
 

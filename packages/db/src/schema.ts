@@ -12,8 +12,8 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Core workspace schema. Recipe definitions, tool catalog, attestations, and
- * audit log land in later PRs.
+ * Core workspace schema. Recipe definitions, tool catalog, and attestations
+ * land in later PRs.
  *
  * `users.ping_subject` holds:
  *   - week 1: the HARDCODED_USER_ID env var value (so dev users have stable rows)
@@ -39,6 +39,15 @@ export const recipeRunStatusEnum = pgEnum("recipe_run_status", [
 ]);
 
 export type RecipeRunStatus = (typeof recipeRunStatusEnum.enumValues)[number];
+
+export const auditLogStatusEnum = pgEnum("audit_log_status", [
+  "started",
+  "succeeded",
+  "failed",
+  "denied",
+]);
+
+export type AuditLogStatus = (typeof auditLogStatusEnum.enumValues)[number];
 
 export const users = pgTable(
   "users",
@@ -259,6 +268,62 @@ export const recipeRuns = pgTable(
   }),
 );
 
+/**
+ * Central append-only audit ledger. #40 wires MCP tool execution into this
+ * table; later PRs can use the same shape for admin, auth, and security
+ * events. The foreign keys are nullable so retention/deletion of user-facing
+ * artifacts does not erase the compliance trail.
+ */
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    actionType: text("action_type").notNull(),
+    status: auditLogStatusEnum("status").notNull(),
+    provider: text("provider"),
+    toolName: text("tool_name"),
+    toolCallId: text("tool_call_id"),
+    chatThreadId: uuid("chat_thread_id").references(() => chatThreads.id, {
+      onDelete: "set null",
+    }),
+    chatMessageId: uuid("chat_message_id").references(() => chatMessages.id, {
+      onDelete: "set null",
+    }),
+    recipeRunId: uuid("recipe_run_id").references(() => recipeRuns.id, {
+      onDelete: "set null",
+    }),
+    input: jsonb("input"),
+    output: jsonb("output"),
+    error: text("error"),
+    metadata: jsonb("metadata"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    actorIdx: index("audit_log_actor_idx").on(
+      t.actorUserId,
+      sql`${t.createdAt} DESC`,
+    ),
+    actionIdx: index("audit_log_action_idx").on(
+      t.actionType,
+      sql`${t.createdAt} DESC`,
+    ),
+    statusIdx: index("audit_log_status_idx").on(t.status),
+    providerToolIdx: index("audit_log_provider_tool_idx").on(
+      t.provider,
+      t.toolName,
+    ),
+    chatMessageIdx: index("audit_log_chat_message_idx").on(t.chatMessageId),
+    recipeRunIdx: index("audit_log_recipe_run_idx").on(t.recipeRunId),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type ChatThread = typeof chatThreads.$inferSelect;
@@ -271,3 +336,5 @@ export type Invitation = typeof invitations.$inferSelect;
 export type NewInvitation = typeof invitations.$inferInsert;
 export type RecipeRun = typeof recipeRuns.$inferSelect;
 export type NewRecipeRun = typeof recipeRuns.$inferInsert;
+export type AuditLog = typeof auditLog.$inferSelect;
+export type NewAuditLog = typeof auditLog.$inferInsert;
