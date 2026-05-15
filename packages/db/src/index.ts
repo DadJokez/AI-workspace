@@ -1,4 +1,5 @@
 export * from "./schema";
+export * from "./threads";
 export {
   createDb,
   getDb,

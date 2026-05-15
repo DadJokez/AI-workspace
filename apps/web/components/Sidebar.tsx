@@ -76,6 +76,8 @@ export interface ThreadSummary {
   id: string;
   title: string | null;
   defaultModelId: string;
+  summary: string | null;
+  summaryUpdatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
