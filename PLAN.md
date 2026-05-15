@@ -157,7 +157,7 @@ All code is on `main`. PRs #1–#22 merged. Only `origin/main` on remote.
 - Use the new `tools_catalog` table for admin-curated provider/tool entries.
 - Use the new `user_tool_attestations` table for per-user provider/category/tool grants.
 - Tools page UI: tiles, attestation toggles, category grouping.
-- `.cursor/hooks.json` extended: `preToolUse` checks attestation before allowing the call.
+- Tool gate checks provider attestations before MCP servers are mounted for the turn.
 
 ### Week 8 — Second non-Microsoft integration + admin / audit hardening
 
@@ -218,7 +218,7 @@ The swap is a **NextAuth provider change only** — `users` table, `getSessionUs
 For all MCP integrations (GitHub, M365, Salesforce, Workfront):
 - Same `oauth_tokens` table, different `provider` value per system.
 - HTTP MCP transport with short-lived Bearer tokens injected per-turn.
-- `preToolUse` hook checks `user_tool_attestations` (Week 7).
+- Tool gate checks `user_tool_attestations` before MCP providers are mounted.
 
 ## Repo structure
 
@@ -242,7 +242,7 @@ packages/
       workfront.ts         stub — Week 8
       databricks.ts        stub — Week 8
 .cursor/
-  hooks.json               policy layer stubs — preToolUse attestation still to be wired
+      hooks.json               policy layer stubs — lower-level tool hooks still to be wired
 .github/workflows/         ci.yml (lint + typecheck + build)
 docs/
   ARCHITECTURE.md          Component design, request flow, auth layers

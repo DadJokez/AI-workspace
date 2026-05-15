@@ -90,7 +90,7 @@ This layer is **independent of the identity provider** in Layer 1. It uses the s
 
 - For **delegated** systems (GitHub today; M365 / Salesforce / Workfront in future): the shell holds the user's OAuth tokens in `oauth_tokens` (AES-256-GCM encrypted with `OAUTH_ENCRYPTION_KEY`). At turn start it mints a short-lived access token and injects it into the MCP server's request as `Authorization: Bearer <token>`. **HTTP transport** is used so the header is per-request.
 - For **service-principal / M2M** systems (Databricks, S3, Redshift): stdio transport with credentials in `mcpServers[].env` at process start.
-- The `preToolUse` hook will check `user_tool_attestations` before the call goes out (wired in Week 7).
+- The tool gate checks `user_tool_attestations` before MCP providers are mounted for a turn.
 - The chat route writes one `audit_log` row per MCP tool execution after each assistant message is persisted. Future hooks/admin routes can reuse the same ledger shape.
 
 **Current OAuth apps in use (POC):**
@@ -173,8 +173,11 @@ category, or individual tool. Rows preserve who approved the scope, when it was
 approved, the maximum action level covered (`read`, `write`, or `admin`), and
 optional tool-catalog linkage. Revocation is modeled by stamping `revoked_at`
 and `revoked_by` instead of deleting the approval history. The future
-`preToolUse` gate can query active rows (`revoked_at IS NULL`) by user,
-provider, category, tool name, or catalog id.
+tool gate queries active rows (`revoked_at IS NULL`) by user and provider
+before mounting MCP servers for the turn. Denied providers are written to the
+audit log with `status='denied'`. Category/tool-scoped rows are preserved for
+the future lower-level MCP proxy, where individual tool calls can be filtered
+without exposing an entire provider.
 
 ## Agent Wire
 

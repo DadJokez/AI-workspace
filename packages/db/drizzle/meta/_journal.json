@@ -92,6 +92,13 @@
       "when": 1778862913211,
       "tag": "0012_user_tool_attestations",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1778863930000,
+      "tag": "0013_seed_existing_tool_attestations",
+      "breakpoints": true
     }
   ]
 }

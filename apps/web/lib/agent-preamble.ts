@@ -16,6 +16,8 @@ interface PreambleInput {
   };
   /** Provider keys present in the turn's mcpServers map (e.g. ["github"]). */
   connectedProviders: readonly string[];
+  /** Connected provider keys withheld because this user has not approved them. */
+  blockedProviders?: readonly string[];
 }
 
 /**
@@ -34,6 +36,7 @@ const PROVIDER_DESCRIPTIONS: Record<string, string> = {
 export function buildAgentPreamble({
   user,
   connectedProviders,
+  blockedProviders = [],
 }: PreambleInput): string {
   const lines: string[] = [];
   lines.push(`You are an AI assistant for ${user.displayName}.`);
@@ -49,6 +52,19 @@ export function buildAgentPreamble({
   } else {
     lines.push(
       "No external tools are connected yet. The user can connect tools in the Tools section.",
+    );
+  }
+
+  if (blockedProviders.length > 0) {
+    lines.push("");
+    lines.push(
+      "Connected tools blocked pending approval — do not claim you used these tools:",
+    );
+    for (const p of blockedProviders) {
+      lines.push(`- ${p}`);
+    }
+    lines.push(
+      'If the user asks for one of those tools, say exactly: "Tool access is connected but pending approval for this account."',
     );
   }
 

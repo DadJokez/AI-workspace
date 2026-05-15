@@ -1,6 +1,6 @@
 import { AuthConfigError } from "@ai-workspace/auth";
-import { getDb, oauthTokens } from "@ai-workspace/db";
-import { sql } from "drizzle-orm";
+import { getDb, oauthTokens, userToolAttestations } from "@ai-workspace/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { encryptSecret } from "@/lib/oauth/crypto";
@@ -145,6 +145,31 @@ export async function GET(req: Request) {
         updatedAt: sql`now()`,
       },
     });
+
+  const existingAttestation = await db
+    .select({ id: userToolAttestations.id })
+    .from(userToolAttestations)
+    .where(
+      and(
+        eq(userToolAttestations.userId, sessionUser.id),
+        eq(userToolAttestations.scopeType, "provider"),
+        eq(userToolAttestations.provider, GITHUB_PROVIDER),
+        isNull(userToolAttestations.revokedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!existingAttestation[0]) {
+    await db.insert(userToolAttestations).values({
+      userId: sessionUser.id,
+      scopeType: "provider",
+      provider: GITHUB_PROVIDER,
+      action: "admin",
+      approvedBy: sessionUser.id,
+      reason: "Approved during GitHub tool connection.",
+      metadata: { source: "github_oauth_callback" },
+    });
+  }
 
   return settingsRedirect(req, { connected: "github" });
 }

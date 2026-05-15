@@ -163,11 +163,40 @@ export async function POST(req: Request) {
   // Wrapped in its own try so an MCP plumbing problem can never tank the
   // chat — the user just doesn't get tools this turn.
   let mcpServers;
+  let deniedMcpProviders: string[] = [];
   try {
-    mcpServers = await buildUserMcpServers(db, sessionUser.id);
+    const mcpAccess = await buildUserMcpServers(db, sessionUser.id);
+    mcpServers = mcpAccess.mcpServers;
+    deniedMcpProviders = mcpAccess.deniedProviders;
   } catch (err) {
     console.warn("[mcp] buildUserMcpServers threw:", err);
     mcpServers = undefined;
+    deniedMcpProviders = [];
+  }
+
+  if (deniedMcpProviders.length > 0) {
+    await db.insert(auditLog).values(
+      deniedMcpProviders.map((provider) => ({
+        actorUserId: sessionUser.id,
+        actionType: "mcp_tool_attestation",
+        status: "denied" as const,
+        provider,
+        toolName: "*",
+        chatThreadId: thread.id,
+        input: { provider },
+        error: `Tool provider "${provider}" is connected but has no active user attestation.`,
+        metadata: { modelId, runtime: runtime.name },
+        startedAt: new Date(),
+        completedAt: new Date(),
+      })),
+    );
+    process.stderr.write(
+      `[mcp-attestation-denied] ${JSON.stringify({
+        threadId: thread.id,
+        userId: sessionUser.id,
+        providers: deniedMcpProviders,
+      })}\n`,
+    );
   }
 
   // Steering preamble for fresh agents (first turn only). The runtime
@@ -178,6 +207,7 @@ export async function POST(req: Request) {
       customInstructions,
     },
     connectedProviders: mcpServers ? Object.keys(mcpServers) : [],
+    blockedProviders: deniedMcpProviders,
   });
 
   // TEMP DEBUG: confirm what's reaching the runtime. stderr is usually
@@ -188,6 +218,7 @@ export async function POST(req: Request) {
       threadId: thread.id,
       userId: sessionUser.id,
       mcpServerKeys: mcpServers ? Object.keys(mcpServers) : [],
+      deniedMcpProviders,
       preambleChars: firstTurnPreamble.length,
     })}\n`,
   );
