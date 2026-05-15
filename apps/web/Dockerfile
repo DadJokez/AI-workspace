@@ -23,6 +23,16 @@ COPY --from=deps /repo/apps/web/node_modules ./apps/web/node_modules
 COPY . .
 RUN pnpm --filter @ai-workspace/web build
 
+FROM base AS migrator
+COPY --from=deps /repo/node_modules ./node_modules
+COPY --from=deps /repo/packages/db/node_modules ./packages/db/node_modules
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml* ./
+COPY tsconfig.base.json ./
+COPY packages/db/package.json packages/db/tsconfig.json packages/db/drizzle.config.ts packages/db/
+COPY packages/db/src packages/db/src
+COPY packages/db/drizzle packages/db/drizzle
+CMD ["pnpm", "--filter", "@ai-workspace/db", "db:migrate"]
+
 FROM public.ecr.aws/docker/library/node:${NODE_VERSION} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
