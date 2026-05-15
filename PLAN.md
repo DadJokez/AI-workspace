@@ -26,7 +26,7 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
         ┌──────────────▼──────────┐   ┌───▼─────────────────┐
         │ CursorRuntime (default) │   │ BedrockRuntime      │
         │  - @cursor/sdk          │   │  - converseStream   │
-        │  - durable agents       │   │  - stateless turns  │
+        │  - bounded turn context │   │  - stateless turns  │
         │  - MCP servers          │   │  - fallback only    │
         │  - .cursor/hooks.json   │   │  (RUNTIME=bedrock)  │
         └────┬────────────────────┘   └─────────────────────┘
@@ -61,12 +61,12 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 | **Repo** | GitHub-hosted, monorepo, pnpm workspaces |
 | **Identity (POC)** | GitHub OAuth via NextAuth v4. `users.ping_subject` stores the GitHub numeric user ID. Admins set by `role` column in DB. |
 | **Identity (enterprise)** | PingOne / PingFederate OIDC. The NextAuth provider swaps; the `users` table and `getSessionUser()` helper do not change. `ping_subject` will hold the PingOne subject claim as originally intended. |
-| **Agent runtime (default)** | **Cursor SDK** (`@cursor/sdk`, Anysphere). Durable agents, MCP-native. `RUNTIME=cursor` (now the default). |
+| **Agent runtime (default)** | **Cursor SDK** (`@cursor/sdk`, Anysphere). MCP-native. `RUNTIME=cursor` (now the default). Thread continuity currently comes from AI Hub's bounded context layer: rolling summary + recent messages. |
 | **Agent runtime (fallback)** | **AWS Bedrock** (`converseStream`). Selected via `RUNTIME=bedrock`. |
 | **Models** | Three Claude models — **Haiku 4.5**, **Sonnet 4.6** (default), **Opus 4.7**. Logical IDs map per runtime. |
 | **Integration model** | **MCP servers** for every external system. HTTP for per-user delegated auth. GitHub MCP is live; others stubbed. |
 | **Stack** | Next.js 15 (App Router) + TypeScript + Tailwind + Drizzle |
-| **Hosting** | **AWS App Runner** behind a CodeBuild CI/CD pipeline. Image builds and deploys automatically on push to `main`. |
+| **Hosting** | **AWS App Runner** behind a CodeBuild CI/CD pipeline. Image builds, DB migrations, and deploys run automatically on push to `main`. |
 | **Database** | **RDS Postgres** via Drizzle. Migrations in `packages/db/drizzle/`. |
 | **First working integration** | GitHub MCP — per-user, HTTP transport, tokens stored in `oauth_tokens`, accessed via `api.githubcopilot.com/mcp/` |
 
@@ -94,18 +94,20 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 | Bedrock runtime (fallback via `RUNTIME=bedrock`) | ✅ |
 | GitHub MCP per-user (OAuth flow + token vault + live calls) | ✅ |
 | AWS App Runner + CodeBuild CI/CD | ✅ |
+| Rolling thread summaries + bounded turn context | ✅ |
+| Safe closed-stream handling for long turns | ✅ |
 
 ### What's in the DB schema
 
 | Table | Status |
 |---|---|
 | `users` | ✅ |
-| `chat_threads` (with `cursor_agent_id`) | ✅ |
+| `chat_threads` (with `cursor_agent_id`, `summary`, `summary_updated_at`) | ✅ |
 | `chat_messages` | ✅ |
-| `oauth_tokens` (KMS-encrypted, per-user) | ✅ |
+| `oauth_tokens` (AES-256-GCM encrypted, per-user) | ✅ |
 | `invitations` | ✅ |
+| `recipe_runs` | ✅ |
 | `recipes` | ❌ not yet |
-| `recipe_runs` | ❌ not yet |
 | `mcp_servers` | ❌ not yet |
 | `tools_catalog` | ❌ not yet |
 | `user_tool_attestations` | ❌ not yet |
@@ -114,7 +116,6 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 ### Columns not yet added
 
 - `chat_messages.runtime` (which runtime produced this message)
-- `recipe_runs.runtime`
 
 ## Roadmap (weekly ships)
 
@@ -130,7 +131,7 @@ All code is on `main`. PRs #1–#22 merged. Only `origin/main` on remote.
 
 - Promote `packages/mcp-servers/src/graph.ts` from stub → real. Microsoft Graph API (Mail + Calendar). Share the Entra app registration and the token store pattern already proven with GitHub MCP.
 - Recipe: hardcoded "Morning Briefing" — system prompt + `mcp_servers: [graph-mail, graph-cal]` + Sonnet.
-- `recipe_runs` table.
+- Use the new `recipe_runs` table for the hardcoded "Morning Briefing" execution log.
 - SES integration for outbound mail (briefing delivery).
 
 **Note:** This requires Entra / M365 app registration approval from GP IT. If IT is delayed, swap in another Tier 1 integration (Salesforce OAuth, or Workfront) and come back to Graph.
@@ -182,17 +183,17 @@ Agent Wire (S3/Athena telemetry), Salesforce MCP, ServiceNow MCP, GitHub/ADO cod
 | Table | Key columns |
 |---|---|
 | `users` | `id` (uuid), `ping_subject` (GitHub numeric user ID, unique), `email`, `display_name`, `role` (`user`/`admin`), `created_at` |
-| `chat_threads` | `id`, `user_id`, `title`, `default_model_id`, `cursor_agent_id` (nullable), `created_at`, `updated_at` |
+| `chat_threads` | `id`, `user_id`, `title`, `default_model_id`, `cursor_agent_id` (nullable), `mcp_signature`, `summary`, `summary_updated_at`, `created_at`, `updated_at` |
 | `chat_messages` | `id`, `thread_id`, `role`, `content`, `model_id`, `tokens_in`, `tokens_out`, `tool_calls` (jsonb), `tool_results` (jsonb), `created_at` |
-| `oauth_tokens` | `id`, `user_id`, `provider`, `access_token_ciphertext`, `refresh_token_ciphertext`, `iv`, `auth_tag`, `encrypted_dek`, `expires_at`, `needs_reauth` |
+| `oauth_tokens` | `id`, `user_id`, `provider`, `access_token`, `refresh_token`, `expires_at`, `scope`, `created_at`, `updated_at` |
 | `invitations` | `id`, `email`, `token`, `invited_by`, `redeemed_at`, `created_at` |
+| `recipe_runs` | `id`, `user_id`, `recipe_id` (nullable), `recipe_slug`, `thread_id`, `trigger_type`, `status`, `runtime`, `model_id`, `inputs`, `outputs`, `error`, `started_at`, `completed_at`, `created_at`, `updated_at` |
 
 ### Tables to add
 
 | Table | When | Purpose |
 |---|---|---|
 | `mcp_servers` | Week 4 | Admin-curated MCP server registry |
-| `recipe_runs` | Week 4 | Execution log |
 | `recipes` | Week 6 | Saved agent definitions |
 | `tools_catalog` | Week 7 | Admin-curated tool list (maps to MCP server + tool name) |
 | `user_tool_attestations` | Week 7 | Per-user tool access grants |
@@ -229,15 +230,14 @@ For all MCP integrations (GitHub, M365, Salesforce, Workfront):
 apps/
   web/                     Next.js on App Runner; UI + auth + API routes
 packages/
-  db/                      Drizzle schema + client + migrations (0001–0007)
-  encryption/              AES-256-GCM helpers for oauth_tokens
+  db/                      Drizzle schema + client + migrations (0001–0008)
   agent/                   Tool/model registries + Bedrock loop
   cursor-runtime/          AgentRuntime seam
     src/
       types.ts             AgentRuntime interface, TurnInput, RuntimeName
       bedrock-runtime.ts   Wraps the existing runAgentLoop
       cursor-runtime.ts    @cursor/sdk adapter (fresh-agent-per-turn workaround for SDK MCP-state bug)
-      db-thread-agent-store.ts  threadId → agentId persistence
+      db-thread-agent-store.ts  threadId → agentId visibility/persistence
       factory.ts           getRuntime() — defaults to 'cursor'
   mcp-servers/
     src/
@@ -276,4 +276,4 @@ docs/
 - **Single Graph MCP vs. one server per surface?** Default: separate mail + calendar servers. Revisit if duplicate token-refresh logic becomes a maintenance burden.
 - **Recipes vs. Skills naming.** Same concept; pick the term that lands better with the first business-user reviewer. Decide before week 6 URL and table names are set.
 - **Sunset Bedrock runtime?** Not now. Decide after Cursor has run a real workload for ≥1 month.
-- **Cursor data residency.** Anysphere stores durable agent state. Under what contract? GP data classification may rule out some content categories. Needs a written answer from Anysphere before week 8 hardening.
+- **Cursor data residency.** Anysphere stores runtime-side agent state and tool transcripts. AI Hub keeps its own bounded context in Postgres, but GP data classification still needs a written answer from Anysphere before week 8 hardening.

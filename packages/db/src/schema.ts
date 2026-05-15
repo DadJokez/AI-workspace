@@ -12,7 +12,8 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Week-1 schema. Recipes / oauth_tokens / tools_catalog / audit_log come in later PRs.
+ * Core workspace schema. Recipe definitions, tool catalog, attestations, and
+ * audit log land in later PRs.
  *
  * `users.ping_subject` holds:
  *   - week 1: the HARDCODED_USER_ID env var value (so dev users have stable rows)
@@ -28,6 +29,16 @@ export const messageRoleEnum = pgEnum("message_role", [
 export const userRoleEnum = pgEnum("user_role", ["admin", "user"]);
 
 export type UserRole = (typeof userRoleEnum.enumValues)[number];
+
+export const recipeRunStatusEnum = pgEnum("recipe_run_status", [
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "canceled",
+]);
+
+export type RecipeRunStatus = (typeof recipeRunStatusEnum.enumValues)[number];
 
 export const users = pgTable(
   "users",
@@ -201,6 +212,51 @@ export const invitations = pgTable(
   }),
 );
 
+/**
+ * Durable execution records for recipes, scheduled jobs, and workflow-style
+ * agent runs. The `recipe_id` is intentionally nullable and not yet a foreign
+ * key because recipe definitions ship in a later migration; early runs can be
+ * keyed by `recipe_slug` while the catalog is still hardcoded.
+ */
+export const recipeRuns = pgTable(
+  "recipe_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    recipeId: uuid("recipe_id"),
+    recipeSlug: text("recipe_slug"),
+    threadId: uuid("thread_id").references(() => chatThreads.id, {
+      onDelete: "set null",
+    }),
+    triggerType: text("trigger_type").notNull().default("manual"),
+    status: recipeRunStatusEnum("status").notNull().default("queued"),
+    runtime: text("runtime"),
+    modelId: text("model_id"),
+    inputs: jsonb("inputs"),
+    outputs: jsonb("outputs"),
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userIdx: index("recipe_runs_user_idx").on(
+      t.userId,
+      sql`${t.createdAt} DESC`,
+    ),
+    statusIdx: index("recipe_runs_status_idx").on(t.status),
+    recipeIdx: index("recipe_runs_recipe_idx").on(t.recipeId),
+    threadIdx: index("recipe_runs_thread_idx").on(t.threadId),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type ChatThread = typeof chatThreads.$inferSelect;
@@ -211,3 +267,5 @@ export type OAuthToken = typeof oauthTokens.$inferSelect;
 export type NewOAuthToken = typeof oauthTokens.$inferInsert;
 export type Invitation = typeof invitations.$inferSelect;
 export type NewInvitation = typeof invitations.$inferInsert;
+export type RecipeRun = typeof recipeRuns.$inferSelect;
+export type NewRecipeRun = typeof recipeRuns.$inferInsert;
