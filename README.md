@@ -76,4 +76,4 @@ pnpm dev          # http://localhost:3000
 ## CI / Deploy
 
 GitHub Actions runs lint + typecheck + build on every PR and on push to `main`.
-Merging to `main` triggers a CodeBuild pipeline that builds the Docker image and deploys to App Runner automatically.
+Merging to `main` triggers a CodeBuild pipeline that builds the Docker image and a small migration image. CodeBuild runs Drizzle migrations against the App Runner database before pushing the new app image to ECR; App Runner then auto-deploys the updated `latest` image.

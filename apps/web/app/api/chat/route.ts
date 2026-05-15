@@ -14,6 +14,7 @@ import { buildAgentPreamble } from "@/lib/agent-preamble";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
+import { buildTurnContext } from "@/lib/turn-context";
 
 export const dynamic = "force-dynamic";
 
@@ -148,10 +149,10 @@ export async function POST(req: Request) {
     .where(eq(chatMessages.threadId, thread.id))
     .orderBy(asc(chatMessages.createdAt));
 
-  const agentMessages = history.map((m) => ({
-    role: m.role,
-    content: m.content,
-  }));
+  const agentMessages = buildTurnContext({
+    messages: history,
+    threadSummary: thread.summary,
+  });
 
   const runtime = getRuntime({ db });
 
