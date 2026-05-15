@@ -30,7 +30,7 @@ The AI Hub is that front door. The model and the runtime are
         │   • Auth: GitHub OAuth (POC) → PingOne OIDC (enterprise)│
         │   • chat UI / recipes UI / tools catalog UI             │
         │   • persistence (RDS Postgres): threads, messages,      │
-        │     recipe runs, audit log, future recipes/attestations │
+        │     recipe runs, audit log, tools, future recipes/authz │
         │   • token vault (AES-256-GCM encrypted oauth_tokens)   │
         │   • policy layer (.cursor/hooks.json)                   │
         │   • /api/chat → AgentRuntime seam                       │
@@ -156,6 +156,15 @@ writes one audit row per tool call/result with the actor, action type, status,
 provider/tool names, tool-call id, links to the chat thread/message, input,
 output or error payload, metadata, and lifecycle timestamps. Future admin,
 recipe-run, and security events reuse the same table.
+
+## Tools catalog
+
+`tools_catalog` is the admin-curated, user-visible inventory of MCP tools. It
+maps provider-native tool names such as GitHub tools to display names,
+descriptions, categories, read/write/admin action levels, attestation
+requirements, enabled/disabled state, and optional metadata. It intentionally
+uses `provider + tool_name` before the MCP server registry exists, so live
+GitHub tools can be cataloged now and later linked to richer server records.
 
 ## Agent Wire
 

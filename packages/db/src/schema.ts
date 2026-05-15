@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   index,
+  boolean,
   integer,
   jsonb,
   pgEnum,
@@ -12,8 +13,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Core workspace schema. Recipe definitions, tool catalog, and attestations
- * land in later PRs.
+ * Core workspace schema. Recipe definitions and attestations land in later PRs.
  *
  * `users.ping_subject` holds:
  *   - week 1: the HARDCODED_USER_ID env var value (so dev users have stable rows)
@@ -48,6 +48,15 @@ export const auditLogStatusEnum = pgEnum("audit_log_status", [
 ]);
 
 export type AuditLogStatus = (typeof auditLogStatusEnum.enumValues)[number];
+
+export const toolCatalogActionEnum = pgEnum("tool_catalog_action", [
+  "read",
+  "write",
+  "admin",
+]);
+
+export type ToolCatalogAction =
+  (typeof toolCatalogActionEnum.enumValues)[number];
 
 export const users = pgTable(
   "users",
@@ -269,6 +278,45 @@ export const recipeRuns = pgTable(
 );
 
 /**
+ * Admin-curated catalog of user-visible tools exposed through MCP providers.
+ * This intentionally keys tools by provider + provider-native tool name rather
+ * than a future MCP server FK, so GitHub tools can be cataloged before the MCP
+ * server registry table lands.
+ */
+export const toolsCatalog = pgTable(
+  "tools_catalog",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    provider: text("provider").notNull(),
+    toolName: text("tool_name").notNull(),
+    displayName: text("display_name").notNull(),
+    description: text("description"),
+    category: text("category").notNull().default("general"),
+    action: toolCatalogActionEnum("action").notNull().default("read"),
+    requiresAttestation: boolean("requires_attestation")
+      .notNull()
+      .default(true),
+    enabled: boolean("enabled").notNull().default(true),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    providerToolUnique: uniqueIndex("tools_catalog_provider_tool_idx").on(
+      t.provider,
+      t.toolName,
+    ),
+    providerIdx: index("tools_catalog_provider_idx").on(t.provider),
+    categoryIdx: index("tools_catalog_category_idx").on(t.category),
+    enabledIdx: index("tools_catalog_enabled_idx").on(t.enabled),
+  }),
+);
+
+/**
  * Central append-only audit ledger. MCP tool executions write here from the
  * chat route; later PRs can use the same shape for admin, auth, and security
  * events. The foreign keys are nullable so retention/deletion of user-facing
@@ -338,3 +386,5 @@ export type RecipeRun = typeof recipeRuns.$inferSelect;
 export type NewRecipeRun = typeof recipeRuns.$inferInsert;
 export type AuditLog = typeof auditLog.$inferSelect;
 export type NewAuditLog = typeof auditLog.$inferInsert;
+export type ToolCatalogEntry = typeof toolsCatalog.$inferSelect;
+export type NewToolCatalogEntry = typeof toolsCatalog.$inferInsert;
