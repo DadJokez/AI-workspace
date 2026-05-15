@@ -162,9 +162,19 @@ recipe-run, and security events reuse the same table.
 `tools_catalog` is the admin-curated, user-visible inventory of MCP tools. It
 maps provider-native tool names such as GitHub tools to display names,
 descriptions, categories, read/write/admin action levels, attestation
-requirements, enabled/disabled state, and optional metadata. It intentionally
-uses `provider + tool_name` before the MCP server registry exists, so live
-GitHub tools can be cataloged now and later linked to richer server records.
+requirements, enabled/disabled state, and optional metadata. It keeps
+`provider + tool_name` as the stable lookup key and can now link each row to
+`mcp_servers` through `mcp_server_id`.
+
+## MCP server registry
+
+`mcp_servers` is the admin-curated registry of integrations AI Hub can mount.
+Each row has a stable slug, display name, description, transport (`http`,
+`sse`, or `stdio`), status (`active`, `disabled`, or `planned`), endpoint URL,
+auth mode, timestamps, and free-form metadata. The initial migration seeds the
+GitHub MCP server at `https://api.githubcopilot.com/mcp/` as an active HTTP
+delegated-OAuth integration. Future providers can be added through registry
+data first, then wired into OAuth/runtime behavior as they graduate.
 
 ## Tool attestations
 
