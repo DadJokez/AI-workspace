@@ -2,6 +2,7 @@ import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import { AuthConfigError } from "@ai-workspace/auth";
 import { getRuntime } from "@ai-workspace/cursor-runtime";
 import {
+  auditLog,
   type ChatThread,
   chatMessages,
   chatThreads,
@@ -11,6 +12,7 @@ import {
 import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
+import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
@@ -317,6 +319,20 @@ export async function POST(req: Request) {
             toolResults: toolEvents.results(),
           })
           .returning();
+        const assistantMessageId = persisted[0]!.id;
+        const toolAuditRows = buildToolAuditRows({
+          actorUserId: sessionUser.id,
+          chatThreadId: thread.id,
+          chatMessageId: assistantMessageId,
+          modelId,
+          runtime: runtime.name,
+          calls: toolEvents.calls(),
+          results: toolEvents.results(),
+        });
+
+        if (toolAuditRows.length > 0) {
+          await db.insert(auditLog).values(toolAuditRows);
+        }
 
         await db
           .update(chatThreads)
@@ -325,7 +341,7 @@ export async function POST(req: Request) {
 
         send({
           type: "persisted",
-          assistantMessageId: persisted[0]!.id,
+          assistantMessageId,
           threadId: thread.id,
         });
       } catch (err) {
