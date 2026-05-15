@@ -166,6 +166,16 @@ requirements, enabled/disabled state, and optional metadata. It intentionally
 uses `provider + tool_name` before the MCP server registry exists, so live
 GitHub tools can be cataloged now and later linked to richer server records.
 
+## Tool attestations
+
+`user_tool_attestations` records each user's explicit approval for a provider,
+category, or individual tool. Rows preserve who approved the scope, when it was
+approved, the maximum action level covered (`read`, `write`, or `admin`), and
+optional tool-catalog linkage. Revocation is modeled by stamping `revoked_at`
+and `revoked_by` instead of deleting the approval history. The future
+`preToolUse` gate can query active rows (`revoked_at IS NULL`) by user,
+provider, category, tool name, or catalog id.
+
 ## Agent Wire
 
 **Agent Wire** is planned tooling to ingest Cursor + GitHub activity into S3 + Athena so we can ask questions about how engineers actually use AI. It is both a write path (`.cursor/hooks.json` is the producer) and a read path (an `agent-wire` MCP server). The S3/Athena schema must be reviewed before any of this gets wired up beyond the current stub.

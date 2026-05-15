@@ -13,7 +13,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Core workspace schema. Recipe definitions and attestations land in later PRs.
+ * Core workspace schema. Recipe definitions land in later PRs.
  *
  * `users.ping_subject` holds:
  *   - week 1: the HARDCODED_USER_ID env var value (so dev users have stable rows)
@@ -57,6 +57,14 @@ export const toolCatalogActionEnum = pgEnum("tool_catalog_action", [
 
 export type ToolCatalogAction =
   (typeof toolCatalogActionEnum.enumValues)[number];
+
+export const userToolAttestationScopeEnum = pgEnum(
+  "user_tool_attestation_scope",
+  ["provider", "category", "tool"],
+);
+
+export type UserToolAttestationScope =
+  (typeof userToolAttestationScopeEnum.enumValues)[number];
 
 export const users = pgTable(
   "users",
@@ -317,6 +325,70 @@ export const toolsCatalog = pgTable(
 );
 
 /**
+ * User approvals for provider, category, or individual-tool access. Runtime
+ * enforcement lands later, but this table gives the policy layer an explicit
+ * source of truth and preserves approval/revocation history.
+ */
+export const userToolAttestations = pgTable(
+  "user_tool_attestations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    scopeType: userToolAttestationScopeEnum("scope_type").notNull(),
+    provider: text("provider").notNull(),
+    category: text("category"),
+    toolCatalogId: uuid("tool_catalog_id").references(() => toolsCatalog.id, {
+      onDelete: "set null",
+    }),
+    toolName: text("tool_name"),
+    action: toolCatalogActionEnum("action").notNull().default("read"),
+    approvedAt: timestamp("approved_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    approvedBy: uuid("approved_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: uuid("revoked_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    reason: text("reason"),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userActiveIdx: index("user_tool_attestations_user_active_idx").on(
+      t.userId,
+      t.revokedAt,
+    ),
+    userProviderIdx: index("user_tool_attestations_user_provider_idx").on(
+      t.userId,
+      t.provider,
+    ),
+    userCategoryIdx: index("user_tool_attestations_user_category_idx").on(
+      t.userId,
+      t.provider,
+      t.category,
+    ),
+    userToolIdx: index("user_tool_attestations_user_tool_idx").on(
+      t.userId,
+      t.provider,
+      t.toolName,
+    ),
+    toolCatalogIdx: index("user_tool_attestations_tool_catalog_idx").on(
+      t.toolCatalogId,
+    ),
+  }),
+);
+
+/**
  * Central append-only audit ledger. MCP tool executions write here from the
  * chat route; later PRs can use the same shape for admin, auth, and security
  * events. The foreign keys are nullable so retention/deletion of user-facing
@@ -388,3 +460,5 @@ export type AuditLog = typeof auditLog.$inferSelect;
 export type NewAuditLog = typeof auditLog.$inferInsert;
 export type ToolCatalogEntry = typeof toolsCatalog.$inferSelect;
 export type NewToolCatalogEntry = typeof toolsCatalog.$inferInsert;
+export type UserToolAttestation = typeof userToolAttestations.$inferSelect;
+export type NewUserToolAttestation = typeof userToolAttestations.$inferInsert;
