@@ -60,6 +60,8 @@ export async function GET(
       role: chatMessages.role,
       content: chatMessages.content,
       modelId: chatMessages.modelId,
+      toolCalls: chatMessages.toolCalls,
+      toolResults: chatMessages.toolResults,
       createdAt: chatMessages.createdAt,
     })
     .from(chatMessages)
