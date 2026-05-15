@@ -69,4 +69,73 @@ describe("buildTurnContext", () => {
     expect(context).toHaveLength(2);
     expect(context[1]).toEqual({ role: "user", content: "current" });
   });
+
+  it("drops oldest recent messages when the context budget is reached", () => {
+    const events: unknown[] = [];
+    const context = buildTurnContext({
+      messages: [
+        msg("user", "old message that will not fit"),
+        msg("assistant", "newer"),
+        msg("user", "current"),
+      ],
+      recentMessageLimit: 2,
+      maxContextChars: 14,
+      onGuardrailEvent: (event) => events.push(event),
+    });
+
+    expect(context).toEqual([
+      { role: "assistant", content: "newer" },
+      { role: "user", content: "current" },
+    ]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "history_dropped",
+        droppedMessages: 1,
+      }),
+    );
+  });
+
+  it("truncates oversized prior messages deterministically", () => {
+    const events: unknown[] = [];
+    const oversized = "abcdefghijklmnopqrstuvwxyz".repeat(5);
+    const context = buildTurnContext({
+      messages: [
+        msg("assistant", oversized),
+        msg("user", "current"),
+      ],
+      recentMessageLimit: 1,
+      maxMessageChars: 80,
+      onGuardrailEvent: (event) => events.push(event),
+    });
+
+    expect(context[0]?.content).toContain(
+      "[Message truncated for prompt budget]",
+    );
+    expect(context[0]?.content.startsWith("a")).toBe(true);
+    expect(context[0]?.content.endsWith("z")).toBe(true);
+    expect(context.at(-1)).toEqual({ role: "user", content: "current" });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "message_truncated",
+        originalChars: oversized.length,
+      }),
+    );
+  });
+
+  it("preserves the current message even when it exceeds the total budget", () => {
+    const events: unknown[] = [];
+    const current = "current message is intentionally longer than budget";
+    const context = buildTurnContext({
+      messages: [msg("assistant", "prior"), msg("user", current)],
+      maxContextChars: 10,
+      onGuardrailEvent: (event) => events.push(event),
+    });
+
+    expect(context).toEqual([{ role: "user", content: current }]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "context_budget_exceeded",
+      }),
+    );
+  });
 });

@@ -155,6 +155,18 @@ export async function POST(req: Request) {
   const agentMessages = buildTurnContext({
     messages: history,
     threadSummary: thread.summary,
+    recentMessageLimit: numberFromEnv("CHAT_RECENT_MESSAGE_LIMIT"),
+    maxContextChars: numberFromEnv("CHAT_CONTEXT_CHAR_LIMIT"),
+    maxMessageChars: numberFromEnv("CHAT_CONTEXT_MESSAGE_CHAR_LIMIT"),
+    onGuardrailEvent: (event) => {
+      process.stderr.write(
+        `[turn-context-guardrail] ${JSON.stringify({
+          threadId: thread.id,
+          userId: sessionUser.id,
+          ...event,
+        })}\n`,
+      );
+    },
   });
 
   const runtime = getRuntime({ db });
@@ -414,4 +426,11 @@ function deriveTitle(firstMessage: string): string {
   const trimmed = firstMessage.replace(/\s+/g, " ").trim();
   if (trimmed.length <= TITLE_MAX) return trimmed;
   return trimmed.slice(0, TITLE_MAX - 1) + "…";
+}
+
+function numberFromEnv(name: string): number | undefined {
+  const raw = process.env[name];
+  if (!raw) return undefined;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
