@@ -30,7 +30,7 @@ The AI Hub is that front door. The model and the runtime are
         │   • Auth: GitHub OAuth (POC) → PingOne OIDC (enterprise)│
         │   • chat UI / recipes UI / tools catalog UI             │
         │   • persistence (RDS Postgres): threads, messages,      │
-        │     recipe runs, future recipes/attestations/audit log  │
+        │     recipe runs, audit log, future recipes/attestations │
         │   • token vault (AES-256-GCM encrypted oauth_tokens)   │
         │   • policy layer (.cursor/hooks.json)                   │
         │   • /api/chat → AgentRuntime seam                       │
@@ -147,6 +147,15 @@ long turn should show visible progress states such as thinking, calling tools,
 running a workflow step, saving output, reconnecting, and finished/failed. The
 timeline events will hang off this run record or a sibling event table once the
 first scheduled/workflow route lands.
+
+## Audit ledger
+
+`audit_log` is the central append-only compliance ledger. The table is ready for
+MCP tool execution events and future admin/security events: it stores the actor,
+action type, status, provider/tool names, tool-call id, optional links to chat
+threads/messages and recipe runs, input/output/error payloads, metadata, and
+lifecycle timestamps. #40 wires the first producer into this table by writing
+one row per MCP tool execution.
 
 ## Agent Wire
 

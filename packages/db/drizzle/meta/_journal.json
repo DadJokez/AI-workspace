@@ -71,6 +71,13 @@
       "when": 1778849602307,
       "tag": "0009_chat_message_runtime",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1778850833269,
+      "tag": "0010_audit_log",
+      "breakpoints": true
     }
   ]
 }
