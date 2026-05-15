@@ -113,10 +113,6 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 | `user_tool_attestations` | ❌ not yet |
 | `audit_log` | ❌ not yet |
 
-### Columns not yet added
-
-- `chat_messages.runtime` (which runtime produced this message)
-
 ## Roadmap (weekly ships)
 
 ### ✅ Weeks 1–3 — Foundation
@@ -184,7 +180,7 @@ Agent Wire (S3/Athena telemetry), Salesforce MCP, ServiceNow MCP, GitHub/ADO cod
 |---|---|
 | `users` | `id` (uuid), `ping_subject` (GitHub numeric user ID, unique), `email`, `display_name`, `role` (`user`/`admin`), `created_at` |
 | `chat_threads` | `id`, `user_id`, `title`, `default_model_id`, `cursor_agent_id` (nullable), `mcp_signature`, `summary`, `summary_updated_at`, `created_at`, `updated_at` |
-| `chat_messages` | `id`, `thread_id`, `role`, `content`, `model_id`, `tokens_in`, `tokens_out`, `tool_calls` (jsonb), `tool_results` (jsonb), `created_at` |
+| `chat_messages` | `id`, `thread_id`, `role`, `content`, `model_id`, `runtime`, `tokens_in`, `tokens_out`, `tool_calls` (jsonb), `tool_results` (jsonb), `created_at` |
 | `oauth_tokens` | `id`, `user_id`, `provider`, `access_token`, `refresh_token`, `expires_at`, `scope`, `created_at`, `updated_at` |
 | `invitations` | `id`, `email`, `token`, `invited_by`, `redeemed_at`, `created_at` |
 | `recipe_runs` | `id`, `user_id`, `recipe_id` (nullable), `recipe_slug`, `thread_id`, `trigger_type`, `status`, `runtime`, `model_id`, `inputs`, `outputs`, `error`, `started_at`, `completed_at`, `created_at`, `updated_at` |

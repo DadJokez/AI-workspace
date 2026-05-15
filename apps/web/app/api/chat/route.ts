@@ -310,6 +310,7 @@ export async function POST(req: Request) {
             role: "assistant",
             content: assistantText,
             modelId,
+            runtime: runtime.name,
             tokensIn,
             tokensOut,
             toolCalls: toolEvents.calls(),

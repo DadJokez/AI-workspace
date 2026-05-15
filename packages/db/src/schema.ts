@@ -129,6 +129,8 @@ export const chatMessages = pgTable(
     content: text("content").notNull(),
     /** ModelId from packages/agent/models for assistant messages; null otherwise. */
     modelId: text("model_id"),
+    /** Runtime that produced assistant messages (`cursor` or `bedrock`). */
+    runtime: text("runtime"),
     tokensIn: integer("tokens_in"),
     tokensOut: integer("tokens_out"),
     /** Tool calls emitted by the assistant on this turn. */
