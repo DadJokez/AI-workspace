@@ -109,9 +109,9 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 | `recipe_runs` | ✅ |
 | `audit_log` | ✅ schema + MCP tool execution writes |
 | `tools_catalog` | ✅ |
+| `user_tool_attestations` | ✅ |
 | `recipes` | ❌ not yet |
 | `mcp_servers` | ❌ not yet |
-| `user_tool_attestations` | ❌ not yet |
 
 ## Roadmap (weekly ships)
 
@@ -155,7 +155,7 @@ All code is on `main`. PRs #1–#22 merged. Only `origin/main` on remote.
 **Ship:** Users see what's available, toggle what they have access to; recipes and chat respect toggles.
 
 - Use the new `tools_catalog` table for admin-curated provider/tool entries.
-- `user_tool_attestations` table.
+- Use the new `user_tool_attestations` table for per-user provider/category/tool grants.
 - Tools page UI: tiles, attestation toggles, category grouping.
 - `.cursor/hooks.json` extended: `preToolUse` checks attestation before allowing the call.
 
@@ -186,6 +186,7 @@ Agent Wire (S3/Athena telemetry), Salesforce MCP, ServiceNow MCP, GitHub/ADO cod
 | `recipe_runs` | `id`, `user_id`, `recipe_id` (nullable), `recipe_slug`, `thread_id`, `trigger_type`, `status`, `runtime`, `model_id`, `inputs`, `outputs`, `error`, `started_at`, `completed_at`, `created_at`, `updated_at` |
 | `audit_log` | `id`, `actor_user_id`, `action_type`, `status`, `provider`, `tool_name`, `tool_call_id`, `chat_thread_id`, `chat_message_id`, `recipe_run_id`, `input`, `output`, `error`, `metadata`, `started_at`, `completed_at`, `created_at` |
 | `tools_catalog` | `id`, `provider`, `tool_name`, `display_name`, `description`, `category`, `action`, `requires_attestation`, `enabled`, `metadata`, `created_at`, `updated_at` |
+| `user_tool_attestations` | `id`, `user_id`, `scope_type`, `provider`, `category`, `tool_catalog_id`, `tool_name`, `action`, `approved_at`, `approved_by`, `revoked_at`, `revoked_by`, `reason`, `metadata`, `created_at`, `updated_at` |
 
 ### Tables to add
 
@@ -193,7 +194,6 @@ Agent Wire (S3/Athena telemetry), Salesforce MCP, ServiceNow MCP, GitHub/ADO cod
 |---|---|---|
 | `mcp_servers` | Week 4 | Admin-curated MCP server registry |
 | `recipes` | Week 6 | Saved agent definitions |
-| `user_tool_attestations` | Week 7 | Per-user tool access grants |
 
 ## Auth model
 
