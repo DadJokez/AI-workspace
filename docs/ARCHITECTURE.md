@@ -201,6 +201,15 @@ summary is dropped/truncated, `/api/chat` emits a structured
 `turn-context-guardrail` log with the thread, user, limit values, and retained
 or dropped character counts.
 
+## Developer Briefing workflow
+
+`POST /api/workflows/developer-briefing/run` is the first production-shaped
+manual workflow route. It creates a `recipe_runs` row, mounts the user's
+attested GitHub MCP server, runs a fixed Developer Briefing prompt through the
+same `AgentRuntime` seam as chat, stores structured output/failure state on
+the run, and writes tool execution audit rows linked by `recipe_run_id`. This
+proves the recipe execution path before the full recipes table and UI exist.
+
 ## Agent Wire
 
 **Agent Wire** is planned tooling to ingest Cursor + GitHub activity into S3 + Athena so we can ask questions about how engineers actually use AI. It is both a write path (`.cursor/hooks.json` is the producer) and a read path (an `agent-wire` MCP server). The S3/Athena schema must be reviewed before any of this gets wired up beyond the current stub.

@@ -96,6 +96,7 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 | AWS App Runner + CodeBuild CI/CD | ✅ |
 | Rolling thread summaries + prompt/context guardrails | ✅ |
 | Safe closed-stream handling for long turns | ✅ |
+| Developer Briefing execution route (manual GitHub workflow) | ✅ |
 
 ### What's in the DB schema
 
@@ -146,7 +147,7 @@ All code is on `main`. PRs #1–#22 merged. Only `origin/main` on remote.
 
 - `recipes` table + CRUD UI at `/recipes`.
 - Each recipe row materializes into a Cursor agent definition at runtime.
-- Morning Briefing becomes a row. Users clone and edit.
+- Developer Briefing and Morning Briefing become rows. Users clone and edit.
 - 2–3 starter recipes (Morning Briefing, Weekly Status stub, etc.).
 - Port `ai-intake` as Recipe 001 — proving the catalog can absorb an existing production use case.
 
@@ -252,6 +253,7 @@ docs/
 ## Critical files
 
 - `apps/web/app/api/chat/route.ts` — SSE relay into `getRuntime().runTurn()`. Runtime-agnostic.
+- `apps/web/app/api/workflows/developer-briefing/run/route.ts` — Manual GitHub MCP workflow execution, persisted in `recipe_runs`.
 - `apps/web/middleware.ts` — Unauthenticated → `/login`; non-admin on `/admin` → `/chat`.
 - `apps/web/lib/auth/getSessionUser.ts` — Canonical user lookup: `WHERE id = session.user.id`.
 - `packages/cursor-runtime/src/factory.ts` — `getRuntime()` defaults to `'cursor'`.

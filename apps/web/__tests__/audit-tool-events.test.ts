@@ -46,6 +46,7 @@ describe("buildToolAuditRows", () => {
         toolCallId: "call_1",
         chatThreadId: "thread_1",
         chatMessageId: "message_1",
+        recipeRunId: null,
         input: { state: "open" },
         output: [{ number: 53 }],
         error: null,
@@ -113,6 +114,33 @@ describe("buildToolAuditRows", () => {
       toolCallId: "call_3",
       input: null,
       error: "late failure",
+    });
+  });
+
+  it("can link tool execution rows to a recipe run without chat rows", () => {
+    const rows = buildToolAuditRows({
+      actorUserId: "user_1",
+      recipeRunId: "run_1",
+      modelId: "sonnet-4-6",
+      runtime: "cursor",
+      calls: [
+        {
+          id: "call_4",
+          name: "github.search_issues",
+          provider: "github",
+          toolName: "search_issues",
+          input: { q: "review-requested:@me" },
+          startedAt: "2026-05-15T12:00:04.000Z",
+        },
+      ],
+      results: [],
+    });
+
+    expect(rows[0]).toMatchObject({
+      recipeRunId: "run_1",
+      chatThreadId: null,
+      chatMessageId: null,
+      status: "started",
     });
   });
 });

@@ -35,7 +35,7 @@ and can both **read** and **act**. "What PRs do I have open?"
 returns a real answer; "Send Bob the summary" performs a real action.
 This is what makes "talk to your work" real rather than aspirational.
 
-**What's live:** GitHub MCP is working end-to-end — users connect via OAuth, tokens are stored encrypted in `oauth_tokens`, the GitHub server is represented in `mcp_servers`, and the Cursor runtime mounts it per-user with a short-lived Bearer token on each turn. Tool calls/results persist on chat messages, MCP tool executions write audit rows, and long turns tolerate browser disconnects cleanly.
+**What's live:** GitHub MCP is working end-to-end — users connect via OAuth, tokens are stored encrypted in `oauth_tokens`, the GitHub server is represented in `mcp_servers`, and the Cursor runtime mounts it per-user with a short-lived Bearer token on each turn. Tool calls/results persist on chat messages, MCP tool executions write audit rows, long turns tolerate browser disconnects cleanly, and the manual Developer Briefing route persists GitHub workflow runs in `recipe_runs`.
 
 **What's next (Weeks 4–8):** M365 Graph (Mail + Calendar), Workfront, Databricks, Salesforce. See the integration tier table below. The auth pattern (HTTP MCP + per-turn Bearer) is proven; the remaining work is per-integration MCP servers and the OAuth plumbing for each provider.
 
