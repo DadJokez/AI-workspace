@@ -269,8 +269,8 @@ export const recipeRuns = pgTable(
 );
 
 /**
- * Central append-only audit ledger. #40 wires MCP tool execution into this
- * table; later PRs can use the same shape for admin, auth, and security
+ * Central append-only audit ledger. MCP tool executions write here from the
+ * chat route; later PRs can use the same shape for admin, auth, and security
  * events. The foreign keys are nullable so retention/deletion of user-facing
  * artifacts does not erase the compliance trail.
  */

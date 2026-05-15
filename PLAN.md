@@ -40,7 +40,7 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 └─────┘  └─────┘  └───────┘  └──────┘  └─────────┘
 ```
 
-- **Cursor SDK owns the runtime.** Durable agent state, streaming, tool-use protocol, model selection. We don't reimplement any of it.
+- **Cursor SDK owns the runtime mechanics.** Streaming, tool-use protocol, model dispatch, and MCP client behavior live behind the runtime seam. AI Hub owns durable conversation context in Postgres.
 - **Our app owns the enterprise shell.** Auth, persistence (chat history, audit log), the policy layer (`.cursor/hooks.json`), and the MCP servers exposing internal systems.
 - **MCP is the integration pattern.** Every external system gets an MCP server. Standard transport, standard tool shape, standard auth seam. No bespoke tool wrappers per integration.
 - **Bedrock stays.** Fallback runtime behind `RUNTIME=bedrock`. Both implement the same `AgentRuntime` interface; the chat route never knows which ran.
@@ -226,7 +226,7 @@ For all MCP integrations (GitHub, M365, Salesforce, Workfront):
 apps/
   web/                     Next.js on App Runner; UI + auth + API routes
 packages/
-  db/                      Drizzle schema + client + migrations (0001–0008)
+  db/                      Drizzle schema + client + migrations (0000–0010)
   agent/                   Tool/model registries + Bedrock loop
   cursor-runtime/          AgentRuntime seam
     src/
@@ -242,7 +242,7 @@ packages/
       workfront.ts         stub — Week 8
       databricks.ts        stub — Week 8
 .cursor/
-  hooks.json               policy layer stubs (preToolUse, postToolUse) — to be wired Week 7–8
+  hooks.json               policy layer stubs — preToolUse attestation still to be wired
 .github/workflows/         ci.yml (lint + typecheck + build)
 docs/
   ARCHITECTURE.md          Component design, request flow, auth layers

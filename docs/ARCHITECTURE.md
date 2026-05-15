@@ -42,7 +42,7 @@ The AI Hub is that front door. The model and the runtime are
         │   • streaming, tool-use protocol, MCP client            │
         │   • model selection (Haiku / Sonnet / Opus)             │
         │   • mcpServers[] mounted per agent                      │
-        │   • hooks fire preToolUse / postToolUse                 │
+        │   • hooks available for future policy enforcement       │
         │   ── fallback: BedrockRuntime (RUNTIME=bedrock) ────── │
         └────────────────────────────┬────────────────────────────┘
                                      │  MCP (HTTP+Bearer per-user | stdio M2M)
@@ -131,7 +131,7 @@ Concrete example: user asks **"What PRs do I have open?"** in chat, GitHub MCP m
 7. **Model** plans: `github.list_pull_requests(state='open', author='@me')`.
 8. **MCP call** goes to `api.githubcopilot.com/mcp/` with the user's Bearer token. Returns the PR list.
 9. **Model** assembles the answer. SSE events stream back through the shell to the browser.
-10. **Shell** persists the assistant message to `chat_messages` with `model_id='sonnet-4-6'`, updates token metadata when present, and later refreshes the thread summary. Structured tool-call persistence is the next J2 follow-up.
+10. **Shell** persists the assistant message to `chat_messages` with `model_id='sonnet-4-6'`, `runtime='cursor'`, token metadata, structured tool calls/results, and one `audit_log` row per MCP tool execution. It then refreshes the thread summary.
 
 If `RUNTIME=bedrock` is set, steps 5–8 collapse into a stateless `runAgentLoop` call. Steps 1–4 and 9–10 are identical.
 
