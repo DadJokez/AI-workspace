@@ -108,10 +108,12 @@ clear user-experience win.
 | Safe closed-stream handling for long turns | ✅ |
 | Agent activity timeline for chat tool calls/results | ✅ |
 | Developer Briefing execution route (manual GitHub workflow) | ✅ |
+| DB/runtime health checks | ✅ pilot |
+| Request/body limits and process-local rate limits | ✅ pilot |
+| Enterprise readiness decision record | ✅ |
 | Rolling summary generation | ❌ pending |
-| Rate limits / quotas / max-output guardrails | ❌ pending |
-| Dependency audit cleanup | ❌ pending |
-| Health check with DB/runtime dependency checks | ❌ pending |
+| Shared quota store and daily token budgets | ❌ pending |
+| Dependency audit full clean state | ❌ upstream/transitive pending |
 
 ### What's in the DB schema
 
@@ -283,9 +285,9 @@ docs/
 1. **Cursor SDK surface stability** — v1 published May 2026; surface still moving. `BedrockRuntime` is the insurance policy. Mitigate by pinning a minor version and accepting the security-patch lag.
 2. **Per-user delegated auth at MCP scale** — the pattern (HTTP transport + per-turn Bearer tokens) is proven with GitHub. Will it hold for Graph's token-refresh frequency when scheduling kicks in? Decide before week 5.
 3. **M365 Entra app registration timing** — IT critical path for Graph MCP. Have a ready fallback (Salesforce or Workfront OAuth) if approval slips past week 4.
-4. **Cost runaway** — context-size guardrails are in place for chat turns. Still add request/body limits, `max_tokens`, tool-use iteration caps, per-user daily token quotas, and CloudWatch alarms at $50 / $200 / $500.
-5. **Audit-log discipline** — MCP tool calls now land in `audit_log`, but retention/redaction rules are not defined and recipe-run/admin-action producers still need to be wired before week 8 hardening.
-6. **Dependency audit debt** — `pnpm audit --prod` currently reports production vulnerabilities across transitive packages, including Next.js advisories fixed in `>=15.5.16`, `tar` via `sqlite3`, `undici` via `@cursor/sdk`, and AWS SDK XML parsing. Track and clean up before IT review.
+4. **Cost runaway** — context-size guardrails and process-local request limits are in place for chat turns. Still add `max_tokens`, tool-use iteration caps, shared per-user daily token quotas, and CloudWatch alarms at $50 / $200 / $500.
+5. **Audit-log discipline** — MCP tool calls now land in `audit_log`, and the first redaction/retention policy is documented. Recipe-run/admin-action producers and a shared log-redaction helper still need to be wired before week 8 hardening.
+6. **Dependency audit debt** — direct patches reduced the audit surface, but `pnpm audit --prod` still reports transitive findings through `sqlite3`/`tar`, Cursor SDK/`undici`, and syntax highlighting. Track and recheck before IT review.
 7. **Hosting migration** — App Runner is fine for the existing POC account, but AWS has closed it to new customers and frozen new features. Enterprise target is ECS/Fargate, likely via ECS Express Mode first. Decide the RDS Proxy/Aurora posture and write the IaC before enterprise rollout.
 8. **Burnout** — 10–15 focused hrs/week, blocks not scraps. If shipping slips two weeks in a row, reassess scope.
 

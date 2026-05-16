@@ -305,6 +305,11 @@ decisions and tests for:
 - migration from App Runner to ECS/Fargate, starting with ECS Express Mode
   unless IT requires fully hand-authored ECS infrastructure from day one.
 
+The current readiness decision record lives in
+[`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md). It documents the audit
+triage, health check shape, process-local rate limits, retention/redaction
+policy, Secrets Manager/KMS/IaC target, and 1k/10k/100k load-test model.
+
 ## Developer Briefing workflow
 
 `POST /api/workflows/developer-briefing/run` is the first production-shaped

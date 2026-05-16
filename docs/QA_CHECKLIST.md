@@ -105,13 +105,16 @@ unmarked items need a human eye for visual / device-specific verification.
 
 ## API / Health
 
-- [ ] **`[AUTOMATE]` `/api/health` returns 200.** `curl https://vacwacwrxu.us-east-1.awsapprunner.com/api/health` → expect `{"status":"ok","service":"ai-workspace-web","timestamp":"..."}`.
-- [ ] **DB/runtime health checks are not shipped yet.** Track this as enterprise-readiness work before IT review.
+- [ ] **`[AUTOMATE]` `/api/health` returns dependency checks.** `curl https://vacwacwrxu.us-east-1.awsapprunner.com/api/health` → expect `status`, `service`, `timestamp`, and `checks.db` / `checks.runtime`.
+- [ ] **`[AUTOMATE]` `/api/health` reports DB connectivity.** Response includes `checks.db.ok = true` and numeric `checks.db.latencyMs`.
+- [ ] **`[AUTOMATE]` `/api/health` reports runtime configuration.** Response includes `checks.runtime.name`, `checks.runtime.configured`, and no secret values.
 - [ ] **`[AUTOMATE]` `/api/me` returns the current user.** `curl …/api/me` (with auth) → `{"user":{"id":"…","email":"…","displayName":"…"}}`.
 - [ ] **`[AUTOMATE]` `/api/models` returns model list + default.** `curl …/api/models` → `{"defaultModelId":"…","models":[…]}` with at least one entry containing `id`, `displayName`, `costPer1MInput`, `costPer1MOutput`.
 - [ ] **`[AUTOMATE]` `/api/chat` rejects empty body.** POST `{}` → 400 `missing_message`.
 - [ ] **`[AUTOMATE]` `/api/chat` rejects invalid JSON.** POST `not-json` with `Content-Type: application/json` → 400 `invalid_json`.
 - [ ] **`[AUTOMATE]` `/api/chat` rejects unauthenticated requests.** POST without auth → 401 `unauthorized`.
+- [ ] **`[AUTOMATE]` `/api/chat` rejects oversized messages.** POST a message longer than `CHAT_MAX_MESSAGE_CHARS` → 413 `message_too_large`.
+- [ ] **`[AUTOMATE]` `/api/chat` rate-limits bursts.** Send more than `CHAT_RATE_LIMIT_REQUESTS` requests in `CHAT_RATE_LIMIT_WINDOW_MS` for one user → 429 `rate_limited` with `Retry-After`.
 - [ ] **`[AUTOMATE]` `/api/chat` rejects another user's threadId.** POST with someone else's `threadId` → 404 `thread_not_found`.
 - [ ] **`[AUTOMATE]` SSE response shape.** Successful POST returns `Content-Type: text/event-stream` and the body contains `data: {"type":"meta",…}` line, then `text-delta` lines, ending with `persisted`.
 - [ ] **`[AUTOMATE]` Invalid modelId surfaces a runtime error.** POST with `modelId: "fake-model"` → expect the Cursor runtime to reject it and the UI to show the error state. The route only defaults when `modelId` is missing or blank.

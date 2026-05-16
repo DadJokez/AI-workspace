@@ -4,6 +4,7 @@ Internal AI front door for Georgia-Pacific. Single login, chat with your work da
 
 See [`docs/ROADMAP.md`](./docs/ROADMAP.md) for the five journeys and integration roadmap.
 See [`PLAN.md`](./PLAN.md) for weekly ship plan and architectural decisions.
+See [`docs/ENTERPRISE_READINESS.md`](./docs/ENTERPRISE_READINESS.md) for the IT readiness posture.
 
 ## Stack
 
@@ -62,6 +63,10 @@ pnpm dev          # http://localhost:3000
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Separate GitHub OAuth App for per-user MCP tokens |
 | `OAUTH_ENCRYPTION_KEY` | 32-byte AES-256-GCM key for encrypting stored OAuth tokens |
 | `DATABASE_URL` | Postgres connection string |
+| `CHAT_MAX_REQUEST_BYTES` | Max `/api/chat` request body size before parsing |
+| `CHAT_MAX_MESSAGE_CHARS` | Max user message length |
+| `CHAT_RATE_LIMIT_WINDOW_MS` | Fixed-window rate-limit duration |
+| `CHAT_RATE_LIMIT_REQUESTS` | Per-user chat request count in the window |
 
 ## Scripts (run from repo root)
 
@@ -81,8 +86,9 @@ Merging to `main` triggers a CodeBuild pipeline that builds the Docker image and
 ## Enterprise Readiness
 
 The current stack is ready for POC/pilot work, not yet for broad enterprise
-scale. The hosting direction is now App Runner for pilot and ECS/Fargate for
+scale. The hosting direction is App Runner for pilot and ECS/Fargate for
 enterprise production, with RDS Proxy/Aurora Postgres evaluated before broad
-rollout. The active readiness backlog covers dependency audit cleanup, deeper
-health checks, rate limits and quotas, logging redaction/retention, Secrets
-Manager/KMS/IaC, and a load-test model for 1k/10k/100k users.
+rollout. The current readiness posture, including dependency audit triage,
+health checks, rate limits, redaction/retention, Secrets Manager/KMS/IaC, and
+the 1k/10k/100k load-test model, lives in
+[`docs/ENTERPRISE_READINESS.md`](./docs/ENTERPRISE_READINESS.md).
