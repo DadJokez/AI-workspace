@@ -26,7 +26,8 @@ The AI Hub is that front door. The model and the runtime are
                                      │  GitHub OAuth session (NextAuth v4)
                                      ▼
         ┌─────────────────────────────────────────────────────────┐
-        │  Enterprise Shell — apps/web (Next.js on App Runner)    │
+        │  Enterprise Shell — apps/web (Next.js container)        │
+        │   • POC: App Runner → enterprise: ECS/Fargate           │
         │   • Auth: GitHub OAuth (POC) → PingOne OIDC (enterprise)│
         │   • chat UI / recipes UI / tools catalog UI             │
         │   • persistence (RDS Postgres): threads, messages,      │
@@ -167,7 +168,7 @@ See [`ROADMAP.md`](./ROADMAP.md) for the use-case-driven view and the skills cat
 
 Concrete example: user asks **"What PRs do I have open?"** in chat, GitHub MCP mounted.
 
-1. **Browser → App Runner.** SSE POST to `/api/chat` with the thread id and the user's message. Cookie carries the NextAuth JWT.
+1. **Browser → web container.** SSE POST to `/api/chat` with the thread id and the user's message. Cookie carries the NextAuth JWT. Today the container runs on App Runner; the enterprise target is ECS/Fargate.
 2. **Shell** calls `getSessionUser(req)` → user row. Loads the `chat_threads` row, including the rolling `summary`, recent `chat_messages`, and the `cursor_agent_id` retained for visibility/backward compatibility.
 3. **Shell** loads the user's GitHub access token from `oauth_tokens`, mints a short-lived token if needed.
 4. **Shell** calls `getRuntime().runTurn({...})` with the thread, message, model, and `mcp_server_slugs: ['github']`.
@@ -254,11 +255,42 @@ summary is dropped/truncated, `/api/chat` emits a structured
 `turn-context-guardrail` log with the thread, user, limit values, and retained
 or dropped character counts.
 
+## Hosting decision: App Runner pilot, ECS/Fargate enterprise
+
+AI Hub should stay inside AWS for the enterprise path. That keeps the product
+inside the platform family IT already understands, preserves the current
+container build/deploy shape, and avoids introducing a separate hosting vendor
+while the core question is still product value.
+
+**Decision:** keep App Runner for the current POC/pilot, but target
+**ECS on Fargate** for the enterprise production architecture. ECS Express
+Mode is the preferred first migration path because AWS positions it as the
+App Runner migration target and it preserves much of App Runner's simplicity
+while creating a normal ECS/Fargate service, load balancer, autoscaling, and
+networking stack in our AWS account.
+
+| Layer | Pilot / current | Enterprise target |
+|---|---|---|
+| Web runtime | App Runner service using the existing Docker image | ECS service on Fargate, likely created first with ECS Express Mode |
+| Ingress | App Runner URL / future custom domain | Application Load Balancer, ACM cert, optional Route 53 weighted migration |
+| Database | RDS Postgres | RDS Postgres for near term; evaluate RDS Proxy and Aurora Postgres before broad rollout |
+| Secrets | App Runner environment variables | AWS Secrets Manager + KMS; task role reads secrets at runtime |
+| Networking | App Runner-managed | VPC/subnets/security groups owned in IaC; private DB access |
+| Observability | App Runner/CodeBuild logs | CloudWatch logs/metrics/alarms, ALB metrics, ECS service metrics, optional tracing |
+| Edge controls | Minimal | ALB + WAF/rate rules when public enterprise traffic begins |
+| IaC | Manual/CodeBuild-era setup | Terraform/CDK/CloudFormation for ECS, ALB, IAM, Secrets Manager/KMS, RDS, alarms |
+
+This is not a reversal of the original thesis. App Runner was the right AWS
+on-ramp for speed. ECS/Fargate is the AWS-native grown-up version for IT
+review, networking, IAM boundaries, observability, and 100k-user planning.
+
 ## Enterprise scale posture
 
 The current App Runner + RDS Postgres deployment is appropriate for the POC
-and pilot path, but it is not yet a 100k-user architecture. Before enterprise
-scale, AI Hub needs explicit decisions and tests for:
+and pilot path, but it is not yet a 100k-user architecture. The enterprise
+target is ECS/Fargate with RDS Postgres, plus a required scale decision on RDS
+Proxy and Aurora Postgres. Before enterprise scale, AI Hub needs explicit
+decisions and tests for:
 
 - request and tool-call quotas per user, team, provider, and model;
 - body-size and max-output-token limits on `/api/chat`;
@@ -270,10 +302,8 @@ scale, AI Hub needs explicit decisions and tests for:
   and tool outputs;
 - secrets management through AWS Secrets Manager/KMS and infrastructure as
   code;
-- the hosting path. AWS now recommends ECS Express Mode for App Runner
-  migration because App Runner closed to new customers on April 30, 2026 and
-  will not receive new features, even though existing customers can continue
-  using it.
+- migration from App Runner to ECS/Fargate, starting with ECS Express Mode
+  unless IT requires fully hand-authored ECS infrastructure from day one.
 
 ## Developer Briefing workflow
 

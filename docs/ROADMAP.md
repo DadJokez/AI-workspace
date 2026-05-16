@@ -27,7 +27,7 @@ of moving users through these. They're the north star.
 A user opens the workspace, types into a thread, gets a streamed
 response. Multi-turn, personal, interactive.
 
-**Shipped:** chat threads with independent histories persisted per user, prompt/context guardrails plus the summary schema/helper, sidebar history grouped by recency with rename and delete, model selector (Haiku / Sonnet / Opus), GitHub OAuth sign-in / sign-out, admin panel (users + invitations), settings (theme, default model), full mobile responsiveness. Cursor SDK is the default runtime; Bedrock is the fallback. Deployed on AWS App Runner with automatic image builds, database migrations, and deploys on push to `main`. Rolling summary generation itself remains pending.
+**Shipped:** chat threads with independent histories persisted per user, prompt/context guardrails plus the summary schema/helper, sidebar history grouped by recency with rename and delete, model selector (Haiku / Sonnet / Opus), GitHub OAuth sign-in / sign-out, admin panel (users + invitations), settings (theme, default model), full mobile responsiveness. Cursor SDK is the default runtime; Bedrock is the fallback. Deployed on AWS App Runner for the POC/pilot with automatic image builds, database migrations, and deploys on push to `main`. ECS/Fargate is the documented enterprise hosting target. Rolling summary generation itself remains pending.
 
 ### J2 — Chat with Tools 🔄 In Progress
 
@@ -64,7 +64,7 @@ the scheduling piece; webhooks are a follow-on.
 A user describes a small internal web app in conversation. The
 workspace agent writes the code, shows a preview, iterates with the
 user, and on **Deploy** provisions everything needed to run it:
-a GitHub repo, a build pipeline, and a new App Runner service. The
+a GitHub repo, a build pipeline, and a new AWS-hosted service. The
 app is reachable only through the workspace — the workspace is the
 **IdP**, and apps trust workspace-issued tokens via SSO. New apps
 appear in the sidebar under **Apps**, where teammates with the right
@@ -77,7 +77,7 @@ chat.
 
 **Requires:** code-generation loop (shaped by the Cursor SDK runtime)
 + a deploy controller (creates the repo, kicks the pipeline,
-provisions App Runner) + the SSO seam (workspace-issued bearer or
+provisions the target AWS service) + the SSO seam (workspace-issued bearer or
 OIDC handing off to the deployed app) + an **Apps** registry surfaced
 in the sidebar. Nothing in the current build covers any of this; J4
 is its own epic.
@@ -107,8 +107,8 @@ demand it.
 **No-secrets policy is enforced by the agent.** The codegen loop
 never writes `.env` values, API tokens, signing keys, or other
 credentials into committed files. Anything credential-shaped goes to
-the runtime config (App Runner environment variables, AWS Secrets
-Manager) via the deploy controller, not into the git history.
+AWS Secrets Manager/KMS and runtime config via the deploy controller, not into
+the git history.
 
 **Version history is "previous versions", not git log.** The Apps
 detail view shows a list of "saved drafts" and "deployed versions"
@@ -125,7 +125,7 @@ the most design care:
    is unavoidable (rare, but possible in an unlock-and-merge model),
    the agent reconciles in conversation: "I have two sets of changes
    here — let me show you both and ask which to keep."
-2. **Deploy failures.** Build / pipeline / App Runner errors get
+2. **Deploy failures.** Build / pipeline / AWS runtime errors get
    translated by the agent into actionable text — "The new version
    didn't build because of a typo in the dashboard page (line 42).
    I'll fix and try again." — not a stack trace or a CodeBuild log
