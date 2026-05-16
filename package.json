@@ -6,11 +6,18 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "pnpm": {
+    "overrides": {
+      "postcss": "8.5.10",
+      "prismjs": "1.30.0"
+    }
+  },
   "scripts": {
     "dev": "pnpm --filter @ai-workspace/web dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
+    "audit:prod": "pnpm audit --prod",
     "start": "pnpm --filter @ai-workspace/web start"
   }
 }

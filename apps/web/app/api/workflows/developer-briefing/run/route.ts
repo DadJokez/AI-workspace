@@ -7,6 +7,11 @@ import { NextResponse } from "next/server";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
+import {
+  checkRateLimit,
+  contentLengthTooLarge,
+  requestLimitConfig,
+} from "@/lib/request-limits";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +55,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  const limits = requestLimitConfig();
+  if (contentLengthTooLarge(req.headers, limits.maxRequestBytes)) {
+    return NextResponse.json(
+      {
+        error: "request_too_large",
+        message: `Request body must be ${limits.maxRequestBytes} bytes or smaller.`,
+      },
+      { status: 413 },
+    );
+  }
+
   const body = (await req.json().catch(() => ({}))) as PostBody;
   const modelId =
     typeof body.modelId === "string" && body.modelId.trim().length > 0
@@ -58,6 +74,49 @@ export async function POST(req: Request) {
 
   const db = getDb();
   const runtime = getRuntime();
+
+  const rate = checkRateLimit(`workflow:${RECIPE_SLUG}:${sessionUser.id}`, {
+    ...limits,
+    maxRequests: Math.max(1, Math.floor(limits.maxRequests / 3)),
+  });
+  if (!rate.allowed) {
+    await db.insert(auditLog).values({
+      actorUserId: sessionUser.id,
+      actionType: "rate_limit",
+      status: "denied",
+      provider: "ai-hub",
+      toolName: RECIPE_SLUG,
+      input: {
+        route: "/api/workflows/developer-briefing/run",
+        windowMs: limits.windowMs,
+        maxRequests: rate.limit,
+      },
+      error: "workflow_rate_limit_exceeded",
+      metadata: {
+        retryAfterSeconds: rate.retryAfterSeconds,
+        resetAt: rate.resetAt.toISOString(),
+      },
+      startedAt: new Date(),
+      completedAt: new Date(),
+    });
+    return NextResponse.json(
+      {
+        error: "rate_limited",
+        message: "Too many workflow runs. Please wait a moment and try again.",
+        retryAfterSeconds: rate.retryAfterSeconds,
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(rate.retryAfterSeconds),
+          "X-RateLimit-Limit": String(rate.limit),
+          "X-RateLimit-Remaining": String(rate.remaining),
+          "X-RateLimit-Reset": rate.resetAt.toISOString(),
+        },
+      },
+    );
+  }
+
   const now = new Date();
   const inserted = await db
     .insert(recipeRuns)

@@ -16,6 +16,11 @@ import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
+import {
+  checkRateLimit,
+  contentLengthTooLarge,
+  requestLimitConfig,
+} from "@/lib/request-limits";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { buildTurnContext } from "@/lib/turn-context";
 
@@ -70,6 +75,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  const limits = requestLimitConfig();
+  if (contentLengthTooLarge(req.headers, limits.maxRequestBytes)) {
+    return NextResponse.json(
+      {
+        error: "request_too_large",
+        message: `Request body must be ${limits.maxRequestBytes} bytes or smaller.`,
+      },
+      { status: 413 },
+    );
+  }
+
   let body: ChatRequestBody;
   try {
     body = (await req.json()) as ChatRequestBody;
@@ -84,6 +100,16 @@ export async function POST(req: Request) {
     );
   }
 
+  if (body.message.length > limits.maxMessageChars) {
+    return NextResponse.json(
+      {
+        error: "message_too_large",
+        message: `Message must be ${limits.maxMessageChars} characters or fewer.`,
+      },
+      { status: 413 },
+    );
+  }
+
   // Accept any non-empty string for modelId. The runtime layer is the
   // source of truth on what's actually valid (it calls toCursorModelId,
   // which legacy-maps our short ids and passes Cursor ids through; the
@@ -94,6 +120,45 @@ export async function POST(req: Request) {
       : DEFAULT_MODEL_ID;
 
   const db = getDb();
+
+  const rate = checkRateLimit(`chat:${sessionUser.id}`, limits);
+  if (!rate.allowed) {
+    await db.insert(auditLog).values({
+      actorUserId: sessionUser.id,
+      actionType: "rate_limit",
+      status: "denied",
+      provider: "ai-hub",
+      toolName: "chat",
+      input: {
+        route: "/api/chat",
+        windowMs: limits.windowMs,
+        maxRequests: limits.maxRequests,
+      },
+      error: "chat_rate_limit_exceeded",
+      metadata: {
+        retryAfterSeconds: rate.retryAfterSeconds,
+        resetAt: rate.resetAt.toISOString(),
+      },
+      startedAt: new Date(),
+      completedAt: new Date(),
+    });
+    return NextResponse.json(
+      {
+        error: "rate_limited",
+        message: "Too many chat requests. Please wait a moment and try again.",
+        retryAfterSeconds: rate.retryAfterSeconds,
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(rate.retryAfterSeconds),
+          "X-RateLimit-Limit": String(rate.limit),
+          "X-RateLimit-Remaining": String(rate.remaining),
+          "X-RateLimit-Reset": rate.resetAt.toISOString(),
+        },
+      },
+    );
+  }
 
   // The session carries (id, email, displayName, role); we still need
   // customInstructions for the agent preamble. One direct lookup against

@@ -16,8 +16,8 @@
   "dependencies": {
     "@ai-workspace/agent": "workspace:*",
     "@ai-workspace/db": "workspace:*",
-    "@cursor/sdk": "^1.0.12",
-    "drizzle-orm": "^0.36.4"
+    "@cursor/sdk": "^1.0.13",
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",
