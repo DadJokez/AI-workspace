@@ -14,7 +14,8 @@ See [`PLAN.md`](./PLAN.md) for weekly ship plan and architectural decisions.
 - **Cursor SDK** (`@cursor/sdk`) — default agent runtime
 - **AWS Bedrock** (`converseStream`) — fallback runtime (`RUNTIME=bedrock`)
 - **GitHub MCP** (`api.githubcopilot.com/mcp/`) — first working tool integration
-- **AWS App Runner** — current POC hosting (CI/CD via CodeBuild on push to `main`)
+- **AWS App Runner** — current POC/pilot hosting (CI/CD via CodeBuild on push to `main`)
+- **ECS on Fargate** — documented enterprise hosting target
 
 ## Repo layout
 
@@ -80,7 +81,8 @@ Merging to `main` triggers a CodeBuild pipeline that builds the Docker image and
 ## Enterprise Readiness
 
 The current stack is ready for POC/pilot work, not yet for broad enterprise
-scale. The active readiness backlog covers dependency audit cleanup, deeper
+scale. The hosting direction is now App Runner for pilot and ECS/Fargate for
+enterprise production, with RDS Proxy/Aurora Postgres evaluated before broad
+rollout. The active readiness backlog covers dependency audit cleanup, deeper
 health checks, rate limits and quotas, logging redaction/retention, Secrets
-Manager/KMS/IaC, the App Runner vs. ECS/Fargate/Aurora hosting decision, and a
-load-test model for 1k/10k/100k users.
+Manager/KMS/IaC, and a load-test model for 1k/10k/100k users.
