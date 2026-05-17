@@ -211,6 +211,12 @@ provider/tool names, tool-call id, links to the chat thread/message, input,
 output or error payload, metadata, and lifecycle timestamps. Future admin,
 recipe-run, and security events reuse the same table.
 
+Admins can inspect recent ledger rows at `/admin/audit`. The page exposes the
+latest tool, workflow, attestation, and rate-limit events with user, status,
+provider/tool, chat or recipe context, duration, and error detail for failed or
+denied work. This is the human-facing view; raw tool inputs/results remain in
+the ledger for debugging and compliance review.
+
 ## Tools catalog
 
 `tools_catalog` is the admin-curated, user-visible inventory of MCP tools. It
