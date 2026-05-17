@@ -260,7 +260,11 @@ function formatChatError(err: unknown): string {
 
 const STICK_BOTTOM_THRESHOLD = 100;
 
-export function ChatClient() {
+interface ChatClientProps {
+  initialThreadId?: string;
+}
+
+export function ChatClient({ initialThreadId }: ChatClientProps) {
   const [models, setModels] = useState<ModelOption[]>([]);
   const [defaultModelId, setDefaultModelId] =
     useState<string>(FALLBACK_DEFAULT_MODEL_ID);
@@ -282,6 +286,7 @@ export function ChatClient() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const loadingThreadsRef = useRef<Set<string>>(new Set());
+  const initialThreadAppliedRef = useRef(false);
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0];
 
@@ -451,6 +456,41 @@ export function ChatClient() {
     }
     setBootstrapped(true);
   }, [user?.id, bootstrapped, models, defaultModelId]);
+
+  useEffect(() => {
+    if (!initialThreadId || !bootstrapped || initialThreadAppliedRef.current) {
+      return;
+    }
+    initialThreadAppliedRef.current = true;
+    setView("chat");
+
+    const existing = tabs.find((t) => t.threadId === initialThreadId);
+    if (existing) {
+      setActiveId(existing.id);
+      return;
+    }
+
+    const thread = threads.find((t) => t.id === initialThreadId);
+    const validIds = new Set(models.map((m) => m.id));
+    const modelId = validatestring(
+      thread?.defaultModelId,
+      validIds,
+      defaultModelId,
+    );
+    const tab: ChatTab = {
+      id: crypto.randomUUID(),
+      title: thread?.title?.trim() || `Thread ${initialThreadId.slice(0, 8)}`,
+      threadId: initialThreadId,
+      messages: [],
+      modelId,
+      busy: false,
+      loaded: false,
+    };
+    setTabs((prev) =>
+      prev.some((t) => t.threadId === initialThreadId) ? prev : [...prev, tab],
+    );
+    setActiveId(tab.id);
+  }, [initialThreadId, bootstrapped, tabs, threads, models, defaultModelId]);
 
   // Persist session whenever tabs / activeId change. Only after bootstrap, so
   // we don't clobber stored state with the initial empty-tab placeholder.

@@ -12,7 +12,10 @@ interface Tab {
 // so the page only renders a "coming soon" placeholder. Showing it as a
 // real tab is confusing. Re-add this entry once the table exists:
 //   { href: "/admin/usage", label: "Usage" },
-const tabs: Tab[] = [{ href: "/admin", label: "Users" }];
+const tabs: Tab[] = [
+  { href: "/admin", label: "Users" },
+  { href: "/admin/audit", label: "Audit" },
+];
 
 export function AdminTabs() {
   const pathname = usePathname();
