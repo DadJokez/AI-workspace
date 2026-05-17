@@ -39,9 +39,52 @@ describe("buildToolActivityEvents", () => {
     );
 
     expect(events.map((event) => [event.state, event.label])).toEqual([
-      ["succeeded", "Ran GitHub · list issues"],
-      ["pending", "Calling GitHub · get issue"],
+      ["succeeded", "Searched GitHub"],
+      ["pending", "Checking GitHub details..."],
     ]);
+  });
+
+  it("turns shell-like work into friendly research steps", () => {
+    const events = buildToolActivityEvents(
+      [
+        {
+          id: "call_1",
+          name: "shell",
+          provider: null,
+          toolName: "shell",
+          input: { cmd: "rg \"Georgia-Pacific AI\" docs" },
+          startedAt: "2026-05-15T10:00:00.000Z",
+        },
+        {
+          id: "call_2",
+          name: "shell",
+          provider: null,
+          toolName: "shell",
+          input: { cmd: "jq '.facts[]' notes.json" },
+          startedAt: "2026-05-15T10:00:01.000Z",
+        },
+      ],
+      [
+        {
+          toolCallId: "call_1",
+          output: { stdout: "..." },
+          isError: false,
+          completedAt: "2026-05-15T10:00:02.000Z",
+        },
+        {
+          toolCallId: "call_2",
+          output: { stdout: "..." },
+          isError: false,
+          completedAt: "2026-05-15T10:00:03.000Z",
+        },
+      ],
+    );
+
+    expect(events.map((event) => event.label)).toEqual([
+      "Searched company AI references",
+      "Extracted supporting facts",
+    ]);
+    expect(events.map((event) => event.detail)).toEqual([undefined, undefined]);
   });
 });
 
@@ -56,21 +99,13 @@ describe("summarizeActivity", () => {
     expect(
       summarizeActivity(
         [
-          {
-            id: "call_1",
-            state: "succeeded",
-            label: "Ran GitHub · list issues",
-          },
-          {
-            id: "call_2",
-            state: "succeeded",
-            label: "Ran GitHub · get issue",
-          },
+          { id: "call_1", state: "succeeded", label: "Searched GitHub" },
+          { id: "call_2", state: "succeeded", label: "Checked GitHub details" },
         ],
         false,
         undefined,
       ),
-    ).toBe("Ran 2 tools");
+    ).toBe("Finished research");
 
     expect(
       summarizeActivity(
@@ -78,12 +113,12 @@ describe("summarizeActivity", () => {
           {
             id: "call_1",
             state: "failed",
-            label: "Failed GitHub · list issues",
+            label: "Could not search GitHub",
           },
         ],
         false,
         undefined,
       ),
-    ).toBe("1 tool failed");
+    ).toBe("1 step needs attention");
   });
 });
