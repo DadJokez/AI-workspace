@@ -37,11 +37,11 @@ and can both **read** and **act**. "What PRs do I have open?"
 returns a real answer; "Send Bob the summary" performs a real action.
 This is what makes "talk to your work" real rather than aspirational.
 
-**What's live:** GitHub MCP is working end-to-end — users connect via OAuth, tokens are stored encrypted in `oauth_tokens`, the GitHub server is represented in `mcp_servers`, and the Cursor runtime mounts it per-user with a short-lived Bearer token on each turn. Tool calls/results persist on chat messages after shared redaction and render as compact, expandable agent activity inside chat, MCP tool executions write redacted audit rows that admins can inspect at `/admin/audit`, registered servers/tools are visible at `/admin/tools`, long turns tolerate browser disconnects cleanly, and the manual Developer Briefing route persists redacted GitHub workflow runs in `recipe_runs`.
+**What's live:** GitHub MCP is working end-to-end — users connect via OAuth, tokens are stored encrypted in `oauth_tokens`, the GitHub server is represented in `mcp_servers`, and the Cursor runtime mounts it per-user with a short-lived Bearer token on each turn. Tool calls/results persist on chat messages after shared redaction and render as compact, expandable agent activity inside chat, MCP tool executions write redacted audit rows that admins can inspect at `/admin/audit`, registered servers/tools are visible at `/admin/tools`, long turns tolerate browser disconnects cleanly, and the manual Developer Briefing route persists redacted GitHub workflow runs in `recipe_runs` with an admin run list/detail UI.
 
 **What's next (Weeks 4–8):** M365 Graph (Mail + Calendar), Workfront, Databricks, Salesforce. See the integration tier table below. The auth pattern (HTTP MCP + per-turn Bearer) is proven; the remaining work is per-integration MCP servers and the OAuth plumbing for each provider.
 
-**Requires for full J2:** lower-level tool/category filtering for write-side calls across all integrations, a verified hook workflow or MCP proxy for policy enforcement, retention automation, rate limits and quotas, plus a recipe/run-detail UI that reuses the shipped chat activity timeline for `recipe_runs`.
+**Requires for full J2:** lower-level tool/category filtering for write-side calls across all integrations, a verified hook workflow or MCP proxy for policy enforcement, retention automation, rate limits and quotas, plus user-facing workflow controls beyond the current admin run review UI.
 
 ### J3 — Scheduled Agent ⏳ Not started
 

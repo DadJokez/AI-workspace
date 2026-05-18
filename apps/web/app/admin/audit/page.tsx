@@ -189,7 +189,12 @@ export default async function AdminAuditPage({ searchParams }: Props) {
                         Chat thread
                       </Link>
                     ) : row.recipeRunId ? (
-                      <span>Recipe run {shortId(row.recipeRunId)}</span>
+                      <Link
+                        href={`/admin/runs/${row.recipeRunId}`}
+                        className="text-ink underline-offset-2 hover:underline"
+                      >
+                        Recipe run {shortId(row.recipeRunId)}
+                      </Link>
                     ) : (
                       <span>System event</span>
                     )}

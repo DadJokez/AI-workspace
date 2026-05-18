@@ -15,6 +15,7 @@ interface Tab {
 const tabs: Tab[] = [
   { href: "/admin", label: "Users" },
   { href: "/admin/tools", label: "Tools" },
+  { href: "/admin/runs", label: "Runs" },
   { href: "/admin/audit", label: "Audit" },
 ];
 
@@ -25,7 +26,9 @@ export function AdminTabs() {
     <nav className="flex items-center gap-1 border-b border-hairline px-6">
       {tabs.map((t) => {
         const active =
-          t.href === "/admin" ? pathname === "/admin" : pathname === t.href;
+          t.href === "/admin"
+            ? pathname === "/admin"
+            : pathname.startsWith(t.href);
         return (
           <Link
             key={t.href}
