@@ -59,6 +59,7 @@ interface ChatStreamEvent {
     | "tool-call"
     | "tool-result"
     | "usage"
+    | "heartbeat"
     | "error"
     | "done"
     | "persisted";
