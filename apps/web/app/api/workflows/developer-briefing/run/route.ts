@@ -6,6 +6,10 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import {
+  buildDeveloperBriefingPrompt,
+  DEVELOPER_BRIEFING_RECIPE_SLUG,
+} from "@/lib/developer-briefing";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
 import {
   checkRateLimit,
@@ -20,23 +24,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const RECIPE_SLUG = "developer-briefing";
-const DEVELOPER_BRIEFING_PROMPT = [
-  "Run the Developer Briefing workflow for the current user.",
-  "",
-  "Use the connected GitHub MCP tools. Find:",
-  "1. Pull requests authored by me that need my attention.",
-  "2. Review requests waiting on me.",
-  "3. Pull requests or branches with failing CI/checks that I should inspect.",
-  "",
-  "Use @me/current-user style filters when the GitHub tools support them. If a precise query is not available, use the closest read-only GitHub tools and explain the limitation.",
-  "",
-  "Return concise Markdown with these sections:",
-  "- Needs my attention",
-  "- Waiting on my review",
-  "- Failing CI",
-  "- Suggested next actions",
-].join("\n");
+const RECIPE_SLUG = DEVELOPER_BRIEFING_RECIPE_SLUG;
 
 interface PostBody {
   modelId?: string;
@@ -83,6 +71,7 @@ export async function POST(req: Request) {
 
   const db = getDb();
   const runtime = getRuntime();
+  const briefingPrompt = buildDeveloperBriefingPrompt();
 
   const retrySource = retryRunId
     ? await findRetrySourceRun(db, sessionUser.id, retryRunId)
@@ -160,7 +149,7 @@ export async function POST(req: Request) {
       runtime: runtime.name,
       modelId,
       inputs: buildWorkflowRunInputs({
-        prompt: DEVELOPER_BRIEFING_PROMPT,
+        prompt: briefingPrompt,
         retrySource,
         retryRequestedAt: now,
       }),
@@ -225,7 +214,7 @@ export async function POST(req: Request) {
     for await (const ev of runtime.runTurn({
       threadId: `recipe-run:${run.id}`,
       modelId,
-      messages: [{ role: "user", content: DEVELOPER_BRIEFING_PROMPT }],
+      messages: [{ role: "user", content: briefingPrompt }],
       context: { userId: sessionUser.id },
       firstTurnPreamble:
         "You are running a saved workflow, not an open-ended chat. Use the connected GitHub tools and produce the requested briefing.",
