@@ -40,6 +40,29 @@ interface UiMessage {
   toolResults?: PersistedToolResult[];
 }
 
+export function mergeLoadedMessages(
+  loadedMessages: UiMessage[],
+  currentMessages: UiMessage[],
+): UiMessage[] {
+  if (currentMessages.length === 0) return loadedMessages;
+
+  const loadedIds = new Set(loadedMessages.map((m) => m.id));
+  const hasSameMessage = (candidate: UiMessage) =>
+    loadedMessages.some(
+      (m) =>
+        m.role === candidate.role &&
+        m.content.trim() === candidate.content.trim(),
+    );
+
+  const localOnly = currentMessages.filter((m) => {
+    if (loadedIds.has(m.id)) return false;
+    if (hasSameMessage(m)) return false;
+    return true;
+  });
+
+  return [...loadedMessages, ...localOnly];
+}
+
 interface ChatTab {
   id: string;
   title: string;
@@ -594,9 +617,14 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           toolResults: m.toolResults ?? undefined,
         }));
         setTabs((prev) =>
-          prev.map((t) =>
-            t.id === tabId ? { ...t, messages: msgs, loaded: true } : t,
-          ),
+          prev.map((t) => {
+            if (t.id !== tabId) return t;
+            return {
+              ...t,
+              messages: mergeLoadedMessages(msgs, t.messages),
+              loaded: true,
+            };
+          }),
         );
         // Reset stick-to-bottom on initial load so we land at the latest message.
         stickToBottomRef.current = true;
