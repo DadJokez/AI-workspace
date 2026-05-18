@@ -14,6 +14,7 @@ interface Tab {
 //   { href: "/admin/usage", label: "Usage" },
 const tabs: Tab[] = [
   { href: "/admin", label: "Users" },
+  { href: "/admin/tools", label: "Tools" },
   { href: "/admin/audit", label: "Audit" },
 ];
 
