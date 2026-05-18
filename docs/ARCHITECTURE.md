@@ -226,6 +226,12 @@ requirements, enabled/disabled state, and optional metadata. It keeps
 `provider + tool_name` as the stable lookup key and can now link each row to
 `mcp_servers` through `mcp_server_id`.
 
+Admins can inspect the registry and catalog at `/admin/tools`. The page shows
+registered MCP servers, transport/auth mode, active provider approvals,
+cataloged tools, action level, enabled state, and whether each tool requires
+attestation. Editing remains a later admin-governance step; the current view is
+read-only so the capability surface is visible before broader integrations land.
+
 ## MCP server registry
 
 `mcp_servers` is the admin-curated registry of integrations AI Hub can mount.

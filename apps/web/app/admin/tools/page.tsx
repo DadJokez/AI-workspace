@@ -1,0 +1,322 @@
+import {
+  getDb,
+  mcpServers,
+  toolsCatalog,
+  userToolAttestations,
+} from "@ai-workspace/db";
+import { asc, count, eq, isNull } from "drizzle-orm";
+import { redirect } from "next/navigation";
+import { getSessionUser } from "@/lib/auth/getSessionUser";
+
+export const dynamic = "force-dynamic";
+
+export default async function AdminToolsPage() {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser || sessionUser.role !== "admin") {
+    redirect("/chat");
+  }
+
+  const db = getDb();
+  const servers = await db
+    .select({
+      id: mcpServers.id,
+      slug: mcpServers.slug,
+      displayName: mcpServers.displayName,
+      description: mcpServers.description,
+      transport: mcpServers.transport,
+      status: mcpServers.status,
+      endpointUrl: mcpServers.endpointUrl,
+      authMode: mcpServers.authMode,
+      updatedAt: mcpServers.updatedAt,
+    })
+    .from(mcpServers)
+    .orderBy(asc(mcpServers.displayName));
+
+  const tools = await db
+    .select({
+      id: toolsCatalog.id,
+      provider: toolsCatalog.provider,
+      toolName: toolsCatalog.toolName,
+      displayName: toolsCatalog.displayName,
+      description: toolsCatalog.description,
+      category: toolsCatalog.category,
+      action: toolsCatalog.action,
+      requiresAttestation: toolsCatalog.requiresAttestation,
+      enabled: toolsCatalog.enabled,
+      serverSlug: mcpServers.slug,
+      serverName: mcpServers.displayName,
+      updatedAt: toolsCatalog.updatedAt,
+    })
+    .from(toolsCatalog)
+    .leftJoin(mcpServers, eq(toolsCatalog.mcpServerId, mcpServers.id))
+    .orderBy(
+      asc(toolsCatalog.provider),
+      asc(toolsCatalog.category),
+      asc(toolsCatalog.displayName),
+    );
+
+  const attestationRows = await db
+    .select({
+      provider: userToolAttestations.provider,
+      approvals: count(userToolAttestations.id),
+    })
+    .from(userToolAttestations)
+    .where(isNull(userToolAttestations.revokedAt))
+    .groupBy(userToolAttestations.provider);
+  const activeApprovalsByProvider = new Map(
+    attestationRows.map((row) => [row.provider, row.approvals]),
+  );
+
+  const enabledTools = tools.filter((tool) => tool.enabled).length;
+  const writeTools = tools.filter((tool) => tool.action !== "read").length;
+  const attestedTools = tools.filter((tool) => tool.requiresAttestation).length;
+
+  return (
+    <section className="py-2">
+      <div className="px-6 pb-3 pt-4">
+        <h2 className="text-base font-semibold text-ink">Tools</h2>
+        <p className="mt-1 text-[12px] text-muted">
+          Registered MCP servers and the tool catalog that users can expose to
+          agents.
+        </p>
+      </div>
+
+      <div className="grid gap-3 px-6 pb-5 md:grid-cols-4">
+        <Metric label="Servers" value={servers.length} />
+        <Metric label="Cataloged tools" value={tools.length} />
+        <Metric label="Enabled tools" value={enabledTools} />
+        <Metric label="Require approval" value={attestedTools} />
+      </div>
+
+      <section className="pb-6">
+        <div className="px-6 pb-2">
+          <h3 className="text-[13px] font-semibold text-ink">MCP servers</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full border-separate border-spacing-0 text-[13px]">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wider text-muted">
+                <th className="border-b border-hairline px-6 py-2 font-medium">
+                  Server
+                </th>
+                <th className="border-b border-hairline px-4 py-2 font-medium">
+                  Status
+                </th>
+                <th className="border-b border-hairline px-4 py-2 font-medium">
+                  Transport
+                </th>
+                <th className="border-b border-hairline px-4 py-2 font-medium">
+                  Auth
+                </th>
+                <th className="border-b border-hairline px-6 py-2 font-medium">
+                  Active approvals
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {servers.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="border-b border-hairline px-6 py-8 text-center text-[12px] text-muted"
+                  >
+                    No MCP servers are registered yet.
+                  </td>
+                </tr>
+              ) : (
+                servers.map((server) => (
+                  <tr key={server.id} className="hover:bg-subtle/40">
+                    <td className="border-b border-hairline px-6 py-3 align-top">
+                      <div className="font-medium text-ink">
+                        {server.displayName}
+                      </div>
+                      <div className="mt-1 font-mono text-[12px] text-muted">
+                        {server.slug}
+                      </div>
+                      {server.description ? (
+                        <div className="mt-1 max-w-2xl text-[12px] text-muted">
+                          {server.description}
+                        </div>
+                      ) : null}
+                      {server.endpointUrl ? (
+                        <div className="mt-1 max-w-2xl truncate font-mono text-[11px] text-muted">
+                          {server.endpointUrl}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="border-b border-hairline px-4 py-3 align-top">
+                      <StatusBadge status={server.status} />
+                    </td>
+                    <td className="border-b border-hairline px-4 py-3 align-top text-muted">
+                      {server.transport.toUpperCase()}
+                    </td>
+                    <td className="border-b border-hairline px-4 py-3 align-top text-muted">
+                      {formatAuthMode(server.authMode)}
+                    </td>
+                    <td className="border-b border-hairline px-6 py-3 align-top text-muted">
+                      {activeApprovalsByProvider.get(server.slug) ?? 0}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="pb-6">
+        <div className="flex flex-wrap items-center gap-3 px-6 pb-2">
+          <h3 className="text-[13px] font-semibold text-ink">Tool catalog</h3>
+          <span className="text-[12px] text-muted">
+            {writeTools} write/admin tools
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full border-separate border-spacing-0 text-[13px]">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wider text-muted">
+                <th className="border-b border-hairline px-6 py-2 font-medium">
+                  Tool
+                </th>
+                <th className="border-b border-hairline px-4 py-2 font-medium">
+                  Provider
+                </th>
+                <th className="border-b border-hairline px-4 py-2 font-medium">
+                  Category
+                </th>
+                <th className="border-b border-hairline px-4 py-2 font-medium">
+                  Action
+                </th>
+                <th className="border-b border-hairline px-4 py-2 font-medium">
+                  Approval
+                </th>
+                <th className="border-b border-hairline px-6 py-2 font-medium">
+                  State
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {tools.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="border-b border-hairline px-6 py-8 text-center text-[12px] text-muted"
+                  >
+                    No tools are cataloged yet. Seed provider tools before
+                    relying on lower-level tool governance.
+                  </td>
+                </tr>
+              ) : (
+                tools.map((tool) => (
+                  <tr key={tool.id} className="hover:bg-subtle/40">
+                    <td className="border-b border-hairline px-6 py-3 align-top">
+                      <div className="font-medium text-ink">
+                        {tool.displayName}
+                      </div>
+                      <div className="mt-1 max-w-72 truncate font-mono text-[12px] text-muted">
+                        {tool.toolName}
+                      </div>
+                      {tool.description ? (
+                        <div className="mt-1 max-w-xl text-[12px] text-muted">
+                          {tool.description}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="border-b border-hairline px-4 py-3 align-top">
+                      <div className="text-ink">{titleize(tool.provider)}</div>
+                      <div className="mt-1 text-[12px] text-muted">
+                        {tool.serverName ?? "No server link"}
+                      </div>
+                    </td>
+                    <td className="border-b border-hairline px-4 py-3 align-top text-muted">
+                      {titleize(tool.category)}
+                    </td>
+                    <td className="border-b border-hairline px-4 py-3 align-top">
+                      <ActionBadge action={tool.action} />
+                    </td>
+                    <td className="border-b border-hairline px-4 py-3 align-top text-muted">
+                      {tool.requiresAttestation ? "Required" : "Not required"}
+                    </td>
+                    <td className="border-b border-hairline px-6 py-3 align-top">
+                      <EnabledBadge enabled={tool.enabled} />
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border border-hairline bg-surface px-4 py-3">
+      <div className="text-[11px] uppercase tracking-wider text-muted">
+        {label}
+      </div>
+      <div className="mt-2 text-2xl font-semibold text-ink">{value}</div>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const classes =
+    status === "active"
+      ? "bg-green-400/10 text-green-300"
+      : status === "disabled"
+        ? "bg-red-400/10 text-red-300"
+        : "bg-subtle text-muted";
+  return (
+    <span
+      className={`inline-flex rounded px-2 py-0.5 text-[11px] uppercase tracking-wider ${classes}`}
+    >
+      {status}
+    </span>
+  );
+}
+
+function ActionBadge({ action }: { action: string }) {
+  const classes =
+    action === "read"
+      ? "bg-subtle text-muted"
+      : action === "write"
+        ? "bg-yellow-400/10 text-yellow-300"
+        : "bg-red-400/10 text-red-300";
+  return (
+    <span
+      className={`inline-flex rounded px-2 py-0.5 text-[11px] uppercase tracking-wider ${classes}`}
+    >
+      {action}
+    </span>
+  );
+}
+
+function EnabledBadge({ enabled }: { enabled: boolean }) {
+  return (
+    <span
+      className={`inline-flex rounded px-2 py-0.5 text-[11px] uppercase tracking-wider ${
+        enabled ? "bg-green-400/10 text-green-300" : "bg-subtle text-muted"
+      }`}
+    >
+      {enabled ? "Enabled" : "Disabled"}
+    </span>
+  );
+}
+
+function titleize(value: string): string {
+  if (value.toLowerCase() === "github") return "GitHub";
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatAuthMode(value: string | null): string {
+  if (!value) return "Unspecified";
+  if (value === "delegated_oauth") return "Delegated OAuth";
+  return titleize(value);
+}
