@@ -93,6 +93,68 @@ describe("buildToolAuditRows", () => {
     });
   });
 
+  it("redacts sensitive audit inputs, outputs, and errors", () => {
+    const rows = buildToolAuditRows({
+      ...base,
+      calls: [
+        {
+          id: "call_secret",
+          name: "github_get_secret",
+          provider: "github",
+          toolName: "get_secret",
+          input: {
+            q: "repo:example/private",
+            Authorization: "Bearer abcdefghijklmnopqrstuvwxyz012345",
+          },
+          startedAt: "2026-05-15T12:00:00.000Z",
+        },
+      ],
+      results: [
+        {
+          toolCallId: "call_secret",
+          output: {
+            message: "permission denied",
+            access_token: "secret-access-token",
+          },
+          isError: true,
+          completedAt: "2026-05-15T12:00:02.000Z",
+        },
+      ],
+    });
+
+    expect(rows[0]).toMatchObject({
+      input: {
+        q: "repo:example/private",
+        Authorization: "[redacted]",
+      },
+      output: null,
+      error: '{"message":"permission denied","access_token":"[redacted]"}',
+    });
+  });
+
+  it("redacts successful audit outputs", () => {
+    const rows = buildToolAuditRows({
+      ...base,
+      calls: [],
+      results: [
+        {
+          toolCallId: "call_output",
+          output: {
+            total: 1,
+            token: "secret-token",
+          },
+          isError: false,
+          completedAt: "2026-05-15T12:00:03.000Z",
+        },
+      ],
+    });
+
+    expect(rows[0]?.output).toEqual({
+      total: 1,
+      token: "[redacted]",
+    });
+  });
+
   it("keeps unmatched results auditable", () => {
     const rows = buildToolAuditRows({
       ...base,

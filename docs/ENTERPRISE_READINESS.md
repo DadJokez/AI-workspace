@@ -11,7 +11,7 @@ IT-owned infrastructure before broad rollout.
 | Dependency audit | Partial | Next.js, Cursor SDK, Bedrock SDK, Drizzle, PostCSS, and PrismJS patches/overrides applied. Remaining audit findings are transitive and tracked below. |
 | Health checks | Pilot shipped | `/api/health` checks DB connectivity/latency and runtime configuration. |
 | Rate limits and quotas | Pilot shipped | `/api/chat` and Developer Briefing enforce process-local request limits and body/message caps. Move to shared storage before ECS scale-out. |
-| Logging/redaction/retention | Policy defined | Code still needs a redaction helper before more integrations are added. |
+| Logging/redaction/retention | Partial | Shared tool payload redaction is applied before chat/tool/run/audit persistence; retention automation is still pending. |
 | KMS/Secrets/IaC | Plan defined | Current App Runner env vars are acceptable for POC only. ECS/Fargate target requires Secrets Manager/KMS and IaC. |
 | Load-test model | Model defined | Synthetic scenarios and thresholds are ready for a follow-up test harness. |
 
@@ -115,8 +115,10 @@ Retention targets:
 | OAuth tokens | Until disconnect/revocation | Until disconnect/revocation; rotate where provider supports it |
 | Future S3/Athena Agent Wire | Not live | Lifecycle policy by data classification |
 
-Follow-up code work: add a shared redaction helper and apply it to
-`process.stderr` runtime logs before onboarding more tool providers.
+Current code applies a shared tool payload redaction helper before persisting
+tool inputs/results to chat messages, recipe runs, and `audit_log`. Follow-up
+code work: apply the same policy to `process.stderr` runtime logs before
+onboarding more tool providers.
 
 ## Secrets, KMS, And IaC
 

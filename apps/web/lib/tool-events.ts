@@ -1,4 +1,5 @@
 import type { ToolCall, ToolResult } from "@ai-workspace/agent";
+import { redactToolCall, redactToolResult } from "@/lib/tool-redaction";
 
 export interface PersistedToolCall {
   id: string;
@@ -37,30 +38,36 @@ export function createToolEventAccumulator(
     recordCall(call) {
       const existing = callsById.get(call.id);
       const parsed = parseToolName(call.name, providerHints);
-      callsById.set(call.id, {
-        id: call.id,
-        name: call.name,
-        provider: parsed.provider,
-        toolName: parsed.toolName,
-        input: call.input,
-        startedAt: existing?.startedAt ?? now().toISOString(),
-      });
+      callsById.set(
+        call.id,
+        redactToolCall({
+          id: call.id,
+          name: call.name,
+          provider: parsed.provider,
+          toolName: parsed.toolName,
+          input: call.input,
+          startedAt: existing?.startedAt ?? now().toISOString(),
+        }),
+      );
     },
     recordResult(result) {
       const call = callsById.get(result.toolCallId);
-      resultsById.set(result.toolCallId, {
-        toolCallId: result.toolCallId,
-        ...(call
-          ? {
-              name: call.name,
-              provider: call.provider,
-              toolName: call.toolName,
-            }
-          : {}),
-        output: result.output,
-        isError: result.isError === true,
-        completedAt: now().toISOString(),
-      });
+      resultsById.set(
+        result.toolCallId,
+        redactToolResult({
+          toolCallId: result.toolCallId,
+          ...(call
+            ? {
+                name: call.name,
+                provider: call.provider,
+                toolName: call.toolName,
+              }
+            : {}),
+          output: result.output,
+          isError: result.isError === true,
+          completedAt: now().toISOString(),
+        }),
+      );
     },
     calls() {
       return Array.from(callsById.values());

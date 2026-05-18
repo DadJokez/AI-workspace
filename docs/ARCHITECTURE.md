@@ -196,11 +196,11 @@ remains visible even when the live SSE stream is gone. Network/browser stream
 drops are labeled as connection loss rather than model failure.
 
 Workflow runs use the same event shape. The Developer Briefing route stores
-`toolCalls` and `toolResults` in `recipe_runs.outputs`; the future recipe/run
-detail UI should render those with the same activity component. If scheduled or
-background runs need mid-run reconnect before completion, add a sibling
-`run_events` table keyed by `recipe_run_id` rather than changing the event
-shape.
+redacted `toolCalls` and `toolResults` in `recipe_runs.outputs`; the future
+recipe/run detail UI should render those with the same activity component. If
+scheduled or background runs need mid-run reconnect before completion, add a
+sibling `run_events` table keyed by `recipe_run_id` rather than changing the
+event shape.
 
 ## Audit ledger
 
@@ -208,14 +208,15 @@ shape.
 the first producer: after a chat turn persists its assistant message, the route
 writes one audit row per tool call/result with the actor, action type, status,
 provider/tool names, tool-call id, links to the chat thread/message, input,
-output or error payload, metadata, and lifecycle timestamps. Future admin,
-recipe-run, and security events reuse the same table.
+output or error payload, metadata, and lifecycle timestamps. Tool input/output
+payloads are redacted before persistence. Future admin, recipe-run, and
+security events reuse the same table.
 
 Admins can inspect recent ledger rows at `/admin/audit`. The page exposes the
 latest tool, workflow, attestation, and rate-limit events with user, status,
 provider/tool, chat or recipe context, duration, and error detail for failed or
-denied work. This is the human-facing view; raw tool inputs/results remain in
-the ledger for debugging and compliance review.
+denied work. This is the human-facing view; raw runtime events are not exposed
+there by default.
 
 ## Tools catalog
 
@@ -328,9 +329,10 @@ policy, Secrets Manager/KMS/IaC target, and 1k/10k/100k load-test model.
 manual workflow route. It creates a `recipe_runs` row, mounts the user's
 attested GitHub MCP server, runs a fixed Developer Briefing prompt through the
 same `AgentRuntime` seam as chat, stores structured output/failure state on
-the run, including `toolCalls`/`toolResults` for the shared activity UI, and
-writes tool execution audit rows linked by `recipe_run_id`. This proves the
-recipe execution path before the full recipes table and UI exist.
+the run, including redacted `toolCalls`/`toolResults` for the shared activity
+UI, and writes redacted tool execution audit rows linked by `recipe_run_id`.
+This proves the recipe execution path before the full recipes table and UI
+exist.
 
 ## Agent Wire
 
