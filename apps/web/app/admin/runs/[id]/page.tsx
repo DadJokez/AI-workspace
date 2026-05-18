@@ -8,6 +8,8 @@ import type {
   PersistedToolCall,
   PersistedToolResult,
 } from "@/lib/tool-events";
+import { canRetryWorkflowRun } from "@/lib/workflow-retry";
+import { RetryRunButton } from "../RetryRunButton";
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +81,7 @@ export default async function AdminRunDetailPage({ params }: Props) {
 
   const output = parseRunOutput(run.outputs);
   const prompt = parsePrompt(run.inputs);
+  const retryInfo = parseRetryInfo(run.inputs);
   const toolCalls = output.toolCalls ?? [];
   const toolResults = output.toolResults ?? [];
   const tokenText =
@@ -101,6 +104,9 @@ export default async function AdminRunDetailPage({ params }: Props) {
             {formatRecipe(run.recipeSlug)}
           </h2>
           <StatusBadge status={run.status} />
+          {canRetryWorkflowRun(run.status) ? (
+            <RetryRunButton runId={run.id} modelId={run.modelId} />
+          ) : null}
         </div>
         <p className="mt-1 text-[12px] text-muted">
           Stored workflow output, tool activity, and audit trail for this run.
@@ -179,6 +185,13 @@ export default async function AdminRunDetailPage({ params }: Props) {
                 value={run.actorName ?? run.actorEmail ?? "Unknown"}
               />
               <DetailRow label="Trigger" value={run.triggerType} />
+              {retryInfo ? (
+                <DetailLinkRow
+                  label="Retry of"
+                  href={`/admin/runs/${retryInfo.retryOfRunId}`}
+                  value={shortId(retryInfo.retryOfRunId)}
+                />
+              ) : null}
               <DetailRow
                 label="Model"
                 value={output.modelId ?? run.modelId ?? "n/a"}
@@ -265,6 +278,13 @@ function parsePrompt(value: unknown): string | undefined {
   return typeof value.prompt === "string" ? value.prompt : undefined;
 }
 
+function parseRetryInfo(value: unknown): { retryOfRunId: string } | undefined {
+  if (!isRecord(value)) return undefined;
+  return typeof value.retryOfRunId === "string"
+    ? { retryOfRunId: value.retryOfRunId }
+    : undefined;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -285,6 +305,30 @@ function DetailRow({ label, value }: { label: string; value: string }) {
     <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-2 px-3 py-2">
       <dt className="text-muted">{label}</dt>
       <dd className="truncate text-ink">{value}</dd>
+    </div>
+  );
+}
+
+function DetailLinkRow({
+  label,
+  href,
+  value,
+}: {
+  label: string;
+  href: string;
+  value: string;
+}) {
+  return (
+    <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-2 px-3 py-2">
+      <dt className="text-muted">{label}</dt>
+      <dd className="truncate">
+        <Link
+          href={href}
+          className="text-ink underline-offset-2 hover:underline"
+        >
+          {value}
+        </Link>
+      </dd>
     </div>
   );
 }

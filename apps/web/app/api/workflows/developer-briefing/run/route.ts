@@ -2,7 +2,7 @@ import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import { AuthConfigError } from "@ai-workspace/auth";
 import { getRuntime } from "@ai-workspace/cursor-runtime";
 import { auditLog, getDb, recipeRuns } from "@ai-workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
@@ -13,6 +13,10 @@ import {
   requestLimitConfig,
 } from "@/lib/request-limits";
 import { createToolEventAccumulator } from "@/lib/tool-events";
+import {
+  buildWorkflowRunInputs,
+  canRetryWorkflowRun,
+} from "@/lib/workflow-retry";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +40,7 @@ const DEVELOPER_BRIEFING_PROMPT = [
 
 interface PostBody {
   modelId?: string;
+  retryRunId?: string;
 }
 
 export async function POST(req: Request) {
@@ -71,9 +76,36 @@ export async function POST(req: Request) {
     typeof body.modelId === "string" && body.modelId.trim().length > 0
       ? body.modelId
       : DEFAULT_MODEL_ID;
+  const retryRunId =
+    typeof body.retryRunId === "string" && body.retryRunId.trim().length > 0
+      ? body.retryRunId.trim()
+      : null;
 
   const db = getDb();
   const runtime = getRuntime();
+
+  const retrySource = retryRunId
+    ? await findRetrySourceRun(db, sessionUser.id, retryRunId)
+    : null;
+  if (retryRunId && !retrySource) {
+    return NextResponse.json(
+      {
+        error: "retry_source_not_found",
+        message: "The run to retry was not found.",
+      },
+      { status: 404 },
+    );
+  }
+  if (retrySource && !canRetryWorkflowRun(retrySource.status)) {
+    return NextResponse.json(
+      {
+        error: "retry_not_allowed",
+        message: "Only failed or canceled workflow runs can be retried.",
+        run: serializeRun(retrySource),
+      },
+      { status: 409 },
+    );
+  }
 
   const rate = checkRateLimit(`workflow:${RECIPE_SLUG}:${sessionUser.id}`, {
     ...limits,
@@ -123,11 +155,15 @@ export async function POST(req: Request) {
     .values({
       userId: sessionUser.id,
       recipeSlug: RECIPE_SLUG,
-      triggerType: "manual",
+      triggerType: retrySource ? "manual_retry" : "manual",
       status: "running",
       runtime: runtime.name,
       modelId,
-      inputs: { prompt: DEVELOPER_BRIEFING_PROMPT },
+      inputs: buildWorkflowRunInputs({
+        prompt: DEVELOPER_BRIEFING_PROMPT,
+        retrySource,
+        retryRequestedAt: now,
+      }),
       startedAt: now,
       updatedAt: now,
     })
@@ -142,26 +178,39 @@ export async function POST(req: Request) {
         ? "github_attestation_required"
         : "github_not_connected";
       await markRunFailed(run.id, reason);
-      if (reason === "github_attestation_required") {
-        await db.insert(auditLog).values({
-          actorUserId: sessionUser.id,
-          actionType: "mcp_tool_attestation",
-          status: "denied",
-          provider: "github",
-          toolName: "*",
-          recipeRunId: run.id,
-          input: { provider: "github", recipeSlug: RECIPE_SLUG },
-          error:
-            'Tool provider "github" is connected but has no active user attestation.',
-          metadata: { modelId, runtime: runtime.name },
-          startedAt: new Date(),
-          completedAt: new Date(),
-        });
-      }
+      await db.insert(auditLog).values({
+        actorUserId: sessionUser.id,
+        actionType:
+          reason === "github_attestation_required"
+            ? "mcp_tool_attestation"
+            : "workflow_run",
+        status: "denied",
+        provider: "github",
+        toolName: "*",
+        recipeRunId: run.id,
+        input: { provider: "github", recipeSlug: RECIPE_SLUG },
+        error:
+          reason === "github_attestation_required"
+            ? 'Tool provider "github" is connected but has no active user attestation.'
+            : "GitHub is not connected for this user.",
+        metadata: {
+          modelId,
+          runtime: runtime.name,
+          reason,
+          ...(retrySource ? { retryOfRunId: retrySource.id } : {}),
+        },
+        startedAt: new Date(),
+        completedAt: new Date(),
+      });
       return NextResponse.json(
         {
           error: reason,
-          run: { id: run.id, status: "failed", recipeSlug: RECIPE_SLUG },
+          run: {
+            id: run.id,
+            status: "failed",
+            recipeSlug: RECIPE_SLUG,
+            retryOfRunId: retrySource?.id ?? null,
+          },
         },
         { status: 400 },
       );
@@ -213,7 +262,12 @@ export async function POST(req: Request) {
         {
           error: "workflow_failed",
           message,
-          run: { id: run.id, status: "failed", recipeSlug: RECIPE_SLUG },
+          run: {
+            id: run.id,
+            status: "failed",
+            recipeSlug: RECIPE_SLUG,
+            retryOfRunId: retrySource?.id ?? null,
+          },
           output,
         },
         { status: 500 },
@@ -245,7 +299,10 @@ export async function POST(req: Request) {
       .returning();
 
     return NextResponse.json({
-      run: serializeRun(updated[0]!),
+      run: {
+        ...serializeRun(updated[0]!),
+        retryOfRunId: retrySource?.id ?? null,
+      },
       output,
     });
   } catch (err) {
@@ -263,7 +320,12 @@ export async function POST(req: Request) {
       {
         error: "workflow_failed",
         message,
-        run: { id: run.id, status: "failed", recipeSlug: RECIPE_SLUG },
+        run: {
+          id: run.id,
+          status: "failed",
+          recipeSlug: RECIPE_SLUG,
+          retryOfRunId: retrySource?.id ?? null,
+        },
       },
       { status: 500 },
     );
@@ -286,6 +348,25 @@ export async function POST(req: Request) {
       })
       .where(eq(recipeRuns.id, runId));
   }
+}
+
+async function findRetrySourceRun(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  runId: string,
+) {
+  const rows = await db
+    .select()
+    .from(recipeRuns)
+    .where(
+      and(
+        eq(recipeRuns.id, runId),
+        eq(recipeRuns.userId, userId),
+        eq(recipeRuns.recipeSlug, RECIPE_SLUG),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 function serializeRun(row: typeof recipeRuns.$inferSelect) {

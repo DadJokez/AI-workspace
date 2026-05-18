@@ -334,8 +334,10 @@ the run, including redacted `toolCalls`/`toolResults` for the shared activity
 UI, and writes redacted tool execution audit rows linked by `recipe_run_id`.
 Admins can inspect recent runs at `/admin/runs` and open `/admin/runs/[id]` to
 review the stored briefing, activity timeline, redacted tool payloads, prompt,
-and linked audit events. This proves the recipe execution path before the full
-recipes table exists.
+and linked audit events. Failed or canceled Developer Briefing runs can be
+retried from the run detail page; the retry creates a new `recipe_runs` row with
+`triggerType = manual_retry` and records the source run id in `inputs`. This
+proves the recipe execution path before the full recipes table exists.
 
 ## Agent Wire
 
