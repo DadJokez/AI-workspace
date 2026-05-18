@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { AdminTabs } from "./AdminTabs";
 
@@ -23,12 +24,12 @@ export default async function AdminLayout({
             Workspace
           </span>
         </div>
-        <Link
-          href="/chat"
-          className="text-[13px] text-muted hover:text-ink"
-        >
-          ← Back to chat
-        </Link>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <Link href="/chat" className="text-[13px] text-muted hover:text-ink">
+            Back to chat
+          </Link>
+        </div>
       </header>
       <AdminTabs />
       <main className="flex-1">{children}</main>

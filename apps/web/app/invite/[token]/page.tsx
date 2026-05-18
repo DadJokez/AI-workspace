@@ -1,6 +1,7 @@
 import { getDb, invitations } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,10 @@ async function lookupInvitation(token: string): Promise<InviteLookup> {
 
 function ErrorPanel({ title, message }: { title: string; message: string }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-canvas px-6 text-ink">
+    <div className="relative flex min-h-screen items-center justify-center bg-canvas px-6 text-ink">
+      <div className="absolute right-4 top-4">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-md rounded-lg border border-hairline bg-subtle/30 p-8 text-center">
         <h1 className="text-base font-semibold">{title}</h1>
         <p className="mt-2 text-[13px] text-muted">{message}</p>
@@ -82,7 +86,10 @@ export default async function InvitePage({
   )}`;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-canvas px-6 text-ink">
+    <div className="relative flex min-h-screen items-center justify-center bg-canvas px-6 text-ink">
+      <div className="absolute right-4 top-4">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-md rounded-lg border border-hairline bg-subtle/30 p-8 text-center">
         <h1 className="text-base font-semibold">You&apos;ve been invited</h1>
         <p className="mt-2 text-[13px] text-muted">
