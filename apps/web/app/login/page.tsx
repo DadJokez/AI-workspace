@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { LoginButton } from "./LoginButton";
 
@@ -17,7 +18,10 @@ export default async function LoginPage({ searchParams }: Props) {
   }
 
   return (
-    <div className="flex min-h-dvh w-full items-center justify-center bg-canvas px-6 text-ink">
+    <div className="relative flex min-h-dvh w-full items-center justify-center bg-canvas px-6 text-ink">
+      <div className="absolute right-4 top-4">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-sm rounded-lg border border-hairline bg-surface px-6 py-8 shadow-sm">
         <div className="flex flex-col items-center gap-2 pb-6 text-center">
           <div className="flex h-9 w-9 items-center justify-center rounded-md bg-subtle text-sm font-medium text-ink">
