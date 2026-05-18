@@ -1150,11 +1150,14 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
 }
 
 function EmptyState({ onPick }: { onPick: (s: string) => void }) {
+  // Sample prompts that work today, not aspirational ones tied to
+  // integrations that aren't wired yet. GitHub MCP is the only live tool;
+  // the other prompts are pure-model so they work without any connections.
   const samples = [
-    "Summarize my emails from this week",
-    "What's on my calendar today?",
-    "Draft a follow-up based on my last meeting",
-    "Pull my open tasks and help me prioritize",
+    "Open GitHub issues assigned to me — what should I tackle first?",
+    "Summarize what shipped in my repos this week",
+    "Draft a concise project status update for my team",
+    "What can you help me with today?",
   ];
   return (
     <div className="flex flex-col items-center gap-4 py-24 text-center">
@@ -1162,7 +1165,9 @@ function EmptyState({ onPick }: { onPick: (s: string) => void }) {
         Talk to your work.
       </div>
       <p className="max-w-md text-sm text-muted">
-        Connect your tools and let AI get things done across your stack.
+        GitHub is wired up today. Office 365, Salesforce, and Workfront are
+        next — connect what you have in{" "}
+        <span className="text-ink">Tools</span>.
       </p>
       <div className="flex flex-wrap justify-center gap-2 pt-4">
         {samples.map((s) => (

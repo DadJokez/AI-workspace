@@ -317,6 +317,14 @@ export function SettingsPanel({
                   ))
                 )}
               </select>
+              {(() => {
+                const active = models.find((m) => m.id === currentDefault);
+                const blurb = active?.blurb?.trim();
+                if (!blurb) return null;
+                return (
+                  <p className="text-[12px] text-ink">{blurb}</p>
+                );
+              })()}
               <p className="text-[11px] text-muted">
                 New chats start with this model. You can still change the model
                 per-tab using the dropdown in the top bar.
