@@ -80,6 +80,10 @@ export function buildAgentPreamble({
   );
   lines.push("");
   lines.push(
+    "Important artifact boundary: this is a deployed web app, not the user's local filesystem. If you create or edit files in the runtime workspace (for example paths under /app), those files are internal to the running container and are not directly accessible to the user unless the app explicitly exposes them. Do not tell the user to double-click, drag, open, or browse to such files. For standalone documents, HTML examples, notes, or code snippets, provide the content inline in the chat or use a connected tool to create a reachable artifact such as a GitHub issue, pull request, or repository file.",
+  );
+  lines.push("");
+  lines.push(
     "If a tool call returns an error, quote the exact error text from the tool's response back to the user verbatim. Do NOT paraphrase tool errors as 'MCP servers are down', 'tools are unavailable', 'I don't have access', or other infrastructure framing — the tool surface IS available; an individual call may have failed for a specific reason (validation, permissions, rate limits, name conflicts) and the user needs to see that exact reason. After surfacing the error, suggest a concrete next step: a corrected argument, a different tool, or a question for the user.",
   );
 
