@@ -13,6 +13,7 @@ interface Props {
   onProfileUpdated: (next: {
     displayName: string;
     customInstructions: string | null;
+    defaultModelId?: string | null;
   }) => void;
   models: readonly ModelOption[];
   defaultModelId: string;
@@ -35,10 +36,15 @@ function deriveInitials(name: string, fallback: string): string {
 }
 
 async function patchUser(
-  patch: { displayName?: string; customInstructions?: string | null },
+  patch: {
+    displayName?: string;
+    customInstructions?: string | null;
+    defaultModelId?: string | null;
+  },
 ): Promise<{
   displayName: string;
   customInstructions: string | null;
+  defaultModelId: string | null;
 } | null> {
   try {
     const res = await fetch("/api/user", {
@@ -49,7 +55,11 @@ async function patchUser(
     });
     if (!res.ok) return null;
     const body = (await res.json()) as {
-      user: { displayName: string; customInstructions: string | null };
+      user: {
+        displayName: string;
+        customInstructions: string | null;
+        defaultModelId: string | null;
+      };
     };
     return body.user;
   } catch {
