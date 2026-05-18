@@ -9,6 +9,7 @@ import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
 import { ToolsPanel } from "@/components/ToolsPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { readSseStream } from "@/lib/sse";
+import type { AgentActivityEvent } from "@/lib/activity-events";
 import {
   parseToolName,
   type PersistedToolCall,
@@ -38,6 +39,7 @@ interface UiMessage {
   status?: string;
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
+  activityEvents?: AgentActivityEvent[];
 }
 
 export function mergeLoadedMessages(
@@ -117,6 +119,9 @@ interface ThreadMessage {
   runtime: "cursor" | "bedrock" | string | null;
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
+  activityEvents?: AgentActivityEvent[];
+  pending?: boolean;
+  status?: string;
   createdAt: string;
 }
 
@@ -613,8 +618,11 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           role: m.role,
           content: m.content,
           modelId: m.modelId ?? undefined,
+          pending: m.pending,
+          status: m.status,
           toolCalls: m.toolCalls ?? undefined,
           toolResults: m.toolResults ?? undefined,
+          activityEvents: m.activityEvents,
         }));
         setTabs((prev) =>
           prev.map((t) => {
@@ -1171,6 +1179,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                   status={m.status}
                   toolCalls={m.toolCalls}
                   toolResults={m.toolResults}
+                  activityEvents={m.activityEvents}
                 />
               ))
             )}

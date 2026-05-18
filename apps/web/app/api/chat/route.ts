@@ -22,6 +22,12 @@ import {
   contentLengthTooLarge,
   requestLimitConfig,
 } from "@/lib/request-limits";
+import {
+  appendRunEvent,
+  appendToolCallRunEvent,
+  appendToolResultRunEvent,
+  type AppendRunEventInput,
+} from "@/lib/run-events";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { buildTurnContext } from "@/lib/turn-context";
 
@@ -329,6 +335,43 @@ export async function POST(req: Request) {
     })
     .returning({ id: recipeRuns.id });
   const chatRunId = chatRunRows[0]!.id;
+  let runEventSequence = 0;
+  const nextRunEventSequence = () => {
+    runEventSequence += 1;
+    return runEventSequence;
+  };
+  const appendChatRunEvent = async (
+    input: Omit<AppendRunEventInput, "db" | "recipeRunId" | "sequence">,
+  ) => {
+    try {
+      await appendRunEvent({
+        db,
+        recipeRunId: chatRunId,
+        sequence: nextRunEventSequence(),
+        ...input,
+      });
+    } catch (err) {
+      process.stderr.write(
+        `[chat-run-event-error] ${JSON.stringify({
+          runId: chatRunId,
+          threadId: thread.id,
+          eventType: input.eventType,
+          message: err instanceof Error ? err.message : String(err),
+        })}\n`,
+      );
+    }
+  };
+  await appendChatRunEvent({
+    eventType: "run_started",
+    status: "pending",
+    label: "Started chat run",
+    metadata: {
+      threadId: thread.id,
+      modelId,
+      runtime: runtime.name,
+      mcpProviders: mcpServers ? Object.keys(mcpServers) : [],
+    },
+  });
 
   const encoder = new TextEncoder();
   const runtimeAbort = new AbortController();
@@ -417,6 +460,11 @@ export async function POST(req: Request) {
           error: "Client disconnected before the run started.",
           completedAt: new Date(),
         });
+        await appendChatRunEvent({
+          eventType: "run_disconnected",
+          status: "failed",
+          label: "Browser disconnected before the run started",
+        });
         close();
         return;
       }
@@ -455,6 +503,15 @@ export async function POST(req: Request) {
                 providerRun: metadata,
               }),
             });
+            await appendChatRunEvent({
+              eventType: "provider_run_started",
+              status: "pending",
+              label:
+                metadata.executionMode === "cloud"
+                  ? "Started Cursor Cloud run"
+                  : "Started Cursor run",
+              metadata: metadata as unknown as Record<string, unknown>,
+            });
           },
           ...(mcpServers ? { mcpServers } : {}),
         })) {
@@ -465,8 +522,34 @@ export async function POST(req: Request) {
             tokensOut = ev.tokensOut;
           } else if (ev.type === "tool-call") {
             toolEvents.recordCall(ev.call);
+            const persistedCall = toolEvents
+              .calls()
+              .find((call) => call.id === ev.call.id);
+            if (persistedCall) {
+              await appendToolCallRunEvent({
+                db,
+                recipeRunId: chatRunId,
+                sequence: nextRunEventSequence(),
+                call: persistedCall,
+              });
+            }
           } else if (ev.type === "tool-result") {
             toolEvents.recordResult(ev.result);
+            const persistedResult = toolEvents
+              .results()
+              .find((result) => result.toolCallId === ev.result.toolCallId);
+            if (persistedResult) {
+              const persistedCall = toolEvents
+                .calls()
+                .find((call) => call.id === ev.result.toolCallId);
+              await appendToolResultRunEvent({
+                db,
+                recipeRunId: chatRunId,
+                sequence: nextRunEventSequence(),
+                call: persistedCall,
+                result: persistedResult,
+              });
+            }
           } else if (ev.type === "error") {
             runtimeErrors.push(ev.message);
             // Yielded error events go to SSE without the route's try/catch
@@ -502,6 +585,13 @@ export async function POST(req: Request) {
           error: msg,
           outputs: buildChatRunOutput({ failureSite: "runtime" }),
           completedAt: new Date(),
+        });
+        await appendChatRunEvent({
+          eventType: "run_failed",
+          status: "failed",
+          label: "Run failed",
+          error: msg,
+          metadata: { failureSite: "runtime" },
         });
         close();
         return;
@@ -565,6 +655,13 @@ export async function POST(req: Request) {
           }),
           completedAt: new Date(),
         });
+        await appendChatRunEvent({
+          eventType: runError ? "run_failed" : "run_completed",
+          status: runError ? "failed" : "succeeded",
+          label: runError ? "Run ended with errors" : "Stored assistant answer",
+          ...(runError ? { error: runError } : {}),
+          metadata: { assistantMessageId, userMessageId: userMsg[0]!.id },
+        });
 
         send({
           type: "persisted",
@@ -589,6 +686,13 @@ export async function POST(req: Request) {
           error: msg,
           outputs: buildChatRunOutput({ failureSite: "persist" }),
           completedAt: new Date(),
+        });
+        await appendChatRunEvent({
+          eventType: "run_failed",
+          status: "failed",
+          label: "Could not store assistant answer",
+          error: msg,
+          metadata: { failureSite: "persist" },
         });
         send({ type: "error", message: msg });
       }

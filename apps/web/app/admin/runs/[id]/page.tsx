@@ -1,9 +1,10 @@
-import { auditLog, getDb, recipeRuns, users } from "@ai-workspace/db";
-import { desc, eq } from "drizzle-orm";
+import { auditLog, getDb, recipeRuns, runEvents, users } from "@ai-workspace/db";
+import { asc, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { MessageBubble } from "@/components/MessageBubble";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { runEventsToActivityEvents } from "@/lib/run-events";
 import type {
   PersistedToolCall,
   PersistedToolResult,
@@ -85,11 +86,30 @@ export default async function AdminRunDetailPage({ params }: Props) {
     .orderBy(desc(auditLog.createdAt))
     .limit(100);
 
+  const runEventRows = await db
+    .select({
+      id: runEvents.id,
+      sequence: runEvents.sequence,
+      eventType: runEvents.eventType,
+      status: runEvents.status,
+      label: runEvents.label,
+      provider: runEvents.provider,
+      toolName: runEvents.toolName,
+      toolCallId: runEvents.toolCallId,
+      error: runEvents.error,
+      occurredAt: runEvents.occurredAt,
+    })
+    .from(runEvents)
+    .where(eq(runEvents.recipeRunId, run.id))
+    .orderBy(asc(runEvents.sequence), asc(runEvents.occurredAt))
+    .limit(250);
+
   const output = parseRunOutput(run.outputs);
   const prompt = parsePrompt(run.inputs);
   const retryInfo = parseRetryInfo(run.inputs);
   const toolCalls = output.toolCalls ?? [];
   const toolResults = output.toolResults ?? [];
+  const activityEvents = runEventsToActivityEvents(runEventRows);
   const primaryOutput = output.briefingMarkdown ?? output.assistantText;
   const primaryOutputLabel =
     run.recipeSlug === "chat-turn" ? "Answer" : "Briefing";
@@ -161,11 +181,51 @@ export default async function AdminRunDetailPage({ params }: Props) {
                   modelId={output.modelId ?? run.modelId ?? undefined}
                   toolCalls={toolCalls}
                   toolResults={toolResults}
+                  activityEvents={
+                    activityEvents.length > 0 ? activityEvents : undefined
+                  }
                 />
               </div>
             ) : (
               <div className="rounded-md border border-hairline px-4 py-6 text-center text-[12px] text-muted">
                 No assistant output was stored for this run.
+              </div>
+            )}
+          </section>
+
+          <section>
+            <h3 className="mb-2 text-[13px] font-semibold text-ink">
+              Activity
+            </h3>
+            {runEventRows.length === 0 ? (
+              <div className="rounded-md border border-hairline px-4 py-6 text-center text-[12px] text-muted">
+                No run activity events are stored yet.
+              </div>
+            ) : (
+              <div className="divide-y divide-hairline rounded-md border border-hairline bg-surface">
+                {runEventRows.map((event) => (
+                  <div key={event.id} className="px-3 py-2 text-[12px]">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <StatusDot status={event.status} />
+                      <span className="font-medium text-ink">
+                        {event.label}
+                      </span>
+                      <span className="ml-auto shrink-0 text-muted">
+                        {formatDateTime(event.occurredAt)}
+                      </span>
+                    </div>
+                    <div className="mt-1 font-mono text-[11px] text-muted">
+                      {[event.eventType, event.provider, event.toolName]
+                        .filter(Boolean)
+                        .join(" / ")}
+                    </div>
+                    {event.error ? (
+                      <div className="mt-1 line-clamp-3 font-mono text-[11px] text-red-300">
+                        {event.error}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
               </div>
             )}
           </section>
@@ -378,7 +438,7 @@ function StatusDot({ status }: { status: string }) {
       ? "bg-green-400"
       : status === "failed"
         ? "bg-red-400"
-        : status === "running" || status === "started"
+        : status === "running" || status === "started" || status === "pending"
           ? "animate-pulse bg-blue-400"
           : status === "denied"
             ? "bg-yellow-400"

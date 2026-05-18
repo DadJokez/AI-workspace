@@ -1,10 +1,11 @@
 import { AuthConfigError } from "@ai-workspace/auth";
-import { chatMessages, chatThreads, getDb } from "@ai-workspace/db";
-import { and, asc, eq } from "drizzle-orm";
+import { chatThreads, getDb } from "@ai-workspace/db";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
 import { reconcileThreadChatRuns } from "@/lib/reconcile-chat-runs";
+import { loadThreadMessagesWithRunActivity } from "@/lib/thread-messages";
 
 export const dynamic = "force-dynamic";
 
@@ -57,20 +58,7 @@ export async function GET(
 
   await reconcileThreadChatRuns({ db, threadId });
 
-  const rows = await db
-    .select({
-      id: chatMessages.id,
-      role: chatMessages.role,
-      content: chatMessages.content,
-      modelId: chatMessages.modelId,
-      runtime: chatMessages.runtime,
-      toolCalls: chatMessages.toolCalls,
-      toolResults: chatMessages.toolResults,
-      createdAt: chatMessages.createdAt,
-    })
-    .from(chatMessages)
-    .where(eq(chatMessages.threadId, threadId))
-    .orderBy(asc(chatMessages.createdAt));
+  const rows = await loadThreadMessagesWithRunActivity({ db, threadId });
 
   return NextResponse.json({ messages: rows });
 }

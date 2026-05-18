@@ -16,6 +16,12 @@ import {
   contentLengthTooLarge,
   requestLimitConfig,
 } from "@/lib/request-limits";
+import {
+  appendRunEvent,
+  appendToolCallRunEvent,
+  appendToolResultRunEvent,
+  type AppendRunEventInput,
+} from "@/lib/run-events";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import {
   buildWorkflowRunInputs,
@@ -158,6 +164,43 @@ export async function POST(req: Request) {
     })
     .returning();
   const run = inserted[0]!;
+  let runEventSequence = 0;
+  const nextRunEventSequence = () => {
+    runEventSequence += 1;
+    return runEventSequence;
+  };
+  const appendWorkflowEvent = async (
+    input: Omit<AppendRunEventInput, "db" | "recipeRunId" | "sequence">,
+  ) => {
+    try {
+      await appendRunEvent({
+        db,
+        recipeRunId: run.id,
+        sequence: nextRunEventSequence(),
+        ...input,
+      });
+    } catch (err) {
+      process.stderr.write(
+        `[workflow-run-event-error] ${JSON.stringify({
+          runId: run.id,
+          recipeSlug: RECIPE_SLUG,
+          eventType: input.eventType,
+          message: err instanceof Error ? err.message : String(err),
+        })}\n`,
+      );
+    }
+  };
+  await appendWorkflowEvent({
+    eventType: "run_started",
+    status: "pending",
+    label: "Started Developer Briefing",
+    metadata: {
+      recipeSlug: RECIPE_SLUG,
+      modelId,
+      runtime: runtime.name,
+      ...(retrySource ? { retryOfRunId: retrySource.id } : {}),
+    },
+  });
 
   try {
     const mcpAccess = await buildUserMcpServers(db, sessionUser.id);
@@ -167,6 +210,16 @@ export async function POST(req: Request) {
         ? "github_attestation_required"
         : "github_not_connected";
       await markRunFailed(run.id, reason);
+      await appendWorkflowEvent({
+        eventType: "run_failed",
+        status: "failed",
+        label:
+          reason === "github_attestation_required"
+            ? "GitHub tool access needs approval"
+            : "GitHub is not connected",
+        error: reason,
+        provider: "github",
+      });
       await db.insert(auditLog).values({
         actorUserId: sessionUser.id,
         actionType:
@@ -227,8 +280,34 @@ export async function POST(req: Request) {
         tokensOut = ev.tokensOut;
       } else if (ev.type === "tool-call") {
         toolEvents.recordCall(ev.call);
+        const persistedCall = toolEvents
+          .calls()
+          .find((call) => call.id === ev.call.id);
+        if (persistedCall) {
+          await appendToolCallRunEvent({
+            db,
+            recipeRunId: run.id,
+            sequence: nextRunEventSequence(),
+            call: persistedCall,
+          });
+        }
       } else if (ev.type === "tool-result") {
         toolEvents.recordResult(ev.result);
+        const persistedResult = toolEvents
+          .results()
+          .find((result) => result.toolCallId === ev.result.toolCallId);
+        if (persistedResult) {
+          const persistedCall = toolEvents
+            .calls()
+            .find((call) => call.id === ev.result.toolCallId);
+          await appendToolResultRunEvent({
+            db,
+            recipeRunId: run.id,
+            sequence: nextRunEventSequence(),
+            call: persistedCall,
+            result: persistedResult,
+          });
+        }
       } else if (ev.type === "error") {
         errors.push(ev.message);
       }
@@ -247,6 +326,12 @@ export async function POST(req: Request) {
     if (errors.length > 0) {
       const message = errors.join("\n");
       await markRunFailed(run.id, message, output);
+      await appendWorkflowEvent({
+        eventType: "run_failed",
+        status: "failed",
+        label: "Developer Briefing failed",
+        error: message,
+      });
       return NextResponse.json(
         {
           error: "workflow_failed",
@@ -286,6 +371,12 @@ export async function POST(req: Request) {
       })
       .where(eq(recipeRuns.id, run.id))
       .returning();
+    await appendWorkflowEvent({
+      eventType: "run_completed",
+      status: "succeeded",
+      label: "Stored Developer Briefing",
+      metadata: { outputChars: briefingMarkdown.length },
+    });
 
     return NextResponse.json({
       run: {
@@ -297,6 +388,13 @@ export async function POST(req: Request) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await markRunFailed(run.id, message);
+    await appendWorkflowEvent({
+      eventType: "run_failed",
+      status: "failed",
+      label: "Developer Briefing failed",
+      error: message,
+      metadata: { failureSite: "route" },
+    });
     process.stderr.write(
       `[developer-briefing-error] ${JSON.stringify({
         runId: run.id,

@@ -306,6 +306,47 @@ export const recipeRuns = pgTable(
 );
 
 /**
+ * Append-only, reloadable activity stream for durable runs. `recipe_runs`
+ * remains the generalized run ledger for now; this table holds the ordered
+ * human-facing progress events that can be replayed after reconnect.
+ */
+export const runEvents = pgTable(
+  "run_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    recipeRunId: uuid("recipe_run_id")
+      .notNull()
+      .references(() => recipeRuns.id, { onDelete: "cascade" }),
+    sequence: integer("sequence").notNull(),
+    eventType: text("event_type").notNull(),
+    status: text("status").notNull().default("info"),
+    label: text("label").notNull(),
+    provider: text("provider"),
+    toolName: text("tool_name"),
+    toolCallId: text("tool_call_id"),
+    input: jsonb("input"),
+    output: jsonb("output"),
+    error: text("error"),
+    metadata: jsonb("metadata"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    runIdx: index("run_events_run_idx").on(
+      t.recipeRunId,
+      t.sequence,
+      t.occurredAt,
+    ),
+    typeIdx: index("run_events_type_idx").on(t.eventType),
+    toolCallIdx: index("run_events_tool_call_idx").on(t.toolCallId),
+  }),
+);
+
+/**
  * Admin-curated registry of MCP servers AI Hub can mount. Provider slugs stay
  * stable across OAuth, catalog, attestation, and runtime code.
  */
@@ -509,6 +550,8 @@ export type Invitation = typeof invitations.$inferSelect;
 export type NewInvitation = typeof invitations.$inferInsert;
 export type RecipeRun = typeof recipeRuns.$inferSelect;
 export type NewRecipeRun = typeof recipeRuns.$inferInsert;
+export type RunEvent = typeof runEvents.$inferSelect;
+export type NewRunEvent = typeof runEvents.$inferInsert;
 export type McpServer = typeof mcpServers.$inferSelect;
 export type NewMcpServer = typeof mcpServers.$inferInsert;
 export type AuditLog = typeof auditLog.$inferSelect;
