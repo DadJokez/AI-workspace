@@ -328,10 +328,13 @@ policy, Secrets Manager/KMS/IaC target, and 1k/10k/100k load-test model.
 
 `POST /api/workflows/developer-briefing/run` is the first production-shaped
 manual workflow route. It creates a `recipe_runs` row, mounts the user's
-attested GitHub MCP server, runs a fixed Developer Briefing prompt through the
-same `AgentRuntime` seam as chat, stores structured output/failure state on
-the run, including redacted `toolCalls`/`toolResults` for the shared activity
-UI, and writes redacted tool execution audit rows linked by `recipe_run_id`.
+attested GitHub MCP server, builds a dated Developer Briefing prompt through
+`lib/developer-briefing.ts`, and runs it through the same `AgentRuntime` seam as
+chat. The prompt asks GitHub read tools to aggregate authored PRs,
+review-requested PRs, stale PRs, and CI/check state into a fixed Markdown
+briefing. The route stores structured output/failure state on the run, including
+redacted `toolCalls`/`toolResults` for the shared activity UI, and writes
+redacted tool execution audit rows linked by `recipe_run_id`.
 Admins can inspect recent runs at `/admin/runs` and open `/admin/runs/[id]` to
 review the stored briefing, activity timeline, redacted tool payloads, prompt,
 and linked audit events. Failed or canceled Developer Briefing runs can be
