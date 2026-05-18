@@ -118,7 +118,7 @@ the browser. For long work, `CURSOR_RUNTIME_MODE=cloud` dispatches to Cursor
 Cloud. The SDK exposes provider-side `agentId`/`runId`, `Agent.getRun(...)`,
 `run.wait()`, and `run.conversation()`, so AI Hub can rehydrate a run after a
 browser disconnect or App Runner's 120-second HTTP timeout. The control-plane
-record still lives in AI Hub (`recipe_runs` today, likely `agent_runs` later).
+record still lives in AI Hub's generalized run ledger (`recipe_runs` for now).
 
 Do not assume Cursor owns enterprise scheduling, quota enforcement, data
 retention, redaction, or long-term product memory. Cursor is the runtime
@@ -192,7 +192,10 @@ If `RUNTIME=bedrock` is set, steps 5–8 collapse into a stateless `runAgentLoop
 ## Long-running runs and activity state
 
 `recipe_runs` is the durable execution ledger for recipes, scheduled jobs,
-chat-originated runs, and workflow-style agent turns. It stores the user,
+chat-originated runs, and workflow-style agent turns. See
+[`RUNS_DECISION.md`](./RUNS_DECISION.md) for the decision to keep one
+generalized run ledger rather than split chat and recipe execution into
+separate lifecycle tables. It stores the user,
 optional future `recipe_id`, early `recipe_slug`, trigger type (`chat`,
 `manual`, `scheduled`, etc.), runtime/model metadata, inputs, outputs, error
 text, and lifecycle timestamps.
@@ -212,20 +215,25 @@ rebuilt from `chat_messages.tool_calls/tool_results`, so completed tool work
 remains visible even when the live SSE stream is gone. Network/browser stream
 drops are labeled as connection loss rather than model failure.
 
+`run_events` is the append-only reloadable progress stream keyed to
+`recipe_runs.id`. Chat turns and the Developer Briefing workflow write
+high-level lifecycle events plus redacted tool-call/tool-result events. Thread
+history and admin run detail can replay those events after reconnect, so users
+can see what a long-running agent was doing even when the browser stream is no
+longer live.
+
 Workflow runs use the same event shape. The Developer Briefing route stores
-redacted `toolCalls` and `toolResults` in `recipe_runs.outputs`; the future
-recipe/run detail UI should render those with the same activity component. The
-admin run detail page at `/admin/runs/[id]` already reuses that chat activity
-renderer for completed runs. If scheduled or background runs need mid-run
-reconnect before completion, add a sibling `run_events` table keyed by
-`recipe_run_id` rather than changing the event shape.
+redacted `toolCalls` and `toolResults` in `recipe_runs.outputs` for terminal
+output, writes `run_events` for reloadable progress, and writes `audit_log`
+rows for compliance. The admin run detail page at `/admin/runs/[id]` reuses the
+chat activity renderer and also shows the raw run-event timeline.
 
 This is still a bridge, not the final job system. The production-grade version
 of #89 should move execution and reconciliation into an ECS/Fargate worker (or
-SQS/EventBridge/Step Functions path) and persist mid-run activity in
-`run_events`. The important boundary is now clear: Cursor Cloud owns durable
-agent execution; AI Hub owns identity, run state, audit, retry/cancel policy,
-tool governance, and the enterprise user experience.
+SQS/EventBridge/Step Functions path). The important boundary is now clear:
+Cursor Cloud owns durable agent execution; AI Hub owns identity, run state,
+activity replay, audit, retry/cancel policy, tool governance, and the
+enterprise user experience.
 
 ## Audit ledger
 

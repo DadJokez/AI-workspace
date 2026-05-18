@@ -27,6 +27,7 @@ interface Props {
   status?: string;
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
+  activityEvents?: AgentActivityEvent[];
 }
 
 export function MessageBubble({
@@ -37,6 +38,7 @@ export function MessageBubble({
   status,
   toolCalls = [],
   toolResults = [],
+  activityEvents: persistedActivityEvents,
 }: Props) {
   if (role === "user") {
     return (
@@ -59,7 +61,7 @@ export function MessageBubble({
   const showThinking = role === "assistant" && pending && content.length === 0;
   const activityEvents =
     role === "assistant"
-      ? buildToolActivityEvents(toolCalls, toolResults)
+      ? persistedActivityEvents ?? buildToolActivityEvents(toolCalls, toolResults)
       : [];
   const activitySummary = summarizeActivity(activityEvents, pending, status);
   const showActivity =

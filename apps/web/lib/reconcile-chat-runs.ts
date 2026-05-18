@@ -6,6 +6,7 @@ import {
 } from "@ai-workspace/db";
 import { getCursorCloudRunSnapshot } from "@ai-workspace/cursor-runtime";
 import { and, desc, eq } from "drizzle-orm";
+import { appendRunEventWithNextSequence } from "@/lib/run-events";
 
 const MIN_RECOVERY_AGE_MS = 130_000;
 const RECOVERY_POLL_INTERVAL_MS = 15_000;
@@ -130,6 +131,28 @@ export async function reconcileThreadChatRuns({
           .set({ updatedAt: completedAt })
           .where(eq(chatThreads.id, threadId));
       }
+
+      await appendRunEventWithNextSequence({
+        db,
+        recipeRunId: row.id,
+        eventType:
+          terminalStatus === "succeeded" ? "run_recovered" : "run_failed",
+        status: terminalStatus === "succeeded" ? "succeeded" : "failed",
+        label:
+          terminalStatus === "succeeded"
+            ? "Recovered finished Cursor Cloud run"
+            : terminalStatus === "canceled"
+              ? "Cursor Cloud run was canceled"
+              : "Cursor Cloud run ended with an error",
+        ...(terminalStatus === "failed"
+          ? { error: "Cursor Cloud run ended with an error." }
+          : {}),
+        metadata: {
+          providerRunId: snapshot.providerRunId,
+          providerAgentId: snapshot.providerAgentId,
+          ...(assistantMessageId ? { assistantMessageId } : {}),
+        },
+      });
 
       await db
         .update(recipeRuns)
