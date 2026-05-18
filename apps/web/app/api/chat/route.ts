@@ -336,7 +336,6 @@ export async function POST(req: Request) {
           return false;
         }
       };
-
       // Tell the client which thread this turn is on, before model output.
       if (!send({
         type: "meta",
@@ -347,6 +346,9 @@ export async function POST(req: Request) {
         close();
         return;
       }
+      const heartbeat = setInterval(() => {
+        send({ type: "heartbeat", at: new Date().toISOString() });
+      }, 15_000);
 
       let assistantText = "";
       let tokensIn = 0;
@@ -406,6 +408,8 @@ export async function POST(req: Request) {
         send({ type: "error", message: msg });
         close();
         return;
+      } finally {
+        clearInterval(heartbeat);
       }
 
       // Anything that throws after the runtime loop ends (DB persist, etc.)
