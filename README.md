@@ -58,6 +58,8 @@ pnpm dev          # http://localhost:3000
 |---|---|
 | `RUNTIME` | `cursor` (default) or `bedrock` |
 | `CURSOR_API_KEY` | Required for Cursor runtime |
+| `CURSOR_RUNTIME_MODE` | `local` (current process) or `cloud` (Cursor Cloud durable runs) |
+| `CURSOR_CLOUD_REPO_URL` / `CURSOR_CLOUD_REPO_REF` | Optional repo and starting ref for Cursor Cloud agents |
 | `NEXTAUTH_SECRET` | NextAuth JWT signing secret |
 | `GITHUB_AUTH_CLIENT_ID` / `GITHUB_AUTH_CLIENT_SECRET` | GitHub OAuth App for sign-in |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Separate GitHub OAuth App for per-user MCP tokens |

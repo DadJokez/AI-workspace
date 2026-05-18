@@ -1,6 +1,7 @@
 import type { AgentEvent, AgentMessage } from "@ai-workspace/agent";
 import { Agent } from "@cursor/sdk";
 import type {
+  CloudAgentOptions,
   McpServerConfig,
   SDKAgent,
   SDKMessage,
@@ -24,6 +25,13 @@ export interface CursorRuntimeOptions {
   /** Cursor API key. Falls back to `process.env.CURSOR_API_KEY` if omitted. */
   apiKey?: string;
   /**
+   * `local` runs inside this Node/App Runner process. `cloud` dispatches to
+   * Cursor Cloud so long work can outlive the browser/App Runner request.
+   */
+  executionMode?: CursorExecutionMode;
+  /** Cursor Cloud options, used only when `executionMode = "cloud"`. */
+  cloud?: CloudAgentOptions;
+  /**
    * Stores the most recent Cursor `agentId` for visibility/debugging. The
    * runtime does not read it for continuity while fresh-agent-per-turn is in
    * place.
@@ -36,6 +44,8 @@ export interface CursorRuntimeOptions {
    */
   mcpServers?: readonly McpServerConfigStub[];
 }
+
+export type CursorExecutionMode = "local" | "cloud";
 
 export interface ThreadAgentRecord {
   agentId: string;
@@ -77,6 +87,10 @@ export class CursorRuntime implements AgentRuntime {
   constructor(opts: CursorRuntimeOptions = {}) {
     this.opts = opts;
     this.store = opts.threadAgentStore ?? new InMemoryThreadAgentStore();
+  }
+
+  private get executionMode(): CursorExecutionMode {
+    return this.opts.executionMode ?? "local";
   }
 
   async *runTurn(input: TurnInput): AsyncIterable<AgentEvent> {
@@ -132,6 +146,7 @@ export class CursorRuntime implements AgentRuntime {
         `[mcp-debug:agent.send] ${JSON.stringify({
           threadId: input.threadId,
           agentId: agent.agentId,
+          executionMode: this.executionMode,
           createdFresh,
           mcpKeys: turnMcp ? Object.keys(turnMcp) : [],
         })}\n`,
@@ -151,6 +166,13 @@ export class CursorRuntime implements AgentRuntime {
       };
       return;
     }
+
+    await input.onRunStarted?.({
+      runtime: this.name,
+      providerAgentId: agent.agentId,
+      providerRunId: run.id,
+      executionMode: this.executionMode,
+    });
 
     const onAbort = () => {
       void run.cancel().catch(() => {});
@@ -194,6 +216,9 @@ export class CursorRuntime implements AgentRuntime {
       `[mcp-debug:agent.create] ${JSON.stringify({
         threadId: input.threadId,
         modelId: toCursorModelId(input.modelId),
+        executionMode: this.executionMode,
+        cloudConfigured: this.executionMode === "cloud",
+        cloudRepoCount: this.opts.cloud?.repos?.length ?? 0,
         mergedMcpDefined: !!mergedMcp,
         mergedMcpKeys: mergedMcp ? Object.keys(mergedMcp) : [],
         perKey: mergedMcp
@@ -216,6 +241,9 @@ export class CursorRuntime implements AgentRuntime {
     const agent = await Agent.create({
       apiKey: this.opts.apiKey,
       model: { id: toCursorModelId(input.modelId) },
+      ...(this.executionMode === "cloud"
+        ? { cloud: this.opts.cloud ?? {} }
+        : {}),
       ...(mergedMcp ? { mcpServers: mergedMcp } : {}),
     });
     process.stderr.write(

@@ -19,12 +19,18 @@ interface Props {
 
 interface RunOutput {
   briefingMarkdown?: string;
+  assistantText?: string;
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
   tokensIn?: number;
   tokensOut?: number;
   modelId?: string;
   runtime?: string;
+  providerRun?: {
+    providerAgentId?: string;
+    providerRunId?: string;
+    executionMode?: string;
+  };
 }
 
 export default async function AdminRunDetailPage({ params }: Props) {
@@ -84,6 +90,9 @@ export default async function AdminRunDetailPage({ params }: Props) {
   const retryInfo = parseRetryInfo(run.inputs);
   const toolCalls = output.toolCalls ?? [];
   const toolResults = output.toolResults ?? [];
+  const primaryOutput = output.briefingMarkdown ?? output.assistantText;
+  const primaryOutputLabel =
+    run.recipeSlug === "chat-turn" ? "Answer" : "Briefing";
   const tokenText =
     typeof output.tokensIn === "number" || typeof output.tokensOut === "number"
       ? `${output.tokensIn ?? 0} in / ${output.tokensOut ?? 0} out`
@@ -142,13 +151,13 @@ export default async function AdminRunDetailPage({ params }: Props) {
 
           <section>
             <h3 className="mb-2 text-[13px] font-semibold text-ink">
-              Briefing
+              {primaryOutputLabel}
             </h3>
-            {output.briefingMarkdown ? (
+            {primaryOutput ? (
               <div className="rounded-md border border-hairline bg-surface px-4 py-3">
                 <MessageBubble
                   role="assistant"
-                  content={output.briefingMarkdown}
+                  content={primaryOutput}
                   modelId={output.modelId ?? run.modelId ?? undefined}
                   toolCalls={toolCalls}
                   toolResults={toolResults}
@@ -156,7 +165,7 @@ export default async function AdminRunDetailPage({ params }: Props) {
               </div>
             ) : (
               <div className="rounded-md border border-hairline px-4 py-6 text-center text-[12px] text-muted">
-                No briefing output was stored for this run.
+                No assistant output was stored for this run.
               </div>
             )}
           </section>
@@ -196,6 +205,18 @@ export default async function AdminRunDetailPage({ params }: Props) {
                 label="Model"
                 value={output.modelId ?? run.modelId ?? "n/a"}
               />
+              {output.providerRun?.executionMode ? (
+                <DetailRow
+                  label="Mode"
+                  value={output.providerRun.executionMode}
+                />
+              ) : null}
+              {output.providerRun?.providerRunId ? (
+                <DetailRow
+                  label="Provider run"
+                  value={shortId(output.providerRun.providerRunId)}
+                />
+              ) : null}
               <DetailRow label="Created" value={formatDateTime(run.createdAt)} />
               <DetailRow label="Updated" value={formatDateTime(run.updatedAt)} />
             </dl>
@@ -260,6 +281,8 @@ function parseRunOutput(value: unknown): RunOutput {
       typeof value.briefingMarkdown === "string"
         ? value.briefingMarkdown
         : undefined,
+    assistantText:
+      typeof value.assistantText === "string" ? value.assistantText : undefined,
     toolCalls: Array.isArray(value.toolCalls)
       ? (value.toolCalls as PersistedToolCall[])
       : undefined,
@@ -270,6 +293,22 @@ function parseRunOutput(value: unknown): RunOutput {
     tokensOut: typeof value.tokensOut === "number" ? value.tokensOut : undefined,
     modelId: typeof value.modelId === "string" ? value.modelId : undefined,
     runtime: typeof value.runtime === "string" ? value.runtime : undefined,
+    providerRun: isRecord(value.providerRun)
+      ? {
+          providerAgentId:
+            typeof value.providerRun.providerAgentId === "string"
+              ? value.providerRun.providerAgentId
+              : undefined,
+          providerRunId:
+            typeof value.providerRun.providerRunId === "string"
+              ? value.providerRun.providerRunId
+              : undefined,
+          executionMode:
+            typeof value.providerRun.executionMode === "string"
+              ? value.providerRun.executionMode
+              : undefined,
+        }
+      : undefined,
   };
 }
 

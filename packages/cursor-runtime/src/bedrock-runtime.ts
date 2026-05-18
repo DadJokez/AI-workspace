@@ -26,6 +26,8 @@ export class BedrockRuntime implements AgentRuntime {
   }
 
   async *runTurn(input: TurnInput): AsyncIterable<AgentEvent> {
+    await input.onRunStarted?.({ runtime: this.name });
+
     if (!isValidModelId(input.modelId)) {
       yield {
         type: "error",

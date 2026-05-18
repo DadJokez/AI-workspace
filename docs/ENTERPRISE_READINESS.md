@@ -142,6 +142,7 @@ Secrets inventory:
 |---|---|---|
 | `NEXTAUTH_SECRET` | App Runner env | Secrets Manager, rotate on incident |
 | `CURSOR_API_KEY` | App Runner env | Secrets Manager, service-owned Cursor key |
+| `CURSOR_RUNTIME_MODE` / `CURSOR_CLOUD_*` | App Runner env | Secrets Manager/IaC-managed runtime substrate config |
 | `DATABASE_URL` | App Runner env / CodeBuild | Secrets Manager dynamic reference |
 | `OAUTH_ENCRYPTION_KEY` | App Runner env | KMS-backed secret, rotation plan required |
 | `GITHUB_AUTH_CLIENT_SECRET` | App Runner env | Secrets Manager |
