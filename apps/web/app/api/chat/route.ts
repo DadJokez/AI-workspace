@@ -26,6 +26,8 @@ import { buildTurnContext } from "@/lib/turn-context";
 
 export const dynamic = "force-dynamic";
 
+const CHAT_RUNTIME_TIMEOUT_MS = 8 * 60 * 1000;
+
 // One-time diagnostic: surface Node's `warning` events with their stack so
 // MaxListenersExceeded (and similar) point at the actual leaking call site.
 // Guarded against multiple registrations under HMR / serverless cold starts.
@@ -302,8 +304,7 @@ export async function POST(req: Request) {
   );
 
   const encoder = new TextEncoder();
-  const abort = new AbortController();
-  req.signal.addEventListener("abort", () => abort.abort());
+  const runtimeAbort = new AbortController();
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -318,7 +319,7 @@ export async function POST(req: Request) {
         }
       };
       const send = (obj: unknown): boolean => {
-        if (closed || abort.signal.aborted) return false;
+        if (closed) return false;
         try {
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify(obj)}\n\n`),
@@ -326,7 +327,6 @@ export async function POST(req: Request) {
           return true;
         } catch (err) {
           closed = true;
-          abort.abort();
           process.stderr.write(
             `[chat-stream-closed] ${JSON.stringify({
               threadId: thread.id,
@@ -349,6 +349,21 @@ export async function POST(req: Request) {
       const heartbeat = setInterval(() => {
         send({ type: "heartbeat", at: new Date().toISOString() });
       }, 15_000);
+      const runtimeTimeout = setTimeout(
+        () => {
+          runtimeAbort.abort();
+          process.stderr.write(
+            `[chat-run-timeout] ${JSON.stringify({
+              threadId: thread.id,
+              userId: sessionUser.id,
+              modelId,
+              timeoutMs: CHAT_RUNTIME_TIMEOUT_MS,
+            })}\n`,
+          );
+        },
+        CHAT_RUNTIME_TIMEOUT_MS,
+      );
+      runtimeTimeout.unref?.();
 
       let assistantText = "";
       let tokensIn = 0;
@@ -363,7 +378,7 @@ export async function POST(req: Request) {
           modelId,
           messages: agentMessages,
           context: { userId: sessionUser.id },
-          signal: abort.signal,
+          signal: runtimeAbort.signal,
           firstTurnPreamble,
           ...(mcpServers ? { mcpServers } : {}),
         })) {
@@ -389,10 +404,9 @@ export async function POST(req: Request) {
               })}\n`,
             );
           }
-          if (!send(ev)) return;
+          send(ev);
         }
       } catch (err) {
-        if (closed || abort.signal.aborted) return;
         const msg = err instanceof Error ? err.message : String(err);
         const stack = err instanceof Error ? err.stack : undefined;
         process.stderr.write(
@@ -410,6 +424,7 @@ export async function POST(req: Request) {
         return;
       } finally {
         clearInterval(heartbeat);
+        clearTimeout(runtimeTimeout);
       }
 
       // Anything that throws after the runtime loop ends (DB persist, etc.)
@@ -458,7 +473,6 @@ export async function POST(req: Request) {
           threadId: thread.id,
         });
       } catch (err) {
-        if (closed || abort.signal.aborted) return;
         const msg = err instanceof Error ? err.message : String(err);
         const stack = err instanceof Error ? err.stack : undefined;
         process.stderr.write(
@@ -477,7 +491,10 @@ export async function POST(req: Request) {
       close();
     },
     cancel() {
-      abort.abort();
+      // Browser/App Runner disconnects must not cancel the underlying agent
+      // work. App Runner has a hard 120s HTTP request limit; long research
+      // runs should still be allowed to finish and persist to the thread so
+      // the user can reopen the chat history and see the result.
     },
   });
 
