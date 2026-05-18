@@ -2,6 +2,10 @@ import type {
   PersistedToolCall,
   PersistedToolResult,
 } from "@/lib/tool-events";
+import {
+  redactErrorText,
+  redactToolPayload,
+} from "@/lib/tool-redaction";
 
 export interface BuildToolAuditRowsInput {
   actorUserId: string;
@@ -122,9 +126,13 @@ function buildRow({
     chatThreadId: chatThreadId ?? null,
     chatMessageId: chatMessageId ?? null,
     recipeRunId: recipeRunId ?? null,
-    input: call?.input ?? null,
-    output: result?.isError ? null : (result?.output ?? null),
-    error: result?.isError ? stringifyAuditError(result.output) : null,
+    input: call
+      ? (redactToolPayload(call.input) as Record<string, unknown>)
+      : null,
+    output: result?.isError
+      ? null
+      : (redactToolPayload(result?.output) ?? null),
+    error: result?.isError ? redactErrorText(result.output) : null,
     metadata: {
       ...(rawToolName ? { rawToolName } : {}),
       modelId,
@@ -133,13 +141,4 @@ function buildRow({
     startedAt: call ? new Date(call.startedAt) : null,
     completedAt: result ? new Date(result.completedAt) : null,
   };
-}
-
-function stringifyAuditError(output: unknown): string {
-  if (typeof output === "string") return output;
-  try {
-    return JSON.stringify(output);
-  } catch {
-    return String(output);
-  }
 }

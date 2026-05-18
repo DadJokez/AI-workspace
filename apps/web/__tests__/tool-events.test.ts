@@ -80,6 +80,37 @@ describe("createToolEventAccumulator", () => {
     ]);
   });
 
+  it("redacts sensitive tool payloads before they are persisted", () => {
+    const acc = createToolEventAccumulator(["github"], () =>
+      new Date("2026-05-15T10:00:00.000Z"),
+    );
+
+    acc.recordCall({
+      id: "call_secret",
+      name: "github_create_issue",
+      input: {
+        title: "Safe title",
+        Authorization: "Bearer abcdefghijklmnopqrstuvwxyz012345",
+      },
+    });
+    acc.recordResult({
+      toolCallId: "call_secret",
+      output: {
+        id: 123,
+        refresh_token: "secret-refresh-token",
+      },
+    });
+
+    expect(acc.calls()[0]?.input).toEqual({
+      title: "Safe title",
+      Authorization: "[redacted]",
+    });
+    expect(acc.results()[0]?.output).toEqual({
+      id: 123,
+      refresh_token: "[redacted]",
+    });
+  });
+
   it("preserves error results even when the matching call was not seen", () => {
     const acc = createToolEventAccumulator([], () =>
       new Date("2026-05-15T10:00:02.000Z"),
