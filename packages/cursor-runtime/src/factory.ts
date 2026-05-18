@@ -1,7 +1,8 @@
 import type { Database } from "@ai-workspace/db";
+import type { CloudAgentOptions } from "@cursor/sdk";
 
 import { BedrockRuntime } from "./bedrock-runtime";
-import { CursorRuntime } from "./cursor-runtime";
+import { CursorRuntime, type CursorExecutionMode } from "./cursor-runtime";
 import { DbThreadAgentStore } from "./db-thread-agent-store";
 import type { AgentRuntime, RuntimeName } from "./types";
 
@@ -32,12 +33,91 @@ export function getRuntime(opts: GetRuntimeOptions = {}): AgentRuntime {
     );
   }
   if (raw === "bedrock") return new BedrockRuntime();
+  const executionMode = parseCursorExecutionMode(process.env.CURSOR_RUNTIME_MODE);
   return new CursorRuntime({
     apiKey: process.env.CURSOR_API_KEY,
+    executionMode,
+    ...(executionMode === "cloud"
+      ? { cloud: buildCursorCloudOptionsFromEnv() }
+      : {}),
     ...(opts.db ? { threadAgentStore: new DbThreadAgentStore(opts.db) } : {}),
   });
 }
 
 function isValidRuntime(s: string): s is RuntimeName {
   return (VALID_RUNTIMES as readonly string[]).includes(s);
+}
+
+function parseCursorExecutionMode(
+  value: string | undefined,
+): CursorExecutionMode {
+  const raw = (value ?? "local").toLowerCase();
+  if (raw === "cloud" || raw === "local") return raw;
+  throw new Error(
+    `Unknown CURSOR_RUNTIME_MODE='${value}'. Expected 'local' or 'cloud'.`,
+  );
+}
+
+function buildCursorCloudOptionsFromEnv(): CloudAgentOptions {
+  const repoUrl = trimEnv("CURSOR_CLOUD_REPO_URL");
+  const startingRef = trimEnv("CURSOR_CLOUD_REPO_REF");
+  const envType = parseCursorCloudEnvType(process.env.CURSOR_CLOUD_ENV_TYPE);
+  const envName = trimEnv("CURSOR_CLOUD_ENV_NAME");
+
+  return {
+    env: {
+      type: envType,
+      ...(envName ? { name: envName } : {}),
+    },
+    ...(repoUrl
+      ? {
+          repos: [
+            {
+              url: repoUrl,
+              ...(startingRef ? { startingRef } : {}),
+            },
+          ],
+        }
+      : {}),
+    ...(booleanEnv("CURSOR_CLOUD_WORK_ON_CURRENT_BRANCH") !== undefined
+      ? {
+          workOnCurrentBranch: booleanEnv(
+            "CURSOR_CLOUD_WORK_ON_CURRENT_BRANCH",
+          ),
+        }
+      : {}),
+    ...(booleanEnv("CURSOR_CLOUD_AUTO_CREATE_PR") !== undefined
+      ? { autoCreatePR: booleanEnv("CURSOR_CLOUD_AUTO_CREATE_PR") }
+      : {}),
+    ...(booleanEnv("CURSOR_CLOUD_SKIP_REVIEWER_REQUEST") !== undefined
+      ? {
+          skipReviewerRequest: booleanEnv(
+            "CURSOR_CLOUD_SKIP_REVIEWER_REQUEST",
+          ),
+        }
+      : {}),
+  };
+}
+
+function parseCursorCloudEnvType(
+  value: string | undefined,
+): "cloud" | "pool" | "machine" {
+  const raw = (value ?? "cloud").toLowerCase();
+  if (raw === "cloud" || raw === "pool" || raw === "machine") return raw;
+  throw new Error(
+    `Unknown CURSOR_CLOUD_ENV_TYPE='${value}'. Expected cloud, pool, or machine.`,
+  );
+}
+
+function trimEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
+function booleanEnv(name: string): boolean | undefined {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (!value) return undefined;
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  throw new Error(`Invalid boolean env ${name}='${process.env[name]}'.`);
 }

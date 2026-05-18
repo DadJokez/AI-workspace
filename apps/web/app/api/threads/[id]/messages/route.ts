@@ -4,6 +4,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
+import { reconcileThreadChatRuns } from "@/lib/reconcile-chat-runs";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,8 @@ export async function GET(
   if (!owned[0]) {
     return NextResponse.json({ error: "thread_not_found" }, { status: 404 });
   }
+
+  await reconcileThreadChatRuns({ db, threadId });
 
   const rows = await db
     .select({

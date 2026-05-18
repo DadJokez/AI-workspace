@@ -19,6 +19,17 @@ export type McpServerSpec =
       headers?: Record<string, string>;
     };
 
+export interface RuntimeRunMetadata {
+  /** Runtime implementation that started the provider run. */
+  runtime: RuntimeName;
+  /** Provider-side agent/session id, when the runtime exposes one. */
+  providerAgentId?: string;
+  /** Provider-side run id, when the runtime exposes one. */
+  providerRunId?: string;
+  /** Runtime substrate. Cursor uses `local` by default and `cloud` for durable work. */
+  executionMode?: "local" | "cloud";
+}
+
 /**
  * Runtime-agnostic turn input. Both runtimes accept this shape; the adapter
  * decides how to map it onto its native call.
@@ -58,6 +69,12 @@ export interface TurnInput {
    * ignores.
    */
   firstTurnPreamble?: string;
+  /**
+   * Called once the provider has accepted the turn and returned provider-side
+   * ids. The web layer uses this to make long runs recoverable after the
+   * browser stream or hosting request is gone.
+   */
+  onRunStarted?: (metadata: RuntimeRunMetadata) => void | Promise<void>;
 }
 
 /**

@@ -62,8 +62,8 @@ export default async function AdminRunsPage({ searchParams }: Props) {
       <div className="px-6 pb-3 pt-4">
         <h2 className="text-base font-semibold text-ink">Runs</h2>
         <p className="mt-1 text-[12px] text-muted">
-          Recent workflow and recipe executions, including Developer Briefing
-          runs.
+          Recent chat, workflow, and recipe executions, including Developer
+          Briefing runs.
         </p>
       </div>
 

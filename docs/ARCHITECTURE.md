@@ -104,13 +104,21 @@ governance, user experience, or portability.
 ## Cursor SDK capability matrix
 
 This matrix captures the current J1-J3 runtime boundary for `@cursor/sdk`
-v1.0.12 and Cursor's public SDK guidance from April 2026.
+v1.0.13 and Cursor's public SDK guidance from April 2026.
 
 | Journey | Cursor SDK supports | AI Hub must own | Current stance |
 |---|---|---|---|
 | **J1 Chat** | `Agent.create`, `agent.send`, model selection, `run.stream()`, cancellation, and local/cloud execution options. | Auth, thread ownership, Postgres messages, bounded context, user settings, model labels, UI state, and fallback runtime selection. | Supported. Fresh-agent-per-turn remains the default; AI Hub supplies bounded prior context instead of depending on Cursor for product memory. |
 | **J2 Chat with Tools** | MCP servers passed inline or loaded from Cursor config; HTTP/SSE/stdio MCP shapes are represented by the SDK; streamed run events expose tool activity enough for the chat activity timeline. | Per-user OAuth token vault, provider-level mount gating, audit rows, tool/result persistence, lower-level tool/category policy, user-facing connection flows, and redaction. | Supported with constraints. The current gate controls whether a provider is mounted. Tool/category enforcement is not yet enforced by `.cursor/hooks.json`; it needs a verified hook workflow or an MCP proxy. |
 | **J3 Scheduled Agents** | Programmatic agent runs can be started by backend code, streamed, waited on, cancelled, and tied to the same runtime seam. | Schedule definitions, worker/cron trigger, `recipe_runs`, idempotency, retries, timeouts, quotas, delivery destinations, reconnect UI, and failure handling. | Feasible, but not a Cursor feature by itself. Treat scheduling as an AI Hub control-plane layer around the SDK. |
+
+For short interactive chat, `CURSOR_RUNTIME_MODE=local` preserves the current
+behavior: the Cursor SDK run lives in the web container and streams directly to
+the browser. For long work, `CURSOR_RUNTIME_MODE=cloud` dispatches to Cursor
+Cloud. The SDK exposes provider-side `agentId`/`runId`, `Agent.getRun(...)`,
+`run.wait()`, and `run.conversation()`, so AI Hub can rehydrate a run after a
+browser disconnect or App Runner's 120-second HTTP timeout. The control-plane
+record still lives in AI Hub (`recipe_runs` today, likely `agent_runs` later).
 
 Do not assume Cursor owns enterprise scheduling, quota enforcement, data
 retention, redaction, or long-term product memory. Cursor is the runtime
@@ -184,9 +192,18 @@ If `RUNTIME=bedrock` is set, steps 5–8 collapse into a stateless `runAgentLoop
 ## Long-running runs and activity state
 
 `recipe_runs` is the durable execution ledger for recipes, scheduled jobs,
-and workflow-style agent turns. It stores the user, optional future
-`recipe_id`, early `recipe_slug`, trigger type (`manual`, `scheduled`, etc.),
-runtime/model metadata, inputs, outputs, error text, and lifecycle timestamps.
+chat-originated runs, and workflow-style agent turns. It stores the user,
+optional future `recipe_id`, early `recipe_slug`, trigger type (`chat`,
+`manual`, `scheduled`, etc.), runtime/model metadata, inputs, outputs, error
+text, and lifecycle timestamps.
+
+Every chat turn now creates a `recipe_runs` row with `recipe_slug = chat-turn`
+before the runtime starts. When Cursor accepts the turn, AI Hub stores the
+provider-side Cursor agent/run ids in `outputs.providerRun`. For local Cursor
+runs this is visibility only; for Cursor Cloud runs it is a recovery handle. If
+the browser stream is gone, reopening the thread reconciles old running cloud
+runs with `Agent.getRun(...)`. Terminal cloud runs are folded back into
+`chat_messages` and marked succeeded/failed/canceled in `recipe_runs`.
 
 The chat surface now has the first user-facing activity timeline. During a
 streaming turn, tool-call and tool-result events update a compact activity row
@@ -202,6 +219,13 @@ admin run detail page at `/admin/runs/[id]` already reuses that chat activity
 renderer for completed runs. If scheduled or background runs need mid-run
 reconnect before completion, add a sibling `run_events` table keyed by
 `recipe_run_id` rather than changing the event shape.
+
+This is still a bridge, not the final job system. The production-grade version
+of #89 should move execution and reconciliation into an ECS/Fargate worker (or
+SQS/EventBridge/Step Functions path) and persist mid-run activity in
+`run_events`. The important boundary is now clear: Cursor Cloud owns durable
+agent execution; AI Hub owns identity, run state, audit, retry/cancel policy,
+tool governance, and the enterprise user experience.
 
 ## Audit ledger
 

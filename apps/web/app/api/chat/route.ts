@@ -1,12 +1,13 @@
 import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import { AuthConfigError } from "@ai-workspace/auth";
-import { getRuntime } from "@ai-workspace/cursor-runtime";
+import { getRuntime, type RuntimeRunMetadata } from "@ai-workspace/cursor-runtime";
 import {
   auditLog,
   type ChatThread,
   chatMessages,
   chatThreads,
   getDb,
+  recipeRuns,
   users,
 } from "@ai-workspace/db";
 import { and, asc, eq } from "drizzle-orm";
@@ -51,6 +52,8 @@ interface ChatRequestBody {
   threadId?: string;
   modelId?: string;
 }
+
+type ChatRunStatus = "queued" | "running" | "succeeded" | "failed" | "canceled";
 
 /**
  * POST /api/chat — single-turn chat against the agent loop.
@@ -303,6 +306,30 @@ export async function POST(req: Request) {
     })}\n`,
   );
 
+  const chatRunStartedAt = new Date();
+  const chatRunRows = await db
+    .insert(recipeRuns)
+    .values({
+      userId: sessionUser.id,
+      threadId: thread.id,
+      recipeSlug: "chat-turn",
+      triggerType: "chat",
+      status: "running",
+      runtime: runtime.name,
+      modelId,
+      inputs: {
+        prompt: body.message,
+        threadId: thread.id,
+        userMessageId: userMsg[0]!.id,
+        mcpProviders: mcpServers ? Object.keys(mcpServers) : [],
+        deniedMcpProviders,
+      },
+      startedAt: chatRunStartedAt,
+      updatedAt: chatRunStartedAt,
+    })
+    .returning({ id: recipeRuns.id });
+  const chatRunId = chatRunRows[0]!.id;
+
   const encoder = new TextEncoder();
   const runtimeAbort = new AbortController();
 
@@ -336,13 +363,60 @@ export async function POST(req: Request) {
           return false;
         }
       };
-      // Tell the client which thread this turn is on, before model output.
+      let assistantText = "";
+      let tokensIn = 0;
+      let tokensOut = 0;
+      let providerRunMetadata: RuntimeRunMetadata | null = null;
+      const runtimeErrors: string[] = [];
+      const toolEvents = createToolEventAccumulator(
+        mcpServers ? Object.keys(mcpServers) : [],
+      );
+      const buildChatRunOutput = (extra: Record<string, unknown> = {}) => ({
+        assistantText,
+        toolCalls: toolEvents.calls(),
+        toolResults: toolEvents.results(),
+        tokensIn,
+        tokensOut,
+        modelId,
+        runtime: runtime.name,
+        ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
+        ...extra,
+      });
+      const updateChatRun = async (values: {
+        status?: ChatRunStatus;
+        outputs?: unknown;
+        error?: string | null;
+        completedAt?: Date | null;
+      }) => {
+        try {
+          await db
+            .update(recipeRuns)
+            .set({ ...values, updatedAt: new Date() })
+            .where(eq(recipeRuns.id, chatRunId));
+        } catch (err) {
+          process.stderr.write(
+            `[chat-run-update-error] ${JSON.stringify({
+              runId: chatRunId,
+              threadId: thread.id,
+              message: err instanceof Error ? err.message : String(err),
+            })}\n`,
+          );
+        }
+      };
+
+      // Tell the client which thread/run this turn is on, before model output.
       if (!send({
         type: "meta",
         threadId: thread.id,
+        runId: chatRunId,
         userMessageId: userMsg[0]!.id,
         modelId,
       })) {
+        await updateChatRun({
+          status: "canceled",
+          error: "Client disconnected before the run started.",
+          completedAt: new Date(),
+        });
         close();
         return;
       }
@@ -365,13 +439,6 @@ export async function POST(req: Request) {
       );
       runtimeTimeout.unref?.();
 
-      let assistantText = "";
-      let tokensIn = 0;
-      let tokensOut = 0;
-      const toolEvents = createToolEventAccumulator(
-        mcpServers ? Object.keys(mcpServers) : [],
-      );
-
       try {
         for await (const ev of runtime.runTurn({
           threadId: thread.id,
@@ -380,6 +447,15 @@ export async function POST(req: Request) {
           context: { userId: sessionUser.id },
           signal: runtimeAbort.signal,
           firstTurnPreamble,
+          onRunStarted: async (metadata) => {
+            providerRunMetadata = metadata;
+            await updateChatRun({
+              outputs: buildChatRunOutput({
+                lifecycle: "provider_started",
+                providerRun: metadata,
+              }),
+            });
+          },
           ...(mcpServers ? { mcpServers } : {}),
         })) {
           if (ev.type === "text-delta") {
@@ -392,6 +468,7 @@ export async function POST(req: Request) {
           } else if (ev.type === "tool-result") {
             toolEvents.recordResult(ev.result);
           } else if (ev.type === "error") {
+            runtimeErrors.push(ev.message);
             // Yielded error events go to SSE without the route's try/catch
             // ever firing. Mirror to stderr so CloudWatch sees them too.
             process.stderr.write(
@@ -420,6 +497,12 @@ export async function POST(req: Request) {
           })}\n`,
         );
         send({ type: "error", message: msg });
+        await updateChatRun({
+          status: "failed",
+          error: msg,
+          outputs: buildChatRunOutput({ failureSite: "runtime" }),
+          completedAt: new Date(),
+        });
         close();
         return;
       } finally {
@@ -433,6 +516,11 @@ export async function POST(req: Request) {
       // to stderr with the same `[chat-error]` tag the route uses elsewhere,
       // and send the detail to the client as an `error` SSE event.
       try {
+        const timeoutError = runtimeAbort.signal.aborted
+          ? `Chat runtime timed out after ${CHAT_RUNTIME_TIMEOUT_MS}ms.`
+          : null;
+        const runError =
+          timeoutError ?? (runtimeErrors.length > 0 ? runtimeErrors.join("\n") : null);
         const persisted = await db
           .insert(chatMessages)
           .values({
@@ -452,6 +540,7 @@ export async function POST(req: Request) {
           actorUserId: sessionUser.id,
           chatThreadId: thread.id,
           chatMessageId: assistantMessageId,
+          recipeRunId: chatRunId,
           modelId,
           runtime: runtime.name,
           calls: toolEvents.calls(),
@@ -466,6 +555,16 @@ export async function POST(req: Request) {
           .update(chatThreads)
           .set({ updatedAt: new Date() })
           .where(eq(chatThreads.id, thread.id));
+
+        await updateChatRun({
+          status: runError ? "failed" : "succeeded",
+          error: runError,
+          outputs: buildChatRunOutput({
+            assistantMessageId,
+            userMessageId: userMsg[0]!.id,
+          }),
+          completedAt: new Date(),
+        });
 
         send({
           type: "persisted",
@@ -485,6 +584,12 @@ export async function POST(req: Request) {
             stack,
           })}\n`,
         );
+        await updateChatRun({
+          status: "failed",
+          error: msg,
+          outputs: buildChatRunOutput({ failureSite: "persist" }),
+          completedAt: new Date(),
+        });
         send({ type: "error", message: msg });
       }
 
