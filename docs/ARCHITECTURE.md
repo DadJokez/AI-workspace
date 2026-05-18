@@ -197,10 +197,11 @@ drops are labeled as connection loss rather than model failure.
 
 Workflow runs use the same event shape. The Developer Briefing route stores
 redacted `toolCalls` and `toolResults` in `recipe_runs.outputs`; the future
-recipe/run detail UI should render those with the same activity component. If
-scheduled or background runs need mid-run reconnect before completion, add a
-sibling `run_events` table keyed by `recipe_run_id` rather than changing the
-event shape.
+recipe/run detail UI should render those with the same activity component. The
+admin run detail page at `/admin/runs/[id]` already reuses that chat activity
+renderer for completed runs. If scheduled or background runs need mid-run
+reconnect before completion, add a sibling `run_events` table keyed by
+`recipe_run_id` rather than changing the event shape.
 
 ## Audit ledger
 
@@ -331,8 +332,10 @@ attested GitHub MCP server, runs a fixed Developer Briefing prompt through the
 same `AgentRuntime` seam as chat, stores structured output/failure state on
 the run, including redacted `toolCalls`/`toolResults` for the shared activity
 UI, and writes redacted tool execution audit rows linked by `recipe_run_id`.
-This proves the recipe execution path before the full recipes table and UI
-exist.
+Admins can inspect recent runs at `/admin/runs` and open `/admin/runs/[id]` to
+review the stored briefing, activity timeline, redacted tool payloads, prompt,
+and linked audit events. This proves the recipe execution path before the full
+recipes table exists.
 
 ## Agent Wire
 
