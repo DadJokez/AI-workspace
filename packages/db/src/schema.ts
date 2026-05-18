@@ -103,6 +103,12 @@ export const users = pgTable(
      * instructions. NULL = no extra steering.
      */
     customInstructions: text("custom_instructions"),
+    /**
+     * Preferred model id for new chats. Stored as the Cursor-facing model id
+     * (for example `default` or `claude-sonnet-4-6`) so the preference follows
+     * the user across browsers and machines. NULL = use app default.
+     */
+    defaultModelId: text("default_model_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -77,6 +77,7 @@ interface UserResponse {
     displayName: string;
     role: "admin" | "user";
     customInstructions: string | null;
+    defaultModelId: string | null;
   };
 }
 
@@ -366,6 +367,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       .then((data) => {
         if (cancelled || !data?.user) return;
         setUser(data.user);
+        if (data.user.defaultModelId) {
+          setUserDefaultModelId(data.user.defaultModelId);
+        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -379,17 +383,19 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     };
   }, []);
 
-  // Default-model preference is per-user but stored in localStorage rather
-  // than the DB — it's a UI affordance, not a profile field.
+  // Prefer the account-level default model from /api/user. The localStorage
+  // read is a migration bridge for preferences saved before this became a
+  // server-side profile field.
   useEffect(() => {
     if (!user?.id || typeof window === "undefined") return;
+    if (user.defaultModelId) return;
     try {
       const dm = localStorage.getItem(`${DEFAULT_MODEL_PREFIX}${user.id}`);
       if (dm) setUserDefaultModelId(dm as string);
     } catch {
       /* ignore */
     }
-  }, [user?.id]);
+  }, [user?.id, user?.defaultModelId]);
 
   // Open settings via ⌘,/Ctrl,
   useEffect(() => {
@@ -406,18 +412,37 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   function handleProfileUpdated(next: {
     displayName: string;
     customInstructions: string | null;
+    defaultModelId?: string | null;
   }) {
     setUser((prev) => (prev ? { ...prev, ...next } : prev));
   }
 
-  function updateUserDefaultModel(id: string) {
-    if (!user?.id || typeof window === "undefined") return;
+  async function updateUserDefaultModel(id: string) {
+    if (!user?.id) return;
     try {
-      localStorage.setItem(`${DEFAULT_MODEL_PREFIX}${user.id}`, id);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`${DEFAULT_MODEL_PREFIX}${user.id}`, id);
+      }
     } catch {
       /* ignore */
     }
     setUserDefaultModelId(id);
+    setUser((prev) => (prev ? { ...prev, defaultModelId: id } : prev));
+
+    try {
+      const res = await fetch("/api/user", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ defaultModelId: id }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as UserResponse;
+      setUser(body.user);
+      setUserDefaultModelId(body.user.defaultModelId ?? id);
+    } catch (err) {
+      console.error("failed to save default model", err);
+    }
   }
 
   // Validate every tab's modelId against the loaded model registry.
@@ -433,6 +458,22 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       ),
     );
   }, [models, defaultModelId]);
+
+  // If the account-level default model arrives after the initial model list,
+  // keep blank new-chat tabs aligned with the user's preference. Thread tabs
+  // keep their saved per-thread model.
+  useEffect(() => {
+    if (models.length === 0 || !userDefaultModelId) return;
+    const validIds = new Set(models.map((m) => m.id));
+    if (!validIds.has(userDefaultModelId)) return;
+    setTabs((prev) =>
+      prev.map((t) =>
+        !t.threadId && t.messages.length === 0
+          ? { ...t, modelId: userDefaultModelId }
+          : t,
+      ),
+    );
+  }, [models, userDefaultModelId]);
 
   // Restore tabs from localStorage once we know who the user is.
   // Runs at most once per session (gated by `bootstrapped`).
@@ -646,7 +687,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       if (idx === -1) return prev;
       const next = prev.filter((t) => t.id !== id);
       if (next.length === 0) {
-        const fresh = makeFreshTab(defaultModelId);
+        const fresh = makeFreshTab(freshTabModel());
         setActiveId(fresh.id);
         return [fresh];
       }
@@ -722,7 +763,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     setTabs((prev) => {
       const next = prev.filter((t) => t.threadId !== threadId);
       if (next.length === 0) {
-        const fresh = makeFreshTab(defaultModelId);
+        const fresh = makeFreshTab(freshTabModel());
         setActiveId(fresh.id);
         return [fresh];
       }

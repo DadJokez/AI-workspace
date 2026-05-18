@@ -9,10 +9,12 @@ export const dynamic = "force-dynamic";
 interface PatchBody {
   displayName?: string;
   customInstructions?: string | null;
+  defaultModelId?: string | null;
 }
 
 const DISPLAY_NAME_MAX = 80;
 const CUSTOM_INSTRUCTIONS_MAX = 4000;
+const DEFAULT_MODEL_ID_MAX = 120;
 
 function profileFromRow(row: {
   id: string;
@@ -20,6 +22,7 @@ function profileFromRow(row: {
   displayName: string;
   role: "admin" | "user";
   customInstructions: string | null;
+  defaultModelId: string | null;
 }) {
   return {
     id: row.id,
@@ -27,6 +30,7 @@ function profileFromRow(row: {
     displayName: row.displayName,
     role: row.role,
     customInstructions: row.customInstructions,
+    defaultModelId: row.defaultModelId,
   };
 }
 
@@ -80,7 +84,11 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const patch: { displayName?: string; customInstructions?: string | null } = {};
+  const patch: {
+    displayName?: string;
+    customInstructions?: string | null;
+    defaultModelId?: string | null;
+  } = {};
 
   if (body.displayName !== undefined) {
     if (typeof body.displayName !== "string") {
@@ -122,6 +130,29 @@ export async function PATCH(req: Request) {
         );
       }
       patch.customInstructions = trimmed.length > 0 ? trimmed : null;
+    }
+  }
+
+  if (body.defaultModelId !== undefined) {
+    if (body.defaultModelId === null) {
+      patch.defaultModelId = null;
+    } else if (typeof body.defaultModelId !== "string") {
+      return NextResponse.json(
+        { error: "invalid_defaultModelId" },
+        { status: 400 },
+      );
+    } else {
+      const trimmed = body.defaultModelId.trim();
+      if (trimmed.length === 0) {
+        patch.defaultModelId = null;
+      } else if (trimmed.length > DEFAULT_MODEL_ID_MAX) {
+        return NextResponse.json(
+          { error: "defaultModelId_too_long" },
+          { status: 400 },
+        );
+      } else {
+        patch.defaultModelId = trimmed;
+      }
     }
   }
 
