@@ -90,6 +90,7 @@ export async function loadThreadMessagesWithRunActivity({
             id: runEvents.id,
             recipeRunId: runEvents.recipeRunId,
             sequence: runEvents.sequence,
+            eventType: runEvents.eventType,
             status: runEvents.status,
             label: runEvents.label,
             toolCallId: runEvents.toolCallId,

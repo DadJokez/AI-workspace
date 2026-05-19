@@ -151,24 +151,33 @@ export async function appendToolResultRunEvent({
 }
 
 export function runEventsToActivityEvents(
-  events: readonly Pick<
+  events: readonly (Pick<
     RunEvent,
     | "id"
     | "sequence"
+    | "eventType"
     | "status"
     | "label"
     | "toolCallId"
     | "error"
     | "occurredAt"
-  >[],
+  > & { eventType?: string })[],
 ): AgentActivityEvent[] {
   const latestToolEvents = new Map<string, AgentActivityEvent>();
   const generalEvents: AgentActivityEvent[] = [];
+  const sortedEvents = [...events].sort(compareRunEvents);
+  let terminalSequence: number | null = null;
+  for (const event of sortedEvents) {
+    if (isTerminalRunEvent(event.eventType)) {
+      terminalSequence = event.sequence;
+    }
+  }
 
-  for (const event of [...events].sort(compareRunEvents)) {
+  for (const event of sortedEvents) {
+    const state = normalizeActivityState(event, terminalSequence);
     const activity = {
       id: event.toolCallId ?? event.id,
-      state: toActivityState(event.status),
+      state,
       label: event.label,
       ...(event.error ? { detail: event.error } : {}),
       at: event.occurredAt.toISOString(),
@@ -199,4 +208,33 @@ function toActivityState(status: string): ActivityState {
   if (status === "failed") return "failed";
   if (status === "pending") return "pending";
   return "succeeded";
+}
+
+function normalizeActivityState(
+  event: Pick<RunEvent, "sequence" | "status" | "toolCallId"> & {
+    eventType?: string;
+  },
+  terminalSequence: number | null,
+): ActivityState {
+  if (event.eventType === "run_canceled") {
+    return "succeeded";
+  }
+  if (
+    terminalSequence !== null &&
+    event.sequence < terminalSequence &&
+    !event.toolCallId &&
+    event.status === "pending"
+  ) {
+    return "succeeded";
+  }
+  return toActivityState(event.status);
+}
+
+function isTerminalRunEvent(eventType?: string): boolean {
+  return (
+    eventType === "run_completed" ||
+    eventType === "run_failed" ||
+    eventType === "run_canceled" ||
+    eventType === "worker_stopped_after_cancel"
+  );
 }

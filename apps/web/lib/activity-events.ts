@@ -61,8 +61,17 @@ export function summarizeActivity(
   const failed = events.filter((event) => event.state === "failed").length;
   if (failed > 0) return `${failed} step ${failed === 1 ? "needs" : "need"} attention`;
   const pendingCount = events.filter((event) => event.state === "pending").length;
-  if (pendingCount > 0) {
+  if (pending && pendingCount > 0) {
     return `${pendingCount} ${pendingCount === 1 ? "step" : "steps"} running`;
+  }
+  const latest = events[events.length - 1];
+  if (!pending && latest?.state === "succeeded") {
+    if (/stored assistant answer/i.test(latest.label)) {
+      return "Finished response";
+    }
+    if (/run canceled/i.test(latest.label)) {
+      return "Run canceled";
+    }
   }
   return events.length > 1 ? "Finished research" : "Finished checking";
 }

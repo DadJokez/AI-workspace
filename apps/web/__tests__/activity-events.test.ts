@@ -121,4 +121,30 @@ describe("summarizeActivity", () => {
       ),
     ).toBe("1 step needs attention");
   });
+
+  it("does not count historical lifecycle events as still running", () => {
+    expect(
+      summarizeActivity(
+        [
+          {
+            id: "evt_1",
+            state: "succeeded",
+            label: "Queued background chat run",
+          },
+          {
+            id: "evt_2",
+            state: "succeeded",
+            label: "Background worker claimed the run",
+          },
+          {
+            id: "evt_3",
+            state: "succeeded",
+            label: "Stored assistant answer",
+          },
+        ],
+        false,
+        undefined,
+      ),
+    ).toBe("Finished response");
+  });
 });
