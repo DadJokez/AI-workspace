@@ -12,7 +12,7 @@ import {
   type RecipeRun,
   users,
 } from "@ai-workspace/db";
-import { and, asc, eq, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, lt, ne, or, sql } from "drizzle-orm";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
@@ -120,6 +120,9 @@ export async function processQueuedChatRun({
     await executeClaimedChatRun({ db, run: claimed, workerId, signal });
     return { status: "succeeded", runId: claimed.id };
   } catch (err) {
+    if (await isRunCanceled(db, claimed.id)) {
+      return { status: "succeeded", runId: claimed.id };
+    }
     const message = err instanceof Error ? err.message : String(err);
     await markRunFailed(db, claimed, message);
     process.stderr.write(
@@ -405,87 +408,108 @@ async function executeClaimedChatRun({
       metadata: { runtime: runtime.name, modelId: run.modelId },
     });
 
-    for await (const ev of runtime.runTurn({
-      threadId: thread.id,
-      modelId: run.modelId ?? "default",
-      messages: agentMessages,
-      context: { userId: run.userId },
-      signal: runtimeAbort.signal,
-      firstTurnPreamble,
-      onRunStarted: async (metadata) => {
-        providerRunMetadata = metadata;
-        await db
-          .update(recipeRuns)
-          .set({
-            outputs: buildOutput({
-              lifecycle: "provider_started",
-              providerRun: metadata,
-            }),
-            updatedAt: new Date(),
-          })
-          .where(eq(recipeRuns.id, run.id));
-        await appendWorkerRunEvent(db, run.id, {
-          eventType: "provider_run_started",
-          status: "pending",
-          label:
-            metadata.executionMode === "cloud"
-              ? "Started Cursor Cloud run"
-              : "Started Cursor run",
-          metadata: metadata as unknown as Record<string, unknown>,
-        });
-      },
-      ...(mcpServers ? { mcpServers } : {}),
-    })) {
-      if (ev.type === "text-delta") {
-        assistantText += ev.delta;
-      } else if (ev.type === "usage") {
-        tokensIn = ev.tokensIn;
-        tokensOut = ev.tokensOut;
-      } else if (ev.type === "tool-call") {
-        toolEvents.recordCall(ev.call);
-        const persistedCall = toolEvents
-          .calls()
-          .find((call) => call.id === ev.call.id);
-        if (persistedCall) {
-          await appendToolCallRunEvent({
-            db,
-            recipeRunId: run.id,
-            sequence: await nextRunEventSequence(db, run.id),
-            call: persistedCall,
+    try {
+      for await (const ev of runtime.runTurn({
+        threadId: thread.id,
+        modelId: run.modelId ?? "default",
+        messages: agentMessages,
+        context: { userId: run.userId },
+        signal: runtimeAbort.signal,
+        firstTurnPreamble,
+        onRunStarted: async (metadata) => {
+          providerRunMetadata = metadata;
+          await db
+            .update(recipeRuns)
+            .set({
+              outputs: buildOutput({
+                lifecycle: "provider_started",
+                providerRun: metadata,
+              }),
+              updatedAt: new Date(),
+            })
+            .where(eq(recipeRuns.id, run.id));
+          await appendWorkerRunEvent(db, run.id, {
+            eventType: "provider_run_started",
+            status: "pending",
+            label:
+              metadata.executionMode === "cloud"
+                ? "Started Cursor Cloud run"
+                : "Started Cursor run",
+            metadata: metadata as unknown as Record<string, unknown>,
           });
+        },
+        ...(mcpServers ? { mcpServers } : {}),
+      })) {
+        if (await isRunCanceled(db, run.id)) {
+          runtimeAbort.abort();
+          break;
         }
-      } else if (ev.type === "tool-result") {
-        toolEvents.recordResult(ev.result);
-        const persistedResult = toolEvents
-          .results()
-          .find((result) => result.toolCallId === ev.result.toolCallId);
-        if (persistedResult) {
+        if (ev.type === "text-delta") {
+          assistantText += ev.delta;
+        } else if (ev.type === "usage") {
+          tokensIn = ev.tokensIn;
+          tokensOut = ev.tokensOut;
+        } else if (ev.type === "tool-call") {
+          toolEvents.recordCall(ev.call);
           const persistedCall = toolEvents
             .calls()
-            .find((call) => call.id === ev.result.toolCallId);
-          await appendToolResultRunEvent({
-            db,
-            recipeRunId: run.id,
-            sequence: await nextRunEventSequence(db, run.id),
-            call: persistedCall,
-            result: persistedResult,
-          });
+            .find((call) => call.id === ev.call.id);
+          if (persistedCall) {
+            await appendToolCallRunEvent({
+              db,
+              recipeRunId: run.id,
+              sequence: await nextRunEventSequence(db, run.id),
+              call: persistedCall,
+            });
+          }
+        } else if (ev.type === "tool-result") {
+          toolEvents.recordResult(ev.result);
+          const persistedResult = toolEvents
+            .results()
+            .find((result) => result.toolCallId === ev.result.toolCallId);
+          if (persistedResult) {
+            const persistedCall = toolEvents
+              .calls()
+              .find((call) => call.id === ev.result.toolCallId);
+            await appendToolResultRunEvent({
+              db,
+              recipeRunId: run.id,
+              sequence: await nextRunEventSequence(db, run.id),
+              call: persistedCall,
+              result: persistedResult,
+            });
+          }
+        } else if (ev.type === "error") {
+          runtimeErrors.push(ev.message);
+          process.stderr.write(
+            `[chat-run-worker-runtime-error] ${JSON.stringify({
+              runId: run.id,
+              threadId: thread.id,
+              message: ev.message,
+            })}\n`,
+          );
         }
-      } else if (ev.type === "error") {
-        runtimeErrors.push(ev.message);
-        process.stderr.write(
-          `[chat-run-worker-runtime-error] ${JSON.stringify({
-            runId: run.id,
-            threadId: thread.id,
-            message: ev.message,
-          })}\n`,
-        );
+      }
+    } catch (err) {
+      if (await isRunCanceled(db, run.id)) {
+        runtimeAbort.abort();
+      } else {
+        throw err;
       }
     }
   } finally {
     clearInterval(heartbeat);
     clearTimeout(timeout);
     signal?.removeEventListener("abort", externalAbort);
+  }
+
+  if (await isRunCanceled(db, run.id)) {
+    await appendWorkerRunEvent(db, run.id, {
+      eventType: "worker_stopped_after_cancel",
+      status: "failed",
+      label: "Worker stopped after cancellation",
+    });
+    return;
   }
 
   if (
@@ -570,6 +594,9 @@ async function reconcileExistingCursorCloudRun({
   const expiresAt = Date.now() + timeoutMs;
 
   while (!signal?.aborted) {
+    if (await isRunCanceled(db, run.id)) {
+      return;
+    }
     await heartbeatRunLease(db, run.id);
     const snapshot = await getCursorCloudRunSnapshot({
       apiKey: process.env.CURSOR_API_KEY,
@@ -657,6 +684,8 @@ async function persistAssistantResult({
   terminalStatus: ChatRunTerminalStatus;
   error: string | null;
 }): Promise<void> {
+  if (await isRunCanceled(db, run.id)) return;
+
   const output = parseOutput(run.outputs);
   let assistantMessageId = output.assistantMessageId;
 
@@ -692,13 +721,15 @@ async function persistAssistantResult({
     await db.insert(auditLog).values(toolAuditRows);
   }
 
+  if (await isRunCanceled(db, run.id)) return;
+
   await db
     .update(chatThreads)
     .set({ updatedAt: new Date() })
     .where(eq(chatThreads.id, threadId));
 
   const completedAt = new Date();
-  await db
+  const updatedRows = await db
     .update(recipeRuns)
     .set({
       status: terminalStatus,
@@ -722,7 +753,10 @@ async function persistAssistantResult({
       completedAt,
       updatedAt: completedAt,
     })
-    .where(eq(recipeRuns.id, run.id));
+    .where(and(eq(recipeRuns.id, run.id), ne(recipeRuns.status, "canceled")))
+    .returning({ id: recipeRuns.id });
+
+  if (updatedRows.length === 0) return;
 
   await appendWorkerRunEvent(db, run.id, {
     eventType: terminalStatus === "succeeded" ? "run_completed" : "run_failed",
@@ -741,8 +775,10 @@ async function markRunFailed(
   run: RecipeRun,
   message: string,
 ): Promise<void> {
+  if (await isRunCanceled(db, run.id)) return;
+
   const completedAt = new Date();
-  await db
+  const updatedRows = await db
     .update(recipeRuns)
     .set({
       status: "failed",
@@ -753,7 +789,10 @@ async function markRunFailed(
       completedAt,
       updatedAt: completedAt,
     })
-    .where(eq(recipeRuns.id, run.id));
+    .where(and(eq(recipeRuns.id, run.id), ne(recipeRuns.status, "canceled")))
+    .returning({ id: recipeRuns.id });
+
+  if (updatedRows.length === 0) return;
 
   await appendWorkerRunEvent(db, run.id, {
     eventType: "run_failed",
@@ -783,7 +822,7 @@ async function markRunCanceled(
     .where(eq(recipeRuns.id, run.id));
 
   await appendWorkerRunEvent(db, run.id, {
-    eventType: "run_failed",
+    eventType: "run_canceled",
     status: "failed",
     label: "Cursor Cloud run was canceled",
     error: message,
@@ -800,7 +839,16 @@ async function heartbeatRunLease(db: Database, runId: string): Promise<void> {
       lastHeartbeatAt: now,
       updatedAt: now,
     })
-    .where(eq(recipeRuns.id, runId));
+    .where(and(eq(recipeRuns.id, runId), ne(recipeRuns.status, "canceled")));
+}
+
+async function isRunCanceled(db: Database, runId: string): Promise<boolean> {
+  const rows = await db
+    .select({ status: recipeRuns.status })
+    .from(recipeRuns)
+    .where(eq(recipeRuns.id, runId))
+    .limit(1);
+  return rows[0]?.status === "canceled";
 }
 
 async function appendWorkerRunEvent(

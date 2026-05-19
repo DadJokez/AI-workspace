@@ -10,6 +10,7 @@ import type {
   PersistedToolResult,
 } from "@/lib/tool-events";
 import { canRetryWorkflowRun } from "@/lib/workflow-retry";
+import { ChatRunActionButtons } from "../ChatRunActionButtons";
 import { RetryRunButton } from "../RetryRunButton";
 
 export const dynamic = "force-dynamic";
@@ -133,7 +134,14 @@ export default async function AdminRunDetailPage({ params }: Props) {
             {formatRecipe(run.recipeSlug)}
           </h2>
           <StatusBadge status={run.status} />
-          {canRetryWorkflowRun(run.status) ? (
+          {run.recipeSlug === "chat-turn" ? (
+            <ChatRunActionButtons
+              runId={run.id}
+              canCancel={run.status === "queued" || run.status === "running"}
+              canRetry={run.status === "failed" || run.status === "canceled"}
+              canResume={run.status === "queued" || run.status === "running"}
+            />
+          ) : canRetryWorkflowRun(run.status) ? (
             <RetryRunButton runId={run.id} modelId={run.modelId} />
           ) : null}
         </div>

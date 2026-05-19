@@ -22,7 +22,9 @@ export { DbThreadAgentStore } from "./db-thread-agent-store";
 
 export { listCursorModels, type SDKModel } from "./list-models";
 export {
+  cancelCursorCloudRun,
   getCursorCloudRunSnapshot,
+  type CursorCloudRunCancelInput,
   type CursorCloudRunSnapshot,
   type CursorCloudRunSnapshotInput,
 } from "./cloud-runs";

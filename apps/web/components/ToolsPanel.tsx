@@ -16,6 +16,7 @@ interface Integration {
   fg: string;
   /** True when a real OAuth flow is wired up; false → placeholder modal. */
   real: boolean;
+  authHint?: string;
 }
 
 const INTEGRATIONS: Integration[] = [
@@ -29,6 +30,76 @@ const INTEGRATIONS: Integration[] = [
     real: true,
   },
   {
+    id: "microsoft-365",
+    name: "Microsoft 365",
+    description: "Mail, calendar, files, Teams, and SharePoint",
+    initial: "M",
+    bg: "#2563EB",
+    fg: "#ffffff",
+    real: false,
+    authHint: "Microsoft Graph delegated OAuth",
+  },
+  {
+    id: "salesforce",
+    name: "Salesforce",
+    description: "Accounts, opportunities, contacts, and pipeline notes",
+    initial: "S",
+    bg: "#00A1E0",
+    fg: "#001E36",
+    real: false,
+    authHint: "Salesforce OAuth",
+  },
+  {
+    id: "servicenow",
+    name: "ServiceNow",
+    description: "Tickets, requests, incidents, and approvals",
+    initial: "S",
+    bg: "#81B5A1",
+    fg: "#0B1F18",
+    real: false,
+    authHint: "Per-user OAuth plus queue service access",
+  },
+  {
+    id: "sap",
+    name: "SAP",
+    description: "ERP finance, procurement, and supply-chain workflows",
+    initial: "S",
+    bg: "#0FAAFF",
+    fg: "#001B3A",
+    real: false,
+    authHint: "SAP BTP or API Gateway",
+  },
+  {
+    id: "sap-hana",
+    name: "SAP HANA",
+    description: "Operational data, analytics views, and budget queries",
+    initial: "H",
+    bg: "#F0AB00",
+    fg: "#1F1600",
+    real: false,
+    authHint: "Service principal or governed query gateway",
+  },
+  {
+    id: "workfront",
+    name: "Workfront",
+    description: "Projects, tasks, status, capacity, and approvals",
+    initial: "W",
+    bg: "#FA0F00",
+    fg: "#ffffff",
+    real: false,
+    authHint: "Workfront OAuth",
+  },
+  {
+    id: "databricks",
+    name: "Databricks",
+    description: "Notebooks, jobs, tables, and governed analytics",
+    initial: "D",
+    bg: "#FF3621",
+    fg: "#ffffff",
+    real: false,
+    authHint: "Service principal",
+  },
+  {
     id: "notion",
     name: "Notion",
     description: "Pages, databases, and team docs",
@@ -36,15 +107,17 @@ const INTEGRATIONS: Integration[] = [
     bg: "#000000",
     fg: "#ffffff",
     real: false,
+    authHint: "Notion OAuth",
   },
   {
     id: "google",
     name: "Google Calendar",
     description: "Events, meetings, and availability",
     initial: "G",
-    bg: "#1A73E8",
+    bg: "#34A853",
     fg: "#ffffff",
     real: false,
+    authHint: "Google OAuth",
   },
 ];
 
@@ -186,7 +259,7 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
                       </span>
                     ) : (
                       <span className="rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
-                        Not connected
+                        {it.real ? "Not connected" : "Coming soon"}
                       </span>
                     )}
                     {it.real ? (
@@ -271,8 +344,9 @@ function IntegrationModal({
           </div>
         </div>
         <p className="text-sm text-ink">
-          OAuth connection coming soon. {integration.name} integration is on
-          our roadmap.
+          Connection coming soon. {integration.name} integration is on our
+          roadmap
+          {integration.authHint ? ` using ${integration.authHint}.` : "."}
         </p>
         <div className="flex justify-end">
           <button
