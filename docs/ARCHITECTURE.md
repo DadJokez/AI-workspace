@@ -212,6 +212,13 @@ process dies after Cursor accepts the run, the next worker claim reconnects to
 the existing Cursor Cloud run with `Agent.getRun(...)` instead of starting a
 duplicate provider run. Terminal cloud runs are folded back into
 `chat_messages` and marked succeeded/failed/canceled in `recipe_runs`.
+The chat UI exposes cancel for queued/running chat turns and retry for
+failed/canceled turns. Admin run detail exposes the same chat-originated
+controls plus a resume/reconcile action for queued/running runs that need to be
+picked up by a worker again. These lifecycle actions update `recipe_runs`, write
+append-only `run_events`, and record `audit_log` rows. When a Cursor Cloud
+provider run id is available, cancel also asks Cursor Cloud to cancel the
+underlying run.
 
 The chat surface now has the first user-facing activity timeline. During a
 streaming turn, tool-call and tool-result events update a compact activity row
@@ -380,6 +387,9 @@ and linked audit events. Failed or canceled Developer Briefing runs can be
 retried from the run detail page; the retry creates a new `recipe_runs` row with
 `triggerType = manual_retry` and records the source run id in `inputs`. This
 proves the recipe execution path before the full recipes table exists.
+Chat-originated runs use the shared run detail page too, but their lifecycle
+actions are handled by the chat run-control path so cancel, retry, resume, and
+provider reconciliation stay consistent with the live chat surface.
 
 ## Agent Wire
 

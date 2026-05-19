@@ -40,6 +40,12 @@ interface UiMessage {
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
   activityEvents?: AgentActivityEvent[];
+  runId?: string;
+  runStatus?: string;
+  runError?: string | null;
+  canCancel?: boolean;
+  canRetry?: boolean;
+  canResume?: boolean;
 }
 
 export function mergeLoadedMessages(
@@ -123,6 +129,12 @@ interface ThreadMessage {
   activityEvents?: AgentActivityEvent[];
   pending?: boolean;
   status?: string;
+  runId?: string;
+  runStatus?: string;
+  runError?: string | null;
+  canCancel?: boolean;
+  canRetry?: boolean;
+  canResume?: boolean;
   createdAt: string;
 }
 
@@ -314,6 +326,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const [userDefaultModelId, setUserDefaultModelId] = useState<
     string | undefined
   >();
+  const [runActionPendingId, setRunActionPendingId] = useState<string>();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -625,6 +638,12 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           toolCalls: m.toolCalls ?? undefined,
           toolResults: m.toolResults ?? undefined,
           activityEvents: m.activityEvents,
+          runId: m.runId,
+          runStatus: m.runStatus,
+          runError: m.runError,
+          canCancel: m.canCancel,
+          canRetry: m.canRetry,
+          canResume: m.canResume,
         }));
         setTabs((prev) =>
           prev.map((t) => {
@@ -696,6 +715,12 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           toolCalls: m.toolCalls ?? undefined,
           toolResults: m.toolResults ?? undefined,
           activityEvents: m.activityEvents,
+          runId: m.runId,
+          runStatus: m.runStatus,
+          runError: m.runError,
+          canCancel: m.canCancel,
+          canRetry: m.canRetry,
+          canResume: m.canResume,
         }));
         const hasLoadedPending = msgs.some((m) => m.pending);
         setTabs((prev) =>
@@ -1100,6 +1125,65 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     void send(lastUserText);
   }
 
+  async function refreshActiveThreadMessages(tabId: string, threadId: string) {
+    const r = await fetch(`/api/threads/${threadId}/messages`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = (await r.json()) as ThreadMessagesResponse;
+    const msgs: UiMessage[] = data.messages.map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      modelId: m.modelId ?? undefined,
+      pending: m.pending,
+      status: m.status,
+      toolCalls: m.toolCalls ?? undefined,
+      toolResults: m.toolResults ?? undefined,
+      activityEvents: m.activityEvents,
+      runId: m.runId,
+      runStatus: m.runStatus,
+      runError: m.runError,
+      canCancel: m.canCancel,
+      canRetry: m.canRetry,
+      canResume: m.canResume,
+    }));
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === tabId
+          ? { ...t, messages: mergeLoadedMessages(msgs, t.messages), loaded: true }
+          : t,
+      ),
+    );
+  }
+
+  async function runAction(
+    runId: string,
+    action: "cancel" | "retry" | "resume",
+  ) {
+    if (!activeTab?.threadId) return;
+    setRunActionPendingId(`${action}:${runId}`);
+    patchTab(activeTab.id, { error: undefined });
+    try {
+      const res = await fetch(`/api/runs/${runId}/${action}`, {
+        method: "POST",
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(body.message ?? body.error ?? `${action} failed`);
+      }
+      await refreshActiveThreadMessages(activeTab.id, activeTab.threadId);
+      void refreshThreads();
+    } catch (err) {
+      patchTab(activeTab.id, {
+        error: err instanceof Error ? err.message : `${action} failed`,
+      });
+    } finally {
+      setRunActionPendingId(undefined);
+    }
+  }
+
   if (!activeTab) return null;
   const { busy, error, messages } = activeTab;
   const inputDisabled = busy || activeHasPendingRun || models.length === 0;
@@ -1274,17 +1358,29 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
               <EmptyState onPick={send} />
             ) : (
               messages.map((m) => (
-                <MessageBubble
-                  key={m.id}
-                  role={m.role}
-                  content={m.content}
-                  modelId={m.modelId}
-                  pending={m.pending}
-                  status={m.status}
-                  toolCalls={m.toolCalls}
-                  toolResults={m.toolResults}
-                  activityEvents={m.activityEvents}
-                />
+                <div key={m.id} className="flex flex-col gap-2">
+                  <MessageBubble
+                    role={m.role}
+                    content={m.content}
+                    modelId={m.modelId}
+                    pending={m.pending}
+                    status={m.status}
+                    toolCalls={m.toolCalls}
+                    toolResults={m.toolResults}
+                    activityEvents={m.activityEvents}
+                  />
+                  {m.runId &&
+                  (m.canCancel || m.canRetry || m.canResume) ? (
+                    <RunControls
+                      runId={m.runId}
+                      canCancel={m.canCancel}
+                      canRetry={m.canRetry}
+                      canResume={m.canResume && user?.role === "admin"}
+                      pendingAction={runActionPendingId}
+                      onAction={runAction}
+                    />
+                  ) : null}
+                </div>
               ))
             )}
             {error ? (
@@ -1330,6 +1426,58 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           </>
         )}
       </main>
+    </div>
+  );
+}
+
+function RunControls({
+  runId,
+  canCancel,
+  canRetry,
+  canResume,
+  pendingAction,
+  onAction,
+}: {
+  runId: string;
+  canCancel?: boolean;
+  canRetry?: boolean;
+  canResume?: boolean;
+  pendingAction?: string;
+  onAction: (runId: string, action: "cancel" | "retry" | "resume") => void;
+}) {
+  const pending = pendingAction?.endsWith(`:${runId}`) ?? false;
+  return (
+    <div className="flex flex-wrap gap-2 text-[12px]">
+      {canCancel ? (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => onAction(runId, "cancel")}
+          className="rounded-md border border-hairline bg-canvas px-2.5 py-1 font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {pendingAction === `cancel:${runId}` ? "Canceling..." : "Cancel"}
+        </button>
+      ) : null}
+      {canRetry ? (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => onAction(runId, "retry")}
+          className="rounded-md border border-hairline bg-canvas px-2.5 py-1 font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {pendingAction === `retry:${runId}` ? "Retrying..." : "Retry"}
+        </button>
+      ) : null}
+      {canResume ? (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => onAction(runId, "resume")}
+          className="rounded-md border border-hairline bg-canvas px-2.5 py-1 font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {pendingAction === `resume:${runId}` ? "Resuming..." : "Resume"}
+        </button>
+      ) : null}
     </div>
   );
 }

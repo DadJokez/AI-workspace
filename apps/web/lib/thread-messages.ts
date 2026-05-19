@@ -30,6 +30,12 @@ export interface ThreadMessageWithActivity {
   activityEvents?: AgentActivityEvent[];
   pending?: boolean;
   status?: string;
+  runId?: string;
+  runStatus?: string;
+  runError?: string | null;
+  canCancel?: boolean;
+  canRetry?: boolean;
+  canResume?: boolean;
   createdAt: Date;
 }
 
@@ -61,6 +67,7 @@ export async function loadThreadMessagesWithRunActivity({
         status: recipeRuns.status,
         modelId: recipeRuns.modelId,
         runtime: recipeRuns.runtime,
+        error: recipeRuns.error,
         outputs: recipeRuns.outputs,
         startedAt: recipeRuns.startedAt,
         createdAt: recipeRuns.createdAt,
@@ -118,21 +125,40 @@ export async function loadThreadMessagesWithRunActivity({
       }
       continue;
     }
-    if (run.status !== "queued" && run.status !== "running") continue;
+    if (
+      run.status !== "queued" &&
+      run.status !== "running" &&
+      run.status !== "failed" &&
+      run.status !== "canceled"
+    ) {
+      continue;
+    }
 
     activeRunMessages.push({
       id: `run:${run.id}`,
       role: "assistant",
-      content: output.assistantText ?? "",
+      content:
+        output.assistantText ??
+        terminalRunMessage(run.status, run.error),
       modelId: run.modelId,
       runtime: run.runtime,
       toolCalls: output.toolCalls ?? null,
       toolResults: output.toolResults ?? null,
       activityEvents,
-      pending: true,
+      pending: run.status === "queued" || run.status === "running",
       status:
         latestActivityLabel(activityEvents) ??
-        (run.status === "queued" ? "Queued..." : "Working..."),
+        (run.status === "queued"
+          ? "Queued..."
+          : run.status === "running"
+            ? "Working..."
+            : undefined),
+      runId: run.id,
+      runStatus: run.status,
+      runError: run.error,
+      canCancel: run.status === "queued" || run.status === "running",
+      canRetry: run.status === "failed" || run.status === "canceled",
+      canResume: run.status === "queued" || run.status === "running",
       createdAt: run.startedAt ?? run.createdAt,
     });
   }
@@ -147,6 +173,16 @@ export async function loadThreadMessagesWithRunActivity({
   return [...messages, ...activeRunMessages].sort(
     (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
   );
+}
+
+function terminalRunMessage(status: string, error?: string | null): string {
+  if (status === "canceled") return "Run canceled before an answer was saved.";
+  if (status === "failed") {
+    return error
+      ? `Run failed before an answer was saved.\n\n${error}`
+      : "Run failed before an answer was saved.";
+  }
+  return "";
 }
 
 function parseChatRunOutput(value: unknown): ChatRunOutput {

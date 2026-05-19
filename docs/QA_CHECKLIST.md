@@ -24,6 +24,14 @@ unmarked items need a human eye for visual / device-specific verification.
 - [ ] **User bubbles do NOT render markdown.** Type literally `**bold**` and send → expect the user bubble shows the asterisks as plain text.
 - [ ] **`[AUTOMATE]` Model label appears.** After an assistant response, expect a small "Assistant · {modelId}" label above the answer (e.g. "Assistant · sonnet-4-6").
 
+## Run Lifecycle
+
+- [ ] **`[AUTOMATE]` Chat turns create durable runs.** Send a prompt → expect `/api/chat` to return a run id in the stream metadata and `/admin/runs` to show a matching `chat-turn` row.
+- [ ] **`[AUTOMATE]` Running chat turn can be canceled.** Start a long-running prompt and click "Cancel" on the assistant run controls → expect the message to move out of pending state, `recipe_runs.status = canceled`, and a `run_cancel` audit row.
+- [ ] **`[AUTOMATE]` Failed/canceled chat turn can be retried.** Force a chat run failure or cancel one, then click "Retry" → expect a new queued run linked to the prior run and the thread to continue with the original prompt.
+- [ ] **Admin resume/reconcile is available.** As an admin, open `/admin/runs/[id]` for a queued/running `chat-turn` run → expect "Resume" to be available and to write a resume event/audit row when clicked.
+- [ ] **Refresh preserves activity state.** During a long-running chat turn, refresh the browser → expect the pending run and compact activity timeline to reload from `run_events`.
+
 ---
 
 ## UI / Layout

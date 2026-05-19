@@ -7,6 +7,8 @@ export interface CursorCloudRunSnapshotInput {
   providerRunId: string;
 }
 
+export type CursorCloudRunCancelInput = CursorCloudRunSnapshotInput;
+
 export interface CursorCloudRunSnapshot {
   providerAgentId: string;
   providerRunId: string;
@@ -49,6 +51,29 @@ export async function getCursorCloudRunSnapshot({
     providerRunId: run.id,
     status: run.status,
     ...(result ? { result } : {}),
+    ...(typeof run.durationMs === "number" ? { durationMs: run.durationMs } : {}),
+    ...(run.model?.id ? { modelId: run.model.id } : {}),
+    ...(typeof run.createdAt === "number" ? { createdAt: run.createdAt } : {}),
+  };
+}
+
+export async function cancelCursorCloudRun({
+  apiKey,
+  providerAgentId,
+  providerRunId,
+}: CursorCloudRunCancelInput): Promise<CursorCloudRunSnapshot> {
+  const run = await Agent.getRun(providerRunId, {
+    runtime: "cloud",
+    agentId: providerAgentId,
+    apiKey,
+  });
+
+  await run.cancel();
+
+  return {
+    providerAgentId: run.agentId,
+    providerRunId: run.id,
+    status: run.status,
     ...(typeof run.durationMs === "number" ? { durationMs: run.durationMs } : {}),
     ...(run.model?.id ? { modelId: run.model.id } : {}),
     ...(typeof run.createdAt === "number" ? { createdAt: run.createdAt } : {}),
