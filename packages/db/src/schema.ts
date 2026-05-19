@@ -285,6 +285,10 @@ export const recipeRuns = pgTable(
     inputs: jsonb("inputs"),
     outputs: jsonb("outputs"),
     error: text("error"),
+    workerId: text("worker_id"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -300,6 +304,11 @@ export const recipeRuns = pgTable(
       sql`${t.createdAt} DESC`,
     ),
     statusIdx: index("recipe_runs_status_idx").on(t.status),
+    workerClaimIdx: index("recipe_runs_worker_claim_idx").on(
+      t.status,
+      t.leaseExpiresAt,
+      t.createdAt,
+    ),
     recipeIdx: index("recipe_runs_recipe_idx").on(t.recipeId),
     threadIdx: index("recipe_runs_thread_idx").on(t.threadId),
   }),

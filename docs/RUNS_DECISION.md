@@ -57,9 +57,14 @@ chat and recipe execution into separate lifecycle systems.
 #91 should add `run_events` keyed to `recipe_runs.id`. Events are append-only,
 redacted, ordered, and reloadable by chat/admin surfaces.
 
-#92 should enqueue and execute `recipe_runs` rows from a worker. The worker can
-be ECS/Fargate plus SQS/EventBridge initially; Step Functions remains an option
-if retry/wait-state audit requirements justify it.
+#92 adds the first worker-backed execution path: chat creates queued
+`recipe_runs`, a worker claims them with a lease, writes `run_events`, executes
+or reconciles the Cursor run, and persists the terminal assistant message back
+to `chat_messages`. The pilot keeps an in-process worker bridge so today's App
+Runner service works immediately; ECS/Fargate should run the packaged worker
+image for the enterprise deployment. SQS/EventBridge can replace direct DB
+polling when scale or operational isolation requires it. Step Functions remains
+an option if retry/wait-state audit requirements justify it.
 
 #27 should create schedule definitions that produce `recipe_runs` rows. It
 should not invent a second run table or schedule-only execution path.
