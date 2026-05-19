@@ -16,7 +16,7 @@ See [`docs/ENTERPRISE_READINESS.md`](./docs/ENTERPRISE_READINESS.md) for the IT 
 - **AWS Bedrock** (`converseStream`) — fallback runtime (`RUNTIME=bedrock`)
 - **GitHub MCP** (`api.githubcopilot.com/mcp/`) — first working tool integration
 - **AWS App Runner** — current POC/pilot hosting (CI/CD via CodeBuild on push to `main`)
-- **ECS on Fargate** — documented enterprise hosting target
+- **ECS on Fargate** — documented enterprise hosting target, including the chat-run worker
 
 ## Repo layout
 
@@ -69,6 +69,10 @@ pnpm dev          # http://localhost:3000
 | `CHAT_MAX_MESSAGE_CHARS` | Max user message length |
 | `CHAT_RATE_LIMIT_WINDOW_MS` | Fixed-window rate-limit duration |
 | `CHAT_RATE_LIMIT_REQUESTS` | Per-user chat request count in the window |
+| `CHAT_RUN_IN_PROCESS_WORKER` | `1`/unset runs accepted chat work in the web process; `0` disables that bridge for dedicated worker deployments |
+| `CHAT_RUN_WORKER_LEASE_MS` | Lease duration for claimed background chat runs |
+| `CHAT_WORKER_RUNTIME_TIMEOUT_MS` | Max runtime duration for a background chat run |
+| `CHAT_RUN_PROVIDER_POLL_INTERVAL_MS` | Poll interval when reconciling an existing Cursor Cloud provider run |
 
 ## Scripts (run from repo root)
 
@@ -79,11 +83,16 @@ pnpm dev          # http://localhost:3000
 | `pnpm lint` | ESLint across all packages |
 | `pnpm typecheck` | `tsc --noEmit` across all packages |
 | `pnpm start` | Start the production build |
+| `pnpm --filter @ai-workspace/web worker:chat-runs` | Run the DB-backed chat-run worker loop |
 
 ## CI / Deploy
 
 GitHub Actions runs lint + typecheck + build on every PR and on push to `main`.
-Merging to `main` triggers a CodeBuild pipeline that builds the Docker image and a small migration image. CodeBuild runs Drizzle migrations against the App Runner database before pushing the new app image to ECR; App Runner then auto-deploys the updated `latest` image.
+Merging to `main` triggers a CodeBuild pipeline that builds the web image, the
+chat-run worker image, and a small migration image. CodeBuild runs Drizzle
+migrations against the App Runner database before pushing the new app image to
+ECR; App Runner then auto-deploys the updated `latest` image. The worker image
+is tagged separately for ECS/Fargate.
 
 ## Enterprise Readiness
 

@@ -33,6 +33,18 @@ COPY packages/db/src packages/db/src
 COPY packages/db/drizzle packages/db/drizzle
 CMD ["pnpm", "--filter", "@ai-workspace/db", "db:migrate"]
 
+FROM base AS worker
+ENV NODE_ENV=production
+COPY --from=deps /repo/node_modules ./node_modules
+COPY --from=deps /repo/apps/web/node_modules ./apps/web/node_modules
+COPY --from=deps /repo/packages/agent/node_modules ./packages/agent/node_modules
+COPY --from=deps /repo/packages/auth/node_modules ./packages/auth/node_modules
+COPY --from=deps /repo/packages/cursor-runtime/node_modules ./packages/cursor-runtime/node_modules
+COPY --from=deps /repo/packages/db/node_modules ./packages/db/node_modules
+COPY --from=deps /repo/packages/mcp-servers/node_modules ./packages/mcp-servers/node_modules
+COPY . .
+CMD ["pnpm", "--filter", "@ai-workspace/web", "worker:chat-runs"]
+
 FROM public.ecr.aws/docker/library/node:${NODE_VERSION} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production

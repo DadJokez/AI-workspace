@@ -37,11 +37,11 @@ and can both **read** and **act**. "What PRs do I have open?"
 returns a real answer; "Send Bob the summary" performs a real action.
 This is what makes "talk to your work" real rather than aspirational.
 
-**What's live:** GitHub MCP is working end-to-end — users connect via OAuth, tokens are stored encrypted in `oauth_tokens`, the GitHub server is represented in `mcp_servers`, and the Cursor runtime mounts it per-user with a short-lived Bearer token on each turn. Tool calls/results persist on chat messages after shared redaction and render as compact, expandable agent activity inside chat, MCP tool executions write redacted audit rows that admins can inspect at `/admin/audit`, registered servers/tools are visible at `/admin/tools`, long turns tolerate browser disconnects cleanly, chat turns are recorded in `recipe_runs` with Cursor provider run ids and append-only `run_events`, and the manual Developer Briefing route persists redacted GitHub workflow runs in `recipe_runs` with an admin run list/detail UI, retry support for failed/canceled runs, reloadable activity, and a dated PR/CI aggregation prompt.
+**What's live:** GitHub MCP is working end-to-end — users connect via OAuth, tokens are stored encrypted in `oauth_tokens`, the GitHub server is represented in `mcp_servers`, and the Cursor runtime mounts it per-user with a short-lived Bearer token on each turn. Tool calls/results persist on chat messages after shared redaction and render as compact, expandable agent activity inside chat, MCP tool executions write redacted audit rows that admins can inspect at `/admin/audit`, registered servers/tools are visible at `/admin/tools`, long turns tolerate browser disconnects cleanly, chat turns are recorded in `recipe_runs` with Cursor provider run ids and append-only `run_events`, and chat execution now runs through a background-worker path with leases instead of requiring the `/api/chat` request to remain open. The manual Developer Briefing route persists redacted GitHub workflow runs in `recipe_runs` with an admin run list/detail UI, retry support for failed/canceled runs, reloadable activity, and a dated PR/CI aggregation prompt.
 
 **What's next (Weeks 4–8):** M365 Graph (Mail + Calendar), Workfront, Databricks, Salesforce. See the integration tier table below. The auth pattern (HTTP MCP + per-turn Bearer) is proven; the remaining work is per-integration MCP servers and the OAuth plumbing for each provider.
 
-**Requires for full J2:** lower-level tool/category filtering for write-side calls across all integrations, a verified hook workflow or MCP proxy for policy enforcement, retention automation, rate limits and quotas, plus user-facing workflow controls beyond the current admin run review UI.
+**Requires for full J2:** lower-level tool/category filtering for write-side calls across all integrations, a verified hook workflow or MCP proxy for policy enforcement, retention automation, rate limits and quotas, plus user-facing cancel/retry/resume controls beyond the current admin run review UI.
 
 ### J3 — Scheduled Agent ⏳ Not started
 
@@ -52,8 +52,8 @@ thread." "When a new email matching `from:ceo@*` arrives, draft a
 reply for me to review."
 
 **Requires:** J2 done + a scheduling layer (DB table holding
-schedules, a cron worker that creates a `recipe_runs` row, calls the
-runtime, and streams the result back into a designated thread) + an event-trigger layer
+schedules, a cron worker that creates a `recipe_runs` row and lets the
+chat-run worker execute it into a designated thread) + an event-trigger layer
 (inbound webhooks or polling that fires the same hook on state
 changes). Scheduling is the easier half; webhooks are where this
 graduates from "tool" to "autonomous agent". PLAN.md week 5 sequences

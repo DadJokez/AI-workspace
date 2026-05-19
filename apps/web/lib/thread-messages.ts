@@ -118,7 +118,7 @@ export async function loadThreadMessagesWithRunActivity({
       }
       continue;
     }
-    if (run.status !== "running") continue;
+    if (run.status !== "queued" && run.status !== "running") continue;
 
     activeRunMessages.push({
       id: `run:${run.id}`,
@@ -130,7 +130,9 @@ export async function loadThreadMessagesWithRunActivity({
       toolResults: output.toolResults ?? null,
       activityEvents,
       pending: true,
-      status: latestActivityLabel(activityEvents) ?? "Working...",
+      status:
+        latestActivityLabel(activityEvents) ??
+        (run.status === "queued" ? "Queued..." : "Working..."),
       createdAt: run.startedAt ?? run.createdAt,
     });
   }

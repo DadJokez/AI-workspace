@@ -85,6 +85,7 @@ interface ChatStreamEvent {
     | "tool-result"
     | "usage"
     | "heartbeat"
+    | "queued"
     | "error"
     | "done"
     | "persisted";
@@ -132,6 +133,7 @@ interface ThreadMessagesResponse {
 const THREADS_LIMIT = 50;
 const PERSISTED_TAB_LIMIT = 10;
 const TAB_STORAGE_PREFIX = "ai-workspace-tabs:";
+const RUN_POLL_INTERVAL_MS = 3_000;
 
 interface PersistedTab {
   threadId: string;
@@ -666,6 +668,67 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     };
   }, [activeId, tabs]);
 
+  const activeHasPendingRun =
+    activeTab?.messages.some((m) => m.pending) ?? false;
+
+  // Background runs no longer keep the `/api/chat` request open. Poll the
+  // thread while a pending run placeholder is visible so reloadable run events
+  // and the terminal assistant message appear without a manual refresh.
+  useEffect(() => {
+    if (!activeTab?.threadId || !activeHasPendingRun) return;
+    const tabId = activeTab.id;
+    const threadId = activeTab.threadId;
+    let cancelled = false;
+
+    async function refreshPendingRun() {
+      try {
+        const r = await fetch(`/api/threads/${threadId}/messages`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = (await r.json()) as ThreadMessagesResponse;
+        if (cancelled) return;
+        const msgs: UiMessage[] = data.messages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          modelId: m.modelId ?? undefined,
+          pending: m.pending,
+          status: m.status,
+          toolCalls: m.toolCalls ?? undefined,
+          toolResults: m.toolResults ?? undefined,
+          activityEvents: m.activityEvents,
+        }));
+        const hasLoadedPending = msgs.some((m) => m.pending);
+        setTabs((prev) =>
+          prev.map((t) => {
+            if (t.id !== tabId) return t;
+            const merged = mergeLoadedMessages(msgs, t.messages);
+            return {
+              ...t,
+              messages: hasLoadedPending
+                ? merged
+                : merged.filter(
+                    (m) => !(m.pending && m.id.startsWith("run:")),
+                  ),
+              loaded: true,
+            };
+          }),
+        );
+        if (!hasLoadedPending) void refreshThreads();
+      } catch (err) {
+        if (!cancelled) {
+          console.error("failed to refresh pending run", err);
+        }
+      }
+    }
+
+    void refreshPendingRun();
+    const interval = setInterval(refreshPendingRun, RUN_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [activeTab?.id, activeTab?.threadId, activeHasPendingRun]);
+
   // Auto-scroll: only if user is at (or near) the bottom.
   useEffect(() => {
     if (!stickToBottomRef.current) return;
@@ -869,6 +932,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
 
       let assistantText = "";
       let assistantModel: string | undefined;
+      let queuedRun = false;
+      let queuedRunMessageId: string | undefined;
 
       for await (const ev of readSseStream<ChatStreamEvent>(res)) {
         if (ev.type === "meta") {
@@ -876,6 +941,17 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             patchTab(tabId, { threadId: ev.threadId });
           }
           if (typeof ev.modelId === "string") assistantModel = ev.modelId;
+          if (typeof ev.runId === "string") {
+            const runMessageId = `run:${ev.runId}`;
+            queuedRunMessageId = runMessageId;
+            patchTabMessages(tabId, (prev) =>
+              prev.map((m) =>
+                m.id === assistantMsgId
+                  ? { ...m, id: runMessageId, modelId: assistantModel }
+                  : m,
+              ),
+            );
+          }
         } else if (ev.type === "text-delta" && typeof ev.delta === "string") {
           assistantText += ev.delta;
           patchTabMessages(tabId, (prev) =>
@@ -933,6 +1009,29 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                 : m,
             ),
           );
+        } else if (ev.type === "queued") {
+          queuedRun = true;
+          const status =
+            typeof ev.status === "string"
+              ? ev.status
+              : "Queued for background worker";
+          patchTabMessages(tabId, (prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId ||
+              (typeof ev.runId === "string" && m.id === `run:${ev.runId}`)
+                ? {
+                    ...m,
+                    id:
+                      typeof ev.runId === "string"
+                        ? `run:${ev.runId}`
+                        : m.id,
+                    pending: true,
+                    status,
+                    modelId: assistantModel,
+                  }
+                : m,
+            ),
+          );
         } else if (ev.type === "error" && typeof ev.message === "string") {
           throw new Error(ev.message);
         } else if (ev.type === "done") {
@@ -955,8 +1054,13 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
 
       patchTabMessages(tabId, (prev) =>
         prev.map((m) =>
-          m.id === assistantMsgId
-            ? { ...m, pending: false, status: undefined }
+          m.id === assistantMsgId ||
+          (queuedRunMessageId !== undefined && m.id === queuedRunMessageId)
+            ? {
+                ...m,
+                pending: queuedRun,
+                status: queuedRun ? m.status : undefined,
+              }
             : m,
         ),
       );
@@ -998,7 +1102,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
 
   if (!activeTab) return null;
   const { busy, error, messages } = activeTab;
-  const inputDisabled = busy || models.length === 0;
+  const inputDisabled = busy || activeHasPendingRun || models.length === 0;
   const isChatView = view === "chat";
 
   return (
@@ -1088,7 +1192,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     onClick={() => selectTab(t.id)}
                     className="flex min-w-0 flex-1 items-center gap-1.5"
                   >
-                    {t.busy ? (
+                    {t.busy || t.messages.some((m) => m.pending) ? (
                       <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-current" />
                     ) : null}
                     <span className="truncate">{t.title}</span>
@@ -1150,7 +1254,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                 value={activeTab.modelId}
                 onChange={handleModelChange}
                 options={models}
-                disabled={busy}
+                disabled={busy || activeHasPendingRun}
               />
             ) : null}
             <ThemeToggle />
@@ -1196,7 +1300,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                 <button
                   type="button"
                   onClick={retry}
-                  disabled={busy}
+                  disabled={busy || activeHasPendingRun}
                   className="self-start rounded-md border border-hairline bg-canvas px-2.5 py-1 text-xs font-medium text-ink hover:bg-canvas/60 disabled:opacity-50 sm:self-auto"
                 >
                   Try again
@@ -1216,6 +1320,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                   ? "Loading models…"
                   : busy
                     ? "Generating…"
+                    : activeHasPendingRun
+                      ? "Run in progress…"
                     : "Ask anything (Shift+Enter for newline)"
               }
             />

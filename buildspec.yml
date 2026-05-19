@@ -20,8 +20,11 @@ phases:
       - 'echo Build started on $(date)'
       - 'docker build -f apps/web/Dockerfile -t $IMAGE_REPO_NAME .'
       - 'docker build -f apps/web/Dockerfile --target migrator -t $IMAGE_REPO_NAME:migrator .'
+      - 'docker build -f apps/web/Dockerfile --target worker -t $IMAGE_REPO_NAME:worker .'
       - 'docker tag $IMAGE_REPO_NAME:latest $REPOSITORY_URI:latest'
       - 'docker tag $IMAGE_REPO_NAME:latest $REPOSITORY_URI:$COMMIT_TAG'
+      - 'docker tag $IMAGE_REPO_NAME:worker $REPOSITORY_URI:worker-latest'
+      - 'docker tag $IMAGE_REPO_NAME:worker $REPOSITORY_URI:worker-$COMMIT_TAG'
   post_build:
     commands:
       - 'echo Running database migrations...'
@@ -31,4 +34,6 @@ phases:
       - 'echo Pushing the Docker images...'
       - 'docker push $REPOSITORY_URI:latest'
       - 'docker push $REPOSITORY_URI:$COMMIT_TAG'
+      - 'docker push $REPOSITORY_URI:worker-latest'
+      - 'docker push $REPOSITORY_URI:worker-$COMMIT_TAG'
       - 'echo Build completed on $(date)'

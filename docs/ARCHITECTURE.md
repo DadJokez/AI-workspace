@@ -200,12 +200,17 @@ optional future `recipe_id`, early `recipe_slug`, trigger type (`chat`,
 `manual`, `scheduled`, etc.), runtime/model metadata, inputs, outputs, error
 text, and lifecycle timestamps.
 
-Every chat turn now creates a `recipe_runs` row with `recipe_slug = chat-turn`
-before the runtime starts. When Cursor accepts the turn, AI Hub stores the
-provider-side Cursor agent/run ids in `outputs.providerRun`. For local Cursor
-runs this is visibility only; for Cursor Cloud runs it is a recovery handle. If
-the browser stream is gone, reopening the thread reconciles old running cloud
-runs with `Agent.getRun(...)`. Terminal cloud runs are folded back into
+Every chat turn now creates a queued `recipe_runs` row with
+`recipe_slug = chat-turn` and returns the run id to the browser immediately.
+The runtime turn is executed by the chat-run worker path, not by the open
+`/api/chat` request. The pilot web container starts an in-process worker for
+immediate execution; the same queue consumer is packaged as a worker image for
+ECS/Fargate. When Cursor accepts the turn, AI Hub stores provider-side Cursor
+agent/run ids in `outputs.providerRun`. For local Cursor runs this is
+visibility only; for Cursor Cloud runs it is a recovery handle. If the web
+process dies after Cursor accepts the run, the next worker claim reconnects to
+the existing Cursor Cloud run with `Agent.getRun(...)` instead of starting a
+duplicate provider run. Terminal cloud runs are folded back into
 `chat_messages` and marked succeeded/failed/canceled in `recipe_runs`.
 
 The chat surface now has the first user-facing activity timeline. During a
@@ -228,12 +233,14 @@ output, writes `run_events` for reloadable progress, and writes `audit_log`
 rows for compliance. The admin run detail page at `/admin/runs/[id]` reuses the
 chat activity renderer and also shows the raw run-event timeline.
 
-This is still a bridge, not the final job system. The production-grade version
-of #89 should move execution and reconciliation into an ECS/Fargate worker (or
-SQS/EventBridge/Step Functions path). The important boundary is now clear:
-Cursor Cloud owns durable agent execution; AI Hub owns identity, run state,
-activity replay, audit, retry/cancel policy, tool governance, and the
-enterprise user experience.
+This is still a DB-backed queue, not the final AWS job system. The
+production-grade deployment should attach the worker image to ECS/Fargate and
+front it with SQS/EventBridge if direct DB polling is not enough for scale.
+Step Functions remains reserved for explicit retry/wait-state audit
+requirements. The important boundary is now clear: Cursor Cloud owns durable
+agent execution; AI Hub owns identity, run state, leases, activity replay,
+audit, retry/cancel policy, tool governance, and the enterprise user
+experience.
 
 ## Audit ledger
 
