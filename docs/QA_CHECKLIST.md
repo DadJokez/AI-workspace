@@ -67,7 +67,8 @@ unmarked items need a human eye for visual / device-specific verification.
 - [ ] **`[AUTOMATE]` Backdrop tap closes drawer.** With drawer open, tap anywhere on the dimmed area → expect drawer slides out, backdrop fades away.
 - [ ] **`[AUTOMATE]` X button closes drawer.** With drawer open, tap the X in the user header inside the sidebar → expect drawer closes.
 - [ ] **`[AUTOMATE]` Escape key closes drawer.** With drawer open and focus anywhere on page, press Escape → drawer closes.
-- [ ] **`[AUTOMATE]` Tapping a nav item closes drawer.** Open drawer, tap "Tools" → expect drawer closes (and the active highlight in the sidebar moves to "Tools" — even though no real navigation happens yet).
+- [ ] **`[AUTOMATE]` Tapping a nav item closes drawer.** Open drawer, tap "Tools" or "Vault" → expect drawer closes and the active highlight in the sidebar moves to the selected section.
+- [ ] **`[AUTOMATE]` Vault renders seeded profile.** Open "Vault" from the sidebar → expect the Vault panel to show the seeded employee profile, responsibilities, priorities, systems context, and agent context sections in the active theme.
 - [ ] **`[AUTOMATE]` "New chat" from drawer closes drawer + opens new tab.** Tap "New chat" inside the drawer → expect drawer closes AND a new empty tab appears in the tab strip, becomes active.
 - [ ] **Touch targets ≥ 44px.** Visual/measurement: hamburger, X close, sidebar nav items, "New chat", and send button all measure ≥ 44px tall in mobile mode.
 - [ ] **Tab strip scrolls horizontally.** Open 4–5 tabs on a 375px viewport → expect the tabs container scrolls horizontally, the active tab stays visible after switching.
