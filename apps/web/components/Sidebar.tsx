@@ -29,6 +29,7 @@ const groups: NavGroup[] = [
   {
     items: [
       { id: "tools", label: "Tools", icon: <IconTool /> },
+      { id: "vault", label: "Vault", icon: <IconVault /> },
     ],
   },
   {
@@ -826,6 +827,26 @@ function IconTool() {
       strokeLinejoin="round"
     >
       <path d="M10.8 2.2a3 3 0 0 0-3.9 3.9l-4.4 4.4a1.4 1.4 0 0 0 2 2l4.4-4.4a3 3 0 0 0 3.9-3.9l-1.7 1.7-1.4-1.4z" />
+    </svg>
+  );
+}
+
+function IconVault() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinejoin="round"
+      strokeLinecap="round"
+    >
+      <rect x="2.5" y="3" width="11" height="10.5" rx="1.5" />
+      <path d="M5.5 3V2.5A1.5 1.5 0 0 1 7 1h2a1.5 1.5 0 0 1 1.5 1.5V3" />
+      <circle cx="8" cy="8" r="1.3" />
+      <path d="M8 9.3v1.5" />
     </svg>
   );
 }

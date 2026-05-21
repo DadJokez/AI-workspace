@@ -8,6 +8,7 @@ import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
 import { ToolsPanel } from "@/components/ToolsPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { VaultPanel } from "@/components/VaultPanel";
 import { readSseStream } from "@/lib/sse";
 import type { AgentActivityEvent } from "@/lib/activity-events";
 import {
@@ -24,7 +25,7 @@ import { useEffect, useRef, useState } from "react";
 // opaque strings; the runtime layer is the source of truth on what's valid.
 const FALLBACK_DEFAULT_MODEL_ID = "claude-sonnet-4-6";
 
-type View = "chat" | "settings" | "search" | "tools";
+type View = "chat" | "settings" | "search" | "tools" | "vault";
 
 const DEFAULT_MODEL_PREFIX = "ai-workspace-default-model:";
 
@@ -901,6 +902,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     else if (id === "settings") setView("settings");
     else if (id === "search") setView("search");
     else if (id === "tools") setView("tools");
+    else if (id === "vault") setView("vault");
     else if (id === "admin") {
       // Admin lives at its own route, not as a chat-level view.
       window.location.assign("/admin");
@@ -1234,6 +1236,11 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           />
         ) : view === "tools" ? (
           <ToolsPanel
+            onClose={() => setView("chat")}
+            onOpenSidebar={() => setSidebarOpen(true)}
+          />
+        ) : view === "vault" ? (
+          <VaultPanel
             onClose={() => setView("chat")}
             onOpenSidebar={() => setSidebarOpen(true)}
           />

@@ -280,6 +280,17 @@ cataloged tools, action level, enabled state, and whether each tool requires
 attestation. Editing remains a later admin-governance step; the current view is
 read-only so the capability surface is visible before broader integrations land.
 
+## User vault
+
+The chat shell includes a user-facing Vault section beside Tools. Today it is a
+static seeded employee profile used to validate the UX shape: profile snapshot,
+responsibilities, current priorities, systems context, and agent-steering notes.
+It is intentionally read-only and not yet used in the runtime context pack.
+
+The intended production version is a governed user-memory store. Before it is
+mounted into prompts, each field needs provenance, edit controls, visibility
+rules, audit history, and a clear policy for what the agent may read by default.
+
 ## MCP server registry
 
 `mcp_servers` is the admin-curated registry of integrations AI Hub can mount.
