@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "worker:chat-runs": "tsx scripts/chat-run-worker.ts",
+    "worker:memory-capture": "tsx scripts/memory-capture-worker.ts",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

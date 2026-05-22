@@ -1241,6 +1241,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           />
         ) : view === "vault" ? (
           <VaultPanel
+            userName={user?.displayName}
             onClose={() => setView("chat")}
             onOpenSidebar={() => setSidebarOpen(true)}
           />

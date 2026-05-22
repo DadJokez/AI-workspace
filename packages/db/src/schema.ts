@@ -40,6 +40,26 @@ export const recipeRunStatusEnum = pgEnum("recipe_run_status", [
 
 export type RecipeRunStatus = (typeof recipeRunStatusEnum.enumValues)[number];
 
+export const memoryCaptureStatusEnum = pgEnum("memory_capture_status", [
+  "pending",
+  "processing",
+  "processed",
+  "failed",
+  "skipped",
+]);
+
+export type MemoryCaptureStatus =
+  (typeof memoryCaptureStatusEnum.enumValues)[number];
+
+export const userMemoryStatusEnum = pgEnum("user_memory_status", [
+  "suggested",
+  "approved",
+  "dismissed",
+  "archived",
+]);
+
+export type UserMemoryStatus = (typeof userMemoryStatusEnum.enumValues)[number];
+
 export const auditLogStatusEnum = pgEnum("audit_log_status", [
   "started",
   "succeeded",
@@ -356,6 +376,113 @@ export const runEvents = pgTable(
 );
 
 /**
+ * Transcript windows waiting for the background Vault-memory reviewer. The
+ * source chat messages remain the source of truth; these rows only say which
+ * completed turn should be considered for memory extraction.
+ */
+export const memoryCaptureQueue = pgTable(
+  "memory_capture_queue",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => chatThreads.id, { onDelete: "cascade" }),
+    fromMessageId: uuid("from_message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    toMessageId: uuid("to_message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    recipeRunId: uuid("recipe_run_id").references(() => recipeRuns.id, {
+      onDelete: "set null",
+    }),
+    reason: text("reason").notNull().default("chat_turn"),
+    status: memoryCaptureStatusEnum("status").notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    error: text("error"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userStatusIdx: index("memory_capture_queue_user_status_idx").on(
+      t.userId,
+      t.status,
+      t.createdAt,
+    ),
+    threadIdx: index("memory_capture_queue_thread_idx").on(
+      t.threadId,
+      t.createdAt,
+    ),
+    recipeRunUnique: uniqueIndex("memory_capture_queue_recipe_run_idx").on(
+      t.recipeRunId,
+    ),
+  }),
+);
+
+/**
+ * Reviewable personal context records shown in Vault. `approved` items render
+ * into the user's Vault markdown and can be injected into future turns;
+ * `suggested` items wait for explicit user approval.
+ */
+export const userMemoryItems = pgTable(
+  "user_memory_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: userMemoryStatusEnum("status").notNull().default("suggested"),
+    category: text("category").notNull(),
+    title: text("title").notNull(),
+    bodyMd: text("body_md").notNull(),
+    confidence: integer("confidence").notNull().default(0),
+    reason: text("reason"),
+    sourceThreadId: uuid("source_thread_id").references(() => chatThreads.id, {
+      onDelete: "set null",
+    }),
+    sourceMessageIds: jsonb("source_message_ids").$type<string[]>(),
+    suggestedBy: text("suggested_by").notNull().default("memory-capture"),
+    approvedBy: uuid("approved_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userStatusIdx: index("user_memory_items_user_status_idx").on(
+      t.userId,
+      t.status,
+      t.updatedAt,
+    ),
+    userCategoryIdx: index("user_memory_items_user_category_idx").on(
+      t.userId,
+      t.category,
+      t.status,
+    ),
+    sourceThreadIdx: index("user_memory_items_source_thread_idx").on(
+      t.sourceThreadId,
+    ),
+  }),
+);
+
+/**
  * Admin-curated registry of MCP servers AI Hub can mount. Provider slugs stay
  * stable across OAuth, catalog, attestation, and runtime code.
  */
@@ -561,6 +688,10 @@ export type RecipeRun = typeof recipeRuns.$inferSelect;
 export type NewRecipeRun = typeof recipeRuns.$inferInsert;
 export type RunEvent = typeof runEvents.$inferSelect;
 export type NewRunEvent = typeof runEvents.$inferInsert;
+export type MemoryCaptureQueueItem = typeof memoryCaptureQueue.$inferSelect;
+export type NewMemoryCaptureQueueItem = typeof memoryCaptureQueue.$inferInsert;
+export type UserMemoryItem = typeof userMemoryItems.$inferSelect;
+export type NewUserMemoryItem = typeof userMemoryItems.$inferInsert;
 export type McpServer = typeof mcpServers.$inferSelect;
 export type NewMcpServer = typeof mcpServers.$inferInsert;
 export type AuditLog = typeof auditLog.$inferSelect;

@@ -15,6 +15,10 @@ import {
 import { and, asc, eq, lt, ne, or, sql } from "drizzle-orm";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
+import {
+  enqueueMemoryCapture,
+  startInProcessMemoryCaptureScheduler,
+} from "@/lib/memory-capture";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
 import {
   appendRunEventWithNextSequence,
@@ -23,6 +27,7 @@ import {
 } from "@/lib/run-events";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { buildTurnContext } from "@/lib/turn-context";
+import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 const DEFAULT_RUNTIME_TIMEOUT_MS = 60 * 60 * 1000;
@@ -243,7 +248,7 @@ async function executeClaimedChatRun({
   }
 
   const runtime = getRuntime({ db });
-  const [threadRows, userRows] = await Promise.all([
+  const [threadRows, userRows, vaultMarkdown] = await Promise.all([
     db
       .select()
       .from(chatThreads)
@@ -257,6 +262,7 @@ async function executeClaimedChatRun({
       .from(users)
       .where(eq(users.id, run.userId))
       .limit(1),
+    loadApprovedVaultMarkdown(db, run.userId),
   ]);
 
   const thread = threadRows[0];
@@ -329,6 +335,7 @@ async function executeClaimedChatRun({
     user: {
       displayName: user.displayName,
       customInstructions: user.customInstructions,
+      vaultMarkdown,
     },
     connectedProviders: mcpServers ? Object.keys(mcpServers) : [],
     blockedProviders: deniedMcpProviders,
@@ -757,6 +764,28 @@ async function persistAssistantResult({
     .returning({ id: recipeRuns.id });
 
   if (updatedRows.length === 0) return;
+
+  if (terminalStatus === "succeeded") {
+    try {
+      await enqueueMemoryCapture(db, {
+        userId: run.userId,
+        threadId,
+        fromMessageId: userMessageId,
+        toMessageId: assistantMessageId,
+        recipeRunId: run.id,
+        reason: "chat_turn",
+      });
+      startInProcessMemoryCaptureScheduler({ db });
+    } catch (err) {
+      process.stderr.write(
+        `[memory-capture-enqueue-error] ${JSON.stringify({
+          runId: run.id,
+          threadId,
+          message: err instanceof Error ? err.message : String(err),
+        })}\n`,
+      );
+    }
+  }
 
   await appendWorkerRunEvent(db, run.id, {
     eventType: terminalStatus === "succeeded" ? "run_completed" : "run_failed",

@@ -13,6 +13,7 @@ interface PreambleInput {
   user: {
     displayName: string;
     customInstructions: string | null;
+    vaultMarkdown?: string | null;
   };
   /** Provider keys present in the turn's mcpServers map (e.g. ["github"]). */
   connectedProviders: readonly string[];
@@ -72,6 +73,13 @@ export function buildAgentPreamble({
   if (ci) {
     lines.push("");
     lines.push(`User instructions: ${ci}`);
+  }
+
+  const vault = user.vaultMarkdown?.trim();
+  if (vault) {
+    lines.push("");
+    lines.push("Personal context approved by the user:");
+    lines.push(vault);
   }
 
   lines.push("");

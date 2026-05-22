@@ -45,6 +45,9 @@ COPY --from=deps /repo/packages/mcp-servers/node_modules ./packages/mcp-servers/
 COPY . .
 CMD ["pnpm", "--filter", "@ai-workspace/web", "worker:chat-runs"]
 
+FROM worker AS memory-worker
+CMD ["pnpm", "--filter", "@ai-workspace/web", "worker:memory-capture"]
+
 FROM public.ecr.aws/docker/library/node:${NODE_VERSION} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production

@@ -108,6 +108,7 @@ clear user-experience win.
 | Safe closed-stream handling for long turns | ✅ |
 | Agent activity timeline for chat tool calls/results | ✅ |
 | Developer Briefing execution route (manual GitHub workflow) | ✅ |
+| Vault memory capture queue + approval UI | ✅ |
 | DB/runtime health checks | ✅ pilot |
 | Request/body limits and process-local rate limits | ✅ pilot |
 | Enterprise readiness decision record | ✅ |
@@ -125,6 +126,8 @@ clear user-experience win.
 | `oauth_tokens` (AES-256-GCM encrypted, per-user) | ✅ |
 | `invitations` | ✅ |
 | `recipe_runs` | ✅ |
+| `memory_capture_queue` | ✅ |
+| `user_memory_items` | ✅ |
 | `audit_log` | ✅ schema + MCP tool execution writes |
 | `tools_catalog` | ✅ |
 | `user_tool_attestations` | ✅ |

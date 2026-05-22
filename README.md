@@ -73,6 +73,9 @@ pnpm dev          # http://localhost:3000
 | `CHAT_RUN_WORKER_LEASE_MS` | Lease duration for claimed background chat runs |
 | `CHAT_WORKER_RUNTIME_TIMEOUT_MS` | Max runtime duration for a background chat run |
 | `CHAT_RUN_PROVIDER_POLL_INTERVAL_MS` | Poll interval when reconciling an existing Cursor Cloud provider run |
+| `MEMORY_CAPTURE_IN_PROCESS_SCHEDULER` | `1`/unset schedules Vault capture in the web process after successful chats; `0` disables it for dedicated worker deployments |
+| `MEMORY_CAPTURE_DELAY_MS` | Delay before reviewing queued chat transcripts for Vault suggestions; default 20 minutes |
+| `MEMORY_CAPTURE_BATCH_LIMIT` | Max queued transcript windows reviewed per memory-capture batch |
 
 ## Scripts (run from repo root)
 
@@ -84,12 +87,13 @@ pnpm dev          # http://localhost:3000
 | `pnpm typecheck` | `tsc --noEmit` across all packages |
 | `pnpm start` | Start the production build |
 | `pnpm --filter @ai-workspace/web worker:chat-runs` | Run the DB-backed chat-run worker loop |
+| `pnpm --filter @ai-workspace/web worker:memory-capture` | Run the DB-backed Vault memory capture worker loop |
 
 ## CI / Deploy
 
 GitHub Actions runs lint + typecheck + build on every PR and on push to `main`.
-Merging to `main` triggers a CodeBuild pipeline that builds the web image, the
-chat-run worker image, and a small migration image. CodeBuild runs Drizzle
+Merging to `main` triggers a CodeBuild pipeline that builds the web image,
+chat-run worker image, memory-capture worker image, and a small migration image. CodeBuild runs Drizzle
 migrations against the App Runner database before pushing the new app image to
 ECR; App Runner then auto-deploys the updated `latest` image. The worker image
 is tagged separately for ECS/Fargate.

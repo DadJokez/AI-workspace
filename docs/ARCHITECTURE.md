@@ -282,14 +282,23 @@ read-only so the capability surface is visible before broader integrations land.
 
 ## User vault
 
-The chat shell includes a user-facing Vault section beside Tools. Today it is a
-static seeded employee profile used to validate the UX shape: profile snapshot,
-responsibilities, current priorities, systems context, and agent-steering notes.
-It is intentionally read-only and not yet used in the runtime context pack.
+The chat shell includes a user-facing Vault section beside Tools. Completed
+chat turns enqueue transcript windows in `memory_capture_queue`. In the App
+Runner pilot, the web process starts a single delayed memory-capture run 20
+minutes after successful chats create queued work; if no transcript windows are
+pending, the reviewer does not call the model. A dedicated memory-capture worker
+image is also built for ECS/Fargate and can review pending windows in batches,
+compare them against the existing Vault, and write proposed `user_memory_items`
+with source thread/message provenance.
 
-The intended production version is a governed user-memory store. Before it is
-mounted into prompts, each field needs provenance, edit controls, visibility
-rules, audit history, and a clear policy for what the agent may read by default.
+Vault renders approved memory as Markdown and shows suggested updates for
+explicit user review. Users can approve, edit, dismiss, or archive suggestions.
+Only `approved` memory is rendered into the compact Personal Context block that
+the chat worker injects into future agent turns.
+
+The next hardening layer is deeper governance: richer audit rows for approval
+actions, admin retention policy, category-level visibility defaults, and moving
+the pilot in-process scheduler to managed ECS/EventBridge infrastructure.
 
 ## MCP server registry
 

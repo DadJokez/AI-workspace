@@ -127,6 +127,13 @@
       "when": 1779192000000,
       "tag": "0017_recipe_run_worker_lease",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1779278400000,
+      "tag": "0018_vault_memory",
+      "breakpoints": true
     }
   ]
 }
