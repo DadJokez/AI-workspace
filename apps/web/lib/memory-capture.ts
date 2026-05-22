@@ -98,6 +98,11 @@ export function startInProcessMemoryCaptureScheduler({
     inProcessTimer = undefined;
     inProcessRunning = true;
     void processPendingMemoryCaptures({ db })
+      .then((result) => {
+        process.stderr.write(
+          `[memory-capture-in-process-result] ${JSON.stringify(result)}\n`,
+        );
+      })
       .catch((err) => {
         process.stderr.write(
           `[memory-capture-in-process-error] ${JSON.stringify({
@@ -251,7 +256,6 @@ async function processCaptureGroup(
   }
 
   const suggestions = await extractMemorySuggestions({
-    db,
     userId,
     reviewDoc,
     signal,
@@ -365,17 +369,15 @@ async function loadCaptureMessages(
 }
 
 async function extractMemorySuggestions({
-  db,
   userId,
   reviewDoc,
   signal,
 }: {
-  db: Database;
   userId: string;
   reviewDoc: string;
   signal?: AbortSignal;
 }): Promise<ExtractedSuggestion[]> {
-  const runtime = getRuntime({ db });
+  const runtime = getRuntime();
   let text = "";
   const errors: string[] = [];
   const modelId = process.env.MEMORY_CAPTURE_MODEL_ID ?? DEFAULT_MODEL_ID;
