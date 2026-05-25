@@ -2,13 +2,13 @@ export const GITHUB_PROVIDER = "github";
 export const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? "";
 
 /**
- * Public origin of the deployed app. Hardcoded — must NOT be derived from
- * `req.url` or `Host` headers. Inside the App Runner container, the server
- * binds to 0.0.0.0:3000 and `req.url` resolves against that, which would
- * leak `http://0.0.0.0:3000/...` into Location headers we send to browsers.
+ * Public origin of the deployed app. This must NOT be derived from `req.url`
+ * or `Host` headers; those can point at the internal container bind address
+ * and leak bad redirects into Location headers we send to browsers.
  */
+const DEFAULT_PUBLIC_BASE_URL = "https://ai-workspace.builtwithrobot.link";
 export const PUBLIC_BASE_URL =
-  "https://vacwacwrxu.us-east-1.awsapprunner.com";
+  process.env.NEXTAUTH_URL?.replace(/\/$/, "") ?? DEFAULT_PUBLIC_BASE_URL;
 export const GITHUB_REDIRECT_URI = `${PUBLIC_BASE_URL}/api/oauth/github/callback`;
 export const GITHUB_SCOPE = "repo read:user";
 export const GITHUB_AUTHORIZE_URL =
