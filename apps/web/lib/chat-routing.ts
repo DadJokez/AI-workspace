@@ -134,19 +134,19 @@ function hasDurableIntent(value: string): string | null {
 
 function hasToolIntent(value: string): string | null {
   if (
-    /\b(github|repo|repository|issue|pull request|pr|commit|branch|workflow|actions|ci)\b/.test(
+    /\b(github|gh|repo|repository|issue|pull request|prs?|commit|branch|workflow|actions|ci)\b/.test(
       value,
     ) &&
-    /\b(check|inspect|look|find|search|list|read|show|summarize|compare|open|create|update|comment|close|merge)\b/.test(
+    /\b(check|inspect|look|peek|find|search|list|read|show|summarize|compare|open|create|update|comment|close|merge)\b/.test(
       value,
     )
   ) {
     return "github_tool_intent";
   }
-  if (/\b(issue|pull request|pr)\s*#?\d+\b/.test(value)) {
+  if (/\b(issue|pull request|prs?)\s*#?\d+\b/.test(value)) {
     return "github_reference";
   }
-  if (/\bmy\s+(repo|repository|github|issues?|prs?|pull requests?)\b/.test(value)) {
+  if (/\bmy\s+(repo|repository|github|gh|issues?|prs?|pull requests?)\b/.test(value)) {
     return "github_owned_resource";
   }
   return null;

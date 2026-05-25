@@ -66,6 +66,21 @@ describe("decideChatRuntimeRoute", () => {
     });
   });
 
+  it("routes GitHub shorthand PR summaries to local tool streaming", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "Can you take a peek in my Gh and summarize the last 3 prs",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "tool-local",
+      executionMode: "local",
+      runtimeTarget: "cursor-agent",
+      useWorker: false,
+      useMcp: true,
+    });
+  });
+
   it("routes implementation work to the durable local worker", () => {
     expect(
       decideChatRuntimeRoute({

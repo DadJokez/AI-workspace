@@ -594,15 +594,15 @@ function resolveRuntimeModelId(
     return requestedModelId;
   }
 
-  const normalized = requestedModelId.trim().toLowerCase();
-  const alias = DIRECT_MODEL_ALIASES[normalized];
-  if (alias) return alias;
-  if (isValidModelId(normalized)) return normalized;
-
   const directDefault = process.env.RUNTIME_V2_DIRECT_MODEL_ID
     ?.trim()
     .toLowerCase();
   if (directDefault && isValidModelId(directDefault)) return directDefault;
+
+  const normalized = requestedModelId.trim().toLowerCase();
+  const alias = DIRECT_MODEL_ALIASES[normalized];
+  if (alias) return alias;
+  if (isValidModelId(normalized)) return normalized;
 
   return DEFAULT_MODEL_ID;
 }
