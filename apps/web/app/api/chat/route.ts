@@ -13,6 +13,8 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
 import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
+import { decideChatRuntimeRoute } from "@/lib/chat-routing";
+import { streamInlineChatRun } from "@/lib/chat-inline-runner";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
 import {
   checkRateLimit,
@@ -31,9 +33,9 @@ interface ChatRequestBody {
 }
 
 /**
- * POST /api/chat accepts a chat turn, persists the user message, enqueues a
- * durable run, and returns immediately. A background worker owns runtime
- * execution and writes the assistant response back to `chat_messages`.
+ * POST /api/chat accepts a chat turn, persists the user message, then chooses
+ * the lightest runtime lane that can satisfy the request. Simple turns stream
+ * inline. Durable/cloud work is queued for the background worker.
  */
 export async function POST(req: Request) {
   let sessionUser;
@@ -89,6 +91,10 @@ export async function POST(req: Request) {
       ? body.modelId
       : DEFAULT_MODEL_ID;
   const executionMode = parseChatExecutionMode(body.executionMode);
+  const runtimeRoute = decideChatRuntimeRoute({
+    message: body.message,
+    executionMode,
+  });
 
   const db = getDb();
   const rate = checkRateLimit(`chat:${sessionUser.id}`, limits);
@@ -173,6 +179,7 @@ export async function POST(req: Request) {
     .set({ updatedAt: queuedAt })
     .where(eq(chatThreads.id, thread.id));
 
+  const chatRunStartedAt = runtimeRoute.useWorker ? null : queuedAt;
   const chatRunRows = await db
     .insert(recipeRuns)
     .values({
@@ -180,15 +187,19 @@ export async function POST(req: Request) {
       threadId: thread.id,
       recipeSlug: "chat-turn",
       triggerType: "chat",
-      status: "queued",
+      status: runtimeRoute.useWorker ? "queued" : "running",
       modelId,
       inputs: {
         prompt: body.message,
         threadId: thread.id,
         userMessageId: userMsg[0]!.id,
         requestedByUserId: sessionUser.id,
-        executionMode,
+        executionMode: runtimeRoute.executionMode,
+        runtimeRoute,
       },
+      attemptCount: runtimeRoute.useWorker ? 0 : 1,
+      startedAt: chatRunStartedAt,
+      lastHeartbeatAt: chatRunStartedAt,
       updatedAt: queuedAt,
     })
     .returning({ id: recipeRuns.id });
@@ -199,14 +210,17 @@ export async function POST(req: Request) {
       db,
       recipeRunId: chatRunId,
       sequence: 1,
-      eventType: "run_queued",
+      eventType: runtimeRoute.useWorker ? "run_queued" : "run_started",
       status: "pending",
-      label: "Queued background chat run",
+      label: runtimeRoute.useWorker
+        ? "Queued durable chat run"
+        : "Started local streaming chat run",
       metadata: {
         threadId: thread.id,
         modelId,
         userMessageId: userMsg[0]!.id,
-        executionMode,
+        executionMode: runtimeRoute.executionMode,
+        runtimeRoute,
       },
       occurredAt: queuedAt,
     });
@@ -221,11 +235,13 @@ export async function POST(req: Request) {
     );
   }
 
-  startInProcessChatRunWorker({ db, runId: chatRunId });
+  if (runtimeRoute.useWorker) {
+    startInProcessChatRunWorker({ db, runId: chatRunId });
+  }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
+    async start(controller) {
       const send = (obj: unknown) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
       };
@@ -235,15 +251,44 @@ export async function POST(req: Request) {
         runId: chatRunId,
         userMessageId: userMsg[0]!.id,
         modelId,
-        executionMode,
+        executionMode: runtimeRoute.executionMode,
+        runtimeRoute,
       });
-      send({
-        type: "queued",
-        threadId: thread.id,
-        runId: chatRunId,
-        status: "Queued for background worker",
-      });
-      controller.close();
+      if (runtimeRoute.useWorker) {
+        send({
+          type: "queued",
+          threadId: thread.id,
+          runId: chatRunId,
+          status:
+            runtimeRoute.lane === "cursor-cloud"
+              ? "Queued for Cursor Cloud worker"
+              : "Queued for durable worker",
+        });
+        controller.close();
+        return;
+      }
+
+      try {
+        await streamInlineChatRun({
+          db,
+          runId: chatRunId,
+          thread,
+          userId: sessionUser.id,
+          userMessageId: userMsg[0]!.id,
+          prompt: body.message,
+          modelId,
+          route: runtimeRoute,
+          signal: req.signal,
+          send,
+        });
+      } catch (err) {
+        send({
+          type: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      } finally {
+        controller.close();
+      }
     },
   });
 

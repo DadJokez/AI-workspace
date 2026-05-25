@@ -146,7 +146,7 @@ interface ThreadMessagesResponse {
 const THREADS_LIMIT = 50;
 const PERSISTED_TAB_LIMIT = 10;
 const TAB_STORAGE_PREFIX = "ai-workspace-tabs:";
-const RUN_POLL_INTERVAL_MS = 3_000;
+const RUN_POLL_INTERVAL_MS = 500;
 
 interface PersistedTab {
   threadId: string;
@@ -690,7 +690,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   }, [activeId, tabs]);
 
   const activeHasPendingRun =
-    activeTab?.messages.some((m) => m.pending) ?? false;
+    activeTab?.messages.some((m) => m.pending && m.id.startsWith("run:")) ??
+    false;
 
   // Background runs no longer keep the `/api/chat` request open. Poll the
   // thread while a pending run placeholder is visible so reloadable run events
@@ -965,6 +966,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       let assistantModel: string | undefined;
       let queuedRun = false;
       let queuedRunMessageId: string | undefined;
+      let assistantDraftId = assistantMsgId;
+      const isDraftMessage = (m: UiMessage) =>
+        m.id === assistantMsgId || m.id === assistantDraftId;
 
       for await (const ev of readSseStream<ChatStreamEvent>(res)) {
         if (ev.type === "meta") {
@@ -972,9 +976,11 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             patchTab(tabId, { threadId: ev.threadId });
           }
           if (typeof ev.modelId === "string") assistantModel = ev.modelId;
-          if (typeof ev.runId === "string") {
+          const route = ev.runtimeRoute as { useWorker?: unknown } | undefined;
+          if (typeof ev.runId === "string" && route?.useWorker === true) {
             const runMessageId = `run:${ev.runId}`;
             queuedRunMessageId = runMessageId;
+            assistantDraftId = runMessageId;
             patchTabMessages(tabId, (prev) =>
               prev.map((m) =>
                 m.id === assistantMsgId
@@ -987,7 +993,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           assistantText += ev.delta;
           patchTabMessages(tabId, (prev) =>
             prev.map((m) =>
-              m.id === assistantMsgId
+              isDraftMessage(m)
                 ? {
                     ...m,
                     content: assistantText,
@@ -1006,7 +1012,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             : "Calling tool…";
           patchTabMessages(tabId, (prev) =>
             prev.map((m) =>
-              m.id === assistantMsgId
+              isDraftMessage(m)
                 ? {
                     ...m,
                     status,
@@ -1023,7 +1029,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           // initial "Thinking…" between chained tool calls.
           patchTabMessages(tabId, (prev) =>
             prev.map((m) =>
-              m.id === assistantMsgId
+              isDraftMessage(m)
                 ? {
                     ...m,
                     status: m.content.length === 0 ? "Working…" : m.status,
@@ -1068,29 +1074,51 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         } else if (ev.type === "done") {
           // wait for `persisted`
         } else if (ev.type === "persisted") {
+          const persistedAssistantMessageId =
+            typeof ev.assistantMessageId === "string"
+              ? ev.assistantMessageId
+              : undefined;
           patchTabMessages(tabId, (prev) =>
             prev.map((m) =>
-              m.id === assistantMsgId
+              isDraftMessage(m)
                 ? {
                     ...m,
+                    id: persistedAssistantMessageId ?? m.id,
                     pending: false,
                     status: undefined,
                     modelId: assistantModel,
+                    runId: undefined,
+                    runStatus: undefined,
+                    canCancel: false,
+                    canRetry: false,
+                    canResume: false,
                   }
                 : m,
             ),
           );
+          if (persistedAssistantMessageId) {
+            assistantDraftId = persistedAssistantMessageId;
+          }
         }
       }
 
       patchTabMessages(tabId, (prev) =>
         prev.map((m) =>
-          m.id === assistantMsgId ||
+          isDraftMessage(m) ||
           (queuedRunMessageId !== undefined && m.id === queuedRunMessageId)
             ? {
                 ...m,
                 pending: queuedRun,
                 status: queuedRun ? m.status : undefined,
+                ...(queuedRun
+                  ? {}
+                  : {
+                      runId: undefined,
+                      runStatus: undefined,
+                      canCancel: false,
+                      canRetry: false,
+                      canResume: false,
+                    }),
               }
             : m,
         ),
