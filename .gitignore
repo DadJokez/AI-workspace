@@ -10,6 +10,7 @@ next-env.d.ts
 # build
 dist/
 build/
+cdk.out/
 
 # logs
 *.log

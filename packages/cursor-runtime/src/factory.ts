@@ -15,6 +15,11 @@ export interface GetRuntimeOptions {
    * Optional for `bedrock` (which is stateless).
    */
   db?: Database;
+  /**
+   * Optional per-run Cursor execution mode. When omitted, falls back to
+   * CURSOR_RUNTIME_MODE for backwards compatibility.
+   */
+  executionMode?: CursorExecutionMode;
 }
 
 /**
@@ -33,7 +38,9 @@ export function getRuntime(opts: GetRuntimeOptions = {}): AgentRuntime {
     );
   }
   if (raw === "bedrock") return new BedrockRuntime();
-  const executionMode = parseCursorExecutionMode(process.env.CURSOR_RUNTIME_MODE);
+  const executionMode =
+    opts.executionMode ??
+    parseCursorExecutionMode(process.env.CURSOR_RUNTIME_MODE);
   return new CursorRuntime({
     apiKey: process.env.CURSOR_API_KEY,
     executionMode,

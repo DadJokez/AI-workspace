@@ -335,34 +335,34 @@ summary is dropped/truncated, `/api/chat` emits a structured
 `turn-context-guardrail` log with the thread, user, limit values, and retained
 or dropped character counts.
 
-## Hosting decision: App Runner pilot, ECS/Fargate enterprise
+## Hosting decision: ECS/Fargate with App Runner rollback
 
 AI Hub should stay inside AWS for the enterprise path. That keeps the product
 inside the platform family IT already understands, preserves the current
 container build/deploy shape, and avoids introducing a separate hosting vendor
 while the core question is still product value.
 
-**Decision:** keep App Runner for the current POC/pilot, but target
-**ECS on Fargate** for the enterprise production architecture. ECS Express
-Mode is the preferred first migration path because AWS positions it as the
-App Runner migration target and it preserves much of App Runner's simplicity
-while creating a normal ECS/Fargate service, load balancer, autoscaling, and
-networking stack in our AWS account.
+**Decision:** move the active deployment path to **ECS on Fargate** using the
+existing ECR images and current RDS database first. App Runner remains a
+temporary rollback host during cutover, but CodeBuild and runtime configuration
+now target the CDK-managed ECS service set.
 
-| Layer | Pilot / current | Enterprise target |
+| Layer | Cutover target | Later hardening |
 |---|---|---|
-| Web runtime | App Runner service using the existing Docker image | ECS service on Fargate, likely created first with ECS Express Mode |
-| Ingress | App Runner URL / future custom domain | Application Load Balancer, ACM cert, optional Route 53 weighted migration |
-| Database | RDS Postgres | RDS Postgres for near term; evaluate RDS Proxy and Aurora Postgres before broad rollout |
-| Secrets | App Runner environment variables | AWS Secrets Manager + KMS; task role reads secrets at runtime |
-| Networking | App Runner-managed | VPC/subnets/security groups owned in IaC; private DB access |
-| Observability | App Runner/CodeBuild logs | CloudWatch logs/metrics/alarms, ALB metrics, ECS service metrics, optional tracing |
+| Web runtime | ECS service on Fargate, `ai-workspace-web` | Scale-out after shared rate limiting |
+| Workers | Separate ECS services for chat runs and Vault memory capture | Queue-backed dispatch if DB polling becomes limiting |
+| Ingress | Application Load Balancer, ACM cert, Route 53 record at `ai-workspace.builtwithrobot.link` | WAF/rate rules |
+| Database | Existing RDS Postgres for fast cutover | RDS Proxy/Aurora and private DB posture |
+| Secrets | AWS Secrets Manager JSON secret `ai-workspace/production/app` | KMS rotation policy |
+| Networking | Default VPC for current RDS compatibility | Dedicated VPC/private subnets |
+| Observability | CloudWatch logs/metrics/alarms, ALB health check on `/api/health` | Optional tracing |
 | Edge controls | Minimal | ALB + WAF/rate rules when public enterprise traffic begins |
-| IaC | Manual/CodeBuild-era setup | Terraform/CDK/CloudFormation for ECS, ALB, IAM, Secrets Manager/KMS, RDS, alarms |
+| IaC | CDK TypeScript in `infra/cdk` | Broaden to DB/proxy/edge resources |
 
 This is not a reversal of the original thesis. App Runner was the right AWS
-on-ramp for speed. ECS/Fargate is the AWS-native grown-up version for IT
-review, networking, IAM boundaries, observability, and 100k-user planning.
+on-ramp for speed. ECS/Fargate is now the AWS-native version for IT review,
+worker isolation, networking, IAM boundaries, observability, and 100k-user
+planning.
 
 ## Enterprise scale posture
 

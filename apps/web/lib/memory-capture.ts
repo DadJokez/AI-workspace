@@ -377,7 +377,7 @@ async function extractMemorySuggestions({
   reviewDoc: string;
   signal?: AbortSignal;
 }): Promise<ExtractedSuggestion[]> {
-  const runtime = getRuntime();
+  const runtime = getRuntime({ executionMode: "local" });
   let text = "";
   const errors: string[] = [];
   const modelId = process.env.MEMORY_CAPTURE_MODEL_ID ?? DEFAULT_MODEL_ID;
@@ -624,14 +624,15 @@ function numberFromEnv(name: string): number | undefined {
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
   if (ms <= 0) return Promise.resolve();
   return new Promise((resolve) => {
-    const timeout = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timeout);
-        resolve();
-      },
-      { once: true },
-    );
+    let onAbort: (() => void) | undefined;
+    const timeout = setTimeout(() => {
+      if (onAbort) signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    onAbort = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }

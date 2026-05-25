@@ -1,0 +1,24 @@
+{
+  "name": "@ai-workspace/infra",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "cdk": "cdk",
+    "cdk:synth": "cdk synth",
+    "deploy": "cdk deploy",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.195.0",
+    "constructs": "^10.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "aws-cdk": "^2.1025.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.6.3"
+  }
+}

@@ -3,7 +3,11 @@ version: 0.2
 env:
   variables:
     IMAGE_REPO_NAME: ai-workspace
-    APP_RUNNER_SERVICE_ARN: arn:aws:apprunner:us-east-1:351478076796:service/ai-workspace/e78909142ef74a37ba25f7cd95fe0d09
+    APP_SECRET_NAME: ai-workspace/production/app
+    ECS_CLUSTER_NAME: ai-workspace-prod
+    ECS_WEB_SERVICE_NAME: ai-workspace-web
+    ECS_CHAT_WORKER_SERVICE_NAME: ai-workspace-chat-worker
+    ECS_MEMORY_WORKER_SERVICE_NAME: ai-workspace-memory-worker
 
 phases:
   pre_build:
@@ -31,7 +35,8 @@ phases:
   post_build:
     commands:
       - 'echo Running database migrations...'
-      - 'DATABASE_URL=$(aws apprunner describe-service --region $AWS_DEFAULT_REGION --service-arn $APP_RUNNER_SERVICE_ARN --query "Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.DATABASE_URL" --output text)'
+      - 'APP_SECRET_JSON=$(aws secretsmanager get-secret-value --region $AWS_DEFAULT_REGION --secret-id "$APP_SECRET_NAME" --query SecretString --output text)'
+      - 'DATABASE_URL=$(printf "%s" "$APP_SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)[\"DATABASE_URL\"])")'
       - 'test -n "$DATABASE_URL" && test "$DATABASE_URL" != "None"'
       - 'docker run --rm -e DATABASE_URL="$DATABASE_URL" $IMAGE_REPO_NAME:migrator'
       - 'echo Pushing the Docker images...'
@@ -41,4 +46,8 @@ phases:
       - 'docker push $REPOSITORY_URI:worker-$COMMIT_TAG'
       - 'docker push $REPOSITORY_URI:memory-worker-latest'
       - 'docker push $REPOSITORY_URI:memory-worker-$COMMIT_TAG'
+      - 'echo Forcing ECS service deployments...'
+      - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_WEB_SERVICE_NAME" --force-new-deployment >/dev/null'
+      - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_CHAT_WORKER_SERVICE_NAME" --force-new-deployment >/dev/null'
+      - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_MEMORY_WORKER_SERVICE_NAME" --force-new-deployment >/dev/null'
       - 'echo Build completed on $(date)'

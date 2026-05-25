@@ -7,6 +7,7 @@ import {
   type RecipeRun,
 } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
+import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
 import { appendRunEventWithNextSequence } from "@/lib/run-events";
 
@@ -19,6 +20,7 @@ interface ChatRunInputs {
   threadId?: string;
   userMessageId?: string;
   retryOfRunId?: string;
+  executionMode?: "local" | "cloud";
   [key: string]: unknown;
 }
 
@@ -311,7 +313,11 @@ function notFound(): RunActionResult {
 }
 
 function parseInputs(value: unknown): ChatRunInputs {
-  return isRecord(value) ? (value as ChatRunInputs) : {};
+  if (!isRecord(value)) return {};
+  return {
+    ...value,
+    executionMode: parseChatExecutionMode(value.executionMode),
+  } as ChatRunInputs;
 }
 
 function parseOutputs(value: unknown): ChatRunOutputs {

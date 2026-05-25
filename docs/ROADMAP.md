@@ -27,7 +27,7 @@ of moving users through these. They're the north star.
 A user opens the workspace, types into a thread, gets a streamed
 response. Multi-turn, personal, interactive.
 
-**Shipped:** chat threads with independent histories persisted per user, prompt/context guardrails plus the summary schema/helper, sidebar history grouped by recency with rename and delete, model selector (Haiku / Sonnet / Opus), GitHub OAuth sign-in / sign-out, admin panel (users + invitations), settings (theme, default model), Vault memory suggestions with approval controls and generated Markdown, full mobile responsiveness. Cursor SDK is the default runtime; Bedrock is the fallback. Deployed on AWS App Runner for the POC/pilot with automatic image builds, database migrations, and deploys on push to `main`. ECS/Fargate is the documented enterprise hosting target. Rolling summary generation itself remains pending.
+**Shipped:** chat threads with independent histories persisted per user, prompt/context guardrails plus the summary schema/helper, sidebar history grouped by recency with rename and delete, model selector (Haiku / Sonnet / Opus), GitHub OAuth sign-in / sign-out, admin panel (users + invitations), settings (theme, default model), Vault memory suggestions with approval controls and generated Markdown, full mobile responsiveness. Cursor SDK is the default runtime; Bedrock is the fallback. The deployment path is moving to ECS/Fargate with automatic image builds, database migrations, and forced ECS service deployments on push to `main`; App Runner remains temporary rollback during cutover. Rolling summary generation itself remains pending.
 
 ### J2 — Chat with Tools 🔄 In Progress
 

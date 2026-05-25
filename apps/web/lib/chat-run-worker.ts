@@ -25,6 +25,10 @@ import {
   appendToolCallRunEvent,
   appendToolResultRunEvent,
 } from "@/lib/run-events";
+import {
+  parseChatExecutionMode,
+  type ChatExecutionMode,
+} from "@/lib/chat-execution-mode";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { buildTurnContext } from "@/lib/turn-context";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
@@ -40,6 +44,7 @@ interface ChatRunInputs {
   prompt: string;
   threadId: string;
   userMessageId: string;
+  executionMode: ChatExecutionMode;
   [key: string]: unknown;
 }
 
@@ -247,7 +252,7 @@ async function executeClaimedChatRun({
     return;
   }
 
-  const runtime = getRuntime({ db });
+  const runtime = getRuntime({ db, executionMode: inputs.executionMode });
   const [threadRows, userRows, vaultMarkdown] = await Promise.all([
     db
       .select()
@@ -412,7 +417,11 @@ async function executeClaimedChatRun({
       eventType: "worker_started",
       status: "pending",
       label: "Background worker started the agent run",
-      metadata: { runtime: runtime.name, modelId: run.modelId },
+      metadata: {
+        runtime: runtime.name,
+        modelId: run.modelId,
+        executionMode: inputs.executionMode,
+      },
     });
 
     try {
@@ -917,10 +926,11 @@ function parseChatRunInputs(value: unknown): ChatRunInputs {
   const threadId = typeof value.threadId === "string" ? value.threadId : "";
   const userMessageId =
     typeof value.userMessageId === "string" ? value.userMessageId : "";
+  const executionMode = parseChatExecutionMode(value.executionMode);
   if (!prompt || !threadId || !userMessageId) {
     throw new Error("Chat run inputs are incomplete.");
   }
-  return { ...value, prompt, threadId, userMessageId };
+  return { ...value, prompt, threadId, userMessageId, executionMode };
 }
 
 function parseOutput(value: unknown): StoredChatRunOutput {
@@ -942,15 +952,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.resolve();
   return new Promise((resolve) => {
-    const timeout = setTimeout(resolve, ms);
+    let onAbort: (() => void) | undefined;
+    const timeout = setTimeout(() => {
+      if (onAbort) signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
     timeout.unref?.();
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timeout);
-        resolve();
-      },
-      { once: true },
-    );
+    onAbort = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }

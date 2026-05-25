@@ -1,0 +1,11 @@
+{
+  "app": "pnpm exec tsx bin/ai-workspace.ts",
+  "context": {
+    "aiWorkspace:domainName": "ai-workspace.builtwithrobot.link",
+    "aiWorkspace:hostedZoneName": "builtwithrobot.link",
+    "aiWorkspace:ecrRepositoryName": "ai-workspace",
+    "aiWorkspace:appSecretName": "ai-workspace/production/app",
+    "aiWorkspace:dbSecurityGroupId": "sg-019e87b5938a295a4",
+    "aiWorkspace:codeBuildRoleArn": "arn:aws:iam::351478076796:role/CodeBuildAIWorkspaceRole"
+  }
+}

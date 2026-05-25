@@ -328,6 +328,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     string | undefined
   >();
   const [runActionPendingId, setRunActionPendingId] = useState<string>();
+  const [runInCloudOnce, setRunInCloudOnce] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -915,6 +916,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     const userMsgId = crypto.randomUUID();
     const assistantMsgId = crypto.randomUUID();
     const modelId = activeTab.modelId ?? defaultModelId;
+    const executionMode = runInCloudOnce ? "cloud" : "local";
+    setRunInCloudOnce(false);
 
     patchTab(tabId, {
       busy: true,
@@ -947,6 +950,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           message: text,
           threadId: activeTab.threadId,
           modelId,
+          executionMode,
         }),
       });
       if (!res.ok) {
@@ -1349,6 +1353,34 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                 disabled={busy || activeHasPendingRun}
               />
             ) : null}
+            <button
+              type="button"
+              aria-pressed={runInCloudOnce}
+              aria-label="Run next message in Cursor Cloud"
+              title="Run next message in Cursor Cloud"
+              disabled={busy || activeHasPendingRun}
+              onClick={() => setRunInCloudOnce((next) => !next)}
+              className={`flex h-8 shrink-0 items-center gap-1 rounded-md border px-2 text-xs font-medium disabled:opacity-50 ${
+                runInCloudOnce
+                  ? "border-ink bg-ink text-canvas"
+                  : "border-hairline bg-canvas text-muted hover:bg-subtle hover:text-ink"
+              }`}
+            >
+              <svg
+                viewBox="0 0 16 16"
+                width="13"
+                height="13"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M5.5 11.5h6a2 2 0 0 0 .3-4A3.8 3.8 0 0 0 4.4 6.2 2.7 2.7 0 0 0 5.5 11.5Z" />
+              </svg>
+              Cloud
+            </button>
             <ThemeToggle />
           </div>
         </header>

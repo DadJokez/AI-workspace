@@ -15,8 +15,8 @@ See [`docs/ENTERPRISE_READINESS.md`](./docs/ENTERPRISE_READINESS.md) for the IT 
 - **Cursor SDK** (`@cursor/sdk`) — default agent runtime
 - **AWS Bedrock** (`converseStream`) — fallback runtime (`RUNTIME=bedrock`)
 - **GitHub MCP** (`api.githubcopilot.com/mcp/`) — first working tool integration
-- **AWS App Runner** — current POC/pilot hosting (CI/CD via CodeBuild on push to `main`)
-- **ECS on Fargate** — documented enterprise hosting target, including the chat-run worker
+- **ECS on Fargate** — production hosting target with separate web, chat-worker, and memory-worker services
+- **AWS App Runner** — rollback-only POC host during ECS cutover
 
 ## Repo layout
 
@@ -28,6 +28,8 @@ packages/
   cursor-runtime/ AgentRuntime seam (CursorRuntime + BedrockRuntime + factory)
   agent/          Tool/model registries + Bedrock loop
   mcp-servers/    Local integration stubs; GitHub MCP is remote and mounted by apps/web/lib/oauth/mcp-servers.ts
+infra/
+  cdk/            ECS/Fargate, ALB, Route 53, Secrets Manager, and deploy-role wiring
 .github/
   workflows/      CI (lint + typecheck + build on every PR and main push)
 docs/
@@ -58,7 +60,7 @@ pnpm dev          # http://localhost:3000
 |---|---|
 | `RUNTIME` | `cursor` (default) or `bedrock` |
 | `CURSOR_API_KEY` | Required for Cursor runtime |
-| `CURSOR_RUNTIME_MODE` | `local` (current process) or `cloud` (Cursor Cloud durable runs) |
+| `CURSOR_RUNTIME_MODE` | Process default: `local` for normal chat; explicit chat requests can still select `cloud` |
 | `CURSOR_CLOUD_REPO_URL` / `CURSOR_CLOUD_REPO_REF` | Optional repo and starting ref for Cursor Cloud agents |
 | `NEXTAUTH_SECRET` | NextAuth JWT signing secret |
 | `GITHUB_AUTH_CLIENT_ID` / `GITHUB_AUTH_CLIENT_SECRET` | GitHub OAuth App for sign-in |
@@ -85,6 +87,7 @@ pnpm dev          # http://localhost:3000
 | `pnpm build` | Build all workspace packages |
 | `pnpm lint` | ESLint across all packages |
 | `pnpm typecheck` | `tsc --noEmit` across all packages |
+| `pnpm cdk:synth` | Synthesize the AI Workspace ECS/Fargate CDK stack |
 | `pnpm start` | Start the production build |
 | `pnpm --filter @ai-workspace/web worker:chat-runs` | Run the DB-backed chat-run worker loop |
 | `pnpm --filter @ai-workspace/web worker:memory-capture` | Run the DB-backed Vault memory capture worker loop |
@@ -93,17 +96,18 @@ pnpm dev          # http://localhost:3000
 
 GitHub Actions runs lint + typecheck + build on every PR and on push to `main`.
 Merging to `main` triggers a CodeBuild pipeline that builds the web image,
-chat-run worker image, memory-capture worker image, and a small migration image. CodeBuild runs Drizzle
-migrations against the App Runner database before pushing the new app image to
-ECR; App Runner then auto-deploys the updated `latest` image. The worker image
-is tagged separately for ECS/Fargate.
+chat-run worker image, memory-capture worker image, and a small migration
+image. CodeBuild reads `ai-workspace/production/app` from Secrets Manager,
+runs Drizzle migrations, pushes the images to ECR, and forces new deployments
+for the ECS services `ai-workspace-web`, `ai-workspace-chat-worker`, and
+`ai-workspace-memory-worker`.
 
 ## Enterprise Readiness
 
 The current stack is ready for POC/pilot work, not yet for broad enterprise
-scale. The hosting direction is App Runner for pilot and ECS/Fargate for
-enterprise production, with RDS Proxy/Aurora Postgres evaluated before broad
-rollout. The current readiness posture, including dependency audit triage,
+scale. The hosting direction is ECS/Fargate, with App Runner retained only as
+temporary rollback during cutover and RDS Proxy/Aurora Postgres evaluated
+before broad rollout. The current readiness posture, including dependency audit triage,
 health checks, rate limits, redaction/retention, Secrets Manager/KMS/IaC, and
 the 1k/10k/100k load-test model, lives in
 [`docs/ENTERPRISE_READINESS.md`](./docs/ENTERPRISE_READINESS.md).

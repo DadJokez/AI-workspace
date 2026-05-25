@@ -12,6 +12,7 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
+import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
 import {
   checkRateLimit,
@@ -26,6 +27,7 @@ interface ChatRequestBody {
   message: string;
   threadId?: string;
   modelId?: string;
+  executionMode?: string;
 }
 
 /**
@@ -86,6 +88,7 @@ export async function POST(req: Request) {
     typeof body.modelId === "string" && body.modelId.trim().length > 0
       ? body.modelId
       : DEFAULT_MODEL_ID;
+  const executionMode = parseChatExecutionMode(body.executionMode);
 
   const db = getDb();
   const rate = checkRateLimit(`chat:${sessionUser.id}`, limits);
@@ -184,6 +187,7 @@ export async function POST(req: Request) {
         threadId: thread.id,
         userMessageId: userMsg[0]!.id,
         requestedByUserId: sessionUser.id,
+        executionMode,
       },
       updatedAt: queuedAt,
     })
@@ -202,6 +206,7 @@ export async function POST(req: Request) {
         threadId: thread.id,
         modelId,
         userMessageId: userMsg[0]!.id,
+        executionMode,
       },
       occurredAt: queuedAt,
     });
@@ -230,6 +235,7 @@ export async function POST(req: Request) {
         runId: chatRunId,
         userMessageId: userMsg[0]!.id,
         modelId,
+        executionMode,
       });
       send({
         type: "queued",

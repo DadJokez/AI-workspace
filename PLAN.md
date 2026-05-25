@@ -18,8 +18,8 @@ clear user-experience win.
 ```
                 ┌─────────────────────────────────┐
                 │ apps/web (Next.js container)    │
-                │   pilot: App Runner             │
-                │   enterprise: ECS/Fargate       │
+                │   active target: ECS/Fargate    │
+                │   rollback: App Runner          │
                 │   - GitHub OAuth (NextAuth v4)  │
                 │   - chat UI / admin UI          │
                 │   - /api/chat → AgentRuntime    │
@@ -75,7 +75,7 @@ clear user-experience win.
 | **Models** | Three Claude models — **Haiku 4.5**, **Sonnet 4.6** (default), **Opus 4.7**. Logical IDs map per runtime. |
 | **Integration model** | **MCP servers** for every external system. HTTP for per-user delegated auth. GitHub MCP is live; others stubbed. |
 | **Stack** | Next.js 15 (App Router) + TypeScript + Tailwind + Drizzle |
-| **Hosting** | **AWS App Runner** behind a CodeBuild CI/CD pipeline for the POC/pilot. Enterprise target is **ECS on Fargate**, with ECS Express Mode as the likely first migration path from App Runner. Image builds, DB migrations, and deploys run automatically on push to `main` today; the enterprise version should move that shape into IaC-managed ECS/Fargate, ALB, Secrets Manager/KMS, CloudWatch, and VPC networking. |
+| **Hosting** | **ECS on Fargate** is the active deployment target, managed by CDK TypeScript with an ALB, Route 53, Secrets Manager, CloudWatch logs, and separate web/chat-worker/memory-worker services. App Runner remains temporary rollback during cutover. CodeBuild builds images, runs migrations from the production secret, pushes to ECR, and forces ECS deployments. |
 | **Database** | **RDS Postgres** via Drizzle. Migrations in `packages/db/drizzle/`. |
 | **First working integration** | GitHub MCP — per-user, HTTP transport, tokens stored in `oauth_tokens`, accessed via `api.githubcopilot.com/mcp/` |
 
@@ -102,8 +102,8 @@ clear user-experience win.
 | Cursor SDK runtime (default) | ✅ |
 | Bedrock runtime (fallback via `RUNTIME=bedrock`) | ✅ |
 | GitHub MCP per-user (OAuth flow + token vault + live calls) | ✅ |
-| AWS App Runner + CodeBuild CI/CD for pilot | ✅ |
-| ECS/Fargate enterprise hosting target documented | ✅ |
+| AWS App Runner + CodeBuild CI/CD for pilot | ✅ rollback only |
+| ECS/Fargate CDK hosting target | ✅ |
 | Prompt/context guardrails + summary schema/helper | ✅ |
 | Safe closed-stream handling for long turns | ✅ |
 | Agent activity timeline for chat tool calls/results | ✅ |
@@ -247,7 +247,7 @@ For all MCP integrations (GitHub, M365, Salesforce, Workfront):
 
 ```
 apps/
-  web/                     Next.js container; App Runner pilot, ECS/Fargate enterprise target
+  web/                     Next.js container; ECS/Fargate web service, App Runner rollback
 packages/
   db/                      Drizzle schema + client + migrations
   agent/                   Tool/model registries + Bedrock loop
@@ -291,7 +291,7 @@ docs/
 4. **Cost runaway** — context-size guardrails and process-local request limits are in place for chat turns. Still add `max_tokens`, tool-use iteration caps, shared per-user daily token quotas, and CloudWatch alarms at $50 / $200 / $500.
 5. **Audit-log discipline** — MCP tool calls now land in `audit_log`, and the first redaction/retention policy is documented. Recipe-run/admin-action producers and a shared log-redaction helper still need to be wired before week 8 hardening.
 6. **Dependency audit debt** — direct patches reduced the audit surface, but `pnpm audit --prod` still reports transitive findings through `sqlite3`/`tar`, Cursor SDK/`undici`, and syntax highlighting. Track and recheck before IT review.
-7. **Hosting migration** — App Runner is fine for the existing POC account, but AWS has closed it to new customers and frozen new features. Enterprise target is ECS/Fargate, likely via ECS Express Mode first. Decide the RDS Proxy/Aurora posture and write the IaC before enterprise rollout.
+7. **Hosting migration** — ECS/Fargate is now the active target. The fast cutover uses the existing RDS database first; hardening still needs the RDS Proxy/Aurora posture, shared rate limiting, and private networking decisions.
 8. **Burnout** — 10–15 focused hrs/week, blocks not scraps. If shipping slips two weeks in a row, reassess scope.
 
 ## Open questions
@@ -300,4 +300,4 @@ docs/
 - **Recipes vs. Skills naming.** Same concept; pick the term that lands better with the first business-user reviewer. Decide before week 6 URL and table names are set.
 - **Sunset Bedrock runtime?** Not now. Decide after Cursor has run a real workload for ≥1 month.
 - **Cursor data residency.** Anysphere stores runtime-side agent state and tool transcripts. AI Hub keeps its own bounded context in Postgres, but GP data classification still needs a written answer from Anysphere before week 8 hardening.
-- **ECS migration timing.** Do we move to ECS/Fargate before the first GP pilot, or only after App Runner proves product value? Default: keep App Runner through pilot unless IT review requires the target architecture first.
+- **ECS hardening timing.** The cutover stack uses current RDS and simple ECS services first. Decide when to add RDS Proxy/Aurora, shared quotas, WAF rules, and private networking before broad pilot traffic.
