@@ -952,16 +952,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.resolve();
   return new Promise((resolve) => {
-    let onAbort: (() => void) | undefined;
+    function onAbort() {
+      clearTimeout(timeout);
+      resolve();
+    }
+
     const timeout = setTimeout(() => {
-      if (onAbort) signal?.removeEventListener("abort", onAbort);
+      signal?.removeEventListener("abort", onAbort);
       resolve();
     }, ms);
     timeout.unref?.();
-    onAbort = () => {
-      clearTimeout(timeout);
-      resolve();
-    };
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 }

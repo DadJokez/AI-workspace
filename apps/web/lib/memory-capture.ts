@@ -624,15 +624,15 @@ function numberFromEnv(name: string): number | undefined {
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
   if (ms <= 0) return Promise.resolve();
   return new Promise((resolve) => {
-    let onAbort: (() => void) | undefined;
-    const timeout = setTimeout(() => {
-      if (onAbort) signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    onAbort = () => {
+    function onAbort() {
       clearTimeout(timeout);
       resolve();
-    };
+    }
+
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
