@@ -92,6 +92,7 @@ interface ChatStreamEvent {
     | "tool-result"
     | "usage"
     | "heartbeat"
+    | "metrics"
     | "queued"
     | "error"
     | "done"

@@ -20,6 +20,11 @@ export interface GetRuntimeOptions {
    * CURSOR_RUNTIME_MODE for backwards compatibility.
    */
   executionMode?: CursorExecutionMode;
+  /**
+   * Optional per-run runtime override. When omitted, falls back to RUNTIME for
+   * backwards compatibility.
+   */
+  runtime?: RuntimeName;
 }
 
 /**
@@ -31,10 +36,10 @@ export interface GetRuntimeOptions {
  * `AgentRuntime`.
  */
 export function getRuntime(opts: GetRuntimeOptions = {}): AgentRuntime {
-  const raw = (process.env.RUNTIME ?? "cursor").toLowerCase();
+  const raw = (opts.runtime ?? process.env.RUNTIME ?? "cursor").toLowerCase();
   if (!isValidRuntime(raw)) {
     throw new Error(
-      `Unknown RUNTIME='${raw}'. Expected one of: ${VALID_RUNTIMES.join(", ")}.`,
+      `Unknown runtime='${raw}'. Expected one of: ${VALID_RUNTIMES.join(", ")}.`,
     );
   }
   if (raw === "bedrock") return new BedrockRuntime();

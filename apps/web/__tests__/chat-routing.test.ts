@@ -10,6 +10,25 @@ describe("decideChatRuntimeRoute", () => {
     ).toMatchObject({
       lane: "fast-local",
       executionMode: "local",
+      runtimeTarget: "cursor-agent",
+      runtimeV2: false,
+      useWorker: false,
+      useMcp: false,
+      includeVaultContext: false,
+    });
+  });
+
+  it("routes simple Runtime V2 chat to direct local streaming", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "say pong and nothing else",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "fast-local",
+      executionMode: "local",
+      runtimeTarget: "direct-chat",
+      runtimeV2: true,
       useWorker: false,
       useMcp: false,
       includeVaultContext: false,
@@ -21,10 +40,12 @@ describe("decideChatRuntimeRoute", () => {
       decideChatRuntimeRoute({
         message: "say pong and nothing else",
         executionMode: "cloud",
+        runtimeV2: true,
       }),
     ).toMatchObject({
       lane: "cursor-cloud",
       executionMode: "cloud",
+      runtimeTarget: "cursor-agent",
       useWorker: true,
       useMcp: true,
     });
@@ -34,10 +55,12 @@ describe("decideChatRuntimeRoute", () => {
     expect(
       decideChatRuntimeRoute({
         message: "Check GitHub issue #123 and summarize it",
+        runtimeV2: true,
       }),
     ).toMatchObject({
       lane: "tool-local",
       executionMode: "local",
+      runtimeTarget: "cursor-agent",
       useWorker: false,
       useMcp: true,
     });
@@ -47,10 +70,12 @@ describe("decideChatRuntimeRoute", () => {
     expect(
       decideChatRuntimeRoute({
         message: "Implement the new settings page and run tests",
+        runtimeV2: true,
       }),
     ).toMatchObject({
       lane: "durable-local",
       executionMode: "local",
+      runtimeTarget: "cursor-agent",
       useWorker: true,
       useMcp: true,
     });
@@ -60,10 +85,12 @@ describe("decideChatRuntimeRoute", () => {
     expect(
       decideChatRuntimeRoute({
         message: "Based on what you know about my preferences, which option is better?",
+        runtimeV2: true,
       }),
     ).toMatchObject({
       lane: "fast-local",
       executionMode: "local",
+      runtimeTarget: "direct-chat",
       useWorker: false,
       useMcp: false,
       includeVaultContext: true,

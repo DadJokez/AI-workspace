@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+.next
+apps/*/.next
+apps/*/node_modules
+coverage
+dist
+infra/cdk/cdk.out
+node_modules
+packages/*/node_modules
+*.log

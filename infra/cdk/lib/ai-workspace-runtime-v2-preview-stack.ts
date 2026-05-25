@@ -22,14 +22,14 @@ const APP_SECRET_FIELDS = [
   "CURSOR_API_KEY",
 ] as const;
 
-export class AiWorkspaceEcsStack extends cdk.Stack {
+export class AiWorkspaceRuntimeV2PreviewStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
     const domainName = contextString(
       this,
-      "aiWorkspace:domainName",
-      "ai-workspace.builtwithrobot.link",
+      "aiWorkspace:runtimeV2DomainName",
+      "runtime-v2.ai-workspace.builtwithrobot.link",
     );
     const hostedZoneName = contextString(
       this,
@@ -80,14 +80,14 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     });
 
     const cluster = new ecs.Cluster(this, "Cluster", {
-      clusterName: "ai-workspace-prod",
+      clusterName: "ai-workspace-runtime-v2",
       vpc,
       containerInsightsV2: ecs.ContainerInsights.ENABLED,
     });
 
     const webSecurityGroup = new ec2.SecurityGroup(this, "WebSecurityGroup", {
       vpc,
-      description: "AI Workspace web service",
+      description: "AI Workspace Runtime V2 preview web service",
       allowAllOutbound: true,
     });
     const workerSecurityGroup = new ec2.SecurityGroup(
@@ -95,7 +95,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       "WorkerSecurityGroup",
       {
         vpc,
-        description: "AI Workspace background workers",
+        description: "AI Workspace Runtime V2 preview workers",
         allowAllOutbound: true,
       },
     );
@@ -108,18 +108,22 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     databaseSecurityGroup.addIngressRule(
       webSecurityGroup,
       ec2.Port.tcp(5432),
-      "AI Workspace web tasks access Postgres",
+      "AI Workspace Runtime V2 web tasks access Postgres",
     );
     databaseSecurityGroup.addIngressRule(
       workerSecurityGroup,
       ec2.Port.tcp(5432),
-      "AI Workspace worker tasks access Postgres",
+      "AI Workspace Runtime V2 worker tasks access Postgres",
     );
 
     const commonEnvironment = {
       NODE_ENV: "production",
       AWS_REGION: cdk.Stack.of(this).region,
+      BEDROCK_CLIENT: "real",
       RUNTIME: "cursor",
+      RUNTIME_V2_ENABLED: "1",
+      RUNTIME_V2_DIRECT_RUNTIME: "bedrock",
+      RUNTIME_V2_DIRECT_MODEL_ID: "haiku-4-5",
       CURSOR_RUNTIME_MODE: "local",
       CURSOR_CLOUD_REPO_URL: "https://github.com/DadJokez/AI-workspace",
       CURSOR_CLOUD_REPO_REF: "main",
@@ -136,33 +140,36 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     );
 
     const webLogGroup = new logs.LogGroup(this, "WebLogGroup", {
-      logGroupName: "/ecs/ai-workspace/web",
+      logGroupName: "/ecs/ai-workspace-runtime-v2/web",
       retention: logs.RetentionDays.ONE_MONTH,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
     const chatWorkerLogGroup = new logs.LogGroup(this, "ChatWorkerLogGroup", {
-      logGroupName: "/ecs/ai-workspace/chat-worker",
+      logGroupName: "/ecs/ai-workspace-runtime-v2/chat-worker",
       retention: logs.RetentionDays.ONE_MONTH,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
     const memoryWorkerLogGroup = new logs.LogGroup(
       this,
       "MemoryWorkerLogGroup",
       {
-        logGroupName: "/ecs/ai-workspace/memory-worker",
+        logGroupName: "/ecs/ai-workspace-runtime-v2/memory-worker",
         retention: logs.RetentionDays.ONE_MONTH,
-        removalPolicy: cdk.RemovalPolicy.RETAIN,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
       },
     );
 
     const webTask = new ecs.FargateTaskDefinition(this, "WebTask", {
-      family: "ai-workspace-web",
+      family: "ai-workspace-runtime-v2-web",
       cpu: 512,
       memoryLimitMiB: 1024,
     });
     grantBedrockInvoke(webTask);
     webTask.addContainer("web", {
-      image: ecs.ContainerImage.fromEcrRepository(repository, "latest"),
+      image: ecs.ContainerImage.fromEcrRepository(
+        repository,
+        "runtime-v2-latest",
+      ),
       containerName: "web",
       portMappings: [{ containerPort: 3000 }],
       logging: ecs.LogDrivers.awsLogs({
@@ -183,7 +190,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
         "WebService",
         {
           cluster,
-          serviceName: "ai-workspace-web",
+          serviceName: "ai-workspace-runtime-v2-web",
           taskDefinition: webTask,
           desiredCount: 1,
           publicLoadBalancer: true,
@@ -194,7 +201,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
           domainZone: hostedZone,
           certificate,
           redirectHTTP: true,
-          loadBalancerName: "ai-workspace",
+          loadBalancerName: "ai-workspace-v2",
           circuitBreaker: { rollback: true },
           minHealthyPercent: 100,
         },
@@ -220,33 +227,35 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     const chatWorkerService = createWorkerService(this, {
       cluster,
       repository,
-      tag: "worker-latest",
-      family: "ai-workspace-chat-worker",
-      serviceName: "ai-workspace-chat-worker",
+      tag: "runtime-v2-worker-latest",
+      family: "ai-workspace-runtime-v2-chat-worker",
+      serviceName: "ai-workspace-runtime-v2-chat-worker",
       containerName: "chat-worker",
       logGroup: chatWorkerLogGroup,
       securityGroup: workerSecurityGroup,
       environment: commonEnvironment,
       secrets: commonSecrets,
+      grantBedrock: true,
     });
 
     const memoryWorkerService = createWorkerService(this, {
       cluster,
       repository,
-      tag: "memory-worker-latest",
-      family: "ai-workspace-memory-worker",
-      serviceName: "ai-workspace-memory-worker",
+      tag: "runtime-v2-memory-worker-latest",
+      family: "ai-workspace-runtime-v2-memory-worker",
+      serviceName: "ai-workspace-runtime-v2-memory-worker",
       containerName: "memory-worker",
       logGroup: memoryWorkerLogGroup,
       securityGroup: workerSecurityGroup,
       environment: commonEnvironment,
       secrets: commonSecrets,
+      grantBedrock: false,
     });
 
     if (codeBuildRoleArn) {
       const codeBuildRole = iam.Role.fromRoleArn(
         this,
-        "CodeBuildAiWorkspaceRole",
+        "CodeBuildAiWorkspaceRuntimeV2Role",
         codeBuildRoleArn,
         { mutable: true },
       );
@@ -264,7 +273,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     }
 
     new cloudwatch.Alarm(this, "WebUnhealthyHostsAlarm", {
-      alarmName: "ai-workspace-web-unhealthy-hosts",
+      alarmName: "ai-workspace-runtime-v2-web-unhealthy-hosts",
       metric: webService.targetGroup.metrics.unhealthyHostCount({
         period: cdk.Duration.minutes(1),
       }),
@@ -289,9 +298,6 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     new cdk.CfnOutput(this, "MemoryWorkerServiceName", {
       value: memoryWorkerService.serviceName,
     });
-    new cdk.CfnOutput(this, "AppSecretName", {
-      value: appSecretName,
-    });
   }
 }
 
@@ -308,6 +314,7 @@ function createWorkerService(
     securityGroup: ec2.ISecurityGroup;
     environment: Record<string, string>;
     secrets: Record<string, ecs.Secret>;
+    grantBedrock: boolean;
   },
 ): ecs.FargateService {
   const task = new ecs.FargateTaskDefinition(scope, `${input.family}Task`, {
@@ -315,6 +322,7 @@ function createWorkerService(
     cpu: 512,
     memoryLimitMiB: 1024,
   });
+  if (input.grantBedrock) grantBedrockInvoke(task);
   task.addContainer(input.containerName, {
     image: ecs.ContainerImage.fromEcrRepository(input.repository, input.tag),
     containerName: input.containerName,

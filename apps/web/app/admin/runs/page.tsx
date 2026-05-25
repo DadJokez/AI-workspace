@@ -20,6 +20,19 @@ interface Props {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }
 
+interface RunOutput {
+  runtime?: string;
+  runtimeTarget?: string;
+  modelId?: string;
+  metrics?: RunTimingMetrics;
+}
+
+interface RunTimingMetrics {
+  requestToFirstTokenMs?: number;
+  requestToCompletedMs?: number;
+  providerToFirstTokenMs?: number;
+}
+
 export default async function AdminRunsPage({ searchParams }: Props) {
   const sessionUser = await getSessionUser();
   if (!sessionUser || sessionUser.role !== "admin") {
@@ -40,6 +53,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
       triggerType: recipeRuns.triggerType,
       runtime: recipeRuns.runtime,
       modelId: recipeRuns.modelId,
+      outputs: recipeRuns.outputs,
       error: recipeRuns.error,
       startedAt: recipeRuns.startedAt,
       completedAt: recipeRuns.completedAt,
@@ -130,67 +144,81 @@ export default async function AdminRunsPage({ searchParams }: Props) {
                 </td>
               </tr>
             ) : (
-              rows.map((row) => (
-                <tr key={row.id} className="hover:bg-subtle/40">
-                  <td className="border-b border-hairline px-6 py-3 align-top">
-                    <div className="flex items-start gap-3">
-                      <StatusDot status={row.status} />
-                      <div>
+              rows.map((row) => {
+                const output = parseRunOutput(row.outputs);
+                return (
+                  <tr key={row.id} className="hover:bg-subtle/40">
+                    <td className="border-b border-hairline px-6 py-3 align-top">
+                      <div className="flex items-start gap-3">
+                        <StatusDot status={row.status} />
+                        <div>
+                          <Link
+                            href={`/admin/runs/${row.id}`}
+                            className="font-medium text-ink underline-offset-2 hover:underline"
+                          >
+                            {formatRecipe(row.recipeSlug)}
+                          </Link>
+                          <div className="mt-1 font-mono text-[12px] text-muted">
+                            {shortId(row.id)}
+                          </div>
+                          <div className="mt-1">
+                            <StatusBadge status={row.status} />
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="border-b border-hairline px-4 py-3 align-top">
+                      <div className="max-w-56 truncate text-ink">
+                        {row.actorName ?? "Unknown user"}
+                      </div>
+                      <div className="max-w-56 truncate text-[12px] text-muted">
+                        {row.actorEmail ?? "No email"}
+                      </div>
+                    </td>
+                    <td className="border-b border-hairline px-4 py-3 align-top">
+                      <div className="text-ink">
+                        {output.runtime ?? row.runtime ?? "n/a"}
+                      </div>
+                      <div className="mt-1 max-w-56 truncate text-[12px] text-muted">
+                        {output.runtimeTarget ?? "target n/a"}
+                      </div>
+                      <div className="mt-1 max-w-56 truncate text-[12px] text-muted">
+                        {output.modelId ?? row.modelId ?? "No model"}
+                      </div>
+                    </td>
+                    <td className="border-b border-hairline px-4 py-3 align-top text-[12px] text-muted">
+                      <div>{formatDateTime(row.createdAt)}</div>
+                      <div className="mt-1">
+                        {row.startedAt && row.completedAt
+                          ? formatDuration(row.startedAt, row.completedAt)
+                          : row.startedAt
+                            ? "In progress"
+                            : "Not started"}
+                      </div>
+                      <div className="mt-1 text-ink">
+                        1st token:{" "}
+                        {formatNullableMs(
+                          output.metrics?.requestToFirstTokenMs,
+                        )}
+                      </div>
+                    </td>
+                    <td className="border-b border-hairline px-6 py-3 align-top">
+                      {row.error ? (
+                        <div className="max-w-xl truncate font-mono text-[12px] text-red-300">
+                          {row.error}
+                        </div>
+                      ) : (
                         <Link
                           href={`/admin/runs/${row.id}`}
-                          className="font-medium text-ink underline-offset-2 hover:underline"
+                          className="text-[12px] text-ink underline-offset-2 hover:underline"
                         >
-                          {formatRecipe(row.recipeSlug)}
+                          View run
                         </Link>
-                        <div className="mt-1 font-mono text-[12px] text-muted">
-                          {shortId(row.id)}
-                        </div>
-                        <div className="mt-1">
-                          <StatusBadge status={row.status} />
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="border-b border-hairline px-4 py-3 align-top">
-                    <div className="max-w-56 truncate text-ink">
-                      {row.actorName ?? "Unknown user"}
-                    </div>
-                    <div className="max-w-56 truncate text-[12px] text-muted">
-                      {row.actorEmail ?? "No email"}
-                    </div>
-                  </td>
-                  <td className="border-b border-hairline px-4 py-3 align-top">
-                    <div className="text-ink">{row.runtime ?? "n/a"}</div>
-                    <div className="mt-1 max-w-56 truncate text-[12px] text-muted">
-                      {row.modelId ?? "No model"}
-                    </div>
-                  </td>
-                  <td className="border-b border-hairline px-4 py-3 align-top text-[12px] text-muted">
-                    <div>{formatDateTime(row.createdAt)}</div>
-                    <div className="mt-1">
-                      {row.startedAt && row.completedAt
-                        ? formatDuration(row.startedAt, row.completedAt)
-                        : row.startedAt
-                          ? "In progress"
-                          : "Not started"}
-                    </div>
-                  </td>
-                  <td className="border-b border-hairline px-6 py-3 align-top">
-                    {row.error ? (
-                      <div className="max-w-xl truncate font-mono text-[12px] text-red-300">
-                        {row.error}
-                      </div>
-                    ) : (
-                      <Link
-                        href={`/admin/runs/${row.id}`}
-                        className="text-[12px] text-ink underline-offset-2 hover:underline"
-                      >
-                        View run
-                      </Link>
-                    )}
-                  </td>
-                </tr>
-              ))
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -264,6 +292,39 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function parseRunOutput(value: unknown): RunOutput {
+  if (!isRecord(value)) return {};
+  return {
+    runtime: typeof value.runtime === "string" ? value.runtime : undefined,
+    runtimeTarget:
+      typeof value.runtimeTarget === "string" ? value.runtimeTarget : undefined,
+    modelId: typeof value.modelId === "string" ? value.modelId : undefined,
+    metrics: parseRunTimingMetrics(value.metrics),
+  };
+}
+
+function parseRunTimingMetrics(value: unknown): RunTimingMetrics | undefined {
+  if (!isRecord(value)) return undefined;
+  return {
+    requestToFirstTokenMs:
+      typeof value.requestToFirstTokenMs === "number"
+        ? value.requestToFirstTokenMs
+        : undefined,
+    requestToCompletedMs:
+      typeof value.requestToCompletedMs === "number"
+        ? value.requestToCompletedMs
+        : undefined,
+    providerToFirstTokenMs:
+      typeof value.providerToFirstTokenMs === "number"
+        ? value.providerToFirstTokenMs
+        : undefined,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function parseFilter<T extends readonly string[]>(
   value: string | string[] | undefined,
   allowed: T,
@@ -301,4 +362,10 @@ function formatDuration(startedAt: Date, completedAt: Date) {
   const ms = Math.max(0, completedAt.getTime() - startedAt.getTime());
   if (ms < 1_000) return `${ms}ms`;
   return `${(ms / 1_000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+}
+
+function formatNullableMs(value: number | undefined) {
+  if (typeof value !== "number") return "n/a";
+  if (value < 1_000) return `${value}ms`;
+  return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}s`;
 }
