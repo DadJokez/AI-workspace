@@ -1,5 +1,9 @@
 # Runtime V2 Autopilot Spec
 
+> Spec Kit packet: [`specs/001-runtime-v2-autopilot`](../specs/001-runtime-v2-autopilot/).
+> This document is the original design note; use the Spec Kit packet for
+> implementation tasks, rollout checklist, and GitHub issue traceability.
+
 ## Purpose
 
 AI Workspace should feel fast for ordinary chat without asking users to choose
