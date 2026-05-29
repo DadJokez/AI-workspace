@@ -103,6 +103,7 @@ interface ChatStreamEvent {
 interface ModelsResponse {
   defaultModelId: string;
   models: ModelOption[];
+  runtimeV2Enabled?: boolean;
 }
 
 interface UserResponse {
@@ -314,6 +315,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const [models, setModels] = useState<ModelOption[]>([]);
   const [defaultModelId, setDefaultModelId] =
     useState<string>(FALLBACK_DEFAULT_MODEL_ID);
+  const [runtimeV2Enabled, setRuntimeV2Enabled] = useState(false);
   const [tabs, setTabs] = useState<ChatTab[]>(() => [makeFreshTab()]);
   const [activeId, setActiveId] = useState<string>(() => tabs[0]!.id);
   const [user, setUser] = useState<UserResponse["user"] | undefined>();
@@ -382,6 +384,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       if (modelsData) {
         setModels(modelsData.models);
         setDefaultModelId(modelsData.defaultModelId);
+        setRuntimeV2Enabled(modelsData.runtimeV2Enabled === true);
       }
 
       setThreadsLoading(false);
@@ -1256,6 +1259,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             defaultModelId={defaultModelId}
             userDefaultModelId={userDefaultModelId}
             onUserDefaultModelChange={updateUserDefaultModel}
+            runtimeV2Enabled={runtimeV2Enabled}
             onClose={() => setView("chat")}
             onOpenSidebar={() => setSidebarOpen(true)}
           />
@@ -1374,7 +1378,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             </button>
           </div>
           <div className="flex shrink-0 items-center gap-1 self-center px-2 sm:gap-1.5 sm:px-3 sm:self-end sm:pb-1">
-            {models.length > 0 && activeTab.modelId ? (
+            {!runtimeV2Enabled && models.length > 0 && activeTab.modelId ? (
               <ModelSelector
                 value={activeTab.modelId}
                 onChange={handleModelChange}

@@ -4,6 +4,7 @@ import {
   type SDKModel,
 } from "@ai-workspace/cursor-runtime";
 import { NextResponse } from "next/server";
+import { runtimeV2EnabledFromEnv } from "@/lib/chat-routing";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export const dynamic = "force-dynamic";
  */
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-let cache: { at: number; body: unknown } | null = null;
+let cache: { at: number; body: ModelsBody } | null = null;
 
 const LEGACY_TO_CURSOR: Record<ModelId, string> = {
   "haiku-4-5": "claude-haiku-4-5-20251001",
@@ -102,6 +103,12 @@ interface ApiModel {
   recommendedFor: readonly string[];
 }
 
+interface ModelsBody {
+  defaultModelId: string;
+  models: ApiModel[];
+  runtimeV2Enabled: boolean;
+}
+
 function localMetaFor(cursorId: string) {
   for (const m of Object.values(MODELS)) {
     if (LEGACY_TO_CURSOR[m.id] === cursorId) return m;
@@ -109,9 +116,10 @@ function localMetaFor(cursorId: string) {
   return null;
 }
 
-function fallbackBody(): { defaultModelId: string; models: ApiModel[] } {
+function fallbackBody(): ModelsBody {
   return {
     defaultModelId: LEGACY_TO_CURSOR[DEFAULT_MODEL_ID],
+    runtimeV2Enabled: runtimeV2EnabledFromEnv(),
     models: Object.values(MODELS).map((m) => {
       const cursorId = LEGACY_TO_CURSOR[m.id];
       return {
@@ -166,6 +174,7 @@ export async function GET() {
 
   const body = {
     defaultModelId,
+    runtimeV2Enabled: runtimeV2EnabledFromEnv(),
     models: cursorModels.map(mapCursorModel),
   };
   cache = { at: Date.now(), body };

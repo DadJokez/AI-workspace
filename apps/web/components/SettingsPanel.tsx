@@ -19,6 +19,7 @@ interface Props {
   defaultModelId: string;
   userDefaultModelId?: string;
   onUserDefaultModelChange: (id: string) => void;
+  runtimeV2Enabled?: boolean;
   onClose: () => void;
   onOpenSidebar: () => void;
 }
@@ -76,6 +77,7 @@ export function SettingsPanel({
   defaultModelId,
   userDefaultModelId,
   onUserDefaultModelChange,
+  runtimeV2Enabled = false,
   onClose,
   onOpenSidebar,
 }: Props) {
@@ -305,42 +307,42 @@ export function SettingsPanel({
             </Field>
           </Section>
 
-          <Divider />
+          {!runtimeV2Enabled ? (
+            <>
+              <Divider />
 
-          <Section title="Default model">
-            <Field label="Model for new chats">
-              <select
-                value={currentDefault}
-                onChange={(e) =>
-                  onUserDefaultModelChange(e.target.value)
-                }
-                disabled={models.length === 0}
-                className="rounded-md border border-hairline bg-canvas px-2 py-2 text-sm text-ink disabled:opacity-50 focus:outline-none"
-              >
-                {models.length === 0 ? (
-                  <option value="">Loading…</option>
-                ) : (
-                  models.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.displayName}
-                    </option>
-                  ))
-                )}
-              </select>
-              {(() => {
-                const active = models.find((m) => m.id === currentDefault);
-                const blurb = active?.blurb?.trim();
-                if (!blurb) return null;
-                return (
-                  <p className="text-[12px] text-ink">{blurb}</p>
-                );
-              })()}
-              <p className="text-[11px] text-muted">
-                New chats start with this model. You can still change the model
-                per-tab using the dropdown in the top bar.
-              </p>
-            </Field>
-          </Section>
+              <Section title="Default model">
+                <Field label="Model for new chats">
+                  <select
+                    value={currentDefault}
+                    onChange={(e) => onUserDefaultModelChange(e.target.value)}
+                    disabled={models.length === 0}
+                    className="rounded-md border border-hairline bg-canvas px-2 py-2 text-sm text-ink disabled:opacity-50 focus:outline-none"
+                  >
+                    {models.length === 0 ? (
+                      <option value="">Loading…</option>
+                    ) : (
+                      models.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.displayName}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                  {(() => {
+                    const active = models.find((m) => m.id === currentDefault);
+                    const blurb = active?.blurb?.trim();
+                    if (!blurb) return null;
+                    return <p className="text-[12px] text-ink">{blurb}</p>;
+                  })()}
+                  <p className="text-[11px] text-muted">
+                    New chats start with this model. You can still change the
+                    model per-tab using the dropdown in the top bar.
+                  </p>
+                </Field>
+              </Section>
+            </>
+          ) : null}
         </div>
       </div>
     </div>
