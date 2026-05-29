@@ -89,6 +89,11 @@ clear user-experience win.
 
 ### What's live in production
 
+Runtime V2 is now tracked as a Spec Kit-style packet at
+[`specs/001-runtime-v2-autopilot`](./specs/001-runtime-v2-autopilot/). The
+packet is the execution source for production rollout, autopilot routing polish,
+model fallback, metrics, and shared-rate-limit follow-up work.
+
 | Feature | Status |
 |---|---|
 | Chat (multi-turn, streamed, persisted per user) | ✅ |

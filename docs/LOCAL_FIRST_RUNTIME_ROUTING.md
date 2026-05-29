@@ -1,5 +1,9 @@
 # Local-First Runtime Routing Issue/Spec
 
+> Spec Kit packet: [`specs/001-runtime-v2-autopilot`](../specs/001-runtime-v2-autopilot/).
+> This document captures the routing problem statement; use the Spec Kit packet
+> for the current task list and rollout tracking.
+
 ## Summary
 
 AI Workspace should operate in the simplest runtime lane that can satisfy the user's ask. Normal chat must default to local, direct streaming with no tools mounted and no background worker. The system escalates only when the ask requires connected tools, durable background work, or an explicit cloud run.
