@@ -13,7 +13,10 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
 import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
-import { decideChatRuntimeRoute } from "@/lib/chat-routing";
+import {
+  decideChatRuntimeRoute,
+  runtimeV2EnabledFromEnv,
+} from "@/lib/chat-routing";
 import { streamInlineChatRun } from "@/lib/chat-inline-runner";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
 import {
@@ -38,6 +41,7 @@ interface ChatRequestBody {
  * inline. Durable/cloud work is queued for the background worker.
  */
 export async function POST(req: Request) {
+  const requestStartedAt = new Date();
   let sessionUser;
   try {
     sessionUser = await getSessionUser();
@@ -91,9 +95,11 @@ export async function POST(req: Request) {
       ? body.modelId
       : DEFAULT_MODEL_ID;
   const executionMode = parseChatExecutionMode(body.executionMode);
+  const runtimeV2 = runtimeV2EnabledFromEnv();
   const runtimeRoute = decideChatRuntimeRoute({
     message: body.message,
     executionMode,
+    runtimeV2,
   });
 
   const db = getDb();
@@ -195,6 +201,7 @@ export async function POST(req: Request) {
         userMessageId: userMsg[0]!.id,
         requestedByUserId: sessionUser.id,
         executionMode: runtimeRoute.executionMode,
+        runtimeV2,
         runtimeRoute,
       },
       attemptCount: runtimeRoute.useWorker ? 0 : 1,
@@ -220,6 +227,7 @@ export async function POST(req: Request) {
         modelId,
         userMessageId: userMsg[0]!.id,
         executionMode: runtimeRoute.executionMode,
+        runtimeV2,
         runtimeRoute,
       },
       occurredAt: queuedAt,
@@ -252,6 +260,7 @@ export async function POST(req: Request) {
         userMessageId: userMsg[0]!.id,
         modelId,
         executionMode: runtimeRoute.executionMode,
+        runtimeV2,
         runtimeRoute,
       });
       if (runtimeRoute.useWorker) {
@@ -278,6 +287,7 @@ export async function POST(req: Request) {
           prompt: body.message,
           modelId,
           route: runtimeRoute,
+          requestStartedAt,
           signal: req.signal,
           send,
         });

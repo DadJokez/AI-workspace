@@ -1,0 +1,53 @@
+version: 0.2
+
+env:
+  variables:
+    IMAGE_REPO_NAME: ai-workspace
+    APP_SECRET_NAME: ai-workspace/production/app
+    ECS_CLUSTER_NAME: ai-workspace-runtime-v2
+    ECS_WEB_SERVICE_NAME: ai-workspace-runtime-v2-web
+    ECS_CHAT_WORKER_SERVICE_NAME: ai-workspace-runtime-v2-chat-worker
+    ECS_MEMORY_WORKER_SERVICE_NAME: ai-workspace-runtime-v2-memory-worker
+
+phases:
+  pre_build:
+    commands:
+      - 'echo Resolving AWS account ID...'
+      - 'AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)'
+      - 'echo Account=$AWS_ACCOUNT_ID Region=$AWS_DEFAULT_REGION'
+      - 'echo Logging in to Amazon ECR...'
+      - 'aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com'
+      - 'REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME'
+      - 'COMMIT_TAG=${CODEBUILD_RESOLVED_SOURCE_VERSION:-manual}'
+  build:
+    commands:
+      - 'echo Runtime V2 build started on $(date)'
+      - 'docker build -f apps/web/Dockerfile -t $IMAGE_REPO_NAME .'
+      - 'docker build -f apps/web/Dockerfile --target migrator -t $IMAGE_REPO_NAME:migrator .'
+      - 'docker build -f apps/web/Dockerfile --target worker -t $IMAGE_REPO_NAME:worker .'
+      - 'docker build -f apps/web/Dockerfile --target memory-worker -t $IMAGE_REPO_NAME:memory-worker .'
+      - 'docker tag $IMAGE_REPO_NAME:latest $REPOSITORY_URI:runtime-v2-latest'
+      - 'docker tag $IMAGE_REPO_NAME:latest $REPOSITORY_URI:runtime-v2-$COMMIT_TAG'
+      - 'docker tag $IMAGE_REPO_NAME:worker $REPOSITORY_URI:runtime-v2-worker-latest'
+      - 'docker tag $IMAGE_REPO_NAME:worker $REPOSITORY_URI:runtime-v2-worker-$COMMIT_TAG'
+      - 'docker tag $IMAGE_REPO_NAME:memory-worker $REPOSITORY_URI:runtime-v2-memory-worker-latest'
+      - 'docker tag $IMAGE_REPO_NAME:memory-worker $REPOSITORY_URI:runtime-v2-memory-worker-$COMMIT_TAG'
+  post_build:
+    commands:
+      - 'echo Running database migrations...'
+      - 'APP_SECRET_JSON=$(aws secretsmanager get-secret-value --region $AWS_DEFAULT_REGION --secret-id "$APP_SECRET_NAME" --query SecretString --output text)'
+      - 'DATABASE_URL=$(printf "%s" "$APP_SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)[\"DATABASE_URL\"])")'
+      - 'test -n "$DATABASE_URL" && test "$DATABASE_URL" != "None"'
+      - 'docker run --rm -e DATABASE_URL="$DATABASE_URL" $IMAGE_REPO_NAME:migrator'
+      - 'echo Pushing the Runtime V2 Docker images...'
+      - 'docker push $REPOSITORY_URI:runtime-v2-latest'
+      - 'docker push $REPOSITORY_URI:runtime-v2-$COMMIT_TAG'
+      - 'docker push $REPOSITORY_URI:runtime-v2-worker-latest'
+      - 'docker push $REPOSITORY_URI:runtime-v2-worker-$COMMIT_TAG'
+      - 'docker push $REPOSITORY_URI:runtime-v2-memory-worker-latest'
+      - 'docker push $REPOSITORY_URI:runtime-v2-memory-worker-$COMMIT_TAG'
+      - 'echo Forcing Runtime V2 ECS service deployments...'
+      - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_WEB_SERVICE_NAME" --force-new-deployment >/dev/null'
+      - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_CHAT_WORKER_SERVICE_NAME" --force-new-deployment >/dev/null'
+      - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_MEMORY_WORKER_SERVICE_NAME" --force-new-deployment >/dev/null'
+      - 'echo Runtime V2 build completed on $(date)'

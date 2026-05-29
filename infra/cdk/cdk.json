@@ -2,6 +2,7 @@
   "app": "pnpm exec tsx bin/ai-workspace.ts",
   "context": {
     "aiWorkspace:domainName": "ai-workspace.builtwithrobot.link",
+    "aiWorkspace:runtimeV2DomainName": "runtime-v2.ai-workspace.builtwithrobot.link",
     "aiWorkspace:hostedZoneName": "builtwithrobot.link",
     "aiWorkspace:ecrRepositoryName": "ai-workspace",
     "aiWorkspace:appSecretName": "ai-workspace/production/app",

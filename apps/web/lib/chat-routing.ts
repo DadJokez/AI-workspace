@@ -9,9 +9,13 @@ export type ChatRuntimeLane =
   | "durable-local"
   | "cursor-cloud";
 
+export type ChatRuntimeTarget = "direct-chat" | "cursor-agent";
+
 export interface ChatRuntimeRoute {
   lane: ChatRuntimeLane;
   executionMode: ChatExecutionMode;
+  runtimeTarget: ChatRuntimeTarget;
+  runtimeV2: boolean;
   useWorker: boolean;
   useMcp: boolean;
   includeVaultContext: boolean;
@@ -21,9 +25,11 @@ export interface ChatRuntimeRoute {
 export function decideChatRuntimeRoute({
   message,
   executionMode,
+  runtimeV2 = false,
 }: {
   message: string;
   executionMode?: unknown;
+  runtimeV2?: boolean;
 }): ChatRuntimeRoute {
   const parsedExecutionMode = parseChatExecutionMode(executionMode);
   const normalized = normalize(message);
@@ -33,6 +39,8 @@ export function decideChatRuntimeRoute({
     return {
       lane: "cursor-cloud",
       executionMode: "cloud",
+      runtimeTarget: "cursor-agent",
+      runtimeV2,
       useWorker: true,
       useMcp: true,
       includeVaultContext: true,
@@ -46,6 +54,8 @@ export function decideChatRuntimeRoute({
     return {
       lane: "durable-local",
       executionMode: "local",
+      runtimeTarget: "cursor-agent",
+      runtimeV2,
       useWorker: true,
       useMcp: true,
       includeVaultContext: true,
@@ -59,6 +69,8 @@ export function decideChatRuntimeRoute({
     return {
       lane: "tool-local",
       executionMode: "local",
+      runtimeTarget: "cursor-agent",
+      runtimeV2,
       useWorker: false,
       useMcp: true,
       includeVaultContext: hasPersonalContextIntent(normalized) !== null,
@@ -72,11 +84,20 @@ export function decideChatRuntimeRoute({
   return {
     lane: "fast-local",
     executionMode: "local",
+    runtimeTarget: runtimeV2 ? "direct-chat" : "cursor-agent",
+    runtimeV2,
     useWorker: false,
     useMcp: false,
     includeVaultContext: personalContext !== null,
     reasons: reasons.length > 0 ? reasons : ["default_fast_local"],
   };
+}
+
+export function runtimeV2EnabledFromEnv(
+  value = process.env.RUNTIME_V2_ENABLED,
+): boolean {
+  if (!value) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
 function normalize(value: string): string {
@@ -113,19 +134,19 @@ function hasDurableIntent(value: string): string | null {
 
 function hasToolIntent(value: string): string | null {
   if (
-    /\b(github|repo|repository|issue|pull request|pr|commit|branch|workflow|actions|ci)\b/.test(
+    /\b(github|gh|repo|repository|issue|pull request|prs?|commit|branch|workflow|actions|ci)\b/.test(
       value,
     ) &&
-    /\b(check|inspect|look|find|search|list|read|show|summarize|compare|open|create|update|comment|close|merge)\b/.test(
+    /\b(check|inspect|look|peek|find|search|list|read|show|summarize|compare|open|create|update|comment|close|merge)\b/.test(
       value,
     )
   ) {
     return "github_tool_intent";
   }
-  if (/\b(issue|pull request|pr)\s*#?\d+\b/.test(value)) {
+  if (/\b(issue|pull request|prs?)\s*#?\d+\b/.test(value)) {
     return "github_reference";
   }
-  if (/\bmy\s+(repo|repository|github|issues?|prs?|pull requests?)\b/.test(value)) {
+  if (/\bmy\s+(repo|repository|github|gh|issues?|prs?|pull requests?)\b/.test(value)) {
     return "github_owned_resource";
   }
   return null;

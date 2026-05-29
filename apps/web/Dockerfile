@@ -20,7 +20,11 @@ RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
 FROM base AS build
 COPY --from=deps /repo/node_modules ./node_modules
 COPY --from=deps /repo/apps/web/node_modules ./apps/web/node_modules
+COPY --from=deps /repo/packages/cursor-runtime/node_modules ./packages/cursor-runtime/node_modules
 COPY . .
+RUN mkdir -p /repo/apps/web/node_modules && \
+    ln -sfn "$(ls -d /repo/node_modules/.pnpm/@cursor+sdk@*/node_modules/@cursor | head -n 1)" \
+      /repo/apps/web/node_modules/@cursor
 RUN pnpm --filter @ai-workspace/web build
 
 FROM base AS migrator

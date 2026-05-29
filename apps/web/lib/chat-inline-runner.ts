@@ -1,4 +1,9 @@
 import {
+  DEFAULT_MODEL_ID,
+  isValidModelId,
+  type ModelId,
+} from "@ai-workspace/agent";
+import {
   type ChatThread,
   auditLog,
   chatMessages,
@@ -10,6 +15,7 @@ import {
 import { eq, ne, and, asc, sql } from "drizzle-orm";
 import {
   getRuntime,
+  type RuntimeName,
   type RuntimeRunMetadata,
 } from "@ai-workspace/cursor-runtime";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
@@ -42,8 +48,33 @@ export interface StreamInlineChatRunInput {
   prompt: string;
   modelId: string;
   route: ChatRuntimeRoute;
+  requestStartedAt?: Date;
   signal?: AbortSignal;
   send: ChatStreamSend;
+}
+
+interface ChatRunTimingMarks {
+  requestStartedAt: Date;
+  inlineStartedAt: Date;
+  contextReadyAt?: Date;
+  providerStartedAt?: Date;
+  firstTokenAt?: Date;
+  completedAt?: Date;
+}
+
+export interface ChatRunTimingMetrics {
+  requestStartedAt: string;
+  inlineStartedAt: string;
+  contextReadyAt?: string;
+  providerStartedAt?: string;
+  firstTokenAt?: string;
+  completedAt?: string;
+  requestToInlineMs: number;
+  inlineToContextReadyMs?: number;
+  requestToProviderMs?: number;
+  providerToFirstTokenMs?: number;
+  requestToFirstTokenMs?: number;
+  requestToCompletedMs?: number;
 }
 
 export async function streamInlineChatRun({
@@ -55,10 +86,21 @@ export async function streamInlineChatRun({
   prompt,
   modelId,
   route,
+  requestStartedAt,
   signal,
   send,
 }: StreamInlineChatRunInput): Promise<void> {
-  const runtime = getRuntime({ db, executionMode: "local" });
+  const timing: ChatRunTimingMarks = {
+    requestStartedAt: requestStartedAt ?? new Date(),
+    inlineStartedAt: new Date(),
+  };
+  const runtimeName = resolveRuntimeName(route);
+  const runtimeModelId = resolveRuntimeModelId(modelId, route, runtimeName);
+  const runtime = getRuntime({
+    db,
+    executionMode: "local",
+    runtime: runtimeName,
+  });
   const runtimeAbort = new AbortController();
   const externalAbort = () => runtimeAbort.abort();
   signal?.addEventListener("abort", externalAbort, { once: true });
@@ -145,20 +187,26 @@ export async function streamInlineChatRun({
             blockedProviders: deniedMcpProviders,
           })
         : undefined;
+    timing.contextReadyAt = new Date();
 
     await db
       .update(recipeRuns)
       .set({
+        modelId: runtimeModelId,
         runtime: runtime.name,
         inputs: {
           prompt,
           threadId: thread.id,
           userMessageId,
           requestedByUserId: userId,
+          requestedModelId: modelId,
+          runtimeModelId,
+          runtimeTarget: route.runtimeTarget,
           executionMode: route.executionMode,
           runtimeRoute: route,
           mcpProviders: connectedProviders,
           deniedMcpProviders,
+          metrics: buildTimingMetrics(timing),
         },
         updatedAt: new Date(),
       })
@@ -173,27 +221,43 @@ export async function streamInlineChatRun({
           : "Started local streaming run",
       metadata: {
         lane: route.lane,
+        runtimeTarget: route.runtimeTarget,
+        runtime: runtime.name,
+        requestedModelId: modelId,
+        runtimeModelId,
         reasons: route.reasons,
         mcpProviders: connectedProviders,
+        metrics: buildTimingMetrics(timing),
       },
     });
 
     for await (const ev of runtime.runTurn({
       threadId: thread.id,
-      modelId,
+      modelId: runtimeModelId,
+      systemPrompt:
+        route.runtimeTarget === "direct-chat" ? firstTurnPreamble : undefined,
       messages: agentMessages,
       context: { userId },
       signal: runtimeAbort.signal,
-      firstTurnPreamble,
+      firstTurnPreamble:
+        route.runtimeTarget === "cursor-agent" ? firstTurnPreamble : undefined,
       onRunStarted: async (metadata) => {
+        timing.providerStartedAt = new Date();
         providerRunMetadata = metadata;
+        const metrics = buildTimingMetrics(timing);
+        send({ type: "metrics", stage: "provider_started", metrics });
         await db
           .update(recipeRuns)
           .set({
             outputs: {
               assistantText,
               lifecycle: "provider_started",
+              requestedModelId: modelId,
+              modelId: runtimeModelId,
+              runtime: runtime.name,
+              runtimeTarget: route.runtimeTarget,
               providerRun: metadata,
+              metrics,
             },
             updatedAt: new Date(),
           })
@@ -201,8 +265,14 @@ export async function streamInlineChatRun({
         await appendInlineRunEvent(db, runId, {
           eventType: "provider_run_started",
           status: "pending",
-          label: "Started Cursor run",
-          metadata: metadata as unknown as Record<string, unknown>,
+          label: `Started ${runtime.name} run`,
+          metadata: {
+            ...(metadata as unknown as Record<string, unknown>),
+            runtimeTarget: route.runtimeTarget,
+            requestedModelId: modelId,
+            runtimeModelId,
+            metrics,
+          },
         });
       },
       ...(mcpServers ? { mcpServers } : {}),
@@ -214,6 +284,23 @@ export async function streamInlineChatRun({
       if (ev.type === "text-delta") {
         assistantText += ev.delta;
         send({ type: "text-delta", delta: ev.delta });
+        if (!timing.firstTokenAt && ev.delta.length > 0) {
+          timing.firstTokenAt = new Date();
+          const metrics = buildTimingMetrics(timing);
+          send({ type: "metrics", stage: "first_token", metrics });
+          await appendInlineRunEvent(db, runId, {
+            eventType: "first_token_streamed",
+            status: "succeeded",
+            label: "First token streamed",
+            metadata: {
+              runtimeTarget: route.runtimeTarget,
+              runtime: runtime.name,
+              requestedModelId: modelId,
+              runtimeModelId,
+              metrics,
+            },
+          });
+        }
       } else if (ev.type === "usage") {
         tokensIn = ev.tokensIn;
         tokensOut = ev.tokensOut;
@@ -260,6 +347,9 @@ export async function streamInlineChatRun({
       : runtimeErrors.length > 0
         ? runtimeErrors.join("\n")
         : null;
+    const completedAt = new Date();
+    timing.completedAt = completedAt;
+    const finalMetrics = buildTimingMetrics(timing);
 
     const assistantMessageId = await persistInlineAssistantResult({
       db,
@@ -267,8 +357,10 @@ export async function streamInlineChatRun({
       userId,
       threadId: thread.id,
       userMessageId,
-      modelId,
+      requestedModelId: modelId,
+      modelId: runtimeModelId,
       runtimeName: runtime.name,
+      runtimeTarget: route.runtimeTarget,
       assistantText,
       tokensIn,
       tokensOut,
@@ -277,8 +369,11 @@ export async function streamInlineChatRun({
       providerRunMetadata,
       terminalStatus: runError ? "failed" : "succeeded",
       error: runError,
+      timingMetrics: finalMetrics,
+      completedAt,
     });
 
+    send({ type: "metrics", stage: "completed", metrics: finalMetrics });
     if (runError) return;
 
     send({ type: "done" });
@@ -299,8 +394,10 @@ async function persistInlineAssistantResult({
   userId,
   threadId,
   userMessageId,
+  requestedModelId,
   modelId,
   runtimeName,
+  runtimeTarget,
   assistantText,
   tokensIn,
   tokensOut,
@@ -309,14 +406,18 @@ async function persistInlineAssistantResult({
   providerRunMetadata,
   terminalStatus,
   error,
+  timingMetrics,
+  completedAt,
 }: {
   db: Database;
   runId: string;
   userId: string;
   threadId: string;
   userMessageId: string;
+  requestedModelId: string;
   modelId: string;
   runtimeName: string;
+  runtimeTarget: ChatRuntimeRoute["runtimeTarget"];
   assistantText: string;
   tokensIn: number;
   tokensOut: number;
@@ -325,6 +426,8 @@ async function persistInlineAssistantResult({
   providerRunMetadata: RuntimeRunMetadata | null;
   terminalStatus: InlineTerminalStatus;
   error: string | null;
+  timingMetrics: ChatRunTimingMetrics;
+  completedAt: Date;
 }): Promise<string | undefined> {
   let assistantMessageId: string | undefined;
   const shouldPersistAssistant =
@@ -372,7 +475,6 @@ async function persistInlineAssistantResult({
     .set({ updatedAt: new Date() })
     .where(eq(chatThreads.id, threadId));
 
-  const completedAt = new Date();
   await db
     .update(recipeRuns)
     .set({
@@ -386,9 +488,12 @@ async function persistInlineAssistantResult({
         toolResults,
         tokensIn,
         tokensOut,
+        requestedModelId,
         modelId,
         runtime: runtimeName,
+        runtimeTarget,
         ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
+        metrics: timingMetrics,
       },
       workerId: null,
       leaseExpiresAt: null,
@@ -428,7 +533,15 @@ async function persistInlineAssistantResult({
         ? "Stored assistant answer"
         : "Run ended with errors",
     ...(error ? { error } : {}),
-    metadata: { assistantMessageId, userMessageId },
+    metadata: {
+      assistantMessageId,
+      userMessageId,
+      requestedModelId,
+      modelId,
+      runtime: runtimeName,
+      runtimeTarget,
+      metrics: timingMetrics,
+    },
   });
 
   return assistantMessageId;
@@ -463,6 +576,96 @@ async function nextRunEventSequence(
     sql`select coalesce(max(sequence), 0)::int + 1 as sequence from run_events where recipe_run_id = ${recipeRunId}`,
   );
   return rows[0]?.sequence ?? 1;
+}
+
+function resolveRuntimeName(route: ChatRuntimeRoute): RuntimeName {
+  if (route.runtimeTarget !== "direct-chat") return "cursor";
+  const raw = process.env.RUNTIME_V2_DIRECT_RUNTIME?.trim().toLowerCase();
+  if (raw === "bedrock" || raw === "cursor") return raw;
+  return "bedrock";
+}
+
+function resolveRuntimeModelId(
+  requestedModelId: string,
+  route: ChatRuntimeRoute,
+  runtimeName: RuntimeName,
+): string {
+  if (route.runtimeTarget !== "direct-chat" || runtimeName !== "bedrock") {
+    return requestedModelId;
+  }
+
+  const directDefault = process.env.RUNTIME_V2_DIRECT_MODEL_ID
+    ?.trim()
+    .toLowerCase();
+  if (directDefault && isValidModelId(directDefault)) return directDefault;
+
+  const normalized = requestedModelId.trim().toLowerCase();
+  const alias = DIRECT_MODEL_ALIASES[normalized];
+  if (alias) return alias;
+  if (isValidModelId(normalized)) return normalized;
+
+  return DEFAULT_MODEL_ID;
+}
+
+const DIRECT_MODEL_ALIASES: Record<string, ModelId> = {
+  "claude-haiku-4-5": "haiku-4-5",
+  "claude-haiku-4-5-20251001": "haiku-4-5",
+  "us.anthropic.claude-haiku-4-5-20251001-v1:0": "haiku-4-5",
+  "claude-sonnet-4-6": "sonnet-4-6",
+  "us.anthropic.claude-sonnet-4-6": "sonnet-4-6",
+  "claude-opus-4-7": "opus-4-7",
+  "us.anthropic.claude-opus-4-7": "opus-4-7",
+};
+
+function buildTimingMetrics(
+  timing: ChatRunTimingMarks,
+): ChatRunTimingMetrics {
+  const metrics: ChatRunTimingMetrics = {
+    requestStartedAt: timing.requestStartedAt.toISOString(),
+    inlineStartedAt: timing.inlineStartedAt.toISOString(),
+    requestToInlineMs: diffMs(timing.requestStartedAt, timing.inlineStartedAt),
+  };
+
+  if (timing.contextReadyAt) {
+    metrics.contextReadyAt = timing.contextReadyAt.toISOString();
+    metrics.inlineToContextReadyMs = diffMs(
+      timing.inlineStartedAt,
+      timing.contextReadyAt,
+    );
+  }
+  if (timing.providerStartedAt) {
+    metrics.providerStartedAt = timing.providerStartedAt.toISOString();
+    metrics.requestToProviderMs = diffMs(
+      timing.requestStartedAt,
+      timing.providerStartedAt,
+    );
+  }
+  if (timing.firstTokenAt) {
+    metrics.firstTokenAt = timing.firstTokenAt.toISOString();
+    metrics.requestToFirstTokenMs = diffMs(
+      timing.requestStartedAt,
+      timing.firstTokenAt,
+    );
+    if (timing.providerStartedAt) {
+      metrics.providerToFirstTokenMs = diffMs(
+        timing.providerStartedAt,
+        timing.firstTokenAt,
+      );
+    }
+  }
+  if (timing.completedAt) {
+    metrics.completedAt = timing.completedAt.toISOString();
+    metrics.requestToCompletedMs = diffMs(
+      timing.requestStartedAt,
+      timing.completedAt,
+    );
+  }
+
+  return metrics;
+}
+
+function diffMs(start: Date, end: Date): number {
+  return Math.max(0, end.getTime() - start.getTime());
 }
 
 function numberFromEnv(name: string): number | undefined {
