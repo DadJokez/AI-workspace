@@ -119,37 +119,95 @@ function hasDurableIntent(value: string): string | null {
     return "implementation_work";
   }
   if (
-    /\b(run|write|add|update|create|open|make)\b/.test(value) &&
+    /\b(run|write|add|update|create|make)\b/.test(value) &&
     /\b(tests?|migration|pull request|pr|branch|commit|files?|component|endpoint|api route)\b/.test(
       value,
     )
   ) {
     return "durable_code_change";
   }
-  if (/\b(open|create|draft)\b.*\b(pull request|pr)\b/.test(value)) {
+  if (
+    /\b(create|draft)\b.*\b(pull request|pr)\b/.test(value) ||
+    (/\bopen\s+(a\s+)?(pull request|pr)\b/.test(value) &&
+      !hasNumberedGithubReference(value))
+  ) {
     return "pull_request_work";
   }
   return null;
 }
 
 function hasToolIntent(value: string): string | null {
-  if (
-    /\b(github|gh|repo|repository|issue|pull request|prs?|commit|branch|workflow|actions|ci)\b/.test(
-      value,
-    ) &&
-    /\b(check|inspect|look|peek|find|search|list|read|show|summarize|compare|open|create|update|comment|close|merge)\b/.test(
-      value,
-    )
-  ) {
-    return "github_tool_intent";
+  if (hasNumberedGithubReference(value)) {
+    return "github_numbered_reference";
   }
-  if (/\b(issue|pull request|prs?)\s*#?\d+\b/.test(value)) {
-    return "github_reference";
+  if (hasCiStatusLookup(value)) {
+    return "github_ci_status_lookup";
+  }
+  if (hasOwnedGithubWorkLookup(value)) {
+    return "github_owned_work_lookup";
+  }
+  if (hasRecentGithubWorkLookup(value)) {
+    return "github_recent_work_lookup";
+  }
+  if (
+    /\b(github|gh|repo|repository)\b/.test(value) &&
+    GITHUB_LOOKUP_ACTION_RE.test(value)
+  ) {
+    return "github_provider_lookup";
+  }
+  if (
+    /\b(pull request|prs?|commit|branch|workflow|actions|ci)\b/.test(value) &&
+    GITHUB_LOOKUP_ACTION_RE.test(value)
+  ) {
+    return "github_resource_lookup";
   }
   if (/\bmy\s+(repo|repository|github|gh|issues?|prs?|pull requests?)\b/.test(value)) {
     return "github_owned_resource";
   }
   return null;
+}
+
+const GITHUB_LOOKUP_ACTION_RE =
+  /\b(check|inspect|look|peek|find|search|list|read|show|summarize|compare|status|review|open|create|update|comment|close|merge)\b/;
+
+function hasNumberedGithubReference(value: string): boolean {
+  return /\b(issue|pull request|pr)\s*#?\d+\b/.test(value);
+}
+
+function hasCiStatusLookup(value: string): boolean {
+  return (
+    /\b(anything|checks?|status|failing|failed|broken|red|green|passing|queued|pending)\b.*\b(ci|actions?|workflows?|checks?)\b/.test(
+      value,
+    ) ||
+    /\b(ci|actions?|workflows?|checks?)\b.*\b(anything|status|failing|failed|broken|red|green|passing|queued|pending)\b/.test(
+      value,
+    )
+  );
+}
+
+function hasOwnedGithubWorkLookup(value: string): boolean {
+  return (
+    hasOwnershipContext(value) &&
+    /\b(pull requests?|prs?|issues?|commits?|branches?|workflows?|actions|ci|repos?|repositories?)\b/.test(
+      value,
+    ) &&
+    /\b(last|latest|recent|open|stale|assigned|reviewing|review|failing|failed|passing|status|summarize|list|show|what|which|anything)\b/.test(
+      value,
+    )
+  );
+}
+
+function hasOwnershipContext(value: string): boolean {
+  return (
+    /\b(my|mine|our|ours|we|team)\b/.test(value) ||
+    /\b(am i|i am|i'm|assigned to me|for me)\b/.test(value)
+  );
+}
+
+function hasRecentGithubWorkLookup(value: string): boolean {
+  return /\b(last|latest|recent|open|stale|failing|failed|merged|pending)\b(?:\W+\w+){0,4}\W+\b(pull requests?|prs?|commits?|branches?|workflows?|actions|ci)\b/.test(
+    value,
+  );
 }
 
 function hasPersonalContextIntent(value: string): string | null {
