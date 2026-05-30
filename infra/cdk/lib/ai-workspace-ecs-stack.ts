@@ -119,7 +119,11 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     const commonEnvironment = {
       NODE_ENV: "production",
       AWS_REGION: cdk.Stack.of(this).region,
+      BEDROCK_CLIENT: "real",
       RUNTIME: "cursor",
+      RUNTIME_V2_ENABLED: "1",
+      RUNTIME_V2_DIRECT_RUNTIME: "bedrock",
+      RUNTIME_V2_DIRECT_MODEL_ID: "haiku-4-5",
       CURSOR_RUNTIME_MODE: "local",
       CURSOR_CLOUD_REPO_URL: "https://github.com/DadJokez/AI-workspace",
       CURSOR_CLOUD_REPO_REF: "main",
@@ -228,6 +232,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       securityGroup: workerSecurityGroup,
       environment: commonEnvironment,
       secrets: commonSecrets,
+      grantBedrock: true,
     });
 
     const memoryWorkerService = createWorkerService(this, {
@@ -241,6 +246,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       securityGroup: workerSecurityGroup,
       environment: commonEnvironment,
       secrets: commonSecrets,
+      grantBedrock: false,
     });
 
     if (codeBuildRoleArn) {
@@ -308,6 +314,7 @@ function createWorkerService(
     securityGroup: ec2.ISecurityGroup;
     environment: Record<string, string>;
     secrets: Record<string, ecs.Secret>;
+    grantBedrock: boolean;
   },
 ): ecs.FargateService {
   const task = new ecs.FargateTaskDefinition(scope, `${input.family}Task`, {
@@ -315,6 +322,7 @@ function createWorkerService(
     cpu: 512,
     memoryLimitMiB: 1024,
   });
+  if (input.grantBedrock) grantBedrockInvoke(task);
   task.addContainer(input.containerName, {
     image: ecs.ContainerImage.fromEcrRepository(input.repository, input.tag),
     containerName: input.containerName,

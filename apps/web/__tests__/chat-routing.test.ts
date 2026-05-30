@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { decideChatRuntimeRoute } from "@/lib/chat-routing";
+import {
+  decideChatRuntimeRoute,
+  runtimeV2EnabledFromEnv,
+} from "@/lib/chat-routing";
 
 describe("decideChatRuntimeRoute", () => {
   it("defaults simple chat to fast local streaming", () => {
@@ -32,7 +35,17 @@ describe("decideChatRuntimeRoute", () => {
       useWorker: false,
       useMcp: false,
       includeVaultContext: false,
+      reasons: ["default_fast_local"],
     });
+  });
+
+  it("accepts production Runtime V2 flag values", () => {
+    expect(runtimeV2EnabledFromEnv("1")).toBe(true);
+    expect(runtimeV2EnabledFromEnv("true")).toBe(true);
+    expect(runtimeV2EnabledFromEnv("yes")).toBe(true);
+    expect(runtimeV2EnabledFromEnv("on")).toBe(true);
+    expect(runtimeV2EnabledFromEnv("0")).toBe(false);
+    expect(runtimeV2EnabledFromEnv(undefined)).toBe(false);
   });
 
   it("routes explicit cloud requests to the durable cloud worker", () => {

@@ -67,8 +67,8 @@
 
 ### Tests for User Story 1
 
-- [ ] T017 [P] [US1] Extend `apps/web/__tests__/chat-routing.test.ts` to assert fast-local production flag behavior and route reason.
-- [ ] T018 [P] [US1] Add a focused test around metrics population in `apps/web/lib/chat-inline-runner.ts` or the nearest existing test seam.
+- [x] T017 [P] [US1] Extend `apps/web/__tests__/chat-routing.test.ts` to assert fast-local production flag behavior and route reason.
+- [x] T018 [P] [US1] Add a focused test around metrics population in `apps/web/lib/chat-inline-runner.ts` or the nearest existing test seam.
 
 ### Implementation for User Story 1
 
@@ -184,7 +184,7 @@
 - [ ] T045 [P] Add a lightweight latency dashboard/query path for first-token p50/p95 by lane.
 - [ ] T046 [P] Group failed runs by lane, runtime target, provider, and model error class.
 - [ ] T047 Move process-local chat rate limiting to shared storage before scaling web beyond one task.
-- [ ] T048 Document App Runner rollback retirement criteria after Runtime V2 production observation.
+- [x] T048 Document App Runner rollback retirement criteria for Runtime V2 production observation.
 - [ ] T049 Update `PLAN.md` and `docs/ROADMAP.md` after production Runtime V2 rollout.
 
 ---
