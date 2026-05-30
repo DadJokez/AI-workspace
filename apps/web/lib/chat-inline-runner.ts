@@ -56,7 +56,7 @@ export interface StreamInlineChatRunInput {
   send: ChatStreamSend;
 }
 
-interface ChatRunTimingMarks {
+export interface ChatRunTimingMarks {
   requestStartedAt: Date;
   inlineStartedAt: Date;
   contextReadyAt?: Date;
@@ -660,7 +660,7 @@ function runtimeErrorContext(
   };
 }
 
-function buildTimingMetrics(
+export function buildTimingMetrics(
   timing: ChatRunTimingMarks,
 ): ChatRunTimingMetrics {
   const metrics: ChatRunTimingMetrics = {
