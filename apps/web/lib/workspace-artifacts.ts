@@ -1,0 +1,371 @@
+import {
+  type Database,
+  workspaceArtifacts,
+  type WorkspaceArtifact,
+} from "@ai-workspace/db";
+import { and, desc, eq } from "drizzle-orm";
+
+const MAX_ARTIFACTS_PER_MESSAGE = 5;
+const MAX_ARTIFACT_CHARS = 500_000;
+const MIN_IMPLICIT_ARTIFACT_CHARS = 240;
+
+export interface WorkspaceArtifactSummary {
+  id: string;
+  title: string;
+  filename: string;
+  kind: string;
+  mimeType: string;
+  sizeBytes: number;
+  source: string;
+  threadId: string | null;
+  chatMessageId: string | null;
+  recipeRunId: string | null;
+  createdAt: string;
+  previewUrl: string;
+  downloadUrl: string;
+}
+
+export interface WorkspaceArtifactDetail extends WorkspaceArtifactSummary {
+  content: string;
+}
+
+interface CreateArtifactsInput {
+  db: Database;
+  userId: string;
+  threadId: string;
+  chatMessageId: string;
+  recipeRunId?: string | null;
+  assistantText: string;
+}
+
+interface ParsedArtifact {
+  title: string;
+  filename: string;
+  kind: string;
+  mimeType: string;
+  content: string;
+  metadata: Record<string, unknown>;
+}
+
+export async function createArtifactsFromAssistantMessage({
+  db,
+  userId,
+  threadId,
+  chatMessageId,
+  recipeRunId,
+  assistantText,
+}: CreateArtifactsInput): Promise<WorkspaceArtifactSummary[]> {
+  const parsed = parseAssistantArtifacts(assistantText);
+  if (parsed.length === 0) return [];
+
+  const rows = await db
+    .insert(workspaceArtifacts)
+    .values(
+      parsed.map((artifact) => ({
+        userId,
+        threadId,
+        chatMessageId,
+        recipeRunId: recipeRunId ?? null,
+        title: artifact.title,
+        filename: artifact.filename,
+        kind: artifact.kind,
+        mimeType: artifact.mimeType,
+        content: artifact.content,
+        sizeBytes: Buffer.byteLength(artifact.content, "utf8"),
+        source: "assistant-code-block",
+        metadata: artifact.metadata,
+      })),
+    )
+    .onConflictDoNothing({
+      target: [workspaceArtifacts.chatMessageId, workspaceArtifacts.filename],
+    })
+    .returning();
+
+  return rows.map(serializeWorkspaceArtifact);
+}
+
+export async function loadWorkspaceArtifacts({
+  db,
+  userId,
+  limit = 100,
+}: {
+  db: Database;
+  userId: string;
+  limit?: number;
+}): Promise<WorkspaceArtifactSummary[]> {
+  const rows = await db
+    .select()
+    .from(workspaceArtifacts)
+    .where(eq(workspaceArtifacts.userId, userId))
+    .orderBy(desc(workspaceArtifacts.createdAt))
+    .limit(Math.max(1, Math.min(200, limit)));
+
+  return rows.map(serializeWorkspaceArtifact);
+}
+
+export async function loadWorkspaceArtifactForUser({
+  db,
+  userId,
+  artifactId,
+}: {
+  db: Database;
+  userId: string;
+  artifactId: string;
+}): Promise<WorkspaceArtifact | null> {
+  const rows = await db
+    .select()
+    .from(workspaceArtifacts)
+    .where(
+      and(
+        eq(workspaceArtifacts.id, artifactId),
+        eq(workspaceArtifacts.userId, userId),
+      ),
+    )
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
+export function serializeWorkspaceArtifact(
+  artifact: WorkspaceArtifact,
+): WorkspaceArtifactSummary {
+  return {
+    id: artifact.id,
+    title: artifact.title,
+    filename: artifact.filename,
+    kind: artifact.kind,
+    mimeType: artifact.mimeType,
+    sizeBytes: artifact.sizeBytes,
+    source: artifact.source,
+    threadId: artifact.threadId,
+    chatMessageId: artifact.chatMessageId,
+    recipeRunId: artifact.recipeRunId,
+    createdAt: artifact.createdAt.toISOString(),
+    previewUrl: `/workspace/artifacts/${artifact.id}`,
+    downloadUrl: `/api/workspace/artifacts/${artifact.id}/download`,
+  };
+}
+
+export function serializeWorkspaceArtifactDetail(
+  artifact: WorkspaceArtifact,
+): WorkspaceArtifactDetail {
+  return {
+    ...serializeWorkspaceArtifact(artifact),
+    content: artifact.content,
+  };
+}
+
+export function parseAssistantArtifacts(text: string): ParsedArtifact[] {
+  const blocks = extractFencedCodeBlocks(text);
+  const artifacts: ParsedArtifact[] = [];
+  const usedFilenames = new Set<string>();
+
+  for (const block of blocks) {
+    if (artifacts.length >= MAX_ARTIFACTS_PER_MESSAGE) break;
+    const content = block.content.trimEnd();
+    if (!content || content.length > MAX_ARTIFACT_CHARS) continue;
+
+    const explicitFilename = parseFilenameFromInfo(block.info);
+    const language = normalizeLanguage(block.language);
+    if (!shouldSaveArtifact({ content, language, explicitFilename })) continue;
+
+    const fallbackName = inferFilename({
+      content,
+      language,
+      index: artifacts.length + 1,
+    });
+    const filename = uniqueFilename(
+      sanitizeFilename(explicitFilename ?? fallbackName),
+      usedFilenames,
+    );
+    usedFilenames.add(filename);
+
+    const mimeType = mimeTypeForFilename(filename, language);
+    artifacts.push({
+      title: titleFromFilename(filename),
+      filename,
+      kind: kindForMimeType(mimeType, filename),
+      mimeType,
+      content,
+      metadata: {
+        language,
+        explicitFilename: explicitFilename ?? null,
+        extractedFrom: "assistant-markdown-code-fence",
+      },
+    });
+  }
+
+  return artifacts;
+}
+
+function extractFencedCodeBlocks(text: string): Array<{
+  info: string;
+  language: string;
+  content: string;
+}> {
+  const blocks: Array<{ info: string; language: string; content: string }> = [];
+  const fenceRe = /```([^\n`]*)\n([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+  while ((match = fenceRe.exec(text)) !== null) {
+    const info = (match[1] ?? "").trim();
+    const language = info.split(/\s+/)[0] ?? "";
+    blocks.push({
+      info,
+      language,
+      content: match[2] ?? "",
+    });
+  }
+  return blocks;
+}
+
+function parseFilenameFromInfo(info: string): string | undefined {
+  const match =
+    /(?:^|\s)(?:file(?:name)?=)?["']?([A-Za-z0-9._/ -]+\.[A-Za-z0-9]{1,12})["']?(?:\s|$)/.exec(
+      info,
+    );
+  return match?.[1];
+}
+
+function shouldSaveArtifact({
+  content,
+  language,
+  explicitFilename,
+}: {
+  content: string;
+  language: string;
+  explicitFilename?: string;
+}): boolean {
+  if (explicitFilename) return true;
+  if (content.length < MIN_IMPLICIT_ARTIFACT_CHARS) return false;
+  if (/<!doctype\s+html|<html[\s>]/i.test(content)) return true;
+  if (language === "markdown" || language === "md") {
+    return /^#\s+\S/m.test(content);
+  }
+  if (language === "csv") return content.includes(",") && content.includes("\n");
+  if (language === "json") return /^[\s\n]*[{[]/.test(content);
+  return false;
+}
+
+function inferFilename({
+  content,
+  language,
+  index,
+}: {
+  content: string;
+  language: string;
+  index: number;
+}): string {
+  const title = titleFromContent(content) ?? `artifact-${index}`;
+  const ext = extensionForLanguage(language, content);
+  return `${slugify(title)}.${ext}`;
+}
+
+function titleFromContent(content: string): string | undefined {
+  const htmlTitle = /<title[^>]*>([^<]+)<\/title>/i.exec(content)?.[1];
+  if (htmlTitle) return htmlTitle;
+  const heading = /^#\s+(.+)$/m.exec(content)?.[1];
+  if (heading) return heading;
+  return undefined;
+}
+
+function extensionForLanguage(language: string, content: string): string {
+  if (language === "html" || /<!doctype\s+html|<html[\s>]/i.test(content)) {
+    return "html";
+  }
+  if (language === "markdown") return "md";
+  if (language === "javascript") return "js";
+  if (language === "typescript") return "ts";
+  return (
+    {
+      md: "md",
+      json: "json",
+      csv: "csv",
+      css: "css",
+      js: "js",
+      jsx: "jsx",
+      ts: "ts",
+      tsx: "tsx",
+      py: "py",
+      txt: "txt",
+    } as Record<string, string>
+  )[language] ?? "txt";
+}
+
+function mimeTypeForFilename(filename: string, language: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase();
+  return (
+    {
+      html: "text/html",
+      htm: "text/html",
+      md: "text/markdown",
+      markdown: "text/markdown",
+      txt: "text/plain",
+      csv: "text/csv",
+      json: "application/json",
+      css: "text/css",
+      js: "text/javascript",
+      jsx: "text/javascript",
+      ts: "text/typescript",
+      tsx: "text/typescript",
+      py: "text/x-python",
+    } as Record<string, string>
+  )[ext ?? ""] ?? (language === "json" ? "application/json" : "text/plain");
+}
+
+function kindForMimeType(mimeType: string, filename: string): string {
+  if (mimeType === "text/html") return "html";
+  if (mimeType === "text/markdown") return "markdown";
+  if (mimeType === "application/json") return "data";
+  if (filename.endsWith(".csv")) return "data";
+  return "file";
+}
+
+function normalizeLanguage(language: string): string {
+  const value = language.trim().toLowerCase();
+  if (value === "md") return "markdown";
+  if (value === "javascript") return "js";
+  if (value === "typescript") return "ts";
+  return value;
+}
+
+function sanitizeFilename(filename: string): string {
+  const base = filename.split(/[\\/]/).filter(Boolean).pop() ?? "artifact.txt";
+  const clean = base
+    .replace(/[^A-Za-z0-9._ -]/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^\.+/, "")
+    .slice(0, 120);
+  return clean.includes(".") ? clean : `${clean || "artifact"}.txt`;
+}
+
+function uniqueFilename(filename: string, used: Set<string>): string {
+  if (!used.has(filename)) return filename;
+  const dot = filename.lastIndexOf(".");
+  const stem = dot === -1 ? filename : filename.slice(0, dot);
+  const ext = dot === -1 ? "" : filename.slice(dot);
+  for (let i = 2; i < 100; i++) {
+    const candidate = `${stem}-${i}${ext}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return `${stem}-${Date.now()}${ext}`;
+}
+
+function titleFromFilename(filename: string): string {
+  const stem = filename.replace(/\.[^.]+$/, "");
+  return stem
+    .split(/[-_ ]+/)
+    .filter(Boolean)
+    .map((word) => word[0]!.toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function slugify(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return slug || "artifact";
+}

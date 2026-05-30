@@ -32,6 +32,7 @@ import {
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { buildTurnContext } from "@/lib/turn-context";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
+import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 const DEFAULT_RUNTIME_TIMEOUT_MS = 60 * 60 * 1000;
@@ -737,6 +738,28 @@ async function persistAssistantResult({
     await db.insert(auditLog).values(toolAuditRows);
   }
 
+  const artifacts =
+    terminalStatus === "succeeded"
+      ? await createArtifactsFromAssistantMessage({
+          db,
+          userId: run.userId,
+          threadId,
+          chatMessageId: assistantMessageId,
+          recipeRunId: run.id,
+          assistantText,
+        }).catch((err) => {
+          process.stderr.write(
+            `[workspace-artifact-create-error] ${JSON.stringify({
+              runId: run.id,
+              threadId,
+              assistantMessageId,
+              message: err instanceof Error ? err.message : String(err),
+            })}\n`,
+          );
+          return [];
+        })
+      : [];
+
   if (await isRunCanceled(db, run.id)) return;
 
   await db
@@ -762,6 +785,7 @@ async function persistAssistantResult({
         modelId,
         runtime: runtimeName,
         ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
+        ...(artifacts.length > 0 ? { artifacts } : {}),
       },
       workerId: null,
       leaseExpiresAt: null,
@@ -804,7 +828,11 @@ async function persistAssistantResult({
         ? "Stored assistant answer"
         : "Run ended with errors",
     ...(error ? { error } : {}),
-    metadata: { assistantMessageId, userMessageId },
+    metadata: {
+      assistantMessageId,
+      userMessageId,
+      ...(artifacts.length > 0 ? { artifacts } : {}),
+    },
   });
 }
 

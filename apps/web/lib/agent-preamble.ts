@@ -88,7 +88,7 @@ export function buildAgentPreamble({
   );
   lines.push("");
   lines.push(
-    "Important artifact boundary: this is a deployed web app, not the user's local filesystem. If you create or edit files in the runtime workspace (for example paths under /app), those files are internal to the running container and are not directly accessible to the user unless the app explicitly exposes them. Do not tell the user to double-click, drag, open, or browse to such files. For standalone documents, HTML examples, notes, or code snippets, provide the content inline in the chat or use a connected tool to create a reachable artifact such as a GitHub issue, pull request, or repository file.",
+    "Important artifact boundary: this is a deployed web app, not the user's local filesystem. If you create or edit files in the runtime workspace (for example paths under /app), those files are internal to the running container and are not directly accessible to the user unless the app explicitly exposes them. For standalone documents, HTML examples, notes, decks, data files, or code files, return the finished file in a fenced code block with a filename in the fence info such as ```html filename=\"deck.html\". The app will save that block as a clickable Workspace artifact. Do not tell the user to copy/paste the file manually.",
   );
   lines.push("");
   lines.push(

@@ -3,6 +3,7 @@ import {
   type Database,
   recipeRuns,
   runEvents,
+  workspaceArtifacts,
 } from "@ai-workspace/db";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import type { AgentActivityEvent } from "@/lib/activity-events";
@@ -11,12 +12,17 @@ import type {
   PersistedToolCall,
   PersistedToolResult,
 } from "@/lib/tool-events";
+import {
+  serializeWorkspaceArtifact,
+  type WorkspaceArtifactSummary,
+} from "@/lib/workspace-artifacts";
 
 interface ChatRunOutput {
   assistantMessageId?: string;
   assistantText?: string;
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
+  artifacts?: WorkspaceArtifactSummary[];
 }
 
 export interface ThreadMessageWithActivity {
@@ -27,6 +33,7 @@ export interface ThreadMessageWithActivity {
   runtime: string | null;
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
+  artifacts?: WorkspaceArtifactSummary[];
   activityEvents?: AgentActivityEvent[];
   pending?: boolean;
   status?: string;
@@ -83,6 +90,7 @@ export async function loadThreadMessagesWithRunActivity({
   ]);
 
   const runIds = runRows.map((run) => run.id);
+  const messageIds = messageRows.map((message) => message.id);
   const eventRows =
     runIds.length > 0
       ? await db
@@ -101,6 +109,14 @@ export async function loadThreadMessagesWithRunActivity({
           .where(inArray(runEvents.recipeRunId, runIds))
           .orderBy(asc(runEvents.sequence), asc(runEvents.occurredAt))
       : [];
+  const artifactRows =
+    messageIds.length > 0
+      ? await db
+          .select()
+          .from(workspaceArtifacts)
+          .where(inArray(workspaceArtifacts.chatMessageId, messageIds))
+          .orderBy(asc(workspaceArtifacts.createdAt))
+      : [];
 
   const eventsByRunId = new Map<string, typeof eventRows>();
   for (const event of eventRows) {
@@ -110,7 +126,15 @@ export async function loadThreadMessagesWithRunActivity({
   }
 
   const activityByAssistantMessageId = new Map<string, AgentActivityEvent[]>();
+  const artifactsByMessageId = new Map<string, WorkspaceArtifactSummary[]>();
   const activeRunMessages: ThreadMessageWithActivity[] = [];
+
+  for (const artifact of artifactRows) {
+    if (!artifact.chatMessageId) continue;
+    const existing = artifactsByMessageId.get(artifact.chatMessageId) ?? [];
+    existing.push(serializeWorkspaceArtifact(artifact));
+    artifactsByMessageId.set(artifact.chatMessageId, existing);
+  }
 
   for (const run of runRows) {
     const output = parseChatRunOutput(run.outputs);
@@ -145,6 +169,7 @@ export async function loadThreadMessagesWithRunActivity({
       runtime: run.runtime,
       toolCalls: output.toolCalls ?? null,
       toolResults: output.toolResults ?? null,
+      artifacts: output.artifacts,
       activityEvents,
       pending: run.status === "queued" || run.status === "running",
       status:
@@ -168,6 +193,7 @@ export async function loadThreadMessagesWithRunActivity({
     ...message,
     toolCalls: toToolCalls(message.toolCalls),
     toolResults: toToolResults(message.toolResults),
+    artifacts: artifactsByMessageId.get(message.id),
     activityEvents: activityByAssistantMessageId.get(message.id),
   }));
 
@@ -200,6 +226,9 @@ function parseChatRunOutput(value: unknown): ChatRunOutput {
       : undefined,
     toolResults: Array.isArray(value.toolResults)
       ? (value.toolResults as PersistedToolResult[])
+      : undefined,
+    artifacts: Array.isArray(value.artifacts)
+      ? (value.artifacts as WorkspaceArtifactSummary[])
       : undefined,
   };
 }
