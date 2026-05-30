@@ -134,6 +134,13 @@
       "when": 1779278400000,
       "tag": "0018_vault_memory",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1779811200000,
+      "tag": "0019_workspace_artifacts",
+      "breakpoints": true
     }
   ]
 }

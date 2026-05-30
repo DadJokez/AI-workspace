@@ -10,6 +10,7 @@ import type {
   PersistedToolCall,
   PersistedToolResult,
 } from "@/lib/tool-events";
+import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import { useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -27,6 +28,7 @@ interface Props {
   status?: string;
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
+  artifacts?: WorkspaceArtifactSummary[];
   activityEvents?: AgentActivityEvent[];
 }
 
@@ -38,6 +40,7 @@ export function MessageBubble({
   status,
   toolCalls = [],
   toolResults = [],
+  artifacts = [],
   activityEvents: persistedActivityEvents,
 }: Props) {
   if (role === "user") {
@@ -93,6 +96,9 @@ export function MessageBubble({
           <span className="ml-0.5 inline-block h-3 w-[2px] translate-y-[1px] animate-pulse bg-current align-baseline" />
         ) : null}
       </div>
+      {role === "assistant" && artifacts.length > 0 ? (
+        <ArtifactStrip artifacts={artifacts} />
+      ) : null}
       {showActivity ? (
         <ActivityTimeline
           events={activityEvents}
@@ -100,6 +106,32 @@ export function MessageBubble({
           pending={pending}
         />
       ) : null}
+    </div>
+  );
+}
+
+function ArtifactStrip({
+  artifacts,
+}: {
+  artifacts: WorkspaceArtifactSummary[];
+}) {
+  return (
+    <div className="mt-1 flex max-w-full flex-wrap gap-2">
+      {artifacts.map((artifact) => (
+        <a
+          key={artifact.id}
+          href={artifact.previewUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="flex max-w-full items-center gap-2 rounded-md border border-hairline bg-subtle/45 px-2.5 py-1.5 text-[12px] text-ink hover:bg-subtle"
+        >
+          <span className="shrink-0 rounded bg-canvas px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted">
+            {artifact.kind.slice(0, 4)}
+          </span>
+          <span className="min-w-0 truncate">{artifact.filename}</span>
+          <span className="shrink-0 text-muted">{formatBytes(artifact.sizeBytes)}</span>
+        </a>
+      ))}
     </div>
   );
 }
@@ -115,6 +147,13 @@ function ThinkingIndicator({ status }: { status?: string }) {
       <span className="text-[13px]">{status ?? "Thinking…"}</span>
     </div>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
 }
 
 function ActivityTimeline({

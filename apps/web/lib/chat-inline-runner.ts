@@ -37,6 +37,10 @@ import {
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { buildTurnContext } from "@/lib/turn-context";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
+import {
+  createArtifactsFromAssistantMessage,
+  type WorkspaceArtifactSummary,
+} from "@/lib/workspace-artifacts";
 
 type InlineTerminalStatus = "succeeded" | "failed";
 
@@ -398,7 +402,7 @@ export async function streamInlineChatRun({
     timing.completedAt = completedAt;
     const finalMetrics = buildTimingMetrics(timing);
 
-    const assistantMessageId = await persistInlineAssistantResult({
+    const persistedResult = await persistInlineAssistantResult({
       db,
       runId,
       userId,
@@ -428,7 +432,8 @@ export async function streamInlineChatRun({
     send({ type: "done" });
     send({
       type: "persisted",
-      assistantMessageId,
+      assistantMessageId: persistedResult.assistantMessageId,
+      artifacts: persistedResult.artifacts,
       runId,
       threadId: thread.id,
     });
@@ -481,8 +486,12 @@ async function persistInlineAssistantResult({
   error: string | null;
   timingMetrics: ChatRunTimingMetrics;
   completedAt: Date;
-}): Promise<string | undefined> {
+}): Promise<{
+  assistantMessageId: string | undefined;
+  artifacts: WorkspaceArtifactSummary[];
+}> {
   let assistantMessageId: string | undefined;
+  let artifacts: WorkspaceArtifactSummary[] = [];
   const shouldPersistAssistant =
     terminalStatus === "succeeded" ||
     assistantText.trim().length > 0 ||
@@ -523,6 +532,28 @@ async function persistInlineAssistantResult({
     }
   }
 
+  if (terminalStatus === "succeeded" && assistantMessageId) {
+    try {
+      artifacts = await createArtifactsFromAssistantMessage({
+        db,
+        userId,
+        threadId,
+        chatMessageId: assistantMessageId,
+        recipeRunId: runId,
+        assistantText,
+      });
+    } catch (err) {
+      process.stderr.write(
+        `[workspace-artifact-create-error] ${JSON.stringify({
+          runId,
+          threadId,
+          assistantMessageId,
+          message: err instanceof Error ? err.message : String(err),
+        })}\n`,
+      );
+    }
+  }
+
   await db
     .update(chatThreads)
     .set({ updatedAt: new Date() })
@@ -549,6 +580,7 @@ async function persistInlineAssistantResult({
         runtimeTarget,
         ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
         ...(runtimeErrors.length > 0 ? { errorDetails: runtimeErrors } : {}),
+        ...(artifacts.length > 0 ? { artifacts } : {}),
         metrics: timingMetrics,
       },
       workerId: null,
@@ -599,11 +631,12 @@ async function persistInlineAssistantResult({
       runtime: runtimeName,
       runtimeTarget,
       ...(runtimeErrors.length > 0 ? { errorDetails: runtimeErrors } : {}),
+      ...(artifacts.length > 0 ? { artifacts } : {}),
       metrics: timingMetrics,
     },
   });
 
-  return assistantMessageId;
+  return { assistantMessageId, artifacts };
 }
 
 async function appendInlineRunEvent(

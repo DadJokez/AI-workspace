@@ -30,6 +30,7 @@ const groups: NavGroup[] = [
     items: [
       { id: "tools", label: "Tools", icon: <IconTool /> },
       { id: "vault", label: "Vault", icon: <IconVault /> },
+      { id: "workspace", label: "Workspace", icon: <IconFolder /> },
     ],
   },
   {
@@ -847,6 +848,24 @@ function IconVault() {
       <path d="M5.5 3V2.5A1.5 1.5 0 0 1 7 1h2a1.5 1.5 0 0 1 1.5 1.5V3" />
       <circle cx="8" cy="8" r="1.3" />
       <path d="M8 9.3v1.5" />
+    </svg>
+  );
+}
+
+function IconFolder() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinejoin="round"
+      strokeLinecap="round"
+    >
+      <path d="M2.5 4.5h4l1.2 1.4h5.8v6.6a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5z" />
+      <path d="M2.5 6h11" />
     </svg>
   );
 }

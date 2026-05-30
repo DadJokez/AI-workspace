@@ -483,6 +483,57 @@ export const userMemoryItems = pgTable(
 );
 
 /**
+ * User-visible files produced by chat runs. Content is stored in Postgres for
+ * the first product pass so artifacts survive container restarts and remain
+ * scoped to the owning user; large binary/object storage can replace `content`
+ * later without changing the chat surface.
+ */
+export const workspaceArtifacts = pgTable(
+  "workspace_artifacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id").references(() => chatThreads.id, {
+      onDelete: "set null",
+    }),
+    chatMessageId: uuid("chat_message_id").references(() => chatMessages.id, {
+      onDelete: "set null",
+    }),
+    recipeRunId: uuid("recipe_run_id").references(() => recipeRuns.id, {
+      onDelete: "set null",
+    }),
+    title: text("title").notNull(),
+    filename: text("filename").notNull(),
+    kind: text("kind").notNull().default("file"),
+    mimeType: text("mime_type").notNull().default("text/plain"),
+    content: text("content").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    source: text("source").notNull().default("assistant"),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userCreatedIdx: index("workspace_artifacts_user_created_idx").on(
+      t.userId,
+      sql`${t.createdAt} DESC`,
+    ),
+    threadIdx: index("workspace_artifacts_thread_idx").on(t.threadId),
+    messageIdx: index("workspace_artifacts_message_idx").on(t.chatMessageId),
+    runIdx: index("workspace_artifacts_run_idx").on(t.recipeRunId),
+    messageFilenameUnique: uniqueIndex(
+      "workspace_artifacts_message_filename_idx",
+    ).on(t.chatMessageId, t.filename),
+  }),
+);
+
+/**
  * Admin-curated registry of MCP servers AI Hub can mount. Provider slugs stay
  * stable across OAuth, catalog, attestation, and runtime code.
  */
@@ -692,6 +743,8 @@ export type MemoryCaptureQueueItem = typeof memoryCaptureQueue.$inferSelect;
 export type NewMemoryCaptureQueueItem = typeof memoryCaptureQueue.$inferInsert;
 export type UserMemoryItem = typeof userMemoryItems.$inferSelect;
 export type NewUserMemoryItem = typeof userMemoryItems.$inferInsert;
+export type WorkspaceArtifact = typeof workspaceArtifacts.$inferSelect;
+export type NewWorkspaceArtifact = typeof workspaceArtifacts.$inferInsert;
 export type McpServer = typeof mcpServers.$inferSelect;
 export type NewMcpServer = typeof mcpServers.$inferInsert;
 export type AuditLog = typeof auditLog.$inferSelect;

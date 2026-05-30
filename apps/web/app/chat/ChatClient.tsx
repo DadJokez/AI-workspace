@@ -9,6 +9,7 @@ import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
 import { ToolsPanel } from "@/components/ToolsPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { VaultPanel } from "@/components/VaultPanel";
+import { WorkspacePanel } from "@/components/WorkspacePanel";
 import { readSseStream } from "@/lib/sse";
 import type { AgentActivityEvent } from "@/lib/activity-events";
 import {
@@ -16,6 +17,7 @@ import {
   type PersistedToolCall,
   type PersistedToolResult,
 } from "@/lib/tool-events";
+import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import { signOut } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 
@@ -25,7 +27,7 @@ import { useEffect, useRef, useState } from "react";
 // opaque strings; the runtime layer is the source of truth on what's valid.
 const FALLBACK_DEFAULT_MODEL_ID = "claude-sonnet-4-6";
 
-type View = "chat" | "settings" | "search" | "tools" | "vault";
+type View = "chat" | "settings" | "search" | "tools" | "vault" | "workspace";
 
 const DEFAULT_MODEL_PREFIX = "ai-workspace-default-model:";
 
@@ -40,6 +42,7 @@ interface UiMessage {
   status?: string;
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
+  artifacts?: WorkspaceArtifactSummary[];
   activityEvents?: AgentActivityEvent[];
   runId?: string;
   runStatus?: string;
@@ -129,6 +132,7 @@ interface ThreadMessage {
   runtime: "cursor" | "bedrock" | string | null;
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
+  artifacts?: WorkspaceArtifactSummary[];
   activityEvents?: AgentActivityEvent[];
   pending?: boolean;
   status?: string;
@@ -643,6 +647,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           status: m.status,
           toolCalls: m.toolCalls ?? undefined,
           toolResults: m.toolResults ?? undefined,
+          artifacts: m.artifacts,
           activityEvents: m.activityEvents,
           runId: m.runId,
           runStatus: m.runStatus,
@@ -721,6 +726,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           status: m.status,
           toolCalls: m.toolCalls ?? undefined,
           toolResults: m.toolResults ?? undefined,
+          artifacts: m.artifacts,
           activityEvents: m.activityEvents,
           runId: m.runId,
           runStatus: m.runStatus,
@@ -909,6 +915,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     else if (id === "search") setView("search");
     else if (id === "tools") setView("tools");
     else if (id === "vault") setView("vault");
+    else if (id === "workspace") setView("workspace");
     else if (id === "admin") {
       // Admin lives at its own route, not as a chat-level view.
       window.location.assign("/admin");
@@ -1082,6 +1089,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             typeof ev.assistantMessageId === "string"
               ? ev.assistantMessageId
               : undefined;
+          const artifacts = Array.isArray(ev.artifacts)
+            ? (ev.artifacts as WorkspaceArtifactSummary[])
+            : undefined;
           patchTabMessages(tabId, (prev) =>
             prev.map((m) =>
               isDraftMessage(m)
@@ -1091,6 +1101,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     pending: false,
                     status: undefined,
                     modelId: assistantModel,
+                    artifacts,
                     runId: undefined,
                     runStatus: undefined,
                     canCancel: false,
@@ -1176,6 +1187,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       status: m.status,
       toolCalls: m.toolCalls ?? undefined,
       toolResults: m.toolResults ?? undefined,
+      artifacts: m.artifacts,
       activityEvents: m.activityEvents,
       runId: m.runId,
       runStatus: m.runStatus,
@@ -1279,6 +1291,11 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         ) : view === "vault" ? (
           <VaultPanel
             userName={user?.displayName}
+            onClose={() => setView("chat")}
+            onOpenSidebar={() => setSidebarOpen(true)}
+          />
+        ) : view === "workspace" ? (
+          <WorkspacePanel
             onClose={() => setView("chat")}
             onOpenSidebar={() => setSidebarOpen(true)}
           />
@@ -1440,6 +1457,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     status={m.status}
                     toolCalls={m.toolCalls}
                     toolResults={m.toolResults}
+                    artifacts={m.artifacts}
                     activityEvents={m.activityEvents}
                   />
                   {m.runId &&
