@@ -28,8 +28,17 @@ interface RunOutput {
   tokensOut?: number;
   modelId?: string;
   requestedModelId?: string;
+  providerModelId?: string;
+  modelSelection?: {
+    reason?: string;
+  };
   runtime?: string;
   runtimeTarget?: string;
+  errorDetails?: Array<{
+    code?: string;
+    category?: string;
+    rawMessage?: string;
+  }>;
   metrics?: RunTimingMetrics;
   providerRun?: {
     providerAgentId?: string;
@@ -299,8 +308,23 @@ export default async function AdminRunDetailPage({ params }: Props) {
               output.requestedModelId !== output.modelId ? (
                 <DetailRow label="Requested" value={output.requestedModelId} />
               ) : null}
+              {output.providerModelId ? (
+                <DetailRow label="Provider model" value={output.providerModelId} />
+              ) : null}
+              {output.modelSelection?.reason ? (
+                <DetailRow
+                  label="Model policy"
+                  value={output.modelSelection.reason}
+                />
+              ) : null}
               {output.runtimeTarget ? (
                 <DetailRow label="Target" value={output.runtimeTarget} />
+              ) : null}
+              {output.errorDetails?.[0]?.category ? (
+                <DetailRow
+                  label="Error category"
+                  value={output.errorDetails[0].category}
+                />
               ) : null}
               {output.providerRun?.executionMode ? (
                 <DetailRow
@@ -417,9 +441,34 @@ function parseRunOutput(value: unknown): RunOutput {
       typeof value.requestedModelId === "string"
         ? value.requestedModelId
         : undefined,
+    providerModelId:
+      typeof value.providerModelId === "string"
+        ? value.providerModelId
+        : undefined,
+    modelSelection: isRecord(value.modelSelection)
+      ? {
+          reason:
+            typeof value.modelSelection.reason === "string"
+              ? value.modelSelection.reason
+              : undefined,
+        }
+      : undefined,
     runtime: typeof value.runtime === "string" ? value.runtime : undefined,
     runtimeTarget:
       typeof value.runtimeTarget === "string" ? value.runtimeTarget : undefined,
+    errorDetails: Array.isArray(value.errorDetails)
+      ? value.errorDetails
+          .filter(isRecord)
+          .map((detail) => ({
+            code: typeof detail.code === "string" ? detail.code : undefined,
+            category:
+              typeof detail.category === "string" ? detail.category : undefined,
+            rawMessage:
+              typeof detail.rawMessage === "string"
+                ? detail.rawMessage
+                : undefined,
+          }))
+      : undefined,
     metrics: parseRunTimingMetrics(value.metrics),
     providerRun: isRecord(value.providerRun)
       ? {

@@ -1,9 +1,4 @@
 import {
-  DEFAULT_MODEL_ID,
-  isValidModelId,
-  type ModelId,
-} from "@ai-workspace/agent";
-import {
   type ChatThread,
   auditLog,
   chatMessages,
@@ -31,6 +26,14 @@ import {
   appendToolCallRunEvent,
   appendToolResultRunEvent,
 } from "@/lib/run-events";
+import {
+  normalizeRuntimeError,
+  type NormalizedRuntimeError,
+} from "@/lib/runtime-errors";
+import {
+  resolveRuntimeModelSelection,
+  type RuntimeModelSelection,
+} from "@/lib/runtime-model-policy";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { buildTurnContext } from "@/lib/turn-context";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
@@ -95,7 +98,12 @@ export async function streamInlineChatRun({
     inlineStartedAt: new Date(),
   };
   const runtimeName = resolveRuntimeName(route);
-  const runtimeModelId = resolveRuntimeModelId(modelId, route, runtimeName);
+  const modelSelection = resolveRuntimeModelSelection({
+    requestedModelId: modelId,
+    route,
+    runtimeName,
+  });
+  const runtimeModelId = modelSelection.modelId;
   const runtime = getRuntime({
     db,
     executionMode: "local",
@@ -109,7 +117,7 @@ export async function streamInlineChatRun({
   let tokensIn = 0;
   let tokensOut = 0;
   let providerRunMetadata: RuntimeRunMetadata | null = null;
-  const runtimeErrors: string[] = [];
+  const runtimeErrors: NormalizedRuntimeError[] = [];
   const toolEvents = createToolEventAccumulator([]);
 
   try {
@@ -201,6 +209,8 @@ export async function streamInlineChatRun({
           requestedByUserId: userId,
           requestedModelId: modelId,
           runtimeModelId,
+          providerModelId: modelSelection.providerModelId,
+          modelSelection,
           runtimeTarget: route.runtimeTarget,
           executionMode: route.executionMode,
           runtimeRoute: route,
@@ -225,127 +235,164 @@ export async function streamInlineChatRun({
         runtime: runtime.name,
         requestedModelId: modelId,
         runtimeModelId,
+        providerModelId: modelSelection.providerModelId,
+        modelSelection,
         reasons: route.reasons,
         mcpProviders: connectedProviders,
         metrics: buildTimingMetrics(timing),
       },
     });
 
-    for await (const ev of runtime.runTurn({
-      threadId: thread.id,
-      modelId: runtimeModelId,
-      systemPrompt:
-        route.runtimeTarget === "direct-chat" ? firstTurnPreamble : undefined,
-      messages: agentMessages,
-      context: { userId },
-      signal: runtimeAbort.signal,
-      firstTurnPreamble:
-        route.runtimeTarget === "cursor-agent" ? firstTurnPreamble : undefined,
-      onRunStarted: async (metadata) => {
-        timing.providerStartedAt = new Date();
-        providerRunMetadata = metadata;
-        const metrics = buildTimingMetrics(timing);
-        send({ type: "metrics", stage: "provider_started", metrics });
-        await db
-          .update(recipeRuns)
-          .set({
-            outputs: {
-              assistantText,
-              lifecycle: "provider_started",
-              requestedModelId: modelId,
-              modelId: runtimeModelId,
-              runtime: runtime.name,
-              runtimeTarget: route.runtimeTarget,
-              providerRun: metadata,
-              metrics,
-            },
-            updatedAt: new Date(),
-          })
-          .where(eq(recipeRuns.id, runId));
-        await appendInlineRunEvent(db, runId, {
-          eventType: "provider_run_started",
-          status: "pending",
-          label: `Started ${runtime.name} run`,
-          metadata: {
-            ...(metadata as unknown as Record<string, unknown>),
-            runtimeTarget: route.runtimeTarget,
-            requestedModelId: modelId,
-            runtimeModelId,
-            metrics,
-          },
-        });
-      },
-      ...(mcpServers ? { mcpServers } : {}),
-    })) {
-      if (signal?.aborted) {
-        runtimeAbort.abort();
-        break;
-      }
-      if (ev.type === "text-delta") {
-        assistantText += ev.delta;
-        send({ type: "text-delta", delta: ev.delta });
-        if (!timing.firstTokenAt && ev.delta.length > 0) {
-          timing.firstTokenAt = new Date();
+    try {
+      for await (const ev of runtime.runTurn({
+        threadId: thread.id,
+        modelId: runtimeModelId,
+        systemPrompt:
+          route.runtimeTarget === "direct-chat" ? firstTurnPreamble : undefined,
+        messages: agentMessages,
+        context: { userId },
+        signal: runtimeAbort.signal,
+        firstTurnPreamble:
+          route.runtimeTarget === "cursor-agent" ? firstTurnPreamble : undefined,
+        onRunStarted: async (metadata) => {
+          timing.providerStartedAt = new Date();
+          providerRunMetadata = metadata;
           const metrics = buildTimingMetrics(timing);
-          send({ type: "metrics", stage: "first_token", metrics });
+          send({ type: "metrics", stage: "provider_started", metrics });
+          await db
+            .update(recipeRuns)
+            .set({
+              outputs: {
+                assistantText,
+                lifecycle: "provider_started",
+                requestedModelId: modelId,
+                modelId: runtimeModelId,
+                providerModelId: modelSelection.providerModelId,
+                modelSelection,
+                runtime: runtime.name,
+                runtimeTarget: route.runtimeTarget,
+                providerRun: metadata,
+                metrics,
+              },
+              updatedAt: new Date(),
+            })
+            .where(eq(recipeRuns.id, runId));
           await appendInlineRunEvent(db, runId, {
-            eventType: "first_token_streamed",
-            status: "succeeded",
-            label: "First token streamed",
+            eventType: "provider_run_started",
+            status: "pending",
+            label: `Started ${runtime.name} run`,
             metadata: {
+              ...(metadata as unknown as Record<string, unknown>),
               runtimeTarget: route.runtimeTarget,
-              runtime: runtime.name,
               requestedModelId: modelId,
               runtimeModelId,
+              providerModelId: modelSelection.providerModelId,
+              modelSelection,
               metrics,
             },
           });
+        },
+        ...(mcpServers ? { mcpServers } : {}),
+      })) {
+        if (signal?.aborted) {
+          runtimeAbort.abort();
+          break;
         }
-      } else if (ev.type === "usage") {
-        tokensIn = ev.tokensIn;
-        tokensOut = ev.tokensOut;
-      } else if (ev.type === "tool-call") {
-        toolEvents.recordCall(ev.call);
-        const persistedCall = toolEvents
-          .calls()
-          .find((call) => call.id === ev.call.id);
-        if (persistedCall) {
-          await appendToolCallRunEvent({
-            db,
-            recipeRunId: runId,
-            sequence: await nextRunEventSequence(db, runId),
-            call: persistedCall,
-          });
-        }
-        send({ type: "tool-call", call: ev.call });
-      } else if (ev.type === "tool-result") {
-        toolEvents.recordResult(ev.result);
-        const persistedResult = toolEvents
-          .results()
-          .find((result) => result.toolCallId === ev.result.toolCallId);
-        if (persistedResult) {
+        if (ev.type === "text-delta") {
+          assistantText += ev.delta;
+          send({ type: "text-delta", delta: ev.delta });
+          if (!timing.firstTokenAt && ev.delta.length > 0) {
+            timing.firstTokenAt = new Date();
+            const metrics = buildTimingMetrics(timing);
+            send({ type: "metrics", stage: "first_token", metrics });
+            await appendInlineRunEvent(db, runId, {
+              eventType: "first_token_streamed",
+              status: "succeeded",
+              label: "First token streamed",
+              metadata: {
+                runtimeTarget: route.runtimeTarget,
+                runtime: runtime.name,
+                requestedModelId: modelId,
+                runtimeModelId,
+                providerModelId: modelSelection.providerModelId,
+                modelSelection,
+                metrics,
+              },
+            });
+          }
+        } else if (ev.type === "usage") {
+          tokensIn = ev.tokensIn;
+          tokensOut = ev.tokensOut;
+        } else if (ev.type === "tool-call") {
+          toolEvents.recordCall(ev.call);
           const persistedCall = toolEvents
             .calls()
-            .find((call) => call.id === ev.result.toolCallId);
-          await appendToolResultRunEvent({
-            db,
-            recipeRunId: runId,
-            sequence: await nextRunEventSequence(db, runId),
-            call: persistedCall,
-            result: persistedResult,
-          });
+            .find((call) => call.id === ev.call.id);
+          if (persistedCall) {
+            await appendToolCallRunEvent({
+              db,
+              recipeRunId: runId,
+              sequence: await nextRunEventSequence(db, runId),
+              call: persistedCall,
+            });
+          }
+          send({ type: "tool-call", call: ev.call });
+        } else if (ev.type === "tool-result") {
+          toolEvents.recordResult(ev.result);
+          const persistedResult = toolEvents
+            .results()
+            .find((result) => result.toolCallId === ev.result.toolCallId);
+          if (persistedResult) {
+            const persistedCall = toolEvents
+              .calls()
+              .find((call) => call.id === ev.result.toolCallId);
+            await appendToolResultRunEvent({
+              db,
+              recipeRunId: runId,
+              sequence: await nextRunEventSequence(db, runId),
+              call: persistedCall,
+              result: persistedResult,
+            });
+          }
+          send({ type: "tool-result", result: ev.result });
+        } else if (ev.type === "error") {
+          const normalized = normalizeRuntimeError(
+            ev.message,
+            runtimeErrorContext(runtime.name, route, modelSelection),
+          );
+          runtimeErrors.push(normalized);
+          send({ type: "error", message: normalized.userMessage });
         }
-        send({ type: "tool-result", result: ev.result });
-      } else if (ev.type === "error") {
-        runtimeErrors.push(ev.message);
-        send({ type: "error", message: ev.message });
       }
+    } catch (err) {
+      const normalized = normalizeRuntimeError(
+        err,
+        runtimeErrorContext(runtime.name, route, modelSelection),
+      );
+      runtimeErrors.push(normalized);
+      send({ type: "error", message: normalized.userMessage });
+      await appendInlineRunEvent(db, runId, {
+        eventType: "provider_run_failed",
+        status: "failed",
+        label: "Provider run failed",
+        error: normalized.userMessage,
+        metadata: {
+          errorDetails: normalized,
+          runtimeTarget: route.runtimeTarget,
+          runtime: runtime.name,
+          requestedModelId: modelId,
+          runtimeModelId,
+          providerModelId: modelSelection.providerModelId,
+          modelSelection,
+          metrics: buildTimingMetrics(timing),
+        },
+      });
     }
 
     const runError = signal?.aborted
       ? "Browser request disconnected before the local chat run completed."
       : runtimeErrors.length > 0
-        ? runtimeErrors.join("\n")
+        ? runtimeErrors.map((err) => err.userMessage).join("\n")
         : null;
     const completedAt = new Date();
     timing.completedAt = completedAt;
@@ -367,6 +414,8 @@ export async function streamInlineChatRun({
       toolCalls: toolEvents.calls(),
       toolResults: toolEvents.results(),
       providerRunMetadata,
+      runtimeErrors,
+      modelSelection,
       terminalStatus: runError ? "failed" : "succeeded",
       error: runError,
       timingMetrics: finalMetrics,
@@ -404,6 +453,8 @@ async function persistInlineAssistantResult({
   toolCalls,
   toolResults,
   providerRunMetadata,
+  runtimeErrors,
+  modelSelection,
   terminalStatus,
   error,
   timingMetrics,
@@ -424,6 +475,8 @@ async function persistInlineAssistantResult({
   toolCalls: ReturnType<ReturnType<typeof createToolEventAccumulator>["calls"]>;
   toolResults: ReturnType<ReturnType<typeof createToolEventAccumulator>["results"]>;
   providerRunMetadata: RuntimeRunMetadata | null;
+  runtimeErrors: NormalizedRuntimeError[];
+  modelSelection: RuntimeModelSelection;
   terminalStatus: InlineTerminalStatus;
   error: string | null;
   timingMetrics: ChatRunTimingMetrics;
@@ -490,9 +543,12 @@ async function persistInlineAssistantResult({
         tokensOut,
         requestedModelId,
         modelId,
+        providerModelId: modelSelection.providerModelId,
+        modelSelection,
         runtime: runtimeName,
         runtimeTarget,
         ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
+        ...(runtimeErrors.length > 0 ? { errorDetails: runtimeErrors } : {}),
         metrics: timingMetrics,
       },
       workerId: null,
@@ -538,8 +594,11 @@ async function persistInlineAssistantResult({
       userMessageId,
       requestedModelId,
       modelId,
+      providerModelId: modelSelection.providerModelId,
+      modelSelection,
       runtime: runtimeName,
       runtimeTarget,
+      ...(runtimeErrors.length > 0 ? { errorDetails: runtimeErrors } : {}),
       metrics: timingMetrics,
     },
   });
@@ -585,37 +644,21 @@ function resolveRuntimeName(route: ChatRuntimeRoute): RuntimeName {
   return "bedrock";
 }
 
-function resolveRuntimeModelId(
-  requestedModelId: string,
+function runtimeErrorContext(
+  runtime: string,
   route: ChatRuntimeRoute,
-  runtimeName: RuntimeName,
-): string {
-  if (route.runtimeTarget !== "direct-chat" || runtimeName !== "bedrock") {
-    return requestedModelId;
-  }
-
-  const directDefault = process.env.RUNTIME_V2_DIRECT_MODEL_ID
-    ?.trim()
-    .toLowerCase();
-  if (directDefault && isValidModelId(directDefault)) return directDefault;
-
-  const normalized = requestedModelId.trim().toLowerCase();
-  const alias = DIRECT_MODEL_ALIASES[normalized];
-  if (alias) return alias;
-  if (isValidModelId(normalized)) return normalized;
-
-  return DEFAULT_MODEL_ID;
+  modelSelection: RuntimeModelSelection,
+) {
+  return {
+    runtime,
+    runtimeTarget: route.runtimeTarget,
+    requestedModelId: modelSelection.requestedModelId,
+    modelId: modelSelection.modelId,
+    ...(modelSelection.providerModelId
+      ? { providerModelId: modelSelection.providerModelId }
+      : {}),
+  };
 }
-
-const DIRECT_MODEL_ALIASES: Record<string, ModelId> = {
-  "claude-haiku-4-5": "haiku-4-5",
-  "claude-haiku-4-5-20251001": "haiku-4-5",
-  "us.anthropic.claude-haiku-4-5-20251001-v1:0": "haiku-4-5",
-  "claude-sonnet-4-6": "sonnet-4-6",
-  "us.anthropic.claude-sonnet-4-6": "sonnet-4-6",
-  "claude-opus-4-7": "opus-4-7",
-  "us.anthropic.claude-opus-4-7": "opus-4-7",
-};
 
 function buildTimingMetrics(
   timing: ChatRunTimingMarks,
