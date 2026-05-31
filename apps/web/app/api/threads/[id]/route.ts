@@ -96,11 +96,12 @@ export async function PATCH(
     const db = getDb();
     const updated = await db
       .update(chatThreads)
-      .set({ title, updatedAt: new Date() })
+      .set({ title, titleSource: "manual", updatedAt: new Date() })
       .where(and(eq(chatThreads.id, id), eq(chatThreads.userId, sessionUser.id)))
       .returning({
         id: chatThreads.id,
         title: chatThreads.title,
+        titleSource: chatThreads.titleSource,
         updatedAt: chatThreads.updatedAt,
       });
     if (!updated[0]) {

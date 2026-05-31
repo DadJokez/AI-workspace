@@ -30,6 +30,7 @@ import {
   type ChatExecutionMode,
 } from "@/lib/chat-execution-mode";
 import { createToolEventAccumulator } from "@/lib/tool-events";
+import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
@@ -762,12 +763,13 @@ async function persistAssistantResult({
 
   if (await isRunCanceled(db, run.id)) return;
 
-  await db
-    .update(chatThreads)
-    .set({ updatedAt: new Date() })
-    .where(eq(chatThreads.id, threadId));
-
   const completedAt = new Date();
+  await refreshThreadPresentationMetadata({
+    db,
+    threadId,
+    now: completedAt,
+  });
+
   const updatedRows = await db
     .update(recipeRuns)
     .set({

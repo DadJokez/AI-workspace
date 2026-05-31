@@ -1,31 +1,24 @@
 "use client";
 
+import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import { useEffect, useState } from "react";
 
 interface Props {
   onClose: () => void;
   onOpenSidebar: () => void;
-}
-
-interface WorkspaceArtifact {
-  id: string;
-  title: string;
-  filename: string;
-  kind: string;
-  mimeType: string;
-  sizeBytes: number;
-  source: string;
-  createdAt: string;
-  previewUrl: string;
-  downloadUrl: string;
+  onOpenArtifact: (artifact: WorkspaceArtifactSummary) => void;
 }
 
 interface WorkspaceArtifactsResponse {
-  artifacts: WorkspaceArtifact[];
+  artifacts: WorkspaceArtifactSummary[];
 }
 
-export function WorkspacePanel({ onClose, onOpenSidebar }: Props) {
-  const [artifacts, setArtifacts] = useState<WorkspaceArtifact[]>([]);
+export function WorkspacePanel({
+  onClose,
+  onOpenSidebar,
+  onOpenArtifact,
+}: Props) {
+  const [artifacts, setArtifacts] = useState<WorkspaceArtifactSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
 
@@ -60,7 +53,7 @@ export function WorkspacePanel({ onClose, onOpenSidebar }: Props) {
           <MenuIcon />
         </button>
         <h1 className="flex-1 truncate px-2 text-sm font-medium text-ink">
-          Workspace
+          Artifacts
         </h1>
         <button
           type="button"
@@ -83,7 +76,7 @@ export function WorkspacePanel({ onClose, onOpenSidebar }: Props) {
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
           <section className="border-b border-hairline pb-4">
-            <h2 className="text-base font-semibold text-ink">Files</h2>
+            <h2 className="text-base font-semibold text-ink">Artifacts</h2>
             <p className="mt-1 text-[12px] text-muted">
               {artifacts.length} saved from assistant responses
             </p>
@@ -97,16 +90,20 @@ export function WorkspacePanel({ onClose, onOpenSidebar }: Props) {
 
           {loading ? (
             <div className="rounded-md border border-hairline px-4 py-6 text-center text-[13px] text-muted">
-              Loading files...
+              Loading artifacts...
             </div>
           ) : artifacts.length === 0 ? (
             <div className="rounded-md border border-hairline px-4 py-6 text-center text-[13px] text-muted">
-              No workspace files yet.
+              No artifacts yet.
             </div>
           ) : (
             <div className="grid gap-2">
               {artifacts.map((artifact) => (
-                <ArtifactRow key={artifact.id} artifact={artifact} />
+                <ArtifactRow
+                  key={artifact.id}
+                  artifact={artifact}
+                  onOpenArtifact={onOpenArtifact}
+                />
               ))}
             </div>
           )}
@@ -116,21 +113,26 @@ export function WorkspacePanel({ onClose, onOpenSidebar }: Props) {
   );
 }
 
-function ArtifactRow({ artifact }: { artifact: WorkspaceArtifact }) {
+function ArtifactRow({
+  artifact,
+  onOpenArtifact,
+}: {
+  artifact: WorkspaceArtifactSummary;
+  onOpenArtifact: (artifact: WorkspaceArtifactSummary) => void;
+}) {
   return (
     <div className="flex min-w-0 items-center gap-3 rounded-md border border-hairline px-3 py-2.5">
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-subtle text-[11px] font-semibold uppercase text-muted">
         {artifact.kind.slice(0, 4)}
       </span>
       <div className="min-w-0 flex-1">
-        <a
-          href={artifact.previewUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="block truncate text-sm font-medium text-ink underline-offset-2 hover:underline"
+        <button
+          type="button"
+          onClick={() => onOpenArtifact(artifact)}
+          className="block max-w-full truncate text-left text-sm font-medium text-ink underline-offset-2 hover:underline"
         >
           {artifact.title}
-        </a>
+        </button>
         <p className="mt-0.5 truncate text-[12px] text-muted">
           {artifact.filename} · {formatBytes(artifact.sizeBytes)} ·{" "}
           {formatDate(artifact.createdAt)}
