@@ -169,6 +169,16 @@ export const chatThreads = pgTable(
     summary: text("summary"),
     /** Last time the rolling summary was regenerated. NULL = never summarized. */
     summaryUpdatedAt: timestamp("summary_updated_at", { withTimezone: true }),
+    /**
+     * Short user-facing recap for sidebar hover previews. Separate from the
+     * durable runtime summary so UI metadata can stay compact.
+     */
+    previewSummary: text("preview_summary"),
+    previewSummaryUpdatedAt: timestamp("preview_summary_updated_at", {
+      withTimezone: true,
+    }),
+    /** "auto" titles may be refreshed after turns; "manual" titles are left alone. */
+    titleSource: text("title_source").notNull().default("auto"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

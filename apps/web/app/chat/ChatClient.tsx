@@ -1,5 +1,6 @@
 "use client";
 
+import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
 import { ChatInput } from "@/components/ChatInput";
 import { MessageBubble } from "@/components/MessageBubble";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
@@ -336,6 +337,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   >();
   const [runActionPendingId, setRunActionPendingId] = useState<string>();
   const [runInCloudOnce, setRunInCloudOnce] = useState(false);
+  const [previewArtifact, setPreviewArtifact] =
+    useState<WorkspaceArtifactSummary | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -358,12 +361,29 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = (await r.json()) as ThreadsResponse;
       setThreads(data.threads);
+      syncTabTitlesFromThreads(data.threads);
       setThreadsError(undefined);
     } catch (err) {
       setThreadsError(err instanceof Error ? err.message : String(err));
     } finally {
       setThreadsLoading(false);
     }
+  }
+
+  function syncTabTitlesFromThreads(nextThreads: ThreadSummary[]) {
+    const titleByThreadId = new Map(
+      nextThreads.map((thread) => [
+        thread.id,
+        thread.title?.trim() || "Untitled",
+      ]),
+    );
+    setTabs((prev) =>
+      prev.map((tab) => {
+        if (!tab.threadId) return tab;
+        const title = titleByThreadId.get(tab.threadId);
+        return title && title !== tab.title ? { ...tab, title } : tab;
+      }),
+    );
   }
 
   // Bootstrap: fetch models + threads in parallel. Tabs are restored separately
@@ -395,7 +415,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       if (threadsResult instanceof Error) {
         setThreadsError(threadsResult.message);
       } else {
-        setThreads(threadsResult?.threads ?? []);
+        const nextThreads = threadsResult?.threads ?? [];
+        setThreads(nextThreads);
+        syncTabTitlesFromThreads(nextThreads);
         setThreadsError(undefined);
       }
     });
@@ -922,6 +944,10 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     }
   }
 
+  function openArtifactPreview(artifact: WorkspaceArtifactSummary) {
+    setPreviewArtifact(artifact);
+  }
+
   async function send(text: string) {
     if (!activeTab || activeTab.busy) return;
     const tabId = activeTab.id;
@@ -1298,6 +1324,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           <WorkspacePanel
             onClose={() => setView("chat")}
             onOpenSidebar={() => setSidebarOpen(true)}
+            onOpenArtifact={openArtifactPreview}
           />
         ) : (
           <>
@@ -1459,6 +1486,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     toolResults={m.toolResults}
                     artifacts={m.artifacts}
                     activityEvents={m.activityEvents}
+                    onOpenArtifact={openArtifactPreview}
                   />
                   {m.runId &&
                   (m.canCancel || m.canRetry || m.canResume) ? (
@@ -1517,6 +1545,12 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           </>
         )}
       </main>
+      {previewArtifact ? (
+        <ArtifactPreviewPane
+          artifact={previewArtifact}
+          onClose={() => setPreviewArtifact(null)}
+        />
+      ) : null}
     </div>
   );
 }

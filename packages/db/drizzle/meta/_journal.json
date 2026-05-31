@@ -141,6 +141,13 @@
       "when": 1779811200000,
       "tag": "0019_workspace_artifacts",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1780190344093,
+      "tag": "0020_tiresome_madripoor",
+      "breakpoints": true
     }
   ]
 }

@@ -30,7 +30,7 @@ const groups: NavGroup[] = [
     items: [
       { id: "tools", label: "Tools", icon: <IconTool /> },
       { id: "vault", label: "Vault", icon: <IconVault /> },
-      { id: "workspace", label: "Workspace", icon: <IconFolder /> },
+      { id: "workspace", label: "Artifacts", icon: <IconFolder /> },
     ],
   },
   {
@@ -80,6 +80,9 @@ export interface ThreadSummary {
   defaultModelId: string;
   summary: string | null;
   summaryUpdatedAt: string | null;
+  previewSummary: string | null;
+  previewSummaryUpdatedAt: string | null;
+  titleSource: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -153,6 +156,21 @@ function groupThreadsByRecency(threads: ThreadSummary[]): ThreadGroup[] {
   return out;
 }
 
+function threadPreviewText(thread: ThreadSummary): string {
+  const raw =
+    thread.previewSummary?.trim() ||
+    thread.summary?.trim() ||
+    thread.title?.trim() ||
+    "No summary yet.";
+  return trimWords(raw, 42);
+}
+
+function trimWords(value: string, maxWords: number): string {
+  const words = value.split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return value;
+  return `${words.slice(0, maxWords).join(" ").replace(/[.!?,:;]+$/g, "")}…`;
+}
+
 export function Sidebar({
   userName,
   userEmail,
@@ -207,9 +225,7 @@ export function Sidebar({
     [threads],
   );
 
-  // History label flips to "Workspace" for admins so it's obvious they're
-  // looking at threads from every user, not just their own.
-  const historyLabel = isAdmin ? "Workspace" : "History";
+  const historyLabel = "Chats";
 
   useEffect(() => {
     if (!open) return;
@@ -492,6 +508,7 @@ export function Sidebar({
                           const isRenaming = renamingId === t.id;
                           const isMenuOpen = openMenuId === t.id;
                           const isPendingDelete = pendingDeleteId === t.id;
+                          const preview = threadPreviewText(t);
                           return (
                             <li
                               key={t.id}
@@ -547,6 +564,25 @@ export function Sidebar({
                                       {title}
                                     </span>
                                   </button>
+                                  <div
+                                    className={`group/info relative shrink-0 ${
+                                      isMenuOpen
+                                        ? "opacity-100"
+                                        : "md:opacity-0 md:group-hover/thread:opacity-100 md:focus-within:opacity-100"
+                                    }`}
+                                  >
+                                    <button
+                                      type="button"
+                                      aria-label="Conversation preview"
+                                      className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-canvas/60 hover:text-ink md:h-5 md:w-5"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <IconInfo />
+                                    </button>
+                                    <div className="pointer-events-none absolute right-0 top-full z-30 mt-1 hidden w-56 rounded-md border border-hairline bg-surface px-3 py-2 text-[12px] leading-relaxed text-ink shadow-md group-hover/info:block group-focus-within/info:block">
+                                      {preview}
+                                    </div>
+                                  </div>
                                   {(onRenameThread || onDeleteThread) ? (
                                     <button
                                       type="button"
@@ -761,6 +797,26 @@ function IconDots() {
       <circle cx="3.5" cy="8" r="1.2" />
       <circle cx="8" cy="8" r="1.2" />
       <circle cx="12.5" cy="8" r="1.2" />
+    </svg>
+  );
+}
+
+function IconInfo() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="8" r="5.8" />
+      <path d="M8 7.4v3.4" />
+      <path d="M8 5.1h.01" />
     </svg>
   );
 }

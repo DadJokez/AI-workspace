@@ -30,6 +30,7 @@ interface Props {
   toolResults?: PersistedToolResult[];
   artifacts?: WorkspaceArtifactSummary[];
   activityEvents?: AgentActivityEvent[];
+  onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
 }
 
 export function MessageBubble({
@@ -42,6 +43,7 @@ export function MessageBubble({
   toolResults = [],
   artifacts = [],
   activityEvents: persistedActivityEvents,
+  onOpenArtifact,
 }: Props) {
   if (role === "user") {
     return (
@@ -96,7 +98,7 @@ export function MessageBubble({
         ) : null}
       </div>
       {role === "assistant" && artifacts.length > 0 ? (
-        <ArtifactStrip artifacts={artifacts} />
+        <ArtifactStrip artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
       ) : null}
       {showActivity ? (
         <ActivityTimeline
@@ -111,34 +113,58 @@ export function MessageBubble({
 
 function ArtifactStrip({
   artifacts,
+  onOpenArtifact,
 }: {
   artifacts: WorkspaceArtifactSummary[];
+  onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
 }) {
   return (
     <div className="mt-1.5 flex max-w-full flex-wrap gap-2">
-      {artifacts.map((artifact) => (
-        <a
-          key={artifact.id}
-          href={artifact.previewUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="group flex max-w-full items-center gap-2 rounded-full border border-[#67a3ff]/60 bg-[linear-gradient(135deg,#0637cf_0%,#095cff_54%,#00a6ff_100%)] px-2.5 py-1.5 text-[12px] text-white shadow-[0_0_22px_rgba(0,92,255,0.34)] transition hover:brightness-110"
-        >
-          <span className="shrink-0 rounded-full bg-white/16 px-1.5 py-0.5 font-mono text-[10px] uppercase text-white/86 ring-1 ring-white/18">
-            {artifact.kind.slice(0, 4)}
-          </span>
-          <span className="min-w-0 truncate font-medium">
-            {artifact.filename}
-          </span>
-          <span className="shrink-0 text-white/72">
-            {formatBytes(artifact.sizeBytes)}
-          </span>
-          <span className="hidden shrink-0 rounded-full bg-white/18 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white/88 group-hover:bg-white/24 sm:inline">
-            Preview
-          </span>
-        </a>
-      ))}
+      {artifacts.map((artifact) =>
+        onOpenArtifact ? (
+          <button
+            key={artifact.id}
+            type="button"
+            onClick={() => onOpenArtifact(artifact)}
+            className={artifactPillClassName}
+          >
+            <ArtifactPillContent artifact={artifact} />
+          </button>
+        ) : (
+          <a
+            key={artifact.id}
+            href={artifact.previewUrl}
+            className={artifactPillClassName}
+          >
+            <ArtifactPillContent artifact={artifact} />
+          </a>
+        ),
+      )}
     </div>
+  );
+}
+
+const artifactPillClassName =
+  "group flex max-w-full items-center gap-2 rounded-full border border-[#67a3ff]/60 bg-[linear-gradient(135deg,#0637cf_0%,#095cff_54%,#00a6ff_100%)] px-2.5 py-1.5 text-left text-[12px] text-white shadow-[0_0_22px_rgba(0,92,255,0.34)] transition hover:brightness-110";
+
+function ArtifactPillContent({
+  artifact,
+}: {
+  artifact: WorkspaceArtifactSummary;
+}) {
+  return (
+    <>
+      <span className="shrink-0 rounded-full bg-white/16 px-1.5 py-0.5 font-mono text-[10px] uppercase text-white/86 ring-1 ring-white/18">
+        {artifact.kind.slice(0, 4)}
+      </span>
+      <span className="min-w-0 truncate font-medium">{artifact.filename}</span>
+      <span className="shrink-0 text-white/72">
+        {formatBytes(artifact.sizeBytes)}
+      </span>
+      <span className="hidden shrink-0 rounded-full bg-white/18 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white/88 group-hover:bg-white/24 sm:inline">
+        Preview
+      </span>
+    </>
   );
 }
 

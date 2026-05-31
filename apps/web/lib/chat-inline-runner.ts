@@ -2,7 +2,6 @@ import {
   type ChatThread,
   auditLog,
   chatMessages,
-  chatThreads,
   type Database,
   recipeRuns,
   users,
@@ -35,6 +34,7 @@ import {
   type RuntimeModelSelection,
 } from "@/lib/runtime-model-policy";
 import { createToolEventAccumulator } from "@/lib/tool-events";
+import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import {
@@ -554,10 +554,11 @@ async function persistInlineAssistantResult({
     }
   }
 
-  await db
-    .update(chatThreads)
-    .set({ updatedAt: new Date() })
-    .where(eq(chatThreads.id, threadId));
+  await refreshThreadPresentationMetadata({
+    db,
+    threadId,
+    now: completedAt,
+  });
 
   await db
     .update(recipeRuns)
