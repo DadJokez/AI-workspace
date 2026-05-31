@@ -11,7 +11,7 @@ import type {
   PersistedToolResult,
 } from "@/lib/tool-events";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import {
@@ -316,42 +316,55 @@ function ActivityTimeline({
   summary: string;
   pending?: boolean;
 }) {
+  const [fallbackStartedAt] = useState(() => Date.now());
+  const now = useActivityNow(pending);
+  const startedAt = firstActivityTime(events) ?? fallbackStartedAt;
+  const endedAt = pending ? now : lastActivityTime(events) ?? startedAt;
+  const duration = formatDuration(Math.max(0, endedAt - startedAt));
+  const headline = pending ? `Working for ${duration}` : `Worked for ${duration}`;
+
   if (events.length === 0) {
     return (
-      <div className="mt-1 flex items-center gap-2 text-[12px] text-muted">
-        <ActivityDot state={pending ? "pending" : "succeeded"} />
-        <span>{summary}</span>
+      <div className="mt-2 flex items-center gap-2 border-t border-hairline/70 pt-2 text-[12px] text-muted/80">
+        <ActivityDot state={pending ? "pending" : "succeeded"} subtle />
+        <span>{pending ? headline : summary}</span>
+        {pending ? <span className="text-muted/60">{summary}</span> : null}
       </div>
     );
   }
 
+  const state = events.some((event) => event.state === "failed")
+    ? "failed"
+    : pending
+      ? "pending"
+      : "succeeded";
+  const eventCount = events.length;
+  const eventLabel = `${eventCount} ${eventCount === 1 ? "step" : "steps"}`;
+
   return (
-    <details className="group mt-1 max-w-full overflow-hidden rounded-md border border-hairline bg-subtle/45 px-2.5 py-1.5 text-[12px] text-muted">
-      <summary className="flex cursor-pointer list-none items-center gap-2 [overflow-wrap:anywhere] marker:hidden">
-        <ActivityDot
-          state={
-            events.some((e) => e.state === "failed")
-              ? "failed"
-              : pending
-                ? "pending"
-                : "succeeded"
-          }
-        />
-        <span>{summary}</span>
-        <span className="ml-auto text-[11px] text-muted/80 group-open:hidden">
-          Details
+    <details
+      className="group mt-2 max-w-full overflow-hidden border-t border-hairline/70 pt-2 text-[12px] text-muted/80"
+      open={pending}
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-2 py-0.5 [overflow-wrap:anywhere] marker:hidden">
+        <ActivityDot state={state} subtle />
+        <span className="font-medium text-muted/90">{headline}</span>
+        <span className="text-muted/60">{summary}</span>
+        <span className="ml-auto hidden shrink-0 text-[11px] text-muted/60 sm:inline">
+          {eventLabel}
+        </span>
+        <span className="shrink-0 text-[14px] leading-none text-muted/60 transition group-open:rotate-90">
+          ›
         </span>
       </summary>
-      <div className="mt-2 flex flex-col gap-1.5 border-t border-hairline pt-2">
+      <div className="mt-2 flex flex-col gap-2 pl-3">
         {events.map((event) => (
-          <div key={event.id} className="flex min-w-0 gap-2">
-            <ActivityDot state={event.state} />
+          <div key={event.id} className="flex min-w-0 gap-2 text-muted/75">
+            <ActivityDot state={event.state} subtle />
             <div className="min-w-0 flex-1">
-              <div className="text-ink [overflow-wrap:anywhere]">
-                {event.label}
-              </div>
+              <div className="[overflow-wrap:anywhere]">{event.label}</div>
               {event.detail ? (
-                <div className="mt-0.5 line-clamp-2 font-mono text-[11px] leading-snug [overflow-wrap:anywhere]">
+                <div className="mt-1 max-h-16 overflow-hidden rounded border border-hairline/70 bg-canvas/40 px-2 py-1 font-mono text-[11px] leading-snug text-muted/65 [overflow-wrap:anywhere]">
                   {event.detail}
                 </div>
               ) : null}
@@ -363,13 +376,66 @@ function ActivityTimeline({
   );
 }
 
-function ActivityDot({ state }: { state: AgentActivityEvent["state"] }) {
+function useActivityNow(active?: boolean) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!active) return undefined;
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [active]);
+
+  return now;
+}
+
+function firstActivityTime(events: readonly AgentActivityEvent[]) {
+  for (const event of events) {
+    const time = parseActivityTime(event.at);
+    if (time !== null) return time;
+  }
+  return null;
+}
+
+function lastActivityTime(events: readonly AgentActivityEvent[]) {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const time = parseActivityTime(events[index]?.at);
+    if (time !== null) return time;
+  }
+  return null;
+}
+
+function parseActivityTime(value?: string) {
+  if (!value) return null;
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? null : time;
+}
+
+function formatDuration(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return `${minutes}m ${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return `${hours}h ${remainingMinutes}m`;
+}
+
+function ActivityDot({
+  state,
+  subtle,
+}: {
+  state: AgentActivityEvent["state"];
+  subtle?: boolean;
+}) {
   const className =
     state === "failed"
       ? "bg-red-500"
       : state === "pending"
-        ? "animate-pulse bg-muted"
-        : "bg-emerald-500";
+        ? "animate-pulse bg-muted/80"
+        : subtle
+          ? "bg-muted/45"
+          : "bg-emerald-500";
   return (
     <span
       className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${className}`}
