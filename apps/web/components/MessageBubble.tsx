@@ -69,6 +69,10 @@ export function MessageBubble({
   const activitySummary = summarizeActivity(activityEvents, pending, status);
   const showActivity =
     role === "assistant" && (activityEvents.length > 0 || showThinking);
+  const assistantParts =
+    role === "assistant" && !showThinking
+      ? splitAssistantContent(content, artifacts)
+      : [];
 
   // Suppress the "Assistant" label-only stub left behind when a turn errors
   // out before any text streamed. The error bar carries the message instead.
@@ -83,12 +87,7 @@ export function MessageBubble({
         {showThinking ? (
           <ThinkingIndicator status={status} />
         ) : role === "assistant" ? (
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={MARKDOWN_COMPONENTS}
-          >
-            {content}
-          </ReactMarkdown>
+          <AssistantContent parts={assistantParts} />
         ) : (
           <span className="whitespace-pre-wrap">{content}</span>
         )}
@@ -116,24 +115,176 @@ function ArtifactStrip({
   artifacts: WorkspaceArtifactSummary[];
 }) {
   return (
-    <div className="mt-1 flex max-w-full flex-wrap gap-2">
+    <div className="mt-1.5 flex max-w-full flex-wrap gap-2">
       {artifacts.map((artifact) => (
         <a
           key={artifact.id}
           href={artifact.previewUrl}
           target="_blank"
           rel="noreferrer"
-          className="flex max-w-full items-center gap-2 rounded-md border border-hairline bg-subtle/45 px-2.5 py-1.5 text-[12px] text-ink hover:bg-subtle"
+          className="group flex max-w-full items-center gap-2 rounded-full border border-[#67a3ff]/60 bg-[linear-gradient(135deg,#0637cf_0%,#095cff_54%,#00a6ff_100%)] px-2.5 py-1.5 text-[12px] text-white shadow-[0_0_22px_rgba(0,92,255,0.34)] transition hover:brightness-110"
         >
-          <span className="shrink-0 rounded bg-canvas px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted">
+          <span className="shrink-0 rounded-full bg-white/16 px-1.5 py-0.5 font-mono text-[10px] uppercase text-white/86 ring-1 ring-white/18">
             {artifact.kind.slice(0, 4)}
           </span>
-          <span className="min-w-0 truncate">{artifact.filename}</span>
-          <span className="shrink-0 text-muted">{formatBytes(artifact.sizeBytes)}</span>
+          <span className="min-w-0 truncate font-medium">
+            {artifact.filename}
+          </span>
+          <span className="shrink-0 text-white/72">
+            {formatBytes(artifact.sizeBytes)}
+          </span>
+          <span className="hidden shrink-0 rounded-full bg-white/18 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white/88 group-hover:bg-white/24 sm:inline">
+            Preview
+          </span>
         </a>
       ))}
     </div>
   );
+}
+
+type AssistantPart =
+  | { type: "markdown"; content: string }
+  | {
+      type: "artifact-preview";
+      language: string;
+      code: string;
+      artifact?: WorkspaceArtifactSummary;
+    };
+
+function AssistantContent({ parts }: { parts: AssistantPart[] }) {
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.type === "markdown" ? (
+          <ReactMarkdown
+            key={`markdown-${index}`}
+            remarkPlugins={[remarkGfm]}
+            components={MARKDOWN_COMPONENTS}
+          >
+            {part.content}
+          </ReactMarkdown>
+        ) : (
+          <ArtifactCodePreview
+            key={`artifact-preview-${index}`}
+            language={part.language}
+            code={part.code}
+            artifact={part.artifact}
+          />
+        ),
+      )}
+    </>
+  );
+}
+
+function ArtifactCodePreview({
+  language,
+  code,
+  artifact,
+}: {
+  language: string;
+  code: string;
+  artifact?: WorkspaceArtifactSummary;
+}) {
+  const snippet = code
+    .split("\n")
+    .slice(0, 18)
+    .join("\n")
+    .slice(0, 1600)
+    .trimEnd();
+  const label = artifact?.filename ?? "generated document";
+  const kind = artifact?.kind ?? language ?? "file";
+
+  return (
+    <details className="group my-2 overflow-hidden rounded-md border border-[#2f6bff]/40 bg-[#050b1f]/70 first:mt-0 last:mb-0">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[12px] marker:hidden">
+        <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_12px_rgba(40,215,255,0.8)]" />
+        <span className="min-w-0 flex-1 truncate font-medium text-[#dbe8ff]">
+          Document content collapsed
+        </span>
+        <span className="hidden shrink-0 font-mono text-[10px] uppercase text-[#8cb7ff] sm:inline">
+          {kind}
+        </span>
+        <span className="shrink-0 text-[11px] text-[#88a8e8] group-open:hidden">
+          Show snippet
+        </span>
+        <span className="hidden shrink-0 text-[11px] text-[#88a8e8] group-open:inline">
+          Hide snippet
+        </span>
+      </summary>
+      <div className="border-t border-[#2f6bff]/25">
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] text-[#8cb7ff]">
+          <span className="min-w-0 truncate">{label}</span>
+          <span className="shrink-0">{formatBytes(code.length)}</span>
+        </div>
+        <pre className="max-h-52 overflow-auto whitespace-pre-wrap border-t border-[#2f6bff]/20 px-3 py-2 font-mono text-[11px] leading-relaxed text-[#c9dcff] [overflow-wrap:anywhere]">
+          {snippet}
+          {snippet.length < code.length ? "\n..." : ""}
+        </pre>
+      </div>
+    </details>
+  );
+}
+
+function splitAssistantContent(
+  content: string,
+  artifacts: WorkspaceArtifactSummary[],
+): AssistantPart[] {
+  if (artifacts.length === 0) return [{ type: "markdown", content }];
+
+  const parts: AssistantPart[] = [];
+  const fenceRe = /```([^\n`]*)\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let collapsedCount = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = fenceRe.exec(content)) !== null) {
+    const fullMatch = match[0] ?? "";
+    const info = (match[1] ?? "").trim();
+    const code = (match[2] ?? "").trimEnd();
+    const language = info.split(/\s+/)[0]?.toLowerCase() || "text";
+    const artifact = artifacts[collapsedCount];
+    const shouldCollapse =
+      artifact !== undefined &&
+      isArtifactSizedFence({ info, code, language });
+
+    if (!shouldCollapse) continue;
+
+    const before = content.slice(lastIndex, match.index);
+    if (before.trim()) parts.push({ type: "markdown", content: before });
+    parts.push({
+      type: "artifact-preview",
+      language,
+      code,
+      artifact,
+    });
+    collapsedCount += 1;
+    lastIndex = match.index + fullMatch.length;
+  }
+
+  const after = content.slice(lastIndex);
+  if (after.trim()) parts.push({ type: "markdown", content: after });
+
+  return parts.length > 0 ? parts : [{ type: "markdown", content }];
+}
+
+function isArtifactSizedFence({
+  info,
+  code,
+  language,
+}: {
+  info: string;
+  code: string;
+  language: string;
+}): boolean {
+  if (/\bfile(?:name)?\s*=|[A-Za-z0-9._ -]+\.[A-Za-z0-9]{1,12}\b/.test(info)) {
+    return true;
+  }
+  if (/<!doctype\s+html|<html[\s>]/i.test(code)) return true;
+  if (language === "html" && code.length > 600) return true;
+  if ((language === "markdown" || language === "md") && code.length > 900) {
+    return true;
+  }
+  return code.length > 1800;
 }
 
 function ThinkingIndicator({ status }: { status?: string }) {
