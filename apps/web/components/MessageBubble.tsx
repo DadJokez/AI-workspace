@@ -316,12 +316,25 @@ function ActivityTimeline({
   summary: string;
   pending?: boolean;
 }) {
-  const [fallbackStartedAt] = useState(() => Date.now());
-  const now = useActivityNow(pending);
-  const startedAt = firstActivityTime(events) ?? fallbackStartedAt;
-  const endedAt = pending ? now : lastActivityTime(events) ?? startedAt;
+  const mounted = useMounted();
+  const [fallbackStartedAt, setFallbackStartedAt] = useState<number | null>(
+    null,
+  );
+  const now = useActivityNow(pending && mounted);
+  const firstEventAt = firstActivityTime(events);
+  const startedAt = firstEventAt ?? fallbackStartedAt ?? 0;
+  const endedAt = pending
+    ? mounted
+      ? now
+      : startedAt
+    : lastActivityTime(events) ?? startedAt;
   const duration = formatDuration(Math.max(0, endedAt - startedAt));
   const headline = pending ? `Working for ${duration}` : `Worked for ${duration}`;
+
+  useEffect(() => {
+    if (firstEventAt !== null || fallbackStartedAt !== null) return;
+    setFallbackStartedAt(Date.now());
+  }, [fallbackStartedAt, firstEventAt]);
 
   if (events.length === 0) {
     return (
@@ -376,11 +389,22 @@ function ActivityTimeline({
   );
 }
 
+function useMounted() {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  return mounted;
+}
+
 function useActivityNow(active?: boolean) {
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(0);
 
   useEffect(() => {
     if (!active) return undefined;
+    setNow(Date.now());
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, [active]);
