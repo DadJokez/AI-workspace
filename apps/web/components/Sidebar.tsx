@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 interface NavItem {
   id: string;
@@ -564,25 +565,10 @@ export function Sidebar({
                                       {title}
                                     </span>
                                   </button>
-                                  <div
-                                    className={`group/info relative shrink-0 ${
-                                      isMenuOpen
-                                        ? "opacity-100"
-                                        : "md:opacity-0 md:group-hover/thread:opacity-100 md:focus-within:opacity-100"
-                                    }`}
-                                  >
-                                    <button
-                                      type="button"
-                                      aria-label="Conversation preview"
-                                      className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-canvas/60 hover:text-ink md:h-5 md:w-5"
-                                      onClick={(e) => e.stopPropagation()}
-                                    >
-                                      <IconInfo />
-                                    </button>
-                                    <div className="pointer-events-none absolute right-0 top-full z-30 mt-1 hidden w-56 rounded-md border border-hairline bg-surface px-3 py-2 text-[12px] leading-relaxed text-ink shadow-md group-hover/info:block group-focus-within/info:block">
-                                      {preview}
-                                    </div>
-                                  </div>
+                                  <ThreadPreviewButton
+                                    preview={preview}
+                                    forceVisible={isMenuOpen}
+                                  />
                                   {(onRenameThread || onDeleteThread) ? (
                                     <button
                                       type="button"
@@ -767,6 +753,110 @@ function ThreadsSkeleton() {
       ))}
     </div>
   );
+}
+
+const PREVIEW_POPOVER_WIDTH = 288;
+const PREVIEW_POPOVER_HEIGHT = 132;
+const PREVIEW_POPOVER_GAP = 10;
+const PREVIEW_POPOVER_MARGIN = 8;
+
+function ThreadPreviewButton({
+  preview,
+  forceVisible,
+}: {
+  preview: string;
+  forceVisible?: boolean;
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{
+    left: number;
+    top: number;
+    width: number;
+  } | null>(null);
+
+  const updatePosition = useCallback(() => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = Math.min(
+      PREVIEW_POPOVER_WIDTH,
+      Math.max(160, window.innerWidth - PREVIEW_POPOVER_MARGIN * 2),
+    );
+    const openRight = rect.right + PREVIEW_POPOVER_GAP;
+    const openLeft = rect.left - width - PREVIEW_POPOVER_GAP;
+    const fitsRight = openRight + width <= window.innerWidth - PREVIEW_POPOVER_MARGIN;
+    const preferredLeft = fitsRight ? openRight : openLeft;
+    const left = clamp(
+      preferredLeft,
+      PREVIEW_POPOVER_MARGIN,
+      window.innerWidth - width - PREVIEW_POPOVER_MARGIN,
+    );
+    const top = clamp(
+      rect.top - PREVIEW_POPOVER_GAP,
+      PREVIEW_POPOVER_MARGIN,
+      window.innerHeight - PREVIEW_POPOVER_HEIGHT - PREVIEW_POPOVER_MARGIN,
+    );
+    setPosition({ left, top, width });
+  }, []);
+
+  const showPreview = useCallback(() => {
+    setOpen(true);
+    window.requestAnimationFrame(updatePosition);
+  }, [updatePosition]);
+
+  useEffect(() => {
+    if (!open) return;
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open, updatePosition]);
+
+  return (
+    <div
+      className={`shrink-0 ${
+        forceVisible
+          ? "opacity-100"
+          : "md:opacity-0 md:group-hover/thread:opacity-100 md:focus-within:opacity-100"
+      }`}
+    >
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label="Conversation preview"
+        className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-canvas/60 hover:text-ink md:h-5 md:w-5"
+        onClick={(e) => e.stopPropagation()}
+        onFocus={showPreview}
+        onBlur={() => setOpen(false)}
+        onMouseEnter={showPreview}
+        onMouseLeave={() => setOpen(false)}
+      >
+        <IconInfo />
+      </button>
+      {open && position
+        ? createPortal(
+            <div
+              className="pointer-events-none fixed z-[70] max-h-36 overflow-auto rounded-md border border-hairline bg-surface px-3 py-2 text-[12px] leading-relaxed text-ink shadow-lg"
+              style={{
+                left: position.left,
+                top: position.top,
+                width: position.width,
+              }}
+            >
+              {preview}
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
 function IconPlus() {
