@@ -113,19 +113,32 @@ interface Props {
   onDeleteThread?: (threadId: string) => Promise<void>;
 }
 
-function threadPreviewText(thread: ThreadSummary): string {
-  const raw =
-    thread.previewSummary?.trim() ||
-    thread.summary?.trim() ||
-    thread.title?.trim() ||
-    "No summary yet.";
-  return trimWords(raw, 42);
+function threadPreviewText(thread: ThreadSummary): string | null {
+  const title = thread.title?.trim();
+  const raw = [thread.previewSummary, thread.summary]
+    .map((value) => value?.trim())
+    .find((value) => value && isUsefulThreadPreview(value, title));
+
+  return raw ? trimWords(raw, 42) : null;
+}
+
+function isUsefulThreadPreview(value: string, title?: string): boolean {
+  const normalized = normalizePreviewText(value);
+  if (normalized.length < 24) return false;
+  if (title && normalized === normalizePreviewText(title)) return false;
+  return !/^(asked )?(hey|hi|hello|yo|ok|okay|thanks|thank you)$/.test(
+    normalized,
+  );
 }
 
 function trimWords(value: string, maxWords: number): string {
   const words = value.split(/\s+/).filter(Boolean);
   if (words.length <= maxWords) return value;
   return `${words.slice(0, maxWords).join(" ").replace(/[.!?,:;]+$/g, "")}…`;
+}
+
+function normalizePreviewText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 export function Sidebar({
@@ -511,10 +524,12 @@ export function Sidebar({
                                       {title}
                                     </span>
                                   </button>
-                                  <ThreadPreviewButton
-                                    preview={preview}
-                                    forceVisible={isMenuOpen}
-                                  />
+                                  {preview ? (
+                                    <ThreadPreviewButton
+                                      preview={preview}
+                                      forceVisible={isMenuOpen}
+                                    />
+                                  ) : null}
                                   {(onRenameThread || onDeleteThread) ? (
                                     <button
                                       type="button"

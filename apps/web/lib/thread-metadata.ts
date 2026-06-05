@@ -42,13 +42,15 @@ export function buildThreadPresentationMetadata({
     ? summarizeAssistantText(latestAssistant.content)
     : undefined;
 
-  const metadata: ThreadPresentationMetadata = {
-    previewSummary: buildPreviewSummary({
-      firstUser,
-      latestUser,
-      assistantSummary,
-    }),
-  };
+  const previewSummary = buildPreviewSummary({
+    firstUser,
+    latestUser,
+    assistantSummary,
+  });
+  const metadata: ThreadPresentationMetadata = {};
+  if (previewSummary) {
+    metadata.previewSummary = previewSummary;
+  }
 
   if (titleSource !== "manual") {
     const nextTitle = makeThreadTitle(latestUser);
@@ -101,12 +103,8 @@ export async function refreshThreadPresentationMetadata({
     .set({
       updatedAt: now,
       ...(metadata.title ? { title: metadata.title, titleSource: "auto" } : {}),
-      ...(metadata.previewSummary
-        ? {
-            previewSummary: metadata.previewSummary,
-            previewSummaryUpdatedAt: now,
-          }
-        : {}),
+      previewSummary: metadata.previewSummary ?? null,
+      previewSummaryUpdatedAt: metadata.previewSummary ? now : null,
     })
     .where(eq(chatThreads.id, threadId));
 }
@@ -119,16 +117,26 @@ function buildPreviewSummary({
   firstUser: string;
   latestUser: string;
   assistantSummary?: string;
-}): string {
+}): string | undefined {
+  const usefulAssistantSummary =
+    assistantSummary && !isLowSignalAssistantText(assistantSummary)
+      ? assistantSummary
+      : undefined;
+  if (isLowSignalTurn(latestUser) && !usefulAssistantSummary) {
+    return undefined;
+  }
+
   const parts: string[] = [];
   if (normalizeForCompare(firstUser) !== normalizeForCompare(latestUser)) {
-    parts.push(`Started with: ${shortSentence(firstUser, 100)}.`);
+    parts.push(`Started: ${shortSentence(firstUser, 90)}.`);
   }
-  parts.push(`Latest: ${shortSentence(latestUser, 120)}.`);
-  if (assistantSummary) {
-    parts.push(`Response: ${shortSentence(assistantSummary, 120)}.`);
+  parts.push(`Asked: ${shortSentence(latestUser, 120)}.`);
+  if (usefulAssistantSummary) {
+    parts.push(`Answer: ${shortSentence(usefulAssistantSummary, 140)}.`);
   }
-  return trimToWords(parts.join(" "), 52);
+
+  const preview = trimToWords(parts.join(" "), 48);
+  return isUsefulPreviewSummary(preview) ? preview : undefined;
 }
 
 function makeThreadTitle(text: string): string {
@@ -162,6 +170,26 @@ function isLowSignalTurn(value: string): boolean {
   const normalized = value.toLowerCase().replace(/[.!?]+$/g, "").trim();
   if (normalized.length < 8) return true;
   return /^(hey|hi|hello|yo|ok|okay|cool|thanks|thank you|sounds good|go ahead|do it|merge it|yes|no|nice|great|perfect)$/.test(
+    normalized,
+  );
+}
+
+function isLowSignalAssistantText(value: string): boolean {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[.!?]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (normalized.length < 24) return true;
+  return /^(hey|hi|hello|yo|ok|okay|cool|thanks|thank you|sure|sounds good)[\s!,.-]/.test(
+    normalized,
+  );
+}
+
+function isUsefulPreviewSummary(value: string): boolean {
+  const normalized = normalizeForCompare(value);
+  if (normalized.length < 24) return false;
+  return !/^(asked )?(hey|hi|hello|yo|ok|okay|thanks|thank you)$/.test(
     normalized,
   );
 }

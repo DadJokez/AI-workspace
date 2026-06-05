@@ -21,8 +21,10 @@ describe("buildThreadPresentationMetadata", () => {
     });
 
     expect(metadata.title).toBe("Summarize the last three GitHub PRs");
-    expect(metadata.previewSummary).toContain("Latest:");
+    expect(metadata.previewSummary).toContain("Asked:");
+    expect(metadata.previewSummary).toContain("Answer:");
     expect(metadata.previewSummary).toContain("GitHub PRs");
+    expect(metadata.previewSummary).not.toContain("hey");
   });
 
   it("does not overwrite a manual title", () => {
@@ -36,6 +38,7 @@ describe("buildThreadPresentationMetadata", () => {
     });
 
     expect(metadata.title).toBeUndefined();
+    expect(metadata.previewSummary).toContain("Asked:");
     expect(metadata.previewSummary).toContain("artifact preview pane");
   });
 
@@ -55,5 +58,18 @@ describe("buildThreadPresentationMetadata", () => {
 
     expect(metadata.previewSummary).not.toContain("<html>");
     expect(metadata.previewSummary).toContain("Saved as an artifact");
+  });
+
+  it("does not create a preview for low-signal small talk", () => {
+    const metadata = buildThreadPresentationMetadata({
+      currentTitle: "hello",
+      titleSource: "auto",
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "Hello! How can I help you today?" },
+      ],
+    });
+
+    expect(metadata.previewSummary).toBeUndefined();
   });
 });
