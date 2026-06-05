@@ -113,50 +113,6 @@ interface Props {
   onDeleteThread?: (threadId: string) => Promise<void>;
 }
 
-interface ThreadGroup {
-  label: string;
-  threads: ThreadSummary[];
-}
-
-function groupThreadsByRecency(threads: ThreadSummary[]): ThreadGroup[] {
-  const now = new Date();
-  const startOfToday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  );
-  const startOfYesterday = new Date(startOfToday);
-  startOfYesterday.setDate(startOfYesterday.getDate() - 1);
-  const startOfPrevious7 = new Date(startOfToday);
-  startOfPrevious7.setDate(startOfPrevious7.getDate() - 7);
-
-  const buckets: Record<string, ThreadSummary[]> = {
-    today: [],
-    yesterday: [],
-    previous7: [],
-    older: [],
-  };
-
-  for (const t of threads) {
-    const d = new Date(t.updatedAt);
-    if (d >= startOfToday) buckets.today!.push(t);
-    else if (d >= startOfYesterday) buckets.yesterday!.push(t);
-    else if (d >= startOfPrevious7) buckets.previous7!.push(t);
-    else buckets.older!.push(t);
-  }
-
-  const out: ThreadGroup[] = [];
-  if (buckets.today!.length)
-    out.push({ label: "Today", threads: buckets.today! });
-  if (buckets.yesterday!.length)
-    out.push({ label: "Yesterday", threads: buckets.yesterday! });
-  if (buckets.previous7!.length)
-    out.push({ label: "Previous 7 days", threads: buckets.previous7! });
-  if (buckets.older!.length)
-    out.push({ label: "Older", threads: buckets.older! });
-  return out;
-}
-
 function threadPreviewText(thread: ThreadSummary): string {
   const raw =
     thread.previewSummary?.trim() ||
@@ -220,11 +176,6 @@ export function Sidebar({
     .slice(0, 2)
     .map((s) => s[0]?.toUpperCase() ?? "")
     .join("");
-
-  const threadGroups = useMemo(
-    () => groupThreadsByRecency(threads),
-    [threads],
-  );
 
   const historyLabel = "Chats";
 
@@ -496,14 +447,9 @@ export function Sidebar({
                   No conversations yet.
                 </div>
               ) : (
-                <div className="flex flex-col">
-                  {threadGroups.map((group) => (
-                    <div key={group.label} className="pb-1.5">
-                      <div className="px-2 pb-0.5 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted/80">
-                        {group.label}
-                      </div>
-                      <ul className="flex flex-col">
-                        {group.threads.map((t) => {
+                <div className="flex flex-col pb-1.5">
+                  <ul className="flex flex-col">
+                    {threads.map((t) => {
                           const active = t.id === activeThreadId;
                           const title = t.title?.trim() || "Untitled";
                           const isRenaming = renamingId === t.id;
@@ -635,9 +581,7 @@ export function Sidebar({
                             </li>
                           );
                         })}
-                      </ul>
-                    </div>
-                  ))}
+                  </ul>
                 </div>
               )}
             </div>
