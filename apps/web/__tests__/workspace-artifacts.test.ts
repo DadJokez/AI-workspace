@@ -55,6 +55,45 @@ ${html}
     expect(artifacts[0]?.filename).toBe("untyped-deck.html");
   });
 
+  it("recovers complete html when the final code fence is left open", () => {
+    const html = `<!DOCTYPE html>
+<html>
+<head><title>Advanced Magna Carta Jeopardy</title></head>
+<body>${"<section>Question</section>".repeat(30)}</body>
+</html>`;
+
+    const artifacts = parseAssistantArtifacts(`
+Here is the improved game:
+
+\`\`\`html filename="advanced-magna-carta-jeopardy.html"
+${html}`);
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({
+      filename: "advanced-magna-carta-jeopardy.html",
+      kind: "html",
+      mimeType: "text/html",
+      title: "Advanced Magna Carta Jeopardy",
+    });
+    expect(artifacts[0]?.metadata).toMatchObject({
+      recoveredUnclosedFence: true,
+    });
+  });
+
+  it("does not persist cut-off html from an unclosed final code fence", () => {
+    const artifacts = parseAssistantArtifacts(`
+Here is the improved game:
+
+\`\`\`html filename="advanced-magna-carta-jeopardy.html"
+<!DOCTYPE html>
+<html>
+<head><title>Advanced Magna Carta Jeopardy</title></head>
+<body>
+  <div class="score">`);
+
+    expect(artifacts).toHaveLength(0);
+  });
+
   it("ignores tiny illustrative snippets without filenames", () => {
     const artifacts = parseAssistantArtifacts(`
 \`\`\`ts

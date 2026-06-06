@@ -48,6 +48,13 @@ interface ParsedArtifact {
   metadata: Record<string, unknown>;
 }
 
+interface FencedCodeBlock {
+  info: string;
+  language: string;
+  content: string;
+  closed: boolean;
+}
+
 export async function createArtifactsFromAssistantMessage({
   db,
   userId,
@@ -168,7 +175,16 @@ export function parseAssistantArtifacts(text: string): ParsedArtifact[] {
 
     const explicitFilename = parseFilenameFromInfo(block.info);
     const language = normalizeLanguage(block.language);
-    if (!shouldSaveArtifact({ content, language, explicitFilename })) continue;
+    if (
+      !shouldSaveArtifact({
+        content,
+        language,
+        explicitFilename,
+        closed: block.closed,
+      })
+    ) {
+      continue;
+    }
 
     const fallbackName = inferFilename({
       content,
@@ -192,6 +208,7 @@ export function parseAssistantArtifacts(text: string): ParsedArtifact[] {
         language,
         explicitFilename: explicitFilename ?? null,
         extractedFrom: "assistant-markdown-code-fence",
+        recoveredUnclosedFence: !block.closed,
       },
     });
   }
@@ -203,13 +220,10 @@ export function parseAssistantArtifacts(text: string): ParsedArtifact[] {
   return artifacts;
 }
 
-function extractFencedCodeBlocks(text: string): Array<{
-  info: string;
-  language: string;
-  content: string;
-}> {
-  const blocks: Array<{ info: string; language: string; content: string }> = [];
+function extractFencedCodeBlocks(text: string): FencedCodeBlock[] {
+  const blocks: FencedCodeBlock[] = [];
   const fenceRe = /```([^\n`]*)\n([\s\S]*?)```/g;
+  let lastClosedFenceEnd = 0;
   let match: RegExpExecArray | null;
   while ((match = fenceRe.exec(text)) !== null) {
     const info = (match[1] ?? "").trim();
@@ -218,8 +232,32 @@ function extractFencedCodeBlocks(text: string): Array<{
       info,
       language,
       content: match[2] ?? "",
+      closed: true,
+    });
+    lastClosedFenceEnd = fenceRe.lastIndex;
+  }
+
+  const tail = text.slice(lastClosedFenceEnd);
+  const unclosedFenceRe = /```([^\n`]*)\n/g;
+  let unclosedMatch: RegExpExecArray | null = null;
+  while (true) {
+    const next = unclosedFenceRe.exec(tail);
+    if (next === null) break;
+    unclosedMatch = next;
+  }
+
+  if (unclosedMatch !== null) {
+    const info = (unclosedMatch[1] ?? "").trim();
+    const language = info.split(/\s+/)[0] ?? "";
+    const content = tail.slice(unclosedMatch.index + unclosedMatch[0].length);
+    blocks.push({
+      info,
+      language,
+      content,
+      closed: false,
     });
   }
+
   return blocks;
 }
 
@@ -320,11 +358,16 @@ function shouldSaveArtifact({
   content,
   language,
   explicitFilename,
+  closed,
 }: {
   content: string;
   language: string;
   explicitFilename?: string;
+  closed: boolean;
 }): boolean {
+  if (!closed && !isLikelyCompleteUnclosedArtifact(content, language, explicitFilename)) {
+    return false;
+  }
   if (explicitFilename) return true;
   if (content.length < MIN_IMPLICIT_ARTIFACT_CHARS) return false;
   if (/<!doctype\s+html|<html[\s>]/i.test(content)) return true;
@@ -333,6 +376,44 @@ function shouldSaveArtifact({
   }
   if (language === "csv") return content.includes(",") && content.includes("\n");
   if (language === "json") return /^[\s\n]*[{[]/.test(content);
+  return false;
+}
+
+function isLikelyCompleteUnclosedArtifact(
+  content: string,
+  language: string,
+  explicitFilename?: string,
+): boolean {
+  const normalizedLanguage = normalizeLanguage(language);
+  const filename = explicitFilename?.toLowerCase() ?? "";
+
+  if (
+    normalizedLanguage === "html" ||
+    filename.endsWith(".html") ||
+    filename.endsWith(".htm") ||
+    /<!doctype\s+html|<html[\s>]/i.test(content)
+  ) {
+    return /<\/body>\s*<\/html>\s*$/i.test(content.trimEnd());
+  }
+
+  if (normalizedLanguage === "json" || filename.endsWith(".json")) {
+    try {
+      JSON.parse(content);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  if (
+    normalizedLanguage === "markdown" ||
+    filename.endsWith(".md") ||
+    filename.endsWith(".markdown") ||
+    filename.endsWith(".txt")
+  ) {
+    return content.trim().length >= MIN_DECLARED_TEXT_ARTIFACT_CHARS;
+  }
+
   return false;
 }
 
