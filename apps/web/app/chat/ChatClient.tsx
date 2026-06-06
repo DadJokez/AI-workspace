@@ -11,6 +11,10 @@ import { ToolsPanel } from "@/components/ToolsPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { VaultPanel } from "@/components/VaultPanel";
 import { WorkspacePanel } from "@/components/WorkspacePanel";
+import {
+  buildChatTranscriptMarkdown,
+  chatTranscriptFilename,
+} from "@/lib/chat-export";
 import { readSseStream } from "@/lib/sse";
 import type { AgentActivityEvent } from "@/lib/activity-events";
 import {
@@ -230,6 +234,26 @@ function formatToolName(raw: string): string {
   const m = /^mcp__([^_]+)__(.+)$/.exec(raw);
   const pretty = m ? `${m[1]} · ${m[2]}` : raw;
   return pretty.length > 48 ? pretty.slice(0, 47) + "…" : pretty;
+}
+
+function downloadTextFile({
+  filename,
+  content,
+  mimeType,
+}: {
+  filename: string;
+  content: string;
+  mimeType: string;
+}) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -948,6 +972,25 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     setPreviewArtifact(artifact);
   }
 
+  function downloadActiveChat() {
+    if (!activeTab || activeTab.messages.length === 0) return;
+    const exportedAt = new Date();
+    const markdown = buildChatTranscriptMarkdown({
+      title: activeTab.title,
+      threadId: activeTab.threadId,
+      messages: activeTab.messages,
+      exportedAt,
+    });
+    downloadTextFile({
+      filename: chatTranscriptFilename({
+        title: activeTab.title,
+        exportedAt,
+      }),
+      content: markdown,
+      mimeType: "text/markdown;charset=utf-8",
+    });
+  }
+
   async function send(text: string) {
     if (!activeTab || activeTab.busy) return;
     const tabId = activeTab.id;
@@ -1432,6 +1475,16 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             ) : null}
             <button
               type="button"
+              aria-label="Download chat transcript"
+              title="Download chat transcript"
+              disabled={messages.length === 0}
+              onClick={downloadActiveChat}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-muted hover:bg-subtle hover:text-ink disabled:opacity-40"
+            >
+              <DownloadIcon />
+            </button>
+            <button
+              type="button"
               aria-pressed={runInCloudOnce}
               aria-label="Run next message in Cursor Cloud"
               title="Run next message in Cursor Cloud"
@@ -1552,6 +1605,26 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         />
       ) : null}
     </div>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.5"
+      aria-hidden="true"
+    >
+      <path d="M8 2.5v6.8" />
+      <path d="m5.2 6.8 2.8 2.8 2.8-2.8" />
+      <path d="M3 12.5h10" />
+    </svg>
   );
 }
 
