@@ -8,6 +8,7 @@ import { and, desc, eq } from "drizzle-orm";
 const MAX_ARTIFACTS_PER_MESSAGE = 5;
 const MAX_ARTIFACT_CHARS = 500_000;
 const MIN_IMPLICIT_ARTIFACT_CHARS = 240;
+const MIN_DECLARED_TEXT_ARTIFACT_CHARS = 80;
 
 export interface WorkspaceArtifactSummary {
   id: string;
@@ -45,6 +46,13 @@ interface ParsedArtifact {
   mimeType: string;
   content: string;
   metadata: Record<string, unknown>;
+}
+
+interface FencedCodeBlock {
+  info: string;
+  language: string;
+  content: string;
+  closed: boolean;
 }
 
 export async function createArtifactsFromAssistantMessage({
@@ -167,7 +175,16 @@ export function parseAssistantArtifacts(text: string): ParsedArtifact[] {
 
     const explicitFilename = parseFilenameFromInfo(block.info);
     const language = normalizeLanguage(block.language);
-    if (!shouldSaveArtifact({ content, language, explicitFilename })) continue;
+    if (
+      !shouldSaveArtifact({
+        content,
+        language,
+        explicitFilename,
+        closed: block.closed,
+      })
+    ) {
+      continue;
+    }
 
     const fallbackName = inferFilename({
       content,
@@ -191,20 +208,22 @@ export function parseAssistantArtifacts(text: string): ParsedArtifact[] {
         language,
         explicitFilename: explicitFilename ?? null,
         extractedFrom: "assistant-markdown-code-fence",
+        recoveredUnclosedFence: !block.closed,
       },
     });
+  }
+
+  if (artifacts.length === 0) {
+    artifacts.push(...extractDeclaredTextArtifacts(text, usedFilenames));
   }
 
   return artifacts;
 }
 
-function extractFencedCodeBlocks(text: string): Array<{
-  info: string;
-  language: string;
-  content: string;
-}> {
-  const blocks: Array<{ info: string; language: string; content: string }> = [];
+function extractFencedCodeBlocks(text: string): FencedCodeBlock[] {
+  const blocks: FencedCodeBlock[] = [];
   const fenceRe = /```([^\n`]*)\n([\s\S]*?)```/g;
+  let lastClosedFenceEnd = 0;
   let match: RegExpExecArray | null;
   while ((match = fenceRe.exec(text)) !== null) {
     const info = (match[1] ?? "").trim();
@@ -213,8 +232,32 @@ function extractFencedCodeBlocks(text: string): Array<{
       info,
       language,
       content: match[2] ?? "",
+      closed: true,
+    });
+    lastClosedFenceEnd = fenceRe.lastIndex;
+  }
+
+  const tail = text.slice(lastClosedFenceEnd);
+  const unclosedFenceRe = /```([^\n`]*)\n/g;
+  let unclosedMatch: RegExpExecArray | null = null;
+  while (true) {
+    const next = unclosedFenceRe.exec(tail);
+    if (next === null) break;
+    unclosedMatch = next;
+  }
+
+  if (unclosedMatch !== null) {
+    const info = (unclosedMatch[1] ?? "").trim();
+    const language = info.split(/\s+/)[0] ?? "";
+    const content = tail.slice(unclosedMatch.index + unclosedMatch[0].length);
+    blocks.push({
+      info,
+      language,
+      content,
+      closed: false,
     });
   }
+
   return blocks;
 }
 
@@ -226,15 +269,105 @@ function parseFilenameFromInfo(info: string): string | undefined {
   return match?.[1];
 }
 
+function extractDeclaredTextArtifacts(
+  text: string,
+  usedFilenames: Set<string>,
+): ParsedArtifact[] {
+  const artifacts: ParsedArtifact[] = [];
+  const filenames = extractDeclaredTextFilenames(text);
+
+  for (const declaredFilename of filenames) {
+    if (artifacts.length >= MAX_ARTIFACTS_PER_MESSAGE) break;
+
+    const filename = uniqueFilename(sanitizeFilename(declaredFilename), usedFilenames);
+    if (!isRecoverableTextFilename(filename)) continue;
+
+    const content = buildDeclaredTextArtifactContent(text, filename);
+    if (
+      !content ||
+      content.length < MIN_DECLARED_TEXT_ARTIFACT_CHARS ||
+      content.length > MAX_ARTIFACT_CHARS
+    ) {
+      continue;
+    }
+
+    usedFilenames.add(filename);
+    const language = filename.endsWith(".txt") ? "text" : "markdown";
+    const mimeType = mimeTypeForFilename(filename, language);
+    artifacts.push({
+      title: titleFromFilename(filename),
+      filename,
+      kind: kindForMimeType(mimeType, filename),
+      mimeType,
+      content,
+      metadata: {
+        language,
+        explicitFilename: filename,
+        extractedFrom: "assistant-declared-text-artifact",
+      },
+    });
+  }
+
+  return artifacts;
+}
+
+function extractDeclaredTextFilenames(text: string): string[] {
+  const filenames: string[] = [];
+  const seen = new Set<string>();
+  const declarationRe =
+    /\b(?:written|saved|created|generated)\s+(?:to|as)?\s*`?([A-Za-z0-9._/ -]+\.(?:md|markdown|txt))`?/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = declarationRe.exec(text)) !== null) {
+    const filename = match[1]?.trim();
+    if (!filename) continue;
+    const normalized = filename.toLowerCase();
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    filenames.push(filename);
+  }
+
+  return filenames;
+}
+
+function isRecoverableTextFilename(filename: string): boolean {
+  return /\.(?:md|markdown|txt)$/i.test(filename);
+}
+
+function buildDeclaredTextArtifactContent(
+  assistantText: string,
+  filename: string,
+): string {
+  let content = assistantText
+    .replace(
+      /\b(?:written|saved|created|generated)\s+(?:to|as)?\s*`?[A-Za-z0-9._/ -]+\.(?:md|markdown|txt)`?\.?/gi,
+      "",
+    )
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (!content) return "";
+  if (/\.(?:md|markdown)$/i.test(filename) && !/^#\s+\S/m.test(content)) {
+    content = `# ${titleFromFilename(filename)}\n\n${content}`;
+  }
+  return content;
+}
+
 function shouldSaveArtifact({
   content,
   language,
   explicitFilename,
+  closed,
 }: {
   content: string;
   language: string;
   explicitFilename?: string;
+  closed: boolean;
 }): boolean {
+  if (!closed && !isLikelyCompleteUnclosedArtifact(content, language, explicitFilename)) {
+    return false;
+  }
   if (explicitFilename) return true;
   if (content.length < MIN_IMPLICIT_ARTIFACT_CHARS) return false;
   if (/<!doctype\s+html|<html[\s>]/i.test(content)) return true;
@@ -243,6 +376,44 @@ function shouldSaveArtifact({
   }
   if (language === "csv") return content.includes(",") && content.includes("\n");
   if (language === "json") return /^[\s\n]*[{[]/.test(content);
+  return false;
+}
+
+function isLikelyCompleteUnclosedArtifact(
+  content: string,
+  language: string,
+  explicitFilename?: string,
+): boolean {
+  const normalizedLanguage = normalizeLanguage(language);
+  const filename = explicitFilename?.toLowerCase() ?? "";
+
+  if (
+    normalizedLanguage === "html" ||
+    filename.endsWith(".html") ||
+    filename.endsWith(".htm") ||
+    /<!doctype\s+html|<html[\s>]/i.test(content)
+  ) {
+    return /<\/body>\s*<\/html>\s*$/i.test(content.trimEnd());
+  }
+
+  if (normalizedLanguage === "json" || filename.endsWith(".json")) {
+    try {
+      JSON.parse(content);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  if (
+    normalizedLanguage === "markdown" ||
+    filename.endsWith(".md") ||
+    filename.endsWith(".markdown") ||
+    filename.endsWith(".txt")
+  ) {
+    return content.trim().length >= MIN_DECLARED_TEXT_ARTIFACT_CHARS;
+  }
+
   return false;
 }
 

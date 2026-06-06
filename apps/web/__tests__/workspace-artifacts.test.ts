@@ -55,12 +55,83 @@ ${html}
     expect(artifacts[0]?.filename).toBe("untyped-deck.html");
   });
 
+  it("recovers complete html when the final code fence is left open", () => {
+    const html = `<!DOCTYPE html>
+<html>
+<head><title>Advanced Magna Carta Jeopardy</title></head>
+<body>${"<section>Question</section>".repeat(30)}</body>
+</html>`;
+
+    const artifacts = parseAssistantArtifacts(`
+Here is the improved game:
+
+\`\`\`html filename="advanced-magna-carta-jeopardy.html"
+${html}`);
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({
+      filename: "advanced-magna-carta-jeopardy.html",
+      kind: "html",
+      mimeType: "text/html",
+      title: "Advanced Magna Carta Jeopardy",
+    });
+    expect(artifacts[0]?.metadata).toMatchObject({
+      recoveredUnclosedFence: true,
+    });
+  });
+
+  it("does not persist cut-off html from an unclosed final code fence", () => {
+    const artifacts = parseAssistantArtifacts(`
+Here is the improved game:
+
+\`\`\`html filename="advanced-magna-carta-jeopardy.html"
+<!DOCTYPE html>
+<html>
+<head><title>Advanced Magna Carta Jeopardy</title></head>
+<body>
+  <div class="score">`);
+
+    expect(artifacts).toHaveLength(0);
+  });
+
   it("ignores tiny illustrative snippets without filenames", () => {
     const artifacts = parseAssistantArtifacts(`
 \`\`\`ts
 const answer = 42;
 \`\`\`
 `);
+
+    expect(artifacts).toHaveLength(0);
+  });
+
+  it("recovers a declared markdown file when the model forgot the fenced block", () => {
+    const artifacts = parseAssistantArtifacts(`
+Here's a comprehensive Markdown formatting reference:Written to \`markdown-formatting-reference.md\`.
+
+Here's what's covered:
+
+- **Headings** (H1-H6)
+- **Text emphasis** — bold, italic, bold+italic, strikethrough
+- **Tables** — basic, aligned, with in-cell formatting
+- **GitHub Alerts** — NOTE, TIP, IMPORTANT, WARNING, CAUTION
+`);
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({
+      filename: "markdown-formatting-reference.md",
+      kind: "markdown",
+      mimeType: "text/markdown",
+      title: "Markdown Formatting Reference",
+    });
+    expect(artifacts[0]?.content).toContain("# Markdown Formatting Reference");
+    expect(artifacts[0]?.content).toContain("Here's what's covered");
+    expect(artifacts[0]?.content).not.toContain("Written to");
+  });
+
+  it("does not turn casual inline filenames into artifacts", () => {
+    const artifacts = parseAssistantArtifacts(
+      "I checked `README.md` and summarized the key points.",
+    );
 
     expect(artifacts).toHaveLength(0);
   });

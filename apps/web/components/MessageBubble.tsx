@@ -177,6 +177,14 @@ type AssistantPart =
       artifact?: WorkspaceArtifactSummary;
     };
 
+interface RenderableCodeFence {
+  start: number;
+  end: number;
+  info: string;
+  language: string;
+  code: string;
+}
+
 function AssistantContent({ parts }: { parts: AssistantPart[] }) {
   return (
     <>
@@ -255,27 +263,18 @@ function splitAssistantContent(
   content: string,
   artifacts: WorkspaceArtifactSummary[],
 ): AssistantPart[] {
-  if (artifacts.length === 0) return [{ type: "markdown", content }];
-
   const parts: AssistantPart[] = [];
-  const fenceRe = /```([^\n`]*)\n([\s\S]*?)```/g;
   let lastIndex = 0;
   let collapsedCount = 0;
-  let match: RegExpExecArray | null;
 
-  while ((match = fenceRe.exec(content)) !== null) {
-    const fullMatch = match[0] ?? "";
-    const info = (match[1] ?? "").trim();
-    const code = (match[2] ?? "").trimEnd();
-    const language = info.split(/\s+/)[0]?.toLowerCase() || "text";
+  for (const fence of extractRenderableCodeFences(content)) {
+    const { info, code, language } = fence;
     const artifact = artifacts[collapsedCount];
-    const shouldCollapse =
-      artifact !== undefined &&
-      isArtifactSizedFence({ info, code, language });
+    const shouldCollapse = isArtifactSizedFence({ info, code, language });
 
     if (!shouldCollapse) continue;
 
-    const before = content.slice(lastIndex, match.index);
+    const before = content.slice(lastIndex, fence.start);
     if (before.trim()) parts.push({ type: "markdown", content: before });
     parts.push({
       type: "artifact-preview",
@@ -284,13 +283,57 @@ function splitAssistantContent(
       artifact,
     });
     collapsedCount += 1;
-    lastIndex = match.index + fullMatch.length;
+    lastIndex = fence.end;
   }
 
   const after = content.slice(lastIndex);
   if (after.trim()) parts.push({ type: "markdown", content: after });
 
   return parts.length > 0 ? parts : [{ type: "markdown", content }];
+}
+
+function extractRenderableCodeFences(content: string): RenderableCodeFence[] {
+  const fences: RenderableCodeFence[] = [];
+  const fenceRe = /```([^\n`]*)\n([\s\S]*?)```/g;
+  let lastClosedFenceEnd = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = fenceRe.exec(content)) !== null) {
+    const fullMatch = match[0] ?? "";
+    const info = (match[1] ?? "").trim();
+    fences.push({
+      start: match.index,
+      end: match.index + fullMatch.length,
+      info,
+      language: info.split(/\s+/)[0]?.toLowerCase() || "text",
+      code: (match[2] ?? "").trimEnd(),
+    });
+    lastClosedFenceEnd = fenceRe.lastIndex;
+  }
+
+  const tail = content.slice(lastClosedFenceEnd);
+  const unclosedFenceRe = /```([^\n`]*)\n/g;
+  let unclosedMatch: RegExpExecArray | null = null;
+  while (true) {
+    const next = unclosedFenceRe.exec(tail);
+    if (next === null) break;
+    unclosedMatch = next;
+  }
+
+  if (unclosedMatch !== null) {
+    const info = (unclosedMatch[1] ?? "").trim();
+    fences.push({
+      start: lastClosedFenceEnd + unclosedMatch.index,
+      end: content.length,
+      info,
+      language: info.split(/\s+/)[0]?.toLowerCase() || "text",
+      code: tail
+        .slice(unclosedMatch.index + unclosedMatch[0].length)
+        .trimEnd(),
+    });
+  }
+
+  return fences;
 }
 
 function isArtifactSizedFence({
