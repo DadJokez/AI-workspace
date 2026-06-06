@@ -3,13 +3,17 @@
 import { useTheme } from "@/lib/theme";
 import {
   buildToolActivityEvents,
-  summarizeActivity,
   type AgentActivityEvent,
 } from "@/lib/activity-events";
 import type {
   PersistedToolCall,
   PersistedToolResult,
 } from "@/lib/tool-events";
+import {
+  buildWorkReceipts,
+  type WorkReceipt,
+  type WorkReceiptKind,
+} from "@/lib/work-receipts";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import { useEffect, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -68,7 +72,6 @@ export function MessageBubble({
     role === "assistant"
       ? persistedActivityEvents ?? buildToolActivityEvents(toolCalls, toolResults)
       : [];
-  const activitySummary = summarizeActivity(activityEvents, pending, status);
   const showActivity =
     role === "assistant" && (activityEvents.length > 0 || showThinking);
   const assistantParts =
@@ -101,9 +104,9 @@ export function MessageBubble({
         <ArtifactStrip artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
       ) : null}
       {showActivity ? (
-        <ActivityTimeline
+        <WorkReceiptTimeline
           events={activityEvents}
-          summary={activitySummary ?? "Thinking..."}
+          fallbackSummary={status ?? "Thinking..."}
           pending={pending}
         />
       ) : null}
@@ -333,13 +336,13 @@ function formatBytes(bytes: number): string {
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
-function ActivityTimeline({
+function WorkReceiptTimeline({
   events,
-  summary,
+  fallbackSummary,
   pending,
 }: {
   events: AgentActivityEvent[];
-  summary: string;
+  fallbackSummary: string;
   pending?: boolean;
 }) {
   const mounted = useMounted();
@@ -356,57 +359,72 @@ function ActivityTimeline({
     : lastActivityTime(events) ?? startedAt;
   const duration = formatDuration(Math.max(0, endedAt - startedAt));
   const headline = pending ? `Working for ${duration}` : `Worked for ${duration}`;
+  const receipts = buildWorkReceipts(events, { pending, fallbackSummary });
 
   useEffect(() => {
     if (firstEventAt !== null || fallbackStartedAt !== null) return;
     setFallbackStartedAt(Date.now());
   }, [fallbackStartedAt, firstEventAt]);
 
-  if (events.length === 0) {
+  if (receipts.length === 0) return null;
+
+  return (
+    <div className="mt-2 flex max-w-full flex-col gap-1 border-t border-hairline/70 pt-2 text-[12px] text-muted/75">
+      {receipts.map((receipt, index) => (
+        <WorkReceiptRow
+          key={receipt.id}
+          receipt={receipt}
+          defaultOpen={!!pending}
+          durationLabel={index === 0 ? headline : undefined}
+        />
+      ))}
+    </div>
+  );
+}
+
+function WorkReceiptRow({
+  receipt,
+  defaultOpen,
+  durationLabel,
+}: {
+  receipt: WorkReceipt;
+  defaultOpen?: boolean;
+  durationLabel?: string;
+}) {
+  const stepCount = receipt.steps.length;
+  const stepLabel = `${stepCount} ${stepCount === 1 ? "step" : "steps"}`;
+  const summary = durationLabel
+    ? `${durationLabel} · ${receipt.summary}`
+    : receipt.summary;
+
+  if (stepCount === 0) {
     return (
-      <div className="mt-2 flex items-center gap-2 border-t border-hairline/70 pt-2 text-[12px] text-muted/80">
-        <ActivityDot state={pending ? "pending" : "succeeded"} subtle />
-        <span>{pending ? headline : summary}</span>
-        {pending ? <span className="text-muted/60">{summary}</span> : null}
+      <div className="flex items-center gap-2 py-0.5 text-muted/80 [overflow-wrap:anywhere]">
+        <ReceiptIcon kind={receipt.kind} state={receipt.state} />
+        <span className="min-w-0 flex-1 truncate">{summary}</span>
       </div>
     );
   }
 
-  const state = events.some((event) => event.state === "failed")
-    ? "failed"
-    : pending
-      ? "pending"
-      : "succeeded";
-  const eventCount = events.length;
-  const eventLabel = `${eventCount} ${eventCount === 1 ? "step" : "steps"}`;
-
   return (
-    <details
-      className="group mt-2 max-w-full overflow-hidden border-t border-hairline/70 pt-2 text-[12px] text-muted/80"
-      open={pending}
-    >
-      <summary className="flex cursor-pointer list-none items-center gap-2 py-0.5 [overflow-wrap:anywhere] marker:hidden">
-        <ActivityDot state={state} subtle />
-        <span className="font-medium text-muted/90">{headline}</span>
-        <span className="text-muted/60">{summary}</span>
-        <span className="ml-auto hidden shrink-0 text-[11px] text-muted/60 sm:inline">
-          {eventLabel}
+    <details className="group/receipt max-w-full overflow-hidden" open={defaultOpen}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 py-0.5 text-muted/80 [overflow-wrap:anywhere] marker:hidden">
+        <ReceiptIcon kind={receipt.kind} state={receipt.state} />
+        <span className="min-w-0 flex-1 truncate">{summary}</span>
+        <span className="hidden shrink-0 text-[11px] text-muted/55 sm:inline">
+          {stepLabel}
         </span>
-        <span className="shrink-0 text-[14px] leading-none text-muted/60 transition group-open:rotate-90">
+        <span className="shrink-0 text-[14px] leading-none text-muted/55 transition group-open/receipt:rotate-90">
           ›
         </span>
       </summary>
-      <div className="mt-2 flex flex-col gap-2 pl-3">
-        {events.map((event) => (
-          <div key={event.id} className="flex min-w-0 gap-2 text-muted/75">
-            <ActivityDot state={event.state} subtle />
+      <div className="mt-1 flex flex-col gap-1.5 pl-5 text-[12px] text-muted/65">
+        {receipt.steps.map((step) => (
+          <div key={step.id} className="flex min-w-0 gap-2">
+            <ActivityDot state={step.state} subtle />
             <div className="min-w-0 flex-1">
-              <div className="[overflow-wrap:anywhere]">{event.label}</div>
-              {event.detail ? (
-                <div className="mt-1 max-h-16 overflow-hidden rounded border border-hairline/70 bg-canvas/40 px-2 py-1 font-mono text-[11px] leading-snug text-muted/65 [overflow-wrap:anywhere]">
-                  {event.detail}
-                </div>
-              ) : null}
+              <div className="[overflow-wrap:anywhere]">{step.label}</div>
+              {step.detail ? <RawStepDetails detail={step.detail} /> : null}
             </div>
           </div>
         ))}
@@ -415,6 +433,115 @@ function ActivityTimeline({
   );
 }
 
+function RawStepDetails({ detail }: { detail: string }) {
+  return (
+    <details className="group/raw mt-1 max-w-full overflow-hidden">
+      <summary className="cursor-pointer list-none text-[11px] text-muted/55 marker:hidden hover:text-muted/80">
+        <span className="group-open/raw:hidden">View details</span>
+        <span className="hidden group-open/raw:inline">Hide details</span>
+      </summary>
+      <pre className="mt-1 max-h-24 overflow-auto rounded border border-hairline/70 bg-canvas/40 px-2 py-1 font-mono text-[11px] leading-snug text-muted/65 [overflow-wrap:anywhere]">
+        {detail}
+      </pre>
+    </details>
+  );
+}
+
+function ReceiptIcon({
+  kind,
+  state,
+}: {
+  kind: WorkReceiptKind;
+  state: AgentActivityEvent["state"];
+}) {
+  const className =
+    state === "failed"
+      ? "text-red-400"
+      : state === "pending"
+        ? "text-muted/70"
+        : "text-muted/55";
+
+  return (
+    <span
+      className={`flex h-4 w-4 shrink-0 items-center justify-center ${className}`}
+    >
+      {kind === "github" ? (
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden>
+          <path
+            d="M5.8 8.2 4.6 9.4a2 2 0 1 0 2.8 2.8l1.2-1.2M10.2 7.8l1.2-1.2a2 2 0 1 0-2.8-2.8L7.4 5M6.2 9.8l3.6-3.6"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeWidth="1.4"
+          />
+        </svg>
+      ) : kind === "browser" ? (
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden>
+          <rect
+            x="2.5"
+            y="3"
+            width="11"
+            height="10"
+            rx="1.7"
+            stroke="currentColor"
+            strokeWidth="1.3"
+          />
+          <path
+            d="M2.8 6h10.4M5 4.5h.01M7 4.5h.01"
+            stroke="currentColor"
+            strokeLinecap="round"
+          />
+        </svg>
+      ) : kind === "deployment" ? (
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden>
+          <path
+            d="M8 2.8v7.4M5.4 5.4 8 2.8l2.6 2.6M3.5 11.2v1.6h9v-1.6"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.4"
+          />
+        </svg>
+      ) : kind === "attention" ? (
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden>
+          <path
+            d="M8 2.8 13.2 12H2.8L8 2.8Z"
+            stroke="currentColor"
+            strokeLinejoin="round"
+            strokeWidth="1.3"
+          />
+          <path
+            d="M8 6.2v2.6M8 10.8h.01"
+            stroke="currentColor"
+            strokeLinecap="round"
+          />
+        </svg>
+      ) : kind === "workspace" ? (
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden>
+          <path
+            d="M2.5 5.2h4l1.1 1.3h5.9v6H2.5v-7.3Z"
+            stroke="currentColor"
+            strokeLinejoin="round"
+            strokeWidth="1.3"
+          />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden>
+          <path
+            d="M8 3.2 12.5 5.8v5.4L8 13.8l-4.5-2.6V5.8L8 3.2Z"
+            stroke="currentColor"
+            strokeLinejoin="round"
+            strokeWidth="1.3"
+          />
+          <path
+            d="M8 8.2v5M3.7 5.9 8 8.2l4.3-2.3"
+            stroke="currentColor"
+            strokeLinecap="round"
+          />
+        </svg>
+      )}
+    </span>
+  );
+}
 function useMounted() {
   const [mounted, setMounted] = useState(false);
 
