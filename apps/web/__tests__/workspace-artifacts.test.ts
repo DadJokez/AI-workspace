@@ -64,4 +64,36 @@ const answer = 42;
 
     expect(artifacts).toHaveLength(0);
   });
+
+  it("recovers a declared markdown file when the model forgot the fenced block", () => {
+    const artifacts = parseAssistantArtifacts(`
+Here's a comprehensive Markdown formatting reference:Written to \`markdown-formatting-reference.md\`.
+
+Here's what's covered:
+
+- **Headings** (H1-H6)
+- **Text emphasis** — bold, italic, bold+italic, strikethrough
+- **Tables** — basic, aligned, with in-cell formatting
+- **GitHub Alerts** — NOTE, TIP, IMPORTANT, WARNING, CAUTION
+`);
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({
+      filename: "markdown-formatting-reference.md",
+      kind: "markdown",
+      mimeType: "text/markdown",
+      title: "Markdown Formatting Reference",
+    });
+    expect(artifacts[0]?.content).toContain("# Markdown Formatting Reference");
+    expect(artifacts[0]?.content).toContain("Here's what's covered");
+    expect(artifacts[0]?.content).not.toContain("Written to");
+  });
+
+  it("does not turn casual inline filenames into artifacts", () => {
+    const artifacts = parseAssistantArtifacts(
+      "I checked `README.md` and summarized the key points.",
+    );
+
+    expect(artifacts).toHaveLength(0);
+  });
 });

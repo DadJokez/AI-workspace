@@ -8,6 +8,7 @@ import { and, desc, eq } from "drizzle-orm";
 const MAX_ARTIFACTS_PER_MESSAGE = 5;
 const MAX_ARTIFACT_CHARS = 500_000;
 const MIN_IMPLICIT_ARTIFACT_CHARS = 240;
+const MIN_DECLARED_TEXT_ARTIFACT_CHARS = 80;
 
 export interface WorkspaceArtifactSummary {
   id: string;
@@ -195,6 +196,10 @@ export function parseAssistantArtifacts(text: string): ParsedArtifact[] {
     });
   }
 
+  if (artifacts.length === 0) {
+    artifacts.push(...extractDeclaredTextArtifacts(text, usedFilenames));
+  }
+
   return artifacts;
 }
 
@@ -224,6 +229,91 @@ function parseFilenameFromInfo(info: string): string | undefined {
       info,
     );
   return match?.[1];
+}
+
+function extractDeclaredTextArtifacts(
+  text: string,
+  usedFilenames: Set<string>,
+): ParsedArtifact[] {
+  const artifacts: ParsedArtifact[] = [];
+  const filenames = extractDeclaredTextFilenames(text);
+
+  for (const declaredFilename of filenames) {
+    if (artifacts.length >= MAX_ARTIFACTS_PER_MESSAGE) break;
+
+    const filename = uniqueFilename(sanitizeFilename(declaredFilename), usedFilenames);
+    if (!isRecoverableTextFilename(filename)) continue;
+
+    const content = buildDeclaredTextArtifactContent(text, filename);
+    if (
+      !content ||
+      content.length < MIN_DECLARED_TEXT_ARTIFACT_CHARS ||
+      content.length > MAX_ARTIFACT_CHARS
+    ) {
+      continue;
+    }
+
+    usedFilenames.add(filename);
+    const language = filename.endsWith(".txt") ? "text" : "markdown";
+    const mimeType = mimeTypeForFilename(filename, language);
+    artifacts.push({
+      title: titleFromFilename(filename),
+      filename,
+      kind: kindForMimeType(mimeType, filename),
+      mimeType,
+      content,
+      metadata: {
+        language,
+        explicitFilename: filename,
+        extractedFrom: "assistant-declared-text-artifact",
+      },
+    });
+  }
+
+  return artifacts;
+}
+
+function extractDeclaredTextFilenames(text: string): string[] {
+  const filenames: string[] = [];
+  const seen = new Set<string>();
+  const declarationRe =
+    /\b(?:written|saved|created|generated)\s+(?:to|as)?\s*`?([A-Za-z0-9._/ -]+\.(?:md|markdown|txt))`?/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = declarationRe.exec(text)) !== null) {
+    const filename = match[1]?.trim();
+    if (!filename) continue;
+    const normalized = filename.toLowerCase();
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    filenames.push(filename);
+  }
+
+  return filenames;
+}
+
+function isRecoverableTextFilename(filename: string): boolean {
+  return /\.(?:md|markdown|txt)$/i.test(filename);
+}
+
+function buildDeclaredTextArtifactContent(
+  assistantText: string,
+  filename: string,
+): string {
+  let content = assistantText
+    .replace(
+      /\b(?:written|saved|created|generated)\s+(?:to|as)?\s*`?[A-Za-z0-9._/ -]+\.(?:md|markdown|txt)`?\.?/gi,
+      "",
+    )
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (!content) return "";
+  if (/\.(?:md|markdown)$/i.test(filename) && !/^#\s+\S/m.test(content)) {
+    content = `# ${titleFromFilename(filename)}\n\n${content}`;
+  }
+  return content;
 }
 
 function shouldSaveArtifact({
