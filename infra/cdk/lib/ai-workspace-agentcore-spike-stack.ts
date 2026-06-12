@@ -96,6 +96,36 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
     runtime.cfnOptions.condition = runtimeCondition;
     runtime.node.addDependency(role);
 
+    // T310: let the production web and chat-worker tasks invoke the
+    // runtime. Roles are imported by their deployed names so the ECS stack
+    // (and its services) stay untouched; the lane flip is then just
+    // RUNTIME=agentcore + AGENTCORE_RUNTIME_ARN on the task env.
+    const invokePolicy = new iam.ManagedPolicy(this, "InvokeAgentRuntime", {
+      description:
+        "Allows AI Hub services to invoke the AgentCore spike runtime.",
+      statements: [
+        new iam.PolicyStatement({
+          actions: ["bedrock-agentcore:InvokeAgentRuntime"],
+          resources: [
+            runtime.getAtt("AgentRuntimeArn").toString(),
+            `${runtime.getAtt("AgentRuntimeArn").toString()}/*`,
+          ],
+        }),
+      ],
+    });
+    // The policy references the conditional runtime's ARN, so it must ride
+    // the same condition or a CreateRuntime=false synth fails to resolve.
+    (invokePolicy.node.defaultChild as cdk.CfnResource).cfnOptions.condition =
+      runtimeCondition;
+    for (const roleName of [
+      "AiWorkspaceEcsStack-WebTaskTaskRole6A095794-XVAIzdk8uogj",
+      "AiWorkspaceEcsStack-aiworkspacechatworkerTaskTaskRo-vEUnoDimrRUg",
+    ]) {
+      invokePolicy.attachToRole(
+        iam.Role.fromRoleName(this, `Grant${roleName.slice(-12)}`, roleName),
+      );
+    }
+
     new cdk.CfnOutput(this, "AgentImageRepoUri", {
       value: repo.repositoryUri,
       description: "Push the linux/arm64 agent image here as :latest.",
