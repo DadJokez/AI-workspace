@@ -101,6 +101,8 @@ export async function loadThreadMessagesWithRunActivity({
             id: runEvents.id,
             runId: runEvents.runId,
             sequence: runEvents.sequence,
+            provider: runEvents.provider,
+            toolName: runEvents.toolName,
             eventType: runEvents.eventType,
             status: runEvents.status,
             label: runEvents.label,

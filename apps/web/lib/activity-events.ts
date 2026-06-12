@@ -5,12 +5,36 @@ import type {
 
 export type ActivityState = "pending" | "succeeded" | "failed";
 
+/**
+ * Receipt bucket for an activity event (#119). Categories group low-level
+ * steps into user-meaningful work receipts: "Checked GitHub · 4 steps"
+ * instead of four separate rows.
+ */
+export type ActivityCategory =
+  | "github"
+  | "workspace"
+  | "tools"
+  | "progress";
+
 export interface AgentActivityEvent {
   id: string;
   state: ActivityState;
   label: string;
   detail?: string;
   at?: string;
+  /** Receipt bucket; older persisted events may omit it (inferred later). */
+  category?: ActivityCategory;
+}
+
+/** Map a tool call's provider/name onto a receipt category. */
+export function categorizeTool(
+  provider: string | null | undefined,
+  toolName: string | null | undefined,
+): ActivityCategory {
+  const p = (provider ?? "").toLowerCase();
+  if (p === "github") return "github";
+  if (isShellLike(`${toolName ?? ""}`.toLowerCase())) return "workspace";
+  return "tools";
 }
 
 export function buildToolActivityEvents(
@@ -33,6 +57,7 @@ export function buildToolActivityEvents(
       label: describeActivityStep(call, state),
       detail: result?.isError ? summarizePayload(result.output) : undefined,
       at: result?.completedAt ?? call.startedAt,
+      category: categorizeTool(call.provider, `${call.name} ${call.toolName}`),
     } satisfies AgentActivityEvent;
   });
 
@@ -44,6 +69,7 @@ export function buildToolActivityEvents(
       label: result.isError ? "Tool step needs attention" : "Finished a step",
       detail: result.isError ? summarizePayload(result.output) : undefined,
       at: result.completedAt,
+      category: "tools",
     }) satisfies AgentActivityEvent);
 
   return [...callEvents, ...orphanResults].sort((a, b) =>

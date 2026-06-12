@@ -6,6 +6,7 @@ import {
   summarizeActivity,
   type AgentActivityEvent,
 } from "@/lib/activity-events";
+import { groupActivityEvents } from "@/lib/activity-receipts";
 import type {
   PersistedToolCall,
   PersistedToolResult,
@@ -101,7 +102,7 @@ export function MessageBubble({
         <ArtifactStrip artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
       ) : null}
       {showActivity ? (
-        <ActivityTimeline
+        <WorkReceipts
           events={activityEvents}
           summary={activitySummary ?? "Thinking..."}
           pending={pending}
@@ -376,7 +377,13 @@ function formatBytes(bytes: number): string {
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
-function ActivityTimeline({
+/**
+ * Collapsible work receipts (#119): the assistant's answer stays primary;
+ * the behind-the-scenes work is one quiet grey line, expanding into a few
+ * category receipts ("Checked GitHub · 4 steps"), each expanding into
+ * human-readable steps, with raw payloads behind one more disclosure.
+ */
+function WorkReceipts({
   events,
   summary,
   pending,
@@ -415,6 +422,7 @@ function ActivityTimeline({
     );
   }
 
+  const receipts = groupActivityEvents(events);
   const state = events.some((event) => event.state === "failed")
     ? "failed"
     : pending
@@ -439,22 +447,61 @@ function ActivityTimeline({
           ›
         </span>
       </summary>
-      <div className="mt-2 flex flex-col gap-2 pl-3">
-        {events.map((event) => (
-          <div key={event.id} className="flex min-w-0 gap-2 text-muted/75">
-            <ActivityDot state={event.state} subtle />
-            <div className="min-w-0 flex-1">
-              <div className="[overflow-wrap:anywhere]">{event.label}</div>
-              {event.detail ? (
-                <div className="mt-1 max-h-16 overflow-hidden rounded border border-hairline/70 bg-canvas/40 px-2 py-1 font-mono text-[11px] leading-snug text-muted/65 [overflow-wrap:anywhere]">
-                  {event.detail}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ))}
+      <div className="mt-2 flex flex-col gap-1.5 pl-3">
+        {receipts.length === 1 ? (
+          <ReceiptSteps events={receipts[0]!.events} />
+        ) : (
+          receipts.map((receipt) => (
+            <details
+              key={receipt.id}
+              className="group/receipt min-w-0"
+              open={pending && receipt.state === "pending"}
+            >
+              <summary className="flex cursor-pointer list-none items-center gap-2 py-0.5 [overflow-wrap:anywhere] marker:hidden">
+                <ActivityDot state={receipt.state} subtle />
+                <span className="min-w-0 flex-1 truncate text-muted/85">
+                  {receipt.label}
+                </span>
+                <span className="shrink-0 text-[13px] leading-none text-muted/50 transition group-open/receipt:rotate-90">
+                  ›
+                </span>
+              </summary>
+              <div className="mt-1 pl-3.5">
+                <ReceiptSteps events={receipt.events} />
+              </div>
+            </details>
+          ))
+        )}
       </div>
     </details>
+  );
+}
+
+function ReceiptSteps({ events }: { events: AgentActivityEvent[] }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      {events.map((event) => (
+        <div key={event.id} className="flex min-w-0 gap-2 text-muted/75">
+          <ActivityDot state={event.state} subtle />
+          <div className="min-w-0 flex-1">
+            <div className="[overflow-wrap:anywhere]">{event.label}</div>
+            {event.detail ? (
+              <details className="group/raw mt-0.5">
+                <summary className="cursor-pointer list-none text-[11px] text-muted/55 hover:text-muted/80 marker:hidden">
+                  <span className="group-open/raw:hidden">View details</span>
+                  <span className="hidden group-open/raw:inline">
+                    Hide details
+                  </span>
+                </summary>
+                <div className="mt-1 max-h-32 overflow-auto rounded border border-hairline/70 bg-canvas/40 px-2 py-1 font-mono text-[11px] leading-snug text-muted/65 [overflow-wrap:anywhere]">
+                  {event.detail}
+                </div>
+              </details>
+            ) : null}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 

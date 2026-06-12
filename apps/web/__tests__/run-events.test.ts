@@ -42,12 +42,14 @@ describe("runEventsToActivityEvents", () => {
         state: "pending",
         label: "Started chat run",
         at: "2026-05-18T12:00:00.000Z",
+        category: "progress",
       },
       {
         id: "tool_1",
         state: "succeeded",
         label: "Searched GitHub",
         at: "2026-05-18T12:00:02.000Z",
+        category: "tools",
       },
     ]);
   });
@@ -73,6 +75,7 @@ describe("runEventsToActivityEvents", () => {
         label: "Run failed",
         detail: "Something went wrong",
         at: "2026-05-18T12:00:00.000Z",
+        category: "progress",
       },
     ]);
   });
