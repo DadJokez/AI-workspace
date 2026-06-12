@@ -1,4 +1,4 @@
-export const DEVELOPER_BRIEFING_RECIPE_SLUG = "developer-briefing";
+export const DEVELOPER_BRIEFING_SKILL_SLUG = "developer-briefing";
 
 const STALE_DAYS = 7;
 

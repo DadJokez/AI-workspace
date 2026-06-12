@@ -20,7 +20,7 @@ export interface WorkspaceArtifactSummary {
   source: string;
   threadId: string | null;
   chatMessageId: string | null;
-  recipeRunId: string | null;
+  runId: string | null;
   createdAt: string;
   previewUrl: string;
   downloadUrl: string;
@@ -35,7 +35,7 @@ interface CreateArtifactsInput {
   userId: string;
   threadId: string;
   chatMessageId: string;
-  recipeRunId?: string | null;
+  runId?: string | null;
   assistantText: string;
 }
 
@@ -60,7 +60,7 @@ export async function createArtifactsFromAssistantMessage({
   userId,
   threadId,
   chatMessageId,
-  recipeRunId,
+  runId,
   assistantText,
 }: CreateArtifactsInput): Promise<WorkspaceArtifactSummary[]> {
   const parsed = parseAssistantArtifacts(assistantText);
@@ -73,7 +73,7 @@ export async function createArtifactsFromAssistantMessage({
         userId,
         threadId,
         chatMessageId,
-        recipeRunId: recipeRunId ?? null,
+        runId: runId ?? null,
         title: artifact.title,
         filename: artifact.filename,
         kind: artifact.kind,
@@ -147,7 +147,7 @@ export function serializeWorkspaceArtifact(
     source: artifact.source,
     threadId: artifact.threadId,
     chatMessageId: artifact.chatMessageId,
-    recipeRunId: artifact.recipeRunId,
+    runId: artifact.runId,
     createdAt: artifact.createdAt.toISOString(),
     previewUrl: `/workspace/artifacts/${artifact.id}`,
     downloadUrl: `/api/workspace/artifacts/${artifact.id}/download`,

@@ -1,4 +1,4 @@
-import { getDb, recipeRuns, users } from "@ai-workspace/db";
+import { getDb, runs, users } from "@ai-workspace/db";
 import { and, desc, eq, type SQL } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -42,29 +42,29 @@ export default async function AdminRunsPage({ searchParams }: Props) {
   const params = (await searchParams) ?? {};
   const status = parseFilter(params.status, STATUS_FILTERS, "all");
   const conditions: SQL[] = [];
-  if (status !== "all") conditions.push(eq(recipeRuns.status, status));
+  if (status !== "all") conditions.push(eq(runs.status, status));
 
   const db = getDb();
   const rows = await db
     .select({
-      id: recipeRuns.id,
-      recipeSlug: recipeRuns.recipeSlug,
-      status: recipeRuns.status,
-      triggerType: recipeRuns.triggerType,
-      runtime: recipeRuns.runtime,
-      modelId: recipeRuns.modelId,
-      outputs: recipeRuns.outputs,
-      error: recipeRuns.error,
-      startedAt: recipeRuns.startedAt,
-      completedAt: recipeRuns.completedAt,
-      createdAt: recipeRuns.createdAt,
+      id: runs.id,
+      skillSlug: runs.skillSlug,
+      status: runs.status,
+      triggerType: runs.triggerType,
+      runtime: runs.runtime,
+      modelId: runs.modelId,
+      outputs: runs.outputs,
+      error: runs.error,
+      startedAt: runs.startedAt,
+      completedAt: runs.completedAt,
+      createdAt: runs.createdAt,
       actorEmail: users.email,
       actorName: users.displayName,
     })
-    .from(recipeRuns)
-    .leftJoin(users, eq(recipeRuns.userId, users.id))
+    .from(runs)
+    .leftJoin(users, eq(runs.userId, users.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(recipeRuns.createdAt))
+    .orderBy(desc(runs.createdAt))
     .limit(100);
 
   const running = rows.filter((row) => row.status === "running").length;
@@ -76,7 +76,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
       <div className="px-6 pb-3 pt-4">
         <h2 className="text-base font-semibold text-ink">Runs</h2>
         <p className="mt-1 text-[12px] text-muted">
-          Recent chat, workflow, and recipe executions, including Developer
+          Recent chat, workflow, and skill executions, including Developer
           Briefing runs.
         </p>
       </div>
@@ -156,7 +156,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
                             href={`/admin/runs/${row.id}`}
                             className="font-medium text-ink underline-offset-2 hover:underline"
                           >
-                            {formatRecipe(row.recipeSlug)}
+                            {formatSkill(row.skillSlug)}
                           </Link>
                           <div className="mt-1 font-mono text-[12px] text-muted">
                             {shortId(row.id)}
@@ -334,7 +334,7 @@ function parseFilter<T extends readonly string[]>(
   return single && allowed.includes(single) ? single : fallback;
 }
 
-function formatRecipe(value: string | null) {
+function formatSkill(value: string | null) {
   if (value === "developer-briefing") return "Developer Briefing";
   return value
     ? value

@@ -1,14 +1,14 @@
 import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import { AuthConfigError } from "@ai-workspace/auth";
 import { getRuntime } from "@ai-workspace/cursor-runtime";
-import { auditLog, getDb, recipeRuns } from "@ai-workspace/db";
+import { auditLog, getDb, runs } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import {
   buildDeveloperBriefingPrompt,
-  DEVELOPER_BRIEFING_RECIPE_SLUG,
+  DEVELOPER_BRIEFING_SKILL_SLUG,
 } from "@/lib/developer-briefing";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
 import {
@@ -30,7 +30,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const RECIPE_SLUG = DEVELOPER_BRIEFING_RECIPE_SLUG;
+const SKILL_SLUG = DEVELOPER_BRIEFING_SKILL_SLUG;
 
 interface PostBody {
   modelId?: string;
@@ -102,7 +102,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const rate = checkRateLimit(`workflow:${RECIPE_SLUG}:${sessionUser.id}`, {
+  const rate = checkRateLimit(`workflow:${SKILL_SLUG}:${sessionUser.id}`, {
     ...limits,
     maxRequests: Math.max(1, Math.floor(limits.maxRequests / 3)),
   });
@@ -112,7 +112,7 @@ export async function POST(req: Request) {
       actionType: "rate_limit",
       status: "denied",
       provider: "ai-hub",
-      toolName: RECIPE_SLUG,
+      toolName: SKILL_SLUG,
       input: {
         route: "/api/workflows/developer-briefing/run",
         windowMs: limits.windowMs,
@@ -146,10 +146,10 @@ export async function POST(req: Request) {
 
   const now = new Date();
   const inserted = await db
-    .insert(recipeRuns)
+    .insert(runs)
     .values({
       userId: sessionUser.id,
-      recipeSlug: RECIPE_SLUG,
+      skillSlug: SKILL_SLUG,
       triggerType: retrySource ? "manual_retry" : "manual",
       status: "running",
       runtime: runtime.name,
@@ -170,12 +170,12 @@ export async function POST(req: Request) {
     return runEventSequence;
   };
   const appendWorkflowEvent = async (
-    input: Omit<AppendRunEventInput, "db" | "recipeRunId" | "sequence">,
+    input: Omit<AppendRunEventInput, "db" | "runId" | "sequence">,
   ) => {
     try {
       await appendRunEvent({
         db,
-        recipeRunId: run.id,
+        runId: run.id,
         sequence: nextRunEventSequence(),
         ...input,
       });
@@ -183,7 +183,7 @@ export async function POST(req: Request) {
       process.stderr.write(
         `[workflow-run-event-error] ${JSON.stringify({
           runId: run.id,
-          recipeSlug: RECIPE_SLUG,
+          skillSlug: SKILL_SLUG,
           eventType: input.eventType,
           message: err instanceof Error ? err.message : String(err),
         })}\n`,
@@ -195,7 +195,7 @@ export async function POST(req: Request) {
     status: "pending",
     label: "Started Developer Briefing",
     metadata: {
-      recipeSlug: RECIPE_SLUG,
+      skillSlug: SKILL_SLUG,
       modelId,
       runtime: runtime.name,
       ...(retrySource ? { retryOfRunId: retrySource.id } : {}),
@@ -229,8 +229,8 @@ export async function POST(req: Request) {
         status: "denied",
         provider: "github",
         toolName: "*",
-        recipeRunId: run.id,
-        input: { provider: "github", recipeSlug: RECIPE_SLUG },
+        runId: run.id,
+        input: { provider: "github", skillSlug: SKILL_SLUG },
         error:
           reason === "github_attestation_required"
             ? 'Tool provider "github" is connected but has no active user attestation.'
@@ -250,7 +250,7 @@ export async function POST(req: Request) {
           run: {
             id: run.id,
             status: "failed",
-            recipeSlug: RECIPE_SLUG,
+            skillSlug: SKILL_SLUG,
             retryOfRunId: retrySource?.id ?? null,
           },
         },
@@ -265,7 +265,7 @@ export async function POST(req: Request) {
     const toolEvents = createToolEventAccumulator(["github"]);
 
     for await (const ev of runtime.runTurn({
-      threadId: `recipe-run:${run.id}`,
+      threadId: `run:${run.id}`,
       modelId,
       messages: [{ role: "user", content: briefingPrompt }],
       context: { userId: sessionUser.id },
@@ -286,7 +286,7 @@ export async function POST(req: Request) {
         if (persistedCall) {
           await appendToolCallRunEvent({
             db,
-            recipeRunId: run.id,
+            runId: run.id,
             sequence: nextRunEventSequence(),
             call: persistedCall,
           });
@@ -302,7 +302,7 @@ export async function POST(req: Request) {
             .find((call) => call.id === ev.result.toolCallId);
           await appendToolResultRunEvent({
             db,
-            recipeRunId: run.id,
+            runId: run.id,
             sequence: nextRunEventSequence(),
             call: persistedCall,
             result: persistedResult,
@@ -339,7 +339,7 @@ export async function POST(req: Request) {
           run: {
             id: run.id,
             status: "failed",
-            recipeSlug: RECIPE_SLUG,
+            skillSlug: SKILL_SLUG,
             retryOfRunId: retrySource?.id ?? null,
           },
           output,
@@ -350,7 +350,7 @@ export async function POST(req: Request) {
 
     const auditRows = buildToolAuditRows({
       actorUserId: sessionUser.id,
-      recipeRunId: run.id,
+      runId: run.id,
       modelId,
       runtime: runtime.name,
       calls: toolEvents.calls(),
@@ -362,14 +362,14 @@ export async function POST(req: Request) {
 
     const completedAt = new Date();
     const updated = await db
-      .update(recipeRuns)
+      .update(runs)
       .set({
         status: "succeeded",
         outputs: output,
         completedAt,
         updatedAt: completedAt,
       })
-      .where(eq(recipeRuns.id, run.id))
+      .where(eq(runs.id, run.id))
       .returning();
     await appendWorkflowEvent({
       eventType: "run_completed",
@@ -410,7 +410,7 @@ export async function POST(req: Request) {
         run: {
           id: run.id,
           status: "failed",
-          recipeSlug: RECIPE_SLUG,
+          skillSlug: SKILL_SLUG,
           retryOfRunId: retrySource?.id ?? null,
         },
       },
@@ -425,7 +425,7 @@ export async function POST(req: Request) {
   ): Promise<void> {
     const completedAt = new Date();
     await db
-      .update(recipeRuns)
+      .update(runs)
       .set({
         status: "failed",
         error,
@@ -433,7 +433,7 @@ export async function POST(req: Request) {
         completedAt,
         updatedAt: completedAt,
       })
-      .where(eq(recipeRuns.id, runId));
+      .where(eq(runs.id, runId));
   }
 }
 
@@ -444,22 +444,22 @@ async function findRetrySourceRun(
 ) {
   const rows = await db
     .select()
-    .from(recipeRuns)
+    .from(runs)
     .where(
       and(
-        eq(recipeRuns.id, runId),
-        eq(recipeRuns.userId, userId),
-        eq(recipeRuns.recipeSlug, RECIPE_SLUG),
+        eq(runs.id, runId),
+        eq(runs.userId, userId),
+        eq(runs.skillSlug, SKILL_SLUG),
       ),
     )
     .limit(1);
   return rows[0] ?? null;
 }
 
-function serializeRun(row: typeof recipeRuns.$inferSelect) {
+function serializeRun(row: typeof runs.$inferSelect) {
   return {
     id: row.id,
-    recipeSlug: row.recipeSlug,
+    skillSlug: row.skillSlug,
     status: row.status,
     triggerType: row.triggerType,
     runtime: row.runtime,

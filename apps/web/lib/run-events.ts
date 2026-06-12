@@ -16,7 +16,7 @@ export type RunEventStatus = "info" | "pending" | "succeeded" | "failed";
 
 export interface AppendRunEventInput {
   db: Database;
-  recipeRunId: string;
+  runId: string;
   sequence: number;
   eventType: string;
   status?: RunEventStatus;
@@ -33,7 +33,7 @@ export interface AppendRunEventInput {
 
 export async function appendRunEvent({
   db,
-  recipeRunId,
+  runId,
   sequence,
   eventType,
   status = "info",
@@ -48,7 +48,7 @@ export async function appendRunEvent({
   occurredAt,
 }: AppendRunEventInput): Promise<void> {
   await db.insert(runEvents).values({
-    recipeRunId,
+    runId,
     sequence,
     eventType,
     status,
@@ -73,7 +73,7 @@ export async function appendRunEventWithNextSequence(
   const rows = await input.db
     .select({ sequence: runEvents.sequence })
     .from(runEvents)
-    .where(eq(runEvents.recipeRunId, input.recipeRunId))
+    .where(eq(runEvents.runId, input.runId))
     .orderBy(desc(runEvents.sequence))
     .limit(1);
   await appendRunEvent({
@@ -84,19 +84,19 @@ export async function appendRunEventWithNextSequence(
 
 export async function appendToolCallRunEvent({
   db,
-  recipeRunId,
+  runId,
   sequence,
   call,
 }: {
   db: Database;
-  recipeRunId: string;
+  runId: string;
   sequence: number;
   call: PersistedToolCall;
 }): Promise<void> {
   const activity = buildToolActivityEvents([call], [])[0];
   await appendRunEvent({
     db,
-    recipeRunId,
+    runId,
     sequence,
     eventType: "tool_call",
     status: "pending",
@@ -112,13 +112,13 @@ export async function appendToolCallRunEvent({
 
 export async function appendToolResultRunEvent({
   db,
-  recipeRunId,
+  runId,
   sequence,
   call,
   result,
 }: {
   db: Database;
-  recipeRunId: string;
+  runId: string;
   sequence: number;
   call?: PersistedToolCall;
   result: PersistedToolResult;
@@ -129,7 +129,7 @@ export async function appendToolResultRunEvent({
   )[0];
   await appendRunEvent({
     db,
-    recipeRunId,
+    runId,
     sequence,
     eventType: "tool_result",
     status: result.isError ? "failed" : "succeeded",

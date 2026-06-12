@@ -48,7 +48,7 @@ export default async function AdminAuditPage({ searchParams }: Props) {
       toolCallId: auditLog.toolCallId,
       chatThreadId: auditLog.chatThreadId,
       chatMessageId: auditLog.chatMessageId,
-      recipeRunId: auditLog.recipeRunId,
+      runId: auditLog.runId,
       error: auditLog.error,
       metadata: auditLog.metadata,
       startedAt: auditLog.startedAt,
@@ -188,12 +188,12 @@ export default async function AdminAuditPage({ searchParams }: Props) {
                       >
                         Chat thread
                       </Link>
-                    ) : row.recipeRunId ? (
+                    ) : row.runId ? (
                       <Link
-                        href={`/admin/runs/${row.recipeRunId}`}
+                        href={`/admin/runs/${row.runId}`}
                         className="text-ink underline-offset-2 hover:underline"
                       >
-                        Recipe run {shortId(row.recipeRunId)}
+                        Run {shortId(row.runId)}
                       </Link>
                     ) : (
                       <span>System event</span>

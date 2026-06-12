@@ -2,7 +2,7 @@ import {
   chatMessages,
   chatThreads,
   type Database,
-  recipeRuns,
+  runs,
 } from "@ai-workspace/db";
 import { getCursorCloudRunSnapshot } from "@ai-workspace/cursor-runtime";
 import { and, desc, eq } from "drizzle-orm";
@@ -39,22 +39,22 @@ export async function reconcileThreadChatRuns({
 
   const rows = await db
     .select({
-      id: recipeRuns.id,
-      outputs: recipeRuns.outputs,
-      modelId: recipeRuns.modelId,
-      runtime: recipeRuns.runtime,
-      startedAt: recipeRuns.startedAt,
-      updatedAt: recipeRuns.updatedAt,
+      id: runs.id,
+      outputs: runs.outputs,
+      modelId: runs.modelId,
+      runtime: runs.runtime,
+      startedAt: runs.startedAt,
+      updatedAt: runs.updatedAt,
     })
-    .from(recipeRuns)
+    .from(runs)
     .where(
       and(
-        eq(recipeRuns.threadId, threadId),
-        eq(recipeRuns.recipeSlug, "chat-turn"),
-        eq(recipeRuns.status, "running"),
+        eq(runs.threadId, threadId),
+        eq(runs.skillSlug, "chat-turn"),
+        eq(runs.status, "running"),
       ),
     )
-    .orderBy(desc(recipeRuns.updatedAt))
+    .orderBy(desc(runs.updatedAt))
     .limit(5);
 
   for (const row of rows) {
@@ -84,7 +84,7 @@ export async function reconcileThreadChatRuns({
 
       if (snapshot.status === "running") {
         await db
-          .update(recipeRuns)
+          .update(runs)
           .set({
             outputs: {
               ...output,
@@ -94,7 +94,7 @@ export async function reconcileThreadChatRuns({
             },
             updatedAt: new Date(),
           })
-          .where(eq(recipeRuns.id, row.id));
+          .where(eq(runs.id, row.id));
         continue;
       }
 
@@ -134,7 +134,7 @@ export async function reconcileThreadChatRuns({
 
       await appendRunEventWithNextSequence({
         db,
-        recipeRunId: row.id,
+        runId: row.id,
         eventType:
           terminalStatus === "succeeded" ? "run_recovered" : "run_failed",
         status: terminalStatus === "succeeded" ? "succeeded" : "failed",
@@ -155,7 +155,7 @@ export async function reconcileThreadChatRuns({
       });
 
       await db
-        .update(recipeRuns)
+        .update(runs)
         .set({
           status: terminalStatus,
           error:
@@ -174,7 +174,7 @@ export async function reconcileThreadChatRuns({
           completedAt,
           updatedAt: completedAt,
         })
-        .where(eq(recipeRuns.id, row.id));
+        .where(eq(runs.id, row.id));
     } catch (err) {
       process.stderr.write(
         `[chat-run-reconcile-error] ${JSON.stringify({

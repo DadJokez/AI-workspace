@@ -30,7 +30,7 @@ export interface EnqueueMemoryCaptureInput {
   threadId: string;
   fromMessageId: string;
   toMessageId: string;
-  recipeRunId?: string | null;
+  runId?: string | null;
   reason?: string;
 }
 
@@ -78,7 +78,7 @@ export async function enqueueMemoryCapture(
       threadId: input.threadId,
       fromMessageId: input.fromMessageId,
       toMessageId: input.toMessageId,
-      recipeRunId: input.recipeRunId ?? null,
+      runId: input.runId ?? null,
       reason: input.reason ?? "chat_turn",
     })
     .onConflictDoNothing();

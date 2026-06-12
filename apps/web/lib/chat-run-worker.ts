@@ -8,8 +8,8 @@ import {
   chatMessages,
   chatThreads,
   type Database,
-  recipeRuns,
-  type RecipeRun,
+  runs,
+  type Run,
   users,
 } from "@ai-workspace/db";
 import { and, asc, eq, lt, ne, or, sql } from "drizzle-orm";
@@ -156,7 +156,7 @@ async function claimChatRun({
   db: Database;
   runId?: string;
   workerId: string;
-}): Promise<RecipeRun | null> {
+}): Promise<Run | null> {
   const id = runId ?? (await findNextClaimableRunId(db));
   if (!id) return null;
 
@@ -165,23 +165,23 @@ async function claimChatRun({
   const leaseExpiresAt = new Date(now.getTime() + leaseMs);
 
   const rows = await db
-    .update(recipeRuns)
+    .update(runs)
     .set({
       status: "running",
       workerId,
       leaseExpiresAt,
       lastHeartbeatAt: now,
-      attemptCount: sql`${recipeRuns.attemptCount} + 1`,
-      startedAt: sql`coalesce(${recipeRuns.startedAt}, now())`,
+      attemptCount: sql`${runs.attemptCount} + 1`,
+      startedAt: sql`coalesce(${runs.startedAt}, now())`,
       updatedAt: now,
     })
     .where(
       and(
-        eq(recipeRuns.id, id),
-        eq(recipeRuns.recipeSlug, "chat-turn"),
+        eq(runs.id, id),
+        eq(runs.skillSlug, "chat-turn"),
         or(
-          eq(recipeRuns.status, "queued"),
-          and(eq(recipeRuns.status, "running"), lt(recipeRuns.leaseExpiresAt, now)),
+          eq(runs.status, "queued"),
+          and(eq(runs.status, "running"), lt(runs.leaseExpiresAt, now)),
         ),
       ),
     )
@@ -193,18 +193,18 @@ async function claimChatRun({
 async function findNextClaimableRunId(db: Database): Promise<string | null> {
   const now = new Date();
   const rows = await db
-    .select({ id: recipeRuns.id })
-    .from(recipeRuns)
+    .select({ id: runs.id })
+    .from(runs)
     .where(
       and(
-        eq(recipeRuns.recipeSlug, "chat-turn"),
+        eq(runs.skillSlug, "chat-turn"),
         or(
-          eq(recipeRuns.status, "queued"),
-          and(eq(recipeRuns.status, "running"), lt(recipeRuns.leaseExpiresAt, now)),
+          eq(runs.status, "queued"),
+          and(eq(runs.status, "running"), lt(runs.leaseExpiresAt, now)),
         ),
       ),
     )
-    .orderBy(asc(recipeRuns.createdAt))
+    .orderBy(asc(runs.createdAt))
     .limit(1);
 
   return rows[0]?.id ?? null;
@@ -217,7 +217,7 @@ async function executeClaimedChatRun({
   signal,
 }: {
   db: Database;
-  run: RecipeRun;
+  run: Run;
   workerId: string;
   signal?: AbortSignal;
 }): Promise<void> {
@@ -328,7 +328,7 @@ async function executeClaimedChatRun({
         provider,
         toolName: "*",
         chatThreadId: thread.id,
-        recipeRunId: run.id,
+        runId: run.id,
         input: { provider },
         error: `Tool provider "${provider}" is connected but has no active user attestation.`,
         metadata: { modelId: run.modelId, runtime: runtime.name },
@@ -349,7 +349,7 @@ async function executeClaimedChatRun({
   });
 
   await db
-    .update(recipeRuns)
+    .update(runs)
     .set({
       runtime: runtime.name,
       inputs: {
@@ -359,7 +359,7 @@ async function executeClaimedChatRun({
       },
       updatedAt: new Date(),
     })
-    .where(eq(recipeRuns.id, run.id));
+    .where(eq(runs.id, run.id));
 
   const runtimeAbort = new AbortController();
   const externalAbort = () => runtimeAbort.abort();
@@ -437,7 +437,7 @@ async function executeClaimedChatRun({
         onRunStarted: async (metadata) => {
           providerRunMetadata = metadata;
           await db
-            .update(recipeRuns)
+            .update(runs)
             .set({
               outputs: buildOutput({
                 lifecycle: "provider_started",
@@ -445,7 +445,7 @@ async function executeClaimedChatRun({
               }),
               updatedAt: new Date(),
             })
-            .where(eq(recipeRuns.id, run.id));
+            .where(eq(runs.id, run.id));
           await appendWorkerRunEvent(db, run.id, {
             eventType: "provider_run_started",
             status: "pending",
@@ -475,7 +475,7 @@ async function executeClaimedChatRun({
           if (persistedCall) {
             await appendToolCallRunEvent({
               db,
-              recipeRunId: run.id,
+              runId: run.id,
               sequence: await nextRunEventSequence(db, run.id),
               call: persistedCall,
             });
@@ -491,7 +491,7 @@ async function executeClaimedChatRun({
               .find((call) => call.id === ev.result.toolCallId);
             await appendToolResultRunEvent({
               db,
-              recipeRunId: run.id,
+              runId: run.id,
               sequence: await nextRunEventSequence(db, run.id),
               call: persistedCall,
               result: persistedResult,
@@ -585,7 +585,7 @@ async function reconcileExistingCursorCloudRun({
   signal,
 }: {
   db: Database;
-  run: RecipeRun;
+  run: Run;
   threadId: string;
   userMessageId: string;
   providerRun: RuntimeRunMetadata & {
@@ -623,7 +623,7 @@ async function reconcileExistingCursorCloudRun({
     });
 
     await db
-      .update(recipeRuns)
+      .update(runs)
       .set({
         outputs: {
           ...parseOutput(run.outputs),
@@ -633,7 +633,7 @@ async function reconcileExistingCursorCloudRun({
         },
         updatedAt: new Date(),
       })
-      .where(eq(recipeRuns.id, run.id));
+      .where(eq(runs.id, run.id));
 
     if (snapshot.status !== "running") {
       if (snapshot.status === "finished") {
@@ -688,7 +688,7 @@ async function persistAssistantResult({
   error,
 }: {
   db: Database;
-  run: RecipeRun;
+  run: Run;
   threadId: string;
   userMessageId: string;
   modelId: string;
@@ -729,7 +729,7 @@ async function persistAssistantResult({
     actorUserId: run.userId,
     chatThreadId: threadId,
     chatMessageId: assistantMessageId,
-    recipeRunId: run.id,
+    runId: run.id,
     modelId,
     runtime: runtimeName,
     calls: toolCalls,
@@ -746,7 +746,7 @@ async function persistAssistantResult({
           userId: run.userId,
           threadId,
           chatMessageId: assistantMessageId,
-          recipeRunId: run.id,
+          runId: run.id,
           assistantText,
         }).catch((err) => {
           process.stderr.write(
@@ -771,7 +771,7 @@ async function persistAssistantResult({
   });
 
   const updatedRows = await db
-    .update(recipeRuns)
+    .update(runs)
     .set({
       status: terminalStatus,
       error,
@@ -795,8 +795,8 @@ async function persistAssistantResult({
       completedAt,
       updatedAt: completedAt,
     })
-    .where(and(eq(recipeRuns.id, run.id), ne(recipeRuns.status, "canceled")))
-    .returning({ id: recipeRuns.id });
+    .where(and(eq(runs.id, run.id), ne(runs.status, "canceled")))
+    .returning({ id: runs.id });
 
   if (updatedRows.length === 0) return;
 
@@ -807,7 +807,7 @@ async function persistAssistantResult({
         threadId,
         fromMessageId: userMessageId,
         toMessageId: assistantMessageId,
-        recipeRunId: run.id,
+        runId: run.id,
         reason: "chat_turn",
       });
       startInProcessMemoryCaptureScheduler({ db });
@@ -840,14 +840,14 @@ async function persistAssistantResult({
 
 async function markRunFailed(
   db: Database,
-  run: RecipeRun,
+  run: Run,
   message: string,
 ): Promise<void> {
   if (await isRunCanceled(db, run.id)) return;
 
   const completedAt = new Date();
   const updatedRows = await db
-    .update(recipeRuns)
+    .update(runs)
     .set({
       status: "failed",
       error: message,
@@ -857,8 +857,8 @@ async function markRunFailed(
       completedAt,
       updatedAt: completedAt,
     })
-    .where(and(eq(recipeRuns.id, run.id), ne(recipeRuns.status, "canceled")))
-    .returning({ id: recipeRuns.id });
+    .where(and(eq(runs.id, run.id), ne(runs.status, "canceled")))
+    .returning({ id: runs.id });
 
   if (updatedRows.length === 0) return;
 
@@ -872,12 +872,12 @@ async function markRunFailed(
 
 async function markRunCanceled(
   db: Database,
-  run: RecipeRun,
+  run: Run,
   message: string,
 ): Promise<void> {
   const completedAt = new Date();
   await db
-    .update(recipeRuns)
+    .update(runs)
     .set({
       status: "canceled",
       error: message,
@@ -887,7 +887,7 @@ async function markRunCanceled(
       completedAt,
       updatedAt: completedAt,
     })
-    .where(eq(recipeRuns.id, run.id));
+    .where(eq(runs.id, run.id));
 
   await appendWorkerRunEvent(db, run.id, {
     eventType: "run_canceled",
@@ -901,38 +901,38 @@ async function heartbeatRunLease(db: Database, runId: string): Promise<void> {
   const now = new Date();
   const leaseMs = numberFromEnv("CHAT_RUN_WORKER_LEASE_MS") ?? DEFAULT_LEASE_MS;
   await db
-    .update(recipeRuns)
+    .update(runs)
     .set({
       leaseExpiresAt: new Date(now.getTime() + leaseMs),
       lastHeartbeatAt: now,
       updatedAt: now,
     })
-    .where(and(eq(recipeRuns.id, runId), ne(recipeRuns.status, "canceled")));
+    .where(and(eq(runs.id, runId), ne(runs.status, "canceled")));
 }
 
 async function isRunCanceled(db: Database, runId: string): Promise<boolean> {
   const rows = await db
-    .select({ status: recipeRuns.status })
-    .from(recipeRuns)
-    .where(eq(recipeRuns.id, runId))
+    .select({ status: runs.status })
+    .from(runs)
+    .where(eq(runs.id, runId))
     .limit(1);
   return rows[0]?.status === "canceled";
 }
 
 async function appendWorkerRunEvent(
   db: Database,
-  recipeRunId: string,
+  runId: string,
   input: Omit<
     Parameters<typeof appendRunEventWithNextSequence>[0],
-    "db" | "recipeRunId"
+    "db" | "runId"
   >,
 ): Promise<void> {
   try {
-    await appendRunEventWithNextSequence({ db, recipeRunId, ...input });
+    await appendRunEventWithNextSequence({ db, runId, ...input });
   } catch (err) {
     process.stderr.write(
       `[chat-run-event-error] ${JSON.stringify({
-        runId: recipeRunId,
+        runId: runId,
         eventType: input.eventType,
         message: err instanceof Error ? err.message : String(err),
       })}\n`,
@@ -942,10 +942,10 @@ async function appendWorkerRunEvent(
 
 async function nextRunEventSequence(
   db: Database,
-  recipeRunId: string,
+  runId: string,
 ): Promise<number> {
   const rows = await db.execute<{ sequence: number }>(
-    sql`select coalesce(max(sequence), 0)::int + 1 as sequence from run_events where recipe_run_id = ${recipeRunId}`,
+    sql`select coalesce(max(sequence), 0)::int + 1 as sequence from run_events where run_id = ${runId}`,
   );
   return rows[0]?.sequence ?? 1;
 }

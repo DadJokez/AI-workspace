@@ -3,7 +3,7 @@ import {
   auditLog,
   chatMessages,
   type Database,
-  recipeRuns,
+  runs,
   users,
 } from "@ai-workspace/db";
 import { eq, ne, and, asc, sql } from "drizzle-orm";
@@ -202,7 +202,7 @@ export async function streamInlineChatRun({
     timing.contextReadyAt = new Date();
 
     await db
-      .update(recipeRuns)
+      .update(runs)
       .set({
         modelId: runtimeModelId,
         runtime: runtime.name,
@@ -224,7 +224,7 @@ export async function streamInlineChatRun({
         },
         updatedAt: new Date(),
       })
-      .where(eq(recipeRuns.id, runId));
+      .where(eq(runs.id, runId));
 
     await appendInlineRunEvent(db, runId, {
       eventType: "inline_runtime_started",
@@ -264,7 +264,7 @@ export async function streamInlineChatRun({
           const metrics = buildTimingMetrics(timing);
           send({ type: "metrics", stage: "provider_started", metrics });
           await db
-            .update(recipeRuns)
+            .update(runs)
             .set({
               outputs: {
                 assistantText,
@@ -280,7 +280,7 @@ export async function streamInlineChatRun({
               },
               updatedAt: new Date(),
             })
-            .where(eq(recipeRuns.id, runId));
+            .where(eq(runs.id, runId));
           await appendInlineRunEvent(db, runId, {
             eventType: "provider_run_started",
             status: "pending",
@@ -335,7 +335,7 @@ export async function streamInlineChatRun({
           if (persistedCall) {
             await appendToolCallRunEvent({
               db,
-              recipeRunId: runId,
+              runId: runId,
               sequence: await nextRunEventSequence(db, runId),
               call: persistedCall,
             });
@@ -352,7 +352,7 @@ export async function streamInlineChatRun({
               .find((call) => call.id === ev.result.toolCallId);
             await appendToolResultRunEvent({
               db,
-              recipeRunId: runId,
+              runId: runId,
               sequence: await nextRunEventSequence(db, runId),
               call: persistedCall,
               result: persistedResult,
@@ -521,7 +521,7 @@ async function persistInlineAssistantResult({
       actorUserId: userId,
       chatThreadId: threadId,
       chatMessageId: assistantMessageId,
-      recipeRunId: runId,
+      runId: runId,
       modelId,
       runtime: runtimeName,
       calls: toolCalls,
@@ -539,7 +539,7 @@ async function persistInlineAssistantResult({
         userId,
         threadId,
         chatMessageId: assistantMessageId,
-        recipeRunId: runId,
+        runId: runId,
         assistantText,
       });
     } catch (err) {
@@ -561,7 +561,7 @@ async function persistInlineAssistantResult({
   });
 
   await db
-    .update(recipeRuns)
+    .update(runs)
     .set({
       status: terminalStatus,
       error,
@@ -590,7 +590,7 @@ async function persistInlineAssistantResult({
       completedAt,
       updatedAt: completedAt,
     })
-    .where(and(eq(recipeRuns.id, runId), ne(recipeRuns.status, "canceled")));
+    .where(and(eq(runs.id, runId), ne(runs.status, "canceled")));
 
   if (terminalStatus === "succeeded" && assistantMessageId) {
     try {
@@ -599,7 +599,7 @@ async function persistInlineAssistantResult({
         threadId,
         fromMessageId: userMessageId,
         toMessageId: assistantMessageId,
-        recipeRunId: runId,
+        runId: runId,
         reason: "chat_turn",
       });
       startInProcessMemoryCaptureScheduler({ db });
@@ -642,18 +642,18 @@ async function persistInlineAssistantResult({
 
 async function appendInlineRunEvent(
   db: Database,
-  recipeRunId: string,
+  runId: string,
   input: Omit<
     Parameters<typeof appendRunEventWithNextSequence>[0],
-    "db" | "recipeRunId"
+    "db" | "runId"
   >,
 ): Promise<void> {
   try {
-    await appendRunEventWithNextSequence({ db, recipeRunId, ...input });
+    await appendRunEventWithNextSequence({ db, runId, ...input });
   } catch (err) {
     process.stderr.write(
       `[chat-inline-event-error] ${JSON.stringify({
-        runId: recipeRunId,
+        runId: runId,
         eventType: input.eventType,
         message: err instanceof Error ? err.message : String(err),
       })}\n`,
@@ -663,10 +663,10 @@ async function appendInlineRunEvent(
 
 async function nextRunEventSequence(
   db: Database,
-  recipeRunId: string,
+  runId: string,
 ): Promise<number> {
   const rows = await db.execute<{ sequence: number }>(
-    sql`select coalesce(max(sequence), 0)::int + 1 as sequence from run_events where recipe_run_id = ${recipeRunId}`,
+    sql`select coalesce(max(sequence), 0)::int + 1 as sequence from run_events where run_id = ${runId}`,
   );
   return rows[0]?.sequence ?? 1;
 }

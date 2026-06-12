@@ -6,7 +6,7 @@ import {
   chatMessages,
   chatThreads,
   getDb,
-  recipeRuns,
+  runs,
 } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
@@ -187,11 +187,11 @@ export async function POST(req: Request) {
 
   const chatRunStartedAt = runtimeRoute.useWorker ? null : queuedAt;
   const chatRunRows = await db
-    .insert(recipeRuns)
+    .insert(runs)
     .values({
       userId: sessionUser.id,
       threadId: thread.id,
-      recipeSlug: "chat-turn",
+      skillSlug: "chat-turn",
       triggerType: "chat",
       status: runtimeRoute.useWorker ? "queued" : "running",
       modelId,
@@ -209,13 +209,13 @@ export async function POST(req: Request) {
       lastHeartbeatAt: chatRunStartedAt,
       updatedAt: queuedAt,
     })
-    .returning({ id: recipeRuns.id });
+    .returning({ id: runs.id });
   const chatRunId = chatRunRows[0]!.id;
 
   try {
     await appendRunEvent({
       db,
-      recipeRunId: chatRunId,
+      runId: chatRunId,
       sequence: 1,
       eventType: runtimeRoute.useWorker ? "run_queued" : "run_started",
       status: "pending",
