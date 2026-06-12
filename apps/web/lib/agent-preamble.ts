@@ -40,6 +40,11 @@ export function buildAgentPreamble({
   blockedProviders = [],
 }: PreambleInput): string {
   const lines: string[] = [];
+
+  lines.push(
+    "Interface note: slash commands do not exist in this chat. If the user types something like \"/skills\" or asks to run a saved skill or command, do not invent command behavior — tell them to type \"/\" in the message box to open the skill palette, or to open Skills from the sidebar.",
+    "",
+  );
   lines.push(`You are an AI assistant for ${user.displayName}.`);
   lines.push("");
 

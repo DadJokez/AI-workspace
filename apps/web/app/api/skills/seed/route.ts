@@ -2,45 +2,11 @@ import { getDb, skills } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
-import { DEVELOPER_BRIEFING_SKILL_SLUG } from "@/lib/developer-briefing";
 import { auditSkillMutation } from "@/lib/skills";
+import { STARTER_SKILLS } from "@/lib/starter-skills";
 
 export const dynamic = "force-dynamic";
 
-const STARTERS = [
-  {
-    slug: DEVELOPER_BRIEFING_SKILL_SLUG,
-    name: "Developer Briefing",
-    description:
-      "A focused summary of your open pull requests, review requests, and CI status across your GitHub repositories.",
-    systemPrompt: [
-      "Produce a developer briefing for the current user from their GitHub account.",
-      "",
-      "1. List open pull requests they authored — title, repo, age, review state, and CI status.",
-      "2. List pull requests waiting on their review.",
-      "3. Flag anything stalled for more than three days or failing CI.",
-      "4. Close with a short 'suggested next actions' list, most urgent first.",
-      "",
-      "Keep it compact and skimmable. Use the GitHub tools to read real data — never invent repositories, pull requests, or statuses.",
-    ].join("\n"),
-    modelId: "sonnet-4-6",
-    mcpProviders: ["github"],
-  },
-  {
-    slug: "weekly-status",
-    name: "Weekly Status",
-    description:
-      "Drafts a week-in-review status update from your GitHub activity: what shipped, what's in flight, what's blocked.",
-    systemPrompt: [
-      "Draft the user's weekly status update from their GitHub activity over the past 7 days.",
-      "",
-      "Sections: Shipped (merged PRs), In flight (open PRs with state), Blocked / needs attention (stalled reviews, failing CI).",
-      "Write it in first person, ready to paste into a status thread. Use the GitHub tools to read real data — never invent activity.",
-    ].join("\n"),
-    modelId: "sonnet-4-6",
-    mcpProviders: ["github"],
-  },
-];
 
 /**
  * Idempotent admin action: seed the starter skills (T207). Existing slugs
@@ -59,7 +25,7 @@ export async function POST() {
   const created: string[] = [];
   const skipped: string[] = [];
 
-  for (const starter of STARTERS) {
+  for (const starter of STARTER_SKILLS) {
     const existing = await db
       .select({ id: skills.id })
       .from(skills)
