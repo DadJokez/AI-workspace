@@ -106,6 +106,7 @@ export async function streamInlineChatRun({
     requestedModelId: modelId,
     route,
     runtimeName,
+    message: prompt,
   });
   const runtimeModelId = modelSelection.modelId;
   const runtime = getRuntime({
@@ -197,6 +198,7 @@ export async function streamInlineChatRun({
             },
             connectedProviders,
             blockedProviders: deniedMcpProviders,
+            modelId: runtimeModelId,
           })
         : undefined;
     timing.contextReadyAt = new Date();

@@ -369,6 +369,7 @@ async function executeClaimedChatRun({
     },
     connectedProviders: mcpServers ? Object.keys(mcpServers) : [],
     blockedProviders: deniedMcpProviders,
+    modelId: run.modelId ?? undefined,
   });
 
   await db

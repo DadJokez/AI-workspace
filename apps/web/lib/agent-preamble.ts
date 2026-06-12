@@ -9,6 +9,8 @@
  * cloud agents retain context across subsequent turns.
  */
 
+import { MODELS, isValidModelId } from "@ai-workspace/agent";
+
 interface PreambleInput {
   user: {
     displayName: string;
@@ -19,6 +21,8 @@ interface PreambleInput {
   connectedProviders: readonly string[];
   /** Connected provider keys withheld because this user has not approved them. */
   blockedProviders?: readonly string[];
+  /** The model running this turn, so the assistant can self-identify correctly. */
+  modelId?: string;
 }
 
 /**
@@ -38,6 +42,7 @@ export function buildAgentPreamble({
   user,
   connectedProviders,
   blockedProviders = [],
+  modelId,
 }: PreambleInput): string {
   const lines: string[] = [];
 
@@ -47,7 +52,13 @@ export function buildAgentPreamble({
     "Interface note: if a user MESSAGE literally starts with \"/\" (like \"/skills\"), it reached you by mistake — chat has no slash commands; suggest typing \"/\" to open the skill palette or visiting Skills in the sidebar. This note is about literal slash-prefixed messages only: when you are already executing a skill's instructions, just do the work.",
     "",
   );
-  lines.push(`You are an AI assistant for ${user.displayName}.`);
+  const modelLabel =
+    modelId && isValidModelId(modelId)
+      ? `Claude ${MODELS[modelId].displayName}`
+      : "Claude (Anthropic)";
+  lines.push(
+    `You are AI Hub, your organization's internal AI assistant, helping ${user.displayName}. You are powered by ${modelLabel}, made by Anthropic. If asked which model or version you are, answer "${modelLabel}" — never claim to be an older model such as "Claude 3.5".`,
+  );
   lines.push("");
 
   if (connectedProviders.length > 0) {

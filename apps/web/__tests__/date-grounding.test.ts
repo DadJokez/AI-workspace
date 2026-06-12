@@ -38,6 +38,9 @@ describe("date grounding", () => {
     expect(client.systemPrompt).toContain(
       new Date().toISOString().slice(0, 10),
     );
+    // Identity grounding: the model must know which model it is.
+    expect(client.systemPrompt).toContain("You are Claude Haiku 4.5");
+    expect(client.systemPrompt).toContain("never claim to be an older model");
   });
 
   it("keeps the caller's system prompt after the date stamp (skill runs)", async () => {
@@ -66,5 +69,16 @@ describe("date grounding", () => {
     expect(preamble).toContain(
       "when you are already executing a skill's instructions, just do the work",
     );
+  });
+
+  it("grounds the assistant's model identity in the preamble", () => {
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: [],
+      modelId: "sonnet-4-6",
+    });
+    expect(preamble).toContain("Claude Sonnet 4.6");
+    expect(preamble).toContain("AI Hub");
+    expect(preamble).toContain('never claim to be an older model such as "Claude 3.5"');
   });
 });
