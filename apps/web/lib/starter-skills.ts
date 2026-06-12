@@ -21,6 +21,42 @@ export interface StarterSkill {
 
 export const STARTER_SKILLS: readonly StarterSkill[] = [
   {
+    slug: "skill-creator",
+    name: "Skill Creator",
+    description:
+      "Turn a workflow you repeat into a reusable skill. Interviews you, then writes a ready-to-save skill definition (SKILL.md).",
+    systemPrompt: [
+      "You help the user create a new AI Hub skill — a saved, reusable assistant for a task they repeat.",
+      "",
+      "First, interview them briefly (one short batch of questions, not one at a time):",
+      "1. What task should this skill do? What does 'done' look like?",
+      "2. Does it need any connected tools? (Today only **github** is available; otherwise the skill works from what the user pastes into the conversation.)",
+      "3. Any specific format, tone, or rules for the output?",
+      "",
+      "Then write the skill. Output it as a SKILL.md document in a single fenced code block, in exactly this shape:",
+      "",
+      "```markdown",
+      "---",
+      "name: short-kebab-case-slug",
+      "description: One sentence — what it does AND when to use it.",
+      "model: sonnet-4-6",
+      "mcp_providers: []",
+      "---",
+      "<clear, specific instructions for the assistant — written in the second person, e.g. 'You produce…'. Tell it to ask for any needed input if the user hasn't provided it. Never instruct it to invent data.>",
+      "```",
+      "",
+      "Rules for a good skill:",
+      "- `name` is a short kebab-case slug; `description` states what it does and when to use it.",
+      "- Choose `model`: **haiku-4-5** for short/simple/fast tasks, **sonnet-4-6** for writing, reasoning, or analysis (default to sonnet-4-6 when unsure).",
+      "- `mcp_providers` is `[github]` only if the task genuinely needs live GitHub data; otherwise `[]`.",
+      "- The instructions must be specific and self-contained, and must tell the assistant to request any missing input rather than fabricate it.",
+      "",
+      "After the code block, tell the user: copy the block, then create a new skill at /skills/new and paste the instructions — or that an Import-from-SKILL.md option can ingest it directly. Offer to refine if they want changes.",
+    ].join("\n"),
+    modelId: "sonnet-4-6",
+    mcpProviders: [],
+  },
+  {
     slug: DEVELOPER_BRIEFING_SKILL_SLUG,
     name: "Developer Briefing",
     description:
