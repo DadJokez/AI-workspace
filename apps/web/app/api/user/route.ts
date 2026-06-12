@@ -1,5 +1,5 @@
 import { AuthConfigError } from "@ai-workspace/auth";
-import { getDb, users } from "@ai-workspace/db";
+import { getDb, userMemoryItems, users } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
@@ -12,6 +12,14 @@ interface PatchBody {
   defaultModelId?: string | null;
   /** True marks the first-run welcome tour finished (or skipped). */
   tourCompleted?: boolean;
+  /** Assistant name set in the first-run wizard. */
+  assistantName?: string | null;
+  /** Role answers from the wizard; seed custom instructions + a memory item. */
+  onboarding?: {
+    role?: string;
+    tools?: string[];
+    firstTask?: string;
+  };
 }
 
 const DISPLAY_NAME_MAX = 80;
@@ -25,6 +33,7 @@ function profileFromRow(row: {
   role: "admin" | "user";
   customInstructions: string | null;
   defaultModelId: string | null;
+  assistantName: string | null;
   tourCompletedAt: Date | null;
 }) {
   return {
@@ -34,6 +43,7 @@ function profileFromRow(row: {
     role: row.role,
     customInstructions: row.customInstructions,
     defaultModelId: row.defaultModelId,
+    assistantName: row.assistantName,
     tourCompletedAt: row.tourCompletedAt
       ? row.tourCompletedAt.toISOString()
       : null,
@@ -95,7 +105,10 @@ export async function PATCH(req: Request) {
     customInstructions?: string | null;
     defaultModelId?: string | null;
     tourCompletedAt?: Date;
+    assistantName?: string | null;
   } = {};
+  // Role answers to seed as an approved memory item after the user row updates.
+  let onboardingMemory: { role: string; firstTask: string } | null = null;
 
   if (body.displayName !== undefined) {
     if (typeof body.displayName !== "string") {
@@ -163,6 +176,46 @@ export async function PATCH(req: Request) {
     }
   }
 
+  if (body.assistantName !== undefined) {
+    if (body.assistantName === null) {
+      patch.assistantName = null;
+    } else if (typeof body.assistantName !== "string") {
+      return NextResponse.json(
+        { error: "invalid_assistantName" },
+        { status: 400 },
+      );
+    } else {
+      const trimmed = body.assistantName.trim();
+      patch.assistantName = trimmed.length > 0 ? trimmed.slice(0, 40) : null;
+    }
+  }
+
+  if (body.onboarding !== undefined) {
+    const o = body.onboarding ?? {};
+    const role = typeof o.role === "string" ? o.role.trim() : "";
+    const tools = Array.isArray(o.tools)
+      ? o.tools.filter((t): t is string => typeof t === "string")
+      : [];
+    const firstTask =
+      typeof o.firstTask === "string" ? o.firstTask.trim() : "";
+    // Compose a custom-instructions block from the answers (injected via the
+    // agent preamble from turn one). Only set it if the user hasn't written
+    // their own — never clobber an existing instruction.
+    const composed = [
+      role ? `My role: ${role}.` : "",
+      tools.length > 0 ? `Tools I use daily: ${tools.join(", ")}.` : "",
+      firstTask ? `Something I'd often want help with: ${firstTask}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    if (composed) {
+      // Set custom instructions only if the user has none yet (checked below
+      // after we read the row); stash for the memory item regardless.
+      patch.customInstructions = patch.customInstructions ?? composed;
+      onboardingMemory = { role, firstTask };
+    }
+  }
+
   if (body.tourCompleted !== undefined) {
     if (body.tourCompleted !== true) {
       return NextResponse.json(
@@ -188,6 +241,23 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ user: profileFromRow(row) });
   }
 
+  // Onboarding only seeds custom instructions when the user has none — never
+  // clobber what they wrote themselves. Check the current value first.
+  if (
+    onboardingMemory &&
+    patch.customInstructions !== undefined &&
+    body.customInstructions === undefined
+  ) {
+    const current = await db
+      .select({ customInstructions: users.customInstructions })
+      .from(users)
+      .where(eq(users.id, auth.sessionUser.id))
+      .limit(1);
+    if (current[0]?.customInstructions) {
+      delete patch.customInstructions;
+    }
+  }
+
   const updated = await db
     .update(users)
     .set(patch)
@@ -197,5 +267,34 @@ export async function PATCH(req: Request) {
   if (!row) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+
+  // Seed an approved memory item from the role answers so the assistant has
+  // durable, user-visible context (editable later on the Memory page).
+  if (onboardingMemory && (onboardingMemory.role || onboardingMemory.firstTask)) {
+    const body_md = [
+      onboardingMemory.role ? `- Role: ${onboardingMemory.role}` : "",
+      onboardingMemory.firstTask
+        ? `- Often wants help with: ${onboardingMemory.firstTask}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    await db
+      .insert(userMemoryItems)
+      .values({
+        userId: auth.sessionUser.id,
+        status: "approved",
+        category: "role",
+        title: "Role & focus (from setup)",
+        bodyMd: body_md,
+        confidence: 100,
+        reason: "Captured during first-run setup.",
+        suggestedBy: "onboarding",
+        approvedBy: auth.sessionUser.id,
+        approvedAt: new Date(),
+      })
+      .onConflictDoNothing();
+  }
+
   return NextResponse.json({ user: profileFromRow(row) });
 }

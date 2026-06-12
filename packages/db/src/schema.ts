@@ -131,6 +131,12 @@ export const users = pgTable(
      */
     defaultModelId: text("default_model_id"),
     /**
+     * What the user named their assistant in the first-run wizard (specs/005).
+     * Shows in the chat header and assistant message labels. NULL = the user
+     * hasn't named it; UI falls back to "Assistant".
+     */
+    assistantName: text("assistant_name"),
+    /**
      * When the user finished (or skipped) the first-run welcome tour.
      * NULL = never seen it; the chat shell shows the tour once on sign-in.
      */
