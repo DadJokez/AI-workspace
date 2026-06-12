@@ -230,7 +230,16 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       containerName: "chat-worker",
       logGroup: chatWorkerLogGroup,
       securityGroup: workerSecurityGroup,
-      environment: commonEnvironment,
+      environment: {
+        ...commonEnvironment,
+        // T311b/T312 (specs/003): worker-executed lanes — durable chat,
+        // skills, scheduled — run on Bedrock AgentCore in our account.
+        // Fast chat stays direct-Bedrock on web; Cursor stays the explicit
+        // cloud opt-in. Rollback = remove these two lines and redeploy.
+        RUNTIME: "agentcore",
+        AGENTCORE_RUNTIME_ARN:
+          "arn:aws:bedrock-agentcore:us-east-1:351478076796:runtime/ai_workspace_agent_spike-5n8RLRBVz5",
+      },
       secrets: commonSecrets,
       grantBedrock: true,
     });
