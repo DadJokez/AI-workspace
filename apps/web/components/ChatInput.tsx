@@ -14,6 +14,7 @@ import {
   isSupportedAttachmentName,
   type ChatAttachment,
 } from "@/lib/attachments";
+import { useDictation } from "@/lib/use-dictation";
 import {
   filterSkillsForCommand,
   isSlashCommand,
@@ -62,6 +63,12 @@ export function ChatInput({
   const [dragOver, setDragOver] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const dictation = useDictation((spoken) => {
+    setText((prev) => {
+      const sep = prev && !prev.endsWith(" ") ? " " : "";
+      return `${prev}${sep}${spoken.trim()}`;
+    });
+  });
 
   const paletteActive =
     isSlashCommand(text) && skills.length > 0 && !!onRunSkill && !launching;
@@ -239,6 +246,12 @@ export function ChatInput({
         </div>
       ) : null}
 
+      {dictation.listening ? (
+        <p className="mb-1.5 flex items-center gap-2 px-1 text-[12px] text-red-500/80">
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
+          Listening… {dictation.interim ? `“${dictation.interim}”` : "speak now"}
+        </p>
+      ) : null}
       {launching ? (
         <p className="mb-1.5 flex items-center gap-2 px-1 text-[12px] text-muted">
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
@@ -307,6 +320,23 @@ export function ChatInput({
         >
           <PaperclipIcon />
         </button>
+        {dictation.supported ? (
+          <button
+            type="button"
+            aria-label={dictation.listening ? "Stop dictation" : "Dictate"}
+            aria-pressed={dictation.listening}
+            title={dictation.listening ? "Stop dictation" : "Dictate"}
+            disabled={disabled || launching !== null}
+            onClick={dictation.toggle}
+            className={`flex h-11 w-9 shrink-0 items-center justify-center rounded-md disabled:opacity-30 sm:h-7 ${
+              dictation.listening
+                ? "text-red-500"
+                : "text-muted hover:text-ink"
+            }`}
+          >
+            <MicIcon listening={dictation.listening} />
+          </button>
+        ) : null}
         <textarea
           ref={taRef}
           value={text}
@@ -357,6 +387,25 @@ export function ChatInput({
         </button>
       </form>
     </div>
+  );
+}
+
+function MicIcon({ listening }: { listening: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill={listening ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="6" y="1.5" width="4" height="8" rx="2" />
+      <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5" />
+    </svg>
   );
 }
 
