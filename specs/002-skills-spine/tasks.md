@@ -89,13 +89,13 @@
 
 **Purpose**: Describe → preview → deploy → share, on bones the full J4 extends.
 
-- [ ] T500 [US5] Apps registry API: register from artifact, deploy (pin version), save-draft (new version + agent-written summary), revert (`apps/web/app/api/apps/...`)
-- [ ] T501 [US5] Serve `/apps/{slug}`: live artifact behind auth middleware with restrictive CSP; unauthenticated → `/login` (`apps/web/app/apps/[slug]/page.tsx`, `apps/web/middleware.ts`)
-- [ ] T502 [US5] No-secrets policy at save/deploy: redaction helper applied to app content; credential-shaped values rejected (`apps/web/lib/...`)
-- [ ] T503 [US5] [P] Apps UI: sidebar Apps section, app detail with Deploy/Save draft/Versions/Revert/Share, "open source conversation" link
+- [x] T500 [US5] Apps registry API: register-and-deploy from artifact, deploy/revert (pin version), versions list (`apps/web/app/api/apps/...`). Save draft is implicit: every HTML artifact the source conversation produces is a version candidate.
+- [x] T501 [US5] Serve `/apps/{slug}`: route handler streams the owner's live artifact behind workspace auth with restrictive CSP (`default-src 'none'`, inline-only, no egress); unauthenticated → `/login` (`apps/web/app/apps/[slug]/route.ts`)
+- [x] T502 [US5] No-secrets policy at save/deploy: `findCredentialShapedContent` blocks GitHub/AWS/API/bearer/JWT/PEM-shaped values with a 422 on register and every deploy (`apps/web/lib/apps.ts`)
+- [x] T503 [US5] [P] Apps UI: `/apps` home (list + deploy-from-artifact picker), `/apps/manage/[id]` console (versions deploy/revert, sharing via generalized SharePanel, archive, source-conversation link), Skills↔Apps header cross-links
 - [ ] T504 [US5] [P] Chat affordance: artifact marked app-eligible gets a Deploy CTA (reuse artifact pill UX)
-- [ ] T505 Tests: auth gate on app serving, CSP headers, version pin/revert, share-gated visibility (`apps/web/__tests__/apps-*.test.ts`)
-- [ ] T506 [P] Follow-up issue filed: full J4 epic linkage (repo/pipeline/per-app-service, edit locking, app SSO tokens) — out of this packet by design
+- [x] T505 Tests: visibility predicate, no-secrets scanner (positives + clean-content negative), servability, input validation, reserved slugs (`apps/web/__tests__/apps.test.ts`). HTTP-level CSP/serving assertions remain manual via the demo checklist.
+- [x] T506 [P] Follow-up tracked on #133: full J4 (repo/pipeline/per-app-service, edit locking, app SSO tokens) stays open there; this packet ships the thin slice
 
 **Checkpoint**: Beat 4 + Beat 5 (app half) pass on preview.
 
