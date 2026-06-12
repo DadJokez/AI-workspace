@@ -42,6 +42,15 @@ export async function* runAgentLoop(
 ): AsyncGenerator<AgentEvent, void, void> {
   const model = MODELS[params.modelId];
   const client = params.client ?? getBedrockClient();
+  // Ground every turn in the real clock. Models have no reliable sense of
+  // "now" — without this, date questions get confident hallucinations
+  // (observed: "31 days until Christmas 2024", mid-June 2026).
+  const systemPrompt = [
+    `Current date and time (UTC): ${new Date().toISOString()}. Treat this as ground truth for any date or time reasoning; the user's local timezone may differ.`,
+    params.systemPrompt,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const maxIter = params.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
   const tools = params.registry.list(params.allowedTools);
   const toolConfig =
@@ -64,7 +73,7 @@ export async function* runAgentLoop(
 
     const stream = client.converseStream({
       bedrockModelId: model.bedrockModelId,
-      systemPrompt: params.systemPrompt,
+      systemPrompt,
       messages: bedrockMessages,
       toolConfig,
       maxTokens: params.maxTokens ?? model.defaultMaxTokens,

@@ -42,7 +42,9 @@ export function buildAgentPreamble({
   const lines: string[] = [];
 
   lines.push(
-    "Interface note: slash commands do not exist in this chat. If the user types something like \"/skills\" or asks to run a saved skill or command, do not invent command behavior — tell them to type \"/\" in the message box to open the skill palette, or to open Skills from the sidebar.",
+    `Current date and time (UTC): ${new Date().toISOString()}. Treat this as ground truth for any date or time reasoning; the user's local timezone may differ.`,
+    "",
+    "Interface note: if a user MESSAGE literally starts with \"/\" (like \"/skills\"), it reached you by mistake — chat has no slash commands; suggest typing \"/\" to open the skill palette or visiting Skills in the sidebar. This note is about literal slash-prefixed messages only: when you are already executing a skill's instructions, just do the work.",
     "",
   );
   lines.push(`You are an AI assistant for ${user.displayName}.`);
