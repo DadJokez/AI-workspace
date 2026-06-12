@@ -375,6 +375,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const loadingThreadsRef = useRef<Set<string>>(new Set());
+  const streamAbortRef = useRef<AbortController | null>(null);
   const initialThreadAppliedRef = useRef(false);
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0];
@@ -1145,10 +1146,13 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     // New message from the user — re-stick to bottom.
     stickToBottomRef.current = true;
 
+    const abort = new AbortController();
+    streamAbortRef.current = abort;
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: abort.signal,
         body: JSON.stringify({
           message: text,
           threadId: activeTab.threadId,
@@ -1334,6 +1338,17 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       // Sidebar history may now have a new or moved-up entry.
       void refreshThreads();
     } catch (err) {
+      // A user-initiated Stop aborts the fetch — not an error to surface.
+      if (err instanceof DOMException && err.name === "AbortError") {
+        patchTabMessages(tabId, (prev) =>
+          prev.map((m) =>
+            m.id === assistantMsgId
+              ? { ...m, pending: false, status: undefined }
+              : m,
+          ),
+        );
+        return;
+      }
       const message = formatChatError(err);
       patchTab(tabId, { error: message });
       patchTabMessages(tabId, (prev) =>
@@ -1344,9 +1359,38 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         ),
       );
     } finally {
+      if (streamAbortRef.current === abort) streamAbortRef.current = null;
       patchTab(tabId, { busy: false });
+      // If the user stopped mid-stream before any text arrived, drop the empty
+      // assistant stub so the turn doesn't look frozen.
+      patchTabMessages(tabId, (prev) =>
+        prev.filter(
+          (m) =>
+            !(
+              m.id === assistantMsgId &&
+              m.pending &&
+              m.content.length === 0
+            ),
+        ),
+      );
     }
   }
+
+  function stopStreaming() {
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
+  }
+
+  // Regenerate the last assistant answer: re-run the last user turn.
+  function regenerate() {
+    retry();
+  }
+
+  const canRegenerate =
+    !activeTab?.busy &&
+    !activeHasPendingRun &&
+    (activeTab?.messages.some((m) => m.role === "assistant" && !m.pending) ??
+      false);
 
   function retry() {
     if (!activeTab) return;
@@ -1610,6 +1654,41 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             >
               <DownloadIcon />
             </button>
+            {busy ? (
+              <button
+                type="button"
+                aria-label="Stop generating"
+                title="Stop generating"
+                onClick={stopStreaming}
+                className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-hairline bg-canvas px-2 text-xs font-medium text-muted hover:bg-subtle hover:text-ink"
+              >
+                <span className="block h-2.5 w-2.5 rounded-[2px] bg-current" />
+                Stop
+              </button>
+            ) : canRegenerate ? (
+              <button
+                type="button"
+                aria-label="Regenerate last response"
+                title="Regenerate last response"
+                onClick={regenerate}
+                className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-hairline bg-canvas px-2 text-xs font-medium text-muted hover:bg-subtle hover:text-ink"
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  width="13"
+                  height="13"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2v3h-3" />
+                </svg>
+                Regenerate
+              </button>
+            ) : null}
             <button
               type="button"
               aria-pressed={runInCloudOnce}
