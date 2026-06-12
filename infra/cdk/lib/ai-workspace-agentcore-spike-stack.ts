@@ -55,6 +55,18 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
     );
     role.addToPolicy(
       new iam.PolicyStatement({
+        sid: "ValidateMarketplaceSubscriptions",
+        // Bedrock validates Marketplace-subscribed models (Anthropic) against
+        // the *invoking* role; AmazonBedrockFullAccess carries the same pair.
+        actions: [
+          "aws-marketplace:ViewSubscriptions",
+          "aws-marketplace:Subscribe",
+        ],
+        resources: ["*"],
+      }),
+    );
+    role.addToPolicy(
+      new iam.PolicyStatement({
         sid: "WriteLogs",
         actions: [
           "logs:CreateLogGroup",
