@@ -86,6 +86,10 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
         RoleArn: role.roleArn,
         EnvironmentVariables: {
           BEDROCK_CLIENT: "real",
+          // The in-container Bedrock client resolves AWS_REGION ??
+          // AWS_DEFAULT_REGION; set the fallback explicitly in case the
+          // runtime does not inject AWS_REGION.
+          AWS_DEFAULT_REGION: this.region,
         },
       },
     });

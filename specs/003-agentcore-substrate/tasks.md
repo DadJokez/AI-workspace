@@ -22,9 +22,10 @@
 
 ## Phase 3: Deploy & smoke (next session — needs AWS credentials)
 
-- [ ] T309 Deploy stack step 1 (repo + role); build & push the arm64 image; deploy step 2 (`--parameters CreateRuntime=true`). Follow plan.md runbook.
+- [x] T309 Deployed 2026-06-12. Step 1 ✓; the arm64 image was built **in AWS via CodeBuild** (`ai-workspace-build` with ARM_CONTAINER override) because a local proxy in Docker Desktop's path killed ECR uploads >~10MB; step 2 ✓ → runtime `ai_workspace_agent_spike-5n8RLRBVz5` READY (v1).
 - [ ] T310 Grant `bedrock-agentcore:InvokeAgentRuntime` on the runtime ARN to the web/chat-worker task roles.
-- [ ] T311 Smoke: plain turn, Developer Briefing skill run (GitHub MCP from inside AgentCore), `/api/health`, audit/run_events parity. Record cold-start + cost observations in plan.md.
+- [x] T311a Plain-turn smoke ✓ (2026-06-12): `InvokeAgentRuntime` streamed text-delta/usage/done AgentEvents over SSE (haiku-4-5, 17 in / 9 out). **Finding:** sonnet/opus Bedrock model ids in `packages/agent/models.ts` are unverified/not enabled in the account — Marketplace access error; only Haiku is enabled today (tracked in a follow-up issue).
+- [ ] T311b App-lane smoke: GitHub-MCP tool turn from inside AgentCore + `/api/health` + audit parity — needs T310 and a service pointed at the runtime (per-user tokens can't be exercised from the CLI).
 - [ ] T312 Decide lane defaults: Runtime V2 tool lane → bedrock (Layer 1) now; durable/skill lanes → agentcore after smoke.
 
 ## Phase 4: Substrate adoption (follow-up spikes, separate packets)
