@@ -14,6 +14,9 @@ const MCP_ENDPOINTS: Record<string, { url: string }> = {
   // notion / google land here when their OAuth flows ship.
 };
 
+/** Provider slugs AI Hub can mount today; skills validate against this. */
+export const SUPPORTED_MCP_PROVIDERS = Object.keys(MCP_ENDPOINTS);
+
 /**
  * Look up the user's connected providers from `oauth_tokens` and return a
  * Cursor-SDK `mcpServers` map keyed by provider name. The access token is
@@ -27,6 +30,14 @@ const MCP_ENDPOINTS: Record<string, { url: string }> = {
 export async function buildUserMcpServers(
   db: Database,
   userId: string,
+  options?: {
+    /**
+     * Restrict mounting to this provider allowlist (skill runs declare their
+     * providers). `undefined` = mount everything connected and attested
+     * (chat behavior); `[]` = mount nothing.
+     */
+    onlyProviders?: string[];
+  },
 ): Promise<{
   mcpServers: Record<string, McpServerSpec> | undefined;
   deniedProviders: string[];
@@ -43,6 +54,11 @@ export async function buildUserMcpServers(
   } catch (err) {
     console.warn("[mcp] oauth_tokens lookup failed:", err);
     return { mcpServers: undefined, deniedProviders: [] };
+  }
+
+  if (options?.onlyProviders) {
+    const allowlist = new Set(options.onlyProviders);
+    rows = rows.filter((row) => allowlist.has(row.provider));
   }
 
   const requestedProviders = rows

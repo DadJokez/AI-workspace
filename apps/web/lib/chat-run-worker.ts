@@ -12,7 +12,7 @@ import {
   type Run,
   users,
 } from "@ai-workspace/db";
-import { and, asc, eq, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import {
@@ -47,7 +47,24 @@ interface ChatRunInputs {
   threadId: string;
   userMessageId: string;
   executionMode: ChatExecutionMode;
+  /** Skill runs restrict MCP mounting to their declared providers. */
+  requestedProviders?: string[];
   [key: string]: unknown;
+}
+
+/**
+ * Runs this worker may claim: chat turns (identified by the historical
+ * `skill_slug = "chat-turn"` marker) plus skill/scheduled runs (identified
+ * by trigger type so any skill slug works). Inputs for all of them satisfy
+ * the same {prompt, threadId, userMessageId} contract.
+ */
+const WORKER_TRIGGER_TYPES = ["skill", "scheduled", "skill_retry"];
+
+function claimableRunCondition() {
+  return or(
+    eq(runs.skillSlug, "chat-turn"),
+    inArray(runs.triggerType, WORKER_TRIGGER_TYPES),
+  );
 }
 
 interface StoredChatRunOutput {
@@ -178,7 +195,7 @@ async function claimChatRun({
     .where(
       and(
         eq(runs.id, id),
-        eq(runs.skillSlug, "chat-turn"),
+        claimableRunCondition(),
         or(
           eq(runs.status, "queued"),
           and(eq(runs.status, "running"), lt(runs.leaseExpiresAt, now)),
@@ -197,7 +214,7 @@ async function findNextClaimableRunId(db: Database): Promise<string | null> {
     .from(runs)
     .where(
       and(
-        eq(runs.skillSlug, "chat-turn"),
+        claimableRunCondition(),
         or(
           eq(runs.status, "queued"),
           and(eq(runs.status, "running"), lt(runs.leaseExpiresAt, now)),
@@ -306,7 +323,13 @@ async function executeClaimedChatRun({
   let mcpServers;
   let deniedMcpProviders: string[] = [];
   try {
-    const mcpAccess = await buildUserMcpServers(db, run.userId);
+    const mcpAccess = await buildUserMcpServers(
+      db,
+      run.userId,
+      Array.isArray(inputs.requestedProviders)
+        ? { onlyProviders: inputs.requestedProviders }
+        : undefined,
+    );
     mcpServers = mcpAccess.mcpServers;
     deniedMcpProviders = mcpAccess.deniedProviders;
   } catch (err) {

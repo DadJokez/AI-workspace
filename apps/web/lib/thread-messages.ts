@@ -5,7 +5,7 @@ import {
   runEvents,
   workspaceArtifacts,
 } from "@ai-workspace/db";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, or } from "drizzle-orm";
 import type { AgentActivityEvent } from "@/lib/activity-events";
 import { runEventsToActivityEvents } from "@/lib/run-events";
 import type {
@@ -83,7 +83,10 @@ export async function loadThreadMessagesWithRunActivity({
       .where(
         and(
           eq(runs.threadId, threadId),
-          eq(runs.skillSlug, "chat-turn"),
+          or(
+            eq(runs.skillSlug, "chat-turn"),
+            inArray(runs.triggerType, ["skill", "scheduled", "skill_retry"]),
+          ),
         ),
       )
       .orderBy(asc(runs.createdAt)),

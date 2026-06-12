@@ -7,6 +7,16 @@ import {
   type Run,
 } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
+
+const WORKER_TRIGGER_TYPES = new Set(["skill", "scheduled", "skill_retry"]);
+
+function isWorkerExecutableRun(
+  run: Pick<Run, "skillSlug" | "triggerType">,
+): boolean {
+  return (
+    run.skillSlug === "chat-turn" || WORKER_TRIGGER_TYPES.has(run.triggerType)
+  );
+}
 import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
 import { appendRunEventWithNextSequence } from "@/lib/run-events";
@@ -46,12 +56,12 @@ export async function cancelRun({
   if (!run) {
     return notFound();
   }
-  if (run.skillSlug !== "chat-turn") {
+  if (!isWorkerExecutableRun(run)) {
     return {
       ok: false,
       status: 400,
       error: "unsupported_run_type",
-      message: "Only chat runs can be canceled from this endpoint.",
+      message: "Only chat and skill runs can be canceled from this endpoint.",
     };
   }
   if (run.status !== "queued" && run.status !== "running") {
@@ -143,12 +153,12 @@ export async function retryChatRun({
 }): Promise<RunActionResult> {
   const run = await findAuthorizedRun(db, actor, runId);
   if (!run) return notFound();
-  if (run.skillSlug !== "chat-turn") {
+  if (!isWorkerExecutableRun(run)) {
     return {
       ok: false,
       status: 400,
       error: "unsupported_run_type",
-      message: "Only chat runs can be retried from this endpoint.",
+      message: "Only chat and skill runs can be retried from this endpoint.",
     };
   }
   if (run.status !== "failed" && run.status !== "canceled") {
@@ -176,8 +186,10 @@ export async function retryChatRun({
     .values({
       userId: run.userId,
       threadId: inputs.threadId,
-      skillSlug: "chat-turn",
-      triggerType: "chat_retry",
+      skillId: run.skillId,
+      skillSlug: run.skillSlug,
+      scheduleId: run.scheduleId,
+      triggerType: run.skillSlug === "chat-turn" ? "chat_retry" : "skill_retry",
       status: "queued",
       modelId: run.modelId,
       inputs: {
@@ -235,12 +247,12 @@ export async function resumeChatRun({
 }): Promise<RunActionResult> {
   const run = await findAuthorizedRun(db, actor, runId);
   if (!run) return notFound();
-  if (run.skillSlug !== "chat-turn") {
+  if (!isWorkerExecutableRun(run)) {
     return {
       ok: false,
       status: 400,
       error: "unsupported_run_type",
-      message: "Only chat runs can be resumed from this endpoint.",
+      message: "Only chat and skill runs can be resumed from this endpoint.",
     };
   }
   if (run.status !== "queued" && run.status !== "running") {
