@@ -19,6 +19,7 @@
     "cdk:synth": "pnpm --filter @ai-workspace/infra cdk:synth",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
     "audit:prod": "pnpm audit --prod",
     "start": "pnpm --filter @ai-workspace/web start"
   }
