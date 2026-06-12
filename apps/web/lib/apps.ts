@@ -10,6 +10,8 @@ import {
 } from "@ai-workspace/db";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { hasActiveShare } from "@/lib/shares";
+import { findCredentialShapedContent } from "@/lib/secret-scan";
+export { findCredentialShapedContent };
 import { slugifySkillName, suffixedSkillSlug } from "@/lib/skills";
 
 /**
@@ -113,32 +115,6 @@ export async function listAppsSharedWith(
     )
     .orderBy(desc(shares.createdAt));
   return rows.map((row) => row.app);
-}
-
-/**
- * FR-014: the no-secrets policy applies to app content at save time. Scans
- * for the same credential shapes the tool-redaction layer knows, as
- * substrings anywhere in the document. Returns human-readable labels of what
- * was found; empty array = clean.
- */
-export function findCredentialShapedContent(text: string): string[] {
-  const findings: string[] = [];
-  const checks: Array<[RegExp, string]> = [
-    [/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{20,}\b/, "a GitHub token"],
-    [/\bgithub_pat_[A-Za-z0-9_]{20,}\b/, "a GitHub fine-grained token"],
-    [/\bsk-[A-Za-z0-9_-]{20,}\b/, "an API secret key"],
-    [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, "a private key block"],
-    [/\bAKIA[0-9A-Z]{16}\b/, "an AWS access key id"],
-    [/\bbearer\s+[A-Za-z0-9._~+/=-]{16,}/i, "a bearer token"],
-    [
-      /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/,
-      "a JWT",
-    ],
-  ];
-  for (const [pattern, label] of checks) {
-    if (pattern.test(text)) findings.push(label);
-  }
-  return findings;
 }
 
 /** v1 serves self-contained HTML documents only. */
