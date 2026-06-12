@@ -40,7 +40,7 @@ consumer apps have trained everyone to expect — not capability gaps.
 - **Shadow trigger:** "I want all my Q3-planning chats and docs in one place with shared context." Weekly.
 - **Shape:** a `projects` table (name, instructions, members); threads, uploaded files, and skills can belong to one; project instructions inject into every turn in that project. This is also the natural home for **team context** (see KNOWLEDGE_MANAGEMENT.md).
 
-### P1.3 🔄 Persistent memory the user controls — **M**
+### P1.3 ✅ Persistent memory the user controls — **shipped**
 - **Have:** Vault memory-capture (suggested → approved → injected). Good bones.
 - **Gap:** no user-facing "what does the assistant remember about me" surface to view/edit/delete; capture is per-thread, not a durable profile the user curates.
 - **Shadow trigger:** "ChatGPT remembers I'm in supply chain; I have to re-explain here every time." (The onboarding wizard, specs/005, seeds this.)
@@ -58,7 +58,7 @@ consumer apps have trained everyone to expect — not capability gaps.
 
 ## Tier 2 — Power & flow
 
-### P2.1 ⬜ Voice input (dictation) — **S–M**
+### P2.1 ✅ Voice input (dictation) — **shipped (#159)**
 - Browser SpeechRecognition into the composer. Cheap, high-delight, big for mobile/ops users.
 
 ### P2.2 ⬜ Global command palette (Cmd-K) — **M**
@@ -92,7 +92,7 @@ consumer apps have trained everyone to expect — not capability gaps.
 1. **P1.1 file upload** — single biggest shadow-tool plug; reuses the artifacts substrate.
 2. **P1.4 stop/edit/regenerate** — cheap, removes daily friction, very visible.
 3. **P1.2 projects** — unlocks team context (the knowledge-management story) and is the container everything else hangs on.
-4. **P1.3 memory surface** + **specs/005 onboarding** — ship together; onboarding seeds memory.
+4. ~~P1.3 memory surface + specs/005 onboarding~~ — **shipped** (onboarding #150, memory view/edit/delete + add-a-fact).
 5. Then Tier 2 by demand signal (voice and web-search tend to top knowledge-worker asks).
 
 Reassess after the first cohort is live — usage tells you which Tier 2/3 items are real vs. assumed. The eval harness (specs/004) gates each of these as it lands.
