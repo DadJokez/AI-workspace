@@ -46,7 +46,7 @@ consumer apps have trained everyone to expect — not capability gaps.
 - **Shadow trigger:** "ChatGPT remembers I'm in supply chain; I have to re-explain here every time." (The onboarding wizard, specs/005, seeds this.)
 - **Shape:** a Memory page — list, edit, delete, add manual facts; merge with the wizard's role answers.
 
-### P1.4 ⬜ Stop / edit / regenerate / branch a turn — **M**
+### P1.4 🔄 Stop / edit / regenerate / branch a turn — **stop + regenerate shipped (#153); edit/branch next**
 - **Gap:** can't stop a streaming answer, edit a sent message and re-run, or regenerate. Cancel exists for durable runs but not the inline lane.
 - **Shadow trigger:** "It's going the wrong way and I can't stop it." Many times a day.
 - **Shape:** stop button wired to the existing abort signal; edit-and-resend forks the thread at that message; regenerate re-runs the last user turn.
