@@ -10,6 +10,8 @@ interface PatchBody {
   displayName?: string;
   customInstructions?: string | null;
   defaultModelId?: string | null;
+  /** True marks the first-run welcome tour finished (or skipped). */
+  tourCompleted?: boolean;
 }
 
 const DISPLAY_NAME_MAX = 80;
@@ -23,6 +25,7 @@ function profileFromRow(row: {
   role: "admin" | "user";
   customInstructions: string | null;
   defaultModelId: string | null;
+  tourCompletedAt: Date | null;
 }) {
   return {
     id: row.id,
@@ -31,6 +34,9 @@ function profileFromRow(row: {
     role: row.role,
     customInstructions: row.customInstructions,
     defaultModelId: row.defaultModelId,
+    tourCompletedAt: row.tourCompletedAt
+      ? row.tourCompletedAt.toISOString()
+      : null,
   };
 }
 
@@ -88,6 +94,7 @@ export async function PATCH(req: Request) {
     displayName?: string;
     customInstructions?: string | null;
     defaultModelId?: string | null;
+    tourCompletedAt?: Date;
   } = {};
 
   if (body.displayName !== undefined) {
@@ -154,6 +161,16 @@ export async function PATCH(req: Request) {
         patch.defaultModelId = trimmed;
       }
     }
+  }
+
+  if (body.tourCompleted !== undefined) {
+    if (body.tourCompleted !== true) {
+      return NextResponse.json(
+        { error: "invalid_tourCompleted" },
+        { status: 400 },
+      );
+    }
+    patch.tourCompletedAt = new Date();
   }
 
   const db = getDb();

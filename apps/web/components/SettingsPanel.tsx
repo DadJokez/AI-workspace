@@ -21,6 +21,8 @@ interface Props {
   onUserDefaultModelChange: (id: string) => void;
   runtimeV2Enabled?: boolean;
   onClose: () => void;
+  /** Reopens the first-run welcome tour from the chat view. */
+  onReplayTour?: () => void;
   onOpenSidebar: () => void;
 }
 
@@ -80,6 +82,7 @@ export function SettingsPanel({
   runtimeV2Enabled = false,
   onClose,
   onOpenSidebar,
+  onReplayTour,
 }: Props) {
   const { theme, setTheme } = useTheme();
   const { density, setDensity } = useDensity();
@@ -306,6 +309,28 @@ export function SettingsPanel({
               </p>
             </Field>
           </Section>
+
+          {onReplayTour ? (
+            <>
+              <Divider />
+
+              <Section title="Welcome tour">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[12px] text-muted">
+                    Replay the two-minute walkthrough of chat, Skills, Apps,
+                    and permissions.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={onReplayTour}
+                    className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-[13px] text-ink hover:bg-subtle"
+                  >
+                    Show tour
+                  </button>
+                </div>
+              </Section>
+            </>
+          ) : null}
 
           {!runtimeV2Enabled ? (
             <>

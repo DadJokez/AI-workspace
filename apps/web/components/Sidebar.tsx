@@ -608,6 +608,7 @@ export function Sidebar({
                       <li key={item.id}>
                         <a
                           href={item.href}
+                          data-tour={`nav-${item.id}`}
                           title={item.tooltip}
                           className="flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] text-muted hover:bg-subtle hover:text-ink md:min-h-0 md:py-1.5"
                         >
@@ -628,6 +629,7 @@ export function Sidebar({
                     <li key={item.id}>
                       <button
                         type="button"
+                        data-tour={`nav-${item.id}`}
                         onClick={() => handleNavClick(item)}
                         disabled={disabled}
                         aria-current={active ? "page" : undefined}

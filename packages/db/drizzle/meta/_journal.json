@@ -155,6 +155,13 @@
       "when": 1781229363000,
       "tag": "0021_skills_spine",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1781278130042,
+      "tag": "0022_first_run_tour",
+      "breakpoints": true
     }
   ]
 }

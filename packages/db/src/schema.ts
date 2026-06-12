@@ -130,6 +130,11 @@ export const users = pgTable(
      * the user across browsers and machines. NULL = use app default.
      */
     defaultModelId: text("default_model_id"),
+    /**
+     * When the user finished (or skipped) the first-run welcome tour.
+     * NULL = never seen it; the chat shell shows the tour once on sign-in.
+     */
+    tourCompletedAt: timestamp("tour_completed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
