@@ -31,6 +31,7 @@ interface Props {
   toolResults?: PersistedToolResult[];
   artifacts?: WorkspaceArtifactSummary[];
   activityEvents?: AgentActivityEvent[];
+  assistantName?: string | null;
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
 }
 
@@ -44,6 +45,7 @@ export function MessageBubble({
   toolResults = [],
   artifacts = [],
   activityEvents: persistedActivityEvents,
+  assistantName,
   onOpenArtifact,
 }: Props) {
   if (role === "user") {
@@ -56,8 +58,13 @@ export function MessageBubble({
     );
   }
 
+  const assistantLabel = assistantName?.trim() || "Assistant";
   const label =
-    role === "tool" ? "Tool" : modelId ? `Assistant · ${modelId}` : "Assistant";
+    role === "tool"
+      ? "Tool"
+      : modelId
+        ? `${assistantLabel} · ${modelId}`
+        : assistantLabel;
 
   // While the assistant is working but no text has streamed yet, surface
   // an animated indicator with the current activity (e.g. "Calling github…").

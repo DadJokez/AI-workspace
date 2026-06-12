@@ -6,7 +6,7 @@ import { MessageBubble } from "@/components/MessageBubble";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
 import { SearchPanel } from "@/components/SearchPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
-import { WelcomeTour } from "@/components/WelcomeTour";
+import { WelcomeWizard } from "@/components/WelcomeWizard";
 import { shouldShowTour } from "@/lib/tour";
 import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
 import { ToolsPanel } from "@/components/ToolsPanel";
@@ -124,6 +124,7 @@ interface UserResponse {
     role: "admin" | "user";
     customInstructions: string | null;
     defaultModelId: string | null;
+    assistantName: string | null;
     tourCompletedAt: string | null;
   };
 }
@@ -366,7 +367,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const [runInCloudOnce, setRunInCloudOnce] = useState(false);
   const [previewArtifact, setPreviewArtifact] =
     useState<WorkspaceArtifactSummary | null>(null);
-  const [tourOpen, setTourOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [oauthConnected, setOauthConnected] = useState<Record<string, boolean>>({});
   const [slashSkills, setSlashSkills] = useState<SlashSkill[]>([]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -753,7 +755,14 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   // profile loads with tour_completed_at unset. Finishing or skipping
   // persists completion; Settings can replay it any time.
   useEffect(() => {
-    if (user && shouldShowTour(user)) setTourOpen(true);
+    if (user && shouldShowTour(user)) {
+      setWizardOpen(true);
+      // Provider status drives the wizard's connect step (and resume).
+      fetch("/api/oauth/status", { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : {}))
+        .then((s) => setOauthConnected(s as Record<string, boolean>))
+        .catch(() => {});
+    }
   }, [user]);
 
   // Skills for the "/" palette (#144). Loaded once; the list is small and
@@ -812,8 +821,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     }
   };
 
-  const completeTour = () => {
-    setTourOpen(false);
+  const completeWizard = () => {
+    setWizardOpen(false);
     if (user && user.tourCompletedAt === null) {
       setUser({ ...user, tourCompletedAt: new Date().toISOString() });
       void fetch("/api/user", {
@@ -821,6 +830,25 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ tourCompleted: true }),
       }).catch(() => {});
+    }
+  };
+
+  const saveWizardStep = async (patch: {
+    assistantName?: string;
+    onboarding?: { role?: string; tools?: string[]; firstTask?: string };
+  }) => {
+    try {
+      const res = await fetch("/api/user", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (res.ok) {
+        const body = (await res.json()) as UserResponse;
+        setUser(body.user);
+      }
+    } catch {
+      /* non-fatal — the wizard continues */
     }
   };
 
@@ -1433,7 +1461,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             onOpenSidebar={() => setSidebarOpen(true)}
             onReplayTour={() => {
               setView("chat");
-              setTourOpen(true);
+              setWizardOpen(true);
             }}
           />
         ) : view === "search" ? (
@@ -1631,6 +1659,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     toolResults={m.toolResults}
                     artifacts={m.artifacts}
                     activityEvents={m.activityEvents}
+                    assistantName={user?.assistantName}
                     onOpenArtifact={openArtifactPreview}
                   />
                   {m.runId &&
@@ -1696,7 +1725,13 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         )}
       </main>
 
-      <WelcomeTour open={tourOpen} onClose={completeTour} />
+      <WelcomeWizard
+        open={wizardOpen}
+        initialAssistantName={user?.assistantName ?? null}
+        connected={oauthConnected}
+        onSave={saveWizardStep}
+        onComplete={completeWizard}
+      />
       {previewArtifact ? (
         <ArtifactPreviewPane
           artifact={previewArtifact}

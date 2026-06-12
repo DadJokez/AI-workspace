@@ -162,6 +162,13 @@
       "when": 1781278130042,
       "tag": "0022_first_run_tour",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1781287392706,
+      "tag": "0023_assistant_name",
+      "breakpoints": true
     }
   ]
 }
