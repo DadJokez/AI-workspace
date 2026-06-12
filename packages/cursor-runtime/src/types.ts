@@ -58,15 +58,16 @@ export interface TurnInput {
   signal?: AbortSignal;
   /**
    * Per-turn MCP servers (e.g. user's connected GitHub via OAuth). Cursor
-   * forwards them to the fresh agent/send path for this turn. Bedrock ignores.
+   * forwards them to the fresh agent/send path for this turn; Bedrock and
+   * AgentCore connect the HTTP ones through `connectMcpTools`.
    */
   mcpServers?: Record<string, McpServerSpec>;
   /**
    * Steering text prepended to the first user message of a thread. The Cursor
    * SDK has no system-prompt option on `Agent.create`, so this is how the
    * route educates the model about user identity, connected tools, and custom
-   * instructions without repeating that preamble on every turn. Bedrock
-   * ignores.
+   * instructions without repeating that preamble on every turn. Bedrock and
+   * AgentCore fold it into the system prompt.
    */
   firstTurnPreamble?: string;
   /**
@@ -88,7 +89,7 @@ export interface TurnInput {
  */
 export interface AgentRuntime {
   /** Stable identifier — useful for logs, telemetry, the model selector tooltip. */
-  readonly name: "bedrock" | "cursor";
+  readonly name: "bedrock" | "cursor" | "agentcore";
 
   /**
    * Run a single chat turn. Yields `AgentEvent`s as they happen — the web
@@ -98,4 +99,4 @@ export interface AgentRuntime {
 }
 
 /** Env-derived runtime selection. */
-export type RuntimeName = "bedrock" | "cursor";
+export type RuntimeName = "bedrock" | "cursor" | "agentcore";

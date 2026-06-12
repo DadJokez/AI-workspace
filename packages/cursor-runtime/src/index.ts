@@ -30,3 +30,7 @@ export {
 } from "./cloud-runs";
 
 export { getRuntime } from "./factory";
+
+export { AgentCoreRuntime, parseAgentEventSse, toRuntimeSessionId } from "./agentcore-runtime";
+export type { AgentCoreRuntimeOptions } from "./agentcore-runtime";
+export { pickHttpMcpServers } from "./bedrock-runtime";

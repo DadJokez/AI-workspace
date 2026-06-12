@@ -1,12 +1,17 @@
 import type { Database } from "@ai-workspace/db";
 import type { CloudAgentOptions } from "@cursor/sdk";
 
+import { AgentCoreRuntime } from "./agentcore-runtime";
 import { BedrockRuntime } from "./bedrock-runtime";
 import { CursorRuntime, type CursorExecutionMode } from "./cursor-runtime";
 import { DbThreadAgentStore } from "./db-thread-agent-store";
 import type { AgentRuntime, RuntimeName } from "./types";
 
-const VALID_RUNTIMES: readonly RuntimeName[] = ["bedrock", "cursor"];
+const VALID_RUNTIMES: readonly RuntimeName[] = [
+  "bedrock",
+  "cursor",
+  "agentcore",
+];
 
 export interface GetRuntimeOptions {
   /**
@@ -43,6 +48,19 @@ export function getRuntime(opts: GetRuntimeOptions = {}): AgentRuntime {
     );
   }
   if (raw === "bedrock") return new BedrockRuntime();
+  if (raw === "agentcore") {
+    const runtimeArn = process.env.AGENTCORE_RUNTIME_ARN;
+    if (!runtimeArn) {
+      throw new Error(
+        "RUNTIME=agentcore requires AGENTCORE_RUNTIME_ARN to be set.",
+      );
+    }
+    return new AgentCoreRuntime({
+      runtimeArn,
+      region: process.env.AGENTCORE_REGION ?? process.env.AWS_REGION,
+      qualifier: process.env.AGENTCORE_QUALIFIER,
+    });
+  }
   const executionMode =
     opts.executionMode ??
     parseCursorExecutionMode(process.env.CURSOR_RUNTIME_MODE);
