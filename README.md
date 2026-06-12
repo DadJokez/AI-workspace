@@ -1,6 +1,6 @@
 # AI Hub
 
-Internal AI front door for Georgia-Pacific. Single login, chat with your work data, run scheduled agents, share workflows.
+Internal AI front door for Georgia-Pacific. Single login, chat with your work data, run and schedule **skills** (saved agents), deploy small **apps** from conversation, share both with teammates — governed, audited, and executed on AWS by default.
 
 See [`docs/ROADMAP.md`](./docs/ROADMAP.md) for the five journeys and integration roadmap.
 See [`PLAN.md`](./PLAN.md) for weekly ship plan and architectural decisions.
@@ -12,8 +12,9 @@ See [`docs/ENTERPRISE_READINESS.md`](./docs/ENTERPRISE_READINESS.md) for the IT 
 - **pnpm** workspaces
 - **Drizzle** + **RDS Postgres**
 - **NextAuth v4** with GitHub OAuth (POC identity — swaps to PingOne OIDC for enterprise)
-- **Cursor SDK** (`@cursor/sdk`) — default agent runtime
-- **AWS Bedrock** (`converseStream`) — fallback runtime (`RUNTIME=bedrock`)
+- **Amazon Bedrock AgentCore** (`RUNTIME=agentcore`) — worker-lane runtime: durable chat, skill, and scheduled runs execute session-isolated in our account (`apps/agentcore-agent` container + `specs/003`)
+- **AWS Bedrock** (`converseStream` + MCP client) — direct fast-chat lane and in-process runtime (`RUNTIME=bedrock`)
+- **Cursor SDK** (`@cursor/sdk`) — interactive tool-chat lane and explicit cloud opt-in (`RUNTIME=cursor`)
 - **GitHub MCP** (`api.githubcopilot.com/mcp/`) — first working tool integration
 - **ECS on Fargate** — production hosting target with separate web, chat-worker, and memory-worker services
 - **AWS App Runner** — rollback-only POC host during ECS cutover
@@ -22,19 +23,24 @@ See [`docs/ENTERPRISE_READINESS.md`](./docs/ENTERPRISE_READINESS.md) for the IT 
 
 ```
 apps/
-  web/            Next.js app (UI + API routes + auth)
+  web/              Next.js app (UI + API routes + auth) — chat, /skills, /apps, admin
+  agentcore-agent/  Agent loop container for Bedrock AgentCore (POST /invocations SSE, GET /ping)
 packages/
-  db/             Drizzle schema + client + migrations
-  cursor-runtime/ AgentRuntime seam (CursorRuntime + BedrockRuntime + factory)
-  agent/          Tool/model registries + Bedrock loop
-  mcp-servers/    Local integration stubs; GitHub MCP is remote and mounted by apps/web/lib/oauth/mcp-servers.ts
+  db/               Drizzle schema + client + migrations (skills, schedules, shares, apps, runs…)
+  cursor-runtime/   AgentRuntime seam (Cursor + Bedrock + AgentCore runtimes + factory)
+  agent/            Tool/model registries, Bedrock loop, MCP client (connectMcpTools)
+  mcp-servers/      Local integration stubs; GitHub MCP is remote and mounted by apps/web/lib/oauth/mcp-servers.ts
 infra/
-  cdk/            ECS/Fargate, ALB, Route 53, Secrets Manager, and deploy-role wiring
+  cdk/              ECS/Fargate, ALB, Route 53, Secrets Manager, AgentCore spike stack
+specs/
+  001-runtime-v2-autopilot/   Runtime V2 lanes + metrics packet
+  002-skills-spine/           Skills, schedules, shares, thin apps (shipped)
+  003-agentcore-substrate/    AgentCore research, runbook, lane decision (deployed)
 .github/
-  workflows/      CI (lint + typecheck + build on every PR and main push)
+  workflows/        CI (lint + typecheck + test + build on every PR and main push)
 docs/
-  ARCHITECTURE.md End-state component design and request flow
-  ROADMAP.md      Five journeys, integration tiers, flagship use cases
+  ARCHITECTURE.md   End-state component design and request flow
+  ROADMAP.md        Five journeys, integration tiers, flagship use cases
 ```
 
 ## Local dev
@@ -58,7 +64,9 @@ pnpm dev          # http://localhost:3000
 
 | Var | Purpose |
 |---|---|
-| `RUNTIME` | `cursor` (default) or `bedrock` |
+| `RUNTIME` | `cursor` (default), `bedrock`, or `agentcore` |
+| `AGENTCORE_RUNTIME_ARN` | Required for `RUNTIME=agentcore` — the Bedrock AgentCore runtime to invoke |
+| `AGENTCORE_REGION` / `AGENTCORE_QUALIFIER` | Optional AgentCore region override / endpoint qualifier |
 | `CURSOR_API_KEY` | Required for Cursor runtime |
 | `CURSOR_RUNTIME_MODE` | Process default: `local` for normal chat; explicit chat requests can still select `cloud` |
 | `CURSOR_CLOUD_REPO_URL` / `CURSOR_CLOUD_REPO_REF` | Optional repo and starting ref for Cursor Cloud agents |
