@@ -1,11 +1,12 @@
 import { MODEL_IDS } from "@ai-workspace/agent";
-import { getDb, runs, skills } from "@ai-workspace/db";
-import { desc, eq } from "drizzle-orm";
+import { getDb, runs, schedules, skills } from "@ai-workspace/db";
+import { and, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { SUPPORTED_MCP_PROVIDERS } from "@/lib/oauth/mcp-servers";
 import { canViewSkill } from "@/lib/skills";
+import { SchedulePanel } from "@/components/skills/SchedulePanel";
 import { SkillActions } from "@/components/skills/SkillActions";
 import { SkillForm } from "@/components/skills/SkillForm";
 
@@ -25,6 +26,16 @@ export default async function SkillDetailPage({
   if (!skill || !canViewSkill(skill, sessionUser)) notFound();
 
   const isOwner = skill.ownerUserId === sessionUser.id;
+  const mySchedules = await db
+    .select()
+    .from(schedules)
+    .where(
+      and(
+        eq(schedules.skillId, skill.id),
+        eq(schedules.userId, sessionUser.id),
+      ),
+    )
+    .orderBy(desc(schedules.createdAt));
   const history = await db
     .select({
       id: runs.id,
@@ -99,6 +110,27 @@ export default async function SkillDetailPage({
           </p>
         </div>
       )}
+
+      {!skill.archivedAt ? (
+        <div className="mt-6 border-t border-hairline pt-5">
+          <h3 className="pb-2 text-[12px] font-medium uppercase tracking-wider text-muted">
+            Schedule
+          </h3>
+          <SchedulePanel
+            skillId={skill.id}
+            schedules={mySchedules.map((s) => ({
+              id: s.id,
+              cadence: s.cadence,
+              timezone: s.timezone,
+              enabled: s.enabled,
+              lastRunAt: s.lastRunAt?.toISOString() ?? null,
+              nextRunAt: s.nextRunAt.toISOString(),
+              lastError: s.lastError,
+              targetThreadId: s.targetThreadId,
+            }))}
+          />
+        </div>
+      ) : null}
 
       <div className="mt-6 border-t border-hairline pt-5">
         <h3 className="pb-2 text-[12px] font-medium uppercase tracking-wider text-muted">
