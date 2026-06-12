@@ -742,11 +742,19 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     return () => {
       cancelled = true;
     };
-  }, [activeId, tabs]);
+  }, [activeId, tabs, defaultModelId]);
 
   const activeHasPendingRun =
     activeTab?.messages.some((m) => m.pending && m.id.startsWith("run:")) ??
     false;
+
+  // Keep a stable handle on refreshThreads for the polling effect below —
+  // it's redefined every render, and subscribing the interval to it would
+  // tear the poller down on every keystroke.
+  const refreshThreadsRef = useRef(refreshThreads);
+  useEffect(() => {
+    refreshThreadsRef.current = refreshThreads;
+  });
 
   // Background runs no longer keep the `/api/chat` request open. Poll the
   // thread while a pending run placeholder is visible so reloadable run events
@@ -797,7 +805,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             };
           }),
         );
-        if (!hasLoadedPending) void refreshThreads();
+        if (!hasLoadedPending) void refreshThreadsRef.current();
       } catch (err) {
         if (!cancelled) {
           console.error("failed to refresh pending run", err);

@@ -13,6 +13,8 @@ interface NavItem {
   badge?: string;
   /** Tooltip on hover. */
   tooltip?: string;
+  /** When set, the item renders as a link to another workspace surface. */
+  href?: string;
 }
 
 interface NavGroup {
@@ -35,36 +37,21 @@ const groups: NavGroup[] = [
     ],
   },
   {
-    label: "Coming soon",
+    label: "Build & automate",
     items: [
       {
-        id: "scheduled",
-        label: "Scheduled",
-        icon: <IconCalendar />,
-        disabled: true,
-        badge: "Soon",
-        tooltip: "Coming soon — agents that run on a schedule",
+        id: "skills",
+        label: "Skills",
+        icon: <IconSpark />,
+        href: "/skills",
+        tooltip: "Saved agents you can run, schedule, clone, and share",
       },
-    ],
-  },
-  {
-    label: "Later",
-    items: [
       {
         id: "apps",
         label: "Apps",
         icon: <IconGrid />,
-        disabled: true,
-        badge: "Later",
-        tooltip: "Future — build and deploy apps from chat",
-      },
-      {
-        id: "shared",
-        label: "Shared",
-        icon: <IconShare />,
-        disabled: true,
-        badge: "Later",
-        tooltip: "Future — share threads, tools, and apps with teammates",
+        href: "/apps",
+        tooltip: "Small tools built in chat, deployed behind workspace sign-in",
       },
     ],
   },
@@ -616,6 +603,27 @@ export function Sidebar({
                 {group.items.map((item) => {
                   const active = item.id === activeNavId;
                   const disabled = !!item.disabled;
+                  if (item.href) {
+                    return (
+                      <li key={item.id}>
+                        <a
+                          href={item.href}
+                          title={item.tooltip}
+                          className="flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] text-muted hover:bg-subtle hover:text-ink md:min-h-0 md:py-1.5"
+                        >
+                          <span className="flex h-4 w-4 items-center justify-center text-current">
+                            {item.icon}
+                          </span>
+                          <span className="flex-1 truncate">{item.label}</span>
+                          {item.badge ? (
+                            <span className="rounded bg-subtle px-1.5 text-[10px] uppercase tracking-wider text-muted">
+                              {item.badge}
+                            </span>
+                          ) : null}
+                        </a>
+                      </li>
+                    );
+                  }
                   return (
                     <li key={item.id}>
                       <button
@@ -975,7 +983,8 @@ function IconFolder() {
   );
 }
 
-function IconCalendar() {
+
+function IconSpark() {
   return (
     <svg
       viewBox="0 0 16 16"
@@ -983,11 +992,11 @@ function IconCalendar() {
       height="14"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.4"
+      strokeWidth="1.3"
       strokeLinejoin="round"
+      aria-hidden="true"
     >
-      <rect x="2.5" y="3.5" width="11" height="10" rx="1.5" />
-      <path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" />
+      <path d="M8.6 1.8 3.4 9h3.4l-.8 5.2L11.2 7H7.8l.8-5.2Z" />
     </svg>
   );
 }
@@ -1011,24 +1020,6 @@ function IconGrid() {
   );
 }
 
-function IconShare() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinejoin="round"
-    >
-      <circle cx="4" cy="8" r="1.6" />
-      <circle cx="12" cy="4" r="1.6" />
-      <circle cx="12" cy="12" r="1.6" />
-      <path d="m5.5 7.2 5-2.4M5.5 8.8l5 2.4" />
-    </svg>
-  );
-}
 
 function IconShield() {
   return (

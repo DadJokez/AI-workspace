@@ -2,7 +2,7 @@ import type { RunEvent } from "@ai-workspace/db";
 import { type Database, runEvents } from "@ai-workspace/db";
 import { desc, eq } from "drizzle-orm";
 import type { AgentActivityEvent, ActivityState } from "@/lib/activity-events";
-import { buildToolActivityEvents } from "@/lib/activity-events";
+import { categorizeTool, buildToolActivityEvents } from "@/lib/activity-events";
 import {
   type PersistedToolCall,
   type PersistedToolResult,
@@ -161,7 +161,11 @@ export function runEventsToActivityEvents(
     | "toolCallId"
     | "error"
     | "occurredAt"
-  > & { eventType?: string })[],
+  > & {
+    eventType?: string;
+    provider?: string | null;
+    toolName?: string | null;
+  })[],
 ): AgentActivityEvent[] {
   const latestToolEvents = new Map<string, AgentActivityEvent>();
   const generalEvents: AgentActivityEvent[] = [];
@@ -181,6 +185,9 @@ export function runEventsToActivityEvents(
       label: event.label,
       ...(event.error ? { detail: event.error } : {}),
       at: event.occurredAt.toISOString(),
+      category: event.toolCallId
+        ? categorizeTool(event.provider, event.toolName)
+        : ("progress" as const),
     } satisfies AgentActivityEvent;
 
     if (event.toolCallId) {
