@@ -1,7 +1,7 @@
 "use client";
 
 import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
-import { ChatInput } from "@/components/ChatInput";
+import { ChatInput, type SlashSkill } from "@/components/ChatInput";
 import { MessageBubble } from "@/components/MessageBubble";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
 import { SearchPanel } from "@/components/SearchPanel";
@@ -367,6 +367,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const [previewArtifact, setPreviewArtifact] =
     useState<WorkspaceArtifactSummary | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
+  const [slashSkills, setSlashSkills] = useState<SlashSkill[]>([]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -754,6 +755,62 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   useEffect(() => {
     if (user && shouldShowTour(user)) setTourOpen(true);
   }, [user]);
+
+  // Skills for the "/" palette (#144). Loaded once; the list is small and
+  // changes rarely — running a skill navigates away from the composer anyway.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/skills")
+      .then(async (r) => {
+        if (!r.ok) return;
+        const body = (await r.json()) as {
+          skills?: Array<{
+            id: string;
+            slug: string;
+            name: string;
+            description: string | null;
+            mcpProviders: string[];
+            isStarter: boolean;
+            sharedWithMe: boolean;
+          }>;
+        };
+        if (!cancelled && Array.isArray(body.skills)) {
+          setSlashSkills(body.skills);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const runSkillFromChat = async (
+    skill: SlashSkill,
+  ): Promise<string | null> => {
+    try {
+      const res = await fetch(`/api/skills/${skill.id}/run`, {
+        method: "POST",
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        threadId?: string;
+        message?: string;
+        error?: string;
+      };
+      if (res.ok && body.threadId) {
+        void refreshThreads();
+        openThread(body.threadId, skill.name);
+        return null;
+      }
+      return (
+        body.message ??
+        (body.error === "rate_limited"
+          ? "You're running skills too quickly — give it a moment."
+          : `Could not start "${skill.name}".`)
+      );
+    } catch {
+      return `Could not start "${skill.name}".`;
+    }
+  };
 
   const completeTour = () => {
     setTourOpen(false);
@@ -1621,6 +1678,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             <ChatInput
               onSubmit={send}
               disabled={inputDisabled}
+              skills={slashSkills}
+              onRunSkill={runSkillFromChat}
               placeholder={
                 models.length === 0
                   ? "Loading models…"
