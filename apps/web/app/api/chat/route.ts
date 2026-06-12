@@ -7,6 +7,7 @@ import {
   chatThreads,
   getDb,
   runs,
+  workspaceArtifacts,
 } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
@@ -18,6 +19,11 @@ import {
   runtimeV2EnabledFromEnv,
 } from "@/lib/chat-routing";
 import { streamInlineChatRun } from "@/lib/chat-inline-runner";
+import {
+  foldAttachmentsIntoPrompt,
+  scanAttachmentsForSecrets,
+  validateAttachments,
+} from "@/lib/attachments";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
 import {
   checkRateLimit,
@@ -33,6 +39,7 @@ interface ChatRequestBody {
   threadId?: string;
   modelId?: string;
   executionMode?: string;
+  attachments?: Array<{ name: string; content: string }>;
 }
 
 /**
@@ -89,6 +96,15 @@ export async function POST(req: Request) {
       { status: 413 },
     );
   }
+
+  const attachmentCheck = validateAttachments(body.attachments);
+  if (!attachmentCheck.ok) {
+    return NextResponse.json(
+      { error: "invalid_attachments", message: attachmentCheck.error },
+      { status: 400 },
+    );
+  }
+  const attachments = attachmentCheck.attachments;
 
   const modelId: string =
     typeof body.modelId === "string" && body.modelId.trim().length > 0
@@ -179,6 +195,32 @@ export async function POST(req: Request) {
     })
     .returning({ id: chatMessages.id });
 
+  // The bubble shows the typed message; the model sees it plus the folded
+  // attachment text. Each file is also stored as a workspace artifact so it
+  // renders as a chip on the turn (and is downloadable later).
+  const promptForModel = foldAttachmentsIntoPrompt(body.message, attachments);
+  if (attachments.length > 0) {
+    const secretFindings = scanAttachmentsForSecrets(attachments);
+    await db.insert(workspaceArtifacts).values(
+      attachments.map((a) => ({
+        userId: sessionUser.id,
+        threadId: thread.id,
+        chatMessageId: userMsg[0]!.id,
+        title: a.name,
+        filename: a.name,
+        kind: "upload",
+        mimeType: "text/plain",
+        content: a.content,
+        sizeBytes: Buffer.byteLength(a.content, "utf8"),
+        source: "user-upload",
+        metadata:
+          secretFindings.length > 0
+            ? { secretWarning: secretFindings }
+            : null,
+      })),
+    );
+  }
+
   const queuedAt = new Date();
   await db
     .update(chatThreads)
@@ -196,7 +238,7 @@ export async function POST(req: Request) {
       status: runtimeRoute.useWorker ? "queued" : "running",
       modelId,
       inputs: {
-        prompt: body.message,
+        prompt: promptForModel,
         threadId: thread.id,
         userMessageId: userMsg[0]!.id,
         requestedByUserId: sessionUser.id,
@@ -284,7 +326,7 @@ export async function POST(req: Request) {
           thread,
           userId: sessionUser.id,
           userMessageId: userMsg[0]!.id,
-          prompt: body.message,
+          prompt: promptForModel,
           modelId,
           route: runtimeRoute,
           requestStartedAt,

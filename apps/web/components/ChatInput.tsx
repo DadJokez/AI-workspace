@@ -10,6 +10,11 @@ import {
 } from "react";
 import Link from "next/link";
 import {
+  MAX_ATTACHMENTS,
+  isSupportedAttachmentName,
+  type ChatAttachment,
+} from "@/lib/attachments";
+import {
   filterSkillsForCommand,
   isSlashCommand,
   type SlashSkillCandidate,
@@ -23,7 +28,7 @@ export interface SlashSkill extends SlashSkillCandidate {
 }
 
 interface Props {
-  onSubmit: (text: string) => void;
+  onSubmit: (text: string, attachments?: ChatAttachment[]) => void;
   disabled?: boolean;
   placeholder?: string;
   /** Runnable skills for the "/" palette. Empty/undefined = palette off. */
@@ -53,7 +58,10 @@ export function ChatInput({
   const [notice, setNotice] = useState<string | null>(null);
   const [highlight, setHighlight] = useState(0);
   const [launching, setLaunching] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const paletteActive =
     isSlashCommand(text) && skills.length > 0 && !!onRunSkill && !launching;
@@ -94,9 +102,39 @@ export function ChatInput({
     }
   }
 
+  async function addFiles(files: FileList | File[]) {
+    const incoming = Array.from(files);
+    const room = MAX_ATTACHMENTS - attachments.length;
+    if (room <= 0) {
+      setNotice(`You can attach up to ${MAX_ATTACHMENTS} files.`);
+      return;
+    }
+    const next: ChatAttachment[] = [];
+    for (const file of incoming.slice(0, room)) {
+      if (!isSupportedAttachmentName(file.name)) {
+        setNotice(`"${file.name}" isn't a supported text file yet.`);
+        continue;
+      }
+      try {
+        const content = await file.text();
+        next.push({ name: file.name, content });
+      } catch {
+        setNotice(`Could not read "${file.name}".`);
+      }
+    }
+    if (next.length > 0) {
+      setAttachments((prev) => [...prev, ...next]);
+      setNotice(null);
+    }
+  }
+
+  function removeAttachment(name: string) {
+    setAttachments((prev) => prev.filter((a) => a.name !== name));
+  }
+
   function send() {
     const trimmed = text.trim();
-    if (!trimmed || disabled) return;
+    if ((!trimmed && attachments.length === 0) || disabled) return;
 
     // Slash lines are commands, never chat. Run the obvious match or explain.
     if (isSlashCommand(trimmed) && onRunSkill) {
@@ -112,8 +150,9 @@ export function ChatInput({
       return;
     }
 
-    onSubmit(trimmed);
+    onSubmit(trimmed, attachments.length > 0 ? attachments : undefined);
     setText("");
+    setAttachments([]);
     setNotice(null);
   }
 
@@ -209,10 +248,65 @@ export function ChatInput({
         <p className="mb-1.5 px-1 text-[12px] text-muted">{notice}</p>
       ) : null}
 
+      {attachments.length > 0 ? (
+        <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
+          {attachments.map((a) => (
+            <span
+              key={a.name}
+              className="flex items-center gap-1.5 rounded-md border border-hairline bg-subtle px-2 py-1 text-[12px] text-ink"
+            >
+              <PaperclipIcon />
+              <span className="max-w-[160px] truncate">{a.name}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${a.name}`}
+                onClick={() => removeAttachment(a.name)}
+                className="text-muted hover:text-ink"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       <form
         onSubmit={handleSubmit}
-        className="flex w-full items-end gap-2 rounded-lg border border-hairline bg-canvas p-2 focus-within:border-ink/40"
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          if (e.dataTransfer.files.length > 0) void addFiles(e.dataTransfer.files);
+        }}
+        className={`flex w-full items-end gap-2 rounded-lg border bg-canvas p-2 ${
+          dragOver
+            ? "border-ink/60 ring-1 ring-ink/30"
+            : "border-hairline focus-within:border-ink/40"
+        }`}
       >
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files) void addFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+        <button
+          type="button"
+          aria-label="Attach files"
+          disabled={disabled || launching !== null}
+          onClick={() => fileRef.current?.click()}
+          className="flex h-11 w-9 shrink-0 items-center justify-center rounded-md text-muted hover:text-ink disabled:opacity-30 sm:h-7"
+        >
+          <PaperclipIcon />
+        </button>
         <textarea
           ref={taRef}
           value={text}
@@ -221,8 +315,15 @@ export function ChatInput({
             if (notice) setNotice(null);
           }}
           onKeyDown={handleKeyDown}
+          onPaste={(e) => {
+            const files = Array.from(e.clipboardData.files);
+            if (files.length > 0) {
+              e.preventDefault();
+              void addFiles(files);
+            }
+          }}
           rows={1}
-          placeholder={placeholder}
+          placeholder={dragOver ? "Drop files to attach…" : placeholder}
           disabled={disabled || launching !== null}
           // Inline font-size beats every class-level rule. Sub-16px lets
           // iOS Safari (and Comet, which inherits the WebKit zoom rule) zoom
@@ -232,7 +333,11 @@ export function ChatInput({
         />
         <button
           type="submit"
-          disabled={disabled || launching !== null || !text.trim()}
+          disabled={
+            disabled ||
+            launching !== null ||
+            (!text.trim() && attachments.length === 0)
+          }
           aria-label="Send"
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-ink text-canvas disabled:opacity-30 sm:h-7 sm:w-7"
         >
@@ -252,5 +357,23 @@ export function ChatInput({
         </button>
       </form>
     </div>
+  );
+}
+
+function PaperclipIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M13 7.5 8 12.5a3 3 0 0 1-4.2-4.2l5.5-5.5a2 2 0 0 1 2.8 2.8L6.6 11" />
+    </svg>
   );
 }

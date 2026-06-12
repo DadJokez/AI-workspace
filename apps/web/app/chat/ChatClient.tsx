@@ -2,6 +2,7 @@
 
 import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
 import { ChatInput, type SlashSkill } from "@/components/ChatInput";
+import type { ChatAttachment } from "@/lib/attachments";
 import { MessageBubble } from "@/components/MessageBubble";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
 import { SearchPanel } from "@/components/SearchPanel";
@@ -1107,8 +1108,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     });
   }
 
-  async function send(text: string) {
+  async function send(text: string, attachments?: ChatAttachment[]) {
     if (!activeTab || activeTab.busy) return;
+    if (!text.trim() && (!attachments || attachments.length === 0)) return;
     const tabId = activeTab.id;
     const userMsgId = crypto.randomUUID();
     const assistantMsgId = crypto.randomUUID();
@@ -1124,9 +1126,13 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           ? deriveTitle(text)
           : activeTab.title,
     });
+    const attachmentNote =
+      attachments && attachments.length > 0
+        ? `\n\n📎 ${attachments.length} file${attachments.length === 1 ? "" : "s"} attached`
+        : "";
     patchTabMessages(tabId, (prev) => [
       ...prev,
-      { id: userMsgId, role: "user", content: text },
+      { id: userMsgId, role: "user", content: `${text}${attachmentNote}` },
       {
         id: assistantMsgId,
         role: "assistant",
@@ -1148,6 +1154,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           threadId: activeTab.threadId,
           modelId,
           executionMode,
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
         }),
       });
       if (!res.ok) {
