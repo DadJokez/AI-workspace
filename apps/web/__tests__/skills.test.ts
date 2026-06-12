@@ -31,6 +31,8 @@ const admin: SessionUser = {
 interface DbHooks {
   insertReturning?: Array<Record<string, unknown>>;
   selectRows?: Array<Record<string, unknown>>;
+  /** When set, each select terminal (limit/orderBy) consumes the next entry. */
+  selectQueue?: Array<Array<Record<string, unknown>>>;
   onInsertValues?: (values: Record<string, unknown>) => void;
 }
 
@@ -63,11 +65,13 @@ function installDbMock() {
           if (prop === "returning") {
             return () => Promise.resolve(dbHooks.insertReturning ?? []);
           }
-          if (prop === "orderBy") {
-            return () => Promise.resolve(dbHooks.selectRows ?? []);
-          }
-          if (prop === "limit") {
-            return () => Promise.resolve(dbHooks.selectRows ?? []);
+          if (prop === "orderBy" || prop === "limit") {
+            return () =>
+              Promise.resolve(
+                dbHooks.selectQueue
+                  ? (dbHooks.selectQueue.shift() ?? [])
+                  : (dbHooks.selectRows ?? []),
+              );
           }
           return () => proxy;
         },
@@ -234,18 +238,23 @@ describe("POST /api/skills", () => {
 describe("POST /api/skills/[id]/clone", () => {
   it("404s when the skill is not visible to the caller", async () => {
     setSession(stranger);
-    dbHooks.selectRows = [
-      {
-        id: "skill-1",
-        slug: "private-skill",
-        name: "Private",
-        ownerUserId: owner.id,
-        isStarter: false,
-        archivedAt: null,
-        systemPrompt: "secret",
-        modelId: "sonnet-4-6",
-        mcpProviders: [],
-      },
+    dbHooks.selectQueue = [
+      // 1) the skill lookup finds a private skill owned by someone else
+      [
+        {
+          id: "skill-1",
+          slug: "private-skill",
+          name: "Private",
+          ownerUserId: owner.id,
+          isStarter: false,
+          archivedAt: null,
+          systemPrompt: "secret",
+          modelId: "sonnet-4-6",
+          mcpProviders: [],
+        },
+      ],
+      // 2) the share lookup finds no active grant
+      [],
     ];
     installDbMock();
 

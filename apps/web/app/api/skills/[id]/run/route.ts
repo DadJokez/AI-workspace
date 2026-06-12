@@ -3,11 +3,8 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { checkRateLimit, requestLimitConfig } from "@/lib/request-limits";
-import {
-  canRunSkill,
-  checkSkillProviderAccess,
-  createSkillRun,
-} from "@/lib/skills";
+import { checkSkillProviderAccess, createSkillRun } from "@/lib/skills";
+import { canActorRunSkill } from "@/lib/shares";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +48,7 @@ export async function POST(
     .where(eq(skills.id, id))
     .limit(1);
   const skill = rows[0];
-  if (!skill || !canRunSkill(skill, sessionUser)) {
+  if (!skill || !(await canActorRunSkill(db, skill, sessionUser))) {
     return NextResponse.json({ error: "skill_not_found" }, { status: 404 });
   }
 

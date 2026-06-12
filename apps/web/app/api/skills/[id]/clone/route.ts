@@ -4,10 +4,10 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import {
   auditSkillMutation,
-  canViewSkill,
   insertSkillWithUniqueSlug,
   slugifySkillName,
 } from "@/lib/skills";
+import { canActorAccessSkill } from "@/lib/shares";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +33,7 @@ export async function POST(
     .where(eq(skills.id, id))
     .limit(1);
   const source = rows[0];
-  if (!source || !canViewSkill(source, sessionUser)) {
+  if (!source || !(await canActorAccessSkill(db, source, sessionUser))) {
     return NextResponse.json({ error: "skill_not_found" }, { status: 404 });
   }
   if (source.archivedAt) {

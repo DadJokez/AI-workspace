@@ -7,6 +7,7 @@ import {
   insertSkillWithUniqueSlug,
   parseSkillInput,
 } from "@/lib/skills";
+import { listSkillsSharedWith } from "@/lib/shares";
 
 export const dynamic = "force-dynamic";
 
@@ -29,8 +30,18 @@ export async function GET() {
     )
     .orderBy(desc(skills.updatedAt));
 
+  const sharedRaw = await listSkillsSharedWith(db, sessionUser.id);
+  const visibleIds = new Set(rows.map((s) => s.id));
+  const all = [
+    ...rows.map((skill) => ({ skill, shared: false })),
+    ...sharedRaw
+      .filter((s) => !visibleIds.has(s.id))
+      .map((skill) => ({ skill, shared: true })),
+  ];
+
   return NextResponse.json({
-    skills: rows.map((skill) => ({
+    skills: all.map(({ skill, shared }) => ({
+      sharedWithMe: shared,
       id: skill.id,
       slug: skill.slug,
       name: skill.name,

@@ -3,11 +3,8 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import type { SessionUser } from "@ai-workspace/auth";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
-import {
-  auditSkillMutation,
-  canViewSkill,
-  parseSkillInput,
-} from "@/lib/skills";
+import { auditSkillMutation, parseSkillInput } from "@/lib/skills";
+import { canActorAccessSkill } from "@/lib/shares";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +44,9 @@ export async function GET(_req: Request, context: RouteContext) {
   }
   const { id } = await context.params;
   const skill = await loadSkill(id);
-  if (!skill || !canViewSkill(skill, sessionUser)) return notFound();
+  if (!skill || !(await canActorAccessSkill(getDb(), skill, sessionUser))) {
+    return notFound();
+  }
   return NextResponse.json({
     skill: { ...skill, isOwner: skill.ownerUserId === sessionUser.id },
   });
@@ -60,7 +59,9 @@ export async function PATCH(req: Request, context: RouteContext) {
   }
   const { id } = await context.params;
   const skill = await loadSkill(id);
-  if (!skill || !canViewSkill(skill, sessionUser)) return notFound();
+  if (!skill || !(await canActorAccessSkill(getDb(), skill, sessionUser))) {
+    return notFound();
+  }
   const forbidden = forbiddenUnlessOwner(skill, sessionUser);
   if (forbidden) return forbidden;
   if (skill.archivedAt) {
@@ -115,7 +116,9 @@ export async function DELETE(_req: Request, context: RouteContext) {
   }
   const { id } = await context.params;
   const skill = await loadSkill(id);
-  if (!skill || !canViewSkill(skill, sessionUser)) return notFound();
+  if (!skill || !(await canActorAccessSkill(getDb(), skill, sessionUser))) {
+    return notFound();
+  }
   const forbidden = forbiddenUnlessOwner(skill, sessionUser);
   if (forbidden) return forbidden;
 

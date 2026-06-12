@@ -2,6 +2,7 @@ import { getDb, skills } from "@ai-workspace/db";
 import { and, desc, eq, isNull, or } from "drizzle-orm";
 import Link from "next/link";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { listSkillsSharedWith } from "@/lib/shares";
 import { SkillActions } from "@/components/skills/SkillActions";
 import { SeedStartersButton } from "@/components/skills/SeedStartersButton";
 
@@ -26,6 +27,9 @@ export default async function SkillsPage() {
   const starters = rows.filter(
     (s) => s.isStarter && s.ownerUserId !== sessionUser.id,
   );
+  const sharedRaw = await listSkillsSharedWith(db, sessionUser.id);
+  const visibleIds = new Set(rows.map((s) => s.id));
+  const shared = sharedRaw.filter((s) => !visibleIds.has(s.id));
 
   return (
     <section className="px-6 py-6">
@@ -60,6 +64,9 @@ export default async function SkillsPage() {
 
       {mine.length > 0 ? (
         <SkillGroup title="Your skills" skillRows={mine} isOwner />
+      ) : null}
+      {shared.length > 0 ? (
+        <SkillGroup title="Shared with you" skillRows={shared} isOwner={false} />
       ) : null}
       {starters.length > 0 ? (
         <SkillGroup title="Starters" skillRows={starters} isOwner={false} />

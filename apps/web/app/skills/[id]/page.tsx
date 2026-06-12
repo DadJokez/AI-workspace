@@ -5,8 +5,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { SUPPORTED_MCP_PROVIDERS } from "@/lib/oauth/mcp-servers";
-import { canViewSkill } from "@/lib/skills";
+import { canActorAccessSkill, listSharesForSubject } from "@/lib/shares";
 import { SchedulePanel } from "@/components/skills/SchedulePanel";
+import { SharePanel } from "@/components/skills/SharePanel";
 import { SkillActions } from "@/components/skills/SkillActions";
 import { SkillForm } from "@/components/skills/SkillForm";
 
@@ -23,9 +24,14 @@ export default async function SkillDetailPage({
   const db = getDb();
   const rows = await db.select().from(skills).where(eq(skills.id, id)).limit(1);
   const skill = rows[0];
-  if (!skill || !canViewSkill(skill, sessionUser)) notFound();
+  if (!skill || !(await canActorAccessSkill(db, skill, sessionUser))) {
+    notFound();
+  }
 
   const isOwner = skill.ownerUserId === sessionUser.id;
+  const skillShares = isOwner
+    ? await listSharesForSubject(db, "skill", skill.id)
+    : [];
   const mySchedules = await db
     .select()
     .from(schedules)
@@ -127,6 +133,22 @@ export default async function SkillDetailPage({
               nextRunAt: s.nextRunAt.toISOString(),
               lastError: s.lastError,
               targetThreadId: s.targetThreadId,
+            }))}
+          />
+        </div>
+      ) : null}
+
+      {isOwner && !skill.archivedAt ? (
+        <div className="mt-6 border-t border-hairline pt-5">
+          <h3 className="pb-2 text-[12px] font-medium uppercase tracking-wider text-muted">
+            Sharing
+          </h3>
+          <SharePanel
+            skillId={skill.id}
+            shares={skillShares.map((share) => ({
+              id: share.id,
+              grantedToEmail: share.grantedToEmail,
+              grantedToName: share.grantedToName,
             }))}
           />
         </div>
