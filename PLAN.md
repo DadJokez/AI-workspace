@@ -145,7 +145,6 @@ model fallback, metrics, and shared-rate-limit follow-up work.
 | `chat_messages` | ✅ |
 | `oauth_tokens` (AES-256-GCM encrypted, per-user) | ✅ |
 | `invitations` | ✅ |
-| `recipe_runs` | ✅ |
 | `memory_capture_queue` | ✅ |
 | `user_memory_items` | ✅ |
 | `audit_log` | ✅ schema + MCP tool/skill/schedule/share/app writes |
@@ -158,6 +157,7 @@ model fallback, metrics, and shared-rate-limit follow-up work.
 | `apps` | ✅ thin-app registry over workspace artifacts |
 | `runs` | ✅ (renamed from `recipe_runs`; ledger for chat/skill/scheduled/workflow) |
 | `users.tour_completed_at` | ✅ first-run tour gate |
+| `users.assistant_name` | ✅ named assistant (onboarding wizard, specs/005) |
 
 ## Roadmap (weekly ships)
 
