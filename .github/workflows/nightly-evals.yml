@@ -1,0 +1,83 @@
+name: Nightly Evals
+
+# Real-model behavior evals (specs/004). Separate from the per-PR CI (which
+# stays mock-only and free) because this spends real Bedrock tokens (~$0.01).
+on:
+  schedule:
+    - cron: "0 7 * * *" # 07:00 UTC daily
+  workflow_dispatch: {} # and on demand
+
+jobs:
+  evals:
+    name: real-model evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Skipped automatically on forks / when AWS creds aren't configured.
+    permissions:
+      id-token: write
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.12.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # AWS creds via OIDC role assumption (no long-lived keys). Configure
+      # AWS_EVAL_ROLE_ARN as a repo secret/variable; the role needs
+      # bedrock:InvokeModelWithResponseStream on the Claude models.
+      - name: Configure AWS credentials
+        if: ${{ vars.AWS_EVAL_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_EVAL_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Run evals
+        if: ${{ vars.AWS_EVAL_ROLE_ARN != '' }}
+        id: evals
+        env:
+          AWS_REGION: us-east-1
+          BEDROCK_CLIENT: real
+        run: pnpm eval
+
+      - name: Upload report
+        if: ${{ always() && vars.AWS_EVAL_ROLE_ARN != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: packages/evals/eval-reports/
+
+      - name: Open/refresh regression issue on failure
+        if: ${{ failure() && vars.AWS_EVAL_ROLE_ARN != '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = "Nightly evals failing";
+            const body = `The nightly real-model eval suite failed on ${context.sha.slice(0,7)}. Download the \`eval-report\` artifact from the run for the failing cases:\n${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: "open", labels: "eval-regression",
+            });
+            if (existing.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.data[0].number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body, labels: ["eval-regression"],
+              });
+            }

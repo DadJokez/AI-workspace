@@ -1,0 +1,117 @@
+import { writeFileSync, mkdirSync } from "node:fs";
+import { FakeBedrockClient } from "@ai-workspace/agent";
+import { runSuite } from "./harness";
+import type { CapabilityResult, EvalSuite } from "./types";
+import { dateGroundingSuite } from "./cases/date-grounding.cases";
+import { skillFaithfulnessSuite } from "./cases/skill-faithfulness.cases";
+
+const SUITES: EvalSuite[] = [dateGroundingSuite, skillFaithfulnessSuite];
+
+/**
+ * CLI entry (FR-005): `pnpm eval [capability]` runs all or one capability
+ * against real Bedrock, prints a report, writes JSON+Markdown under
+ * eval-reports/, and exits non-zero on any failure. `--mock` swaps the fake
+ * client for a free structural-only pass (won't catch model-behavior bugs,
+ * but proves the harness wiring in plain CI).
+ */
+async function main() {
+  const args = process.argv.slice(2);
+  const mock = args.includes("--mock");
+  const filter = args.find((a) => !a.startsWith("--"));
+  const suites = filter
+    ? SUITES.filter((s) => s.capability === filter)
+    : SUITES;
+
+  if (suites.length === 0) {
+    console.error(
+      `No suite matches "${filter}". Available: ${SUITES.map((s) => s.capability).join(", ")}`,
+    );
+    process.exit(2);
+  }
+
+  if (mock) {
+    console.log("⚠️  --mock: structural run only; model-behavior bugs WILL pass.\n");
+  } else if (!process.env.AWS_REGION && !process.env.AWS_DEFAULT_REGION) {
+    console.error(
+      "Real-model eval needs AWS_REGION (or --mock). Refusing to run blind.",
+    );
+    process.exit(2);
+  }
+
+  const options = mock ? { client: new FakeBedrockClient({ delayMs: 0 }) } : {};
+  const results: CapabilityResult[] = [];
+  let totalIn = 0;
+  let totalOut = 0;
+
+  for (const suite of suites) {
+    process.stdout.write(`\n▶ ${suite.capability}\n`);
+    const result = await runSuite(suite, options);
+    results.push(result);
+    for (const c of result.results) {
+      totalIn += c.tokensIn;
+      totalOut += c.tokensOut;
+      const icon = c.errored ? "💥" : c.passed ? "✅" : "❌";
+      process.stdout.write(`  ${icon} ${c.caseId} — ${c.description}\n`);
+      if (c.errored) {
+        process.stdout.write(`       error: ${c.errored}\n`);
+      } else if (!c.passed) {
+        for (const a of c.assertions.filter((x) => !x.ok)) {
+          process.stdout.write(
+            `       ✗ ${a.label}${a.detail ? ` — ${a.detail}` : ""}\n`,
+          );
+        }
+        process.stdout.write(`       answer: ${c.answerPreview}\n`);
+      }
+    }
+  }
+
+  const totalPassed = results.reduce((n, r) => n + r.passed, 0);
+  const totalFailed = results.reduce((n, r) => n + r.failed, 0);
+  const approxCostUsd = (totalIn / 1_000_000) * 1 + (totalOut / 1_000_000) * 5;
+
+  process.stdout.write(
+    `\n${totalFailed === 0 ? "✅" : "❌"} ${totalPassed} passed, ${totalFailed} failed · ` +
+      `${totalIn}+${totalOut} tokens · ~$${approxCostUsd.toFixed(4)}${mock ? " (mock)" : ""}\n`,
+  );
+
+  writeReport(results, { mock, totalIn, totalOut, approxCostUsd });
+  process.exit(totalFailed === 0 ? 0 : 1);
+}
+
+function writeReport(
+  results: CapabilityResult[],
+  meta: { mock: boolean; totalIn: number; totalOut: number; approxCostUsd: number },
+) {
+  try {
+    mkdirSync("eval-reports", { recursive: true });
+  } catch {
+    /* ignore */
+  }
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const base = `eval-reports/${stamp}${meta.mock ? "-mock" : ""}`;
+
+  writeFileSync(`${base}.json`, JSON.stringify({ meta, results }, null, 2));
+
+  const md: string[] = [
+    `# Eval report ${stamp}${meta.mock ? " (mock)" : ""}`,
+    "",
+    `~$${meta.approxCostUsd.toFixed(4)} · ${meta.totalIn}+${meta.totalOut} tokens`,
+    "",
+  ];
+  for (const r of results) {
+    md.push(`## ${r.capability} — ${r.passed}/${r.passed + r.failed} passed`, "");
+    for (const c of r.results) {
+      md.push(`- ${c.passed ? "✅" : c.errored ? "💥" : "❌"} **${c.caseId}** — ${c.description}`);
+      if (!c.passed && !c.errored) {
+        for (const a of c.assertions.filter((x) => !x.ok)) {
+          md.push(`  - ✗ ${a.label}${a.detail ? ` — ${a.detail}` : ""}`);
+        }
+      }
+    }
+    md.push("");
+  }
+  writeFileSync(`${base}.md`, md.join("\n"));
+  process.stdout.write(`\n📄 report: ${base}.md\n`);
+}
+
+void main();
