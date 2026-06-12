@@ -123,7 +123,9 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       RUNTIME: "cursor",
       RUNTIME_V2_ENABLED: "1",
       RUNTIME_V2_DIRECT_RUNTIME: "bedrock",
-      RUNTIME_V2_DIRECT_MODEL_ID: "haiku-4-5",
+      // Autopilot (#110): pick the model per ask — Haiku for short/simple
+      // turns, Sonnet for writing/reasoning/code. Was pinned to haiku-4-5.
+      RUNTIME_V2_DIRECT_MODEL_ID: "auto",
       CURSOR_RUNTIME_MODE: "local",
       CURSOR_CLOUD_REPO_URL: "https://github.com/DadJokez/AI-workspace",
       CURSOR_CLOUD_REPO_REF: "main",
