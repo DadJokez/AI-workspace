@@ -11,7 +11,7 @@
 > building this Friday"; this doc is "what experience are we shaping,
 > and how does the catalog grow to support it".
 >
-> **Status as of May 2026:** J1 is fully shipped. J2 is underway — GitHub MCP is live per-user behind the provider attestation gate, bounded turn context is shipped, tool calls/results, MCP audit rows, and reloadable `run_events` are persisted, chat now shows a compact agent activity timeline, MCP server/tools catalog/user attestation schemas are in place with read-only admin visibility, and the durable `recipe_runs` ledger is available for workflow/scheduled/chat-originated execution. Cursor Cloud recovery handles, worker-backed chat runs, and user/admin run cancel/retry/resume controls are wired for long chat runs. M365, Salesforce, ServiceNow, SAP, SAP HANA, Workfront, and Databricks are represented as next-integration placeholders. Vault now has a governed memory capture path: queued transcript windows, suggested memory items, approval/edit/dismiss/archive controls, generated Markdown, and approved context injection into future chats. J3–J5 are not yet started.
+> **Status as of June 2026:** Every journey now has shipped surface. **J1** chat is mature (work receipts, first-run tour, slash-command palette). **J2** runs GitHub end-to-end behind the attestation gate, and the **Skills** catalog (specs/002) made saved agents real: create/run/clone/share at `/skills`, 7 starters, "/" palette in chat. **J3** shipped its scheduling half — leased scheduler, timezone-safe cadences, runs into designated threads; event triggers and SES delivery remain (#27). **J4** shipped its thin slice — `apps` registry over chat-built artifacts, SSO-gated serving at `/apps/{slug}`, versions/revert, no-secrets scan (#133 tracks the full epic). **J5** shipped its seed — share skills and apps to named teammates, recipient-credentials-only, owner revocation. Substrate: worker lanes (durable/skill/scheduled) execute on **Bedrock AgentCore in our account** (specs/003); fast chat is direct Bedrock; Cursor is the explicit innovation lane. The run ledger is `runs` (née `recipe_runs`); "recipes" are **skills** everywhere. M365, Salesforce, ServiceNow, SAP, Workfront, and Databricks remain next-integration placeholders.
 >
 > **Product boundary:** AI Hub is a thin enterprise wrapper around existing AI and work platforms. It should remove friction, centralize governance, and make tools discoverable; it should not rebuild Cursor, Bedrock, M365, Salesforce, Workfront, Databricks, or deployment platforms unless that layer is needed for control, audit, portability, or user experience.
 
@@ -43,7 +43,9 @@ This is what makes "talk to your work" real rather than aspirational.
 
 **Requires for full J2:** lower-level tool/category filtering for write-side calls across all integrations, a verified hook workflow or MCP proxy for policy enforcement, retention automation, rate limits and quotas, and real OAuth/MCP implementations behind the expanded integration catalog.
 
-### J3 — Scheduled Agent ⏳ Not started
+### J3 — Scheduled Agent 🔄 Scheduling shipped (June 2026)
+
+**Shipped:** `schedules` table + leased scheduler tick in the chat-run worker; timezone-safe cadences (DST-tested); scheduled runs land in designated threads through the shared seam and execute on AgentCore. **Remaining:** event/webhook triggers and SES delivery (#27).
 
 The same chat-with-tools agent, invoked on a **schedule** or in
 response to an **event** instead of a user keystroke. "Every Monday
@@ -59,7 +61,9 @@ changes). Scheduling is the easier half; webhooks are where this
 graduates from "tool" to "autonomous agent". PLAN.md week 5 sequences
 the scheduling piece; webhooks are a follow-on.
 
-### J4 — App Build and Deploy ⏳ Not started
+### J4 — App Build and Deploy 🔄 Thin slice shipped (June 2026)
+
+**Shipped (thin slice, #133 tracks the full epic):** chat-built HTML artifacts deploy one-click into the `apps` registry, served SSO-gated at `/apps/{slug}` with a restrictive CSP; versions + plain-language revert; no-secrets scan at save; sharing built in. **Not yet:** the conversational build-iterate loop on a deployed app, git/pipeline substrate, per-app services.
 
 A user describes a small internal web app in conversation. The
 workspace agent writes the code, shows a preview, iterates with the
@@ -139,7 +143,9 @@ understands. The complexity of git, branches, conflicts, and CI lives
 behind the agent — surfaced only when (and how) the agent decides
 the user needs to make a decision.
 
-### J5 — Share ⏳ Not started
+### J5 — Share 🔄 Seed shipped (June 2026)
+
+**Shipped:** skills and apps share to named teammates via the generic `shares` table — recipients run/open with their **own** credentials, never the owner's; owners revoke; recipients clone. **Not yet:** thread sharing, org-wide visibility, the catalog/feed distribution surface (#78).
 
 Any artifact in the workspace — a chat thread, a scheduled agent
 config, a deployed app — can be shared with named teammates,
