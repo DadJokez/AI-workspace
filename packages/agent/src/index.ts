@@ -37,3 +37,6 @@ export type {
 
 export { DEFAULT_MAX_TOOL_ITERATIONS, runAgentLoop } from "./loop";
 export type { RunAgentLoopParams } from "./loop";
+
+export { connectMcpTools, mcpToolName } from "./mcp";
+export type { McpHttpServerSpec, McpToolConnection } from "./mcp";
