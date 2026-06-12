@@ -200,4 +200,60 @@ describe("decideChatRuntimeRoute", () => {
       includeVaultContext: true,
     });
   });
+
+  // Conversation-level tool stickiness. Born from a real failure: the model
+  // answered "no GitHub issues", then a turn later — asked "what repos did you
+  // check?" — said "I don't actually have access to GitHub". The follow-up had
+  // no tool keywords so it dropped to the tool-less fast lane and contradicted
+  // itself. Stickiness keeps GitHub mounted across the thread.
+  it("keeps tools mounted on a follow-up after a thread already used them", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "what repos did you check?",
+        runtimeV2: true,
+        priorUserMessages: [
+          "Open GitHub issues assigned to me — what should I tackle first?",
+        ],
+      }),
+    ).toMatchObject({
+      lane: "tool-local",
+      executionMode: "local",
+      runtimeTarget: "cursor-agent",
+      useWorker: false,
+      useMcp: true,
+      reasons: ["sticky_tool_thread"],
+    });
+  });
+
+  it("does not stick tools when no earlier turn needed them", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "what repos did you check?",
+        runtimeV2: true,
+        priorUserMessages: ["tell me a joke", "now make it shorter"],
+      }),
+    ).toMatchObject({
+      lane: "fast-local",
+      runtimeTarget: "direct-chat",
+      useWorker: false,
+      useMcp: false,
+    });
+  });
+
+  it("stickiness upgrades a follow-up to inline tools, never the durable worker", () => {
+    // A prior durable turn shouldn't force every later chit-chat turn into the
+    // background worker — keep tools warm inline instead.
+    expect(
+      decideChatRuntimeRoute({
+        message: "thanks — what did that change?",
+        runtimeV2: true,
+        priorUserMessages: ["Implement the new settings page and run tests"],
+      }),
+    ).toMatchObject({
+      lane: "tool-local",
+      useWorker: false,
+      useMcp: true,
+      reasons: ["sticky_tool_thread"],
+    });
+  });
 });
