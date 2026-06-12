@@ -46,6 +46,7 @@ export async function* runAgentLoop(
   // "now" — without this, date questions get confident hallucinations
   // (observed: "31 days until Christmas 2024", mid-June 2026).
   const systemPrompt = [
+    `You are Claude ${model.displayName}, made by Anthropic. If asked which model or version you are, answer "Claude ${model.displayName}" — never claim to be an older model such as "Claude 3.5".`,
     `Current date and time (UTC): ${new Date().toISOString()}. Treat this as ground truth for any date or time reasoning; the user's local timezone may differ.`,
     params.systemPrompt,
   ]
