@@ -8,12 +8,9 @@ interface Tab {
   label: string;
 }
 
-// Usage is intentionally absent — the `usage_events` table hasn't landed,
-// so the page only renders a "coming soon" placeholder. Showing it as a
-// real tab is confusing. Re-add this entry once the table exists:
-//   { href: "/admin/usage", label: "Usage" },
 const tabs: Tab[] = [
   { href: "/admin", label: "Users" },
+  { href: "/admin/usage", label: "Usage" },
   { href: "/admin/tools", label: "Tools" },
   { href: "/admin/runs", label: "Runs" },
   { href: "/admin/audit", label: "Audit" },
