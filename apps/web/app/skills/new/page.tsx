@@ -1,5 +1,6 @@
 import { MODEL_IDS } from "@ai-workspace/agent";
 import Link from "next/link";
+import { ImportSkillPanel } from "@/components/skills/ImportSkillPanel";
 import { SkillForm } from "@/components/skills/SkillForm";
 import { SUPPORTED_MCP_PROVIDERS } from "@/lib/oauth/mcp-servers";
 
@@ -23,6 +24,9 @@ export default function NewSkillPage() {
         modelOptions={[...MODEL_IDS]}
         providerOptions={SUPPORTED_MCP_PROVIDERS}
       />
+      <div className="mt-4 border-t border-hairline pt-4">
+        <ImportSkillPanel />
+      </div>
     </section>
   );
 }

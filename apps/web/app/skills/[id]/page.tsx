@@ -79,7 +79,16 @@ export default async function SkillDetailPage({
             </p>
           </div>
           {!skill.archivedAt ? (
-            <SkillActions skillId={skill.id} isOwner={isOwner} showArchive />
+            <div className="flex items-center gap-3">
+              <a
+                href={`/api/skills/${skill.id}/export`}
+                className="text-[12px] text-muted hover:text-ink"
+                title="Download as a portable SKILL.md"
+              >
+                Export
+              </a>
+              <SkillActions skillId={skill.id} isOwner={isOwner} showArchive />
+            </div>
           ) : null}
         </div>
       </div>
