@@ -5,7 +5,7 @@ import { getSessionUser } from "@/lib/auth/getSessionUser";
 
 export const dynamic = "force-dynamic";
 
-export default async function SkillsLayout({
+export default async function AppsLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -19,15 +19,18 @@ export default async function SkillsLayout({
       <header className="flex items-center justify-between border-b border-hairline px-6 py-3">
         <div className="flex items-center gap-3">
           <h1 className="text-sm font-semibold text-ink">
-            <Link href="/skills">Skills</Link>
+            <Link href="/apps">Apps</Link>
           </h1>
           <span className="text-[11px] uppercase tracking-wider text-muted">
             Workspace
           </span>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/apps" className="text-[13px] text-muted hover:text-ink">
-            Apps
+          <Link
+            href="/skills"
+            className="text-[13px] text-muted hover:text-ink"
+          >
+            Skills
           </Link>
           <ThemeToggle />
           <Link href="/chat" className="text-[13px] text-muted hover:text-ink">

@@ -144,7 +144,8 @@ export default async function SkillDetailPage({
             Sharing
           </h3>
           <SharePanel
-            skillId={skill.id}
+            subjectType="skill"
+            subjectId={skill.id}
             shares={skillShares.map((share) => ({
               id: share.id,
               grantedToEmail: share.grantedToEmail,

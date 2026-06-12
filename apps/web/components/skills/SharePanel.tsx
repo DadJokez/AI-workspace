@@ -10,19 +10,22 @@ interface ShareRow {
 }
 
 interface SharePanelProps {
-  skillId: string;
+  subjectType: "skill" | "app";
+  subjectId: string;
   shares: ShareRow[];
 }
 
 /**
- * Owner-only sharing controls. A share grants run + clone with the
- * recipient's own credentials — never edit, never the owner's tokens.
+ * Owner-only sharing controls for skills and apps. A share grants run/open +
+ * clone with the recipient's own credentials — never edit, never the owner's
+ * tokens.
  */
-export function SharePanel({ skillId, shares }: SharePanelProps) {
+export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const noun = subjectType === "app" ? "app" : "skill";
 
   async function handleShare(e: React.FormEvent) {
     e.preventDefault();
@@ -32,11 +35,7 @@ export function SharePanel({ skillId, shares }: SharePanelProps) {
       const res = await fetch("/api/shares", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          subjectType: "skill",
-          subjectId: skillId,
-          email,
-        }),
+        body: JSON.stringify({ subjectType, subjectId, email }),
       });
       const body = (await res.json()) as { message?: string; error?: string };
       if (res.ok) {
@@ -44,9 +43,9 @@ export function SharePanel({ skillId, shares }: SharePanelProps) {
         router.refresh();
         return;
       }
-      setNotice(body.message ?? body.error ?? "Could not share the skill.");
+      setNotice(body.message ?? body.error ?? `Could not share the ${noun}.`);
     } catch {
-      setNotice("Could not share the skill.");
+      setNotice(`Could not share the ${noun}.`);
     } finally {
       setBusy(false);
     }
@@ -82,8 +81,9 @@ export function SharePanel({ skillId, shares }: SharePanelProps) {
         </ul>
       ) : (
         <p className="text-[12px] text-muted">
-          Not shared yet. Recipients can run and clone it with their own
-          credentials — never yours.
+          {subjectType === "app"
+            ? "Not shared yet. Recipients can open the app behind workspace sign-in — they never get edit access or your credentials."
+            : "Not shared yet. Recipients can run and clone it with their own credentials — never yours."}
         </p>
       )}
 
