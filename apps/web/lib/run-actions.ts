@@ -3,16 +3,26 @@ import { cancelCursorCloudRun } from "@ai-workspace/cursor-runtime";
 import {
   auditLog,
   type Database,
-  recipeRuns,
-  type RecipeRun,
+  runs,
+  type Run,
 } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
+
+const WORKER_TRIGGER_TYPES = new Set(["skill", "scheduled", "skill_retry"]);
+
+function isWorkerExecutableRun(
+  run: Pick<Run, "skillSlug" | "triggerType">,
+): boolean {
+  return (
+    run.skillSlug === "chat-turn" || WORKER_TRIGGER_TYPES.has(run.triggerType)
+  );
+}
 import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
 import { appendRunEventWithNextSequence } from "@/lib/run-events";
 
 type RunActionResult =
-  | { ok: true; run: Pick<RecipeRun, "id" | "status"> }
+  | { ok: true; run: Pick<Run, "id" | "status"> }
   | { ok: false; status: number; error: string; message: string };
 
 interface ChatRunInputs {
@@ -46,12 +56,12 @@ export async function cancelRun({
   if (!run) {
     return notFound();
   }
-  if (run.recipeSlug !== "chat-turn") {
+  if (!isWorkerExecutableRun(run)) {
     return {
       ok: false,
       status: 400,
       error: "unsupported_run_type",
-      message: "Only chat runs can be canceled from this endpoint.",
+      message: "Only chat and skill runs can be canceled from this endpoint.",
     };
   }
   if (run.status !== "queued" && run.status !== "running") {
@@ -86,7 +96,7 @@ export async function cancelRun({
     ? `Canceled in AI Hub. Provider cancel returned: ${providerCancelError}`
     : "Canceled by user.";
   const rows = await db
-    .update(recipeRuns)
+    .update(runs)
     .set({
       status: "canceled",
       error,
@@ -95,12 +105,12 @@ export async function cancelRun({
       completedAt: now,
       updatedAt: now,
     })
-    .where(eq(recipeRuns.id, run.id))
-    .returning({ id: recipeRuns.id, status: recipeRuns.status });
+    .where(eq(runs.id, run.id))
+    .returning({ id: runs.id, status: runs.status });
 
   await appendRunEventWithNextSequence({
     db,
-    recipeRunId: run.id,
+    runId: run.id,
     eventType: "run_canceled",
     status: "failed",
     label: "Run canceled",
@@ -121,7 +131,7 @@ export async function cancelRun({
     provider: "ai-hub",
     toolName: "run_cancel",
     chatThreadId: run.threadId,
-    recipeRunId: run.id,
+    runId: run.id,
     input: { runId: run.id },
     error: providerCancelError,
     metadata: { previousStatus: run.status },
@@ -143,12 +153,12 @@ export async function retryChatRun({
 }): Promise<RunActionResult> {
   const run = await findAuthorizedRun(db, actor, runId);
   if (!run) return notFound();
-  if (run.recipeSlug !== "chat-turn") {
+  if (!isWorkerExecutableRun(run)) {
     return {
       ok: false,
       status: 400,
       error: "unsupported_run_type",
-      message: "Only chat runs can be retried from this endpoint.",
+      message: "Only chat and skill runs can be retried from this endpoint.",
     };
   }
   if (run.status !== "failed" && run.status !== "canceled") {
@@ -172,12 +182,14 @@ export async function retryChatRun({
 
   const now = new Date();
   const rows = await db
-    .insert(recipeRuns)
+    .insert(runs)
     .values({
       userId: run.userId,
       threadId: inputs.threadId,
-      recipeSlug: "chat-turn",
-      triggerType: "chat_retry",
+      skillId: run.skillId,
+      skillSlug: run.skillSlug,
+      scheduleId: run.scheduleId,
+      triggerType: run.skillSlug === "chat-turn" ? "chat_retry" : "skill_retry",
       status: "queued",
       modelId: run.modelId,
       inputs: {
@@ -190,12 +202,12 @@ export async function retryChatRun({
       },
       updatedAt: now,
     })
-    .returning({ id: recipeRuns.id, status: recipeRuns.status });
+    .returning({ id: runs.id, status: runs.status });
   const nextRun = rows[0]!;
 
   await appendRunEventWithNextSequence({
     db,
-    recipeRunId: nextRun.id,
+    runId: nextRun.id,
     eventType: "run_queued",
     status: "pending",
     label: "Queued retry",
@@ -213,7 +225,7 @@ export async function retryChatRun({
     provider: "ai-hub",
     toolName: "run_retry",
     chatThreadId: inputs.threadId,
-    recipeRunId: nextRun.id,
+    runId: nextRun.id,
     input: { retryOfRunId: run.id },
     metadata: { sourceStatus: run.status },
     startedAt: now,
@@ -235,12 +247,12 @@ export async function resumeChatRun({
 }): Promise<RunActionResult> {
   const run = await findAuthorizedRun(db, actor, runId);
   if (!run) return notFound();
-  if (run.recipeSlug !== "chat-turn") {
+  if (!isWorkerExecutableRun(run)) {
     return {
       ok: false,
       status: 400,
       error: "unsupported_run_type",
-      message: "Only chat runs can be resumed from this endpoint.",
+      message: "Only chat and skill runs can be resumed from this endpoint.",
     };
   }
   if (run.status !== "queued" && run.status !== "running") {
@@ -254,15 +266,15 @@ export async function resumeChatRun({
 
   const now = new Date();
   await db
-    .update(recipeRuns)
+    .update(runs)
     .set({
       leaseExpiresAt: new Date(0),
       updatedAt: now,
     })
-    .where(eq(recipeRuns.id, run.id));
+    .where(eq(runs.id, run.id));
   await appendRunEventWithNextSequence({
     db,
-    recipeRunId: run.id,
+    runId: run.id,
     eventType: "run_resume_requested",
     status: "pending",
     label: "Resume requested",
@@ -275,7 +287,7 @@ export async function resumeChatRun({
     provider: "ai-hub",
     toolName: "run_resume",
     chatThreadId: run.threadId,
-    recipeRunId: run.id,
+    runId: run.id,
     input: { runId: run.id },
     metadata: { previousStatus: run.status },
     startedAt: now,
@@ -290,14 +302,14 @@ async function findAuthorizedRun(
   db: Database,
   actor: SessionUser,
   runId: string,
-): Promise<RecipeRun | null> {
+): Promise<Run | null> {
   const rows = await db
     .select()
-    .from(recipeRuns)
+    .from(runs)
     .where(
       actor.role === "admin"
-        ? eq(recipeRuns.id, runId)
-        : and(eq(recipeRuns.id, runId), eq(recipeRuns.userId, actor.id)),
+        ? eq(runs.id, runId)
+        : and(eq(runs.id, runId), eq(runs.userId, actor.id)),
     )
     .limit(1);
   return rows[0] ?? null;

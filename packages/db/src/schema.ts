@@ -10,10 +10,11 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 /**
- * Core workspace schema. Recipe definitions land in later PRs.
+ * Core workspace schema.
  *
  * `users.ping_subject` holds the external identity-provider subject:
  *   - current POC: GitHub OAuth account id from NextAuth
@@ -30,7 +31,7 @@ export const userRoleEnum = pgEnum("user_role", ["admin", "user"]);
 
 export type UserRole = (typeof userRoleEnum.enumValues)[number];
 
-export const recipeRunStatusEnum = pgEnum("recipe_run_status", [
+export const runStatusEnum = pgEnum("run_status", [
   "queued",
   "running",
   "succeeded",
@@ -38,7 +39,7 @@ export const recipeRunStatusEnum = pgEnum("recipe_run_status", [
   "canceled",
 ]);
 
-export type RecipeRunStatus = (typeof recipeRunStatusEnum.enumValues)[number];
+export type RunStatus = (typeof runStatusEnum.enumValues)[number];
 
 export const memoryCaptureStatusEnum = pgEnum("memory_capture_status", [
   "pending",
@@ -291,25 +292,124 @@ export const invitations = pgTable(
 );
 
 /**
- * Durable execution records for recipes, scheduled jobs, and workflow-style
- * agent runs. The `recipe_id` is intentionally nullable and not yet a foreign
- * key because recipe definitions ship in a later migration; early runs can be
- * keyed by `recipe_slug` while the catalog is still hardcoded.
+ * Skills are the user-facing primitive: a saved, shareable agent definition
+ * `{system_prompt, mcp_providers, model}` that users create, clone, edit,
+ * run, schedule, and share. Execution always materializes through the
+ * `AgentRuntime` seam and re-gates on the *executing* user's provider
+ * connections and attestations — owning or receiving a skill never grants
+ * credentials.
  */
-export const recipeRuns = pgTable(
-  "recipe_runs",
+export const skills = pgTable(
+  "skills",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** URL-safe, globally unique — skills are shareable across users. */
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    systemPrompt: text("system_prompt").notNull(),
+    /** Logical model tier (Cursor-facing model id) the dispatcher respects. */
+    modelId: text("model_id").notNull(),
+    /** Provider slugs (e.g. ["github"]); mounting is still gated per-run. */
+    mcpProviders: jsonb("mcp_providers").$type<string[]>().notNull(),
+    /** Reserved for parameterized skills; unused in v1. */
+    paramsSchema: jsonb("params_schema"),
+    visibility: text("visibility").notNull().default("private"),
+    /** Provenance for the clone graph (future proposal signal). */
+    clonedFromSkillId: uuid("cloned_from_skill_id").references(
+      (): AnyPgColumn => skills.id,
+      { onDelete: "set null" },
+    ),
+    isStarter: boolean("is_starter").notNull().default(false),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    slugUnique: uniqueIndex("skills_slug_idx").on(t.slug),
+    ownerIdx: index("skills_owner_idx").on(t.ownerUserId),
+    starterIdx: index("skills_starter_idx").on(t.isStarter),
+  }),
+);
+
+/**
+ * Recurring execution of a skill. A leased scheduler tick (hosted in the
+ * chat-run worker process) claims due rows and enqueues `runs` rows with
+ * `trigger_type = "scheduled"`; the existing worker executes them through
+ * the runtime seam. `next_run_at` always advances from the scheduled
+ * occurrence time, not the claim time, so delayed ticks do not drift.
+ */
+export const schedules = pgTable(
+  "schedules",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    recipeId: uuid("recipe_id"),
-    recipeSlug: text("recipe_slug"),
+    skillId: uuid("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    /** Cron expression (UI offers presets); evaluated in `timezone`. */
+    cadence: text("cadence").notNull(),
+    /** IANA zone name; next_run_at computation is DST-safe. */
+    timezone: text("timezone").notNull(),
+    /** Output thread. NULL = create a dedicated thread on first fire. */
+    targetThreadId: uuid("target_thread_id").references(() => chatThreads.id, {
+      onDelete: "set null",
+    }),
+    enabled: boolean("enabled").notNull().default(true),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }).notNull(),
+    /** Lease fields — same claim semantics as the chat-run worker. */
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    claimedBy: text("claimed_by"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    dueIdx: index("schedules_due_idx").on(t.enabled, t.nextRunAt),
+    userIdx: index("schedules_user_idx").on(t.userId),
+    skillIdx: index("schedules_skill_idx").on(t.skillId),
+  }),
+);
+
+/**
+ * Durable execution ledger for chat turns, workflow runs, skill runs, and
+ * scheduled runs (formerly `recipe_runs` — renamed because chat and workflow
+ * rows were never recipes). `skill_id` is nullable: chat turns have no skill.
+ */
+export const runs = pgTable(
+  "runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    skillId: uuid("skill_id").references(() => skills.id, {
+      onDelete: "set null",
+    }),
+    skillSlug: text("skill_slug"),
+    /** Which schedule occurrence produced this run; null for ad-hoc runs. */
+    scheduleId: uuid("schedule_id").references(() => schedules.id, {
+      onDelete: "set null",
+    }),
     threadId: uuid("thread_id").references(() => chatThreads.id, {
       onDelete: "set null",
     }),
     triggerType: text("trigger_type").notNull().default("manual"),
-    status: recipeRunStatusEnum("status").notNull().default("queued"),
+    status: runStatusEnum("status").notNull().default("queued"),
     runtime: text("runtime"),
     modelId: text("model_id"),
     inputs: jsonb("inputs"),
@@ -329,33 +429,31 @@ export const recipeRuns = pgTable(
       .defaultNow(),
   },
   (t) => ({
-    userIdx: index("recipe_runs_user_idx").on(
-      t.userId,
-      sql`${t.createdAt} DESC`,
-    ),
-    statusIdx: index("recipe_runs_status_idx").on(t.status),
-    workerClaimIdx: index("recipe_runs_worker_claim_idx").on(
+    userIdx: index("runs_user_idx").on(t.userId, sql`${t.createdAt} DESC`),
+    statusIdx: index("runs_status_idx").on(t.status),
+    workerClaimIdx: index("runs_worker_claim_idx").on(
       t.status,
       t.leaseExpiresAt,
       t.createdAt,
     ),
-    recipeIdx: index("recipe_runs_recipe_idx").on(t.recipeId),
-    threadIdx: index("recipe_runs_thread_idx").on(t.threadId),
+    skillIdx: index("runs_skill_idx").on(t.skillId),
+    threadIdx: index("runs_thread_idx").on(t.threadId),
+    scheduleIdx: index("runs_schedule_idx").on(t.scheduleId),
   }),
 );
 
 /**
- * Append-only, reloadable activity stream for durable runs. `recipe_runs`
- * remains the generalized run ledger for now; this table holds the ordered
- * human-facing progress events that can be replayed after reconnect.
+ * Append-only, reloadable activity stream for durable runs. `runs` is the
+ * generalized run ledger; this table holds the ordered human-facing progress
+ * events that can be replayed after reconnect.
  */
 export const runEvents = pgTable(
   "run_events",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    recipeRunId: uuid("recipe_run_id")
+    runId: uuid("run_id")
       .notNull()
-      .references(() => recipeRuns.id, { onDelete: "cascade" }),
+      .references(() => runs.id, { onDelete: "cascade" }),
     sequence: integer("sequence").notNull(),
     eventType: text("event_type").notNull(),
     status: text("status").notNull().default("info"),
@@ -375,11 +473,7 @@ export const runEvents = pgTable(
       .defaultNow(),
   },
   (t) => ({
-    runIdx: index("run_events_run_idx").on(
-      t.recipeRunId,
-      t.sequence,
-      t.occurredAt,
-    ),
+    runIdx: index("run_events_run_idx").on(t.runId, t.sequence, t.occurredAt),
     typeIdx: index("run_events_type_idx").on(t.eventType),
     toolCallIdx: index("run_events_tool_call_idx").on(t.toolCallId),
   }),
@@ -406,7 +500,7 @@ export const memoryCaptureQueue = pgTable(
     toMessageId: uuid("to_message_id")
       .notNull()
       .references(() => chatMessages.id, { onDelete: "cascade" }),
-    recipeRunId: uuid("recipe_run_id").references(() => recipeRuns.id, {
+    runId: uuid("run_id").references(() => runs.id, {
       onDelete: "set null",
     }),
     reason: text("reason").notNull().default("chat_turn"),
@@ -432,9 +526,7 @@ export const memoryCaptureQueue = pgTable(
       t.threadId,
       t.createdAt,
     ),
-    recipeRunUnique: uniqueIndex("memory_capture_queue_recipe_run_idx").on(
-      t.recipeRunId,
-    ),
+    runUnique: uniqueIndex("memory_capture_queue_run_idx").on(t.runId),
   }),
 );
 
@@ -511,7 +603,7 @@ export const workspaceArtifacts = pgTable(
     chatMessageId: uuid("chat_message_id").references(() => chatMessages.id, {
       onDelete: "set null",
     }),
-    recipeRunId: uuid("recipe_run_id").references(() => recipeRuns.id, {
+    runId: uuid("run_id").references(() => runs.id, {
       onDelete: "set null",
     }),
     title: text("title").notNull(),
@@ -536,10 +628,91 @@ export const workspaceArtifacts = pgTable(
     ),
     threadIdx: index("workspace_artifacts_thread_idx").on(t.threadId),
     messageIdx: index("workspace_artifacts_message_idx").on(t.chatMessageId),
-    runIdx: index("workspace_artifacts_run_idx").on(t.recipeRunId),
+    runIdx: index("workspace_artifacts_run_idx").on(t.runId),
     messageFilenameUnique: uniqueIndex(
       "workspace_artifacts_message_filename_idx",
     ).on(t.chatMessageId, t.filename),
+  }),
+);
+
+/**
+ * Generic grant — the J5 "make this available to Alice" seed, shared by
+ * skills and apps. A share grants visibility + run/open + clone, never edit
+ * and never the grantor's credentials: every execution re-gates on the
+ * recipient's own oauth_tokens and user_tool_attestations.
+ */
+export const shares = pgTable(
+  "shares",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** "skill" | "app" — polymorphic subject, FK enforced in app layer. */
+    subjectType: text("subject_type").notNull(),
+    subjectId: uuid("subject_id").notNull(),
+    grantedToUserId: uuid("granted_to_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    grantedByUserId: uuid("granted_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Revocation hides the subject; recipient clones are unaffected. */
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    activeGrantUnique: uniqueIndex("shares_active_grant_idx")
+      .on(t.subjectType, t.subjectId, t.grantedToUserId)
+      .where(sql`${t.revokedAt} IS NULL`),
+    subjectIdx: index("shares_subject_idx").on(t.subjectType, t.subjectId),
+    granteeIdx: index("shares_grantee_idx").on(
+      t.grantedToUserId,
+      t.subjectType,
+    ),
+  }),
+);
+
+/**
+ * Registry for thin deployed apps (J4 slice). Versions are workspace
+ * artifacts; "Deploy" pins `live_artifact_id`, "Save draft" appends a new
+ * artifact version, revert repins an older one. Apps are served at
+ * /apps/{slug} behind workspace auth with a restrictive CSP — no git,
+ * pipelines, or per-app AWS services in this slice.
+ */
+export const apps = pgTable(
+  "apps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Currently deployed artifact version; NULL = draft-only. */
+    liveArtifactId: uuid("live_artifact_id").references(
+      () => workspaceArtifacts.id,
+      { onDelete: "set null" },
+    ),
+    status: text("status").notNull().default("draft"),
+    /** Where it was built — "open the conversation behind this app". */
+    sourceThreadId: uuid("source_thread_id").references(() => chatThreads.id, {
+      onDelete: "set null",
+    }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    slugUnique: uniqueIndex("apps_slug_idx").on(t.slug),
+    ownerIdx: index("apps_owner_idx").on(t.ownerUserId),
   }),
 );
 
@@ -703,7 +876,7 @@ export const auditLog = pgTable(
     chatMessageId: uuid("chat_message_id").references(() => chatMessages.id, {
       onDelete: "set null",
     }),
-    recipeRunId: uuid("recipe_run_id").references(() => recipeRuns.id, {
+    runId: uuid("run_id").references(() => runs.id, {
       onDelete: "set null",
     }),
     input: jsonb("input"),
@@ -731,7 +904,7 @@ export const auditLog = pgTable(
       t.toolName,
     ),
     chatMessageIdx: index("audit_log_chat_message_idx").on(t.chatMessageId),
-    recipeRunIdx: index("audit_log_recipe_run_idx").on(t.recipeRunId),
+    runIdx: index("audit_log_run_idx").on(t.runId),
   }),
 );
 
@@ -745,8 +918,16 @@ export type OAuthToken = typeof oauthTokens.$inferSelect;
 export type NewOAuthToken = typeof oauthTokens.$inferInsert;
 export type Invitation = typeof invitations.$inferSelect;
 export type NewInvitation = typeof invitations.$inferInsert;
-export type RecipeRun = typeof recipeRuns.$inferSelect;
-export type NewRecipeRun = typeof recipeRuns.$inferInsert;
+export type Run = typeof runs.$inferSelect;
+export type NewRun = typeof runs.$inferInsert;
+export type Skill = typeof skills.$inferSelect;
+export type NewSkill = typeof skills.$inferInsert;
+export type Schedule = typeof schedules.$inferSelect;
+export type NewSchedule = typeof schedules.$inferInsert;
+export type Share = typeof shares.$inferSelect;
+export type NewShare = typeof shares.$inferInsert;
+export type App = typeof apps.$inferSelect;
+export type NewApp = typeof apps.$inferInsert;
 export type RunEvent = typeof runEvents.$inferSelect;
 export type NewRunEvent = typeof runEvents.$inferInsert;
 export type MemoryCaptureQueueItem = typeof memoryCaptureQueue.$inferSelect;

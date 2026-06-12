@@ -32,7 +32,7 @@ describe("buildChatTranscriptMarkdown", () => {
               source: "assistant-code-block",
               threadId: "thread_123",
               chatMessageId: "message_123",
-              recipeRunId: "run_123",
+              runId: "run_123",
               createdAt: "2026-06-06T12:00:00.000Z",
               previewUrl: "/workspace/artifacts/artifact_1",
               downloadUrl: "/api/workspace/artifacts/artifact_1/download",

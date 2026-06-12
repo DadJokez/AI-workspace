@@ -1,11 +1,11 @@
 import {
   chatMessages,
   type Database,
-  recipeRuns,
+  runs,
   runEvents,
   workspaceArtifacts,
 } from "@ai-workspace/db";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, or } from "drizzle-orm";
 import type { AgentActivityEvent } from "@/lib/activity-events";
 import { runEventsToActivityEvents } from "@/lib/run-events";
 import type {
@@ -70,23 +70,26 @@ export async function loadThreadMessagesWithRunActivity({
       .orderBy(asc(chatMessages.createdAt)),
     db
       .select({
-        id: recipeRuns.id,
-        status: recipeRuns.status,
-        modelId: recipeRuns.modelId,
-        runtime: recipeRuns.runtime,
-        error: recipeRuns.error,
-        outputs: recipeRuns.outputs,
-        startedAt: recipeRuns.startedAt,
-        createdAt: recipeRuns.createdAt,
+        id: runs.id,
+        status: runs.status,
+        modelId: runs.modelId,
+        runtime: runs.runtime,
+        error: runs.error,
+        outputs: runs.outputs,
+        startedAt: runs.startedAt,
+        createdAt: runs.createdAt,
       })
-      .from(recipeRuns)
+      .from(runs)
       .where(
         and(
-          eq(recipeRuns.threadId, threadId),
-          eq(recipeRuns.recipeSlug, "chat-turn"),
+          eq(runs.threadId, threadId),
+          or(
+            eq(runs.skillSlug, "chat-turn"),
+            inArray(runs.triggerType, ["skill", "scheduled", "skill_retry"]),
+          ),
         ),
       )
-      .orderBy(asc(recipeRuns.createdAt)),
+      .orderBy(asc(runs.createdAt)),
   ]);
 
   const runIds = runRows.map((run) => run.id);
@@ -96,7 +99,7 @@ export async function loadThreadMessagesWithRunActivity({
       ? await db
           .select({
             id: runEvents.id,
-            recipeRunId: runEvents.recipeRunId,
+            runId: runEvents.runId,
             sequence: runEvents.sequence,
             eventType: runEvents.eventType,
             status: runEvents.status,
@@ -106,7 +109,7 @@ export async function loadThreadMessagesWithRunActivity({
             occurredAt: runEvents.occurredAt,
           })
           .from(runEvents)
-          .where(inArray(runEvents.recipeRunId, runIds))
+          .where(inArray(runEvents.runId, runIds))
           .orderBy(asc(runEvents.sequence), asc(runEvents.occurredAt))
       : [];
   const artifactRows =
@@ -120,9 +123,9 @@ export async function loadThreadMessagesWithRunActivity({
 
   const eventsByRunId = new Map<string, typeof eventRows>();
   for (const event of eventRows) {
-    const existing = eventsByRunId.get(event.recipeRunId) ?? [];
+    const existing = eventsByRunId.get(event.runId) ?? [];
     existing.push(event);
-    eventsByRunId.set(event.recipeRunId, existing);
+    eventsByRunId.set(event.runId, existing);
   }
 
   const activityByAssistantMessageId = new Map<string, AgentActivityEvent[]>();

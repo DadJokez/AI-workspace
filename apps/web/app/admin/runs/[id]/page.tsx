@@ -1,4 +1,4 @@
-import { auditLog, getDb, recipeRuns, runEvents, users } from "@ai-workspace/db";
+import { auditLog, getDb, runs, runEvents, users } from "@ai-workspace/db";
 import { asc, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -72,25 +72,25 @@ export default async function AdminRunDetailPage({ params }: Props) {
   const db = getDb();
   const rows = await db
     .select({
-      id: recipeRuns.id,
-      recipeSlug: recipeRuns.recipeSlug,
-      status: recipeRuns.status,
-      triggerType: recipeRuns.triggerType,
-      runtime: recipeRuns.runtime,
-      modelId: recipeRuns.modelId,
-      inputs: recipeRuns.inputs,
-      outputs: recipeRuns.outputs,
-      error: recipeRuns.error,
-      startedAt: recipeRuns.startedAt,
-      completedAt: recipeRuns.completedAt,
-      createdAt: recipeRuns.createdAt,
-      updatedAt: recipeRuns.updatedAt,
+      id: runs.id,
+      skillSlug: runs.skillSlug,
+      status: runs.status,
+      triggerType: runs.triggerType,
+      runtime: runs.runtime,
+      modelId: runs.modelId,
+      inputs: runs.inputs,
+      outputs: runs.outputs,
+      error: runs.error,
+      startedAt: runs.startedAt,
+      completedAt: runs.completedAt,
+      createdAt: runs.createdAt,
+      updatedAt: runs.updatedAt,
       actorEmail: users.email,
       actorName: users.displayName,
     })
-    .from(recipeRuns)
-    .leftJoin(users, eq(recipeRuns.userId, users.id))
-    .where(eq(recipeRuns.id, id))
+    .from(runs)
+    .leftJoin(users, eq(runs.userId, users.id))
+    .where(eq(runs.id, id))
     .limit(1);
 
   const run = rows[0];
@@ -110,7 +110,7 @@ export default async function AdminRunDetailPage({ params }: Props) {
       createdAt: auditLog.createdAt,
     })
     .from(auditLog)
-    .where(eq(auditLog.recipeRunId, run.id))
+    .where(eq(auditLog.runId, run.id))
     .orderBy(desc(auditLog.createdAt))
     .limit(100);
 
@@ -128,7 +128,7 @@ export default async function AdminRunDetailPage({ params }: Props) {
       occurredAt: runEvents.occurredAt,
     })
     .from(runEvents)
-    .where(eq(runEvents.recipeRunId, run.id))
+    .where(eq(runEvents.runId, run.id))
     .orderBy(asc(runEvents.sequence), asc(runEvents.occurredAt))
     .limit(250);
 
@@ -140,7 +140,7 @@ export default async function AdminRunDetailPage({ params }: Props) {
   const activityEvents = runEventsToActivityEvents(runEventRows);
   const primaryOutput = output.briefingMarkdown ?? output.assistantText;
   const primaryOutputLabel =
-    run.recipeSlug === "chat-turn" ? "Answer" : "Briefing";
+    run.skillSlug === "chat-turn" ? "Answer" : "Briefing";
   const tokenText =
     typeof output.tokensIn === "number" || typeof output.tokensOut === "number"
       ? `${output.tokensIn ?? 0} in / ${output.tokensOut ?? 0} out`
@@ -158,10 +158,10 @@ export default async function AdminRunDetailPage({ params }: Props) {
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <h2 className="text-base font-semibold text-ink">
-            {formatRecipe(run.recipeSlug)}
+            {formatSkill(run.skillSlug)}
           </h2>
           <StatusBadge status={run.status} />
-          {run.recipeSlug === "chat-turn" ? (
+          {run.skillSlug === "chat-turn" ? (
             <ChatRunActionButtons
               runId={run.id}
               canCancel={run.status === "queued" || run.status === "running"}
@@ -631,7 +631,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function formatRecipe(value: string | null) {
+function formatSkill(value: string | null) {
   if (value === "developer-briefing") return "Developer Briefing";
   return value
     ? value

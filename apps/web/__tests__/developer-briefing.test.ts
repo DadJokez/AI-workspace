@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDeveloperBriefingPrompt,
-  DEVELOPER_BRIEFING_RECIPE_SLUG,
+  DEVELOPER_BRIEFING_SKILL_SLUG,
 } from "@/lib/developer-briefing";
 
 describe("developer briefing prompt", () => {
-  it("uses a stable recipe slug", () => {
-    expect(DEVELOPER_BRIEFING_RECIPE_SLUG).toBe("developer-briefing");
+  it("uses a stable skill slug", () => {
+    expect(DEVELOPER_BRIEFING_SKILL_SLUG).toBe("developer-briefing");
   });
 
   it("includes dated aggregation and CI instructions", () => {
