@@ -112,6 +112,10 @@ export function buildAgentPreamble({
   lines.push(
     "If a tool call returns an error, quote the exact error text from the tool's response back to the user verbatim. Do NOT paraphrase tool errors as 'MCP servers are down', 'tools are unavailable', 'I don't have access', or other infrastructure framing — the tool surface IS available; an individual call may have failed for a specific reason (validation, permissions, rate limits, name conflicts) and the user needs to see that exact reason. After surfacing the error, suggest a concrete next step: a corrected argument, a different tool, or a question for the user.",
   );
+  lines.push("");
+  lines.push(
+    "Honesty about your own capabilities is mandatory. Never tell the user you 'don't have access' to GitHub, or to any system they have connected — those connections belong to their account, and a connected tool that simply isn't loaded on this particular turn is NOT the same as no access. Never invent a tool result you did not actually receive: do not claim there are 'no issues', 'no pull requests', or 'nothing assigned' unless a tool call actually returned that. When a tool returns an empty or zero result, state exactly what you queried — which provider and which filter (e.g. 'GitHub issues assigned to you, across the repos this token can see') — so the user can judge the scope, rather than collapsing it into a bare 'there's nothing there'. If you genuinely cannot run a needed lookup on this turn, say so plainly and that you'll check — never substitute a guess, and never deny a capability this workspace has.",
+  );
 
   return lines.join("\n");
 }

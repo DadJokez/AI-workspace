@@ -26,10 +26,17 @@ export function decideChatRuntimeRoute({
   message,
   executionMode,
   runtimeV2 = false,
+  priorUserMessages = [],
 }: {
   message: string;
   executionMode?: unknown;
   runtimeV2?: boolean;
+  /**
+   * Earlier user turns in the same thread (most-recent first is fine; order
+   * doesn't matter). Used for conversation-level tool stickiness — see the
+   * fall-through below.
+   */
+  priorUserMessages?: readonly string[];
 }): ChatRuntimeRoute {
   const parsedExecutionMode = parseChatExecutionMode(executionMode);
   const normalized = normalize(message);
@@ -81,6 +88,26 @@ export function decideChatRuntimeRoute({
   const personalContext = hasPersonalContextIntent(normalized);
   if (personalContext) reasons.push(personalContext);
 
+  // Conversation-level tool stickiness. This message on its own doesn't warrant
+  // tools, but if an earlier turn in the thread did, keep them mounted. Without
+  // this, a follow-up like "what repos did you check?" (no tool keywords) drops
+  // to the tool-less fast lane and the model contradicts the turn that just used
+  // tools — answering "I don't have access to GitHub" one turn after reading it.
+  // Upgrade fast→tool only (never force the durable worker on a follow-up).
+  if (threadAlreadyUsedTools(priorUserMessages)) {
+    reasons.push("sticky_tool_thread");
+    return {
+      lane: "tool-local",
+      executionMode: "local",
+      runtimeTarget: "cursor-agent",
+      runtimeV2,
+      useWorker: false,
+      useMcp: true,
+      includeVaultContext: personalContext !== null,
+      reasons,
+    };
+  }
+
   return {
     lane: "fast-local",
     executionMode: "local",
@@ -91,6 +118,18 @@ export function decideChatRuntimeRoute({
     includeVaultContext: personalContext !== null,
     reasons: reasons.length > 0 ? reasons : ["default_fast_local"],
   };
+}
+
+/**
+ * True when any earlier user turn in the thread needed connected tools (a tool
+ * lookup or durable code work). Once a conversation is "about" GitHub, follow-up
+ * questions should keep the tools warm rather than re-deciding from keywords.
+ */
+function threadAlreadyUsedTools(priorUserMessages: readonly string[]): boolean {
+  return priorUserMessages.some((prior) => {
+    const n = normalize(prior);
+    return hasToolIntent(n) !== null || hasDurableIntent(n) !== null;
+  });
 }
 
 export function runtimeV2EnabledFromEnv(

@@ -9,7 +9,7 @@ import {
   runs,
   workspaceArtifacts,
 } from "@ai-workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
@@ -112,11 +112,6 @@ export async function POST(req: Request) {
       : DEFAULT_MODEL_ID;
   const executionMode = parseChatExecutionMode(body.executionMode);
   const runtimeV2 = runtimeV2EnabledFromEnv();
-  const runtimeRoute = decideChatRuntimeRoute({
-    message: body.message,
-    executionMode,
-    runtimeV2,
-  });
 
   const db = getDb();
   const rate = checkRateLimit(`chat:${sessionUser.id}`, limits);
@@ -185,6 +180,33 @@ export async function POST(req: Request) {
       .returning();
     thread = created[0]!;
   }
+
+  // Earlier user turns in this thread, so routing can keep tools mounted for
+  // follow-ups once a conversation has used them (conversation-level tool
+  // stickiness). Queried before inserting the current message so it sees only
+  // priors. New threads have none.
+  const priorUserMessages = body.threadId
+    ? (
+        await db
+          .select({ content: chatMessages.content })
+          .from(chatMessages)
+          .where(
+            and(
+              eq(chatMessages.threadId, thread.id),
+              eq(chatMessages.role, "user"),
+            ),
+          )
+          .orderBy(desc(chatMessages.createdAt))
+          .limit(6)
+      ).map((row) => row.content)
+    : [];
+
+  const runtimeRoute = decideChatRuntimeRoute({
+    message: body.message,
+    executionMode,
+    runtimeV2,
+    priorUserMessages,
+  });
 
   const userMsg = await db
     .insert(chatMessages)
