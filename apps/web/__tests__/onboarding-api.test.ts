@@ -104,7 +104,7 @@ describe("PATCH /api/user — onboarding", () => {
     installDbMock();
     const { PATCH } = await import("@/app/api/user/route");
     const res = await PATCH(patch({ assistantName: "  Atlas  " }));
-    expect(res.status).toBe(200);
+    expect(res?.status).toBe(200);
     expect(setValues.assistantName).toBe("Atlas");
   });
 
@@ -138,7 +138,7 @@ describe("PATCH /api/user — onboarding", () => {
         },
       }),
     );
-    expect(res.status).toBe(200);
+    expect(res?.status).toBe(200);
     expect(String(setValues.customInstructions)).toContain("Engineering");
     expect(insertValues.category).toBe("role");
     expect(insertValues.status).toBe("approved");
@@ -150,6 +150,6 @@ describe("PATCH /api/user — onboarding", () => {
     installDbMock();
     const { PATCH } = await import("@/app/api/user/route");
     const res = await PATCH(patch({ assistantName: 42 }));
-    expect(res.status).toBe(400);
+    expect(res?.status).toBe(400);
   });
 });
