@@ -70,6 +70,41 @@ export function VaultPanel({
     title: "",
     bodyMd: "",
   });
+  const [addOpen, setAddOpen] = useState(false);
+  const [addTitle, setAddTitle] = useState("");
+  const [addBody, setAddBody] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  async function addFact() {
+    if (!addTitle.trim() || !addBody.trim()) return;
+    setAddBusy(true);
+    setAddError(null);
+    try {
+      const res = await fetch("/api/vault/memory", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: addTitle,
+          bodyMd: addBody,
+          category: "personal_context",
+        }),
+      });
+      const body = (await res.json()) as { message?: string; error?: string };
+      if (res.ok) {
+        setAddTitle("");
+        setAddBody("");
+        setAddOpen(false);
+        await loadVault();
+        return;
+      }
+      setAddError(body.message ?? body.error ?? "Could not add the fact.");
+    } catch {
+      setAddError("Could not add the fact.");
+    } finally {
+      setAddBusy(false);
+    }
+  }
 
   async function loadVault() {
     setLoading(true);
@@ -196,6 +231,50 @@ export function VaultPanel({
               {error}
             </div>
           ) : null}
+
+          <section>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-ink">
+                What the assistant remembers about you
+              </h2>
+              <button
+                type="button"
+                onClick={() => setAddOpen((v) => !v)}
+                className="rounded-md border border-hairline px-2.5 py-1 text-[12px] text-ink hover:bg-subtle"
+              >
+                {addOpen ? "Cancel" : "Add a fact"}
+              </button>
+            </div>
+            {addOpen ? (
+              <div className="mb-3 flex flex-col gap-2 rounded-md border border-hairline p-3">
+                <input
+                  value={addTitle}
+                  onChange={(e) => setAddTitle(e.target.value)}
+                  placeholder="Short title (e.g. My team)"
+                  maxLength={120}
+                  className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-ink/30"
+                />
+                <textarea
+                  value={addBody}
+                  onChange={(e) => setAddBody(e.target.value)}
+                  rows={3}
+                  placeholder="The fact (e.g. I'm a supply-chain analyst on the Crossett team; I prefer concise, bulleted answers.)"
+                  className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-ink/30"
+                />
+                {addError ? (
+                  <p className="text-[12px] text-red-500">{addError}</p>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={addBusy || !addTitle.trim() || !addBody.trim()}
+                  onClick={addFact}
+                  className="self-start rounded-md bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas hover:opacity-90 disabled:opacity-50"
+                >
+                  {addBusy ? "Saving…" : "Save fact"}
+                </button>
+              </div>
+            ) : null}
+          </section>
 
           <section>
             <div className="mb-3 flex items-center justify-between gap-3">
