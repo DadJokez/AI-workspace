@@ -6,6 +6,8 @@ import { MessageBubble } from "@/components/MessageBubble";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
 import { SearchPanel } from "@/components/SearchPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { WelcomeTour } from "@/components/WelcomeTour";
+import { shouldShowTour } from "@/lib/tour";
 import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
 import { ToolsPanel } from "@/components/ToolsPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -122,6 +124,7 @@ interface UserResponse {
     role: "admin" | "user";
     customInstructions: string | null;
     defaultModelId: string | null;
+    tourCompletedAt: string | null;
   };
 }
 
@@ -363,6 +366,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const [runInCloudOnce, setRunInCloudOnce] = useState(false);
   const [previewArtifact, setPreviewArtifact] =
     useState<WorkspaceArtifactSummary | null>(null);
+  const [tourOpen, setTourOpen] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -743,6 +747,25 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       cancelled = true;
     };
   }, [activeId, tabs, defaultModelId]);
+
+  // First-run welcome tour (#136): show once per user, the first time the
+  // profile loads with tour_completed_at unset. Finishing or skipping
+  // persists completion; Settings can replay it any time.
+  useEffect(() => {
+    if (user && shouldShowTour(user)) setTourOpen(true);
+  }, [user]);
+
+  const completeTour = () => {
+    setTourOpen(false);
+    if (user && user.tourCompletedAt === null) {
+      setUser({ ...user, tourCompletedAt: new Date().toISOString() });
+      void fetch("/api/user", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tourCompleted: true }),
+      }).catch(() => {});
+    }
+  };
 
   const activeHasPendingRun =
     activeTab?.messages.some((m) => m.pending && m.id.startsWith("run:")) ??
@@ -1351,6 +1374,10 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             runtimeV2Enabled={runtimeV2Enabled}
             onClose={() => setView("chat")}
             onOpenSidebar={() => setSidebarOpen(true)}
+            onReplayTour={() => {
+              setView("chat");
+              setTourOpen(true);
+            }}
           />
         ) : view === "search" ? (
           <SearchPanel
@@ -1586,7 +1613,10 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           </div>
         </div>
 
-        <div className="kb-safe-bottom border-t border-hairline bg-canvas px-3 pt-3 sm:px-6 sm:pt-4">
+        <div
+          data-tour="chat-input"
+          className="kb-safe-bottom border-t border-hairline bg-canvas px-3 pt-3 sm:px-6 sm:pt-4"
+        >
           <div className="mx-auto max-w-3xl">
             <ChatInput
               onSubmit={send}
@@ -1606,6 +1636,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           </>
         )}
       </main>
+
+      <WelcomeTour open={tourOpen} onClose={completeTour} />
       {previewArtifact ? (
         <ArtifactPreviewPane
           artifact={previewArtifact}
