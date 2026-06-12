@@ -29,7 +29,7 @@ consumer apps have trained everyone to expect — not capability gaps.
 
 ## Tier 1 — Table stakes (close these first; each is a daily shadow-tool trigger)
 
-### P1.1 ⬜ File & image upload into chat — **L, highest priority**
+### P1.1 🔄 File & image upload into chat — **text docs shipped (#152); images/PDF next**
 - **Gap:** can't drop a PDF/CSV/XLSX/PNG into a thread. This is *the* #1 reason a knowledge worker opens ChatGPT instead ("let me just paste this contract in").
 - **Shadow trigger:** every document task. Daily.
 - **Shape:** drag/drop + paste in `ChatInput`; store via the existing `workspace_artifacts` substrate (already built for app versions — reuse it); pass to the model as document/image content blocks (Bedrock `converse` supports both). Vision is already in the model tier.
