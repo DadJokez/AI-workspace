@@ -20,6 +20,7 @@ import {
   startInProcessMemoryCaptureScheduler,
 } from "@/lib/memory-capture";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
+import { buildArtifactContext } from "@/lib/artifact-context";
 import {
   appendRunEventWithNextSequence,
   appendToolCallRunEvent,
@@ -145,6 +146,15 @@ export async function streamInlineChatRun({
         : Promise.resolve(null),
     ]);
 
+    // Match artifacts against the user's RAW message (the last persisted turn),
+    // not the attachment-folded prompt — so an uploaded file's body can't pull
+    // in an unrelated artifact.
+    const artifactContext = await buildArtifactContext({
+      db,
+      userId,
+      message: history[history.length - 1]?.content ?? prompt,
+    });
+
     const user = userRows[0] ?? {
       displayName: "User",
       customInstructions: null,
@@ -189,7 +199,8 @@ export async function streamInlineChatRun({
     const firstTurnPreamble =
       route.useMcp ||
       route.includeVaultContext ||
-      Boolean(user.customInstructions?.trim())
+      Boolean(user.customInstructions?.trim()) ||
+      Boolean(artifactContext)
         ? buildAgentPreamble({
             user: {
               displayName: user.displayName,
@@ -199,6 +210,7 @@ export async function streamInlineChatRun({
             connectedProviders,
             blockedProviders: deniedMcpProviders,
             modelId: runtimeModelId,
+            artifactContext,
           })
         : undefined;
     timing.contextReadyAt = new Date();
