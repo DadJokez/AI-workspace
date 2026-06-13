@@ -24,7 +24,7 @@ Runtime V2 makes AI Workspace local-first and fast by routing ordinary chat to a
 
 **Performance Goals**: Fast-local chat should stream the first token materially faster than the old queued Cursor-agent path; every successful fast-local run should record first-token latency for measurement
 
-**Constraints**: Keep one web task until shared rate limiting exists; do not default to Cursor Cloud; do not mount MCP providers for trivial prompts; keep rollback to Cursor agent path available
+**Constraints**: Keep one web task until the shared rate-limit migration is deployed and smoke-tested across multiple web tasks; do not default to Cursor Cloud; do not mount MCP providers for trivial prompts; keep rollback to Cursor agent path available
 
 **Scale/Scope**: Pilot deployment using the existing production database and current ECS services; production rollout after preview smoke and timing comparison
 

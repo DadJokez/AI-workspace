@@ -10,7 +10,7 @@ IT-owned infrastructure before broad rollout.
 |---|---|---|
 | Dependency audit | Partial | Next.js, Cursor SDK, Bedrock SDK, Drizzle, PostCSS, and PrismJS patches/overrides applied. Remaining audit findings are transitive and tracked below. |
 | Health checks | Pilot shipped | `/api/health` checks DB connectivity/latency and runtime configuration. |
-| Rate limits and quotas | Pilot shipped | `/api/chat` and Developer Briefing enforce process-local request limits and body/message caps. Move to shared storage before ECS scale-out. |
+| Rate limits and quotas | Pilot shipped | `/api/chat`, skill runs, and Developer Briefing enforce shared Postgres fixed-window request limits plus body/message caps. ECS web scale-out requires the shared limiter migration and a multi-task 429 smoke. |
 | Logging/redaction/retention | Partial | Shared tool payload redaction is applied before chat/tool/run/audit persistence; retention automation is still pending. |
 | KMS/Secrets/IaC | Plan defined | Current App Runner env vars are acceptable for POC only. ECS/Fargate target requires Secrets Manager/KMS and IaC. |
 | Load-test model | Model defined | Synthetic scenarios and thresholds are ready for a follow-up test harness. |

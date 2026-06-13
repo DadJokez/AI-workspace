@@ -728,6 +728,26 @@ export const apps = pgTable(
 );
 
 /**
+ * Shared fixed-window request-limit buckets. These replace the old
+ * process-local Map so multiple ECS web tasks enforce one consistent quota
+ * per logical key (for example `chat:<user-id>`).
+ */
+export const rateLimitBuckets = pgTable(
+  "rate_limit_buckets",
+  {
+    bucketKey: text("bucket_key").primaryKey(),
+    count: integer("count").notNull().default(0),
+    resetAt: timestamp("reset_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    resetIdx: index("rate_limit_buckets_reset_idx").on(t.resetAt),
+  }),
+);
+
+/**
  * Admin-curated registry of MCP servers AI Hub can mount. Provider slugs stay
  * stable across OAuth, catalog, attestation, and runtime code.
  */

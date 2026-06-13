@@ -136,6 +136,7 @@ A user should not hit an opaque model-access error when the selected/default mod
 - The direct fast-local runtime starts with Bedrock because that path already exists behind the `AgentRuntime` seam.
 - Cursor remains the agent runtime for MCP/tool work, durable local work, and explicit Cursor Cloud.
 - The preview stack at `https://runtime-v2.ai-workspace.builtwithrobot.link` remains available until production rollout is validated.
-- Production starts with one web task until rate limiting moves to shared storage.
+- Production can scale web tasks after the `rate_limit_buckets` shared limiter
+  migration is deployed and the 429 smoke passes across at least two web tasks.
 - The current DB-backed run ledger remains the source of truth; no new run table is required for this feature.
 - This packet documents/adopts a Spec Kit-style workflow without merging the full exploratory `spec-kit/` vendor PR.

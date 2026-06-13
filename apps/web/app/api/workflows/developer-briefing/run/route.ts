@@ -102,10 +102,14 @@ export async function POST(req: Request) {
     );
   }
 
-  const rate = checkRateLimit(`workflow:${SKILL_SLUG}:${sessionUser.id}`, {
-    ...limits,
-    maxRequests: Math.max(1, Math.floor(limits.maxRequests / 3)),
-  });
+  const rate = await checkRateLimit(
+    db,
+    `workflow:${SKILL_SLUG}:${sessionUser.id}`,
+    {
+      ...limits,
+      maxRequests: Math.max(1, Math.floor(limits.maxRequests / 3)),
+    },
+  );
   if (!rate.allowed) {
     await db.insert(auditLog).values({
       actorUserId: sessionUser.id,
