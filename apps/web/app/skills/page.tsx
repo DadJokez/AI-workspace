@@ -41,12 +41,15 @@ export default async function SkillsPage() {
             and share.
           </p>
         </div>
-        <Link
-          href="/skills/new"
-          className="rounded-md border border-hairline px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-ink/5"
-        >
-          New skill
-        </Link>
+        <div className="flex items-start gap-2">
+          {sessionUser.role === "admin" ? <SeedStartersButton /> : null}
+          <Link
+            href="/skills/new"
+            className="rounded-md border border-hairline px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-ink/5"
+          >
+            New skill
+          </Link>
+        </div>
       </div>
 
       {rows.length === 0 ? (
@@ -54,11 +57,6 @@ export default async function SkillsPage() {
           <p className="text-[13px] text-muted">
             No skills yet. Create one, or seed the starter skills.
           </p>
-          {sessionUser.role === "admin" ? (
-            <div className="mt-3 flex justify-center">
-              <SeedStartersButton />
-            </div>
-          ) : null}
         </div>
       ) : null}
 
