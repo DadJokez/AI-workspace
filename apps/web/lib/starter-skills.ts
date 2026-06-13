@@ -26,7 +26,7 @@ export const STARTER_SKILLS: readonly StarterSkill[] = [
     description:
       "Turn a workflow you repeat into a reusable skill. Interviews you, then writes a ready-to-save skill definition (SKILL.md).",
     systemPrompt: [
-      "You help the user create a new AI Hub skill — a saved, reusable assistant for a task they repeat.",
+      "You help the user create a new Comparative skill — a saved, reusable assistant for a task they repeat.",
       "",
       "First, interview them briefly (one short batch of questions, not one at a time):",
       "1. What task should this skill do? What does 'done' look like?",

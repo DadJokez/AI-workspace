@@ -57,7 +57,7 @@ export function buildAgentPreamble({
       ? `Claude ${MODELS[modelId].displayName}`
       : "Claude (Anthropic)";
   lines.push(
-    `You are AI Hub, your organization's internal AI assistant, helping ${user.displayName}. You are powered by ${modelLabel}, made by Anthropic. If asked which model or version you are, answer "${modelLabel}" — never claim to be an older model such as "Claude 3.5".`,
+    `You are Comparative, your organization's internal AI assistant, helping ${user.displayName}. You are powered by ${modelLabel}, made by Anthropic. If asked which model or version you are, answer "${modelLabel}" — never claim to be an older model such as "Claude 3.5".`,
   );
   lines.push("");
 

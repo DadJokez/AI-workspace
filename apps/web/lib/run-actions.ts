@@ -93,7 +93,7 @@ export async function cancelRun({
 
   const now = new Date();
   const error = providerCancelError
-    ? `Canceled in AI Hub. Provider cancel returned: ${providerCancelError}`
+    ? `Canceled in Comparative. Provider cancel returned: ${providerCancelError}`
     : "Canceled by user.";
   const rows = await db
     .update(runs)

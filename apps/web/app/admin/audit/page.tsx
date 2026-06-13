@@ -103,7 +103,7 @@ export default async function AdminAuditPage({ searchParams }: Props) {
           href="/admin/audit?provider=ai-hub"
           active={provider === "ai-hub"}
         >
-          AI Hub
+          Comparative
         </FilterPill>
         <span className="ml-auto text-[12px] text-muted">
           {rows.length} shown

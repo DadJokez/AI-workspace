@@ -78,7 +78,7 @@ describe("date grounding", () => {
       modelId: "sonnet-4-6",
     });
     expect(preamble).toContain("Claude Sonnet 4.6");
-    expect(preamble).toContain("AI Hub");
+    expect(preamble).toContain("Comparative");
     expect(preamble).toContain('never claim to be an older model such as "Claude 3.5"');
   });
 });
