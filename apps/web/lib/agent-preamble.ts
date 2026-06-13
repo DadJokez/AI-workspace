@@ -23,6 +23,11 @@ interface PreambleInput {
   blockedProviders?: readonly string[];
   /** The model running this turn, so the assistant can self-identify correctly. */
   modelId?: string;
+  /**
+   * The user's saved Workspace artifact library (cross-thread) plus the full
+   * content of any artifact this turn refers to. See lib/artifact-context.
+   */
+  artifactContext?: string | null;
 }
 
 /**
@@ -43,6 +48,7 @@ export function buildAgentPreamble({
   connectedProviders,
   blockedProviders = [],
   modelId,
+  artifactContext,
 }: PreambleInput): string {
   const lines: string[] = [];
 
@@ -98,6 +104,12 @@ export function buildAgentPreamble({
     lines.push("");
     lines.push("Personal context approved by the user:");
     lines.push(vault);
+  }
+
+  const artifacts = artifactContext?.trim();
+  if (artifacts) {
+    lines.push("");
+    lines.push(artifacts);
   }
 
   lines.push("");

@@ -20,6 +20,7 @@ import {
   startInProcessMemoryCaptureScheduler,
 } from "@/lib/memory-capture";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
+import { buildArtifactContext } from "@/lib/artifact-context";
 import {
   appendRunEventWithNextSequence,
   appendToolCallRunEvent,
@@ -302,6 +303,14 @@ async function executeClaimedChatRun({
     .where(eq(chatMessages.threadId, thread.id))
     .orderBy(asc(chatMessages.createdAt));
 
+  // Match artifacts against the user's RAW last message, not the
+  // attachment-folded prompt (see chat-inline-runner for the rationale).
+  const artifactContext = await buildArtifactContext({
+    db,
+    userId: run.userId,
+    message: history[history.length - 1]?.content ?? inputs.prompt,
+  });
+
   const agentMessages = buildTurnContext({
     messages: history,
     threadSummary: thread.summary,
@@ -370,6 +379,7 @@ async function executeClaimedChatRun({
     connectedProviders: mcpServers ? Object.keys(mcpServers) : [],
     blockedProviders: deniedMcpProviders,
     modelId: run.modelId ?? undefined,
+    artifactContext,
   });
 
   await db
