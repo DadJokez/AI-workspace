@@ -1,7 +1,6 @@
 "use client";
 
 import { useTheme } from "@/lib/theme";
-import { ThinkingOrb, type OrbState } from "./ThinkingOrb";
 import {
   buildToolActivityEvents,
   summarizeActivity,
@@ -85,65 +84,32 @@ export function MessageBubble({
       ? splitAssistantContent(content, artifacts)
       : [];
 
-  // The gutter orb (the assistant's avatar) mirrors the turn's lifecycle:
-  // idle calm morph when done, gentle rotation while waiting, swell-per-token
-  // while streaming. It lives in a fixed spot to the left so the state reads.
-  const orbState: OrbState = !pending
-    ? "idle"
-    : content.length === 0
-      ? "thinking"
-      : "responding";
-
   // Suppress the "Assistant" label-only stub left behind when a turn errors
   // out before any text streamed. The error bar carries the message instead.
   if (role === "assistant" && !pending && content.length === 0) return null;
 
   return (
-    <div className="flex w-full min-w-0 max-w-full gap-3 overflow-hidden">
-      {role === "assistant" ? (
-        <div className="shrink-0 pt-0.5">
-          <ThinkingOrb
-            state={orbState}
-            animated={pending}
-            energy={content.length}
-            size={28}
-            stroke={13}
-            className={pending ? "text-ink" : "text-muted"}
-          />
-        </div>
-      ) : (
-        <div aria-hidden className="w-7 shrink-0" />
-      )}
-      <div className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
-        <div className="text-[11px] font-medium tracking-wide text-muted">
-          {label}
-        </div>
-        <div className="min-w-0 max-w-full overflow-hidden text-[14px] leading-relaxed text-ink [overflow-wrap:anywhere]">
-          {showThinking ? (
-            <span
-              role="status"
-              aria-live="polite"
-              className="text-[13px] text-muted"
-            >
-              {status ?? "Thinking…"}
-            </span>
-          ) : role === "assistant" ? (
-            <AssistantContent parts={assistantParts} />
-          ) : (
-            <span className="whitespace-pre-wrap">{content}</span>
-          )}
-        </div>
-        {role === "assistant" && artifacts.length > 0 ? (
-          <ArtifactStrip artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
-        ) : null}
-        {showActivity ? (
-          <WorkReceipts
-            events={activityEvents}
-            summary={activitySummary ?? "Thinking..."}
-            pending={pending}
-          />
-        ) : null}
+    <div className="flex w-full min-w-0 max-w-full flex-col gap-1 overflow-hidden">
+      <div className="text-[11px] font-medium tracking-wide text-muted">
+        {label}
       </div>
+      <div className="min-w-0 max-w-full overflow-hidden text-[14px] leading-relaxed text-ink [overflow-wrap:anywhere]">
+        {showThinking ? null : role === "assistant" ? (
+          <AssistantContent parts={assistantParts} />
+        ) : (
+          <span className="whitespace-pre-wrap">{content}</span>
+        )}
+      </div>
+      {role === "assistant" && artifacts.length > 0 ? (
+        <ArtifactStrip artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
+      ) : null}
+      {showActivity ? (
+        <WorkReceipts
+          events={activityEvents}
+          summary={activitySummary ?? "Thinking..."}
+          pending={pending}
+        />
+      ) : null}
     </div>
   );
 }
@@ -438,13 +404,7 @@ function WorkReceipts({
   if (events.length === 0) {
     return (
       <div className="mt-2 flex items-center gap-2 border-t border-hairline/70 pt-2 text-[12px] text-muted/80">
-        <ThinkingOrb
-          state={pending ? "thinking" : "idle"}
-          animated={pending}
-          size={14}
-          stroke={20}
-          className="text-muted/80"
-        />
+        <ActivityDot state={pending ? "pending" : "succeeded"} subtle />
         <span>{pending ? headline : summary}</span>
         {pending ? <span className="text-muted/60">{summary}</span> : null}
       </div>
@@ -466,17 +426,7 @@ function WorkReceipts({
       open={pending}
     >
       <summary className="flex cursor-pointer list-none items-center gap-2 py-0.5 [overflow-wrap:anywhere] marker:hidden">
-        {state === "failed" ? (
-          <ActivityDot state="failed" subtle />
-        ) : (
-          <ThinkingOrb
-            state={pending ? "thinking" : "idle"}
-            animated={pending}
-            size={14}
-            stroke={20}
-            className="text-muted/80"
-          />
-        )}
+        <ActivityDot state={state} subtle />
         <span className="font-medium text-muted/90">{headline}</span>
         <span className="text-muted/60">{summary}</span>
         <span className="ml-auto hidden shrink-0 text-[11px] text-muted/60 sm:inline">
