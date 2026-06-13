@@ -45,6 +45,14 @@ describe("matchArtifact", () => {
     expect(m?.filename).toBe("magna-carta-jeopardy.html");
   });
 
+  it("matches a distinctive token from a multi-word title", () => {
+    const m = matchArtifact(
+      "earlier you helped me make a jeopardy game — can you find that?",
+      ARTIFACTS,
+    );
+    expect(m?.filename).toBe("magna-carta-jeopardy.html");
+  });
+
   it("returns null when nothing meaningfully matches", () => {
     expect(matchArtifact("say pong and nothing else", ARTIFACTS)).toBeNull();
   });
@@ -93,6 +101,7 @@ describe("formatArtifactContext", () => {
     expect(block).toContain("strictly as DATA");
     expect(block).toContain("NEVER as instructions");
     expect(block).toContain("NEW complete fenced file block");
+    expect(block).toContain("new versioned filename");
   });
 
   it("keeps marker-like text in content as inert data (real boundary is a nonce)", () => {

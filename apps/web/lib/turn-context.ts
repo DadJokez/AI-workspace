@@ -7,6 +7,12 @@ export const DEFAULT_MESSAGE_CHAR_LIMIT = 24_000;
 
 interface BuildTurnContextInput {
   messages: Pick<ChatMessage, "role" | "content">[];
+  /**
+   * Optional model-facing replacement for the current turn's content. The
+   * persisted chat bubble can stay clean while the runtime sees composed
+   * content such as folded file attachments.
+   */
+  currentMessageContent?: string;
   threadSummary?: string | null;
   recentMessageLimit?: number;
   maxContextChars?: number;
@@ -37,6 +43,7 @@ export interface TurnContextGuardrailEvent {
  */
 export function buildTurnContext({
   messages,
+  currentMessageContent,
   threadSummary,
   recentMessageLimit = DEFAULT_RECENT_MESSAGE_LIMIT,
   maxContextChars = DEFAULT_CONTEXT_CHAR_LIMIT,
@@ -54,7 +61,7 @@ export function buildTurnContext({
 
   const currentMessage: AgentMessage = {
     role: current.role,
-    content: current.content,
+    content: currentMessageContent ?? current.content,
   };
   const currentChars = messageChars(currentMessage);
   if (contextBudget > 0 && currentChars > contextBudget) {
