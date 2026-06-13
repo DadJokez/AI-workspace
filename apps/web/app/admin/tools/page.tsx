@@ -7,6 +7,7 @@ import {
 import { asc, count, eq, isNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { titleize } from "@/app/admin/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -304,15 +305,6 @@ function EnabledBadge({ enabled }: { enabled: boolean }) {
       {enabled ? "Enabled" : "Disabled"}
     </span>
   );
-}
-
-function titleize(value: string): string {
-  if (value.toLowerCase() === "github") return "GitHub";
-  return value
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function formatAuthMode(value: string | null): string {
