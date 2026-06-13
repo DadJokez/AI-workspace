@@ -1783,7 +1783,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                               ? "thinking"
                               : "responding"
                         }
-                        animated={working}
                         energy={len}
                         size={28}
                         stroke={13}
