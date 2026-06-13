@@ -1763,6 +1763,36 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                 </div>
               ))
             )}
+            {messages.length > 0
+              ? (() => {
+                  // One orb that lives at the bottom of the thread and moves
+                  // down as it grows (Claude-Desktop style) — animating while
+                  // the latest turn works, a calm static mark otherwise.
+                  const active = messages.find(
+                    (m) => m.role === "assistant" && m.pending,
+                  );
+                  const working = Boolean(active);
+                  const len = active?.content.length ?? 0;
+                  return (
+                    <div className="flex">
+                      <ThinkingOrb
+                        state={
+                          !working
+                            ? "idle"
+                            : len === 0
+                              ? "thinking"
+                              : "responding"
+                        }
+                        animated={working}
+                        energy={len}
+                        size={28}
+                        stroke={13}
+                        className={working ? "text-ink" : "text-muted"}
+                      />
+                    </div>
+                  );
+                })()
+              : null}
             {error ? (
               <div className="flex flex-col gap-2 rounded-md border border-hairline bg-subtle px-3 py-2 text-sm text-ink sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex min-w-0 flex-col gap-0.5">
