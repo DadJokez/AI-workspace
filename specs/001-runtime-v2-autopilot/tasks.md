@@ -183,7 +183,7 @@
 
 - [ ] T045 [P] Add a lightweight latency dashboard/query path for first-token p50/p95 by lane.
 - [ ] T046 [P] Group failed runs by lane, runtime target, provider, and model error class.
-- [ ] T047 Move process-local chat rate limiting to shared storage before scaling web beyond one task.
+- [x] T047 Done 2026-06-13: Move process-local chat rate limiting to shared Postgres `rate_limit_buckets` storage before scaling web beyond one task.
 - [x] T048 Document App Runner rollback retirement criteria for Runtime V2 production observation.
 - [ ] T049 Update `PLAN.md` and `docs/ROADMAP.md` after production Runtime V2 rollout.
 

@@ -4,7 +4,7 @@ A manual + automation-ready regression list for the chat app. Each item is
 "do X → expect Y." Items tagged `[AUTOMATE]` are good Playwright candidates;
 unmarked items need a human eye for visual / device-specific verification.
 
-**Test URL (live):** https://ai-workspace.builtwithrobot.link
+**Test URL (live):** https://comparative.builtwithrobot.link
 **Local dev:** `cd apps/web && pnpm dev` → http://localhost:3000
 
 ---
@@ -114,7 +114,7 @@ unmarked items need a human eye for visual / device-specific verification.
 
 ## API / Health
 
-- [ ] **`[AUTOMATE]` `/api/health` returns dependency checks.** `curl https://ai-workspace.builtwithrobot.link/api/health` → expect `status`, `service`, `timestamp`, and `checks.db` / `checks.runtime`.
+- [ ] **`[AUTOMATE]` `/api/health` returns dependency checks.** `curl https://comparative.builtwithrobot.link/api/health` → expect `status`, `service`, `timestamp`, and `checks.db` / `checks.runtime`.
 - [ ] **`[AUTOMATE]` `/api/health` reports DB connectivity.** Response includes `checks.db.ok = true` and numeric `checks.db.latencyMs`.
 - [ ] **`[AUTOMATE]` `/api/health` reports runtime configuration.** Response includes `checks.runtime.name`, `checks.runtime.configured`, and no secret values.
 - [ ] **`[AUTOMATE]` `/api/me` returns the current user.** `curl …/api/me` (with auth) → `{"user":{"id":"…","email":"…","displayName":"…"}}`.

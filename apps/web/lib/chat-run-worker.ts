@@ -19,7 +19,10 @@ import {
   enqueueMemoryCapture,
   startInProcessMemoryCaptureScheduler,
 } from "@/lib/memory-capture";
-import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
+import {
+  buildUserMcpServers,
+  loadUserMcpProviderStatus,
+} from "@/lib/oauth/mcp-servers";
 import {
   buildArtifactContext,
   buildArtifactLookupMessage,
@@ -276,27 +279,37 @@ async function executeClaimedChatRun({
   }
 
   const runtime = getRuntime({ db, executionMode: inputs.executionMode });
-  const [threadRows, userRows, vaultMarkdown] = await Promise.all([
-    db
-      .select()
-      .from(chatThreads)
-      .where(eq(chatThreads.id, threadId))
-      .limit(1),
-    db
-      .select({
-        displayName: users.displayName,
-        customInstructions: users.customInstructions,
-      })
-      .from(users)
-      .where(eq(users.id, run.userId))
-      .limit(1),
-    loadApprovedVaultMarkdown(db, run.userId),
-  ]);
+  const [threadRows, userRows, vaultMarkdown, providerStatus] =
+    await Promise.all([
+      db
+        .select()
+        .from(chatThreads)
+        .where(eq(chatThreads.id, threadId))
+        .limit(1),
+      db
+        .select({
+          displayName: users.displayName,
+          assistantName: users.assistantName,
+          customInstructions: users.customInstructions,
+        })
+        .from(users)
+        .where(eq(users.id, run.userId))
+        .limit(1),
+      loadApprovedVaultMarkdown(db, run.userId),
+      loadUserMcpProviderStatus(
+        db,
+        run.userId,
+        Array.isArray(inputs.requestedProviders)
+          ? { onlyProviders: inputs.requestedProviders }
+          : undefined,
+      ),
+    ]);
 
   const thread = threadRows[0];
   if (!thread) throw new Error("Chat thread was not found for queued run.");
   const user = userRows[0] ?? {
     displayName: "User",
+    assistantName: null,
     customInstructions: null,
   };
 
@@ -377,11 +390,16 @@ async function executeClaimedChatRun({
   const firstTurnPreamble = buildAgentPreamble({
     user: {
       displayName: user.displayName,
+      assistantName: user.assistantName,
       customInstructions: user.customInstructions,
       vaultMarkdown,
     },
     connectedProviders: mcpServers ? Object.keys(mcpServers) : [],
-    blockedProviders: deniedMcpProviders,
+    availableProviders: providerStatus.allowedProviders,
+    blockedProviders:
+      deniedMcpProviders.length > 0
+        ? deniedMcpProviders
+        : providerStatus.deniedProviders,
     modelId: run.modelId ?? undefined,
     artifactContext,
   });

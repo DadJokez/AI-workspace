@@ -8,6 +8,7 @@ import * as ecsPatterns from "aws-cdk-lib/aws-ecs-patterns";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as route53 from "aws-cdk-lib/aws-route53";
+import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 
@@ -29,6 +30,11 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     const domainName = contextString(
       this,
       "aiWorkspace:domainName",
+      "comparative.builtwithrobot.link",
+    );
+    const legacyDomainName = contextString(
+      this,
+      "aiWorkspace:legacyDomainName",
       "ai-workspace.builtwithrobot.link",
     );
     const hostedZoneName = contextString(
@@ -76,8 +82,12 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
 
     const certificate = new acm.Certificate(this, "Certificate", {
       domainName,
+      subjectAlternativeNames:
+        legacyDomainName !== domainName ? [legacyDomainName] : undefined,
       validation: acm.CertificateValidation.fromDns(hostedZone),
     });
+    const serviceRecordDomainName =
+      legacyDomainName !== domainName ? legacyDomainName : domainName;
 
     const cluster = new ecs.Cluster(this, "Cluster", {
       clusterName: "ai-workspace-prod",
@@ -131,6 +141,8 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       CURSOR_CLOUD_REPO_REF: "main",
       CURSOR_CLOUD_ENV_TYPE: "cloud",
       NEXTAUTH_URL: `https://${domainName}`,
+      LEGACY_HOST_REDIRECT_FROM:
+        legacyDomainName !== domainName ? legacyDomainName : "",
       HOSTNAME: "0.0.0.0",
       PORT: "3000",
     };
@@ -196,7 +208,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
           assignPublicIp: true,
           securityGroups: [webSecurityGroup],
           taskSubnets: { subnetType: ec2.SubnetType.PUBLIC },
-          domainName,
+          domainName: serviceRecordDomainName,
           domainZone: hostedZone,
           certificate,
           redirectHTTP: true,
@@ -222,6 +234,16 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       ec2.Port.tcp(3000),
     );
     webService.service.node.addDependency(certificate);
+
+    if (legacyDomainName !== domainName) {
+      new route53.ARecord(this, "CanonicalDomainAliasRecord", {
+        zone: hostedZone,
+        recordName: domainName,
+        target: route53.RecordTarget.fromAlias(
+          new route53Targets.LoadBalancerTarget(webService.loadBalancer),
+        ),
+      });
+    }
 
     const chatWorkerService = createWorkerService(this, {
       cluster,
@@ -294,6 +316,11 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     new cdk.CfnOutput(this, "Url", {
       value: `https://${domainName}`,
     });
+    if (legacyDomainName !== domainName) {
+      new cdk.CfnOutput(this, "LegacyUrl", {
+        value: `https://${legacyDomainName}`,
+      });
+    }
     new cdk.CfnOutput(this, "ClusterName", {
       value: cluster.clusterName,
     });

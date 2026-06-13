@@ -19,7 +19,10 @@ import {
   enqueueMemoryCapture,
   startInProcessMemoryCaptureScheduler,
 } from "@/lib/memory-capture";
-import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
+import {
+  buildUserMcpServers,
+  loadUserMcpProviderStatus,
+} from "@/lib/oauth/mcp-servers";
 import {
   buildArtifactContext,
   buildArtifactLookupMessage,
@@ -130,24 +133,27 @@ export async function streamInlineChatRun({
   const toolEvents = createToolEventAccumulator([]);
 
   try {
-    const [userRows, history, vaultMarkdown] = await Promise.all([
-      db
-        .select({
-          displayName: users.displayName,
-          customInstructions: users.customInstructions,
-        })
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1),
-      db
-        .select()
-        .from(chatMessages)
-        .where(eq(chatMessages.threadId, thread.id))
-        .orderBy(asc(chatMessages.createdAt)),
-      route.includeVaultContext
-        ? loadApprovedVaultMarkdown(db, userId)
-        : Promise.resolve(null),
-    ]);
+    const [userRows, history, vaultMarkdown, providerStatus] =
+      await Promise.all([
+        db
+          .select({
+            displayName: users.displayName,
+            assistantName: users.assistantName,
+            customInstructions: users.customInstructions,
+          })
+          .from(users)
+          .where(eq(users.id, userId))
+          .limit(1),
+        db
+          .select()
+          .from(chatMessages)
+          .where(eq(chatMessages.threadId, thread.id))
+          .orderBy(asc(chatMessages.createdAt)),
+        route.includeVaultContext
+          ? loadApprovedVaultMarkdown(db, userId)
+          : Promise.resolve(null),
+        loadUserMcpProviderStatus(db, userId),
+      ]);
 
     // Match artifacts against recent RAW user messages, not the
     // attachment-folded prompt — so uploaded file bytes can't pull in an
@@ -160,6 +166,7 @@ export async function streamInlineChatRun({
 
     const user = userRows[0] ?? {
       displayName: "User",
+      assistantName: null,
       customInstructions: null,
     };
     const agentMessages = buildTurnContext({
@@ -200,23 +207,22 @@ export async function streamInlineChatRun({
     }
 
     const connectedProviders = mcpServers ? Object.keys(mcpServers) : [];
-    const firstTurnPreamble =
-      route.useMcp ||
-      route.includeVaultContext ||
-      Boolean(user.customInstructions?.trim()) ||
-      Boolean(artifactContext)
-        ? buildAgentPreamble({
-            user: {
-              displayName: user.displayName,
-              customInstructions: user.customInstructions,
-              vaultMarkdown,
-            },
-            connectedProviders,
-            blockedProviders: deniedMcpProviders,
-            modelId: runtimeModelId,
-            artifactContext,
-          })
-        : undefined;
+    const firstTurnPreamble = buildAgentPreamble({
+      user: {
+        displayName: user.displayName,
+        assistantName: user.assistantName,
+        customInstructions: user.customInstructions,
+        vaultMarkdown,
+      },
+      connectedProviders,
+      availableProviders: providerStatus.allowedProviders,
+      blockedProviders:
+        deniedMcpProviders.length > 0
+          ? deniedMcpProviders
+          : providerStatus.deniedProviders,
+      modelId: runtimeModelId,
+      artifactContext,
+    });
     timing.contextReadyAt = new Date();
 
     await db
@@ -263,6 +269,16 @@ export async function streamInlineChatRun({
         mcpProviders: connectedProviders,
         metrics: buildTimingMetrics(timing),
       },
+    });
+
+    send({
+      type: "model",
+      requestedModelId: modelId,
+      modelId: runtimeModelId,
+      providerModelId: modelSelection.providerModelId,
+      modelSelection,
+      runtime: runtime.name,
+      runtimeTarget: route.runtimeTarget,
     });
 
     try {

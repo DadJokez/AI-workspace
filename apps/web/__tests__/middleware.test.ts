@@ -9,8 +9,13 @@ vi.mock("next-auth/jwt", () => ({
 
 import { middleware } from "@/middleware";
 
-function makeReq(pathname: string, cookieHeader = "") {
-  const base = `http://localhost${pathname}`;
+const ORIGINAL_ENV = {
+  LEGACY_HOST_REDIRECT_FROM: process.env.LEGACY_HOST_REDIRECT_FROM,
+  NEXTAUTH_URL: process.env.NEXTAUTH_URL,
+};
+
+function makeReq(pathname: string, cookieHeader = "", host = "localhost") {
+  const base = `http://${host}${pathname}`;
   const url = new URL(base);
   const nextUrl = Object.assign(url, {
     clone: () => new URL(base),
@@ -18,12 +23,14 @@ function makeReq(pathname: string, cookieHeader = "") {
   return {
     nextUrl,
     url: url.toString(),
-    headers: new Headers({ cookie: cookieHeader }),
+    headers: new Headers({ cookie: cookieHeader, host }),
   } as unknown as Parameters<typeof middleware>[0];
 }
 
 afterEach(() => {
   getTokenMock.mockReset();
+  restoreEnv("LEGACY_HOST_REDIRECT_FROM", ORIGINAL_ENV.LEGACY_HOST_REDIRECT_FROM);
+  restoreEnv("NEXTAUTH_URL", ORIGINAL_ENV.NEXTAUTH_URL);
 });
 
 describe("middleware — auth gate", () => {
@@ -72,4 +79,31 @@ describe("middleware — auth gate", () => {
     const res = await middleware(makeReq("/chat"));
     expect(res.headers.get("location")).toBeNull();
   });
+
+  it("redirects the legacy production host to the canonical host", async () => {
+    process.env.LEGACY_HOST_REDIRECT_FROM = "ai-workspace.builtwithrobot.link";
+    process.env.NEXTAUTH_URL = "https://comparative.builtwithrobot.link";
+
+    const res = await middleware(
+      makeReq(
+        "/chat?tab=latest",
+        "",
+        "ai-workspace.builtwithrobot.link",
+      ),
+    );
+
+    expect(res.status).toBe(308);
+    expect(res.headers.get("location")).toBe(
+      "https://comparative.builtwithrobot.link/chat?tab=latest",
+    );
+    expect(getTokenMock).not.toHaveBeenCalled();
+  });
 });
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}

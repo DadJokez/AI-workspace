@@ -17,6 +17,15 @@ import { getToken } from "next-auth/jwt";
  */
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const canonicalRedirect = redirectLegacyHost(req);
+  if (canonicalRedirect) return canonicalRedirect;
+
+  const isProtectedRoute =
+    pathname === "/" ||
+    pathname.startsWith("/chat") ||
+    pathname.startsWith("/admin");
+  if (!isProtectedRoute) return NextResponse.next();
+
   const isAdminRoute = pathname.startsWith("/admin");
 
   const token = await getToken({
@@ -45,8 +54,29 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Protect the app's authenticated surfaces. `/login`, NextAuth's own
-  // /api/auth/*, and Next's static assets (_next/*) are excluded so the
-  // sign-in flow itself isn't gated.
-  matcher: ["/", "/chat/:path*", "/admin/:path*"],
+  // Run on user-facing pages so legacy-host redirects work before the auth
+  // gate. API routes and Next static assets are excluded.
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|icon.svg).*)"],
 };
+
+function redirectLegacyHost(req: NextRequest): NextResponse | null {
+  const legacyHost = normalizeHost(process.env.LEGACY_HOST_REDIRECT_FROM);
+  if (!legacyHost) return null;
+
+  const canonical = process.env.NEXTAUTH_URL?.replace(/\/$/, "");
+  if (!canonical) return null;
+
+  const requestHost = normalizeHost(
+    req.headers.get("x-forwarded-host") ??
+      req.headers.get("host") ??
+      req.nextUrl.host,
+  );
+  if (requestHost !== legacyHost) return null;
+
+  const url = new URL(req.nextUrl.pathname + req.nextUrl.search, canonical);
+  return NextResponse.redirect(url, 308);
+}
+
+function normalizeHost(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase().replace(/:\d+$/, "");
+}
