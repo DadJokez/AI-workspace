@@ -24,6 +24,26 @@ describe("buildTurnContext", () => {
     expect(context.at(-1)).toEqual({ role: "user", content: current });
   });
 
+  it("can replace the current turn with composed model-facing content", () => {
+    const context = buildTurnContext({
+      messages: [
+        msg("assistant", "prior answer"),
+        msg("user", "i attached it"),
+      ],
+      currentMessageContent:
+        "i attached it\n\n--- Attached files ---\nAttached file: demo.html\n```html\n<html>visible to model</html>\n```",
+      recentMessageLimit: 1,
+    });
+
+    expect(context).toEqual([
+      { role: "assistant", content: "prior answer" },
+      {
+        role: "user",
+        content: expect.stringContaining("<html>visible to model</html>"),
+      },
+    ]);
+  });
+
   it("includes only the bounded recent history before the current turn", () => {
     const context = buildTurnContext({
       messages: [

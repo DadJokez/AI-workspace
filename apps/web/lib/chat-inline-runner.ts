@@ -23,7 +23,10 @@ import {
   buildUserMcpServers,
   loadUserMcpProviderStatus,
 } from "@/lib/oauth/mcp-servers";
-import { buildArtifactContext } from "@/lib/artifact-context";
+import {
+  buildArtifactContext,
+  buildArtifactLookupMessage,
+} from "@/lib/artifact-context";
 import {
   appendRunEventWithNextSequence,
   appendToolCallRunEvent,
@@ -152,13 +155,13 @@ export async function streamInlineChatRun({
         loadUserMcpProviderStatus(db, userId),
       ]);
 
-    // Match artifacts against the user's RAW message (the last persisted turn),
-    // not the attachment-folded prompt — so an uploaded file's body can't pull
-    // in an unrelated artifact.
+    // Match artifacts against recent RAW user messages, not the
+    // attachment-folded prompt — so uploaded file bytes can't pull in an
+    // unrelated artifact, while "it/that one" follow-ups still have context.
     const artifactContext = await buildArtifactContext({
       db,
       userId,
-      message: history[history.length - 1]?.content ?? prompt,
+      message: buildArtifactLookupMessage(history, prompt),
     });
 
     const user = userRows[0] ?? {
@@ -168,6 +171,7 @@ export async function streamInlineChatRun({
     };
     const agentMessages = buildTurnContext({
       messages: history,
+      currentMessageContent: prompt,
       threadSummary: thread.summary,
       recentMessageLimit: numberFromEnv("CHAT_RECENT_MESSAGE_LIMIT"),
       maxContextChars: numberFromEnv("CHAT_CONTEXT_CHAR_LIMIT"),
