@@ -351,7 +351,7 @@ now target the CDK-managed ECS service set.
 |---|---|---|
 | Web runtime | ECS service on Fargate, `ai-workspace-web` | Scale-out after shared rate limiting |
 | Workers | Separate ECS services for chat runs and Vault memory capture | Queue-backed dispatch if DB polling becomes limiting |
-| Ingress | Application Load Balancer, ACM cert, Route 53 record at `ai-workspace.builtwithrobot.link` | WAF/rate rules |
+| Ingress | Application Load Balancer, ACM cert, Route 53 record at `comparative.builtwithrobot.link` with `ai-workspace.builtwithrobot.link` retained as a legacy alias | WAF/rate rules |
 | Database | Existing RDS Postgres for fast cutover | RDS Proxy/Aurora and private DB posture |
 | Secrets | AWS Secrets Manager JSON secret `ai-workspace/production/app` | KMS rotation policy |
 | Networking | Default VPC for current RDS compatibility | Dedicated VPC/private subnets |
