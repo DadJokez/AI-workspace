@@ -6,6 +6,7 @@ import { useEffect, useRef } from "react";
  * ThinkingOrb — an organic, state-driven loading indicator and the product's
  * brand mark. A single monochrome SVG path morphs between two keyframes; the
  * amount of motion conveys state:
+ *   idle       — a calm continuous morph, no rotation (the resting brand mark)
  *   thinking   — calm morph + gentle rotation ("working on it")
  *   responding — intense morph + faster rotation; each `energy` bump swells the
  *                shape, so it reads as if the orb is talking while tokens stream
@@ -40,7 +41,7 @@ function morphPath(amp: number, phase: number): string {
   });
 }
 
-export type OrbState = "thinking" | "responding";
+export type OrbState = "idle" | "thinking" | "responding";
 
 export interface ThinkingOrbProps {
   state?: OrbState;
@@ -118,6 +119,10 @@ export function ThinkingOrb({
         churn = 2.0 + 5.5 * e;
         scale = 1 + 0.05 * e;
         rotSpd = reduced ? 0 : 18 + 34 * e;
+      } else if (stateRef.current === "idle") {
+        amp = 1.0;
+        churn = 1.571; // ≈ 4s morph period
+        rotSpd = 0; // the resting logo never spins
       } else {
         amp = 0.85 + 0.18 * Math.sin(t * 1.3 + seed);
         churn = 1.7;

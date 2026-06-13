@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { ThinkingOrb } from "./ThinkingOrb";
 
 interface NavItem {
   id: string;
@@ -307,53 +308,13 @@ export function Sidebar({
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div
-          className="relative flex shrink-0 items-center gap-2.5 px-3 py-3"
-          ref={userMenuRef}
-        >
-          <button
-            type="button"
-            onClick={() => onSignOut && setUserMenuOpen((v) => !v)}
-            disabled={!onSignOut}
-            aria-haspopup={onSignOut ? "menu" : undefined}
-            aria-expanded={onSignOut ? userMenuOpen : undefined}
-            aria-label={onSignOut ? "Account menu" : undefined}
-            className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-1 text-left ${
-              onSignOut ? "hover:bg-subtle" : "cursor-default"
-            }`}
-          >
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-subtle text-[11px] font-medium text-ink">
-              {initials || "AI"}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium text-ink">
-                {userName ?? "Workspace"}
-              </div>
-              {userEmail ? (
-                <div className="truncate text-[11px] text-muted">
-                  {userEmail}
-                </div>
-              ) : null}
-            </div>
-            {onSignOut ? (
-              <svg
-                viewBox="0 0 16 16"
-                width="10"
-                height="10"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-                className={`shrink-0 text-muted transition-transform ${
-                  userMenuOpen ? "rotate-180" : ""
-                }`}
-              >
-                <path d="m4 6 4 4 4-4" />
-              </svg>
-            ) : null}
-          </button>
+        <div className="flex shrink-0 items-center gap-2 px-3 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <ThinkingOrb state="idle" size={24} stroke={14} label="Comparative" />
+            <span className="truncate text-sm font-semibold tracking-[0.2em] text-ink">
+              COMPARATIVE
+            </span>
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -373,26 +334,6 @@ export function Sidebar({
               <path d="m4 4 8 8M12 4l-8 8" />
             </svg>
           </button>
-
-          {userMenuOpen && onSignOut ? (
-            <div
-              role="menu"
-              className="absolute left-3 right-3 top-[calc(100%-4px)] z-10 overflow-hidden rounded-md border border-hairline bg-surface shadow-md"
-            >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setUserMenuOpen(false);
-                  onSignOut();
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-ink hover:bg-subtle"
-              >
-                <IconSignOut />
-                <span>Sign out</span>
-              </button>
-            </div>
-          ) : null}
         </div>
 
         <div className="shrink-0 px-2 pb-1.5 pt-2">
@@ -661,7 +602,72 @@ export function Sidebar({
           ))}
         </nav>
 
-        <div aria-hidden className="flex-1" />
+        <div
+          className="relative mt-auto shrink-0 border-t border-hairline px-3 py-3"
+          ref={userMenuRef}
+        >
+          <button
+            type="button"
+            onClick={() => onSignOut && setUserMenuOpen((v) => !v)}
+            disabled={!onSignOut}
+            aria-haspopup={onSignOut ? "menu" : undefined}
+            aria-expanded={onSignOut ? userMenuOpen : undefined}
+            aria-label={onSignOut ? "Account menu" : undefined}
+            className={`flex w-full items-center gap-2.5 rounded-md px-1 py-1 text-left ${
+              onSignOut ? "hover:bg-subtle" : "cursor-default"
+            }`}
+          >
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-subtle text-[11px] font-medium text-ink">
+              {initials || "AI"}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium text-ink">
+                {userName ?? "Workspace"}
+              </div>
+              {userEmail ? (
+                <div className="truncate text-[11px] text-muted">{userEmail}</div>
+              ) : null}
+            </div>
+            {onSignOut ? (
+              <svg
+                viewBox="0 0 16 16"
+                width="10"
+                height="10"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+                className={`shrink-0 text-muted transition-transform ${
+                  userMenuOpen ? "rotate-180" : ""
+                }`}
+              >
+                <path d="m4 10 4-4 4 4" />
+              </svg>
+            ) : null}
+          </button>
+
+          {userMenuOpen && onSignOut ? (
+            <div
+              role="menu"
+              className="absolute bottom-[calc(100%-4px)] left-3 right-3 z-10 overflow-hidden rounded-md border border-hairline bg-surface shadow-md"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  onSignOut();
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-ink hover:bg-subtle"
+              >
+                <IconSignOut />
+                <span>Sign out</span>
+              </button>
+            </div>
+          ) : null}
+        </div>
       </aside>
     </>
   );
