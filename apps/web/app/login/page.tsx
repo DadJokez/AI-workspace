@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { ThinkingOrb } from "@/components/ThinkingOrb";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { LoginButton } from "./LoginButton";
 
@@ -24,9 +25,13 @@ export default async function LoginPage({ searchParams }: Props) {
       </div>
       <div className="w-full max-w-sm rounded-lg border border-hairline bg-surface px-6 py-8 shadow-sm">
         <div className="flex flex-col items-center gap-2 pb-6 text-center">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-subtle text-sm font-medium text-ink">
-            AI
-          </div>
+          <ThinkingOrb
+            state="idle"
+            size={40}
+            stroke={13}
+            label="Comparative"
+            className="text-ink"
+          />
           <h1 className="text-base font-semibold text-ink">Comparative</h1>
           <p className="text-[13px] text-muted">
             Sign in to continue to your workspace.

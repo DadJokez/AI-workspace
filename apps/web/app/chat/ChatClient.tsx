@@ -4,6 +4,7 @@ import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
 import { ChatInput, type SlashSkill } from "@/components/ChatInput";
 import type { ChatAttachment } from "@/lib/attachments";
 import { MessageBubble } from "@/components/MessageBubble";
+import { ThinkingOrb } from "@/components/ThinkingOrb";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
 import { SearchPanel } from "@/components/SearchPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
@@ -1912,6 +1913,13 @@ function EmptyState({ onPick }: { onPick: (s: string) => void }) {
   ];
   return (
     <div className="flex flex-col items-center gap-4 py-24 text-center">
+      <ThinkingOrb
+        state="idle"
+        size={56}
+        stroke={11}
+        label="Comparative"
+        className="text-ink"
+      />
       <div className="text-2xl font-medium tracking-tight text-ink">
         Talk to your work.
       </div>
