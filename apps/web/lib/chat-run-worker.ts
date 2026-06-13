@@ -21,9 +21,12 @@ import {
 } from "@/lib/memory-capture";
 import {
   buildUserMcpServers,
-  listUserMcpProviderState,
+  loadUserMcpProviderStatus,
 } from "@/lib/oauth/mcp-servers";
-import { buildArtifactContext } from "@/lib/artifact-context";
+import {
+  buildArtifactContext,
+  buildArtifactLookupMessage,
+} from "@/lib/artifact-context";
 import {
   appendRunEventWithNextSequence,
   appendToolCallRunEvent,
@@ -276,27 +279,38 @@ async function executeClaimedChatRun({
   }
 
   const runtime = getRuntime({ db, executionMode: inputs.executionMode });
-  const [threadRows, userRows, vaultMarkdown] = await Promise.all([
-    db
-      .select()
-      .from(chatThreads)
-      .where(eq(chatThreads.id, threadId))
-      .limit(1),
-    db
-      .select({
-        displayName: users.displayName,
-        customInstructions: users.customInstructions,
-      })
-      .from(users)
-      .where(eq(users.id, run.userId))
-      .limit(1),
-    loadApprovedVaultMarkdown(db, run.userId),
-  ]);
+  const mcpProviderOptions = Array.isArray(inputs.requestedProviders)
+    ? { onlyProviders: inputs.requestedProviders }
+    : undefined;
+  const [threadRows, userRows, vaultMarkdown, providerStatus] =
+    await Promise.all([
+      db
+        .select()
+        .from(chatThreads)
+        .where(eq(chatThreads.id, threadId))
+        .limit(1),
+      db
+        .select({
+          displayName: users.displayName,
+          assistantName: users.assistantName,
+          customInstructions: users.customInstructions,
+        })
+        .from(users)
+        .where(eq(users.id, run.userId))
+        .limit(1),
+      loadApprovedVaultMarkdown(db, run.userId),
+      loadUserMcpProviderStatus(
+        db,
+        run.userId,
+        mcpProviderOptions,
+      ),
+    ]);
 
   const thread = threadRows[0];
   if (!thread) throw new Error("Chat thread was not found for queued run.");
   const user = userRows[0] ?? {
     displayName: "User",
+    assistantName: null,
     customInstructions: null,
   };
 
@@ -306,16 +320,17 @@ async function executeClaimedChatRun({
     .where(eq(chatMessages.threadId, thread.id))
     .orderBy(asc(chatMessages.createdAt));
 
-  // Match artifacts against the user's RAW last message, not the
-  // attachment-folded prompt (see chat-inline-runner for the rationale).
+  // Match artifacts against recent RAW user messages, not the attachment-folded
+  // prompt (see chat-inline-runner for the rationale).
   const artifactContext = await buildArtifactContext({
     db,
     userId: run.userId,
-    message: history[history.length - 1]?.content ?? inputs.prompt,
+    message: buildArtifactLookupMessage(history, inputs.prompt),
   });
 
   const agentMessages = buildTurnContext({
     messages: history,
+    currentMessageContent: inputs.prompt,
     threadSummary: thread.summary,
     recentMessageLimit: numberFromEnv("CHAT_RECENT_MESSAGE_LIMIT"),
     maxContextChars: numberFromEnv("CHAT_CONTEXT_CHAR_LIMIT"),
@@ -331,15 +346,6 @@ async function executeClaimedChatRun({
       );
     },
   });
-
-  const mcpProviderOptions = Array.isArray(inputs.requestedProviders)
-    ? { onlyProviders: inputs.requestedProviders }
-    : undefined;
-  const mcpProviderState = await listUserMcpProviderState(
-    db,
-    run.userId,
-    mcpProviderOptions,
-  );
 
   let mcpServers;
   let deniedMcpProviders: string[] = [];
@@ -363,7 +369,7 @@ async function executeClaimedChatRun({
 
   const mountedProviders = mcpServers ? Object.keys(mcpServers) : [];
   const blockedProviders = uniqueStrings([
-    ...mcpProviderState.deniedProviders,
+    ...providerStatus.deniedProviders,
     ...deniedMcpProviders,
   ]);
 
@@ -389,11 +395,12 @@ async function executeClaimedChatRun({
   const firstTurnPreamble = buildAgentPreamble({
     user: {
       displayName: user.displayName,
+      assistantName: user.assistantName,
       customInstructions: user.customInstructions,
       vaultMarkdown,
     },
     connectedProviders: mountedProviders,
-    accountConnectedProviders: mcpProviderState.approvedProviders,
+    availableProviders: providerStatus.allowedProviders,
     blockedProviders,
     modelId: run.modelId ?? undefined,
     artifactContext,
@@ -406,8 +413,8 @@ async function executeClaimedChatRun({
       inputs: {
         ...inputs,
         mcpProviders: mountedProviders,
-        accountConnectedMcpProviders: mcpProviderState.connectedProviders,
-        approvedMcpProviders: mcpProviderState.approvedProviders,
+        accountConnectedMcpProviders: providerStatus.connectedProviders,
+        approvedMcpProviders: providerStatus.allowedProviders,
         deniedMcpProviders: blockedProviders,
       },
       updatedAt: new Date(),

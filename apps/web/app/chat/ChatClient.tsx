@@ -99,6 +99,7 @@ interface ChatTab {
 interface ChatStreamEvent {
   type:
     | "meta"
+    | "model"
     | "text-delta"
     | "tool-call"
     | "tool-result"
@@ -1197,6 +1198,13 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
               ),
             );
           }
+        } else if (ev.type === "model" && typeof ev.modelId === "string") {
+          assistantModel = ev.modelId;
+          patchTabMessages(tabId, (prev) =>
+            prev.map((m) =>
+              isDraftMessage(m) ? { ...m, modelId: assistantModel } : m,
+            ),
+          );
         } else if (ev.type === "text-delta" && typeof ev.delta === "string") {
           assistantText += ev.delta;
           patchTabMessages(tabId, (prev) =>

@@ -21,9 +21,12 @@ import {
 } from "@/lib/memory-capture";
 import {
   buildUserMcpServers,
-  listUserMcpProviderState,
+  loadUserMcpProviderStatus,
 } from "@/lib/oauth/mcp-servers";
-import { buildArtifactContext } from "@/lib/artifact-context";
+import {
+  buildArtifactContext,
+  buildArtifactLookupMessage,
+} from "@/lib/artifact-context";
 import {
   appendRunEventWithNextSequence,
   appendToolCallRunEvent,
@@ -130,11 +133,12 @@ export async function streamInlineChatRun({
   const toolEvents = createToolEventAccumulator([]);
 
   try {
-    const [userRows, history, vaultMarkdown, mcpProviderState] =
+    const [userRows, history, vaultMarkdown, providerStatus] =
       await Promise.all([
         db
           .select({
             displayName: users.displayName,
+            assistantName: users.assistantName,
             customInstructions: users.customInstructions,
           })
           .from(users)
@@ -148,24 +152,26 @@ export async function streamInlineChatRun({
         route.includeVaultContext
           ? loadApprovedVaultMarkdown(db, userId)
           : Promise.resolve(null),
-        listUserMcpProviderState(db, userId),
+        loadUserMcpProviderStatus(db, userId),
       ]);
 
-    // Match artifacts against the user's RAW message (the last persisted turn),
-    // not the attachment-folded prompt — so an uploaded file's body can't pull
-    // in an unrelated artifact.
+    // Match artifacts against recent RAW user messages, not the
+    // attachment-folded prompt — so uploaded file bytes can't pull in an
+    // unrelated artifact, while "it/that one" follow-ups still have context.
     const artifactContext = await buildArtifactContext({
       db,
       userId,
-      message: history[history.length - 1]?.content ?? prompt,
+      message: buildArtifactLookupMessage(history, prompt),
     });
 
     const user = userRows[0] ?? {
       displayName: "User",
+      assistantName: null,
       customInstructions: null,
     };
     const agentMessages = buildTurnContext({
       messages: history,
+      currentMessageContent: prompt,
       threadSummary: thread.summary,
       recentMessageLimit: numberFromEnv("CHAT_RECENT_MESSAGE_LIMIT"),
       maxContextChars: numberFromEnv("CHAT_CONTEXT_CHAR_LIMIT"),
@@ -202,11 +208,11 @@ export async function streamInlineChatRun({
 
     const mountedProviders = mcpServers ? Object.keys(mcpServers) : [];
     const blockedProviders = uniqueStrings([
-      ...mcpProviderState.deniedProviders,
+      ...providerStatus.deniedProviders,
       ...deniedMcpProviders,
     ]);
     const hasConnectedToolState =
-      mcpProviderState.connectedProviders.length > 0 ||
+      providerStatus.connectedProviders.length > 0 ||
       blockedProviders.length > 0;
     const firstTurnPreamble =
       route.useMcp ||
@@ -217,11 +223,12 @@ export async function streamInlineChatRun({
         ? buildAgentPreamble({
             user: {
               displayName: user.displayName,
+              assistantName: user.assistantName,
               customInstructions: user.customInstructions,
               vaultMarkdown,
             },
             connectedProviders: mountedProviders,
-            accountConnectedProviders: mcpProviderState.approvedProviders,
+            availableProviders: providerStatus.allowedProviders,
             blockedProviders,
             modelId: runtimeModelId,
             artifactContext,
@@ -247,8 +254,8 @@ export async function streamInlineChatRun({
           executionMode: route.executionMode,
           runtimeRoute: route,
           mcpProviders: mountedProviders,
-          accountConnectedMcpProviders: mcpProviderState.connectedProviders,
-          approvedMcpProviders: mcpProviderState.approvedProviders,
+          accountConnectedMcpProviders: providerStatus.connectedProviders,
+          approvedMcpProviders: providerStatus.allowedProviders,
           deniedMcpProviders: blockedProviders,
           metrics: buildTimingMetrics(timing),
         },
@@ -273,11 +280,21 @@ export async function streamInlineChatRun({
         modelSelection,
         reasons: route.reasons,
         mcpProviders: mountedProviders,
-        accountConnectedMcpProviders: mcpProviderState.connectedProviders,
-        approvedMcpProviders: mcpProviderState.approvedProviders,
+        accountConnectedMcpProviders: providerStatus.connectedProviders,
+        approvedMcpProviders: providerStatus.allowedProviders,
         deniedMcpProviders: blockedProviders,
         metrics: buildTimingMetrics(timing),
       },
+    });
+
+    send({
+      type: "model",
+      requestedModelId: modelId,
+      modelId: runtimeModelId,
+      providerModelId: modelSelection.providerModelId,
+      modelSelection,
+      runtime: runtime.name,
+      runtimeTarget: route.runtimeTarget,
     });
 
     try {

@@ -17,20 +17,17 @@ const MCP_ENDPOINTS: Record<string, { url: string }> = {
 /** Provider slugs AI Hub can mount today; skills validate against this. */
 export const SUPPORTED_MCP_PROVIDERS = Object.keys(MCP_ENDPOINTS);
 
-export interface UserMcpProviderState {
-  /** Supported providers with a saved OAuth token for this user. */
+export interface UserMcpProviderStatus {
   connectedProviders: string[];
-  /** Connected providers this user has actively approved for tool use. */
-  approvedProviders: string[];
-  /** Connected providers withheld because approval is missing or unavailable. */
+  allowedProviders: string[];
   deniedProviders: string[];
 }
 
-export async function listUserMcpProviderState(
+export async function loadUserMcpProviderStatus(
   db: Database,
   userId: string,
   options?: { onlyProviders?: string[] },
-): Promise<UserMcpProviderState> {
+): Promise<UserMcpProviderStatus> {
   let rows: Array<{ provider: string }>;
   try {
     rows = await db
@@ -41,7 +38,7 @@ export async function listUserMcpProviderState(
     console.warn("[mcp] oauth_tokens provider lookup failed:", err);
     return {
       connectedProviders: [],
-      approvedProviders: [],
+      allowedProviders: [],
       deniedProviders: [],
     };
   }
@@ -55,7 +52,7 @@ export async function listUserMcpProviderState(
 
   return {
     connectedProviders,
-    approvedProviders: allowedProviders,
+    allowedProviders,
     deniedProviders,
   };
 }
@@ -104,12 +101,11 @@ export async function buildUserMcpServers(
     rows = rows.filter((row) => allowlist.has(row.provider));
   }
 
-  const requestedProviders = uniqueSupportedProviders(rows);
-  const { allowedProviders, deniedProviders } = await resolveAttestedProviders(
-    db,
-    userId,
-    requestedProviders,
-  );
+  const status = await loadUserMcpProviderStatus(db, userId, {
+    onlyProviders: options?.onlyProviders,
+  });
+  const allowedProviders = status.allowedProviders;
+  const deniedProviders = status.deniedProviders;
   const allowed = new Set(allowedProviders);
 
   const out: Record<string, McpServerSpec> = {};

@@ -1,4 +1,4 @@
-import { getDb, skills } from "@ai-workspace/db";
+import { auditLog, getDb, skills } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
@@ -23,25 +23,53 @@ export async function POST(
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const { id } = await params;
+  const db = getDb();
 
   // Skill runs can do tool work — give them the same reduced allowance the
   // Developer Briefing workflow uses (one third of the chat budget).
   const baseLimits = requestLimitConfig();
-  const rate = checkRateLimit(`skill-run:${sessionUser.id}`, {
+  const rate = await checkRateLimit(db, `skill-run:${sessionUser.id}`, {
     ...baseLimits,
     maxRequests: Math.max(1, Math.floor(baseLimits.maxRequests / 3)),
   });
   if (!rate.allowed) {
+    await db.insert(auditLog).values({
+      actorUserId: sessionUser.id,
+      actionType: "rate_limit",
+      status: "denied",
+      provider: "ai-hub",
+      toolName: "skill-run",
+      input: {
+        route: `/api/skills/${id}/run`,
+        windowMs: baseLimits.windowMs,
+        maxRequests: rate.limit,
+      },
+      error: "skill_run_rate_limit_exceeded",
+      metadata: {
+        retryAfterSeconds: rate.retryAfterSeconds,
+        resetAt: rate.resetAt.toISOString(),
+      },
+      startedAt: new Date(),
+      completedAt: new Date(),
+    });
     return NextResponse.json(
-      { error: "rate_limited", retryAfterSeconds: rate.retryAfterSeconds },
+      {
+        error: "rate_limited",
+        message: "Too many skill runs. Please wait a moment and try again.",
+        retryAfterSeconds: rate.retryAfterSeconds,
+      },
       {
         status: 429,
-        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+        headers: {
+          "Retry-After": String(rate.retryAfterSeconds),
+          "X-RateLimit-Limit": String(rate.limit),
+          "X-RateLimit-Remaining": String(rate.remaining),
+          "X-RateLimit-Reset": rate.resetAt.toISOString(),
+        },
       },
     );
   }
 
-  const db = getDb();
   const rows = await db
     .select()
     .from(skills)

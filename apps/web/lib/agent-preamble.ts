@@ -14,12 +14,15 @@ import { MODELS, isValidModelId } from "@ai-workspace/agent";
 interface PreambleInput {
   user: {
     displayName: string;
+    assistantName?: string | null;
     customInstructions: string | null;
     vaultMarkdown?: string | null;
   };
-  /** Provider keys present in the turn's mounted mcpServers map (e.g. ["github"]). */
+  /** Provider keys mounted into this turn's mcpServers map (e.g. ["github"]). */
   connectedProviders: readonly string[];
-  /** Provider keys connected and approved for the user's account, mounted or not. */
+  /** Provider keys connected/approved for the account but not necessarily mounted. */
+  availableProviders?: readonly string[];
+  /** Back-compat alias used by older tests/branches. */
   accountConnectedProviders?: readonly string[];
   /** Connected provider keys withheld because this user has not approved them. */
   blockedProviders?: readonly string[];
@@ -49,6 +52,7 @@ export function buildAgentPreamble({
   user,
   connectedProviders,
   accountConnectedProviders,
+  availableProviders,
   blockedProviders = [],
   modelId,
   artifactContext,
@@ -65,23 +69,23 @@ export function buildAgentPreamble({
     modelId && isValidModelId(modelId)
       ? `Claude ${MODELS[modelId].displayName}`
       : "Claude (Anthropic)";
+  const assistantName = user.assistantName?.trim() || "Comparative";
   lines.push(
-    `You are Comparative, your organization's internal AI assistant, helping ${user.displayName}. You are powered by ${modelLabel}, made by Anthropic. If asked which model or version you are, answer "${modelLabel}" — never claim to be an older model such as "Claude 3.5".`,
+    `You are ${assistantName}, ${user.displayName}'s internal AI assistant inside Comparative. Comparative is the workspace/product name; "${assistantName}" is your assistant name for this user. If asked your name, answer "${assistantName}". You are powered by ${modelLabel}, made by Anthropic. If asked which model or version you are, answer "${modelLabel}" — never claim to be an older model such as "Claude 3.5".`,
   );
   lines.push("");
 
-  const accountProviders = accountConnectedProviders ?? connectedProviders;
+  const accountProviders =
+    accountConnectedProviders ?? availableProviders ?? connectedProviders;
   const mountedProviders = connectedProviders;
 
   if (accountProviders.length > 0) {
-    lines.push(
-      "Connected account tools:",
-    );
+    lines.push("Connected account tools:");
     for (const p of accountProviders) {
       lines.push(`- ${PROVIDER_DESCRIPTIONS[p] ?? p}`);
     }
     lines.push(
-      "These are real account connections. Never tell the user they are disconnected, missing, unavailable, or not wired up unless the account connection status above says so.",
+      "Connected tools available in this user's Comparative account. These are real account connections. Never tell the user they are disconnected, missing, unavailable, or not wired up unless the account connection status above says so.",
     );
     if (mountedProviders.length > 0) {
       lines.push("");
@@ -91,7 +95,7 @@ export function buildAgentPreamble({
       }
     } else {
       lines.push(
-        "No connected account tool is mounted in this lightweight turn. That only means this turn was routed for fast chat; it does NOT mean the account tool is disconnected. If the user's request needs live data from a connected account tool, do not guess, do not invent a result, and do not ask the user to refresh. Say you need to check it and answer only after a tool-backed turn provides a result.",
+        "No connected account tool is mounted in this lightweight turn. That only means this turn was routed for fast chat; it does NOT mean the account tool is disconnected. Do not say no tools are connected. If the user's request needs live data from a connected account tool, do not guess, do not invent a result, and do not ask the user to refresh. Say you need to check it and answer only after a tool-backed turn provides a result.",
       );
     }
   } else if (blockedProviders.length > 0) {
@@ -142,7 +146,7 @@ export function buildAgentPreamble({
   );
   lines.push("");
   lines.push(
-    "Important artifact boundary: this is a deployed web app, not the user's local filesystem. If you create or edit files in the runtime workspace (for example paths under /app), those files are internal to the running container and are not directly accessible to the user unless the app explicitly exposes them. When the user asks you to make, create, write, generate, or edit a standalone file, you MUST return the complete finished file contents in a fenced code block with a filename in the fence info, for example ```markdown filename=\"notes.md\". The app saves that block as a clickable Workspace artifact. Follow-up requests that revise or improve a prior artifact still need a new complete fenced file block; do not answer those by dumping raw code or partial snippets. If the finished artifact is too large to return completely, say so and ask to continue rather than sending a truncated file. Do not merely say 'Written to `file.md`' or 'Saved as `file.html`' without the fenced file block; that will not expose the file to the user. Do not tell the user to copy/paste the file manually, do not add 'save this as a file' instructions, and do not repeat the whole artifact in prose after the fenced block.",
+    "Important artifact boundary: this is a deployed web app, not the user's local filesystem. If you create or edit files in the runtime workspace (for example paths under /app), those files are internal to the running container and are not directly accessible to the user unless the app explicitly exposes them. When the user asks you to make, create, write, generate, or edit a standalone file, you MUST return the complete finished file contents in a fenced code block with a filename in the fence info, for example ```markdown filename=\"notes.md\". The app saves that block as a clickable Workspace artifact. Follow-up requests that revise or improve a prior artifact still need a new complete fenced file block; do not answer those by dumping raw code or partial snippets. Until native artifact versioning ships, default to creating a new versioned artifact filename (for example `deck-v2.html`) instead of overwriting the prior filename, unless the user explicitly asks to replace the same artifact. If the finished artifact is too large to return completely, say so and ask to continue rather than sending a truncated file. Do not merely say 'Written to `file.md`' or 'Saved as `file.html`' without the fenced file block; that will not expose the file to the user. Do not tell the user to copy/paste the file manually, do not add 'save this as a file' instructions, and do not repeat the whole artifact in prose after the fenced block.",
   );
   lines.push("");
   lines.push(
