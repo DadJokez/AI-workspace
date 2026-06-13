@@ -15,7 +15,8 @@ import { useEffect, useRef } from "react";
  * paths, the morph-by-interpolation math, rotation as a separate layer, and the
  * per-state amp/churn/rotSpd/scale tuning are preserved exactly (that tuning IS
  * the visual identity). Replaces the old bouncing-dots + blinking-caret
- * indicators. Honors prefers-reduced-motion by dropping rotation.
+ * indicators. Under prefers-reduced-motion it renders a single static frame —
+ * no morph, swell, or rotation.
  */
 
 const PA =
@@ -55,8 +56,14 @@ export interface ThinkingOrbProps {
    * length (or a token count). Ignored while `thinking`.
    */
   energy?: number;
+  /**
+   * When false, the orb renders a single settled frame and never starts an
+   * animation loop — a calm static brand mark (used for completed messages so
+   * only the in-progress turn moves). Default true.
+   */
+  animated?: boolean;
   className?: string;
-  /** Accessible label; rendered as role="img". */
+  /** Accessible label → role="img". Omit for a decorative orb (aria-hidden). */
   label?: string;
 }
 
@@ -65,9 +72,11 @@ export function ThinkingOrb({
   size = 20,
   stroke = 15,
   energy = 0,
+  animated = true,
   className,
-  label = "Thinking",
+  label,
 }: ThinkingOrbProps) {
+  const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
   const pRef = useRef<SVGPathElement>(null);
   const stateRef = useRef<OrbState>(state);
@@ -95,6 +104,15 @@ export function ThinkingOrb({
     const reduced =
       typeof matchMedia !== "undefined" &&
       matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // Static mode — animation off, or the user prefers reduced motion. Settle
+    // on one clean frame and never start a loop. Reduced-motion suppresses the
+    // morph and swell too, not just rotation.
+    if (!animated || reduced) {
+      p.setAttribute("d", PA);
+      g.setAttribute("transform", "");
+      return;
+    }
     let phase = Math.random() * 6;
     let rot = 0;
     const seed = Math.random() * 6;
@@ -140,22 +158,58 @@ export function ThinkingOrb({
       );
     };
 
-    tick(); // paint one frame immediately so there's never an empty flash
+    let running = false;
     const loop = () => {
       tick();
       raf = requestAnimationFrame(loop);
     };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+    const start = () => {
+      if (running) return;
+      running = true;
+      last = performance.now() / 1000; // avoid a dt jump after a pause
+      raf = requestAnimationFrame(loop);
+    };
+    const stop = () => {
+      running = false;
+      cancelAnimationFrame(raf);
+    };
+
+    tick(); // paint one frame immediately so there's never an empty flash
+
+    // Animate only while on-screen. A long thread can hold dozens of orbs; the
+    // off-screen ones cost nothing (rAF paused, frozen on their last frame).
+    let observer: IntersectionObserver | null = null;
+    const svg = svgRef.current;
+    if (typeof IntersectionObserver !== "undefined" && svg) {
+      observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) start();
+            else stop();
+          }
+        },
+        { rootMargin: "120px" },
+      );
+      observer.observe(svg);
+    } else {
+      start();
+    }
+
+    return () => {
+      stop();
+      observer?.disconnect();
+    };
+  }, [animated]);
 
   return (
     <svg
+      ref={svgRef}
       viewBox="0 0 200 200"
       width={size}
       height={size}
-      role="img"
+      role={label ? "img" : undefined}
       aria-label={label}
+      aria-hidden={label ? undefined : true}
       className={className}
       style={{
         display: "inline-block",
