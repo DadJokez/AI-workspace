@@ -109,24 +109,26 @@ function postgresRateLimitStore(db: Database): RateLimitStore {
   return {
     async consume(key, config, now) {
       const resetAt = new Date(now.getTime() + config.windowMs);
+      const nowSql = now.toISOString();
+      const resetAtSql = resetAt.toISOString();
       const rows = await db.execute<{ count: number; reset_at: Date | string }>(
         sql`
           insert into "rate_limit_buckets"
             ("bucket_key", "count", "reset_at", "updated_at")
           values
-            (${key}, 1, ${resetAt}, ${now})
+            (${key}, 1, ${resetAtSql}, ${nowSql})
           on conflict ("bucket_key") do update set
             "count" = case
-              when "rate_limit_buckets"."reset_at" <= ${now}
+              when "rate_limit_buckets"."reset_at" <= ${nowSql}
                 then 1
               else "rate_limit_buckets"."count" + 1
             end,
             "reset_at" = case
-              when "rate_limit_buckets"."reset_at" <= ${now}
-                then ${resetAt}
+              when "rate_limit_buckets"."reset_at" <= ${nowSql}
+                then ${resetAtSql}
               else "rate_limit_buckets"."reset_at"
             end,
-            "updated_at" = ${now}
+            "updated_at" = ${nowSql}
           returning "count", "reset_at"
         `,
       );
