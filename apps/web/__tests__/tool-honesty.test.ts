@@ -29,12 +29,29 @@ describe("tool-use honesty grounding", () => {
   });
 
   it("keeps the honesty rule even when no tools are mounted this turn", () => {
-    // The fast lane can stamp a preamble with no connected providers; the rule
+    // The fast lane can stamp a preamble with no mounted providers; the rule
     // must still be present so a tool-less turn can't deny a connected system.
     const preamble = buildAgentPreamble({
       user: { displayName: "Rob", customInstructions: null },
       connectedProviders: [],
+      accountConnectedProviders: ["github"],
     });
     expect(preamble).toContain("Honesty about your own capabilities is mandatory");
+    expect(preamble).toContain("Connected account tools:");
+    expect(preamble).toContain("No connected account tool is mounted");
+    expect(preamble).toContain("do not ask the user to refresh");
+    expect(preamble).not.toContain("No external tools are connected yet");
+  });
+
+  it("does not call pending-approval tools disconnected", () => {
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: [],
+      accountConnectedProviders: [],
+      blockedProviders: ["github"],
+    });
+    expect(preamble).toContain("Connected account tools exist");
+    expect(preamble).toContain("Connected tools blocked pending approval");
+    expect(preamble).not.toContain("No external tools are connected yet");
   });
 });

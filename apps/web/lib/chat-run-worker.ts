@@ -19,7 +19,10 @@ import {
   enqueueMemoryCapture,
   startInProcessMemoryCaptureScheduler,
 } from "@/lib/memory-capture";
-import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
+import {
+  buildUserMcpServers,
+  listUserMcpProviderState,
+} from "@/lib/oauth/mcp-servers";
 import { buildArtifactContext } from "@/lib/artifact-context";
 import {
   appendRunEventWithNextSequence,
@@ -329,15 +332,22 @@ async function executeClaimedChatRun({
     },
   });
 
+  const mcpProviderOptions = Array.isArray(inputs.requestedProviders)
+    ? { onlyProviders: inputs.requestedProviders }
+    : undefined;
+  const mcpProviderState = await listUserMcpProviderState(
+    db,
+    run.userId,
+    mcpProviderOptions,
+  );
+
   let mcpServers;
   let deniedMcpProviders: string[] = [];
   try {
     const mcpAccess = await buildUserMcpServers(
       db,
       run.userId,
-      Array.isArray(inputs.requestedProviders)
-        ? { onlyProviders: inputs.requestedProviders }
-        : undefined,
+      mcpProviderOptions,
     );
     mcpServers = mcpAccess.mcpServers;
     deniedMcpProviders = mcpAccess.deniedProviders;
@@ -351,9 +361,15 @@ async function executeClaimedChatRun({
     );
   }
 
-  if (deniedMcpProviders.length > 0) {
+  const mountedProviders = mcpServers ? Object.keys(mcpServers) : [];
+  const blockedProviders = uniqueStrings([
+    ...mcpProviderState.deniedProviders,
+    ...deniedMcpProviders,
+  ]);
+
+  if (blockedProviders.length > 0) {
     await db.insert(auditLog).values(
-      deniedMcpProviders.map((provider) => ({
+      blockedProviders.map((provider) => ({
         actorUserId: run.userId,
         actionType: "mcp_tool_attestation",
         status: "denied" as const,
@@ -376,8 +392,9 @@ async function executeClaimedChatRun({
       customInstructions: user.customInstructions,
       vaultMarkdown,
     },
-    connectedProviders: mcpServers ? Object.keys(mcpServers) : [],
-    blockedProviders: deniedMcpProviders,
+    connectedProviders: mountedProviders,
+    accountConnectedProviders: mcpProviderState.approvedProviders,
+    blockedProviders,
     modelId: run.modelId ?? undefined,
     artifactContext,
   });
@@ -388,8 +405,10 @@ async function executeClaimedChatRun({
       runtime: runtime.name,
       inputs: {
         ...inputs,
-        mcpProviders: mcpServers ? Object.keys(mcpServers) : [],
-        deniedMcpProviders,
+        mcpProviders: mountedProviders,
+        accountConnectedMcpProviders: mcpProviderState.connectedProviders,
+        approvedMcpProviders: mcpProviderState.approvedProviders,
+        deniedMcpProviders: blockedProviders,
       },
       updatedAt: new Date(),
     })
@@ -432,9 +451,7 @@ async function executeClaimedChatRun({
   let providerRunMetadata: RuntimeRunMetadata | null =
     parseOutput(run.outputs).providerRun ?? null;
   const runtimeErrors: string[] = [];
-  const toolEvents = createToolEventAccumulator(
-    mcpServers ? Object.keys(mcpServers) : [],
-  );
+  const toolEvents = createToolEventAccumulator(mountedProviders);
   const buildOutput = (extra: Record<string, unknown> = {}) => ({
     ...parseOutput(run.outputs),
     assistantText,
@@ -1011,6 +1028,10 @@ function numberFromEnv(name: string): number | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return Array.from(new Set(values));
 }
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {

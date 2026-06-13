@@ -176,6 +176,9 @@ function hasDurableIntent(value: string): string | null {
 }
 
 function hasToolIntent(value: string): string | null {
+  if (hasGithubCapabilityProbe(value)) {
+    return "github_capability_probe";
+  }
   if (hasNumberedGithubReference(value)) {
     return "github_numbered_reference";
   }
@@ -189,7 +192,7 @@ function hasToolIntent(value: string): string | null {
     return "github_recent_work_lookup";
   }
   if (
-    /\b(github|gh|repo|repository)\b/.test(value) &&
+    (hasGithubName(value) || /\b(repos?|repositories?)\b/.test(value)) &&
     GITHUB_LOOKUP_ACTION_RE.test(value)
   ) {
     return "github_provider_lookup";
@@ -200,14 +203,37 @@ function hasToolIntent(value: string): string | null {
   ) {
     return "github_resource_lookup";
   }
-  if (/\bmy\s+(repo|repository|github|gh|issues?|prs?|pull requests?)\b/.test(value)) {
+  if (
+    /\bmy\s+(repos?|repositories?|github|gh|issues?|prs?|pull requests?)\b/.test(
+      value,
+    )
+  ) {
     return "github_owned_resource";
   }
   return null;
 }
 
 const GITHUB_LOOKUP_ACTION_RE =
-  /\b(check|inspect|look|peek|find|search|list|read|show|summarize|compare|status|review|open|create|update|comment|close|merge)\b/;
+  /\b(check|inspect|look|peek|find|search|list|read|show|see|view|summarize|compare|status|review|open|create|update|comment|close|merge|try)\b/;
+
+function hasGithubName(value: string): boolean {
+  return /\b(github|gh|git hub)\b/.test(value);
+}
+
+function hasGithubCapabilityProbe(value: string): boolean {
+  if (
+    hasGithubName(value) &&
+    /\b(access|connected|connect|available|tool|tools|wired|see|view|try)\b/.test(
+      value,
+    )
+  ) {
+    return true;
+  }
+  return (
+    /\btools?\b.*\bconnected\b/.test(value) &&
+    /\b(repos?|repositories?|github|gh|git hub)\b/.test(value)
+  );
+}
 
 function hasNumberedGithubReference(value: string): boolean {
   return /\b(issue|pull request|pr)\s*#?\d+\b/.test(value);

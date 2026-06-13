@@ -19,7 +19,10 @@ import {
   enqueueMemoryCapture,
   startInProcessMemoryCaptureScheduler,
 } from "@/lib/memory-capture";
-import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
+import {
+  buildUserMcpServers,
+  listUserMcpProviderState,
+} from "@/lib/oauth/mcp-servers";
 import { buildArtifactContext } from "@/lib/artifact-context";
 import {
   appendRunEventWithNextSequence,
@@ -127,24 +130,26 @@ export async function streamInlineChatRun({
   const toolEvents = createToolEventAccumulator([]);
 
   try {
-    const [userRows, history, vaultMarkdown] = await Promise.all([
-      db
-        .select({
-          displayName: users.displayName,
-          customInstructions: users.customInstructions,
-        })
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1),
-      db
-        .select()
-        .from(chatMessages)
-        .where(eq(chatMessages.threadId, thread.id))
-        .orderBy(asc(chatMessages.createdAt)),
-      route.includeVaultContext
-        ? loadApprovedVaultMarkdown(db, userId)
-        : Promise.resolve(null),
-    ]);
+    const [userRows, history, vaultMarkdown, mcpProviderState] =
+      await Promise.all([
+        db
+          .select({
+            displayName: users.displayName,
+            customInstructions: users.customInstructions,
+          })
+          .from(users)
+          .where(eq(users.id, userId))
+          .limit(1),
+        db
+          .select()
+          .from(chatMessages)
+          .where(eq(chatMessages.threadId, thread.id))
+          .orderBy(asc(chatMessages.createdAt)),
+        route.includeVaultContext
+          ? loadApprovedVaultMarkdown(db, userId)
+          : Promise.resolve(null),
+        listUserMcpProviderState(db, userId),
+      ]);
 
     // Match artifacts against the user's RAW message (the last persisted turn),
     // not the attachment-folded prompt — so an uploaded file's body can't pull
@@ -195,20 +200,29 @@ export async function streamInlineChatRun({
       }
     }
 
-    const connectedProviders = mcpServers ? Object.keys(mcpServers) : [];
+    const mountedProviders = mcpServers ? Object.keys(mcpServers) : [];
+    const blockedProviders = uniqueStrings([
+      ...mcpProviderState.deniedProviders,
+      ...deniedMcpProviders,
+    ]);
+    const hasConnectedToolState =
+      mcpProviderState.connectedProviders.length > 0 ||
+      blockedProviders.length > 0;
     const firstTurnPreamble =
       route.useMcp ||
       route.includeVaultContext ||
       Boolean(user.customInstructions?.trim()) ||
-      Boolean(artifactContext)
+      Boolean(artifactContext) ||
+      hasConnectedToolState
         ? buildAgentPreamble({
             user: {
               displayName: user.displayName,
               customInstructions: user.customInstructions,
               vaultMarkdown,
             },
-            connectedProviders,
-            blockedProviders: deniedMcpProviders,
+            connectedProviders: mountedProviders,
+            accountConnectedProviders: mcpProviderState.approvedProviders,
+            blockedProviders,
             modelId: runtimeModelId,
             artifactContext,
           })
@@ -232,8 +246,10 @@ export async function streamInlineChatRun({
           runtimeTarget: route.runtimeTarget,
           executionMode: route.executionMode,
           runtimeRoute: route,
-          mcpProviders: connectedProviders,
-          deniedMcpProviders,
+          mcpProviders: mountedProviders,
+          accountConnectedMcpProviders: mcpProviderState.connectedProviders,
+          approvedMcpProviders: mcpProviderState.approvedProviders,
+          deniedMcpProviders: blockedProviders,
           metrics: buildTimingMetrics(timing),
         },
         updatedAt: new Date(),
@@ -256,7 +272,10 @@ export async function streamInlineChatRun({
         providerModelId: modelSelection.providerModelId,
         modelSelection,
         reasons: route.reasons,
-        mcpProviders: connectedProviders,
+        mcpProviders: mountedProviders,
+        accountConnectedMcpProviders: mcpProviderState.connectedProviders,
+        approvedMcpProviders: mcpProviderState.approvedProviders,
+        deniedMcpProviders: blockedProviders,
         metrics: buildTimingMetrics(timing),
       },
     });
@@ -764,4 +783,8 @@ function numberFromEnv(name: string): number | undefined {
   if (!raw) return undefined;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return Array.from(new Set(values));
 }

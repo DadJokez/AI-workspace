@@ -17,8 +17,10 @@ interface PreambleInput {
     customInstructions: string | null;
     vaultMarkdown?: string | null;
   };
-  /** Provider keys present in the turn's mcpServers map (e.g. ["github"]). */
+  /** Provider keys present in the turn's mounted mcpServers map (e.g. ["github"]). */
   connectedProviders: readonly string[];
+  /** Provider keys connected and approved for the user's account, mounted or not. */
+  accountConnectedProviders?: readonly string[];
   /** Connected provider keys withheld because this user has not approved them. */
   blockedProviders?: readonly string[];
   /** The model running this turn, so the assistant can self-identify correctly. */
@@ -46,6 +48,7 @@ const PROVIDER_DESCRIPTIONS: Record<string, string> = {
 export function buildAgentPreamble({
   user,
   connectedProviders,
+  accountConnectedProviders,
   blockedProviders = [],
   modelId,
   artifactContext,
@@ -67,13 +70,34 @@ export function buildAgentPreamble({
   );
   lines.push("");
 
-  if (connectedProviders.length > 0) {
+  const accountProviders = accountConnectedProviders ?? connectedProviders;
+  const mountedProviders = connectedProviders;
+
+  if (accountProviders.length > 0) {
     lines.push(
-      "Connected tools — use these directly for any related requests:",
+      "Connected account tools:",
     );
-    for (const p of connectedProviders) {
+    for (const p of accountProviders) {
       lines.push(`- ${PROVIDER_DESCRIPTIONS[p] ?? p}`);
     }
+    lines.push(
+      "These are real account connections. Never tell the user they are disconnected, missing, unavailable, or not wired up unless the account connection status above says so.",
+    );
+    if (mountedProviders.length > 0) {
+      lines.push("");
+      lines.push("Mounted tools for this turn — call these directly when useful:");
+      for (const p of mountedProviders) {
+        lines.push(`- ${PROVIDER_DESCRIPTIONS[p] ?? p}`);
+      }
+    } else {
+      lines.push(
+        "No connected account tool is mounted in this lightweight turn. That only means this turn was routed for fast chat; it does NOT mean the account tool is disconnected. If the user's request needs live data from a connected account tool, do not guess, do not invent a result, and do not ask the user to refresh. Say you need to check it and answer only after a tool-backed turn provides a result.",
+      );
+    }
+  } else if (blockedProviders.length > 0) {
+    lines.push(
+      "Connected account tools exist, but none are currently approved for use in this turn.",
+    );
   } else {
     lines.push(
       "No external tools are connected yet. The user can connect tools in the Tools section.",

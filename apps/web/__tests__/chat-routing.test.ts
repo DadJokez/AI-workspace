@@ -94,6 +94,38 @@ describe("decideChatRuntimeRoute", () => {
     });
   });
 
+  it("routes GitHub capability probes to local tool streaming", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "You can't access git hub",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "tool-local",
+      executionMode: "local",
+      runtimeTarget: "cursor-agent",
+      useWorker: false,
+      useMcp: true,
+      reasons: ["github_capability_probe"],
+    });
+  });
+
+  it("routes connected-tool repo visibility checks to local tool streaming", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "Tools says it's connected. Try if you can see my repos.",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "tool-local",
+      executionMode: "local",
+      runtimeTarget: "cursor-agent",
+      useWorker: false,
+      useMcp: true,
+      reasons: ["github_capability_probe"],
+    });
+  });
+
   it("routes natural personal PR review prompts to local tool streaming", () => {
     expect(
       decideChatRuntimeRoute({
@@ -209,7 +241,7 @@ describe("decideChatRuntimeRoute", () => {
   it("keeps tools mounted on a follow-up after a thread already used them", () => {
     expect(
       decideChatRuntimeRoute({
-        message: "what repos did you check?",
+        message: "what did you check?",
         runtimeV2: true,
         priorUserMessages: [
           "Open GitHub issues assigned to me — what should I tackle first?",
@@ -228,7 +260,7 @@ describe("decideChatRuntimeRoute", () => {
   it("does not stick tools when no earlier turn needed them", () => {
     expect(
       decideChatRuntimeRoute({
-        message: "what repos did you check?",
+        message: "what did you check?",
         runtimeV2: true,
         priorUserMessages: ["tell me a joke", "now make it shorter"],
       }),
