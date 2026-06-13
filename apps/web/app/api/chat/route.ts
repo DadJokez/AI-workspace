@@ -114,7 +114,7 @@ export async function POST(req: Request) {
   const runtimeV2 = runtimeV2EnabledFromEnv();
 
   const db = getDb();
-  const rate = checkRateLimit(`chat:${sessionUser.id}`, limits);
+  const rate = await checkRateLimit(db, `chat:${sessionUser.id}`, limits);
   if (!rate.allowed) {
     await db.insert(auditLog).values({
       actorUserId: sessionUser.id,

@@ -81,4 +81,20 @@ describe("date grounding", () => {
     expect(preamble).toContain("Comparative");
     expect(preamble).toContain('never claim to be an older model such as "Claude 3.5"');
   });
+
+  it("uses the user's configured assistant name instead of the product name", () => {
+    const preamble = buildAgentPreamble({
+      user: {
+        displayName: "Rob",
+        assistantName: "Thomas",
+        customInstructions: null,
+      },
+      connectedProviders: [],
+      modelId: "sonnet-4-6",
+    });
+
+    expect(preamble).toContain("You are Thomas");
+    expect(preamble).toContain('If asked your name, answer "Thomas"');
+    expect(preamble).toContain("Comparative is the workspace/product name");
+  });
 });

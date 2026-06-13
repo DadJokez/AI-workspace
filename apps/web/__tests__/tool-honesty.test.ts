@@ -37,4 +37,17 @@ describe("tool-use honesty grounding", () => {
     });
     expect(preamble).toContain("Honesty about your own capabilities is mandatory");
   });
+
+  it("distinguishes connected account tools from tools mounted on a lightweight turn", () => {
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: [],
+      availableProviders: ["github"],
+    });
+
+    expect(preamble).toContain("Connected tools available");
+    expect(preamble).toContain("GitHub: repositories");
+    expect(preamble).toContain("Do not say no tools are connected");
+    expect(preamble).not.toContain("No external tools are connected yet");
+  });
 });

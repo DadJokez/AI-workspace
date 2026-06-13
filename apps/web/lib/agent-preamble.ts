@@ -14,11 +14,14 @@ import { MODELS, isValidModelId } from "@ai-workspace/agent";
 interface PreambleInput {
   user: {
     displayName: string;
+    assistantName?: string | null;
     customInstructions: string | null;
     vaultMarkdown?: string | null;
   };
-  /** Provider keys present in the turn's mcpServers map (e.g. ["github"]). */
+  /** Provider keys mounted into this turn's mcpServers map (e.g. ["github"]). */
   connectedProviders: readonly string[];
+  /** Provider keys connected/approved for the account but not necessarily mounted. */
+  availableProviders?: readonly string[];
   /** Connected provider keys withheld because this user has not approved them. */
   blockedProviders?: readonly string[];
   /** The model running this turn, so the assistant can self-identify correctly. */
@@ -46,6 +49,7 @@ const PROVIDER_DESCRIPTIONS: Record<string, string> = {
 export function buildAgentPreamble({
   user,
   connectedProviders,
+  availableProviders = connectedProviders,
   blockedProviders = [],
   modelId,
   artifactContext,
@@ -62,18 +66,29 @@ export function buildAgentPreamble({
     modelId && isValidModelId(modelId)
       ? `Claude ${MODELS[modelId].displayName}`
       : "Claude (Anthropic)";
+  const assistantName = user.assistantName?.trim() || "Comparative";
   lines.push(
-    `You are Comparative, your organization's internal AI assistant, helping ${user.displayName}. You are powered by ${modelLabel}, made by Anthropic. If asked which model or version you are, answer "${modelLabel}" — never claim to be an older model such as "Claude 3.5".`,
+    `You are ${assistantName}, ${user.displayName}'s internal AI assistant inside Comparative. Comparative is the workspace/product name; "${assistantName}" is your assistant name for this user. If asked your name, answer "${assistantName}". You are powered by ${modelLabel}, made by Anthropic. If asked which model or version you are, answer "${modelLabel}" — never claim to be an older model such as "Claude 3.5".`,
   );
   lines.push("");
 
   if (connectedProviders.length > 0) {
     lines.push(
-      "Connected tools — use these directly for any related requests:",
+      "Tools mounted on this turn — use these directly for any related requests:",
     );
     for (const p of connectedProviders) {
       lines.push(`- ${PROVIDER_DESCRIPTIONS[p] ?? p}`);
     }
+  } else if (availableProviders.length > 0) {
+    lines.push(
+      "Connected tools available in this user's Comparative account, but not mounted on this lightweight turn because the current request did not require live tool data:",
+    );
+    for (const p of availableProviders) {
+      lines.push(`- ${PROVIDER_DESCRIPTIONS[p] ?? p}`);
+    }
+    lines.push(
+      "Do not say no tools are connected. If the user asks for live data from one of these systems, say you can check it; the next tool-requiring turn should mount the needed provider.",
+    );
   } else {
     lines.push(
       "No external tools are connected yet. The user can connect tools in the Tools section.",
