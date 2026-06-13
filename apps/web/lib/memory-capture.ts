@@ -382,7 +382,7 @@ async function extractMemorySuggestions({
   const errors: string[] = [];
   const modelId = process.env.MEMORY_CAPTURE_MODEL_ID ?? DEFAULT_MODEL_ID;
   const systemPrompt = [
-    "You are AI Hub's Vault memory reviewer.",
+    "You are Comparative's Vault memory reviewer.",
     "Extract only durable, user-useful personal context from queued chats.",
     "Never store secrets, credentials, private keys, access tokens, passwords, or sensitive personal data.",
     "Prefer stable preferences, working style, active projects, durable constraints, systems, and decisions.",

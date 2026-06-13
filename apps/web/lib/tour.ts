@@ -20,7 +20,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "welcome",
     anchor: null,
-    title: "Welcome to AI Hub",
+    title: "Welcome to Comparative",
     body: "One place to chat with AI that can actually act on your work — and to turn the useful things it does into skills, schedules, and apps you can share. Here's the two-minute lay of the land.",
   },
   {

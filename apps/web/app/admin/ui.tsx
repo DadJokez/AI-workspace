@@ -43,7 +43,7 @@ export function FilterPill({
 export function titleize(value: string): string {
   const lower = value.toLowerCase();
   if (lower === "github") return "GitHub";
-  if (lower === "ai-hub") return "AI Hub";
+  if (lower === "ai-hub") return "Comparative";
   return value
     .split(/[-_\s]+/)
     .filter(Boolean)

@@ -27,7 +27,7 @@ export default async function LoginPage({ searchParams }: Props) {
           <div className="flex h-9 w-9 items-center justify-center rounded-md bg-subtle text-sm font-medium text-ink">
             AI
           </div>
-          <h1 className="text-base font-semibold text-ink">AI Hub</h1>
+          <h1 className="text-base font-semibold text-ink">Comparative</h1>
           <p className="text-[13px] text-muted">
             Sign in to continue to your workspace.
           </p>
