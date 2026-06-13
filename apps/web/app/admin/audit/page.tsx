@@ -2,8 +2,8 @@ import { auditLog, getDb, users } from "@ai-workspace/db";
 import { and, desc, eq, type SQL } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import type { ReactNode } from "react";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { FilterPill, titleize } from "@/app/admin/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -225,30 +225,6 @@ export default async function AdminAuditPage({ searchParams }: Props) {
   );
 }
 
-function FilterPill({
-  href,
-  active,
-  children,
-}: {
-  href: string;
-  active: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      aria-current={active ? "page" : undefined}
-      className={`rounded-md border px-2.5 py-1 text-[12px] ${
-        active
-          ? "border-ink bg-ink text-canvas"
-          : "border-hairline text-muted hover:bg-subtle hover:text-ink"
-      }`}
-    >
-      {children}
-    </Link>
-  );
-}
-
 function StatusDot({ status }: { status: string }) {
   const color =
     status === "succeeded"
@@ -294,16 +270,6 @@ function formatAction(actionType: string): string {
   if (actionType === "rate_limit") return "Rate limit";
   return actionType
     .split(/[_-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function titleize(value: string): string {
-  if (value.toLowerCase() === "github") return "GitHub";
-  if (value.toLowerCase() === "ai-hub") return "AI Hub";
-  return value
-    .split(/[-_\s]+/)
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");

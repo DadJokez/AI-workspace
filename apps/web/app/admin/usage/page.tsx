@@ -1,10 +1,10 @@
 import { MODELS, isValidModelId } from "@ai-workspace/agent";
 import { getDb, runs, users } from "@ai-workspace/db";
 import { and, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { FilterPill, titleize } from "@/app/admin/ui";
 import {
   USAGE_WINDOWS,
   buildDaySeries,
@@ -293,40 +293,8 @@ function EmptyHint({ children }: { children: ReactNode }) {
   return <div className="py-6 text-center text-[12px] text-muted">{children}</div>;
 }
 
-function FilterPill({
-  href,
-  active,
-  children,
-}: {
-  href: string;
-  active: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      aria-current={active ? "page" : undefined}
-      className={`rounded-md border px-2.5 py-1 text-[12px] ${
-        active
-          ? "border-ink bg-ink text-canvas"
-          : "border-hairline text-muted hover:bg-subtle hover:text-ink"
-      }`}
-    >
-      {children}
-    </Link>
-  );
-}
-
 function formatModel(modelId: string | null): string {
   if (!modelId) return "Unspecified";
   if (isValidModelId(modelId)) return MODELS[modelId].displayName;
   return modelId;
-}
-
-function titleize(value: string): string {
-  return value
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
