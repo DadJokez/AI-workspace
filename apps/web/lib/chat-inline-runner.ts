@@ -206,23 +206,34 @@ export async function streamInlineChatRun({
       }
     }
 
-    const connectedProviders = mcpServers ? Object.keys(mcpServers) : [];
-    const firstTurnPreamble = buildAgentPreamble({
-      user: {
-        displayName: user.displayName,
-        assistantName: user.assistantName,
-        customInstructions: user.customInstructions,
-        vaultMarkdown,
-      },
-      connectedProviders,
-      availableProviders: providerStatus.allowedProviders,
-      blockedProviders:
-        deniedMcpProviders.length > 0
-          ? deniedMcpProviders
-          : providerStatus.deniedProviders,
-      modelId: runtimeModelId,
-      artifactContext,
-    });
+    const mountedProviders = mcpServers ? Object.keys(mcpServers) : [];
+    const blockedProviders = uniqueStrings([
+      ...providerStatus.deniedProviders,
+      ...deniedMcpProviders,
+    ]);
+    const hasConnectedToolState =
+      providerStatus.connectedProviders.length > 0 ||
+      blockedProviders.length > 0;
+    const firstTurnPreamble =
+      route.useMcp ||
+      route.includeVaultContext ||
+      Boolean(user.customInstructions?.trim()) ||
+      Boolean(artifactContext) ||
+      hasConnectedToolState
+        ? buildAgentPreamble({
+            user: {
+              displayName: user.displayName,
+              assistantName: user.assistantName,
+              customInstructions: user.customInstructions,
+              vaultMarkdown,
+            },
+            connectedProviders: mountedProviders,
+            availableProviders: providerStatus.allowedProviders,
+            blockedProviders,
+            modelId: runtimeModelId,
+            artifactContext,
+          })
+        : undefined;
     timing.contextReadyAt = new Date();
 
     await db
@@ -242,8 +253,10 @@ export async function streamInlineChatRun({
           runtimeTarget: route.runtimeTarget,
           executionMode: route.executionMode,
           runtimeRoute: route,
-          mcpProviders: connectedProviders,
-          deniedMcpProviders,
+          mcpProviders: mountedProviders,
+          accountConnectedMcpProviders: providerStatus.connectedProviders,
+          approvedMcpProviders: providerStatus.allowedProviders,
+          deniedMcpProviders: blockedProviders,
           metrics: buildTimingMetrics(timing),
         },
         updatedAt: new Date(),
@@ -266,7 +279,10 @@ export async function streamInlineChatRun({
         providerModelId: modelSelection.providerModelId,
         modelSelection,
         reasons: route.reasons,
-        mcpProviders: connectedProviders,
+        mcpProviders: mountedProviders,
+        accountConnectedMcpProviders: providerStatus.connectedProviders,
+        approvedMcpProviders: providerStatus.allowedProviders,
+        deniedMcpProviders: blockedProviders,
         metrics: buildTimingMetrics(timing),
       },
     });
@@ -784,4 +800,8 @@ function numberFromEnv(name: string): number | undefined {
   if (!raw) return undefined;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return Array.from(new Set(values));
 }

@@ -28,14 +28,14 @@ export async function loadUserMcpProviderStatus(
   userId: string,
   options?: { onlyProviders?: string[] },
 ): Promise<UserMcpProviderStatus> {
-  let rows;
+  let rows: Array<{ provider: string }>;
   try {
     rows = await db
       .select({ provider: oauthTokens.provider })
       .from(oauthTokens)
       .where(eq(oauthTokens.userId, userId));
   } catch (err) {
-    console.warn("[mcp] oauth_tokens lookup failed:", err);
+    console.warn("[mcp] oauth_tokens provider lookup failed:", err);
     return {
       connectedProviders: [],
       allowedProviders: [],
@@ -43,35 +43,18 @@ export async function loadUserMcpProviderStatus(
     };
   }
 
-  if (options?.onlyProviders) {
-    const allowlist = new Set(options.onlyProviders);
-    rows = rows.filter((row) => allowlist.has(row.provider));
-  }
+  const connectedProviders = uniqueSupportedProviders(rows, options);
+  const { allowedProviders, deniedProviders } = await resolveAttestedProviders(
+    db,
+    userId,
+    connectedProviders,
+  );
 
-  const connectedProviders = [
-    ...new Set(
-      rows
-        .map((row) => row.provider)
-        .filter((provider) => MCP_ENDPOINTS[provider]),
-    ),
-  ];
-
-  try {
-    const attestations = await loadActiveToolAttestations(db, userId);
-    const gated = filterAttestedProviders(connectedProviders, attestations);
-    return {
-      connectedProviders,
-      allowedProviders: gated.allowedProviders,
-      deniedProviders: gated.deniedProviders,
-    };
-  } catch (err) {
-    console.warn("[mcp] attestation lookup failed; denying MCP providers:", err);
-    return {
-      connectedProviders,
-      allowedProviders: [],
-      deniedProviders: connectedProviders,
-    };
-  }
+  return {
+    connectedProviders,
+    allowedProviders,
+    deniedProviders,
+  };
 }
 
 /**
@@ -147,4 +130,38 @@ export async function buildUserMcpServers(
     mcpServers: Object.keys(out).length > 0 ? out : undefined,
     deniedProviders,
   };
+}
+
+function uniqueSupportedProviders(
+  rows: Array<{ provider: string }>,
+  options?: { onlyProviders?: string[] },
+): string[] {
+  const allowlist = options?.onlyProviders
+    ? new Set(options.onlyProviders)
+    : null;
+  return Array.from(
+    new Set(
+      rows
+        .map((row) => row.provider)
+        .filter((provider) => MCP_ENDPOINTS[provider])
+        .filter((provider) => !allowlist || allowlist.has(provider)),
+    ),
+  );
+}
+
+async function resolveAttestedProviders(
+  db: Database,
+  userId: string,
+  requestedProviders: string[],
+): Promise<{ allowedProviders: string[]; deniedProviders: string[] }> {
+  if (requestedProviders.length === 0) {
+    return { allowedProviders: [], deniedProviders: [] };
+  }
+  try {
+    const attestations = await loadActiveToolAttestations(db, userId);
+    return filterAttestedProviders(requestedProviders, attestations);
+  } catch (err) {
+    console.warn("[mcp] attestation lookup failed; denying MCP providers:", err);
+    return { allowedProviders: [], deniedProviders: requestedProviders };
+  }
 }
