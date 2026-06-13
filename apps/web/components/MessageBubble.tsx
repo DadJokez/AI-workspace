@@ -1,6 +1,7 @@
 "use client";
 
 import { useTheme } from "@/lib/theme";
+import { ThinkingOrb } from "./ThinkingOrb";
 import {
   buildToolActivityEvents,
   summarizeActivity,
@@ -102,7 +103,14 @@ export function MessageBubble({
           <span className="whitespace-pre-wrap">{content}</span>
         )}
         {pending && !showThinking ? (
-          <span className="ml-0.5 inline-block h-3 w-[2px] translate-y-[1px] animate-pulse bg-current align-baseline" />
+          <ThinkingOrb
+            state="responding"
+            energy={content.length}
+            size={15}
+            stroke={18}
+            label="Responding"
+            className="ml-1 text-muted"
+          />
         ) : null}
       </div>
       {role === "assistant" && artifacts.length > 0 ? (
@@ -367,11 +375,7 @@ function isArtifactSizedFence({
 function ThinkingIndicator({ status }: { status?: string }) {
   return (
     <div className="flex items-center gap-2 text-muted">
-      <span className="inline-flex items-end gap-[3px]" aria-hidden="true">
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current" />
-      </span>
+      <ThinkingOrb state="thinking" size={22} stroke={15} label="Thinking" />
       <span className="text-[13px]">{status ?? "Thinking…"}</span>
     </div>
   );
