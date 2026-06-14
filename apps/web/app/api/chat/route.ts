@@ -24,6 +24,7 @@ import {
   foldAttachmentsIntoPrompt,
   scanAttachmentsForSecrets,
   validateAttachments,
+  type ChatAttachment,
 } from "@/lib/attachments";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
 import {
@@ -41,7 +42,7 @@ interface ChatRequestBody {
   threadId?: string;
   modelId?: string;
   executionMode?: string;
-  attachments?: Array<{ name: string; content: string }>;
+  attachments?: ChatAttachment[];
 }
 
 /**
@@ -99,7 +100,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const attachmentCheck = validateAttachments(body.attachments);
+  const attachmentCheck = await validateAttachments(body.attachments);
   if (!attachmentCheck.ok) {
     return NextResponse.json(
       { error: "invalid_attachments", message: attachmentCheck.error },
@@ -242,7 +243,10 @@ export async function POST(req: Request) {
   const promptForModel = foldAttachmentsIntoPrompt(body.message, attachments);
   const uploadedFiles = attachments.map((a) => ({
     name: a.name,
-    sizeBytes: Buffer.byteLength(a.content, "utf8"),
+    mimeType: a.mimeType,
+    sizeBytes: a.sizeBytes,
+    extractionStatus: a.extractionStatus,
+    ...(a.runtimeContent ? { runtimeContent: a.runtimeContent } : {}),
   }));
   if (attachments.length > 0) {
     const secretFindings = scanAttachmentsForSecrets(attachments);
@@ -253,15 +257,19 @@ export async function POST(req: Request) {
         chatMessageId: userMsg[0]!.id,
         title: a.name,
         filename: a.name,
-        kind: "upload",
-        mimeType: "text/plain",
-        content: a.content,
-        sizeBytes: Buffer.byteLength(a.content, "utf8"),
+        kind: a.kind,
+        mimeType: a.mimeType,
+        content: a.storageContent,
+        sizeBytes: a.sizeBytes,
         source: "user-upload",
-        metadata:
-          secretFindings.length > 0
-            ? { secretWarning: secretFindings }
-            : null,
+        metadata: {
+          storageEncoding: a.storageEncoding,
+          extractionStatus: a.extractionStatus,
+          extractedText: a.content,
+          ...(a.extractionNotes?.length ? { extractionNotes: a.extractionNotes } : {}),
+          ...(a.image ? { image: a.image } : {}),
+          ...(secretFindings.length > 0 ? { secretWarning: secretFindings } : {}),
+        },
       })),
     );
   }
@@ -322,6 +330,18 @@ export async function POST(req: Request) {
       },
       occurredAt: queuedAt,
     });
+    if (attachments.length > 0) {
+      await appendRunEvent({
+        db,
+        runId: chatRunId,
+        sequence: 2,
+        eventType: "uploaded_files_stored",
+        status: "succeeded",
+        label: `Stored ${attachments.length} uploaded file${attachments.length === 1 ? "" : "s"}`,
+        metadata: { uploadedFiles },
+        occurredAt: queuedAt,
+      });
+    }
   } catch (err) {
     process.stderr.write(
       `[chat-run-event-error] ${JSON.stringify({

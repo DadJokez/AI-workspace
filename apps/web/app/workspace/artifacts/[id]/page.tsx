@@ -44,6 +44,8 @@ export default async function WorkspaceArtifactPage({
   if (!artifact) notFound();
 
   const summary = serializeWorkspaceArtifact(artifact);
+  const content = displayContent(artifact);
+  const isImage = artifact.mimeType.startsWith("image/");
   const isHtml = artifact.mimeType === "text/html";
   const isMarkdown = artifact.mimeType === "text/markdown";
 
@@ -71,22 +73,31 @@ export default async function WorkspaceArtifactPage({
       </header>
 
       <section className="min-h-0 flex-1 overflow-auto">
-        {isHtml ? (
+        {isImage ? (
+          <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center bg-black/20 p-4">
+            {/* eslint-disable-next-line @next/next/no-img-element -- Artifact images are user-uploaded data URLs, not optimizable remote assets. */}
+            <img
+              src={`data:${artifact.mimeType};base64,${artifact.content}`}
+              alt={artifact.title}
+              className="max-h-full max-w-full rounded-md object-contain"
+            />
+          </div>
+        ) : isHtml ? (
           <iframe
             title={artifact.title}
             sandbox="allow-scripts allow-forms"
-            srcDoc={artifact.content}
+            srcDoc={content}
             className="h-[calc(100vh-3.5rem)] w-full border-0 bg-white"
           />
         ) : isMarkdown ? (
           <article className="mx-auto max-w-4xl px-4 py-6 text-sm leading-relaxed">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {artifact.content}
+              {content}
             </ReactMarkdown>
           </article>
         ) : (
           <pre className="m-0 min-h-full overflow-auto whitespace-pre-wrap px-4 py-4 font-mono text-[12px] leading-relaxed [overflow-wrap:anywhere]">
-            {artifact.content}
+            {content}
           </pre>
         )}
       </section>
@@ -99,4 +110,18 @@ function formatBytes(bytes: number): string {
   const kb = bytes / 1024;
   if (kb < 1024) return `${kb.toFixed(1)} KB`;
   return `${(kb / 1024).toFixed(1)} MB`;
+}
+
+function displayContent(artifact: { content: string; metadata: unknown }): string {
+  const metadata =
+    typeof artifact.metadata === "object" &&
+    artifact.metadata !== null &&
+    !Array.isArray(artifact.metadata)
+      ? (artifact.metadata as Record<string, unknown>)
+      : null;
+  if (metadata?.storageEncoding === "base64") {
+    const extracted = metadata.extractedText;
+    return typeof extracted === "string" ? extracted : "";
+  }
+  return artifact.content;
 }

@@ -16,6 +16,8 @@ import {
   serializeWorkspaceArtifact,
   type WorkspaceArtifactSummary,
 } from "@/lib/workspace-artifacts";
+import { loadRecommendationsForMessages } from "@/lib/recommendation-persistence";
+import type { PersistedRecommendation } from "@/lib/recommendations";
 
 interface ChatRunOutput {
   assistantMessageId?: string;
@@ -34,6 +36,7 @@ export interface ThreadMessageWithActivity {
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
   artifacts?: WorkspaceArtifactSummary[];
+  recommendations?: PersistedRecommendation[];
   activityEvents?: AgentActivityEvent[];
   pending?: boolean;
   status?: string;
@@ -94,34 +97,39 @@ export async function loadThreadMessagesWithRunActivity({
 
   const runIds = runRows.map((run) => run.id);
   const messageIds = messageRows.map((message) => message.id);
-  const eventRows =
-    runIds.length > 0
-      ? await db
-          .select({
-            id: runEvents.id,
-            runId: runEvents.runId,
-            sequence: runEvents.sequence,
-            provider: runEvents.provider,
-            toolName: runEvents.toolName,
-            eventType: runEvents.eventType,
-            status: runEvents.status,
-            label: runEvents.label,
-            toolCallId: runEvents.toolCallId,
-            error: runEvents.error,
-            occurredAt: runEvents.occurredAt,
-          })
-          .from(runEvents)
-          .where(inArray(runEvents.runId, runIds))
-          .orderBy(asc(runEvents.sequence), asc(runEvents.occurredAt))
-      : [];
-  const artifactRows =
-    messageIds.length > 0
-      ? await db
-          .select()
-          .from(workspaceArtifacts)
-          .where(inArray(workspaceArtifacts.chatMessageId, messageIds))
-          .orderBy(asc(workspaceArtifacts.createdAt))
-      : [];
+  const [eventRows, artifactRows, recommendationsByMessageId] =
+    await Promise.all([
+      runIds.length > 0
+        ? db
+            .select({
+              id: runEvents.id,
+              runId: runEvents.runId,
+              sequence: runEvents.sequence,
+              provider: runEvents.provider,
+              toolName: runEvents.toolName,
+              eventType: runEvents.eventType,
+              status: runEvents.status,
+              label: runEvents.label,
+              toolCallId: runEvents.toolCallId,
+              input: runEvents.input,
+              output: runEvents.output,
+              error: runEvents.error,
+              metadata: runEvents.metadata,
+              occurredAt: runEvents.occurredAt,
+            })
+            .from(runEvents)
+            .where(inArray(runEvents.runId, runIds))
+            .orderBy(asc(runEvents.sequence), asc(runEvents.occurredAt))
+        : Promise.resolve([]),
+      messageIds.length > 0
+        ? db
+            .select()
+            .from(workspaceArtifacts)
+            .where(inArray(workspaceArtifacts.chatMessageId, messageIds))
+            .orderBy(asc(workspaceArtifacts.createdAt))
+        : Promise.resolve([]),
+      loadRecommendationsForMessages({ db, messageIds }),
+    ]);
 
   const eventsByRunId = new Map<string, typeof eventRows>();
   for (const event of eventRows) {
@@ -200,6 +208,7 @@ export async function loadThreadMessagesWithRunActivity({
     toolResults: toToolResults(message.toolResults),
     artifacts: artifactsByMessageId.get(message.id),
     activityEvents: activityByAssistantMessageId.get(message.id),
+    recommendations: recommendationsByMessageId.get(message.id),
   }));
 
   return [...messages, ...activeRunMessages].sort(

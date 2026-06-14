@@ -33,7 +33,7 @@ const localBuckets = new Map<string, Bucket>();
 
 export function requestLimitConfig(): RequestLimitConfig {
   return {
-    maxRequestBytes: numberFromEnv("CHAT_MAX_REQUEST_BYTES", 256 * 1024),
+    maxRequestBytes: numberFromEnv("CHAT_MAX_REQUEST_BYTES", 8 * 1024 * 1024),
     maxMessageChars: numberFromEnv("CHAT_MAX_MESSAGE_CHARS", 24_000),
     windowMs: numberFromEnv("CHAT_RATE_LIMIT_WINDOW_MS", 60_000),
     maxRequests: numberFromEnv("CHAT_RATE_LIMIT_REQUESTS", 30),

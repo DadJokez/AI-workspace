@@ -12,6 +12,13 @@ export interface ChatContextUser {
 export interface ChatContextUploadedFile {
   name: string;
   sizeBytes?: number;
+  mimeType?: string;
+  extractionStatus?: string;
+  runtimeContent?: {
+    type: "image";
+    mimeType: "image/png" | "image/jpeg" | "image/webp";
+    dataBase64: string;
+  };
 }
 
 export interface ChatContextReceipt {
@@ -120,6 +127,8 @@ export function buildChatContextPack({
       uploadedFiles: uploadedFiles.map((file) => ({
         name: file.name,
         ...(typeof file.sizeBytes === "number" ? { sizeBytes: file.sizeBytes } : {}),
+        ...(file.mimeType ? { mimeType: file.mimeType } : {}),
+        ...(file.extractionStatus ? { extractionStatus: file.extractionStatus } : {}),
       })),
     },
     ...(route

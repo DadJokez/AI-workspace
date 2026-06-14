@@ -12,6 +12,10 @@ import type {
   PersistedToolResult,
 } from "@/lib/tool-events";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import type {
+  PersistedRecommendation,
+  RecommendationStatus,
+} from "@/lib/recommendations";
 import { useEffect, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -30,9 +34,15 @@ interface Props {
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
   artifacts?: WorkspaceArtifactSummary[];
+  recommendations?: PersistedRecommendation[];
   activityEvents?: AgentActivityEvent[];
   assistantName?: string | null;
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+  onRecommendationAction?: (
+    recommendation: PersistedRecommendation,
+    status: RecommendationStatus,
+  ) => void;
+  recommendationPendingId?: string;
 }
 
 export function MessageBubble({
@@ -44,9 +54,12 @@ export function MessageBubble({
   toolCalls = [],
   toolResults = [],
   artifacts = [],
+  recommendations = [],
   activityEvents: persistedActivityEvents,
   assistantName,
   onOpenArtifact,
+  onRecommendationAction,
+  recommendationPendingId,
 }: Props) {
   if (role === "user") {
     return (
@@ -103,6 +116,13 @@ export function MessageBubble({
       {role === "assistant" && artifacts.length > 0 ? (
         <ArtifactStrip artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
       ) : null}
+      {role === "assistant" && recommendations.length > 0 ? (
+        <RecommendationStrip
+          recommendations={recommendations}
+          pendingId={recommendationPendingId}
+          onAction={onRecommendationAction}
+        />
+      ) : null}
       {showActivity ? (
         <WorkReceipts
           events={activityEvents}
@@ -110,6 +130,75 @@ export function MessageBubble({
           pending={pending}
         />
       ) : null}
+    </div>
+  );
+}
+
+function RecommendationStrip({
+  recommendations,
+  pendingId,
+  onAction,
+}: {
+  recommendations: PersistedRecommendation[];
+  pendingId?: string;
+  onAction?: (
+    recommendation: PersistedRecommendation,
+    status: RecommendationStatus,
+  ) => void;
+}) {
+  const visible = recommendations.filter((r) => r.status !== "dismissed");
+  if (visible.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      {visible.map((recommendation) => {
+        const pending = pendingId === recommendation.dbId;
+        const accepted = recommendation.status === "accepted";
+        return (
+          <div
+            key={recommendation.dbId}
+            className="rounded-md border border-[#2f6bff]/35 bg-[#06112f]/55 px-3 py-2 text-[12px] text-[#dbe8ff]"
+          >
+            <div className="flex items-start gap-2">
+              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#28d7ff] shadow-[0_0_12px_rgba(40,215,255,0.8)]" />
+              <div className="min-w-0 flex-1">
+                <div className="font-medium">{recommendation.title}</div>
+                <div className="mt-0.5 text-[#9dbdff]">
+                  {recommendation.reason}
+                </div>
+              </div>
+              <span className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[#b9d2ff]">
+                {recommendationLabel(recommendation.type)}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5 pl-3.5">
+              {accepted ? (
+                <span className="rounded-md border border-[#67a3ff]/35 bg-[#0b2b77]/40 px-2 py-1 text-[11px] text-[#dbe8ff]">
+                  Accepted
+                </span>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => onAction?.(recommendation, "accepted")}
+                    className="rounded-md border border-[#67a3ff]/45 bg-[#0b3ed9]/55 px-2 py-1 text-[11px] font-medium text-white hover:bg-[#0b52ff] disabled:opacity-50"
+                  >
+                    {pending ? "Saving..." : acceptLabel(recommendation)}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => onAction?.(recommendation, "dismissed")}
+                    className="rounded-md border border-[#67a3ff]/25 px-2 py-1 text-[11px] font-medium text-[#b9d2ff] hover:bg-white/[0.08] disabled:opacity-50"
+                  >
+                    Dismiss
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -157,14 +246,19 @@ function ArtifactPillContent({
 }) {
   return (
     <>
-      <span className="shrink-0 rounded-full bg-white/16 px-1.5 py-0.5 font-mono text-[10px] uppercase text-white/86 ring-1 ring-white/18">
+      <span className="shrink-0 rounded-full bg-white/[0.16] px-1.5 py-0.5 font-mono text-[10px] uppercase text-white/[0.86] ring-1 ring-white/[0.18]">
         {artifact.kind.slice(0, 4)}
       </span>
       <span className="min-w-0 truncate font-medium">{artifact.filename}</span>
-      <span className="shrink-0 text-white/72">
+      {artifact.versionNumber > 1 ? (
+        <span className="shrink-0 rounded-full bg-white/[0.18] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white/[0.88]">
+          v{artifact.versionNumber}
+        </span>
+      ) : null}
+      <span className="shrink-0 text-white/[0.72]">
         {formatBytes(artifact.sizeBytes)}
       </span>
-      <span className="hidden shrink-0 rounded-full bg-white/18 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white/88 group-hover:bg-white/24 sm:inline">
+      <span className="hidden shrink-0 rounded-full bg-white/[0.18] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white/[0.88] group-hover:bg-white/[0.24] sm:inline">
         Preview
       </span>
     </>
@@ -364,6 +458,26 @@ function formatBytes(bytes: number): string {
   const kb = bytes / 1024;
   if (kb < 1024) return `${kb.toFixed(1)} KB`;
   return `${(kb / 1024).toFixed(1)} MB`;
+}
+
+function recommendationLabel(type: PersistedRecommendation["type"]): string {
+  return (
+    {
+      tool: "Tool",
+      save_as_skill: "Skill",
+      run_existing_skill: "Skill",
+      deploy_artifact_as_app: "App",
+      schedule_skill: "Schedule",
+    } as Record<PersistedRecommendation["type"], string>
+  )[type];
+}
+
+function acceptLabel(recommendation: PersistedRecommendation): string {
+  if (recommendation.action.kind === "run_skill") return "Run skill";
+  if (recommendation.action.kind === "deploy_app") return "Deploy app";
+  if (recommendation.action.kind === "create_schedule") return "Approve";
+  if (recommendation.action.kind === "create_skill") return "Save as skill";
+  return "Use this";
 }
 
 /**

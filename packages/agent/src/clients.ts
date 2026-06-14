@@ -47,6 +47,11 @@ export interface BedrockMessage {
 export type BedrockContentBlock =
   | { kind: "text"; text: string }
   | {
+      kind: "image";
+      format: "png" | "jpeg" | "webp";
+      dataBase64: string;
+    }
+  | {
       kind: "tool-use";
       id: string;
       name: string;
@@ -168,6 +173,14 @@ export class RealBedrockClient implements BedrockClient {
       content: m.content.map((b): ContentBlock => {
         if (b.kind === "text") {
           return { text: b.text };
+        }
+        if (b.kind === "image") {
+          return {
+            image: {
+              format: b.format,
+              source: { bytes: Buffer.from(b.dataBase64, "base64") },
+            },
+          };
         }
         if (b.kind === "tool-use") {
           return {

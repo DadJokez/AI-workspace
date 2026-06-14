@@ -12,6 +12,8 @@ import Link from "next/link";
 import {
   MAX_ATTACHMENTS,
   isSupportedAttachmentName,
+  mimeTypeForAttachmentName,
+  unsupportedAttachmentMessage,
   type ChatAttachment,
 } from "@/lib/attachments";
 import { useDictation } from "@/lib/use-dictation";
@@ -119,12 +121,17 @@ export function ChatInput({
     const next: ChatAttachment[] = [];
     for (const file of incoming.slice(0, room)) {
       if (!isSupportedAttachmentName(file.name)) {
-        setNotice(`"${file.name}" isn't a supported text file yet.`);
+        setNotice(unsupportedAttachmentMessage(file.name));
         continue;
       }
       try {
-        const content = await file.text();
-        next.push({ name: file.name, content });
+        const dataBase64 = await readFileAsBase64(file);
+        next.push({
+          name: file.name,
+          mimeType: file.type || mimeTypeForAttachmentName(file.name),
+          sizeBytes: file.size,
+          dataBase64,
+        });
       } catch {
         setNotice(`Could not read "${file.name}".`);
       }
@@ -270,6 +277,9 @@ export function ChatInput({
             >
               <PaperclipIcon />
               <span className="max-w-[160px] truncate">{a.name}</span>
+              {typeof a.sizeBytes === "number" ? (
+                <span className="text-muted">{formatBytes(a.sizeBytes)}</span>
+              ) : null}
               <button
                 type="button"
                 aria-label={`Remove ${a.name}`}
@@ -388,6 +398,25 @@ export function ChatInput({
       </form>
     </div>
   );
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      resolve(result.includes(",") ? result.split(",").pop() ?? "" : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
 }
 
 function MicIcon({ listening }: { listening: boolean }) {

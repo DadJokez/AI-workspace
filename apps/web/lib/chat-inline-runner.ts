@@ -46,11 +46,16 @@ import {
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
+import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import {
   createArtifactsFromAssistantMessage,
   type WorkspaceArtifactSummary,
 } from "@/lib/workspace-artifacts";
+import {
+  createRecommendationsForAssistantMessage,
+} from "@/lib/recommendation-persistence";
+import type { PersistedRecommendation } from "@/lib/recommendations";
 
 type InlineTerminalStatus = "succeeded" | "failed";
 
@@ -172,24 +177,27 @@ export async function streamInlineChatRun({
       assistantName: null,
       customInstructions: null,
     };
-    const agentMessages = buildTurnContext({
-      messages: history,
-      currentMessageContent: prompt,
-      threadSummary: thread.summary,
-      recentMessageLimit: numberFromEnv("CHAT_RECENT_MESSAGE_LIMIT"),
-      maxContextChars: numberFromEnv("CHAT_CONTEXT_CHAR_LIMIT"),
-      maxMessageChars: numberFromEnv("CHAT_CONTEXT_MESSAGE_CHAR_LIMIT"),
-      onGuardrailEvent: (event) => {
-        process.stderr.write(
-          `[turn-context-guardrail] ${JSON.stringify({
-            threadId: thread.id,
-            userId,
-            runId,
-            ...event,
-          })}\n`,
-        );
-      },
-    });
+    const agentMessages = attachUploadedFilesToLatestUserMessage(
+      buildTurnContext({
+        messages: history,
+        currentMessageContent: prompt,
+        threadSummary: thread.summary,
+        recentMessageLimit: numberFromEnv("CHAT_RECENT_MESSAGE_LIMIT"),
+        maxContextChars: numberFromEnv("CHAT_CONTEXT_CHAR_LIMIT"),
+        maxMessageChars: numberFromEnv("CHAT_CONTEXT_MESSAGE_CHAR_LIMIT"),
+        onGuardrailEvent: (event) => {
+          process.stderr.write(
+            `[turn-context-guardrail] ${JSON.stringify({
+              threadId: thread.id,
+              userId,
+              runId,
+              ...event,
+            })}\n`,
+          );
+        },
+      }),
+      uploadedFiles,
+    );
 
     let mcpServers;
     let deniedMcpProviders: string[] = [];
@@ -485,6 +493,7 @@ export async function streamInlineChatRun({
       type: "persisted",
       assistantMessageId: persistedResult.assistantMessageId,
       artifacts: persistedResult.artifacts,
+      recommendations: persistedResult.recommendations,
       runId,
       threadId: thread.id,
     });
@@ -540,9 +549,11 @@ async function persistInlineAssistantResult({
 }): Promise<{
   assistantMessageId: string | undefined;
   artifacts: WorkspaceArtifactSummary[];
+  recommendations: PersistedRecommendation[];
 }> {
   let assistantMessageId: string | undefined;
   let artifacts: WorkspaceArtifactSummary[] = [];
+  let recommendations: PersistedRecommendation[] = [];
   const shouldPersistAssistant =
     terminalStatus === "succeeded" ||
     assistantText.trim().length > 0 ||
@@ -593,9 +604,40 @@ async function persistInlineAssistantResult({
         runId: runId,
         assistantText,
       });
+      if (artifacts.length > 0) {
+        await appendInlineRunEvent(db, runId, {
+          eventType: "workspace_artifacts_created",
+          status: "succeeded",
+          label: `Created ${artifacts.length} workspace artifact${artifacts.length === 1 ? "" : "s"}`,
+          metadata: { artifacts },
+        });
+      }
     } catch (err) {
       process.stderr.write(
         `[workspace-artifact-create-error] ${JSON.stringify({
+          runId,
+          threadId,
+          assistantMessageId,
+          message: err instanceof Error ? err.message : String(err),
+        })}\n`,
+      );
+    }
+  }
+
+  if (terminalStatus === "succeeded" && assistantMessageId) {
+    try {
+      recommendations = await createRecommendationsForAssistantMessage({
+        db,
+        userId,
+        threadId,
+        chatMessageId: assistantMessageId,
+        runId,
+        userMessageId,
+        artifacts,
+      });
+    } catch (err) {
+      process.stderr.write(
+        `[recommendation-create-error] ${JSON.stringify({
           runId,
           threadId,
           assistantMessageId,
@@ -633,6 +675,7 @@ async function persistInlineAssistantResult({
         ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
         ...(runtimeErrors.length > 0 ? { errorDetails: runtimeErrors } : {}),
         ...(artifacts.length > 0 ? { artifacts } : {}),
+        ...(recommendations.length > 0 ? { recommendations } : {}),
         metrics: timingMetrics,
       },
       workerId: null,
@@ -684,11 +727,12 @@ async function persistInlineAssistantResult({
       runtimeTarget,
       ...(runtimeErrors.length > 0 ? { errorDetails: runtimeErrors } : {}),
       ...(artifacts.length > 0 ? { artifacts } : {}),
+      ...(recommendations.length > 0 ? { recommendations } : {}),
       metrics: timingMetrics,
     },
   });
 
-  return { assistantMessageId, artifacts };
+  return { assistantMessageId, artifacts, recommendations };
 }
 
 async function appendInlineRunEvent(

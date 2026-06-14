@@ -60,7 +60,7 @@ export function ArtifactPreviewPane({ artifact, onClose }: Props) {
   }, [onClose]);
 
   const activeArtifact = detail ?? artifact;
-  const content = detail?.content ?? "";
+  const content = detail ? displayContent(detail) : "";
   const previewKind = useMemo(
     () => detectPreviewKind(activeArtifact, content),
     [activeArtifact, content],
@@ -86,7 +86,8 @@ export function ArtifactPreviewPane({ artifact, onClose }: Props) {
               {activeArtifact.title}
             </h2>
             <p className="truncate text-[11px] text-muted">
-              {activeArtifact.filename} · {formatBytes(activeArtifact.sizeBytes)}
+              {activeArtifact.filename} · v{activeArtifact.versionNumber} ·{" "}
+              {formatBytes(activeArtifact.sizeBytes)}
             </p>
           </div>
           <a
@@ -120,6 +121,15 @@ export function ArtifactPreviewPane({ artifact, onClose }: Props) {
             <div className="m-4 rounded-md border border-red-500/25 bg-red-500/5 px-3 py-2 text-[13px] text-red-300">
               {error}
             </div>
+          ) : previewKind === "image" && detail ? (
+            <div className="flex min-h-full items-center justify-center bg-black/20 p-4">
+              {/* eslint-disable-next-line @next/next/no-img-element -- Artifact images are user-uploaded data URLs, not optimizable remote assets. */}
+              <img
+                src={imageDataUrl(detail)}
+                alt={activeArtifact.title}
+                className="max-h-full max-w-full rounded-md object-contain"
+              />
+            </div>
           ) : previewKind === "html" ? (
             <iframe
               title={activeArtifact.title}
@@ -147,9 +157,10 @@ export function ArtifactPreviewPane({ artifact, onClose }: Props) {
 function detectPreviewKind(
   artifact: WorkspaceArtifactSummary | WorkspaceArtifactDetail,
   content: string,
-): "html" | "markdown" | "text" {
+): "html" | "markdown" | "image" | "text" {
   const filename = artifact.filename.toLowerCase();
   const mimeType = artifact.mimeType.toLowerCase();
+  if (mimeType.startsWith("image/")) return "image";
   if (
     mimeType.includes("html") ||
     filename.endsWith(".html") ||
@@ -165,6 +176,18 @@ function detectPreviewKind(
     return "markdown";
   }
   return "text";
+}
+
+function displayContent(artifact: WorkspaceArtifactDetail): string {
+  if (artifact.metadata?.storageEncoding === "base64") {
+    const extracted = artifact.metadata.extractedText;
+    return typeof extracted === "string" ? extracted : "";
+  }
+  return artifact.content;
+}
+
+function imageDataUrl(artifact: WorkspaceArtifactDetail): string {
+  return `data:${artifact.mimeType};base64,${artifact.content}`;
 }
 
 function formatBytes(bytes: number): string {

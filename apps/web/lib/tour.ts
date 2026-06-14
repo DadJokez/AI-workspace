@@ -26,26 +26,26 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "chat",
     anchor: "chat-input",
-    title: "Ask anything — it can do real work",
-    body: "This isn't just chat. Connect GitHub under Tools and the assistant can read your real pull requests, issues, and CI — every action is permissioned by you and fully audited.",
+    title: "Ask anything — bring your files",
+    body: "Drop in PDFs, docs, spreadsheets, decks, screenshots, notes, HTML, or data files. Comparative extracts what it can, keeps the upload in Artifacts, and shows quiet work receipts while it reasons.",
   },
   {
     id: "skills",
     anchor: "nav-skills",
     title: "Skills: save it, run it again",
-    body: "A skill is a saved agent you can run any time, put on a schedule (\"every Monday 8am\"), clone from a starter, and share with a teammate — they run it with their own access, never yours.",
+    body: "A skill is a saved agent you can run any time, put on a schedule (\"every Monday 8am\"), clone from a starter, and share with a teammate. Comparative will recommend skills when a workflow starts repeating.",
   },
   {
     id: "apps",
     anchor: "nav-apps",
     title: "Apps: from conversation to deployed tool",
-    body: "Ask for a small dashboard or page in chat, then deploy the result behind workspace sign-in with one click. Versions, revert, and sharing are built in — no repos, no pipelines.",
+    body: "Ask for a small dashboard or page in chat, then deploy the result behind workspace sign-in with one click. Artifact versions are grouped, reversible, and downloadable — no repos, no pipelines.",
   },
   {
     id: "trust",
     anchor: "nav-tools",
     title: "You're in control",
-    body: "Tools shows exactly what's connected and what the agent may touch — you approve every provider. Everything it does lands in an audit trail. That's the whole point: powerful and governed.",
+    body: "Tools shows exactly what's connected and what the agent may touch — you approve every provider. Recommendations are explicit, dismissible, and everything the agent does lands in an audit trail.",
   },
 ];
 

@@ -161,7 +161,8 @@ export function runEventsToActivityEvents(
     | "toolCallId"
     | "error"
     | "occurredAt"
-  > & {
+  > &
+    Partial<Pick<RunEvent, "input" | "output" | "metadata">> & {
     eventType?: string;
     provider?: string | null;
     toolName?: string | null;
@@ -183,11 +184,13 @@ export function runEventsToActivityEvents(
       id: event.toolCallId ?? event.id,
       state,
       label: event.label,
-      ...(event.error ? { detail: event.error } : {}),
+      ...(event.error
+        ? { detail: event.error }
+        : runEventDetail(event) ? { detail: runEventDetail(event) } : {}),
       at: event.occurredAt.toISOString(),
       category: event.toolCallId
         ? categorizeTool(event.provider, event.toolName)
-        : ("progress" as const),
+        : categoryForRunEvent(event),
     } satisfies AgentActivityEvent;
 
     if (event.toolCallId) {
@@ -244,4 +247,82 @@ function isTerminalRunEvent(eventType?: string): boolean {
     eventType === "run_canceled" ||
     eventType === "worker_stopped_after_cancel"
   );
+}
+
+function categoryForRunEvent(event: {
+  eventType?: string;
+  label: string;
+}): AgentActivityEvent["category"] {
+  const value = `${event.eventType ?? ""} ${event.label}`.toLowerCase();
+  if (/upload|artifact|workspace/.test(value)) return "workspace";
+  return "progress";
+}
+
+function runEventDetail(event: {
+  eventType?: string;
+  input?: unknown;
+  output?: unknown;
+  metadata?: unknown;
+  provider?: string | null;
+  toolName?: string | null;
+}): string | undefined {
+  const metadata = isRecord(event.metadata) ? event.metadata : null;
+  if (event.eventType === "uploaded_files_stored") {
+    const files = Array.isArray(metadata?.uploadedFiles)
+      ? metadata.uploadedFiles
+      : [];
+    const names = files
+      .map((file) =>
+        isRecord(file) && typeof file.name === "string" ? file.name : null,
+      )
+      .filter((name): name is string => Boolean(name));
+    return names.length > 0 ? names.join("\n") : undefined;
+  }
+
+  if (event.eventType === "context_pack_assembled") {
+    const receipt = isRecord(metadata?.contextReceipt)
+      ? metadata.contextReceipt
+      : null;
+    const work = isRecord(receipt?.work) ? receipt.work : null;
+    const tools = isRecord(receipt?.tools) ? receipt.tools : null;
+    const parts = [
+      boolLabel(work?.threadSummaryInjected, "thread summary"),
+      boolLabel(work?.artifactContextInjected, "artifact context"),
+      boolLabel(work?.uploadedFilesInjected, "uploaded files"),
+      Array.isArray(tools?.mounted) && tools.mounted.length > 0
+        ? `mounted tools: ${tools.mounted.join(", ")}`
+        : null,
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join("\n") : undefined;
+  }
+
+  const payload = event.output ?? event.input;
+  if (payload !== undefined && payload !== null) {
+    return summarizePayload(payload);
+  }
+
+  if (event.provider || event.toolName) {
+    return [event.provider, event.toolName].filter(Boolean).join(" · ");
+  }
+  return undefined;
+}
+
+function boolLabel(value: unknown, label: string): string | null {
+  return value === true ? label : null;
+}
+
+function summarizePayload(value: unknown): string | undefined {
+  try {
+    const text =
+      typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    const compact = text.trim();
+    if (!compact) return undefined;
+    return compact.length > 600 ? `${compact.slice(0, 599)}...` : compact;
+  } catch {
+    return undefined;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

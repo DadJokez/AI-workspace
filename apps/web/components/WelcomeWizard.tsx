@@ -28,6 +28,7 @@ const ROLE_OPTIONS = [
 ];
 const TOOL_OPTIONS = [
   "GitHub",
+  "Files / Docs",
   "Outlook / M365",
   "Salesforce",
   "Workfront",

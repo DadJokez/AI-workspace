@@ -11,8 +11,8 @@ unmarked items need a human eye for visual / device-specific verification.
 
 ## Core Chat
 
-- [ ] **`[AUTOMATE]` Empty state renders.** Open `/chat` with no prior thread → expect heading "Talk to your work", a paragraph below it, and three suggestion pills ("Summarize…", "Draft a quick reply…", "What are my unread Slack…").
-- [ ] **`[AUTOMATE]` Suggestion pill sends.** Click any of the three suggestion pills → expect (a) the pill text appears as a user message right-aligned, (b) "Generating…" placeholder shown in the input, (c) an assistant response streams in below.
+- [ ] **`[AUTOMATE]` Empty state renders.** Open `/chat` with no prior thread → expect heading "Talk to your work", a paragraph below it, and four suggestion pills for GitHub triage, repo shipping summary, status update drafting, and general help.
+- [ ] **`[AUTOMATE]` Suggestion pill sends.** Click any suggestion pill → expect (a) the pill text appears as a user message right-aligned, (b) "Generating…" placeholder shown in the input, (c) an assistant response streams in below.
 - [ ] **`[AUTOMATE]` Manual send.** Type "Hello" in the input box, press Enter → expect a user bubble on the right with "Hello", followed by an assistant response.
 - [ ] **`[AUTOMATE]` Shift+Enter inserts newline.** Type "line one", press Shift+Enter, type "line two", press Enter → expect the user bubble to render two lines.
 - [ ] **`[AUTOMATE]` Empty submit is blocked.** Click the send button with an empty input → expect nothing happens (no message added). Type only spaces and press Enter → expect nothing happens.
@@ -24,6 +24,17 @@ unmarked items need a human eye for visual / device-specific verification.
 - [ ] **User bubbles do NOT render markdown.** Type literally `**bold**` and send → expect the user bubble shows the asterisks as plain text.
 - [ ] **`[AUTOMATE]` Model label appears.** After an assistant response, expect a small "Assistant · {modelId}" label above the answer (e.g. "Assistant · sonnet-4-6").
 
+## Files, Artifacts & Recommendations
+
+- [ ] **`[AUTOMATE]` Business file upload accepts common formats.** Attach PDF, DOCX, XLSX, CSV/TSV, PPTX, TXT/MD, HTML, JSON/XML/YAML, or PNG/JPG/WebP within size caps → expect the chip to appear in the input and `/api/chat` to accept the turn.
+- [ ] **Uploaded files are saved as artifacts.** Send a turn with at least one upload → expect the run activity to mention stored uploads and the Artifacts section to list the original file with its MIME type/download preserved.
+- [ ] **Images reach the model as visual inputs.** Attach a simple screenshot/image and ask what is visible → expect the assistant to reason from the image, not only the filename/dimensions.
+- [ ] **Generated artifacts use the cobalt pill.** Ask for a small HTML or Markdown artifact → expect the assistant message to show the compact electric-cobalt document pill instead of dumping a full large code block.
+- [ ] **Artifact preview stays in the current tab.** Click a document/artifact pill → expect the in-tab preview pane to open; no browser tab/window should be created.
+- [ ] **Artifact versions group together.** Ask to revise an existing artifact → expect Artifacts to show one grouped item with the latest version plus expandable prior versions/downloads, not unrelated duplicates.
+- [ ] **Chat download works.** Click the header download button in a non-empty thread → expect a Markdown transcript file containing messages plus artifact references.
+- [ ] **Recommendation cards are quiet and actionable.** After a response that produces a reusable workflow or deployable artifact, expect up to three recommendation cards below the assistant message. Accept should run the declared action; Dismiss should hide it and persist.
+
 ## Run Lifecycle
 
 - [ ] **`[AUTOMATE]` Chat turns create durable runs.** Send a prompt → expect `/api/chat` to return a run id in the stream metadata and `/admin/runs` to show a matching `chat-turn` row.
@@ -31,6 +42,7 @@ unmarked items need a human eye for visual / device-specific verification.
 - [ ] **`[AUTOMATE]` Failed/canceled chat turn can be retried.** Force a chat run failure or cancel one, then click "Retry" → expect a new queued run linked to the prior run and the thread to continue with the original prompt.
 - [ ] **Admin resume/reconcile is available.** As an admin, open `/admin/runs/[id]` for a queued/running `chat-turn` run → expect "Resume" to be available and to write a resume event/audit row when clicked.
 - [ ] **Refresh preserves activity state.** During a long-running chat turn, refresh the browser → expect the pending run and compact activity timeline to reload from `run_events`.
+- [ ] **Activity receipts are useful but collapsed.** For a turn with uploads/artifacts/tools, expect a grey "Worked for…" row with a caret. Expanding it should show concrete steps such as stored files, selected context, tool/provider work, and created artifacts.
 
 ---
 
@@ -38,7 +50,7 @@ unmarked items need a human eye for visual / device-specific verification.
 
 - [ ] **Sidebar visible on desktop ≥ md (768px).** Resize window to 1024px width → expect the left sidebar to be persistently visible, no hamburger button shown.
 - [ ] **Top bar single row.** At every viewport width from 320px → 1440px, the top bar should remain on one horizontal row (no wrapping).
-- [ ] **`[AUTOMATE]` Top bar contains the right elements.** Inspect the `<header>` of `/chat` → expect: hamburger (mobile only), tab list, "+" new-tab button, model selector, theme toggle.
+- [ ] **`[AUTOMATE]` Top bar contains the right elements.** Inspect the `<header>` of `/chat` → expect: hamburger (mobile only), tab list, "+" new-tab button, chat download button, stop/regenerate when applicable, and theme toggle. In Runtime v1 only, the model selector may also appear.
 - [ ] **`[AUTOMATE]` Empty-state suggestions clickable.** Each of the three suggestion pills has role=button and is focusable via Tab.
 - [ ] **No horizontal overflow.** At 320px, 375px, 414px, 768px, 1280px viewports → expect `document.documentElement.scrollWidth === clientWidth` (no horizontal scrollbar at the page level).
 - [ ] **Hairline borders only.** Visual inspection: no drop shadows, no gradients, dividers are 1px lines using `--color-hairline`.
@@ -54,7 +66,7 @@ unmarked items need a human eye for visual / device-specific verification.
 - [ ] **`[AUTOMATE]` Theme persists across reload.** Set theme to dark, hard-reload `/chat` → expect the app to load already in dark mode (no flash of light theme).
 - [ ] **No flash of unstyled / wrong theme on load.** Visual: open app cold (cleared cache) → expect the correct theme paints from the very first frame.
 - [ ] **Dark palette correctness.** In dark mode: canvas ≈ `#191919`, sidebar ≈ `#1F1F1F`, surface ≈ `#252525`, hairline ≈ `#2D2D2D`, ink ≈ `#E5E5E5`. Not pure black.
-- [ ] **All text legible in both themes.** Visual scan: scrollbar, placeholder text, model selector, message timestamps, pending caret all readable in both modes.
+- [ ] **All text legible in both themes.** Visual scan: scrollbar, placeholder text, header buttons, assistant/model labels, message timestamps, pending caret, artifact pills, and recommendation cards all readable in both modes.
 - [ ] **Markdown code blocks themed.** Ask for a fenced code block → expect the `<pre>` background uses the theme's `bg-subtle` (not hardcoded black/white), and inline `code` follows suit.
 - [ ] **System preference honored on first visit.** Clear localStorage, set OS to dark mode, visit `/chat` → expect dark theme applied. Switch OS to light, clear storage, reload → expect light.
 
@@ -76,7 +88,7 @@ unmarked items need a human eye for visual / device-specific verification.
 - [ ] **`[AUTOMATE]` Input not zoomed on focus (iOS).** On Safari iOS, tap into the textarea → expect the page does NOT auto-zoom (textarea font is 16px on mobile to suppress this).
 - [ ] **Input bar pinned to bottom.** Visually verify on iPhone Safari with the URL bar collapsed and expanded: input bar always touches the visible bottom edge.
 - [ ] **Input bar above keyboard.** Tap into the textarea on iPhone → expect the input bar to remain visible above the on-screen keyboard. (Caveat: iOS Safari behavior with `dvh` is best-effort; the message list above the input may shrink.)
-- [ ] **Model selector compact on mobile.** At < sm width, the "Model" label disappears and only the dropdown shows, capped at ~128px wide.
+- [ ] **Header controls compact on mobile.** At < sm width, the download, stop/regenerate, and theme controls stay usable without causing horizontal page overflow.
 - [ ] **Padding tight but not cramped.** Messages and input use 16px (`px-4`) horizontal padding on mobile, 24px (`px-6`) on desktop.
 - [ ] **`[AUTOMATE]` No body scroll while drawer open.** Open drawer at 375px, attempt to scroll the page underneath → expect the underlying chat area does not scroll. (Note: not currently locked — see Punch List.)
 
@@ -95,7 +107,7 @@ unmarked items need a human eye for visual / device-specific verification.
 - [ ] **`[AUTOMATE]` Closing a tab.** Click X on a non-active tab → expect that tab disappears, active tab stays.
 - [ ] **`[AUTOMATE]` Closing the active tab.** Click X on the active tab (when others exist) → expect the previous tab (left neighbor, falling back to first) becomes active.
 - [ ] **Last tab cannot be closed.** With only one tab open, expect no X button is shown on it.
-- [ ] **Per-tab model selection.** In tab 1 select Sonnet, in tab 2 select Haiku → switch between tabs and expect the model selector in the top bar reflects each tab's choice.
+- [ ] **Runtime v2 hides per-tab model picking.** With Runtime v2 enabled, expect no chat-level model dropdown; routing/model choice is handled by the runtime while the assistant label still records the model used.
 - [ ] **Tabs persist across reload.** Open 3 tabs, refresh the page → expect the same tab set and active tab to return from local storage. Server-side threads still remain the source of truth for persisted conversations.
 
 ---

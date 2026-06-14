@@ -29,11 +29,10 @@ consumer apps have trained everyone to expect — not capability gaps.
 
 ## Tier 1 — Table stakes (close these first; each is a daily shadow-tool trigger)
 
-### P1.1 🔄 File & image upload into chat — **text docs shipped (#152); images/PDF next**
-- **Gap:** can't drop a PDF/CSV/XLSX/PNG into a thread. This is *the* #1 reason a knowledge worker opens ChatGPT instead ("let me just paste this contract in").
-- **Shadow trigger:** every document task. Daily.
-- **Shape:** drag/drop + paste in `ChatInput`; store via the existing `workspace_artifacts` substrate (already built for app versions — reuse it); pass to the model as document/image content blocks (Bedrock `converse` supports both). Vision is already in the model tier.
-- **Note:** pairs with the no-secrets redaction we already have.
+### P1.1 ✅ File & image upload into chat — **business formats shipped**
+- **Have:** picker, drag/drop, and paste accept PDF, DOCX, XLSX, CSV/TSV, PPTX, PNG/JPG/WebP, TXT/MD, HTML, JSON/XML/YAML, logs, and common code/text files. Modern Office/PDF/spreadsheet/deck files are extracted server-side; screenshots/images are passed to Bedrock as native image blocks; uploads are stored in Artifacts with the original type and download preserved.
+- **Guardrails:** request/file byte caps, extracted-text caps with truncation, no-secrets scan before storage/runtime prompt, clear unsupported messages for legacy `.doc/.xls/.ppt`.
+- **Remaining:** OCR fallback for scanned PDFs and native parsing for old binary Office formats if a customer truly needs them.
 
 ### P1.2 ⬜ Projects / workspaces — **L**
 - **Gap:** threads are a flat list. Claude Projects bundle threads + persistent instructions + reference files under one context.
@@ -52,7 +51,7 @@ consumer apps have trained everyone to expect — not capability gaps.
 - **Shape:** stop button wired to the existing abort signal; edit-and-resend forks the thread at that message; regenerate re-runs the last user turn.
 
 ### P1.5 🔄 Rich artifacts & inline preview — **M**
-- **Have:** HTML artifacts deploy as apps; collapsed code/doc previews in chat.
+- **Have:** HTML artifacts deploy as apps; collapsed code/doc previews in chat; workspace artifact pills open the in-tab preview pane; artifact versions are grouped with v2/v3 download and preview support.
 - **Gap:** no live side-by-side artifact canvas (Claude Artifacts) — edit-in-place, re-render, copy. The app pane exists for previews but isn't a working canvas.
 - **Shadow trigger:** "I want to iterate on this doc/diagram next to the chat."
 
@@ -89,7 +88,7 @@ consumer apps have trained everyone to expect — not capability gaps.
 
 ## Sequencing recommendation
 
-1. **P1.1 file upload** — single biggest shadow-tool plug; reuses the artifacts substrate.
+1. ~~**P1.1 file upload** — single biggest shadow-tool plug; reuses the artifacts substrate.~~ **Shipped for modern business formats.**
 2. **P1.4 stop/edit/regenerate** — cheap, removes daily friction, very visible.
 3. **P1.2 projects** — unlocks team context (the knowledge-management story) and is the container everything else hangs on.
 4. ~~P1.3 memory surface + specs/005 onboarding~~ — **shipped** (onboarding #150, memory view/edit/delete + add-a-fact).
