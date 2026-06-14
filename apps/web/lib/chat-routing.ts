@@ -21,10 +21,50 @@ export interface ChatRuntimeRoute {
   reasons: string[];
 }
 
+export interface ChatRoutingContextSignals {
+  priorUserMessagesCount?: number;
+  vaultMemoryAvailable?: boolean;
+  artifactContextAvailable?: boolean;
+  uploadedFilesAvailable?: boolean;
+}
+
+export interface ChatRoutingCapabilitySignals {
+  connectedProviders?: readonly string[];
+  approvedProviders?: readonly string[];
+  pendingApprovalProviders?: readonly string[];
+  recommendedEscalation?: {
+    lane: Exclude<ChatRuntimeLane, "fast-local">;
+    reason: string;
+  };
+}
+
+export interface ChatRouteReceipt {
+  lane: ChatRuntimeLane;
+  runtimeTarget: ChatRuntimeTarget;
+  useWorker: boolean;
+  useMcp: boolean;
+  includeVaultContext: boolean;
+  reasons: string[];
+  explanation: string;
+  contextAvailability: {
+    priorUserMessages: number;
+    vaultMemoryAvailable: boolean;
+    artifactContextAvailable: boolean;
+    uploadedFilesAvailable: boolean;
+  };
+  toolAvailability: {
+    connectedProviders: string[];
+    approvedProviders: string[];
+    pendingApprovalProviders: string[];
+  };
+}
+
 export function decideChatRuntimeRoute({
   message,
   runtimeV2 = false,
   priorUserMessages = [],
+  contextSignals = {},
+  capabilitySignals = {},
 }: {
   message: string;
   executionMode?: unknown;
@@ -35,9 +75,26 @@ export function decideChatRuntimeRoute({
    * fall-through below.
    */
   priorUserMessages?: readonly string[];
+  contextSignals?: ChatRoutingContextSignals;
+  capabilitySignals?: ChatRoutingCapabilitySignals;
 }): ChatRuntimeRoute {
   const normalized = normalize(message);
   const reasons: string[] = [];
+
+  if (capabilitySignals.recommendedEscalation?.lane === "durable-local") {
+    reasons.push("recommended_durable_escalation");
+    reasons.push(capabilitySignals.recommendedEscalation.reason);
+    return {
+      lane: "durable-local",
+      executionMode: "local",
+      runtimeTarget: "agentcore-worker",
+      runtimeV2,
+      useWorker: true,
+      useMcp: true,
+      includeVaultContext: true,
+      reasons,
+    };
+  }
 
   const durable = hasDurableIntent(normalized);
   if (durable) reasons.push(durable);
@@ -64,7 +121,9 @@ export function decideChatRuntimeRoute({
       runtimeV2,
       useWorker: false,
       useMcp: true,
-      includeVaultContext: hasPersonalContextIntent(normalized) !== null,
+      includeVaultContext:
+        hasPersonalContextIntent(normalized) !== null ||
+        contextSignals.vaultMemoryAvailable === true,
       reasons,
     };
   }
@@ -101,6 +160,39 @@ export function decideChatRuntimeRoute({
     useMcp: false,
     includeVaultContext: personalContext !== null,
     reasons: reasons.length > 0 ? reasons : ["default_fast_local"],
+  };
+}
+
+export function buildChatRouteReceipt({
+  route,
+  contextSignals = {},
+  capabilitySignals = {},
+}: {
+  route: ChatRuntimeRoute;
+  contextSignals?: ChatRoutingContextSignals;
+  capabilitySignals?: ChatRoutingCapabilitySignals;
+}): ChatRouteReceipt {
+  return {
+    lane: route.lane,
+    runtimeTarget: route.runtimeTarget,
+    useWorker: route.useWorker,
+    useMcp: route.useMcp,
+    includeVaultContext: route.includeVaultContext,
+    reasons: [...route.reasons],
+    explanation: explainRoute(route),
+    contextAvailability: {
+      priorUserMessages: contextSignals.priorUserMessagesCount ?? 0,
+      vaultMemoryAvailable: contextSignals.vaultMemoryAvailable === true,
+      artifactContextAvailable: contextSignals.artifactContextAvailable === true,
+      uploadedFilesAvailable: contextSignals.uploadedFilesAvailable === true,
+    },
+    toolAvailability: {
+      connectedProviders: uniqueStrings(capabilitySignals.connectedProviders ?? []),
+      approvedProviders: uniqueStrings(capabilitySignals.approvedProviders ?? []),
+      pendingApprovalProviders: uniqueStrings(
+        capabilitySignals.pendingApprovalProviders ?? [],
+      ),
+    },
   };
 }
 
@@ -274,4 +366,21 @@ function hasPersonalContextIntent(value: string): string | null {
     return "personal_context_intent";
   }
   return null;
+}
+
+function explainRoute(route: ChatRuntimeRoute): string {
+  if (route.lane === "durable-local") {
+    return "Queued durable local work because this request needs resilient, longer-running execution.";
+  }
+  if (route.lane === "tool-local") {
+    return "Mounted local tools because this request needs live connected-system data or follows a tool-backed thread.";
+  }
+  if (route.includeVaultContext) {
+    return "Used fast local chat with Vault context because this request asks for personal or profile context.";
+  }
+  return "Used fast local chat because no live tools or durable worker were needed.";
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
 }
