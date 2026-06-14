@@ -380,6 +380,7 @@ async function executeClaimedChatRun({
     blockedProviders,
     modelId: run.modelId ?? undefined,
     artifactContext,
+    vaultContextRequested: true,
   });
 
   await db

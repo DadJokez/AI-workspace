@@ -48,10 +48,30 @@ describe("vault memory", () => {
         vaultMarkdown: "# Personal Context\n\n## Working Style\n- Direct",
       },
       connectedProviders: [],
+      vaultContextRequested: true,
     });
 
+    expect(preamble).toContain("Vault access for this turn");
+    expect(preamble).toContain("you have access to the user's approved Vault memory");
+    expect(preamble).toContain("Do not say you have no access to the Vault");
     expect(preamble).toContain("Personal context approved by the user:");
     expect(preamble).toContain("## Working Style");
+  });
+
+  it("says vault was checked when no approved memory is available", () => {
+    const preamble = buildAgentPreamble({
+      user: {
+        displayName: "Rob",
+        customInstructions: null,
+        vaultMarkdown: null,
+      },
+      connectedProviders: [],
+      vaultContextRequested: true,
+    });
+
+    expect(preamble).toContain("Vault access for this turn");
+    expect(preamble).toContain("no approved Vault memory was available");
+    expect(preamble).toContain("do not claim the product lacks a Vault");
   });
 });
 

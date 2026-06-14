@@ -230,6 +230,7 @@ export async function streamInlineChatRun({
             blockedProviders,
             modelId: runtimeModelId,
             artifactContext,
+            vaultContextRequested: route.includeVaultContext,
           })
         : undefined;
     timing.contextReadyAt = new Date();
