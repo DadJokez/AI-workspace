@@ -691,8 +691,17 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   // a stale thread is dropped after a 404), fall back to the first tab.
   useEffect(() => {
     if (tabs.length === 0) return;
-    if (!tabs.some((t) => t.id === activeId)) {
-      setActiveId(tabs[0]!.id);
+    if (tabs.some((t) => t.id === activeId)) return;
+
+    // Opening a new thread appends the tab and activates it in quick succession.
+    // Give React one tick to commit the tab before treating the active id as stale.
+    const timeout = window.setTimeout(() => {
+      setActiveId((current) =>
+        tabs.some((t) => t.id === current) ? current : tabs[0]!.id,
+      );
+    }, 0);
+    return () => {
+      window.clearTimeout(timeout);
     }
   }, [tabs, activeId]);
 

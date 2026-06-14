@@ -26,11 +26,12 @@ unmarked items need a human eye for visual / device-specific verification.
 
 ## Files, Artifacts & Recommendations
 
-- [ ] **`[AUTOMATE]` Business file upload accepts common formats.** Attach PDF, DOCX, XLSX, CSV/TSV, PPTX, TXT/MD, HTML, JSON/XML/YAML, or PNG/JPG/WebP within size caps → expect the chip to appear in the input and `/api/chat` to accept the turn.
+- [x] **`[AUTOMATE]` Image upload payload reaches chat.** Attach PNG/JPG/WebP within size caps → expect the chip to appear in the input and `/api/chat` to receive `attachmentCount` plus base64 attachment metadata.
+- [ ] **`[AUTOMATE]` Business file upload accepts common formats.** Attach PDF, DOCX, XLSX, CSV/TSV, PPTX, TXT/MD, HTML, JSON/XML/YAML within size caps → expect the chip to appear in the input and `/api/chat` to accept the turn.
 - [ ] **Uploaded files are saved as artifacts.** Send a turn with at least one upload → expect the run activity to mention stored uploads and the Artifacts section to list the original file with its MIME type/download preserved.
 - [ ] **Images reach the model as visual inputs.** Attach a simple screenshot/image and ask what is visible → expect the assistant to reason from the image, not only the filename/dimensions.
-- [ ] **Generated artifacts use the cobalt pill.** Ask for a small HTML or Markdown artifact → expect the assistant message to show the compact electric-cobalt document pill instead of dumping a full large code block.
-- [ ] **Artifact preview stays in the current tab.** Click a document/artifact pill → expect the in-tab preview pane to open; no browser tab/window should be created.
+- [x] **Generated artifacts use the cobalt pill.** Ask for a small HTML or Markdown artifact → expect the assistant message to show the compact electric-cobalt document pill instead of dumping a full large code block.
+- [x] **Artifact preview stays in the current tab.** Click a document/artifact pill → expect the in-tab preview pane to open; no browser tab/window should be created.
 - [ ] **Artifact versions group together.** Ask to revise an existing artifact → expect Artifacts to show one grouped item with the latest version plus expandable prior versions/downloads, not unrelated duplicates.
 - [ ] **Chat download works.** Click the header download button in a non-empty thread → expect a Markdown transcript file containing messages plus artifact references.
 - [ ] **Recommendation cards are quiet and actionable.** After a response that produces a reusable workflow or deployable artifact, expect up to three recommendation cards below the assistant message. Accept should run the declared action; Dismiss should hide it and persist.
@@ -42,7 +43,7 @@ unmarked items need a human eye for visual / device-specific verification.
 - [ ] **`[AUTOMATE]` Failed/canceled chat turn can be retried.** Force a chat run failure or cancel one, then click "Retry" → expect a new queued run linked to the prior run and the thread to continue with the original prompt.
 - [ ] **Admin resume/reconcile is available.** As an admin, open `/admin/runs/[id]` for a queued/running `chat-turn` run → expect "Resume" to be available and to write a resume event/audit row when clicked.
 - [ ] **Refresh preserves activity state.** During a long-running chat turn, refresh the browser → expect the pending run and compact activity timeline to reload from `run_events`.
-- [ ] **Activity receipts are useful but collapsed.** For a turn with uploads/artifacts/tools, expect a grey "Worked for…" row with a caret. Expanding it should show concrete steps such as stored files, selected context, tool/provider work, and created artifacts.
+- [x] **Activity receipts are useful but collapsed.** For a turn with uploads/artifacts/tools, expect a grey "Worked for…" row with a caret. Expanding it should show concrete steps such as stored files, selected context, tool/provider work, and created artifacts.
 
 ---
 
@@ -146,6 +147,7 @@ unmarked items need a human eye for visual / device-specific verification.
 
 - The current automation strategy lives in `docs/REGRESSION_GAUNTLET.md`.
 - Browser smoke is now Playwright-backed: run `pnpm smoke:browser`.
+- Local browser smoke includes mocked signed-in chat feature flows at `/e2e/chat`: image upload payloads, artifact collapse/preview/menu, tool activity receipts, and slash skill execution.
 - Production public smoke is now script-backed: run `pnpm smoke:prod`.
 - Use `PLAYWRIGHT_BASE_URL` to point browser smoke at an already-running app.
 - Use `SMOKE_BASE_URL` to point production smoke at a preview or alternate deployed URL.
