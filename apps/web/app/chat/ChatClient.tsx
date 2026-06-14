@@ -1270,6 +1270,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           message: text,
           threadId: activeTab.threadId,
           modelId,
+          attachmentCount: attachments?.length ?? 0,
           ...(attachments && attachments.length > 0 ? { attachments } : {}),
         }),
       });

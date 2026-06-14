@@ -21,6 +21,7 @@ import {
 } from "@/lib/chat-routing";
 import { streamInlineChatRun } from "@/lib/chat-inline-runner";
 import {
+  declaredAttachmentCountFromMessage,
   foldAttachmentsIntoPrompt,
   scanAttachmentsForSecrets,
   validateAttachments,
@@ -43,6 +44,7 @@ interface ChatRequestBody {
   modelId?: string;
   executionMode?: string;
   attachments?: ChatAttachment[];
+  attachmentCount?: number;
 }
 
 /**
@@ -108,6 +110,20 @@ export async function POST(req: Request) {
     );
   }
   const attachments = attachmentCheck.attachments;
+  const declaredAttachmentCount =
+    typeof body.attachmentCount === "number" && Number.isFinite(body.attachmentCount)
+      ? Math.max(0, Math.floor(body.attachmentCount))
+      : declaredAttachmentCountFromMessage(body.message);
+  if ((declaredAttachmentCount ?? 0) > attachments.length) {
+    return NextResponse.json(
+      {
+        error: "missing_attachment_payload",
+        message:
+          "The chat saw attached files in the composer, but the browser did not send the file data. Refresh the page, re-attach the files, and send again.",
+      },
+      { status: 409 },
+    );
+  }
 
   const modelId: string =
     typeof body.modelId === "string" && body.modelId.trim().length > 0
