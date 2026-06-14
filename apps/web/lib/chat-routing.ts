@@ -353,7 +353,22 @@ function hasRecentGithubWorkLookup(value: string): boolean {
 
 function hasPersonalContextIntent(value: string): string | null {
   if (
-    /\b(remember|memory|vault|personal context|what do you know about me|based on what you know|my preferences|my style|my priorities)\b/.test(
+    /\b(remember|memory|vault|personal context|based on what you know|based on my context|my preferences|my style|my priorities)\b/.test(
+      value,
+    )
+  ) {
+    return "personal_context_intent";
+  }
+  if (
+    /\bwhat (do you know|context do you have|context is available|context are you using)\b/.test(
+      value,
+    ) &&
+    /\b(me|my|about me|for me)\b/.test(value)
+  ) {
+    return "personal_context_intent";
+  }
+  if (
+    /\bwhat do you know about (me|my job|my role|my team|my work|my priorities|my company)\b/.test(
       value,
     )
   ) {
@@ -361,7 +376,17 @@ function hasPersonalContextIntent(value: string): string | null {
   }
   if (
     /\b(what'?s|what is|do you know|tell me)\s+my\s+name\b/.test(value) ||
-    /\bwho am i\b/.test(value)
+    /\bwho am i\b/.test(value) ||
+    /\b(what'?s|what is|do you know|tell me)\s+my\s+(job|role|team|title|company)\b/.test(
+      value,
+    )
+  ) {
+    return "personal_context_intent";
+  }
+  if (
+    /\bwhat should i focus on\b/.test(value) ||
+    /\bwhat (are|should be) my priorities\b/.test(value) ||
+    /\bwhat matters most for me\b/.test(value)
   ) {
     return "personal_context_intent";
   }

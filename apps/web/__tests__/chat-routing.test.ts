@@ -261,6 +261,60 @@ describe("decideChatRuntimeRoute", () => {
     });
   });
 
+  it("treats context inventory questions as personal context", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "What context do you have about me?",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "fast-local",
+      runtimeTarget: "direct-chat",
+      includeVaultContext: true,
+      reasons: ["personal_context_intent"],
+    });
+  });
+
+  it("treats job and role questions as personal context", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "Do you know my role?",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "fast-local",
+      includeVaultContext: true,
+      reasons: ["personal_context_intent"],
+    });
+  });
+
+  it("treats focus/priorities questions as personal context", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "What should I focus on today?",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "fast-local",
+      includeVaultContext: true,
+      reasons: ["personal_context_intent"],
+    });
+  });
+
+  it("does not route generic knowledge questions through Vault", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "What do you know about quantum computing?",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "fast-local",
+      useMcp: false,
+      includeVaultContext: false,
+      reasons: ["default_fast_local"],
+    });
+  });
+
   // Conversation-level tool stickiness. Born from a real failure: the model
   // answered "no GitHub issues", then a turn later — asked "what repos did you
   // check?" — said "I don't actually have access to GitHub". The follow-up had
