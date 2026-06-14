@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildChatRouteReceipt,
   decideChatRuntimeRoute,
   runtimeV2EnabledFromEnv,
 } from "@/lib/chat-routing";
@@ -233,6 +234,20 @@ describe("decideChatRuntimeRoute", () => {
     });
   });
 
+  it("can include Vault context based on context signals even on a tool lane", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "Check GitHub for anything related to my priorities",
+        runtimeV2: true,
+        contextSignals: { vaultMemoryAvailable: true },
+      }),
+    ).toMatchObject({
+      lane: "tool-local",
+      useMcp: true,
+      includeVaultContext: true,
+    });
+  });
+
   it("treats name/profile questions as personal context", () => {
     expect(
       decideChatRuntimeRoute({
@@ -300,5 +315,65 @@ describe("decideChatRuntimeRoute", () => {
       useMcp: true,
       reasons: ["sticky_tool_thread"],
     });
+  });
+
+  it("accepts recommended durable escalation from capability/context signals", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "Take this on when you can",
+        runtimeV2: true,
+        capabilitySignals: {
+          recommendedEscalation: {
+            lane: "durable-local",
+            reason: "repeated_long_running_repo_work",
+          },
+        },
+      }),
+    ).toMatchObject({
+      lane: "durable-local",
+      runtimeTarget: "agentcore-worker",
+      useWorker: true,
+      useMcp: true,
+      includeVaultContext: true,
+      reasons: [
+        "recommended_durable_escalation",
+        "repeated_long_running_repo_work",
+      ],
+    });
+  });
+
+  it("builds a compact route receipt with context and tool availability", () => {
+    const route = decideChatRuntimeRoute({
+      message: "What PRs am I reviewing?",
+      runtimeV2: true,
+    });
+    const receipt = buildChatRouteReceipt({
+      route,
+      contextSignals: {
+        priorUserMessagesCount: 2,
+        vaultMemoryAvailable: true,
+        uploadedFilesAvailable: true,
+      },
+      capabilitySignals: {
+        connectedProviders: ["github"],
+        approvedProviders: ["github"],
+        pendingApprovalProviders: [],
+      },
+    });
+
+    expect(receipt).toMatchObject({
+      lane: "tool-local",
+      useMcp: true,
+      contextAvailability: {
+        priorUserMessages: 2,
+        vaultMemoryAvailable: true,
+        uploadedFilesAvailable: true,
+      },
+      toolAvailability: {
+        connectedProviders: ["github"],
+        approvedProviders: ["github"],
+      },
+    });
+    expect(receipt.explanation).toContain("Mounted local tools");
   });
 });

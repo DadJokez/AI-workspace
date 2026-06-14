@@ -15,6 +15,7 @@ import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
 import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
 import {
+  buildChatRouteReceipt,
   decideChatRuntimeRoute,
   runtimeV2EnabledFromEnv,
 } from "@/lib/chat-routing";
@@ -31,6 +32,7 @@ import {
   requestLimitConfig,
 } from "@/lib/request-limits";
 import { appendRunEvent } from "@/lib/run-events";
+import { loadUserMcpProviderStatus } from "@/lib/oauth/mcp-servers";
 
 export const dynamic = "force-dynamic";
 
@@ -201,11 +203,28 @@ export async function POST(req: Request) {
       ).map((row) => row.content)
     : [];
 
+  const routingProviderStatus = await loadUserMcpProviderStatus(db, sessionUser.id);
+  const contextSignals = {
+    priorUserMessagesCount: priorUserMessages.length,
+    uploadedFilesAvailable: attachments.length > 0,
+  };
+  const capabilitySignals = {
+    connectedProviders: routingProviderStatus.connectedProviders,
+    approvedProviders: routingProviderStatus.allowedProviders,
+    pendingApprovalProviders: routingProviderStatus.deniedProviders,
+  };
   const runtimeRoute = decideChatRuntimeRoute({
     message: body.message,
     executionMode,
     runtimeV2,
     priorUserMessages,
+    contextSignals,
+    capabilitySignals,
+  });
+  const routeReceipt = buildChatRouteReceipt({
+    route: runtimeRoute,
+    contextSignals,
+    capabilitySignals,
   });
 
   const userMsg = await db
@@ -272,6 +291,7 @@ export async function POST(req: Request) {
         runtimeV2,
         runtimeRoute,
         uploadedFiles,
+        routeReceipt,
       },
       attemptCount: runtimeRoute.useWorker ? 0 : 1,
       startedAt: chatRunStartedAt,
@@ -298,6 +318,7 @@ export async function POST(req: Request) {
         executionMode: runtimeRoute.executionMode,
         runtimeV2,
         runtimeRoute,
+        routeReceipt,
       },
       occurredAt: queuedAt,
     });
@@ -331,6 +352,7 @@ export async function POST(req: Request) {
         executionMode: runtimeRoute.executionMode,
         runtimeV2,
         runtimeRoute,
+        routeReceipt,
       });
       if (runtimeRoute.useWorker) {
         send({
