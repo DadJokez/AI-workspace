@@ -283,5 +283,11 @@ function hasPersonalContextIntent(value: string): string | null {
   ) {
     return "personal_context_intent";
   }
+  if (
+    /\b(what'?s|what is|do you know|tell me)\s+my\s+name\b/.test(value) ||
+    /\bwho am i\b/.test(value)
+  ) {
+    return "personal_context_intent";
+  }
   return null;
 }

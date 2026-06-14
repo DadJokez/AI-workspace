@@ -233,6 +233,19 @@ describe("decideChatRuntimeRoute", () => {
     });
   });
 
+  it("treats name/profile questions as personal context", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "whats my name",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "fast-local",
+      runtimeTarget: "direct-chat",
+      includeVaultContext: true,
+    });
+  });
+
   // Conversation-level tool stickiness. Born from a real failure: the model
   // answered "no GitHub issues", then a turn later — asked "what repos did you
   // check?" — said "I don't actually have access to GitHub". The follow-up had

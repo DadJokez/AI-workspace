@@ -33,6 +33,8 @@ interface PreambleInput {
    * content of any artifact this turn refers to. See lib/artifact-context.
    */
   artifactContext?: string | null;
+  /** True when the route intentionally checked approved Vault memory. */
+  vaultContextRequested?: boolean;
 }
 
 /**
@@ -56,6 +58,7 @@ export function buildAgentPreamble({
   blockedProviders = [],
   modelId,
   artifactContext,
+  vaultContextRequested = false,
 }: PreambleInput): string {
   const lines: string[] = [];
 
@@ -130,8 +133,17 @@ export function buildAgentPreamble({
   const vault = user.vaultMarkdown?.trim();
   if (vault) {
     lines.push("");
+    lines.push(
+      "Vault access for this turn: you have access to the user's approved Vault memory in the section below. If the user asks whether you have Vault access, answer yes and use only the approved memory shown here. Do not say you have no access to the Vault, no personal profile, or no live connection to Vault when this section is present.",
+    );
+    lines.push("");
     lines.push("Personal context approved by the user:");
     lines.push(vault);
+  } else if (vaultContextRequested) {
+    lines.push("");
+    lines.push(
+      "Vault access for this turn: the user's approved Vault memory was checked, but no approved Vault memory was available in the prompt. If the user asks whether you have Vault access, do not claim the product lacks a Vault; say there is no approved Vault memory available to you for this turn.",
+    );
   }
 
   const artifacts = artifactContext?.trim();
