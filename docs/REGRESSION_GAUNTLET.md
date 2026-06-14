@@ -10,7 +10,7 @@ checks the deployed public surface.
 | Layer | Command / workflow | Runs | Catches |
 | --- | --- | --- | --- |
 | Unit + contract tests | `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` | Every PR and `main` push via `CI` | Type errors, route contracts, auth checks, DB helper behavior, artifact parsing, routing policy, tool honesty helpers |
-| Browser smoke | `pnpm smoke:browser` | Every PR and `main` push via `Product Smoke` | The app boots in a real browser, login renders, auth redirect works, theme toggle persists, public model metadata works, anonymous chat is guarded |
+| Browser smoke + feature suite | `pnpm smoke:browser` | Every PR and `main` push via `Product Smoke` | The app boots in a real browser, login renders, auth redirect works, theme toggle persists, public model metadata works, anonymous chat is guarded, and local mocked chat flows cover uploads, artifacts, tools, and skills |
 | Production public smoke | `pnpm smoke:prod` | Scheduled every 6 hours and manual dispatch via `Product Smoke` | Public deployment health, DB/runtime health, login page, protected redirect, model metadata, anonymous chat guard |
 | Real-model evals | `pnpm eval` | Nightly and manual via `Nightly Evals` | Model/prompt/harness regressions: date grounding, Vault truthfulness, tool honesty, skill faithfulness, recommendation faithfulness |
 | Manual visual QA | `docs/QA_CHECKLIST.md` | Before large UX releases | Visual polish, mobile ergonomics, artifact preview feel, activity receipts, edge cases that still need judgment |
@@ -24,10 +24,11 @@ checks the deployed public surface.
 | Chat API guardrails | Yes | Anonymous guard | Anonymous guard | No | Authenticated streaming smoke |
 | Fast chat routing | Yes | No | No | Partial | Need seeded signed-in browser/API run |
 | Tool/Vault/context honesty | Yes | No | No | Yes | Need live tool-backed evals with test fixtures |
-| File upload parsing | Yes | No | No | No | Need browser upload cases for common business files |
-| Artifact creation + preview | Yes | No | No | Partial | Need signed-in browser flow for cobalt pill, in-tab preview, artifact menu |
+| File upload parsing | Yes | Mocked local feature flow | No | No | Need live signed-in upload smoke for common business files and model vision |
+| Artifact creation + preview | Yes | Mocked local feature flow | No | Partial | Need live signed-in flow for persisted artifact versions |
 | Chat download | Yes | No | No | No | Need signed-in browser flow |
-| Skills and recommendations | Yes | No | No | Yes | Need seeded browser flow for skill library and recommendation cards |
+| Tool activity receipts | Yes | Mocked local feature flow | No | Yes | Need live tool fixture evals with test data |
+| Skills and recommendations | Yes | Skills mocked locally | No | Yes | Need recommendation-card browser flow and live skill fixtures |
 | Apps/deploy/update/invite | Partial | No | No | No | Still roadmap work; add E2E as features land |
 | Mobile layout | Manual checklist | Login smoke only | No | No | Need authenticated mobile smoke once test session exists |
 
@@ -68,12 +69,17 @@ it for preview environments:
 SMOKE_BASE_URL=https://your-preview.example.com pnpm smoke:prod
 ```
 
-Browser smoke defaults to a local Next dev server. To point it at an already
-running app:
+Browser smoke defaults to a local Next dev server. In local mode it enables a
+test-only `/e2e/chat` harness that renders the real chat UI with mocked APIs, so
+the suite can exercise signed-in chat behavior without production credentials.
+To point the public smoke cases at an already running app:
 
 ```bash
 PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 pnpm smoke:browser
 ```
+
+When `PLAYWRIGHT_BASE_URL` is set, mocked feature specs are skipped because the
+test-only harness is intentionally absent from deployed environments.
 
 ## Next Automation Tranches
 

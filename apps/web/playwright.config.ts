@@ -27,6 +27,7 @@ export default defineConfig({
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
         env: {
+          E2E_TEST_MODE: "1",
           NEXTAUTH_SECRET: "playwright-local-secret-with-enough-length",
           NEXTAUTH_URL: baseURL,
           GITHUB_AUTH_CLIENT_ID: "playwright-local-client",
