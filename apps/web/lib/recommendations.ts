@@ -20,6 +20,18 @@ export interface RecommendationCandidate {
   metadata?: Record<string, unknown>;
 }
 
+export type RecommendationStatus = "suggested" | "accepted" | "dismissed";
+
+export interface PersistedRecommendation extends RecommendationCandidate {
+  dbId: string;
+  status: RecommendationStatus;
+  threadId: string | null;
+  chatMessageId: string | null;
+  runId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface RecommendationSkill {
   id: string;
   name: string;

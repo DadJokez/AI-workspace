@@ -207,5 +207,25 @@ function agentMessageToBedrock(m: AgentMessage): BedrockMessage {
     }
     return { role: "assistant", content: blocks };
   }
-  return { role: "user", content: [{ kind: "text", text: m.content }] };
+  const blocks: BedrockContentBlock[] = [{ kind: "text", text: m.content }];
+  for (const attachment of m.attachments ?? []) {
+    if (attachment.type !== "image") continue;
+    const format = imageFormatFromMimeType(attachment.mimeType);
+    if (!format) continue;
+    blocks.push({
+      kind: "image",
+      format,
+      dataBase64: attachment.dataBase64,
+    });
+  }
+  return { role: "user", content: blocks };
+}
+
+function imageFormatFromMimeType(
+  mimeType: string,
+): "png" | "jpeg" | "webp" | null {
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "image/jpeg") return "jpeg";
+  if (mimeType === "image/webp") return "webp";
+  return null;
 }

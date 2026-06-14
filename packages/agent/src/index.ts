@@ -1,6 +1,7 @@
 export type {
   AgentEvent,
   AgentMessage,
+  AgentMessageAttachment,
   Role,
   Tool,
   ToolCall,

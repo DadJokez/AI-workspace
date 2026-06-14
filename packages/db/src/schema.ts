@@ -618,6 +618,19 @@ export const workspaceArtifacts = pgTable(
     }),
     title: text("title").notNull(),
     filename: text("filename").notNull(),
+    /**
+     * Native artifact versioning. Every artifact belongs to a stable logical
+     * group; the group id is the first version's id for backfilled rows and a
+     * generated id for new groups. Revisions append immutable rows with a
+     * higher version_number instead of overwriting content.
+     */
+    artifactGroupId: uuid("artifact_group_id").notNull().defaultRandom(),
+    versionNumber: integer("version_number").notNull().default(1),
+    supersedesArtifactId: uuid("supersedes_artifact_id").references(
+      (): AnyPgColumn => workspaceArtifacts.id,
+      { onDelete: "set null" },
+    ),
+    versionSummary: text("version_summary"),
     kind: text("kind").notNull().default("file"),
     mimeType: text("mime_type").notNull().default("text/plain"),
     content: text("content").notNull(),
@@ -639,9 +652,63 @@ export const workspaceArtifacts = pgTable(
     threadIdx: index("workspace_artifacts_thread_idx").on(t.threadId),
     messageIdx: index("workspace_artifacts_message_idx").on(t.chatMessageId),
     runIdx: index("workspace_artifacts_run_idx").on(t.runId),
+    groupIdx: index("workspace_artifacts_group_idx").on(
+      t.userId,
+      t.artifactGroupId,
+      t.versionNumber,
+    ),
+    groupVersionUnique: uniqueIndex(
+      "workspace_artifacts_group_version_idx",
+    ).on(t.userId, t.artifactGroupId, t.versionNumber),
     messageFilenameUnique: uniqueIndex(
       "workspace_artifacts_message_filename_idx",
     ).on(t.chatMessageId, t.filename),
+  }),
+);
+
+/**
+ * Lightweight, dismissible suggestions generated from user/job context and
+ * recent work. These stay explicit: Comparative can recommend a tool, skill,
+ * app, or schedule, but acceptance is always user-driven and audited through
+ * this state row.
+ */
+export const recommendations = pgTable(
+  "recommendations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id").references(() => chatThreads.id, {
+      onDelete: "cascade",
+    }),
+    chatMessageId: uuid("chat_message_id").references(() => chatMessages.id, {
+      onDelete: "cascade",
+    }),
+    runId: uuid("run_id").references(() => runs.id, {
+      onDelete: "set null",
+    }),
+    type: text("type").notNull(),
+    title: text("title").notNull(),
+    reason: text("reason").notNull(),
+    status: text("status").notNull().default("suggested"),
+    action: jsonb("action").notNull(),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userStatusIdx: index("recommendations_user_status_idx").on(
+      t.userId,
+      t.status,
+      sql`${t.createdAt} DESC`,
+    ),
+    messageIdx: index("recommendations_message_idx").on(t.chatMessageId),
+    runIdx: index("recommendations_run_idx").on(t.runId),
   }),
 );
 
@@ -966,6 +1033,8 @@ export type UserMemoryItem = typeof userMemoryItems.$inferSelect;
 export type NewUserMemoryItem = typeof userMemoryItems.$inferInsert;
 export type WorkspaceArtifact = typeof workspaceArtifacts.$inferSelect;
 export type NewWorkspaceArtifact = typeof workspaceArtifacts.$inferInsert;
+export type Recommendation = typeof recommendations.$inferSelect;
+export type NewRecommendation = typeof recommendations.$inferInsert;
 export type McpServer = typeof mcpServers.$inferSelect;
 export type NewMcpServer = typeof mcpServers.$inferInsert;
 export type AuditLog = typeof auditLog.$inferSelect;

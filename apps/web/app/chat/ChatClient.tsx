@@ -27,6 +27,10 @@ import {
   type PersistedToolResult,
 } from "@/lib/tool-events";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import type {
+  PersistedRecommendation,
+  RecommendationStatus,
+} from "@/lib/recommendations";
 import { signOut } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 
@@ -49,6 +53,7 @@ interface UiMessage {
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
   artifacts?: WorkspaceArtifactSummary[];
+  recommendations?: PersistedRecommendation[];
   activityEvents?: AgentActivityEvent[];
   runId?: string;
   runStatus?: string;
@@ -142,6 +147,7 @@ interface ThreadMessage {
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
   artifacts?: WorkspaceArtifactSummary[];
+  recommendations?: PersistedRecommendation[];
   activityEvents?: AgentActivityEvent[];
   pending?: boolean;
   status?: string;
@@ -228,6 +234,20 @@ function deriveTitle(text: string): string {
   const trimmed = text.trim().replace(/\s+/g, " ");
   if (trimmed.length <= 32) return trimmed;
   return trimmed.slice(0, 32).trimEnd() + "…";
+}
+
+function appNameFromRecommendation(recommendation: PersistedRecommendation): string {
+  const filename =
+    typeof recommendation.metadata?.filename === "string"
+      ? recommendation.metadata.filename
+      : "Generated app";
+  const stem = filename.replace(/\.[^.]+$/, "");
+  const title = stem
+    .split(/[-_ ]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+  return title || "Generated app";
 }
 
 /** Render an MCP tool name as a compact label for status text.
@@ -369,6 +389,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [oauthConnected, setOauthConnected] = useState<Record<string, boolean>>({});
   const [slashSkills, setSlashSkills] = useState<SlashSkill[]>([]);
+  const [recommendationPendingId, setRecommendationPendingId] =
+    useState<string>();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -701,6 +723,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           toolCalls: m.toolCalls ?? undefined,
           toolResults: m.toolResults ?? undefined,
           artifacts: m.artifacts,
+          recommendations: m.recommendations,
           activityEvents: m.activityEvents,
           runId: m.runId,
           runStatus: m.runStatus,
@@ -889,6 +912,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           toolCalls: m.toolCalls ?? undefined,
           toolResults: m.toolResults ?? undefined,
           artifacts: m.artifacts,
+          recommendations: m.recommendations,
           activityEvents: m.activityEvents,
           runId: m.runId,
           runStatus: m.runStatus,
@@ -1086,6 +1110,99 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
 
   function openArtifactPreview(artifact: WorkspaceArtifactSummary) {
     setPreviewArtifact(artifact);
+  }
+
+  function patchRecommendation(
+    recommendation: PersistedRecommendation,
+    status: RecommendationStatus,
+  ) {
+    setTabs((prev) =>
+      prev.map((tab) => ({
+        ...tab,
+        messages: tab.messages.map((message) => ({
+          ...message,
+          recommendations: message.recommendations?.map((candidate) =>
+            candidate.dbId === recommendation.dbId
+              ? { ...candidate, status }
+              : candidate,
+          ),
+        })),
+      })),
+    );
+  }
+
+  async function handleRecommendationAction(
+    recommendation: PersistedRecommendation,
+    status: RecommendationStatus,
+  ) {
+    if (!activeTab) return;
+    setRecommendationPendingId(recommendation.dbId);
+    patchTab(activeTab.id, { error: undefined });
+    try {
+      const res = await fetch(`/api/recommendations/${recommendation.dbId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        recommendation?: PersistedRecommendation;
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok || !body.recommendation) {
+        throw new Error(body.message ?? body.error ?? "Recommendation update failed");
+      }
+      patchRecommendation(body.recommendation, status);
+
+      if (status !== "accepted") return;
+      if (recommendation.action.kind === "run_skill") {
+        const runRes = await fetch(
+          `/api/skills/${recommendation.action.skillId}/run`,
+          { method: "POST" },
+        );
+        const runBody = (await runRes.json().catch(() => ({}))) as {
+          threadId?: string;
+          message?: string;
+          error?: string;
+        };
+        if (!runRes.ok || !runBody.threadId) {
+          throw new Error(runBody.message ?? runBody.error ?? "Could not run skill.");
+        }
+        void refreshThreads();
+        openThread(runBody.threadId, recommendation.title);
+      } else if (recommendation.action.kind === "deploy_app") {
+        const name = appNameFromRecommendation(recommendation);
+        const appRes = await fetch("/api/apps", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            artifactId: recommendation.action.artifactId,
+            name,
+            description: recommendation.reason,
+          }),
+        });
+        const appBody = (await appRes.json().catch(() => ({}))) as {
+          app?: { id?: string };
+          message?: string;
+          error?: string;
+        };
+        if (!appRes.ok || !appBody.app?.id) {
+          throw new Error(appBody.message ?? appBody.error ?? "Could not deploy app.");
+        }
+        window.location.assign(`/apps/manage/${appBody.app.id}`);
+      } else if (recommendation.action.kind === "create_skill") {
+        window.location.assign("/skills/new");
+      }
+    } catch (err) {
+      patchTab(activeTab.id, {
+        error:
+          err instanceof Error
+            ? err.message
+            : "Recommendation action failed.",
+      });
+    } finally {
+      setRecommendationPendingId(undefined);
+    }
   }
 
   function downloadActiveChat() {
@@ -1290,6 +1407,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           const artifacts = Array.isArray(ev.artifacts)
             ? (ev.artifacts as WorkspaceArtifactSummary[])
             : undefined;
+          const recommendations = Array.isArray(ev.recommendations)
+            ? (ev.recommendations as PersistedRecommendation[])
+            : undefined;
           patchTabMessages(tabId, (prev) =>
             prev.map((m) =>
               isDraftMessage(m)
@@ -1300,6 +1420,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     status: undefined,
                     modelId: assistantModel,
                     artifacts,
+                    recommendations,
                     runId: undefined,
                     runStatus: undefined,
                     canCancel: false,
@@ -1426,6 +1547,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       toolCalls: m.toolCalls ?? undefined,
       toolResults: m.toolResults ?? undefined,
       artifacts: m.artifacts,
+      recommendations: m.recommendations,
       activityEvents: m.activityEvents,
       runId: m.runId,
       runStatus: m.runStatus,
@@ -1718,9 +1840,12 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     toolCalls={m.toolCalls}
                     toolResults={m.toolResults}
                     artifacts={m.artifacts}
+                    recommendations={m.recommendations}
                     activityEvents={m.activityEvents}
                     assistantName={user?.assistantName}
                     onOpenArtifact={openArtifactPreview}
+                    onRecommendationAction={handleRecommendationAction}
+                    recommendationPendingId={recommendationPendingId}
                   />
                   {m.runId &&
                   (m.canCancel || m.canRetry || m.canResume) ? (

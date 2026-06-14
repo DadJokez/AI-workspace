@@ -4,6 +4,7 @@ import {
   type WorkspaceArtifact,
 } from "@ai-workspace/db";
 import { and, desc, eq } from "drizzle-orm";
+import { randomUUID } from "crypto";
 
 const MAX_ARTIFACTS_PER_MESSAGE = 5;
 const MAX_ARTIFACT_CHARS = 500_000;
@@ -21,6 +22,11 @@ export interface WorkspaceArtifactSummary {
   threadId: string | null;
   chatMessageId: string | null;
   runId: string | null;
+  artifactGroupId: string;
+  versionNumber: number;
+  supersedesArtifactId: string | null;
+  versionSummary: string | null;
+  metadata?: Record<string, unknown> | null;
   createdAt: string;
   previewUrl: string;
   downloadUrl: string;
@@ -48,6 +54,15 @@ interface ParsedArtifact {
   metadata: Record<string, unknown>;
 }
 
+interface PlannedArtifactVersion {
+  artifactKey: string;
+  artifactGroupId: string;
+  versionNumber: number;
+  supersedesArtifactId: string | null;
+  filename: string;
+  versionSummary: string;
+}
+
 interface FencedCodeBlock {
   info: string;
   language: string;
@@ -65,23 +80,38 @@ export async function createArtifactsFromAssistantMessage({
 }: CreateArtifactsInput): Promise<WorkspaceArtifactSummary[]> {
   const parsed = parseAssistantArtifacts(assistantText);
   if (parsed.length === 0) return [];
+  const planned = await planArtifactVersions({
+    db,
+    userId,
+    threadId,
+    artifacts: parsed,
+  });
 
   const rows = await db
     .insert(workspaceArtifacts)
     .values(
-      parsed.map((artifact) => ({
+      planned.map(({ artifact, version }) => ({
         userId,
         threadId,
         chatMessageId,
         runId: runId ?? null,
         title: artifact.title,
-        filename: artifact.filename,
+        filename: version.filename,
+        artifactGroupId: version.artifactGroupId,
+        versionNumber: version.versionNumber,
+        supersedesArtifactId: version.supersedesArtifactId,
+        versionSummary: version.versionSummary,
         kind: artifact.kind,
         mimeType: artifact.mimeType,
         content: artifact.content,
         sizeBytes: Buffer.byteLength(artifact.content, "utf8"),
         source: "assistant-code-block",
-        metadata: artifact.metadata,
+        metadata: {
+          ...artifact.metadata,
+          artifactKey: version.artifactKey,
+          originalFilename: artifact.filename,
+          versionNumber: version.versionNumber,
+        },
       })),
     )
     .onConflictDoNothing({
@@ -148,6 +178,11 @@ export function serializeWorkspaceArtifact(
     threadId: artifact.threadId,
     chatMessageId: artifact.chatMessageId,
     runId: artifact.runId,
+    artifactGroupId: artifact.artifactGroupId,
+    versionNumber: artifact.versionNumber,
+    supersedesArtifactId: artifact.supersedesArtifactId,
+    versionSummary: artifact.versionSummary,
+    metadata: normalizeMetadata(artifact.metadata),
     createdAt: artifact.createdAt.toISOString(),
     previewUrl: `/workspace/artifacts/${artifact.id}`,
     downloadUrl: `/api/workspace/artifacts/${artifact.id}/download`,
@@ -218,6 +253,78 @@ export function parseAssistantArtifacts(text: string): ParsedArtifact[] {
   }
 
   return artifacts;
+}
+
+async function planArtifactVersions({
+  db,
+  userId,
+  threadId,
+  artifacts,
+}: {
+  db: Database;
+  userId: string;
+  threadId: string;
+  artifacts: readonly ParsedArtifact[];
+}): Promise<
+  Array<{ artifact: ParsedArtifact; version: PlannedArtifactVersion }>
+> {
+  const priorRows = await db
+    .select()
+    .from(workspaceArtifacts)
+    .where(
+      and(
+        eq(workspaceArtifacts.userId, userId),
+        eq(workspaceArtifacts.threadId, threadId),
+      ),
+    )
+    .orderBy(desc(workspaceArtifacts.versionNumber), desc(workspaceArtifacts.createdAt))
+    .limit(200);
+
+  const latestByKey = new Map<
+    string,
+    Pick<
+      WorkspaceArtifact,
+      "id" | "artifactGroupId" | "versionNumber" | "filename" | "metadata"
+    >
+  >();
+  for (const row of priorRows) {
+    const key = artifactKeyFromArtifact(row);
+    if (!latestByKey.has(key)) latestByKey.set(key, row);
+  }
+
+  const planned: Array<{
+    artifact: ParsedArtifact;
+    version: PlannedArtifactVersion;
+  }> = [];
+
+  for (const artifact of artifacts) {
+    const artifactKey = artifactKeyFromFilename(artifact.filename);
+    const prior = latestByKey.get(artifactKey);
+    const versionNumber = prior ? prior.versionNumber + 1 : 1;
+    const artifactGroupId = prior?.artifactGroupId ?? randomUUID();
+    const filename = filenameForVersion(artifact.filename, versionNumber);
+    const version: PlannedArtifactVersion = {
+      artifactKey,
+      artifactGroupId,
+      versionNumber,
+      supersedesArtifactId: prior?.id ?? null,
+      filename,
+      versionSummary:
+        versionNumber === 1
+          ? "Initial artifact created from chat."
+          : `Version ${versionNumber} created from chat revision.`,
+    };
+    planned.push({ artifact, version });
+    latestByKey.set(artifactKey, {
+      id: `planned:${planned.length}`,
+      artifactGroupId,
+      versionNumber,
+      filename,
+      metadata: { artifactKey },
+    });
+  }
+
+  return planned;
 }
 
 function extractFencedCodeBlocks(text: string): FencedCodeBlock[] {
@@ -539,4 +646,55 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
   return slug || "artifact";
+}
+
+function normalizeMetadata(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
+}
+
+function artifactKeyFromArtifact(
+  artifact: Pick<WorkspaceArtifact, "filename" | "metadata">,
+): string {
+  const metadata = normalizeMetadata(artifact.metadata);
+  return typeof metadata?.artifactKey === "string"
+    ? metadata.artifactKey
+    : artifactKeyFromFilename(artifact.filename);
+}
+
+function artifactKeyFromFilename(filename: string): string {
+  const clean = sanitizeFilename(filename).toLowerCase();
+  const dot = clean.lastIndexOf(".");
+  const stem = dot === -1 ? clean : clean.slice(0, dot);
+  const ext = dot === -1 ? "" : clean.slice(dot + 1);
+  const base = stem
+    .replace(/(?:^|[-_. ])v(?:ersion)?[-_. ]?\d+$/i, "")
+    .replace(/[-_. ]+\d+$/i, "")
+    .replace(/[-_. ]+$/, "");
+  return `${base || "artifact"}.${ext || "txt"}`;
+}
+
+function filenameForVersion(filename: string, versionNumber: number): string {
+  const clean = sanitizeFilename(filename);
+  if (versionNumber <= 1 || filenameAlreadyHasVersion(clean, versionNumber)) {
+    return clean;
+  }
+  const dot = clean.lastIndexOf(".");
+  const stem = dot === -1 ? clean : clean.slice(0, dot);
+  const ext = dot === -1 ? "" : clean.slice(dot);
+  const base = stem.replace(/(?:[-_. ]v(?:ersion)?[-_. ]?\d+|[-_. ]+\d+)$/i, "");
+  return `${base || "artifact"}-v${versionNumber}${ext}`;
+}
+
+function filenameAlreadyHasVersion(
+  filename: string,
+  versionNumber: number,
+): boolean {
+  const dot = filename.lastIndexOf(".");
+  const stem = dot === -1 ? filename : filename.slice(0, dot);
+  const escaped = String(versionNumber).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|[-_. ])v(?:ersion)?[-_. ]?${escaped}$`, "i").test(stem);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

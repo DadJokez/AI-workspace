@@ -15,17 +15,21 @@
   },
   "dependencies": {
     "@ai-workspace/agent": "workspace:*",
-    "@ai-workspace/auth": "workspace:*",
     "@ai-workspace/agent-runtime": "workspace:*",
+    "@ai-workspace/auth": "workspace:*",
     "@ai-workspace/db": "workspace:*",
     "drizzle-orm": "^0.45.2",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.12.0",
     "next": "^15.5.18",
     "next-auth": "^4",
+    "pdf-parse": "^2.4.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^15.5.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

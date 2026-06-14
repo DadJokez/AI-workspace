@@ -41,8 +41,10 @@ import {
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
+import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
+import { createRecommendationsForAssistantMessage } from "@/lib/recommendation-persistence";
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 const DEFAULT_RUNTIME_TIMEOUT_MS = 60 * 60 * 1000;
@@ -308,24 +310,28 @@ async function executeClaimedChatRun({
     message: buildArtifactLookupMessage(history, inputs.prompt),
   });
 
-  const agentMessages = buildTurnContext({
-    messages: history,
-    currentMessageContent: inputs.prompt,
-    threadSummary: thread.summary,
-    recentMessageLimit: numberFromEnv("CHAT_RECENT_MESSAGE_LIMIT"),
-    maxContextChars: numberFromEnv("CHAT_CONTEXT_CHAR_LIMIT"),
-    maxMessageChars: numberFromEnv("CHAT_CONTEXT_MESSAGE_CHAR_LIMIT"),
-    onGuardrailEvent: (event) => {
-      process.stderr.write(
-        `[turn-context-guardrail] ${JSON.stringify({
-          threadId: thread.id,
-          userId: run.userId,
-          runId: run.id,
-          ...event,
-        })}\n`,
-      );
-    },
-  });
+  const uploadedFiles = sanitizeUploadedFiles(inputs.uploadedFiles);
+  const agentMessages = attachUploadedFilesToLatestUserMessage(
+    buildTurnContext({
+      messages: history,
+      currentMessageContent: inputs.prompt,
+      threadSummary: thread.summary,
+      recentMessageLimit: numberFromEnv("CHAT_RECENT_MESSAGE_LIMIT"),
+      maxContextChars: numberFromEnv("CHAT_CONTEXT_CHAR_LIMIT"),
+      maxMessageChars: numberFromEnv("CHAT_CONTEXT_MESSAGE_CHAR_LIMIT"),
+      onGuardrailEvent: (event) => {
+        process.stderr.write(
+          `[turn-context-guardrail] ${JSON.stringify({
+            threadId: thread.id,
+            userId: run.userId,
+            runId: run.id,
+            ...event,
+          })}\n`,
+        );
+      },
+    }),
+    uploadedFiles,
+  );
 
   let mcpServers;
   let deniedMcpProviders: string[] = [];
@@ -383,7 +389,7 @@ async function executeClaimedChatRun({
     deniedMcpProviders,
     modelId: run.modelId ?? undefined,
     artifactContext,
-    uploadedFiles: sanitizeUploadedFiles(inputs.uploadedFiles),
+    uploadedFiles,
     forcePreamble: true,
   });
   const contextReceipt = contextPack.receipts[0]!;
@@ -688,6 +694,36 @@ async function persistAssistantResult({
           return [];
         })
       : [];
+  if (artifacts.length > 0) {
+    await appendWorkerRunEvent(db, run.id, {
+      eventType: "workspace_artifacts_created",
+      status: "succeeded",
+      label: `Created ${artifacts.length} workspace artifact${artifacts.length === 1 ? "" : "s"}`,
+      metadata: { artifacts },
+    });
+  }
+  const recommendations =
+    terminalStatus === "succeeded"
+      ? await createRecommendationsForAssistantMessage({
+          db,
+          userId: run.userId,
+          threadId,
+          chatMessageId: assistantMessageId,
+          runId: run.id,
+          userMessageId,
+          artifacts,
+        }).catch((err) => {
+          process.stderr.write(
+            `[recommendation-create-error] ${JSON.stringify({
+              runId: run.id,
+              threadId,
+              assistantMessageId,
+              message: err instanceof Error ? err.message : String(err),
+            })}\n`,
+          );
+          return [];
+        })
+      : [];
 
   if (await isRunCanceled(db, run.id)) return;
 
@@ -716,6 +752,7 @@ async function persistAssistantResult({
         runtime: runtimeName,
         ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
         ...(artifacts.length > 0 ? { artifacts } : {}),
+        ...(recommendations.length > 0 ? { recommendations } : {}),
       },
       workerId: null,
       leaseExpiresAt: null,
@@ -762,6 +799,7 @@ async function persistAssistantResult({
       assistantMessageId,
       userMessageId,
       ...(artifacts.length > 0 ? { artifacts } : {}),
+      ...(recommendations.length > 0 ? { recommendations } : {}),
     },
   });
 }
@@ -883,9 +921,29 @@ function sanitizeUploadedFiles(
         ...(typeof file.sizeBytes === "number" && Number.isFinite(file.sizeBytes)
           ? { sizeBytes: file.sizeBytes }
           : {}),
+        ...(typeof file.mimeType === "string" ? { mimeType: file.mimeType } : {}),
+        ...(typeof file.extractionStatus === "string"
+          ? { extractionStatus: file.extractionStatus }
+          : {}),
+        ...(isRuntimeImageContent(file.runtimeContent)
+          ? { runtimeContent: file.runtimeContent }
+          : {}),
       },
     ];
   });
+}
+
+function isRuntimeImageContent(
+  value: unknown,
+): value is NonNullable<ChatContextUploadedFile["runtimeContent"]> {
+  if (!isRecord(value)) return false;
+  return (
+    value.type === "image" &&
+    typeof value.dataBase64 === "string" &&
+    (value.mimeType === "image/png" ||
+      value.mimeType === "image/jpeg" ||
+      value.mimeType === "image/webp")
+  );
 }
 
 function workerRuntimeName(): "agentcore" | "bedrock" {

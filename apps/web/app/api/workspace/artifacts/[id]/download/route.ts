@@ -26,9 +26,16 @@ export async function GET(
       return NextResponse.json({ error: "artifact_not_found" }, { status: 404 });
     }
 
-    return new Response(artifact.content, {
+    const metadata = normalizeMetadata(artifact.metadata);
+    const isBase64 = metadata?.storageEncoding === "base64";
+    const body = isBase64
+      ? Buffer.from(artifact.content, "base64")
+      : artifact.content;
+    return new Response(body, {
       headers: {
-        "Content-Type": `${artifact.mimeType}; charset=utf-8`,
+        "Content-Type": isBase64
+          ? artifact.mimeType
+          : `${artifact.mimeType}; charset=utf-8`,
         "Content-Disposition": `attachment; filename="${safeHeaderFilename(
           artifact.filename,
         )}"`,
@@ -51,4 +58,10 @@ export async function GET(
 
 function safeHeaderFilename(filename: string): string {
   return filename.replace(/["\r\n\\]/g, "_");
+}
+
+function normalizeMetadata(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }

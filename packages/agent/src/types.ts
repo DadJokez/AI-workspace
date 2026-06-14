@@ -30,9 +30,17 @@ export type Role = "user" | "assistant" | "tool";
 export interface AgentMessage {
   role: Role;
   content: string;
+  attachments?: AgentMessageAttachment[];
   toolCalls?: ToolCall[];
   toolResults?: ToolResult[];
 }
+
+export type AgentMessageAttachment = {
+  type: "image";
+  name: string;
+  mimeType: "image/png" | "image/jpeg" | "image/webp";
+  dataBase64: string;
+};
 
 export interface ToolCall {
   id: string;
