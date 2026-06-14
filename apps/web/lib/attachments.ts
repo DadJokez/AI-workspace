@@ -98,6 +98,13 @@ export interface AttachmentValidation {
   attachments: PreparedChatAttachment[];
 }
 
+export function declaredAttachmentCountFromMessage(message: string): number | null {
+  const match = /(?:^|\n)\s*📎\s+(\d+)\s+files?\s+attached\s*$/i.exec(message);
+  if (!match?.[1]) return null;
+  const count = Number.parseInt(match[1], 10);
+  return Number.isFinite(count) && count > 0 ? count : null;
+}
+
 export function isSupportedAttachmentName(name: string): boolean {
   const ext = extensionOf(name);
   return (

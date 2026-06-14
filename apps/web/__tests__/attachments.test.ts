@@ -3,6 +3,7 @@ import {
   MAX_ATTACHMENTS,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENT_CHARS,
+  declaredAttachmentCountFromMessage,
   foldAttachmentsIntoPrompt,
   isSupportedAttachmentName,
   scanAttachmentsForSecrets,
@@ -96,7 +97,7 @@ describe("attachments", () => {
       });
     });
 
-    it("accepts image payloads as metadata-only until native vision lands", async () => {
+    it("accepts image payloads with metadata and native runtime content", async () => {
       const png = Buffer.alloc(24);
       png.writeUInt32BE(640, 16);
       png.writeUInt32BE(480, 20);
@@ -120,6 +121,24 @@ describe("attachments", () => {
     it("rejects a malformed shape", async () => {
       expect((await validateAttachments([{ name: "a.txt" }])).ok).toBe(false);
       expect((await validateAttachments("nope")).ok).toBe(false);
+    });
+  });
+
+  describe("declaredAttachmentCountFromMessage", () => {
+    it("detects the stale optimistic attachment marker", () => {
+      expect(
+        declaredAttachmentCountFromMessage(
+          "Can you tell me about these screenshots?\n\n📎 2 files attached",
+        ),
+      ).toBe(2);
+      expect(
+        declaredAttachmentCountFromMessage("Here is the agenda\n\n📎 1 file attached"),
+      ).toBe(1);
+    });
+
+    it("ignores normal messages without the exact marker", () => {
+      expect(declaredAttachmentCountFromMessage("No files here")).toBeNull();
+      expect(declaredAttachmentCountFromMessage("📎 files attached")).toBeNull();
     });
   });
 
