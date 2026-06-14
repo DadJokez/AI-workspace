@@ -59,7 +59,7 @@ redacted, ordered, and reloadable by chat/admin surfaces.
 
 #92 adds the first worker-backed execution path: chat creates queued
 `recipe_runs`, a worker claims them with a lease, writes `run_events`, executes
-or reconciles the Cursor run, and persists the terminal assistant message back
+or resumes the runtime run, and persists the terminal assistant message back
 to `chat_messages`. The pilot keeps an in-process worker bridge so today's App
 Runner service works immediately; ECS/Fargate should run the packaged worker
 image for the enterprise deployment. SQS/EventBridge can replace direct DB
@@ -70,7 +70,8 @@ an option if retry/wait-state audit requirements justify it.
 queued/running chat-originated runs and retry failed/canceled turns from chat.
 Admins can cancel, retry, or request resume/reconcile from run detail. These
 actions update `recipe_runs`, write `run_events`, and create `audit_log` rows;
-Cursor Cloud cancellation is requested when AI Hub has the provider run handle.
+Runtime cancellation is recorded in AI Hub and delegated to the provider when
+the active runtime exposes a cancellation handle.
 
 #27 should create schedule definitions that produce `recipe_runs` rows. It
 should not invent a second run table or schedule-only execution path.

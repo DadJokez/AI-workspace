@@ -1,4 +1,4 @@
-import type { McpServerConfigStub } from "@ai-workspace/cursor-runtime";
+import type { PlaceholderMcpServerConfig } from "./types";
 
 /**
  * Workfront MCP server — placeholder.
@@ -18,7 +18,7 @@ import type { McpServerConfigStub } from "@ai-workspace/cursor-runtime";
  *   - per-user token isolation: pass via `env` here, or have the server
  *     resolve tokens from a header on each tool call?
  */
-export const workfrontServer: McpServerConfigStub = {
+export const workfrontServer: PlaceholderMcpServerConfig = {
   name: "workfront",
   // command: "node",
   // args: ["./dist/workfront-server.js"],

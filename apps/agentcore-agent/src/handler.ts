@@ -12,7 +12,7 @@ import {
 
 /**
  * The invocation contract between `AgentCoreRuntime` (the seam adapter in
- * packages/cursor-runtime) and this container. One invocation = one chat
+ * packages/agent-runtime) and this container. One invocation = one chat
  * turn; the response is an SSE stream of `AgentEvent`s — the same event
  * vocabulary every other runtime emits, so the web layer never knows the
  * loop ran remotely.

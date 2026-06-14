@@ -1,5 +1,6 @@
-export type ChatExecutionMode = "local" | "cloud";
+export type ChatExecutionMode = "local";
 
-export function parseChatExecutionMode(value: unknown): ChatExecutionMode {
-  return value === "cloud" ? "cloud" : "local";
+export function parseChatExecutionMode(_value: unknown): ChatExecutionMode {
+  void _value;
+  return "local";
 }

@@ -4,7 +4,7 @@ import {
   AgentCoreRuntime,
   parseAgentEventSse,
   toRuntimeSessionId,
-} from "@ai-workspace/cursor-runtime";
+} from "@ai-workspace/agent-runtime";
 
 function bytes(...parts: string[]): AsyncIterable<Uint8Array> {
   const encoder = new TextEncoder();

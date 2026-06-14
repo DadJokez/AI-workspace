@@ -20,7 +20,6 @@ const APP_SECRET_FIELDS = [
   "GITHUB_CLIENT_ID",
   "GITHUB_CLIENT_SECRET",
   "OAUTH_ENCRYPTION_KEY",
-  "CURSOR_API_KEY",
 ] as const;
 
 export class AiWorkspaceEcsStack extends cdk.Stack {
@@ -130,16 +129,12 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       NODE_ENV: "production",
       AWS_REGION: cdk.Stack.of(this).region,
       BEDROCK_CLIENT: "real",
-      RUNTIME: "cursor",
+      RUNTIME: "bedrock",
       RUNTIME_V2_ENABLED: "1",
       RUNTIME_V2_DIRECT_RUNTIME: "bedrock",
       // Autopilot (#110): pick the model per ask — Haiku for short/simple
       // turns, Sonnet for writing/reasoning/code. Was pinned to haiku-4-5.
       RUNTIME_V2_DIRECT_MODEL_ID: "auto",
-      CURSOR_RUNTIME_MODE: "local",
-      CURSOR_CLOUD_REPO_URL: "https://github.com/DadJokez/AI-workspace",
-      CURSOR_CLOUD_REPO_REF: "main",
-      CURSOR_CLOUD_ENV_TYPE: "cloud",
       NEXTAUTH_URL: `https://${domainName}`,
       LEGACY_HOST_REDIRECT_FROM:
         legacyDomainName !== domainName ? legacyDomainName : "",
@@ -258,8 +253,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
         ...commonEnvironment,
         // T311b/T312 (specs/003): worker-executed lanes — durable chat,
         // skills, scheduled — run on Bedrock AgentCore in our account.
-        // Fast chat stays direct-Bedrock on web; Cursor stays the explicit
-        // cloud opt-in. Rollback = remove these two lines and redeploy.
+        // Fast chat stays direct Bedrock on web.
         RUNTIME: "agentcore",
         AGENTCORE_RUNTIME_ARN:
           "arn:aws:bedrock-agentcore:us-east-1:351478076796:runtime/ai_workspace_agent_spike-5n8RLRBVz5",

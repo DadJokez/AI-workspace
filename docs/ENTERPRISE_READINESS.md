@@ -8,7 +8,7 @@ IT-owned infrastructure before broad rollout.
 
 | Area | Status | Notes |
 |---|---|---|
-| Dependency audit | Partial | Next.js, Cursor SDK, Bedrock SDK, Drizzle, PostCSS, and PrismJS patches/overrides applied. Remaining audit findings are transitive and tracked below. |
+| Dependency audit | Partial | Next.js, Bedrock SDK, Drizzle, PostCSS, and PrismJS patches/overrides applied. Remaining audit findings are transitive and tracked below. |
 | Health checks | Pilot shipped | `/api/health` checks DB connectivity/latency and runtime configuration. |
 | Rate limits and quotas | Pilot shipped | `/api/chat`, skill runs, and Developer Briefing enforce shared Postgres fixed-window request limits plus body/message caps. ECS web scale-out requires the shared limiter migration and a multi-task 429 smoke. |
 | Logging/redaction/retention | Partial | Shared tool payload redaction is applied before chat/tool/run/audit persistence; retention automation is still pending. |
@@ -29,8 +29,7 @@ Current triage after package patches:
 |---|---|---|
 | Next.js advisories | `next` | Fixed by pinning `next` / `eslint-config-next` to `15.5.18`. |
 | AWS XML parser advisory | `@aws-sdk/client-bedrock-runtime` path | Reduced by upgrading Bedrock SDK to `3.1048.0`; monitor upstream until `pnpm audit:prod` is clean. |
-| Cursor SDK / `undici` advisories | `@cursor/sdk -> @connectrpc/connect-node -> undici@5.29.0` | Accepted temporarily. AI Hub does not choose this transitive dependency directly. Recheck when Cursor SDK releases a patched dependency tree. |
-| `tar` / `sqlite3` advisories | `drizzle-orm` and `@cursor/sdk` optional/native dependency paths | Accepted temporarily for production runtime with mitigation: do not unpack untrusted archives at runtime; keep lockfile pinned; revisit removing optional SQLite paths or upstream updates. |
+| `tar` / `sqlite3` advisories | `drizzle-orm` optional/native dependency paths | Accepted temporarily for production runtime with mitigation: do not unpack untrusted archives at runtime; keep lockfile pinned; revisit removing optional SQLite paths or upstream updates. |
 | PostCSS advisory | `next -> postcss` | Mitigated with a pnpm override to `postcss@8.5.10`. |
 | `prismjs` advisory | `react-syntax-highlighter -> refractor -> prismjs` | Mitigated with a pnpm override to `prismjs@1.30.0`; assistant markdown rendering still avoids raw HTML. |
 
@@ -53,7 +52,7 @@ Acceptance is not "ignore forever." The review cadence is:
   "timestamp": "2026-05-16T00:00:00.000Z",
   "checks": {
     "db": { "ok": true, "latencyMs": 12 },
-    "runtime": { "ok": true, "name": "cursor", "configured": true }
+    "runtime": { "ok": true, "name": "bedrock", "configured": true }
   }
 }
 ```
@@ -141,8 +140,6 @@ Secrets inventory:
 | Secret | Current | Enterprise target |
 |---|---|---|
 | `NEXTAUTH_SECRET` | App Runner env | Secrets Manager, rotate on incident |
-| `CURSOR_API_KEY` | App Runner env | Secrets Manager, service-owned Cursor key |
-| `CURSOR_RUNTIME_MODE` / `CURSOR_CLOUD_*` | App Runner env | Secrets Manager/IaC-managed runtime substrate config |
 | `DATABASE_URL` | App Runner env / CodeBuild | Secrets Manager dynamic reference |
 | `OAUTH_ENCRYPTION_KEY` | App Runner env | KMS-backed secret, rotation plan required |
 | `GITHUB_AUTH_CLIENT_SECRET` | App Runner env | Secrets Manager |

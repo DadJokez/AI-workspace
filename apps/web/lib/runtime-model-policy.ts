@@ -4,7 +4,7 @@ import {
   isValidModelId,
   type ModelId,
 } from "@ai-workspace/agent";
-import type { RuntimeName } from "@ai-workspace/cursor-runtime";
+import type { RuntimeName } from "@ai-workspace/agent-runtime";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 
 export interface RuntimeModelSelection {
@@ -12,7 +12,6 @@ export interface RuntimeModelSelection {
   modelId: string;
   providerModelId?: string;
   reason:
-    | "runtime_passthrough"
     | "runtime_v2_direct_model_config"
     | "runtime_v2_autopilot"
     | "requested_model_alias"
@@ -50,7 +49,7 @@ export function selectAutopilotModel(message: string): ModelId {
 
 export function resolveRuntimeModelSelection({
   requestedModelId,
-  route,
+  route: _route,
   runtimeName,
   directModelId = process.env.RUNTIME_V2_DIRECT_MODEL_ID,
   message,
@@ -62,14 +61,8 @@ export function resolveRuntimeModelSelection({
   /** The user's message, used by autopilot to pick a model per ask. */
   message?: string;
 }): RuntimeModelSelection {
-  if (route.runtimeTarget !== "direct-chat" || runtimeName !== "bedrock") {
-    return {
-      requestedModelId,
-      modelId: requestedModelId,
-      providerModelId: requestedModelId,
-      reason: "runtime_passthrough",
-    };
-  }
+  void _route;
+  void runtimeName;
 
   const configuredDirectModel = directModelId?.trim().toLowerCase();
 

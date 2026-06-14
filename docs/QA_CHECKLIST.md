@@ -126,7 +126,7 @@ unmarked items need a human eye for visual / device-specific verification.
 - [ ] **`[AUTOMATE]` `/api/chat` rate-limits bursts.** Send more than `CHAT_RATE_LIMIT_REQUESTS` requests in `CHAT_RATE_LIMIT_WINDOW_MS` for one user → 429 `rate_limited` with `Retry-After`.
 - [ ] **`[AUTOMATE]` `/api/chat` rejects another user's threadId.** POST with someone else's `threadId` → 404 `thread_not_found`.
 - [ ] **`[AUTOMATE]` SSE response shape.** Successful POST returns `Content-Type: text/event-stream` and the body contains `data: {"type":"meta",…}` line, then `text-delta` lines, ending with `persisted`.
-- [ ] **`[AUTOMATE]` Invalid modelId surfaces a runtime error.** POST with `modelId: "fake-model"` → expect the Cursor runtime to reject it and the UI to show the error state. The route only defaults when `modelId` is missing or blank.
+- [ ] **`[AUTOMATE]` Invalid modelId surfaces a runtime error.** POST with `modelId: "fake-model"` → expect the Bedrock runtime to reject it and the UI to show the error state. The route only defaults when `modelId` is missing or blank.
 
 ---
 

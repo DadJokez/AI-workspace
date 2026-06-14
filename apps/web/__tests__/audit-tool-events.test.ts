@@ -7,7 +7,7 @@ describe("buildToolAuditRows", () => {
     chatThreadId: "thread_1",
     chatMessageId: "message_1",
     modelId: "sonnet-4-6",
-    runtime: "cursor",
+    runtime: "bedrock",
   };
 
   it("builds succeeded audit rows for completed tool calls", () => {
@@ -53,7 +53,7 @@ describe("buildToolAuditRows", () => {
         metadata: {
           rawToolName: "github_list_pull_requests",
           modelId: "sonnet-4-6",
-          runtime: "cursor",
+          runtime: "bedrock",
         },
         startedAt: new Date("2026-05-15T12:00:00.000Z"),
         completedAt: new Date("2026-05-15T12:00:01.000Z"),
@@ -184,7 +184,7 @@ describe("buildToolAuditRows", () => {
       actorUserId: "user_1",
       runId: "run_1",
       modelId: "sonnet-4-6",
-      runtime: "cursor",
+      runtime: "bedrock",
       calls: [
         {
           id: "call_4",

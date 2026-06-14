@@ -1,4 +1,4 @@
-import type { McpServerConfigStub } from "@ai-workspace/cursor-runtime";
+import type { PlaceholderMcpServerConfig } from "./types";
 
 /**
  * Microsoft Teams MCP server — placeholder.
@@ -20,7 +20,7 @@ import type { McpServerConfigStub } from "@ai-workspace/cursor-runtime";
  *   - rate-limiting writes: per-user/hour cap on `post_message` to
  *     prevent runaway agent loops from spamming channels.
  */
-export const teamsServer: McpServerConfigStub = {
+export const teamsServer: PlaceholderMcpServerConfig = {
   name: "teams",
   // command: "node",
   // args: ["./dist/teams-server.js"],

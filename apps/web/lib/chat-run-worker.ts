@@ -1,8 +1,7 @@
 import {
-  getCursorCloudRunSnapshot,
   getRuntime,
   type RuntimeRunMetadata,
-} from "@ai-workspace/cursor-runtime";
+} from "@ai-workspace/agent-runtime";
 import {
   auditLog,
   chatMessages,
@@ -247,7 +246,6 @@ async function executeClaimedChatRun({
 }): Promise<void> {
   const inputs = parseChatRunInputs(run.inputs);
   const threadId = inputs.threadId;
-  const existingOutput = parseOutput(run.outputs);
 
   await appendWorkerRunEvent(db, run.id, {
     eventType: "worker_claimed",
@@ -256,29 +254,7 @@ async function executeClaimedChatRun({
     metadata: { workerId },
   });
 
-  const existingProviderRun = existingOutput.providerRun;
-  if (
-    existingProviderRun?.executionMode === "cloud" &&
-    existingProviderRun.providerAgentId &&
-    existingProviderRun.providerRunId &&
-    !existingOutput.assistantMessageId
-  ) {
-    await reconcileExistingCursorCloudRun({
-      db,
-      run,
-      threadId,
-      userMessageId: inputs.userMessageId,
-      providerRun: {
-        ...existingProviderRun,
-        providerAgentId: existingProviderRun.providerAgentId,
-        providerRunId: existingProviderRun.providerRunId,
-      },
-      signal,
-    });
-    return;
-  }
-
-  const runtime = getRuntime({ db, executionMode: inputs.executionMode });
+  const runtime = getRuntime({ runtime: workerRuntimeName() });
   const mcpProviderOptions = Array.isArray(inputs.requestedProviders)
     ? { onlyProviders: inputs.requestedProviders }
     : undefined;
@@ -507,10 +483,7 @@ async function executeClaimedChatRun({
           await appendWorkerRunEvent(db, run.id, {
             eventType: "provider_run_started",
             status: "pending",
-            label:
-              metadata.executionMode === "cloud"
-                ? "Started Cursor Cloud run"
-                : "Started Cursor run",
+            label: `Started ${runtime.name} run`,
             metadata: metadata as unknown as Record<string, unknown>,
           });
         },
@@ -588,28 +561,6 @@ async function executeClaimedChatRun({
     return;
   }
 
-  if (
-    !runtimeAbort.signal.aborted &&
-    runtimeErrors.length > 0 &&
-    providerRunMetadata?.executionMode === "cloud" &&
-    providerRunMetadata.providerAgentId &&
-    providerRunMetadata.providerRunId
-  ) {
-    await reconcileExistingCursorCloudRun({
-      db,
-      run,
-      threadId: thread.id,
-      userMessageId: inputs.userMessageId,
-      providerRun: {
-        ...providerRunMetadata,
-        providerAgentId: providerRunMetadata.providerAgentId,
-        providerRunId: providerRunMetadata.providerRunId,
-      },
-      signal,
-    });
-    return;
-  }
-
   const timeoutError = runtimeAbort.signal.aborted
     ? `Chat runtime timed out after ${timeoutMs}ms.`
     : null;
@@ -632,101 +583,6 @@ async function executeClaimedChatRun({
     terminalStatus: runError ? "failed" : "succeeded",
     error: runError,
   });
-}
-
-async function reconcileExistingCursorCloudRun({
-  db,
-  run,
-  threadId,
-  userMessageId,
-  providerRun,
-  signal,
-}: {
-  db: Database;
-  run: Run;
-  threadId: string;
-  userMessageId: string;
-  providerRun: RuntimeRunMetadata & {
-    providerAgentId: string;
-    providerRunId: string;
-  };
-  signal?: AbortSignal;
-}): Promise<void> {
-  await appendWorkerRunEvent(db, run.id, {
-    eventType: "provider_run_reconcile_started",
-    status: "pending",
-    label: "Reconnected to existing Cursor Cloud run",
-    metadata: {
-      providerAgentId: providerRun.providerAgentId,
-      providerRunId: providerRun.providerRunId,
-    },
-  });
-
-  const pollIntervalMs =
-    numberFromEnv("CHAT_RUN_PROVIDER_POLL_INTERVAL_MS") ?? 15_000;
-  const timeoutMs =
-    numberFromEnv("CHAT_WORKER_RUNTIME_TIMEOUT_MS") ??
-    DEFAULT_RUNTIME_TIMEOUT_MS;
-  const expiresAt = Date.now() + timeoutMs;
-
-  while (!signal?.aborted) {
-    if (await isRunCanceled(db, run.id)) {
-      return;
-    }
-    await heartbeatRunLease(db, run.id);
-    const snapshot = await getCursorCloudRunSnapshot({
-      apiKey: process.env.CURSOR_API_KEY,
-      providerAgentId: providerRun.providerAgentId,
-      providerRunId: providerRun.providerRunId,
-    });
-
-    await db
-      .update(runs)
-      .set({
-        outputs: {
-          ...parseOutput(run.outputs),
-          providerRun,
-          providerRunSnapshot: snapshot,
-          providerRunLastCheckedAt: new Date().toISOString(),
-        },
-        updatedAt: new Date(),
-      })
-      .where(eq(runs.id, run.id));
-
-    if (snapshot.status !== "running") {
-      if (snapshot.status === "finished") {
-        await persistAssistantResult({
-          db,
-          run,
-          threadId,
-          userMessageId,
-          modelId: snapshot.modelId ?? run.modelId ?? "default",
-          runtimeName: run.runtime ?? providerRun.runtime ?? "cursor",
-          assistantText: snapshot.result ?? "",
-          tokensIn: 0,
-          tokensOut: 0,
-          toolCalls: [],
-          toolResults: [],
-          providerRunMetadata: providerRun,
-          terminalStatus: "succeeded",
-          error: null,
-        });
-      } else if (snapshot.status === "cancelled") {
-        await markRunCanceled(db, run, "Cursor Cloud run was canceled.");
-      } else {
-        await markRunFailed(db, run, "Cursor Cloud run ended with an error.");
-      }
-      return;
-    }
-
-    if (Date.now() >= expiresAt) {
-      throw new Error(`Cursor Cloud run did not finish within ${timeoutMs}ms.`);
-    }
-
-    await delay(pollIntervalMs, signal);
-  }
-
-  throw new Error("Chat run worker was stopped while reconciling provider run.");
 }
 
 async function persistAssistantResult({
@@ -928,33 +784,6 @@ async function markRunFailed(
   });
 }
 
-async function markRunCanceled(
-  db: Database,
-  run: Run,
-  message: string,
-): Promise<void> {
-  const completedAt = new Date();
-  await db
-    .update(runs)
-    .set({
-      status: "canceled",
-      error: message,
-      workerId: null,
-      leaseExpiresAt: null,
-      lastHeartbeatAt: completedAt,
-      completedAt,
-      updatedAt: completedAt,
-    })
-    .where(eq(runs.id, run.id));
-
-  await appendWorkerRunEvent(db, run.id, {
-    eventType: "run_canceled",
-    status: "failed",
-    label: "Cursor Cloud run was canceled",
-    error: message,
-  });
-}
-
 async function heartbeatRunLease(db: Database, runId: string): Promise<void> {
   const now = new Date();
   const leaseMs = numberFromEnv("CHAT_RUN_WORKER_LEASE_MS") ?? DEFAULT_LEASE_MS;
@@ -1024,6 +853,11 @@ function parseChatRunInputs(value: unknown): ChatRunInputs {
 function parseOutput(value: unknown): StoredChatRunOutput {
   if (!isRecord(value)) return {};
   return value as StoredChatRunOutput;
+}
+
+function workerRuntimeName(): "agentcore" | "bedrock" {
+  if (process.env.AGENTCORE_RUNTIME_ARN) return "agentcore";
+  return "bedrock";
 }
 
 function numberFromEnv(name: string): number | undefined {

@@ -13,7 +13,7 @@ describe("decideChatRuntimeRoute", () => {
     ).toMatchObject({
       lane: "fast-local",
       executionMode: "local",
-      runtimeTarget: "cursor-agent",
+      runtimeTarget: "direct-chat",
       runtimeV2: false,
       useWorker: false,
       useMcp: false,
@@ -48,7 +48,7 @@ describe("decideChatRuntimeRoute", () => {
     expect(runtimeV2EnabledFromEnv(undefined)).toBe(false);
   });
 
-  it("routes explicit cloud requests to the durable cloud worker", () => {
+  it("ignores the removed cloud execution mode", () => {
     expect(
       decideChatRuntimeRoute({
         message: "say pong and nothing else",
@@ -56,11 +56,11 @@ describe("decideChatRuntimeRoute", () => {
         runtimeV2: true,
       }),
     ).toMatchObject({
-      lane: "cursor-cloud",
-      executionMode: "cloud",
-      runtimeTarget: "cursor-agent",
-      useWorker: true,
-      useMcp: true,
+      lane: "fast-local",
+      executionMode: "local",
+      runtimeTarget: "direct-chat",
+      useWorker: false,
+      useMcp: false,
     });
   });
 
@@ -73,7 +73,7 @@ describe("decideChatRuntimeRoute", () => {
     ).toMatchObject({
       lane: "tool-local",
       executionMode: "local",
-      runtimeTarget: "cursor-agent",
+      runtimeTarget: "bedrock-agent",
       useWorker: false,
       useMcp: true,
     });
@@ -88,7 +88,7 @@ describe("decideChatRuntimeRoute", () => {
     ).toMatchObject({
       lane: "tool-local",
       executionMode: "local",
-      runtimeTarget: "cursor-agent",
+      runtimeTarget: "bedrock-agent",
       useWorker: false,
       useMcp: true,
     });
@@ -103,7 +103,7 @@ describe("decideChatRuntimeRoute", () => {
     ).toMatchObject({
       lane: "tool-local",
       executionMode: "local",
-      runtimeTarget: "cursor-agent",
+      runtimeTarget: "bedrock-agent",
       useWorker: false,
       useMcp: true,
       reasons: ["github_capability_probe"],
@@ -119,7 +119,7 @@ describe("decideChatRuntimeRoute", () => {
     ).toMatchObject({
       lane: "tool-local",
       executionMode: "local",
-      runtimeTarget: "cursor-agent",
+      runtimeTarget: "bedrock-agent",
       useWorker: false,
       useMcp: true,
       reasons: ["github_capability_probe"],
@@ -135,7 +135,7 @@ describe("decideChatRuntimeRoute", () => {
     ).toMatchObject({
       lane: "tool-local",
       executionMode: "local",
-      runtimeTarget: "cursor-agent",
+      runtimeTarget: "bedrock-agent",
       useWorker: false,
       useMcp: true,
       reasons: ["github_owned_work_lookup"],
@@ -151,7 +151,7 @@ describe("decideChatRuntimeRoute", () => {
     ).toMatchObject({
       lane: "tool-local",
       executionMode: "local",
-      runtimeTarget: "cursor-agent",
+      runtimeTarget: "bedrock-agent",
       useWorker: false,
       useMcp: true,
       reasons: ["github_ci_status_lookup"],
@@ -167,7 +167,7 @@ describe("decideChatRuntimeRoute", () => {
     ).toMatchObject({
       lane: "tool-local",
       executionMode: "local",
-      runtimeTarget: "cursor-agent",
+      runtimeTarget: "bedrock-agent",
       useWorker: false,
       useMcp: true,
       reasons: ["github_numbered_reference"],
@@ -211,7 +211,7 @@ describe("decideChatRuntimeRoute", () => {
     ).toMatchObject({
       lane: "durable-local",
       executionMode: "local",
-      runtimeTarget: "cursor-agent",
+      runtimeTarget: "agentcore-worker",
       useWorker: true,
       useMcp: true,
     });
@@ -250,7 +250,7 @@ describe("decideChatRuntimeRoute", () => {
     ).toMatchObject({
       lane: "tool-local",
       executionMode: "local",
-      runtimeTarget: "cursor-agent",
+      runtimeTarget: "bedrock-agent",
       useWorker: false,
       useMcp: true,
       reasons: ["sticky_tool_thread"],

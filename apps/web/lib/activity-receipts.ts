@@ -126,7 +126,7 @@ export function inferCategory(label: string): ActivityCategory {
     return "workspace";
   }
   if (
-    /worker|queued|provider run|cursor|run completed|run failed|run canceled|stored assistant|resume|retry/.test(
+    /worker|queued|provider run|agentcore|run completed|run failed|run canceled|stored assistant|resume|retry/.test(
       lowered,
     )
   ) {

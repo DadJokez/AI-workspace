@@ -52,22 +52,12 @@ async function checkDb(): Promise<{
 
 function checkRuntime(): {
   ok: boolean;
-  name: "bedrock" | "cursor" | "agentcore";
+  name: "bedrock" | "agentcore";
   configured: boolean;
   warning?: string;
 } {
   const raw = process.env.RUNTIME;
-  const name =
-    raw === "bedrock" ? "bedrock" : raw === "agentcore" ? "agentcore" : "cursor";
-  if (name === "cursor") {
-    const configured = Boolean(process.env.CURSOR_API_KEY);
-    return {
-      ok: configured,
-      name,
-      configured,
-      ...(configured ? {} : { warning: "CURSOR_API_KEY is not configured" }),
-    };
-  }
+  const name = raw === "agentcore" ? "agentcore" : "bedrock";
 
   if (name === "agentcore") {
     const configured = Boolean(process.env.AGENTCORE_RUNTIME_ARN);

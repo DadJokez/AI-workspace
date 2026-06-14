@@ -1,5 +1,4 @@
 import type { SessionUser } from "@ai-workspace/auth";
-import { cancelCursorCloudRun } from "@ai-workspace/cursor-runtime";
 import {
   auditLog,
   type Database,
@@ -30,16 +29,7 @@ interface ChatRunInputs {
   threadId?: string;
   userMessageId?: string;
   retryOfRunId?: string;
-  executionMode?: "local" | "cloud";
-  [key: string]: unknown;
-}
-
-interface ChatRunOutputs {
-  providerRun?: {
-    providerAgentId?: string;
-    providerRunId?: string;
-    executionMode?: string;
-  };
+  executionMode?: "local";
   [key: string]: unknown;
 }
 
@@ -73,28 +63,8 @@ export async function cancelRun({
     };
   }
 
-  const output = parseOutputs(run.outputs);
-  let providerCancelError: string | null = null;
-  if (
-    output.providerRun?.executionMode === "cloud" &&
-    output.providerRun.providerAgentId &&
-    output.providerRun.providerRunId
-  ) {
-    try {
-      await cancelCursorCloudRun({
-        apiKey: process.env.CURSOR_API_KEY,
-        providerAgentId: output.providerRun.providerAgentId,
-        providerRunId: output.providerRun.providerRunId,
-      });
-    } catch (err) {
-      providerCancelError = err instanceof Error ? err.message : String(err);
-    }
-  }
-
   const now = new Date();
-  const error = providerCancelError
-    ? `Canceled in Comparative. Provider cancel returned: ${providerCancelError}`
-    : "Canceled by user.";
+  const error = "Canceled by user.";
   const rows = await db
     .update(runs)
     .set({
@@ -117,23 +87,19 @@ export async function cancelRun({
     error,
     metadata: {
       actorUserId: actor.id,
-      providerCancelAttempted: output.providerRun?.executionMode === "cloud",
-      providerCancelSucceeded:
-        output.providerRun?.executionMode === "cloud"
-          ? providerCancelError === null
-          : null,
+      providerCancelAttempted: false,
     },
   });
   await db.insert(auditLog).values({
     actorUserId: actor.id,
     actionType: "run_cancel",
-    status: providerCancelError ? "failed" : "succeeded",
+    status: "succeeded",
     provider: "ai-hub",
     toolName: "run_cancel",
     chatThreadId: run.threadId,
     runId: run.id,
     input: { runId: run.id },
-    error: providerCancelError,
+    error: null,
     metadata: { previousStatus: run.status },
     startedAt: now,
     completedAt: now,
@@ -330,10 +296,6 @@ function parseInputs(value: unknown): ChatRunInputs {
     ...value,
     executionMode: parseChatExecutionMode(value.executionMode),
   } as ChatRunInputs;
-}
-
-function parseOutputs(value: unknown): ChatRunOutputs {
-  return isRecord(value) ? (value as ChatRunOutputs) : {};
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

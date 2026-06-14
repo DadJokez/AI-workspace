@@ -19,7 +19,6 @@ const APP_SECRET_FIELDS = [
   "GITHUB_CLIENT_ID",
   "GITHUB_CLIENT_SECRET",
   "OAUTH_ENCRYPTION_KEY",
-  "CURSOR_API_KEY",
 ] as const;
 
 export class AiWorkspaceRuntimeV2PreviewStack extends cdk.Stack {
@@ -120,14 +119,10 @@ export class AiWorkspaceRuntimeV2PreviewStack extends cdk.Stack {
       NODE_ENV: "production",
       AWS_REGION: cdk.Stack.of(this).region,
       BEDROCK_CLIENT: "real",
-      RUNTIME: "cursor",
+      RUNTIME: "bedrock",
       RUNTIME_V2_ENABLED: "1",
       RUNTIME_V2_DIRECT_RUNTIME: "bedrock",
       RUNTIME_V2_DIRECT_MODEL_ID: "haiku-4-5",
-      CURSOR_RUNTIME_MODE: "local",
-      CURSOR_CLOUD_REPO_URL: "https://github.com/DadJokez/AI-workspace",
-      CURSOR_CLOUD_REPO_REF: "main",
-      CURSOR_CLOUD_ENV_TYPE: "cloud",
       NEXTAUTH_URL: `https://${domainName}`,
       HOSTNAME: "0.0.0.0",
       PORT: "3000",

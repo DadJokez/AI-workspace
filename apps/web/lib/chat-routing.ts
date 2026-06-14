@@ -1,15 +1,14 @@
-import {
-  parseChatExecutionMode,
-  type ChatExecutionMode,
-} from "@/lib/chat-execution-mode";
+import type { ChatExecutionMode } from "@/lib/chat-execution-mode";
 
 export type ChatRuntimeLane =
   | "fast-local"
   | "tool-local"
-  | "durable-local"
-  | "cursor-cloud";
+  | "durable-local";
 
-export type ChatRuntimeTarget = "direct-chat" | "cursor-agent";
+export type ChatRuntimeTarget =
+  | "direct-chat"
+  | "bedrock-agent"
+  | "agentcore-worker";
 
 export interface ChatRuntimeRoute {
   lane: ChatRuntimeLane;
@@ -24,7 +23,6 @@ export interface ChatRuntimeRoute {
 
 export function decideChatRuntimeRoute({
   message,
-  executionMode,
   runtimeV2 = false,
   priorUserMessages = [],
 }: {
@@ -38,22 +36,8 @@ export function decideChatRuntimeRoute({
    */
   priorUserMessages?: readonly string[];
 }): ChatRuntimeRoute {
-  const parsedExecutionMode = parseChatExecutionMode(executionMode);
   const normalized = normalize(message);
   const reasons: string[] = [];
-
-  if (parsedExecutionMode === "cloud") {
-    return {
-      lane: "cursor-cloud",
-      executionMode: "cloud",
-      runtimeTarget: "cursor-agent",
-      runtimeV2,
-      useWorker: true,
-      useMcp: true,
-      includeVaultContext: true,
-      reasons: ["explicit_cloud"],
-    };
-  }
 
   const durable = hasDurableIntent(normalized);
   if (durable) reasons.push(durable);
@@ -61,7 +45,7 @@ export function decideChatRuntimeRoute({
     return {
       lane: "durable-local",
       executionMode: "local",
-      runtimeTarget: "cursor-agent",
+      runtimeTarget: "agentcore-worker",
       runtimeV2,
       useWorker: true,
       useMcp: true,
@@ -76,7 +60,7 @@ export function decideChatRuntimeRoute({
     return {
       lane: "tool-local",
       executionMode: "local",
-      runtimeTarget: "cursor-agent",
+      runtimeTarget: "bedrock-agent",
       runtimeV2,
       useWorker: false,
       useMcp: true,
@@ -99,7 +83,7 @@ export function decideChatRuntimeRoute({
     return {
       lane: "tool-local",
       executionMode: "local",
-      runtimeTarget: "cursor-agent",
+      runtimeTarget: "bedrock-agent",
       runtimeV2,
       useWorker: false,
       useMcp: true,
@@ -111,7 +95,7 @@ export function decideChatRuntimeRoute({
   return {
     lane: "fast-local",
     executionMode: "local",
-    runtimeTarget: runtimeV2 ? "direct-chat" : "cursor-agent",
+    runtimeTarget: "direct-chat",
     runtimeV2,
     useWorker: false,
     useMcp: false,

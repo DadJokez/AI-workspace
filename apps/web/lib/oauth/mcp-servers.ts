@@ -1,6 +1,6 @@
 import type { Database } from "@ai-workspace/db";
 import { oauthTokens } from "@ai-workspace/db";
-import type { McpServerSpec } from "@ai-workspace/cursor-runtime";
+import type { McpServerSpec } from "@ai-workspace/agent-runtime";
 import { eq } from "drizzle-orm";
 
 import { decryptSecret } from "./crypto";
@@ -58,9 +58,9 @@ export async function loadUserMcpProviderStatus(
 }
 
 /**
- * Look up the user's connected providers from `oauth_tokens` and return a
- * Cursor-SDK `mcpServers` map keyed by provider name. The access token is
- * decrypted in process and passed as a Bearer header.
+ * Look up the user's connected providers from `oauth_tokens` and return an
+ * `mcpServers` map keyed by provider name. The access token is decrypted in
+ * process and passed as a Bearer header.
  *
  * Graceful degradation: any DB / decrypt / unsupported-provider error for a
  * single row is logged and skipped. The chat turn proceeds without that

@@ -30,11 +30,8 @@ import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import { signOut } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 
-// Model ids are now whatever Cursor's SDK reports back from /api/models —
-// the union of "the 3 we have local metadata for" plus any others Cursor
-// supports (GPT, Gemini, additional Claude variants). We treat them as
-// opaque strings; the runtime layer is the source of truth on what's valid.
-const FALLBACK_DEFAULT_MODEL_ID = "claude-sonnet-4-6";
+// Model ids come from the AWS-backed model registry exposed by /api/models.
+const FALLBACK_DEFAULT_MODEL_ID = "sonnet-4-6";
 
 type View = "chat" | "settings" | "search" | "tools" | "vault" | "workspace";
 
@@ -141,7 +138,7 @@ interface ThreadMessage {
   role: "user" | "assistant" | "tool";
   content: string;
   modelId: string | null;
-  runtime: "cursor" | "bedrock" | string | null;
+  runtime: "bedrock" | "agentcore" | string | null;
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
   artifacts?: WorkspaceArtifactSummary[];
@@ -367,7 +364,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     string | undefined
   >();
   const [runActionPendingId, setRunActionPendingId] = useState<string>();
-  const [runInCloudOnce, setRunInCloudOnce] = useState(false);
   const [previewArtifact, setPreviewArtifact] =
     useState<WorkspaceArtifactSummary | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -1118,8 +1114,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     const userMsgId = crypto.randomUUID();
     const assistantMsgId = crypto.randomUUID();
     const modelId = activeTab.modelId ?? defaultModelId;
-    const executionMode = runInCloudOnce ? "cloud" : "local";
-    setRunInCloudOnce(false);
 
     patchTab(tabId, {
       busy: true,
@@ -1159,7 +1153,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           message: text,
           threadId: activeTab.threadId,
           modelId,
-          executionMode,
           ...(attachments && attachments.length > 0 ? { attachments } : {}),
         }),
       });
@@ -1698,34 +1691,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                 Regenerate
               </button>
             ) : null}
-            <button
-              type="button"
-              aria-pressed={runInCloudOnce}
-              aria-label="Run next message in Cursor Cloud"
-              title="Run next message in Cursor Cloud"
-              disabled={busy || activeHasPendingRun}
-              onClick={() => setRunInCloudOnce((next) => !next)}
-              className={`flex h-8 shrink-0 items-center gap-1 rounded-md border px-2 text-xs font-medium disabled:opacity-50 ${
-                runInCloudOnce
-                  ? "border-ink bg-ink text-canvas"
-                  : "border-hairline bg-canvas text-muted hover:bg-subtle hover:text-ink"
-              }`}
-            >
-              <svg
-                viewBox="0 0 16 16"
-                width="13"
-                height="13"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M5.5 11.5h6a2 2 0 0 0 .3-4A3.8 3.8 0 0 0 4.4 6.2 2.7 2.7 0 0 0 5.5 11.5Z" />
-              </svg>
-              Cloud
-            </button>
             <ThemeToggle />
           </div>
         </header>

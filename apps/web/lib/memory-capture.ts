@@ -1,5 +1,5 @@
 import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
-import { getRuntime } from "@ai-workspace/cursor-runtime";
+import { getRuntime } from "@ai-workspace/agent-runtime";
 import {
   chatMessages,
   chatThreads,
@@ -377,7 +377,7 @@ async function extractMemorySuggestions({
   reviewDoc: string;
   signal?: AbortSignal;
 }): Promise<ExtractedSuggestion[]> {
-  const runtime = getRuntime({ executionMode: "local" });
+  const runtime = getRuntime({ runtime: "bedrock" });
   let text = "";
   const errors: string[] = [];
   const modelId = process.env.MEMORY_CAPTURE_MODEL_ID ?? DEFAULT_MODEL_ID;

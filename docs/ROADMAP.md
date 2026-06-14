@@ -11,9 +11,9 @@
 > building this Friday"; this doc is "what experience are we shaping,
 > and how does the catalog grow to support it".
 >
-> **Status as of June 2026:** Every journey now has shipped surface. **J1** chat is mature (work receipts, first-run tour, slash-command palette). **J2** runs GitHub end-to-end behind the attestation gate, and the **Skills** catalog (specs/002) made saved agents real: create/run/clone/share at `/skills`, 7 starters, "/" palette in chat. **J3** shipped its scheduling half — leased scheduler, timezone-safe cadences, runs into designated threads; event triggers and SES delivery remain (#27). **J4** shipped its thin slice — `apps` registry over chat-built artifacts, SSO-gated serving at `/apps/{slug}`, versions/revert, no-secrets scan (#133 tracks the full epic). **J5** shipped its seed — share skills and apps to named teammates, recipient-credentials-only, owner revocation. Substrate: worker lanes (durable/skill/scheduled) execute on **Bedrock AgentCore in our account** (specs/003); fast chat is direct Bedrock; Cursor is the explicit innovation lane. The run ledger is `runs` (née `recipe_runs`); "recipes" are **skills** everywhere. M365, Salesforce, ServiceNow, SAP, Workfront, and Databricks remain next-integration placeholders.
+> **Status as of June 2026:** Every journey now has shipped surface. **J1** chat is mature (work receipts, first-run tour, slash-command palette). **J2** runs GitHub end-to-end behind the attestation gate, and the **Skills** catalog (specs/002) made saved agents real: create/run/clone/share at `/skills`, 7 starters, "/" palette in chat. **J3** shipped its scheduling half - leased scheduler, timezone-safe cadences, runs into designated threads; event triggers and SES delivery remain (#27). **J4** shipped its thin slice - `apps` registry over chat-built artifacts, SSO-gated serving at `/apps/{slug}`, versions/revert, no-secrets scan (#133 tracks the full epic). **J5** shipped its seed - share skills and apps to named teammates, recipient-credentials-only, owner revocation. Substrate: fast chat and interactive tools run on **AWS Bedrock**; worker lanes (durable/skill/scheduled) execute on **Bedrock AgentCore in our account** (specs/003). The product runtime no longer depends on the Cursor SDK. The run ledger is `runs` (née `recipe_runs`); "recipes" are **skills** everywhere. M365, Salesforce, ServiceNow, SAP, Workfront, and Databricks remain next-integration placeholders.
 >
-> **Product boundary:** AI Hub is a thin enterprise wrapper around existing AI and work platforms. It should remove friction, centralize governance, and make tools discoverable; it should not rebuild Cursor, Bedrock, M365, Salesforce, Workfront, Databricks, or deployment platforms unless that layer is needed for control, audit, portability, or user experience.
+> **Product boundary:** AI Hub is a thin enterprise wrapper around existing AI and work platforms. It should remove friction, centralize governance, and make tools discoverable; it should not rebuild Bedrock, M365, Salesforce, Workfront, Databricks, specialized IDEs, or deployment platforms unless that layer is needed for control, audit, portability, or user experience.
 
 ## User journeys
 
@@ -27,7 +27,7 @@ of moving users through these. They're the north star.
 A user opens the workspace, types into a thread, gets a streamed
 response. Multi-turn, personal, interactive.
 
-**Shipped:** chat threads with independent histories persisted per user, prompt/context guardrails plus the summary schema/helper, sidebar history grouped by recency with rename and delete, model selector (Haiku / Sonnet / Opus), GitHub OAuth sign-in / sign-out, admin panel (users + invitations), settings (theme, default model), Vault memory suggestions with approval controls and generated Markdown, full mobile responsiveness. Cursor SDK is the default runtime; Bedrock is the fallback. The deployment path is moving to ECS/Fargate with automatic image builds, database migrations, and forced ECS service deployments on push to `main`; App Runner remains temporary rollback during cutover. Rolling summary generation itself remains pending.
+**Shipped:** chat threads with independent histories persisted per user, prompt/context guardrails plus the summary schema/helper, sidebar history, rename/delete, model selector (Haiku / Sonnet / Opus), GitHub OAuth sign-in / sign-out, admin panel (users + invitations), settings (theme, default model), Vault memory suggestions with approval controls and generated Markdown, full mobile responsiveness. Bedrock is the default runtime; AgentCore handles durable worker lanes. The deployment path is ECS/Fargate with automatic image builds, database migrations, and forced ECS service deployments on push to `main`; App Runner remains temporary rollback during cutover. Rolling summary generation itself remains pending.
 
 ### J2 — Chat with Tools 🔄 In Progress
 
@@ -37,7 +37,7 @@ and can both **read** and **act**. "What PRs do I have open?"
 returns a real answer; "Send Bob the summary" performs a real action.
 This is what makes "talk to your work" real rather than aspirational.
 
-**What's live:** GitHub MCP is working end-to-end — users connect via OAuth, tokens are stored encrypted in `oauth_tokens`, the GitHub server is represented in `mcp_servers`, and the Cursor runtime mounts it per-user with a short-lived Bearer token on each turn. Tool calls/results persist on chat messages after shared redaction and render as compact, expandable agent activity inside chat, MCP tool executions write redacted audit rows that admins can inspect at `/admin/audit`, registered servers/tools are visible at `/admin/tools`, long turns tolerate browser disconnects cleanly, chat turns are recorded in `recipe_runs` with Cursor provider run ids and append-only `run_events`, and chat execution now runs through a background-worker path with leases instead of requiring the `/api/chat` request to remain open. Running chat turns can be canceled, failed/canceled turns can be retried, and admins can request resume/reconcile for queued/running runs. The manual Developer Briefing route persists redacted GitHub workflow runs in `recipe_runs` with an admin run list/detail UI, retry support for failed/canceled runs, reloadable activity, and a dated PR/CI aggregation prompt.
+**What's live:** GitHub MCP is working end-to-end - users connect via OAuth, tokens are stored encrypted in `oauth_tokens`, the GitHub server is represented in `mcp_servers`, and the Bedrock runtime mounts it per-user with a short-lived Bearer token on each tool turn. Tool calls/results persist on chat messages after shared redaction and render as compact, expandable agent activity inside chat, MCP tool executions write redacted audit rows that admins can inspect at `/admin/audit`, registered servers/tools are visible at `/admin/tools`, long turns tolerate browser disconnects cleanly, chat turns are recorded in `runs` with runtime metadata and append-only `run_events`, and durable chat execution runs through a background-worker path with leases instead of requiring the `/api/chat` request to remain open. Running chat turns can be canceled, failed/canceled turns can be retried, and admins can request resume for queued/running runs. The manual Developer Briefing route persists redacted GitHub workflow runs in `runs` with an admin run list/detail UI, retry support for failed/canceled runs, reloadable activity, and a dated PR/CI aggregation prompt.
 
 **What's next (Weeks 4–8):** M365 Graph (Mail + Calendar), Workfront, Databricks, Salesforce. See the integration tier table below. The auth pattern (HTTP MCP + per-turn Bearer) is proven; the remaining work is per-integration MCP servers and the OAuth plumbing for each provider.
 
@@ -79,7 +79,7 @@ goes from "I wish we had a tool that…" to a live running app, with
 auth and discoverability and shareability handled, without leaving
 chat.
 
-**Requires:** code-generation loop (shaped by the Cursor SDK runtime)
+**Requires:** code-generation loop (Bedrock for fast iteration, AgentCore for durable app-build work)
 + a deploy controller (creates the repo, kicks the pipeline,
 provisions the target AWS service) + the SSO seam (workspace-issued bearer or
 OIDC handing off to the deployed app) + an **Apps** registry surfaced
@@ -187,7 +187,7 @@ Every system of record is one of three tiers based on the ratio of
 |---|---|---|
 | **Tier 1 — Core** | Used by >50% of GP knowledge workers; powers >2 flagship use cases; auth pattern is well-understood (delegated OAuth or service-principal we already run). | First-class MCP server, full tool surface, in the recipe catalog from launch. |
 | **Tier 2 — Functional** | Used by a specific function (IT, eng, support); powers 1–2 flagship use cases; auth and API tractable but not yet vetted. | MCP server in the catalog, narrower tool surface, ships once Tier 1 is stable. |
-| **Tier 3 — Strategic** | Long-tail or transformational; auth/API has real friction (SAP) or the architectural pattern is novel (Cursor as a coding agent on Databricks). | Spike-then-decide. RFC + PoC before committing to a server. |
+| **Tier 3 — Strategic** | Long-tail or transformational; auth/API has real friction (SAP) or the architectural pattern is novel (agent-authored notebooks or deployed apps). | Spike-then-decide. RFC + PoC before committing to a server. |
 
 ## Tier 1 — Core integrations
 
@@ -217,7 +217,7 @@ top of this base.
 | System | MCP slug(s) | Auth model | Why Tier 3 | Approach |
 |---|---|---|---|---|
 | **SAP ERP** | `sap-erp` (TBD; possibly split by module — FI, MM, etc.) | OAuth via SAP BTP, or service-principal via SAP API Gateway. Likely both, depending on the module. Auth is the hard part. | Highest-value strategic target — finance, procurement, supply chain. SAP Budget Query (below) is the wedge use case. Risk: SAP API surface is module-specific, naming is its own dialect, every transaction code is its own auth scope. | RFC first. PoC against one module (likely FI for the budget use case). Re-tier after PoC. |
-| **Cursor as a coding agent on Databricks** | n/a — this is a workload, not an integration | Cursor SDK using Databricks workspace credentials (service principal); reads/writes notebooks via Workspace API. | Different shape than the others: instead of "use Cursor to chat about Databricks data", this is "use Cursor to **write the notebook** that does the analysis, and run it". Closes the loop from "ask a question" to "ship the analysis". Architecturally novel — needs the runtime seam to be solid first. | RFC after Tier 1 Databricks ships. Likely a separate recipe pattern, not an MCP server. |
+| **Agent-authored Databricks notebooks** | n/a - this is a workload, not an integration | AgentCore worker using Databricks workspace credentials (service principal); reads/writes notebooks via Workspace API. | Different shape than the others: instead of "chat about Databricks data", this is "write the notebook that does the analysis, and run it". Closes the loop from "ask a question" to "ship the analysis". Architecturally novel - needs the runtime seam to be solid first. | RFC after Tier 1 Databricks ships. Likely a separate skill pattern, not an MCP server. |
 
 ## Agent Platform
 
@@ -226,25 +226,22 @@ The agent platform defines **what agents can do** with that data —
 how they take action, how they run on a schedule, and how they react
 to outside events. It's the runtime layer the catalog plugs into.
 
-### Cursor SDK reality check
+### AWS runtime reality check
 
-Cursor is the right default runtime for J1-J3 because the SDK gives AI
-Hub programmatic agents, streaming runs, model selection, MCP server
-mounting, cancellation/wait semantics, hooks, skills, and subagents. It
-also offers local, cloud, and self-hosted execution modes. That lets AI Hub
-avoid building the low-level agent harness.
+Bedrock and AgentCore are now the governed runtime stack. Direct chat and
+interactive tool turns use Bedrock because they need low latency and simple
+streaming. Durable work uses AgentCore because it needs session isolation,
+worker ownership, reconnect/retry semantics, and AWS-native governance.
 
-The SDK is not the enterprise product boundary. AI Hub still owns identity,
-thread/runs persistence, bounded context, token storage, provider
-attestations, audit logging, quotas, redaction, retention, schedules,
-delivery destinations, and the user-facing recipe catalog.
+The runtime is not the enterprise product boundary. AI Hub still owns
+identity, thread/runs persistence, bounded context, token storage, provider
+attestations, audit logging, quotas, redaction, retention, schedules, delivery
+destinations, and the user-facing skills catalog.
 
 Current implementation notes:
-- Fresh-agent-per-turn remains the default execution strategy. AI Hub passes
-  bounded prior context into each turn and keeps product memory in Postgres.
+- AI Hub passes bounded prior context into each turn and keeps product memory
+  in Postgres.
 - Provider-level attestations are enforced before MCP servers are mounted.
-  `.cursor/hooks.json` is still a stub; do not treat it as the active
-  enforcement layer until it is verified in production.
 - Subagents and parallel tool work are promising, but they are not a J1-J3
   dependency. Use them only after the simpler tool/schedule path is stable.
 
@@ -259,11 +256,11 @@ Current implementation notes:
    agent code. This is the bridge between the integrations catalog
    and agents that **actually do things**, and it's the precondition
    for everything below.
-2. **Scheduling layer.** A thin wrapper on top of the SDK: schedules
-   live in a DB table, a cron worker wakes on the cadence, calls
-   `agent.send()` with the recipe's prompt, and streams the result
+2. **Scheduling layer.** A thin wrapper on top of the runtime seam: schedules
+   live in a DB table, a cron worker wakes on the cadence, creates a run with
+   the skill prompt, and streams the result
    back into the originating thread (or a designated output
-   channel). The SDK has no native cron, so this is our own layer —
+   channel). AgentCore has no product-level cron, so this is our own layer -
    but it's small (a worker, one table, one trigger row per
    schedule). Unlocks "Monday 8am: send me my weekly status" without
    the user remembering to invoke anything. PLAN.md week-5 already
@@ -290,18 +287,9 @@ event trigger without both.
   attestation gate work uniformly across every mounted integration.
   Lower-level tool/category filtering still needs a verified hook path
   or MCP proxy.
-- **stdio MCP servers don't work in Cursor cloud VMs.** The Cursor
-  runtime doesn't pipe stdio between the agent process and a
-  separate MCP child process the way a local IDE does. Production
-  servers must speak **remote HTTP MCP** with appropriate auth
-  (per-user Bearer for delegated, IAM / service-principal for M2M).
-  Local development can still use stdio for fast iteration, but the
-  same server has to be deployable in HTTP mode for production —
-  pick frameworks (e.g. FastMCP, the official MCP SDKs) that make
-  this a config flag, not a rewrite.
 - **Subagents and parallel task execution are optional acceleration.**
-  Cursor exposes subagents, but AI Hub should prove the simple J2/J3
-  tool-and-schedule path first. Parallelism belongs in recipes only where
+  AI Hub should prove the simple J2/J3 tool-and-schedule path first.
+  Parallelism belongs in skills only where
   the work is independent, quotas are understood, and audit output stays
   legible.
 

@@ -1,7 +1,7 @@
 # `@ai-workspace/mcp-servers`
 
-**SPIKE-ONLY.** Placeholder structure for the internal-system MCP servers
-the Cursor SDK runtime would mount. Branch: `spike/cursor-sdk-runtime`.
+**SPIKE-ONLY.** Placeholder structure for internal-system MCP servers
+the Bedrock and AgentCore runtime lanes can mount.
 
 Each file in `src/` is a stub for one external system:
 
@@ -11,8 +11,7 @@ Each file in `src/` is a stub for one external system:
 | [`databricks.ts`](./src/databricks.ts) | Databricks | Service principal (M2M) | `run_sql`, `list_tables`, `describe_table` |
 | [`teams.ts`](./src/teams.ts) | MS Teams | Per-user delegated Graph | `list_my_chats`, `search_messages`, `post_message` |
 
-Each stub exports an `McpServerConfigStub` (the structural shape of
-`@cursor/sdk`'s `McpServerConfig`) and a `start()` placeholder that throws.
+Each stub exports a `PlaceholderMcpServerConfig` and a `start()` placeholder that throws.
 No transport, no auth, no tools — that's all promotion work.
 
 ## Why nested in one package
@@ -32,9 +31,8 @@ when the first one needs its own deps).
    reference implementation.
 3. Implement the tool surface listed above. Each tool wires through to the
    system's API with the user's identity from the request context.
-4. Wire into `CursorRuntime` via the `mcpServers` option. Hooks in
-   [`.cursor/hooks.json`](../../.cursor/hooks.json) get the chance to
-   intercept calls (PII redaction, write blocking, audit log).
+4. Wire into the MCP registry and mount through the Bedrock/AgentCore runtime
+   seam with provider attestation, redaction, and audit logging.
 5. Move out of this shared package once it has its own deps.
 
 ## Open architectural questions
@@ -48,5 +46,4 @@ when the first one needs its own deps).
   either an HTTP server reading an `Authorization` header or a wrapper
   that re-spawns subprocesses per session.
 - **Audit-log discipline.** Every tool call should land in `audit_log`.
-  Cursor SDK hooks (`postToolUse`) are the natural place; verify the hook
-  fires reliably enough that we can rely on it for compliance.
+  Keep enforcement in the MCP proxy/runtime seam so it stays provider-neutral.
