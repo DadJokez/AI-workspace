@@ -12,7 +12,10 @@ import {
   users,
 } from "@ai-workspace/db";
 import { and, asc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
-import { buildAgentPreamble } from "@/lib/agent-preamble";
+import {
+  buildChatContextPack,
+  type ChatContextUploadedFile,
+} from "@/lib/chat-context-pack";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import {
   enqueueMemoryCapture,
@@ -55,6 +58,7 @@ interface ChatRunInputs {
   executionMode: ChatExecutionMode;
   /** Skill runs restrict MCP mounting to their declared providers. */
   requestedProviders?: string[];
+  uploadedFiles?: ChatContextUploadedFile[];
   [key: string]: unknown;
 }
 
@@ -368,20 +372,21 @@ async function executeClaimedChatRun({
     );
   }
 
-  const firstTurnPreamble = buildAgentPreamble({
-    user: {
-      displayName: user.displayName,
-      assistantName: user.assistantName,
-      customInstructions: user.customInstructions,
-      vaultMarkdown,
-    },
-    connectedProviders: mountedProviders,
-    availableProviders: providerStatus.allowedProviders,
-    blockedProviders,
+  const contextPack = buildChatContextPack({
+    user,
+    messages: agentMessages,
+    threadSummary: thread.summary,
+    vaultMarkdown,
+    vaultContextRequested: true,
+    providerStatus,
+    mountedProviders,
+    deniedMcpProviders,
     modelId: run.modelId ?? undefined,
     artifactContext,
-    vaultContextRequested: true,
+    uploadedFiles: sanitizeUploadedFiles(inputs.uploadedFiles),
+    forcePreamble: true,
   });
+  const contextReceipt = contextPack.receipts[0]!;
 
   await db
     .update(runs)
@@ -393,10 +398,18 @@ async function executeClaimedChatRun({
         accountConnectedMcpProviders: providerStatus.connectedProviders,
         approvedMcpProviders: providerStatus.allowedProviders,
         deniedMcpProviders: blockedProviders,
+        contextReceipt,
       },
       updatedAt: new Date(),
     })
     .where(eq(runs.id, run.id));
+
+  await appendWorkerRunEvent(db, run.id, {
+    eventType: "context_pack_assembled",
+    status: "succeeded",
+    label: "Assembled context pack",
+    metadata: { contextReceipt },
+  });
 
   const runtimeAbort = new AbortController();
   const externalAbort = () => runtimeAbort.abort();
@@ -465,10 +478,10 @@ async function executeClaimedChatRun({
       for await (const ev of runtime.runTurn({
         threadId: thread.id,
         modelId: run.modelId ?? "default",
-        messages: agentMessages,
+        messages: contextPack.prompt.messages,
         context: { userId: run.userId },
         signal: runtimeAbort.signal,
-        firstTurnPreamble,
+        firstTurnPreamble: contextPack.prompt.systemPrompt,
         onRunStarted: async (metadata) => {
           providerRunMetadata = metadata;
           await db
@@ -854,6 +867,25 @@ function parseChatRunInputs(value: unknown): ChatRunInputs {
 function parseOutput(value: unknown): StoredChatRunOutput {
   if (!isRecord(value)) return {};
   return value as StoredChatRunOutput;
+}
+
+function sanitizeUploadedFiles(
+  value: unknown,
+): ChatContextUploadedFile[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((file) => {
+    if (!isRecord(file) || typeof file.name !== "string") return [];
+    const name = file.name.trim();
+    if (!name) return [];
+    return [
+      {
+        name,
+        ...(typeof file.sizeBytes === "number" && Number.isFinite(file.sizeBytes)
+          ? { sizeBytes: file.sizeBytes }
+          : {}),
+      },
+    ];
+  });
 }
 
 function workerRuntimeName(): "agentcore" | "bedrock" {

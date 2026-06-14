@@ -221,6 +221,10 @@ export async function POST(req: Request) {
   // attachment text. Each file is also stored as a workspace artifact so it
   // renders as a chip on the turn (and is downloadable later).
   const promptForModel = foldAttachmentsIntoPrompt(body.message, attachments);
+  const uploadedFiles = attachments.map((a) => ({
+    name: a.name,
+    sizeBytes: Buffer.byteLength(a.content, "utf8"),
+  }));
   if (attachments.length > 0) {
     const secretFindings = scanAttachmentsForSecrets(attachments);
     await db.insert(workspaceArtifacts).values(
@@ -267,6 +271,7 @@ export async function POST(req: Request) {
         executionMode: runtimeRoute.executionMode,
         runtimeV2,
         runtimeRoute,
+        uploadedFiles,
       },
       attemptCount: runtimeRoute.useWorker ? 0 : 1,
       startedAt: chatRunStartedAt,
@@ -349,6 +354,7 @@ export async function POST(req: Request) {
           modelId,
           route: runtimeRoute,
           requestStartedAt,
+          uploadedFiles,
           signal: req.signal,
           send,
         });
