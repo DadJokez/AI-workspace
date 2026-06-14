@@ -144,7 +144,11 @@ unmarked items need a human eye for visual / device-specific verification.
 
 ## Notes for automation
 
-- Suggested test rig: Playwright + Vitest. Use `BASE_URL` env to flip between local and the ECS URL.
+- The current automation strategy lives in `docs/REGRESSION_GAUNTLET.md`.
+- Browser smoke is now Playwright-backed: run `pnpm smoke:browser`.
+- Production public smoke is now script-backed: run `pnpm smoke:prod`.
+- Use `PLAYWRIGHT_BASE_URL` to point browser smoke at an already-running app.
+- Use `SMOKE_BASE_URL` to point production smoke at a preview or alternate deployed URL.
 - The auth model is GitHub OAuth through NextAuth. Browser automation against deployed pages needs a signed-in session; API-level tests should seed or mock auth instead of assuming anonymous access.
 - For mobile checks, use Playwright's `iPhone 14` device descriptor or set viewport to `{ width: 375, height: 812 }` and `hasTouch: true`.
 - For SSE assertions, use `request.post(...)` and read the response body with `response.body()` then split on `\n\n`.

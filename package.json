@@ -22,6 +22,9 @@
     "test": "pnpm -r test",
     "audit:prod": "pnpm audit --prod",
     "start": "pnpm --filter @ai-workspace/web start",
-    "eval": "pnpm --filter @ai-workspace/evals eval"
+    "eval": "pnpm --filter @ai-workspace/evals eval",
+    "smoke:browser": "pnpm --filter @ai-workspace/web smoke:browser",
+    "smoke:browser:ui": "pnpm --filter @ai-workspace/web smoke:browser:ui",
+    "smoke:prod": "node scripts/production-smoke.mjs"
   }
 }
