@@ -12,7 +12,10 @@ import {
   type RuntimeName,
   type RuntimeRunMetadata,
 } from "@ai-workspace/agent-runtime";
-import { buildAgentPreamble } from "@/lib/agent-preamble";
+import {
+  buildChatContextPack,
+  type ChatContextUploadedFile,
+} from "@/lib/chat-context-pack";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 import {
@@ -62,6 +65,7 @@ export interface StreamInlineChatRunInput {
   prompt: string;
   modelId: string;
   route: ChatRuntimeRoute;
+  uploadedFiles?: ChatContextUploadedFile[];
   requestStartedAt?: Date;
   signal?: AbortSignal;
   send: ChatStreamSend;
@@ -100,6 +104,7 @@ export async function streamInlineChatRun({
   prompt,
   modelId,
   route,
+  uploadedFiles = [],
   requestStartedAt,
   signal,
   send,
@@ -209,30 +214,21 @@ export async function streamInlineChatRun({
       ...providerStatus.deniedProviders,
       ...deniedMcpProviders,
     ]);
-    const hasConnectedToolState =
-      providerStatus.connectedProviders.length > 0 ||
-      blockedProviders.length > 0;
-    const firstTurnPreamble =
-      route.useMcp ||
-      route.includeVaultContext ||
-      Boolean(user.customInstructions?.trim()) ||
-      Boolean(artifactContext) ||
-      hasConnectedToolState
-        ? buildAgentPreamble({
-            user: {
-              displayName: user.displayName,
-              assistantName: user.assistantName,
-              customInstructions: user.customInstructions,
-              vaultMarkdown,
-            },
-            connectedProviders: mountedProviders,
-            availableProviders: providerStatus.allowedProviders,
-            blockedProviders,
-            modelId: runtimeModelId,
-            artifactContext,
-            vaultContextRequested: route.includeVaultContext,
-          })
-        : undefined;
+    const contextPack = buildChatContextPack({
+      user,
+      messages: agentMessages,
+      threadSummary: thread.summary,
+      vaultMarkdown,
+      vaultContextRequested: route.includeVaultContext,
+      providerStatus,
+      mountedProviders,
+      deniedMcpProviders,
+      modelId: runtimeModelId,
+      artifactContext,
+      uploadedFiles,
+      route,
+    });
+    const contextReceipt = contextPack.receipts[0]!;
     timing.contextReadyAt = new Date();
 
     await db
@@ -256,11 +252,19 @@ export async function streamInlineChatRun({
           accountConnectedMcpProviders: providerStatus.connectedProviders,
           approvedMcpProviders: providerStatus.allowedProviders,
           deniedMcpProviders: blockedProviders,
+          contextReceipt,
           metrics: buildTimingMetrics(timing),
         },
         updatedAt: new Date(),
       })
       .where(eq(runs.id, runId));
+
+    await appendInlineRunEvent(db, runId, {
+      eventType: "context_pack_assembled",
+      status: "succeeded",
+      label: "Assembled context pack",
+      metadata: { contextReceipt },
+    });
 
     await appendInlineRunEvent(db, runId, {
       eventType: "inline_runtime_started",
@@ -282,6 +286,7 @@ export async function streamInlineChatRun({
         accountConnectedMcpProviders: providerStatus.connectedProviders,
         approvedMcpProviders: providerStatus.allowedProviders,
         deniedMcpProviders: blockedProviders,
+        contextReceipt,
         metrics: buildTimingMetrics(timing),
       },
     });
@@ -300,8 +305,8 @@ export async function streamInlineChatRun({
       for await (const ev of runtime.runTurn({
         threadId: thread.id,
         modelId: runtimeModelId,
-        systemPrompt: firstTurnPreamble,
-        messages: agentMessages,
+        systemPrompt: contextPack.prompt.systemPrompt,
+        messages: contextPack.prompt.messages,
         context: { userId },
         signal: runtimeAbort.signal,
         onRunStarted: async (metadata) => {
