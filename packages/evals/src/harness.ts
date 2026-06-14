@@ -57,6 +57,7 @@ async function evaluateCase(
   judgeClient: BedrockClient,
   testCase: EvalCase,
   defaultModelId: EvalSuite["defaultModelId"],
+  structuralOnly = false,
 ): Promise<CaseResult> {
   let transcript: TurnTranscript & { tokensIn: number; tokensOut: number };
   try {
@@ -71,6 +72,24 @@ async function evaluateCase(
       tokensIn: 0,
       tokensOut: 0,
       errored: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  if (structuralOnly) {
+    return {
+      caseId: testCase.id,
+      description: testCase.description,
+      passed: true,
+      assertions: [
+        {
+          ok: true,
+          label: "case executed; behavior assertions skipped in mock mode",
+          detail: `${testCase.assertions.length} assertion(s) skipped`,
+        },
+      ],
+      answerPreview: transcript.answer.slice(0, 280),
+      tokensIn: transcript.tokensIn,
+      tokensOut: transcript.tokensOut,
     };
   }
 
@@ -113,6 +132,12 @@ export interface RunSuiteOptions {
   client?: BedrockClient;
   /** Override the judge client. Defaults to the same real Bedrock client. */
   judgeClient?: BedrockClient;
+  /**
+   * Executes every case and captures reports without running behavioral
+   * assertions. Used by `pnpm eval --mock`: the fake client proves harness
+   * wiring only and should not fail because it cannot reason like a model.
+   */
+  structuralOnly?: boolean;
 }
 
 /** Run an entire capability suite and tally pass/fail. */
@@ -126,7 +151,13 @@ export async function runSuite(
   const results: CaseResult[] = [];
   for (const testCase of suite.cases) {
     results.push(
-      await evaluateCase(client, judgeClient, testCase, suite.defaultModelId),
+      await evaluateCase(
+        client,
+        judgeClient,
+        testCase,
+        suite.defaultModelId,
+        options.structuralOnly,
+      ),
     );
   }
 

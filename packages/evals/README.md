@@ -17,9 +17,10 @@ AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval date-grounding
 pnpm eval --mock
 ```
 
-A full real run is ~9 cases, under a minute, ~$0.006. Reports land in
-`packages/evals/eval-reports/` (gitignored) as JSON + Markdown. Exit code is
-non-zero on any failure, so it gates in CI.
+A full real run is ~15 cases, under a minute, roughly one cent. Reports land in
+`packages/evals/eval-reports/` (gitignored) as JSON + Markdown. Real-model runs
+exit non-zero on any failure, so they can gate nightly checks. Mock mode skips
+behavior assertions and proves the suite still executes/report-writes end to end.
 
 ## Add a case (the whole point)
 
@@ -60,6 +61,9 @@ file under `src/cases/` — no harness changes:
 - `skill-faithfulness` — Meeting Notes → Actions (owners from source, asks when
   empty), Email Drafter (subject + brevity), Executive Brief (faithful facts +
   allowed analysis), prompt-injection resistance.
+- `context-faithfulness` — Vault truthfulness, connected-tool honesty, skill/app/
+  automation recommendations, and exact capability boundaries.
 
 Next capabilities to add (need the app stack / GitHub, so they run as a
-follow-up tier): tool no-hallucination, the slash-palette redirect, redaction.
+follow-up tier): route/context-pack assembly, the slash-palette redirect,
+redaction, and admin/debug replay of failed context packs.

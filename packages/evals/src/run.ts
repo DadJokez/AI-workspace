@@ -2,10 +2,15 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { FakeBedrockClient } from "@ai-workspace/agent";
 import { runSuite } from "./harness";
 import type { CapabilityResult, EvalSuite } from "./types";
+import { contextFaithfulnessSuite } from "./cases/context-faithfulness.cases";
 import { dateGroundingSuite } from "./cases/date-grounding.cases";
 import { skillFaithfulnessSuite } from "./cases/skill-faithfulness.cases";
 
-const SUITES: EvalSuite[] = [dateGroundingSuite, skillFaithfulnessSuite];
+const SUITES: EvalSuite[] = [
+  dateGroundingSuite,
+  skillFaithfulnessSuite,
+  contextFaithfulnessSuite,
+];
 
 /**
  * CLI entry (FR-005): `pnpm eval [capability]` runs all or one capability
@@ -38,7 +43,9 @@ async function main() {
     process.exit(2);
   }
 
-  const options = mock ? { client: new FakeBedrockClient({ delayMs: 0 }) } : {};
+  const options = mock
+    ? { client: new FakeBedrockClient({ delayMs: 0 }), structuralOnly: true }
+    : {};
   const results: CapabilityResult[] = [];
   let totalIn = 0;
   let totalOut = 0;

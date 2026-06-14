@@ -70,4 +70,23 @@ describe("eval harness wiring", () => {
     expect(first.answerPreview.length).toBeGreaterThan(0);
     expect(first.tokensOut).toBeGreaterThan(0);
   });
+
+  it("can run a structural-only mock pass without behavior assertions", async () => {
+    const client = new FakeBedrockClient({ delayMs: 0 });
+    const result = await runSuite(wiringSuite, {
+      client,
+      judgeClient: client,
+      structuralOnly: true,
+    });
+
+    expect(result.passed).toBe(2);
+    expect(result.failed).toBe(0);
+    expect(result.results.map((r) => r.caseId)).toEqual([
+      "deterministic-pass",
+      "deterministic-fail",
+    ]);
+    expect(result.results[0]?.assertions[0]?.label).toContain(
+      "behavior assertions skipped",
+    );
+  });
 });
