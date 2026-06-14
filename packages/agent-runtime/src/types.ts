@@ -1,9 +1,9 @@
 import type { AgentEvent, AgentMessage, ToolContext } from "@ai-workspace/agent";
 
 /**
- * Per-turn MCP server config. Structurally mirrors `@cursor/sdk`'s
- * `McpServerConfig` so this contract stays SDK-agnostic; the Cursor adapter
- * casts directly. Bedrock ignores it.
+ * Per-turn MCP server config. The AWS runtime lanes forward HTTP/SSE servers
+ * to the shared Bedrock agent loop; stdio servers are retained in the type so
+ * callers can reject or ignore them at the runtime boundary.
  */
 export type McpServerSpec =
   | {
@@ -26,8 +26,8 @@ export interface RuntimeRunMetadata {
   providerAgentId?: string;
   /** Provider-side run id, when the runtime exposes one. */
   providerRunId?: string;
-  /** Runtime substrate. Cursor uses `local` by default and `cloud` for durable work. */
-  executionMode?: "local" | "cloud";
+  /** Runtime substrate. Comparative runs agent execution inside AWS. */
+  executionMode?: "local";
 }
 
 /**
@@ -36,38 +36,34 @@ export interface RuntimeRunMetadata {
  *
  * - `bedrock`: stateless, so the full `messages` history is forwarded to
  *   `converseStream` on every turn.
- * - `cursor`: fresh-agent-per-turn today. The runtime sends a bounded context
- *   pack assembled by the shell, because AI Hub owns product memory in
- *   Postgres and does not depend on Cursor agent state for continuity.
+ * - `agentcore`: the same Bedrock loop, hosted in Amazon Bedrock AgentCore for
+ *   durable/background work.
  *
  * Anything that's truly runtime-specific (Bedrock toolConfig) lives behind
  * the runtime, not in this contract.
  */
 export interface TurnInput {
-  /** Stable per-conversation key. For Cursor this maps to an `agentId`. */
+  /** Stable per-conversation key. AgentCore uses it for session affinity. */
   threadId: string;
   /** Logical model id (e.g. "sonnet-4-6"). Each runtime maps it internally. */
   modelId: string;
   /** Optional system prompt override. */
   systemPrompt?: string;
-  /** Bounded chat context. Bedrock consumes all; Cursor packs it into one turn. */
+  /** Bounded chat context. Bedrock and AgentCore consume the supplied context. */
   messages: AgentMessage[];
   /** Per-request context passed to tool handlers (and hooks, when wired). */
   context: ToolContext;
   /** Hook for cancellation from the route layer. */
   signal?: AbortSignal;
   /**
-   * Per-turn MCP servers (e.g. user's connected GitHub via OAuth). Cursor
-   * forwards them to the fresh agent/send path for this turn; Bedrock and
+   * Per-turn MCP servers (e.g. user's connected GitHub via OAuth). Bedrock and
    * AgentCore connect the HTTP ones through `connectMcpTools`.
    */
   mcpServers?: Record<string, McpServerSpec>;
   /**
-   * Steering text prepended to the first user message of a thread. The Cursor
-   * SDK has no system-prompt option on `Agent.create`, so this is how the
-   * route educates the model about user identity, connected tools, and custom
-   * instructions without repeating that preamble on every turn. Bedrock and
-   * AgentCore fold it into the system prompt.
+   * Steering text for user identity, connected tools, Vault memory, artifact
+   * context, and custom instructions. Bedrock and AgentCore fold it into the
+   * system prompt.
    */
   firstTurnPreamble?: string;
   /**
@@ -81,7 +77,7 @@ export interface TurnInput {
 /**
  * The single seam every chat surface goes through. `apps/web` should depend
  * on this interface, not on either concrete runtime, so swapping is
- * literally an env-var flip (`RUNTIME=cursor|bedrock`).
+ * an env-var flip (`RUNTIME=bedrock|agentcore`).
  *
  * Event shape is intentionally identical to `AgentEvent` from the existing
  * Bedrock loop, so the SSE relay in `/api/chat/route.ts` is unchanged when
@@ -89,7 +85,7 @@ export interface TurnInput {
  */
 export interface AgentRuntime {
   /** Stable identifier — useful for logs, telemetry, the model selector tooltip. */
-  readonly name: "bedrock" | "cursor" | "agentcore";
+  readonly name: "bedrock" | "agentcore";
 
   /**
    * Run a single chat turn. Yields `AgentEvent`s as they happen — the web
@@ -99,4 +95,4 @@ export interface AgentRuntime {
 }
 
 /** Env-derived runtime selection. */
-export type RuntimeName = "bedrock" | "cursor" | "agentcore";
+export type RuntimeName = "bedrock" | "agentcore";

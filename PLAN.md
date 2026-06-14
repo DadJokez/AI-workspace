@@ -9,9 +9,9 @@ Internal "AI front door" for Georgia-Pacific. Non-technical employees log in onc
 AI Hub is intentionally a **thin enterprise wrapper**: one simple front door
 plus the governance, audit, token, recipe, schedule, quota, and sharing layers
 that make existing platforms usable inside an enterprise. It should not rebuild
-Cursor, Bedrock, M365, Salesforce, Workfront, Databricks, or deployment
-platforms unless AI Hub needs that layer for control, audit, portability, or a
-clear user-experience win.
+Bedrock, M365, Salesforce, Workfront, Databricks, specialized IDEs, or
+deployment platforms unless AI Hub needs that layer for control, audit,
+portability, or a clear user-experience win.
 
 ## Architecture in one picture
 
@@ -26,20 +26,20 @@ clear user-experience win.
                 │   - persistence (Postgres)      │
                 └──────────────┬──────────────────┘
                                │
-                   (RUNTIME env: cursor | bedrock)
+                   (RUNTIME env: bedrock | agentcore)
                                │
                 ┌──────────────┴──────────────────┐
                 │       AgentRuntime (seam)       │
                 └──────┬──────────────────┬───────┘
                        │                  │
         ┌──────────────▼──────────┐   ┌───▼─────────────────┐
-        │ CursorRuntime (default) │   │ BedrockRuntime      │
-        │  - @cursor/sdk          │   │  - converseStream   │
-        │  - bounded turn context │   │  - stateless turns  │
-        │  - MCP servers          │   │  - fallback only    │
-        │  - .cursor/hooks.json   │   │  (RUNTIME=bedrock)  │
-        └────┬────────────────────┘   └─────────────────────┘
-             │
+        │ BedrockRuntime          │   │ AgentCoreRuntime    │
+        │  - converseStream       │   │  - durable worker   │
+        │  - direct chat          │   │  - session isolated │
+        │  - MCP tool turns       │   │  - skills/schedules │
+        │  (RUNTIME=bedrock)      │   │  (RUNTIME=agentcore)│
+        └────┬────────────────────┘   └──────────┬──────────┘
+             │                                   │
    ┌─────────┼─────────┬──────────┬──────────┐
    │         │         │          │          │
 ┌──▼──┐  ┌──▼──┐  ┌───▼───┐  ┌──▼───┐  ┌────▼────┐
@@ -49,17 +49,25 @@ clear user-experience win.
 └─────┘  └─────┘  └───────┘  └──────┘  └─────────┘
 ```
 
-- **June 2026: a third runtime joined the seam.** `RUNTIME=agentcore` hosts the same agent loop in an Amazon Bedrock AgentCore Runtime (session-isolated, in our account) — production worker lanes (durable chat, skills, scheduled) run on it; fast chat stays direct Bedrock; Cursor is the explicit cloud opt-in. The Bedrock loop also gained a real MCP client, so tool turns no longer require Anysphere. See `specs/003`.
-- **Cursor SDK owns the runtime mechanics** for its lanes. Streaming, tool-use protocol, model dispatch, MCP client behavior, and optional cloud/local/self-hosted execution live behind the runtime seam. AI Hub owns durable conversation context in Postgres.
-- **Our app owns the enterprise shell.** Auth, persistence (chat history, run history, audit log), provider attestations, quota/redaction/retention policy, and the MCP integration registry. `.cursor/hooks.json` is still a stub, not the active enforcement layer.
+- **June 2026: runtime posture simplified.** Fast chat and interactive tool
+  turns run through AWS Bedrock. Durable chat, skills, and scheduled jobs run
+  through Amazon Bedrock AgentCore in our AWS account. The product no longer
+  depends on the Cursor SDK or Anysphere-hosted execution.
+- **AWS owns the runtime substrate.** Streaming, model dispatch, MCP tool
+  calls, durable workers, and long-running execution stay inside the Bedrock /
+  AgentCore boundary. AI Hub owns durable conversation context in Postgres.
+- **Our app owns the enterprise shell.** Auth, persistence (chat history, run
+  history, audit log), provider attestations, quota/redaction/retention policy,
+  and the MCP integration registry.
 - **MCP is the integration pattern.** Every external system gets an MCP server. Standard transport, standard tool shape, standard auth seam. No bespoke tool wrappers per integration.
-- **Bedrock stays.** Fallback runtime behind `RUNTIME=bedrock`. Both implement the same `AgentRuntime` interface; the chat route never knows which ran.
+- **AgentCore is the durable lane.** Both Bedrock and AgentCore implement the
+  same `AgentRuntime` interface; the chat route never knows which ran.
 
 ## Core principles
 
-1. **Single runtime seam.** `AgentRuntime` is the only contract `apps/web` knows. `RUNTIME=cursor` and `RUNTIME=bedrock` both produce one. No code path branches on runtime above the seam.
+1. **Single runtime seam.** `AgentRuntime` is the only contract `apps/web` knows. `RUNTIME=bedrock` and `RUNTIME=agentcore` both produce one. No code path branches on runtime above the seam.
 2. **MCP is the integration pattern.** Every external system gets an MCP server. No bespoke tool wrappers.
-3. **Recipes are the user-facing primitive.** A recipe is a Cursor agent definition — `{system_prompt, mcp_servers, model, params}`. Business users clone, edit, schedule.
+3. **Skills are the user-facing primitive.** A skill is an agent definition - `{system_prompt, mcp_servers, model, params}`. Business users clone, edit, schedule, and share.
 4. **Permissions first-class.** `user_tool_attestations` from day one. Provider-level gates enforce what can be mounted today; tool/category enforcement needs a verified hook path or MCP proxy.
 5. **Multi-model by design.** Haiku for fast/cheap inner loops; Sonnet as default; Opus for hard reasoning. Selectable per chat thread and per recipe.
 6. **Defer abstractions until a second use case forces them.**
@@ -71,8 +79,8 @@ clear user-experience win.
 | **Repo** | GitHub-hosted, monorepo, pnpm workspaces |
 | **Identity (POC)** | GitHub OAuth via NextAuth v4. `users.ping_subject` stores the GitHub numeric user ID. Admins set by `role` column in DB. |
 | **Identity (enterprise)** | PingOne / PingFederate OIDC. The NextAuth provider swaps; the `users` table and `getSessionUser()` helper do not change. `ping_subject` will hold the PingOne subject claim as originally intended. |
-| **Agent runtime (default)** | **Cursor SDK** (`@cursor/sdk`, Anysphere). MCP-native. `RUNTIME=cursor` (now the default). Thread continuity currently comes from AI Hub's bounded context layer: summary schema/helper + budgeted recent messages. Summary generation itself is still pending. |
-| **Agent runtime (fallback)** | **AWS Bedrock** (`converseStream`). Selected via `RUNTIME=bedrock`. |
+| **Agent runtime (default)** | **AWS Bedrock** (`converseStream` plus MCP client). Selected via `RUNTIME=bedrock`. Fast chat and interactive tool turns run here. Thread continuity comes from AI Hub's bounded context layer: summary schema/helper + budgeted recent messages. Summary generation itself is still pending. |
+| **Agent runtime (durable)** | **Amazon Bedrock AgentCore Runtime**. Selected via `RUNTIME=agentcore` for worker lanes: durable chat, skills, scheduled jobs, and future app-build jobs. |
 | **Models** | Three Claude models — **Haiku 4.5**, **Sonnet 4.6** (default), **Opus 4.7**. Logical IDs map per runtime. |
 | **Integration model** | **MCP servers** for every external system. HTTP for per-user delegated auth. GitHub MCP is live; others stubbed. |
 | **Stack** | Next.js 15 (App Router) + TypeScript + Tailwind + Drizzle |
@@ -108,8 +116,8 @@ model fallback, metrics, and shared-rate-limit follow-up work.
 | Admin panel (users, invitations) | ✅ |
 | Invitations (admin sends, user redeems on first login) | ✅ |
 | Theme (light/dark), settings panel | ✅ |
-| Cursor SDK runtime (default) | ✅ |
-| Bedrock runtime (fallback via `RUNTIME=bedrock`) | ✅ |
+| Bedrock runtime (default via `RUNTIME=bedrock`) | ✅ |
+| AgentCore runtime (`RUNTIME=agentcore`) live for worker lanes | ✅ |
 | GitHub MCP per-user (OAuth flow + token vault + live calls) | ✅ |
 | AWS App Runner + CodeBuild CI/CD for pilot | ✅ rollback only |
 | ECS/Fargate CDK hosting target | ✅ |
@@ -125,7 +133,6 @@ model fallback, metrics, and shared-rate-limit follow-up work.
 | Schedules: leased scheduler tick, timezone-safe cadences, history | ✅ |
 | Sharing: skills + apps to named teammates (recipient credentials only) | ✅ |
 | Thin apps: registry, SSO-gated `/apps/{slug}` serving, versions, revert | ✅ |
-| AgentCore runtime (`RUNTIME=agentcore`) live for worker lanes | ✅ |
 | MCP client in the Bedrock loop (tool turns without Anysphere) | ✅ |
 | Collapsible work receipts in chat | ✅ |
 | First-run welcome tour + Settings replay | ✅ |
@@ -163,7 +170,7 @@ model fallback, metrics, and shared-rate-limit follow-up work.
 
 ### ✅ Weeks 1–3 — Foundation
 
-**Shipped:** Login → chat → streaming → threads persist → Cursor SDK runtime → GitHub OAuth + MCP → admin panel → invitations.
+**Shipped:** Login → chat → streaming → threads persist → Bedrock runtime → GitHub OAuth + MCP → admin panel → invitations.
 
 All code is on `main`. PRs #1–#22 merged. Only `origin/main` on remote.
 
@@ -191,7 +198,7 @@ Original scope notes kept below for traceability:
 **Ship:** A colleague creates their own recipe without Rob's help.
 
 - `recipes` table + CRUD UI at `/recipes`.
-- Each recipe row materializes into a Cursor agent definition at runtime.
+- Each recipe row materializes into an agent definition at runtime.
 - Developer Briefing and Morning Briefing become rows. Users clone and edit.
 - Reuse the chat activity timeline component for recipe run details by reading
   `recipe_runs.outputs.toolCalls/toolResults`.
@@ -276,13 +283,12 @@ apps/
 packages/
   db/                      Drizzle schema + client + migrations
   agent/                   Tool/model registries + Bedrock loop
-  cursor-runtime/          AgentRuntime seam
+  agent-runtime/          AgentRuntime seam
     src/
       types.ts             AgentRuntime interface, TurnInput, RuntimeName
       bedrock-runtime.ts   Wraps the existing runAgentLoop
-      cursor-runtime.ts    @cursor/sdk adapter (fresh-agent-per-turn workaround for SDK MCP-state bug)
-      db-thread-agent-store.ts  threadId → agentId visibility/persistence
-      factory.ts           getRuntime() — defaults to 'cursor'
+      agentcore-runtime.ts Amazon Bedrock AgentCore adapter
+      factory.ts           getRuntime() - defaults to 'bedrock'
   mcp-servers/
     src/
       teams.ts             stub — Week 8
@@ -290,8 +296,6 @@ packages/
       databricks.ts        stub — Week 8
       # GitHub MCP is remote: https://api.githubcopilot.com/mcp/
       # mounted by apps/web/lib/oauth/mcp-servers.ts
-.cursor/
-      hooks.json               policy layer stubs — lower-level tool hooks still to be wired
 .github/workflows/         ci.yml (lint + typecheck + build)
 docs/
   ARCHITECTURE.md          Component design, request flow, auth layers
@@ -304,18 +308,18 @@ docs/
 - `apps/web/app/api/workflows/developer-briefing/run/route.ts` — Manual GitHub MCP workflow execution, persisted in `recipe_runs`.
 - `apps/web/middleware.ts` — Unauthenticated → `/login`; non-admin on `/admin` → `/chat`.
 - `apps/web/lib/auth/getSessionUser.ts` — Canonical user lookup: `WHERE id = session.user.id`.
-- `packages/cursor-runtime/src/factory.ts` — `getRuntime()` defaults to `'cursor'`.
-- `packages/cursor-runtime/src/cursor-runtime.ts` — `@cursor/sdk` adapter.
+- `packages/agent-runtime/src/factory.ts` - `getRuntime()` defaults to `'bedrock'`.
+- `packages/agent-runtime/src/agentcore-runtime.ts` - AgentCore worker adapter.
 - `packages/db/src/schema.ts` — Drizzle schema.
 
 ## Top risks
 
-1. **Cursor SDK surface stability** — v1 published May 2026; surface still moving. Materially mitigated June 2026: worker lanes (durable/skill/scheduled) now run on AgentCore in our account, the Bedrock loop speaks MCP, and Cursor is the explicit opt-in lane rather than the default dependency.
-2. **Per-user delegated auth at MCP scale** — the pattern (HTTP transport + per-turn Bearer tokens) is proven with GitHub. Will it hold for Graph's token-refresh frequency when scheduling kicks in? Decide before week 5.
-3. **M365 Entra app registration timing** — IT critical path for Graph MCP. Have a ready fallback (Salesforce or Workfront OAuth) if approval slips past week 4.
-4. **Cost runaway** — context-size guardrails and process-local request limits are in place for chat turns. Still add `max_tokens`, tool-use iteration caps, shared per-user daily token quotas, and CloudWatch alarms at $50 / $200 / $500.
-5. **Audit-log discipline** — MCP tool calls now land in `audit_log`, and the first redaction/retention policy is documented. Recipe-run/admin-action producers and a shared log-redaction helper still need to be wired before week 8 hardening.
-6. **Dependency audit debt** — direct patches reduced the audit surface, but `pnpm audit --prod` still reports transitive findings through `sqlite3`/`tar`, Cursor SDK/`undici`, and syntax highlighting. Track and recheck before IT review.
+1. **AgentCore maturity and quotas** - worker lanes now depend on AgentCore availability, session behavior, IAM posture, and Bedrock model access. Keep runtime smoke tests and clear fallback language.
+2. **Per-user delegated auth at MCP scale** - the pattern (HTTP transport + per-turn Bearer tokens) is proven with GitHub. Will it hold for Graph's token-refresh frequency when scheduling kicks in? Decide before week 5.
+3. **M365 Entra app registration timing** - IT critical path for Graph MCP. Have a ready fallback (Salesforce or Workfront OAuth) if approval slips past week 4.
+4. **Cost runaway** - context-size guardrails and process-local request limits are in place for chat turns. Still add `max_tokens`, tool-use iteration caps, shared per-user daily token quotas, and CloudWatch alarms at $50 / $200 / $500.
+5. **Audit-log discipline** - MCP tool calls now land in `audit_log`, and the first redaction/retention policy is documented. Recipe-run/admin-action producers and a shared log-redaction helper still need to be wired before week 8 hardening.
+6. **Dependency audit debt** - direct patches reduced the audit surface, but `pnpm audit --prod` can still report transitive findings through framework/tooling paths. Track and recheck before IT review.
 7. **Hosting migration** — ECS/Fargate is now the active target. The fast cutover uses the existing RDS database first; hardening still needs the RDS Proxy/Aurora posture, shared rate limiting, and private networking decisions.
 8. **Burnout** — 10–15 focused hrs/week, blocks not scraps. If shipping slips two weeks in a row, reassess scope.
 
@@ -323,6 +327,5 @@ docs/
 
 - **Single Graph MCP vs. one server per surface?** Default: separate mail + calendar servers. Revisit if duplicate token-refresh logic becomes a maintenance burden.
 - ~~**Recipes vs. Skills naming.**~~ **Resolved June 2026: Skills.** Schema, URLs, and UI all say skills; the run ledger is `runs`.
-- ~~**Sunset Bedrock runtime?**~~ **Inverted June 2026:** Bedrock/AgentCore is the governed default for worker lanes; Cursor is the innovation lane (explicit cloud opt-in, local dev). No sunset either way.
-- **Cursor data residency.** Scope shrank June 2026: only explicit Cursor-lane turns send transcripts to Anysphere; worker lanes run in our account. A written data-classification answer from Anysphere is still needed before the Cursor lane is offered to pilot users beyond Rob.
+- ~~**Sunset Bedrock runtime?**~~ **Resolved June 2026:** Bedrock/AgentCore is the governed runtime stack. The Cursor SDK was removed from the product runtime; users can still use the Cursor desktop app outside Comparative for hardcore development work.
 - **ECS hardening timing.** The cutover stack uses current RDS and simple ECS services first. Decide when to add RDS Proxy/Aurora, shared quotas, WAF rules, and private networking before broad pilot traffic.

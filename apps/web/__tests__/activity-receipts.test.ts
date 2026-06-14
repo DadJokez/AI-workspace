@@ -67,7 +67,7 @@ describe("groupActivityEvents", () => {
     expect(inferCategory("Finished a step")).toBe("tools");
 
     const receipts = groupActivityEvents([
-      ev({ id: "1", category: undefined, label: "Started Cursor run" }),
+      ev({ id: "1", category: undefined, label: "Started AgentCore run" }),
       ev({ id: "2", category: undefined, label: "Searched GitHub" }),
     ]);
     expect(receipts.map((r) => r.category).sort()).toEqual([

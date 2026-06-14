@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { BedrockClient, BedrockStreamEvent } from "@ai-workspace/agent";
-import { BedrockRuntime } from "@ai-workspace/cursor-runtime";
+import { BedrockRuntime } from "@ai-workspace/agent-runtime";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
 
 /**
  * Date grounding: models have no reliable sense of "now". Every Bedrock-path
  * turn (fast chat, tool turns, the AgentCore container — all share
- * runAgentLoop) must carry the real clock in its system prompt, and the
- * Cursor-lane preamble must carry it too. Born from a real failure:
+ * runAgentLoop) must carry the real clock in its system prompt. Born from a
+ * real failure:
  * "31 days until Christmas 2024", answered in mid-June 2026.
  */
 class CaptureClient implements BedrockClient {
@@ -59,7 +59,7 @@ describe("date grounding", () => {
     expect(client.systemPrompt).toContain("You are the christmas checker.");
   });
 
-  it("grounds the Cursor-lane preamble and scopes the slash note to literal '/' messages", () => {
+  it("grounds the agent preamble and scopes the slash note to literal '/' messages", () => {
     const preamble = buildAgentPreamble({
       user: { displayName: "Rob", customInstructions: null },
       connectedProviders: ["github"],

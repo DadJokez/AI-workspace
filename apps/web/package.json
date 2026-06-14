@@ -16,7 +16,7 @@
   "dependencies": {
     "@ai-workspace/agent": "workspace:*",
     "@ai-workspace/auth": "workspace:*",
-    "@ai-workspace/cursor-runtime": "workspace:*",
+    "@ai-workspace/agent-runtime": "workspace:*",
     "@ai-workspace/db": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "next": "^15.5.18",

@@ -12,9 +12,8 @@ See [`docs/ENTERPRISE_READINESS.md`](./docs/ENTERPRISE_READINESS.md) for the IT 
 - **pnpm** workspaces
 - **Drizzle** + **RDS Postgres**
 - **NextAuth v4** with GitHub OAuth (POC identity — swaps to PingOne OIDC for enterprise)
+- **AWS Bedrock** (`converseStream` + MCP client) — direct fast-chat and tool-chat lanes (`RUNTIME=bedrock`)
 - **Amazon Bedrock AgentCore** (`RUNTIME=agentcore`) — worker-lane runtime: durable chat, skill, and scheduled runs execute session-isolated in our account (`apps/agentcore-agent` container + `specs/003`)
-- **AWS Bedrock** (`converseStream` + MCP client) — direct fast-chat lane and in-process runtime (`RUNTIME=bedrock`)
-- **Cursor SDK** (`@cursor/sdk`) — interactive tool-chat lane and explicit cloud opt-in (`RUNTIME=cursor`)
 - **GitHub MCP** (`api.githubcopilot.com/mcp/`) — first working tool integration
 - **ECS on Fargate** — production hosting target with separate web, chat-worker, and memory-worker services
 - **AWS App Runner** — rollback-only POC host during ECS cutover
@@ -27,7 +26,7 @@ apps/
   agentcore-agent/  Agent loop container for Bedrock AgentCore (POST /invocations SSE, GET /ping)
 packages/
   db/               Drizzle schema + client + migrations (skills, schedules, shares, apps, runs…)
-  cursor-runtime/   AgentRuntime seam (Cursor + Bedrock + AgentCore runtimes + factory)
+  agent-runtime/   AgentRuntime seam (Bedrock + AgentCore runtimes + factory)
   agent/            Tool/model registries, Bedrock loop, MCP client (connectMcpTools)
   mcp-servers/      Local integration stubs; GitHub MCP is remote and mounted by apps/web/lib/oauth/mcp-servers.ts
 infra/
@@ -54,7 +53,7 @@ docker compose up -d
 pnpm --filter @ai-workspace/db db:migrate
 # 3. env
 cp apps/web/.env.example apps/web/.env.local
-# edit .env.local — fill in NEXTAUTH_SECRET, GITHUB_AUTH_CLIENT_ID/SECRET, DATABASE_URL, CURSOR_API_KEY
+# edit .env.local — fill in NEXTAUTH_SECRET, GITHUB_AUTH_CLIENT_ID/SECRET, DATABASE_URL
 # 4. install + run
 pnpm install
 pnpm dev          # http://localhost:3000
@@ -64,12 +63,9 @@ pnpm dev          # http://localhost:3000
 
 | Var | Purpose |
 |---|---|
-| `RUNTIME` | `cursor` (default), `bedrock`, or `agentcore` |
+| `RUNTIME` | `bedrock` (default) or `agentcore` |
 | `AGENTCORE_RUNTIME_ARN` | Required for `RUNTIME=agentcore` — the Bedrock AgentCore runtime to invoke |
 | `AGENTCORE_REGION` / `AGENTCORE_QUALIFIER` | Optional AgentCore region override / endpoint qualifier |
-| `CURSOR_API_KEY` | Required for Cursor runtime |
-| `CURSOR_RUNTIME_MODE` | Process default: `local` for normal chat; explicit chat requests can still select `cloud` |
-| `CURSOR_CLOUD_REPO_URL` / `CURSOR_CLOUD_REPO_REF` | Optional repo and starting ref for Cursor Cloud agents |
 | `NEXTAUTH_SECRET` | NextAuth JWT signing secret |
 | `GITHUB_AUTH_CLIENT_ID` / `GITHUB_AUTH_CLIENT_SECRET` | GitHub OAuth App for sign-in |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Separate GitHub OAuth App for per-user MCP tokens |
@@ -82,7 +78,7 @@ pnpm dev          # http://localhost:3000
 | `CHAT_RUN_IN_PROCESS_WORKER` | `1`/unset runs accepted chat work in the web process; `0` disables that bridge for dedicated worker deployments |
 | `CHAT_RUN_WORKER_LEASE_MS` | Lease duration for claimed background chat runs |
 | `CHAT_WORKER_RUNTIME_TIMEOUT_MS` | Max runtime duration for a background chat run |
-| `CHAT_RUN_PROVIDER_POLL_INTERVAL_MS` | Poll interval when reconciling an existing Cursor Cloud provider run |
+| `CHAT_RUN_PROVIDER_POLL_INTERVAL_MS` | Poll interval reserved for provider-backed durable run reconciliation |
 | `MEMORY_CAPTURE_IN_PROCESS_SCHEDULER` | `1`/unset schedules Vault capture in the web process after successful chats; `0` disables it for dedicated worker deployments |
 | `MEMORY_CAPTURE_DELAY_MS` | Delay before reviewing queued chat transcripts for Vault suggestions; default 20 minutes |
 | `MEMORY_CAPTURE_BATCH_LIMIT` | Max queued transcript windows reviewed per memory-capture batch |

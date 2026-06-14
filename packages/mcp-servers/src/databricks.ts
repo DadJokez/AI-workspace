@@ -1,4 +1,4 @@
-import type { McpServerConfigStub } from "@ai-workspace/cursor-runtime";
+import type { PlaceholderMcpServerConfig } from "./types";
 
 /**
  * Databricks MCP server — placeholder.
@@ -18,7 +18,7 @@ import type { McpServerConfigStub } from "@ai-workspace/cursor-runtime";
  *   - cost ceiling per query — reject SQL whose explain plan exceeds N
  *     bytes scanned?
  */
-export const databricksServer: McpServerConfigStub = {
+export const databricksServer: PlaceholderMcpServerConfig = {
   name: "databricks",
   // command: "node",
   // args: ["./dist/databricks-server.js"],

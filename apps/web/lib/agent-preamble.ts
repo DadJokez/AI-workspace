@@ -1,12 +1,9 @@
 /**
- * Steering text prepended to the first user message of a freshly-created
- * Cursor agent. The Cursor SDK has no system-prompt option on `Agent.create`,
- * so this is how we educate the model about who the user is, which tools
- * are available, and any custom instructions the user has set.
+ * Steering text that educates the model about who the user is, which tools
+ * are available, Vault/artifact context, and any custom instructions the user
+ * has set.
  *
- * Hidden from the user (prepended to the message text the SDK sees, not the
- * `chat_messages.content` we persist). Fires once per agent lifetime —
- * cloud agents retain context across subsequent turns.
+ * Hidden from the user and not stored in `chat_messages.content`.
  */
 
 import { MODELS, isValidModelId } from "@ai-workspace/agent";

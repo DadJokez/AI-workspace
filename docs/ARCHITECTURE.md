@@ -39,12 +39,11 @@ The AI Hub is that front door. The model and the runtime are
                                      │  AgentRuntime.runTurn(...)
                                      ▼
         ┌─────────────────────────────────────────────────────────┐
-        │  Cursor SDK runtime (default — RUNTIME=cursor)          │
-        │   • streaming, tool-use protocol, MCP client            │
+        │  AWS runtime seam                                       │
+        │   • BedrockRuntime (RUNTIME=bedrock): fast/tool turns   │
+        │   • AgentCoreRuntime (RUNTIME=agentcore): workers       │
         │   • model selection (Haiku / Sonnet / Opus)             │
-        │   • mcpServers[] mounted per agent                      │
-        │   • hooks available for future observation/control      │
-        │   ── fallback: BedrockRuntime (RUNTIME=bedrock) ────── │
+        │   • MCP servers mounted per turn                        │
         └────────────────────────────┬────────────────────────────┘
                                      │  MCP (HTTP+Bearer per-user | stdio M2M)
                                      ▼
@@ -66,15 +65,15 @@ The AI Hub is that front door. The model and the runtime are
 |---|---|---|
 | **User** | The intent. Picks the recipe or types the chat. | Tokens, model choice, transport. |
 | **Enterprise Shell** (`apps/web`) | Identity, persistence, audit, policy, UI, recipe storage, token vault, thread-summary schema/helper, and bounded context assembly. The seam (`AgentRuntime`) is the only thing it knows about the runtime. | Tool-use loop, model API protocol, MCP transport. |
-| **Cursor SDK runtime** | Streaming, tool-use protocol, model dispatch, MCP client. Current production flow starts a fresh runtime turn and receives bounded context from the shell. | Identity, business policy, Postgres persistence, long-term conversation memory. |
-| **Bedrock runtime** (fallback) | Same `AgentRuntime` contract via `converseStream`. Stateless turns. | Durable agent state (turns are stateless). |
+| **Bedrock runtime** | Same `AgentRuntime` contract via `converseStream` plus MCP client. Handles fast chat and interactive tool turns. | Durable worker ownership. |
+| **AgentCore runtime** | Same `AgentRuntime` contract via Bedrock AgentCore Runtime. Handles durable chat, skill runs, schedules, and future app-build jobs. | Product state, user memory, schedule definitions, quota policy. |
 | **MCP servers** (our code, one per system) | The auth handshake to a single system, a small surface of tools (`list_*`, `search_*`, `read_*`, `write_*`). HTTP transport for per-user delegated auth; stdio for M2M service-principal cases. | The agent loop, the model, the recipe definition, cross-system orchestration. |
 | **Internal systems** | The actual data and side effects. | Anything about how AI Hub talks to them. |
 
 ## Product boundary: thin enterprise wrapper
 
-AI Hub is not trying to rebuild Cursor, Bedrock, M365, Salesforce,
-Workfront, Databricks, or the foundation-model layer. Its job is to make
+AI Hub is not trying to rebuild Bedrock, M365, Salesforce, Workfront,
+Databricks, specialized IDEs, or the foundation-model layer. Its job is to make
 those capabilities safe and usable for normal employees by adding the thin
 enterprise shell they do not get from the raw platforms.
 
@@ -86,13 +85,13 @@ AI Hub should own:
 - audit, redaction, retention, logging standards, quotas, and cost controls;
 - the durable product data in Postgres: users, threads, messages, runs,
   tools, attestations, integration registry, and admin activity;
-- the runtime seam that lets Cursor stay the default while Bedrock remains a
-  fallback.
+- the runtime seam that lets fast Bedrock turns and durable AgentCore turns
+  share one product contract.
 
 AI Hub should avoid owning:
 - foundation model hosting or low-level model APIs;
-- a generic orchestration framework when Cursor already supplies the agent
-  loop;
+- a generic orchestration framework before Bedrock/AgentCore patterns prove
+  insufficient;
 - a full coding IDE or app deployment platform before J1-J3 are proven;
 - custom one-off integration shims when an MCP server can expose the same
   capability in an inspectable, reusable way.
@@ -101,28 +100,20 @@ The product rule for future work is: remove enterprise friction, do not
 rebuild a platform unless AI Hub needs that layer for control, audit,
 governance, user experience, or portability.
 
-## Cursor SDK capability matrix
+## AWS runtime capability matrix
 
-This matrix captures the current J1-J3 runtime boundary for `@cursor/sdk`
-v1.0.13 and Cursor's public SDK guidance from April 2026.
+This matrix captures the current J1-J3 runtime boundary after the June 2026
+AWS-only simplification.
 
-| Journey | Cursor SDK supports | AI Hub must own | Current stance |
+| Journey | Runtime supports | AI Hub must own | Current stance |
 |---|---|---|---|
-| **J1 Chat** | `Agent.create`, `agent.send`, model selection, `run.stream()`, cancellation, and local/cloud execution options. | Auth, thread ownership, Postgres messages, bounded context, user settings, model labels, UI state, and fallback runtime selection. | Supported. Fresh-agent-per-turn remains the default; AI Hub supplies bounded prior context instead of depending on Cursor for product memory. |
-| **J2 Chat with Tools** | MCP servers passed inline or loaded from Cursor config; HTTP/SSE/stdio MCP shapes are represented by the SDK; streamed run events expose tool activity enough for the chat activity timeline. | Per-user OAuth token vault, provider-level mount gating, audit rows, tool/result persistence, lower-level tool/category policy, user-facing connection flows, and redaction. | Supported with constraints. The current gate controls whether a provider is mounted. Tool/category enforcement is not yet enforced by `.cursor/hooks.json`; it needs a verified hook workflow or an MCP proxy. |
-| **J3 Scheduled Agents** | Programmatic agent runs can be started by backend code, streamed, waited on, cancelled, and tied to the same runtime seam. | Schedule definitions, worker/cron trigger, `recipe_runs`, idempotency, retries, timeouts, quotas, delivery destinations, reconnect UI, and failure handling. | Feasible, but not a Cursor feature by itself. Treat scheduling as an AI Hub control-plane layer around the SDK. |
+| **J1 Chat** | Bedrock streaming, model selection, direct text turns, cancellation at the product layer. | Auth, thread ownership, Postgres messages, bounded context, user settings, model labels, UI state, and runtime selection. | Supported. AI Hub supplies bounded prior context and keeps product memory in Postgres. |
+| **J2 Chat with Tools** | Bedrock tool loop with MCP servers mounted per turn, streamed activity events, model dispatch. | Per-user OAuth token vault, provider-level mount gating, audit rows, tool/result persistence, lower-level tool/category policy, user-facing connection flows, and redaction. | Supported with constraints. Provider-level gates control whether a provider is mounted; category/tool filtering belongs in the MCP proxy path. |
+| **J3 Scheduled Agents** | AgentCore worker execution through the same runtime seam. | Schedule definitions, worker/cron trigger, `runs`, idempotency, retries, timeouts, quotas, delivery destinations, reconnect UI, and failure handling. | Supported for time-based schedules; event/webhook triggers remain backlog. |
 
-For short interactive chat, `CURSOR_RUNTIME_MODE=local` preserves the current
-behavior: the Cursor SDK run lives in the web container and streams directly to
-the browser. For long work, `CURSOR_RUNTIME_MODE=cloud` dispatches to Cursor
-Cloud. The SDK exposes provider-side `agentId`/`runId`, `Agent.getRun(...)`,
-`run.wait()`, and `run.conversation()`, so AI Hub can rehydrate a run after a
-browser disconnect or App Runner's 120-second HTTP timeout. The control-plane
-record still lives in AI Hub's generalized run ledger (`recipe_runs` for now).
-
-Do not assume Cursor owns enterprise scheduling, quota enforcement, data
-retention, redaction, or long-term product memory. Cursor is the runtime
-harness; AI Hub is the enterprise control plane.
+Do not assume the runtime owns enterprise scheduling, quota enforcement, data
+retention, redaction, or long-term product memory. Bedrock/AgentCore is the AWS
+runtime substrate; AI Hub is the enterprise control plane.
 
 ## Auth model
 
@@ -153,7 +144,7 @@ This layer is **independent of the identity provider** in Layer 1. It uses the s
 
 ## Recipes / skills catalog
 
-A **recipe** (or "skill" — same concept; naming TBD) is a row in `recipes` that materializes at runtime into a Cursor agent definition:
+A **recipe** (now "skill" in the product) is a row that materializes at runtime into an agent definition:
 
 ```ts
 {
@@ -177,17 +168,18 @@ See [`ROADMAP.md`](./ROADMAP.md) for the use-case-driven view and the skills cat
 Concrete example: user asks **"What PRs do I have open?"** in chat, GitHub MCP mounted.
 
 1. **Browser → web container.** SSE POST to `/api/chat` with the thread id and the user's message. Cookie carries the NextAuth JWT. Today the container runs on App Runner; the enterprise target is ECS/Fargate.
-2. **Shell** calls `getSessionUser(req)` → user row. Loads the `chat_threads` row, including the rolling `summary`, recent `chat_messages`, and the `cursor_agent_id` retained for visibility/backward compatibility.
+2. **Shell** calls `getSessionUser(req)` → user row. Loads the `chat_threads` row, including the rolling `summary`, recent `chat_messages`, and the legacy `cursor_agent_id` column retained for migration compatibility only.
 3. **Shell** loads the user's GitHub access token from `oauth_tokens`, mints a short-lived token if needed.
 4. **Shell** calls `getRuntime().runTurn({...})` with the thread, message, model, and `mcp_server_slugs: ['github']`.
-5. **Shell** builds bounded context with `buildTurnContext(...)`: rolling thread summary, the recent messages that still fit the configured count/size budget, and the user's current message. **CursorRuntime** starts a fresh runtime turn with that context.
-6. **Cursor SDK** mounts the GitHub MCP server (HTTP transport, per-turn `Authorization: Bearer <token>`). Begins the turn.
+5. **Shell** builds bounded context with `buildTurnContext(...)`: rolling thread summary, the recent messages that still fit the configured count/size budget, and the user's current message. **BedrockRuntime** starts a streaming turn with that context.
+6. **BedrockRuntime** mounts the GitHub MCP server (HTTP transport, per-turn `Authorization: Bearer <token>`). Begins the turn.
 7. **Model** plans: `github.list_pull_requests(state='open', author='@me')`.
 8. **MCP call** goes to `api.githubcopilot.com/mcp/` with the user's Bearer token. Returns the PR list.
 9. **Model** assembles the answer. SSE events stream back through the shell to the browser.
-10. **Shell** persists the assistant message to `chat_messages` with `model_id='sonnet-4-6'`, `runtime='cursor'`, token metadata, structured tool calls/results, and one `audit_log` row per MCP tool execution. The schema and helper for rolling summaries exist; summary generation is still pending.
+10. **Shell** persists the assistant message to `chat_messages` with `model_id='sonnet-4-6'`, `runtime='bedrock'`, token metadata, structured tool calls/results, and one `audit_log` row per MCP tool execution. The schema and helper for rolling summaries exist; summary generation is still pending.
 
-If `RUNTIME=bedrock` is set, steps 5–8 collapse into a stateless `runAgentLoop` call. Steps 1–4 and 9–10 are identical.
+Durable work follows the same product steps but routes the runtime call through
+the AgentCore worker lane instead of the inline Bedrock lane.
 
 ## Long-running runs and activity state
 
@@ -205,20 +197,15 @@ Every chat turn now creates a queued `recipe_runs` row with
 The runtime turn is executed by the chat-run worker path, not by the open
 `/api/chat` request. The pilot web container starts an in-process worker for
 immediate execution; the same queue consumer is packaged as a worker image for
-ECS/Fargate. When Cursor accepts the turn, AI Hub stores provider-side Cursor
-agent/run ids in `outputs.providerRun`. For local Cursor runs this is
-visibility only; for Cursor Cloud runs it is a recovery handle. If the web
-process dies after Cursor accepts the run, the next worker claim reconnects to
-the existing Cursor Cloud run with `Agent.getRun(...)` instead of starting a
-duplicate provider run. Terminal cloud runs are folded back into
-`chat_messages` and marked succeeded/failed/canceled in `recipe_runs`.
+ECS/Fargate. When the runtime accepts the turn, AI Hub stores provider/runtime
+metadata in `outputs.providerRun` for visibility and debugging. Terminal runs
+are folded back into `chat_messages` and marked succeeded/failed/canceled in
+`recipe_runs`.
 The chat UI exposes cancel for queued/running chat turns and retry for
 failed/canceled turns. Admin run detail exposes the same chat-originated
 controls plus a resume/reconcile action for queued/running runs that need to be
 picked up by a worker again. These lifecycle actions update `recipe_runs`, write
-append-only `run_events`, and record `audit_log` rows. When a Cursor Cloud
-provider run id is available, cancel also asks Cursor Cloud to cancel the
-underlying run.
+append-only `run_events`, and record `audit_log` rows.
 
 The chat surface now has the first user-facing activity timeline. During a
 streaming turn, tool-call and tool-result events update a compact activity row
@@ -244,8 +231,8 @@ This is still a DB-backed queue, not the final AWS job system. The
 production-grade deployment should attach the worker image to ECS/Fargate and
 front it with SQS/EventBridge if direct DB polling is not enough for scale.
 Step Functions remains reserved for explicit retry/wait-state audit
-requirements. The important boundary is now clear: Cursor Cloud owns durable
-agent execution; AI Hub owns identity, run state, leases, activity replay,
+requirements. The important boundary is now clear: AgentCore owns durable
+runtime execution; AI Hub owns identity, run state, leases, activity replay,
 audit, retry/cancel policy, tool governance, and the enterprise user
 experience.
 
@@ -325,8 +312,8 @@ without exposing an entire provider.
 
 ## Prompt guardrails
 
-Fresh-agent-per-turn execution means AI Hub owns the context pack that gets
-sent to the runtime. `buildTurnContext(...)` applies three deterministic
+Per-turn context assembly means AI Hub owns the context pack that gets sent to
+the runtime. `buildTurnContext(...)` applies three deterministic
 guardrails: `CHAT_RECENT_MESSAGE_LIMIT` bounds raw history count,
 `CHAT_CONTEXT_CHAR_LIMIT` bounds total prompt context size, and
 `CHAT_CONTEXT_MESSAGE_CHAR_LIMIT` bounds any single prior message or summary.
@@ -413,7 +400,12 @@ provider reconciliation stay consistent with the live chat surface.
 
 ## Agent Wire
 
-**Agent Wire** is planned tooling to ingest Cursor + GitHub activity into S3 + Athena so we can ask questions about how engineers actually use AI. It is both a write path (`.cursor/hooks.json` is the producer) and a read path (an `agent-wire` MCP server). The S3/Athena schema must be reviewed before any of this gets wired up beyond the current stub.
+**Agent Wire** is planned tooling to ingest Comparative runtime activity,
+GitHub activity, and future tool events into S3 + Athena so we can ask
+questions about how employees actually use AI. It is both a write path
+(runtime/run-event exporters are the producers) and a read path (an
+`agent-wire` MCP server). The S3/Athena schema must be reviewed before any of
+this gets wired up beyond the current stub.
 
 Key schema decisions to make before building:
 - **Event taxonomy:** one row per turn (with N tool calls in a JSON column) or N+1 rows?
@@ -444,8 +436,8 @@ Migration plan:
 
 ## Open questions
 
-1. **Cursor data residency.** Anysphere may store runtime-side agent state and tool transcripts. AI Hub keeps bounded conversation context in Postgres, but GP data classification still needs a written answer from Anysphere before week 8 hardening.
-2. **Cursor SDK SLA and surface stability.** No published SLA as of v1.0.12 (May 2026). `RUNTIME=bedrock` is the insurance policy. Policy on version pinning vs. floating TBD.
+1. **AgentCore run durability.** Confirm reconnect/retry/cancel semantics under ECS task restarts and model/provider errors.
+2. **Bedrock model access.** Sonnet and Haiku are enabled; Opus remains account-gated. Keep model picker labels honest when AWS account access changes.
 3. **Short-lived per-turn vs. session-scoped tokens.** Current pattern: refresh per turn for each delegated MCP server. Alternative: cache session-scoped token in Redis with 50-minute TTL. Cost difference compounds with recipe scheduling. Decide before week 5.
 4. **Catalog cold start.** Seed starter recipes ourselves (faster) or pair-author with 3 design-partner users (better recipes + adoption channel)? Decide end of week 5.
 5. **Single Graph MCP vs. one server per surface.** Default: separate mail + calendar servers. Revisit after week 4 proves the pattern.

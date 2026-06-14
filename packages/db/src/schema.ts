@@ -125,8 +125,8 @@ export const users = pgTable(
      */
     customInstructions: text("custom_instructions"),
     /**
-     * Preferred model id for new chats. Stored as the Cursor-facing model id
-     * (for example `default` or `claude-sonnet-4-6`) so the preference follows
+     * Preferred model id for new chats. Stored as the product model id
+     * (for example `sonnet-4-6`) so the preference follows
      * the user across browsers and machines. NULL = use app default.
      */
     defaultModelId: text("default_model_id"),
@@ -163,9 +163,8 @@ export const chatThreads = pgTable(
     title: text("title"),
     defaultModelId: text("default_model_id").notNull(),
     /**
-     * Latest Cursor `agentId` recorded for this thread. Null until the first
-     * Cursor turn. With fresh-agent-per-turn execution this is a
-     * visibility/debug field, not the source of conversation continuity.
+     * Legacy runtime agent id field. Kept for migration compatibility; current
+     * Bedrock/AgentCore execution does not use it for continuity.
      */
     cursorAgentId: text("cursor_agent_id"),
     /**
@@ -175,7 +174,7 @@ export const chatThreads = pgTable(
      */
     mcpSignature: text("mcp_signature"),
     /**
-     * Rolling summary of durable thread context. Used by fresh-agent-per-turn
+     * Rolling summary of durable thread context. Used by per-turn runtime
      * execution to avoid replaying the entire raw conversation forever.
      */
     summary: text("summary"),
@@ -217,7 +216,7 @@ export const chatMessages = pgTable(
     content: text("content").notNull(),
     /** ModelId from packages/agent/models for assistant messages; null otherwise. */
     modelId: text("model_id"),
-    /** Runtime that produced assistant messages (`cursor` or `bedrock`). */
+    /** Runtime that produced assistant messages (`bedrock` or `agentcore`). */
     runtime: text("runtime"),
     tokensIn: integer("tokens_in"),
     tokensOut: integer("tokens_out"),
@@ -322,7 +321,7 @@ export const skills = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     systemPrompt: text("system_prompt").notNull(),
-    /** Logical model tier (Cursor-facing model id) the dispatcher respects. */
+    /** Logical model tier the dispatcher respects. */
     modelId: text("model_id").notNull(),
     /** Provider slugs (e.g. ["github"]); mounting is still gated per-run. */
     mcpProviders: jsonb("mcp_providers").$type<string[]>().notNull(),

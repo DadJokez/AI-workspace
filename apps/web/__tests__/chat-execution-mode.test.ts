@@ -10,7 +10,7 @@ describe("parseChatExecutionMode", () => {
     expect(parseChatExecutionMode("bedrock")).toBe("local");
   });
 
-  it("allows explicit cloud execution", () => {
-    expect(parseChatExecutionMode("cloud")).toBe("cloud");
+  it("treats removed cloud execution as local", () => {
+    expect(parseChatExecutionMode("cloud")).toBe("local");
   });
 });

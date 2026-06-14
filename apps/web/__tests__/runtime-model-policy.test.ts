@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveRuntimeModelSelection } from "@/lib/runtime-model-policy";
 
 const directRoute = { runtimeTarget: "direct-chat" as const };
-const agentRoute = { runtimeTarget: "cursor-agent" as const };
+const agentRoute = { runtimeTarget: "agentcore-worker" as const };
 
 describe("resolveRuntimeModelSelection", () => {
   it("prefers the configured Runtime V2 direct model for Bedrock", () => {
@@ -21,7 +21,7 @@ describe("resolveRuntimeModelSelection", () => {
     });
   });
 
-  it("maps Cursor-facing direct Bedrock model aliases when no direct model is configured", () => {
+  it("maps provider-style Bedrock model aliases when no direct model is configured", () => {
     expect(
       resolveRuntimeModelSelection({
         requestedModelId: "claude-sonnet-4-6",
@@ -52,18 +52,18 @@ describe("resolveRuntimeModelSelection", () => {
     });
   });
 
-  it("passes model ids through for Cursor agent routes", () => {
+  it("maps aliases for AgentCore worker routes", () => {
     expect(
       resolveRuntimeModelSelection({
         requestedModelId: "claude-sonnet-4-6",
         route: agentRoute,
-        runtimeName: "cursor",
+        runtimeName: "agentcore",
         directModelId: "haiku-4-5",
       }),
     ).toMatchObject({
-      modelId: "claude-sonnet-4-6",
-      providerModelId: "claude-sonnet-4-6",
-      reason: "runtime_passthrough",
+      modelId: "haiku-4-5",
+      providerModelId: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      reason: "runtime_v2_direct_model_config",
     });
   });
 });

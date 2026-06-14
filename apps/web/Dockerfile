@@ -10,8 +10,8 @@ FROM base AS deps
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml* ./
 COPY apps/web/package.json apps/web/package.json
 COPY packages/agent/package.json packages/agent/package.json
+COPY packages/agent-runtime/package.json packages/agent-runtime/package.json
 COPY packages/auth/package.json packages/auth/package.json
-COPY packages/cursor-runtime/package.json packages/cursor-runtime/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/mcp-servers/package.json packages/mcp-servers/package.json
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
@@ -20,11 +20,8 @@ RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
 FROM base AS build
 COPY --from=deps /repo/node_modules ./node_modules
 COPY --from=deps /repo/apps/web/node_modules ./apps/web/node_modules
-COPY --from=deps /repo/packages/cursor-runtime/node_modules ./packages/cursor-runtime/node_modules
+COPY --from=deps /repo/packages/agent-runtime/node_modules ./packages/agent-runtime/node_modules
 COPY . .
-RUN mkdir -p /repo/apps/web/node_modules && \
-    ln -sfn "$(ls -d /repo/node_modules/.pnpm/@cursor+sdk@*/node_modules/@cursor | head -n 1)" \
-      /repo/apps/web/node_modules/@cursor
 RUN pnpm --filter @ai-workspace/web build
 
 FROM base AS migrator
@@ -42,8 +39,8 @@ ENV NODE_ENV=production
 COPY --from=deps /repo/node_modules ./node_modules
 COPY --from=deps /repo/apps/web/node_modules ./apps/web/node_modules
 COPY --from=deps /repo/packages/agent/node_modules ./packages/agent/node_modules
+COPY --from=deps /repo/packages/agent-runtime/node_modules ./packages/agent-runtime/node_modules
 COPY --from=deps /repo/packages/auth/node_modules ./packages/auth/node_modules
-COPY --from=deps /repo/packages/cursor-runtime/node_modules ./packages/cursor-runtime/node_modules
 COPY --from=deps /repo/packages/db/node_modules ./packages/db/node_modules
 COPY --from=deps /repo/packages/mcp-servers/node_modules ./packages/mcp-servers/node_modules
 COPY . .
@@ -63,16 +60,6 @@ RUN addgroup -S nextjs && adduser -S nextjs -G nextjs
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/standalone ./
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/public ./apps/web/public
-
-# Next.js standalone doesn't bundle serverExternalPackages and pnpm's strict
-# mode hides them under .pnpm/. Copy the full deps store, then symlink the
-# @cursor scope into web's node_modules so require("@cursor/sdk") from the
-# bundled chat route resolves; pnpm's in-store layout handles transitive deps.
-COPY --from=deps --chown=nextjs:nextjs /repo/node_modules /app/node_modules-deps
-RUN mkdir -p /app/apps/web/node_modules && \
-    ln -sfn "$(ls -d /app/node_modules-deps/.pnpm/@cursor+sdk@*/node_modules/@cursor | head -n 1)" \
-      /app/apps/web/node_modules/@cursor && \
-    chown -h nextjs:nextjs /app/apps/web/node_modules/@cursor
 
 USER nextjs
 EXPOSE 3000

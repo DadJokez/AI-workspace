@@ -1,6 +1,6 @@
 import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import { AuthConfigError } from "@ai-workspace/auth";
-import { getRuntime } from "@ai-workspace/cursor-runtime";
+import { getRuntime } from "@ai-workspace/agent-runtime";
 import { auditLog, getDb, runs } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";

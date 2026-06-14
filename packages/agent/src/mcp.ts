@@ -6,17 +6,16 @@ import type { Tool } from "./types";
 /**
  * MCP-backed tools for the Bedrock agent loop.
  *
- * This closes the gap called out in specs/002 ("the Bedrock path has no MCP
- * client"): per-turn remote MCP servers — the same `{url, headers}` specs the
- * Cursor runtime mounts — are connected over Streamable HTTP, their tools are
+ * Per-turn remote MCP servers — `{url, headers}` specs supplied by the app
+ * shell — are connected over Streamable HTTP, their tools are
  * listed, and each one is wrapped as a standard `Tool` whose handler proxies
  * `callTool`. The result plugs into the existing `ToolRegistry`/`runAgentLoop`
  * machinery unchanged, which is exactly what the registry's design notes
  * anticipated ("same shape will work for an out-of-process MCP-backed
  * registry later").
  *
- * Auth: per-user bearer headers ride `requestInit.headers` on the transport —
- * identical trust model to the Cursor mount (short-lived token, per turn).
+ * Auth: per-user bearer headers ride `requestInit.headers` on the transport
+ * as short-lived per-turn tokens.
  */
 
 export interface McpHttpServerSpec {

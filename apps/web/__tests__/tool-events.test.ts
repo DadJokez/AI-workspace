@@ -5,7 +5,7 @@ import {
 } from "@/lib/tool-events";
 
 describe("parseToolName", () => {
-  it("extracts provider and tool names from common Cursor/MCP names", () => {
+  it("extracts provider and tool names from common provider/MCP names", () => {
     expect(parseToolName("github.list_pull_requests")).toEqual({
       provider: "github",
       toolName: "list_pull_requests",

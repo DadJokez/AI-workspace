@@ -45,7 +45,7 @@ interface ChatRequestBody {
 /**
  * POST /api/chat accepts a chat turn, persists the user message, then chooses
  * the lightest runtime lane that can satisfy the request. Simple turns stream
- * inline. Durable/cloud work is queued for the background worker.
+ * inline. Durable work is queued for the AgentCore-backed worker.
  */
 export async function POST(req: Request) {
   const requestStartedAt = new Date();
@@ -332,10 +332,7 @@ export async function POST(req: Request) {
           type: "queued",
           threadId: thread.id,
           runId: chatRunId,
-          status:
-            runtimeRoute.lane === "cursor-cloud"
-              ? "Queued for Cursor Cloud worker"
-              : "Queued for durable worker",
+          status: "Queued for AgentCore worker",
         });
         controller.close();
         return;

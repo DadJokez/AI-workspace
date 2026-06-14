@@ -17,14 +17,13 @@ import type { AgentRuntime, McpServerSpec, TurnInput } from "./types";
  * regardless of which runtime is selected.
  *
  * Stateless: Bedrock's `converseStream` takes the full message history on
- * every turn. `threadId` is unused here but kept in the contract because the
- * Cursor runtime needs it.
+ * every turn. `threadId` is unused here but kept in the contract because
+ * AgentCore uses it for runtime session affinity.
  *
  * Tool support (specs/003 spike): per-turn HTTP MCP servers from
  * `input.mcpServers` are connected via `connectMcpTools` and registered
- * alongside any base tools for the duration of the turn — the same
- * provider-gated, short-lived-bearer mount the Cursor runtime performs. The
- * Bedrock lane is no longer the tool-less lane.
+ * alongside any base tools for the duration of the turn. The Bedrock lane is
+ * no longer the tool-less lane.
  */
 export class BedrockRuntime implements AgentRuntime {
   readonly name = "bedrock" as const;
@@ -86,11 +85,6 @@ export class BedrockRuntime implements AgentRuntime {
   }
 }
 
-/**
- * The Cursor SDK has no system-prompt option, so the shell sends user
- * context as a first-turn preamble. Bedrock *does* have a system prompt —
- * fold the preamble in so both runtimes see the same steering.
- */
 function composeSystemPrompt(input: TurnInput): string | undefined {
   const parts = [input.systemPrompt, input.firstTurnPreamble].filter(
     (p): p is string => typeof p === "string" && p.length > 0,

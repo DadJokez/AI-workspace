@@ -9,21 +9,20 @@
 AI Workspace should feel fast for ordinary chat without asking users to choose
 between "chat" and "agent" modes. The runtime should start with the simplest
 local streaming path that can satisfy the request, then escalate automatically
-when the user asks for tools, repository work, long-running execution, or
-Cursor Cloud.
+when the user asks for tools, repository work, or long-running execution.
 
-Runtime V2 keeps the current Cursor agent runtime, but stops using it as the
-default path for every turn. Simple chat streams directly through the local chat
-worker/web task. Tool and code work still use Cursor local or Cursor Cloud.
+Runtime V2 keeps one product-facing runtime seam, but stops using the queued
+worker path as the default for every turn. Simple chat streams directly through
+the web task on Bedrock. Tool work stays inline on Bedrock with MCP. Code and
+durable work uses AgentCore.
 
 ## Experience Goals
 
-- Normal chat starts streaming quickly and does not create a fresh Cursor agent
-  unless it needs agent capabilities.
+- Normal chat starts streaming quickly and does not create a queued worker run
+  unless it needs durable execution.
 - The user does not need a mode toggle for ordinary operation.
-- Explicit "run in cloud" remains available as a one-shot escape hatch.
-- The router can explain why a turn used direct chat, local agent, durable
-  worker, or Cursor Cloud.
+- The router can explain why a turn used direct chat, tool-enabled chat, or a
+  durable worker.
 - Every run stores timing marks, including first-token latency, so we can
   compare runtime changes with real production data.
 
@@ -32,21 +31,20 @@ worker/web task. Tool and code work still use Cursor local or Cursor Cloud.
 | Lane | Target | Worker | Tools | Used For |
 | --- | --- | --- | --- | --- |
 | `fast-local` | `direct-chat` | no | no | Ordinary chat, lightweight reasoning, vault-aware answers |
-| `tool-local` | `cursor-agent` | no | yes | GitHub/MCP inspection and interactive tool turns |
-| `durable-local` | `cursor-agent` | yes | yes | Code changes, repo work, tests, deploys, long-running work |
-| `cursor-cloud` | `cursor-agent` | yes | yes | Explicit cloud request or future policy-driven cloud escalation |
+| `tool-local` | `bedrock-agent` | no | yes | GitHub/MCP inspection and interactive tool turns |
+| `durable-local` | `agentcore-worker` | yes | yes | Code changes, repo work, tests, deploys, long-running work |
 
 The key design choice: this is an autopilot, not a product toggle. The route is
 derived from the prompt, request metadata, and run history.
 
 ## First Slice
 
-1. Add `runtimeTarget: "direct-chat" | "cursor-agent"` to the chat route.
+1. Add `runtimeTarget: "direct-chat" | "bedrock-agent" | "agentcore-worker"` to the chat route.
 2. Gate direct chat behind `RUNTIME_V2_ENABLED=1`.
 3. Make `fast-local` use the Bedrock-backed direct runtime when Runtime V2 is
    enabled.
-4. Keep all tool, durable, and explicit cloud turns on Cursor agent runtime.
-5. Map Cursor-facing model ids to Bedrock model ids for direct chat.
+4. Keep tool turns on Bedrock with MCP and durable turns on AgentCore.
+5. Map provider-facing model ids to Bedrock model ids for direct chat.
 6. Store route/runtime/model choices in `recipe_runs.inputs` and
    `recipe_runs.outputs`.
 7. Record timing marks:
@@ -84,7 +82,6 @@ is unlikely to be enough:
 - GitHub, PR, issue, CI, or repository inspection -> `tool-local`
 - code changes, tests, deploys, migrations, infra, or background work ->
   `durable-local`
-- explicit cloud request -> `cursor-cloud`
 - personal context/vault request -> `fast-local` with vault context
 
 Future slices can add richer escalation using a cheap classifier, tool registry
@@ -108,9 +105,9 @@ Each chat run should store a `metrics` object in outputs:
 
 The first useful comparison is simple:
 
-- Runtime V1 `fast-local` using Cursor agent
 - Runtime V2 `fast-local` using direct chat
-- Runtime V2 `tool-local` using Cursor agent
+- Runtime V2 `tool-local` using Bedrock + MCP
+- Runtime V2 `durable-local` using AgentCore
 
 ## Rollout
 
@@ -119,7 +116,7 @@ The first useful comparison is simple:
 3. Run production-like smoke tests through the preview URL.
 4. Compare first-token latency and total duration in `/admin/runs`.
 5. If the numbers are good, enable Runtime V2 on production web only.
-6. Keep Cursor agent and Cursor Cloud unchanged for rollback.
+6. Keep the previous production image available for rollback during deployment.
 
 ## Open Follow-Ups
 

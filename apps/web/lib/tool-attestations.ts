@@ -16,8 +16,8 @@ export interface ProviderGateResult {
 }
 
 /**
- * Current Cursor MCP enforcement point is provider mounting: if a provider is
- * not approved, we do not expose its MCP server to the runtime for this turn.
+ * Current MCP enforcement point is provider mounting: if a provider is not
+ * approved, we do not expose its MCP server to the runtime for this turn.
  * Tool/category rows are still loaded for the future lower-level MCP proxy,
  * but only provider-scope attestations can safely expose a whole provider.
  */

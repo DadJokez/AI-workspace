@@ -18,9 +18,8 @@ import { pickHttpMcpServers } from "./bedrock-runtime";
  *
  * Auth model: SigV4 from this service's IAM role to AgentCore
  * (`bedrock-agentcore:InvokeAgentRuntime`); per-user MCP bearer tokens ride
- * inside the payload over TLS exactly as they ride to Cursor today.
- * AgentCore Identity/Gateway can replace that transit later without touching
- * this seam.
+ * inside the payload over TLS. AgentCore Identity/Gateway can replace that
+ * transit later without touching this seam.
  */
 export interface AgentCoreRuntimeOptions {
   /** ARN of the AgentCore Runtime (AGENTCORE_RUNTIME_ARN). */

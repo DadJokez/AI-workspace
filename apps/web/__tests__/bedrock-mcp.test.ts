@@ -4,7 +4,7 @@ import type {
   BedrockClient,
   BedrockStreamEvent,
 } from "@ai-workspace/agent";
-import { BedrockRuntime } from "@ai-workspace/cursor-runtime";
+import { BedrockRuntime } from "@ai-workspace/agent-runtime";
 import {
   startTestMcpServer,
   type TestMcpServer,

@@ -11,7 +11,7 @@ import {
   getRuntime,
   type RuntimeName,
   type RuntimeRunMetadata,
-} from "@ai-workspace/cursor-runtime";
+} from "@ai-workspace/agent-runtime";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
@@ -117,8 +117,6 @@ export async function streamInlineChatRun({
   });
   const runtimeModelId = modelSelection.modelId;
   const runtime = getRuntime({
-    db,
-    executionMode: "local",
     runtime: runtimeName,
   });
   const runtimeAbort = new AbortController();
@@ -301,13 +299,10 @@ export async function streamInlineChatRun({
       for await (const ev of runtime.runTurn({
         threadId: thread.id,
         modelId: runtimeModelId,
-        systemPrompt:
-          route.runtimeTarget === "direct-chat" ? firstTurnPreamble : undefined,
+        systemPrompt: firstTurnPreamble,
         messages: agentMessages,
         context: { userId },
         signal: runtimeAbort.signal,
-        firstTurnPreamble:
-          route.runtimeTarget === "cursor-agent" ? firstTurnPreamble : undefined,
         onRunStarted: async (metadata) => {
           timing.providerStartedAt = new Date();
           providerRunMetadata = metadata;
@@ -722,9 +717,9 @@ async function nextRunEventSequence(
 }
 
 function resolveRuntimeName(route: ChatRuntimeRoute): RuntimeName {
-  if (route.runtimeTarget !== "direct-chat") return "cursor";
+  if (route.runtimeTarget === "agentcore-worker") return "agentcore";
   const raw = process.env.RUNTIME_V2_DIRECT_RUNTIME?.trim().toLowerCase();
-  if (raw === "bedrock" || raw === "cursor") return raw;
+  if (raw === "bedrock") return raw;
   return "bedrock";
 }
 
