@@ -26,6 +26,7 @@ const UUID_RE =
 const MAX_BODY = 4000;
 const MAX_EXPECTED = 2000;
 const MAX_TITLE = 140;
+const MAX_METADATA_JSON = 8_000;
 const MAX_SCREENSHOT_DATA_URL = 1_500_000;
 const ALLOWED_SCREENSHOT_MIME_TYPES = new Set([
   "image/png",
@@ -95,9 +96,20 @@ function titleFrom(body: string, title?: string): string {
   return normalized.slice(0, MAX_TITLE) || "Feedback report";
 }
 
-function cleanMetadata(value: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(value)) return undefined;
-  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+type CleanMetadataResult =
+  | { ok: true; value: Record<string, unknown> | undefined }
+  | { ok: false };
+
+function cleanMetadata(value: unknown): CleanMetadataResult {
+  if (!isRecord(value)) return { ok: true, value: undefined };
+  const serialized = JSON.stringify(value);
+  if (serialized.length > MAX_METADATA_JSON) {
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    value: JSON.parse(serialized) as Record<string, unknown>,
+  };
 }
 
 async function visibleThreadId({
@@ -201,8 +213,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "body_required" }, { status: 400 });
   }
 
-  const context = body.includeContext === false ? undefined : cleanMetadata(body.context);
-  const viewport = cleanMetadata(body.viewport);
+  const contextResult =
+    body.includeContext === false
+      ? ({ ok: true, value: undefined } as const)
+      : cleanMetadata(body.context);
+  const viewportResult = cleanMetadata(body.viewport);
+  if (!contextResult.ok || !viewportResult.ok) {
+    return NextResponse.json({ error: "metadata_too_large" }, { status: 413 });
+  }
+  const context = contextResult.value;
+  const viewport = viewportResult.value;
   const threadCandidate = cleanUuid(context?.threadId);
   const visibleThread = await visibleThreadId({
     threadId: threadCandidate,

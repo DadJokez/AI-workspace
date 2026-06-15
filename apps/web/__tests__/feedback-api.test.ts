@@ -118,6 +118,42 @@ describe("POST /api/feedback", () => {
     expect(capturedInsert).toBeUndefined();
   });
 
+  it("rejects oversized context metadata instead of storing hidden blobs", async () => {
+    installMocks();
+
+    const { POST } = await import("@/app/api/feedback/route");
+    const res = await POST(
+      makeReq({
+        body: "The context payload should be rejected.",
+        context: { notes: "x".repeat(8_001) },
+      }),
+    );
+
+    expect(res.status).toBe(413);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "metadata_too_large",
+    });
+    expect(capturedInsert).toBeUndefined();
+  });
+
+  it("rejects oversized viewport metadata instead of storing hidden blobs", async () => {
+    installMocks();
+
+    const { POST } = await import("@/app/api/feedback/route");
+    const res = await POST(
+      makeReq({
+        body: "The viewport payload should be rejected.",
+        viewport: { layout: "x".repeat(8_001) },
+      }),
+    );
+
+    expect(res.status).toBe(413);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "metadata_too_large",
+    });
+    expect(capturedInsert).toBeUndefined();
+  });
+
   it("drops unsafe page URLs before storing admin-clickable links", async () => {
     installMocks();
 
