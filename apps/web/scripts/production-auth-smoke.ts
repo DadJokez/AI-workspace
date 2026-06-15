@@ -1,5 +1,6 @@
 import { encode } from "next-auth/jwt";
 import {
+  closeDb,
   getDb,
   memoryCaptureQueue,
   runs,
@@ -360,10 +361,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.stack ?? err.message : String(err));
-  console.error(
-    `production authenticated smoke failed for ${baseUrl} user=${SMOKE_USER_ID} thread=${state.threadId ?? "n/a"} run=${state.runId ?? "n/a"} artifact=${state.artifactId ?? "n/a"}`,
-  );
-  process.exit(1);
-});
+async function closeDbForExit() {
+  try {
+    await closeDb();
+  } catch (err) {
+    console.error(
+      err instanceof Error
+        ? `failed to close smoke DB client: ${err.message}`
+        : "failed to close smoke DB client",
+    );
+  }
+}
+
+main()
+  .then(async () => {
+    await closeDbForExit();
+    process.exit(0);
+  })
+  .catch(async (err) => {
+    await closeDbForExit();
+    console.error(err instanceof Error ? err.stack ?? err.message : String(err));
+    console.error(
+      `production authenticated smoke failed for ${baseUrl} user=${SMOKE_USER_ID} thread=${state.threadId ?? "n/a"} run=${state.runId ?? "n/a"} artifact=${state.artifactId ?? "n/a"}`,
+    );
+    process.exit(1);
+  });

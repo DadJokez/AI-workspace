@@ -19,11 +19,21 @@ describe("TOUR_STEPS", () => {
   });
 
   it("keeps the tour short and ids/anchors unique", () => {
-    expect(TOUR_STEPS.length).toBeLessThanOrEqual(5);
+    expect(TOUR_STEPS.length).toBeLessThanOrEqual(6);
     const ids = TOUR_STEPS.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
     const anchors = TOUR_STEPS.map((s) => s.anchor).filter(Boolean);
     expect(new Set(anchors).size).toBe(anchors.length);
+  });
+
+  it("explains the alpha feedback loop", () => {
+    const feedback = TOUR_STEPS.find((step) => step.id === "feedback");
+    expect(feedback).toMatchObject({
+      anchor: "nav-feedback",
+      title: expect.stringContaining("broke"),
+    });
+    expect(feedback?.body).toContain("current chat context");
+    expect(feedback?.body).toContain("admin inbox");
   });
 
   it("anchors only to surfaces that exist in the shell", () => {
@@ -36,6 +46,7 @@ describe("TOUR_STEPS", () => {
       "nav-tools",
       "nav-vault",
       "nav-workspace",
+      "nav-feedback",
     ]);
     for (const step of TOUR_STEPS) {
       if (step.anchor) expect(known.has(step.anchor)).toBe(true);
