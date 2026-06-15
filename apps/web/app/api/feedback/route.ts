@@ -27,6 +27,12 @@ const MAX_BODY = 4000;
 const MAX_EXPECTED = 2000;
 const MAX_TITLE = 140;
 const MAX_SCREENSHOT_DATA_URL = 1_500_000;
+const ALLOWED_SCREENSHOT_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+]);
 
 interface FeedbackContext {
   threadId?: unknown;
@@ -61,6 +67,19 @@ function cleanString(value: unknown, max: number): string | undefined {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   return trimmed.slice(0, max);
+}
+
+function cleanExternalUrl(value: unknown): string | undefined {
+  const raw = cleanString(value, 1000);
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.toString()
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function cleanUuid(value: unknown): string | undefined {
@@ -203,8 +222,22 @@ export async function POST(req: Request) {
     body.screenshotDataUrl,
     MAX_SCREENSHOT_DATA_URL,
   );
-  if (screenshotDataUrl && !screenshotDataUrl.startsWith("data:image/")) {
-    return NextResponse.json({ error: "invalid_screenshot" }, { status: 400 });
+  let screenshotMimeType = screenshotDataUrl
+    ? cleanString(body.screenshotMimeType, 80)
+    : undefined;
+  if (screenshotDataUrl) {
+    const match = /^data:([^;,]+);base64,/i.exec(screenshotDataUrl);
+    const dataUrlMimeType = match?.[1]?.toLowerCase();
+    const declaredMimeType = screenshotMimeType?.toLowerCase();
+    const effectiveMimeType = dataUrlMimeType ?? declaredMimeType;
+    if (
+      !effectiveMimeType ||
+      !ALLOWED_SCREENSHOT_MIME_TYPES.has(effectiveMimeType) ||
+      (declaredMimeType !== undefined && declaredMimeType !== effectiveMimeType)
+    ) {
+      return NextResponse.json({ error: "invalid_screenshot" }, { status: 400 });
+    }
+    screenshotMimeType = effectiveMimeType;
   }
 
   const [chatMessageId, runId, artifactId] = await Promise.all([
@@ -236,13 +269,13 @@ export async function POST(req: Request) {
       title: titleFrom(reportBody, cleanString(body.title, MAX_TITLE)),
       body: reportBody,
       expected: cleanString(body.expected, MAX_EXPECTED),
-      pageUrl: cleanString(body.pageUrl, 1000),
+      pageUrl: cleanExternalUrl(body.pageUrl),
       userAgent: cleanString(body.userAgent, 500),
       viewport,
       context,
       screenshotDataUrl,
       screenshotName: cleanString(body.screenshotName, 180),
-      screenshotMimeType: cleanString(body.screenshotMimeType, 80),
+      screenshotMimeType,
     })
     .returning({
       id: feedbackReports.id,

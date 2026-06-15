@@ -19,6 +19,12 @@ interface Props {
 }
 
 const MAX_SCREENSHOT_BYTES = 1_100_000;
+const ALLOWED_SCREENSHOT_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+]);
 
 export function FeedbackReporter({ open, context, onClose }: Props) {
   const [type, setType] = useState("bug");
@@ -46,8 +52,8 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
   if (!open) return null;
 
   async function readScreenshot(file: File) {
-    if (!file.type.startsWith("image/")) {
-      setError("Screenshot must be an image file.");
+    if (!ALLOWED_SCREENSHOT_MIME_TYPES.has(file.type)) {
+      setError("Screenshot must be PNG, JPG, GIF, or WebP.");
       return;
     }
     if (file.size > MAX_SCREENSHOT_BYTES) {
@@ -236,7 +242,7 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
                   Attach screenshot
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/png,image/jpeg,image/gif,image/webp"
                     className="sr-only"
                     onChange={(e) => {
                       const file = e.target.files?.[0];

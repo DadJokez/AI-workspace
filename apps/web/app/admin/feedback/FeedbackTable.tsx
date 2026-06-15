@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 
 export interface AdminFeedbackRow {
@@ -15,7 +16,9 @@ export interface AdminFeedbackRow {
   expected: string | null;
   pageUrl: string | null;
   userAgent: string | null;
+  screenshotDataUrl: string | null;
   screenshotName: string | null;
+  screenshotMimeType: string | null;
   linkedIssueUrl: string | null;
   adminNotes: string | null;
   createdAt: string;
@@ -29,6 +32,33 @@ const STATUS_OPTIONS = [
   { value: "fixed", label: "Fixed" },
   { value: "wontfix", label: "Won't fix" },
 ];
+
+const SAFE_SCREENSHOT_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+]);
+
+function safeExternalHref(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function canRenderScreenshot(row: AdminFeedbackRow): boolean {
+  return Boolean(
+    row.screenshotDataUrl &&
+      row.screenshotMimeType &&
+      SAFE_SCREENSHOT_MIME_TYPES.has(row.screenshotMimeType),
+  );
+}
 
 export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
   const [items, setItems] = useState(rows);
@@ -94,7 +124,10 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
             </tr>
           </thead>
           <tbody>
-            {items.map((row) => (
+            {items.map((row) => {
+              const pageHref = safeExternalHref(row.pageUrl);
+              const showScreenshot = canRenderScreenshot(row);
+              return (
               <tr key={row.id} className="border-b border-hairline align-top last:border-0">
                 <td className="max-w-xl px-3 py-3">
                   <div className="font-medium text-ink">{row.title}</div>
@@ -109,9 +142,9 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
                   <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted">
                     <span>{formatType(row.type)}</span>
                     {row.threadTitle ? <span>Thread: {row.threadTitle}</span> : null}
-                    {row.pageUrl ? (
+                    {pageHref ? (
                       <a
-                        href={row.pageUrl}
+                        href={pageHref}
                         target="_blank"
                         rel="noreferrer"
                         className="text-ink underline decoration-hairline underline-offset-2"
@@ -122,6 +155,21 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
                     {row.screenshotName ? <span>Screenshot: {row.screenshotName}</span> : null}
                     <span>{new Date(row.createdAt).toLocaleString()}</span>
                   </div>
+                  {showScreenshot ? (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-[12px] text-muted hover:text-ink">
+                        Screenshot
+                      </summary>
+                      <Image
+                        src={row.screenshotDataUrl!}
+                        alt={`Screenshot for ${row.title}`}
+                        width={720}
+                        height={405}
+                        unoptimized
+                        className="mt-2 h-auto max-h-72 max-w-full rounded-md border border-hairline object-contain"
+                      />
+                    </details>
+                  ) : null}
                   <details className="mt-2">
                     <summary className="cursor-pointer text-[12px] text-muted hover:text-ink">
                       Triage notes
@@ -155,7 +203,8 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
                   </select>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

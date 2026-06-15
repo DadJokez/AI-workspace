@@ -118,6 +118,40 @@ describe("POST /api/feedback", () => {
     expect(capturedInsert).toBeUndefined();
   });
 
+  it("drops unsafe page URLs before storing admin-clickable links", async () => {
+    installMocks();
+
+    const { POST } = await import("@/app/api/feedback/route");
+    const res = await POST(
+      makeReq({
+        body: "The admin link must not execute script.",
+        pageUrl: "javascript:fetch('/api/admin/users')",
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    expect(capturedInsert?.pageUrl).toBeUndefined();
+  });
+
+  it("rejects SVG screenshots before they can be rendered in admin", async () => {
+    installMocks();
+
+    const { POST } = await import("@/app/api/feedback/route");
+    const res = await POST(
+      makeReq({
+        body: "SVG screenshots are not allowed.",
+        screenshotDataUrl: "data:image/svg+xml;base64,PHN2Zy8+",
+        screenshotMimeType: "image/svg+xml",
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "invalid_screenshot",
+    });
+    expect(capturedInsert).toBeUndefined();
+  });
+
   it("stores a scoped feedback report with visible context", async () => {
     selectQueues = [
       [{ id: THREAD_ID }],
