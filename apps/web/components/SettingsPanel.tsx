@@ -318,7 +318,7 @@ export function SettingsPanel({
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-[12px] text-muted">
                     Replay the two-minute walkthrough of chat, Skills, Apps,
-                    and permissions.
+                    feedback, and permissions.
                   </p>
                   <button
                     type="button"

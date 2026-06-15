@@ -47,6 +47,12 @@ export const TOUR_STEPS: readonly TourStep[] = [
     title: "You're in control",
     body: "Tools shows exactly what's connected and what the agent may touch — you approve every provider. Recommendations are explicit, dismissible, and everything the agent does lands in an audit trail.",
   },
+  {
+    id: "feedback",
+    anchor: "nav-feedback",
+    title: "Tell us what broke or felt weird",
+    body: "Feedback sends a structured report with the current chat context, page, browser details, and an optional screenshot. It lands in the admin inbox so alpha issues can become fixes without copy/paste archaeology.",
+  },
 ];
 
 export interface TourUser {
