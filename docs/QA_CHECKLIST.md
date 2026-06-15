@@ -89,8 +89,8 @@ unmarked items need a human eye for visual / device-specific verification.
 - [x] **`[AUTOMATE]` Vault renders seeded memory.** Open "Vault" from the sidebar → expect approved and suggested memory to render in the active theme.
 - [x] **`[AUTOMATE]` "New chat" from drawer closes drawer + opens new tab.** Tap "New chat" inside the drawer → expect drawer closes AND a new empty tab appears in the tab strip, becomes active.
 - [ ] **Touch targets ≥ 44px.** Visual/measurement: hamburger, X close, sidebar nav items, "New chat", and send button all measure ≥ 44px tall in mobile mode.
-- [ ] **Tab strip scrolls horizontally.** Open 4–5 tabs on a 375px viewport → expect the tabs container scrolls horizontally, the active tab stays visible after switching.
-- [ ] **Tab close buttons visible without hover on mobile.** With multiple tabs at < md, each tab shows its X icon at all times. (At ≥ md, the X is hidden and only appears on hover.)
+- [x] **`[AUTOMATE]` Tab strip scrolls horizontally.** Open 4–5 tabs on a 375px viewport → expect the tabs container scrolls horizontally, the active tab stays visible after switching.
+- [x] **`[AUTOMATE]` Tab close buttons visible without hover on mobile.** With multiple tabs at < md, each tab shows its X icon at all times. (At ≥ md, the X is hidden and only appears on hover.)
 - [ ] **`[AUTOMATE]` Input not zoomed on focus (iOS).** On Safari iOS, tap into the textarea → expect the page does NOT auto-zoom (textarea font is 16px on mobile to suppress this).
 - [ ] **Input bar pinned to bottom.** Visually verify on iPhone Safari with the URL bar collapsed and expanded: input bar always touches the visible bottom edge.
 - [ ] **Input bar above keyboard.** Tap into the textarea on iPhone → expect the input bar to remain visible above the on-screen keyboard. (Caveat: iOS Safari behavior with `dvh` is best-effort; the message list above the input may shrink.)
@@ -107,14 +107,14 @@ unmarked items need a human eye for visual / device-specific verification.
 - [x] **`[AUTOMATE]` Each tab has independent messages.** Send "tab A" in tab 1, switch to tab 2, send "tab B" in tab 2, switch back to tab 1 → expect tab 1 still shows "tab A" and its assistant response only; tab 2 shows "tab B" and its response only.
 - [x] **`[AUTOMATE]` Each tab has independent threadId.** After sending in two tabs, inspect Network → expect each tab's requests use different `threadId` values.
 - [x] **`[AUTOMATE]` Tab title auto-derives from first message.** Send "What is in my email?" in a fresh tab → expect the tab title becomes "What is in my email?" (truncated at 32 chars + `…` if longer).
-- [x] **Tab title doesn't change after the first message.** Send a second message in the same tab → expect the tab title remains the original.
+- [x] **`[AUTOMATE]` Tab title doesn't change after the first message.** Send a second message in the same tab → expect the tab title remains the original.
 - [x] **`[AUTOMATE]` Switching tabs while one is busy.** While tab 1 is generating, switch to tab 2 → expect tab 2's input is enabled (independent busy state); switching back to tab 1 still shows pending state and incoming text.
 - [x] **`[AUTOMATE]` Busy indicator dot.** A tab with a request in flight shows a small pulsing dot to the left of its title. The dot disappears when the response finishes.
 - [x] **`[AUTOMATE]` Closing a tab.** Click X on a non-active tab → expect that tab disappears, active tab stays.
 - [x] **`[AUTOMATE]` Closing the active tab.** Click X on the active tab (when others exist) → expect the previous tab (left neighbor, falling back to first) becomes active.
 - [x] **Last tab cannot be closed.** With only one tab open, expect no X button is shown on it.
 - [x] **Runtime v2 hides per-tab model picking.** With Runtime v2 enabled, expect no chat-level model dropdown; routing/model choice is handled by the runtime while the assistant label still records the model used.
-- [ ] **Tabs persist across reload.** Open 3 tabs, refresh the page → expect the same tab set and active tab to return from local storage. Server-side threads still remain the source of truth for persisted conversations.
+- [x] **`[AUTOMATE]` Tabs persist across reload.** Open 3 tabs, refresh the page → expect the same tab set and active tab to return from local storage. Server-side threads still remain the source of truth for persisted conversations.
 
 ---
 

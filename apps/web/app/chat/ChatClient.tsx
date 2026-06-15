@@ -393,6 +393,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     useState<string>();
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const tabButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const stickToBottomRef = useRef(true);
   const loadingThreadsRef = useRef<Set<string>>(new Set());
   const streamAbortRef = useRef<AbortController | null>(null);
@@ -977,6 +978,12 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [activeId]);
+
+  useEffect(() => {
+    const button = tabButtonRefs.current.get(activeId);
+    if (!button) return;
+    button.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeId, tabs.length]);
 
   function handleScroll() {
     const el = scrollRef.current;
@@ -1696,7 +1703,10 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
               <path d="M2 4h12M2 8h12M2 12h12" />
             </svg>
           </button>
-          <div className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto px-2">
+          <div
+            data-testid="chat-tab-strip"
+            className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto px-2"
+          >
             {tabs.map((t) => {
               const active = t.id === activeId;
               return (
@@ -1710,6 +1720,14 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                 >
                   <button
                     type="button"
+                    ref={(node) => {
+                      if (node) {
+                        tabButtonRefs.current.set(t.id, node);
+                      } else {
+                        tabButtonRefs.current.delete(t.id);
+                      }
+                    }}
+                    data-testid="chat-tab-button"
                     onClick={() => selectTab(t.id)}
                     className="flex min-w-0 flex-1 items-center gap-1.5"
                   >
