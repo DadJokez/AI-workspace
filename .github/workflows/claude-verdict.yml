@@ -1,0 +1,70 @@
+name: Claude Verdict
+
+# Publishes a commit status named `Claude verdict` for branch protection.
+# New PR commits are blocked until the automatic Claude review marks the exact
+# head SHA as reviewed; `needs-codex` keeps the verdict red.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to evaluate"
+        required: true
+      sha:
+        description: "Optional head SHA; defaults to the PR head"
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+  statuses: write
+
+jobs:
+  verdict:
+    name: Publish Claude verdict
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          github.event_name == 'pull_request_target' ||
+          github.event.pull_request != null }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish Claude verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}
+          SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.event.pull_request.head.sha }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SHA:-}" ]; then
+            SHA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq '.headRefOid')
+          fi
+
+          state="success"
+          description="Claude review passed for this commit"
+          marker="<!-- claude-reviewed: $SHA -->"
+
+          if gh api "repos/$REPO/issues/$PR_NUMBER/labels" --paginate --jq '.[].name' \
+              | grep -qx "needs-codex"; then
+            state="failure"
+            description="Claude requested changes; needs-codex is present"
+          elif ! gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate --jq '.[].body' \
+              | grep -qF "$marker"; then
+            state="failure"
+            description="Claude review has not passed for this commit"
+          fi
+
+          gh api -X POST "repos/$REPO/statuses/$SHA" \
+            -f state="$state" \
+            -f context="Claude verdict" \
+            -f description="$description" \
+            -f target_url="$TARGET_URL" >/dev/null
+
+          echo "Claude verdict: $state - $description"
