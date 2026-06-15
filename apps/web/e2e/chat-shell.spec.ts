@@ -94,6 +94,13 @@ test.describe("chat shell guardrails", () => {
         name: "Draft a concise project status update for my team",
       })
       .click();
+    const suggestionBubble = page
+      .locator("main")
+      .locator(".justify-end")
+      .filter({
+        hasText: "Draft a concise project status update for my team",
+      });
+    await expect(suggestionBubble).toBeVisible();
     await expect(page.getByText("Suggestion answer streamed in.")).toBeVisible();
     await expect(page.getByText("Thomas · haiku-4-5")).toBeVisible();
 
@@ -104,6 +111,12 @@ test.describe("chat shell guardrails", () => {
     await expect(input).toHaveValue("line one\nline two");
     await input.press("Enter");
 
+    const multilineBubble = page
+      .locator("main")
+      .locator(".whitespace-pre-wrap")
+      .filter({ hasText: "line one\nline two" });
+    await expect(multilineBubble).toBeVisible();
+    await expect(multilineBubble).toHaveText("line one\nline two");
     await expect(page.getByText("Multiline answer streamed in.")).toBeVisible();
     expect(chatBodies).toHaveLength(2);
     expect(chatBodies[0]?.message).toBe(
@@ -259,8 +272,13 @@ test.describe("chat shell guardrails", () => {
     await openMenu.click();
     await expect(sidebar).toBeInViewport();
 
-    const viewport = page.viewportSize();
-    await page.mouse.click((viewport?.width ?? 390) - 8, 80);
+    const backdrop = page.getByTestId("sidebar-backdrop");
+    await expect(backdrop).toBeVisible();
+    const backdropBox = await backdrop.boundingBox();
+    expect(backdropBox).toBeTruthy();
+    await backdrop.click({
+      position: { x: (backdropBox?.width ?? 390) - 8, y: 80 },
+    });
     await expect(sidebar).not.toBeInViewport();
 
     await openMenu.click();

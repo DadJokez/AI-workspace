@@ -296,6 +296,7 @@ export function Sidebar({
     <>
       <div
         aria-hidden="true"
+        data-testid="sidebar-backdrop"
         onClick={onClose}
         className={`fixed inset-0 z-30 bg-black/40 transition-opacity md:hidden ${
           open ? "opacity-100" : "pointer-events-none opacity-0"
