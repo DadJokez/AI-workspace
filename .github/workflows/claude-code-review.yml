@@ -18,6 +18,7 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
+  statuses: write
 
 concurrency:
   # Serialize per commit so the two gate workflows can't double-review.
@@ -81,6 +82,7 @@ jobs:
           fetch-depth: 1
 
       - name: Claude review
+        id: claude_review
         if: steps.gate.outputs.go == 'true'
         uses: anthropics/claude-code-action@v1
         with:
@@ -108,4 +110,43 @@ jobs:
             changes, also run:
               gh pr edit ${{ steps.gate.outputs.pr }} --add-label needs-codex
             and say clearly what Codex should fix on the same branch. If it's clean,
-            say so. Do NOT push commits and do NOT merge — Rob owns merges.
+            say so and remove a stale needs-codex label if present with:
+              gh pr edit ${{ steps.gate.outputs.pr }} --remove-label needs-codex
+            Do NOT push commits and do NOT merge — Rob owns merges.
+
+      - name: Publish Claude verdict
+        if: always() && steps.gate.outputs.go == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.gate.outputs.pr }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          CLAUDE_OUTCOME: ${{ steps.claude_review.outcome }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          state="success"
+          description="Claude review passed for this commit"
+          marker="<!-- claude-reviewed: $SHA -->"
+
+          if [ "$CLAUDE_OUTCOME" != "success" ]; then
+            state="failure"
+            description="Claude review failed to complete"
+          elif gh api "repos/$REPO/issues/$PR_NUMBER/labels" --paginate --jq '.[].name' \
+              | grep -qx "needs-codex"; then
+            state="failure"
+            description="Claude requested changes; needs-codex is present"
+          elif ! gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate --jq '.[].body' \
+              | grep -qF "$marker"; then
+            state="failure"
+            description="Claude review has not passed for this commit"
+          fi
+
+          gh api -X POST "repos/$REPO/statuses/$SHA" \
+            -f state="$state" \
+            -f context="Claude verdict" \
+            -f description="$description" \
+            -f target_url="$TARGET_URL" >/dev/null
+
+          echo "Claude verdict: $state - $description"

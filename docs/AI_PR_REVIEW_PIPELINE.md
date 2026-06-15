@@ -17,33 +17,53 @@ GitHub Actions, and human review in this repository.
 1. Rob prompts Codex with a scoped task.
 2. Codex creates a focused branch, implements the task, validates locally when
    practical, and opens a PR.
-3. GitHub Actions runs `CI`.
-4. `CI` must include lint, typecheck, unit tests, build, and the local
-   Playwright browser smoke tests.
-5. Claude Code runs only after `CI` completes successfully.
-6. Claude reviews the PR against `CLAUDE.md`.
-7. If Claude approves, Rob reviews and merges.
-8. If Claude requests changes, Claude applies the `needs-codex` label.
-9. Rob re-prompts Codex to address the review comments on that PR.
-10. Codex pushes follow-up commits to the same branch, restarting the loop.
+3. GitHub Actions runs `CI` and `Product Smoke`.
+4. `CI` must include lint, typecheck, unit tests, and build. `Product Smoke`
+   must include the local Playwright browser smoke tests.
+5. New PR commits get a failing `Claude verdict` status until Claude reviews
+   that exact head SHA.
+6. Claude Code runs only after `CI` and `Product Smoke` both complete
+   successfully for the same commit.
+7. Claude reviews the PR against `CLAUDE.md`.
+8. If Claude is clean, Claude removes any stale `needs-codex` label and the
+   `Claude verdict` status turns green.
+9. If Claude requests changes, Claude applies the `needs-codex` label and the
+   `Claude verdict` status stays red.
+10. If Claude fails to complete, the `Claude verdict` status stays red.
+11. Rob re-prompts Codex to address the review comments on that PR.
+12. Codex pushes follow-up commits to the same branch, restarting the loop.
+13. Rob reviews and merges only after the required checks, including
+    `Claude verdict`, are green.
 
 ## Required Repository State
 
-- `.github/workflows/ci.yml` is the single green gate for automated review.
+- `.github/workflows/ci.yml` runs lint, typecheck, unit tests, and build.
+- `.github/workflows/product-smoke.yml` runs the local Playwright browser
+  smoke tests.
 - `.github/workflows/claude.yml` handles explicit `@claude` mentions.
 - `.github/workflows/claude-code-review.yml` handles automatic review after
-  `CI` succeeds.
+  `CI` and `Product Smoke` both succeed, then publishes the final
+  `Claude verdict` commit status.
+- `.github/workflows/claude-verdict.yml` publishes an initial red
+  `Claude verdict` status for new PR commits and refreshes the status when
+  labels or reviews change.
 - `CLAUDE.md` contains Claude's review rubric.
 - `AGENTS.md` contains Codex's repository instructions and should reference this
   document.
 - The GitHub label `needs-codex` exists.
-- The repository has the `ANTHROPIC_API_KEY` Actions secret configured.
+- The repository has the `CLAUDE_CODE_OAUTH_TOKEN` Actions secret configured.
 - Codex Cloud has GitHub access for this repository.
+- Branch protection for `main` requires:
+  - `lint + typecheck + build`
+  - `local browser smoke`
+  - `Claude verdict`
+  - at least one approving review
 
 ## Claude Review Gate
 
 The automatic Claude review workflow should trigger from `workflow_run` on the
-`CI` workflow and should only run when the conclusion is `success`.
+`CI` and `Product Smoke` workflows and should only run after both conclusions
+are `success` for the same commit.
 
 Claude should review the pull request associated with the workflow run, not the
 Actions run URL. If the workflow cannot resolve exactly one pull request, it
@@ -51,6 +71,15 @@ should stop instead of guessing.
 
 Claude may read files, inspect diffs, and use `gh` for PR metadata, checks,
 comments, labels, and reviews. It must not push commits or merge PRs.
+
+The required `Claude verdict` status is the mechanical merge gate:
+
+- `failure` if the current head SHA does not have a
+  `<!-- claude-reviewed: SHA -->` marker.
+- `failure` if the PR has the `needs-codex` label.
+- `failure` if the Claude Code review action fails to complete.
+- `success` only when the current head SHA was reviewed and `needs-codex` is
+  absent.
 
 ## Codex Expectations
 
@@ -96,6 +125,8 @@ Wired by the `feat/ai-pr-review-pipeline` PR:
 - `.github/workflows/claude-code-review.yml` — auto-review, triggered by `CI`
   **and** `Product Smoke` succeeding for the same commit (runs once both are
   green, dedup-guarded).
+- `.github/workflows/claude-verdict.yml` — required `Claude verdict` status for
+  branch protection.
 - `.github/workflows/claude.yml` — `@claude` on-demand.
 - The `needs-codex` label.
 
@@ -106,4 +137,3 @@ Done: `CLAUDE_CODE_OAUTH_TOKEN` is set, and Codex Cloud is connected (it's
 already opening `codex/*` PRs). Remaining: merge this PR, then open a small
 throwaway PR and confirm `CI` + `Product Smoke` go green and Claude posts a
 review.
-
