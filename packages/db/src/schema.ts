@@ -713,6 +713,66 @@ export const recommendations = pgTable(
 );
 
 /**
+ * In-product feedback reports from alpha testers and early enterprise users.
+ * Reports keep the user-written issue plus lightweight product context so an
+ * admin can triage without asking the tester to manually export every chat.
+ */
+export const feedbackReports = pgTable(
+  "feedback_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id").references(() => chatThreads.id, {
+      onDelete: "set null",
+    }),
+    chatMessageId: uuid("chat_message_id").references(() => chatMessages.id, {
+      onDelete: "set null",
+    }),
+    runId: uuid("run_id").references(() => runs.id, {
+      onDelete: "set null",
+    }),
+    artifactId: uuid("artifact_id").references(() => workspaceArtifacts.id, {
+      onDelete: "set null",
+    }),
+    type: text("report_type").notNull().default("bug"),
+    severity: text("severity").notNull().default("normal"),
+    status: text("status").notNull().default("new"),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    expected: text("expected"),
+    pageUrl: text("page_url"),
+    userAgent: text("user_agent"),
+    viewport: jsonb("viewport").$type<Record<string, unknown>>(),
+    context: jsonb("context").$type<Record<string, unknown>>(),
+    screenshotDataUrl: text("screenshot_data_url"),
+    screenshotName: text("screenshot_name"),
+    screenshotMimeType: text("screenshot_mime_type"),
+    linkedIssueUrl: text("linked_issue_url"),
+    adminNotes: text("admin_notes"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    statusCreatedIdx: index("feedback_reports_status_created_idx").on(
+      t.status,
+      sql`${t.createdAt} DESC`,
+    ),
+    userCreatedIdx: index("feedback_reports_user_created_idx").on(
+      t.userId,
+      sql`${t.createdAt} DESC`,
+    ),
+    threadIdx: index("feedback_reports_thread_idx").on(t.threadId),
+  }),
+);
+
+/**
  * Generic grant — the J5 "make this available to Alice" seed, shared by
  * skills and apps. A share grants visibility + run/open + clone, never edit
  * and never the grantor's credentials: every execution re-gates on the
@@ -1035,6 +1095,8 @@ export type WorkspaceArtifact = typeof workspaceArtifacts.$inferSelect;
 export type NewWorkspaceArtifact = typeof workspaceArtifacts.$inferInsert;
 export type Recommendation = typeof recommendations.$inferSelect;
 export type NewRecommendation = typeof recommendations.$inferInsert;
+export type FeedbackReport = typeof feedbackReports.$inferSelect;
+export type NewFeedbackReport = typeof feedbackReports.$inferInsert;
 export type McpServer = typeof mcpServers.$inferSelect;
 export type NewMcpServer = typeof mcpServers.$inferInsert;
 export type AuditLog = typeof auditLog.$inferSelect;

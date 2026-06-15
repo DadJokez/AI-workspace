@@ -381,4 +381,63 @@ test.describe("chat workflow regressions", () => {
     );
     expect(attempts).toBe(2);
   });
+
+  test("submits alpha feedback with current chat context", async ({ page }) => {
+    let feedbackBody: Record<string, unknown> | undefined;
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      onFeedback: async (body, route) => {
+        feedbackBody = body;
+        await json(
+          route,
+          {
+            report: {
+              id: "00000000-0000-4000-8000-000000000501",
+              status: "new",
+              createdAt: "2026-06-14T20:00:00.000Z",
+            },
+          },
+          201,
+        );
+      },
+    });
+
+    await gotoE2EChat(page);
+    await page.getByPlaceholder(/ask anything/i).fill("feedback context setup");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Done.")).toBeVisible();
+
+    const feedbackNav = page.locator('[data-tour="nav-feedback"]');
+    const openMenu = page.getByRole("button", { name: "Open menu" });
+    if (await openMenu.isVisible()) {
+      await openMenu.click();
+      await expect(feedbackNav).toBeInViewport();
+    }
+    await feedbackNav.click();
+    await expect(
+      page.getByRole("dialog", { name: "Report feedback" }),
+    ).toBeVisible();
+    await page
+      .getByLabel("What happened")
+      .fill("The artifact preview opened a blank pane.");
+    await page
+      .getByLabel("Expected behavior")
+      .fill("The preview pane should render the generated artifact.");
+    await page.getByRole("button", { name: "Send feedback" }).click();
+
+    await expect(page.getByText(/feedback sent/i)).toBeVisible();
+    expect(feedbackBody).toMatchObject({
+      type: "bug",
+      severity: "normal",
+      body: "The artifact preview opened a blank pane.",
+      expected: "The preview pane should render the generated artifact.",
+      includeContext: true,
+    });
+    expect(feedbackBody?.context).toMatchObject({
+      threadId: "thread-generated",
+      threadTitle: "feedback context setup",
+      messageId: "assistant-generated",
+      messagePreview: "Done.",
+    });
+  });
 });

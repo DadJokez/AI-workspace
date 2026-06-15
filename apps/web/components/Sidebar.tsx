@@ -58,6 +58,7 @@ const groups: NavGroup[] = [
   },
   {
     items: [
+      { id: "feedback", label: "Feedback", icon: <IconFeedback /> },
       { id: "settings", label: "Settings", icon: <IconCog /> },
     ],
   },
@@ -1042,6 +1043,25 @@ function IconShield() {
       strokeLinejoin="round"
     >
       <path d="M8 1.8 2.8 3.6v4.2c0 3 2.2 5.5 5.2 6.4 3-.9 5.2-3.4 5.2-6.4V3.6L8 1.8Z" />
+    </svg>
+  );
+}
+
+function IconFeedback() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinejoin="round"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M3 2.8h10a1.4 1.4 0 0 1 1.4 1.4v5.9a1.4 1.4 0 0 1-1.4 1.4H7.4L4.2 14v-2.5H3a1.4 1.4 0 0 1-1.4-1.4V4.2A1.4 1.4 0 0 1 3 2.8Z" />
+      <path d="M5 5.8h6M5 8.3h4" />
     </svg>
   );
 }
