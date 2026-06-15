@@ -105,11 +105,11 @@ unmarked items need a human eye for visual / device-specific verification.
 - [x] **`[AUTOMATE]` Initial state has one tab named "New chat".** Fresh page load → expect exactly one tab with the title "New chat", input is enabled.
 - [x] **`[AUTOMATE]` "+" button creates a new tab.** Click "+" → expect a new tab labelled "New chat" appears to the right and becomes active.
 - [x] **`[AUTOMATE]` Each tab has independent messages.** Send "tab A" in tab 1, switch to tab 2, send "tab B" in tab 2, switch back to tab 1 → expect tab 1 still shows "tab A" and its assistant response only; tab 2 shows "tab B" and its response only.
-- [ ] **`[AUTOMATE]` Each tab has independent threadId.** After sending in two tabs, inspect Network → expect each tab's requests use different `threadId` values.
+- [x] **`[AUTOMATE]` Each tab has independent threadId.** After sending in two tabs, inspect Network → expect each tab's requests use different `threadId` values.
 - [x] **`[AUTOMATE]` Tab title auto-derives from first message.** Send "What is in my email?" in a fresh tab → expect the tab title becomes "What is in my email?" (truncated at 32 chars + `…` if longer).
-- [ ] **Tab title doesn't change after the first message.** Send a second message in the same tab → expect the tab title remains the original.
-- [ ] **`[AUTOMATE]` Switching tabs while one is busy.** While tab 1 is generating, switch to tab 2 → expect tab 2's input is enabled (independent busy state); switching back to tab 1 still shows pending state and incoming text.
-- [ ] **`[AUTOMATE]` Busy indicator dot.** A tab with a request in flight shows a small pulsing dot to the left of its title. The dot disappears when the response finishes.
+- [x] **Tab title doesn't change after the first message.** Send a second message in the same tab → expect the tab title remains the original.
+- [x] **`[AUTOMATE]` Switching tabs while one is busy.** While tab 1 is generating, switch to tab 2 → expect tab 2's input is enabled (independent busy state); switching back to tab 1 still shows pending state and incoming text.
+- [x] **`[AUTOMATE]` Busy indicator dot.** A tab with a request in flight shows a small pulsing dot to the left of its title. The dot disappears when the response finishes.
 - [x] **`[AUTOMATE]` Closing a tab.** Click X on a non-active tab → expect that tab disappears, active tab stays.
 - [x] **`[AUTOMATE]` Closing the active tab.** Click X on the active tab (when others exist) → expect the previous tab (left neighbor, falling back to first) becomes active.
 - [x] **Last tab cannot be closed.** With only one tab open, expect no X button is shown on it.

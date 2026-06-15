@@ -125,6 +125,106 @@ test.describe("chat workflow regressions", () => {
     await expect(main.getByText("Alpha tab answer only.")).toHaveCount(0);
   });
 
+  test("keeps tab state stable while another tab is busy", async ({ page }) => {
+    const chatBodies: Array<Record<string, unknown>> = [];
+    let releaseSlowResponse: (() => void) | undefined;
+    const slowResponseGate = new Promise<void>((resolve) => {
+      releaseSlowResponse = resolve;
+    });
+
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      onChat: async (body, route) => {
+        chatBodies.push(body);
+        const message = String(body.message ?? "");
+        const isSlow =
+          message === "slow tab question" ||
+          message === "slow follow up" ||
+          body.threadId === "thread-slow";
+        const isFollowUp = message.includes("follow up");
+        if (message === "slow tab question") {
+          await slowResponseGate;
+        }
+
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: isSlow ? "thread-slow" : "thread-fast",
+            modelId: "sonnet-4-6",
+          },
+          {
+            type: "text-delta",
+            delta: isSlow
+              ? isFollowUp
+                ? "Slow follow-up answer."
+                : "Slow tab answer."
+              : isFollowUp
+                ? "Fast follow-up answer."
+                : "Fast tab answer.",
+          },
+          {
+            type: "persisted",
+            assistantMessageId: `assistant-${chatBodies.length}`,
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+
+    await gotoE2EChat(page);
+    const header = page.locator("header").first();
+
+    await page.getByPlaceholder(/ask anything/i).fill("slow tab question");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByPlaceholder("Generating…")).toBeVisible();
+    await expect(header.locator(".animate-pulse")).toHaveCount(1);
+
+    await header.getByRole("button", { name: "New tab" }).click();
+    await expect(page.getByPlaceholder(/ask anything/i)).toBeEnabled();
+    await page.getByPlaceholder(/ask anything/i).fill("fast tab question");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Fast tab answer.")).toBeVisible();
+    await expect(
+      header.getByRole("button", { name: /fast tab question/i }),
+    ).toBeVisible();
+
+    await page.getByPlaceholder(/ask anything/i).fill("fast follow up");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Fast follow-up answer.")).toBeVisible();
+    await expect(
+      header.getByRole("button", { name: /fast tab question/i }),
+    ).toBeVisible();
+    await expect(
+      header.getByRole("button", { name: /fast follow up/i }),
+    ).toHaveCount(0);
+
+    await header
+      .getByRole("button", { name: /slow tab question/i })
+      .first()
+      .click();
+    await expect(page.getByPlaceholder("Generating…")).toBeVisible();
+    releaseSlowResponse?.();
+    await expect(page.getByText("Slow tab answer.")).toBeVisible();
+    await expect(header.locator(".animate-pulse")).toHaveCount(0);
+
+    await page.getByPlaceholder(/ask anything/i).fill("slow follow up");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Slow follow-up answer.")).toBeVisible();
+
+    expect(chatBodies.map((body) => body.message)).toEqual([
+      "slow tab question",
+      "fast tab question",
+      "fast follow up",
+      "slow follow up",
+    ]);
+    expect(chatBodies[0]?.threadId).toBeUndefined();
+    expect(chatBodies[1]?.threadId).toBeUndefined();
+    expect(chatBodies[2]?.threadId).toBe("thread-fast");
+    expect(chatBodies[3]?.threadId).toBe("thread-slow");
+  });
+
   test("surfaces chat errors and retries the failed prompt", async ({ page }) => {
     let attempts = 0;
     await installMockComparativeApi(page, {
