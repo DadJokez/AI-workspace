@@ -306,4 +306,72 @@ test.describe("chat shell guardrails", () => {
       page.locator("header").getByRole("button", { name: "New chat" }),
     ).toHaveCount(2);
   });
+
+  test("keeps mobile tab strip scrollable with visible close buttons", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      !testInfo.project.name.includes("mobile"),
+      "mobile-only tab strip behavior",
+    );
+
+    await installMockComparativeApi(page);
+    await gotoE2EChat(page);
+
+    const header = page.locator("header").first();
+    const tabStrip = page.getByTestId("chat-tab-strip");
+    for (let i = 0; i < 6; i += 1) {
+      await header.getByRole("button", { name: "New tab" }).click();
+    }
+
+    const closeButtons = header.getByRole("button", { name: "Close tab" });
+    await expect(closeButtons).toHaveCount(7);
+    await expect(closeButtons.first()).toBeVisible();
+
+    const firstCloseOpacity = await closeButtons.first().evaluate((element) =>
+      window.getComputedStyle(element).opacity,
+    );
+    expect(Number(firstCloseOpacity)).toBeGreaterThan(0.9);
+
+    const stripMetrics = await tabStrip.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+    expect(stripMetrics.scrollWidth).toBeGreaterThan(
+      stripMetrics.clientWidth + 1,
+    );
+
+    const tabButtons = tabStrip.getByTestId("chat-tab-button");
+    await expect(tabButtons).toHaveCount(7);
+    const maxScrollLeft = await tabStrip.evaluate(
+      (element) => element.scrollWidth - element.clientWidth,
+    );
+    await tabStrip.evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+    });
+    await tabButtons.first().evaluate((button) => {
+      (button as HTMLElement).click();
+    });
+    await expect
+      .poll(() => tabStrip.evaluate((element) => element.scrollLeft))
+      .toBeLessThan(maxScrollLeft / 2);
+    await expect(tabButtons.first()).toBeInViewport();
+    await tabStrip.evaluate((element) => {
+      element.scrollLeft = 0;
+    });
+    await tabButtons.last().evaluate((button) => {
+      (button as HTMLElement).click();
+    });
+    await expect
+      .poll(() => tabStrip.evaluate((element) => element.scrollLeft))
+      .toBeGreaterThan(0);
+    await expect(tabButtons.last()).toBeInViewport();
+
+    const pageOverflow = await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    );
+    expect(pageOverflow).toBeLessThanOrEqual(1);
+  });
 });

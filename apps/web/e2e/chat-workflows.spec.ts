@@ -1,10 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import {
+  assistantMessage,
   defaultArtifactSummary,
   fulfillSse,
   installMockComparativeApi,
   json,
+  userMessage,
 } from "./helpers/mock-comparative";
 import { gotoE2EChat } from "./helpers/navigation";
 
@@ -223,6 +225,115 @@ test.describe("chat workflow regressions", () => {
     expect(chatBodies[1]?.threadId).toBeUndefined();
     expect(chatBodies[2]?.threadId).toBe("thread-fast");
     expect(chatBodies[3]?.threadId).toBe("thread-slow");
+  });
+
+  test("restores persisted chat tabs after reload", async ({ page }) => {
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      threadMessages: {
+        "thread-persist-alpha": [
+          userMessage({
+            id: "user-persist-alpha",
+            content: "alpha reload tab",
+          }),
+          assistantMessage({
+            id: "assistant-persist-alpha",
+            content: "Alpha persisted answer.",
+          }),
+        ],
+        "thread-persist-beta": [
+          userMessage({
+            id: "user-persist-beta",
+            content: "beta reload tab",
+          }),
+          assistantMessage({
+            id: "assistant-persist-beta",
+            content: "Beta persisted answer.",
+          }),
+          userMessage({
+            id: "user-persist-beta-second",
+            content: "beta second message",
+          }),
+          assistantMessage({
+            id: "assistant-persist-beta-second",
+            content: "Beta second persisted answer.",
+          }),
+        ],
+      },
+      onChat: async (body, route) => {
+        const message = String(body.message ?? "");
+        const isAlpha = message.includes("alpha");
+        const isSecond = message.includes("second");
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: isAlpha
+              ? "thread-persist-alpha"
+              : "thread-persist-beta",
+            modelId: "sonnet-4-6",
+          },
+          {
+            type: "text-delta",
+            delta: isAlpha
+              ? "Alpha persisted answer."
+              : isSecond
+                ? "Beta second persisted answer."
+              : "Beta persisted answer.",
+          },
+          {
+            type: "persisted",
+            assistantMessageId: isAlpha
+              ? "assistant-persist-alpha"
+              : isSecond
+                ? "assistant-persist-beta-second"
+              : "assistant-persist-beta",
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+
+    await gotoE2EChat(page);
+    const header = page.locator("header").first();
+
+    await page.getByPlaceholder(/ask anything/i).fill("alpha reload tab");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Alpha persisted answer.")).toBeVisible();
+
+    await header.getByRole("button", { name: "New tab" }).click();
+    await page.getByPlaceholder(/ask anything/i).fill("beta reload tab");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Beta persisted answer.")).toBeVisible();
+
+    await page.getByPlaceholder(/ask anything/i).fill("beta second message");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Beta second persisted answer.")).toBeVisible();
+    await expect(
+      header.getByRole("button", { name: /beta reload tab/i }),
+    ).toBeVisible();
+    await expect(
+      header.getByRole("button", { name: /beta second message/i }),
+    ).toHaveCount(0);
+
+    await page.reload();
+    await expect(
+      header.getByRole("button", { name: /alpha reload tab/i }),
+    ).toBeVisible();
+    await expect(
+      header.getByRole("button", { name: /beta reload tab/i }),
+    ).toBeVisible();
+    await expect(page.getByText("Beta persisted answer.")).toBeVisible();
+    await expect(page.getByText("Beta second persisted answer.")).toBeVisible();
+    await expect(page.getByText("Alpha persisted answer.")).toHaveCount(0);
+
+    await header
+      .getByRole("button", { name: /alpha reload tab/i })
+      .first()
+      .click();
+    await expect(page.getByText("Alpha persisted answer.")).toBeVisible();
+    await expect(page.getByText("Beta persisted answer.")).toHaveCount(0);
   });
 
   test("surfaces chat errors and retries the failed prompt", async ({ page }) => {
