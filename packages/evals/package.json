@@ -6,6 +6,7 @@
   "description": "Self-running eval harness (specs/004): real-model behavior cases per capability, deterministic + judge assertions. Cases are data, not code.",
   "scripts": {
     "eval": "tsx src/run.ts",
+    "transcripts:replay": "tsx src/transcripts/replay.ts",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

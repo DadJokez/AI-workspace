@@ -14,6 +14,7 @@ checks the deployed public surface.
 | Authenticated browser smoke | `pnpm smoke:browser:auth` | Every PR and `main` push via `Product Smoke` | Real protected-route access with a test-only NextAuth JWT, disposable Postgres fixtures for the signed-in user and skills catalog, signed-in chat, uploads, generated artifact preview, recommendations, artifacts menu, and transcript download |
 | Production public smoke | `pnpm smoke:prod` | Scheduled every 6 hours and manual dispatch via `Product Smoke` | Public deployment health, DB/runtime health, login page, protected redirect, model metadata, anonymous chat guard |
 | Real-model evals | `pnpm eval` | Nightly and manual via `Nightly Evals` | Model/prompt/harness regressions: date grounding, Vault truthfulness, fixture-backed GitHub tool routing, tool honesty, skill faithfulness, recommendation faithfulness |
+| Golden transcript replay | `pnpm transcripts:replay` | Manual today; CI candidate after fixture count grows | Downloaded chat regressions: denied Vault/tool access, model label mismatch, missing artifact evidence, missing attachment evidence, and manual save instructions after artifact creation |
 | Manual visual QA | `docs/QA_CHECKLIST.md` | Before large UX releases | Visual polish, mobile ergonomics, artifact preview feel, activity receipts, edge cases that still need judgment |
 
 ## Current Automated Coverage
@@ -29,6 +30,7 @@ checks the deployed public surface.
 | Artifact creation + preview | Yes | Mocked local feature flow + signed-in smoke | No | Partial | Need live signed-in flow for persisted artifact versions |
 | Chat download | Yes | Mocked local feature flow + signed-in smoke | No | No | None for local smoke |
 | Tool activity receipts | Yes | Mocked local feature flow | No | Yes | Need live tool fixture evals with test data |
+| Downloaded chat failure replay | Yes | No | No | No | Golden transcript replay now covers exported-chat bug classes; wire into CI after more fixtures accumulate |
 | Skills and recommendations | Yes | Mocked local chat + signed-in skills fixture + recommendation action smoke | No | Yes | Need live skill/tool fixture evals |
 | Apps/deploy/update/invite | Partial | No | No | No | Still roadmap work; add E2E as features land |
 | Mobile layout | Manual checklist | Login + mocked feature flows | No | No | Need authenticated mobile smoke once test session exists |
@@ -58,6 +60,7 @@ pnpm smoke:browser
 pnpm smoke:browser:auth
 pnpm smoke:prod
 pnpm eval --mock
+pnpm transcripts:replay
 ```
 
 Real-model evals need Bedrock access:
@@ -96,8 +99,15 @@ Postgres database for the signed-in user plus owned/shared/starter skill
 fixtures. The production app does not expose this session helper; it only runs
 inside the Playwright process.
 
+Golden transcript replay reads scrubbed downloaded chat Markdown fixtures from
+`packages/evals/golden-transcripts/`. Each fixture carries a small JSON config
+comment that enables deterministic checks for the failure classes Rob has been
+pasting back into the chat: capability denial, model-label mismatch, missing
+artifact or attachment evidence, and manual copy/save walkthroughs after an
+artifact was already created.
+
 ## Next Automation Tranches
 
-1. Golden chat replays from downloaded failure transcripts: #205.
-2. Post-deploy authenticated smoke with a locked-down smoke user: #206.
-3. Live third-party fixture accounts for provider-specific end-to-end coverage.
+1. Post-deploy authenticated smoke with a locked-down smoke user: #206.
+2. Live third-party fixture accounts for provider-specific end-to-end coverage.
+3. Add more golden transcript fixtures as real downloaded-chat bugs appear.
