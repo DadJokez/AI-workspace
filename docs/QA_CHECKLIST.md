@@ -27,13 +27,13 @@ unmarked items need a human eye for visual / device-specific verification.
 ## Files, Artifacts & Recommendations
 
 - [x] **`[AUTOMATE]` Image upload payload reaches chat.** Attach PNG/JPG/WebP within size caps → expect the chip to appear in the input and `/api/chat` to receive `attachmentCount` plus base64 attachment metadata.
-- [ ] **`[AUTOMATE]` Business file upload accepts common formats.** Attach PDF, DOCX, XLSX, CSV/TSV, PPTX, TXT/MD, HTML, JSON/XML/YAML within size caps → expect the chip to appear in the input and `/api/chat` to accept the turn.
+- [x] **`[AUTOMATE]` Representative business file upload accepts common formats.** Attach PDF, DOCX, XLSX, PPTX, and CSV within size caps → expect the chip to appear in the input and `/api/chat` to accept the turn.
 - [ ] **Uploaded files are saved as artifacts.** Send a turn with at least one upload → expect the run activity to mention stored uploads and the Artifacts section to list the original file with its MIME type/download preserved.
 - [ ] **Images reach the model as visual inputs.** Attach a simple screenshot/image and ask what is visible → expect the assistant to reason from the image, not only the filename/dimensions.
 - [x] **Generated artifacts use the cobalt pill.** Ask for a small HTML or Markdown artifact → expect the assistant message to show the compact electric-cobalt document pill instead of dumping a full large code block.
 - [x] **Artifact preview stays in the current tab.** Click a document/artifact pill → expect the in-tab preview pane to open; no browser tab/window should be created.
 - [ ] **Artifact versions group together.** Ask to revise an existing artifact → expect Artifacts to show one grouped item with the latest version plus expandable prior versions/downloads, not unrelated duplicates.
-- [ ] **Chat download works.** Click the header download button in a non-empty thread → expect a Markdown transcript file containing messages plus artifact references.
+- [x] **Chat download works.** Click the header download button in a non-empty thread → expect a Markdown transcript file containing messages, thread metadata, and artifact references when present.
 - [ ] **Recommendation cards are quiet and actionable.** After a response that produces a reusable workflow or deployable artifact, expect up to three recommendation cards below the assistant message. Accept should run the declared action; Dismiss should hide it and persist.
 
 ## Run Lifecycle
@@ -57,6 +57,11 @@ unmarked items need a human eye for visual / device-specific verification.
 - [ ] **Hairline borders only.** Visual inspection: no drop shadows, no gradients, dividers are 1px lines using `--color-hairline`.
 - [ ] **Notion palette in light mode.** Background tone should be off-white (#F7F6F3-ish), not pure white. Hairlines visible but soft.
 - [ ] **Active sidebar item highlight.** Click any sidebar nav item → expect a subtle filled background (`bg-subtle`) on it; previously active item loses the highlight. **Note:** these items are cosmetic only — they don't navigate (see Punch List).
+- [x] **Persona navigation is role-aware.** Admin users see the Admin navigation item; regular users do not.
+- [x] **Conversation preview blurbs are useful.** Seed one real summary and one useless greeting → expect only the useful chat to expose a preview blurb.
+- [x] **Tools connection state renders.** Mock GitHub connected/disconnected states → expect connected copy for linked accounts and a GitHub connect link when disconnected.
+- [x] **Settings saves user context.** Change display name and custom instructions → expect successful save state and updated values.
+- [x] **Vault memory workflow works.** Open Vault → expect approved/suggested memory, add a manual fact, approve a suggestion, and see counts update.
 
 ---
 
@@ -81,7 +86,7 @@ unmarked items need a human eye for visual / device-specific verification.
 - [ ] **`[AUTOMATE]` X button closes drawer.** With drawer open, tap the X in the user header inside the sidebar → expect drawer closes.
 - [ ] **`[AUTOMATE]` Escape key closes drawer.** With drawer open and focus anywhere on page, press Escape → drawer closes.
 - [ ] **`[AUTOMATE]` Tapping a nav item closes drawer.** Open drawer, tap "Tools" or "Vault" → expect drawer closes and the active highlight in the sidebar moves to the selected section.
-- [ ] **`[AUTOMATE]` Vault renders seeded profile.** Open "Vault" from the sidebar → expect the Vault panel to show the seeded employee profile, responsibilities, priorities, systems context, and agent context sections in the active theme.
+- [x] **`[AUTOMATE]` Vault renders seeded memory.** Open "Vault" from the sidebar → expect approved and suggested memory to render in the active theme.
 - [ ] **`[AUTOMATE]` "New chat" from drawer closes drawer + opens new tab.** Tap "New chat" inside the drawer → expect drawer closes AND a new empty tab appears in the tab strip, becomes active.
 - [ ] **Touch targets ≥ 44px.** Visual/measurement: hamburger, X close, sidebar nav items, "New chat", and send button all measure ≥ 44px tall in mobile mode.
 - [ ] **Tab strip scrolls horizontally.** Open 4–5 tabs on a 375px viewport → expect the tabs container scrolls horizontally, the active tab stays visible after switching.
@@ -99,7 +104,7 @@ unmarked items need a human eye for visual / device-specific verification.
 
 - [ ] **`[AUTOMATE]` Initial state has one tab named "New chat".** Fresh page load → expect exactly one tab with the title "New chat", input is enabled.
 - [ ] **`[AUTOMATE]` "+" button creates a new tab.** Click "+" → expect a new tab labelled "New chat" appears to the right and becomes active.
-- [ ] **`[AUTOMATE]` Each tab has independent messages.** Send "tab A" in tab 1, switch to tab 2, send "tab B" in tab 2, switch back to tab 1 → expect tab 1 still shows "tab A" and its assistant response only; tab 2 shows "tab B" and its response only.
+- [x] **`[AUTOMATE]` Each tab has independent messages.** Send "tab A" in tab 1, switch to tab 2, send "tab B" in tab 2, switch back to tab 1 → expect tab 1 still shows "tab A" and its assistant response only; tab 2 shows "tab B" and its response only.
 - [ ] **`[AUTOMATE]` Each tab has independent threadId.** After sending in two tabs, inspect Network → expect each tab's requests use different `threadId` values.
 - [ ] **`[AUTOMATE]` Tab title auto-derives from first message.** Send "What is in my email?" in a fresh tab → expect the tab title becomes "What is in my email?" (truncated at 32 chars + `…` if longer).
 - [ ] **Tab title doesn't change after the first message.** Send a second message in the same tab → expect the tab title remains the original.
@@ -115,13 +120,13 @@ unmarked items need a human eye for visual / device-specific verification.
 
 ## Error States
 
-- [ ] **`[AUTOMATE]` API 4xx/5xx surfaces.** Use devtools to block `/api/chat` (or stop the dev server) and try to send → expect an error banner above the input ("HTTP 5xx" or similar) and the assistant placeholder shows "(error)".
+- [x] **`[AUTOMATE]` API 4xx/5xx surfaces.** Use devtools to block `/api/chat` (or stop the dev server) and try to send → expect an error banner above the input ("HTTP 5xx" or similar).
 - [ ] **Models endpoint failure.** Block `/api/models` → expect placeholder reads "Loading models…" forever and the input remains disabled. (Currently no user-facing surface — see Punch List.)
 - [ ] **`[AUTOMATE]` Unauthorized response.** Force `/api/chat` to return 401 → expect the error banner shows the server's message.
 - [ ] **`[AUTOMATE]` Stream interrupted mid-response.** Kill the connection during streaming (devtools offline toggle) → expect pending=false eventually, partial content remains in the assistant bubble.
-- [ ] **`[AUTOMATE]` Resending after an error.** After a failed send, type a new message and Enter → expect a fresh request fires.
+- [x] **`[AUTOMATE]` Retrying after an error.** After a failed send, click "Try again" → expect a fresh request fires for the failed prompt and succeeds when the backend recovers.
 - [ ] **Thread ownership / 404.** Manipulate localStorage / send a stale `threadId` → API returns 404 thread_not_found, error surfaces in the banner.
-- [ ] **Retry button appears after a failed send.** Force a `/api/chat` failure → expect the error card to show a "Try again" button that resends the failed user message.
+- [x] **Retry button appears after a failed send.** Force a `/api/chat` failure → expect the error card to show a "Try again" button that resends the failed user message.
 
 ---
 
@@ -147,7 +152,7 @@ unmarked items need a human eye for visual / device-specific verification.
 
 - The current automation strategy lives in `docs/REGRESSION_GAUNTLET.md`.
 - Browser smoke is now Playwright-backed: run `pnpm smoke:browser`.
-- Local browser smoke includes mocked signed-in chat feature flows at `/e2e/chat`: image upload payloads, artifact collapse/preview/menu, tool activity receipts, and slash skill execution.
+- Local browser smoke includes mocked signed-in chat feature flows at `/e2e/chat`: image upload payloads, artifact collapse/preview/menu, tool activity receipts, slash skill execution, chat transcript download, tab isolation, retry recovery, persona/admin gating, Tools connection state, Settings saves, and Vault memory approval.
 - Production public smoke is now script-backed: run `pnpm smoke:prod`.
 - Use `PLAYWRIGHT_BASE_URL` to point browser smoke at an already-running app.
 - Use `SMOKE_BASE_URL` to point production smoke at a preview or alternate deployed URL.
