@@ -13,6 +13,7 @@ checks the deployed public surface.
 | Browser smoke + feature suite | `pnpm smoke:browser` | Every PR and `main` push via `Product Smoke` | The app boots in a real browser, login renders, auth redirect works, theme toggle persists, public model metadata works, anonymous chat is guarded, and local mocked chat flows cover uploads, artifacts, tools, skills, chat download, tabs, retry, Tools, Settings, Vault memory, and persona gating |
 | Authenticated browser smoke | `pnpm smoke:browser:auth` | Every PR and `main` push via `Product Smoke` | Real protected-route access with a test-only NextAuth JWT, disposable Postgres fixtures for the signed-in user and skills catalog, signed-in chat, uploads, generated artifact preview, recommendations, artifacts menu, and transcript download |
 | Production public smoke | `pnpm smoke:prod` | Scheduled every 6 hours and manual dispatch via `Product Smoke` | Public deployment health, DB/runtime health, login page, protected redirect, model metadata, anonymous chat guard |
+| Production authenticated smoke | `pnpm smoke:prod:auth` | CodeBuild after ECS services stabilize | Signed-in DB/runtime health, locked-down smoke identity, scoped thread access, live signed-in chat, persisted markdown artifact, artifact listing, server-side transcript export, and failed/stale smoke-run backlog checks |
 | Real-model evals | `pnpm eval` | Nightly and manual via `Nightly Evals` | Model/prompt/harness regressions: date grounding, Vault truthfulness, fixture-backed GitHub tool routing, tool honesty, skill faithfulness, recommendation faithfulness |
 | Golden transcript replay | `pnpm transcripts:replay` | Manual today; CI candidate after fixture count grows | Downloaded chat regressions: denied Vault/tool access, model label mismatch, missing artifact evidence, missing attachment evidence, and manual save instructions after artifact creation |
 | Manual visual QA | `docs/QA_CHECKLIST.md` | Before large UX releases | Visual polish, mobile ergonomics, artifact preview feel, activity receipts, edge cases that still need judgment |
@@ -23,12 +24,12 @@ checks the deployed public surface.
 | --- | --- | --- | --- | --- | --- |
 | Login and auth redirect | Yes | Yes | Yes | No | Full OAuth sign-in still manual |
 | Public health/model metadata | Partial | Models only | Yes | No | None for public smoke |
-| Chat API guardrails | Yes | Anonymous guard + signed-in browser smoke | Anonymous guard | No | Need authenticated API-level SSE contract coverage |
-| Fast chat routing | Yes | No | No | Partial | Need seeded signed-in browser/API run |
+| Chat API guardrails | Yes | Anonymous guard + signed-in browser smoke | Anonymous guard + signed-in post-deploy smoke | No | Need broader authenticated SSE contract cases in CI |
+| Fast chat routing | Yes | No | Signed-in inline artifact smoke | Partial | Need additional production lanes for tool and worker routes |
 | Tool/Vault/context honesty | Yes | Vault mocked locally | No | Yes | Fixture-backed GitHub tool evals cover required calls, pending approval, tool errors, and connected-but-not-mounted honesty; live third-party fixture accounts remain future hardening |
 | File upload parsing | Yes | Mocked local feature flow + signed-in smoke payloads | No | No | Need model vision evals for screenshots |
-| Artifact creation + preview | Yes | Mocked local feature flow + signed-in smoke | No | Partial | Need live signed-in flow for persisted artifact versions |
-| Chat download | Yes | Mocked local feature flow + signed-in smoke | No | No | None for local smoke |
+| Artifact creation + preview | Yes | Mocked local feature flow + signed-in smoke | Persisted artifact API listing | Partial | Browser preview remains local smoke only |
+| Chat download | Yes | Mocked local feature flow + signed-in smoke | Server-side transcript export | No | Browser download button remains local smoke only |
 | Tool activity receipts | Yes | Mocked local feature flow | No | Yes | Need live tool fixture evals with test data |
 | Downloaded chat failure replay | Yes | No | No | No | Golden transcript replay now covers exported-chat bug classes; wire into CI after more fixtures accumulate |
 | Skills and recommendations | Yes | Mocked local chat + signed-in skills fixture + recommendation action smoke | No | Yes | Need live skill/tool fixture evals |
@@ -59,6 +60,7 @@ pnpm build
 pnpm smoke:browser
 pnpm smoke:browser:auth
 pnpm smoke:prod
+pnpm smoke:prod:auth
 pnpm eval --mock
 pnpm transcripts:replay
 ```
@@ -75,6 +77,18 @@ it for preview environments:
 ```bash
 SMOKE_BASE_URL=https://your-preview.example.com pnpm smoke:prod
 ```
+
+Authenticated production smoke runs from CodeBuild after the ECS web, chat
+worker, and memory worker services report stable. It reads `DATABASE_URL` and
+`NEXTAUTH_SECRET` from the existing `ai-workspace/production/app` Secrets
+Manager secret, creates a locked-down `user` role smoke identity, mints a
+short-lived normal NextAuth JWT, runs a signed-in chat that must persist a
+markdown artifact, verifies the artifact list and protected transcript export,
+checks smoke-run backlog health, and then removes the smoke user data on
+success. Failed smoke runs leave the tagged smoke rows in place for debugging;
+the next run clears stale smoke data before starting. Backlog checks fail on
+terminal failures immediately and on active smoke rows only after they are stale,
+so a healthy worker claiming the just-created memory job does not flap deploys.
 
 Browser smoke defaults to a local Next dev server. In local mode it enables a
 test-only `/e2e/chat` harness that renders the real chat UI with mocked APIs, so
@@ -108,6 +122,6 @@ artifact was already created.
 
 ## Next Automation Tranches
 
-1. Post-deploy authenticated smoke with a locked-down smoke user: #206.
-2. Live third-party fixture accounts for provider-specific end-to-end coverage.
-3. Add more golden transcript fixtures as real downloaded-chat bugs appear.
+1. Live third-party fixture accounts for provider-specific end-to-end coverage.
+2. Add more golden transcript fixtures as real downloaded-chat bugs appear.
+3. Add production smoke lanes for tool-backed and durable-worker chat routes.

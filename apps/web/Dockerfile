@@ -36,6 +36,8 @@ CMD ["pnpm", "--filter", "@ai-workspace/db", "db:migrate"]
 
 FROM base AS worker
 ENV NODE_ENV=production
+# CodeBuild runs the authenticated production smoke from this worker image with
+# tsx, so the worker target intentionally carries the full workspace install.
 COPY --from=deps /repo/node_modules ./node_modules
 COPY --from=deps /repo/apps/web/node_modules ./apps/web/node_modules
 COPY --from=deps /repo/packages/agent/node_modules ./packages/agent/node_modules

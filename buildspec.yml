@@ -8,6 +8,7 @@ env:
     ECS_WEB_SERVICE_NAME: ai-workspace-web
     ECS_CHAT_WORKER_SERVICE_NAME: ai-workspace-chat-worker
     ECS_MEMORY_WORKER_SERVICE_NAME: ai-workspace-memory-worker
+    SMOKE_BASE_URL: https://comparative.builtwithrobot.link
 
 phases:
   pre_build:
@@ -50,4 +51,10 @@ phases:
       - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_WEB_SERVICE_NAME" --force-new-deployment >/dev/null'
       - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_CHAT_WORKER_SERVICE_NAME" --force-new-deployment >/dev/null'
       - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_MEMORY_WORKER_SERVICE_NAME" --force-new-deployment >/dev/null'
+      - 'echo Waiting for ECS services to stabilize...'
+      - 'aws ecs wait services-stable --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --services "$ECS_WEB_SERVICE_NAME" "$ECS_CHAT_WORKER_SERVICE_NAME" "$ECS_MEMORY_WORKER_SERVICE_NAME"'
+      - 'echo Running authenticated production smoke...'
+      - 'NEXTAUTH_SECRET=$(printf "%s" "$APP_SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)[\"NEXTAUTH_SECRET\"])")'
+      - 'test -n "$NEXTAUTH_SECRET" && test "$NEXTAUTH_SECRET" != "None"'
+      - 'docker run --rm -e DATABASE_URL="$DATABASE_URL" -e NEXTAUTH_SECRET="$NEXTAUTH_SECRET" -e SMOKE_BASE_URL="$SMOKE_BASE_URL" -e SMOKE_RUN_ID="$COMMIT_TAG" $IMAGE_REPO_NAME:worker pnpm --filter @ai-workspace/web smoke:prod:auth'
       - 'echo Build completed on $(date)'

@@ -27,6 +27,7 @@
     "smoke:browser": "pnpm --filter @ai-workspace/web smoke:browser",
     "smoke:browser:auth": "pnpm --filter @ai-workspace/web smoke:browser:auth",
     "smoke:browser:ui": "pnpm --filter @ai-workspace/web smoke:browser:ui",
-    "smoke:prod": "node scripts/production-smoke.mjs"
+    "smoke:prod": "node scripts/production-smoke.mjs",
+    "smoke:prod:auth": "pnpm --filter @ai-workspace/web smoke:prod:auth"
   }
 }
