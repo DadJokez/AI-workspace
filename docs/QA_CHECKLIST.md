@@ -11,18 +11,18 @@ unmarked items need a human eye for visual / device-specific verification.
 
 ## Core Chat
 
-- [ ] **`[AUTOMATE]` Empty state renders.** Open `/chat` with no prior thread → expect heading "Talk to your work", a paragraph below it, and four suggestion pills for GitHub triage, repo shipping summary, status update drafting, and general help.
-- [ ] **`[AUTOMATE]` Suggestion pill sends.** Click any suggestion pill → expect (a) the pill text appears as a user message right-aligned, (b) "Generating…" placeholder shown in the input, (c) an assistant response streams in below.
-- [ ] **`[AUTOMATE]` Manual send.** Type "Hello" in the input box, press Enter → expect a user bubble on the right with "Hello", followed by an assistant response.
-- [ ] **`[AUTOMATE]` Shift+Enter inserts newline.** Type "line one", press Shift+Enter, type "line two", press Enter → expect the user bubble to render two lines.
-- [ ] **`[AUTOMATE]` Empty submit is blocked.** Click the send button with an empty input → expect nothing happens (no message added). Type only spaces and press Enter → expect nothing happens.
-- [ ] **`[AUTOMATE]` Send disabled while busy.** While a response is streaming, the placeholder reads "Generating…" and the send button is dim/disabled.
+- [x] **`[AUTOMATE]` Empty state renders.** Open `/chat` with no prior thread → expect heading "Talk to your work", a paragraph below it, and four suggestion pills for GitHub triage, repo shipping summary, status update drafting, and general help.
+- [x] **`[AUTOMATE]` Suggestion pill sends.** Click any suggestion pill → expect (a) the pill text appears as a user message right-aligned, (b) "Generating…" placeholder shown in the input, (c) an assistant response streams in below.
+- [x] **`[AUTOMATE]` Manual send.** Type "Hello" in the input box, press Enter → expect a user bubble on the right with "Hello", followed by an assistant response.
+- [x] **`[AUTOMATE]` Shift+Enter inserts newline.** Type "line one", press Shift+Enter, type "line two", press Enter → expect the user bubble to render two lines.
+- [x] **`[AUTOMATE]` Empty submit is blocked.** Click the send button with an empty input → expect nothing happens (no message added). Type only spaces and press Enter → expect nothing happens.
+- [x] **`[AUTOMATE]` Send disabled while busy.** While a response is streaming, the placeholder reads "Generating…" and the send button is dim/disabled.
 - [ ] **Streaming is visible.** During a response, expect text to appear progressively (not all at once), with a thin pulsing caret at the end while pending.
 - [ ] **Auto-scroll follows the stream.** Send a long message that produces a long response → expect the view to keep scrolling so the latest text stays in view.
-- [ ] **`[AUTOMATE]` Conversation continuity.** After one exchange, send a follow-up like "what did I just ask?" → expect the assistant to reference your previous message (proves `threadId` is passed back).
+- [x] **`[AUTOMATE]` Conversation continuity.** After one exchange, send a follow-up like "what did I just ask?" → expect the assistant to reference your previous message (proves `threadId` is passed back).
 - [ ] **Markdown rendering (assistant only).** Ask the model to "reply with a bullet list of three items" → expect a real `<ul>` with bullets, not raw `*` characters. Same for `**bold**`, `# heading`, ` ```code``` ` blocks.
 - [ ] **User bubbles do NOT render markdown.** Type literally `**bold**` and send → expect the user bubble shows the asterisks as plain text.
-- [ ] **`[AUTOMATE]` Model label appears.** After an assistant response, expect a small "Assistant · {modelId}" label above the answer (e.g. "Assistant · sonnet-4-6").
+- [x] **`[AUTOMATE]` Model label appears.** After an assistant response, expect a small "{assistantName} · {modelId}" label above the answer (e.g. "Thomas · sonnet-4-6").
 
 ## Files, Artifacts & Recommendations
 
@@ -51,9 +51,9 @@ unmarked items need a human eye for visual / device-specific verification.
 
 - [ ] **Sidebar visible on desktop ≥ md (768px).** Resize window to 1024px width → expect the left sidebar to be persistently visible, no hamburger button shown.
 - [ ] **Top bar single row.** At every viewport width from 320px → 1440px, the top bar should remain on one horizontal row (no wrapping).
-- [ ] **`[AUTOMATE]` Top bar contains the right elements.** Inspect the `<header>` of `/chat` → expect: hamburger (mobile only), tab list, "+" new-tab button, chat download button, stop/regenerate when applicable, and theme toggle. In Runtime v1 only, the model selector may also appear.
+- [x] **`[AUTOMATE]` Top bar contains the right elements.** Inspect the `<header>` of `/chat` → expect: hamburger (mobile only), tab list, "+" new-tab button, chat download button, stop/regenerate when applicable, and theme toggle. In Runtime v1 only, the model selector may also appear.
 - [ ] **`[AUTOMATE]` Empty-state suggestions clickable.** Each of the three suggestion pills has role=button and is focusable via Tab.
-- [ ] **No horizontal overflow.** At 320px, 375px, 414px, 768px, 1280px viewports → expect `document.documentElement.scrollWidth === clientWidth` (no horizontal scrollbar at the page level).
+- [x] **No horizontal overflow.** In the desktop and mobile Playwright projects → expect `document.documentElement.scrollWidth === clientWidth` (no horizontal scrollbar at the page level).
 - [ ] **Hairline borders only.** Visual inspection: no drop shadows, no gradients, dividers are 1px lines using `--color-hairline`.
 - [ ] **Notion palette in light mode.** Background tone should be off-white (#F7F6F3-ish), not pure white. Hairlines visible but soft.
 - [ ] **Active sidebar item highlight.** Click any sidebar nav item → expect a subtle filled background (`bg-subtle`) on it; previously active item loses the highlight. **Note:** these items are cosmetic only — they don't navigate (see Punch List).
@@ -67,9 +67,9 @@ unmarked items need a human eye for visual / device-specific verification.
 
 ## Dark Mode
 
-- [ ] **`[AUTOMATE]` Theme toggle exists.** Find the sun/moon icon button in the top-right of the chat top bar.
-- [ ] **`[AUTOMATE]` Toggle flips theme.** Click theme toggle → expect `<html>` to gain or lose the `dark` class. Background and surfaces swap palette accordingly. Click again → expect it to flip back.
-- [ ] **`[AUTOMATE]` Theme persists across reload.** Set theme to dark, hard-reload `/chat` → expect the app to load already in dark mode (no flash of light theme).
+- [x] **`[AUTOMATE]` Theme toggle exists.** Find the sun/moon icon button in the top-right of the chat top bar.
+- [x] **`[AUTOMATE]` Toggle flips theme.** Click theme toggle → expect `<html>` to gain or lose the `dark` class. Background and surfaces swap palette accordingly. Click again → expect it to flip back.
+- [x] **`[AUTOMATE]` Theme persists across reload.** Set theme to dark, hard-reload `/chat` → expect the app to load already in dark mode (no flash of light theme).
 - [ ] **No flash of unstyled / wrong theme on load.** Visual: open app cold (cleared cache) → expect the correct theme paints from the very first frame.
 - [ ] **Dark palette correctness.** In dark mode: canvas ≈ `#191919`, sidebar ≈ `#1F1F1F`, surface ≈ `#252525`, hairline ≈ `#2D2D2D`, ink ≈ `#E5E5E5`. Not pure black.
 - [ ] **All text legible in both themes.** Visual scan: scrollbar, placeholder text, header buttons, assistant/model labels, message timestamps, pending caret, artifact pills, and recommendation cards all readable in both modes.
@@ -80,14 +80,14 @@ unmarked items need a human eye for visual / device-specific verification.
 
 ## Mobile (viewport < 768px)
 
-- [ ] **`[AUTOMATE]` Sidebar hidden by default.** At 375px width, on first load → sidebar is offscreen, hamburger visible at top-left of header.
-- [ ] **`[AUTOMATE]` Hamburger opens drawer.** Tap the hamburger → expect sidebar slides in from the left, dark backdrop covers the rest of the screen.
-- [ ] **`[AUTOMATE]` Backdrop tap closes drawer.** With drawer open, tap anywhere on the dimmed area → expect drawer slides out, backdrop fades away.
-- [ ] **`[AUTOMATE]` X button closes drawer.** With drawer open, tap the X in the user header inside the sidebar → expect drawer closes.
-- [ ] **`[AUTOMATE]` Escape key closes drawer.** With drawer open and focus anywhere on page, press Escape → drawer closes.
-- [ ] **`[AUTOMATE]` Tapping a nav item closes drawer.** Open drawer, tap "Tools" or "Vault" → expect drawer closes and the active highlight in the sidebar moves to the selected section.
+- [x] **`[AUTOMATE]` Sidebar hidden by default.** At 375px width, on first load → sidebar is offscreen, hamburger visible at top-left of header.
+- [x] **`[AUTOMATE]` Hamburger opens drawer.** Tap the hamburger → expect sidebar slides in from the left, dark backdrop covers the rest of the screen.
+- [x] **`[AUTOMATE]` Backdrop tap closes drawer.** With drawer open, tap anywhere on the dimmed area → expect drawer slides out, backdrop fades away.
+- [x] **`[AUTOMATE]` X button closes drawer.** With drawer open, tap the X in the user header inside the sidebar → expect drawer closes.
+- [x] **`[AUTOMATE]` Escape key closes drawer.** With drawer open and focus anywhere on page, press Escape → drawer closes.
+- [x] **`[AUTOMATE]` Tapping a nav item closes drawer.** Open drawer, tap "Tools" or "Vault" → expect drawer closes and the active highlight in the sidebar moves to the selected section.
 - [x] **`[AUTOMATE]` Vault renders seeded memory.** Open "Vault" from the sidebar → expect approved and suggested memory to render in the active theme.
-- [ ] **`[AUTOMATE]` "New chat" from drawer closes drawer + opens new tab.** Tap "New chat" inside the drawer → expect drawer closes AND a new empty tab appears in the tab strip, becomes active.
+- [x] **`[AUTOMATE]` "New chat" from drawer closes drawer + opens new tab.** Tap "New chat" inside the drawer → expect drawer closes AND a new empty tab appears in the tab strip, becomes active.
 - [ ] **Touch targets ≥ 44px.** Visual/measurement: hamburger, X close, sidebar nav items, "New chat", and send button all measure ≥ 44px tall in mobile mode.
 - [ ] **Tab strip scrolls horizontally.** Open 4–5 tabs on a 375px viewport → expect the tabs container scrolls horizontally, the active tab stays visible after switching.
 - [ ] **Tab close buttons visible without hover on mobile.** With multiple tabs at < md, each tab shows its X icon at all times. (At ≥ md, the X is hidden and only appears on hover.)
@@ -102,18 +102,18 @@ unmarked items need a human eye for visual / device-specific verification.
 
 ## Tabs
 
-- [ ] **`[AUTOMATE]` Initial state has one tab named "New chat".** Fresh page load → expect exactly one tab with the title "New chat", input is enabled.
-- [ ] **`[AUTOMATE]` "+" button creates a new tab.** Click "+" → expect a new tab labelled "New chat" appears to the right and becomes active.
+- [x] **`[AUTOMATE]` Initial state has one tab named "New chat".** Fresh page load → expect exactly one tab with the title "New chat", input is enabled.
+- [x] **`[AUTOMATE]` "+" button creates a new tab.** Click "+" → expect a new tab labelled "New chat" appears to the right and becomes active.
 - [x] **`[AUTOMATE]` Each tab has independent messages.** Send "tab A" in tab 1, switch to tab 2, send "tab B" in tab 2, switch back to tab 1 → expect tab 1 still shows "tab A" and its assistant response only; tab 2 shows "tab B" and its response only.
 - [ ] **`[AUTOMATE]` Each tab has independent threadId.** After sending in two tabs, inspect Network → expect each tab's requests use different `threadId` values.
-- [ ] **`[AUTOMATE]` Tab title auto-derives from first message.** Send "What is in my email?" in a fresh tab → expect the tab title becomes "What is in my email?" (truncated at 32 chars + `…` if longer).
+- [x] **`[AUTOMATE]` Tab title auto-derives from first message.** Send "What is in my email?" in a fresh tab → expect the tab title becomes "What is in my email?" (truncated at 32 chars + `…` if longer).
 - [ ] **Tab title doesn't change after the first message.** Send a second message in the same tab → expect the tab title remains the original.
 - [ ] **`[AUTOMATE]` Switching tabs while one is busy.** While tab 1 is generating, switch to tab 2 → expect tab 2's input is enabled (independent busy state); switching back to tab 1 still shows pending state and incoming text.
 - [ ] **`[AUTOMATE]` Busy indicator dot.** A tab with a request in flight shows a small pulsing dot to the left of its title. The dot disappears when the response finishes.
-- [ ] **`[AUTOMATE]` Closing a tab.** Click X on a non-active tab → expect that tab disappears, active tab stays.
-- [ ] **`[AUTOMATE]` Closing the active tab.** Click X on the active tab (when others exist) → expect the previous tab (left neighbor, falling back to first) becomes active.
-- [ ] **Last tab cannot be closed.** With only one tab open, expect no X button is shown on it.
-- [ ] **Runtime v2 hides per-tab model picking.** With Runtime v2 enabled, expect no chat-level model dropdown; routing/model choice is handled by the runtime while the assistant label still records the model used.
+- [x] **`[AUTOMATE]` Closing a tab.** Click X on a non-active tab → expect that tab disappears, active tab stays.
+- [x] **`[AUTOMATE]` Closing the active tab.** Click X on the active tab (when others exist) → expect the previous tab (left neighbor, falling back to first) becomes active.
+- [x] **Last tab cannot be closed.** With only one tab open, expect no X button is shown on it.
+- [x] **Runtime v2 hides per-tab model picking.** With Runtime v2 enabled, expect no chat-level model dropdown; routing/model choice is handled by the runtime while the assistant label still records the model used.
 - [ ] **Tabs persist across reload.** Open 3 tabs, refresh the page → expect the same tab set and active tab to return from local storage. Server-side threads still remain the source of truth for persisted conversations.
 
 ---
@@ -152,7 +152,7 @@ unmarked items need a human eye for visual / device-specific verification.
 
 - The current automation strategy lives in `docs/REGRESSION_GAUNTLET.md`.
 - Browser smoke is now Playwright-backed: run `pnpm smoke:browser`.
-- Local browser smoke includes mocked signed-in chat feature flows at `/e2e/chat`: image upload payloads, artifact collapse/preview/menu, tool activity receipts, slash skill execution, chat transcript download, tab isolation, retry recovery, persona/admin gating, Tools connection state, Settings saves, and Vault memory approval.
+- Local browser smoke includes mocked signed-in chat feature flows at `/e2e/chat`: image upload payloads, artifact collapse/preview/menu, tool activity receipts, slash skill execution, chat transcript download, tab isolation, retry recovery, chat shell guardrails, persona/admin gating, Tools connection state, Settings saves, and Vault memory approval.
 - Production public smoke is now script-backed: run `pnpm smoke:prod`.
 - Use `PLAYWRIGHT_BASE_URL` to point browser smoke at an already-running app.
 - Use `SMOKE_BASE_URL` to point production smoke at a preview or alternate deployed URL.
