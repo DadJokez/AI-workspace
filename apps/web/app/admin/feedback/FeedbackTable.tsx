@@ -16,7 +16,6 @@ export interface AdminFeedbackRow {
   expected: string | null;
   pageUrl: string | null;
   userAgent: string | null;
-  screenshotDataUrl: string | null;
   screenshotName: string | null;
   screenshotMimeType: string | null;
   linkedIssueUrl: string | null;
@@ -52,11 +51,21 @@ function safeExternalHref(value: string | null): string | null {
   }
 }
 
-function canRenderScreenshot(row: AdminFeedbackRow): boolean {
+function hasSafeScreenshotMetadata(row: AdminFeedbackRow): boolean {
   return Boolean(
-    row.screenshotDataUrl &&
+    row.screenshotName &&
       row.screenshotMimeType &&
-      SAFE_SCREENSHOT_MIME_TYPES.has(row.screenshotMimeType),
+      SAFE_SCREENSHOT_MIME_TYPES.has(row.screenshotMimeType.toLowerCase()),
+  );
+}
+
+function isSafeScreenshotDataUrl(dataUrl: string, mimeType: string): boolean {
+  const match = /^data:([^;,]+);base64,/i.exec(dataUrl);
+  const dataUrlMimeType = match?.[1]?.toLowerCase();
+  const normalizedMimeType = mimeType.toLowerCase();
+  return (
+    dataUrlMimeType === normalizedMimeType &&
+    SAFE_SCREENSHOT_MIME_TYPES.has(dataUrlMimeType)
   );
 }
 
@@ -126,7 +135,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
           <tbody>
             {items.map((row) => {
               const pageHref = safeExternalHref(row.pageUrl);
-              const showScreenshot = canRenderScreenshot(row);
+              const hasScreenshot = hasSafeScreenshotMetadata(row);
               return (
               <tr key={row.id} className="border-b border-hairline align-top last:border-0">
                 <td className="max-w-xl px-3 py-3">
@@ -155,21 +164,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
                     {row.screenshotName ? <span>Screenshot: {row.screenshotName}</span> : null}
                     <span>{new Date(row.createdAt).toLocaleString()}</span>
                   </div>
-                  {showScreenshot ? (
-                    <details className="mt-2">
-                      <summary className="cursor-pointer text-[12px] text-muted hover:text-ink">
-                        Screenshot
-                      </summary>
-                      <Image
-                        src={row.screenshotDataUrl!}
-                        alt={`Screenshot for ${row.title}`}
-                        width={720}
-                        height={405}
-                        unoptimized
-                        className="mt-2 h-auto max-h-72 max-w-full rounded-md border border-hairline object-contain"
-                      />
-                    </details>
-                  ) : null}
+                  {hasScreenshot ? <ScreenshotPreview row={row} /> : null}
                   <details className="mt-2">
                     <summary className="cursor-pointer text-[12px] text-muted hover:text-ink">
                       Triage notes
@@ -209,6 +204,82 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
         </table>
       </div>
     </div>
+  );
+}
+
+function ScreenshotPreview({ row }: { row: AdminFeedbackRow }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [screenshot, setScreenshot] = useState<{
+    dataUrl: string;
+    mimeType: string;
+    name: string | null;
+  } | null>(null);
+
+  async function loadScreenshot() {
+    if (loading || screenshot) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/feedback/${row.id}/screenshot`);
+      const body = (await res.json().catch(() => ({}))) as {
+        screenshot?: { dataUrl?: string; mimeType?: string; name?: string | null };
+        error?: string;
+      };
+      const next = body.screenshot;
+      if (
+        !res.ok ||
+        !next?.dataUrl ||
+        !next.mimeType ||
+        !isSafeScreenshotDataUrl(next.dataUrl, next.mimeType)
+      ) {
+        throw new Error(body.error ?? "Could not load screenshot.");
+      }
+      setScreenshot({
+        dataUrl: next.dataUrl,
+        mimeType: next.mimeType,
+        name: next.name ?? null,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load screenshot.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <details
+      className="mt-2"
+      onToggle={(e) => {
+        if (e.currentTarget.open) void loadScreenshot();
+      }}
+    >
+      <summary className="cursor-pointer text-[12px] text-muted hover:text-ink">
+        Screenshot
+      </summary>
+      {loading ? (
+        <div className="mt-2 rounded-md border border-hairline bg-canvas px-3 py-2 text-[12px] text-muted">
+          Loading screenshot…
+        </div>
+      ) : error ? (
+        <div className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-200">
+          {error}
+        </div>
+      ) : screenshot ? (
+        <Image
+          src={screenshot.dataUrl}
+          alt={`Screenshot for ${row.title}`}
+          width={720}
+          height={405}
+          unoptimized
+          className="mt-2 h-auto max-h-72 max-w-full rounded-md border border-hairline object-contain"
+        />
+      ) : (
+        <div className="mt-2 rounded-md border border-hairline bg-canvas px-3 py-2 text-[12px] text-muted">
+          Expand to load {row.screenshotName ?? "screenshot"}.
+        </div>
+      )}
+    </details>
   );
 }
 

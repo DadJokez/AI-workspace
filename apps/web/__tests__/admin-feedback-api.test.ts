@@ -20,6 +20,7 @@ const fixedDate = new Date("2026-06-15T12:00:00.000Z");
 
 let currentSession: SessionUser | null = adminSession;
 let updateReturning: Array<Record<string, unknown>> = [];
+let selectRows: Array<Record<string, unknown>> = [];
 let capturedPatch: Record<string, unknown> | undefined;
 
 function installMocks() {
@@ -40,10 +41,16 @@ function installMocks() {
     updateQuery.where = () => updateQuery;
     updateQuery.returning = () => Promise.resolve(updateReturning);
 
+    const selectQuery: Record<string, unknown> = {};
+    selectQuery.from = () => selectQuery;
+    selectQuery.where = () => selectQuery;
+    selectQuery.limit = () => Promise.resolve(selectRows);
+
     return {
       ...actual,
       getDb: () =>
         ({
+          select: () => selectQuery,
           update: () => updateQuery,
         }) as never,
     };
@@ -61,6 +68,7 @@ function makeReq(body: unknown) {
 beforeEach(() => {
   currentSession = adminSession;
   capturedPatch = undefined;
+  selectRows = [];
   updateReturning = [
     {
       id: REPORT_ID,
@@ -128,6 +136,69 @@ describe("PATCH /api/admin/feedback/[id]", () => {
       status: "reviewing",
       adminNotes: "Can reproduce.",
       linkedIssueUrl: "https://github.com/example/repo/issues/1",
+    });
+  });
+});
+
+describe("GET /api/admin/feedback/[id]/screenshot", () => {
+  it("returns 403 for non-admin users", async () => {
+    currentSession = userSession;
+    installMocks();
+
+    const { GET } = await import("@/app/api/admin/feedback/[id]/screenshot/route");
+    const res = await GET(
+      new Request(`http://localhost/api/admin/feedback/${REPORT_ID}/screenshot`),
+      { params: Promise.resolve({ id: REPORT_ID }) },
+    );
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns safe screenshot data for admins", async () => {
+    selectRows = [
+      {
+        screenshotDataUrl: "data:image/png;base64,aGVsbG8=",
+        screenshotMimeType: "image/png",
+        screenshotName: "bug.png",
+      },
+    ];
+    installMocks();
+
+    const { GET } = await import("@/app/api/admin/feedback/[id]/screenshot/route");
+    const res = await GET(
+      new Request(`http://localhost/api/admin/feedback/${REPORT_ID}/screenshot`),
+      { params: Promise.resolve({ id: REPORT_ID }) },
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      screenshot: {
+        dataUrl: "data:image/png;base64,aGVsbG8=",
+        mimeType: "image/png",
+        name: "bug.png",
+      },
+    });
+  });
+
+  it("rejects stored non-data screenshot URLs", async () => {
+    selectRows = [
+      {
+        screenshotDataUrl: "https://attacker.example/pixel.png",
+        screenshotMimeType: "image/png",
+        screenshotName: "pixel.png",
+      },
+    ];
+    installMocks();
+
+    const { GET } = await import("@/app/api/admin/feedback/[id]/screenshot/route");
+    const res = await GET(
+      new Request(`http://localhost/api/admin/feedback/${REPORT_ID}/screenshot`),
+      { params: Promise.resolve({ id: REPORT_ID }) },
+    );
+
+    expect(res.status).toBe(422);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "invalid_screenshot",
     });
   });
 });

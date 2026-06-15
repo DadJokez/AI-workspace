@@ -152,6 +152,25 @@ describe("POST /api/feedback", () => {
     expect(capturedInsert).toBeUndefined();
   });
 
+  it("rejects external screenshot URLs even when a safe MIME type is declared", async () => {
+    installMocks();
+
+    const { POST } = await import("@/app/api/feedback/route");
+    const res = await POST(
+      makeReq({
+        body: "External image URLs are not screenshots.",
+        screenshotDataUrl: "https://attacker.example/pixel.png",
+        screenshotMimeType: "image/png",
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "invalid_screenshot",
+    });
+    expect(capturedInsert).toBeUndefined();
+  });
+
   it("stores a scoped feedback report with visible context", async () => {
     selectQueues = [
       [{ id: THREAD_ID }],

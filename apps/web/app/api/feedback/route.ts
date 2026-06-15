@@ -229,15 +229,14 @@ export async function POST(req: Request) {
     const match = /^data:([^;,]+);base64,/i.exec(screenshotDataUrl);
     const dataUrlMimeType = match?.[1]?.toLowerCase();
     const declaredMimeType = screenshotMimeType?.toLowerCase();
-    const effectiveMimeType = dataUrlMimeType ?? declaredMimeType;
     if (
-      !effectiveMimeType ||
-      !ALLOWED_SCREENSHOT_MIME_TYPES.has(effectiveMimeType) ||
-      (declaredMimeType !== undefined && declaredMimeType !== effectiveMimeType)
+      !dataUrlMimeType ||
+      !ALLOWED_SCREENSHOT_MIME_TYPES.has(dataUrlMimeType) ||
+      (declaredMimeType !== undefined && declaredMimeType !== dataUrlMimeType)
     ) {
       return NextResponse.json({ error: "invalid_screenshot" }, { status: 400 });
     }
-    screenshotMimeType = effectiveMimeType;
+    screenshotMimeType = dataUrlMimeType;
   }
 
   const [chatMessageId, runId, artifactId] = await Promise.all([

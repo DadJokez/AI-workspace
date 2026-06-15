@@ -51,7 +51,6 @@ export default async function AdminFeedbackPage({ searchParams }: Props) {
       expected: feedbackReports.expected,
       pageUrl: feedbackReports.pageUrl,
       userAgent: feedbackReports.userAgent,
-      screenshotDataUrl: feedbackReports.screenshotDataUrl,
       screenshotName: feedbackReports.screenshotName,
       screenshotMimeType: feedbackReports.screenshotMimeType,
       linkedIssueUrl: feedbackReports.linkedIssueUrl,
