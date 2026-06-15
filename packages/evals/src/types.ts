@@ -1,4 +1,4 @@
-import type { AgentEvent, ModelId } from "@ai-workspace/agent";
+import type { AgentEvent, ModelId, Tool, ToolResult } from "@ai-workspace/agent";
 
 /**
  * An eval case is data, not code (specs/004 FR-001). Adding a case — including
@@ -14,6 +14,18 @@ export interface EvalCase {
   input: string;
   /** Model to run the case on. Defaults to the suite default. */
   modelId?: ModelId;
+  /**
+   * Deterministic fixture tools mounted only for this eval case. These are how
+   * tool-grounding evals prove the model called a tool without depending on
+   * Rob's live accounts.
+   */
+  tools?: readonly Tool[];
+  /** Provider state shown in reports, e.g. { github: "mounted_fixture" }. */
+  providerStatus?: Record<string, string>;
+  /** Human-readable context receipts that explain why this case had its tools. */
+  contextReceipts?: string[];
+  /** Stable fixture facts the answer is expected to cite. */
+  fixtureEvidence?: string[];
   /** Assertions; a case passes only if all pass. */
   assertions: Assertion[];
 }
@@ -23,6 +35,10 @@ export interface TurnTranscript {
   answer: string;
   events: AgentEvent[];
   toolCallNames: string[];
+  toolResults: ToolResult[];
+  providerStatus?: Record<string, string>;
+  contextReceipts: string[];
+  fixtureEvidence: string[];
 }
 
 export interface AssertionResult {
@@ -57,6 +73,15 @@ export interface CaseResult {
   answerPreview: string;
   tokensIn: number;
   tokensOut: number;
+  toolCalls: string[];
+  toolResults: Array<{
+    toolCallId: string;
+    isError?: boolean;
+    outputPreview: string;
+  }>;
+  providerStatus?: Record<string, string>;
+  contextReceipts: string[];
+  fixtureEvidence: string[];
   errored?: string;
 }
 

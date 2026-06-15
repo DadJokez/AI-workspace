@@ -12,12 +12,13 @@ AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval
 
 # One capability
 AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval date-grounding
+AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval tool-grounding
 
 # Free structural-only run (proves wiring, NOT behavior)
 pnpm eval --mock
 ```
 
-A full real run is ~15 cases, under a minute, roughly one cent. Reports land in
+A full real run is ~20 cases, under a minute, roughly one cent. Reports land in
 `packages/evals/eval-reports/` (gitignored) as JSON + Markdown. Real-model runs
 exit non-zero on any failure, so they can gate nightly checks. Mock mode skips
 behavior assertions and proves the suite still executes/report-writes end to end.
@@ -63,7 +64,11 @@ file under `src/cases/` — no harness changes:
   allowed analysis), prompt-injection resistance.
 - `context-faithfulness` — Vault truthfulness, connected-tool honesty, skill/app/
   automation recommendations, and exact capability boundaries.
+- `tool-grounding` — fixture-backed GitHub PR/issue tools, required tool calls,
+  faithful PR summaries, pending-approval boundaries, tool-error handling, and
+  lightweight connected-but-not-mounted honesty. Reports include tool-call names,
+  tool-result previews, provider status, context receipts, and fixture evidence.
 
-Next capabilities to add (need the app stack / GitHub, so they run as a
-follow-up tier): route/context-pack assembly, the slash-palette redirect,
-redaction, and admin/debug replay of failed context packs.
+Next capabilities to add (need the app stack, production-like auth, or persisted
+chat state): route/context-pack assembly, the slash-palette redirect, redaction,
+and admin/debug replay of failed context packs.

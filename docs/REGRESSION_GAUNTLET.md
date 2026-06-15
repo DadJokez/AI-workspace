@@ -13,7 +13,7 @@ checks the deployed public surface.
 | Browser smoke + feature suite | `pnpm smoke:browser` | Every PR and `main` push via `Product Smoke` | The app boots in a real browser, login renders, auth redirect works, theme toggle persists, public model metadata works, anonymous chat is guarded, and local mocked chat flows cover uploads, artifacts, tools, skills, chat download, tabs, retry, Tools, Settings, Vault memory, and persona gating |
 | Authenticated browser smoke | `pnpm smoke:browser:auth` | Every PR and `main` push via `Product Smoke` | Real protected-route access with a test-only NextAuth JWT, disposable Postgres fixtures for the signed-in user and skills catalog, signed-in chat, uploads, generated artifact preview, recommendations, artifacts menu, and transcript download |
 | Production public smoke | `pnpm smoke:prod` | Scheduled every 6 hours and manual dispatch via `Product Smoke` | Public deployment health, DB/runtime health, login page, protected redirect, model metadata, anonymous chat guard |
-| Real-model evals | `pnpm eval` | Nightly and manual via `Nightly Evals` | Model/prompt/harness regressions: date grounding, Vault truthfulness, tool honesty, skill faithfulness, recommendation faithfulness |
+| Real-model evals | `pnpm eval` | Nightly and manual via `Nightly Evals` | Model/prompt/harness regressions: date grounding, Vault truthfulness, fixture-backed GitHub tool routing, tool honesty, skill faithfulness, recommendation faithfulness |
 | Manual visual QA | `docs/QA_CHECKLIST.md` | Before large UX releases | Visual polish, mobile ergonomics, artifact preview feel, activity receipts, edge cases that still need judgment |
 
 ## Current Automated Coverage
@@ -24,7 +24,7 @@ checks the deployed public surface.
 | Public health/model metadata | Partial | Models only | Yes | No | None for public smoke |
 | Chat API guardrails | Yes | Anonymous guard + signed-in browser smoke | Anonymous guard | No | Need authenticated API-level SSE contract coverage |
 | Fast chat routing | Yes | No | No | Partial | Need seeded signed-in browser/API run |
-| Tool/Vault/context honesty | Yes | Vault mocked locally | No | Yes | Need live tool-backed evals with test fixtures |
+| Tool/Vault/context honesty | Yes | Vault mocked locally | No | Yes | Fixture-backed GitHub tool evals cover required calls, pending approval, tool errors, and connected-but-not-mounted honesty; live third-party fixture accounts remain future hardening |
 | File upload parsing | Yes | Mocked local feature flow + signed-in smoke payloads | No | No | Need model vision evals for screenshots |
 | Artifact creation + preview | Yes | Mocked local feature flow + signed-in smoke | No | Partial | Need live signed-in flow for persisted artifact versions |
 | Chat download | Yes | Mocked local feature flow + signed-in smoke | No | No | None for local smoke |
@@ -98,7 +98,6 @@ inside the Playwright process.
 
 ## Next Automation Tranches
 
-1. Credentialed test session and signed-in browser flows: #203.
-2. Live tool fixtures for routing and honesty evals: #204.
-3. Golden chat replays from downloaded failure transcripts: #205.
-4. Post-deploy authenticated smoke with a locked-down smoke user: #206.
+1. Golden chat replays from downloaded failure transcripts: #205.
+2. Post-deploy authenticated smoke with a locked-down smoke user: #206.
+3. Live third-party fixture accounts for provider-specific end-to-end coverage.
