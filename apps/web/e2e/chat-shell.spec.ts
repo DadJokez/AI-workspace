@@ -107,7 +107,7 @@ test.describe("chat shell guardrails", () => {
     const input = page.getByPlaceholder(/ask anything/i);
     await input.fill("line one");
     await input.press("Shift+Enter");
-    await input.type("line two");
+    await input.pressSequentially("line two");
     await expect(input).toHaveValue("line one\nline two");
     await input.press("Enter");
 
