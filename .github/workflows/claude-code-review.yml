@@ -1,0 +1,122 @@
+name: Claude Code Review
+
+# Auto-reviews each pull request once the FULL gate (CI + Product Smoke) is green.
+# Codex implements and opens the PR; this hunts for bugs against CLAUDE.md and
+# labels `needs-codex` if it wants changes. It comments/labels only — it never
+# pushes commits or merges (Rob owns merges). See docs/AI_PR_REVIEW_PIPELINE.md.
+#
+# Auth: Amazon Bedrock via GitHub OIDC — no static API key. Set the repo
+# variables AWS_GHA_BEDROCK_ROLE_ARN (the IAM role to assume) and
+# BEDROCK_REVIEW_MODEL (the Bedrock inference-profile id) under Settings →
+# Secrets and variables → Actions → Variables.
+
+on:
+  workflow_run:
+    workflows: ["CI", "Product Smoke"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write # GitHub OIDC -> AWS (Bedrock)
+
+concurrency:
+  # Serialize per commit so the two gate workflows can't double-review.
+  group: claude-review-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: >-
+      ${{ github.event.workflow_run.event == 'pull_request' &&
+          github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Resolve PR and confirm both gates are green
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Exactly one open PR for this commit, or stop (don't guess).
+          count=$(gh api "repos/$REPO/commits/$SHA/pulls" \
+            --jq '[.[] | select(.state=="open")] | length')
+          if [ "$count" != "1" ]; then
+            echo "Not exactly one open PR for $SHA (found $count) — skipping."
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          pr=$(gh api "repos/$REPO/commits/$SHA/pulls" \
+            --jq '[.[] | select(.state=="open")][0].number')
+
+          # Require BOTH gate workflows to have a successful run at this SHA.
+          # The later-completing gate triggers this and sees both green.
+          for wf in "CI" "Product Smoke"; do
+            ok=$(gh api "repos/$REPO/actions/runs?head_sha=$SHA&per_page=100" \
+              --jq "[.workflow_runs[] | select(.name==\"$wf\" and .conclusion==\"success\")] | length")
+            if [ "${ok:-0}" = "0" ]; then
+              echo "Gate '$wf' is not green yet for $SHA — waiting."
+              echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+          done
+
+          # Dedup: skip if we already left a review marker for this SHA.
+          marker="<!-- claude-reviewed: $SHA -->"
+          if gh api "repos/$REPO/issues/$pr/comments" --paginate --jq '.[].body' \
+              | grep -qF "$marker"; then
+            echo "Already reviewed $SHA — skipping."
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          gh api -X POST "repos/$REPO/issues/$pr/comments" -f body="$marker" >/dev/null
+
+          echo "go=true" >> "$GITHUB_OUTPUT"
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout PR head
+        if: steps.gate.outputs.go == 'true'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+
+      - name: Configure AWS credentials (OIDC, no secret)
+        if: steps.gate.outputs.go == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_GHA_BEDROCK_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Claude review
+        if: steps.gate.outputs.go == 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          AWS_REGION: us-east-1
+        with:
+          use_bedrock: "true"
+          github_token: ${{ github.token }}
+          claude_args: |
+            --model ${{ vars.BEDROCK_REVIEW_MODEL }}
+            --max-turns 20
+            --allowedTools "Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh pr edit:*),Bash(gh api:*),Bash(gh label:*)"
+          prompt: |
+            You are the automated reviewer for pull request #${{ steps.gate.outputs.pr }}
+            in ${{ github.repository }}. The full gate (lint, typecheck, unit tests,
+            build, and the Playwright browser smoke) is already green.
+
+            Review the PR's diff against the rubric in CLAUDE.md at the repo root.
+            Hunt for real bugs, regressions, security issues (data scoping, secrets,
+            prompt injection), missing tests, and rubric violations. Read the diff
+            with `gh pr diff ${{ steps.gate.outputs.pr }}` and enough surrounding
+            code to judge it. Be specific and adversarial; cite file:line; prefer a
+            few high-signal findings over many nits, and lead with the blocker.
+
+            Post the review with:
+              gh pr review ${{ steps.gate.outputs.pr }} --comment --body "<your review>"
+            (use --comment only; never --approve or --request-changes). If you want
+            changes, also run:
+              gh pr edit ${{ steps.gate.outputs.pr }} --add-label needs-codex
+            and say clearly what Codex should fix on the same branch. If it's clean,
+            say so. Do NOT push commits and do NOT merge — Rob owns merges.

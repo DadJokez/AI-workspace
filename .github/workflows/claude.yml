@@ -1,0 +1,58 @@
+name: Claude
+
+# On-demand: mention `@claude` in a PR/issue comment, review, or a new issue and
+# Claude responds (answers, reviews, investigates). Per the pipeline, Claude is
+# review-only here — it reads and comments but does not push commits or merge;
+# Codex makes the changes. See docs/AI_PR_REVIEW_PIPELINE.md.
+#
+# Auth: Amazon Bedrock via GitHub OIDC — no static API key. Uses the repo
+# variables AWS_GHA_BEDROCK_ROLE_ARN and BEDROCK_REVIEW_MODEL.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+  issues:
+    types: [opened, assigned]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write # GitHub OIDC -> AWS (Bedrock)
+
+jobs:
+  claude:
+    if: >-
+      ${{ (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+          (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+          (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+          (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Configure AWS credentials (OIDC, no secret)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_GHA_BEDROCK_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          AWS_REGION: us-east-1
+        with:
+          use_bedrock: "true"
+          github_token: ${{ github.token }}
+          trigger_phrase: "@claude"
+          claude_args: |
+            --model ${{ vars.BEDROCK_REVIEW_MODEL }}
+            --max-turns 25
+            --allowedTools "Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh issue view:*),Bash(gh pr comment:*),Bash(gh issue comment:*),Bash(gh api:*)"
