@@ -1,6 +1,6 @@
 import type { Page, Request, Route } from "@playwright/test";
 
-const now = "2026-06-14T20:00:00.000Z";
+export const now = "2026-06-14T20:00:00.000Z";
 
 interface MockChatOptions {
   threads?: unknown[];
@@ -257,6 +257,9 @@ export async function installMockComparativeApi(
 
     const vaultPatchMatch = /^\/api\/vault\/memory\/([^/]+)$/.exec(path);
     if (vaultPatchMatch) {
+      if (request.method() !== "PATCH") {
+        return json(route, { error: "method_not_allowed" }, 405);
+      }
       const id = decodeURIComponent(vaultPatchMatch[1]!);
       const body = await postJson(request);
       const action = body.action;
@@ -268,7 +271,9 @@ export async function installMockComparativeApi(
           ...suggestion,
           status: "approved" as const,
           category:
-            typeof body.category === "string" ? body.category : suggestion.category,
+            typeof body.category === "string"
+              ? body.category
+              : suggestion.category,
           title: typeof body.title === "string" ? body.title : suggestion.title,
           bodyMd:
             typeof body.bodyMd === "string" ? body.bodyMd : suggestion.bodyMd,

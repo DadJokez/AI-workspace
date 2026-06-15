@@ -155,12 +155,14 @@ test.describe("chat workflow regressions", () => {
     await page.getByPlaceholder(/ask anything/i).fill("retry this prompt");
     await page.getByRole("button", { name: "Send" }).click();
 
-    await expect(page.getByText("temporary bedrock failure")).toBeVisible();
+    await expect(page.getByText("Error", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
 
     await page.getByRole("button", { name: "Try again" }).click();
     await expect(page.getByText("Retried successfully.")).toBeVisible();
-    await expect(page.getByText("temporary bedrock failure")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(
+      0,
+    );
     expect(attempts).toBe(2);
   });
 });

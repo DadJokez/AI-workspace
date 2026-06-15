@@ -20,7 +20,7 @@ test.describe("Vault memory", () => {
       page.getByRole("heading", { name: "Vault", exact: true }),
     ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Rob" })).toBeVisible();
-    await expect(page.getByText(/1 approved .* 1 suggested/)).toBeVisible();
+    await expect(page.getByText("1 approved · 1 suggested")).toBeVisible();
     await expect(
       page.getByRole("heading", {
         name: "Preferred answer style",
@@ -43,7 +43,7 @@ test.describe("Vault memory", () => {
     await expect(
       page.getByRole("heading", { name: "Current test focus", exact: true }),
     ).toBeVisible();
-    await expect(page.getByText(/2 approved .* 1 suggested/)).toBeVisible();
+    await expect(page.getByText("2 approved · 1 suggested")).toBeVisible();
 
     await page
       .locator("div")
@@ -54,7 +54,7 @@ test.describe("Vault memory", () => {
       .click();
 
     await expect(page.getByText("No suggested updates.")).toBeVisible();
-    await expect(page.getByText(/3 approved .* 0 suggested/)).toBeVisible();
+    await expect(page.getByText("3 approved · 0 suggested")).toBeVisible();
     await expect(page.getByText("PR review automation").first()).toBeVisible();
   });
 });

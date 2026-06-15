@@ -1,11 +1,10 @@
 import { expect, test } from "@playwright/test";
 import {
   installMockComparativeApi,
+  now,
   regularUser,
 } from "./helpers/mock-comparative";
 import { gotoE2EChat, openNavItem, openPrimarySidebar } from "./helpers/navigation";
-
-const now = "2026-06-14T20:00:00.000Z";
 
 test.skip(
   !!process.env.PLAYWRIGHT_BASE_URL,
