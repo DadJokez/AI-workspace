@@ -1,0 +1,48 @@
+name: Claude
+
+# On-demand: mention `@claude` in a PR/issue comment, review, or a new issue and
+# Claude responds (answers, reviews, investigates). Per the pipeline, Claude is
+# review-only here — it reads and comments but does not push commits or merge;
+# Codex makes the changes. See docs/AI_PR_REVIEW_PIPELINE.md.
+#
+# Auth: the CLAUDE_CODE_OAUTH_TOKEN secret (Claude GitHub App / `claude
+# setup-token`). Dev tooling, not part of the product.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+  issues:
+    types: [opened, assigned]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  claude:
+    if: >-
+      ${{ (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+          (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+          (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+          (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          trigger_phrase: "@claude"
+          claude_args: |
+            --max-turns 25
+            --allowedTools "Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh issue view:*),Bash(gh pr comment:*),Bash(gh issue comment:*),Bash(gh api:*)"
