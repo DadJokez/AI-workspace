@@ -42,7 +42,7 @@ test.describe("chat shell guardrails", () => {
     await page.waitForTimeout(150);
 
     expect(chatCalls).toBe(0);
-    await expect(page.locator("main").getByText("Assistant")).toHaveCount(0);
+    await expect(page.getByText("This should not be sent.")).toHaveCount(0);
   });
 
   test("sends suggestions and preserves manual multiline payloads", async ({

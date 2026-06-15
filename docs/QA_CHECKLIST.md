@@ -53,7 +53,7 @@ unmarked items need a human eye for visual / device-specific verification.
 - [ ] **Top bar single row.** At every viewport width from 320px → 1440px, the top bar should remain on one horizontal row (no wrapping).
 - [x] **`[AUTOMATE]` Top bar contains the right elements.** Inspect the `<header>` of `/chat` → expect: hamburger (mobile only), tab list, "+" new-tab button, chat download button, stop/regenerate when applicable, and theme toggle. In Runtime v1 only, the model selector may also appear.
 - [ ] **`[AUTOMATE]` Empty-state suggestions clickable.** Each of the three suggestion pills has role=button and is focusable via Tab.
-- [x] **No horizontal overflow.** At 320px, 375px, 414px, 768px, 1280px viewports → expect `document.documentElement.scrollWidth === clientWidth` (no horizontal scrollbar at the page level).
+- [x] **No horizontal overflow.** In the desktop and mobile Playwright projects → expect `document.documentElement.scrollWidth === clientWidth` (no horizontal scrollbar at the page level).
 - [ ] **Hairline borders only.** Visual inspection: no drop shadows, no gradients, dividers are 1px lines using `--color-hairline`.
 - [ ] **Notion palette in light mode.** Background tone should be off-white (#F7F6F3-ish), not pure white. Hairlines visible but soft.
 - [ ] **Active sidebar item highlight.** Click any sidebar nav item → expect a subtle filled background (`bg-subtle`) on it; previously active item loses the highlight. **Note:** these items are cosmetic only — they don't navigate (see Punch List).
