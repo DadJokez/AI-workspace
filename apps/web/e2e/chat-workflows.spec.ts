@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import {
+  defaultArtifactSummary,
   fulfillSse,
   installMockComparativeApi,
   json,
@@ -15,7 +16,6 @@ test.skip(
 test.describe("chat workflow regressions", () => {
   test("downloads the active chat as markdown", async ({ page }) => {
     await installMockComparativeApi(page, {
-      artifacts: [],
       onChat: async (_body, route) => {
         await fulfillSse(route, [
           {
@@ -25,12 +25,13 @@ test.describe("chat workflow regressions", () => {
           },
           {
             type: "text-delta",
-            delta: "Exportable answer with enough detail for a transcript.",
+            delta:
+              "Exportable answer with enough detail for a transcript and artifact.",
           },
           {
             type: "persisted",
             assistantMessageId: "assistant-export",
-            artifacts: [],
+            artifacts: [defaultArtifactSummary],
             recommendations: [],
           },
           { type: "done" },
@@ -44,7 +45,9 @@ test.describe("chat workflow regressions", () => {
       .fill("Please make this exportable.");
     await page.getByRole("button", { name: "Send" }).click();
     await expect(
-      page.getByText("Exportable answer with enough detail for a transcript."),
+      page.getByText(
+        "Exportable answer with enough detail for a transcript and artifact.",
+      ),
     ).toBeVisible();
 
     const [download] = await Promise.all([
@@ -60,9 +63,11 @@ test.describe("chat workflow regressions", () => {
     expect(transcript).toContain("# Please make this exportable.");
     expect(transcript).toContain("Please make this exportable.");
     expect(transcript).toContain(
-      "Exportable answer with enough detail for a transcript.",
+      "Exportable answer with enough detail for a transcript and artifact.",
     );
     expect(transcript).toContain("- Thread ID: thread-export");
+    expect(transcript).toContain("### Artifacts");
+    expect(transcript).toContain("demo-artifact.html (html, 1.3 KB)");
   });
 
   test("keeps messages isolated across chat tabs", async ({ page }) => {

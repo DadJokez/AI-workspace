@@ -133,6 +133,18 @@ export const defaultVaultApproved = memoryItem({
   approvedAt: now,
 });
 
+const memoryCategoryLabels: Record<string, string> = {
+  current_priorities: "Current Priorities",
+  projects: "Projects",
+  working_style: "Working Style",
+  communication: "Communication",
+  preferences: "Preferences",
+  systems: "Systems",
+  constraints: "Constraints",
+  decisions: "Decisions",
+  personal_context: "Personal Context",
+};
+
 export async function installMockComparativeApi(
   page: Page,
   options: MockChatOptions = {},
@@ -232,14 +244,19 @@ export async function installMockComparativeApi(
     if (path === "/api/vault/memory") {
       if (request.method() === "POST") {
         const body = await postJson(request);
+        const category =
+          typeof body.category === "string"
+            ? body.category
+            : "personal_context";
+        const categoryLabel =
+          typeof body.categoryLabel === "string"
+            ? body.categoryLabel
+            : memoryCategoryLabel(category);
         const item = memoryItem({
           id: `memory-manual-${approvedItems.length + suggestions.length + 1}`,
           status: "approved",
-          category:
-            typeof body.category === "string"
-              ? body.category
-              : "personal_context",
-          categoryLabel: "Personal Context",
+          category,
+          categoryLabel,
           title: typeof body.title === "string" ? body.title : "Manual fact",
           bodyMd: typeof body.bodyMd === "string" ? body.bodyMd : "",
           approvedAt: now,
@@ -267,13 +284,17 @@ export async function installMockComparativeApi(
       const approved = approvedItems.find((item) => item.id === id);
 
       if (action === "approve" && suggestion) {
+        const category =
+          typeof body.category === "string" ? body.category : suggestion.category;
+        const categoryLabel =
+          typeof body.categoryLabel === "string"
+            ? body.categoryLabel
+            : memoryCategoryLabel(category);
         const next = {
           ...suggestion,
           status: "approved" as const,
-          category:
-            typeof body.category === "string"
-              ? body.category
-              : suggestion.category,
+          category,
+          categoryLabel,
           title: typeof body.title === "string" ? body.title : suggestion.title,
           bodyMd:
             typeof body.bodyMd === "string" ? body.bodyMd : suggestion.bodyMd,
@@ -398,6 +419,10 @@ function buildApprovedMarkdown(items: MockMemoryItem[]) {
         `## ${item.categoryLabel}\n\n### ${item.title}\n\n${item.bodyMd}`,
     )
     .join("\n\n");
+}
+
+function memoryCategoryLabel(category: string) {
+  return memoryCategoryLabels[category] ?? "Personal Context";
 }
 
 export function assistantMessage(overrides: Record<string, unknown> = {}) {

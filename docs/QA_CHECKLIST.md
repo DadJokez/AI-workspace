@@ -33,7 +33,7 @@ unmarked items need a human eye for visual / device-specific verification.
 - [x] **Generated artifacts use the cobalt pill.** Ask for a small HTML or Markdown artifact → expect the assistant message to show the compact electric-cobalt document pill instead of dumping a full large code block.
 - [x] **Artifact preview stays in the current tab.** Click a document/artifact pill → expect the in-tab preview pane to open; no browser tab/window should be created.
 - [ ] **Artifact versions group together.** Ask to revise an existing artifact → expect Artifacts to show one grouped item with the latest version plus expandable prior versions/downloads, not unrelated duplicates.
-- [x] **Chat download works.** Click the header download button in a non-empty thread → expect a Markdown transcript file containing messages plus thread metadata.
+- [x] **Chat download works.** Click the header download button in a non-empty thread → expect a Markdown transcript file containing messages, thread metadata, and artifact references when present.
 - [ ] **Recommendation cards are quiet and actionable.** After a response that produces a reusable workflow or deployable artifact, expect up to three recommendation cards below the assistant message. Accept should run the declared action; Dismiss should hide it and persist.
 
 ## Run Lifecycle

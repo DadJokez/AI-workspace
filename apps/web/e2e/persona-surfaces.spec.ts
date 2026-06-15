@@ -12,7 +12,7 @@ test.skip(
 );
 
 test.describe("persona and workspace surfaces", () => {
-  test("shows admin navigation only for admin users", async ({
+  test("shows admin navigation for admin users", async ({
     page,
     isMobile,
   }) => {
@@ -24,11 +24,14 @@ test.describe("persona and workspace surfaces", () => {
     await expect(
       adminSidebar.getByRole("button", { name: "Admin", exact: true }),
     ).toBeVisible();
+  });
 
-    await page.unroute("**/api/**");
+  test("hides admin navigation for regular users", async ({
+    page,
+    isMobile,
+  }) => {
     await installMockComparativeApi(page, { user: regularUser });
-    await page.reload();
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await gotoE2EChat(page);
 
     const regularSidebar = await openPrimarySidebar(page, isMobile);
     await expect(regularSidebar.getByText("casey@example.com")).toBeVisible();
