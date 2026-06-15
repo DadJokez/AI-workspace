@@ -44,5 +44,6 @@ jobs:
           github_token: ${{ github.token }}
           trigger_phrase: "@claude"
           claude_args: |
+            --model claude-opus-4-8
             --max-turns 25
             --allowedTools "Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh issue view:*),Bash(gh pr comment:*),Bash(gh issue comment:*),Bash(gh api:*)"
