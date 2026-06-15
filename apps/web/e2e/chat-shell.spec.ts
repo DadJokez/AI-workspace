@@ -31,6 +31,7 @@ test.describe("chat shell guardrails", () => {
     });
 
     await gotoE2EChat(page);
+    await expect(page.getByText(/GitHub is wired up today/)).toBeVisible();
 
     const input = page.getByPlaceholder(/ask anything/i);
     const send = page.getByRole("button", { name: "Send" });
@@ -39,7 +40,6 @@ test.describe("chat shell guardrails", () => {
     await input.fill("   ");
     await expect(send).toBeDisabled();
     await input.press("Enter");
-    await page.waitForTimeout(150);
 
     expect(chatCalls).toBe(0);
     await expect(page.getByText("This should not be sent.")).toHaveCount(0);
@@ -200,9 +200,9 @@ test.describe("chat shell guardrails", () => {
       header.getByRole("button", { name: "Close tab" }),
     ).toHaveCount(0);
 
-    await page
-      .getByPlaceholder(/ask anything/i)
-      .fill("make the header state testable");
+    const longTitlePrompt =
+      "make the header state testable with a longer tab title please";
+    await page.getByPlaceholder(/ask anything/i).fill(longTitlePrompt);
     await page.getByRole("button", { name: "Send" }).click();
 
     await expect(page.getByPlaceholder("Generating…")).toBeVisible();
@@ -216,7 +216,7 @@ test.describe("chat shell guardrails", () => {
       header.getByRole("button", { name: "Download chat transcript" }),
     ).toBeEnabled();
     await expect(
-      header.getByRole("button", { name: /make the header state testable/i }),
+      header.getByRole("button", { name: "make the header state testable w…" }),
     ).toBeVisible();
     await expect(
       header.getByRole("button", { name: "Regenerate last response" }),
