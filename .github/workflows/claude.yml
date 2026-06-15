@@ -5,8 +5,8 @@ name: Claude
 # review-only here — it reads and comments but does not push commits or merge;
 # Codex makes the changes. See docs/AI_PR_REVIEW_PIPELINE.md.
 #
-# Auth: Amazon Bedrock via GitHub OIDC — no static API key. Uses the repo
-# variables AWS_GHA_BEDROCK_ROLE_ARN and BEDROCK_REVIEW_MODEL.
+# Auth: the CLAUDE_CODE_OAUTH_TOKEN secret (Claude GitHub App / `claude
+# setup-token`). Dev tooling, not part of the product.
 
 on:
   issue_comment:
@@ -22,7 +22,6 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
-  id-token: write # GitHub OIDC -> AWS (Bedrock)
 
 jobs:
   claude:
@@ -38,21 +37,12 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Configure AWS credentials (OIDC, no secret)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_GHA_BEDROCK_ROLE_ARN }}
-          aws-region: us-east-1
-
       - name: Claude
         uses: anthropics/claude-code-action@v1
-        env:
-          AWS_REGION: us-east-1
         with:
-          use_bedrock: "true"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
           trigger_phrase: "@claude"
           claude_args: |
-            --model ${{ vars.BEDROCK_REVIEW_MODEL }}
             --max-turns 25
             --allowedTools "Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh issue view:*),Bash(gh pr comment:*),Bash(gh issue comment:*),Bash(gh api:*)"

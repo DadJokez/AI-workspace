@@ -5,10 +5,9 @@ name: Claude Code Review
 # labels `needs-codex` if it wants changes. It comments/labels only — it never
 # pushes commits or merges (Rob owns merges). See docs/AI_PR_REVIEW_PIPELINE.md.
 #
-# Auth: Amazon Bedrock via GitHub OIDC — no static API key. Set the repo
-# variables AWS_GHA_BEDROCK_ROLE_ARN (the IAM role to assume) and
-# BEDROCK_REVIEW_MODEL (the Bedrock inference-profile id) under Settings →
-# Secrets and variables → Actions → Variables.
+# Auth: the CLAUDE_CODE_OAUTH_TOKEN secret (Claude GitHub App / `claude
+# setup-token`). This is dev tooling for building Comparative — not part of the
+# product — so it uses the simple subscription token, not the product's auth.
 
 on:
   workflow_run:
@@ -19,7 +18,6 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
-  id-token: write # GitHub OIDC -> AWS (Bedrock)
 
 concurrency:
   # Serialize per commit so the two gate workflows can't double-review.
@@ -82,23 +80,13 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 1
 
-      - name: Configure AWS credentials (OIDC, no secret)
-        if: steps.gate.outputs.go == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_GHA_BEDROCK_ROLE_ARN }}
-          aws-region: us-east-1
-
       - name: Claude review
         if: steps.gate.outputs.go == 'true'
         uses: anthropics/claude-code-action@v1
-        env:
-          AWS_REGION: us-east-1
         with:
-          use_bedrock: "true"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
           claude_args: |
-            --model ${{ vars.BEDROCK_REVIEW_MODEL }}
             --max-turns 20
             --allowedTools "Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh pr edit:*),Bash(gh api:*),Bash(gh label:*)"
           prompt: |
