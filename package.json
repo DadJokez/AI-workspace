@@ -23,6 +23,7 @@
     "audit:prod": "pnpm audit --prod",
     "start": "pnpm --filter @ai-workspace/web start",
     "eval": "pnpm --filter @ai-workspace/evals eval",
+    "transcripts:replay": "pnpm --filter @ai-workspace/evals transcripts:replay",
     "smoke:browser": "pnpm --filter @ai-workspace/web smoke:browser",
     "smoke:browser:auth": "pnpm --filter @ai-workspace/web smoke:browser:auth",
     "smoke:browser:ui": "pnpm --filter @ai-workspace/web smoke:browser:ui",

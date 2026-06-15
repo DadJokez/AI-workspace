@@ -16,6 +16,9 @@ AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval tool-grounding
 
 # Free structural-only run (proves wiring, NOT behavior)
 pnpm eval --mock
+
+# Replay scrubbed downloaded-chat bug fixtures
+pnpm transcripts:replay
 ```
 
 A full real run is ~20 cases, under a minute, roughly one cent. Reports land in
@@ -72,3 +75,11 @@ file under `src/cases/` — no harness changes:
 Next capabilities to add (need the app stack, production-like auth, or persisted
 chat state): route/context-pack assembly, the slash-palette redirect, redaction,
 and admin/debug replay of failed context packs.
+
+## Golden transcript replay
+
+Downloaded chats that expose product bugs can be scrubbed and committed under
+`golden-transcripts/`. Each fixture is Markdown plus a small JSON comment that
+turns on deterministic checks for capability denial, model-label mismatch,
+missing artifact or attachment evidence, and manual copy/save instructions after
+an artifact exists. Redaction rules live in `golden-transcripts/README.md`.
