@@ -5,11 +5,13 @@ import type { CapabilityResult, EvalSuite } from "./types";
 import { contextFaithfulnessSuite } from "./cases/context-faithfulness.cases";
 import { dateGroundingSuite } from "./cases/date-grounding.cases";
 import { skillFaithfulnessSuite } from "./cases/skill-faithfulness.cases";
+import { toolGroundingSuite } from "./cases/tool-grounding.cases";
 
 const SUITES: EvalSuite[] = [
   dateGroundingSuite,
   skillFaithfulnessSuite,
   contextFaithfulnessSuite,
+  toolGroundingSuite,
 ];
 
 /**
@@ -69,6 +71,9 @@ async function main() {
         }
         process.stdout.write(`       answer: ${c.answerPreview}\n`);
       }
+      if (c.toolCalls.length > 0) {
+        process.stdout.write(`       tools: ${c.toolCalls.join(", ")}\n`);
+      }
     }
   }
 
@@ -109,6 +114,27 @@ function writeReport(
     md.push(`## ${r.capability} — ${r.passed}/${r.passed + r.failed} passed`, "");
     for (const c of r.results) {
       md.push(`- ${c.passed ? "✅" : c.errored ? "💥" : "❌"} **${c.caseId}** — ${c.description}`);
+      if (c.toolCalls.length > 0) {
+        md.push(`  - Tool calls: ${c.toolCalls.join(", ")}`);
+      }
+      if (c.providerStatus && Object.keys(c.providerStatus).length > 0) {
+        md.push(
+          `  - Provider status: ${Object.entries(c.providerStatus)
+            .map(([provider, status]) => `${provider}=${status}`)
+            .join(", ")}`,
+        );
+      }
+      if (c.contextReceipts.length > 0) {
+        md.push(`  - Context receipts: ${c.contextReceipts.join("; ")}`);
+      }
+      if (c.fixtureEvidence.length > 0) {
+        md.push(`  - Fixture evidence: ${c.fixtureEvidence.join("; ")}`);
+      }
+      for (const result of c.toolResults) {
+        md.push(
+          `  - Tool result ${result.toolCallId}${result.isError ? " (error)" : ""}: ${result.outputPreview}`,
+        );
+      }
       if (!c.passed && !c.errored) {
         for (const a of c.assertions.filter((x) => !x.ok)) {
           md.push(`  - ✗ ${a.label}${a.detail ? ` — ${a.detail}` : ""}`);

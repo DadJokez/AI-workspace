@@ -31,25 +31,54 @@ async function runTurn(
   let tokensIn = 0;
   let tokensOut = 0;
   const toolCallNames: string[] = [];
+  const toolResults: TurnTranscript["toolResults"] = [];
+  const registry = new ToolRegistry();
+  registry.registerAll(testCase.tools ?? []);
 
   for await (const ev of runAgentLoop({
     modelId: testCase.modelId ?? defaultModelId,
     systemPrompt: testCase.systemPrompt,
     messages: [{ role: "user", content: testCase.input }],
-    registry: new ToolRegistry(),
+    registry,
     context: { userId: "eval" },
     client,
   })) {
     events.push(ev);
     if (ev.type === "text-delta") answer += ev.delta;
     else if (ev.type === "tool-call") toolCallNames.push(ev.call.name);
+    else if (ev.type === "tool-result") toolResults.push(ev.result);
     else if (ev.type === "usage") {
       tokensIn = ev.tokensIn;
       tokensOut = ev.tokensOut;
     }
   }
 
-  return { answer, events, toolCallNames, tokensIn, tokensOut };
+  return {
+    answer,
+    events,
+    toolCallNames,
+    toolResults,
+    providerStatus: testCase.providerStatus,
+    contextReceipts: testCase.contextReceipts ?? [],
+    fixtureEvidence: testCase.fixtureEvidence ?? [],
+    tokensIn,
+    tokensOut,
+  };
+}
+
+function summarizeToolResults(
+  toolResults: TurnTranscript["toolResults"],
+): CaseResult["toolResults"] {
+  return toolResults.map((result) => ({
+    toolCallId: result.toolCallId,
+    isError: result.isError,
+    outputPreview: previewOutput(result.output),
+  }));
+}
+
+function previewOutput(output: unknown): string {
+  const raw = typeof output === "string" ? output : JSON.stringify(output);
+  return (raw ?? String(output)).slice(0, 500);
 }
 
 async function evaluateCase(
@@ -71,6 +100,11 @@ async function evaluateCase(
       answerPreview: "",
       tokensIn: 0,
       tokensOut: 0,
+      toolCalls: [],
+      toolResults: [],
+      providerStatus: testCase.providerStatus,
+      contextReceipts: testCase.contextReceipts ?? [],
+      fixtureEvidence: testCase.fixtureEvidence ?? [],
       errored: err instanceof Error ? err.message : String(err),
     };
   }
@@ -90,6 +124,11 @@ async function evaluateCase(
       answerPreview: transcript.answer.slice(0, 280),
       tokensIn: transcript.tokensIn,
       tokensOut: transcript.tokensOut,
+      toolCalls: transcript.toolCallNames,
+      toolResults: summarizeToolResults(transcript.toolResults),
+      providerStatus: transcript.providerStatus,
+      contextReceipts: transcript.contextReceipts,
+      fixtureEvidence: transcript.fixtureEvidence,
     };
   }
 
@@ -124,6 +163,11 @@ async function evaluateCase(
     answerPreview: transcript.answer.slice(0, 280),
     tokensIn: transcript.tokensIn,
     tokensOut: transcript.tokensOut,
+    toolCalls: transcript.toolCallNames,
+    toolResults: summarizeToolResults(transcript.toolResults),
+    providerStatus: transcript.providerStatus,
+    contextReceipts: transcript.contextReceipts,
+    fixtureEvidence: transcript.fixtureEvidence,
   };
 }
 

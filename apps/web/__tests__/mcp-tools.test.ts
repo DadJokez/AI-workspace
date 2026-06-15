@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { connectMcpTools, mcpToolName } from "@ai-workspace/agent";
+import {
+  ToolRegistry,
+  connectMcpTools,
+  mcpToolName,
+  toAwsToolConfiguration,
+} from "@ai-workspace/agent";
 import {
   startTestMcpServer,
   type TestMcpServer,
@@ -26,6 +31,31 @@ describe("connectMcpTools", () => {
     expect(mcpToolName("my-provider", "weird.tool")).toBe(
       "my_provider__weird_tool",
     );
+  });
+
+  it("keeps Bedrock tool schemas single-wrapped for AWS", () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "github__list_pull_requests",
+      description: "List pull requests",
+      inputSchema: {
+        type: "object",
+        properties: {
+          limit: { type: "number" },
+        },
+      },
+      handler: async () => ({}),
+    });
+
+    const registryConfig = registry.toBedrockToolConfig();
+    expect(registryConfig.tools[0]?.toolSpec.inputSchema).toMatchObject({
+      json: { type: "object" },
+    });
+
+    const awsConfig = toAwsToolConfiguration(registryConfig);
+    const schema = awsConfig?.tools?.[0]?.toolSpec?.inputSchema;
+    expect(schema).toMatchObject({ json: { type: "object" } });
+    expect(schema).not.toMatchObject({ json: { json: expect.anything() } });
   });
 
   it("lists remote tools and proxies calls end-to-end", async () => {

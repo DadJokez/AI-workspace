@@ -201,19 +201,7 @@ export class RealBedrockClient implements BedrockClient {
       }),
     }));
 
-    const toolConfig: ToolConfiguration | undefined = params.toolConfig
-      ? {
-          tools: params.toolConfig.tools.map(
-            (t): Tool => ({
-              toolSpec: {
-                name: t.toolSpec.name,
-                description: t.toolSpec.description,
-                inputSchema: { json: t.toolSpec.inputSchema as unknown as DocumentType },
-              },
-            }),
-          ),
-        }
-      : undefined;
+    const toolConfig = toAwsToolConfiguration(params.toolConfig);
 
     const command = new ConverseStreamCommand({
       modelId: params.bedrockModelId,
@@ -280,6 +268,25 @@ export class RealBedrockClient implements BedrockClient {
       }
     }
   }
+}
+
+export function toAwsToolConfiguration(
+  toolConfig?: BedrockToolConfig,
+): ToolConfiguration | undefined {
+  if (!toolConfig) return undefined;
+  return {
+    tools: toolConfig.tools.map(
+      (t): Tool => ({
+        toolSpec: {
+          name: t.toolSpec.name,
+          description: t.toolSpec.description,
+          inputSchema: {
+            json: t.toolSpec.inputSchema.json as unknown as DocumentType,
+          },
+        },
+      }),
+    ),
+  };
 }
 
 /**

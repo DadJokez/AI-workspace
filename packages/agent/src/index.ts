@@ -26,6 +26,7 @@ export type { BedrockToolConfig } from "./registry";
 export {
   FakeBedrockClient,
   getBedrockClient,
+  toAwsToolConfiguration,
 } from "./clients";
 export type {
   BedrockClient,

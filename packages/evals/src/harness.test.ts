@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { FakeBedrockClient } from "@ai-workspace/agent";
+import {
+  FakeBedrockClient,
+  type BedrockClient,
+  type ConverseStreamParams,
+  type BedrockStreamEvent,
+  type Tool,
+} from "@ai-workspace/agent";
 import { runSuite } from "./harness";
 import type { EvalSuite } from "./types";
 
@@ -38,6 +44,47 @@ const wiringSuite: EvalSuite = {
       ],
     },
   ],
+};
+
+class ToolCallingClient implements BedrockClient {
+  async *converseStream(
+    params: ConverseStreamParams,
+  ): AsyncIterable<BedrockStreamEvent> {
+    const toolResult = params.messages
+      .flatMap((message) => message.content)
+      .find((block) => block.kind === "tool-result");
+    const firstTool = params.toolConfig?.tools[0]?.toolSpec.name;
+
+    if (!toolResult && firstTool) {
+      yield {
+        type: "tool-use",
+        id: "fixture-call-1",
+        name: firstTool,
+        input: { limit: 3 },
+      };
+      yield { type: "usage", tokensIn: 8, tokensOut: 4 };
+      yield { type: "stop", reason: "tool_use" };
+      return;
+    }
+
+    const reply =
+      toolResult && toolResult.kind === "tool-result"
+        ? `Used fixture evidence: ${toolResult.content}`
+        : "No fixture evidence available.";
+    yield { type: "text-delta", text: reply };
+    yield { type: "usage", tokensIn: 12, tokensOut: 6 };
+    yield { type: "stop", reason: "end_turn" };
+  }
+}
+
+const fixtureTool: Tool = {
+  name: "fixture__list_records",
+  description: "Return stable eval records.",
+  inputSchema: {
+    type: "object",
+    properties: { limit: { type: "number" } },
+  },
+  handler: async () => ({ records: [{ id: 42, title: "Stable fixture fact" }] }),
 };
 
 describe("eval harness wiring", () => {
@@ -88,5 +135,51 @@ describe("eval harness wiring", () => {
     expect(result.results[0]?.assertions[0]?.label).toContain(
       "behavior assertions skipped",
     );
+  });
+
+  it("mounts fixture tools and records report evidence", async () => {
+    const suite: EvalSuite = {
+      capability: "tool-fixture-wiring",
+      defaultModelId: "haiku-4-5",
+      cases: [
+        {
+          id: "fixture-tool-call",
+          description: "fixture tool is mounted and reportable",
+          input: "Use the fixture tool.",
+          tools: [fixtureTool],
+          providerStatus: { fixture: "mounted" },
+          contextReceipts: ["provider:fixture mounted"],
+          fixtureEvidence: ["Stable fixture fact"],
+          assertions: [
+            {
+              kind: "deterministic",
+              label: "fixture tool was called",
+              check: (t) => t.toolCallNames.includes("fixture__list_records"),
+            },
+            {
+              kind: "deterministic",
+              label: "fixture output was captured",
+              check: (t) =>
+                JSON.stringify(t.toolResults).includes("Stable fixture fact"),
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = await runSuite(suite, {
+      client: new ToolCallingClient(),
+      judgeClient: new FakeBedrockClient({ delayMs: 0 }),
+    });
+
+    expect(result.failed).toBe(0);
+    const testCase = result.results[0]!;
+    expect(testCase.toolCalls).toEqual(["fixture__list_records"]);
+    expect(testCase.toolResults[0]?.outputPreview).toContain(
+      "Stable fixture fact",
+    );
+    expect(testCase.providerStatus).toEqual({ fixture: "mounted" });
+    expect(testCase.contextReceipts).toEqual(["provider:fixture mounted"]);
+    expect(testCase.fixtureEvidence).toEqual(["Stable fixture fact"]);
   });
 });
