@@ -3,6 +3,10 @@
 import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
 import { ChatInput, type SlashSkill } from "@/components/ChatInput";
 import type { ChatAttachment } from "@/lib/attachments";
+import {
+  FeedbackReporter,
+  type FeedbackContext,
+} from "@/components/FeedbackReporter";
 import { MessageBubble } from "@/components/MessageBubble";
 import { ThinkingOrb } from "@/components/ThinkingOrb";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
@@ -386,6 +390,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const [runActionPendingId, setRunActionPendingId] = useState<string>();
   const [previewArtifact, setPreviewArtifact] =
     useState<WorkspaceArtifactSummary | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [oauthConnected, setOauthConnected] = useState<Record<string, boolean>>({});
   const [slashSkills, setSlashSkills] = useState<SlashSkill[]>([]);
@@ -1118,6 +1123,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     else if (id === "tools") setView("tools");
     else if (id === "vault") setView("vault");
     else if (id === "workspace") setView("workspace");
+    else if (id === "feedback") setFeedbackOpen(true);
     else if (id === "admin") {
       // Admin lives at its own route, not as a chat-level view.
       window.location.assign("/admin");
@@ -1615,6 +1621,27 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const { busy, error, messages } = activeTab;
   const inputDisabled = busy || activeHasPendingRun || models.length === 0;
   const isChatView = view === "chat";
+  const lastAssistantMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  const lastArtifact = [...messages]
+    .reverse()
+    .flatMap((message) => message.artifacts ?? [])
+    .find(Boolean);
+  const feedbackContext: FeedbackContext = {
+    threadId: activeTab.threadId,
+    threadTitle: activeTab.title,
+    messageId:
+      lastAssistantMessage?.id && !lastAssistantMessage.id.startsWith("run:")
+        ? lastAssistantMessage.id
+        : undefined,
+    messagePreview: lastAssistantMessage?.content
+      ? lastAssistantMessage.content.slice(0, 600)
+      : undefined,
+    runId: lastAssistantMessage?.runId,
+    artifactId: lastArtifact?.id,
+    artifactTitle: lastArtifact?.title ?? lastArtifact?.filename,
+  };
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-canvas text-ink">
@@ -1980,6 +2007,11 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           onClose={() => setPreviewArtifact(null)}
         />
       ) : null}
+      <FeedbackReporter
+        open={feedbackOpen}
+        context={feedbackContext}
+        onClose={() => setFeedbackOpen(false)}
+      />
     </div>
   );
 }

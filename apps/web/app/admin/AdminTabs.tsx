@@ -14,6 +14,7 @@ const tabs: Tab[] = [
   { href: "/admin/tools", label: "Tools" },
   { href: "/admin/runs", label: "Runs" },
   { href: "/admin/audit", label: "Audit" },
+  { href: "/admin/feedback", label: "Feedback" },
 ];
 
 export function AdminTabs() {

@@ -28,6 +28,10 @@ interface MockChatOptions {
     body: Record<string, unknown>,
     route: Route,
   ) => Promise<void> | void;
+  onFeedback?: (
+    body: Record<string, unknown>,
+    route: Route,
+  ) => Promise<void> | void;
 }
 
 interface MockMemoryItem {
@@ -239,6 +243,27 @@ export async function installMockComparativeApi(
 
     if (path === "/api/oauth/status") {
       return json(route, oauthStatus);
+    }
+
+    if (path === "/api/feedback") {
+      if (request.method() !== "POST") {
+        return json(route, { error: "method_not_allowed" }, 405);
+      }
+      const body = await postJson(request);
+      if (options.onFeedback) {
+        return options.onFeedback(body, route);
+      }
+      return json(
+        route,
+        {
+          report: {
+            id: "00000000-0000-4000-8000-000000000501",
+            status: "new",
+            createdAt: now,
+          },
+        },
+        201,
+      );
     }
 
     if (path === "/api/vault/memory") {
