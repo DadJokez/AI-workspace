@@ -8,7 +8,8 @@ GitHub Actions, and human review in this repository.
 - Codex implements changes, writes or updates tests, opens PRs, and addresses
   review feedback.
 - GitHub Actions runs the required validation gates.
-- Claude Code reviews PRs only after the required CI gate is green.
+- Claude Code reviews PRs only after `CI` and `Product Smoke` are green for the
+  same commit.
 - Rob owns merges, dependency approval, auth or secret changes, and escalation
   decisions.
 
@@ -57,7 +58,11 @@ GitHub Actions, and human review in this repository.
   - `lint + typecheck + build`
   - `local browser smoke`
   - `Claude verdict`
-  - at least one approving review
+  - resolved conversations
+
+Approving reviews are a human workflow expectation, not a current GitHub branch
+protection requirement. Rob still owns merge judgment even when all mechanical
+checks are green.
 
 ## Claude Review Gate
 
@@ -95,7 +100,7 @@ For every implementation PR, Codex should:
 
 ## Human-Owned Decisions
 
-Rob must approve:
+Rob must approve, even where GitHub does not enforce it mechanically:
 
 - Merges.
 - New dependencies.
@@ -133,7 +138,6 @@ Wired by the `feat/ai-pr-review-pipeline` PR:
 Auth is the **`CLAUDE_CODE_OAUTH_TOKEN`** secret (Claude GitHub App /
 `claude setup-token`) — no Anthropic API key, no AWS/Bedrock setup.
 
-Done: `CLAUDE_CODE_OAUTH_TOKEN` is set, and Codex Cloud is connected (it's
-already opening `codex/*` PRs). Remaining: merge this PR, then open a small
-throwaway PR and confirm `CI` + `Product Smoke` go green and Claude posts a
-review.
+Done: `CLAUDE_CODE_OAUTH_TOKEN` is set, Codex Cloud is connected, `Claude
+verdict` is required on `main`, and the throwaway fail-path PR confirmed Claude
+can block a PR that passes CI and Playwright.
