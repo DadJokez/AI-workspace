@@ -341,6 +341,20 @@ export async function installMockComparativeApi(
       return json(route, { skills });
     }
 
+    if (path === "/api/apps") {
+      if (request.method() === "POST") {
+        return json(route, {
+          app: {
+            id: "00000000-0000-4000-8000-000000000230",
+            slug: "auth-smoke-app",
+            name: "Auth Smoke App",
+            status: "deployed",
+          },
+        });
+      }
+      return json(route, { apps: [] });
+    }
+
     const skillRunMatch = /^\/api\/skills\/([^/]+)\/run$/.exec(path);
     if (skillRunMatch) {
       const body = await postJson(request);
@@ -358,6 +372,43 @@ export async function installMockComparativeApi(
     if (artifactMatch) {
       const artifactId = decodeURIComponent(artifactMatch[1]!);
       return json(route, { artifact: artifactDetails[artifactId] });
+    }
+
+    const recommendationMatch = /^\/api\/recommendations\/([^/]+)$/.exec(
+      path,
+    );
+    if (recommendationMatch) {
+      if (request.method() !== "PATCH") {
+        return json(route, { error: "method_not_allowed" }, 405);
+      }
+      const body = await postJson(request);
+      const status =
+        body.status === "accepted" || body.status === "dismissed"
+          ? body.status
+          : "suggested";
+      const recommendationId = decodeURIComponent(recommendationMatch[1]!);
+      return json(route, {
+        recommendation: {
+          dbId: recommendationId,
+          id: recommendationId,
+          type: "deploy_artifact_as_app",
+          title: "Deploy this as an app",
+          reason:
+            "The generated artifact looks reusable, so it can become a workspace app.",
+          requiresApproval: true,
+          action: {
+            kind: "deploy_app",
+            artifactId: defaultArtifactSummary.id,
+          },
+          metadata: { artifactId: defaultArtifactSummary.id },
+          status,
+          threadId: "thread-generated",
+          chatMessageId: "assistant-generated",
+          runId: "run-generated",
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
     }
 
     if (path === "/api/chat") {

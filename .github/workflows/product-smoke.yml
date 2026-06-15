@@ -54,6 +54,59 @@ jobs:
           path: apps/web/playwright-report/
           if-no-files-found: ignore
 
+  authenticated-browser-smoke:
+    name: authenticated browser smoke
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aihub
+          POSTGRES_PASSWORD: aihub_dev
+          POSTGRES_DB: aihub_auth_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aihub -d aihub_auth_smoke"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://aihub:aihub_dev@127.0.0.1:5432/aihub_auth_smoke
+      NEXTAUTH_SECRET: playwright-local-secret-with-enough-length
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.12.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm --filter @ai-workspace/web exec playwright install --with-deps chromium
+
+      - name: Run authenticated browser smoke
+        run: pnpm smoke:browser:auth
+
+      - name: Upload authenticated Playwright report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-auth-report
+          path: apps/web/playwright-report/
+          if-no-files-found: ignore
+
   production-smoke:
     name: production public smoke
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}

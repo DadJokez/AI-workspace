@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke:browser": "playwright test",
+    "smoke:browser:auth": "DATABASE_URL=${DATABASE_URL:-postgres://aihub:aihub_dev@localhost:5432/aihub} pnpm --filter @ai-workspace/db db:migrate && DATABASE_URL=${DATABASE_URL:-postgres://aihub:aihub_dev@localhost:5432/aihub} tsx scripts/seed-auth-smoke.ts && PLAYWRIGHT_AUTH_SMOKE=1 DATABASE_URL=${DATABASE_URL:-postgres://aihub:aihub_dev@localhost:5432/aihub} playwright test e2e/authenticated-smoke.spec.ts --project=desktop-chromium",
     "smoke:browser:ui": "playwright test --ui"
   },
   "dependencies": {
