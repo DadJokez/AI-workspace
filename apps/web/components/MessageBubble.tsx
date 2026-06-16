@@ -17,6 +17,7 @@ import type {
   RecommendationStatus,
 } from "@/lib/recommendations";
 import { escapeBareOrderedListMarkers } from "@/lib/chat-markdown";
+import { parseSlashDisplayMessage } from "@/lib/skill-commands";
 import { useEffect, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -63,10 +64,26 @@ export function MessageBubble({
   recommendationPendingId,
 }: Props) {
   if (role === "user") {
+    const slashDisplay = parseSlashDisplayMessage(content);
     return (
       <div className="flex w-full min-w-0 max-w-full justify-end overflow-hidden">
         <div className="max-w-[80%] overflow-hidden whitespace-pre-wrap rounded-lg bg-subtle px-3.5 py-2 text-[14px] leading-relaxed text-ink [overflow-wrap:anywhere]">
-          {content}
+          {slashDisplay ? (
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span
+                data-testid="slash-capability-pill"
+                className="inline-flex items-center gap-1.5 rounded-full border border-[#2f6bff]/50 bg-[#06112f]/85 px-2 py-0.5 font-mono text-[12px] text-[#dbe8ff] shadow-[0_0_14px_rgba(0,92,255,0.24)]"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_10px_rgba(40,215,255,0.7)]" />
+                {slashDisplay.token}
+              </span>
+              {slashDisplay.body ? (
+                <span className="whitespace-pre-wrap">{slashDisplay.body}</span>
+              ) : null}
+            </span>
+          ) : (
+            content
+          )}
         </div>
       </div>
     );

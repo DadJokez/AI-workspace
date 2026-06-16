@@ -15,10 +15,17 @@ import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
 import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
 import {
+  applyActivatedSkillRoute,
   buildChatRouteReceipt,
   decideChatRuntimeRoute,
   runtimeV2EnabledFromEnv,
 } from "@/lib/chat-routing";
+import {
+  resolveActivatedSkillForChat,
+  type ActivatedSkillForChat,
+  type ActivatedSkillRequest,
+} from "@/lib/chat-activated-skills";
+import { buildActivatedSkillChatPrompt } from "@/lib/skills";
 import { streamInlineChatRun } from "@/lib/chat-inline-runner";
 import {
   declaredAttachmentCountFromMessage,
@@ -43,6 +50,7 @@ interface ChatRequestBody {
   threadId?: string;
   modelId?: string;
   executionMode?: string;
+  activatedSkills?: ActivatedSkillRequest[];
   attachments?: ChatAttachment[];
   attachmentCount?: number;
 }
@@ -125,7 +133,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const modelId: string =
+  const requestedModelId: string =
     typeof body.modelId === "string" && body.modelId.trim().length > 0
       ? body.modelId
       : DEFAULT_MODEL_ID;
@@ -172,6 +180,23 @@ export async function POST(req: Request) {
     );
   }
 
+  const activatedSkillResult = await resolveActivatedSkillForChat({
+    db,
+    actor: sessionUser,
+    activatedSkills: body.activatedSkills,
+  });
+  if (!activatedSkillResult.ok) {
+    return NextResponse.json(
+      {
+        error: activatedSkillResult.error,
+        message: activatedSkillResult.message,
+      },
+      { status: activatedSkillResult.status },
+    );
+  }
+  const activatedSkill = activatedSkillResult.activatedSkill;
+  const modelId = activatedSkill?.skill.modelId ?? requestedModelId;
+
   let thread: ChatThread;
   if (body.threadId) {
     const owned = await db
@@ -194,7 +219,7 @@ export async function POST(req: Request) {
       .values({
         userId: sessionUser.id,
         defaultModelId: modelId,
-        title: deriveTitle(body.message),
+        title: deriveThreadTitle(body.message, activatedSkill),
       })
       .returning();
     thread = created[0]!;
@@ -230,7 +255,7 @@ export async function POST(req: Request) {
     approvedProviders: routingProviderStatus.allowedProviders,
     pendingApprovalProviders: routingProviderStatus.deniedProviders,
   };
-  const runtimeRoute = decideChatRuntimeRoute({
+  let runtimeRoute = decideChatRuntimeRoute({
     message: body.message,
     executionMode,
     runtimeV2,
@@ -238,6 +263,11 @@ export async function POST(req: Request) {
     contextSignals,
     capabilitySignals,
   });
+  if (activatedSkill) {
+    runtimeRoute = applyActivatedSkillRoute(runtimeRoute, {
+      requiredProviders: activatedSkill.skill.mcpProviders,
+    });
+  }
   const routeReceipt = buildChatRouteReceipt({
     route: runtimeRoute,
     contextSignals,
@@ -256,7 +286,13 @@ export async function POST(req: Request) {
   // The bubble shows the typed message; the model sees it plus the folded
   // attachment text. Each file is also stored as a workspace artifact so it
   // renders as a chip on the turn (and is downloadable later).
-  const promptForModel = foldAttachmentsIntoPrompt(body.message, attachments);
+  const modelVisibleMessage = activatedSkill
+    ? buildActivatedSkillChatPrompt(activatedSkill.skill, activatedSkill.args)
+    : body.message;
+  const promptForModel = foldAttachmentsIntoPrompt(
+    modelVisibleMessage,
+    attachments,
+  );
   const uploadedFiles = attachments.map((a) => ({
     name: a.name,
     mimeType: a.mimeType,
@@ -303,6 +339,7 @@ export async function POST(req: Request) {
       userId: sessionUser.id,
       threadId: thread.id,
       skillSlug: "chat-turn",
+      ...(activatedSkill ? { skillId: activatedSkill.skill.id } : {}),
       triggerType: "chat",
       status: runtimeRoute.useWorker ? "queued" : "running",
       modelId,
@@ -316,6 +353,20 @@ export async function POST(req: Request) {
         runtimeRoute,
         uploadedFiles,
         routeReceipt,
+        ...(activatedSkill
+          ? {
+              activatedSkills: [
+                {
+                  id: activatedSkill.skill.id,
+                  slug: activatedSkill.skill.slug,
+                  name: activatedSkill.skill.name,
+                  source: "explicit",
+                  args: activatedSkill.args,
+                },
+              ],
+              requestedProviders: activatedSkill.skill.mcpProviders,
+            }
+          : {}),
       },
       attemptCount: runtimeRoute.useWorker ? 0 : 1,
       startedAt: chatRunStartedAt,
@@ -343,6 +394,19 @@ export async function POST(req: Request) {
         runtimeV2,
         runtimeRoute,
         routeReceipt,
+        ...(activatedSkill
+          ? {
+              activatedSkills: [
+                {
+                  id: activatedSkill.skill.id,
+                  slug: activatedSkill.skill.slug,
+                  name: activatedSkill.skill.name,
+                  source: "explicit",
+                  args: activatedSkill.args,
+                },
+              ],
+            }
+          : {}),
       },
       occurredAt: queuedAt,
     });
@@ -413,6 +477,18 @@ export async function POST(req: Request) {
           route: runtimeRoute,
           requestStartedAt,
           uploadedFiles,
+          activatedSkills: activatedSkill
+            ? [
+                {
+                  id: activatedSkill.skill.id,
+                  slug: activatedSkill.skill.slug,
+                  name: activatedSkill.skill.name,
+                  source: "explicit",
+                  args: activatedSkill.args,
+                },
+              ]
+            : undefined,
+          requestedProviders: activatedSkill?.skill.mcpProviders,
           signal: req.signal,
           send,
         });
@@ -438,6 +514,18 @@ export async function POST(req: Request) {
 }
 
 const TITLE_MAX = 60;
+
+function deriveThreadTitle(
+  firstMessage: string,
+  activatedSkill?: ActivatedSkillForChat | null,
+): string {
+  if (!activatedSkill) return deriveTitle(firstMessage);
+  const args = activatedSkill.args.trim();
+  return deriveTitle(
+    args ? `${activatedSkill.skill.name}: ${args}` : activatedSkill.skill.name,
+  );
+}
+
 function deriveTitle(firstMessage: string): string {
   const trimmed = firstMessage.replace(/\s+/g, " ").trim();
   if (trimmed.length <= TITLE_MAX) return trimmed;

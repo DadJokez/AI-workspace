@@ -18,6 +18,7 @@ import {
 } from "@/lib/chat-context-pack";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
+import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
 import {
   enqueueMemoryCapture,
   startInProcessMemoryCaptureScheduler,
@@ -71,6 +72,8 @@ export interface StreamInlineChatRunInput {
   prompt: string;
   modelId: string;
   route: ChatRuntimeRoute;
+  activatedSkills?: Array<Record<string, unknown>>;
+  requestedProviders?: string[];
   uploadedFiles?: ChatContextUploadedFile[];
   requestStartedAt?: Date;
   signal?: AbortSignal;
@@ -110,6 +113,8 @@ export async function streamInlineChatRun({
   prompt,
   modelId,
   route,
+  activatedSkills,
+  requestedProviders,
   uploadedFiles = [],
   requestStartedAt,
   signal,
@@ -142,6 +147,7 @@ export async function streamInlineChatRun({
   const toolEvents = createToolEventAccumulator([]);
 
   try {
+    const mcpProviderScope = resolveChatMcpProviderScope(requestedProviders);
     const [userRows, history, vaultMarkdown, providerStatus] =
       await Promise.all([
         db
@@ -161,7 +167,11 @@ export async function streamInlineChatRun({
         route.includeVaultContext
           ? loadApprovedVaultMarkdown(db, userId)
           : Promise.resolve(null),
-        loadUserMcpProviderStatus(db, userId),
+        loadUserMcpProviderStatus(
+          db,
+          userId,
+          mcpProviderScope.accountStatusOptions,
+        ),
       ]);
 
     // Match artifacts against recent RAW user messages, not the
@@ -204,7 +214,11 @@ export async function streamInlineChatRun({
     let deniedMcpProviders: string[] = [];
     if (route.useMcp) {
       try {
-        const mcpAccess = await buildUserMcpServers(db, userId);
+        const mcpAccess = await buildUserMcpServers(
+          db,
+          userId,
+          mcpProviderScope.mountOptions,
+        );
         mcpServers = mcpAccess.mcpServers;
         deniedMcpProviders = mcpAccess.deniedProviders;
       } catch (err) {
@@ -257,6 +271,8 @@ export async function streamInlineChatRun({
           runtimeTarget: route.runtimeTarget,
           executionMode: route.executionMode,
           runtimeRoute: route,
+          ...(activatedSkills ? { activatedSkills } : {}),
+          ...(requestedProviders ? { requestedProviders } : {}),
           mcpProviders: mountedProviders,
           accountConnectedMcpProviders: providerStatus.connectedProviders,
           approvedMcpProviders: providerStatus.allowedProviders,

@@ -18,8 +18,14 @@ import {
 } from "@/lib/attachments";
 import { useDictation } from "@/lib/use-dictation";
 import {
+  buildActivatedSlashSkill,
+  buildSlashSkillDisplayMessage,
   filterSkillsForCommand,
   isSlashCommand,
+  resolveSlashSkillActivation,
+  slashArgumentsForSkill,
+  slashSkillToken,
+  type ActivatedSlashSkill,
   type SlashSkillCandidate,
 } from "@/lib/skill-commands";
 
@@ -31,36 +37,33 @@ export interface SlashSkill extends SlashSkillCandidate {
 }
 
 interface Props {
-  onSubmit: (text: string, attachments?: ChatAttachment[]) => void;
+  onSubmit: (
+    text: string,
+    attachments?: ChatAttachment[],
+    activatedSkill?: ActivatedSlashSkill,
+  ) => void;
   disabled?: boolean;
   placeholder?: string;
   /** Runnable skills for the "/" palette. Empty/undefined = palette off. */
   skills?: SlashSkill[];
-  /**
-   * Run a skill from the palette. Resolves to null on success (the caller
-   * navigates to the run's thread) or a user-facing error message.
-   */
-  onRunSkill?: (skill: SlashSkill) => Promise<string | null>;
 }
 
 /**
  * Chat input with a slash-command palette (#144): type "/" to pick from
- * your skills — the Claude-Desktop-style affordance where the input box is
- * the command surface. A submitted "/…" line never reaches the model: it
- * either runs the single matching skill or explains itself, killing the
- * hallucinated-command failure mode at the source.
+ * available capabilities. For phase 1, capabilities are skills. Selecting a
+ * skill activates hidden context for the next normal chat turn instead of
+ * opening a separate skill-run thread.
  */
 export function ChatInput({
   onSubmit,
   disabled,
-  placeholder = "Ask anything — or type / to run a skill…",
+  placeholder = "Ask anything — or type / for capabilities…",
   skills = [],
-  onRunSkill,
 }: Props) {
   const [text, setText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [highlight, setHighlight] = useState(0);
-  const [launching, setLaunching] = useState<string | null>(null);
+  const [activeSkill, setActiveSkill] = useState<SlashSkill | null>(null);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -73,7 +76,7 @@ export function ChatInput({
   });
 
   const paletteActive =
-    isSlashCommand(text) && skills.length > 0 && !!onRunSkill && !launching;
+    isSlashCommand(text) && skills.length > 0 && activeSkill === null;
   const matches = useMemo(
     () => (paletteActive ? filterSkillsForCommand(text, skills) : []),
     [paletteActive, text, skills],
@@ -93,22 +96,12 @@ export function ChatInput({
     if (highlight >= matches.length) setHighlight(0);
   }, [matches.length, highlight]);
 
-  async function runSkill(skill: SlashSkill) {
-    if (!onRunSkill || launching) return;
-    setLaunching(skill.name);
+  function activateSkill(skill: SlashSkill) {
+    const args = slashArgumentsForSkill(text, skill);
+    setActiveSkill(skill);
+    setText(args);
     setNotice(null);
-    try {
-      const error = await onRunSkill(skill);
-      if (error) {
-        setNotice(error);
-      } else {
-        setText("");
-      }
-    } catch {
-      setNotice(`Could not start "${skill.name}". Try again.`);
-    } finally {
-      setLaunching(null);
-    }
+    window.setTimeout(() => taRef.current?.focus(), 0);
   }
 
   async function addFiles(files: FileList | File[]) {
@@ -148,19 +141,47 @@ export function ChatInput({
 
   function send() {
     const trimmed = text.trim();
-    if ((!trimmed && attachments.length === 0) || disabled) return;
+    if (
+      (!trimmed && attachments.length === 0 && activeSkill === null) ||
+      disabled
+    ) {
+      return;
+    }
 
-    // Slash lines are commands, never chat. Run the obvious match or explain.
-    if (isSlashCommand(trimmed) && onRunSkill) {
-      if (matches.length >= 1) {
-        void runSkill(matches[Math.min(highlight, matches.length - 1)]!);
-      } else {
+    if (activeSkill) {
+      onSubmit(
+        buildSlashSkillDisplayMessage(activeSkill, trimmed),
+        attachments.length > 0 ? attachments : undefined,
+        buildActivatedSlashSkill(activeSkill, trimmed),
+      );
+      setText("");
+      setActiveSkill(null);
+      setAttachments([]);
+      setNotice(null);
+      return;
+    }
+
+    // A slash line is a capability activation. Send it as a normal chat turn
+    // only when the input resolves clearly to one skill; otherwise keep the
+    // model from seeing a stray command-shaped prompt.
+    if (isSlashCommand(trimmed)) {
+      const resolved = resolveSlashSkillActivation(trimmed, skills);
+      if (!resolved) {
         setNotice(
           skills.length > 0
             ? "No skill matches that — keep typing to filter, or browse Skills in the sidebar."
-            : "Slash commands run your skills, but none are available yet — open Skills in the sidebar to create or seed some.",
+            : "No slash capabilities are available yet — open Skills in the sidebar to create or seed some.",
         );
+        return;
       }
+      onSubmit(
+        buildSlashSkillDisplayMessage(resolved.skill, resolved.args),
+        attachments.length > 0 ? attachments : undefined,
+        buildActivatedSlashSkill(resolved.skill, resolved.args),
+      );
+      setText("");
+      setAttachments([]);
+      setNotice(null);
       return;
     }
 
@@ -189,12 +210,21 @@ export function ChatInput({
       }
       if (e.key === "Escape") {
         e.preventDefault();
-        setText("");
+        if (activeSkill) {
+          setActiveSkill(null);
+        } else {
+          setText("");
+        }
         return;
       }
       if (e.key === "Tab") {
         e.preventDefault();
-        void runSkill(matches[Math.min(highlight, matches.length - 1)]!);
+        activateSkill(matches[Math.min(highlight, matches.length - 1)]!);
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        activateSkill(matches[Math.min(highlight, matches.length - 1)]!);
         return;
       }
     }
@@ -209,7 +239,7 @@ export function ChatInput({
       {paletteActive ? (
         <div className="absolute bottom-full left-0 right-0 z-30 mb-2 overflow-hidden rounded-lg border border-hairline bg-canvas shadow-xl">
           <p className="border-b border-hairline px-3 py-1.5 text-[11px] uppercase tracking-wider text-muted">
-            Run a skill
+            Capabilities
           </p>
           {matches.length === 0 ? (
             <p className="px-3 py-3 text-[13px] text-muted">
@@ -226,7 +256,7 @@ export function ChatInput({
                   <button
                     type="button"
                     onMouseEnter={() => setHighlight(index)}
-                    onClick={() => void runSkill(skill)}
+                    onClick={() => activateSkill(skill)}
                     className={`flex w-full items-baseline gap-2 px-3 py-2 text-left ${
                       index === highlight ? "bg-subtle" : ""
                     }`}
@@ -248,7 +278,7 @@ export function ChatInput({
             </ul>
           )}
           <p className="border-t border-hairline px-3 py-1.5 text-[11px] text-muted">
-            ↑↓ choose · Enter run · Esc dismiss
+            ↑↓ choose · Enter select · Tab select · Esc dismiss
           </p>
         </div>
       ) : null}
@@ -259,11 +289,26 @@ export function ChatInput({
           Listening… {dictation.interim ? `“${dictation.interim}”` : "speak now"}
         </p>
       ) : null}
-      {launching ? (
-        <p className="mb-1.5 flex items-center gap-2 px-1 text-[12px] text-muted">
-          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
-          Starting {launching}…
-        </p>
+      {activeSkill ? (
+        <div className="mb-1.5 flex flex-wrap items-center gap-2 px-1 text-[12px] text-[#b9d2ff]">
+          <span
+            data-testid="active-slash-skill"
+            className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#2f6bff]/50 bg-[#06112f]/80 px-2 py-1 shadow-[0_0_16px_rgba(0,92,255,0.22)]"
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_12px_rgba(40,215,255,0.8)]" />
+            <span className="font-mono">{slashSkillToken(activeSkill)}</span>
+            <span className="text-[#88a8e8]">{activeSkill.name}</span>
+            <button
+              type="button"
+              aria-label={`Remove ${activeSkill.name}`}
+              onClick={() => setActiveSkill(null)}
+              className="ml-0.5 text-[#88a8e8] hover:text-white"
+            >
+              ×
+            </button>
+          </span>
+          <span className="text-muted">Active for this message</span>
+        </div>
       ) : notice ? (
         <p className="mb-1.5 px-1 text-[12px] text-muted">{notice}</p>
       ) : null}
@@ -324,7 +369,7 @@ export function ChatInput({
         <button
           type="button"
           aria-label="Attach files"
-          disabled={disabled || launching !== null}
+          disabled={disabled}
           onClick={() => fileRef.current?.click()}
           className="flex h-11 w-9 shrink-0 items-center justify-center rounded-md text-muted hover:text-ink disabled:opacity-30 sm:h-7"
         >
@@ -336,7 +381,7 @@ export function ChatInput({
             aria-label={dictation.listening ? "Stop dictation" : "Dictate"}
             aria-pressed={dictation.listening}
             title={dictation.listening ? "Stop dictation" : "Dictate"}
-            disabled={disabled || launching !== null}
+            disabled={disabled}
             onClick={dictation.toggle}
             className={`flex h-11 w-9 shrink-0 items-center justify-center rounded-md disabled:opacity-30 sm:h-7 ${
               dictation.listening
@@ -364,7 +409,7 @@ export function ChatInput({
           }}
           rows={1}
           placeholder={dragOver ? "Drop files to attach…" : placeholder}
-          disabled={disabled || launching !== null}
+          disabled={disabled}
           // Inline font-size beats every class-level rule. Sub-16px lets
           // iOS Safari (and Comet, which inherits the WebKit zoom rule) zoom
           // the page on focus. Belt-and-suspenders with `text-base`.
@@ -375,8 +420,7 @@ export function ChatInput({
           type="submit"
           disabled={
             disabled ||
-            launching !== null ||
-            (!text.trim() && attachments.length === 0)
+            (!text.trim() && attachments.length === 0 && activeSkill === null)
           }
           aria-label="Send"
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-ink text-canvas disabled:opacity-30 sm:h-7 sm:w-7"

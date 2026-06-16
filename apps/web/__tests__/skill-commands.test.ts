@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { isValidModelId } from "@ai-workspace/agent";
 import {
+  buildActivatedSlashSkill,
+  buildSlashSkillDisplayMessage,
   filterSkillsForCommand,
   isSlashCommand,
+  parseSlashDisplayMessage,
+  resolveSlashSkillActivation,
+  slashArgumentsForSkill,
   slashQuery,
 } from "@/lib/skill-commands";
 import { SUPPORTED_MCP_PROVIDERS } from "@/lib/oauth/mcp-servers";
@@ -67,6 +72,64 @@ describe("skill-commands", () => {
   it("ranks name matches above description-only matches", () => {
     const matches = filterSkillsForCommand("/status", SKILLS);
     expect(matches[0]?.slug).toBe("weekly-status");
+  });
+
+  it("resolves exact slash skill invocations with trailing user args", () => {
+    const resolved = resolveSlashSkillActivation(
+      "/email-drafter make this friendlier",
+      SKILLS,
+    );
+    expect(resolved?.skill.slug).toBe("email-drafter");
+    expect(resolved?.args).toBe("make this friendlier");
+    expect(
+      slashArgumentsForSkill("/email-drafter make this friendlier", SKILLS[2]!),
+    ).toBe("make this friendlier");
+  });
+
+  it("resolves a single fuzzy alias without leaking alias words as args", () => {
+    const resolved = resolveSlashSkillActivation("/weekly brief", SKILLS);
+    expect(resolved?.skill.slug).toBe("weekly-status");
+    expect(resolved?.args).toBe("");
+  });
+
+  it("keeps trailing user args after an abbreviated fuzzy skill prefix", () => {
+    const resolved = resolveSlashSkillActivation(
+      "/email make this friendlier",
+      SKILLS,
+    );
+    expect(resolved?.skill.slug).toBe("email-drafter");
+    expect(resolved?.args).toBe("make this friendlier");
+    expect(slashArgumentsForSkill("/email make this friendlier", SKILLS[2]!)).toBe(
+      "make this friendlier",
+    );
+  });
+
+  it("keeps trailing args after multi-word fuzzy skill aliases", () => {
+    const resolved = resolveSlashSkillActivation(
+      "/weekly brief for the launch",
+      SKILLS,
+    );
+    expect(resolved?.skill.slug).toBe("weekly-status");
+    expect(resolved?.args).toBe("for the launch");
+  });
+
+  it("formats and parses compact visible slash skill messages", () => {
+    const message = buildSlashSkillDisplayMessage(
+      SKILLS[0]!,
+      "summarize last 3 PRs",
+    );
+    expect(message).toBe("/developer-briefing summarize last 3 PRs");
+    expect(parseSlashDisplayMessage(message)).toEqual({
+      token: "/developer-briefing",
+      body: "summarize last 3 PRs",
+    });
+    expect(buildActivatedSlashSkill(SKILLS[0]!, " summarize ")).toEqual({
+      id: "1",
+      slug: "developer-briefing",
+      name: "Developer Briefing",
+      args: "summarize",
+      source: "explicit",
+    });
   });
 });
 

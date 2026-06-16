@@ -196,6 +196,47 @@ export function buildChatRouteReceipt({
   };
 }
 
+export function applyActivatedSkillRoute(
+  route: ChatRuntimeRoute,
+  {
+    requiredProviders = [],
+  }: {
+    requiredProviders?: readonly string[];
+  } = {},
+): ChatRuntimeRoute {
+  const reasons = uniqueStrings([
+    ...route.reasons,
+    "explicit_skill_activation",
+    ...(requiredProviders.length > 0 ? ["activated_skill_requires_tools"] : []),
+  ]);
+
+  if (route.useWorker) {
+    return {
+      ...route,
+      useMcp: route.useMcp || requiredProviders.length > 0,
+      includeVaultContext: true,
+      reasons,
+    };
+  }
+
+  if (requiredProviders.length > 0) {
+    return {
+      ...route,
+      lane: "tool-local",
+      runtimeTarget: "bedrock-agent",
+      useMcp: true,
+      includeVaultContext: true,
+      reasons,
+    };
+  }
+
+  return {
+    ...route,
+    includeVaultContext: true,
+    reasons,
+  };
+}
+
 /**
  * True when any earlier user turn in the thread needed connected tools (a tool
  * lookup or durable code work). Once a conversation is "about" GitHub, follow-up

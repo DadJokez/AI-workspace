@@ -51,6 +51,30 @@ describe("chat context pack", () => {
     expect(pack.prompt.systemPrompt).toContain("No connected account tool is mounted");
   });
 
+  it("keeps account tools visible when an activated no-tool skill mounts none", () => {
+    const pack = buildChatContextPack({
+      ...baseInput(),
+      route: route({ reasons: ["activated_skill"] }),
+      providerStatus: providerStatus({
+        connectedProviders: ["github"],
+        allowedProviders: ["github"],
+      }),
+      mountedProviders: [],
+    });
+
+    expect(pack.receipts[0]?.tools).toMatchObject({
+      connected: ["github"],
+      approved: ["github"],
+      mounted: [],
+    });
+    expect(pack.prompt.systemPrompt).toContain("Connected account tools:");
+    expect(pack.prompt.systemPrompt).toContain("GitHub: repositories");
+    expect(pack.prompt.systemPrompt).toContain("No connected account tool is mounted");
+    expect(pack.prompt.systemPrompt).not.toContain(
+      "No external tools are connected yet",
+    );
+  });
+
   it("records mounted providers when the tool lane loads MCP servers", () => {
     const pack = buildChatContextPack({
       ...baseInput(),

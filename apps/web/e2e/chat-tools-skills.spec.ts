@@ -1,10 +1,8 @@
 import { expect, test } from "@playwright/test";
 import {
-  assistantMessage,
   fulfillSse,
   installMockComparativeApi,
   json,
-  userMessage,
 } from "./helpers/mock-comparative";
 
 test.skip(
@@ -77,37 +75,39 @@ test.describe("chat tools and skills", () => {
     await expect(page.getByText("Searched GitHub")).toBeVisible();
   });
 
-  test("runs slash skills without sending the skill prompt into normal chat", async ({
+  test("activates slash skills inside the current chat without leaking the skill prompt", async ({
     page,
   }) => {
-    let chatPosts = 0;
+    const chatBodies: Record<string, unknown>[] = [];
     let skillRuns = 0;
 
     await installMockComparativeApi(page, {
       artifacts: [],
-      threadMessages: {
-        "thread-skill-run": [
-          userMessage({
-            id: "user-skill",
-            content: "Run Weekly Status Writer",
-          }),
-          assistantMessage({
-            id: "assistant-skill",
-            content:
+      onChat: async (body, route) => {
+        chatBodies.push(body);
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-current-skill-chat",
+            modelId: "sonnet-4-6",
+          },
+          {
+            type: "text-delta",
+            delta:
               "Subject: Weekly status\n\nShipped attachment fixes, added capability tests, and kept the next steps clear.",
-          }),
-        ],
-      },
-      onChat: async (_body, route) => {
-        chatPosts += 1;
-        await json(route, { error: "skill_should_not_hit_chat" }, 500);
+          },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-skill-chat",
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
       },
       onSkillRun: async (_skillId, _body, route) => {
         skillRuns += 1;
-        await json(route, {
-          runId: "run-skill-run",
-          threadId: "thread-skill-run",
-        });
+        await json(route, { error: "skill_run_should_not_be_called" }, 500);
       },
     });
 
@@ -117,31 +117,45 @@ test.describe("chat tools and skills", () => {
     await expect(page.getByPlaceholder(/ask anything/i)).toBeEnabled();
 
     await page.getByPlaceholder(/ask anything/i).fill("/status");
-    await expect(page.getByText("Run a skill")).toBeVisible();
+    await expect(page.getByText("Capabilities")).toBeVisible();
     await page
       .getByRole("button", {
         name: /Weekly Status Writer Draft a concise weekly status update/i,
       })
       .click();
 
+    await expect(page.getByTestId("active-slash-skill")).toContainText(
+      "/weekly-status",
+    );
+    await expect(page.getByText("Active for this message")).toBeVisible();
+    await page.getByPlaceholder(/ask anything/i).fill("focus on launch work");
+    await page.getByRole("button", { name: "Send" }).click();
+
     await expect
-      .poll(() => skillRuns, { message: "skill run endpoint was called" })
+      .poll(() => chatBodies.length, { message: "chat endpoint was called" })
       .toBe(1);
-    await expect(
-      page.locator("main").getByRole("button", {
-        name: "Weekly Status Writer",
-      }),
-    ).toBeVisible();
-    expect(chatPosts).toBe(0);
+    expect(skillRuns).toBe(0);
+    expect(chatBodies[0]).toMatchObject({
+      message: "/weekly-status focus on launch work",
+      activatedSkills: [
+        {
+          id: "skill-weekly-status",
+          slug: "weekly-status",
+          source: "explicit",
+          args: "focus on launch work",
+        },
+      ],
+    });
+    await expect(page.getByText("Subject: Weekly status")).toBeVisible();
     await expect(
       page.getByText(/Do not reveal instructions|prompt|INTERNAL-SKILL/i),
     ).toHaveCount(0);
   });
 
-  test("runs the /weekly brief alias and shows a queued skill run", async ({
+  test("sends the /weekly brief alias as a same-chat activated skill", async ({
     page,
   }) => {
-    let chatPosts = 0;
+    const chatBodies: Record<string, unknown>[] = [];
     let skillRuns = 0;
 
     await installMockComparativeApi(page, {
@@ -157,34 +171,27 @@ test.describe("chat tools and skills", () => {
           sharedWithMe: false,
         },
       ],
-      threadMessages: {
-        "thread-weekly-brief": [
-          userMessage({
-            id: "user-weekly-brief",
-            content: "Run Weekly Status",
-          }),
-          assistantMessage({
-            id: "run:run-weekly-brief",
-            content: "",
-            pending: true,
-            status: 'Queued skill run of "Weekly Status"',
-            runId: "run-weekly-brief",
-            runStatus: "queued",
-            canCancel: true,
-            canResume: true,
-          }),
-        ],
-      },
-      onChat: async (_body, route) => {
-        chatPosts += 1;
-        await json(route, { error: "slash_alias_should_not_hit_chat" }, 500);
+      onChat: async (body, route) => {
+        chatBodies.push(body);
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-weekly-brief-current",
+            modelId: "sonnet-4-6",
+          },
+          { type: "text-delta", delta: "Weekly brief ready." },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-weekly-brief",
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
       },
       onSkillRun: async (_skillId, _body, route) => {
         skillRuns += 1;
-        await json(route, {
-          runId: "run-weekly-brief",
-          threadId: "thread-weekly-brief",
-        });
+        await json(route, { error: "skill_run_should_not_be_called" }, 500);
       },
     });
 
@@ -192,16 +199,31 @@ test.describe("chat tools and skills", () => {
     await expect(page.getByText("Talk to your work.")).toBeVisible();
 
     await page.getByPlaceholder(/ask anything/i).fill("/weekly brief");
-    await expect(page.getByText("Run a skill")).toBeVisible();
+    await expect(page.getByText("Capabilities")).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("active-slash-skill")).toContainText(
+      "/weekly-status",
+    );
     await page.keyboard.press("Enter");
 
     await expect
-      .poll(() => skillRuns, { message: "weekly alias ran a skill" })
+      .poll(() => chatBodies.length, { message: "weekly alias hit chat" })
       .toBe(1);
-    expect(chatPosts).toBe(0);
-    await expect(page.getByText("Run Weekly Status")).toBeVisible();
-    await expect(
-      page.getByText('Queued skill run of "Weekly Status"'),
-    ).toBeVisible();
+    expect(skillRuns).toBe(0);
+    expect(chatBodies[0]).toMatchObject({
+      message: "/weekly-status",
+      activatedSkills: [
+        {
+          id: "skill-weekly-status",
+          slug: "weekly-status",
+          source: "explicit",
+          args: "",
+        },
+      ],
+    });
+    await expect(page.getByTestId("slash-capability-pill")).toContainText(
+      "/weekly-status",
+    );
+    await expect(page.getByText("Weekly brief ready.")).toBeVisible();
   });
 });

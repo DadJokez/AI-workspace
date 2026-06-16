@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyActivatedSkillRoute,
   buildChatRouteReceipt,
   decideChatRuntimeRoute,
   runtimeV2EnabledFromEnv,
@@ -245,6 +246,64 @@ describe("decideChatRuntimeRoute", () => {
       lane: "tool-local",
       useMcp: true,
       includeVaultContext: true,
+    });
+  });
+
+  it("keeps no-tool activated skills on the fast lane while adding context", () => {
+    const route = decideChatRuntimeRoute({
+      message: "/email-drafter write a friendlier note",
+      runtimeV2: true,
+    });
+    expect(applyActivatedSkillRoute(route)).toMatchObject({
+      lane: "fast-local",
+      runtimeTarget: "direct-chat",
+      useWorker: false,
+      useMcp: false,
+      includeVaultContext: true,
+      reasons: ["default_fast_local", "explicit_skill_activation"],
+    });
+  });
+
+  it("upgrades activated skills with declared tools to the local tool lane", () => {
+    const route = decideChatRuntimeRoute({
+      message: "/developer-briefing recap this",
+      runtimeV2: true,
+    });
+    expect(
+      applyActivatedSkillRoute(route, { requiredProviders: ["github"] }),
+    ).toMatchObject({
+      lane: "tool-local",
+      runtimeTarget: "bedrock-agent",
+      useWorker: false,
+      useMcp: true,
+      includeVaultContext: true,
+      reasons: [
+        "default_fast_local",
+        "explicit_skill_activation",
+        "activated_skill_requires_tools",
+      ],
+    });
+  });
+
+  it("preserves the durable worker lane for activated long-running work", () => {
+    const route = decideChatRuntimeRoute({
+      message: "/developer-briefing implement the settings page and run tests",
+      runtimeV2: true,
+    });
+
+    expect(
+      applyActivatedSkillRoute(route, { requiredProviders: ["github"] }),
+    ).toMatchObject({
+      lane: "durable-local",
+      runtimeTarget: "agentcore-worker",
+      useWorker: true,
+      useMcp: true,
+      includeVaultContext: true,
+      reasons: [
+        "implementation_work",
+        "explicit_skill_activation",
+        "activated_skill_requires_tools",
+      ],
     });
   });
 
