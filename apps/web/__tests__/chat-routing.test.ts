@@ -285,6 +285,28 @@ describe("decideChatRuntimeRoute", () => {
     });
   });
 
+  it("preserves the durable worker lane for activated long-running work", () => {
+    const route = decideChatRuntimeRoute({
+      message: "/developer-briefing implement the settings page and run tests",
+      runtimeV2: true,
+    });
+
+    expect(
+      applyActivatedSkillRoute(route, { requiredProviders: ["github"] }),
+    ).toMatchObject({
+      lane: "durable-local",
+      runtimeTarget: "agentcore-worker",
+      useWorker: true,
+      useMcp: true,
+      includeVaultContext: true,
+      reasons: [
+        "implementation_work",
+        "explicit_skill_activation",
+        "activated_skill_requires_tools",
+      ],
+    });
+  });
+
   it("treats name/profile questions as personal context", () => {
     expect(
       decideChatRuntimeRoute({
