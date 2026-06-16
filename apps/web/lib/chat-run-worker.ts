@@ -39,6 +39,7 @@ import {
   parseChatExecutionMode,
   type ChatExecutionMode,
 } from "@/lib/chat-execution-mode";
+import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
@@ -263,9 +264,7 @@ async function executeClaimedChatRun({
   });
 
   const runtime = getRuntime({ runtime: workerRuntimeName() });
-  const mcpProviderOptions = Array.isArray(inputs.requestedProviders)
-    ? { onlyProviders: inputs.requestedProviders }
-    : undefined;
+  const mcpProviderScope = resolveChatMcpProviderScope(inputs.requestedProviders);
   const [threadRows, userRows, vaultMarkdown, providerStatus] =
     await Promise.all([
       db
@@ -286,7 +285,7 @@ async function executeClaimedChatRun({
       loadUserMcpProviderStatus(
         db,
         run.userId,
-        mcpProviderOptions,
+        mcpProviderScope.accountStatusOptions,
       ),
     ]);
 
@@ -343,7 +342,7 @@ async function executeClaimedChatRun({
     const mcpAccess = await buildUserMcpServers(
       db,
       run.userId,
-      mcpProviderOptions,
+      mcpProviderScope.mountOptions,
     );
     mcpServers = mcpAccess.mcpServers;
     deniedMcpProviders = mcpAccess.deniedProviders;

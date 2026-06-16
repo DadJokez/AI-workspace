@@ -18,6 +18,7 @@ import {
 } from "@/lib/chat-context-pack";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
+import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
 import {
   enqueueMemoryCapture,
   startInProcessMemoryCaptureScheduler,
@@ -146,9 +147,7 @@ export async function streamInlineChatRun({
   const toolEvents = createToolEventAccumulator([]);
 
   try {
-    const mcpProviderOptions = Array.isArray(requestedProviders)
-      ? { onlyProviders: requestedProviders }
-      : undefined;
+    const mcpProviderScope = resolveChatMcpProviderScope(requestedProviders);
     const [userRows, history, vaultMarkdown, providerStatus] =
       await Promise.all([
         db
@@ -168,7 +167,11 @@ export async function streamInlineChatRun({
         route.includeVaultContext
           ? loadApprovedVaultMarkdown(db, userId)
           : Promise.resolve(null),
-        loadUserMcpProviderStatus(db, userId, mcpProviderOptions),
+        loadUserMcpProviderStatus(
+          db,
+          userId,
+          mcpProviderScope.accountStatusOptions,
+        ),
       ]);
 
     // Match artifacts against recent RAW user messages, not the
@@ -214,7 +217,7 @@ export async function streamInlineChatRun({
         const mcpAccess = await buildUserMcpServers(
           db,
           userId,
-          mcpProviderOptions,
+          mcpProviderScope.mountOptions,
         );
         mcpServers = mcpAccess.mcpServers;
         deniedMcpProviders = mcpAccess.deniedProviders;
