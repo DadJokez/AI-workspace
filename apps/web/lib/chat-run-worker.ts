@@ -71,6 +71,7 @@ interface ChatRunInputs {
  * the same {prompt, threadId, userMessageId} contract.
  */
 const WORKER_TRIGGER_TYPES = ["skill", "scheduled", "skill_retry"];
+const WORKER_TRIGGER_TYPE_SET = new Set<string>(WORKER_TRIGGER_TYPES);
 
 function claimableRunCondition() {
   return or(
@@ -307,7 +308,9 @@ async function executeClaimedChatRun({
   const artifactContext = await buildArtifactContext({
     db,
     userId: run.userId,
-    message: buildArtifactLookupMessage(history, inputs.prompt),
+    message: buildArtifactLookupMessage(history, inputs.prompt, {
+      preferFallback: WORKER_TRIGGER_TYPE_SET.has(run.triggerType),
+    }),
   });
 
   const uploadedFiles = sanitizeUploadedFiles(inputs.uploadedFiles);
