@@ -22,6 +22,11 @@ const APP_SECRET_FIELDS = [
   "OAUTH_ENCRYPTION_KEY",
 ] as const;
 
+const WORKER_TASK_SIZE = {
+  cpu: 256,
+  memoryLimitMiB: 512,
+} as const;
+
 export class AiWorkspaceEcsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -351,8 +356,8 @@ function createWorkerService(
 ): ecs.FargateService {
   const task = new ecs.FargateTaskDefinition(scope, `${input.family}Task`, {
     family: input.family,
-    cpu: 512,
-    memoryLimitMiB: 1024,
+    cpu: WORKER_TASK_SIZE.cpu,
+    memoryLimitMiB: WORKER_TASK_SIZE.memoryLimitMiB,
   });
   if (input.grantBedrock) grantBedrockInvoke(task);
   task.addContainer(input.containerName, {
