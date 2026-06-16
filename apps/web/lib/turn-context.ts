@@ -57,7 +57,8 @@ export function buildTurnContext({
   const limit = Math.max(0, Math.floor(recentMessageLimit));
   const contextBudget = Math.max(0, Math.floor(maxContextChars));
   const messageBudget = Math.max(0, Math.floor(maxMessageChars));
-  const recent = limit > 0 ? history.slice(-limit) : [];
+  const usableHistory = history.filter((message) => message.content.trim());
+  const recent = limit > 0 ? usableHistory.slice(-limit) : [];
 
   const currentMessage: AgentMessage = {
     role: current.role,

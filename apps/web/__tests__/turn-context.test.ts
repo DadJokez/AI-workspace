@@ -63,6 +63,21 @@ describe("buildTurnContext", () => {
     ]);
   });
 
+  it("drops blank historical messages that Bedrock cannot accept", () => {
+    const context = buildTurnContext({
+      messages: [
+        msg("user", "look at this site"),
+        msg("assistant", ""),
+        msg("user", "anything?"),
+      ],
+    });
+
+    expect(context).toEqual([
+      { role: "user", content: "look at this site" },
+      { role: "user", content: "anything?" },
+    ]);
+  });
+
   it("prepends a non-empty thread summary as background context", () => {
     const context = buildTurnContext({
       threadSummary: "The user is planning a deploy workflow.",

@@ -3,6 +3,7 @@ import {
   ToolRegistry,
   connectMcpTools,
   mcpToolName,
+  normalizeToolInputSchema,
   toAwsToolConfiguration,
 } from "@ai-workspace/agent";
 import {
@@ -56,6 +57,22 @@ describe("connectMcpTools", () => {
     const schema = awsConfig?.tools?.[0]?.toolSpec?.inputSchema;
     expect(schema).toMatchObject({ json: { type: "object" } });
     expect(schema).not.toMatchObject({ json: { json: expect.anything() } });
+  });
+
+  it("normalizes missing or non-object tool schemas for AWS", () => {
+    expect(normalizeToolInputSchema({ properties: { q: { type: "string" } } }))
+      .toEqual({
+        type: "object",
+        properties: { q: { type: "string" } },
+      });
+    expect(normalizeToolInputSchema({ type: "string" })).toEqual({
+      type: "object",
+      properties: {},
+    });
+    expect(normalizeToolInputSchema(null)).toEqual({
+      type: "object",
+      properties: {},
+    });
   });
 
   it("lists remote tools and proxies calls end-to-end", async () => {

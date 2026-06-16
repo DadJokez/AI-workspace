@@ -30,6 +30,7 @@ import {
   buildArtifactContext,
   buildArtifactLookupMessage,
 } from "@/lib/artifact-context";
+import { shouldPersistAssistantMessage } from "@/lib/assistant-persistence";
 import {
   appendRunEventWithNextSequence,
   appendToolCallRunEvent,
@@ -554,11 +555,12 @@ async function persistInlineAssistantResult({
   let assistantMessageId: string | undefined;
   let artifacts: WorkspaceArtifactSummary[] = [];
   let recommendations: PersistedRecommendation[] = [];
-  const shouldPersistAssistant =
-    terminalStatus === "succeeded" ||
-    assistantText.trim().length > 0 ||
-    toolCalls.length > 0 ||
-    toolResults.length > 0;
+  const shouldPersistAssistant = shouldPersistAssistantMessage({
+    terminalStatus,
+    assistantText,
+    toolCallsCount: toolCalls.length,
+    toolResultsCount: toolResults.length,
+  });
 
   if (shouldPersistAssistant) {
     const persisted = await db

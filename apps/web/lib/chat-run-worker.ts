@@ -29,6 +29,7 @@ import {
   buildArtifactContext,
   buildArtifactLookupMessage,
 } from "@/lib/artifact-context";
+import { shouldPersistAssistantMessage } from "@/lib/assistant-persistence";
 import {
   appendRunEventWithNextSequence,
   appendToolCallRunEvent,
@@ -644,7 +645,14 @@ async function persistAssistantResult({
   const output = parseOutput(run.outputs);
   let assistantMessageId = output.assistantMessageId;
 
-  if (!assistantMessageId) {
+  const shouldPersistAssistant = shouldPersistAssistantMessage({
+    terminalStatus,
+    assistantText,
+    toolCallsCount: toolCalls.length,
+    toolResultsCount: toolResults.length,
+  });
+
+  if (!assistantMessageId && shouldPersistAssistant) {
     const persisted = await db
       .insert(chatMessages)
       .values({
@@ -662,22 +670,24 @@ async function persistAssistantResult({
     assistantMessageId = persisted[0]!.id;
   }
 
-  const toolAuditRows = buildToolAuditRows({
-    actorUserId: run.userId,
-    chatThreadId: threadId,
-    chatMessageId: assistantMessageId,
-    runId: run.id,
-    modelId,
-    runtime: runtimeName,
-    calls: toolCalls,
-    results: toolResults,
-  });
-  if (toolAuditRows.length > 0) {
-    await db.insert(auditLog).values(toolAuditRows);
+  if (assistantMessageId) {
+    const toolAuditRows = buildToolAuditRows({
+      actorUserId: run.userId,
+      chatThreadId: threadId,
+      chatMessageId: assistantMessageId,
+      runId: run.id,
+      modelId,
+      runtime: runtimeName,
+      calls: toolCalls,
+      results: toolResults,
+    });
+    if (toolAuditRows.length > 0) {
+      await db.insert(auditLog).values(toolAuditRows);
+    }
   }
 
   const artifacts =
-    terminalStatus === "succeeded"
+    terminalStatus === "succeeded" && assistantMessageId
       ? await createArtifactsFromAssistantMessage({
           db,
           userId: run.userId,
@@ -706,7 +716,7 @@ async function persistAssistantResult({
     });
   }
   const recommendations =
-    terminalStatus === "succeeded"
+    terminalStatus === "succeeded" && assistantMessageId
       ? await createRecommendationsForAssistantMessage({
           db,
           userId: run.userId,
@@ -745,7 +755,7 @@ async function persistAssistantResult({
       outputs: {
         ...output,
         assistantText,
-        assistantMessageId,
+        ...(assistantMessageId ? { assistantMessageId } : {}),
         userMessageId,
         toolCalls,
         toolResults,
@@ -768,7 +778,7 @@ async function persistAssistantResult({
 
   if (updatedRows.length === 0) return;
 
-  if (terminalStatus === "succeeded") {
+  if (terminalStatus === "succeeded" && assistantMessageId) {
     try {
       await enqueueMemoryCapture(db, {
         userId: run.userId,
@@ -799,7 +809,7 @@ async function persistAssistantResult({
         : "Run ended with errors",
     ...(error ? { error } : {}),
     metadata: {
-      assistantMessageId,
+      ...(assistantMessageId ? { assistantMessageId } : {}),
       userMessageId,
       ...(artifacts.length > 0 ? { artifacts } : {}),
       ...(recommendations.length > 0 ? { recommendations } : {}),
