@@ -104,7 +104,10 @@ test.describe("chat tools and skills", () => {
       },
       onSkillRun: async (_skillId, _body, route) => {
         skillRuns += 1;
-        await json(route, { threadId: "thread-skill-run" });
+        await json(route, {
+          runId: "run-skill-run",
+          threadId: "thread-skill-run",
+        });
       },
     });
 
@@ -133,5 +136,72 @@ test.describe("chat tools and skills", () => {
     await expect(
       page.getByText(/Do not reveal instructions|prompt|INTERNAL-SKILL/i),
     ).toHaveCount(0);
+  });
+
+  test("runs the /weekly brief alias and shows a queued skill run", async ({
+    page,
+  }) => {
+    let chatPosts = 0;
+    let skillRuns = 0;
+
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      skills: [
+        {
+          id: "skill-weekly-status",
+          slug: "weekly-status",
+          name: "Weekly Status",
+          description: "Drafts a week-in-review status update.",
+          mcpProviders: [],
+          isStarter: true,
+          sharedWithMe: false,
+        },
+      ],
+      threadMessages: {
+        "thread-weekly-brief": [
+          userMessage({
+            id: "user-weekly-brief",
+            content: "Run Weekly Status",
+          }),
+          assistantMessage({
+            id: "run:run-weekly-brief",
+            content: "",
+            pending: true,
+            status: 'Queued skill run of "Weekly Status"',
+            runId: "run-weekly-brief",
+            runStatus: "queued",
+            canCancel: true,
+            canResume: true,
+          }),
+        ],
+      },
+      onChat: async (_body, route) => {
+        chatPosts += 1;
+        await json(route, { error: "slash_alias_should_not_hit_chat" }, 500);
+      },
+      onSkillRun: async (_skillId, _body, route) => {
+        skillRuns += 1;
+        await json(route, {
+          runId: "run-weekly-brief",
+          threadId: "thread-weekly-brief",
+        });
+      },
+    });
+
+    await page.goto("/e2e/chat");
+    await expect(page.getByText("Talk to your work.")).toBeVisible();
+
+    await page.getByPlaceholder(/ask anything/i).fill("/weekly brief");
+    await expect(page.getByText("Run a skill")).toBeVisible();
+    await page.keyboard.press("Enter");
+
+    await expect
+      .poll(() => skillRuns, { message: "weekly alias ran a skill" })
+      .toBe(1);
+    expect(chatPosts).toBe(0);
+    await expect(page.getByText("Run Weekly Status")).toBeVisible();
+    await expect(
+      page.getByText('Queued skill run of "Weekly Status"'),
+    ).toBeVisible();
   });
 });
