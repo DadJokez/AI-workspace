@@ -58,11 +58,30 @@ export class ToolRegistry {
       toolSpec: {
         name: t.name,
         description: t.description,
-        inputSchema: { json: t.inputSchema as Record<string, unknown> },
+        inputSchema: { json: normalizeToolInputSchema(t.inputSchema) },
       },
     }));
     return { tools };
   }
+}
+
+export function normalizeToolInputSchema(
+  schema: unknown,
+): Record<string, unknown> {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    return { type: "object", properties: {} };
+  }
+
+  const normalized = { ...(schema as Record<string, unknown>) };
+  if (normalized.type !== "object") normalized.type = "object";
+  if (
+    !normalized.properties ||
+    typeof normalized.properties !== "object" ||
+    Array.isArray(normalized.properties)
+  ) {
+    normalized.properties = {};
+  }
+  return normalized;
 }
 
 export interface BedrockToolConfig {

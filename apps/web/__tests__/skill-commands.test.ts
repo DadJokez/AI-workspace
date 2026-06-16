@@ -48,6 +48,11 @@ describe("skill-commands", () => {
     expect(matches[0]?.slug).toBe("developer-briefing");
   });
 
+  it("treats generic output words as aliases in multi-word commands", () => {
+    const matches = filterSkillsForCommand("/weekly brief", SKILLS);
+    expect(matches[0]?.slug).toBe("weekly-status");
+  });
+
   it("empty query lists everything; words filter across name and description", () => {
     expect(filterSkillsForCommand("/", SKILLS)).toHaveLength(3);
     expect(

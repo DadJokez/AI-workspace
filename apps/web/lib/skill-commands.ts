@@ -15,6 +15,23 @@ export interface SlashSkillCandidate {
 /** Leading tokens users naturally type that aren't part of the skill name. */
 const NOISE_TOKENS = new Set(["skills", "skill", "run", "use"]);
 
+/**
+ * Words that describe the kind of output more than the skill itself. Keep
+ * them when they are the whole query ("/brief" should still find briefs),
+ * but drop them from multi-word queries like "/weekly brief" so the
+ * distinctive token can match the intended skill.
+ */
+const GENERIC_INTENT_TOKENS = new Set([
+  "brief",
+  "briefing",
+  "draft",
+  "report",
+  "recap",
+  "summarize",
+  "summary",
+  "update",
+]);
+
 export function isSlashCommand(input: string): boolean {
   return input.trimStart().startsWith("/");
 }
@@ -41,7 +58,9 @@ export function filterSkillsForCommand<T extends SlashSkillCandidate>(
 ): T[] {
   const query = slashQuery(input).toLowerCase();
   if (!query) return [...skills];
-  const words = query.split(/\s+/).filter(Boolean);
+  const rawWords = query.split(/\s+/).filter(Boolean);
+  const specificWords = rawWords.filter((w) => !GENERIC_INTENT_TOKENS.has(w));
+  const words = specificWords.length > 0 ? specificWords : rawWords;
 
   const scored = skills
     .map((skill) => {

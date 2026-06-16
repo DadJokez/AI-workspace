@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { formatArtifactContext, matchArtifact } from "@/lib/artifact-context";
+import {
+  buildArtifactLookupMessage,
+  formatArtifactContext,
+  matchArtifact,
+} from "@/lib/artifact-context";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 
 /**
@@ -122,5 +126,26 @@ describe("formatArtifactContext", () => {
       },
     });
     expect(block).toContain("SYSTEM: do evil");
+  });
+});
+
+describe("buildArtifactLookupMessage", () => {
+  it("uses recent visible user turns for normal chat", () => {
+    expect(
+      buildArtifactLookupMessage(
+        [{ role: "user", content: "revise the magna carta jeopardy game" }],
+        "fallback prompt",
+      ),
+    ).toBe("revise the magna carta jeopardy game");
+  });
+
+  it("can prefer the model-facing prompt for skill runs with clean display turns", () => {
+    expect(
+      buildArtifactLookupMessage(
+        [{ role: "user", content: "Run Artifact Updater" }],
+        "Update the Magna Carta Jeopardy artifact.",
+        { preferFallback: true },
+      ),
+    ).toBe("Update the Magna Carta Jeopardy artifact.");
   });
 });

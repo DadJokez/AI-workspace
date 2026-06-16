@@ -839,13 +839,18 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         method: "POST",
       });
       const body = (await res.json().catch(() => ({}))) as {
+        runId?: string;
         threadId?: string;
         message?: string;
         error?: string;
       };
       if (res.ok && body.threadId) {
         void refreshThreads();
-        openThread(body.threadId, skill.name);
+        openThread(
+          body.threadId,
+          skill.name,
+          buildSkillLaunchMessages(skill, body.runId),
+        );
         return null;
       }
       return (
@@ -1044,10 +1049,26 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     });
   }
 
-  function openThread(threadId: string, title: string) {
+  function openThread(
+    threadId: string,
+    title: string,
+    initialMessages: UiMessage[] = [],
+  ) {
     setView("chat");
     const existing = tabs.find((t) => t.threadId === threadId);
     if (existing) {
+      if (initialMessages.length > 0) {
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.id === existing.id
+              ? {
+                  ...t,
+                  messages: mergeLoadedMessages(t.messages, initialMessages),
+                }
+              : t,
+          ),
+        );
+      }
       setActiveId(existing.id);
       return;
     }
@@ -1063,13 +1084,38 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       id: crypto.randomUUID(),
       title: trimmed.length > 0 ? trimmed : "Untitled",
       threadId,
-      messages: [],
+      messages: initialMessages,
       modelId,
       busy: false,
       loaded: false,
     };
     setTabs((prev) => [...prev, tab]);
     setActiveId(tab.id);
+  }
+
+  function buildSkillLaunchMessages(
+    skill: SlashSkill,
+    runId?: string,
+  ): UiMessage[] {
+    const localRunId = runId ?? crypto.randomUUID();
+    return [
+      {
+        id: `skill:${skill.id}:${localRunId}`,
+        role: "user",
+        content: `Run ${skill.name}`,
+      },
+      {
+        id: `run:${localRunId}`,
+        role: "assistant",
+        content: "",
+        pending: true,
+        status: `Queued skill run of "${skill.name}"`,
+        runId,
+        runStatus: "queued",
+        canCancel: !!runId,
+        canResume: !!runId,
+      },
+    ];
   }
 
   function selectTab(tabId: string) {

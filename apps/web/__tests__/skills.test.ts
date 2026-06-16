@@ -109,6 +109,13 @@ describe("skills helpers", () => {
     expect(prompt).toContain("Summarize my week.");
   });
 
+  it("keeps the visible skill-run message user-facing", async () => {
+    const { buildSkillDisplayMessage } = await import("@/lib/skills");
+    expect(buildSkillDisplayMessage({ name: "Weekly Status" })).toBe(
+      "Run Weekly Status",
+    );
+  });
+
   it("enforces visibility: owner, starter, admin", async () => {
     const { canViewSkill, canRunSkill } = await import("@/lib/skills");
     const base = {

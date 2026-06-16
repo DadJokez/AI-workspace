@@ -89,7 +89,9 @@ const LIST_INTENT_RE =
 export function buildArtifactLookupMessage(
   messages: readonly { role: string; content: string }[],
   fallback: string,
+  options: { preferFallback?: boolean } = {},
 ): string {
+  if (options.preferFallback && fallback.trim()) return fallback;
   const rawUserTurns = messages
     .filter((message) => message.role === "user")
     .slice(-3)

@@ -183,6 +183,10 @@ export function buildSkillTurnPrompt(
   ].join("\n");
 }
 
+export function buildSkillDisplayMessage(skill: Pick<Skill, "name">): string {
+  return `Run ${skill.name}`;
+}
+
 export interface SkillProviderAccess {
   /** Declared providers the user has connected and attested. */
   ready: string[];
@@ -273,12 +277,13 @@ export async function createSkillRun({
   }
 
   const prompt = buildSkillTurnPrompt(skill);
+  const displayMessage = buildSkillDisplayMessage(skill);
   const messageRows = await db
     .insert(chatMessages)
     .values({
       threadId: targetThreadId,
       role: "user",
-      content: prompt,
+      content: displayMessage,
     })
     .returning({ id: chatMessages.id });
   const userMessageId = messageRows[0]!.id;

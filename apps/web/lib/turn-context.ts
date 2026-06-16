@@ -57,7 +57,8 @@ export function buildTurnContext({
   const limit = Math.max(0, Math.floor(recentMessageLimit));
   const contextBudget = Math.max(0, Math.floor(maxContextChars));
   const messageBudget = Math.max(0, Math.floor(maxMessageChars));
-  const recent = limit > 0 ? history.slice(-limit) : [];
+  const usableHistory = history.filter((message) => message.content.trim());
+  const recent = limit > 0 ? usableHistory.slice(-limit) : [];
 
   const currentMessage: AgentMessage = {
     role: current.role,
@@ -77,7 +78,7 @@ export function buildTurnContext({
 
   const retainedHistory: AgentMessage[] = [];
   let retainedChars = currentChars;
-  let droppedMessages = history.length - recent.length;
+  let droppedMessages = usableHistory.length - recent.length;
 
   for (let i = recent.length - 1; i >= 0; i--) {
     const source = recent[i]!;
@@ -144,15 +145,34 @@ export function buildTurnContext({
     });
   }
 
-  return [
+  return coalesceAdjacentMessages([
     ...(summaryMessage ? [summaryMessage] : []),
     ...retainedHistory,
     currentMessage,
-  ];
+  ]);
 }
 
 function messageChars(message: AgentMessage): number {
   return message.content.length;
+}
+
+function coalesceAdjacentMessages(messages: AgentMessage[]): AgentMessage[] {
+  const out: AgentMessage[] = [];
+  for (const message of messages) {
+    const previous = out[out.length - 1];
+    if (previous && previous.role === message.role) {
+      previous.content = joinMessageContent(previous.content, message.content);
+      continue;
+    }
+    out.push({ ...message });
+  }
+  return out;
+}
+
+function joinMessageContent(left: string, right: string): string {
+  if (!left) return right;
+  if (!right) return left;
+  return `${left}\n\n${right}`;
 }
 
 function truncateForContext(

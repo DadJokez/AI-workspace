@@ -20,7 +20,7 @@ export {
 } from "./models";
 export type { ModelId, ModelMetadata } from "./models";
 
-export { ToolRegistry } from "./registry";
+export { normalizeToolInputSchema, ToolRegistry } from "./registry";
 export type { BedrockToolConfig } from "./registry";
 
 export {
