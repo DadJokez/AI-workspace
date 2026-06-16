@@ -63,7 +63,7 @@ describe("buildTurnContext", () => {
     ]);
   });
 
-  it("drops blank historical messages that Bedrock cannot accept", () => {
+  it("drops blank historical messages and coalesces adjacent user turns", () => {
     const context = buildTurnContext({
       messages: [
         msg("user", "look at this site"),
@@ -73,9 +73,27 @@ describe("buildTurnContext", () => {
     });
 
     expect(context).toEqual([
-      { role: "user", content: "look at this site" },
-      { role: "user", content: "anything?" },
+      { role: "user", content: "look at this site\n\nanything?" },
     ]);
+  });
+
+  it("coalesces summary context with adjacent user history", () => {
+    const context = buildTurnContext({
+      threadSummary: "Earlier context.",
+      messages: [msg("user", "old"), msg("assistant", ""), msg("user", "current")],
+    });
+
+    expect(context).toEqual([
+      {
+        role: "user",
+        content: expect.stringContaining(
+          "Conversation summary from earlier turns:",
+        ),
+      },
+    ]);
+    expect(context[0]?.content).toContain("Earlier context.");
+    expect(context[0]?.content).toContain("old");
+    expect(context[0]?.content).toContain("current");
   });
 
   it("prepends a non-empty thread summary as background context", () => {
@@ -94,15 +112,17 @@ describe("buildTurnContext", () => {
     ]);
   });
 
-  it("can send only summary plus current message when recent limit is zero", () => {
+  it("can send only merged summary plus current message when recent limit is zero", () => {
     const context = buildTurnContext({
       threadSummary: "Earlier context.",
       messages: [msg("user", "old"), msg("user", "current")],
       recentMessageLimit: 0,
     });
 
-    expect(context).toHaveLength(2);
-    expect(context[1]).toEqual({ role: "user", content: "current" });
+    expect(context).toHaveLength(1);
+    expect(context[0]?.role).toBe("user");
+    expect(context[0]?.content).toContain("Earlier context.");
+    expect(context[0]?.content).toContain("current");
   });
 
   it("drops oldest recent messages when the context budget is reached", () => {

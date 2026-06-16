@@ -78,7 +78,7 @@ export function buildTurnContext({
 
   const retainedHistory: AgentMessage[] = [];
   let retainedChars = currentChars;
-  let droppedMessages = history.length - recent.length;
+  let droppedMessages = usableHistory.length - recent.length;
 
   for (let i = recent.length - 1; i >= 0; i--) {
     const source = recent[i]!;
@@ -145,15 +145,34 @@ export function buildTurnContext({
     });
   }
 
-  return [
+  return coalesceAdjacentMessages([
     ...(summaryMessage ? [summaryMessage] : []),
     ...retainedHistory,
     currentMessage,
-  ];
+  ]);
 }
 
 function messageChars(message: AgentMessage): number {
   return message.content.length;
+}
+
+function coalesceAdjacentMessages(messages: AgentMessage[]): AgentMessage[] {
+  const out: AgentMessage[] = [];
+  for (const message of messages) {
+    const previous = out[out.length - 1];
+    if (previous && previous.role === message.role) {
+      previous.content = joinMessageContent(previous.content, message.content);
+      continue;
+    }
+    out.push({ ...message });
+  }
+  return out;
+}
+
+function joinMessageContent(left: string, right: string): string {
+  if (!left) return right;
+  if (!right) return left;
+  return `${left}\n\n${right}`;
 }
 
 function truncateForContext(
