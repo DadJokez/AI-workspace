@@ -126,11 +126,7 @@ export function resolveSlashSkillActivation<T extends SlashSkillCandidate>(
   const query = slashQuery(input);
   if (!query) return null;
 
-  const matches = filterSkillsForCommand(input, skills);
-  if (matches.length === 1) {
-    return { skill: matches[0]!, args: "" };
-  }
-  return null;
+  return resolveFuzzySlashSkillActivation(input, skills);
 }
 
 export function buildActivatedSlashSkill(
@@ -150,7 +146,11 @@ export function slashArgumentsForSkill<T extends SlashSkillCandidate>(
   input: string,
   skill: T,
 ): string {
-  return resolveExactSlashSkillActivation(input, [skill])?.args ?? "";
+  return (
+    resolveExactSlashSkillActivation(input, [skill])?.args ??
+    resolveFuzzySlashSkillActivation(input, [skill])?.args ??
+    ""
+  );
 }
 
 function resolveExactSlashSkillActivation<T extends SlashSkillCandidate>(
@@ -175,6 +175,26 @@ function resolveExactSlashSkillActivation<T extends SlashSkillCandidate>(
       return {
         skill: candidate.skill,
         args: raw.slice(candidate.alias.length).trimStart(),
+      };
+    }
+  }
+  return null;
+}
+
+function resolveFuzzySlashSkillActivation<T extends SlashSkillCandidate>(
+  input: string,
+  skills: readonly T[],
+): { skill: T; args: string } | null {
+  const words = slashQuery(input).split(/\s+/).filter(Boolean);
+  if (words.length === 0) return null;
+
+  for (let prefixLength = words.length; prefixLength >= 1; prefixLength--) {
+    const prefix = words.slice(0, prefixLength).join(" ");
+    const matches = filterSkillsForCommand(`/${prefix}`, skills);
+    if (matches.length === 1) {
+      return {
+        skill: matches[0]!,
+        args: words.slice(prefixLength).join(" "),
       };
     }
   }

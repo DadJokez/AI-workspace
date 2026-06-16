@@ -222,6 +222,11 @@ export function ChatInput({
         activateSkill(matches[Math.min(highlight, matches.length - 1)]!);
         return;
       }
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        activateSkill(matches[Math.min(highlight, matches.length - 1)]!);
+        return;
+      }
     }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
@@ -273,7 +278,7 @@ export function ChatInput({
             </ul>
           )}
           <p className="border-t border-hairline px-3 py-1.5 text-[11px] text-muted">
-            ↑↓ choose · Tab select · Enter send · Esc dismiss
+            ↑↓ choose · Enter select · Tab select · Esc dismiss
           </p>
         </div>
       ) : null}

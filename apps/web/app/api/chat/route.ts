@@ -1,5 +1,5 @@
 import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
-import { AuthConfigError, type SessionUser } from "@ai-workspace/auth";
+import { AuthConfigError } from "@ai-workspace/auth";
 import {
   auditLog,
   type ChatThread,
@@ -7,8 +7,6 @@ import {
   chatThreads,
   getDb,
   runs,
-  type Skill,
-  skills as skillsTable,
   workspaceArtifacts,
 } from "@ai-workspace/db";
 import { and, desc, eq } from "drizzle-orm";
@@ -23,10 +21,11 @@ import {
   runtimeV2EnabledFromEnv,
 } from "@/lib/chat-routing";
 import {
-  buildActivatedSkillChatPrompt,
-  checkSkillProviderAccess,
-} from "@/lib/skills";
-import { canActorRunSkill } from "@/lib/shares";
+  resolveActivatedSkillForChat,
+  type ActivatedSkillForChat,
+  type ActivatedSkillRequest,
+} from "@/lib/chat-activated-skills";
+import { buildActivatedSkillChatPrompt } from "@/lib/skills";
 import { streamInlineChatRun } from "@/lib/chat-inline-runner";
 import {
   declaredAttachmentCountFromMessage,
@@ -54,18 +53,6 @@ interface ChatRequestBody {
   activatedSkills?: ActivatedSkillRequest[];
   attachments?: ChatAttachment[];
   attachmentCount?: number;
-}
-
-interface ActivatedSkillRequest {
-  id?: string;
-  slug?: string;
-  source?: string;
-  args?: string;
-}
-
-interface ActivatedSkillForChat {
-  skill: Skill;
-  args: string;
 }
 
 /**
@@ -537,100 +524,6 @@ function deriveThreadTitle(
   return deriveTitle(
     args ? `${activatedSkill.skill.name}: ${args}` : activatedSkill.skill.name,
   );
-}
-
-async function resolveActivatedSkillForChat({
-  db,
-  actor,
-  activatedSkills,
-}: {
-  db: ReturnType<typeof getDb>;
-  actor: SessionUser;
-  activatedSkills: ActivatedSkillRequest[] | undefined;
-}): Promise<
-  | { ok: true; activatedSkill: ActivatedSkillForChat | null }
-  | { ok: false; status: number; error: string; message: string }
-> {
-  if (!activatedSkills || activatedSkills.length === 0) {
-    return { ok: true, activatedSkill: null };
-  }
-  if (!Array.isArray(activatedSkills) || activatedSkills.length > 1) {
-    return {
-      ok: false,
-      status: 400,
-      error: "invalid_activated_skills",
-      message: "Activate one skill per chat message.",
-    };
-  }
-
-  const request = activatedSkills[0]!;
-  if (request.source && request.source !== "explicit") {
-    return {
-      ok: false,
-      status: 400,
-      error: "invalid_activated_skill_source",
-      message: "Only explicitly selected skills can be activated from chat.",
-    };
-  }
-
-  const id = typeof request.id === "string" ? request.id.trim() : "";
-  const slug = typeof request.slug === "string" ? request.slug.trim() : "";
-  if (!id && !slug) {
-    return {
-      ok: false,
-      status: 400,
-      error: "invalid_activated_skill",
-      message: "The selected skill was missing an id or slug.",
-    };
-  }
-
-  const rows = await db
-    .select()
-    .from(skillsTable)
-    .where(id ? eq(skillsTable.id, id) : eq(skillsTable.slug, slug))
-    .limit(1);
-  const skill = rows[0];
-  if (!skill || !(await canActorRunSkill(db, skill, actor))) {
-    return {
-      ok: false,
-      status: 404,
-      error: "skill_not_found",
-      message: "That skill is not available in your workspace.",
-    };
-  }
-
-  const access = await checkSkillProviderAccess(
-    db,
-    actor.id,
-    skill.mcpProviders,
-  );
-  if (
-    access.missingConnections.length > 0 ||
-    access.deniedAttestations.length > 0
-  ) {
-    const parts = [
-      access.missingConnections.length
-        ? `connect ${access.missingConnections.join(", ")}`
-        : "",
-      access.deniedAttestations.length
-        ? `approve ${access.deniedAttestations.join(", ")}`
-        : "",
-    ].filter(Boolean);
-    return {
-      ok: false,
-      status: 409,
-      error: "skill_provider_unavailable",
-      message: `This skill needs tools you haven't enabled yet — ${parts.join(" and ")}.`,
-    };
-  }
-
-  return {
-    ok: true,
-    activatedSkill: {
-      skill,
-      args: typeof request.args === "string" ? request.args.trim() : "",
-    },
-  };
 }
 
 function deriveTitle(firstMessage: string): string {

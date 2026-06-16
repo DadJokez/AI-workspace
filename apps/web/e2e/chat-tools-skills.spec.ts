@@ -201,6 +201,10 @@ test.describe("chat tools and skills", () => {
     await page.getByPlaceholder(/ask anything/i).fill("/weekly brief");
     await expect(page.getByText("Capabilities")).toBeVisible();
     await page.keyboard.press("Enter");
+    await expect(page.getByTestId("active-slash-skill")).toContainText(
+      "/weekly-status",
+    );
+    await page.keyboard.press("Enter");
 
     await expect
       .poll(() => chatBodies.length, { message: "weekly alias hit chat" })

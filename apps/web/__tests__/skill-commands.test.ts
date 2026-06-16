@@ -92,6 +92,27 @@ describe("skill-commands", () => {
     expect(resolved?.args).toBe("");
   });
 
+  it("keeps trailing user args after an abbreviated fuzzy skill prefix", () => {
+    const resolved = resolveSlashSkillActivation(
+      "/email make this friendlier",
+      SKILLS,
+    );
+    expect(resolved?.skill.slug).toBe("email-drafter");
+    expect(resolved?.args).toBe("make this friendlier");
+    expect(slashArgumentsForSkill("/email make this friendlier", SKILLS[2]!)).toBe(
+      "make this friendlier",
+    );
+  });
+
+  it("keeps trailing args after multi-word fuzzy skill aliases", () => {
+    const resolved = resolveSlashSkillActivation(
+      "/weekly brief for the launch",
+      SKILLS,
+    );
+    expect(resolved?.skill.slug).toBe("weekly-status");
+    expect(resolved?.args).toBe("for the launch");
+  });
+
   it("formats and parses compact visible slash skill messages", () => {
     const message = buildSlashSkillDisplayMessage(
       SKILLS[0]!,
