@@ -1063,7 +1063,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             t.id === existing.id
               ? {
                   ...t,
-                  messages: mergeLocalMessages(t.messages, initialMessages),
+                  messages: mergeLoadedMessages(t.messages, initialMessages),
                 }
               : t,
           ),
@@ -1115,23 +1115,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         canCancel: !!runId,
         canResume: !!runId,
       },
-    ];
-  }
-
-  function mergeLocalMessages(
-    currentMessages: UiMessage[],
-    incomingMessages: UiMessage[],
-  ): UiMessage[] {
-    const hasSameMessage = (candidate: UiMessage) =>
-      currentMessages.some(
-        (message) =>
-          message.id === candidate.id ||
-          (message.role === candidate.role &&
-            message.content.trim() === candidate.content.trim()),
-      );
-    return [
-      ...currentMessages,
-      ...incomingMessages.filter((message) => !hasSameMessage(message)),
     ];
   }
 
