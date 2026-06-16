@@ -1,5 +1,5 @@
 import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
-import { AuthConfigError } from "@ai-workspace/auth";
+import { AuthConfigError, type SessionUser } from "@ai-workspace/auth";
 import {
   auditLog,
   type ChatThread,
@@ -7,6 +7,8 @@ import {
   chatThreads,
   getDb,
   runs,
+  type Skill,
+  skills as skillsTable,
   workspaceArtifacts,
 } from "@ai-workspace/db";
 import { and, desc, eq } from "drizzle-orm";
@@ -15,10 +17,16 @@ import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
 import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
 import {
+  applyActivatedSkillRoute,
   buildChatRouteReceipt,
   decideChatRuntimeRoute,
   runtimeV2EnabledFromEnv,
 } from "@/lib/chat-routing";
+import {
+  buildActivatedSkillChatPrompt,
+  checkSkillProviderAccess,
+} from "@/lib/skills";
+import { canActorRunSkill } from "@/lib/shares";
 import { streamInlineChatRun } from "@/lib/chat-inline-runner";
 import {
   declaredAttachmentCountFromMessage,
@@ -43,8 +51,21 @@ interface ChatRequestBody {
   threadId?: string;
   modelId?: string;
   executionMode?: string;
+  activatedSkills?: ActivatedSkillRequest[];
   attachments?: ChatAttachment[];
   attachmentCount?: number;
+}
+
+interface ActivatedSkillRequest {
+  id?: string;
+  slug?: string;
+  source?: string;
+  args?: string;
+}
+
+interface ActivatedSkillForChat {
+  skill: Skill;
+  args: string;
 }
 
 /**
@@ -125,7 +146,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const modelId: string =
+  const requestedModelId: string =
     typeof body.modelId === "string" && body.modelId.trim().length > 0
       ? body.modelId
       : DEFAULT_MODEL_ID;
@@ -172,6 +193,23 @@ export async function POST(req: Request) {
     );
   }
 
+  const activatedSkillResult = await resolveActivatedSkillForChat({
+    db,
+    actor: sessionUser,
+    activatedSkills: body.activatedSkills,
+  });
+  if (!activatedSkillResult.ok) {
+    return NextResponse.json(
+      {
+        error: activatedSkillResult.error,
+        message: activatedSkillResult.message,
+      },
+      { status: activatedSkillResult.status },
+    );
+  }
+  const activatedSkill = activatedSkillResult.activatedSkill;
+  const modelId = activatedSkill?.skill.modelId ?? requestedModelId;
+
   let thread: ChatThread;
   if (body.threadId) {
     const owned = await db
@@ -194,7 +232,7 @@ export async function POST(req: Request) {
       .values({
         userId: sessionUser.id,
         defaultModelId: modelId,
-        title: deriveTitle(body.message),
+        title: deriveThreadTitle(body.message, activatedSkill),
       })
       .returning();
     thread = created[0]!;
@@ -230,7 +268,7 @@ export async function POST(req: Request) {
     approvedProviders: routingProviderStatus.allowedProviders,
     pendingApprovalProviders: routingProviderStatus.deniedProviders,
   };
-  const runtimeRoute = decideChatRuntimeRoute({
+  let runtimeRoute = decideChatRuntimeRoute({
     message: body.message,
     executionMode,
     runtimeV2,
@@ -238,6 +276,11 @@ export async function POST(req: Request) {
     contextSignals,
     capabilitySignals,
   });
+  if (activatedSkill) {
+    runtimeRoute = applyActivatedSkillRoute(runtimeRoute, {
+      requiredProviders: activatedSkill.skill.mcpProviders,
+    });
+  }
   const routeReceipt = buildChatRouteReceipt({
     route: runtimeRoute,
     contextSignals,
@@ -256,7 +299,13 @@ export async function POST(req: Request) {
   // The bubble shows the typed message; the model sees it plus the folded
   // attachment text. Each file is also stored as a workspace artifact so it
   // renders as a chip on the turn (and is downloadable later).
-  const promptForModel = foldAttachmentsIntoPrompt(body.message, attachments);
+  const modelVisibleMessage = activatedSkill
+    ? buildActivatedSkillChatPrompt(activatedSkill.skill, activatedSkill.args)
+    : body.message;
+  const promptForModel = foldAttachmentsIntoPrompt(
+    modelVisibleMessage,
+    attachments,
+  );
   const uploadedFiles = attachments.map((a) => ({
     name: a.name,
     mimeType: a.mimeType,
@@ -303,6 +352,7 @@ export async function POST(req: Request) {
       userId: sessionUser.id,
       threadId: thread.id,
       skillSlug: "chat-turn",
+      ...(activatedSkill ? { skillId: activatedSkill.skill.id } : {}),
       triggerType: "chat",
       status: runtimeRoute.useWorker ? "queued" : "running",
       modelId,
@@ -316,6 +366,20 @@ export async function POST(req: Request) {
         runtimeRoute,
         uploadedFiles,
         routeReceipt,
+        ...(activatedSkill
+          ? {
+              activatedSkills: [
+                {
+                  id: activatedSkill.skill.id,
+                  slug: activatedSkill.skill.slug,
+                  name: activatedSkill.skill.name,
+                  source: "explicit",
+                  args: activatedSkill.args,
+                },
+              ],
+              requestedProviders: activatedSkill.skill.mcpProviders,
+            }
+          : {}),
       },
       attemptCount: runtimeRoute.useWorker ? 0 : 1,
       startedAt: chatRunStartedAt,
@@ -343,6 +407,19 @@ export async function POST(req: Request) {
         runtimeV2,
         runtimeRoute,
         routeReceipt,
+        ...(activatedSkill
+          ? {
+              activatedSkills: [
+                {
+                  id: activatedSkill.skill.id,
+                  slug: activatedSkill.skill.slug,
+                  name: activatedSkill.skill.name,
+                  source: "explicit",
+                  args: activatedSkill.args,
+                },
+              ],
+            }
+          : {}),
       },
       occurredAt: queuedAt,
     });
@@ -413,6 +490,18 @@ export async function POST(req: Request) {
           route: runtimeRoute,
           requestStartedAt,
           uploadedFiles,
+          activatedSkills: activatedSkill
+            ? [
+                {
+                  id: activatedSkill.skill.id,
+                  slug: activatedSkill.skill.slug,
+                  name: activatedSkill.skill.name,
+                  source: "explicit",
+                  args: activatedSkill.args,
+                },
+              ]
+            : undefined,
+          requestedProviders: activatedSkill?.skill.mcpProviders,
           signal: req.signal,
           send,
         });
@@ -438,6 +527,112 @@ export async function POST(req: Request) {
 }
 
 const TITLE_MAX = 60;
+
+function deriveThreadTitle(
+  firstMessage: string,
+  activatedSkill?: ActivatedSkillForChat | null,
+): string {
+  if (!activatedSkill) return deriveTitle(firstMessage);
+  const args = activatedSkill.args.trim();
+  return deriveTitle(
+    args ? `${activatedSkill.skill.name}: ${args}` : activatedSkill.skill.name,
+  );
+}
+
+async function resolveActivatedSkillForChat({
+  db,
+  actor,
+  activatedSkills,
+}: {
+  db: ReturnType<typeof getDb>;
+  actor: SessionUser;
+  activatedSkills: ActivatedSkillRequest[] | undefined;
+}): Promise<
+  | { ok: true; activatedSkill: ActivatedSkillForChat | null }
+  | { ok: false; status: number; error: string; message: string }
+> {
+  if (!activatedSkills || activatedSkills.length === 0) {
+    return { ok: true, activatedSkill: null };
+  }
+  if (!Array.isArray(activatedSkills) || activatedSkills.length > 1) {
+    return {
+      ok: false,
+      status: 400,
+      error: "invalid_activated_skills",
+      message: "Activate one skill per chat message.",
+    };
+  }
+
+  const request = activatedSkills[0]!;
+  if (request.source && request.source !== "explicit") {
+    return {
+      ok: false,
+      status: 400,
+      error: "invalid_activated_skill_source",
+      message: "Only explicitly selected skills can be activated from chat.",
+    };
+  }
+
+  const id = typeof request.id === "string" ? request.id.trim() : "";
+  const slug = typeof request.slug === "string" ? request.slug.trim() : "";
+  if (!id && !slug) {
+    return {
+      ok: false,
+      status: 400,
+      error: "invalid_activated_skill",
+      message: "The selected skill was missing an id or slug.",
+    };
+  }
+
+  const rows = await db
+    .select()
+    .from(skillsTable)
+    .where(id ? eq(skillsTable.id, id) : eq(skillsTable.slug, slug))
+    .limit(1);
+  const skill = rows[0];
+  if (!skill || !(await canActorRunSkill(db, skill, actor))) {
+    return {
+      ok: false,
+      status: 404,
+      error: "skill_not_found",
+      message: "That skill is not available in your workspace.",
+    };
+  }
+
+  const access = await checkSkillProviderAccess(
+    db,
+    actor.id,
+    skill.mcpProviders,
+  );
+  if (
+    access.missingConnections.length > 0 ||
+    access.deniedAttestations.length > 0
+  ) {
+    const parts = [
+      access.missingConnections.length
+        ? `connect ${access.missingConnections.join(", ")}`
+        : "",
+      access.deniedAttestations.length
+        ? `approve ${access.deniedAttestations.join(", ")}`
+        : "",
+    ].filter(Boolean);
+    return {
+      ok: false,
+      status: 409,
+      error: "skill_provider_unavailable",
+      message: `This skill needs tools you haven't enabled yet — ${parts.join(" and ")}.`,
+    };
+  }
+
+  return {
+    ok: true,
+    activatedSkill: {
+      skill,
+      args: typeof request.args === "string" ? request.args.trim() : "",
+    },
+  };
+}
+
 function deriveTitle(firstMessage: string): string {
   const trimmed = firstMessage.replace(/\s+/g, " ").trim();
   if (trimmed.length <= TITLE_MAX) return trimmed;

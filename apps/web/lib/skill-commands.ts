@@ -12,6 +12,19 @@ export interface SlashSkillCandidate {
   mcpProviders: string[];
 }
 
+export interface ActivatedSlashSkill {
+  id: string;
+  slug: string;
+  name: string;
+  args: string;
+  source: "explicit";
+}
+
+export interface ParsedSlashDisplayMessage {
+  token: string;
+  body: string;
+}
+
 /** Leading tokens users naturally type that aren't part of the skill name. */
 const NOISE_TOKENS = new Set(["skills", "skill", "run", "use"]);
 
@@ -34,6 +47,31 @@ const GENERIC_INTENT_TOKENS = new Set([
 
 export function isSlashCommand(input: string): boolean {
   return input.trimStart().startsWith("/");
+}
+
+export function slashSkillToken(skill: Pick<SlashSkillCandidate, "slug">): string {
+  return `/${skill.slug}`;
+}
+
+export function buildSlashSkillDisplayMessage(
+  skill: Pick<SlashSkillCandidate, "slug">,
+  args = "",
+): string {
+  const body = args.trim();
+  return body ? `${slashSkillToken(skill)} ${body}` : slashSkillToken(skill);
+}
+
+export function parseSlashDisplayMessage(
+  input: string,
+): ParsedSlashDisplayMessage | null {
+  const match = /^\/([a-z0-9][a-z0-9-]{0,79})(?:\s+([\s\S]*))?$/i.exec(
+    input.trimStart(),
+  );
+  if (!match) return null;
+  return {
+    token: `/${match[1]}`,
+    body: (match[2] ?? "").trimStart(),
+  };
 }
 
 /** Strip the slash and noise tokens: "/skills developer briefing" → "developer briefing". */
@@ -74,4 +112,80 @@ export function filterSkillsForCommand<T extends SlashSkillCandidate>(
     .filter((entry): entry is { skill: T; score: number } => entry !== null);
 
   return scored.sort((a, b) => b.score - a.score).map((entry) => entry.skill);
+}
+
+export function resolveSlashSkillActivation<T extends SlashSkillCandidate>(
+  input: string,
+  skills: readonly T[],
+): { skill: T; args: string } | null {
+  if (!isSlashCommand(input)) return null;
+
+  const exact = resolveExactSlashSkillActivation(input, skills);
+  if (exact) return exact;
+
+  const query = slashQuery(input);
+  if (!query) return null;
+
+  const matches = filterSkillsForCommand(input, skills);
+  if (matches.length === 1) {
+    return { skill: matches[0]!, args: "" };
+  }
+  return null;
+}
+
+export function buildActivatedSlashSkill(
+  skill: Pick<SlashSkillCandidate, "id" | "slug" | "name">,
+  args = "",
+): ActivatedSlashSkill {
+  return {
+    id: skill.id,
+    slug: skill.slug,
+    name: skill.name,
+    args: args.trim(),
+    source: "explicit",
+  };
+}
+
+export function slashArgumentsForSkill<T extends SlashSkillCandidate>(
+  input: string,
+  skill: T,
+): string {
+  return resolveExactSlashSkillActivation(input, [skill])?.args ?? "";
+}
+
+function resolveExactSlashSkillActivation<T extends SlashSkillCandidate>(
+  input: string,
+  skills: readonly T[],
+): { skill: T; args: string } | null {
+  const raw = input.trimStart().replace(/^\/+/, "");
+  if (!raw.trim()) return null;
+  const lowerRaw = raw.toLowerCase();
+
+  const candidates = skills.flatMap((skill) =>
+    commandAliasesForSkill(skill).map((alias) => ({ skill, alias })),
+  );
+  candidates.sort((a, b) => b.alias.length - a.alias.length);
+
+  for (const candidate of candidates) {
+    const alias = candidate.alias.toLowerCase();
+    if (lowerRaw === alias) {
+      return { skill: candidate.skill, args: "" };
+    }
+    if (lowerRaw.startsWith(`${alias} `)) {
+      return {
+        skill: candidate.skill,
+        args: raw.slice(candidate.alias.length).trimStart(),
+      };
+    }
+  }
+  return null;
+}
+
+function commandAliasesForSkill(skill: SlashSkillCandidate): string[] {
+  const aliases = [
+    skill.slug,
+    skill.name.toLowerCase().replace(/\s+/g, "-"),
+    skill.name.toLowerCase().replace(/\s+/g, " "),
+  ];
+  return Array.from(new Set(aliases.map((alias) => alias.trim()).filter(Boolean)));
 }

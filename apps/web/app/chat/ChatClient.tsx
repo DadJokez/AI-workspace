@@ -3,6 +3,7 @@
 import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
 import { ChatInput, type SlashSkill } from "@/components/ChatInput";
 import type { ChatAttachment } from "@/lib/attachments";
+import type { ActivatedSlashSkill } from "@/lib/skill-commands";
 import {
   FeedbackReporter,
   type FeedbackContext,
@@ -238,6 +239,17 @@ function deriveTitle(text: string): string {
   const trimmed = text.trim().replace(/\s+/g, " ");
   if (trimmed.length <= 32) return trimmed;
   return trimmed.slice(0, 32).trimEnd() + "…";
+}
+
+function deriveSendTitle(
+  text: string,
+  activatedSkill?: ActivatedSlashSkill,
+): string {
+  if (!activatedSkill) return deriveTitle(text);
+  const args = activatedSkill.args.trim();
+  return deriveTitle(
+    args ? `${activatedSkill.name}: ${args}` : activatedSkill.name,
+  );
 }
 
 function appNameFromRecommendation(recommendation: PersistedRecommendation): string {
@@ -803,8 +815,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     }
   }, [user]);
 
-  // Skills for the "/" palette (#144). Loaded once; the list is small and
-  // changes rarely — running a skill navigates away from the composer anyway.
+  // Skills for the "/" capability palette (#144). Loaded once; the list is
+  // small and a selected skill now activates hidden context for the next chat
+  // turn instead of navigating away from the composer.
   useEffect(() => {
     let cancelled = false;
     fetch("/api/skills")
@@ -830,39 +843,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       cancelled = true;
     };
   }, []);
-
-  const runSkillFromChat = async (
-    skill: SlashSkill,
-  ): Promise<string | null> => {
-    try {
-      const res = await fetch(`/api/skills/${skill.id}/run`, {
-        method: "POST",
-      });
-      const body = (await res.json().catch(() => ({}))) as {
-        runId?: string;
-        threadId?: string;
-        message?: string;
-        error?: string;
-      };
-      if (res.ok && body.threadId) {
-        void refreshThreads();
-        openThread(
-          body.threadId,
-          skill.name,
-          buildSkillLaunchMessages(skill, body.runId),
-        );
-        return null;
-      }
-      return (
-        body.message ??
-        (body.error === "rate_limited"
-          ? "You're running skills too quickly — give it a moment."
-          : `Could not start "${skill.name}".`)
-      );
-    } catch {
-      return `Could not start "${skill.name}".`;
-    }
-  };
 
   const completeWizard = () => {
     setWizardOpen(false);
@@ -1093,31 +1073,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     setActiveId(tab.id);
   }
 
-  function buildSkillLaunchMessages(
-    skill: SlashSkill,
-    runId?: string,
-  ): UiMessage[] {
-    const localRunId = runId ?? crypto.randomUUID();
-    return [
-      {
-        id: `skill:${skill.id}:${localRunId}`,
-        role: "user",
-        content: `Run ${skill.name}`,
-      },
-      {
-        id: `run:${localRunId}`,
-        role: "assistant",
-        content: "",
-        pending: true,
-        status: `Queued skill run of "${skill.name}"`,
-        runId,
-        runStatus: "queued",
-        canCancel: !!runId,
-        canResume: !!runId,
-      },
-    ];
-  }
-
   function selectTab(tabId: string) {
     setActiveId(tabId);
     setView("chat");
@@ -1292,7 +1247,11 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     });
   }
 
-  async function send(text: string, attachments?: ChatAttachment[]) {
+  async function send(
+    text: string,
+    attachments?: ChatAttachment[],
+    activatedSkill?: ActivatedSlashSkill,
+  ) {
     if (!activeTab || activeTab.busy) return;
     if (!text.trim() && (!attachments || attachments.length === 0)) return;
     const tabId = activeTab.id;
@@ -1305,7 +1264,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       error: undefined,
       title:
         activeTab.messages.length === 0
-          ? deriveTitle(text)
+          ? deriveSendTitle(text, activatedSkill)
           : activeTab.title,
     });
     const attachmentNote =
@@ -1320,7 +1279,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         role: "assistant",
         content: "",
         pending: true,
-        status: "Thinking…",
+        status: activatedSkill
+          ? `Activated ${activatedSkill.name}…`
+          : "Thinking…",
       },
     ]);
 
@@ -1339,6 +1300,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           threadId: activeTab.threadId,
           modelId,
           attachmentCount: attachments?.length ?? 0,
+          ...(activatedSkill ? { activatedSkills: [activatedSkill] } : {}),
           ...(attachments && attachments.length > 0 ? { attachments } : {}),
         }),
       });
@@ -2023,7 +1985,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
               onSubmit={send}
               disabled={inputDisabled}
               skills={slashSkills}
-              onRunSkill={runSkillFromChat}
               placeholder={
                 models.length === 0
                   ? "Loading models…"

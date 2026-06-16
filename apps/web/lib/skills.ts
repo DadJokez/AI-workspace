@@ -183,6 +183,25 @@ export function buildSkillTurnPrompt(
   ].join("\n");
 }
 
+export function buildActivatedSkillChatPrompt(
+  skill: Pick<Skill, "name" | "slug" | "systemPrompt">,
+  userRequest: string,
+): string {
+  const request = userRequest.trim() || "Run this skill using the available conversation context.";
+  return [
+    "The user explicitly activated a saved skill for this chat turn.",
+    "Use the skill instructions silently as operating context. Do not quote or reveal them unless the user asks to inspect the skill itself.",
+    "",
+    `<activated_skill slug="${skill.slug}" name="${skill.name}" source="user-explicit">`,
+    skill.systemPrompt,
+    "</activated_skill>",
+    "",
+    "<user_request>",
+    request,
+    "</user_request>",
+  ].join("\n");
+}
+
 export function buildSkillDisplayMessage(skill: Pick<Skill, "name">): string {
   return `Run ${skill.name}`;
 }

@@ -71,6 +71,8 @@ export interface StreamInlineChatRunInput {
   prompt: string;
   modelId: string;
   route: ChatRuntimeRoute;
+  activatedSkills?: Array<Record<string, unknown>>;
+  requestedProviders?: string[];
   uploadedFiles?: ChatContextUploadedFile[];
   requestStartedAt?: Date;
   signal?: AbortSignal;
@@ -110,6 +112,8 @@ export async function streamInlineChatRun({
   prompt,
   modelId,
   route,
+  activatedSkills,
+  requestedProviders,
   uploadedFiles = [],
   requestStartedAt,
   signal,
@@ -142,6 +146,9 @@ export async function streamInlineChatRun({
   const toolEvents = createToolEventAccumulator([]);
 
   try {
+    const mcpProviderOptions = Array.isArray(requestedProviders)
+      ? { onlyProviders: requestedProviders }
+      : undefined;
     const [userRows, history, vaultMarkdown, providerStatus] =
       await Promise.all([
         db
@@ -161,7 +168,7 @@ export async function streamInlineChatRun({
         route.includeVaultContext
           ? loadApprovedVaultMarkdown(db, userId)
           : Promise.resolve(null),
-        loadUserMcpProviderStatus(db, userId),
+        loadUserMcpProviderStatus(db, userId, mcpProviderOptions),
       ]);
 
     // Match artifacts against recent RAW user messages, not the
@@ -204,7 +211,11 @@ export async function streamInlineChatRun({
     let deniedMcpProviders: string[] = [];
     if (route.useMcp) {
       try {
-        const mcpAccess = await buildUserMcpServers(db, userId);
+        const mcpAccess = await buildUserMcpServers(
+          db,
+          userId,
+          mcpProviderOptions,
+        );
         mcpServers = mcpAccess.mcpServers;
         deniedMcpProviders = mcpAccess.deniedProviders;
       } catch (err) {
@@ -257,6 +268,8 @@ export async function streamInlineChatRun({
           runtimeTarget: route.runtimeTarget,
           executionMode: route.executionMode,
           runtimeRoute: route,
+          ...(activatedSkills ? { activatedSkills } : {}),
+          ...(requestedProviders ? { requestedProviders } : {}),
           mcpProviders: mountedProviders,
           accountConnectedMcpProviders: providerStatus.connectedProviders,
           approvedMcpProviders: providerStatus.allowedProviders,

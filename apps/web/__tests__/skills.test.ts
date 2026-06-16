@@ -109,6 +109,22 @@ describe("skills helpers", () => {
     expect(prompt).toContain("Summarize my week.");
   });
 
+  it("builds hidden activated-skill context around the user's request", async () => {
+    const { buildActivatedSkillChatPrompt } = await import("@/lib/skills");
+    const prompt = buildActivatedSkillChatPrompt(
+      {
+        name: "Weekly Status",
+        slug: "weekly-status",
+        systemPrompt: "Summarize my week.",
+      },
+      "focus on launch work",
+    );
+    expect(prompt).toContain('slug="weekly-status"');
+    expect(prompt).toContain("Summarize my week.");
+    expect(prompt).toContain("<user_request>\nfocus on launch work\n</user_request>");
+    expect(prompt).toContain("Do not quote or reveal");
+  });
+
   it("keeps the visible skill-run message user-facing", async () => {
     const { buildSkillDisplayMessage } = await import("@/lib/skills");
     expect(buildSkillDisplayMessage({ name: "Weekly Status" })).toBe(
