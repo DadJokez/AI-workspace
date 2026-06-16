@@ -16,6 +16,7 @@ import type {
   PersistedRecommendation,
   RecommendationStatus,
 } from "@/lib/recommendations";
+import { escapeBareOrderedListMarkers } from "@/lib/chat-markdown";
 import { useEffect, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -106,7 +107,12 @@ export function MessageBubble({
       <div className="text-[11px] font-medium tracking-wide text-muted">
         {label}
       </div>
-      <div className="min-w-0 max-w-full overflow-hidden text-[14px] leading-relaxed text-ink [overflow-wrap:anywhere]">
+      <div
+        data-testid={
+          role === "assistant" ? "assistant-message-content" : undefined
+        }
+        className="min-w-0 max-w-full overflow-hidden px-px text-[14px] leading-relaxed text-ink [overflow-wrap:anywhere]"
+      >
         {showThinking ? null : role === "assistant" ? (
           <AssistantContent parts={assistantParts} />
         ) : (
@@ -292,7 +298,7 @@ function AssistantContent({ parts }: { parts: AssistantPart[] }) {
             remarkPlugins={[remarkGfm]}
             components={MARKDOWN_COMPONENTS}
           >
-            {part.content}
+            {escapeBareOrderedListMarkers(part.content)}
           </ReactMarkdown>
         ) : (
           <ArtifactCodePreview

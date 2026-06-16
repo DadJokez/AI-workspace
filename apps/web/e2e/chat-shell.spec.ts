@@ -126,6 +126,62 @@ test.describe("chat shell guardrails", () => {
     expect(chatBodies[1]?.threadId).toBe("thread-continuity");
   });
 
+  test("keeps short assistant answers from clipping on the left edge", async ({
+    page,
+  }) => {
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      onChat: async (_body, route) => {
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-short-answer",
+            modelId: "haiku-4-5",
+          },
+          { type: "text-delta", delta: "42." },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-short-answer",
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+
+    await gotoE2EChat(page);
+    const input = page.getByPlaceholder(/ask anything/i);
+    await input.fill("what is the answer to the universe?");
+    await input.press("Enter");
+
+    const answer = page
+      .getByTestId("assistant-message-content")
+      .filter({ hasText: "42." })
+      .last();
+    await expect(answer).toBeVisible();
+    await expect(answer).toContainText("42.");
+
+    const paintBounds = await answer.evaluate((node) => {
+      const style = window.getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      const messageColumn = document
+        .querySelector('[data-density="messages"]')
+        ?.getBoundingClientRect();
+      return {
+        paddingLeft: Number.parseFloat(style.paddingLeft),
+        paddingRight: Number.parseFloat(style.paddingRight),
+        left: rect.left,
+        columnLeft: messageColumn?.left ?? 0,
+      };
+    });
+
+    await expect(answer.locator("ol")).toHaveCount(0);
+    expect(paintBounds.paddingLeft).toBeGreaterThanOrEqual(1);
+    expect(paintBounds.paddingRight).toBeGreaterThanOrEqual(1);
+    expect(paintBounds.left).toBeGreaterThan(paintBounds.columnLeft);
+  });
+
   test("keeps top-bar controls, theme persistence, and tab closing behavior stable", async ({
     page,
   }, testInfo) => {
