@@ -62,3 +62,26 @@
 **Alternatives considered**:
 
 - Flip production immediately after merge. Rejected because the model-access issue already showed one provider-specific failure mode.
+
+## Decision 7: Keep deterministic tool routing for the #104 polish pass
+
+**Decision**: Keep the deterministic router for GitHub/tool escalation and add coverage for natural phrasing such as "summarize the last three PRs" and "what shipped in my repos this week". Do not add a lightweight LLM classifier in this pass.
+
+**Rationale**: The rule set is now explicit enough to explain why a turn escalated, stays out of the first-token path for ordinary chat, and has targeted false-positive/false-negative tests. A classifier would add latency and another failure mode before production route data shows it is needed.
+
+**False positives documented**:
+
+- Generic educational prompts such as "What is a pull request?" stay fast-local.
+- Generic planning language such as "Show me the issues with this plan" stays fast-local.
+- Prompts that mention recent PRs without naming GitHub still route tool-local because answering them correctly normally requires live repository data.
+
+**False negatives documented**:
+
+- Extremely vague follow-ups such as "what changed?" stay fast-local unless the thread already used tool or durable work; thread stickiness covers the common follow-up path.
+- Ambiguous work-priority prompts such as "What should I tackle first?" require an approved GitHub capability graph before routing tool-local.
+- Provider-connected-but-not-approved states stay fast-local and expose pending approval in the route receipt rather than mounting tools.
+
+**Alternatives considered**:
+
+- Add an LLM classifier for every turn. Deferred until route telemetry shows the deterministic router misses common real prompts.
+- Mount GitHub for any "issue", "review", or "work" wording. Rejected because it would slow normal writing, planning, and educational questions.

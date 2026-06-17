@@ -83,7 +83,7 @@
 
 ## Phase 3: User Story 2 - Automatic Tool Escalation (Priority: P2)
 
-**Goal**: GitHub/tool prompts automatically route to local Cursor agent with narrow MCP mounting.
+**Goal**: GitHub/tool prompts automatically route to the local Bedrock agent path with narrow MCP mounting.
 
 **Independent Test**: Ask for recent GitHub PRs and verify `tool-local`, GitHub MCP activity, persisted tool calls/results, and audit rows.
 
@@ -91,15 +91,15 @@
 
 ### Tests for User Story 2
 
-- [ ] T023 [P] [US2] Add routing tests for more natural GitHub phrasing in `apps/web/__tests__/chat-routing.test.ts`.
-- [ ] T024 [P] [US2] Add/extend tests for denied provider approval messaging where existing seams allow it.
+- [x] T023 [P] [US2] Add routing tests for more natural GitHub phrasing in `apps/web/__tests__/chat-routing.test.ts`.
+- [x] T024 [P] [US2] Add/extend tests for denied provider approval messaging where existing seams allow it.
 
 ### Implementation for User Story 2
 
-- [ ] T025 [US2] Improve router reasons in `apps/web/lib/chat-routing.ts` so admin/debug views can explain tool escalation.
-- [ ] T026 [US2] Verify tool-local inline streaming and activity replay in `apps/web/lib/chat-inline-runner.ts`.
+- [x] T025 [US2] Improve router reasons in `apps/web/lib/chat-routing.ts` so admin/debug views can explain tool escalation.
+- [x] T026 [US2] Verify tool-local inline streaming and activity replay in `apps/web/lib/chat-inline-runner.ts`.
 - [ ] T027 [US2] Smoke GitHub "last three PRs" in preview and production.
-- [ ] T028 [US2] Document any false positives/false negatives and decide whether a lightweight classifier is warranted.
+- [x] T028 [US2] Document any false positives/false negatives and decide whether a lightweight classifier is warranted.
 
 **Checkpoint**: Tool prompts feel automatic without slowing simple chat.
 

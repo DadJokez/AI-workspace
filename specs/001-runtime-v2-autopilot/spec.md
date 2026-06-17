@@ -26,7 +26,7 @@ A user sends a normal conversational prompt and sees text start streaming quickl
 
 ### User Story 2 - Automatic Tool Escalation (Priority: P2)
 
-A user asks the assistant to inspect GitHub, pull requests, issues, CI, branches, workflows, or repository state, and the assistant automatically routes to the local Cursor agent with the needed MCP provider mounted.
+A user asks the assistant to inspect GitHub, pull requests, issues, CI, branches, workflows, or repository state, and the assistant automatically routes to the local Bedrock agent path with the needed MCP provider mounted.
 
 **Why this priority**: The user should not choose a tool or agent mode. "Take a peek in my GitHub" should just work while ordinary chat stays fast.
 
@@ -34,7 +34,7 @@ A user asks the assistant to inspect GitHub, pull requests, issues, CI, branches
 
 **Acceptance Scenarios**:
 
-1. **Given** the user has GitHub connected and approved, **When** the prompt clearly asks for GitHub/PR/CI inspection, **Then** the route chooses `lane = "tool-local"` and `runtimeTarget = "cursor-agent"`.
+1. **Given** the user has GitHub connected and approved, **When** the prompt clearly asks for GitHub/PR/CI inspection, **Then** the route chooses `lane = "tool-local"` and `runtimeTarget = "bedrock-agent"`.
 2. **Given** a tool-local turn calls GitHub MCP, **When** the turn completes, **Then** tool calls/results are stored on `chat_messages`, replayable through `run_events`, and audit rows are written.
 3. **Given** the user does not have required provider approval, **When** the prompt needs that provider, **Then** the assistant gives a clear approval/access message instead of silently falling back to hallucinated content.
 

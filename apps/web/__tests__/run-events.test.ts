@@ -54,6 +54,48 @@ describe("runEventsToActivityEvents", () => {
     ]);
   });
 
+  it("replays inline tool call and result events as GitHub activity", () => {
+    const events = runEventsToActivityEvents([
+      {
+        id: "evt_call",
+        sequence: 1,
+        provider: "github",
+        toolName: "list_pull_requests",
+        eventType: "tool_call",
+        status: "pending",
+        label: "Searching GitHub...",
+        toolCallId: "tool_1",
+        input: { state: "open" },
+        error: null,
+        occurredAt: new Date("2026-05-18T12:00:01Z"),
+      },
+      {
+        id: "evt_result",
+        sequence: 2,
+        provider: "github",
+        toolName: "list_pull_requests",
+        eventType: "tool_result",
+        status: "succeeded",
+        label: "Searched GitHub",
+        toolCallId: "tool_1",
+        output: [{ number: 237, title: "Fix feedback panel" }],
+        error: null,
+        occurredAt: new Date("2026-05-18T12:00:02Z"),
+      },
+    ]);
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        id: "tool_1",
+        state: "succeeded",
+        label: "Searched GitHub",
+        at: "2026-05-18T12:00:02.000Z",
+        category: "github",
+        detail: expect.stringContaining("Fix feedback panel"),
+      }),
+    ]);
+  });
+
   it("maps failed events to user-facing failed activity", () => {
     const events = runEventsToActivityEvents([
       {
