@@ -495,9 +495,15 @@ function hasRecentGithubWorkLookup(value: string): boolean {
 
 function hasPersonalContextIntent(value: string): string | null {
   if (
-    /\b(remember|memory|vault|personal context|based on what you know|based on my context|my preferences|my style|my priorities)\b/.test(
+    /\b(remember|memory|vault|personal context|based on what you know|based on my context|my preferences|my style|my priorities|what do you remember about me|tell me about myself)\b/.test(
       value,
     )
+  ) {
+    return "personal_context_intent";
+  }
+  if (
+    /\bwhat (context|memory|memories) do you have\b/.test(value) ||
+    /\bwhat do you remember\b/.test(value)
   ) {
     return "personal_context_intent";
   }

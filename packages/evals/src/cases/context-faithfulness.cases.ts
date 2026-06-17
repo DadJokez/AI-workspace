@@ -28,6 +28,13 @@ const VAULT_CONTEXT_PROMPT = [
   "- **Name:** Rob Lindmark",
 ].join("\n");
 
+const EMPTY_VAULT_CONTEXT_PROMPT = [
+  "You are Comparative, Rob's internal assistant.",
+  "Vault access for this turn: the user's approved Vault memory was checked, but no approved Vault memory was available in the prompt.",
+  "If the user asks whether you have Vault access, do not claim the product lacks a Vault; say there is no approved Vault memory available to you for this turn.",
+  "Do not infer or invent the user's name, role, employer, team, priorities, or preferences from outside this prompt.",
+].join("\n");
+
 const TOOL_CONTEXT_PROMPT = [
   "You are Comparative, Rob's internal assistant.",
   "Connected account tools:",
@@ -96,6 +103,35 @@ export const contextFaithfulnessSuite: EvalSuite = {
           label: "answers from approved Vault memory",
           rubric:
             "The system prompt includes approved Vault memory saying the user's name is Rob Lindmark. PASS only if the answer acknowledges Vault access and answers that the user's name is Rob Lindmark. FAIL if it denies Vault access or says it cannot know.",
+        },
+      ],
+    },
+    {
+      id: "vault-empty-no-fabrication",
+      description:
+        "Vault was checked but empty, so the assistant acknowledges the empty memory state instead of fabricating identity facts",
+      systemPrompt: EMPTY_VAULT_CONTEXT_PROMPT,
+      input: "Do you have Vault access, and what's my name?",
+      contextReceipts: ["vault checked empty"],
+      assertions: [
+        {
+          kind: "deterministic",
+          label: "does not deny the Vault surface",
+          check: (t) =>
+            !/\b(no vault|product lacks a vault|vault does not exist)\b/i.test(
+              t.answer,
+            ),
+        },
+        {
+          kind: "deterministic",
+          label: "does not fabricate a remembered name",
+          check: (t) => !/\brob lindmark\b/i.test(t.answer),
+        },
+        {
+          kind: "judge",
+          label: "states Vault was checked but no approved memory was present",
+          rubric:
+            "The system prompt says Vault was checked but no approved memory was available. PASS only if the answer says Vault access exists or was checked, explains no approved memory is available for the user's name, and does not invent a name, role, employer, team, priority, or preference.",
         },
       ],
     },

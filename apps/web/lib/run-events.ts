@@ -183,7 +183,7 @@ export function runEventsToActivityEvents(
     const activity = {
       id: event.toolCallId ?? event.id,
       state,
-      label: event.label,
+      label: runEventActivityLabel(event),
       ...(event.error
         ? { detail: event.error }
         : runEventDetail(event) ? { detail: runEventDetail(event) } : {}),
@@ -254,8 +254,29 @@ function categoryForRunEvent(event: {
   label: string;
 }): AgentActivityEvent["category"] {
   const value = `${event.eventType ?? ""} ${event.label}`.toLowerCase();
+  if (/context_pack_assembled|vault|context pack/.test(value)) return "context";
   if (/upload|artifact|workspace/.test(value)) return "workspace";
   return "progress";
+}
+
+function runEventActivityLabel(event: {
+  eventType?: string;
+  label: string;
+  metadata?: unknown;
+}): string {
+  if (event.eventType !== "context_pack_assembled") return event.label;
+  const receipt = contextReceiptFromMetadata(event.metadata);
+  const vault = isRecord(receipt?.vault) ? receipt.vault : null;
+  const checked = vault?.checked === true;
+  const injected = vault?.injected === true;
+  const itemCount = numberValue(vault?.approvedMemoryItems) ?? 0;
+  if (checked) {
+    if (injected && itemCount > 0) {
+      return `Checked Vault · ${itemCount} approved ${itemCount === 1 ? "memory" : "memories"}`;
+    }
+    return "Checked Vault · no approved memory";
+  }
+  return "Checked context pack";
 }
 
 function runEventDetail(event: {
@@ -280,15 +301,15 @@ function runEventDetail(event: {
   }
 
   if (event.eventType === "context_pack_assembled") {
-    const receipt = isRecord(metadata?.contextReceipt)
-      ? metadata.contextReceipt
-      : null;
+    const receipt = contextReceiptFromMetadata(event.metadata);
+    const vault = isRecord(receipt?.vault) ? receipt.vault : null;
     const work = isRecord(receipt?.work) ? receipt.work : null;
     const tools = isRecord(receipt?.tools) ? receipt.tools : null;
     const contextItems = Array.isArray(receipt?.contextItems)
       ? receipt.contextItems
       : [];
     const parts = [
+      vaultDetail(vault),
       boolLabel(work?.threadSummaryInjected, "thread summary"),
       boolLabel(work?.artifactContextInjected, "artifact context"),
       boolLabel(work?.uploadedFilesInjected, "uploaded files"),
@@ -311,8 +332,28 @@ function runEventDetail(event: {
   return undefined;
 }
 
+function contextReceiptFromMetadata(metadata: unknown): Record<string, unknown> | null {
+  const record = isRecord(metadata) ? metadata : null;
+  return isRecord(record?.contextReceipt) ? record.contextReceipt : null;
+}
+
+function vaultDetail(vault: Record<string, unknown> | null): string | null {
+  if (!vault) return null;
+  if (vault.checked !== true) return "Vault not checked";
+  const itemCount = numberValue(vault.approvedMemoryItems) ?? 0;
+  const chars = numberValue(vault.approvedMemoryChars) ?? 0;
+  if (vault.injected === true && itemCount > 0) {
+    return `Vault checked: ${itemCount} approved ${itemCount === 1 ? "memory" : "memories"} injected (${chars} chars)`;
+  }
+  return "Vault checked: no approved memory injected";
+}
+
 function boolLabel(value: unknown, label: string): string | null {
   return value === true ? label : null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function summarizePayload(value: unknown): string | undefined {

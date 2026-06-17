@@ -62,6 +62,7 @@ describe("groupActivityEvents", () => {
 
   it("infers categories for events persisted before categories existed", () => {
     expect(inferCategory("Searched GitHub")).toBe("github");
+    expect(inferCategory("Checked Vault context")).toBe("context");
     expect(inferCategory("Background worker claimed the run")).toBe("progress");
     expect(inferCategory("checked local notes")).toBe("workspace");
     expect(inferCategory("Finished a step")).toBe("tools");

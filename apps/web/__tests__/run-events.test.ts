@@ -120,4 +120,57 @@ describe("runEventsToActivityEvents", () => {
       ["succeeded", "Stored assistant answer"],
     ]);
   });
+
+  it("turns context-pack events into a visible Vault receipt", () => {
+    const events = runEventsToActivityEvents([
+      {
+        id: "evt_context",
+        sequence: 1,
+        eventType: "context_pack_assembled",
+        status: "succeeded",
+        label: "Assembled context pack",
+        toolCallId: null,
+        error: null,
+        metadata: {
+          contextReceipt: {
+            vault: {
+              checked: true,
+              injected: true,
+              approvedMemoryItems: 2,
+              approvedMemoryChars: 128,
+            },
+            work: {
+              threadSummaryInjected: false,
+              artifactContextInjected: true,
+              uploadedFilesInjected: false,
+            },
+            tools: { mounted: ["github"] },
+            contextItems: [
+              {
+                source: "user_memory_items.approved",
+                injected: true,
+              },
+              {
+                source: "workspace_artifacts",
+                injected: true,
+              },
+            ],
+          },
+        },
+        occurredAt: new Date("2026-05-18T12:00:00Z"),
+      },
+    ]);
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        id: "evt_context",
+        state: "succeeded",
+        label: "Checked Vault · 2 approved memories",
+        category: "context",
+        detail: expect.stringContaining("Vault checked: 2 approved memories"),
+      }),
+    ]);
+    expect(events[0]?.detail).toContain("mounted tools: github");
+    expect(events[0]?.detail).toContain("workspace_artifacts 1/1");
+  });
 });
