@@ -1194,7 +1194,11 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         void refreshThreads();
         openThread(runBody.threadId, recommendation.title);
       } else if (recommendation.action.kind === "open_app") {
-        window.location.assign(`/apps/manage/${recommendation.action.appId}`);
+        window.location.assign(
+          recommendation.action.slug
+            ? `/apps/${encodeURIComponent(recommendation.action.slug)}`
+            : `/apps/manage/${recommendation.action.appId}`,
+        );
       } else if (recommendation.action.kind === "deploy_app") {
         const name = appNameFromRecommendation(recommendation);
         const appRes = await fetch("/api/apps", {

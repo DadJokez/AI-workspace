@@ -197,7 +197,11 @@ export function buildRecommendationCandidates({
   }
 
   const appArtifact = artifacts.find(isReusableAppArtifact);
-  if (!matchingApp && appArtifact && hasReusableArtifactIntent(normalized)) {
+  if (
+    appArtifact &&
+    hasReusableArtifactIntent(normalized) &&
+    (!matchingApp || !appMatchesArtifact(matchingApp, appArtifact))
+  ) {
     candidates.push({
       id: `deploy-app:${appArtifact.id}`,
       type: "deploy_artifact_as_app",
@@ -344,6 +348,19 @@ function isReusableAppArtifact(artifact: RecommendationArtifact): boolean {
     filename.endsWith(".html") ||
     filename.endsWith(".htm")
   );
+}
+
+function appMatchesArtifact(
+  app: RecommendationApp,
+  artifact: RecommendationArtifact,
+): boolean {
+  if (normalize(app.name) === normalize(artifact.title)) return true;
+  const appTokens = new Set(significantTokens(`${app.name} ${app.slug ?? ""}`));
+  const artifactTokens = significantTokens(
+    `${artifact.title} ${artifact.filename}`,
+  );
+  const overlap = artifactTokens.filter((token) => appTokens.has(token));
+  return overlap.length >= 2;
 }
 
 function cadenceFromMessage(normalized: string): string | null {

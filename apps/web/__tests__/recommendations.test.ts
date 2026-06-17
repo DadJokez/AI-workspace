@@ -124,6 +124,36 @@ describe("recommendation candidates", () => {
     );
   });
 
+  it("still suggests deploying a new artifact when an unrelated app matches the prompt", () => {
+    const candidates = buildRecommendationCandidates({
+      currentMessage: "Reuse this sales forecast artifact as an app",
+      apps: [
+        {
+          id: "app-1",
+          name: "Sales Dashboard",
+          slug: "sales-dashboard",
+          runnableNow: true,
+        },
+      ],
+      artifacts: [
+        {
+          id: "artifact-1",
+          title: "Sales Forecast",
+          filename: "sales-forecast.html",
+          kind: "html",
+          mimeType: "text/html",
+        },
+      ],
+    });
+
+    expect(candidates).toContainEqual(
+      expect.objectContaining({
+        type: "deploy_artifact_as_app",
+        action: { kind: "deploy_app", artifactId: "artifact-1" },
+      }),
+    );
+  });
+
   it("suggests scheduling a recurring workflow but keeps approval required", () => {
     const candidates = buildRecommendationCandidates({
       currentMessage: "Every Friday morning, send the team the weekly status update.",
