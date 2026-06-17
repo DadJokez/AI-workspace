@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { SessionUser } from "@ai-workspace/auth";
 import {
   appEditSessions,
@@ -41,6 +42,9 @@ export const RESERVED_APP_SLUGS = new Set(["manage", "new", "api"]);
 
 const NAME_MAX = 120;
 const DESCRIPTION_MAX = 2_000;
+const MAX_INJECTED_APP_CONTENT_CHARS = 60_000;
+const APP_CONTENT_MARKER_RE =
+  /<<<(?:END-)?APP-CONTENT-DATA(?:\s+[^>\n]+)?>>>/g;
 
 export interface AppInput {
   name: string;
@@ -234,6 +238,39 @@ export function isCompleteHtmlArtifact(
   return content.includes("<html") && content.includes("</html>");
 }
 
+export function formatAppContentPromptBlock(
+  rawContent: string,
+  nonce: string = randomUUID(),
+): string[] {
+  const begin = `<<<APP-CONTENT-DATA ${nonce}>>>`;
+  const end = `<<<END-APP-CONTENT-DATA ${nonce}>>>`;
+  let content = rawContent;
+  if (content.length > MAX_INJECTED_APP_CONTENT_CHARS) {
+    content = content.slice(0, MAX_INJECTED_APP_CONTENT_CHARS);
+    if (/[\uD800-\uDBFF]$/.test(content)) content = content.slice(0, -1);
+    content += "\n<!-- app content truncated for length; ask to continue if needed -->";
+  }
+  content = content.replace(APP_CONTENT_MARKER_RE, "");
+  return [begin, content, end];
+}
+
+export function canListAppVersionForActor(
+  version: Pick<AppVersion, "status" | "createdByUserId">,
+  {
+    actorRole,
+    visibleToUserId,
+  }: { actorRole: AppActorRole; visibleToUserId?: string },
+): boolean {
+  if (actorRole === "owner" || actorRole === "admin") return true;
+  if (actorRole === "editor") {
+    return (
+      version.status !== "draft" ||
+      (!!visibleToUserId && version.createdByUserId === visibleToUserId)
+    );
+  }
+  return version.status !== "draft";
+}
+
 /**
  * Deployable version candidates for an app: the owner's HTML artifacts from
  * the thread the app was built in, newest first.
@@ -328,9 +365,12 @@ export async function listAppVersions(
           .limit(Math.max(1, Math.min(100, limit)))
       : [];
 
-  const merged = [...editorDraftRows, ...rows].sort(
-    (a, b) => b.version.versionNumber - a.version.versionNumber,
-  );
+  const merged = [...editorDraftRows, ...rows]
+    .filter(({ version }) =>
+      canListAppVersionForActor(version, { actorRole, visibleToUserId }),
+    )
+    .sort((a, b) => b.version.versionNumber - a.version.versionNumber)
+    .slice(0, Math.max(1, Math.min(100, limit)));
 
   return merged.map(({ version, artifact, creatorName, creatorEmail, liveVersionId }) => ({
     id: version.id,
@@ -365,15 +405,17 @@ export async function getLiveAppVersion(
     if (rows[0]) return rows[0];
   }
   if (!app.liveArtifactId) return null;
-  return createAppVersionForArtifact({
-    db,
-    app,
-    artifactId: app.liveArtifactId,
-    createdByUserId: app.ownerUserId,
-    status: "deployed",
-    summary: "Initial app version backfilled from live artifact.",
-    deployedAt: new Date(),
-  });
+  const fallbackRows = await db
+    .select()
+    .from(appVersions)
+    .where(
+      and(
+        eq(appVersions.appId, app.id),
+        eq(appVersions.artifactId, app.liveArtifactId),
+      ),
+    )
+    .limit(1);
+  return fallbackRows[0] ?? null;
 }
 
 export async function createAppVersionForArtifact({
@@ -657,9 +699,7 @@ export async function buildAppEditContext({
   lines.push(
     "To edit this app, return one complete self-contained HTML document in a fenced code block using the same logical filename unless the user asks for a rename. Do not send partial snippets. Comparative will save the result as a draft app version; the live URL will not change until the owner deploys it.",
   );
-  lines.push("<<<APP-CONTENT-DATA>>>");
-  lines.push(artifact.content);
-  lines.push("<<<END-APP-CONTENT-DATA>>>");
+  lines.push(...formatAppContentPromptBlock(artifact.content));
   return lines.join("\n");
 }
 

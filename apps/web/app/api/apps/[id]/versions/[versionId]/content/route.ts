@@ -3,7 +3,6 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import {
-  canAppRoleDeploy,
   canAppRoleEdit,
   loadAppVersion,
   resolveAppActorRole,
@@ -47,8 +46,7 @@ export async function GET(
   if (
     actorRole === "editor" &&
     version.status === "draft" &&
-    version.createdByUserId !== sessionUser.id &&
-    !canAppRoleDeploy(actorRole)
+    version.createdByUserId !== sessionUser.id
   ) {
     return new NextResponse("Not found", { status: 404 });
   }

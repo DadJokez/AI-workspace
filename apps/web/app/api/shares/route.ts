@@ -11,9 +11,9 @@ import {
 export const dynamic = "force-dynamic";
 
 /**
- * Share a skill or an app with a named workspace user by email. Only the
- * subject's owner can share it (FR-010). A share grants visibility +
- * run/open + clone — never edit, never the owner's credentials.
+ * Share a skill or an app with a named workspace user by email. Owners can
+ * share their subjects; admins can also grant app access from the app console.
+ * A share grants visibility + run/open + clone — never the owner's credentials.
  */
 export async function POST(req: Request) {
   const sessionUser = await getSessionUser();
@@ -53,11 +53,17 @@ export async function POST(req: Request) {
       { status: 404 },
     );
   }
-  if (subject.ownerUserId !== sessionUser.id) {
+  const canCreateShare =
+    subject.ownerUserId === sessionUser.id ||
+    (subjectType === "app" && sessionUser.role === "admin");
+  if (!canCreateShare) {
     return NextResponse.json(
       {
-        error: "not_owner",
-        message: `Only the ${subjectType}'s owner can share it.`,
+        error: "not_allowed",
+        message:
+          subjectType === "app"
+            ? "Only the app's owner or an admin can share it."
+            : "Only the skill's owner can share it.",
       },
       { status: 403 },
     );

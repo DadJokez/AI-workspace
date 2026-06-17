@@ -131,6 +131,15 @@ export async function POST(
       error: "Deploy blocked by secret scan.",
       metadata: { appVersionId: version.id, artifactId: artifact.id, findings: secretFindings },
     });
+    return NextResponse.json(
+      {
+        error: "deploy_blocked_secret_scan",
+        message: `Deploy blocked: the document appears to contain ${secretFindings.join(
+          " and ",
+        )}.`,
+      },
+      { status: 422 },
+    );
   }
 
   try {
