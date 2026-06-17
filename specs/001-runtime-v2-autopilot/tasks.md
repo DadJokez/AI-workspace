@@ -73,7 +73,7 @@
 ### Implementation for User Story 1
 
 - [ ] T019 [US1] Validate preview fast-local route through `specs/001-runtime-v2-autopilot/checklists/rollout.md`.
-- [ ] T020 [US1] Compare Runtime V2 fast-local first-token latency against old Cursor-agent fast chat using `/admin/runs`.
+- [ ] T020 [US1] Compare Runtime V2 fast-local first-token latency against old queued-agent fast chat using `/admin/runs`.
 - [ ] T021 [US1] Enable Runtime V2 on production web only after preview smoke passes.
 - [ ] T022 [US1] Record production smoke evidence in the GitHub issue.
 
@@ -83,7 +83,7 @@
 
 ## Phase 3: User Story 2 - Automatic Tool Escalation (Priority: P2)
 
-**Goal**: GitHub/tool prompts automatically route to local Cursor agent with narrow MCP mounting.
+**Goal**: GitHub/tool prompts automatically route to the local Bedrock agent path with narrow MCP mounting.
 
 **Independent Test**: Ask for recent GitHub PRs and verify `tool-local`, GitHub MCP activity, persisted tool calls/results, and audit rows.
 
@@ -91,15 +91,15 @@
 
 ### Tests for User Story 2
 
-- [ ] T023 [P] [US2] Add routing tests for more natural GitHub phrasing in `apps/web/__tests__/chat-routing.test.ts`.
-- [ ] T024 [P] [US2] Add/extend tests for denied provider approval messaging where existing seams allow it.
+- [x] T023 [P] [US2] Add routing tests for more natural GitHub phrasing in `apps/web/__tests__/chat-routing.test.ts`.
+- [x] T024 [P] [US2] Add/extend tests for denied provider approval messaging where existing seams allow it.
 
 ### Implementation for User Story 2
 
-- [ ] T025 [US2] Improve router reasons in `apps/web/lib/chat-routing.ts` so admin/debug views can explain tool escalation.
-- [ ] T026 [US2] Verify tool-local inline streaming and activity replay in `apps/web/lib/chat-inline-runner.ts`.
+- [x] T025 [US2] Improve router reasons in `apps/web/lib/chat-routing.ts` so admin/debug views can explain tool escalation.
+- [x] T026 [US2] Verify tool-local inline streaming and activity replay in `apps/web/lib/chat-inline-runner.ts`.
 - [ ] T027 [US2] Smoke GitHub "last three PRs" in preview and production.
-- [ ] T028 [US2] Document any false positives/false negatives and decide whether a lightweight classifier is warranted.
+- [x] T028 [US2] Document any false positives/false negatives and decide whether a lightweight classifier is warranted.
 
 **Checkpoint**: Tool prompts feel automatic without slowing simple chat.
 
@@ -128,26 +128,26 @@
 
 ---
 
-## Phase 5: User Story 4 - Explicit Cloud Escape Hatch (Priority: P4)
+## Phase 5: User Story 4 - Legacy Cloud Mode Remains Disabled (Priority: P4)
 
-**Goal**: Cursor Cloud remains explicit, one-shot, and recoverable.
+**Goal**: Legacy cloud execution requests normalize to local until a future approved cloud design is reintroduced.
 
-**Independent Test**: Toggle Cloud for one send and verify `cursor-cloud`; send again and verify local default.
+**Independent Test**: Send legacy `executionMode = "cloud"` and verify the route stores/runs `local`.
 
 **GitHub Issue**: [#103](https://github.com/DadJokez/AI-workspace/issues/103)
 
 ### Tests for User Story 4
 
-- [ ] T034 [P] [US4] Extend `apps/web/__tests__/chat-execution-mode.test.ts` for one-shot cloud reset behavior where testable.
-- [ ] T035 [P] [US4] Extend retry/resume tests to assert cloud mode is preserved for cloud runs.
+- [x] T034 [P] [US4] Extend `apps/web/__tests__/chat-execution-mode.test.ts` for legacy cloud normalization behavior.
+- [ ] T035 [P] [US4] Extend retry/resume tests to assert legacy cloud mode is normalized on replay where relevant.
 
 ### Implementation for User Story 4
 
-- [ ] T036 [US4] Smoke explicit Cloud in preview and production.
-- [ ] T037 [US4] Verify cloud cancellation still calls Cursor Cloud when provider run metadata exists.
-- [ ] T038 [US4] Make the Cloud control visually secondary to avoid implying it is the default mode.
+- [ ] T036 [US4] Smoke legacy cloud execution-mode normalization in preview and production.
+- [ ] T037 [US4] Verify historical cloud provider metadata still renders in admin diagnostics.
+- [ ] T038 [US4] Remove or keep hidden any Cloud control so users cannot accidentally select it.
 
-**Checkpoint**: Cloud is available but never accidental.
+**Checkpoint**: Cloud is not available by accident, and legacy requests do not leave local execution.
 
 ---
 
@@ -207,7 +207,7 @@
 - **US1 Fast Ordinary Chat**: No dependency beyond baseline and preview health.
 - **US2 Automatic Tool Escalation**: Depends on existing GitHub OAuth/MCP and attestation gates.
 - **US3 Durable Work Escalation**: Depends on existing chat-worker service and `recipe_runs` leases.
-- **US4 Explicit Cloud Escape Hatch**: Depends on Cursor Cloud secrets/provider metadata.
+- **US4 Legacy Cloud Mode Remains Disabled**: Depends on historical reporting semantics, not active Cursor Cloud execution.
 - **US5 Safe Model Fallback**: Depends on direct runtime model mapping and observed provider access behavior.
 
 ### Parallel Opportunities
@@ -230,13 +230,13 @@
 
 1. Fast-local production default.
 2. Tool-local router polish.
-3. Durable/cloud smoke and preservation checks.
+3. Durable smoke and legacy cloud-normalization checks.
 4. Model fallback.
 5. Metrics and shared-rate-limit hardening.
 
 ## Notes
 
 - Do not add a user-facing "agent mode" toggle.
-- Do not default to Cursor Cloud for normal chat.
+- Do not reintroduce Cursor Cloud for normal chat.
 - Do not mount every connected MCP provider on every turn.
 - Treat model access errors as product failures, not user mistakes.

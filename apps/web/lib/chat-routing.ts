@@ -546,6 +546,19 @@ export function explainChatRuntimeRoute(route: ChatRuntimeRoute): string {
     return "Queued durable local work because this request needs resilient, longer-running execution.";
   }
   if (route.lane === "tool-local") {
+    if (route.reasons.some((reason) => reason.startsWith("github_"))) {
+      return "Mounted local tools because this request asks for live GitHub, PR, issue, CI, or repository data.";
+    }
+    if (
+      route.reasons.some((reason) =>
+        reason.startsWith("capability_graph_github"),
+      )
+    ) {
+      return "Mounted local tools because connected GitHub capabilities match this work request.";
+    }
+    if (route.reasons.includes("activated_skill_requires_tools")) {
+      return "Mounted local tools because the activated skill requires a connected provider.";
+    }
     return "Mounted local tools because this request needs live connected-system data or follows a tool-backed thread.";
   }
   if (route.includeVaultContext) {

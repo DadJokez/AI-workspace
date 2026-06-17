@@ -4,13 +4,13 @@
 **Working Branch**: `codex/spec-kit-runtime-v2`
 **Created**: 2026-05-29
 **Status**: Ready for issue tracking
-**Input**: User description: "Default to the simplest fast local chat path, automatically use tools or durable/cloud execution only when the ask requires it, and measure first-token latency."
+**Input**: User description: "Default to the simplest fast local chat path, automatically use tools or durable execution only when the ask requires it, and measure first-token latency."
 
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Fast Ordinary Chat (Priority: P1)
 
-A user sends a normal conversational prompt and sees text start streaming quickly without waiting for a queued worker or a fresh Cursor agent.
+A user sends a normal conversational prompt and sees text start streaming quickly without waiting for a queued worker or a fresh tool agent.
 
 **Why this priority**: This is the daily feel of the product. If simple chat feels slow, the rest of the agent platform feels broken even when it is technically capable.
 
@@ -26,7 +26,7 @@ A user sends a normal conversational prompt and sees text start streaming quickl
 
 ### User Story 2 - Automatic Tool Escalation (Priority: P2)
 
-A user asks the assistant to inspect GitHub, pull requests, issues, CI, branches, workflows, or repository state, and the assistant automatically routes to the local Cursor agent with the needed MCP provider mounted.
+A user asks the assistant to inspect GitHub, pull requests, issues, CI, branches, workflows, or repository state, and the assistant automatically routes to the local Bedrock agent path with the needed MCP provider mounted.
 
 **Why this priority**: The user should not choose a tool or agent mode. "Take a peek in my GitHub" should just work while ordinary chat stays fast.
 
@@ -34,7 +34,7 @@ A user asks the assistant to inspect GitHub, pull requests, issues, CI, branches
 
 **Acceptance Scenarios**:
 
-1. **Given** the user has GitHub connected and approved, **When** the prompt clearly asks for GitHub/PR/CI inspection, **Then** the route chooses `lane = "tool-local"` and `runtimeTarget = "cursor-agent"`.
+1. **Given** the user has GitHub connected and approved, **When** the prompt clearly asks for GitHub/PR/CI inspection, **Then** the route chooses `lane = "tool-local"` and `runtimeTarget = "bedrock-agent"`.
 2. **Given** a tool-local turn calls GitHub MCP, **When** the turn completes, **Then** tool calls/results are stored on `chat_messages`, replayable through `run_events`, and audit rows are written.
 3. **Given** the user does not have required provider approval, **When** the prompt needs that provider, **Then** the assistant gives a clear approval/access message instead of silently falling back to hallucinated content.
 
@@ -56,19 +56,19 @@ A user asks the assistant to implement, test, deploy, refactor, migrate, or perf
 
 ---
 
-### User Story 4 - Explicit Cloud Escape Hatch (Priority: P4)
+### User Story 4 - Legacy Cloud Mode Remains Disabled (Priority: P4)
 
-A user intentionally runs the next message in Cursor Cloud, but cloud execution is never the default for ordinary chat.
+A legacy client or stored request may still send `executionMode = "cloud"`, but current Runtime V2 should normalize it to local execution until a new approved cloud escape hatch is introduced.
 
-**Why this priority**: Cloud remains useful for explicit long-running or provider-managed execution, but accidental cloud-by-default was a root cause of slow simple chats.
+**Why this priority**: Accidental cloud-by-default was a root cause of slow simple chats. The product should keep local execution as the only current chat path unless a future cloud design is explicitly reintroduced.
 
-**Independent Test**: Toggle the one-shot Cloud control and send a prompt. The run should use `cursor-cloud`, then the UI should reset back to local for the next send.
+**Independent Test**: Send a request with legacy `executionMode = "cloud"`. The server should store and run the turn as `executionMode = "local"`.
 
 **Acceptance Scenarios**:
 
-1. **Given** the one-shot Cloud control is off, **When** a user sends ordinary chat, **Then** the run uses local execution.
-2. **Given** the one-shot Cloud control is on, **When** the user sends the next prompt, **Then** the run stores `executionMode = "cloud"` and uses the durable Cursor Cloud path.
-3. **Given** a cloud run is retried or resumed, **When** the worker restarts it, **Then** it keeps `executionMode = "cloud"` rather than silently changing to local.
+1. **Given** no execution mode is supplied, **When** a user sends ordinary chat, **Then** the run uses local execution.
+2. **Given** a legacy client sends `executionMode = "cloud"`, **When** `/api/chat` routes the turn, **Then** the run stores `executionMode = "local"`.
+3. **Given** an older historical run reports `cursor-cloud`, **When** admin views render it, **Then** reporting can still display the historical lane without making it a current router option.
 
 ---
 
@@ -82,14 +82,14 @@ A user should not hit an opaque model-access error when the selected/default mod
 
 **Acceptance Scenarios**:
 
-1. **Given** direct chat uses Bedrock, **When** the user-selected Cursor-facing model is not available in Bedrock, **Then** the direct runtime maps to an allowed direct model by policy.
+1. **Given** direct chat uses Bedrock, **When** the user-selected product model is not available in Bedrock, **Then** the direct runtime maps to an allowed direct model by policy.
 2. **Given** Bedrock returns a model access denial, **When** the turn fails, **Then** the user sees a clear message and the run records provider/model/error metadata for admin diagnosis.
 
 ### Edge Cases
 
-- Runtime V2 disabled: simple chat should fall back to the current Cursor agent path without changing user-visible API shape.
+- Runtime V2 disabled: simple chat should fall back to the current configured runtime path without changing user-visible API shape.
 - GitHub-looking prompt from a user without GitHub OAuth tokens: route may classify as tool-local, but provider mount must remain gated by connection and attestation state.
-- Ambiguous prompt such as "review this": conservative routing should avoid cloud and prefer local unless code/repo/tool signals are present.
+- Ambiguous prompt such as "review this": conservative routing should prefer fast local unless code/repo/tool signals are present.
 - The direct runtime returns text but final persistence fails: the run must record enough failure state for admin diagnosis without duplicating assistant messages on retry.
 - A prompt asks for personal context or Vault memory: route remains fast-local, but approved memory can be injected without mounting external MCP tools.
 - A provider access error occurs mid-stream: the response and run events should distinguish model/provider denial from generic infrastructure failure.
@@ -99,15 +99,15 @@ A user should not hit an opaque model-access error when the selected/default mod
 ### Functional Requirements
 
 - **FR-001**: System MUST default ordinary chat requests to local execution.
-- **FR-002**: System MUST choose `fast-local`, `tool-local`, `durable-local`, or `cursor-cloud` per turn without requiring the user to pick a product mode.
+- **FR-002**: System MUST choose `fast-local`, `tool-local`, or `durable-local` per turn without requiring the user to pick a product mode.
 - **FR-003**: System MUST route simple Runtime V2 chat through `direct-chat` when `RUNTIME_V2_ENABLED=1`.
-- **FR-004**: System MUST keep tool, durable, and explicit cloud turns on the Cursor agent runtime.
+- **FR-004**: System MUST keep tool turns on the local Bedrock agent path and durable turns on the AgentCore worker path.
 - **FR-005**: System MUST mount MCP providers only when the selected route and provider gates require them.
 - **FR-006**: System MUST persist route, target, execution mode, and model choices in `recipe_runs.inputs` and/or `recipe_runs.outputs`.
 - **FR-007**: System MUST record timing marks for request accepted, runner/provider start, first token, and completion.
 - **FR-008**: System MUST expose first-token and total-duration metrics in admin run views.
-- **FR-009**: System MUST preserve retry/resume/cancel behavior for durable and cloud runs.
-- **FR-010**: System MUST keep explicit Cursor Cloud as a one-shot control that resets to local after send.
+- **FR-009**: System MUST preserve retry/resume/cancel behavior for durable runs.
+- **FR-010**: System MUST normalize legacy cloud execution requests to local unless a future approved cloud design is reintroduced.
 - **FR-011**: System MUST provide a deterministic initial router before adding a model-based classifier.
 - **FR-012**: System MUST avoid selecting denied direct-runtime models when an allowed configured fallback exists.
 - **FR-013**: System MUST create focused GitHub issues for remaining rollout and hardening work, linked back to this Spec Kit packet.
@@ -117,7 +117,7 @@ A user should not hit an opaque model-access error when the selected/default mod
 - **Runtime Route**: Per-turn decision containing lane, runtime target, execution mode, worker usage, and reason.
 - **Recipe Run**: Existing durable ledger row for chat, workflow, scheduled, and future recipe execution.
 - **Run Metrics**: Timing object persisted in run outputs for accepted/start/first-token/completed timestamps and elapsed milliseconds.
-- **Provider Run Metadata**: Cursor provider identifiers and execution mode stored for cloud/local recovery and diagnostics.
+- **Provider Run Metadata**: Provider identifiers and execution mode stored for recovery and diagnostics.
 - **Model Mapping Policy**: Runtime-specific mapping from product model ids to provider model ids, including direct-runtime fallback behavior.
 
 ## Success Criteria *(mandatory)*
@@ -126,15 +126,15 @@ A user should not hit an opaque model-access error when the selected/default mod
 
 - **SC-001**: A simple chat request with Runtime V2 enabled stores `lane = "fast-local"` and `runtimeTarget = "direct-chat"`.
 - **SC-002**: At least 95 percent of fast-local successful runs have `requestToFirstTokenMs` populated.
-- **SC-003**: GitHub-looking prompts route to `tool-local` and do not use `cursor-cloud` unless the user explicitly requested cloud.
+- **SC-003**: GitHub-looking prompts route to `tool-local` and do not use durable work unless the request requires it.
 - **SC-004**: Durable-looking prompts create queued worker runs while simple prompts do not.
-- **SC-005**: The admin run list/detail pages show enough timing data to compare Runtime V1 Cursor-agent fast chat, Runtime V2 direct chat, and Runtime V2 tool-local chat.
-- **SC-006**: Production rollout has a documented smoke result for simple chat, GitHub/tool chat, durable worker chat, explicit cloud chat, and model-access fallback.
+- **SC-005**: The admin run list/detail pages show enough timing data to compare Runtime V1 queued-agent fast chat, Runtime V2 direct chat, and Runtime V2 tool-local chat.
+- **SC-006**: Production rollout has a documented smoke result for simple chat, GitHub/tool chat, durable worker chat, legacy cloud-normalization, and model-access fallback.
 
 ## Assumptions
 
 - The direct fast-local runtime starts with Bedrock because that path already exists behind the `AgentRuntime` seam.
-- Cursor remains the agent runtime for MCP/tool work, durable local work, and explicit Cursor Cloud.
+- Runtime V2 currently uses Bedrock for direct/tool-local work and AgentCore for durable worker execution.
 - The preview stack at `https://runtime-v2.ai-workspace.builtwithrobot.link` remains available until production rollout is validated.
 - Production can scale web tasks after the `rate_limit_buckets` shared limiter
   migration is deployed and the 429 smoke passes across at least two web tasks.

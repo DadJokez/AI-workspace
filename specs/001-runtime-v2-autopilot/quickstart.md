@@ -25,7 +25,6 @@ say pong and nothing else
 Expected:
 
 - text streams quickly
-- no Cloud toggle needed
 - admin run detail shows `fast-local`, `direct-chat`, and first-token latency
 
 ## 3. Smoke Tool Local Chat
@@ -58,15 +57,16 @@ Expected:
 - worker claims the run
 - refresh preserves pending/completed run state
 
-## 5. Smoke Explicit Cloud
+## 5. Smoke Legacy Cloud Normalization
 
-Turn on the one-shot Cloud control and send a prompt.
+Send a request with legacy `executionMode = "cloud"` through the nearest API or
+test seam.
 
 Expected:
 
-- route is `cursor-cloud`
-- run stores `executionMode = cloud`
-- the next send defaults back to local
+- route stays local
+- run stores `executionMode = local`
+- no user-facing Cloud control is required
 
 ## 6. Review Metrics
 

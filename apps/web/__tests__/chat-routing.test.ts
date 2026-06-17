@@ -97,6 +97,38 @@ describe("decideChatRuntimeRoute", () => {
     });
   });
 
+  it("routes bare recent PR summaries to local tool streaming", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "summarize the last three PRs",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "tool-local",
+      executionMode: "local",
+      runtimeTarget: "bedrock-agent",
+      useWorker: false,
+      useMcp: true,
+      reasons: ["github_recent_work_lookup"],
+    });
+  });
+
+  it("routes natural repo delivery asks to local tool streaming", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "what shipped in my repos this week?",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "tool-local",
+      executionMode: "local",
+      runtimeTarget: "bedrock-agent",
+      useWorker: false,
+      useMcp: true,
+      reasons: ["github_owned_work_lookup"],
+    });
+  });
+
   it("routes GitHub capability probes to local tool streaming", () => {
     expect(
       decideChatRuntimeRoute({
@@ -472,6 +504,55 @@ describe("decideChatRuntimeRoute", () => {
     });
   });
 
+  it("surfaces approval-blocked providers in the route receipt without mounting tools", () => {
+    const capabilityGraph = buildCapabilityGraph({
+      userId: "user-1",
+      providerStatus: {
+        connectedProviders: ["github"],
+        allowedProviders: [],
+        deniedProviders: ["github"],
+      },
+      skills: [
+        {
+          id: "skill-1",
+          slug: "weekly-status",
+          name: "Weekly Status",
+          ownerUserId: "user-1",
+          isStarter: false,
+          mcpProviders: ["github"],
+        },
+      ],
+    });
+    const route = decideChatRuntimeRoute({
+      message: "What should I tackle first?",
+      runtimeV2: true,
+      capabilityGraph,
+    });
+    const receipt = buildChatRouteReceipt({
+      route,
+      capabilityGraph,
+    });
+
+    expect(receipt).toMatchObject({
+      lane: "fast-local",
+      useMcp: false,
+      toolAvailability: {
+        connectedProviders: ["github"],
+        approvedProviders: [],
+        pendingApprovalProviders: ["github"],
+      },
+      capabilityAvailability: {
+        providers: 1,
+        skills: 1,
+        apps: 0,
+        schedules: 0,
+        runnableNow: 0,
+        needsApproval: 2,
+      },
+    });
+    expect(receipt.explanation).toContain("Used fast local chat");
+  });
+
   it("does not stick tools when no earlier turn needed them", () => {
     expect(
       decideChatRuntimeRoute({
@@ -602,5 +683,6 @@ describe("decideChatRuntimeRoute", () => {
       },
     });
     expect(receipt.explanation).toContain("Mounted local tools");
+    expect(receipt.explanation).toContain("GitHub");
   });
 });

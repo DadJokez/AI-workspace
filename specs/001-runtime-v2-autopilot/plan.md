@@ -6,13 +6,13 @@
 
 ## Summary
 
-Runtime V2 makes AI Workspace local-first and fast by routing ordinary chat to a direct streaming path, while escalating only when the user asks for connected tools, durable/background work, or explicit Cursor Cloud. The baseline implementation landed in PR #102. This plan converts the work into a Spec Kit packet and tracks the remaining rollout, hardening, and measurement work as GitHub issues.
+Runtime V2 makes AI Workspace local-first and fast by routing ordinary chat to a direct streaming path, while escalating only when the user asks for connected tools or durable/background work. The baseline implementation landed in PR #102. This plan converts the work into a Spec Kit packet and tracks the remaining rollout, hardening, and measurement work as GitHub issues.
 
 ## Technical Context
 
 **Language/Version**: TypeScript on Node 20
 
-**Primary Dependencies**: Next.js 15, NextAuth v4, Drizzle, `@cursor/sdk`, AWS Bedrock Runtime SDK, AWS CDK TypeScript, pnpm workspaces
+**Primary Dependencies**: Next.js 15, NextAuth v4, Drizzle, AWS Bedrock Runtime SDK, AWS Bedrock AgentCore, AWS CDK TypeScript, pnpm workspaces
 
 **Storage**: RDS Postgres through `packages/db` Drizzle schema; Runtime V2 uses existing `recipe_runs`, `run_events`, `chat_messages`, `audit_log`, `oauth_tokens`, `user_tool_attestations`, and `mcp_servers`
 
@@ -22,9 +22,9 @@ Runtime V2 makes AI Workspace local-first and fast by routing ordinary chat to a
 
 **Project Type**: Monorepo web app plus runtime packages and CDK infrastructure
 
-**Performance Goals**: Fast-local chat should stream the first token materially faster than the old queued Cursor-agent path; every successful fast-local run should record first-token latency for measurement
+**Performance Goals**: Fast-local chat should stream the first token materially faster than the old queued agent path; every successful fast-local run should record first-token latency for measurement
 
-**Constraints**: Keep one web task until the shared rate-limit migration is deployed and smoke-tested across multiple web tasks; do not default to Cursor Cloud; do not mount MCP providers for trivial prompts; keep rollback to Cursor agent path available
+**Constraints**: Keep one web task until the shared rate-limit migration is deployed and smoke-tested across multiple web tasks; do not mount MCP providers for trivial prompts; keep runtime rollback available through configuration
 
 **Scale/Scope**: Pilot deployment using the existing production database and current ECS services; production rollout after preview smoke and timing comparison
 
@@ -33,7 +33,7 @@ Runtime V2 makes AI Workspace local-first and fast by routing ordinary chat to a
 - **Single runtime seam**: PASS. Runtime selection stays behind `/api/chat`, `chat-routing`, `chat-inline-runner`, and `AgentRuntime`.
 - **MCP is the integration pattern**: PASS. Tool escalation mounts MCP providers; no in-process product tool shortcuts are introduced.
 - **Permissions first-class**: PASS. Provider connection/attestation gates still decide what can be mounted.
-- **Thin enterprise wrapper**: PASS. Cursor remains the agent harness for tools/durable/cloud; AI Workspace owns routing, persistence, metrics, governance, and UI.
+- **Thin enterprise wrapper**: PASS. Bedrock and AgentCore remain behind the runtime seam; AI Workspace owns routing, persistence, metrics, governance, and UI.
 - **No unnecessary abstraction**: PASS. Initial router is deterministic and heuristic; classifier is deferred until data proves it is needed.
 
 ## Project Structure
@@ -74,10 +74,10 @@ apps/web/
     └── run-events.test.ts
 
 packages/
-├── cursor-runtime/src/
-│   ├── factory.ts
-│   ├── cursor-runtime.ts
-│   └── bedrock-runtime.ts
+├── agent-runtime/src/
+│   ├── agentcore-runtime.ts
+│   ├── bedrock-runtime.ts
+│   └── types.ts
 ├── agent/src/models.ts
 └── db/
 
