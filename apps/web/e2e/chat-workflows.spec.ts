@@ -8,12 +8,27 @@ import {
   json,
   userMessage,
 } from "./helpers/mock-comparative";
-import { gotoE2EChat } from "./helpers/navigation";
+import { gotoE2EChat, openPrimarySidebar } from "./helpers/navigation";
 
 test.skip(
   !!process.env.PLAYWRIGHT_BASE_URL,
   "mocked chat workflow tests run only against the local e2e harness",
 );
+
+function threadSummary(id: string, title: string) {
+  return {
+    id,
+    title,
+    defaultModelId: "sonnet-4-6",
+    summary: null,
+    summaryUpdatedAt: null,
+    previewSummary: null,
+    previewSummaryUpdatedAt: null,
+    titleSource: "generated",
+    createdAt: "2026-06-14T20:00:00.000Z",
+    updatedAt: "2026-06-14T20:00:00.000Z",
+  };
+}
 
 test.describe("chat workflow regressions", () => {
   test("downloads the active chat as markdown", async ({ page }) => {
@@ -72,59 +87,56 @@ test.describe("chat workflow regressions", () => {
     expect(transcript).toContain("demo-artifact.html (html, 1.3 KB)");
   });
 
-  test("keeps messages isolated across chat tabs", async ({ page }) => {
+  test("switches conversations from sidebar history without internal chat tabs", async ({
+    page,
+  }, testInfo) => {
+    const isMobile = testInfo.project.name.includes("mobile");
     await installMockComparativeApi(page, {
-      artifacts: [],
-      onChat: async (body, route) => {
-        const message = String(body.message ?? "");
-        const isAlpha = message.includes("alpha");
-        await fulfillSse(route, [
-          {
-            type: "meta",
-            threadId: isAlpha ? "thread-alpha" : "thread-beta",
-            modelId: "sonnet-4-6",
-          },
-          {
-            type: "text-delta",
-            delta: isAlpha
-              ? "Alpha tab answer only."
-              : "Beta tab answer only.",
-          },
-          {
-            type: "persisted",
-            assistantMessageId: isAlpha ? "assistant-alpha" : "assistant-beta",
-            artifacts: [],
-            recommendations: [],
-          },
-          { type: "done" },
-        ]);
+      threads: [
+        threadSummary("thread-alpha", "alpha sidebar question"),
+        threadSummary("thread-beta", "beta sidebar question"),
+      ],
+      threadMessages: {
+        "thread-alpha": [
+          userMessage({ id: "user-alpha", content: "alpha sidebar question" }),
+          assistantMessage({
+            id: "assistant-alpha",
+            content: "Alpha sidebar answer only.",
+          }),
+        ],
+        "thread-beta": [
+          userMessage({ id: "user-beta", content: "beta sidebar question" }),
+          assistantMessage({
+            id: "assistant-beta",
+            content: "Beta sidebar answer only.",
+          }),
+        ],
       },
     });
 
     await gotoE2EChat(page);
-    await page.getByPlaceholder(/ask anything/i).fill("alpha tab question");
-    await page.getByRole("button", { name: "Send" }).click();
-    await expect(page.getByText("Alpha tab answer only.")).toBeVisible();
+    await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
 
-    await page.getByRole("button", { name: "New tab" }).click();
-    await page.getByPlaceholder(/ask anything/i).fill("beta tab question");
-    await page.getByRole("button", { name: "Send" }).click();
-    await expect(page.getByText("Beta tab answer only.")).toBeVisible();
-
-    await page
-      .getByRole("button", { name: /alpha tab question/i })
-      .first()
+    let sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar
+      .getByRole("button", { name: /alpha sidebar question/i })
       .click();
     const main = page.locator("main");
-    await expect(main.getByText("Alpha tab answer only.")).toBeVisible();
-    await expect(main.getByText("Beta tab answer only.")).toHaveCount(0);
+    await expect(main.getByText("Alpha sidebar answer only.")).toBeVisible();
+    await expect(main.getByText("Beta sidebar answer only.")).toHaveCount(0);
+    await expect(page.getByTestId("active-chat-title")).toContainText(
+      "alpha sidebar question",
+    );
 
-    await page
-      .getByRole("button", { name: /beta tab question/i })
-      .first()
+    sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar
+      .getByRole("button", { name: /beta sidebar question/i })
       .click();
-    await expect(main.getByText("Beta tab answer only.")).toBeVisible();
-    await expect(main.getByText("Alpha tab answer only.")).toHaveCount(0);
+    await expect(main.getByText("Beta sidebar answer only.")).toBeVisible();
+    await expect(main.getByText("Alpha sidebar answer only.")).toHaveCount(0);
+    await expect(page.getByTestId("active-chat-title")).toContainText(
+      "beta sidebar question",
+    );
   });
 
   test("opens existing app recommendations on the live share-aware app URL", async ({
@@ -200,42 +212,27 @@ test.describe("chat workflow regressions", () => {
     ).toBeVisible();
   });
 
-  test("keeps tab state stable while another tab is busy", async ({ page }) => {
+  test("new chat replaces the active conversation instead of adding a tab", async ({
+    page,
+  }, testInfo) => {
+    const isMobile = testInfo.project.name.includes("mobile");
     const chatBodies: Array<Record<string, unknown>> = [];
-    let releaseSlowResponse: (() => void) | undefined;
-    const slowResponseGate = new Promise<void>((resolve) => {
-      releaseSlowResponse = resolve;
-    });
 
     await installMockComparativeApi(page, {
       artifacts: [],
       onChat: async (body, route) => {
         chatBodies.push(body);
         const message = String(body.message ?? "");
-        const isSlow =
-          message === "slow tab question" ||
-          message === "slow follow up" ||
-          body.threadId === "thread-slow";
-        const isFollowUp = message.includes("follow up");
-        if (message === "slow tab question") {
-          await slowResponseGate;
-        }
-
+        const isFirst = message.includes("first");
         await fulfillSse(route, [
           {
             type: "meta",
-            threadId: isSlow ? "thread-slow" : "thread-fast",
+            threadId: isFirst ? "thread-first" : "thread-second",
             modelId: "sonnet-4-6",
           },
           {
             type: "text-delta",
-            delta: isSlow
-              ? isFollowUp
-                ? "Slow follow-up answer."
-                : "Slow tab answer."
-              : isFollowUp
-                ? "Fast follow-up answer."
-                : "Fast tab answer.",
+            delta: isFirst ? "First chat answer." : "Second chat answer.",
           },
           {
             type: "persisted",
@@ -249,65 +246,45 @@ test.describe("chat workflow regressions", () => {
     });
 
     await gotoE2EChat(page);
-    const header = page.locator("header").first();
+    await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
 
-    await page.getByPlaceholder(/ask anything/i).fill("slow tab question");
+    await page.getByPlaceholder(/ask anything/i).fill("first chat question");
     await page.getByRole("button", { name: "Send" }).click();
-    await expect(page.getByPlaceholder("Generating…")).toBeVisible();
-    await expect(header.locator(".animate-pulse")).toHaveCount(1);
+    await expect(page.getByText("First chat answer.")).toBeVisible();
 
-    await header.getByRole("button", { name: "New tab" }).click();
-    await expect(page.getByPlaceholder(/ask anything/i)).toBeEnabled();
-    await page.getByPlaceholder(/ask anything/i).fill("fast tab question");
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: "New chat" }).click();
+    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByText("First chat answer.")).toHaveCount(0);
+
+    await page.getByPlaceholder(/ask anything/i).fill("second chat question");
     await page.getByRole("button", { name: "Send" }).click();
-    await expect(page.getByText("Fast tab answer.")).toBeVisible();
-    await expect(
-      header.getByRole("button", { name: /fast tab question/i }),
-    ).toBeVisible();
-
-    await page.getByPlaceholder(/ask anything/i).fill("fast follow up");
-    await page.getByRole("button", { name: "Send" }).click();
-    await expect(page.getByText("Fast follow-up answer.")).toBeVisible();
-    await expect(
-      header.getByRole("button", { name: /fast tab question/i }),
-    ).toBeVisible();
-    await expect(
-      header.getByRole("button", { name: /fast follow up/i }),
-    ).toHaveCount(0);
-
-    await header
-      .getByRole("button", { name: /slow tab question/i })
-      .first()
-      .click();
-    await expect(page.getByPlaceholder("Generating…")).toBeVisible();
-    releaseSlowResponse?.();
-    await expect(page.getByText("Slow tab answer.")).toBeVisible();
-    await expect(header.locator(".animate-pulse")).toHaveCount(0);
-
-    await page.getByPlaceholder(/ask anything/i).fill("slow follow up");
-    await page.getByRole("button", { name: "Send" }).click();
-    await expect(page.getByText("Slow follow-up answer.")).toBeVisible();
+    await expect(page.getByText("Second chat answer.")).toBeVisible();
+    await expect(page.getByText("First chat answer.")).toHaveCount(0);
 
     expect(chatBodies.map((body) => body.message)).toEqual([
-      "slow tab question",
-      "fast tab question",
-      "fast follow up",
-      "slow follow up",
+      "first chat question",
+      "second chat question",
     ]);
     expect(chatBodies[0]?.threadId).toBeUndefined();
     expect(chatBodies[1]?.threadId).toBeUndefined();
-    expect(chatBodies[2]?.threadId).toBe("thread-fast");
-    expect(chatBodies[3]?.threadId).toBe("thread-slow");
   });
 
-  test("restores persisted chat tabs after reload", async ({ page }) => {
+  test("reload keeps one active route and history remains in the sidebar", async ({
+    page,
+  }, testInfo) => {
+    const isMobile = testInfo.project.name.includes("mobile");
     await installMockComparativeApi(page, {
       artifacts: [],
+      threads: [
+        threadSummary("thread-persist-alpha", "alpha reload chat"),
+        threadSummary("thread-persist-beta", "beta reload chat"),
+      ],
       threadMessages: {
         "thread-persist-alpha": [
           userMessage({
             id: "user-persist-alpha",
-            content: "alpha reload tab",
+            content: "alpha reload chat",
           }),
           assistantMessage({
             id: "assistant-persist-alpha",
@@ -317,7 +294,7 @@ test.describe("chat workflow regressions", () => {
         "thread-persist-beta": [
           userMessage({
             id: "user-persist-beta",
-            content: "beta reload tab",
+            content: "beta reload chat",
           }),
           assistantMessage({
             id: "assistant-persist-beta",
@@ -333,78 +310,19 @@ test.describe("chat workflow regressions", () => {
           }),
         ],
       },
-      onChat: async (body, route) => {
-        const message = String(body.message ?? "");
-        const isAlpha = message.includes("alpha");
-        const isSecond = message.includes("second");
-        await fulfillSse(route, [
-          {
-            type: "meta",
-            threadId: isAlpha
-              ? "thread-persist-alpha"
-              : "thread-persist-beta",
-            modelId: "sonnet-4-6",
-          },
-          {
-            type: "text-delta",
-            delta: isAlpha
-              ? "Alpha persisted answer."
-              : isSecond
-                ? "Beta second persisted answer."
-              : "Beta persisted answer.",
-          },
-          {
-            type: "persisted",
-            assistantMessageId: isAlpha
-              ? "assistant-persist-alpha"
-              : isSecond
-                ? "assistant-persist-beta-second"
-              : "assistant-persist-beta",
-            artifacts: [],
-            recommendations: [],
-          },
-          { type: "done" },
-        ]);
-      },
     });
 
     await gotoE2EChat(page);
-    const header = page.locator("header").first();
-
-    await page.getByPlaceholder(/ask anything/i).fill("alpha reload tab");
-    await page.getByRole("button", { name: "Send" }).click();
-    await expect(page.getByText("Alpha persisted answer.")).toBeVisible();
-
-    await header.getByRole("button", { name: "New tab" }).click();
-    await page.getByPlaceholder(/ask anything/i).fill("beta reload tab");
-    await page.getByRole("button", { name: "Send" }).click();
+    let sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: /beta reload chat/i }).click();
     await expect(page.getByText("Beta persisted answer.")).toBeVisible();
-
-    await page.getByPlaceholder(/ask anything/i).fill("beta second message");
-    await page.getByRole("button", { name: "Send" }).click();
-    await expect(page.getByText("Beta second persisted answer.")).toBeVisible();
-    await expect(
-      header.getByRole("button", { name: /beta reload tab/i }),
-    ).toBeVisible();
-    await expect(
-      header.getByRole("button", { name: /beta second message/i }),
-    ).toHaveCount(0);
 
     await page.reload();
-    await expect(
-      header.getByRole("button", { name: /alpha reload tab/i }),
-    ).toBeVisible();
-    await expect(
-      header.getByRole("button", { name: /beta reload tab/i }),
-    ).toBeVisible();
-    await expect(page.getByText("Beta persisted answer.")).toBeVisible();
-    await expect(page.getByText("Beta second persisted answer.")).toBeVisible();
-    await expect(page.getByText("Alpha persisted answer.")).toHaveCount(0);
+    await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
+    await expect(page.getByText("Talk to your work.")).toBeVisible();
 
-    await header
-      .getByRole("button", { name: /alpha reload tab/i })
-      .first()
-      .click();
+    sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: /alpha reload chat/i }).click();
     await expect(page.getByText("Alpha persisted answer.")).toBeVisible();
     await expect(page.getByText("Beta persisted answer.")).toHaveCount(0);
   });

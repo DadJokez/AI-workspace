@@ -736,6 +736,7 @@ async function persistAssistantResult({
           runId: run.id,
           userMessageId,
           artifacts,
+          suppressedSkillIds: activatedSkillIdsFromInputs(run.inputs),
         }).catch((err) => {
           process.stderr.write(
             `[recommendation-create-error] ${JSON.stringify({
@@ -924,6 +925,13 @@ function parseChatRunInputs(value: unknown): ChatRunInputs {
     throw new Error("Chat run inputs are incomplete.");
   }
   return { ...value, prompt, threadId, userMessageId, executionMode };
+}
+
+function activatedSkillIdsFromInputs(value: unknown): string[] {
+  if (!isRecord(value) || !Array.isArray(value.activatedSkills)) return [];
+  return value.activatedSkills.flatMap((skill) =>
+    isRecord(skill) && typeof skill.id === "string" ? [skill.id] : [],
+  );
 }
 
 function parseStoredRuntimeRoute(value: unknown): ChatRuntimeRoute | undefined {

@@ -230,15 +230,45 @@ test.describe("chat files and artifacts", () => {
       page.getByRole("button", { name: /demo-artifact\.html/i }),
     ).toBeVisible();
 
+    const chatPane = page.getByTestId("chat-workspace-pane");
+    const chatWidthBefore = await chatPane.evaluate(
+      (element) => element.getBoundingClientRect().width,
+    );
     const previewBefore = page.context().pages().length;
     await page.getByRole("button", { name: /demo-artifact\.html/i }).click();
+    const previewPane = page.getByRole("complementary", {
+      name: "Artifact preview",
+    });
     await expect(
-      page.getByRole("complementary", { name: "Artifact preview" }),
+      previewPane,
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Demo Artifact" }),
     ).toBeVisible();
     expect(page.context().pages()).toHaveLength(previewBefore);
+
+    if (!isMobile) {
+      const chatWidthAfter = await chatPane.evaluate(
+        (element) => element.getBoundingClientRect().width,
+      );
+      expect(chatWidthAfter).toBeLessThan(chatWidthBefore - 100);
+
+      const resizer = page.getByTestId("artifact-preview-resizer");
+      await expect(resizer).toBeVisible();
+      const previewWidthBefore = await previewPane.evaluate(
+        (element) => element.getBoundingClientRect().width,
+      );
+      const box = await resizer.boundingBox();
+      expect(box).toBeTruthy();
+      await page.mouse.move(box!.x + box!.width / 2, box!.y + 100);
+      await page.mouse.down();
+      await page.mouse.move(box!.x - 120, box!.y + 100);
+      await page.mouse.up();
+      const previewWidthAfter = await previewPane.evaluate(
+        (element) => element.getBoundingClientRect().width,
+      );
+      expect(previewWidthAfter).toBeGreaterThan(previewWidthBefore + 60);
+    }
 
     await page.getByRole("button", { name: "Close preview" }).click();
     if (isMobile) {

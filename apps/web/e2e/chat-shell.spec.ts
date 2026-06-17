@@ -182,7 +182,7 @@ test.describe("chat shell guardrails", () => {
     expect(paintBounds.left).toBeGreaterThan(paintBounds.columnLeft);
   });
 
-  test("keeps top-bar controls, theme persistence, and tab closing behavior stable", async ({
+  test("keeps top-bar controls and theme persistence stable without chat tabs", async ({
     page,
   }, testInfo) => {
     let calls = 0;
@@ -229,9 +229,13 @@ test.describe("chat shell guardrails", () => {
       await expect(openMenu).toBeHidden();
     }
 
-    await expect(
-      header.getByRole("button", { name: "New tab" }),
-    ).toBeVisible();
+    await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
+    await expect(header.getByRole("button", { name: "New tab" })).toHaveCount(
+      0,
+    );
+    await expect(header.getByRole("button", { name: "Close tab" })).toHaveCount(
+      0,
+    );
     await expect(
       header.getByRole("button", { name: "Download chat transcript" }),
     ).toBeDisabled();
@@ -246,31 +250,10 @@ test.describe("chat shell guardrails", () => {
     await page.reload();
     await expect(page.locator("html")).toHaveClass(/dark/);
     await expect(page.getByText("Talk to your work.")).toBeVisible();
-
-    await expect(
-      header.getByRole("button", { name: "Close tab" }),
-    ).toHaveCount(0);
-    await header.getByRole("button", { name: "New tab" }).click();
-    await expect(
-      header.getByRole("button", { name: "New chat" }),
-    ).toHaveCount(2);
-    await expect(
-      header.getByRole("button", { name: "Close tab" }),
-    ).toHaveCount(2);
-
-    await header.getByRole("button", { name: "Close tab" }).last().click();
-    await expect(
-      header.getByRole("button", { name: "Close tab" }),
-    ).toHaveCount(0);
-
-    await header.getByRole("button", { name: "New tab" }).click();
-    await header.getByRole("button", { name: "Close tab" }).first().click();
-    await expect(
-      header.getByRole("button", { name: "Close tab" }),
-    ).toHaveCount(0);
+    await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
 
     const longTitlePrompt =
-      "make the header state testable with a longer tab title please";
+      "make the header state testable with a longer chat title please";
     await page.getByPlaceholder(/ask anything/i).fill(longTitlePrompt);
     await page.getByRole("button", { name: "Send" }).click();
 
@@ -284,9 +267,10 @@ test.describe("chat shell guardrails", () => {
     await expect(
       header.getByRole("button", { name: "Download chat transcript" }),
     ).toBeEnabled();
-    await expect(
-      header.getByRole("button", { name: "make the header state testable w…" }),
-    ).toBeVisible();
+    await expect(page.getByTestId("active-chat-title")).toContainText(
+      "make the header state testable",
+    );
+    await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
     await expect(
       header.getByRole("button", { name: "Regenerate last response" }),
     ).toBeVisible();
@@ -358,70 +342,37 @@ test.describe("chat shell guardrails", () => {
     await sidebar.getByRole("button", { name: "New chat" }).click();
     await expect(sidebar).not.toBeInViewport();
     await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("active-chat-title")).toContainText(
+      "New chat",
+    );
+    await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
     await expect(
-      page.locator("header").getByRole("button", { name: "New chat" }),
-    ).toHaveCount(2);
+      page.locator("header").getByRole("button", { name: "New tab" }),
+    ).toHaveCount(0);
   });
 
-  test("keeps mobile tab strip scrollable with visible close buttons", async ({
+  test("does not render internal chat tabs on mobile", async ({
     page,
   }, testInfo) => {
     test.skip(
       !testInfo.project.name.includes("mobile"),
-      "mobile-only tab strip behavior",
+      "mobile-only shell behavior",
     );
 
     await installMockComparativeApi(page);
     await gotoE2EChat(page);
 
     const header = page.locator("header").first();
-    const tabStrip = page.getByTestId("chat-tab-strip");
-    for (let i = 0; i < 6; i += 1) {
-      await header.getByRole("button", { name: "New tab" }).click();
-    }
-
-    const closeButtons = header.getByRole("button", { name: "Close tab" });
-    await expect(closeButtons).toHaveCount(7);
-    await expect(closeButtons.first()).toBeVisible();
-
-    const firstCloseOpacity = await closeButtons.first().evaluate((element) =>
-      window.getComputedStyle(element).opacity,
+    await expect(
+      header.getByRole("button", { name: "Open menu" }),
+    ).toBeVisible();
+    await expect(header.getByRole("button", { name: "New tab" })).toHaveCount(
+      0,
     );
-    expect(Number(firstCloseOpacity)).toBeGreaterThan(0.9);
-
-    const stripMetrics = await tabStrip.evaluate((element) => ({
-      clientWidth: element.clientWidth,
-      scrollWidth: element.scrollWidth,
-    }));
-    expect(stripMetrics.scrollWidth).toBeGreaterThan(
-      stripMetrics.clientWidth + 1,
+    await expect(header.getByRole("button", { name: "Close tab" })).toHaveCount(
+      0,
     );
-
-    const tabButtons = tabStrip.getByTestId("chat-tab-button");
-    await expect(tabButtons).toHaveCount(7);
-    const maxScrollLeft = await tabStrip.evaluate(
-      (element) => element.scrollWidth - element.clientWidth,
-    );
-    await tabStrip.evaluate((element) => {
-      element.scrollLeft = element.scrollWidth;
-    });
-    await tabButtons.first().evaluate((button) => {
-      (button as HTMLElement).click();
-    });
-    await expect
-      .poll(() => tabStrip.evaluate((element) => element.scrollLeft))
-      .toBeLessThan(maxScrollLeft / 2);
-    await expect(tabButtons.first()).toBeInViewport();
-    await tabStrip.evaluate((element) => {
-      element.scrollLeft = 0;
-    });
-    await tabButtons.last().evaluate((button) => {
-      (button as HTMLElement).click();
-    });
-    await expect
-      .poll(() => tabStrip.evaluate((element) => element.scrollLeft))
-      .toBeGreaterThan(0);
-    await expect(tabButtons.last()).toBeInViewport();
+    await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
 
     const pageOverflow = await page.evaluate(
       () =>

@@ -99,7 +99,7 @@ interface ChatTab {
   modelId?: string;
   busy: boolean;
   error?: string;
-  /** True once messages have been loaded (or for fresh empty tabs). */
+  /** True once messages have been loaded, or for a fresh empty chat. */
   loaded: boolean;
 }
 
@@ -170,20 +170,7 @@ interface ThreadMessagesResponse {
 }
 
 const THREADS_LIMIT = 50;
-const PERSISTED_TAB_LIMIT = 10;
-const TAB_STORAGE_PREFIX = "ai-workspace-tabs:";
 const RUN_POLL_INTERVAL_MS = 500;
-
-interface PersistedTab {
-  threadId: string;
-  title: string;
-  modelId?: string;
-}
-
-interface PersistedSession {
-  tabs: PersistedTab[];
-  activeIdx: number;
-}
 
 function makeFreshTab(modelId?: string): ChatTab {
   return {
@@ -195,44 +182,6 @@ function makeFreshTab(modelId?: string): ChatTab {
     busy: false,
     loaded: true,
   };
-}
-
-function tabFromPersisted(p: PersistedTab, modelId: string): ChatTab {
-  const trimmed = p.title?.trim();
-  return {
-    id: crypto.randomUUID(),
-    title: trimmed && trimmed.length > 0 ? trimmed : "Untitled",
-    threadId: p.threadId,
-    messages: [],
-    modelId,
-    busy: false,
-    loaded: false,
-  };
-}
-
-function readSession(userId: string): PersistedSession | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(`${TAB_STORAGE_PREFIX}${userId}`);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as PersistedSession;
-    if (!parsed || !Array.isArray(parsed.tabs)) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function writeSession(userId: string, session: PersistedSession): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(
-      `${TAB_STORAGE_PREFIX}${userId}`,
-      JSON.stringify(session),
-    );
-  } catch {
-    /* quota / disabled — ignore */
-  }
 }
 
 function deriveTitle(text: string): string {
@@ -402,6 +351,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const [runActionPendingId, setRunActionPendingId] = useState<string>();
   const [previewArtifact, setPreviewArtifact] =
     useState<WorkspaceArtifactSummary | null>(null);
+  const [previewWidth, setPreviewWidth] = useState(640);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [oauthConnected, setOauthConnected] = useState<Record<string, boolean>>({});
@@ -410,7 +360,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     useState<string>();
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const tabButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const stickToBottomRef = useRef(true);
   const loadingThreadsRef = useRef<Set<string>>(new Set());
   const streamAbortRef = useRef<AbortController | null>(null);
@@ -457,9 +406,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     );
   }
 
-  // Bootstrap: fetch models + threads in parallel. Tabs are restored separately
-  // from localStorage once /api/me resolves; we no longer auto-open recent
-  // threads as tabs.
+  // Bootstrap: fetch models + threads in parallel. The sidebar owns history;
+  // the chat pane starts from a single fresh conversation unless a thread route
+  // explicitly asks to open one.
   useEffect(() => {
     let cancelled = false;
     Promise.all([
@@ -592,8 +541,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     }
   }
 
-  // Validate every tab's modelId against the loaded model registry.
-  // Runs whenever the registry changes; idempotent for already-valid tabs.
+  // Validate the active conversation's modelId against the loaded registry.
+  // Runs whenever the registry changes; idempotent for already-valid chats.
   useEffect(() => {
     if (models.length === 0) return;
     const validIds = new Set(models.map((m) => m.id));
@@ -607,7 +556,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   }, [models, defaultModelId]);
 
   // If the account-level default model arrives after the initial model list,
-  // keep blank new-chat tabs aligned with the user's preference. Thread tabs
+  // keep blank new chats aligned with the user's preference. Existing threads
   // keep their saved per-thread model.
   useEffect(() => {
     if (models.length === 0 || !userDefaultModelId) return;
@@ -622,28 +571,13 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     );
   }, [models, userDefaultModelId]);
 
-  // Restore tabs from localStorage once we know who the user is.
-  // Runs at most once per session (gated by `bootstrapped`).
+  // The sidebar is the conversation navigator. Once the user profile is known,
+  // the active chat is ready; old saved sessions intentionally do not restore
+  // into a second navigation model.
   useEffect(() => {
     if (!user?.id || bootstrapped) return;
-    const session = readSession(user.id);
-    if (session && session.tabs.length > 0) {
-      const fallback = defaultModelId;
-      const validIds = new Set(models.map((m) => m.id));
-      const restored = session.tabs
-        .slice(0, PERSISTED_TAB_LIMIT)
-        .map((p) =>
-          tabFromPersisted(p, validatestring(p.modelId, validIds, fallback)),
-        );
-      setTabs(restored);
-      const idx = Math.max(
-        0,
-        Math.min(session.activeIdx ?? 0, restored.length - 1),
-      );
-      setActiveId(restored[idx]!.id);
-    }
     setBootstrapped(true);
-  }, [user?.id, bootstrapped, models, defaultModelId]);
+  }, [user?.id, bootstrapped]);
 
   useEffect(() => {
     if (!initialThreadId || !bootstrapped || initialThreadAppliedRef.current) {
@@ -651,12 +585,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     }
     initialThreadAppliedRef.current = true;
     setView("chat");
-
-    const existing = tabs.find((t) => t.threadId === initialThreadId);
-    if (existing) {
-      setActiveId(existing.id);
-      return;
-    }
 
     const thread = threads.find((t) => t.id === initialThreadId);
     const validIds = new Set(models.map((m) => m.id));
@@ -674,36 +602,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       busy: false,
       loaded: false,
     };
-    setTabs((prev) =>
-      prev.some((t) => t.threadId === initialThreadId) ? prev : [...prev, tab],
-    );
+    setTabs([tab]);
     setActiveId(tab.id);
-  }, [initialThreadId, bootstrapped, tabs, threads, models, defaultModelId]);
-
-  // Persist session whenever tabs / activeId change. Only after bootstrap, so
-  // we don't clobber stored state with the initial empty-tab placeholder.
-  useEffect(() => {
-    if (!bootstrapped || !user?.id) return;
-    const persistedTabs: PersistedTab[] = tabs
-      .filter((t): t is ChatTab & { threadId: string } => !!t.threadId)
-      .slice(0, PERSISTED_TAB_LIMIT)
-      .map((t) => ({
-        threadId: t.threadId,
-        title: t.title,
-        modelId: t.modelId,
-      }));
-
-    let activeIdx = 0;
-    const activeWithThread = tabs.find((t) => t.id === activeId);
-    if (activeWithThread?.threadId) {
-      const i = persistedTabs.findIndex(
-        (p) => p.threadId === activeWithThread.threadId,
-      );
-      if (i >= 0) activeIdx = i;
-    }
-
-    writeSession(user.id, { tabs: persistedTabs, activeIdx });
-  }, [tabs, activeId, bootstrapped, user?.id]);
+  }, [initialThreadId, bootstrapped, threads, models, defaultModelId]);
 
   // Keep activeId pointing at a real tab. If the active tab is removed (e.g.
   // a stale thread is dropped after a 404), fall back to the first tab.
@@ -711,8 +612,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     if (tabs.length === 0) return;
     if (tabs.some((t) => t.id === activeId)) return;
 
-    // Opening a new thread appends the tab and activates it in quick succession.
-    // Give React one tick to commit the tab before treating the active id as stale.
     const timeout = window.setTimeout(() => {
       setActiveId((current) =>
         tabs.some((t) => t.id === current) ? current : tabs[0]!.id,
@@ -723,7 +622,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     }
   }, [tabs, activeId]);
 
-  // Lazy-load messages for the active tab when it becomes active.
+  // Lazy-load messages for the active conversation when it becomes active.
   useEffect(() => {
     const tab = tabs.find((t) => t.id === activeId);
     if (!tab || tab.loaded || !tab.threadId) return;
@@ -777,12 +676,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         const message = err instanceof Error ? err.message : String(err);
         const isMissing = /HTTP 404|thread_not_found/i.test(message);
         if (isMissing) {
-          // Stale persisted tab — silently drop it. If that leaves no tabs,
-          // open a fresh one. The activeId-validity effect picks a neighbor.
-          setTabs((prev) => {
-            const next = prev.filter((t) => t.id !== tabId);
-            return next.length > 0 ? next : [makeFreshTab(defaultModelId)];
-          });
+          setTabs([makeFreshTab(defaultModelId)]);
           return;
         }
         setTabs((prev) =>
@@ -961,19 +855,13 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     el.scrollTop = el.scrollHeight;
   }, [activeTab?.messages]);
 
-  // Tab switch: re-stick to bottom and jump there.
+  // Conversation switch: re-stick to bottom and jump there.
   useEffect(() => {
     stickToBottomRef.current = true;
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [activeId]);
-
-  useEffect(() => {
-    const button = tabButtonRefs.current.get(activeId);
-    if (!button) return;
-    button.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [activeId, tabs.length]);
 
   function handleScroll() {
     const el = scrollRef.current;
@@ -1005,28 +893,12 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   }
 
   function newTab() {
+    stopStreaming();
     const t = makeFreshTab(freshTabModel());
-    setTabs((prev) => [...prev, t]);
+    setTabs([t]);
     setActiveId(t.id);
     setView("chat");
-  }
-
-  function closeTab(id: string) {
-    setTabs((prev) => {
-      const idx = prev.findIndex((t) => t.id === id);
-      if (idx === -1) return prev;
-      const next = prev.filter((t) => t.id !== id);
-      if (next.length === 0) {
-        const fresh = makeFreshTab(freshTabModel());
-        setActiveId(fresh.id);
-        return [fresh];
-      }
-      if (id === activeId) {
-        const neighbor = next[Math.max(0, idx - 1)] ?? next[0]!;
-        setActiveId(neighbor.id);
-      }
-      return next;
-    });
+    setPreviewArtifact(null);
   }
 
   function openThread(
@@ -1035,7 +907,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     initialMessages: UiMessage[] = [],
   ) {
     setView("chat");
-    const existing = tabs.find((t) => t.threadId === threadId);
+    setPreviewArtifact(null);
+    const existing = activeTab?.threadId === threadId ? activeTab : undefined;
     if (existing) {
       if (initialMessages.length > 0) {
         setTabs((prev) =>
@@ -1052,6 +925,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       setActiveId(existing.id);
       return;
     }
+    stopStreaming();
     const thread = threads.find((t) => t.id === threadId);
     const validIds = new Set(models.map((m) => m.id));
     const modelId = validatestring(
@@ -1067,15 +941,10 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       messages: initialMessages,
       modelId,
       busy: false,
-      loaded: false,
+      loaded: initialMessages.length > 0,
     };
-    setTabs((prev) => [...prev, tab]);
+    setTabs([tab]);
     setActiveId(tab.id);
-  }
-
-  function selectTab(tabId: string) {
-    setActiveId(tabId);
-    setView("chat");
   }
 
   function handleModelChange(id: string) {
@@ -1106,15 +975,12 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       throw new Error(`HTTP ${res.status}`);
     }
     setThreads((prev) => prev.filter((t) => t.id !== threadId));
-    setTabs((prev) => {
-      const next = prev.filter((t) => t.threadId !== threadId);
-      if (next.length === 0) {
-        const fresh = makeFreshTab(freshTabModel());
-        setActiveId(fresh.id);
-        return [fresh];
-      }
-      return next;
-    });
+    if (activeTab?.threadId === threadId) {
+      const fresh = makeFreshTab(freshTabModel());
+      setTabs([fresh]);
+      setActiveId(fresh.id);
+      setPreviewArtifact(null);
+    }
   }
 
   function handleNavSelect(id: string) {
@@ -1179,20 +1045,20 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
 
       if (status !== "accepted") return;
       if (recommendation.action.kind === "run_skill") {
-        const runRes = await fetch(
-          `/api/skills/${recommendation.action.skillId}/run`,
-          { method: "POST" },
+        const skillId = recommendation.action.skillId;
+        const skill = slashSkills.find(
+          (candidate) => candidate.id === skillId,
         );
-        const runBody = (await runRes.json().catch(() => ({}))) as {
-          threadId?: string;
-          message?: string;
-          error?: string;
-        };
-        if (!runRes.ok || !runBody.threadId) {
-          throw new Error(runBody.message ?? runBody.error ?? "Could not run skill.");
+        if (!skill) {
+          throw new Error("Could not find that skill in your current catalog.");
         }
-        void refreshThreads();
-        openThread(runBody.threadId, recommendation.title);
+        await send(`/${skill.slug}`, undefined, {
+          id: skill.id,
+          slug: skill.slug,
+          name: skill.name,
+          source: "explicit",
+          args: "",
+        });
       } else if (recommendation.action.kind === "open_app") {
         window.location.assign(
           recommendation.action.slug
@@ -1678,213 +1544,144 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         onDeleteThread={handleDeleteThread}
       />
 
-      <main className="flex h-full min-w-0 flex-1 flex-col">
-        {view === "settings" ? (
-          <SettingsPanel
-            userEmail={user?.email}
-            displayName={user?.displayName ?? ""}
-            customInstructions={user?.customInstructions ?? null}
-            onProfileUpdated={handleProfileUpdated}
-            models={models}
-            defaultModelId={defaultModelId}
-            userDefaultModelId={userDefaultModelId}
-            onUserDefaultModelChange={updateUserDefaultModel}
-            runtimeV2Enabled={runtimeV2Enabled}
-            onClose={() => setView("chat")}
-            onOpenSidebar={() => setSidebarOpen(true)}
-            onReplayTour={() => {
-              setView("chat");
-              setWizardOpen(true);
-            }}
-          />
-        ) : view === "search" ? (
-          <SearchPanel
-            threads={threads}
-            threadsLoading={threadsLoading}
-            onOpenThread={openThread}
-            onClose={() => setView("chat")}
-            onOpenSidebar={() => setSidebarOpen(true)}
-          />
-        ) : view === "tools" ? (
-          <ToolsPanel
-            onClose={() => setView("chat")}
-            onOpenSidebar={() => setSidebarOpen(true)}
-          />
-        ) : view === "vault" ? (
-          <VaultPanel
-            userName={user?.displayName}
-            onClose={() => setView("chat")}
-            onOpenSidebar={() => setSidebarOpen(true)}
-          />
-        ) : view === "workspace" ? (
-          <WorkspacePanel
-            onClose={() => setView("chat")}
-            onOpenSidebar={() => setSidebarOpen(true)}
-            onOpenArtifact={openArtifactPreview}
-          />
-        ) : (
-          <>
-        <header className="flex h-11 shrink-0 items-end justify-between border-b border-hairline bg-canvas">
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(true)}
-            aria-label="Open menu"
-            className="flex h-11 w-11 shrink-0 items-center justify-center self-center text-muted hover:bg-subtle hover:text-ink md:hidden"
-          >
-            <svg
-              viewBox="0 0 16 16"
-              width="16"
-              height="16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              aria-hidden="true"
-            >
-              <path d="M2 4h12M2 8h12M2 12h12" />
-            </svg>
-          </button>
-          <div
-            data-testid="chat-tab-strip"
-            className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto px-2"
-          >
-            {tabs.map((t) => {
-              const active = t.id === activeId;
-              return (
-                <div
-                  key={t.id}
-                  className={`group relative flex h-9 max-w-[180px] shrink-0 items-center gap-1.5 px-3 text-[13px] ${
-                    active
-                      ? "text-ink"
-                      : "text-muted hover:text-ink"
-                  }`}
+      <main className="flex h-full min-w-0 flex-1 overflow-hidden">
+        <section
+          data-testid="chat-workspace-pane"
+          className="flex h-full min-w-0 flex-1 flex-col"
+        >
+          {view === "settings" ? (
+            <SettingsPanel
+              userEmail={user?.email}
+              displayName={user?.displayName ?? ""}
+              customInstructions={user?.customInstructions ?? null}
+              onProfileUpdated={handleProfileUpdated}
+              models={models}
+              defaultModelId={defaultModelId}
+              userDefaultModelId={userDefaultModelId}
+              onUserDefaultModelChange={updateUserDefaultModel}
+              runtimeV2Enabled={runtimeV2Enabled}
+              onClose={() => setView("chat")}
+              onOpenSidebar={() => setSidebarOpen(true)}
+              onReplayTour={() => {
+                setView("chat");
+                setWizardOpen(true);
+              }}
+            />
+          ) : view === "search" ? (
+            <SearchPanel
+              threads={threads}
+              threadsLoading={threadsLoading}
+              onOpenThread={openThread}
+              onClose={() => setView("chat")}
+              onOpenSidebar={() => setSidebarOpen(true)}
+            />
+          ) : view === "tools" ? (
+            <ToolsPanel
+              onClose={() => setView("chat")}
+              onOpenSidebar={() => setSidebarOpen(true)}
+            />
+          ) : view === "vault" ? (
+            <VaultPanel
+              userName={user?.displayName}
+              onClose={() => setView("chat")}
+              onOpenSidebar={() => setSidebarOpen(true)}
+            />
+          ) : view === "workspace" ? (
+            <WorkspacePanel
+              onClose={() => setView("chat")}
+              onOpenSidebar={() => setSidebarOpen(true)}
+              onOpenArtifact={openArtifactPreview}
+            />
+          ) : (
+            <>
+              <header className="flex h-11 shrink-0 items-center justify-between border-b border-hairline bg-canvas">
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(true)}
+                  aria-label="Open menu"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center text-muted hover:bg-subtle hover:text-ink md:hidden"
                 >
+                  <svg
+                    viewBox="0 0 16 16"
+                    width="16"
+                    height="16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M2 4h12M2 8h12M2 12h12" />
+                  </svg>
+                </button>
+                <div className="flex min-w-0 flex-1 items-center px-3">
+                  <div
+                    data-testid="active-chat-title"
+                    className="truncate text-[13px] font-medium text-muted"
+                    title={activeTab.title}
+                  >
+                    {activeTab.threadId ? activeTab.title : "New chat"}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1 px-2 sm:gap-1.5 sm:px-3">
+                  {!runtimeV2Enabled &&
+                  models.length > 0 &&
+                  activeTab.modelId ? (
+                    <ModelSelector
+                      value={activeTab.modelId}
+                      onChange={handleModelChange}
+                      options={models}
+                      disabled={busy || activeHasPendingRun}
+                    />
+                  ) : null}
                   <button
                     type="button"
-                    ref={(node) => {
-                      if (node) {
-                        tabButtonRefs.current.set(t.id, node);
-                      } else {
-                        tabButtonRefs.current.delete(t.id);
-                      }
-                    }}
-                    data-testid="chat-tab-button"
-                    onClick={() => selectTab(t.id)}
-                    className="flex min-w-0 flex-1 items-center gap-1.5"
+                    aria-label="Download chat transcript"
+                    title="Download chat transcript"
+                    disabled={messages.length === 0}
+                    onClick={downloadActiveChat}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-muted hover:bg-subtle hover:text-ink disabled:opacity-40"
                   >
-                    {t.busy || t.messages.some((m) => m.pending) ? (
-                      <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-current" />
-                    ) : null}
-                    <span className="truncate">{t.title}</span>
+                    <DownloadIcon />
                   </button>
-                  {tabs.length > 1 ? (
+                  {busy ? (
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        closeTab(t.id);
-                      }}
-                      aria-label="Close tab"
-                      className="ml-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-subtle hover:text-ink md:h-4 md:w-4 md:opacity-0 md:group-hover:opacity-100"
+                      aria-label="Stop generating"
+                      title="Stop generating"
+                      onClick={stopStreaming}
+                      className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-hairline bg-canvas px-2 text-xs font-medium text-muted hover:bg-subtle hover:text-ink"
+                    >
+                      <span className="block h-2.5 w-2.5 rounded-[2px] bg-current" />
+                      Stop
+                    </button>
+                  ) : canRegenerate ? (
+                    <button
+                      type="button"
+                      aria-label="Regenerate last response"
+                      title="Regenerate last response"
+                      onClick={regenerate}
+                      className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-hairline bg-canvas px-2 text-xs font-medium text-muted hover:bg-subtle hover:text-ink"
                     >
                       <svg
                         viewBox="0 0 16 16"
-                        width="10"
-                        height="10"
+                        width="13"
+                        height="13"
                         fill="none"
                         stroke="currentColor"
                         strokeWidth="1.6"
                         strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
                       >
-                        <path d="m4 4 8 8M12 4l-8 8" />
+                        <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2v3h-3" />
                       </svg>
+                      Regenerate
                     </button>
                   ) : null}
-                  <span
-                    aria-hidden
-                    className={`absolute inset-x-2 bottom-0 h-px ${
-                      active ? "bg-ink" : "bg-transparent"
-                    }`}
-                  />
+                  <ThemeToggle />
                 </div>
-              );
-            })}
-            <button
-              type="button"
-              onClick={newTab}
-              aria-label="New tab"
-              className="ml-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink md:h-7 md:w-7"
-            >
-              <svg
-                viewBox="0 0 16 16"
-                width="13"
-                height="13"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-              >
-                <path d="M8 3v10M3 8h10" />
-              </svg>
-            </button>
-          </div>
-          <div className="flex shrink-0 items-center gap-1 self-center px-2 sm:gap-1.5 sm:px-3 sm:self-end sm:pb-1">
-            {!runtimeV2Enabled && models.length > 0 && activeTab.modelId ? (
-              <ModelSelector
-                value={activeTab.modelId}
-                onChange={handleModelChange}
-                options={models}
-                disabled={busy || activeHasPendingRun}
-              />
-            ) : null}
-            <button
-              type="button"
-              aria-label="Download chat transcript"
-              title="Download chat transcript"
-              disabled={messages.length === 0}
-              onClick={downloadActiveChat}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-muted hover:bg-subtle hover:text-ink disabled:opacity-40"
-            >
-              <DownloadIcon />
-            </button>
-            {busy ? (
-              <button
-                type="button"
-                aria-label="Stop generating"
-                title="Stop generating"
-                onClick={stopStreaming}
-                className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-hairline bg-canvas px-2 text-xs font-medium text-muted hover:bg-subtle hover:text-ink"
-              >
-                <span className="block h-2.5 w-2.5 rounded-[2px] bg-current" />
-                Stop
-              </button>
-            ) : canRegenerate ? (
-              <button
-                type="button"
-                aria-label="Regenerate last response"
-                title="Regenerate last response"
-                onClick={regenerate}
-                className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-hairline bg-canvas px-2 text-xs font-medium text-muted hover:bg-subtle hover:text-ink"
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  width="13"
-                  height="13"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2v3h-3" />
-                </svg>
-                Regenerate
-              </button>
-            ) : null}
-            <ThemeToggle />
-          </div>
-        </header>
+              </header>
 
         <div
           ref={scrollRef}
@@ -2003,8 +1800,18 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             />
           </div>
         </div>
-          </>
-        )}
+            </>
+          )}
+        </section>
+
+        {previewArtifact ? (
+          <ArtifactPreviewPane
+            artifact={previewArtifact}
+            widthPx={previewWidth}
+            onWidthChange={setPreviewWidth}
+            onClose={() => setPreviewArtifact(null)}
+          />
+        ) : null}
       </main>
 
       <WelcomeWizard
@@ -2014,12 +1821,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         onSave={saveWizardStep}
         onComplete={completeWizard}
       />
-      {previewArtifact ? (
-        <ArtifactPreviewPane
-          artifact={previewArtifact}
-          onClose={() => setPreviewArtifact(null)}
-        />
-      ) : null}
       <FeedbackReporter
         open={feedbackOpen}
         context={feedbackContext}

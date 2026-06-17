@@ -69,6 +69,7 @@ export interface BuildRecommendationCandidatesInput {
   skills?: readonly RecommendationSkill[];
   apps?: readonly RecommendationApp[];
   artifacts?: readonly RecommendationArtifact[];
+  suppressedSkillIds?: readonly string[];
 }
 
 const WORKFLOW_VERBS = new Set([
@@ -116,12 +117,14 @@ export function buildRecommendationCandidates({
   skills = [],
   apps = [],
   artifacts = [],
+  suppressedSkillIds = [],
 }: BuildRecommendationCandidatesInput): RecommendationCandidate[] {
   const candidates: RecommendationCandidate[] = [];
   const normalized = normalize(currentMessage);
   const currentTokens = significantTokens(currentMessage);
   const approved = new Set(approvedProviders.map((p) => p.toLowerCase()));
   const connected = new Set(connectedProviders.map((p) => p.toLowerCase()));
+  const suppressedSkills = new Set(suppressedSkillIds);
 
   const repeatedCount = countSimilarWorkflow(
     currentTokens,
@@ -145,7 +148,7 @@ export function buildRecommendationCandidates({
     skills,
     approvedProviders: approved,
   });
-  if (matchingSkill) {
+  if (matchingSkill && !suppressedSkills.has(matchingSkill.id)) {
     const providers = unique(
       (matchingSkill.mcpProviders ?? []).map((p) => p.toLowerCase()),
     );

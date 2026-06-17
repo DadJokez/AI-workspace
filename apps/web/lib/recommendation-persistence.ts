@@ -24,6 +24,7 @@ export async function createRecommendationsForAssistantMessage({
   runId,
   userMessageId,
   artifacts,
+  suppressedSkillIds = [],
 }: {
   db: Database;
   userId: string;
@@ -32,6 +33,7 @@ export async function createRecommendationsForAssistantMessage({
   runId: string;
   userMessageId: string;
   artifacts: readonly WorkspaceArtifactSummary[];
+  suppressedSkillIds?: readonly string[];
 }): Promise<PersistedRecommendation[]> {
   const [currentRows, recentRows, capabilityGraph] = await Promise.all([
     db
@@ -71,6 +73,7 @@ export async function createRecommendationsForAssistantMessage({
       kind: artifact.kind,
       mimeType: artifact.mimeType,
     })),
+    suppressedSkillIds,
   }).slice(0, 3);
 
   if (candidates.length === 0) return [];
