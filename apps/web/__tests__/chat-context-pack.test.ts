@@ -108,7 +108,11 @@ describe("chat context pack", () => {
   it("records mounted providers when the tool lane loads MCP servers", () => {
     const pack = buildChatContextPack({
       ...baseInput(),
-      route: route({ lane: "tool-local", useMcp: true }),
+      route: route({
+        lane: "tool-local",
+        runtimeTarget: "bedrock-agent",
+        useMcp: true,
+      }),
       providerStatus: providerStatus({
         connectedProviders: ["github"],
         allowedProviders: ["github"],
@@ -117,7 +121,15 @@ describe("chat context pack", () => {
     });
 
     expect(pack.receipts[0]?.tools.mounted).toEqual(["github"]);
+    expect(pack.receipts[0]?.route).toMatchObject({
+      lane: "tool-local",
+      runtimeTarget: "bedrock-agent",
+      useWorker: false,
+      useMcp: true,
+      explanation: expect.stringContaining("Mounted local tools"),
+    });
     expect(pack.prompt.systemPrompt).toContain("Mounted tools for this turn");
+    expect(pack.prompt.systemPrompt).toContain("Routing: Mounted local tools");
   });
 
   it("records artifact context availability", () => {
