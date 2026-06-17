@@ -29,6 +29,15 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
   const [notice, setNotice] = useState<string | null>(null);
   const noun = subjectType === "app" ? "app" : "skill";
 
+  async function readFailureMessage(res: Response, fallback: string) {
+    try {
+      const body = (await res.json()) as { message?: string; error?: string };
+      return body.message ?? body.error ?? fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
   async function handleShare(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -55,20 +64,44 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
   }
 
   async function handleRevoke(shareId: string) {
-    await fetch(`/api/shares/${shareId}`, { method: "DELETE" });
-    router.refresh();
+    setBusy(true);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/shares/${shareId}`, { method: "DELETE" });
+      if (res.ok) {
+        router.refresh();
+        return;
+      }
+      setNotice(await readFailureMessage(res, `Could not revoke the ${noun} share.`));
+    } catch {
+      setNotice(`Could not revoke the ${noun} share.`);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleRoleChange(
     shareId: string,
     nextRole: "viewer" | "editor",
   ) {
-    await fetch(`/api/shares/${shareId}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ role: nextRole }),
-    });
-    router.refresh();
+    setBusy(true);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/shares/${shareId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ role: nextRole }),
+      });
+      if (res.ok) {
+        router.refresh();
+        return;
+      }
+      setNotice(await readFailureMessage(res, "Could not update this share role."));
+    } catch {
+      setNotice("Could not update this share role.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -90,6 +123,7 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
                 {subjectType === "app" ? (
                   <select
                     value={share.role ?? "viewer"}
+                    disabled={busy}
                     onChange={(e) =>
                       handleRoleChange(
                         share.id,
@@ -105,6 +139,7 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
                 <button
                   type="button"
                   className="text-muted hover:text-ink"
+                  disabled={busy}
                   onClick={() => handleRevoke(share.id)}
                 >
                   Revoke

@@ -4,9 +4,11 @@ import {
   canViewApp,
   canAppRoleDeploy,
   canAppRoleEdit,
+  chooseAppEditContextVersion,
   findCredentialShapedContent,
   formatAppContentPromptBlock,
   formatAppMetadataPromptBlock,
+  isUniqueConstraintError,
   isCompleteHtmlArtifact,
   isServableArtifact,
   parseAppInput,
@@ -207,6 +209,44 @@ describe("app lifecycle roles", () => {
         { actorRole: "owner", visibleToUserId: "owner-1" },
       ),
     ).toBe(true);
+  });
+});
+
+describe("app edit sessions", () => {
+  it("continues editing from the latest draft created in the edit thread", () => {
+    const baseVersion = { id: "base", status: "deployed" };
+    const liveVersion = { id: "live", status: "deployed" };
+    const sessionVersion = { id: "draft", status: "draft" };
+
+    expect(
+      chooseAppEditContextVersion({
+        sessionVersion,
+        liveVersion,
+        baseVersion,
+      }),
+    ).toBe(sessionVersion);
+    expect(
+      chooseAppEditContextVersion({
+        sessionVersion: null,
+        liveVersion,
+        baseVersion,
+      }),
+    ).toBe(liveVersion);
+  });
+
+  it("recognizes Postgres unique conflicts for app-version retries", () => {
+    expect(
+      isUniqueConstraintError({
+        code: "23505",
+        constraint: "app_versions_app_version_idx",
+      }),
+    ).toBe(true);
+    expect(
+      isUniqueConstraintError({
+        cause: { code: "23505" },
+      }),
+    ).toBe(true);
+    expect(isUniqueConstraintError({ code: "22001" })).toBe(false);
   });
 });
 
