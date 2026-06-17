@@ -3,6 +3,7 @@ import { and, desc, eq, type SQL } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { buildRuntimeV2Report } from "@/lib/admin/run-reporting";
 import { FilterPill } from "@/app/admin/ui";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,7 @@ const STATUS_FILTERS = [
   "failed",
   "canceled",
 ] as const;
+const REPORT_RUN_LIMIT = 500;
 
 interface Props {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -53,6 +55,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
       triggerType: runs.triggerType,
       runtime: runs.runtime,
       modelId: runs.modelId,
+      inputs: runs.inputs,
       outputs: runs.outputs,
       error: runs.error,
       startedAt: runs.startedAt,
@@ -65,11 +68,12 @@ export default async function AdminRunsPage({ searchParams }: Props) {
     .leftJoin(users, eq(runs.userId, users.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(runs.createdAt))
-    .limit(100);
+    .limit(REPORT_RUN_LIMIT);
 
   const running = rows.filter((row) => row.status === "running").length;
   const failed = rows.filter((row) => row.status === "failed").length;
   const succeeded = rows.filter((row) => row.status === "succeeded").length;
+  const runtimeReport = buildRuntimeV2Report(rows);
 
   return (
     <section className="py-2">
@@ -87,6 +91,150 @@ export default async function AdminRunsPage({ searchParams }: Props) {
         <Metric label="Running" value={running} />
         <Metric label="Failed" value={failed} />
       </div>
+
+      <section className="px-6 pb-5">
+        <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h3 className="text-[13px] font-semibold text-ink">
+              Runtime V2 Latency
+            </h3>
+            <p className="mt-1 text-[12px] text-muted">
+              First-token latency by lane across the latest{" "}
+              {runtimeReport.rowsAnalyzed} run(s). Fast-local samples:{" "}
+              {runtimeReport.fastLocalSampleCount}.
+            </p>
+          </div>
+        </div>
+        <div className="overflow-x-auto rounded-md border border-hairline">
+          <table className="w-full border-separate border-spacing-0 text-[12px]">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wider text-muted">
+                <th className="border-b border-hairline px-3 py-2 font-medium">
+                  Lane
+                </th>
+                <th className="border-b border-hairline px-3 py-2 font-medium">
+                  Runs
+                </th>
+                <th className="border-b border-hairline px-3 py-2 font-medium">
+                  Samples
+                </th>
+                <th className="border-b border-hairline px-3 py-2 font-medium">
+                  p50 1st token
+                </th>
+                <th className="border-b border-hairline px-3 py-2 font-medium">
+                  p95 1st token
+                </th>
+                <th className="border-b border-hairline px-3 py-2 font-medium">
+                  Failed
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {runtimeReport.laneLatency.map((summary) => (
+                <tr key={summary.lane}>
+                  <td className="border-b border-hairline px-3 py-2 font-mono text-ink">
+                    {summary.lane}
+                  </td>
+                  <td className="border-b border-hairline px-3 py-2 text-muted">
+                    {summary.runCount}
+                  </td>
+                  <td className="border-b border-hairline px-3 py-2 text-muted">
+                    {summary.firstTokenSamples}
+                  </td>
+                  <td className="border-b border-hairline px-3 py-2 text-ink">
+                    {formatNullableMs(summary.p50FirstTokenMs)}
+                  </td>
+                  <td className="border-b border-hairline px-3 py-2 text-ink">
+                    {formatNullableMs(summary.p95FirstTokenMs)}
+                  </td>
+                  <td className="border-b border-hairline px-3 py-2 text-muted">
+                    {summary.failedCount}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="px-6 pb-5">
+        <h3 className="text-[13px] font-semibold text-ink">
+          Failure Groups
+        </h3>
+        <p className="mt-1 text-[12px] text-muted">
+          Grouped by lane, target, provider, model, and error class. Raw prompts
+          and tool payloads are not shown.
+        </p>
+        <div className="mt-2 overflow-x-auto rounded-md border border-hairline">
+          <table className="w-full border-separate border-spacing-0 text-[12px]">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wider text-muted">
+                <th className="border-b border-hairline px-3 py-2 font-medium">
+                  Count
+                </th>
+                <th className="border-b border-hairline px-3 py-2 font-medium">
+                  Lane
+                </th>
+                <th className="border-b border-hairline px-3 py-2 font-medium">
+                  Target
+                </th>
+                <th className="border-b border-hairline px-3 py-2 font-medium">
+                  Provider
+                </th>
+                <th className="border-b border-hairline px-3 py-2 font-medium">
+                  Model
+                </th>
+                <th className="border-b border-hairline px-3 py-2 font-medium">
+                  Error class
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {runtimeReport.failureGroups.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="px-3 py-5 text-center text-[12px] text-muted"
+                  >
+                    No failed runs in this result set.
+                  </td>
+                </tr>
+              ) : (
+                runtimeReport.failureGroups.map((group) => (
+                  <tr
+                    key={[
+                      group.lane,
+                      group.runtimeTarget,
+                      group.provider,
+                      group.modelId,
+                      group.errorClass,
+                    ].join(":")}
+                  >
+                    <td className="border-b border-hairline px-3 py-2 text-ink">
+                      {group.count}
+                    </td>
+                    <td className="border-b border-hairline px-3 py-2 font-mono text-muted">
+                      {group.lane}
+                    </td>
+                    <td className="border-b border-hairline px-3 py-2 text-muted">
+                      {group.runtimeTarget}
+                    </td>
+                    <td className="border-b border-hairline px-3 py-2 text-muted">
+                      {group.provider}
+                    </td>
+                    <td className="border-b border-hairline px-3 py-2 text-muted">
+                      {group.modelId}
+                    </td>
+                    <td className="border-b border-hairline px-3 py-2 text-muted">
+                      {group.errorClass}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <div className="flex flex-wrap items-center gap-2 px-6 pb-4">
         <FilterPill href="/admin/runs" active={status === "all"}>
@@ -227,7 +375,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function Metric({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="rounded-md border border-hairline bg-surface px-3 py-2">
       <div className="text-[11px] uppercase tracking-wider text-muted">
@@ -340,7 +488,7 @@ function formatDuration(startedAt: Date, completedAt: Date) {
   return `${(ms / 1_000).toFixed(ms < 10_000 ? 1 : 0)}s`;
 }
 
-function formatNullableMs(value: number | undefined) {
+function formatNullableMs(value: number | null | undefined) {
   if (typeof value !== "number") return "n/a";
   if (value < 1_000) return `${value}ms`;
   return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}s`;
