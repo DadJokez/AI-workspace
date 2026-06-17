@@ -5,6 +5,7 @@ import { getSessionUser } from "@/lib/auth/getSessionUser";
 import {
   auditAppMutation,
   canActorAccessApp,
+  resolveAppActorRole,
   parseAppInput,
 } from "@/lib/apps";
 
@@ -32,8 +33,16 @@ export async function GET(_req: Request, context: RouteContext) {
   if (!app || !(await canActorAccessApp(getDb(), app, sessionUser))) {
     return notFound();
   }
+  const actorRole = await resolveAppActorRole(getDb(), app, sessionUser);
   return NextResponse.json({
-    app: { ...app, isOwner: app.ownerUserId === sessionUser.id },
+    app: {
+      ...app,
+      isOwner: app.ownerUserId === sessionUser.id,
+      actorRole,
+      canEdit:
+        actorRole === "owner" || actorRole === "admin" || actorRole === "editor",
+      canDeploy: actorRole === "owner" || actorRole === "admin",
+    },
   });
 }
 

@@ -1,21 +1,28 @@
-import { apps, getDb, workspaceArtifacts } from "@ai-workspace/db";
+import { apps, getDb } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import {
   auditAppMutation,
+  canAppRoleDeploy,
+  createAppVersionForArtifact,
+  deployAppVersion,
   findCredentialShapedContent,
+  loadAppVersion,
   isServableArtifact,
+  resolveAppActorRole,
 } from "@/lib/apps";
-import { loadWorkspaceArtifactForUser } from "@/lib/workspace-artifacts";
+import {
+  loadWorkspaceArtifactById,
+  loadWorkspaceArtifactForUser,
+} from "@/lib/workspace-artifacts";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Deploy a version: repoint `live_artifact_id` at one of the app's version
- * candidates. Promoting a newer artifact and reverting to an older one are
- * the same mechanic; the audit row records which one it was. The no-secrets
- * scan (FR-014) re-runs on every deploy.
+ * Deploy a version: promote an app_versions row and keep live_artifact_id in
+ * sync during migration. Promoting a draft and rolling back to an older version
+ * are the same endpoint; the helper records the audit event.
  */
 export async function POST(
   req: Request,
@@ -33,47 +40,105 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
-  const { artifactId } = (body ?? {}) as Record<string, unknown>;
-  if (typeof artifactId !== "string" || !artifactId) {
-    return NextResponse.json({ error: "invalid_artifact" }, { status: 400 });
+  const { artifactId, appVersionId } = (body ?? {}) as Record<string, unknown>;
+  if (
+    (typeof appVersionId !== "string" || !appVersionId) &&
+    (typeof artifactId !== "string" || !artifactId)
+  ) {
+    return NextResponse.json({ error: "invalid_version" }, { status: 400 });
   }
 
   const db = getDb();
   const rows = await db.select().from(apps).where(eq(apps.id, id)).limit(1);
   const app = rows[0];
-  if (!app || app.ownerUserId !== sessionUser.id) {
+  if (!app) {
+    return NextResponse.json({ error: "app_not_found" }, { status: 404 });
+  }
+  const actorRole = await resolveAppActorRole(db, app, sessionUser);
+  if (actorRole === "none") {
     return NextResponse.json({ error: "app_not_found" }, { status: 404 });
   }
   if (app.archivedAt) {
     return NextResponse.json({ error: "app_archived" }, { status: 409 });
   }
-
-  const artifact = await loadWorkspaceArtifactForUser({
-    db,
-    userId: app.ownerUserId,
-    artifactId,
-  });
-  if (!artifact || artifact.threadId !== app.sourceThreadId) {
+  if (!canAppRoleDeploy(actorRole)) {
+    await auditAppMutation({
+      db,
+      actorUserId: sessionUser.id,
+      actionType: "app_deploy_denied",
+      appId: app.id,
+      appSlug: app.slug,
+      status: "denied",
+      error: "Only owners and admins can deploy app versions.",
+      metadata: { appVersionId, artifactId },
+    });
     return NextResponse.json(
-      {
-        error: "artifact_not_eligible",
-        message:
-          "Deployable versions are the HTML artifacts from the conversation this app was built in.",
-      },
-      { status: 422 },
+      { error: "not_allowed", message: "Only owners and admins can deploy app versions." },
+      { status: 403 },
     );
   }
-  if (!isServableArtifact(artifact)) {
-    return NextResponse.json(
-      { error: "artifact_not_servable" },
-      { status: 422 },
-    );
+
+  let version =
+    typeof appVersionId === "string"
+      ? await loadAppVersion(db, app.id, appVersionId)
+      : null;
+  if (!version && typeof artifactId === "string") {
+    const artifact = await loadWorkspaceArtifactForUser({
+      db,
+      userId: app.ownerUserId,
+      artifactId,
+    });
+    if (!artifact || artifact.threadId !== app.sourceThreadId) {
+      return NextResponse.json(
+        {
+          error: "artifact_not_eligible",
+          message:
+            "Deployable versions are app draft versions or HTML artifacts from the conversation this app was built in.",
+        },
+        { status: 422 },
+      );
+    }
+    if (!isServableArtifact(artifact)) {
+      return NextResponse.json(
+        { error: "artifact_not_servable" },
+        { status: 422 },
+      );
+    }
+    version = await createAppVersionForArtifact({
+      db,
+      app,
+      artifactId: artifact.id,
+      createdByUserId: sessionUser.id,
+      status: "draft",
+      summary: artifact.versionSummary,
+    });
+  }
+  if (!version) {
+    return NextResponse.json({ error: "version_not_found" }, { status: 404 });
+  }
+
+  const artifact = await loadWorkspaceArtifactById({
+    db,
+    artifactId: version.artifactId,
+  });
+  if (!artifact) {
+    return NextResponse.json({ error: "artifact_not_found" }, { status: 404 });
   }
   const secretFindings = findCredentialShapedContent(artifact.content);
   if (secretFindings.length > 0) {
+    await auditAppMutation({
+      db,
+      actorUserId: sessionUser.id,
+      actionType: "app_deploy_failed_secret_scan",
+      appId: app.id,
+      appSlug: app.slug,
+      status: "failed",
+      error: "Deploy blocked by secret scan.",
+      metadata: { appVersionId: version.id, artifactId: artifact.id, findings: secretFindings },
+    });
     return NextResponse.json(
       {
-        error: "credential_shaped_content",
+        error: "deploy_blocked_secret_scan",
         message: `Deploy blocked: the document appears to contain ${secretFindings.join(
           " and ",
         )}.`,
@@ -82,42 +147,25 @@ export async function POST(
     );
   }
 
-  const previousArtifactId = app.liveArtifactId;
-  const isRevert =
-    previousArtifactId !== null &&
-    artifact.createdAt < (await artifactCreatedAt(db, previousArtifactId));
-
-  const now = new Date();
-  const updated = await db
-    .update(apps)
-    .set({
-      liveArtifactId: artifact.id,
-      status: "deployed",
-      updatedAt: now,
-    })
-    .where(eq(apps.id, app.id))
-    .returning();
-
-  await auditAppMutation({
-    db,
-    actorUserId: sessionUser.id,
-    actionType: isRevert ? "app_revert" : "app_deploy",
-    appId: app.id,
-    appSlug: app.slug,
-    metadata: { artifactId: artifact.id, previousArtifactId },
-  });
-
-  return NextResponse.json({ app: updated[0], url: `/apps/${app.slug}` });
-}
-
-async function artifactCreatedAt(
-  db: ReturnType<typeof getDb>,
-  artifactId: string,
-): Promise<Date> {
-  const rows = await db
-    .select({ createdAt: workspaceArtifacts.createdAt })
-    .from(workspaceArtifacts)
-    .where(eq(workspaceArtifacts.id, artifactId))
-    .limit(1);
-  return rows[0]?.createdAt ?? new Date(0);
+  try {
+    const updated = await deployAppVersion({
+      db,
+      app,
+      version,
+      actorUserId: sessionUser.id,
+    });
+    return NextResponse.json({
+      app: updated,
+      versionId: version.id,
+      url: `/apps/${app.slug}`,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      {
+        error: "deploy_failed",
+        message: err instanceof Error ? err.message : "Could not deploy this app version.",
+      },
+      { status: 422 },
+    );
+  }
 }

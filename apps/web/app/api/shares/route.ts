@@ -2,14 +2,18 @@ import { apps, getDb, skills } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
-import { createShare, type ShareSubjectType } from "@/lib/shares";
+import {
+  createShare,
+  parseAppShareRole,
+  type ShareSubjectType,
+} from "@/lib/shares";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Share a skill or an app with a named workspace user by email. Only the
- * subject's owner can share it (FR-010). A share grants visibility +
- * run/open + clone — never edit, never the owner's credentials.
+ * Share a skill or an app with a named workspace user by email. Owners can
+ * share their subjects; admins can also grant app access from the app console.
+ * A share grants visibility + run/open + clone — never the owner's credentials.
  */
 export async function POST(req: Request) {
   const sessionUser = await getSessionUser();
@@ -23,7 +27,7 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
-  const { subjectType, subjectId, email } = (body ?? {}) as Record<
+  const { subjectType, subjectId, email, role } = (body ?? {}) as Record<
     string,
     unknown
   >;
@@ -49,11 +53,17 @@ export async function POST(req: Request) {
       { status: 404 },
     );
   }
-  if (subject.ownerUserId !== sessionUser.id) {
+  const canCreateShare =
+    subject.ownerUserId === sessionUser.id ||
+    (subjectType === "app" && sessionUser.role === "admin");
+  if (!canCreateShare) {
     return NextResponse.json(
       {
-        error: "not_owner",
-        message: `Only the ${subjectType}'s owner can share it.`,
+        error: "not_allowed",
+        message:
+          subjectType === "app"
+            ? "Only the app's owner or an admin can share it."
+            : "Only the skill's owner can share it.",
       },
       { status: 403 },
     );
@@ -66,6 +76,7 @@ export async function POST(req: Request) {
     subjectId: subject.id,
     subjectSlug: subject.slug,
     recipientEmail: email,
+    role: subjectType === "app" ? parseAppShareRole(role) : "viewer",
   });
   if (!result.ok) {
     return NextResponse.json(

@@ -21,7 +21,18 @@ const recipient: SessionUser = {
   role: "user",
 };
 
+const admin: SessionUser = {
+  id: "admin-uuid",
+  email: "admin@example.com",
+  displayName: "Admin",
+  role: "admin",
+};
+
 let selectRows: Array<Record<string, unknown>> = [];
+let selectQueue: Array<Array<Record<string, unknown>>> = [];
+let returningRows: Array<Record<string, unknown>> = [];
+let insertValues: Array<Record<string, unknown>> = [];
+let updateSets: Array<Record<string, unknown>> = [];
 
 function installDbMock() {
   vi.doMock("@ai-workspace/db", async () => {
@@ -34,8 +45,23 @@ function installDbMock() {
       {
         get(_t, prop) {
           if (prop === "then") return undefined;
+          if (prop === "set") {
+            return (value: Record<string, unknown>) => {
+              updateSets.push(value);
+              return proxy;
+            };
+          }
+          if (prop === "values") {
+            return (value: Record<string, unknown>) => {
+              insertValues.push(value);
+              return proxy;
+            };
+          }
+          if (prop === "returning") {
+            return () => Promise.resolve(returningRows);
+          }
           if (prop === "limit" || prop === "orderBy") {
-            return () => Promise.resolve(selectRows);
+            return () => Promise.resolve(selectQueue.shift() ?? selectRows);
           }
           return () => proxy;
         },
@@ -47,6 +73,10 @@ function installDbMock() {
 
 afterEach(() => {
   selectRows = [];
+  selectQueue = [];
+  returningRows = [];
+  insertValues = [];
+  updateSets = [];
   vi.resetModules();
 });
 
@@ -104,5 +134,87 @@ describe("canActorAccessSkill / canActorRunSkill", () => {
 
     selectRows = []; // even with no shares, owner sees it
     expect(await canActorAccessSkill(getDb(), privateSkill, owner)).toBe(true);
+  });
+});
+
+describe("parseAppShareRole", () => {
+  it("defaults unknown roles to viewer", async () => {
+    const { parseAppShareRole } = await import("@/lib/shares");
+
+    expect(parseAppShareRole("editor")).toBe("editor");
+    expect(parseAppShareRole("viewer")).toBe("viewer");
+    expect(parseAppShareRole("admin")).toBe("viewer");
+    expect(parseAppShareRole(undefined)).toBe("viewer");
+  });
+});
+
+describe("app share management", () => {
+  const adminCreatedAppShare = {
+    id: "share-1",
+    subjectType: "app",
+    subjectId: "app-1",
+    grantedToUserId: recipient.id,
+    grantedByUserId: admin.id,
+    role: "viewer",
+    revokedAt: null,
+    createdAt: new Date("2026-06-17T12:00:00.000Z"),
+    updatedAt: new Date("2026-06-17T12:00:00.000Z"),
+  };
+
+  it("lets the app owner update an admin-created app share role", async () => {
+    installDbMock();
+    selectQueue = [
+      [adminCreatedAppShare],
+      [{ ownerUserId: owner.id }],
+    ];
+    returningRows = [{ ...adminCreatedAppShare, role: "editor" }];
+
+    const { getDb } = await import("@ai-workspace/db");
+    const { updateShareRole } = await import("@/lib/shares");
+    const result = await updateShareRole({
+      db: getDb(),
+      actor: owner,
+      shareId: adminCreatedAppShare.id,
+      role: "editor",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.share.role).toBe("editor");
+    expect(updateSets).toContainEqual(
+      expect.objectContaining({ role: "editor" }),
+    );
+    expect(insertValues).toContainEqual(
+      expect.objectContaining({
+        actorUserId: owner.id,
+        actionType: "app_share_role_update",
+      }),
+    );
+  });
+
+  it("lets the app owner revoke an admin-created app share", async () => {
+    installDbMock();
+    selectQueue = [
+      [adminCreatedAppShare],
+      [{ ownerUserId: owner.id }],
+    ];
+
+    const { getDb } = await import("@ai-workspace/db");
+    const { revokeShare } = await import("@/lib/shares");
+    const result = await revokeShare({
+      db: getDb(),
+      actor: owner,
+      shareId: adminCreatedAppShare.id,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(updateSets).toContainEqual(
+      expect.objectContaining({ revokedAt: expect.any(Date) }),
+    );
+    expect(insertValues).toContainEqual(
+      expect.objectContaining({
+        actorUserId: owner.id,
+        actionType: "app_share_revoke",
+      }),
+    );
   });
 });

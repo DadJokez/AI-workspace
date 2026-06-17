@@ -30,6 +30,10 @@ import {
   buildArtifactContext,
   buildArtifactLookupMessage,
 } from "@/lib/artifact-context";
+import {
+  buildAppEditContext,
+  createDraftAppVersionsForThreadArtifacts,
+} from "@/lib/apps";
 import { shouldPersistAssistantMessage } from "@/lib/assistant-persistence";
 import {
   appendRunEventWithNextSequence,
@@ -310,13 +314,19 @@ async function executeClaimedChatRun({
 
   // Match artifacts against recent RAW user messages, not the attachment-folded
   // prompt (see chat-inline-runner for the rationale).
-  const artifactContext = await buildArtifactContext({
-    db,
-    userId: run.userId,
-    message: buildArtifactLookupMessage(history, inputs.prompt, {
-      preferFallback: WORKER_TRIGGER_TYPE_SET.has(run.triggerType),
+  const [artifactContext, appEditContext] = await Promise.all([
+    buildArtifactContext({
+      db,
+      userId: run.userId,
+      message: buildArtifactLookupMessage(history, inputs.prompt, {
+        preferFallback: WORKER_TRIGGER_TYPE_SET.has(run.triggerType),
+      }),
     }),
-  });
+    buildAppEditContext({ db, userId: run.userId, threadId: thread.id }),
+  ]);
+  const combinedArtifactContext = [appEditContext, artifactContext]
+    .filter(Boolean)
+    .join("\n\n");
 
   const uploadedFiles = sanitizeUploadedFiles(inputs.uploadedFiles);
   const agentMessages = attachUploadedFilesToLatestUserMessage(
@@ -402,7 +412,7 @@ async function executeClaimedChatRun({
     deniedMcpProviders,
     capabilityGraph,
     modelId: run.modelId ?? undefined,
-    artifactContext,
+    artifactContext: combinedArtifactContext,
     uploadedFiles,
     forcePreamble: true,
     route: runtimeRoute,
@@ -725,6 +735,43 @@ async function persistAssistantResult({
       label: `Created ${artifacts.length} workspace artifact${artifacts.length === 1 ? "" : "s"}`,
       metadata: { artifacts },
     });
+    try {
+      const appDrafts = await createDraftAppVersionsForThreadArtifacts({
+        db,
+        userId: run.userId,
+        threadId,
+        artifacts,
+      });
+      if (appDrafts.created.length > 0 || appDrafts.rejected.length > 0) {
+        await appendWorkerRunEvent(db, run.id, {
+          eventType: "app_draft_versions_created",
+          status: appDrafts.rejected.length > 0 ? "failed" : "succeeded",
+          label:
+            appDrafts.created.length > 0
+              ? `Created ${appDrafts.created.length} draft app version${appDrafts.created.length === 1 ? "" : "s"}`
+              : "Rejected draft app versions",
+          metadata: {
+            draftVersions: appDrafts.created.map((version) => ({
+              id: version.id,
+              appId: version.appId,
+              artifactId: version.artifactId,
+              versionNumber: version.versionNumber,
+              status: version.status,
+            })),
+            rejected: appDrafts.rejected,
+          },
+        });
+      }
+    } catch (err) {
+      process.stderr.write(
+        `[app-draft-version-create-error] ${JSON.stringify({
+          runId: run.id,
+          threadId,
+          assistantMessageId,
+          message: err instanceof Error ? err.message : String(err),
+        })}\n`,
+      );
+    }
   }
   const recommendations =
     terminalStatus === "succeeded" && assistantMessageId

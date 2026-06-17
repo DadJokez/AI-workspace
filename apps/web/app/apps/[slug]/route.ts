@@ -2,8 +2,8 @@ import { apps, getDb } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
-import { canActorOpenApp } from "@/lib/apps";
-import { loadWorkspaceArtifactForUser } from "@/lib/workspace-artifacts";
+import { auditAppMutation, canActorOpenApp, getLiveAppVersion } from "@/lib/apps";
+import { loadWorkspaceArtifactById } from "@/lib/workspace-artifacts";
 
 export const dynamic = "force-dynamic";
 
@@ -44,16 +44,35 @@ export async function GET(
     .where(eq(apps.slug, slug))
     .limit(1);
   const app = rows[0];
-  if (!app || !(await canActorOpenApp(db, app, sessionUser))) {
+  if (!app) {
+    return new NextResponse("Not found", { status: 404 });
+  }
+  if (!(await canActorOpenApp(db, app, sessionUser))) {
+    await auditAppMutation({
+      db,
+      actorUserId: sessionUser.id,
+      actionType: "app_open_denied",
+      appId: app.id,
+      appSlug: app.slug,
+      status: "denied",
+      error: "User does not have access to open this app.",
+    });
     return new NextResponse("Not found", { status: 404 });
   }
 
-  // Content is loaded against the OWNER's artifact store — recipients open
-  // the app without ever gaining access to the owner's artifacts API.
-  const artifact = await loadWorkspaceArtifactForUser({
+  // Content is loaded by app authorization, not by the artifacts API. That
+  // lets editor-created drafts become live without exposing the editor's
+  // workspace artifact library to viewers.
+  const liveVersion = await getLiveAppVersion(db, app);
+  const artifactId = liveVersion?.artifactId ?? app.liveArtifactId;
+  if (!artifactId) {
+    return new NextResponse("This app has no deployed version.", {
+      status: 404,
+    });
+  }
+  const artifact = await loadWorkspaceArtifactById({
     db,
-    userId: app.ownerUserId,
-    artifactId: app.liveArtifactId!,
+    artifactId,
   });
   if (!artifact) {
     return new NextResponse("This app has no deployed version.", {

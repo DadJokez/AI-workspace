@@ -2,7 +2,12 @@ import { apps, getDb } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
-import { listAppVersionCandidates } from "@/lib/apps";
+import {
+  canAppRoleDeploy,
+  canAppRoleEdit,
+  listAppVersions,
+  resolveAppActorRole,
+} from "@/lib/apps";
 
 export const dynamic = "force-dynamic";
 
@@ -20,27 +25,42 @@ export async function GET(
   const db = getDb();
   const rows = await db.select().from(apps).where(eq(apps.id, id)).limit(1);
   const app = rows[0];
-  if (
-    !app ||
-    (app.ownerUserId !== sessionUser.id && sessionUser.role !== "admin")
-  ) {
+  if (!app) {
+    return NextResponse.json({ error: "app_not_found" }, { status: 404 });
+  }
+  const actorRole = await resolveAppActorRole(db, app, sessionUser);
+  if (!canAppRoleEdit(actorRole)) {
     return NextResponse.json({ error: "app_not_found" }, { status: 404 });
   }
 
-  const candidates = await listAppVersionCandidates(db, {
-    ownerUserId: app.ownerUserId,
-    sourceThreadId: app.sourceThreadId,
+  const versions = await listAppVersions(db, {
+    appId: app.id,
+    visibleToUserId: sessionUser.id,
+    actorRole,
   });
 
   return NextResponse.json({
-    versions: candidates.map((artifact) => ({
-      artifactId: artifact.id,
-      title: artifact.title,
-      filename: artifact.filename,
-      sizeBytes: artifact.sizeBytes,
-      createdAt: artifact.createdAt,
-      isLive: artifact.id === app.liveArtifactId,
-      previewUrl: `/api/workspace/artifacts/${artifact.id}`,
+    versions: versions.map((version) => ({
+      id: version.id,
+      appVersionId: version.id,
+      artifactId: version.artifactId,
+      versionNumber: version.versionNumber,
+      status: version.status,
+      summary: version.summary,
+      title: version.artifactTitle,
+      filename: version.artifactFilename,
+      sizeBytes: version.artifactSizeBytes,
+      createdByName: version.createdByName,
+      createdByEmail: version.createdByEmail,
+      createdAt: version.createdAt,
+      deployedAt: version.deployedAt,
+      isLive: version.isLive,
+      canDeploy: canAppRoleDeploy(actorRole) && !version.isLive,
+      canDiscard:
+        version.status === "draft" &&
+        (canAppRoleDeploy(actorRole) ||
+          version.createdByUserId === sessionUser.id),
+      previewUrl: `/api/apps/${app.id}/versions/${version.id}/content`,
     })),
   });
 }

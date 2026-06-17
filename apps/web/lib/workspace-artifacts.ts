@@ -164,6 +164,22 @@ export async function loadWorkspaceArtifactForUser({
   return rows[0] ?? null;
 }
 
+export async function loadWorkspaceArtifactById({
+  db,
+  artifactId,
+}: {
+  db: Database;
+  artifactId: string;
+}): Promise<WorkspaceArtifact | null> {
+  const rows = await db
+    .select()
+    .from(workspaceArtifacts)
+    .where(eq(workspaceArtifacts.id, artifactId))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
 export function serializeWorkspaceArtifact(
   artifact: WorkspaceArtifact,
 ): WorkspaceArtifactSummary {

@@ -3,7 +3,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { RegisterAppForm } from "@/components/apps/RegisterAppForm";
-import { isServableArtifact, listAppsSharedWith } from "@/lib/apps";
+import { isServableArtifact, listAppSharesWithRoles } from "@/lib/apps";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +23,8 @@ export default async function AppsPage() {
     .from(apps)
     .where(and(eq(apps.ownerUserId, sessionUser.id), isNull(apps.archivedAt)))
     .orderBy(desc(apps.updatedAt));
-  const shared = (await listAppsSharedWith(db, sessionUser.id)).filter(
-    (app) => app.ownerUserId !== sessionUser.id,
+  const shared = (await listAppSharesWithRoles(db, sessionUser.id)).filter(
+    ({ app }) => app.ownerUserId !== sessionUser.id,
   );
 
   const recentArtifacts = (
@@ -55,9 +55,12 @@ export default async function AppsPage() {
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {[...mine.map((app) => ({ app, sharedWithMe: false })),
-            ...shared.map((app) => ({ app, sharedWithMe: true }))].map(
-            ({ app, sharedWithMe }) => (
+          {[...mine.map((app) => ({ app, sharedWithMe: false, role: null })),
+            ...shared.map(({ app, role }) => ({
+              app,
+              sharedWithMe: true,
+              role,
+            }))].map(({ app, sharedWithMe, role }) => (
               <li
                 key={app.id}
                 className="flex items-center justify-between rounded-md border border-hairline px-4 py-3"
@@ -67,7 +70,7 @@ export default async function AppsPage() {
                     {app.name}
                     {sharedWithMe ? (
                       <span className="ml-2 rounded bg-ink/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
-                        Shared with you
+                        Shared {role === "editor" ? "editor" : "viewer"}
                       </span>
                     ) : null}
                     {app.status !== "deployed" ? (
@@ -86,19 +89,17 @@ export default async function AppsPage() {
                   {app.status === "deployed" && app.liveArtifactId ? (
                     <a
                       href={`/apps/${app.slug}`}
-                      target="_blank"
-                      rel="noreferrer"
                       className="font-medium text-ink hover:underline"
                     >
                       Open
                     </a>
                   ) : null}
-                  {app.ownerUserId === sessionUser.id ? (
+                  {app.ownerUserId === sessionUser.id || role === "editor" ? (
                     <Link
                       href={`/apps/manage/${app.id}`}
                       className="text-muted hover:text-ink"
                     >
-                      Manage
+                      {app.ownerUserId === sessionUser.id ? "Manage" : "Edit"}
                     </Link>
                   ) : null}
                 </div>
