@@ -101,6 +101,10 @@ describe("eval harness wiring", () => {
 
     const pass = result.results.find((r) => r.caseId === "deterministic-pass");
     expect(pass?.passed).toBe(true);
+    expect(pass).toMatchObject({
+      threadId: "eval-thread:wiring:deterministic-pass",
+      runId: "eval-run:wiring:deterministic-pass",
+    });
 
     const fail = result.results.find((r) => r.caseId === "deterministic-fail");
     expect(fail?.passed).toBe(false);
@@ -181,5 +185,40 @@ describe("eval harness wiring", () => {
     expect(testCase.providerStatus).toEqual({ fixture: "mounted" });
     expect(testCase.contextReceipts).toEqual(["provider:fixture mounted"]);
     expect(testCase.fixtureEvidence).toEqual(["Stable fixture fact"]);
+  });
+
+  it("preserves explicit app thread/run debug IDs for reports", async () => {
+    const suite: EvalSuite = {
+      capability: "debug-ids",
+      defaultModelId: "haiku-4-5",
+      cases: [
+        {
+          id: "failed-production-run",
+          description: "explicit ids appear in failed eval reports",
+          threadId: "thread-prod-1",
+          runId: "run-prod-1",
+          input: "anything",
+          assertions: [
+            {
+              kind: "deterministic",
+              label: "intentional failure",
+              check: () => false,
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = await runSuite(suite, {
+      client: new FakeBedrockClient({ delayMs: 0 }),
+      judgeClient: new FakeBedrockClient({ delayMs: 0 }),
+    });
+
+    expect(result.failed).toBe(1);
+    expect(result.results[0]).toMatchObject({
+      caseId: "failed-production-run",
+      threadId: "thread-prod-1",
+      runId: "run-prod-1",
+    });
   });
 });
