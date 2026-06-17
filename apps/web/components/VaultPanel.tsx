@@ -352,34 +352,144 @@ export function VaultPanel({
               </div>
               <div className="grid gap-2">
                 {approvedItems.map((item) => (
-                  <div
+                  <MemoryApprovedCard
                     key={item.id}
-                    className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-hairline bg-canvas px-3 py-2"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[11px] font-medium uppercase tracking-wider text-muted">
-                        {item.categoryLabel}
-                      </div>
-                      <div className="mt-1 text-[13px] font-medium text-ink">
-                        {item.title}
-                      </div>
-                      <p className="mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-muted [overflow-wrap:anywhere]">
-                        {item.bodyMd}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void patchMemory(item.id, "archive")}
-                      disabled={actionPendingId === item.id}
-                      className="rounded-md border border-hairline px-2 py-1 text-[12px] text-muted hover:bg-subtle hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Archive
-                    </button>
-                  </div>
+                    item={item}
+                    editing={editingId === item.id}
+                    draft={draft}
+                    pending={actionPendingId === item.id}
+                    onDraftChange={setDraft}
+                    onEdit={() => startEdit(item)}
+                    onCancelEdit={() => setEditingId(undefined)}
+                    onSave={() =>
+                      void patchMemory(item.id, "edit", draft)
+                    }
+                    onArchive={() => void patchMemory(item.id, "archive")}
+                  />
                 ))}
               </div>
             </section>
           ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MemoryApprovedCard({
+  item,
+  editing,
+  draft,
+  pending,
+  onDraftChange,
+  onEdit,
+  onCancelEdit,
+  onSave,
+  onArchive,
+}: {
+  item: MemoryItem;
+  editing: boolean;
+  draft: EditDraft;
+  pending: boolean;
+  onDraftChange: (draft: EditDraft) => void;
+  onEdit: () => void;
+  onCancelEdit: () => void;
+  onSave: () => void;
+  onArchive: () => void;
+}) {
+  return (
+    <div
+      data-testid="vault-approved-memory-card"
+      className="rounded-md border border-hairline bg-canvas px-3 py-2"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-muted">
+            {item.categoryLabel}
+          </div>
+          {editing ? (
+            <div className="mt-2 grid gap-2">
+              <select
+                value={draft.category}
+                onChange={(e) =>
+                  onDraftChange({ ...draft, category: e.target.value })
+                }
+                className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink"
+              >
+                {MEMORY_CATEGORIES.map((category) => (
+                  <option key={category.value} value={category.value}>
+                    {category.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                value={draft.title}
+                onChange={(e) =>
+                  onDraftChange({ ...draft, title: e.target.value })
+                }
+                className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink"
+              />
+              <textarea
+                value={draft.bodyMd}
+                onChange={(e) =>
+                  onDraftChange({ ...draft, bodyMd: e.target.value })
+                }
+                rows={4}
+                className="min-h-24 rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] leading-relaxed text-ink"
+              />
+            </div>
+          ) : (
+            <>
+              <h3 className="mt-1 text-[13px] font-medium text-ink">
+                {item.title}
+              </h3>
+              <p className="mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-muted [overflow-wrap:anywhere]">
+                {item.bodyMd}
+              </p>
+            </>
+          )}
+          <MemoryEvidence item={item} />
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {editing ? (
+            <>
+              <button
+                type="button"
+                onClick={onSave}
+                disabled={pending}
+                className="rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={onCancelEdit}
+                disabled={pending}
+                className="rounded-md border border-hairline px-2.5 py-1 text-[12px] text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={onEdit}
+                disabled={pending}
+                className="rounded-md border border-hairline px-2 py-1 text-[12px] text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={onArchive}
+                disabled={pending}
+                className="rounded-md border border-hairline px-2 py-1 text-[12px] text-muted hover:bg-subtle hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Archive
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -465,9 +575,7 @@ function MemorySuggestionCard({
               {item.reason}
             </p>
           ) : null}
-          <div className="mt-2 text-[11px] text-muted">
-            Suggested {formatDate(item.createdAt)}
-          </div>
+          <MemoryEvidence item={item} prefix="Suggested" />
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           {editing ? (
@@ -519,6 +627,45 @@ function MemorySuggestionCard({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function MemoryEvidence({
+  item,
+  prefix = "Updated",
+}: {
+  item: MemoryItem;
+  prefix?: string;
+}) {
+  const sourceHref = item.sourceThreadId
+    ? `/chat?threadId=${encodeURIComponent(item.sourceThreadId)}`
+    : null;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted">
+      <span>Confidence {item.confidence}%</span>
+      <span>{prefix} {formatDate(prefix === "Suggested" ? item.createdAt : item.updatedAt)}</span>
+      {sourceHref ? (
+        <a
+          href={sourceHref}
+          className="rounded-sm underline decoration-hairline underline-offset-2 hover:text-ink"
+        >
+          Source thread
+        </a>
+      ) : (
+        <span>Manual or imported memory</span>
+      )}
+      {item.sourceMessageIds.length > 0 ? (
+        <span>
+          {item.sourceMessageIds.length} source{" "}
+          {item.sourceMessageIds.length === 1 ? "message" : "messages"}
+        </span>
+      ) : null}
+      {item.reason ? (
+        <span className="basis-full [overflow-wrap:anywhere]">
+          Reason: {item.reason}
+        </span>
+      ) : null}
     </div>
   );
 }

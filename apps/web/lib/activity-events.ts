@@ -11,6 +11,7 @@ export type ActivityState = "pending" | "succeeded" | "failed";
  * instead of four separate rows.
  */
 export type ActivityCategory =
+  | "context"
   | "github"
   | "workspace"
   | "tools"

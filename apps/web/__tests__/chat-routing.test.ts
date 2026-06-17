@@ -335,6 +335,30 @@ describe("decideChatRuntimeRoute", () => {
     });
   });
 
+  it("treats bare context and memory inventory questions as personal context", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "What context do you have?",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "fast-local",
+      runtimeTarget: "direct-chat",
+      includeVaultContext: true,
+      reasons: ["personal_context_intent"],
+    });
+
+    expect(
+      decideChatRuntimeRoute({
+        message: "What do you remember about me?",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      includeVaultContext: true,
+      reasons: ["personal_context_intent"],
+    });
+  });
+
   it("treats job and role questions as personal context", () => {
     expect(
       decideChatRuntimeRoute({

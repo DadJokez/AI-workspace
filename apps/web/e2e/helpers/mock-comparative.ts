@@ -125,6 +125,8 @@ export const defaultVaultSuggestion = memoryItem({
   bodyMd:
     "Rob wants Playwright, CI, and an independent reviewer to catch bugs before merge.",
   reason: "Mentioned while planning the QA workflow.",
+  sourceThreadId: "thread-qa-plan",
+  sourceMessageIds: ["message-qa-1", "message-qa-2"],
 });
 
 export const defaultVaultApproved = memoryItem({
@@ -134,6 +136,9 @@ export const defaultVaultApproved = memoryItem({
   categoryLabel: "Working Style",
   title: "Preferred answer style",
   bodyMd: "Keep updates direct, practical, and light on jargon.",
+  reason: "Approved from onboarding and early chat feedback.",
+  sourceThreadId: "thread-style-feedback",
+  sourceMessageIds: ["message-style-1"],
   approvedAt: now,
 });
 
@@ -337,6 +342,25 @@ export async function installMockComparativeApi(
         return json(route, {
           memory: { ...suggestion, status: "dismissed", dismissedAt: now },
         });
+      }
+
+      if (action === "edit" && approved) {
+        const category =
+          typeof body.category === "string" ? body.category : approved.category;
+        const next = {
+          ...approved,
+          category,
+          categoryLabel: memoryCategoryLabel(category),
+          title: typeof body.title === "string" ? body.title : approved.title,
+          bodyMd:
+            typeof body.bodyMd === "string" ? body.bodyMd : approved.bodyMd,
+          updatedAt: now,
+        };
+        approvedItems = approvedItems.map((item) =>
+          item.id === id ? next : item,
+        );
+        approvedMarkdown = buildApprovedMarkdown(approvedItems);
+        return json(route, { memory: next });
       }
 
       if (action === "archive" && approved) {

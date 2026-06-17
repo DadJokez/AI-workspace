@@ -19,6 +19,7 @@ export interface ActivityReceipt {
 }
 
 const CATEGORY_ORDER: ActivityCategory[] = [
+  "context",
   "github",
   "tools",
   "workspace",
@@ -29,6 +30,10 @@ const CATEGORY_LABELS: Record<
   ActivityCategory,
   { one: (label: string) => string; many: (n: number) => string }
 > = {
+  context: {
+    one: (label) => label,
+    many: (n) => `Checked context · ${n} updates`,
+  },
   github: {
     one: (label) => label,
     many: (n) => `Checked GitHub · ${n} steps`,
@@ -121,6 +126,7 @@ function firstTimestamp(
 /** Fallback for events persisted before categories existed. */
 export function inferCategory(label: string): ActivityCategory {
   const lowered = label.toLowerCase();
+  if (/vault|context pack|context/.test(lowered)) return "context";
   if (/github/.test(lowered)) return "github";
   if (/workspace|local notes|command|source snippets|supporting facts/.test(lowered)) {
     return "workspace";

@@ -22,13 +22,32 @@ test.describe("Vault memory", () => {
     await expect(page.getByRole("heading", { name: "Rob" })).toBeVisible();
     await expect(page.getByText("1 approved · 1 suggested")).toBeVisible();
     await expect(
-      page.getByRole("heading", {
-        name: "Preferred answer style",
-        exact: true,
-      }),
+      page
+        .getByRole("heading", {
+          name: "Preferred answer style",
+          exact: true,
+        })
+        .first(),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "PR review automation", exact: true }),
+    ).toBeVisible();
+    const approvedCard = page
+      .getByTestId("vault-approved-memory-card")
+      .first();
+    await expect(approvedCard.getByText("Confidence 82%")).toBeVisible();
+    await expect(approvedCard.getByText("1 source message")).toBeVisible();
+    await expect(
+      approvedCard.getByRole("link", { name: "Source thread" }),
+    ).toHaveAttribute("href", /thread-style-feedback/);
+
+    await approvedCard.getByRole("button", { name: "Edit" }).click();
+    await approvedCard
+      .locator("textarea")
+      .fill("Keep updates direct, practical, and grounded in evidence.");
+    await approvedCard.getByRole("button", { name: "Save" }).click();
+    await expect(
+      page.getByText("grounded in evidence").first(),
     ).toBeVisible();
 
     await page.getByRole("button", { name: "Add a fact" }).click();
@@ -41,7 +60,9 @@ test.describe("Vault memory", () => {
     await page.getByRole("button", { name: "Save fact" }).click();
 
     await expect(
-      page.getByRole("heading", { name: "Current test focus", exact: true }),
+      page
+        .getByRole("heading", { name: "Current test focus", exact: true })
+        .first(),
     ).toBeVisible();
     await expect(page.getByText("2 approved · 1 suggested")).toBeVisible();
 
@@ -116,7 +137,9 @@ test.describe("Vault memory", () => {
     await expect(page.getByText("2 approved · 1 suggested")).toBeVisible();
     await expect(page.getByText("Working Style").first()).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Writing preference", exact: true }),
+      page
+        .getByRole("heading", { name: "Writing preference", exact: true })
+        .first(),
     ).toBeVisible();
   });
 });
