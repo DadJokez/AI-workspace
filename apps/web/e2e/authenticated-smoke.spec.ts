@@ -16,6 +16,8 @@ test.skip(
 );
 
 test.describe("authenticated product smoke", () => {
+  test.describe.configure({ mode: "serial" });
+
   test.beforeEach(async ({ page }) => {
     await installAuthSmokeSession(page);
   });
@@ -231,6 +233,40 @@ test.describe("authenticated product smoke", () => {
     await expect(page).toHaveURL(
       /\/apps\/manage\/00000000-0000-4000-8000-000000000230$/,
     );
+  });
+
+  test("manages app versions, sharing roles, and edit sessions", async ({
+    page,
+  }) => {
+    await page.goto("/apps/manage/00000000-0000-4000-8000-000000000230");
+    await expect(
+      page.getByRole("heading", { name: "Auth Smoke App" }),
+    ).toBeVisible();
+
+    const draftRow = page.locator("li").filter({ hasText: "v3" });
+    await expect(draftRow).toContainText("Draft");
+    await draftRow.getByRole("button", { name: "Deploy" }).click();
+    await expect(draftRow).toContainText("Live");
+
+    const previousRow = page.locator("li").filter({ hasText: "v1" });
+    await previousRow.getByRole("button", { name: "Rollback" }).click();
+    await expect(previousRow).toContainText("Live");
+
+    const throwawayRow = page.locator("li").filter({ hasText: "v4" });
+    await expect(throwawayRow).toContainText("Draft");
+    await throwawayRow.getByRole("button", { name: "Discard" }).click();
+    await expect(throwawayRow).toHaveCount(0);
+
+    const shareRow = page
+      .locator("li")
+      .filter({ hasText: "app-recipient@example.com" });
+    const roleSelect = shareRow.locator("select");
+    await expect(roleSelect).toHaveValue("viewer");
+    await roleSelect.selectOption("editor");
+    await expect(roleSelect).toHaveValue("editor");
+
+    await page.getByRole("button", { name: "Edit" }).click();
+    await expect(page).toHaveURL(/\/chat\?threadId=/);
   });
 
   test("renders protected skills catalog with owned, shared, and starter skills", async ({

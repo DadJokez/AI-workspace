@@ -235,6 +235,8 @@ describe("app lifecycle stateful paths", () => {
       artifactId: "artifact-1",
       versionNumber: 1,
       status: "draft",
+      createdByUserId: editorSession.id,
+      sourceThreadId: "edit-thread-1",
     });
     const updated = makeApp({
       liveVersionId: version.id,
@@ -242,7 +244,10 @@ describe("app lifecycle stateful paths", () => {
     });
 
     state.selectQueue = [[{ versionNumber: 2 }]];
-    state.returningQueue = [[updated]];
+    state.returningQueue = [
+      [updated],
+      [{ id: "session-1", threadId: "edit-thread-1" }],
+    ];
     installMocks(db, ownerSession);
     loadWorkspaceArtifactById.mockResolvedValue(makeArtifact());
 
@@ -262,6 +267,16 @@ describe("app lifecycle stateful paths", () => {
       liveArtifactId: version.artifactId,
       status: "deployed",
     });
+    expect(state.updateSets[3]).toMatchObject({
+      status: "completed",
+      completedAt: expect.any(Date),
+    });
+    expect(state.insertValues).toContainEqual(
+      expect.objectContaining({
+        actionType: "app_edit_session_complete",
+        actorUserId: ownerSession.id,
+      }),
+    );
     expect(state.insertValues).toContainEqual(
       expect.objectContaining({
         actionType: "app_rollback",

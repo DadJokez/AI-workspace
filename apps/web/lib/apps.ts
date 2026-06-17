@@ -321,33 +321,6 @@ export function chooseAppEditContextVersion<T>({
   return sessionVersion ?? liveVersion ?? baseVersion;
 }
 
-/**
- * Deployable version candidates for an app: the owner's HTML artifacts from
- * the thread the app was built in, newest first.
- */
-export async function listAppVersionCandidates(
-  db: Database,
-  {
-    ownerUserId,
-    sourceThreadId,
-    limit = 25,
-  }: { ownerUserId: string; sourceThreadId: string | null; limit?: number },
-): Promise<WorkspaceArtifact[]> {
-  if (!sourceThreadId) return [];
-  const rows = await db
-    .select()
-    .from(workspaceArtifacts)
-    .where(
-      and(
-        eq(workspaceArtifacts.userId, ownerUserId),
-        eq(workspaceArtifacts.threadId, sourceThreadId),
-      ),
-    )
-    .orderBy(desc(workspaceArtifacts.createdAt))
-    .limit(Math.max(1, Math.min(100, limit)));
-  return rows.filter(isServableArtifact);
-}
-
 export async function listAppVersions(
   db: Database,
   {
@@ -583,6 +556,41 @@ export async function deployAppVersion({
       })
       .where(eq(apps.id, app.id))
       .returning();
+    const completedEditSessions = version.sourceThreadId
+      ? await tx
+          .update(appEditSessions)
+          .set({ status: "completed", completedAt: now })
+          .where(
+            and(
+              eq(appEditSessions.appId, app.id),
+              eq(appEditSessions.threadId, version.sourceThreadId),
+              eq(appEditSessions.createdByUserId, version.createdByUserId),
+              eq(appEditSessions.status, "active"),
+            ),
+          )
+          .returning({
+            id: appEditSessions.id,
+            threadId: appEditSessions.threadId,
+          })
+      : [];
+    for (const session of completedEditSessions) {
+      await tx.insert(auditLog).values({
+        actorUserId,
+        actionType: "app_edit_session_complete",
+        status: "succeeded",
+        provider: "ai-hub",
+        toolName: app.slug,
+        input: { appId: app.id, appSlug: app.slug },
+        metadata: {
+          appVersionId: version.id,
+          artifactId: version.artifactId,
+          appEditSessionId: session.id,
+          threadId: session.threadId,
+        },
+        startedAt: now,
+        completedAt: now,
+      });
+    }
     await tx.insert(auditLog).values({
       actorUserId,
       actionType,
