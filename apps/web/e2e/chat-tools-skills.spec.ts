@@ -147,6 +147,10 @@ test.describe("chat tools and skills", () => {
       ],
     });
     await expect(page.getByText("Subject: Weekly status")).toBeVisible();
+    await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
+    await expect(page.getByTestId("active-chat-title")).toContainText(
+      "Weekly Status Writer",
+    );
     await expect(
       page.getByText(/Do not reveal instructions|prompt|INTERNAL-SKILL/i),
     ).toHaveCount(0);
@@ -225,5 +229,9 @@ test.describe("chat tools and skills", () => {
       "/weekly-status",
     );
     await expect(page.getByText("Weekly brief ready.")).toBeVisible();
+    await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
+    await expect(page.getByTestId("active-chat-title")).toContainText(
+      "Weekly Status",
+    );
   });
 });

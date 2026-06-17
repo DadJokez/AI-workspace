@@ -5,11 +5,18 @@ import type {
   WorkspaceArtifactSummary,
 } from "@/lib/workspace-artifacts";
 import { useEffect, useMemo, useState } from "react";
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 interface Props {
   artifact: WorkspaceArtifactSummary;
+  widthPx: number;
+  onWidthChange: (widthPx: number) => void;
   onClose: () => void;
 }
 
@@ -17,7 +24,16 @@ interface ArtifactDetailResponse {
   artifact: WorkspaceArtifactDetail;
 }
 
-export function ArtifactPreviewPane({ artifact, onClose }: Props) {
+const MIN_PREVIEW_WIDTH = 360;
+const MAX_PREVIEW_WIDTH = 960;
+const MIN_CHAT_WIDTH = 420;
+
+export function ArtifactPreviewPane({
+  artifact,
+  widthPx,
+  onWidthChange,
+  onClose,
+}: Props) {
   const [detail, setDetail] = useState<WorkspaceArtifactDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
@@ -65,6 +81,48 @@ export function ArtifactPreviewPane({ artifact, onClose }: Props) {
     () => detectPreviewKind(activeArtifact, content),
     [activeArtifact, content],
   );
+  const previewStyle = {
+    "--artifact-preview-width": `${widthPx}px`,
+  } as CSSProperties;
+
+  function clampPreviewWidth(next: number) {
+    const maxByViewport = Math.max(
+      MIN_PREVIEW_WIDTH,
+      window.innerWidth - MIN_CHAT_WIDTH,
+    );
+    const maxWidth = Math.min(MAX_PREVIEW_WIDTH, maxByViewport);
+    return Math.min(maxWidth, Math.max(MIN_PREVIEW_WIDTH, next));
+  }
+
+  function startResize(e: ReactPointerEvent<HTMLElement>) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = widthPx;
+
+    const handleMove = (move: PointerEvent) => {
+      onWidthChange(clampPreviewWidth(startWidth + startX - move.clientX));
+    };
+
+    const stop = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+  }
+
+  function handleResizeKey(e: ReactKeyboardEvent<HTMLElement>) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const step = e.shiftKey ? 80 : 24;
+    onWidthChange(
+      clampPreviewWidth(widthPx + (e.key === "ArrowLeft" ? step : -step)),
+    );
+  }
 
   return (
     <>
@@ -75,8 +133,24 @@ export function ArtifactPreviewPane({ artifact, onClose }: Props) {
       />
       <aside
         aria-label="Artifact preview"
-        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col border-l border-hairline bg-canvas text-ink shadow-2xl md:w-[min(640px,44vw)]"
+        style={previewStyle}
+        className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-hairline bg-canvas text-ink shadow-2xl md:static md:z-auto md:h-full md:w-[var(--artifact-preview-width)] md:max-w-none md:shrink-0 md:shadow-none"
       >
+        <div
+          role="separator"
+          aria-label="Resize artifact preview"
+          aria-orientation="vertical"
+          aria-valuemin={MIN_PREVIEW_WIDTH}
+          aria-valuemax={MAX_PREVIEW_WIDTH}
+          aria-valuenow={Math.round(widthPx)}
+          data-testid="artifact-preview-resizer"
+          tabIndex={0}
+          onPointerDown={startResize}
+          onKeyDown={handleResizeKey}
+          className="absolute left-0 top-0 hidden h-full w-2 -translate-x-1 cursor-col-resize touch-none border-0 bg-transparent p-0 md:block"
+        >
+          <span className="mx-auto block h-full w-px bg-hairline transition-colors hover:bg-ink/40" />
+        </div>
         <header className="flex min-h-12 shrink-0 items-center gap-2 border-b border-hairline px-3">
           <span className="flex h-7 min-w-7 items-center justify-center rounded-full border border-[#67a3ff]/60 bg-[linear-gradient(135deg,#0637cf_0%,#095cff_54%,#00a6ff_100%)] px-2 font-mono text-[10px] uppercase text-white shadow-[0_0_18px_rgba(0,92,255,0.28)]">
             {activeArtifact.kind.slice(0, 4)}

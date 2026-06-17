@@ -361,8 +361,7 @@ export function SettingsPanel({
                     return <p className="text-[12px] text-ink">{blurb}</p>;
                   })()}
                   <p className="text-[11px] text-muted">
-                    New chats start with this model. You can still change the
-                    model per-tab using the dropdown in the top bar.
+                    New chats start with this model when runtime v2 is off.
                   </p>
                 </Field>
               </Section>

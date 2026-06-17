@@ -508,6 +508,10 @@ export async function streamInlineChatRun({
       terminalStatus: runError ? "failed" : "succeeded",
       error: runError,
       timingMetrics: finalMetrics,
+      suppressedSkillIds:
+        activatedSkills?.flatMap((skill) =>
+          typeof skill.id === "string" ? [skill.id] : [],
+        ) ?? [],
       completedAt,
     });
 
@@ -549,6 +553,7 @@ async function persistInlineAssistantResult({
   terminalStatus,
   error,
   timingMetrics,
+  suppressedSkillIds,
   completedAt,
 }: {
   db: Database;
@@ -571,6 +576,7 @@ async function persistInlineAssistantResult({
   terminalStatus: InlineTerminalStatus;
   error: string | null;
   timingMetrics: ChatRunTimingMetrics;
+  suppressedSkillIds: string[];
   completedAt: Date;
 }): Promise<{
   assistantMessageId: string | undefined;
@@ -661,6 +667,7 @@ async function persistInlineAssistantResult({
         runId,
         userMessageId,
         artifacts,
+        suppressedSkillIds,
       });
     } catch (err) {
       process.stderr.write(

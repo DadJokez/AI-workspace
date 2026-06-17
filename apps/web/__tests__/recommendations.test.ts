@@ -66,6 +66,26 @@ describe("recommendation candidates", () => {
     expect(candidates.some((c) => c.type === "run_existing_skill")).toBe(false);
   });
 
+  it("does not recommend rerunning a skill already activated for the turn", () => {
+    const candidates = buildRecommendationCandidates({
+      currentMessage: "/developer-briefing summarize my recent GitHub work",
+      connectedProviders: ["github"],
+      approvedProviders: ["github"],
+      suppressedSkillIds: ["skill-developer-briefing"],
+      skills: [
+        {
+          id: "skill-developer-briefing",
+          name: "Developer Briefing",
+          description: "Summarize recent GitHub work into a developer briefing.",
+          mcpProviders: ["github"],
+          runnableNow: true,
+        },
+      ],
+    });
+
+    expect(candidates.some((c) => c.type === "run_existing_skill")).toBe(false);
+  });
+
   it("suggests deploying a reusable HTML artifact as an app", () => {
     const candidates = buildRecommendationCandidates({
       currentMessage: "This dashboard is useful. Can we keep using it and update later?",
