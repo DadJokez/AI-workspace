@@ -320,6 +320,39 @@ describe("app lifecycle stateful paths", () => {
     await expect(res.json()).resolves.toMatchObject({ error: "app_not_found" });
   });
 
+  it("hides another editor's draft when discarding a version", async () => {
+    const { db, state } = createDbMock();
+    state.selectQueue = [
+      [makeApp()],
+      [{ role: "editor" }],
+      [
+        makeVersion({
+          id: "version-foreign",
+          status: "draft",
+          createdByUserId: ownerSession.id,
+        }),
+      ],
+    ];
+    installMocks(db, editorSession);
+
+    const { DELETE } = await import(
+      "@/app/api/apps/[id]/versions/[versionId]/route"
+    );
+    const res = await DELETE(
+      new Request("http://localhost/api/apps/app-1/versions/version-foreign", {
+        method: "DELETE",
+      }),
+      {
+        params: Promise.resolve({ id: "app-1", versionId: "version-foreign" }),
+      },
+    );
+
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "version_not_found",
+    });
+  });
+
   it("revokes stale edit context after an editor loses access", async () => {
     const { db, state } = createDbMock();
     state.selectQueue = [

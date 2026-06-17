@@ -34,10 +34,7 @@ export async function DELETE(
     return NextResponse.json({ error: "version_not_found" }, { status: 404 });
   }
   if (!canAppRoleDeploy(actorRole) && version.createdByUserId !== sessionUser.id) {
-    return NextResponse.json(
-      { error: "not_allowed", message: "You can only discard your own draft versions." },
-      { status: 403 },
-    );
+    return NextResponse.json({ error: "version_not_found" }, { status: 404 });
   }
 
   await db
