@@ -16,6 +16,7 @@ import {
   buildChatContextPack,
   type ChatContextUploadedFile,
 } from "@/lib/chat-context-pack";
+import { loadUserCapabilityGraph } from "@/lib/capability-graph";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
@@ -155,6 +156,7 @@ export async function streamInlineChatRun({
             displayName: users.displayName,
             assistantName: users.assistantName,
             customInstructions: users.customInstructions,
+            role: users.role,
           })
           .from(users)
           .where(eq(users.id, userId))
@@ -187,6 +189,7 @@ export async function streamInlineChatRun({
       displayName: "User",
       assistantName: null,
       customInstructions: null,
+      role: "user" as const,
     };
     const agentMessages = attachUploadedFilesToLatestUserMessage(
       buildTurnContext({
@@ -237,6 +240,11 @@ export async function streamInlineChatRun({
       ...providerStatus.deniedProviders,
       ...deniedMcpProviders,
     ]);
+    const capabilityGraph = await loadUserCapabilityGraph(
+      db,
+      { id: userId, role: user.role },
+      { mountedProviders },
+    );
     const contextPack = buildChatContextPack({
       user,
       messages: agentMessages,
@@ -246,6 +254,7 @@ export async function streamInlineChatRun({
       providerStatus,
       mountedProviders,
       deniedMcpProviders,
+      capabilityGraph,
       modelId: runtimeModelId,
       artifactContext,
       uploadedFiles,

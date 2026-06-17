@@ -89,6 +89,41 @@ describe("recommendation candidates", () => {
     );
   });
 
+  it("suggests opening an existing app from the capability graph before deploying a new one", () => {
+    const candidates = buildRecommendationCandidates({
+      currentMessage: "Open the sales dashboard app so I can update it",
+      apps: [
+        {
+          id: "app-1",
+          name: "Sales Dashboard",
+          description: "Reusable sales reporting app.",
+          slug: "sales-dashboard",
+          runnableNow: true,
+          sharedWithMe: true,
+        },
+      ],
+      artifacts: [
+        {
+          id: "artifact-1",
+          title: "Sales Dashboard",
+          filename: "sales-dashboard.html",
+          kind: "html",
+          mimeType: "text/html",
+        },
+      ],
+    });
+
+    expect(candidates[0]).toMatchObject({
+      type: "open_existing_app",
+      title: "Open Sales Dashboard",
+      requiresApproval: false,
+      action: { kind: "open_app", appId: "app-1", slug: "sales-dashboard" },
+    });
+    expect(candidates.some((c) => c.type === "deploy_artifact_as_app")).toBe(
+      false,
+    );
+  });
+
   it("suggests scheduling a recurring workflow but keeps approval required", () => {
     const candidates = buildRecommendationCandidates({
       currentMessage: "Every Friday morning, send the team the weekly status update.",

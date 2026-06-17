@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCapabilityGraph,
+  recommendationInputsFromCapabilityGraph,
   renderCapabilitySummaryForPrompt,
 } from "@/lib/capability-graph";
 
@@ -169,6 +170,64 @@ describe("capability graph", () => {
       source: "owned",
       runnableNow: true,
       status: "enabled",
+    });
+  });
+
+  it("projects graph capabilities into recommendation inputs", () => {
+    const graph = buildCapabilityGraph({
+      userId: "user-1",
+      providerStatus: {
+        connectedProviders: ["github"],
+        allowedProviders: ["github"],
+        deniedProviders: [],
+      },
+      skills: [
+        {
+          id: "skill-1",
+          slug: "weekly-pr-summary",
+          name: "Weekly PR Summary",
+          description: "Summarize GitHub pull requests.",
+          ownerUserId: "other-user",
+          isStarter: false,
+          mcpProviders: ["github"],
+          sharedWithMe: true,
+        },
+      ],
+      apps: [
+        {
+          id: "app-1",
+          slug: "sales-dashboard",
+          name: "Sales Dashboard",
+          description: "Reusable sales reporting app.",
+          ownerUserId: "user-1",
+          status: "deployed",
+          liveArtifactId: "artifact-1",
+        },
+      ],
+      now: NOW,
+    });
+
+    expect(recommendationInputsFromCapabilityGraph(graph)).toMatchObject({
+      connectedProviders: ["github"],
+      approvedProviders: ["github"],
+      skills: [
+        {
+          id: "skill-1",
+          name: "Weekly PR Summary",
+          mcpProviders: ["github"],
+          runnableNow: true,
+          sharedWithMe: true,
+        },
+      ],
+      apps: [
+        {
+          id: "app-1",
+          name: "Sales Dashboard",
+          slug: "sales-dashboard",
+          runnableNow: true,
+          sharedWithMe: false,
+        },
+      ],
     });
   });
 });

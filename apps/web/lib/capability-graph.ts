@@ -13,6 +13,10 @@ import {
   loadUserMcpProviderStatus,
   type UserMcpProviderStatus,
 } from "@/lib/oauth/mcp-servers";
+import type {
+  RecommendationApp,
+  RecommendationSkill,
+} from "@/lib/recommendations";
 import { listSkillsSharedWith } from "@/lib/shares";
 
 export type CapabilityKind = "provider" | "skill" | "app" | "schedule";
@@ -198,6 +202,51 @@ export function renderCapabilitySummaryForPrompt(
     renderEntries("Schedules", graph.schedules, limitPerKind),
     "Use this to answer capability questions and to recommend existing tools, skills, apps, or schedules before rebuilding something manually.",
   ].join("\n");
+}
+
+export function recommendationInputsFromCapabilityGraph(graph: CapabilityGraph): {
+  connectedProviders: string[];
+  approvedProviders: string[];
+  skills: RecommendationSkill[];
+  apps: RecommendationApp[];
+} {
+  return {
+    connectedProviders: graph.providers
+      .map((entry) => stringMetadata(entry, "provider"))
+      .filter(isString),
+    approvedProviders: graph.providers
+      .filter((entry) => entry.runnableNow)
+      .map((entry) => stringMetadata(entry, "provider"))
+      .filter(isString),
+    skills: graph.skills
+      .map((entry) => {
+        const skillId = stringMetadata(entry, "skillId");
+        if (!skillId) return null;
+        return {
+          id: skillId,
+          name: entry.name,
+          description: nullableStringMetadata(entry, "description"),
+          mcpProviders: entry.requiresProviders,
+          runnableNow: entry.runnableNow,
+          sharedWithMe: entry.source === "shared",
+        } satisfies RecommendationSkill;
+      })
+      .filter(isPresent),
+    apps: graph.apps
+      .map((entry) => {
+        const appId = stringMetadata(entry, "appId");
+        if (!appId) return null;
+        return {
+          id: appId,
+          name: entry.name,
+          description: nullableStringMetadata(entry, "description"),
+          slug: nullableStringMetadata(entry, "slug"),
+          runnableNow: entry.runnableNow,
+          sharedWithMe: entry.source === "shared",
+        } satisfies RecommendationApp;
+      })
+      .filter(isPresent),
+  };
 }
 
 function buildSkillCapability(
@@ -408,4 +457,25 @@ function label(value: string): string {
 
 function unique(values: readonly string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+function stringMetadata(entry: CapabilityEntry, key: string): string | undefined {
+  const value = entry.metadata?.[key];
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function nullableStringMetadata(
+  entry: CapabilityEntry,
+  key: string,
+): string | null {
+  const value = entry.metadata?.[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function isString(value: string | undefined): value is string {
+  return typeof value === "string";
+}
+
+function isPresent<T>(value: T | null): value is T {
+  return value !== null;
 }

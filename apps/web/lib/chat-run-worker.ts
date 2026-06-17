@@ -16,6 +16,7 @@ import {
   buildChatContextPack,
   type ChatContextUploadedFile,
 } from "@/lib/chat-context-pack";
+import { loadUserCapabilityGraph } from "@/lib/capability-graph";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import {
   enqueueMemoryCapture,
@@ -277,6 +278,7 @@ async function executeClaimedChatRun({
           displayName: users.displayName,
           assistantName: users.assistantName,
           customInstructions: users.customInstructions,
+          role: users.role,
         })
         .from(users)
         .where(eq(users.id, run.userId))
@@ -295,6 +297,7 @@ async function executeClaimedChatRun({
     displayName: "User",
     assistantName: null,
     customInstructions: null,
+    role: "user" as const,
   };
 
   const history = await db
@@ -361,6 +364,11 @@ async function executeClaimedChatRun({
     ...providerStatus.deniedProviders,
     ...deniedMcpProviders,
   ]);
+  const capabilityGraph = await loadUserCapabilityGraph(
+    db,
+    { id: run.userId, role: user.role },
+    { mountedProviders },
+  );
 
   if (blockedProviders.length > 0) {
     await db.insert(auditLog).values(
@@ -390,6 +398,7 @@ async function executeClaimedChatRun({
     providerStatus,
     mountedProviders,
     deniedMcpProviders,
+    capabilityGraph,
     modelId: run.modelId ?? undefined,
     artifactContext,
     uploadedFiles,

@@ -2,6 +2,7 @@ export type RecommendationType =
   | "tool"
   | "save_as_skill"
   | "run_existing_skill"
+  | "open_existing_app"
   | "deploy_artifact_as_app"
   | "schedule_skill";
 
@@ -14,6 +15,7 @@ export interface RecommendationCandidate {
   action:
     | { kind: "connect_tool"; provider: string }
     | { kind: "run_skill"; skillId: string }
+    | { kind: "open_app"; appId: string; slug?: string }
     | { kind: "create_skill"; source: "repeated_workflow" }
     | { kind: "deploy_app"; artifactId: string }
     | { kind: "create_schedule"; skillId?: string; cadenceHint: string };
@@ -49,6 +51,15 @@ export interface RecommendationArtifact {
   mimeType?: string | null;
 }
 
+export interface RecommendationApp {
+  id: string;
+  name: string;
+  description?: string | null;
+  slug?: string | null;
+  runnableNow?: boolean;
+  sharedWithMe?: boolean;
+}
+
 export interface BuildRecommendationCandidatesInput {
   currentMessage: string;
   recentUserMessages?: readonly string[];
@@ -56,6 +67,7 @@ export interface BuildRecommendationCandidatesInput {
   connectedProviders?: readonly string[];
   approvedProviders?: readonly string[];
   skills?: readonly RecommendationSkill[];
+  apps?: readonly RecommendationApp[];
   artifacts?: readonly RecommendationArtifact[];
 }
 
@@ -102,6 +114,7 @@ export function buildRecommendationCandidates({
   connectedProviders = [],
   approvedProviders = connectedProviders,
   skills = [],
+  apps = [],
   artifacts = [],
 }: BuildRecommendationCandidatesInput): RecommendationCandidate[] {
   const candidates: RecommendationCandidate[] = [];
@@ -156,8 +169,35 @@ export function buildRecommendationCandidates({
     });
   }
 
+  const matchingApp = bestMatchingApp({
+    message: currentMessage,
+    roleContext,
+    apps,
+  });
+  if (matchingApp) {
+    candidates.push({
+      id: `open-app:${matchingApp.id}`,
+      type: "open_existing_app",
+      title: `Open ${matchingApp.name}`,
+      reason: matchingApp.sharedWithMe
+        ? `${matchingApp.name} is shared with you and matches this request.`
+        : `${matchingApp.name} already exists in your workspace and matches this request.`,
+      requiresApproval: false,
+      action: {
+        kind: "open_app",
+        appId: matchingApp.id,
+        ...(matchingApp.slug ? { slug: matchingApp.slug } : {}),
+      },
+      metadata: {
+        appId: matchingApp.id,
+        slug: matchingApp.slug ?? null,
+        sharedWithMe: matchingApp.sharedWithMe === true,
+      },
+    });
+  }
+
   const appArtifact = artifacts.find(isReusableAppArtifact);
-  if (appArtifact && hasReusableArtifactIntent(normalized)) {
+  if (!matchingApp && appArtifact && hasReusableArtifactIntent(normalized)) {
     candidates.push({
       id: `deploy-app:${appArtifact.id}`,
       type: "deploy_artifact_as_app",
@@ -240,6 +280,36 @@ function bestMatchingSkill({
   return best?.skill ?? null;
 }
 
+function bestMatchingApp({
+  message,
+  roleContext,
+  apps,
+}: {
+  message: string;
+  roleContext?: string | null;
+  apps: readonly RecommendationApp[];
+}): RecommendationApp | null {
+  const queryTokens = new Set([
+    ...significantTokens(message),
+    ...significantTokens(roleContext ?? ""),
+  ]);
+  let best: { app: RecommendationApp; score: number } | null = null;
+
+  for (const app of apps) {
+    if (app.runnableNow === false) continue;
+    const appTokens = significantTokens(`${app.name} ${app.description ?? ""}`);
+    const overlap = appTokens.filter((token) => queryTokens.has(token));
+    if (overlap.length === 0) continue;
+
+    const score = overlap.length + appIntentBoost(message);
+    if (!best || score > best.score) {
+      best = { app, score };
+    }
+  }
+
+  return best?.app ?? null;
+}
+
 function countSimilarWorkflow(
   currentTokens: readonly string[],
   recentUserMessages: readonly string[],
@@ -300,6 +370,14 @@ function providerIntentBoost(
   const normalized = normalize(message);
   return providers.some((provider) => providerMention(normalized) === provider)
     ? 2
+    : 0;
+}
+
+function appIntentBoost(message: string): number {
+  return /\b(app|dashboard|tool|portal|calculator|generator|open|launch|reuse|use|update)\b/.test(
+    normalize(message),
+  )
+    ? 1
     : 0;
 }
 

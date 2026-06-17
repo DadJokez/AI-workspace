@@ -489,6 +489,7 @@ function recommendationLabel(type: PersistedRecommendation["type"]): string {
       tool: "Tool",
       save_as_skill: "Skill",
       run_existing_skill: "Skill",
+      open_existing_app: "App",
       deploy_artifact_as_app: "App",
       schedule_skill: "Schedule",
     } as Record<PersistedRecommendation["type"], string>
@@ -497,6 +498,7 @@ function recommendationLabel(type: PersistedRecommendation["type"]): string {
 
 function acceptLabel(recommendation: PersistedRecommendation): string {
   if (recommendation.action.kind === "run_skill") return "Run skill";
+  if (recommendation.action.kind === "open_app") return "Open app";
   if (recommendation.action.kind === "deploy_app") return "Deploy app";
   if (recommendation.action.kind === "create_schedule") return "Approve";
   if (recommendation.action.kind === "create_skill") return "Save as skill";
