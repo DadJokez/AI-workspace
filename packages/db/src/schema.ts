@@ -791,6 +791,11 @@ export const shares = pgTable(
     grantedByUserId: uuid("granted_by_user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * App shares use viewer/editor roles. Skill shares ignore this for now and
+     * keep the default viewer role.
+     */
+    role: text("role").notNull().default("viewer"),
     /** Revocation hides the subject; recipient clones are unaffected. */
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -834,6 +839,11 @@ export const apps = pgTable(
       () => workspaceArtifacts.id,
       { onDelete: "set null" },
     ),
+    /** Target app lifecycle pointer. Kept nullable during live_artifact_id migration. */
+    liveVersionId: uuid("live_version_id").references(
+      (): AnyPgColumn => appVersions.id,
+      { onDelete: "set null" },
+    ),
     status: text("status").notNull().default("draft"),
     /** Where it was built — "open the conversation behind this app". */
     sourceThreadId: uuid("source_thread_id").references(() => chatThreads.id, {
@@ -850,6 +860,92 @@ export const apps = pgTable(
   (t) => ({
     slugUnique: uniqueIndex("apps_slug_idx").on(t.slug),
     ownerIdx: index("apps_owner_idx").on(t.ownerUserId),
+    liveVersionIdx: index("apps_live_version_idx").on(t.liveVersionId),
+  }),
+);
+
+/**
+ * Durable lifecycle rows for thin apps. Workspace artifacts still hold the
+ * immutable HTML bytes; app_versions assigns app-specific version numbers,
+ * draft/live status, and deployment metadata.
+ */
+export const appVersions = pgTable(
+  "app_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    artifactId: uuid("artifact_id")
+      .notNull()
+      .references(() => workspaceArtifacts.id, { onDelete: "cascade" }),
+    versionNumber: integer("version_number").notNull(),
+    status: text("status").notNull().default("draft"),
+    summary: text("summary"),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceThreadId: uuid("source_thread_id").references(() => chatThreads.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deployedAt: timestamp("deployed_at", { withTimezone: true }),
+  },
+  (t) => ({
+    appVersionUnique: uniqueIndex("app_versions_app_version_idx").on(
+      t.appId,
+      t.versionNumber,
+    ),
+    appArtifactUnique: uniqueIndex("app_versions_app_artifact_idx").on(
+      t.appId,
+      t.artifactId,
+    ),
+    appStatusIdx: index("app_versions_app_status_idx").on(t.appId, t.status),
+    appCreatedIdx: index("app_versions_app_created_idx").on(
+      t.appId,
+      sql`${t.createdAt} DESC`,
+    ),
+  }),
+);
+
+/**
+ * App-scoped editing sessions. They bind a chat thread to the app/version the
+ * user is editing so runtime context can load the right app bytes every turn.
+ */
+export const appEditSessions = pgTable(
+  "app_edit_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => chatThreads.id, { onDelete: "cascade" }),
+    baseVersionId: uuid("base_version_id")
+      .notNull()
+      .references(() => appVersions.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("active"),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => ({
+    appStatusIdx: index("app_edit_sessions_app_status_idx").on(
+      t.appId,
+      t.status,
+    ),
+    threadUnique: uniqueIndex("app_edit_sessions_thread_idx").on(t.threadId),
+    actorActiveIdx: index("app_edit_sessions_actor_active_idx").on(
+      t.createdByUserId,
+      t.status,
+    ),
   }),
 );
 
@@ -1085,6 +1181,10 @@ export type Share = typeof shares.$inferSelect;
 export type NewShare = typeof shares.$inferInsert;
 export type App = typeof apps.$inferSelect;
 export type NewApp = typeof apps.$inferInsert;
+export type AppVersion = typeof appVersions.$inferSelect;
+export type NewAppVersion = typeof appVersions.$inferInsert;
+export type AppEditSession = typeof appEditSessions.$inferSelect;
+export type NewAppEditSession = typeof appEditSessions.$inferInsert;
 export type RunEvent = typeof runEvents.$inferSelect;
 export type NewRunEvent = typeof runEvents.$inferInsert;
 export type MemoryCaptureQueueItem = typeof memoryCaptureQueue.$inferSelect;

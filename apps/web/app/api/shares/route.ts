@@ -2,7 +2,11 @@ import { apps, getDb, skills } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
-import { createShare, type ShareSubjectType } from "@/lib/shares";
+import {
+  createShare,
+  parseAppShareRole,
+  type ShareSubjectType,
+} from "@/lib/shares";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +27,7 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
-  const { subjectType, subjectId, email } = (body ?? {}) as Record<
+  const { subjectType, subjectId, email, role } = (body ?? {}) as Record<
     string,
     unknown
   >;
@@ -66,6 +70,7 @@ export async function POST(req: Request) {
     subjectId: subject.id,
     subjectSlug: subject.slug,
     recipientEmail: email,
+    role: subjectType === "app" ? parseAppShareRole(role) : "viewer",
   });
   if (!result.ok) {
     return NextResponse.json(

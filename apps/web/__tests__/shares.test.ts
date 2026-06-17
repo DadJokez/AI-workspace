@@ -106,3 +106,14 @@ describe("canActorAccessSkill / canActorRunSkill", () => {
     expect(await canActorAccessSkill(getDb(), privateSkill, owner)).toBe(true);
   });
 });
+
+describe("parseAppShareRole", () => {
+  it("defaults unknown roles to viewer", async () => {
+    const { parseAppShareRole } = await import("@/lib/shares");
+
+    expect(parseAppShareRole("editor")).toBe("editor");
+    expect(parseAppShareRole("viewer")).toBe("viewer");
+    expect(parseAppShareRole("admin")).toBe("viewer");
+    expect(parseAppShareRole(undefined)).toBe("viewer");
+  });
+});

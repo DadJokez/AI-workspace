@@ -3,9 +3,15 @@ import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { AppActions } from "@/components/apps/AppActions";
+import { EditAppButton } from "@/components/apps/EditAppButton";
 import { VersionsPanel } from "@/components/apps/VersionsPanel";
 import { SharePanel } from "@/components/skills/SharePanel";
-import { listAppVersionCandidates } from "@/lib/apps";
+import {
+  canAppRoleDeploy,
+  canAppRoleEdit,
+  listAppVersions,
+  resolveAppActorRole,
+} from "@/lib/apps";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { listSharesForSubject } from "@/lib/shares";
 
@@ -24,19 +30,21 @@ export default async function ManageAppPage({
   const db = getDb();
   const rows = await db.select().from(apps).where(eq(apps.id, id)).limit(1);
   const app = rows[0];
-  if (
-    !app ||
-    (app.ownerUserId !== sessionUser.id && sessionUser.role !== "admin")
-  ) {
+  if (!app) {
     notFound();
   }
+  const actorRole = await resolveAppActorRole(db, app, sessionUser);
+  if (!canAppRoleEdit(actorRole)) notFound();
+  const canDeploy = canAppRoleDeploy(actorRole);
+  const canShare = actorRole === "owner" || actorRole === "admin";
 
   const [versions, appShares] = await Promise.all([
-    listAppVersionCandidates(db, {
-      ownerUserId: app.ownerUserId,
-      sourceThreadId: app.sourceThreadId,
+    listAppVersions(db, {
+      appId: app.id,
+      visibleToUserId: sessionUser.id,
+      actorRole,
     }),
-    listSharesForSubject(db, "app", app.id),
+    canShare ? listSharesForSubject(db, "app", app.id) : Promise.resolve([]),
   ]);
 
   return (
@@ -61,16 +69,19 @@ export default async function ManageAppPage({
             <p className="mt-1 text-[13px] text-muted">{app.description}</p>
           ) : null}
         </div>
-        {app.status === "deployed" && app.liveArtifactId && !app.archivedAt ? (
-          <a
-            href={`/apps/${app.slug}`}
-            target="_blank"
-            rel="noreferrer"
-            className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-ink/5"
-          >
-            Open app ↗
-          </a>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {app.status === "deployed" &&
+          (app.liveVersionId || app.liveArtifactId) &&
+          !app.archivedAt ? (
+            <a
+              href={`/apps/${app.slug}`}
+              className="rounded-md border border-hairline px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-ink/5"
+            >
+              Open app
+            </a>
+          ) : null}
+          {!app.archivedAt ? <EditAppButton appId={app.id} /> : null}
+        </div>
       </div>
 
       <div className="rounded-md border border-hairline px-4 py-3 text-[12px] text-muted">
@@ -99,37 +110,50 @@ export default async function ManageAppPage({
       <div className="flex flex-col gap-3">
         <h3 className="text-[14px] font-semibold text-ink">Versions</h3>
         <p className="text-[12px] text-muted">
-          Every HTML artifact from the source conversation is a deployable
-          version — keep iterating in chat to create new ones, deploy or
-          revert here.
+          Edits create draft versions. The live URL stays stable until an owner
+          deploys a draft or rolls back to a prior version.
         </p>
         <VersionsPanel
           appId={app.id}
+          canDeploy={canDeploy}
           versions={versions.map((artifact) => ({
-            artifactId: artifact.id,
-            title: artifact.title,
-            filename: artifact.filename,
+            appVersionId: artifact.id,
+            artifactId: artifact.artifactId,
+            versionNumber: artifact.versionNumber,
+            status: artifact.status,
+            summary: artifact.summary,
+            title: artifact.artifactTitle,
+            filename: artifact.artifactFilename,
             createdAt: artifact.createdAt.toISOString(),
-            isLive: artifact.id === app.liveArtifactId,
-            previewUrl: `/api/workspace/artifacts/${artifact.id}`,
+            deployedAt: artifact.deployedAt?.toISOString() ?? null,
+            createdByName: artifact.createdByName,
+            isLive: artifact.isLive,
+            canDeploy: canDeploy && !artifact.isLive,
+            canDiscard:
+              artifact.status === "draft" &&
+              (canDeploy || artifact.createdByUserId === sessionUser.id),
+            previewUrl: `/api/apps/${app.id}/versions/${artifact.id}/content`,
           }))}
         />
       </div>
 
-      <div className="flex flex-col gap-3 border-t border-hairline pt-5">
-        <h3 className="text-[14px] font-semibold text-ink">Sharing</h3>
-        <SharePanel
-          subjectType="app"
-          subjectId={app.id}
-          shares={appShares.map((share) => ({
-            id: share.id,
-            grantedToEmail: share.grantedToEmail,
-            grantedToName: share.grantedToName,
-          }))}
-        />
-      </div>
+      {canShare ? (
+        <div className="flex flex-col gap-3 border-t border-hairline pt-5">
+          <h3 className="text-[14px] font-semibold text-ink">Sharing</h3>
+          <SharePanel
+            subjectType="app"
+            subjectId={app.id}
+            shares={appShares.map((share) => ({
+              id: share.id,
+              grantedToEmail: share.grantedToEmail,
+              grantedToName: share.grantedToName,
+              role: share.role,
+            }))}
+          />
+        </div>
+      ) : null}
 
-      {!app.archivedAt ? (
+      {!app.archivedAt && canDeploy ? (
         <div className="border-t border-hairline pt-5">
           <AppActions appId={app.id} />
         </div>

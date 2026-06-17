@@ -12,6 +12,11 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { canViewSkill } from "@/lib/skills";
 
 export type ShareSubjectType = "skill" | "app";
+export type AppShareRole = "viewer" | "editor";
+
+export function parseAppShareRole(value: unknown): AppShareRole {
+  return value === "editor" ? "editor" : "viewer";
+}
 
 /**
  * A share grants visibility + run/open + clone — never edit and never the
@@ -37,6 +42,28 @@ export async function hasActiveShare(
     )
     .limit(1);
   return Boolean(rows[0]);
+}
+
+export async function getActiveShareRole(
+  db: Database,
+  subjectType: ShareSubjectType,
+  subjectId: string,
+  userId: string,
+): Promise<AppShareRole | null> {
+  const rows = await db
+    .select({ role: shares.role })
+    .from(shares)
+    .where(
+      and(
+        eq(shares.subjectType, subjectType),
+        eq(shares.subjectId, subjectId),
+        eq(shares.grantedToUserId, userId),
+        isNull(shares.revokedAt),
+      ),
+    )
+    .limit(1);
+  if (!rows[0]) return null;
+  return parseAppShareRole(rows[0].role);
 }
 
 /**
@@ -95,15 +122,17 @@ export async function listSharesForSubject(
     grantedToUserId: string;
     grantedToEmail: string;
     grantedToName: string;
+    role: AppShareRole;
     createdAt: Date;
   }>
 > {
-  return db
+  const rows = await db
     .select({
       id: shares.id,
       grantedToUserId: shares.grantedToUserId,
       grantedToEmail: users.email,
       grantedToName: users.displayName,
+      role: shares.role,
       createdAt: shares.createdAt,
     })
     .from(shares)
@@ -116,6 +145,10 @@ export async function listSharesForSubject(
       ),
     )
     .orderBy(desc(shares.createdAt));
+  return rows.map((row) => ({
+    ...row,
+    role: parseAppShareRole(row.role),
+  }));
 }
 
 export async function createShare({
@@ -125,6 +158,7 @@ export async function createShare({
   subjectId,
   subjectSlug,
   recipientEmail,
+  role = "viewer",
 }: {
   db: Database;
   actor: SessionUser;
@@ -132,6 +166,7 @@ export async function createShare({
   subjectId: string;
   subjectSlug: string;
   recipientEmail: string;
+  role?: AppShareRole;
 }): Promise<
   | { ok: true; share: Share }
   | { ok: false; status: number; error: string; message: string }
@@ -167,6 +202,7 @@ export async function createShare({
       subjectId,
       grantedToUserId: recipient.id,
       grantedByUserId: actor.id,
+      role: subjectType === "app" ? parseAppShareRole(role) : "viewer",
     })
     .onConflictDoNothing()
     .returning();
@@ -183,17 +219,96 @@ export async function createShare({
   const now = new Date();
   await db.insert(auditLog).values({
     actorUserId: actor.id,
-    actionType: "share_create",
+    actionType: subjectType === "app" ? "app_share_create" : "share_create",
     status: "succeeded",
     provider: "ai-hub",
     toolName: subjectSlug,
     input: { subjectType, subjectId },
-    metadata: { grantedToUserId: recipient.id, shareId: share.id },
+    metadata: {
+      grantedToUserId: recipient.id,
+      shareId: share.id,
+      role: share.role,
+    },
     startedAt: now,
     completedAt: now,
   });
 
   return { ok: true, share };
+}
+
+export async function updateShareRole({
+  db,
+  actor,
+  shareId,
+  role,
+}: {
+  db: Database;
+  actor: SessionUser;
+  shareId: string;
+  role: AppShareRole;
+}): Promise<
+  | { ok: true; share: Share }
+  | { ok: false; status: number; error: string; message: string }
+> {
+  const rows = await db
+    .select()
+    .from(shares)
+    .where(and(eq(shares.id, shareId), isNull(shares.revokedAt)))
+    .limit(1);
+  const share = rows[0];
+  if (!share) {
+    return {
+      ok: false,
+      status: 404,
+      error: "share_not_found",
+      message: "The share was not found.",
+    };
+  }
+  if (share.subjectType !== "app") {
+    return {
+      ok: false,
+      status: 400,
+      error: "role_not_supported",
+      message: "Only app shares support roles.",
+    };
+  }
+  if (share.grantedByUserId !== actor.id && actor.role !== "admin") {
+    return {
+      ok: false,
+      status: 403,
+      error: "not_grantor",
+      message: "Only the person who shared this (or an admin) can update it.",
+    };
+  }
+
+  const now = new Date();
+  const updated = await db
+    .update(shares)
+    .set({ role: parseAppShareRole(role), updatedAt: now })
+    .where(eq(shares.id, share.id))
+    .returning();
+
+  await db.insert(auditLog).values({
+    actorUserId: actor.id,
+    actionType: "app_share_role_update",
+    status: "succeeded",
+    provider: "ai-hub",
+    toolName: share.subjectType,
+    input: {
+      shareId: share.id,
+      subjectType: share.subjectType,
+      subjectId: share.subjectId,
+    },
+    metadata: {
+      grantedToUserId: share.grantedToUserId,
+      previousRole: share.role,
+      role,
+    },
+    startedAt: now,
+    completedAt: now,
+  });
+
+  return { ok: true, share: updated[0]! };
 }
 
 export async function revokeShare({
@@ -239,7 +354,8 @@ export async function revokeShare({
 
   await db.insert(auditLog).values({
     actorUserId: actor.id,
-    actionType: "share_revoke",
+    actionType:
+      share.subjectType === "app" ? "app_share_revoke" : "share_revoke",
     status: "succeeded",
     provider: "ai-hub",
     toolName: share.subjectType,

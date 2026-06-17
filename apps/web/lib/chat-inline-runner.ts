@@ -32,6 +32,10 @@ import {
   buildArtifactContext,
   buildArtifactLookupMessage,
 } from "@/lib/artifact-context";
+import {
+  buildAppEditContext,
+  createDraftAppVersionsForThreadArtifacts,
+} from "@/lib/apps";
 import { shouldPersistAssistantMessage } from "@/lib/assistant-persistence";
 import {
   appendRunEventWithNextSequence,
@@ -179,11 +183,17 @@ export async function streamInlineChatRun({
     // Match artifacts against recent RAW user messages, not the
     // attachment-folded prompt — so uploaded file bytes can't pull in an
     // unrelated artifact, while "it/that one" follow-ups still have context.
-    const artifactContext = await buildArtifactContext({
-      db,
-      userId,
-      message: buildArtifactLookupMessage(history, prompt),
-    });
+    const [artifactContext, appEditContext] = await Promise.all([
+      buildArtifactContext({
+        db,
+        userId,
+        message: buildArtifactLookupMessage(history, prompt),
+      }),
+      buildAppEditContext({ db, userId, threadId: thread.id }),
+    ]);
+    const combinedArtifactContext = [appEditContext, artifactContext]
+      .filter(Boolean)
+      .join("\n\n");
 
     const user = userRows[0] ?? {
       displayName: "User",
@@ -256,7 +266,7 @@ export async function streamInlineChatRun({
       deniedMcpProviders,
       capabilityGraph,
       modelId: runtimeModelId,
-      artifactContext,
+      artifactContext: combinedArtifactContext,
       uploadedFiles,
       route,
     });
@@ -644,6 +654,43 @@ async function persistInlineAssistantResult({
           label: `Created ${artifacts.length} workspace artifact${artifacts.length === 1 ? "" : "s"}`,
           metadata: { artifacts },
         });
+        try {
+          const appDrafts = await createDraftAppVersionsForThreadArtifacts({
+            db,
+            userId,
+            threadId,
+            artifacts,
+          });
+          if (appDrafts.created.length > 0 || appDrafts.rejected.length > 0) {
+            await appendInlineRunEvent(db, runId, {
+              eventType: "app_draft_versions_created",
+              status: appDrafts.rejected.length > 0 ? "failed" : "succeeded",
+              label:
+                appDrafts.created.length > 0
+                  ? `Created ${appDrafts.created.length} draft app version${appDrafts.created.length === 1 ? "" : "s"}`
+                  : "Rejected draft app versions",
+              metadata: {
+                draftVersions: appDrafts.created.map((version) => ({
+                  id: version.id,
+                  appId: version.appId,
+                  artifactId: version.artifactId,
+                  versionNumber: version.versionNumber,
+                  status: version.status,
+                })),
+                rejected: appDrafts.rejected,
+              },
+            });
+          }
+        } catch (err) {
+          process.stderr.write(
+            `[app-draft-version-create-error] ${JSON.stringify({
+              runId,
+              threadId,
+              assistantMessageId,
+              message: err instanceof Error ? err.message : String(err),
+            })}\n`,
+          );
+        }
       }
     } catch (err) {
       process.stderr.write(

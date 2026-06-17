@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   canViewApp,
+  canAppRoleDeploy,
+  canAppRoleEdit,
   findCredentialShapedContent,
+  isCompleteHtmlArtifact,
   isServableArtifact,
   parseAppInput,
   RESERVED_APP_SLUGS,
@@ -83,6 +86,48 @@ describe("isServableArtifact", () => {
     expect(
       isServableArtifact({ mimeType: "text/markdown", filename: "notes.md" }),
     ).toBe(false);
+  });
+});
+
+describe("isCompleteHtmlArtifact", () => {
+  it("requires a complete HTML document, not just an .html filename", () => {
+    expect(
+      isCompleteHtmlArtifact({
+        mimeType: "text/html",
+        filename: "app.html",
+        content: "<!doctype html><html><body>ok</body></html>",
+      }),
+    ).toBe(true);
+    expect(
+      isCompleteHtmlArtifact({
+        mimeType: "text/html",
+        filename: "snippet.html",
+        content: "<div>partial</div>",
+      }),
+    ).toBe(false);
+    expect(
+      isCompleteHtmlArtifact({
+        mimeType: "text/markdown",
+        filename: "notes.md",
+        content: "<html><body>ok</body></html>",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("app lifecycle roles", () => {
+  it("lets editors draft but only owners/admins deploy", () => {
+    expect(canAppRoleEdit("owner")).toBe(true);
+    expect(canAppRoleEdit("admin")).toBe(true);
+    expect(canAppRoleEdit("editor")).toBe(true);
+    expect(canAppRoleEdit("viewer")).toBe(false);
+    expect(canAppRoleEdit("none")).toBe(false);
+
+    expect(canAppRoleDeploy("owner")).toBe(true);
+    expect(canAppRoleDeploy("admin")).toBe(true);
+    expect(canAppRoleDeploy("editor")).toBe(false);
+    expect(canAppRoleDeploy("viewer")).toBe(false);
+    expect(canAppRoleDeploy("none")).toBe(false);
   });
 });
 

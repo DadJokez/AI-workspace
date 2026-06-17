@@ -4,10 +4,12 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import {
   auditAppMutation,
+  createAppVersionForArtifact,
   findCredentialShapedContent,
   insertAppWithUniqueSlug,
+  isCompleteHtmlArtifact,
   isServableArtifact,
-  listAppsSharedWith,
+  listAppSharesWithRoles,
   parseAppInput,
 } from "@/lib/apps";
 import { loadWorkspaceArtifactForUser } from "@/lib/workspace-artifacts";
@@ -29,10 +31,14 @@ export async function GET() {
       and(eq(apps.ownerUserId, sessionUser.id), isNull(apps.archivedAt)),
     )
     .orderBy(desc(apps.updatedAt));
-  const shared = await listAppsSharedWith(db, sessionUser.id);
+  const shared = await listAppSharesWithRoles(db, sessionUser.id);
   const mineIds = new Set(mine.map((a) => a.id));
 
-  const serialize = (app: (typeof mine)[number], sharedWithMe: boolean) => ({
+  const serialize = (
+    app: (typeof mine)[number],
+    sharedWithMe: boolean,
+    shareRole?: string,
+  ) => ({
     id: app.id,
     slug: app.slug,
     name: app.name,
@@ -40,6 +46,7 @@ export async function GET() {
     status: app.status,
     isOwner: app.ownerUserId === sessionUser.id,
     sharedWithMe,
+    shareRole: shareRole ?? null,
     url: `/apps/${app.slug}`,
     updatedAt: app.updatedAt,
   });
@@ -47,7 +54,9 @@ export async function GET() {
   return NextResponse.json({
     apps: [
       ...mine.map((a) => serialize(a, false)),
-      ...shared.filter((a) => !mineIds.has(a.id)).map((a) => serialize(a, true)),
+      ...shared
+        .filter(({ app }) => !mineIds.has(app.id))
+        .map(({ app, role }) => serialize(app, true, role)),
     ],
   });
 }
@@ -94,11 +103,12 @@ export async function POST(req: Request) {
   if (!artifact) {
     return NextResponse.json({ error: "artifact_not_found" }, { status: 404 });
   }
-  if (!isServableArtifact(artifact)) {
+  if (!isServableArtifact(artifact) || !isCompleteHtmlArtifact(artifact)) {
     return NextResponse.json(
       {
         error: "artifact_not_servable",
-        message: "Only self-contained HTML artifacts can be deployed as apps.",
+        message:
+          "Only complete self-contained HTML documents can be deployed as apps.",
       },
       { status: 422 },
     );
@@ -124,6 +134,20 @@ export async function POST(req: Request) {
     status: "deployed",
     sourceThreadId: artifact.threadId,
   });
+  const initialVersion = await createAppVersionForArtifact({
+    db,
+    app,
+    artifactId: artifact.id,
+    createdByUserId: sessionUser.id,
+    status: "deployed",
+    summary: artifact.versionSummary ?? "Initial deployed app version.",
+    deployedAt: new Date(),
+  });
+  const updated = await db
+    .update(apps)
+    .set({ liveVersionId: initialVersion.id, updatedAt: new Date() })
+    .where(eq(apps.id, app.id))
+    .returning();
 
   await auditAppMutation({
     db,
@@ -131,11 +155,15 @@ export async function POST(req: Request) {
     actionType: "app_register",
     appId: app.id,
     appSlug: app.slug,
-    metadata: { artifactId: artifact.id, sourceThreadId: artifact.threadId },
+    metadata: {
+      artifactId: artifact.id,
+      appVersionId: initialVersion.id,
+      sourceThreadId: artifact.threadId,
+    },
   });
 
   return NextResponse.json(
-    { app, url: `/apps/${app.slug}` },
+    { app: updated[0] ?? app, url: `/apps/${app.slug}` },
     { status: 201 },
   );
 }

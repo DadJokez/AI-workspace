@@ -7,6 +7,7 @@ interface ShareRow {
   id: string;
   grantedToEmail: string;
   grantedToName: string;
+  role?: "viewer" | "editor";
 }
 
 interface SharePanelProps {
@@ -23,6 +24,7 @@ interface SharePanelProps {
 export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) {
   const router = useRouter();
   const [email, setEmail] = useState("");
+  const [role, setRole] = useState<"viewer" | "editor">("viewer");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const noun = subjectType === "app" ? "app" : "skill";
@@ -35,11 +37,12 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
       const res = await fetch("/api/shares", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ subjectType, subjectId, email }),
+        body: JSON.stringify({ subjectType, subjectId, email, role }),
       });
       const body = (await res.json()) as { message?: string; error?: string };
       if (res.ok) {
         setEmail("");
+        setRole("viewer");
         router.refresh();
         return;
       }
@@ -56,6 +59,18 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
     router.refresh();
   }
 
+  async function handleRoleChange(
+    shareId: string,
+    nextRole: "viewer" | "editor",
+  ) {
+    await fetch(`/api/shares/${shareId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ role: nextRole }),
+    });
+    router.refresh();
+  }
+
   return (
     <div className="flex flex-col gap-3">
       {shares.length > 0 ? (
@@ -65,24 +80,43 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
               key={share.id}
               className="flex items-center justify-between rounded-md border border-hairline px-3 py-2 text-[12px]"
             >
-              <span className="text-ink">
-                {share.grantedToName}
-                <span className="text-muted"> · {share.grantedToEmail}</span>
-              </span>
-              <button
-                type="button"
-                className="text-muted hover:text-ink"
-                onClick={() => handleRevoke(share.id)}
-              >
-                Revoke
-              </button>
+              <div className="min-w-0">
+                <span className="text-ink">
+                  {share.grantedToName}
+                  <span className="text-muted"> · {share.grantedToEmail}</span>
+                </span>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {subjectType === "app" ? (
+                  <select
+                    value={share.role ?? "viewer"}
+                    onChange={(e) =>
+                      handleRoleChange(
+                        share.id,
+                        e.target.value === "editor" ? "editor" : "viewer",
+                      )
+                    }
+                    className="rounded-md border border-hairline bg-canvas px-2 py-1 text-[12px] text-ink"
+                  >
+                    <option value="viewer">Viewer</option>
+                    <option value="editor">Editor</option>
+                  </select>
+                ) : null}
+                <button
+                  type="button"
+                  className="text-muted hover:text-ink"
+                  onClick={() => handleRevoke(share.id)}
+                >
+                  Revoke
+                </button>
+              </div>
             </li>
           ))}
         </ul>
       ) : (
         <p className="text-[12px] text-muted">
           {subjectType === "app"
-            ? "Not shared yet. Recipients can open the app behind workspace sign-in — they never get edit access or your credentials."
+            ? "Not shared yet. Viewers can open the app; editors can draft changes. Nobody receives your credentials."
             : "Not shared yet. Recipients can run and clone it with their own credentials — never yours."}
         </p>
       )}
@@ -99,6 +133,21 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
             required
           />
         </label>
+        {subjectType === "app" ? (
+          <label className="flex flex-col gap-1 text-[12px] text-muted">
+            Role
+            <select
+              value={role}
+              onChange={(e) =>
+                setRole(e.target.value === "editor" ? "editor" : "viewer")
+              }
+              className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink"
+            >
+              <option value="viewer">Viewer</option>
+              <option value="editor">Editor</option>
+            </select>
+          </label>
+        ) : null}
         <button
           type="submit"
           disabled={busy}
