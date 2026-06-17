@@ -86,8 +86,10 @@ async function evaluateCase(
   judgeClient: BedrockClient,
   testCase: EvalCase,
   defaultModelId: EvalSuite["defaultModelId"],
+  capability: string,
   structuralOnly = false,
 ): Promise<CaseResult> {
+  const debugIds = evalDebugIds(testCase, capability);
   let transcript: TurnTranscript & { tokensIn: number; tokensOut: number };
   try {
     transcript = await runTurn(client, testCase, defaultModelId);
@@ -95,6 +97,7 @@ async function evaluateCase(
     return {
       caseId: testCase.id,
       description: testCase.description,
+      ...debugIds,
       passed: false,
       assertions: [],
       answerPreview: "",
@@ -113,6 +116,7 @@ async function evaluateCase(
     return {
       caseId: testCase.id,
       description: testCase.description,
+      ...debugIds,
       passed: true,
       assertions: [
         {
@@ -158,6 +162,7 @@ async function evaluateCase(
   return {
     caseId: testCase.id,
     description: testCase.description,
+    ...debugIds,
     passed: assertions.every((a) => a.ok),
     assertions,
     answerPreview: transcript.answer.slice(0, 280),
@@ -200,6 +205,7 @@ export async function runSuite(
         judgeClient,
         testCase,
         suite.defaultModelId,
+        suite.capability,
         options.structuralOnly,
       ),
     );
@@ -210,5 +216,16 @@ export async function runSuite(
     results,
     passed: results.filter((r) => r.passed).length,
     failed: results.filter((r) => !r.passed).length,
+  };
+}
+
+function evalDebugIds(
+  testCase: EvalCase,
+  capability: string,
+): { threadId: string; runId: string } {
+  const slug = `${capability}:${testCase.id}`.replace(/[^a-zA-Z0-9:_-]+/g, "-");
+  return {
+    threadId: testCase.threadId ?? `eval-thread:${slug}`,
+    runId: testCase.runId ?? `eval-run:${slug}`,
   };
 }

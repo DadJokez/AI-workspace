@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { MessageBubble } from "@/components/MessageBubble";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { runEventsToActivityEvents } from "@/lib/run-events";
+import type { PersistedRecommendation } from "@/lib/recommendations";
 import type {
   PersistedToolCall,
   PersistedToolResult,
@@ -34,6 +35,7 @@ interface RunOutput {
   };
   runtime?: string;
   runtimeTarget?: string;
+  recommendations?: PersistedRecommendation[];
   errorDetails?: Array<{
     code?: string;
     category?: string;
@@ -134,6 +136,7 @@ export default async function AdminRunDetailPage({ params }: Props) {
 
   const output = parseRunOutput(run.outputs);
   const prompt = parsePrompt(run.inputs);
+  const contextDebug = parseRunContextDebug(run.inputs);
   const retryInfo = parseRetryInfo(run.inputs);
   const toolCalls = output.toolCalls ?? [];
   const toolResults = output.toolResults ?? [];
@@ -376,6 +379,30 @@ export default async function AdminRunDetailPage({ params }: Props) {
 
           <section>
             <h3 className="mb-2 text-[13px] font-semibold text-ink">
+              Context Debug
+            </h3>
+            <DebugJsonBlock
+              value={contextDebug}
+              emptyLabel="No context receipt or route receipt is stored for this run."
+            />
+          </section>
+
+          <section>
+            <h3 className="mb-2 text-[13px] font-semibold text-ink">
+              Recommendations
+            </h3>
+            <DebugJsonBlock
+              value={
+                output.recommendations && output.recommendations.length > 0
+                  ? output.recommendations
+                  : undefined
+              }
+              emptyLabel="No recommendation candidates were stored for this run."
+            />
+          </section>
+
+          <section>
+            <h3 className="mb-2 text-[13px] font-semibold text-ink">
               Audit Events
             </h3>
             <div className="rounded-md border border-hairline">
@@ -456,6 +483,9 @@ function parseRunOutput(value: unknown): RunOutput {
     runtime: typeof value.runtime === "string" ? value.runtime : undefined,
     runtimeTarget:
       typeof value.runtimeTarget === "string" ? value.runtimeTarget : undefined,
+    recommendations: Array.isArray(value.recommendations)
+      ? (value.recommendations as PersistedRecommendation[])
+      : undefined,
     errorDetails: Array.isArray(value.errorDetails)
       ? value.errorDetails
           .filter(isRecord)
@@ -544,6 +574,24 @@ function parsePrompt(value: unknown): string | undefined {
   return typeof value.prompt === "string" ? value.prompt : undefined;
 }
 
+function parseRunContextDebug(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value)) return undefined;
+  const debug: Record<string, unknown> = {};
+  for (const key of [
+    "runtimeRoute",
+    "routeReceipt",
+    "contextReceipt",
+    "mcpProviders",
+    "accountConnectedMcpProviders",
+    "approvedMcpProviders",
+    "deniedMcpProviders",
+    "uploadedFiles",
+  ]) {
+    if (value[key] !== undefined) debug[key] = value[key];
+  }
+  return Object.keys(debug).length > 0 ? debug : undefined;
+}
+
 function parseRetryInfo(value: unknown): { retryOfRunId: string } | undefined {
   if (!isRecord(value)) return undefined;
   return typeof value.retryOfRunId === "string"
@@ -596,6 +644,32 @@ function DetailLinkRow({
         </Link>
       </dd>
     </div>
+  );
+}
+
+function DebugJsonBlock({
+  value,
+  emptyLabel,
+}: {
+  value: unknown;
+  emptyLabel: string;
+}) {
+  if (value === undefined || value === null) {
+    return (
+      <div className="rounded-md border border-hairline px-3 py-4 text-[12px] text-muted">
+        {emptyLabel}
+      </div>
+    );
+  }
+  return (
+    <details className="rounded-md border border-hairline bg-surface px-3 py-2 text-[12px] text-muted">
+      <summary className="cursor-pointer list-none marker:hidden">
+        Inspect JSON
+      </summary>
+      <pre className="mt-2 max-h-80 overflow-auto border-t border-hairline pt-2 font-mono text-[11px] leading-relaxed text-ink [overflow-wrap:anywhere]">
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    </details>
   );
 }
 

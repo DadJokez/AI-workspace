@@ -25,6 +25,11 @@ A full real run is ~20 cases, under a minute, roughly one cent. Reports land in
 `packages/evals/eval-reports/` (gitignored) as JSON + Markdown. Real-model runs
 exit non-zero on any failure, so they can gate nightly checks. Mock mode skips
 behavior assertions and proves the suite still executes/report-writes end to end.
+Every case report includes stable `thread=` and `run=` debug IDs. Pure harness
+cases use synthetic `eval-thread:*` / `eval-run:*` IDs; app-backed reproductions
+can set real Comparative IDs so admins can open `/admin/runs/{runId}` and inspect
+the stored context receipt, route receipt, mounted-provider state, and
+recommendation candidates.
 
 ## Add a case (the whole point)
 
@@ -65,16 +70,17 @@ file under `src/cases/` — no harness changes:
 - `skill-faithfulness` — Meeting Notes → Actions (owners from source, asks when
   empty), Email Drafter (subject + brevity), Executive Brief (faithful facts +
   allowed analysis), prompt-injection resistance.
-- `context-faithfulness` — Vault truthfulness, connected-tool honesty, skill/app/
-  automation recommendations, and exact capability boundaries.
+- `context-faithfulness` — Vault truthfulness, connected-tool honesty, route
+  receipt honesty, skill/app/automation recommendations, and exact capability
+  boundaries.
 - `tool-grounding` — fixture-backed GitHub PR/issue tools, required tool calls,
   faithful PR summaries, pending-approval boundaries, tool-error handling, and
   lightweight connected-but-not-mounted honesty. Reports include tool-call names,
   tool-result previews, provider status, context receipts, and fixture evidence.
 
 Next capabilities to add (need the app stack, production-like auth, or persisted
-chat state): route/context-pack assembly, the slash-palette redirect, redaction,
-and admin/debug replay of failed context packs.
+chat state): slash-palette redirect, redaction, and admin/debug replay of failed
+context packs.
 
 ## Golden transcript replay
 

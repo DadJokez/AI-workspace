@@ -65,7 +65,7 @@ jobs:
         with:
           script: |
             const title = "Nightly evals failing";
-            const body = `The nightly real-model eval suite failed on ${context.sha.slice(0,7)}. Download the \`eval-report\` artifact from the run for the failing cases:\n${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `The nightly real-model eval suite failed on ${context.sha.slice(0,7)}. Download the \`eval-report\` artifact from the run for the failing cases and their thread/run debug IDs. If a failing case uses a real Comparative run id, inspect it at \`/admin/runs/{runId}\` for the stored context receipt, route receipt, and recommendation candidates:\n${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const existing = await github.rest.issues.listForRepo({
               owner: context.repo.owner, repo: context.repo.repo,
               state: "open", labels: "eval-regression",

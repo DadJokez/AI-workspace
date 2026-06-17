@@ -64,6 +64,7 @@ async function main() {
       if (c.errored) {
         process.stdout.write(`       error: ${c.errored}\n`);
       } else if (!c.passed) {
+        process.stdout.write(`       debug: thread=${c.threadId} run=${c.runId}\n`);
         for (const a of c.assertions.filter((x) => !x.ok)) {
           process.stdout.write(
             `       ✗ ${a.label}${a.detail ? ` — ${a.detail}` : ""}\n`,
@@ -114,6 +115,7 @@ function writeReport(
     md.push(`## ${r.capability} — ${r.passed}/${r.passed + r.failed} passed`, "");
     for (const c of r.results) {
       md.push(`- ${c.passed ? "✅" : c.errored ? "💥" : "❌"} **${c.caseId}** — ${c.description}`);
+      md.push(`  - Debug IDs: thread=${c.threadId}; run=${c.runId}`);
       if (c.toolCalls.length > 0) {
         md.push(`  - Tool calls: ${c.toolCalls.join(", ")}`);
       }

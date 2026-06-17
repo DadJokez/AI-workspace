@@ -8,6 +8,12 @@ export interface EvalCase {
   id: string;
   /** Short human description shown in the report. */
   description: string;
+  /**
+   * Optional debug IDs for app-backed evals. Pure harness cases get stable
+   * synthetic IDs so failure reports can still be correlated.
+   */
+  threadId?: string;
+  runId?: string;
   /** System prompt for the turn (e.g. a skill's instructions). */
   systemPrompt?: string;
   /** The user message. */
@@ -68,6 +74,8 @@ export type Assertion =
 export interface CaseResult {
   caseId: string;
   description: string;
+  threadId: string;
+  runId: string;
   passed: boolean;
   assertions: AssertionResult[];
   answerPreview: string;
