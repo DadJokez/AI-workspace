@@ -651,6 +651,58 @@ export async function startOrResumeAppEditSession({
   return { session: sessionRows[0]!, threadId: thread.id, resumed: false };
 }
 
+async function resolveCurrentAppEditRole({
+  db,
+  userId,
+  app,
+}: {
+  db: Database;
+  userId: string;
+  app: Pick<App, "id" | "ownerUserId" | "archivedAt">;
+}): Promise<AppActorRole> {
+  const actorRows = await db
+    .select({ role: users.role })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  const actor = actorRows[0];
+  if (!actor) return "none";
+  return resolveAppActorRole(db, app, {
+    id: userId,
+    role: actor.role === "admin" ? "admin" : "user",
+  });
+}
+
+async function revokeStaleAppEditSession({
+  db,
+  session,
+  app,
+  userId,
+  reason,
+}: {
+  db: Database;
+  session: AppEditSession;
+  app: App;
+  userId: string;
+  reason: string;
+}): Promise<void> {
+  const now = new Date();
+  await db
+    .update(appEditSessions)
+    .set({ status: "revoked", completedAt: now })
+    .where(eq(appEditSessions.id, session.id));
+  await auditAppMutation({
+    db,
+    actorUserId: userId,
+    actionType: "app_edit_denied",
+    appId: app.id,
+    appSlug: app.slug,
+    status: "denied",
+    error: reason,
+    metadata: { appEditSessionId: session.id, threadId: session.threadId },
+  });
+}
+
 export async function buildAppEditContext({
   db,
   userId,
@@ -680,6 +732,21 @@ export async function buildAppEditContext({
     .limit(1);
   const row = rows[0];
   if (!row) return null;
+  const actorRole = await resolveCurrentAppEditRole({
+    db,
+    userId,
+    app: row.app,
+  });
+  if (!canAppRoleEdit(actorRole)) {
+    await revokeStaleAppEditSession({
+      db,
+      session: row.session,
+      app: row.app,
+      userId,
+      reason: "User no longer has app edit access.",
+    });
+    return null;
+  }
 
   const liveVersion = await getLiveAppVersion(db, row.app);
   const versionForContext = liveVersion ?? row.baseVersion;
@@ -690,7 +757,8 @@ export async function buildAppEditContext({
   if (!artifact) return null;
   const history = await listAppVersions(db, {
     appId: row.app.id,
-    actorRole: "owner",
+    visibleToUserId: userId,
+    actorRole,
     limit: 8,
   });
 
@@ -748,6 +816,21 @@ export async function createDraftAppVersionsForThreadArtifacts({
     .limit(1);
   const active = sessions[0];
   if (!active) return { created: [], rejected: [] };
+  const actorRole = await resolveCurrentAppEditRole({
+    db,
+    userId,
+    app: active.app,
+  });
+  if (!canAppRoleEdit(actorRole)) {
+    await revokeStaleAppEditSession({
+      db,
+      session: active.session,
+      app: active.app,
+      userId,
+      reason: "User no longer has app edit access.",
+    });
+    return { created: [], rejected: [] };
+  }
 
   const created: AppVersion[] = [];
   const rejected: Array<{ artifactId: string; reason: string }> = [];
