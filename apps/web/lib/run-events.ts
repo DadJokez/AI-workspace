@@ -285,6 +285,9 @@ function runEventDetail(event: {
       : null;
     const work = isRecord(receipt?.work) ? receipt.work : null;
     const tools = isRecord(receipt?.tools) ? receipt.tools : null;
+    const contextItems = Array.isArray(receipt?.contextItems)
+      ? receipt.contextItems
+      : [];
     const parts = [
       boolLabel(work?.threadSummaryInjected, "thread summary"),
       boolLabel(work?.artifactContextInjected, "artifact context"),
@@ -292,6 +295,7 @@ function runEventDetail(event: {
       Array.isArray(tools?.mounted) && tools.mounted.length > 0
         ? `mounted tools: ${tools.mounted.join(", ")}`
         : null,
+      summarizeContextSources(contextItems),
     ].filter(Boolean);
     return parts.length > 0 ? parts.join("\n") : undefined;
   }
@@ -321,6 +325,21 @@ function summarizePayload(value: unknown): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function summarizeContextSources(items: unknown[]): string | null {
+  const sources = new Map<string, { injected: number; total: number }>();
+  for (const item of items) {
+    if (!isRecord(item) || typeof item.source !== "string") continue;
+    const current = sources.get(item.source) ?? { injected: 0, total: 0 };
+    current.total += 1;
+    if (item.injected === true) current.injected += 1;
+    sources.set(item.source, current);
+  }
+  if (sources.size === 0) return null;
+  return `context sources: ${[...sources.entries()]
+    .map(([source, count]) => `${source} ${count.injected}/${count.total}`)
+    .join(", ")}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -13,11 +13,22 @@ describe("chat context pack", () => {
       vaultMarkdown: null,
     });
 
-    expect(pack.receipts[0]?.vault).toEqual({
+    expect(pack.receipts[0]?.vault).toMatchObject({
       checked: true,
       injected: false,
       approvedMemoryChars: 0,
+      approvedMemoryItems: 0,
     });
+    expect(pack.receipts[0]?.contextItems).toContainEqual(
+      expect.objectContaining({
+        id: "vault:checked-empty",
+        source: "user_memory_items.approved",
+        owner: "user",
+        freshness: "durable",
+        visibility: "receipt_only",
+        injected: false,
+      }),
+    );
     expect(pack.prompt.systemPrompt).toContain("no approved Vault memory was available");
   });
 
@@ -29,6 +40,15 @@ describe("chat context pack", () => {
     });
 
     expect(pack.receipts[0]?.vault.injected).toBe(true);
+    expect(pack.receipts[0]?.vault.approvedMemoryItems).toBe(1);
+    expect(pack.user.vaultMemory[0]).toMatchObject({
+      type: "vault_memory",
+      source: "user_memory_items.approved",
+      owner: "user",
+      freshness: "durable",
+      visibility: "hidden_prompt",
+      injected: true,
+    });
     expect(pack.prompt.systemPrompt).toContain("Personal context approved by the user");
     expect(pack.prompt.systemPrompt).toContain("Rob prefers direct progress");
   });
@@ -47,6 +67,15 @@ describe("chat context pack", () => {
       connected: ["github"],
       approved: ["github"],
       mounted: [],
+    });
+    expect(pack.tools.connected[0]).toMatchObject({
+      provider: "github",
+      source: "tool_attestations",
+      connected: true,
+      approved: true,
+      mounted: false,
+      pendingApproval: false,
+      injected: true,
     });
     expect(pack.prompt.systemPrompt).toContain("No connected account tool is mounted");
   });
@@ -98,6 +127,14 @@ describe("chat context pack", () => {
 
     expect(pack.receipts[0]?.work.artifactContextInjected).toBe(true);
     expect(pack.receipts[0]?.work.artifactContextChars).toBeGreaterThan(0);
+    expect(pack.work.artifacts[0]).toMatchObject({
+      type: "artifact_context",
+      source: "workspace_artifacts",
+      owner: "workspace",
+      freshness: "durable",
+      visibility: "hidden_prompt",
+      injected: true,
+    });
     expect(pack.prompt.systemPrompt).toContain("Roadmap");
   });
 
@@ -112,7 +149,99 @@ describe("chat context pack", () => {
     expect(pack.receipts[0]?.work.uploadedFiles).toEqual([
       { name: "brief.csv", sizeBytes: 42 },
     ]);
+    expect(pack.work.uploadedFiles[0]).toMatchObject({
+      type: "uploaded_file",
+      label: "brief.csv",
+      source: "uploaded_files",
+      owner: "user",
+      freshness: "current_turn",
+      visibility: "hidden_prompt",
+      injected: true,
+    });
     expect(pack.prompt.systemPrompt).toContain("uploaded files brief.csv");
+  });
+
+  it("exposes profile, thread, and message context as auditable items", () => {
+    const pack = buildChatContextPack({
+      ...baseInput(),
+      threadSummary: "Earlier: Rob asked about GitHub access.",
+    });
+
+    expect(pack.user.profileFacts).toContainEqual(
+      expect.objectContaining({
+        id: "user:display-name",
+        source: "users.display_name",
+        owner: "user",
+        freshness: "durable",
+        injected: true,
+      }),
+    );
+    expect(pack.work.threadSummary).toMatchObject({
+      id: "thread:summary",
+      source: "chat_threads.summary",
+      owner: "workspace",
+      injected: true,
+    });
+    expect(pack.work.recentMessages).toHaveLength(3);
+    expect(pack.receipts[0]?.contextItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: "users.display_name" }),
+        expect.objectContaining({ source: "chat_threads.summary" }),
+        expect.objectContaining({ source: "chat_messages" }),
+      ]),
+    );
+    expect(pack.prompt.systemPrompt).toContain("Context sources:");
+  });
+
+  it("buckets recommendation candidates for future capability recommendations", () => {
+    const pack = buildChatContextPack({
+      ...baseInput(),
+      recommendations: [
+        {
+          id: "tool:github",
+          type: "tool",
+          title: "Use GitHub",
+          reason: "GitHub is connected.",
+          requiresApproval: false,
+          action: { kind: "connect_tool", provider: "github" },
+        },
+        {
+          id: "run-skill:weekly",
+          type: "run_existing_skill",
+          title: "Run Weekly Status",
+          reason: "Matches this request.",
+          requiresApproval: true,
+          action: { kind: "run_skill", skillId: "skill-1" },
+        },
+        {
+          id: "deploy-app:artifact",
+          type: "deploy_artifact_as_app",
+          title: "Deploy this as an app",
+          reason: "Reusable artifact.",
+          requiresApproval: true,
+          action: { kind: "deploy_app", artifactId: "artifact-1" },
+        },
+        {
+          id: "schedule-skill:weekly",
+          type: "schedule_skill",
+          title: "Schedule this workflow",
+          reason: "Recurring cadence.",
+          requiresApproval: true,
+          action: { kind: "create_schedule", cadenceHint: "weekly:friday" },
+        },
+      ],
+    });
+
+    expect(pack.recommendations.tools).toHaveLength(1);
+    expect(pack.recommendations.skills).toHaveLength(1);
+    expect(pack.recommendations.apps).toHaveLength(1);
+    expect(pack.recommendations.schedules).toHaveLength(1);
+    expect(pack.receipts[0]?.recommendations).toMatchObject({
+      tool: 1,
+      run_existing_skill: 1,
+      deploy_artifact_as_app: 1,
+      schedule_skill: 1,
+    });
   });
 });
 
