@@ -4,7 +4,10 @@ import {
   renderCapabilitySummaryForPrompt,
   type CapabilityGraph,
 } from "@/lib/capability-graph";
-import type { ChatRuntimeRoute } from "@/lib/chat-routing";
+import {
+  explainChatRuntimeRoute,
+  type ChatRuntimeRoute,
+} from "@/lib/chat-routing";
 import type { UserMcpProviderStatus } from "@/lib/oauth/mcp-servers";
 import type {
   RecommendationCandidate,
@@ -120,9 +123,11 @@ export interface ChatContextReceipt {
   route?: {
     lane: ChatRuntimeRoute["lane"];
     runtimeTarget: ChatRuntimeRoute["runtimeTarget"];
+    useWorker: boolean;
     useMcp: boolean;
     includeVaultContext: boolean;
     reasons: string[];
+    explanation: string;
   };
 }
 
@@ -373,9 +378,11 @@ export function buildChatContextPack({
           route: {
             lane: route.lane,
             runtimeTarget: route.runtimeTarget,
+            useWorker: route.useWorker,
             useMcp: route.useMcp,
             includeVaultContext: route.includeVaultContext,
             reasons: [...route.reasons],
+            explanation: explainChatRuntimeRoute(route),
           },
         }
       : {}),
@@ -462,6 +469,16 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
         receipt.capabilities.connectedNotMountedProviders,
       )}.`,
   );
+  if (receipt.route) {
+    lines.push(
+      `- Routing: ${receipt.route.explanation} Lane ${receipt.route.lane}; ` +
+        `target ${receipt.route.runtimeTarget}; ` +
+        `${receipt.route.useWorker ? "worker queued" : "streaming inline"}; ` +
+        `${receipt.route.useMcp ? "tools mounted or available for mounting" : "no tools mounted"}; ` +
+        `${receipt.route.includeVaultContext ? "Vault context requested" : "Vault context not requested"}; ` +
+        `reasons ${formatList(receipt.route.reasons)}.`,
+    );
+  }
   lines.push(`- Context sources: ${formatContextSources(receipt.contextItems)}.`);
   lines.push(
     "If the user asks what context was available or why you knew something, answer from this receipt and the injected context above.",

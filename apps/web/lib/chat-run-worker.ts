@@ -40,6 +40,7 @@ import {
   parseChatExecutionMode,
   type ChatExecutionMode,
 } from "@/lib/chat-execution-mode";
+import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
@@ -255,6 +256,7 @@ async function executeClaimedChatRun({
   signal?: AbortSignal;
 }): Promise<void> {
   const inputs = parseChatRunInputs(run.inputs);
+  const runtimeRoute = parseStoredRuntimeRoute(inputs.runtimeRoute);
   const threadId = inputs.threadId;
 
   await appendWorkerRunEvent(db, run.id, {
@@ -403,6 +405,7 @@ async function executeClaimedChatRun({
     artifactContext,
     uploadedFiles,
     forcePreamble: true,
+    route: runtimeRoute,
   });
   const contextReceipt = contextPack.receipts[0]!;
 
@@ -921,6 +924,36 @@ function parseChatRunInputs(value: unknown): ChatRunInputs {
     throw new Error("Chat run inputs are incomplete.");
   }
   return { ...value, prompt, threadId, userMessageId, executionMode };
+}
+
+function parseStoredRuntimeRoute(value: unknown): ChatRuntimeRoute | undefined {
+  if (!isRecord(value)) return undefined;
+  if (
+    value.lane !== "fast-local" &&
+    value.lane !== "tool-local" &&
+    value.lane !== "durable-local"
+  ) {
+    return undefined;
+  }
+  if (
+    value.runtimeTarget !== "direct-chat" &&
+    value.runtimeTarget !== "bedrock-agent" &&
+    value.runtimeTarget !== "agentcore-worker"
+  ) {
+    return undefined;
+  }
+  return {
+    lane: value.lane,
+    executionMode: parseChatExecutionMode(value.executionMode),
+    runtimeTarget: value.runtimeTarget,
+    runtimeV2: value.runtimeV2 === true,
+    useWorker: value.useWorker === true,
+    useMcp: value.useMcp === true,
+    includeVaultContext: value.includeVaultContext === true,
+    reasons: Array.isArray(value.reasons)
+      ? value.reasons.filter((reason): reason is string => typeof reason === "string")
+      : ["stored_runtime_route"],
+  };
 }
 
 function parseOutput(value: unknown): StoredChatRunOutput {

@@ -1,4 +1,5 @@
 import type { ChatExecutionMode } from "@/lib/chat-execution-mode";
+import type { CapabilityEntry, CapabilityGraph } from "@/lib/capability-graph";
 
 export type ChatRuntimeLane =
   | "fast-local"
@@ -32,10 +33,20 @@ export interface ChatRoutingCapabilitySignals {
   connectedProviders?: readonly string[];
   approvedProviders?: readonly string[];
   pendingApprovalProviders?: readonly string[];
+  capabilityAvailability?: ChatRoutingCapabilityAvailability;
   recommendedEscalation?: {
     lane: Exclude<ChatRuntimeLane, "fast-local">;
     reason: string;
   };
+}
+
+export interface ChatRoutingCapabilityAvailability {
+  providers: number;
+  skills: number;
+  apps: number;
+  schedules: number;
+  runnableNow: number;
+  needsApproval: number;
 }
 
 export interface ChatRouteReceipt {
@@ -57,6 +68,7 @@ export interface ChatRouteReceipt {
     approvedProviders: string[];
     pendingApprovalProviders: string[];
   };
+  capabilityAvailability: ChatRoutingCapabilityAvailability;
 }
 
 export function decideChatRuntimeRoute({
@@ -65,6 +77,7 @@ export function decideChatRuntimeRoute({
   priorUserMessages = [],
   contextSignals = {},
   capabilitySignals = {},
+  capabilityGraph,
 }: {
   message: string;
   executionMode?: unknown;
@@ -77,13 +90,33 @@ export function decideChatRuntimeRoute({
   priorUserMessages?: readonly string[];
   contextSignals?: ChatRoutingContextSignals;
   capabilitySignals?: ChatRoutingCapabilitySignals;
+  capabilityGraph?: CapabilityGraph;
 }): ChatRuntimeRoute {
   const normalized = normalize(message);
   const reasons: string[] = [];
+  const resolvedCapabilitySignals = resolveCapabilitySignals(
+    capabilitySignals,
+    capabilityGraph,
+  );
 
-  if (capabilitySignals.recommendedEscalation?.lane === "durable-local") {
+  if (resolvedCapabilitySignals.recommendedEscalation?.lane === "durable-local") {
     reasons.push("recommended_durable_escalation");
-    reasons.push(capabilitySignals.recommendedEscalation.reason);
+    reasons.push(resolvedCapabilitySignals.recommendedEscalation.reason);
+    return {
+      lane: "durable-local",
+      executionMode: "local",
+      runtimeTarget: "agentcore-worker",
+      runtimeV2,
+      useWorker: true,
+      useMcp: true,
+      includeVaultContext: true,
+      reasons,
+    };
+  }
+
+  const durableFollowUp = hasDurableProceedIntent(normalized, priorUserMessages);
+  if (durableFollowUp) {
+    reasons.push(durableFollowUp);
     return {
       lane: "durable-local",
       executionMode: "local",
@@ -114,6 +147,26 @@ export function decideChatRuntimeRoute({
   const tool = hasToolIntent(normalized);
   if (tool) reasons.push(tool);
   if (tool) {
+    return {
+      lane: "tool-local",
+      executionMode: "local",
+      runtimeTarget: "bedrock-agent",
+      runtimeV2,
+      useWorker: false,
+      useMcp: true,
+      includeVaultContext:
+        hasPersonalContextIntent(normalized) !== null ||
+        contextSignals.vaultMemoryAvailable === true,
+      reasons,
+    };
+  }
+
+  const capabilityTool = hasCapabilityBackedToolIntent(
+    normalized,
+    resolvedCapabilitySignals,
+  );
+  if (capabilityTool) {
+    reasons.push(capabilityTool);
     return {
       lane: "tool-local",
       executionMode: "local",
@@ -167,11 +220,17 @@ export function buildChatRouteReceipt({
   route,
   contextSignals = {},
   capabilitySignals = {},
+  capabilityGraph,
 }: {
   route: ChatRuntimeRoute;
   contextSignals?: ChatRoutingContextSignals;
   capabilitySignals?: ChatRoutingCapabilitySignals;
+  capabilityGraph?: CapabilityGraph;
 }): ChatRouteReceipt {
+  const resolvedCapabilitySignals = resolveCapabilitySignals(
+    capabilitySignals,
+    capabilityGraph,
+  );
   return {
     lane: route.lane,
     runtimeTarget: route.runtimeTarget,
@@ -179,7 +238,7 @@ export function buildChatRouteReceipt({
     useMcp: route.useMcp,
     includeVaultContext: route.includeVaultContext,
     reasons: [...route.reasons],
-    explanation: explainRoute(route),
+    explanation: explainChatRuntimeRoute(route),
     contextAvailability: {
       priorUserMessages: contextSignals.priorUserMessagesCount ?? 0,
       vaultMemoryAvailable: contextSignals.vaultMemoryAvailable === true,
@@ -187,12 +246,13 @@ export function buildChatRouteReceipt({
       uploadedFilesAvailable: contextSignals.uploadedFilesAvailable === true,
     },
     toolAvailability: {
-      connectedProviders: uniqueStrings(capabilitySignals.connectedProviders ?? []),
-      approvedProviders: uniqueStrings(capabilitySignals.approvedProviders ?? []),
+      connectedProviders: resolvedCapabilitySignals.connectedProviders,
+      approvedProviders: resolvedCapabilitySignals.approvedProviders,
       pendingApprovalProviders: uniqueStrings(
-        capabilitySignals.pendingApprovalProviders ?? [],
+        resolvedCapabilitySignals.pendingApprovalProviders,
       ),
     },
+    capabilityAvailability: resolvedCapabilitySignals.capabilityAvailability,
   };
 }
 
@@ -247,6 +307,23 @@ function threadAlreadyUsedTools(priorUserMessages: readonly string[]): boolean {
     const n = normalize(prior);
     return hasToolIntent(n) !== null || hasDurableIntent(n) !== null;
   });
+}
+
+function hasDurableProceedIntent(
+  value: string,
+  priorUserMessages: readonly string[],
+): string | null {
+  if (!priorUserMessages.some((prior) => hasDurableIntent(normalize(prior)))) {
+    return null;
+  }
+  if (
+    /^(ok|okay|yes|yep|yeah|cool|sounds good|go ahead|do it|do those|start|ship it|proceed|please do|let'?s do it|build it|implement it)\b/.test(
+      value,
+    )
+  ) {
+    return "sticky_durable_thread";
+  }
+  return null;
 }
 
 export function runtimeV2EnabledFromEnv(
@@ -326,6 +403,30 @@ function hasToolIntent(value: string): string | null {
     )
   ) {
     return "github_owned_resource";
+  }
+  return null;
+}
+
+function hasCapabilityBackedToolIntent(
+  value: string,
+  capabilitySignals: ResolvedRoutingCapabilitySignals,
+): string | null {
+  if (!hasApprovedProvider(capabilitySignals, "github")) return null;
+  if (/\bwhat should i tackle( first| next)?\b/.test(value)) {
+    return "capability_graph_github_work_lookup";
+  }
+  if (
+    /\b(assigned to me|for me|my queue|my work queue)\b/.test(value) &&
+    /\b(work|tasks?|issues?|prs?|pull requests?|reviews?)\b/.test(value)
+  ) {
+    return "capability_graph_github_work_lookup";
+  }
+  if (
+    /\b(summarize|recap|what)\b.*\b(shipped|merged|landed)\b.*\b(this|last)\s+(week|month)\b/.test(
+      value,
+    )
+  ) {
+    return "capability_graph_github_delivery_lookup";
   }
   return null;
 }
@@ -434,7 +535,7 @@ function hasPersonalContextIntent(value: string): string | null {
   return null;
 }
 
-function explainRoute(route: ChatRuntimeRoute): string {
+export function explainChatRuntimeRoute(route: ChatRuntimeRoute): string {
   if (route.lane === "durable-local") {
     return "Queued durable local work because this request needs resilient, longer-running execution.";
   }
@@ -447,6 +548,131 @@ function explainRoute(route: ChatRuntimeRoute): string {
   return "Used fast local chat because no live tools or durable worker were needed.";
 }
 
+interface ResolvedRoutingCapabilitySignals {
+  connectedProviders: string[];
+  approvedProviders: string[];
+  pendingApprovalProviders: string[];
+  capabilityAvailability: ChatRoutingCapabilityAvailability;
+  recommendedEscalation?: ChatRoutingCapabilitySignals["recommendedEscalation"];
+}
+
+function resolveCapabilitySignals(
+  signals: ChatRoutingCapabilitySignals,
+  graph?: CapabilityGraph,
+): ResolvedRoutingCapabilitySignals {
+  const graphProviders = graph?.providers ?? [];
+  const connectedFromGraph = graphProviders
+    .map(providerIdFromCapability)
+    .filter(isPresent);
+  const approvedFromGraph = graphProviders
+    .filter((entry) => entry.runnableNow)
+    .map(providerIdFromCapability)
+    .filter(isPresent);
+  const pendingFromGraph = graphProviders
+    .filter((entry) => entry.needsApproval)
+    .flatMap((entry) => {
+      if (entry.pendingApprovalProviders.length > 0) {
+        return entry.pendingApprovalProviders.map(normalizeProviderId);
+      }
+      const provider = providerIdFromCapability(entry);
+      return provider ? [provider] : [];
+    });
+
+  const connectedProviders = uniqueProviderIds([
+    ...connectedFromGraph,
+    ...(signals.connectedProviders ?? []),
+  ]);
+  const approvedProviders = uniqueProviderIds([
+    ...approvedFromGraph,
+    ...(signals.approvedProviders ?? []),
+  ]);
+  const pendingApprovalProviders = uniqueProviderIds([
+    ...pendingFromGraph,
+    ...(signals.pendingApprovalProviders ?? []),
+  ]);
+
+  return {
+    connectedProviders,
+    approvedProviders,
+    pendingApprovalProviders,
+    capabilityAvailability:
+      signals.capabilityAvailability ??
+      buildCapabilityAvailability(graph, {
+        connectedProviders,
+        approvedProviders,
+        pendingApprovalProviders,
+      }),
+    recommendedEscalation: signals.recommendedEscalation,
+  };
+}
+
+function buildCapabilityAvailability(
+  graph: CapabilityGraph | undefined,
+  fallback: Pick<
+    ResolvedRoutingCapabilitySignals,
+    "connectedProviders" | "approvedProviders" | "pendingApprovalProviders"
+  >,
+): ChatRoutingCapabilityAvailability {
+  if (!graph) {
+    return {
+      providers: uniqueProviderIds([
+        ...fallback.connectedProviders,
+        ...fallback.approvedProviders,
+        ...fallback.pendingApprovalProviders,
+      ]).length,
+      skills: 0,
+      apps: 0,
+      schedules: 0,
+      runnableNow: fallback.approvedProviders.length,
+      needsApproval: fallback.pendingApprovalProviders.length,
+    };
+  }
+  const entries = [
+    ...graph.providers,
+    ...graph.skills,
+    ...graph.apps,
+    ...graph.schedules,
+  ];
+  return {
+    providers: graph.providers.length,
+    skills: graph.skills.length,
+    apps: graph.apps.length,
+    schedules: graph.schedules.length,
+    runnableNow: entries.filter((entry) => entry.runnableNow).length,
+    needsApproval: entries.filter((entry) => entry.needsApproval).length,
+  };
+}
+
+function providerIdFromCapability(entry: CapabilityEntry): string | null {
+  const metadataProvider = entry.metadata?.provider;
+  if (typeof metadataProvider === "string" && metadataProvider.trim()) {
+    return normalizeProviderId(metadataProvider);
+  }
+  if (entry.id.startsWith("provider:")) {
+    return normalizeProviderId(entry.id.slice("provider:".length));
+  }
+  return normalizeProviderId(entry.name);
+}
+
+function hasApprovedProvider(
+  capabilitySignals: ResolvedRoutingCapabilitySignals,
+  provider: string,
+): boolean {
+  return capabilitySignals.approvedProviders.includes(normalizeProviderId(provider));
+}
+
 function uniqueStrings(values: readonly string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+function uniqueProviderIds(values: readonly string[]): string[] {
+  return uniqueStrings(values.map(normalizeProviderId));
+}
+
+function normalizeProviderId(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+function isPresent<T>(value: T | null | undefined): value is T {
+  return value !== null && value !== undefined;
 }

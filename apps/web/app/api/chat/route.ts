@@ -20,6 +20,7 @@ import {
   decideChatRuntimeRoute,
   runtimeV2EnabledFromEnv,
 } from "@/lib/chat-routing";
+import { loadUserCapabilityGraph } from "@/lib/capability-graph";
 import {
   resolveActivatedSkillForChat,
   type ActivatedSkillForChat,
@@ -41,7 +42,6 @@ import {
   requestLimitConfig,
 } from "@/lib/request-limits";
 import { appendRunEvent } from "@/lib/run-events";
-import { loadUserMcpProviderStatus } from "@/lib/oauth/mcp-servers";
 
 export const dynamic = "force-dynamic";
 
@@ -245,15 +245,12 @@ export async function POST(req: Request) {
       ).map((row) => row.content)
     : [];
 
-  const routingProviderStatus = await loadUserMcpProviderStatus(db, sessionUser.id);
+  const routingCapabilityGraph = await loadUserCapabilityGraph(db, sessionUser, {
+    mountedProviders: [],
+  });
   const contextSignals = {
     priorUserMessagesCount: priorUserMessages.length,
     uploadedFilesAvailable: attachments.length > 0,
-  };
-  const capabilitySignals = {
-    connectedProviders: routingProviderStatus.connectedProviders,
-    approvedProviders: routingProviderStatus.allowedProviders,
-    pendingApprovalProviders: routingProviderStatus.deniedProviders,
   };
   let runtimeRoute = decideChatRuntimeRoute({
     message: body.message,
@@ -261,7 +258,7 @@ export async function POST(req: Request) {
     runtimeV2,
     priorUserMessages,
     contextSignals,
-    capabilitySignals,
+    capabilityGraph: routingCapabilityGraph,
   });
   if (activatedSkill) {
     runtimeRoute = applyActivatedSkillRoute(runtimeRoute, {
@@ -271,7 +268,7 @@ export async function POST(req: Request) {
   const routeReceipt = buildChatRouteReceipt({
     route: runtimeRoute,
     contextSignals,
-    capabilitySignals,
+    capabilityGraph: routingCapabilityGraph,
   });
 
   const userMsg = await db

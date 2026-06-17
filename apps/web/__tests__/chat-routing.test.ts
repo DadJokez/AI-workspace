@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildCapabilityGraph } from "@/lib/capability-graph";
 import {
   applyActivatedSkillRoute,
   buildChatRouteReceipt,
@@ -398,6 +399,55 @@ describe("decideChatRuntimeRoute", () => {
     });
   });
 
+  it("uses the capability graph to route ambiguous connected-work asks to tools", () => {
+    const capabilityGraph = buildCapabilityGraph({
+      userId: "user-1",
+      providerStatus: {
+        connectedProviders: ["github"],
+        allowedProviders: ["github"],
+        deniedProviders: [],
+      },
+    });
+
+    expect(
+      decideChatRuntimeRoute({
+        message: "What should I tackle first?",
+        runtimeV2: true,
+        capabilityGraph,
+      }),
+    ).toMatchObject({
+      lane: "tool-local",
+      runtimeTarget: "bedrock-agent",
+      useWorker: false,
+      useMcp: true,
+      reasons: ["capability_graph_github_work_lookup"],
+    });
+  });
+
+  it("does not route ambiguous connected-work asks to tools without an approved provider", () => {
+    const capabilityGraph = buildCapabilityGraph({
+      userId: "user-1",
+      providerStatus: {
+        connectedProviders: ["github"],
+        allowedProviders: [],
+        deniedProviders: ["github"],
+      },
+    });
+
+    expect(
+      decideChatRuntimeRoute({
+        message: "What should I tackle first?",
+        runtimeV2: true,
+        capabilityGraph,
+      }),
+    ).toMatchObject({
+      lane: "fast-local",
+      runtimeTarget: "direct-chat",
+      useMcp: false,
+      reasons: ["default_fast_local"],
+    });
+  });
+
   it("does not stick tools when no earlier turn needed them", () => {
     expect(
       decideChatRuntimeRoute({
@@ -430,6 +480,23 @@ describe("decideChatRuntimeRoute", () => {
     });
   });
 
+  it("escalates a proceed-style follow-up after durable planning to the worker", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "go ahead and do it",
+        runtimeV2: true,
+        priorUserMessages: ["Implement the new settings page and run tests"],
+      }),
+    ).toMatchObject({
+      lane: "durable-local",
+      runtimeTarget: "agentcore-worker",
+      useWorker: true,
+      useMcp: true,
+      includeVaultContext: true,
+      reasons: ["sticky_durable_thread"],
+    });
+  });
+
   it("accepts recommended durable escalation from capability/context signals", () => {
     expect(
       decideChatRuntimeRoute({
@@ -456,9 +523,28 @@ describe("decideChatRuntimeRoute", () => {
   });
 
   it("builds a compact route receipt with context and tool availability", () => {
+    const capabilityGraph = buildCapabilityGraph({
+      userId: "user-1",
+      providerStatus: {
+        connectedProviders: ["github"],
+        allowedProviders: ["github"],
+        deniedProviders: [],
+      },
+      skills: [
+        {
+          id: "skill-1",
+          slug: "weekly-status",
+          name: "Weekly Status",
+          ownerUserId: "user-1",
+          isStarter: false,
+          mcpProviders: ["github"],
+        },
+      ],
+    });
     const route = decideChatRuntimeRoute({
       message: "What PRs am I reviewing?",
       runtimeV2: true,
+      capabilityGraph,
     });
     const receipt = buildChatRouteReceipt({
       route,
@@ -467,11 +553,7 @@ describe("decideChatRuntimeRoute", () => {
         vaultMemoryAvailable: true,
         uploadedFilesAvailable: true,
       },
-      capabilitySignals: {
-        connectedProviders: ["github"],
-        approvedProviders: ["github"],
-        pendingApprovalProviders: [],
-      },
+      capabilityGraph,
     });
 
     expect(receipt).toMatchObject({
@@ -485,6 +567,14 @@ describe("decideChatRuntimeRoute", () => {
       toolAvailability: {
         connectedProviders: ["github"],
         approvedProviders: ["github"],
+      },
+      capabilityAvailability: {
+        providers: 1,
+        skills: 1,
+        apps: 0,
+        schedules: 0,
+        runnableNow: 2,
+        needsApproval: 0,
       },
     });
     expect(receipt.explanation).toContain("Mounted local tools");
