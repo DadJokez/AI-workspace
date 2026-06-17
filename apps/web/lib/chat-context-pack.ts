@@ -1,5 +1,9 @@
 import type { AgentMessage } from "@ai-workspace/agent";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
+import {
+  renderCapabilitySummaryForPrompt,
+  type CapabilityGraph,
+} from "@/lib/capability-graph";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 import type { UserMcpProviderStatus } from "@/lib/oauth/mcp-servers";
 import type {
@@ -45,7 +49,8 @@ export interface ChatContextItem {
     | "recent_message"
     | "thread_summary"
     | "artifact_context"
-    | "uploaded_file";
+    | "uploaded_file"
+    | "capability_graph";
   label: string;
   source: string;
   owner: ChatContextItemOwner;
@@ -101,6 +106,15 @@ export interface ChatContextReceipt {
     uploadedFilesInjected: boolean;
     uploadedFiles: ChatContextUploadedFile[];
   };
+  capabilities: {
+    providers: number;
+    skills: number;
+    apps: number;
+    schedules: number;
+    runnableNow: number;
+    needsApproval: number;
+    connectedNotMountedProviders: string[];
+  };
   contextItems: ChatContextItem[];
   recommendations: Record<RecommendationType, number>;
   route?: {
@@ -147,6 +161,7 @@ export interface BuildChatContextPackInput {
   providerStatus: UserMcpProviderStatus;
   mountedProviders: readonly string[];
   deniedMcpProviders?: readonly string[];
+  capabilityGraph?: CapabilityGraph;
   modelId?: string;
   artifactContext?: string | null;
   uploadedFiles?: readonly ChatContextUploadedFile[];
@@ -165,6 +180,7 @@ export function buildChatContextPack({
   providerStatus,
   mountedProviders,
   deniedMcpProviders = [],
+  capabilityGraph,
   modelId,
   artifactContext,
   uploadedFiles = [],
@@ -181,12 +197,14 @@ export function buildChatContextPack({
   const artifacts = artifactContext?.trim() ?? "";
   const hasConnectedToolState =
     providerStatus.connectedProviders.length > 0 || blockedProviders.length > 0;
+  const hasCapabilityState = capabilityGraphHasEntries(capabilityGraph);
   const shouldRenderPreamble =
     forcePreamble ||
     Boolean(route?.useMcp) ||
     Boolean(route?.includeVaultContext) ||
     Boolean(user.customInstructions?.trim()) ||
     artifacts.length > 0 ||
+    hasCapabilityState ||
     hasConnectedToolState;
   const visibility: ChatContextItemVisibility = shouldRenderPreamble
     ? "hidden_prompt"
@@ -277,6 +295,19 @@ export function buildChatContextPack({
     pendingApprovalProviders: blockedProviders,
     injected: shouldRenderPreamble,
   });
+  const capabilityItem = capabilityGraph
+    ? contextItem({
+        id: "workspace:capability-graph",
+        type: "capability_graph",
+        label: "Capability graph",
+        source: "capability_graph",
+        owner: "workspace",
+        freshness: "live_account",
+        visibility: shouldRenderPreamble ? "hidden_prompt" : "receipt_only",
+        injected: shouldRenderPreamble,
+        metadata: buildCapabilityReceipt(capabilityGraph),
+      })
+    : undefined;
   const recommendationPack = bucketRecommendations(recommendations);
   const contextItems = [
     ...profileFacts,
@@ -286,7 +317,9 @@ export function buildChatContextPack({
     ...recentMessageItems,
     ...artifactItems,
     ...uploadedFileItems,
+    ...(capabilityItem ? [capabilityItem] : []),
   ];
+  const capabilityReceipt = buildCapabilityReceipt(capabilityGraph);
   const receipt: ChatContextReceipt = {
     version: 1,
     schema: "context-pack.v2",
@@ -317,6 +350,7 @@ export function buildChatContextPack({
         ...(file.extractionStatus ? { extractionStatus: file.extractionStatus } : {}),
       })),
     },
+    capabilities: capabilityReceipt,
     contextItems: contextItems.map(compactContextItem),
     recommendations: {
       tool: recommendationPack.tools.length,
@@ -326,7 +360,12 @@ export function buildChatContextPack({
       run_existing_skill: recommendationPack.skills.filter(
         (candidate) => candidate.type === "run_existing_skill",
       ).length,
-      deploy_artifact_as_app: recommendationPack.apps.length,
+      open_existing_app: recommendationPack.apps.filter(
+        (candidate) => candidate.type === "open_existing_app",
+      ).length,
+      deploy_artifact_as_app: recommendationPack.apps.filter(
+        (candidate) => candidate.type === "deploy_artifact_as_app",
+      ).length,
       schedule_skill: recommendationPack.schedules.length,
     },
     ...(route
@@ -359,6 +398,9 @@ export function buildChatContextPack({
           vaultContextRequested,
         }),
         "",
+        ...(capabilityGraph && hasCapabilityState
+          ? [renderCapabilitySummaryForPrompt(capabilityGraph), ""]
+          : []),
         renderContextReceiptForPrompt(receipt),
       ].join("\n")
     : undefined;
@@ -409,6 +451,16 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
       `summary ${receipt.work.threadSummaryInjected ? "included" : "not included"}; ` +
       `artifacts ${receipt.work.artifactContextInjected ? "included" : "not included"}; ` +
       `uploaded files ${formatList(receipt.work.uploadedFiles.map((file) => file.name))}.`,
+  );
+  lines.push(
+    `- Capabilities: ${receipt.capabilities.providers} tool provider(s), ` +
+      `${receipt.capabilities.skills} skill(s), ${receipt.capabilities.apps} app(s), ` +
+      `${receipt.capabilities.schedules} schedule(s); ` +
+      `${receipt.capabilities.runnableNow} runnable now; ` +
+      `${receipt.capabilities.needsApproval} need approval; ` +
+      `connected but not mounted ${formatList(
+        receipt.capabilities.connectedNotMountedProviders,
+      )}.`,
   );
   lines.push(`- Context sources: ${formatContextSources(receipt.contextItems)}.`);
   lines.push(
@@ -557,7 +609,9 @@ function bucketRecommendations(
         candidate.type === "run_existing_skill",
     ),
     apps: recommendations.filter(
-      (candidate) => candidate.type === "deploy_artifact_as_app",
+      (candidate) =>
+        candidate.type === "open_existing_app" ||
+        candidate.type === "deploy_artifact_as_app",
     ),
     schedules: recommendations.filter(
       (candidate) => candidate.type === "schedule_skill",
@@ -619,4 +673,56 @@ function formatContextSources(items: readonly ChatContextItem[]): string {
         `${source} ${count.injected}/${count.total} injected`,
     )
     .join("; ");
+}
+
+function capabilityGraphHasEntries(
+  graph: CapabilityGraph | undefined,
+): graph is CapabilityGraph {
+  if (!graph) return false;
+  return (
+    graph.providers.length +
+      graph.skills.length +
+      graph.apps.length +
+      graph.schedules.length >
+    0
+  );
+}
+
+function buildCapabilityReceipt(graph: CapabilityGraph | undefined): {
+  providers: number;
+  skills: number;
+  apps: number;
+  schedules: number;
+  runnableNow: number;
+  needsApproval: number;
+  connectedNotMountedProviders: string[];
+} {
+  if (!graph) {
+    return {
+      providers: 0,
+      skills: 0,
+      apps: 0,
+      schedules: 0,
+      runnableNow: 0,
+      needsApproval: 0,
+      connectedNotMountedProviders: [],
+    };
+  }
+  const entries = [
+    ...graph.providers,
+    ...graph.skills,
+    ...graph.apps,
+    ...graph.schedules,
+  ];
+  return {
+    providers: graph.providers.length,
+    skills: graph.skills.length,
+    apps: graph.apps.length,
+    schedules: graph.schedules.length,
+    runnableNow: entries.filter((entry) => entry.runnableNow).length,
+    needsApproval: entries.filter((entry) => entry.needsApproval).length,
+    connectedNotMountedProviders: graph.providers
+      .filter((entry) => entry.runnableNow && entry.mountedNow === false)
+      .map((entry) => entry.name),
+  };
 }

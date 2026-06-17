@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildCapabilityGraph } from "@/lib/capability-graph";
 import { buildChatContextPack } from "@/lib/chat-context-pack";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 import type { UserMcpProviderStatus } from "@/lib/oauth/mcp-servers";
@@ -214,6 +215,14 @@ describe("chat context pack", () => {
           action: { kind: "run_skill", skillId: "skill-1" },
         },
         {
+          id: "open-app:sales",
+          type: "open_existing_app",
+          title: "Open Sales Dashboard",
+          reason: "Existing app.",
+          requiresApproval: false,
+          action: { kind: "open_app", appId: "app-1" },
+        },
+        {
           id: "deploy-app:artifact",
           type: "deploy_artifact_as_app",
           title: "Deploy this as an app",
@@ -234,14 +243,79 @@ describe("chat context pack", () => {
 
     expect(pack.recommendations.tools).toHaveLength(1);
     expect(pack.recommendations.skills).toHaveLength(1);
-    expect(pack.recommendations.apps).toHaveLength(1);
+    expect(pack.recommendations.apps).toHaveLength(2);
     expect(pack.recommendations.schedules).toHaveLength(1);
     expect(pack.receipts[0]?.recommendations).toMatchObject({
       tool: 1,
       run_existing_skill: 1,
+      open_existing_app: 1,
       deploy_artifact_as_app: 1,
       schedule_skill: 1,
     });
+  });
+
+  it("injects a compact capability graph summary into the prompt", () => {
+    const capabilityGraph = buildCapabilityGraph({
+      userId: "user-1",
+      providerStatus: {
+        connectedProviders: ["github"],
+        allowedProviders: ["github"],
+        deniedProviders: [],
+      },
+      mountedProviders: [],
+      skills: [
+        {
+          id: "skill-1",
+          slug: "weekly-pr-summary",
+          name: "Weekly PR Summary",
+          ownerUserId: "user-1",
+          isStarter: false,
+          mcpProviders: ["github"],
+        },
+      ],
+      apps: [
+        {
+          id: "app-1",
+          slug: "sales-dashboard",
+          name: "Sales Dashboard",
+          ownerUserId: "user-1",
+          status: "deployed",
+          liveArtifactId: "artifact-1",
+        },
+      ],
+      now: NOW,
+    });
+    const pack = buildChatContextPack({
+      ...baseInput(),
+      providerStatus: providerStatus({
+        connectedProviders: ["github"],
+        allowedProviders: ["github"],
+      }),
+      mountedProviders: [],
+      capabilityGraph,
+    });
+
+    expect(pack.receipts[0]?.capabilities).toMatchObject({
+      providers: 1,
+      skills: 1,
+      apps: 1,
+      schedules: 0,
+      runnableNow: 3,
+      needsApproval: 0,
+      connectedNotMountedProviders: ["GitHub"],
+    });
+    expect(pack.receipts[0]?.contextItems).toContainEqual(
+      expect.objectContaining({
+        id: "workspace:capability-graph",
+        source: "capability_graph",
+        injected: true,
+      }),
+    );
+    expect(pack.prompt.systemPrompt).toContain(
+      "Capability graph summary for this user",
+    );
+    expect(pack.prompt.systemPrompt).toContain("Weekly PR Summary");
+    expect(pack.prompt.systemPrompt).toContain("Not mounted on this turn");
   });
 });
 

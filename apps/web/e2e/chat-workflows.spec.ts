@@ -127,6 +127,79 @@ test.describe("chat workflow regressions", () => {
     await expect(main.getByText("Alpha tab answer only.")).toHaveCount(0);
   });
 
+  test("opens existing app recommendations on the live share-aware app URL", async ({
+    page,
+  }) => {
+    const recommendation = {
+      dbId: "recommendation-open-app",
+      id: "open-app:shared-dashboard",
+      type: "open_existing_app",
+      title: "Open Shared Dashboard",
+      reason: "Shared Dashboard is shared with you and matches this request.",
+      requiresApproval: false,
+      action: {
+        kind: "open_app",
+        appId: "app-shared-dashboard",
+        slug: "shared-dashboard",
+      },
+      metadata: {
+        appId: "app-shared-dashboard",
+        slug: "shared-dashboard",
+        sharedWithMe: true,
+      },
+      status: "suggested",
+      threadId: "thread-open-app",
+      chatMessageId: "assistant-open-app",
+      runId: "run-open-app",
+      createdAt: "2026-06-14T20:00:00.000Z",
+      updatedAt: "2026-06-14T20:00:00.000Z",
+    };
+
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      onChat: async (_body, route) => {
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-open-app",
+            modelId: "sonnet-4-6",
+          },
+          {
+            type: "text-delta",
+            delta: "You already have a matching app.",
+          },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-open-app",
+            artifacts: [],
+            recommendations: [recommendation],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+    await page.route("**/apps/shared-dashboard", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: "<!doctype html><html><body><h1>Shared Dashboard</h1></body></html>",
+      });
+    });
+
+    await gotoE2EChat(page);
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Open the shared dashboard app.");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    await expect(page.getByText("Open Shared Dashboard")).toBeVisible();
+    await page.getByRole("button", { name: "Open app" }).click();
+    await expect(page).toHaveURL(/\/apps\/shared-dashboard$/);
+    await expect(
+      page.getByRole("heading", { name: "Shared Dashboard" }),
+    ).toBeVisible();
+  });
+
   test("keeps tab state stable while another tab is busy", async ({ page }) => {
     const chatBodies: Array<Record<string, unknown>> = [];
     let releaseSlowResponse: (() => void) | undefined;

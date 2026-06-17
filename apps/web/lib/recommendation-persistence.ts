@@ -2,10 +2,12 @@ import {
   chatMessages,
   type Database,
   recommendations,
-  skills,
 } from "@ai-workspace/db";
-import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
-import { loadUserMcpProviderStatus } from "@/lib/oauth/mcp-servers";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import {
+  loadUserCapabilityGraph,
+  recommendationInputsFromCapabilityGraph,
+} from "@/lib/capability-graph";
 import {
   buildRecommendationCandidates,
   type PersistedRecommendation,
@@ -31,7 +33,7 @@ export async function createRecommendationsForAssistantMessage({
   userMessageId: string;
   artifacts: readonly WorkspaceArtifactSummary[];
 }): Promise<PersistedRecommendation[]> {
-  const [currentRows, recentRows, skillRows, providerStatus] = await Promise.all([
+  const [currentRows, recentRows, capabilityGraph] = await Promise.all([
     db
       .select({ content: chatMessages.content })
       .from(chatMessages)
@@ -48,44 +50,20 @@ export async function createRecommendationsForAssistantMessage({
       )
       .orderBy(desc(chatMessages.createdAt))
       .limit(8),
-    db
-      .select({
-        id: skills.id,
-        name: skills.name,
-        description: skills.description,
-        mcpProviders: skills.mcpProviders,
-        isStarter: skills.isStarter,
-      })
-      .from(skills)
-      .where(
-        and(
-          isNull(skills.archivedAt),
-          or(eq(skills.ownerUserId, userId), eq(skills.isStarter, true)),
-        ),
-      )
-      .orderBy(desc(skills.updatedAt))
-      .limit(40),
-    loadUserMcpProviderStatus(db, userId),
+    loadUserCapabilityGraph(db, { id: userId, role: "user" }),
   ]);
 
   const currentMessage = currentRows[0]?.content ?? "";
+  const capabilityInputs = recommendationInputsFromCapabilityGraph(capabilityGraph);
   const candidates = buildRecommendationCandidates({
     currentMessage,
     recentUserMessages: recentRows
       .map((row) => row.content)
       .filter((content) => content !== currentMessage),
-    connectedProviders: providerStatus.connectedProviders,
-    approvedProviders: providerStatus.allowedProviders,
-    skills: skillRows.map((skill) => ({
-      id: skill.id,
-      name: skill.name,
-      description: skill.description,
-      mcpProviders: Array.isArray(skill.mcpProviders)
-        ? (skill.mcpProviders as string[])
-        : [],
-      runnableNow: true,
-      sharedWithMe: false,
-    })),
+    connectedProviders: capabilityInputs.connectedProviders,
+    approvedProviders: capabilityInputs.approvedProviders,
+    skills: capabilityInputs.skills,
+    apps: capabilityInputs.apps,
     artifacts: artifacts.map((artifact) => ({
       id: artifact.id,
       title: artifact.title,
