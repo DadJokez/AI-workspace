@@ -22,7 +22,7 @@ Starts a chat turn and returns an SSE stream.
 - `threadId`: Existing thread id or null for a new thread.
 - `messages`: Client-visible message list. The server persists the newest user prompt.
 - `modelId`: Product model id.
-- `executionMode`: Optional. Defaults to `local`. `cloud` is only sent by the one-shot Cloud control.
+- `executionMode`: Optional. Defaults to `local`. Legacy `cloud` values are normalized to `local`.
 
 ### Route Decision
 
@@ -53,11 +53,11 @@ event: done
 data: {"runId":"uuid","messageId":"uuid"}
 ```
 
-Durable/cloud routes may return a queued run event and rely on polling/reload to show final output.
+Durable routes may return a queued run event and rely on polling/reload to show final output.
 
 ```text
 event: run
-data: {"runId":"uuid","runtimeRoute":{"lane":"durable-local","runtimeTarget":"cursor-agent","useWorker":true},"queued":true}
+data: {"runId":"uuid","runtimeRoute":{"lane":"durable-local","runtimeTarget":"agentcore-worker","useWorker":true},"queued":true}
 ```
 
 ## Runtime Lane Contract
@@ -65,9 +65,11 @@ data: {"runId":"uuid","runtimeRoute":{"lane":"durable-local","runtimeTarget":"cu
 | Lane | `runtimeTarget` | `executionMode` | `useWorker` | Expected behavior |
 | --- | --- | --- | --- | --- |
 | `fast-local` | `direct-chat` when V2 enabled | `local` | `false` | Inline streaming, no tools |
-| `tool-local` | `cursor-agent` | `local` | `false` | Inline streaming with narrow MCP mount |
-| `durable-local` | `cursor-agent` | `local` | `true` | Queued worker run |
-| `cursor-cloud` | `cursor-agent` | `cloud` | `true` | Queued worker run with Cursor Cloud |
+| `tool-local` | `bedrock-agent` | `local` | `false` | Inline streaming with narrow MCP mount |
+| `durable-local` | `agentcore-worker` | `local` | `true` | Queued worker run |
+
+Historical run reporting may still display legacy `cursor-cloud` runs, but new
+Runtime V2 chat requests are normalized to local execution.
 
 ## Admin Run Views
 
@@ -104,5 +106,4 @@ Runtime V2 reads:
 - `RUNTIME_V2_ENABLED`: enables direct-chat fast-local routing.
 - `RUNTIME_V2_DIRECT_RUNTIME`: direct runtime, initially `bedrock`.
 - `RUNTIME_V2_DIRECT_MODEL_ID`: allowed direct model default.
-- Existing Cursor Cloud env/secrets for explicit `cursor-cloud`.
 - Existing provider OAuth/token env/secrets for MCP-mounted routes.

@@ -32,9 +32,9 @@ Durable execution ledger for chat-originated turns, workflows, scheduled runs, a
   "runtimeRoute": {
     "lane": "tool-local",
     "executionMode": "local",
-    "runtimeTarget": "cursor-agent",
+    "runtimeTarget": "bedrock-agent",
     "useWorker": false,
-    "reason": "tool-intent"
+    "reasons": ["github_recent_work_lookup"]
   }
 }
 ```
@@ -69,7 +69,7 @@ Append-only progress stream for reloadable run state.
 ### Runtime V2 Events
 
 - `run_started`: inline fast/tool local run has started.
-- `run_queued`: durable/cloud run has been queued for worker pickup.
+- `run_queued`: durable run has been queued for worker pickup.
 - `run_activity`: route, provider, tool-call, or tool-result progress.
 - `run_succeeded`: run completed.
 - `run_failed`: run failed.
@@ -85,7 +85,7 @@ Persistent chat message log.
 
 - User message is inserted before run dispatch.
 - Assistant message is inserted on completion.
-- Tool calls/results are stored for `tool-local`, `durable-local`, and `cursor-cloud` when tools are used.
+- Tool calls/results are stored for `tool-local` and `durable-local` when tools are used.
 - Fast-local messages generally have no tool calls/results.
 
 ## `audit_log`
@@ -103,25 +103,28 @@ Append-only compliance ledger.
 Route decisions are product-level metadata, not a new table.
 
 ```ts
-type RuntimeLane = "fast-local" | "tool-local" | "durable-local" | "cursor-cloud";
-type RuntimeTarget = "direct-chat" | "cursor-agent";
-type ExecutionMode = "local" | "cloud";
+type RuntimeLane = "fast-local" | "tool-local" | "durable-local";
+type RuntimeTarget = "direct-chat" | "bedrock-agent" | "agentcore-worker";
+type ExecutionMode = "local";
 
 type RuntimeRoute = {
   lane: RuntimeLane;
   executionMode: ExecutionMode;
   runtimeTarget: RuntimeTarget;
   useWorker: boolean;
-  reason: string;
+  reasons: string[];
 };
 ```
+
+Historical admin reporting may still display `cursor-cloud` for older run outputs,
+but the current Runtime V2 router no longer produces cloud execution routes.
 
 ## Model Mapping Policy
 
 Model mapping is runtime-specific configuration and code.
 
 - Product model ids remain user-facing: `haiku-4-5`, `sonnet-4-6`, `opus-4-7`.
-- Cursor-agent paths can use Cursor-facing ids.
-- Direct Bedrock paths must map to a Bedrock-accessible provider model.
+- Fast-local and tool-local Bedrock paths must map to a Bedrock-accessible provider model.
+- Durable AgentCore worker paths must use the same product model policy through the runtime seam.
 - `RUNTIME_V2_DIRECT_MODEL_ID` provides the direct fast-local default.
 - Denied Bedrock models should fall back to a configured allowed model or fail with a clear run error.

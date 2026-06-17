@@ -15,7 +15,7 @@
 
 **Decision**: Direct chat remains gated by `RUNTIME_V2_ENABLED=1`.
 
-**Rationale**: Production can roll back to Cursor-agent behavior by config while preview/prod timing data is gathered.
+**Rationale**: Production can roll back runtime behavior by config while preview/prod timing data is gathered.
 
 **Alternatives considered**:
 
@@ -23,7 +23,7 @@
 
 ## Decision 3: Use deterministic router first
 
-**Decision**: Keep the first router rule-based: cloud request, durable keywords, GitHub/tool keywords, personal-context keywords, otherwise fast-local.
+**Decision**: Keep the first router rule-based: legacy cloud normalization, durable keywords, GitHub/tool keywords, personal-context keywords, otherwise fast-local.
 
 **Rationale**: It is explainable, testable, cheap, and enough to validate the user experience. It also avoids adding another model call before first token.
 
@@ -36,12 +36,12 @@
 
 **Decision**: Fast-local direct chat uses the existing Bedrock-backed runtime path when Runtime V2 is enabled.
 
-**Rationale**: It avoids creating a fresh Cursor agent for simple chat and reuses the existing `AgentRuntime` fallback contract.
+**Rationale**: It avoids creating a fresh agent for simple chat and reuses the existing `AgentRuntime` fallback contract.
 
 **Alternatives considered**:
 
-- Use Cursor SDK direct/no-tool agent for fast-local. Worth revisiting if Cursor exposes a truly minimal direct chat path with comparable latency.
-- Use Cursor Cloud for fast-local. Rejected because it caused the original slowdown.
+- Use a provider SDK direct/no-tool agent for fast-local. Worth revisiting only if it offers comparable latency without weakening the AWS-first runtime posture.
+- Use cloud execution for fast-local. Rejected because it caused the original slowdown.
 
 ## Decision 5: Existing run ledger remains canonical
 
