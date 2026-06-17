@@ -4,12 +4,13 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import {
   auditAppMutation,
-  canActorDeployApp,
+  canAppRoleDeploy,
   createAppVersionForArtifact,
   deployAppVersion,
   findCredentialShapedContent,
   loadAppVersion,
   isServableArtifact,
+  resolveAppActorRole,
 } from "@/lib/apps";
 import {
   loadWorkspaceArtifactById,
@@ -53,10 +54,14 @@ export async function POST(
   if (!app) {
     return NextResponse.json({ error: "app_not_found" }, { status: 404 });
   }
+  const actorRole = await resolveAppActorRole(db, app, sessionUser);
+  if (actorRole === "none") {
+    return NextResponse.json({ error: "app_not_found" }, { status: 404 });
+  }
   if (app.archivedAt) {
     return NextResponse.json({ error: "app_archived" }, { status: 409 });
   }
-  if (!(await canActorDeployApp(db, app, sessionUser))) {
+  if (!canAppRoleDeploy(actorRole)) {
     await auditAppMutation({
       db,
       actorUserId: sessionUser.id,
