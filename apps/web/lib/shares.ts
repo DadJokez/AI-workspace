@@ -1,5 +1,6 @@
 import type { SessionUser } from "@ai-workspace/auth";
 import {
+  apps,
   auditLog,
   type Database,
   type Share,
@@ -16,6 +17,40 @@ export type AppShareRole = "viewer" | "editor";
 
 export function parseAppShareRole(value: unknown): AppShareRole {
   return value === "editor" ? "editor" : "viewer";
+}
+
+async function loadShareSubjectOwnerUserId(
+  db: Database,
+  share: Pick<Share, "subjectType" | "subjectId">,
+): Promise<string | null> {
+  if (share.subjectType === "app") {
+    const rows = await db
+      .select({ ownerUserId: apps.ownerUserId })
+      .from(apps)
+      .where(eq(apps.id, share.subjectId))
+      .limit(1);
+    return rows[0]?.ownerUserId ?? null;
+  }
+
+  if (share.subjectType === "skill") {
+    const rows = await db
+      .select({ ownerUserId: skills.ownerUserId })
+      .from(skills)
+      .where(eq(skills.id, share.subjectId))
+      .limit(1);
+    return rows[0]?.ownerUserId ?? null;
+  }
+
+  return null;
+}
+
+async function canActorManageShare(
+  db: Database,
+  share: Pick<Share, "subjectType" | "subjectId" | "grantedByUserId">,
+  actor: SessionUser,
+): Promise<boolean> {
+  if (share.grantedByUserId === actor.id || actor.role === "admin") return true;
+  return (await loadShareSubjectOwnerUserId(db, share)) === actor.id;
 }
 
 /**
@@ -272,12 +307,13 @@ export async function updateShareRole({
       message: "Only app shares support roles.",
     };
   }
-  if (share.grantedByUserId !== actor.id && actor.role !== "admin") {
+  if (!(await canActorManageShare(db, share, actor))) {
     return {
       ok: false,
       status: 403,
       error: "not_grantor",
-      message: "Only the person who shared this (or an admin) can update it.",
+      message:
+        "Only the person who shared this, the subject owner, or an admin can update it.",
     };
   }
 
@@ -337,12 +373,13 @@ export async function revokeShare({
       message: "The share was not found.",
     };
   }
-  if (share.grantedByUserId !== actor.id && actor.role !== "admin") {
+  if (!(await canActorManageShare(db, share, actor))) {
     return {
       ok: false,
       status: 403,
       error: "not_grantor",
-      message: "Only the person who shared this (or an admin) can revoke it.",
+      message:
+        "Only the person who shared this, the subject owner, or an admin can revoke it.",
     };
   }
 
