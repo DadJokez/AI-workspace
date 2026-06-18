@@ -5,7 +5,7 @@ import { requireAdmin } from "@/lib/auth/requireAdmin";
 
 export const dynamic = "force-dynamic";
 
-const STATUSES = new Set(["new", "reviewing", "fixed", "wontfix"]);
+const STATUSES = new Set(["new", "reviewing", "triaged", "fixed", "wontfix"]);
 
 interface PatchBody {
   status?: unknown;

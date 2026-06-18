@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useState } from "react";
+import { getLinkedIssueTag } from "./issue-tags";
 
 export interface AdminFeedbackRow {
   id: string;
@@ -28,6 +29,7 @@ export interface AdminFeedbackRow {
 const STATUS_OPTIONS = [
   { value: "new", label: "New" },
   { value: "reviewing", label: "Reviewing" },
+  { value: "triaged", label: "Triaged" },
   { value: "fixed", label: "Fixed" },
   { value: "wontfix", label: "Won't fix" },
 ];
@@ -135,11 +137,26 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
           <tbody>
             {items.map((row) => {
               const pageHref = safeExternalHref(row.pageUrl);
+              const issueHref = safeExternalHref(row.linkedIssueUrl);
+              const issueTag = getLinkedIssueTag(issueHref);
               const hasScreenshot = hasSafeScreenshotMetadata(row);
               return (
               <tr key={row.id} className="border-b border-hairline align-top last:border-0">
                 <td className="max-w-xl px-3 py-3">
-                  <div className="font-medium text-ink">{row.title}</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="font-medium text-ink">{row.title}</div>
+                    {issueHref ? (
+                      <a
+                        href={issueHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-full border border-cyan-400/35 bg-cyan-400/10 px-2 py-0.5 text-[11px] font-medium text-cyan-100 hover:border-cyan-300/60 hover:bg-cyan-400/15"
+                        title="Open linked GitHub item"
+                      >
+                        Reviewed {issueTag?.label ?? "GitHub"}
+                      </a>
+                    ) : null}
+                  </div>
                   <div className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-ink/85">
                     {row.body}
                   </div>

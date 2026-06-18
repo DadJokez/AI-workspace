@@ -18,6 +18,7 @@ const STATUS_FILTERS = [
   { value: "all", label: "All" },
   { value: "new", label: "New" },
   { value: "reviewing", label: "Reviewing" },
+  { value: "triaged", label: "Triaged" },
   { value: "fixed", label: "Fixed" },
   { value: "wontfix", label: "Won't fix" },
 ];

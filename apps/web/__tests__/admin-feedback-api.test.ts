@@ -138,6 +138,43 @@ describe("PATCH /api/admin/feedback/[id]", () => {
       linkedIssueUrl: "https://github.com/example/repo/issues/1",
     });
   });
+
+  it("allows marking reports as triaged", async () => {
+    updateReturning = [
+      {
+        id: REPORT_ID,
+        status: "triaged",
+        adminNotes: null,
+        linkedIssueUrl: "https://github.com/example/repo/issues/42",
+        resolvedAt: null,
+        updatedAt: fixedDate,
+      },
+    ];
+    installMocks();
+
+    const { PATCH } = await import("@/app/api/admin/feedback/[id]/route");
+    const res = await PATCH(
+      makeReq({
+        status: "triaged",
+        linkedIssueUrl: "https://github.com/example/repo/issues/42",
+      }),
+      { params: Promise.resolve({ id: REPORT_ID }) },
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      report: {
+        id: REPORT_ID,
+        status: "triaged",
+        linkedIssueUrl: "https://github.com/example/repo/issues/42",
+      },
+    });
+    expect(capturedPatch).toMatchObject({
+      status: "triaged",
+      linkedIssueUrl: "https://github.com/example/repo/issues/42",
+      resolvedAt: null,
+    });
+  });
 });
 
 describe("GET /api/admin/feedback/[id]/screenshot", () => {
