@@ -234,4 +234,56 @@ test.describe("chat tools and skills", () => {
       "Weekly Status",
     );
   });
+
+  test("sends /model as a one-turn model override without activating a skill", async ({
+    page,
+  }) => {
+    const chatBodies: Record<string, unknown>[] = [];
+
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      onChat: async (body, route) => {
+        chatBodies.push(body);
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-model-override",
+            modelId: "haiku-4-5",
+            modelOverride: true,
+          },
+          { type: "model", modelId: "haiku-4-5", modelOverride: true },
+          { type: "text-delta", delta: "Quick answer from Haiku." },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-model-override",
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+
+    await page.goto("/e2e/chat");
+    await expect(page.getByText("Talk to your work.")).toBeVisible();
+
+    await page.getByPlaceholder(/ask anything/i).fill("/model haiku say hi");
+    await expect(page.getByText("Capabilities")).toHaveCount(0);
+    await page.getByRole("button", { name: "Send" }).click();
+
+    await expect
+      .poll(() => chatBodies.length, { message: "model override hit chat" })
+      .toBe(1);
+    expect(chatBodies[0]).toMatchObject({
+      message: "/model haiku say hi",
+      modelId: "haiku-4-5",
+      modelOverride: true,
+    });
+    expect(chatBodies[0]?.activatedSkills).toBeUndefined();
+    await expect(page.getByTestId("slash-capability-pill")).toContainText(
+      "/model",
+    );
+    await expect(page.getByText("Quick answer from Haiku.")).toBeVisible();
+    await expect(page.getByText("Thomas · haiku-4-5")).toBeVisible();
+  });
 });

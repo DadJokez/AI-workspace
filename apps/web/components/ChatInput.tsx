@@ -28,6 +28,13 @@ import {
   type ActivatedSlashSkill,
   type SlashSkillCandidate,
 } from "@/lib/skill-commands";
+import {
+  buildModelCommandDisplayMessage,
+  isModelCommandInput,
+  modelCommandUsageMessage,
+  parseModelCommand,
+  type ChatModelOverride,
+} from "@/lib/model-command";
 
 const MAX_HEIGHT_PX = 200;
 
@@ -41,6 +48,7 @@ interface Props {
     text: string,
     attachments?: ChatAttachment[],
     activatedSkill?: ActivatedSlashSkill,
+    modelOverride?: ChatModelOverride,
   ) => void;
   disabled?: boolean;
   placeholder?: string;
@@ -76,7 +84,10 @@ export function ChatInput({
   });
 
   const paletteActive =
-    isSlashCommand(text) && skills.length > 0 && activeSkill === null;
+    isSlashCommand(text) &&
+    !isModelCommandInput(text) &&
+    skills.length > 0 &&
+    activeSkill === null;
   const matches = useMemo(
     () => (paletteActive ? filterSkillsForCommand(text, skills) : []),
     [paletteActive, text, skills],
@@ -156,6 +167,28 @@ export function ChatInput({
       );
       setText("");
       setActiveSkill(null);
+      setAttachments([]);
+      setNotice(null);
+      return;
+    }
+
+    if (isModelCommandInput(trimmed)) {
+      const parsed = parseModelCommand(trimmed);
+      if (!parsed) {
+        setNotice(modelCommandUsageMessage());
+        return;
+      }
+      if (!parsed.body.trim() && attachments.length === 0) {
+        setNotice(modelCommandUsageMessage());
+        return;
+      }
+      onSubmit(
+        buildModelCommandDisplayMessage(parsed.override, parsed.body),
+        attachments.length > 0 ? attachments : undefined,
+        undefined,
+        parsed.override,
+      );
+      setText("");
       setAttachments([]);
       setNotice(null);
       return;

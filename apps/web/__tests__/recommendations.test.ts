@@ -4,7 +4,8 @@ import { buildRecommendationCandidates } from "@/lib/recommendations";
 describe("recommendation candidates", () => {
   it("suggests saving a repeated workflow as a skill", () => {
     const candidates = buildRecommendationCandidates({
-      currentMessage: "Draft the weekly launch status update for the team",
+      currentMessage:
+        "What skill should I use to draft the weekly launch status update for the team?",
       recentUserMessages: [
         "Draft the weekly launch status update for the team",
         "Can you draft the launch status update this week?",
@@ -22,7 +23,7 @@ describe("recommendation candidates", () => {
 
   it("recommends a role/tool-relevant skill when its provider is approved", () => {
     const candidates = buildRecommendationCandidates({
-      currentMessage: "What PRs need my review this week?",
+      currentMessage: "What skill should I use for PRs that need my review?",
       roleContext: "Engineering lead responsible for pull request review flow.",
       connectedProviders: ["github"],
       approvedProviders: ["github"],
@@ -45,6 +46,26 @@ describe("recommendation candidates", () => {
       action: { kind: "run_skill", skillId: "skill-prs" },
     });
     expect(candidates[0]?.reason).toContain("connected GitHub tool access");
+  });
+
+  it("does not recommend a skill during normal chat unless the user asks for skills", () => {
+    const candidates = buildRecommendationCandidates({
+      currentMessage: "What PRs need my review this week?",
+      roleContext: "Engineering lead responsible for pull request review flow.",
+      connectedProviders: ["github"],
+      approvedProviders: ["github"],
+      skills: [
+        {
+          id: "skill-prs",
+          name: "PR Review Briefing",
+          description: "Summarize GitHub pull requests waiting for review.",
+          mcpProviders: ["github"],
+          runnableNow: true,
+        },
+      ],
+    });
+
+    expect(candidates.some((c) => c.type === "run_existing_skill")).toBe(false);
   });
 
   it("does not recommend a provider-backed skill when provider approval is absent", () => {

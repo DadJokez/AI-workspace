@@ -5,8 +5,12 @@ export const DEFAULT_RECENT_MESSAGE_LIMIT = 12;
 export const DEFAULT_CONTEXT_CHAR_LIMIT = 120_000;
 export const DEFAULT_MESSAGE_CHAR_LIMIT = 24_000;
 
+type TurnContextMessage = Pick<ChatMessage, "role" | "content"> & {
+  modelId?: string | null;
+};
+
 interface BuildTurnContextInput {
-  messages: Pick<ChatMessage, "role" | "content">[];
+  messages: TurnContextMessage[];
   /**
    * Optional model-facing replacement for the current turn's content. The
    * persisted chat bubble can stay clean while the runtime sees composed
@@ -145,8 +149,11 @@ export function buildTurnContext({
     });
   }
 
+  const modelProvenanceMessage = buildModelProvenanceMessage(recent);
+
   return coalesceAdjacentMessages([
     ...(summaryMessage ? [summaryMessage] : []),
+    ...(modelProvenanceMessage ? [modelProvenanceMessage] : []),
     ...retainedHistory,
     currentMessage,
   ]);
@@ -173,6 +180,30 @@ function joinMessageContent(left: string, right: string): string {
   if (!left) return right;
   if (!right) return left;
   return `${left}\n\n${right}`;
+}
+
+function buildModelProvenanceMessage(
+  messages: readonly TurnContextMessage[],
+): AgentMessage | null {
+  const assistantTurns = messages
+    .filter(
+      (message) =>
+        message.role === "assistant" && typeof message.modelId === "string",
+    )
+    .map((message) => message.modelId?.trim())
+    .filter((modelId): modelId is string => Boolean(modelId));
+  if (assistantTurns.length === 0) return null;
+
+  return {
+    role: "user",
+    content: [
+      "Model provenance for recent assistant turns:",
+      ...assistantTurns.map(
+        (modelId, index) => `- Assistant turn ${index + 1} used ${modelId}.`,
+      ),
+      "Use this only when asked which model produced earlier chat content. If a turn is not listed here, say you cannot tell from the available context.",
+    ].join("\n"),
+  };
 }
 
 function truncateForContext(

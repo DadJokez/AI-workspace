@@ -53,6 +53,7 @@ export function resolveRuntimeModelSelection({
   runtimeName,
   directModelId = process.env.RUNTIME_V2_DIRECT_MODEL_ID,
   message,
+  forceRequestedModel = false,
 }: {
   requestedModelId: string;
   route: Pick<ChatRuntimeRoute, "runtimeTarget">;
@@ -60,11 +61,33 @@ export function resolveRuntimeModelSelection({
   directModelId?: string;
   /** The user's message, used by autopilot to pick a model per ask. */
   message?: string;
+  /** True when the user explicitly pinned a supported model for this turn. */
+  forceRequestedModel?: boolean;
 }): RuntimeModelSelection {
   void _route;
   void runtimeName;
 
   const configuredDirectModel = directModelId?.trim().toLowerCase();
+  const normalizedRequested = requestedModelId.trim().toLowerCase();
+  const requestedAlias = DIRECT_MODEL_ALIASES[normalizedRequested];
+
+  if (forceRequestedModel && requestedAlias) {
+    return directSelection({
+      requestedModelId,
+      modelId: requestedAlias,
+      reason: "requested_model_alias",
+      ignoredDirectModelId: configuredDirectModel,
+    });
+  }
+
+  if (forceRequestedModel && isValidModelId(normalizedRequested)) {
+    return directSelection({
+      requestedModelId,
+      modelId: normalizedRequested,
+      reason: "requested_model_supported",
+      ignoredDirectModelId: configuredDirectModel,
+    });
+  }
 
   // Autopilot: pick the model per ask instead of pinning one.
   if (configuredDirectModel === "auto" && typeof message === "string") {
@@ -83,12 +106,10 @@ export function resolveRuntimeModelSelection({
     });
   }
 
-  const normalizedRequested = requestedModelId.trim().toLowerCase();
-  const alias = DIRECT_MODEL_ALIASES[normalizedRequested];
-  if (alias) {
+  if (requestedAlias) {
     return directSelection({
       requestedModelId,
-      modelId: alias,
+      modelId: requestedAlias,
       reason: "requested_model_alias",
       ignoredDirectModelId: configuredDirectModel,
     });
