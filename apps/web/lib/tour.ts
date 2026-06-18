@@ -42,12 +42,6 @@ export const TOUR_STEPS: readonly TourStep[] = [
     body: "Ask for a small dashboard or page in chat, then deploy the result behind workspace sign-in with one click. Artifact versions are grouped, reversible, and downloadable — no repos, no pipelines.",
   },
   {
-    id: "trust",
-    anchor: "nav-tools",
-    title: "You're in control",
-    body: "Tools shows exactly what's connected and what the agent may touch — you approve every provider. Recommendations are explicit, dismissible, and everything the agent does lands in an audit trail.",
-  },
-  {
     id: "feedback",
     anchor: "nav-feedback",
     title: "Tell us what broke or felt weird",

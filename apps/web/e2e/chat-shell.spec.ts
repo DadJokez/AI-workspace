@@ -11,6 +11,19 @@ test.skip(
 );
 
 test.describe("chat shell guardrails", () => {
+  test("shows a prominent Comparative mark on the empty chat landing page", async ({
+    page,
+  }) => {
+    await installMockComparativeApi(page);
+
+    await gotoE2EChat(page);
+
+    const landingOrb = page.locator('main svg[aria-label="Comparative"]');
+    await expect(landingOrb).toBeVisible();
+    await expect(landingOrb).toHaveAttribute("width", "88");
+    await expect(landingOrb).toHaveAttribute("height", "88");
+  });
+
   test("blocks empty and whitespace-only submits", async ({ page }) => {
     let chatCalls = 0;
     await installMockComparativeApi(page, {

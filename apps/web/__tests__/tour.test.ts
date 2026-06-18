@@ -19,11 +19,16 @@ describe("TOUR_STEPS", () => {
   });
 
   it("keeps the tour short and ids/anchors unique", () => {
-    expect(TOUR_STEPS.length).toBeLessThanOrEqual(6);
+    expect(TOUR_STEPS.length).toBeLessThanOrEqual(5);
     const ids = TOUR_STEPS.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
     const anchors = TOUR_STEPS.map((s) => s.anchor).filter(Boolean);
     expect(new Set(anchors).size).toBe(anchors.length);
+  });
+
+  it("does not send first-run users into the tools setup step", () => {
+    expect(TOUR_STEPS.find((step) => step.id === "trust")).toBeUndefined();
+    expect(TOUR_STEPS.some((step) => step.anchor === "nav-tools")).toBe(false);
   });
 
   it("explains the alpha feedback loop", () => {
