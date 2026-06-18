@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseAssistantArtifacts } from "@/lib/workspace-artifacts";
+import {
+  parseAssistantArtifacts,
+  planArtifactVersionsForExistingArtifacts,
+  type WorkspaceArtifactVersionTarget,
+} from "@/lib/workspace-artifacts";
 
 describe("parseAssistantArtifacts", () => {
   it("extracts explicit filename code fences as workspace artifacts", () => {
@@ -134,5 +138,176 @@ Here's what's covered:
     );
 
     expect(artifacts).toHaveLength(0);
+  });
+});
+
+describe("planArtifactVersionsForExistingArtifacts", () => {
+  it("preserves the matched artifact identity when a revision emits a generic filename", () => {
+    const artifacts = parseAssistantArtifacts(`
+Here is the revised version:
+
+\`\`\`html filename="updated.html"
+<!doctype html>
+<html>
+<head><title>Updated</title></head>
+<body><h1>Updated theme picker</h1></body>
+</html>
+\`\`\`
+`);
+    const targetArtifact: WorkspaceArtifactVersionTarget = {
+      id: "artifact-theme-v2",
+      title: "Theme Picker",
+      filename: "theme-picker-v2.html",
+      artifactGroupId: "artifact-group-theme",
+      versionNumber: 2,
+      metadata: { artifactKey: "theme-picker.html" },
+    };
+
+    const planned = planArtifactVersionsForExistingArtifacts({
+      artifacts,
+      priorArtifacts: [
+        {
+          id: "artifact-theme-v2",
+          title: "Theme Picker",
+          filename: "theme-picker-v2.html",
+          artifactGroupId: "artifact-group-theme",
+          versionNumber: 2,
+          metadata: { artifactKey: "theme-picker.html" },
+        },
+      ],
+      targetArtifact,
+    });
+
+    expect(planned).toHaveLength(1);
+    expect(planned[0]?.version).toMatchObject({
+      artifactKey: "theme-picker.html",
+      artifactGroupId: "artifact-group-theme",
+      filename: "theme-picker-v3.html",
+      title: "Theme Picker",
+      versionNumber: 3,
+      supersedesArtifactId: "artifact-theme-v2",
+    });
+  });
+
+  it("can continue versioning from the stored target when prior rows are unavailable", () => {
+    const artifacts = parseAssistantArtifacts(`
+\`\`\`html filename="updated.html"
+<!doctype html>
+<html>
+<head><title>Updated</title></head>
+<body><h1>Updated theme picker</h1></body>
+</html>
+\`\`\`
+`);
+    const targetArtifact: WorkspaceArtifactVersionTarget = {
+      id: "artifact-theme-v2",
+      title: "Theme Picker",
+      filename: "theme-picker-v2.html",
+      artifactGroupId: "artifact-group-theme",
+      versionNumber: 2,
+      metadata: { artifactKey: "theme-picker.html" },
+    };
+
+    const planned = planArtifactVersionsForExistingArtifacts({
+      artifacts,
+      priorArtifacts: [],
+      targetArtifact,
+    });
+
+    expect(planned[0]?.version).toMatchObject({
+      artifactGroupId: "artifact-group-theme",
+      filename: "theme-picker-v3.html",
+      versionNumber: 3,
+      supersedesArtifactId: "artifact-theme-v2",
+    });
+  });
+
+  it("does not absorb a different file type into a matched artifact group", () => {
+    const artifacts = parseAssistantArtifacts(`
+\`\`\`css filename="styles.css"
+:root {
+  color-scheme: light dark;
+}
+
+.theme-picker {
+  accent-color: #005cff;
+}
+\`\`\`
+`);
+    const targetArtifact: WorkspaceArtifactVersionTarget = {
+      id: "artifact-theme-v2",
+      title: "Theme Picker",
+      filename: "theme-picker-v2.html",
+      artifactGroupId: "artifact-group-theme",
+      versionNumber: 2,
+      metadata: { artifactKey: "theme-picker.html" },
+    };
+
+    const planned = planArtifactVersionsForExistingArtifacts({
+      artifacts,
+      priorArtifacts: [],
+      targetArtifact,
+    });
+
+    expect(planned[0]?.version).toMatchObject({
+      artifactKey: "styles.css",
+      filename: "styles.css",
+      versionNumber: 1,
+      supersedesArtifactId: null,
+    });
+    expect(planned[0]?.version.artifactGroupId).not.toBe("artifact-group-theme");
+    expect(planned[0]?.version.title).toBeUndefined();
+  });
+
+  it("does not absorb a same-extension artifact that already has its own group", () => {
+    const artifacts = parseAssistantArtifacts(`
+\`\`\`html filename="report.html"
+<!doctype html>
+<html>
+<head><title>Report</title></head>
+<body><h1>Updated report</h1></body>
+</html>
+\`\`\`
+`);
+    const targetArtifact: WorkspaceArtifactVersionTarget = {
+      id: "artifact-theme-v2",
+      title: "Theme Picker",
+      filename: "theme-picker-v2.html",
+      artifactGroupId: "artifact-group-theme",
+      versionNumber: 2,
+      metadata: { artifactKey: "theme-picker.html" },
+    };
+
+    const planned = planArtifactVersionsForExistingArtifacts({
+      artifacts,
+      priorArtifacts: [
+        {
+          id: "artifact-theme-v2",
+          title: "Theme Picker",
+          filename: "theme-picker-v2.html",
+          artifactGroupId: "artifact-group-theme",
+          versionNumber: 2,
+          metadata: { artifactKey: "theme-picker.html" },
+        },
+        {
+          id: "artifact-report-v1",
+          title: "Report",
+          filename: "report.html",
+          artifactGroupId: "artifact-group-report",
+          versionNumber: 1,
+          metadata: { artifactKey: "report.html" },
+        },
+      ],
+      targetArtifact,
+    });
+
+    expect(planned[0]?.version).toMatchObject({
+      artifactKey: "report.html",
+      artifactGroupId: "artifact-group-report",
+      filename: "report-v2.html",
+      versionNumber: 2,
+      supersedesArtifactId: "artifact-report-v1",
+    });
+    expect(planned[0]?.version.title).toBeUndefined();
   });
 });

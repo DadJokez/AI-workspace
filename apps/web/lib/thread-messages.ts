@@ -19,7 +19,7 @@ import {
 import { loadRecommendationsForMessages } from "@/lib/recommendation-persistence";
 import type { PersistedRecommendation } from "@/lib/recommendations";
 
-interface ChatRunOutput {
+export interface ChatRunOutput {
   assistantMessageId?: string;
   assistantText?: string;
   toolCalls?: PersistedToolCall[];
@@ -78,6 +78,7 @@ export async function loadThreadMessagesWithRunActivity({
         modelId: runs.modelId,
         runtime: runs.runtime,
         error: runs.error,
+        inputs: runs.inputs,
         outputs: runs.outputs,
         startedAt: runs.startedAt,
         createdAt: runs.createdAt,
@@ -175,9 +176,12 @@ export async function loadThreadMessagesWithRunActivity({
     activeRunMessages.push({
       id: `run:${run.id}`,
       role: "assistant",
-      content:
-        output.assistantText ??
-        terminalRunMessage(run.status, run.error),
+      content: activeRunMessageContent({
+        status: run.status,
+        error: run.error,
+        output,
+        hasArtifactContext: hasArtifactContextTarget(run.inputs),
+      }),
       modelId: run.modelId,
       runtime: run.runtime,
       toolCalls: output.toolCalls ?? null,
@@ -224,6 +228,58 @@ function terminalRunMessage(status: string, error?: string | null): string {
       : "Run failed before an answer was saved.";
   }
   return "";
+}
+
+export function activeRunMessageContent({
+  status,
+  error,
+  output,
+  hasArtifactContext = false,
+}: {
+  status: string;
+  error?: string | null;
+  output: ChatRunOutput;
+  hasArtifactContext?: boolean;
+}): string {
+  const fallback = terminalRunMessage(status, error);
+  if (
+    (status === "failed" || status === "canceled") &&
+    output.assistantText &&
+    !output.artifacts?.length &&
+    hasArtifactLikePartialOutput(output.assistantText, hasArtifactContext)
+  ) {
+    const artifactMessage = hasArtifactContext
+      ? "Artifact update was interrupted before Comparative could save a complete workspace artifact. Retry the run to generate the updated artifact."
+      : "Artifact response was interrupted before Comparative could save a complete workspace artifact. Retry the run to generate the artifact.";
+    return [
+      fallback,
+      artifactMessage,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+  return output.assistantText ?? fallback;
+}
+
+function hasArtifactLikePartialOutput(
+  text: string,
+  hasArtifactContext: boolean,
+): boolean {
+  const explicitArtifactFence =
+    /```[^\n]*(?:filename=|\b[A-Za-z0-9._/ -]+\.(?:html?|md|markdown|csv|json|txt)\b)/i.test(
+      text,
+    );
+  if (explicitArtifactFence) return true;
+  if (!hasArtifactContext) return false;
+
+  return (
+    /```[^\n]*\b(?:html|md|markdown|csv|json)\b/i.test(text) ||
+    /<!doctype\s+html|<html[\s>]/i.test(text)
+  );
+}
+
+function hasArtifactContextTarget(inputs: unknown): boolean {
+  return isRecord(inputs) && isRecord(inputs.artifactContextTarget);
 }
 
 function parseChatRunOutput(value: unknown): ChatRunOutput {

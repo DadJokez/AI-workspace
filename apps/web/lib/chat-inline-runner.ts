@@ -29,7 +29,7 @@ import {
   loadUserMcpProviderStatus,
 } from "@/lib/oauth/mcp-servers";
 import {
-  buildArtifactContext,
+  buildArtifactContextPayload,
   buildArtifactLookupMessage,
 } from "@/lib/artifact-context";
 import {
@@ -58,6 +58,8 @@ import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import {
   createArtifactsFromAssistantMessage,
+  toWorkspaceArtifactVersionTarget,
+  type WorkspaceArtifactVersionTarget,
   type WorkspaceArtifactSummary,
 } from "@/lib/workspace-artifacts";
 import {
@@ -188,14 +190,18 @@ export async function streamInlineChatRun({
     // Match artifacts against recent RAW user messages, not the
     // attachment-folded prompt — so uploaded file bytes can't pull in an
     // unrelated artifact, while "it/that one" follow-ups still have context.
-    const [artifactContext, appEditContext] = await Promise.all([
-      buildArtifactContext({
+    const [artifactContextPayload, appEditContext] = await Promise.all([
+      buildArtifactContextPayload({
         db,
         userId,
         message: buildArtifactLookupMessage(history, prompt),
       }),
       buildAppEditContext({ db, userId, threadId: thread.id }),
     ]);
+    const artifactContextTarget = artifactContextPayload?.matchedArtifact
+      ? toWorkspaceArtifactVersionTarget(artifactContextPayload.matchedArtifact)
+      : null;
+    const artifactContext = artifactContextPayload?.text ?? null;
     const combinedArtifactContext = [appEditContext, artifactContext]
       .filter(Boolean)
       .join("\n\n");
@@ -304,6 +310,7 @@ export async function streamInlineChatRun({
           approvedMcpProviders: providerStatus.allowedProviders,
           deniedMcpProviders: blockedProviders,
           contextReceipt,
+          ...(artifactContextTarget ? { artifactContextTarget } : {}),
           metrics: buildTimingMetrics(timing),
         },
         updatedAt: new Date(),
@@ -532,6 +539,7 @@ export async function streamInlineChatRun({
         activatedSkills?.flatMap((skill) =>
           typeof skill.id === "string" ? [skill.id] : [],
         ) ?? [],
+      artifactContextTarget,
       completedAt,
     });
 
@@ -574,6 +582,7 @@ async function persistInlineAssistantResult({
   error,
   timingMetrics,
   suppressedSkillIds,
+  artifactContextTarget,
   completedAt,
 }: {
   db: Database;
@@ -597,6 +606,7 @@ async function persistInlineAssistantResult({
   error: string | null;
   timingMetrics: ChatRunTimingMetrics;
   suppressedSkillIds: string[];
+  artifactContextTarget?: WorkspaceArtifactVersionTarget | null;
   completedAt: Date;
 }): Promise<{
   assistantMessageId: string | undefined;
@@ -656,6 +666,7 @@ async function persistInlineAssistantResult({
         chatMessageId: assistantMessageId,
         runId: runId,
         assistantText,
+        targetArtifact: artifactContextTarget,
       });
       if (artifacts.length > 0) {
         await appendInlineRunEvent(db, runId, {

@@ -27,7 +27,7 @@ import {
   loadUserMcpProviderStatus,
 } from "@/lib/oauth/mcp-servers";
 import {
-  buildArtifactContext,
+  buildArtifactContextPayload,
   buildArtifactLookupMessage,
 } from "@/lib/artifact-context";
 import {
@@ -52,7 +52,12 @@ import { buildTurnContext } from "@/lib/turn-context";
 import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
 import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
-import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
+import {
+  createArtifactsFromAssistantMessage,
+  parseWorkspaceArtifactVersionTarget,
+  toWorkspaceArtifactVersionTarget,
+  type WorkspaceArtifactVersionTarget,
+} from "@/lib/workspace-artifacts";
 import { createRecommendationsForAssistantMessage } from "@/lib/recommendation-persistence";
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
@@ -70,6 +75,7 @@ interface ChatRunInputs {
   /** Skill runs restrict MCP mounting to their declared providers. */
   requestedProviders?: string[];
   uploadedFiles?: ChatContextUploadedFile[];
+  artifactContextTarget?: unknown;
   [key: string]: unknown;
 }
 
@@ -318,8 +324,8 @@ async function executeClaimedChatRun({
 
   // Match artifacts against recent RAW user messages, not the attachment-folded
   // prompt (see chat-inline-runner for the rationale).
-  const [artifactContext, appEditContext] = await Promise.all([
-    buildArtifactContext({
+  const [artifactContextPayload, appEditContext] = await Promise.all([
+    buildArtifactContextPayload({
       db,
       userId: run.userId,
       message: buildArtifactLookupMessage(history, inputs.prompt, {
@@ -328,6 +334,13 @@ async function executeClaimedChatRun({
     }),
     buildAppEditContext({ db, userId: run.userId, threadId: thread.id }),
   ]);
+  const storedArtifactTarget = parseWorkspaceArtifactVersionTarget(
+    inputs.artifactContextTarget,
+  );
+  const artifactContextTarget = artifactContextPayload?.matchedArtifact
+    ? toWorkspaceArtifactVersionTarget(artifactContextPayload.matchedArtifact)
+    : storedArtifactTarget;
+  const artifactContext = artifactContextPayload?.text ?? null;
   const combinedArtifactContext = [appEditContext, artifactContext]
     .filter(Boolean)
     .join("\n\n");
@@ -435,6 +448,7 @@ async function executeClaimedChatRun({
         approvedMcpProviders: providerStatus.allowedProviders,
         deniedMcpProviders: blockedProviders,
         contextReceipt,
+        ...(artifactContextTarget ? { artifactContextTarget } : {}),
       },
       updatedAt: new Date(),
     })
@@ -633,6 +647,7 @@ async function executeClaimedChatRun({
     providerRunMetadata,
     terminalStatus: runError ? "failed" : "succeeded",
     error: runError,
+    artifactContextTarget,
   });
 }
 
@@ -651,6 +666,7 @@ async function persistAssistantResult({
   providerRunMetadata,
   terminalStatus,
   error,
+  artifactContextTarget,
 }: {
   db: Database;
   run: Run;
@@ -666,6 +682,7 @@ async function persistAssistantResult({
   providerRunMetadata: RuntimeRunMetadata | null;
   terminalStatus: ChatRunTerminalStatus;
   error: string | null;
+  artifactContextTarget?: WorkspaceArtifactVersionTarget | null;
 }): Promise<void> {
   if (await isRunCanceled(db, run.id)) return;
 
@@ -722,6 +739,7 @@ async function persistAssistantResult({
           chatMessageId: assistantMessageId,
           runId: run.id,
           assistantText,
+          targetArtifact: artifactContextTarget,
         }).catch((err) => {
           process.stderr.write(
             `[workspace-artifact-create-error] ${JSON.stringify({
