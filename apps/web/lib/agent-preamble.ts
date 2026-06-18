@@ -23,6 +23,8 @@ interface PreambleInput {
   accountConnectedProviders?: readonly string[];
   /** Connected provider keys withheld because this user has not approved them. */
   blockedProviders?: readonly string[];
+  /** Built-in non-account tools mounted for this turn, such as public URL fetch. */
+  builtinTools?: readonly string[];
   /** The model running this turn, so the assistant can self-identify correctly. */
   modelId?: string;
   /**
@@ -53,6 +55,7 @@ export function buildAgentPreamble({
   accountConnectedProviders,
   availableProviders,
   blockedProviders = [],
+  builtinTools = [],
   modelId,
   artifactContext,
   vaultContextRequested = false,
@@ -75,6 +78,23 @@ export function buildAgentPreamble({
     `You are ${assistantName}, ${user.displayName}'s internal AI assistant inside Comparative. Comparative is the workspace/product name; "${assistantName}" is your assistant name for this user. If asked your name, answer "${assistantName}". You are powered by ${modelLabel}, made by Anthropic. If asked which model or version you are, answer "${modelLabel}" — never claim to be an older model such as "Claude 3.5".`,
   );
   lines.push("");
+
+  if (builtinTools.length > 0) {
+    lines.push("Built-in tools mounted for this turn:");
+    for (const tool of builtinTools) {
+      if (tool === "web__fetch_url") {
+        lines.push(
+          "- Public URL fetch: reads public http(s) pages and returns text/HTML. Use it for URL inspection, page summaries, and HTML/source extraction. It cannot access localhost, private networks, credentialed URLs, or arbitrary web search.",
+        );
+      } else {
+        lines.push(`- ${tool}`);
+      }
+    }
+    lines.push(
+      "When the user provides a public URL and asks what is on it, call the URL fetch tool before answering. If the tool returns an error, surface that exact error instead of guessing page contents.",
+    );
+    lines.push("");
+  }
 
   const accountProviders =
     accountConnectedProviders ?? availableProviders ?? connectedProviders;
@@ -105,7 +125,9 @@ export function buildAgentPreamble({
     );
   } else {
     lines.push(
-      "No external tools are connected yet. The user can connect tools in the Tools section.",
+      builtinTools.length > 0
+        ? "No connected account tools are mounted in this turn. The built-in tools listed above are still available."
+        : "No external tools are connected yet. The user can connect tools in the Tools section.",
     );
   }
 

@@ -50,6 +50,7 @@ import { createToolEventAccumulator } from "@/lib/tool-events";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
 import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
+import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
 import { createRecommendationsForAssistantMessage } from "@/lib/recommendation-persistence";
@@ -260,7 +261,10 @@ async function executeClaimedChatRun({
   signal?: AbortSignal;
 }): Promise<void> {
   const inputs = parseChatRunInputs(run.inputs);
-  const runtimeRoute = parseStoredRuntimeRoute(inputs.runtimeRoute);
+  const runtimeRoute =
+    parseStoredRuntimeRoute(inputs.runtimeRoute) ??
+    defaultWorkerRuntimeRoute(inputs);
+  const builtinTools = builtinToolsForChatRoute(runtimeRoute);
   const threadId = inputs.threadId;
 
   await appendWorkerRunEvent(db, run.id, {
@@ -414,6 +418,7 @@ async function executeClaimedChatRun({
     modelId: run.modelId ?? undefined,
     artifactContext: combinedArtifactContext,
     uploadedFiles,
+    builtinTools,
     forcePreamble: true,
     route: runtimeRoute,
   });
@@ -513,6 +518,7 @@ async function executeClaimedChatRun({
         context: { userId: run.userId },
         signal: runtimeAbort.signal,
         firstTurnPreamble: contextPack.prompt.systemPrompt,
+        ...(builtinTools.length > 0 ? { builtinTools } : {}),
         onRunStarted: async (metadata) => {
           providerRunMetadata = metadata;
           await db
@@ -1008,6 +1014,19 @@ function parseStoredRuntimeRoute(value: unknown): ChatRuntimeRoute | undefined {
     reasons: Array.isArray(value.reasons)
       ? value.reasons.filter((reason): reason is string => typeof reason === "string")
       : ["stored_runtime_route"],
+  };
+}
+
+function defaultWorkerRuntimeRoute(inputs: ChatRunInputs): ChatRuntimeRoute {
+  return {
+    lane: "durable-local",
+    executionMode: inputs.executionMode,
+    runtimeTarget: "agentcore-worker",
+    runtimeV2: inputs.runtimeV2 === true,
+    useWorker: true,
+    useMcp: true,
+    includeVaultContext: true,
+    reasons: ["legacy_worker_run"],
   };
 }
 

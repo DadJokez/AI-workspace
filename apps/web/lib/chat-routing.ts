@@ -385,6 +385,10 @@ function hasToolIntent(value: string): string | null {
   if (hasRecentGithubWorkLookup(value)) {
     return "github_recent_work_lookup";
   }
+  const webLookup = hasWebLookupIntent(value);
+  if (webLookup) {
+    return webLookup;
+  }
   if (
     (hasGithubName(value) || /\b(repos?|repositories?)\b/.test(value)) &&
     GITHUB_LOOKUP_ACTION_RE.test(value)
@@ -433,6 +437,20 @@ function hasCapabilityBackedToolIntent(
 
 const GITHUB_LOOKUP_ACTION_RE =
   /\b(check|inspect|look|peek|find|search|list|read|show|see|view|summarize|compare|status|review|open|create|update|comment|close|merge|try)\b/;
+
+const PUBLIC_URL_RE = /\bhttps?:\/\/[^\s<>()"']+/i;
+
+function hasWebLookupIntent(value: string): string | null {
+  if (!PUBLIC_URL_RE.test(value)) return null;
+  if (
+    /\b(html|source|contents?|page|site|website|url|fetch|read|open|inspect|look|view|summarize|summary|extract|parse|what|tell me|show)\b/.test(
+      value,
+    )
+  ) {
+    return "web_url_lookup";
+  }
+  return null;
+}
 
 function hasGithubName(value: string): boolean {
   return /\b(github|gh|git hub)\b/.test(value);
@@ -546,6 +564,9 @@ export function explainChatRuntimeRoute(route: ChatRuntimeRoute): string {
     return "Queued durable local work because this request needs resilient, longer-running execution.";
   }
   if (route.lane === "tool-local") {
+    if (route.reasons.some((reason) => reason.startsWith("web_"))) {
+      return "Mounted public URL fetch because this request asks to inspect or summarize a web page.";
+    }
     if (route.reasons.some((reason) => reason.startsWith("github_"))) {
       return "Mounted local tools because this request asks for live GitHub, PR, issue, CI, or repository data.";
     }

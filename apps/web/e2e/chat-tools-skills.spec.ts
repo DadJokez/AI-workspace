@@ -71,6 +71,7 @@ test.describe("chat tools and skills", () => {
       .locator("details")
       .filter({ hasText: /Worked for/ })
       .locator("summary")
+      .first()
       .click();
     await expect(page.getByText("Searched GitHub")).toBeVisible();
   });
@@ -285,5 +286,71 @@ test.describe("chat tools and skills", () => {
     );
     await expect(page.getByText("Quick answer from Haiku.")).toBeVisible();
     await expect(page.getByText("Thomas · haiku-4-5")).toBeVisible();
+  });
+
+  test("surfaces failed URL fetch tool work as an actionable receipt", async ({
+    page,
+  }) => {
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      onChat: async (_body, route) => {
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-url-fetch-failed",
+            modelId: "sonnet-4-6",
+          },
+          {
+            type: "tool-call",
+            call: {
+              id: "tool-web-fetch",
+              name: "web__fetch_url",
+              input: { url: "https://example.com/" },
+            },
+          },
+          {
+            type: "tool-result",
+            result: {
+              toolCallId: "tool-web-fetch",
+              output:
+                'URL fetch failed for https://example.com/: content-type "image/png" is not readable text or HTML.',
+              isError: true,
+            },
+          },
+          {
+            type: "text-delta",
+            delta:
+              'URL fetch failed for https://example.com/: content-type "image/png" is not readable text or HTML.',
+          },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-url-fetch-failed",
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+
+    await page.goto("/e2e/chat");
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("https://example.com/ what is the html for this site?");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    await expect(
+      page
+        .getByTestId("assistant-message-content")
+        .getByText(/content-type "image\/png"/),
+    ).toBeVisible();
+    await expect(page.getByText("1 step needs attention")).toBeVisible();
+    await page
+      .locator("details")
+      .filter({ hasText: /Worked for/ })
+      .locator("summary")
+      .first()
+      .click();
+    await expect(page.getByText("Could not check Web details")).toBeVisible();
   });
 });

@@ -154,4 +154,13 @@ describe("STARTER_SKILLS", () => {
     );
     expect(zeroProvider.length).toBeGreaterThanOrEqual(5);
   });
+
+  it("grounds Weekly Status in live GitHub scope and honest fallback", () => {
+    const weekly = STARTER_SKILLS.find((s) => s.slug === "weekly-status");
+    expect(weekly).toBeDefined();
+    expect(weekly?.mcpProviders).toEqual(["github"]);
+    expect(weekly?.systemPrompt).toContain("Use the GitHub tools before writing");
+    expect(weekly?.systemPrompt).toContain("state exactly what scope you queried");
+    expect(weekly?.systemPrompt).toContain("do not produce a fake weekly status");
+  });
 });

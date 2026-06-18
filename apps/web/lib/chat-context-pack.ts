@@ -98,6 +98,7 @@ export interface ChatContextReceipt {
     connected: string[];
     approved: string[];
     mounted: string[];
+    builtinMounted: string[];
     pendingApproval: string[];
     providers: ChatContextProviderItem[];
   };
@@ -172,6 +173,7 @@ export interface BuildChatContextPackInput {
   uploadedFiles?: readonly ChatContextUploadedFile[];
   recommendations?: readonly RecommendationCandidate[];
   route?: ChatRuntimeRoute;
+  builtinTools?: readonly string[];
   forcePreamble?: boolean;
   now?: Date;
 }
@@ -191,6 +193,7 @@ export function buildChatContextPack({
   uploadedFiles = [],
   recommendations = [],
   route,
+  builtinTools = [],
   forcePreamble = false,
   now = new Date(),
 }: BuildChatContextPackInput): ChatContextPack {
@@ -206,6 +209,7 @@ export function buildChatContextPack({
   const shouldRenderPreamble =
     forcePreamble ||
     Boolean(route?.useMcp) ||
+    builtinTools.length > 0 ||
     Boolean(route?.includeVaultContext) ||
     Boolean(user.customInstructions?.trim()) ||
     artifacts.length > 0 ||
@@ -339,6 +343,7 @@ export function buildChatContextPack({
       connected: uniqueStrings(providerStatus.connectedProviders),
       approved: uniqueStrings(providerStatus.allowedProviders),
       mounted: uniqueStrings(mountedProviders),
+      builtinMounted: uniqueStrings(builtinTools),
       pendingApproval: blockedProviders,
       providers: providerItems,
     },
@@ -400,6 +405,7 @@ export function buildChatContextPack({
           connectedProviders: receipt.tools.mounted,
           availableProviders: receipt.tools.approved,
           blockedProviders: receipt.tools.pendingApproval,
+          builtinTools: receipt.tools.builtinMounted,
           modelId,
           artifactContext: artifacts || null,
           vaultContextRequested,
@@ -449,9 +455,9 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
   lines.push(
     `- Tools: connected ${formatList(receipt.tools.connected)}; approved ${formatList(
       receipt.tools.approved,
-    )}; mounted this turn ${formatList(receipt.tools.mounted)}; pending approval ${formatList(
-      receipt.tools.pendingApproval,
-    )}.`,
+    )}; mounted this turn ${formatList(receipt.tools.mounted)}; built-in mounted ${formatList(
+      receipt.tools.builtinMounted,
+    )}; pending approval ${formatList(receipt.tools.pendingApproval)}.`,
   );
   lines.push(
     `- Work context: ${receipt.work.recentMessages} recent message(s); ` +

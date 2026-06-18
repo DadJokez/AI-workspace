@@ -1,4 +1,8 @@
-import type { AgentEvent, AgentMessage, ToolContext } from "@ai-workspace/agent";
+import type {
+  AgentEvent,
+  AgentMessage,
+  ToolContext,
+} from "@ai-workspace/agent";
 
 /**
  * Per-turn MCP server config. The AWS runtime lanes forward HTTP/SSE servers
@@ -60,6 +64,11 @@ export interface TurnInput {
    * AgentCore connect the HTTP ones through `connectMcpTools`.
    */
   mcpServers?: Record<string, McpServerSpec>;
+  /**
+   * Built-in, non-account tools to expose for this turn. Keep this empty for
+   * fast chat so simple turns do not pay tool-selection overhead.
+   */
+  builtinTools?: readonly string[];
   /**
    * Steering text for user identity, connected tools, Vault memory, artifact
    * context, and custom instructions. Bedrock and AgentCore fold it into the

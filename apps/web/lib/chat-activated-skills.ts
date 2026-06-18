@@ -7,6 +7,7 @@ import {
 import { eq } from "drizzle-orm";
 import { canActorRunSkill } from "@/lib/shares";
 import { checkSkillProviderAccess } from "@/lib/skills";
+import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
 export interface ActivatedSkillRequest {
   id?: string;
@@ -78,7 +79,7 @@ export async function resolveActivatedSkillForChat({
     .from(skillsTable)
     .where(id ? eq(skillsTable.id, id) : eq(skillsTable.slug, slug))
     .limit(1);
-  const skill = rows[0];
+  const skill = rows[0] ? canonicalizeStarterSkill(rows[0]) : undefined;
   const canRunSkill = deps.canRunSkill ?? canActorRunSkill;
   if (!skill || !(await canRunSkill(db, skill, actor))) {
     return {

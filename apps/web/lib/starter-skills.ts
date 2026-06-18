@@ -82,8 +82,22 @@ export const STARTER_SKILLS: readonly StarterSkill[] = [
     systemPrompt: [
       "Draft the user's weekly status update from their GitHub activity over the past 7 days.",
       "",
-      "Sections: Shipped (merged PRs), In flight (open PRs with state), Blocked / needs attention (stalled reviews, failing CI).",
-      "Write it in first person, ready to paste into a status thread. Use the GitHub tools to read real data — never invent activity.",
+      "Use the GitHub tools before writing the update. Start by identifying the current GitHub user if a current-user/viewer tool exists, then query the repos and pull requests visible to that account.",
+      "",
+      "Collect these facts with explicit scope:",
+      "1. Merged pull requests from the last 7 days that the user authored or materially contributed to.",
+      "2. Open pull requests the user authored, including review/CI state when available.",
+      "3. Pull requests waiting on the user's review.",
+      "4. Failing CI, stalled reviews, or blocked work surfaced by the available tools.",
+      "",
+      "Output sections: Shipped, In flight, Blocked / needs attention, Suggested next actions.",
+      "Write it in first person, ready to paste into a status thread.",
+      "",
+      "Honesty rules:",
+      "- Never invent repositories, pull requests, statuses, reviewers, or checks.",
+      "- If a GitHub tool returns an error, quote the exact error and say which part of the status could not be verified.",
+      "- If tools return no results, state exactly what scope you queried instead of saying broadly that nothing happened.",
+      "- If GitHub tools are unavailable for this account, ask the user to connect/approve GitHub or paste notes/PR links; do not produce a fake weekly status.",
     ].join("\n"),
     modelId: "sonnet-4-6",
     mcpProviders: ["github"],
@@ -193,3 +207,27 @@ export const STARTER_SKILLS: readonly StarterSkill[] = [
     mcpProviders: [],
   },
 ];
+
+export function canonicalizeStarterSkill<
+  T extends {
+    slug: string;
+    name: string;
+    description: string | null;
+    systemPrompt: string;
+    modelId: string;
+    mcpProviders: string[];
+    isStarter: boolean;
+  },
+>(skill: T): T {
+  if (!skill.isStarter) return skill;
+  const starter = STARTER_SKILLS.find((candidate) => candidate.slug === skill.slug);
+  if (!starter) return skill;
+  return {
+    ...skill,
+    name: starter.name,
+    description: starter.description,
+    systemPrompt: starter.systemPrompt,
+    modelId: starter.modelId,
+    mcpProviders: [...starter.mcpProviders],
+  };
+}

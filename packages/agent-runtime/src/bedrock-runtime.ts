@@ -8,6 +8,7 @@ import {
   isValidModelId,
   runAgentLoop,
 } from "@ai-workspace/agent";
+import { createBuiltinTools } from "@ai-workspace/agent/web-fetch-tool";
 
 import type { AgentRuntime, McpServerSpec, TurnInput } from "./types";
 
@@ -51,6 +52,7 @@ export class BedrockRuntime implements AgentRuntime {
     // expose. Never mutate the shared base registry.
     const registry = new ToolRegistry();
     registry.registerAll(this.registry.list());
+    registry.registerAll(createBuiltinTools(input.builtinTools));
 
     let mcp: McpToolConnection | null = null;
     const httpServers = pickHttpMcpServers(input.mcpServers);

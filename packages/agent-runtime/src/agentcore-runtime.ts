@@ -60,6 +60,7 @@ export class AgentCoreRuntime implements AgentRuntime {
       firstTurnPreamble: input.firstTurnPreamble,
       messages: input.messages,
       mcpServers: pickHttpMcpServers(input.mcpServers),
+      builtinTools: input.builtinTools,
       userId: input.context.userId,
     });
 

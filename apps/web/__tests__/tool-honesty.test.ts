@@ -67,4 +67,17 @@ describe("tool-use honesty grounding", () => {
     expect(preamble).toContain("Do not say no tools are connected");
     expect(preamble).not.toContain("No external tools are connected yet");
   });
+
+  it("describes mounted built-in URL fetch without claiming account tools are connected", () => {
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: [],
+      builtinTools: ["web__fetch_url"],
+    });
+
+    expect(preamble).toContain("Built-in tools mounted for this turn");
+    expect(preamble).toContain("Public URL fetch");
+    expect(preamble).toContain("No connected account tools are mounted");
+    expect(preamble).not.toContain("No external tools are connected yet");
+  });
 });

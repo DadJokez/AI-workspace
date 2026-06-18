@@ -54,6 +54,7 @@ import { createToolEventAccumulator } from "@/lib/tool-events";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
 import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
+import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import {
   createArtifactsFromAssistantMessage,
@@ -153,6 +154,7 @@ export async function streamInlineChatRun({
   let providerRunMetadata: RuntimeRunMetadata | null = null;
   const runtimeErrors: NormalizedRuntimeError[] = [];
   const toolEvents = createToolEventAccumulator([]);
+  const builtinTools = builtinToolsForChatRoute(route);
 
   try {
     const mcpProviderScope = resolveChatMcpProviderScope(requestedProviders);
@@ -272,6 +274,7 @@ export async function streamInlineChatRun({
       artifactContext: combinedArtifactContext,
       uploadedFiles,
       route,
+      builtinTools,
     });
     const contextReceipt = contextPack.receipts[0]!;
     timing.contextReadyAt = new Date();
@@ -398,6 +401,7 @@ export async function streamInlineChatRun({
           });
         },
         ...(mcpServers ? { mcpServers } : {}),
+        ...(builtinTools.length > 0 ? { builtinTools } : {}),
       })) {
         if (signal?.aborted) {
           runtimeAbort.abort();

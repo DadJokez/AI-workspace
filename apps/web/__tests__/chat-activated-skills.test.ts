@@ -141,6 +141,56 @@ describe("resolveActivatedSkillForChat", () => {
       },
     });
   });
+
+  it("uses the canonical starter definition for stale seeded skills", async () => {
+    const staleStarter = {
+      ...skill,
+      id: "starter-weekly",
+      ownerUserId: "admin-user",
+      isStarter: true,
+      systemPrompt: "Old prompt from an earlier seed.",
+      mcpProviders: [],
+    } as unknown as Skill;
+    const checkProviderAccess = vi.fn(async () => ({
+      ready: ["github"],
+      missingConnections: [],
+      deniedAttestations: [],
+    }));
+
+    const result = await resolveActivatedSkillForChat({
+      db: dbWithSkills([staleStarter]),
+      actor,
+      activatedSkills: [
+        {
+          id: staleStarter.id,
+          source: "explicit",
+        },
+      ],
+      deps: {
+        canRunSkill: vi.fn(async () => true),
+        checkProviderAccess,
+      },
+    });
+
+    expect(checkProviderAccess).toHaveBeenCalledWith(
+      expect.anything(),
+      actor.id,
+      ["github"],
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      activatedSkill: {
+        skill: {
+          id: staleStarter.id,
+          slug: "weekly-status",
+          systemPrompt: expect.stringContaining(
+            "Use the GitHub tools before writing",
+          ),
+          mcpProviders: ["github"],
+        },
+      },
+    });
+  });
 });
 
 function dbWithSkills(rows: Skill[]): Database {

@@ -9,6 +9,7 @@ import {
   isValidModelId,
   runAgentLoop,
 } from "@ai-workspace/agent";
+import { createBuiltinTools } from "@ai-workspace/agent/web-fetch-tool";
 
 /**
  * The invocation contract between `AgentCoreRuntime` (the seam adapter in
@@ -24,6 +25,7 @@ export interface InvocationPayload {
   firstTurnPreamble?: string;
   messages: AgentMessage[];
   mcpServers?: Record<string, McpHttpServerSpec>;
+  builtinTools?: string[];
   userId?: string;
   maxToolIterations?: number;
 }
@@ -74,6 +76,9 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
         : undefined,
     messages: body.messages as AgentMessage[],
     mcpServers,
+    builtinTools: Array.isArray(body.builtinTools)
+      ? body.builtinTools.filter((tool): tool is string => typeof tool === "string")
+      : undefined,
     userId: typeof body.userId === "string" ? body.userId : undefined,
     maxToolIterations:
       typeof body.maxToolIterations === "number"
@@ -95,6 +100,7 @@ export async function runInvocation(
   opts: { signal?: AbortSignal; client?: BedrockClient } = {},
 ): Promise<void> {
   const registry = new ToolRegistry();
+  registry.registerAll(createBuiltinTools(payload.builtinTools));
   let mcp: McpToolConnection | null = null;
 
   const servers = payload.mcpServers ?? {};

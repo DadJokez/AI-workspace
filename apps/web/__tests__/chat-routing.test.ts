@@ -129,6 +129,22 @@ describe("decideChatRuntimeRoute", () => {
     });
   });
 
+  it("routes public URL inspection to local tool streaming", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "https://example.com/ what is the html for this site?",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "tool-local",
+      executionMode: "local",
+      runtimeTarget: "bedrock-agent",
+      useWorker: false,
+      useMcp: true,
+      reasons: ["web_url_lookup"],
+    });
+  });
+
   it("routes GitHub capability probes to local tool streaming", () => {
     expect(
       decideChatRuntimeRoute({
