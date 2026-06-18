@@ -19,7 +19,7 @@ import {
 import { loadRecommendationsForMessages } from "@/lib/recommendation-persistence";
 import type { PersistedRecommendation } from "@/lib/recommendations";
 
-interface ChatRunOutput {
+export interface ChatRunOutput {
   assistantMessageId?: string;
   assistantText?: string;
   toolCalls?: PersistedToolCall[];
@@ -175,9 +175,11 @@ export async function loadThreadMessagesWithRunActivity({
     activeRunMessages.push({
       id: `run:${run.id}`,
       role: "assistant",
-      content:
-        output.assistantText ??
-        terminalRunMessage(run.status, run.error),
+      content: activeRunMessageContent({
+        status: run.status,
+        error: run.error,
+        output,
+      }),
       modelId: run.modelId,
       runtime: run.runtime,
       toolCalls: output.toolCalls ?? null,
@@ -224,6 +226,40 @@ function terminalRunMessage(status: string, error?: string | null): string {
       : "Run failed before an answer was saved.";
   }
   return "";
+}
+
+export function activeRunMessageContent({
+  status,
+  error,
+  output,
+}: {
+  status: string;
+  error?: string | null;
+  output: ChatRunOutput;
+}): string {
+  const fallback = terminalRunMessage(status, error);
+  if (
+    (status === "failed" || status === "canceled") &&
+    output.assistantText &&
+    !output.artifacts?.length &&
+    hasArtifactLikePartialOutput(output.assistantText)
+  ) {
+    return [
+      fallback,
+      "Artifact update was interrupted before Comparative could save a complete workspace artifact. Retry the run to generate the updated artifact.",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+  return output.assistantText ?? fallback;
+}
+
+function hasArtifactLikePartialOutput(text: string): boolean {
+  return (
+    /```[^\n]*(?:filename=|html|md|markdown|csv|json|\.html|\.md|\.csv|\.json)/i.test(
+      text,
+    ) || /<!doctype\s+html|<html[\s>]/i.test(text)
+  );
 }
 
 function parseChatRunOutput(value: unknown): ChatRunOutput {

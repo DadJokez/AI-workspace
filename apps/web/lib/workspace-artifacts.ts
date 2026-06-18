@@ -3,7 +3,7 @@ import {
   workspaceArtifacts,
   type WorkspaceArtifact,
 } from "@ai-workspace/db";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 const MAX_ARTIFACTS_PER_MESSAGE = 5;
@@ -43,9 +43,10 @@ interface CreateArtifactsInput {
   chatMessageId: string;
   runId?: string | null;
   assistantText: string;
+  targetArtifact?: WorkspaceArtifactVersionTarget | null;
 }
 
-interface ParsedArtifact {
+export interface ParsedArtifact {
   title: string;
   filename: string;
   kind: string;
@@ -54,14 +55,29 @@ interface ParsedArtifact {
   metadata: Record<string, unknown>;
 }
 
-interface PlannedArtifactVersion {
+export interface PlannedArtifactVersion {
   artifactKey: string;
   artifactGroupId: string;
   versionNumber: number;
   supersedesArtifactId: string | null;
   filename: string;
+  title?: string;
   versionSummary: string;
 }
+
+export interface WorkspaceArtifactVersionTarget {
+  id: string;
+  title: string;
+  filename: string;
+  artifactGroupId: string;
+  versionNumber: number;
+  metadata: Record<string, unknown> | null;
+}
+
+type ArtifactVersionPrior = Pick<
+  WorkspaceArtifact,
+  "id" | "title" | "artifactGroupId" | "versionNumber" | "filename" | "metadata"
+>;
 
 interface FencedCodeBlock {
   info: string;
@@ -77,6 +93,7 @@ export async function createArtifactsFromAssistantMessage({
   chatMessageId,
   runId,
   assistantText,
+  targetArtifact,
 }: CreateArtifactsInput): Promise<WorkspaceArtifactSummary[]> {
   const parsed = parseAssistantArtifacts(assistantText);
   if (parsed.length === 0) return [];
@@ -85,6 +102,7 @@ export async function createArtifactsFromAssistantMessage({
     userId,
     threadId,
     artifacts: parsed,
+    targetArtifact,
   });
 
   const rows = await db
@@ -95,7 +113,7 @@ export async function createArtifactsFromAssistantMessage({
         threadId,
         chatMessageId,
         runId: runId ?? null,
-        title: artifact.title,
+        title: version.title ?? artifact.title,
         filename: version.filename,
         artifactGroupId: version.artifactGroupId,
         versionNumber: version.versionNumber,
@@ -214,6 +232,42 @@ export function serializeWorkspaceArtifactDetail(
   };
 }
 
+export function toWorkspaceArtifactVersionTarget(
+  artifact: WorkspaceArtifactSummary,
+): WorkspaceArtifactVersionTarget {
+  return {
+    id: artifact.id,
+    title: artifact.title,
+    filename: artifact.filename,
+    artifactGroupId: artifact.artifactGroupId,
+    versionNumber: artifact.versionNumber,
+    metadata: artifact.metadata ?? null,
+  };
+}
+
+export function parseWorkspaceArtifactVersionTarget(
+  value: unknown,
+): WorkspaceArtifactVersionTarget | null {
+  if (!isRecord(value)) return null;
+  if (
+    typeof value.id !== "string" ||
+    typeof value.title !== "string" ||
+    typeof value.filename !== "string" ||
+    typeof value.artifactGroupId !== "string" ||
+    typeof value.versionNumber !== "number"
+  ) {
+    return null;
+  }
+  return {
+    id: value.id,
+    title: value.title,
+    filename: value.filename,
+    artifactGroupId: value.artifactGroupId,
+    versionNumber: value.versionNumber,
+    metadata: isRecord(value.metadata) ? value.metadata : null,
+  };
+}
+
 export function parseAssistantArtifacts(text: string): ParsedArtifact[] {
   const blocks = extractFencedCodeBlocks(text);
   const artifacts: ParsedArtifact[] = [];
@@ -276,36 +330,78 @@ async function planArtifactVersions({
   userId,
   threadId,
   artifacts,
+  targetArtifact,
 }: {
   db: Database;
   userId: string;
   threadId: string;
   artifacts: readonly ParsedArtifact[];
+  targetArtifact?: WorkspaceArtifactVersionTarget | null;
 }): Promise<
   Array<{ artifact: ParsedArtifact; version: PlannedArtifactVersion }>
 > {
+  const scope =
+    targetArtifact?.artifactGroupId
+      ? or(
+          eq(workspaceArtifacts.threadId, threadId),
+          eq(workspaceArtifacts.artifactGroupId, targetArtifact.artifactGroupId),
+        )
+      : eq(workspaceArtifacts.threadId, threadId);
   const priorRows = await db
     .select()
     .from(workspaceArtifacts)
-    .where(
-      and(
-        eq(workspaceArtifacts.userId, userId),
-        eq(workspaceArtifacts.threadId, threadId),
-      ),
-    )
+    .where(and(eq(workspaceArtifacts.userId, userId), scope))
     .orderBy(desc(workspaceArtifacts.versionNumber), desc(workspaceArtifacts.createdAt))
     .limit(200);
 
+  return planArtifactVersionsForExistingArtifacts({
+    artifacts,
+    priorArtifacts: priorRows,
+    targetArtifact,
+  });
+}
+
+export function planArtifactVersionsForExistingArtifacts({
+  artifacts,
+  priorArtifacts,
+  targetArtifact,
+}: {
+  artifacts: readonly ParsedArtifact[];
+  priorArtifacts: readonly ArtifactVersionPrior[];
+  targetArtifact?: WorkspaceArtifactVersionTarget | null;
+}): Array<{ artifact: ParsedArtifact; version: PlannedArtifactVersion }> {
+  const targetKey = targetArtifact
+    ? artifactKeyFromArtifact(targetArtifact)
+    : null;
   const latestByKey = new Map<
     string,
     Pick<
       WorkspaceArtifact,
-      "id" | "artifactGroupId" | "versionNumber" | "filename" | "metadata"
+      | "id"
+      | "title"
+      | "artifactGroupId"
+      | "versionNumber"
+      | "filename"
+      | "metadata"
     >
   >();
-  for (const row of priorRows) {
+  const latestTargetByKey = new Map<string, ArtifactVersionPrior>();
+
+  for (const row of priorArtifacts) {
     const key = artifactKeyFromArtifact(row);
+    if (row.artifactGroupId === targetArtifact?.artifactGroupId) {
+      if (!latestTargetByKey.has(key)) latestTargetByKey.set(key, row);
+      continue;
+    }
     if (!latestByKey.has(key)) latestByKey.set(key, row);
+  }
+
+  if (targetArtifact && targetKey && !latestTargetByKey.has(targetKey)) {
+    latestTargetByKey.set(targetKey, targetArtifact);
+  }
+
+  for (const [key, row] of latestTargetByKey) {
+    latestByKey.set(key, row);
   }
 
   const planned: Array<{
@@ -313,18 +409,27 @@ async function planArtifactVersions({
     version: PlannedArtifactVersion;
   }> = [];
 
-  for (const artifact of artifacts) {
-    const artifactKey = artifactKeyFromFilename(artifact.filename);
+  for (const [index, artifact] of artifacts.entries()) {
+    const parsedArtifactKey = artifactKeyFromFilename(artifact.filename);
+    const useTarget =
+      !!targetArtifact &&
+      !!targetKey &&
+      (parsedArtifactKey === targetKey || artifacts.length === 1);
+    const artifactKey = useTarget ? targetKey : parsedArtifactKey;
     const prior = latestByKey.get(artifactKey);
     const versionNumber = prior ? prior.versionNumber + 1 : 1;
     const artifactGroupId = prior?.artifactGroupId ?? randomUUID();
-    const filename = filenameForVersion(artifact.filename, versionNumber);
+    const filename = filenameForVersion(
+      useTarget ? targetArtifact.filename : artifact.filename,
+      versionNumber,
+    );
     const version: PlannedArtifactVersion = {
       artifactKey,
       artifactGroupId,
       versionNumber,
       supersedesArtifactId: prior?.id ?? null,
       filename,
+      ...(useTarget ? { title: targetArtifact.title } : {}),
       versionSummary:
         versionNumber === 1
           ? "Initial artifact created from chat."
@@ -332,7 +437,8 @@ async function planArtifactVersions({
     };
     planned.push({ artifact, version });
     latestByKey.set(artifactKey, {
-      id: `planned:${planned.length}`,
+      id: `planned:${index + 1}`,
+      title: version.title ?? artifact.title,
       artifactGroupId,
       versionNumber,
       filename,

@@ -106,6 +106,11 @@ export interface MatchedArtifactContent {
   content: string;
 }
 
+export interface ArtifactContextPayload {
+  text: string;
+  matchedArtifact: WorkspaceArtifactSummary | null;
+}
+
 /**
  * Render the context block. Pure (no I/O) so it's unit-testable apart from the
  * DB loads. `matched` carries the full content to inject; null = manifest only.
@@ -165,6 +170,19 @@ export async function buildArtifactContext({
   userId: string;
   message: string;
 }): Promise<string | null> {
+  const payload = await buildArtifactContextPayload({ db, userId, message });
+  return payload?.text ?? null;
+}
+
+export async function buildArtifactContextPayload({
+  db,
+  userId,
+  message,
+}: {
+  db: Database;
+  userId: string;
+  message: string;
+}): Promise<ArtifactContextPayload | null> {
   let artifacts: WorkspaceArtifactSummary[];
   try {
     artifacts = await loadWorkspaceArtifacts({
@@ -200,5 +218,8 @@ export async function buildArtifactContext({
     }
   }
 
-  return formatArtifactContext({ artifacts, matched: matchedContent });
+  return {
+    text: formatArtifactContext({ artifacts, matched: matchedContent }),
+    matchedArtifact: matched,
+  };
 }
