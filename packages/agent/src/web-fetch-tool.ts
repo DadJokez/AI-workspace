@@ -1,4 +1,6 @@
 import { lookup as dnsLookup } from "node:dns/promises";
+import * as http from "node:http";
+import * as https from "node:https";
 import { isIP } from "node:net";
 import type { Tool } from "./types";
 
@@ -18,10 +20,30 @@ interface WebFetchInput {
 }
 
 interface WebFetchOptions {
-  fetchImpl?: typeof fetch;
+  requestImpl?: RequestUrlImpl;
   lookupImpl?: typeof dnsLookup;
   now?: () => Date;
 }
+
+type GuardedLookup = NonNullable<http.RequestOptions["lookup"]>;
+
+interface RequestUrlOptions {
+  maxBytes: number;
+  lookup: GuardedLookup;
+}
+
+interface WebFetchResponse {
+  status: number;
+  headers: http.IncomingHttpHeaders;
+  bytesRead: number;
+  truncated: boolean;
+  text: string;
+}
+
+type RequestUrlImpl = (
+  url: URL,
+  options: RequestUrlOptions,
+) => Promise<WebFetchResponse>;
 
 export function createBuiltinTools(names: readonly string[] = []): Tool[] {
   const tools: Tool[] = [];
@@ -32,7 +54,7 @@ export function createBuiltinTools(names: readonly string[] = []): Tool[] {
 }
 
 export function createWebFetchTool({
-  fetchImpl = fetch,
+  requestImpl = requestUrl,
   lookupImpl = dnsLookup,
   now = () => new Date(),
 }: WebFetchOptions = {}): Tool {
@@ -65,7 +87,7 @@ export function createWebFetchTool({
       const result = await fetchPublicUrl({
         rawUrl: requireUrl(parsedInput.url),
         maxBytes,
-        fetchImpl,
+        requestImpl,
         lookupImpl,
       });
       return { ...result, fetchedAt: startedAt };
@@ -76,40 +98,32 @@ export function createWebFetchTool({
 async function fetchPublicUrl({
   rawUrl,
   maxBytes,
-  fetchImpl,
+  requestImpl,
   lookupImpl,
 }: {
   rawUrl: string;
   maxBytes: number;
-  fetchImpl: typeof fetch;
+  requestImpl: RequestUrlImpl;
   lookupImpl: typeof dnsLookup;
 }) {
   let current = parseAndValidateUrl(rawUrl);
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
     await assertPublicHostname(current.hostname, lookupImpl);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
-    let response: Response;
+    let response: WebFetchResponse;
     try {
-      response = await fetchImpl(current.toString(), {
-        method: "GET",
-        redirect: "manual",
-        signal: controller.signal,
-        headers: {
-          accept:
-            "text/html,application/xhtml+xml,application/json,application/xml,text/plain,text/*,*/*;q=0.2",
-          "user-agent": "Comparative-URL-Fetch/1.0",
-        },
+      response = await requestImpl(current, {
+        maxBytes,
+        lookup: createGuardedLookup(lookupImpl),
       });
     } catch (err) {
-      throw new Error(`URL fetch failed for ${current.toString()}: ${errorText(err)}`);
-    } finally {
-      clearTimeout(timeout);
+      throw new Error(
+        `URL fetch failed for ${current.toString()}: ${errorText(err)}`,
+      );
     }
 
     if (isRedirectStatus(response.status)) {
-      const location = response.headers.get("location");
+      const location = getHeader(response.headers, "location");
       if (!location) {
         throw new Error(
           `URL fetch failed for ${current.toString()}: redirect ${response.status} had no Location header.`,
@@ -124,30 +138,66 @@ async function fetchPublicUrl({
       continue;
     }
 
-    const contentType = response.headers.get("content-type") ?? "";
+    const contentType = getHeader(response.headers, "content-type") ?? "";
     if (!isTextLikeContentType(contentType)) {
       throw new Error(
         `URL fetch failed for ${current.toString()}: content-type "${contentType || "unknown"}" is not readable text or HTML.`,
       );
     }
 
-    const { text, bytesRead, truncated } = await readResponseText(
-      response,
-      maxBytes,
-    );
     return {
       url: current.toString(),
       status: response.status,
-      ok: response.ok,
+      ok: response.status >= 200 && response.status < 300,
       contentType: contentType || null,
-      title: extractHtmlTitle(text),
-      bytesRead,
-      truncated,
-      text,
+      title: extractHtmlTitle(response.text),
+      bytesRead: response.bytesRead,
+      truncated: response.truncated,
+      text: response.text,
     };
   }
 
   throw new Error(`URL fetch failed for ${rawUrl}: too many redirects.`);
+}
+
+function requestUrl(
+  url: URL,
+  { maxBytes, lookup }: RequestUrlOptions,
+): Promise<WebFetchResponse> {
+  return new Promise((resolve, reject) => {
+    const client = url.protocol === "https:" ? https : http;
+    const request = client.request(
+      url,
+      {
+        method: "GET",
+        lookup,
+        headers: {
+          accept:
+            "text/html,application/xhtml+xml,application/json,application/xml,text/plain,text/*,*/*;q=0.2",
+          "user-agent": "Comparative-URL-Fetch/1.0",
+        },
+      },
+      (response) => {
+        readIncomingText(response, maxBytes)
+          .then(({ text, bytesRead, truncated }) => {
+            resolve({
+              status: response.statusCode ?? 0,
+              headers: response.headers,
+              bytesRead,
+              truncated,
+              text,
+            });
+          })
+          .catch(reject);
+      },
+    );
+
+    request.setTimeout(DEFAULT_TIMEOUT_MS, () => {
+      request.destroy(new Error("request timed out"));
+    });
+    request.on("error", reject);
+    request.end();
+  });
 }
 
 function requireUrl(value: unknown): string {
@@ -179,6 +229,21 @@ async function assertPublicHostname(
   hostname: string,
   lookupImpl: typeof dnsLookup,
 ): Promise<void> {
+  await resolvePublicAddress(hostname, lookupImpl);
+}
+
+function createGuardedLookup(lookupImpl: typeof dnsLookup): GuardedLookup {
+  return ((hostname, _options, callback) => {
+    resolvePublicAddress(hostname, lookupImpl)
+      .then(({ address, family }) => callback(null, address, family))
+      .catch((err) => callback(toErrnoException(err), "", 0));
+  }) as GuardedLookup;
+}
+
+async function resolvePublicAddress(
+  hostname: string,
+  lookupImpl: typeof dnsLookup,
+): Promise<{ address: string; family: number }> {
   const normalized = hostname.toLowerCase().replace(/\.$/, "");
   if (
     normalized === "localhost" ||
@@ -190,7 +255,7 @@ async function assertPublicHostname(
 
   const literalIpVersion = isIP(normalized);
   const addresses = literalIpVersion
-    ? [{ address: normalized }]
+    ? [{ address: normalized, family: literalIpVersion }]
     : await lookupImpl(normalized, { all: true, verbatim: true }).catch((err) => {
         throw new Error(
           `URL fetch could not resolve "${hostname}": ${errorText(err)}`,
@@ -207,6 +272,11 @@ async function assertPublicHostname(
       `URL fetch blocked private or reserved address "${blocked.address}" for "${hostname}".`,
     );
   }
+  const first = addresses[0]!;
+  return {
+    address: first.address,
+    family: typeof first.family === "number" ? first.family : isIP(first.address),
+  };
 }
 
 function isBlockedIp(address: string): boolean {
@@ -271,39 +341,55 @@ function isTextLikeContentType(contentType: string): boolean {
   );
 }
 
-async function readResponseText(
-  response: Response,
+function readIncomingText(
+  response: http.IncomingMessage,
   maxBytes: number,
 ): Promise<{ text: string; bytesRead: number; truncated: boolean }> {
-  if (!response.body) return { text: "", bytesRead: 0, truncated: false };
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let bytesRead = 0;
-  let truncated = false;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    const remaining = maxBytes - bytesRead;
-    if (remaining <= 0) {
-      truncated = true;
-      break;
-    }
-    if (value.byteLength > remaining) {
-      chunks.push(value.slice(0, remaining));
-      bytesRead += remaining;
-      truncated = true;
-      break;
-    }
-    chunks.push(value);
-    bytesRead += value.byteLength;
-  }
-  await reader.cancel().catch(() => {});
-  return {
-    text: new TextDecoder("utf-8", { fatal: false }).decode(concat(chunks)),
-    bytesRead,
-    truncated,
-  };
+  return new Promise((resolve, reject) => {
+    const chunks: Uint8Array[] = [];
+    let bytesRead = 0;
+    let truncated = false;
+    let settled = false;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve({
+        text: new TextDecoder("utf-8", { fatal: false }).decode(concat(chunks)),
+        bytesRead,
+        truncated,
+      });
+    };
+
+    response.on("data", (chunk: Buffer | string) => {
+      const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      const remaining = maxBytes - bytesRead;
+      if (remaining <= 0) {
+        truncated = true;
+        response.destroy();
+        finish();
+        return;
+      }
+      if (value.byteLength > remaining) {
+        chunks.push(value.subarray(0, remaining));
+        bytesRead += remaining;
+        truncated = true;
+        response.destroy();
+        finish();
+        return;
+      }
+      chunks.push(value);
+      bytesRead += value.byteLength;
+    });
+    response.on("end", finish);
+    response.on("error", (err) => {
+      if (truncated) {
+        finish();
+        return;
+      }
+      if (!settled) reject(err);
+    });
+  });
 }
 
 function concat(chunks: readonly Uint8Array[]): Uint8Array {
@@ -323,10 +409,24 @@ function extractHtmlTitle(text: string): string | null {
   return match[1]!.replace(/\s+/g, " ").trim() || null;
 }
 
+function getHeader(
+  headers: http.IncomingHttpHeaders,
+  name: string,
+): string | null {
+  const value = headers[name.toLowerCase()];
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
 function errorText(err: unknown): string {
   if (err instanceof Error) {
     if (err.name === "AbortError") return "request timed out";
     return err.message;
   }
   return String(err);
+}
+
+function toErrnoException(err: unknown): NodeJS.ErrnoException {
+  if (err instanceof Error) return err as NodeJS.ErrnoException;
+  return new Error(String(err)) as NodeJS.ErrnoException;
 }

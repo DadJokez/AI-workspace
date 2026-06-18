@@ -4,6 +4,9 @@ import { createWebFetchTool } from "@ai-workspace/agent/web-fetch-tool";
 type LookupImpl = NonNullable<
   NonNullable<Parameters<typeof createWebFetchTool>[0]>["lookupImpl"]
 >;
+type RequestImpl = NonNullable<
+  NonNullable<Parameters<typeof createWebFetchTool>[0]>["requestImpl"]
+>;
 
 interface WebFetchOutput {
   text: string;
@@ -25,14 +28,13 @@ describe("web fetch built-in tool", () => {
     const tool = createWebFetchTool({
       lookupImpl: publicLookup,
       now: () => new Date("2026-06-18T00:00:00Z"),
-      fetchImpl: async () =>
-        new Response(
-          "<!doctype html><html><head><title>Example Domain</title></head><body><h1>Example Domain</h1></body></html>",
-          {
-            status: 200,
-            headers: { "content-type": "text/html; charset=utf-8" },
-          },
-        ),
+      requestImpl: async () => ({
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+        bytesRead: 107,
+        truncated: false,
+        text: "<!doctype html><html><head><title>Example Domain</title></head><body><h1>Example Domain</h1></body></html>",
+      }),
     });
 
     const output = (await tool.handler(
@@ -57,13 +59,48 @@ describe("web fetch built-in tool", () => {
       lookupImpl: (async () => [
         { address: "127.0.0.1", family: 4 },
       ]) as unknown as LookupImpl,
-      fetchImpl: async () => {
+      requestImpl: async () => {
         throw new Error("should not fetch");
       },
     });
 
     await expect(
       tool.handler({ url: "https://internal.example/" }, { userId: "u1" }),
+    ).rejects.toThrow(/blocked private or reserved address/);
+  });
+
+  it("blocks DNS rebinding at connect-time lookup", async () => {
+    let lookupCount = 0;
+    const rebindLookup = (async () => {
+      lookupCount += 1;
+      if (lookupCount === 1) return [{ address: "93.184.216.34", family: 4 }];
+      return [{ address: "169.254.169.254", family: 4 }];
+    }) as unknown as LookupImpl;
+    const requestImpl = (async (_url, { lookup }) => {
+      await new Promise<void>((resolve, reject) => {
+        lookup("rebind.example", {}, (err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve();
+        });
+      });
+      return {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+        bytesRead: 2,
+        truncated: false,
+        text: "ok",
+      };
+    }) as RequestImpl;
+    const tool = createWebFetchTool({
+      lookupImpl: rebindLookup,
+      requestImpl,
+    });
+
+    await expect(
+      tool.handler({ url: "https://rebind.example/" }, { userId: "u1" }),
     ).rejects.toThrow(/blocked private or reserved address/);
   });
 
