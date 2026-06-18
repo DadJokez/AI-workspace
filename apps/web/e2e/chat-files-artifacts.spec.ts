@@ -280,4 +280,142 @@ test.describe("chat files and artifacts", () => {
     ).toBeVisible();
     await expect(page.getByText("demo-artifact.html")).toBeVisible();
   });
+
+  test("collapses declared markdown artifacts instead of showing raw markdown", async ({
+    page,
+  }) => {
+    const markdownArtifact = {
+      id: "artifact-markdown-formatting",
+      title: "Markdown Formatting Reference",
+      filename: "markdown-formatting-reference.md",
+      kind: "markdown",
+      mimeType: "text/markdown",
+      sizeBytes: 740,
+      source: "assistant-code-block",
+      threadId: "thread-markdown-artifact",
+      chatMessageId: "assistant-markdown-artifact",
+      runId: "run-markdown-artifact",
+      artifactGroupId: "markdown-formatting-reference",
+      versionNumber: 1,
+      supersedesArtifactId: null,
+      versionSummary: "Initial artifact created from chat.",
+      metadata: {
+        extractedFrom: "assistant-declared-text-artifact",
+        originalFilename: "markdown-formatting-reference.md",
+      },
+      createdAt: defaultArtifactSummary.createdAt,
+      previewUrl: "/workspace/artifacts/artifact-markdown-formatting",
+      downloadUrl:
+        "/api/workspace/artifacts/artifact-markdown-formatting/download",
+    };
+
+    await installMockComparativeApi(page, {
+      artifacts: [markdownArtifact],
+      artifactDetails: {
+        [markdownArtifact.id]: {
+          ...markdownArtifact,
+          content: [
+            "# Markdown Formatting Reference",
+            "",
+            "- **Headings** (H1-H6)",
+            "- **GitHub Alerts** — NOTE, TIP, IMPORTANT, WARNING, CAUTION",
+          ].join("\n"),
+        },
+      },
+      onChat: async (_body, route) => {
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-markdown-artifact",
+            modelId: "sonnet-4-6",
+          },
+          {
+            type: "text-delta",
+            delta: [
+              "Here's a comprehensive Markdown formatting reference:Written to `markdown-formatting-reference.md`.",
+              "",
+              "Here's what's covered:",
+              "",
+              "- **Headings** (H1-H6)",
+              "- **Text emphasis** — bold, italic, bold+italic, strikethrough",
+              "- **Tables** — basic, aligned, with in-cell formatting",
+              "- **GitHub Alerts** — NOTE, TIP, IMPORTANT, WARNING, CAUTION",
+            ].join("\n"),
+          },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-markdown-artifact",
+            artifacts: [markdownArtifact],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+
+    await page.goto("/e2e/chat");
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Make a markdown formatting reference.");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    await expect(page.getByText("Document content collapsed")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /markdown-formatting-reference\.md/i }),
+    ).toBeVisible();
+    await expect(page.getByText("Here's what's covered:")).toBeHidden();
+    await expect(page.getByText(/GitHub Alerts/)).toBeHidden();
+  });
+
+  test("marks collapsed generated documents that were not saved as artifacts", async ({
+    page,
+  }) => {
+    const htmlDoc = [
+      "<!doctype html>",
+      "<html>",
+      "<head><title>Unsaved Demo</title></head>",
+      `<body>${"<section>Demo</section>".repeat(40)}</body>`,
+      "</html>",
+    ].join("\n");
+
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      onChat: async (_body, route) => {
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-unsaved-artifact",
+            modelId: "sonnet-4-6",
+          },
+          {
+            type: "text-delta",
+            delta: [
+              "Here is the generated app:",
+              "",
+              '```html filename="unsaved-demo.html"',
+              htmlDoc,
+              "```",
+            ].join("\n"),
+          },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-unsaved-artifact",
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+
+    await page.goto("/e2e/chat");
+    await page.getByPlaceholder(/ask anything/i).fill("Build a demo app.");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    await expect(page.getByText("Document content collapsed")).toBeVisible();
+    await expect(page.getByText("Not saved")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /unsaved-demo\.html/i }),
+    ).toHaveCount(0);
+  });
 });

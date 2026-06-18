@@ -112,7 +112,7 @@ export function MessageBubble({
     role === "assistant" && (activityEvents.length > 0 || showThinking);
   const assistantParts =
     role === "assistant" && !showThinking
-      ? splitAssistantContent(content, artifacts)
+      ? splitAssistantContent(content, artifacts, Boolean(pending))
       : [];
 
   // Suppress the "Assistant" label-only stub left behind when a turn errors
@@ -295,6 +295,7 @@ type AssistantPart =
       language: string;
       code: string;
       artifact?: WorkspaceArtifactSummary;
+      pending?: boolean;
     };
 
 interface RenderableCodeFence {
@@ -323,6 +324,7 @@ function AssistantContent({ parts }: { parts: AssistantPart[] }) {
             language={part.language}
             code={part.code}
             artifact={part.artifact}
+            pending={part.pending}
           />
         ),
       )}
@@ -334,10 +336,12 @@ function ArtifactCodePreview({
   language,
   code,
   artifact,
+  pending,
 }: {
   language: string;
   code: string;
   artifact?: WorkspaceArtifactSummary;
+  pending?: boolean;
 }) {
   const snippet = code
     .split("\n")
@@ -347,6 +351,7 @@ function ArtifactCodePreview({
     .trimEnd();
   const label = artifact?.filename ?? "generated document";
   const kind = artifact?.kind ?? language ?? "file";
+  const saveState = artifact ? null : pending ? "Saving" : "Not saved";
 
   return (
     <details className="group my-2 overflow-hidden rounded-md border border-[#2f6bff]/40 bg-[#050b1f]/70 first:mt-0 last:mb-0">
@@ -358,6 +363,11 @@ function ArtifactCodePreview({
         <span className="hidden shrink-0 font-mono text-[10px] uppercase text-[#8cb7ff] sm:inline">
           {kind}
         </span>
+        {saveState ? (
+          <span className="shrink-0 rounded-full border border-amber-300/25 bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-100">
+            {saveState}
+          </span>
+        ) : null}
         <span className="shrink-0 text-[11px] text-[#88a8e8] group-open:hidden">
           Show snippet
         </span>
@@ -382,6 +392,7 @@ function ArtifactCodePreview({
 function splitAssistantContent(
   content: string,
   artifacts: WorkspaceArtifactSummary[],
+  pending = false,
 ): AssistantPart[] {
   const parts: AssistantPart[] = [];
   let lastIndex = 0;
@@ -401,9 +412,19 @@ function splitAssistantContent(
       language,
       code,
       artifact,
+      pending,
     });
     collapsedCount += 1;
     lastIndex = fence.end;
+  }
+
+  if (collapsedCount === 0) {
+    const declaredArtifactParts = buildDeclaredTextArtifactParts({
+      content,
+      artifacts,
+      pending,
+    });
+    if (declaredArtifactParts) return declaredArtifactParts;
   }
 
   const after = content.slice(lastIndex);
@@ -454,6 +475,128 @@ function extractRenderableCodeFences(content: string): RenderableCodeFence[] {
   }
 
   return fences;
+}
+
+function buildDeclaredTextArtifactParts({
+  content,
+  artifacts,
+  pending,
+}: {
+  content: string;
+  artifacts: WorkspaceArtifactSummary[];
+  pending: boolean;
+}): AssistantPart[] | null {
+  const match = findDeclaredTextArtifact(content, artifacts);
+  if (!match) return null;
+
+  const { artifact, declaration } = match;
+  const intro = content
+    .slice(0, declaration.index)
+    .replace(/[:\s]+$/g, "")
+    .trim();
+  const preview = content
+    .replace(declaration.fullText, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const parts: AssistantPart[] = [];
+  if (intro && intro.length <= 220 && !/^\s*(?:[#>*-]|\d+\.)\s+/m.test(intro)) {
+    parts.push({ type: "markdown", content: intro });
+  }
+  parts.push({
+    type: "artifact-preview",
+    language: artifact.kind === "markdown" ? "markdown" : "text",
+    code: preview || content,
+    artifact,
+    pending,
+  });
+  return parts;
+}
+
+function findDeclaredTextArtifact(
+  content: string,
+  artifacts: WorkspaceArtifactSummary[],
+):
+  | {
+      artifact: WorkspaceArtifactSummary;
+      declaration: { index: number; fullText: string };
+    }
+  | null {
+  const declaredArtifacts = artifacts.filter(isTextArtifact);
+  if (declaredArtifacts.length === 0) return null;
+
+  for (const declaration of declaredTextArtifactDeclarations(content)) {
+    const normalized = declaration.filename.toLowerCase();
+    const artifact = declaredArtifacts.find((candidate) => {
+      const filenames = artifactFilenames(candidate).map((name) =>
+        name.toLowerCase(),
+      );
+      return filenames.includes(normalized);
+    });
+    if (artifact) return { artifact, declaration };
+  }
+
+  const metadataArtifact = declaredArtifacts.find((artifact) => {
+    const metadata = artifact.metadata;
+    return (
+      metadata &&
+      typeof metadata === "object" &&
+      !Array.isArray(metadata) &&
+      metadata.extractedFrom === "assistant-declared-text-artifact"
+    );
+  });
+  if (!metadataArtifact) return null;
+
+  const firstDeclaration = declaredTextArtifactDeclarations(content)[0];
+  return {
+    artifact: metadataArtifact,
+    declaration: firstDeclaration ?? { index: 0, fullText: "" },
+  };
+}
+
+function declaredTextArtifactDeclarations(
+  content: string,
+): Array<{ index: number; fullText: string; filename: string }> {
+  const declarations: Array<{
+    index: number;
+    fullText: string;
+    filename: string;
+  }> = [];
+  const declarationRe =
+    /\b(?:written|saved|created|generated)\s+(?:to|as)?\s*`?([A-Za-z0-9._/ -]+\.(?:md|markdown|txt))`?\.?/gi;
+  let match: RegExpExecArray | null;
+  while ((match = declarationRe.exec(content)) !== null) {
+    const filename = match[1]?.trim();
+    if (!filename) continue;
+    declarations.push({
+      index: match.index,
+      fullText: match[0],
+      filename,
+    });
+  }
+  return declarations;
+}
+
+function isTextArtifact(artifact: WorkspaceArtifactSummary): boolean {
+  return (
+    artifact.kind === "markdown" ||
+    artifact.mimeType === "text/markdown" ||
+    artifact.mimeType === "text/plain" ||
+    /\.(?:md|markdown|txt)$/i.test(artifact.filename)
+  );
+}
+
+function artifactFilenames(artifact: WorkspaceArtifactSummary): string[] {
+  const filenames = new Set([artifact.filename]);
+  const metadata = artifact.metadata;
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    const originalFilename = metadata.originalFilename;
+    const explicitFilename = metadata.explicitFilename;
+    if (typeof originalFilename === "string") filenames.add(originalFilename);
+    if (typeof explicitFilename === "string") filenames.add(explicitFilename);
+  }
+  return [...filenames];
 }
 
 function isArtifactSizedFence({
