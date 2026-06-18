@@ -229,9 +229,18 @@ test.describe("authenticated product smoke", () => {
 
     await page.getByRole("button", { name: "Close workspace" }).click();
     await expect(page.getByText("Deploy this as an app")).toBeVisible();
-    await page.getByRole("button", { name: "Deploy app" }).click();
+    const [deployResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/api/apps") &&
+          response.request().method() === "POST",
+      ),
+      page.getByRole("button", { name: "Deploy app" }).click(),
+    ]);
+    expect(deployResponse.ok()).toBe(true);
     await expect(page).toHaveURL(
       /\/apps\/manage\/00000000-0000-4000-8000-000000000230$/,
+      { timeout: 15_000 },
     );
   });
 
@@ -265,8 +274,19 @@ test.describe("authenticated product smoke", () => {
     await roleSelect.selectOption("editor");
     await expect(roleSelect).toHaveValue("editor");
 
-    await page.getByRole("button", { name: "Edit" }).click();
-    await expect(page).toHaveURL(/\/chat\?threadId=/);
+    const [editResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response
+            .url()
+            .includes(
+              "/api/apps/00000000-0000-4000-8000-000000000230/edit-sessions",
+            ) && response.request().method() === "POST",
+      ),
+      page.getByRole("button", { name: "Edit" }).click(),
+    ]);
+    expect(editResponse.ok()).toBe(true);
+    await expect(page).toHaveURL(/\/chat\?threadId=/, { timeout: 15_000 });
   });
 
   test("renders protected skills catalog with owned, shared, and starter skills", async ({
