@@ -107,9 +107,20 @@ function describeActivityStep(
   call: PersistedToolCall,
   state: ActivityState,
 ): string {
-  if (state === "failed") return `Could not ${baseActivityVerb(call)}`;
+  if (state === "failed") {
+    return `Could not ${toInfinitiveActivityVerb(baseActivityVerb(call))}`;
+  }
   if (state === "pending") return `${capitalize(baseActivityVerb(call, true))}...`;
   return capitalize(baseActivityVerb(call));
+}
+
+function toInfinitiveActivityVerb(value: string): string {
+  return value
+    .replace(/^searched\b/, "search")
+    .replace(/^checked\b/, "check")
+    .replace(/^compared\b/, "compare")
+    .replace(/^extracted\b/, "extract")
+    .replace(/^updated\b/, "update");
 }
 
 function baseActivityVerb(

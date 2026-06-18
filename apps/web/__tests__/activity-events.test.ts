@@ -86,6 +86,34 @@ describe("buildToolActivityEvents", () => {
     ]);
     expect(events.map((event) => event.detail)).toEqual([undefined, undefined]);
   });
+
+  it("uses an infinitive verb for failed web fetch activity", () => {
+    const events = buildToolActivityEvents(
+      [
+        {
+          id: "call_1",
+          name: "web__fetch_url",
+          provider: "web",
+          toolName: "fetch_url",
+          input: { url: "https://example.com/" },
+          startedAt: "2026-05-15T10:00:00.000Z",
+        },
+      ],
+      [
+        {
+          toolCallId: "call_1",
+          output: "content-type is not readable text or HTML",
+          isError: true,
+          completedAt: "2026-05-15T10:00:01.000Z",
+        },
+      ],
+    );
+
+    expect(events[0]).toMatchObject({
+      state: "failed",
+      label: "Could not check Web details",
+    });
+  });
 });
 
 describe("summarizeActivity", () => {

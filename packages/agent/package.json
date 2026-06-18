@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./models": "./src/models.ts",
     "./registry": "./src/registry.ts",
+    "./web-fetch-tool": "./src/web-fetch-tool.ts",
     "./types": "./src/types.ts"
   },
   "scripts": {
