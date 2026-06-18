@@ -416,7 +416,8 @@ export function planArtifactVersionsForExistingArtifacts({
       !!targetKey &&
       (parsedArtifactKey === targetKey ||
         (artifacts.length === 1 &&
-          isCompatibleArtifactRevision(artifact.filename, targetArtifact.filename)));
+          isCompatibleArtifactRevision(artifact.filename, targetArtifact.filename) &&
+          !latestByKey.has(parsedArtifactKey)));
     const artifactKey = useTarget ? targetKey : parsedArtifactKey;
     const prior = latestByKey.get(artifactKey);
     const versionNumber = prior ? prior.versionNumber + 1 : 1;

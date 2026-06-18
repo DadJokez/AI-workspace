@@ -258,4 +258,56 @@ Here is the revised version:
     expect(planned[0]?.version.artifactGroupId).not.toBe("artifact-group-theme");
     expect(planned[0]?.version.title).toBeUndefined();
   });
+
+  it("does not absorb a same-extension artifact that already has its own group", () => {
+    const artifacts = parseAssistantArtifacts(`
+\`\`\`html filename="report.html"
+<!doctype html>
+<html>
+<head><title>Report</title></head>
+<body><h1>Updated report</h1></body>
+</html>
+\`\`\`
+`);
+    const targetArtifact: WorkspaceArtifactVersionTarget = {
+      id: "artifact-theme-v2",
+      title: "Theme Picker",
+      filename: "theme-picker-v2.html",
+      artifactGroupId: "artifact-group-theme",
+      versionNumber: 2,
+      metadata: { artifactKey: "theme-picker.html" },
+    };
+
+    const planned = planArtifactVersionsForExistingArtifacts({
+      artifacts,
+      priorArtifacts: [
+        {
+          id: "artifact-theme-v2",
+          title: "Theme Picker",
+          filename: "theme-picker-v2.html",
+          artifactGroupId: "artifact-group-theme",
+          versionNumber: 2,
+          metadata: { artifactKey: "theme-picker.html" },
+        },
+        {
+          id: "artifact-report-v1",
+          title: "Report",
+          filename: "report.html",
+          artifactGroupId: "artifact-group-report",
+          versionNumber: 1,
+          metadata: { artifactKey: "report.html" },
+        },
+      ],
+      targetArtifact,
+    });
+
+    expect(planned[0]?.version).toMatchObject({
+      artifactKey: "report.html",
+      artifactGroupId: "artifact-group-report",
+      filename: "report-v2.html",
+      versionNumber: 2,
+      supersedesArtifactId: "artifact-report-v1",
+    });
+    expect(planned[0]?.version.title).toBeUndefined();
+  });
 });
