@@ -16,6 +16,7 @@ describe("activeRunMessageContent", () => {
           "<body>",
         ].join("\n"),
       },
+      hasArtifactContext: true,
     });
 
     expect(content).toContain("Run canceled before an answer was saved.");
@@ -36,5 +37,43 @@ describe("activeRunMessageContent", () => {
     expect(content).toBe(
       "I got partway through the summary before the provider failed.",
     );
+  });
+
+  it("keeps failed explanatory snippets visible when no artifact was targeted", () => {
+    const content = activeRunMessageContent({
+      status: "failed",
+      error: "Provider unavailable.",
+      output: {
+        assistantText: [
+          "This HTML snippet demonstrates the issue:",
+          "",
+          "```html",
+          "<button>Save</button>",
+          "```",
+        ].join("\n"),
+      },
+    });
+
+    expect(content).toContain("This HTML snippet demonstrates the issue:");
+    expect(content).toContain("<button>Save</button>");
+    expect(content).not.toContain("Artifact update was interrupted");
+  });
+
+  it("uses generic interrupted artifact copy for explicit new files", () => {
+    const content = activeRunMessageContent({
+      status: "failed",
+      output: {
+        assistantText: [
+          "Here is the file:",
+          "",
+          '```markdown filename="weekly-brief.md"',
+          "# Weekly Brief",
+        ].join("\n"),
+      },
+    });
+
+    expect(content).toContain("Artifact response was interrupted");
+    expect(content).not.toContain("Artifact update was interrupted");
+    expect(content).not.toContain("# Weekly Brief");
   });
 });

@@ -78,6 +78,7 @@ export async function loadThreadMessagesWithRunActivity({
         modelId: runs.modelId,
         runtime: runs.runtime,
         error: runs.error,
+        inputs: runs.inputs,
         outputs: runs.outputs,
         startedAt: runs.startedAt,
         createdAt: runs.createdAt,
@@ -179,6 +180,7 @@ export async function loadThreadMessagesWithRunActivity({
         status: run.status,
         error: run.error,
         output,
+        hasArtifactContext: hasArtifactContextTarget(run.inputs),
       }),
       modelId: run.modelId,
       runtime: run.runtime,
@@ -232,21 +234,26 @@ export function activeRunMessageContent({
   status,
   error,
   output,
+  hasArtifactContext = false,
 }: {
   status: string;
   error?: string | null;
   output: ChatRunOutput;
+  hasArtifactContext?: boolean;
 }): string {
   const fallback = terminalRunMessage(status, error);
   if (
     (status === "failed" || status === "canceled") &&
     output.assistantText &&
     !output.artifacts?.length &&
-    hasArtifactLikePartialOutput(output.assistantText)
+    hasArtifactLikePartialOutput(output.assistantText, hasArtifactContext)
   ) {
+    const artifactMessage = hasArtifactContext
+      ? "Artifact update was interrupted before Comparative could save a complete workspace artifact. Retry the run to generate the updated artifact."
+      : "Artifact response was interrupted before Comparative could save a complete workspace artifact. Retry the run to generate the artifact.";
     return [
       fallback,
-      "Artifact update was interrupted before Comparative could save a complete workspace artifact. Retry the run to generate the updated artifact.",
+      artifactMessage,
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -254,12 +261,25 @@ export function activeRunMessageContent({
   return output.assistantText ?? fallback;
 }
 
-function hasArtifactLikePartialOutput(text: string): boolean {
-  return (
-    /```[^\n]*(?:filename=|\b(?:html|md|markdown|csv|json)\b|\.(?:html|md|csv|json)\b)/i.test(
+function hasArtifactLikePartialOutput(
+  text: string,
+  hasArtifactContext: boolean,
+): boolean {
+  const explicitArtifactFence =
+    /```[^\n]*(?:filename=|\b[A-Za-z0-9._/ -]+\.(?:html?|md|markdown|csv|json|txt)\b)/i.test(
       text,
-    ) || /<!doctype\s+html|<html[\s>]/i.test(text)
+    );
+  if (explicitArtifactFence) return true;
+  if (!hasArtifactContext) return false;
+
+  return (
+    /```[^\n]*\b(?:html|md|markdown|csv|json)\b/i.test(text) ||
+    /<!doctype\s+html|<html[\s>]/i.test(text)
   );
+}
+
+function hasArtifactContextTarget(inputs: unknown): boolean {
+  return isRecord(inputs) && isRecord(inputs.artifactContextTarget);
 }
 
 function parseChatRunOutput(value: unknown): ChatRunOutput {

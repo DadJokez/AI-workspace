@@ -161,19 +161,6 @@ export function formatArtifactContext({
   return lines.join("\n");
 }
 
-export async function buildArtifactContext({
-  db,
-  userId,
-  message,
-}: {
-  db: Database;
-  userId: string;
-  message: string;
-}): Promise<string | null> {
-  const payload = await buildArtifactContextPayload({ db, userId, message });
-  return payload?.text ?? null;
-}
-
 export async function buildArtifactContextPayload({
   db,
   userId,
