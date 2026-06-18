@@ -24,6 +24,7 @@ import {
   buildChatTranscriptMarkdown,
   chatTranscriptFilename,
 } from "@/lib/chat-export";
+import type { ChatModelOverride } from "@/lib/model-command";
 import { readSseStream } from "@/lib/sse";
 import type { AgentActivityEvent } from "@/lib/activity-events";
 import {
@@ -1123,6 +1124,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     text: string,
     attachments?: ChatAttachment[],
     activatedSkill?: ActivatedSlashSkill,
+    modelOverride?: ChatModelOverride,
   ) {
     if (!activeTab || activeTab.busy) return;
     if (!text.trim() && (!attachments || attachments.length === 0)) return;
@@ -1130,6 +1132,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     const userMsgId = crypto.randomUUID();
     const assistantMsgId = crypto.randomUUID();
     const modelId = activeTab.modelId ?? defaultModelId;
+    const requestedModelId =
+      modelOverride?.mode === "model" ? modelOverride.modelId : modelId;
 
     patchTab(tabId, {
       busy: true,
@@ -1170,7 +1174,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         body: JSON.stringify({
           message: text,
           threadId: activeTab.threadId,
-          modelId,
+          modelId: requestedModelId,
+          ...(modelOverride?.mode === "model" ? { modelOverride: true } : {}),
           attachmentCount: attachments?.length ?? 0,
           ...(activatedSkill ? { activatedSkills: [activatedSkill] } : {}),
           ...(attachments && attachments.length > 0 ? { attachments } : {}),

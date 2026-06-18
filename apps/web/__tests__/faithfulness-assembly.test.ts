@@ -66,7 +66,7 @@ describe("faithfulness harness assembly", () => {
     });
     const recommendations = buildRecommendationCandidates({
       currentMessage:
-        "Draft the weekly status update again and keep this dashboard reusable.",
+        "What skills should I use or save to draft the weekly status update again and keep this dashboard reusable?",
       recentUserMessages: [
         "Draft the weekly status update from these notes.",
         "Can you draft the weekly status update again?",
@@ -155,7 +155,7 @@ describe("faithfulness harness assembly", () => {
         schedules: 1,
       },
       recommendations: {
-        save_as_skill: 1,
+        save_as_skill: 0,
         run_existing_skill: 1,
         open_existing_app: 1,
       },
@@ -165,7 +165,6 @@ describe("faithfulness harness assembly", () => {
     expect(pack.prompt.systemPrompt).toContain("Capability graph summary");
     expect(recommendationTypes(recommendations)).toEqual(
       expect.arrayContaining([
-        "save_as_skill",
         "run_existing_skill",
         "open_existing_app",
       ]),

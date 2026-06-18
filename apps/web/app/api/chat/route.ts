@@ -42,6 +42,11 @@ import {
   requestLimitConfig,
 } from "@/lib/request-limits";
 import { appendRunEvent } from "@/lib/run-events";
+import {
+  isModelCommandInput,
+  modelCommandUsageMessage,
+  parseModelCommand,
+} from "@/lib/model-command";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +54,7 @@ interface ChatRequestBody {
   message: string;
   threadId?: string;
   modelId?: string;
+  modelOverride?: boolean;
   executionMode?: string;
   activatedSkills?: ActivatedSkillRequest[];
   attachments?: ChatAttachment[];
@@ -110,6 +116,14 @@ export async function POST(req: Request) {
     );
   }
 
+  const modelCommand = parseModelCommand(body.message);
+  if (isModelCommandInput(body.message) && !modelCommand) {
+    return NextResponse.json(
+      { error: "invalid_model_command", message: modelCommandUsageMessage() },
+      { status: 400 },
+    );
+  }
+
   const attachmentCheck = await validateAttachments(body.attachments);
   if (!attachmentCheck.ok) {
     return NextResponse.json(
@@ -118,6 +132,13 @@ export async function POST(req: Request) {
     );
   }
   const attachments = attachmentCheck.attachments;
+  if (modelCommand && !modelCommand.body.trim() && attachments.length === 0) {
+    return NextResponse.json(
+      { error: "invalid_model_command", message: modelCommandUsageMessage() },
+      { status: 400 },
+    );
+  }
+  const effectiveUserMessage = modelCommand?.body ?? body.message;
   const declaredAttachmentCount =
     typeof body.attachmentCount === "number" && Number.isFinite(body.attachmentCount)
       ? Math.max(0, Math.floor(body.attachmentCount))
@@ -134,9 +155,13 @@ export async function POST(req: Request) {
   }
 
   const requestedModelId: string =
-    typeof body.modelId === "string" && body.modelId.trim().length > 0
+    modelCommand?.override.mode === "model"
+      ? modelCommand.override.modelId
+      : typeof body.modelId === "string" && body.modelId.trim().length > 0
       ? body.modelId
       : DEFAULT_MODEL_ID;
+  const modelOverride =
+    modelCommand?.override.mode === "model" || body.modelOverride === true;
   const executionMode = parseChatExecutionMode(body.executionMode);
   const runtimeV2 = runtimeV2EnabledFromEnv();
 
@@ -219,7 +244,10 @@ export async function POST(req: Request) {
       .values({
         userId: sessionUser.id,
         defaultModelId: modelId,
-        title: deriveThreadTitle(body.message, activatedSkill),
+        title: deriveThreadTitle(
+          effectiveUserMessage || body.message,
+          activatedSkill,
+        ),
       })
       .returning();
     thread = created[0]!;
@@ -253,7 +281,7 @@ export async function POST(req: Request) {
     uploadedFilesAvailable: attachments.length > 0,
   };
   let runtimeRoute = decideChatRuntimeRoute({
-    message: body.message,
+    message: effectiveUserMessage,
     executionMode,
     runtimeV2,
     priorUserMessages,
@@ -285,7 +313,7 @@ export async function POST(req: Request) {
   // renders as a chip on the turn (and is downloadable later).
   const modelVisibleMessage = activatedSkill
     ? buildActivatedSkillChatPrompt(activatedSkill.skill, activatedSkill.args)
-    : body.message;
+    : effectiveUserMessage;
   const promptForModel = foldAttachmentsIntoPrompt(
     modelVisibleMessage,
     attachments,
@@ -347,6 +375,8 @@ export async function POST(req: Request) {
         requestedByUserId: sessionUser.id,
         executionMode: runtimeRoute.executionMode,
         runtimeV2,
+        modelOverride,
+        ...(modelCommand ? { modelCommand } : {}),
         runtimeRoute,
         uploadedFiles,
         routeReceipt,
@@ -389,8 +419,10 @@ export async function POST(req: Request) {
         userMessageId: userMsg[0]!.id,
         executionMode: runtimeRoute.executionMode,
         runtimeV2,
+        modelOverride,
         runtimeRoute,
         routeReceipt,
+        ...(modelCommand ? { modelCommand } : {}),
         ...(activatedSkill
           ? {
               activatedSkills: [
@@ -446,6 +478,7 @@ export async function POST(req: Request) {
         runId: chatRunId,
         userMessageId: userMsg[0]!.id,
         modelId,
+        modelOverride,
         executionMode: runtimeRoute.executionMode,
         runtimeV2,
         runtimeRoute,
@@ -471,6 +504,7 @@ export async function POST(req: Request) {
           userMessageId: userMsg[0]!.id,
           prompt: promptForModel,
           modelId,
+          modelOverride,
           route: runtimeRoute,
           requestStartedAt,
           uploadedFiles,

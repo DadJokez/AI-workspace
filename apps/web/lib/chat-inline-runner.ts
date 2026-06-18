@@ -76,6 +76,7 @@ export interface StreamInlineChatRunInput {
   userMessageId: string;
   prompt: string;
   modelId: string;
+  modelOverride?: boolean;
   route: ChatRuntimeRoute;
   activatedSkills?: Array<Record<string, unknown>>;
   requestedProviders?: string[];
@@ -117,6 +118,7 @@ export async function streamInlineChatRun({
   userMessageId,
   prompt,
   modelId,
+  modelOverride = false,
   route,
   activatedSkills,
   requestedProviders,
@@ -135,6 +137,7 @@ export async function streamInlineChatRun({
     route,
     runtimeName,
     message: prompt,
+    forceRequestedModel: modelOverride,
   });
   const runtimeModelId = modelSelection.modelId;
   const runtime = getRuntime({
@@ -284,6 +287,7 @@ export async function streamInlineChatRun({
           userMessageId,
           requestedByUserId: userId,
           requestedModelId: modelId,
+          modelOverride,
           runtimeModelId,
           providerModelId: modelSelection.providerModelId,
           modelSelection,
@@ -322,6 +326,7 @@ export async function streamInlineChatRun({
         runtimeTarget: route.runtimeTarget,
         runtime: runtime.name,
         requestedModelId: modelId,
+        modelOverride,
         runtimeModelId,
         providerModelId: modelSelection.providerModelId,
         modelSelection,
@@ -338,6 +343,7 @@ export async function streamInlineChatRun({
     send({
       type: "model",
       requestedModelId: modelId,
+      modelOverride,
       modelId: runtimeModelId,
       providerModelId: modelSelection.providerModelId,
       modelSelection,

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { buildTurnContext } from "@/lib/turn-context";
 
-function msg(role: "user" | "assistant" | "tool", content: string) {
-  return { role, content };
+function msg(
+  role: "user" | "assistant" | "tool",
+  content: string,
+  modelId?: string | null,
+) {
+  return { role, content, ...(modelId !== undefined ? { modelId } : {}) };
 }
 
 describe("buildTurnContext", () => {
@@ -61,6 +65,34 @@ describe("buildTurnContext", () => {
       { role: "assistant", content: "a2" },
       { role: "user", content: "current" },
     ]);
+  });
+
+  it("adds a bounded model provenance ledger for recent assistant turns", () => {
+    const context = buildTurnContext({
+      messages: [
+        msg("user", "hello"),
+        msg("assistant", "hi", "haiku-4-5"),
+        msg("user", "draft this"),
+        msg("assistant", "drafted", "sonnet-4-6"),
+        msg("user", "which model wrote the draft?"),
+      ],
+      recentMessageLimit: 4,
+    });
+
+    expect(context[0]?.role).toBe("user");
+    expect(context[0]?.content).toContain(
+      "Model provenance for recent assistant turns:",
+    );
+    expect(context[0]?.content).toContain(
+      "Assistant turn 1 used haiku-4-5.",
+    );
+    expect(context[0]?.content).toContain(
+      "Assistant turn 2 used sonnet-4-6.",
+    );
+    expect(context.at(-1)).toEqual({
+      role: "user",
+      content: "which model wrote the draft?",
+    });
   });
 
   it("drops blank historical messages and coalesces adjacent user turns", () => {

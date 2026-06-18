@@ -125,12 +125,18 @@ export function buildRecommendationCandidates({
   const approved = new Set(approvedProviders.map((p) => p.toLowerCase()));
   const connected = new Set(connectedProviders.map((p) => p.toLowerCase()));
   const suppressedSkills = new Set(suppressedSkillIds);
+  const skillRecommendationsRequested =
+    hasInlineSkillRecommendationIntent(normalized);
 
   const repeatedCount = countSimilarWorkflow(
     currentTokens,
     recentUserMessages,
   );
-  if (repeatedCount >= 2 && hasWorkflowVerb(currentTokens)) {
+  if (
+    skillRecommendationsRequested &&
+    repeatedCount >= 2 &&
+    hasWorkflowVerb(currentTokens)
+  ) {
     candidates.push({
       id: "save-as-skill:repeated-workflow",
       type: "save_as_skill",
@@ -148,7 +154,11 @@ export function buildRecommendationCandidates({
     skills,
     approvedProviders: approved,
   });
-  if (matchingSkill && !suppressedSkills.has(matchingSkill.id)) {
+  if (
+    skillRecommendationsRequested &&
+    matchingSkill &&
+    !suppressedSkills.has(matchingSkill.id)
+  ) {
     const providers = unique(
       (matchingSkill.mcpProviders ?? []).map((p) => p.toLowerCase()),
     );
@@ -335,6 +345,12 @@ function countSimilarWorkflow(
 
 function hasWorkflowVerb(tokens: readonly string[]): boolean {
   return tokens.some((token) => WORKFLOW_VERBS.has(token));
+}
+
+function hasInlineSkillRecommendationIntent(normalized: string): boolean {
+  return /\b(recommend|suggest|which|what|show|find|available|catalog|library)\b.*\b(skills?|capabilit(?:y|ies)|automations?|workflows?)\b|\b(skills?|capabilit(?:y|ies)|automations?|workflows?)\b.*\b(recommend|suggest|should i use|can i use|available|catalog|library)\b/.test(
+    normalized,
+  );
 }
 
 function hasReusableArtifactIntent(normalized: string): boolean {

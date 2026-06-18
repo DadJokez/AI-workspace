@@ -78,4 +78,17 @@ describe("resolveRuntimeModelSelection with autopilot", () => {
     expect(pinned.modelId).toBe("haiku-4-5");
     expect(pinned.reason).toBe("runtime_v2_direct_model_config");
   });
+
+  it("honors an explicit one-turn model override before autopilot", () => {
+    const pinned = resolveRuntimeModelSelection({
+      ...base,
+      requestedModelId: "haiku-4-5",
+      directModelId: "auto",
+      message: "draft a long leadership memo",
+      forceRequestedModel: true,
+    });
+    expect(pinned.modelId).toBe("haiku-4-5");
+    expect(pinned.reason).toBe("requested_model_supported");
+    expect(pinned.ignoredDirectModelId).toBe("auto");
+  });
 });
