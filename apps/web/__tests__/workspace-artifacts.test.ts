@@ -221,4 +221,41 @@ Here is the revised version:
       supersedesArtifactId: "artifact-theme-v2",
     });
   });
+
+  it("does not absorb a different file type into a matched artifact group", () => {
+    const artifacts = parseAssistantArtifacts(`
+\`\`\`css filename="styles.css"
+:root {
+  color-scheme: light dark;
+}
+
+.theme-picker {
+  accent-color: #005cff;
+}
+\`\`\`
+`);
+    const targetArtifact: WorkspaceArtifactVersionTarget = {
+      id: "artifact-theme-v2",
+      title: "Theme Picker",
+      filename: "theme-picker-v2.html",
+      artifactGroupId: "artifact-group-theme",
+      versionNumber: 2,
+      metadata: { artifactKey: "theme-picker.html" },
+    };
+
+    const planned = planArtifactVersionsForExistingArtifacts({
+      artifacts,
+      priorArtifacts: [],
+      targetArtifact,
+    });
+
+    expect(planned[0]?.version).toMatchObject({
+      artifactKey: "styles.css",
+      filename: "styles.css",
+      versionNumber: 1,
+      supersedesArtifactId: null,
+    });
+    expect(planned[0]?.version.artifactGroupId).not.toBe("artifact-group-theme");
+    expect(planned[0]?.version.title).toBeUndefined();
+  });
 });

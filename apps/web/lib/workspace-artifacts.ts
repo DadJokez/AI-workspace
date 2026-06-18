@@ -414,7 +414,9 @@ export function planArtifactVersionsForExistingArtifacts({
     const useTarget =
       !!targetArtifact &&
       !!targetKey &&
-      (parsedArtifactKey === targetKey || artifacts.length === 1);
+      (parsedArtifactKey === targetKey ||
+        (artifacts.length === 1 &&
+          isCompatibleArtifactRevision(artifact.filename, targetArtifact.filename)));
     const artifactKey = useTarget ? targetKey : parsedArtifactKey;
     const prior = latestByKey.get(artifactKey);
     const versionNumber = prior ? prior.versionNumber + 1 : 1;
@@ -815,6 +817,20 @@ function filenameAlreadyHasVersion(
   const stem = dot === -1 ? filename : filename.slice(0, dot);
   const escaped = String(versionNumber).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(?:^|[-_. ])v(?:ersion)?[-_. ]?${escaped}$`, "i").test(stem);
+}
+
+function isCompatibleArtifactRevision(
+  emittedFilename: string,
+  targetFilename: string,
+): boolean {
+  return normalizedExtension(emittedFilename) === normalizedExtension(targetFilename);
+}
+
+function normalizedExtension(filename: string): string {
+  const ext = sanitizeFilename(filename).split(".").pop()?.toLowerCase() ?? "txt";
+  if (ext === "htm") return "html";
+  if (ext === "markdown") return "md";
+  return ext;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

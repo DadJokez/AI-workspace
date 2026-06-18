@@ -256,7 +256,7 @@ export function activeRunMessageContent({
 
 function hasArtifactLikePartialOutput(text: string): boolean {
   return (
-    /```[^\n]*(?:filename=|html|md|markdown|csv|json|\.html|\.md|\.csv|\.json)/i.test(
+    /```[^\n]*(?:filename=|\b(?:html|md|markdown|csv|json)\b|\.(?:html|md|csv|json)\b)/i.test(
       text,
     ) || /<!doctype\s+html|<html[\s>]/i.test(text)
   );
