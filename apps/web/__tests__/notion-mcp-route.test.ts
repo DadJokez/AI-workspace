@@ -1,9 +1,15 @@
 import { createServer, type IncomingHttpHeaders } from "node:http";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { connectMcpTools } from "@ai-workspace/agent";
+
+beforeEach(() => {
+  vi.resetModules();
+  vi.stubEnv("NEXTAUTH_URL", "https://comparative.example");
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 function mcpRequest(method: string, params?: Record<string, unknown>) {
@@ -36,6 +42,58 @@ describe("Notion MCP route", () => {
     expect(res.status).toBe(401);
     await expect(res.json()).resolves.toMatchObject({
       error: { message: "Notion MCP requires a bearer token." },
+    });
+  });
+
+  it("rejects requests from unexpected hosts before using the bearer token", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("@/app/api/mcp/notion/route");
+
+    const res = await POST(
+      new Request("https://evil.example/api/mcp/notion", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer notion-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+        }),
+      }),
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: { message: "Notion MCP host is not allowed." },
+    });
+  });
+
+  it("rejects browser origins outside the app origin", async () => {
+    const { POST } = await import("@/app/api/mcp/notion/route");
+
+    const res = await POST(
+      new Request("https://comparative.example/api/mcp/notion", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer notion-token",
+          "Content-Type": "application/json",
+          Origin: "https://evil.example",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: { message: "Notion MCP origin is not allowed." },
     });
   });
 
@@ -372,10 +430,12 @@ async function startRouteServer(
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk as Buffer);
     const rawBody = Buffer.concat(chunks);
+    const headers = normalizeNodeHeaders(req.headers);
+    headers.set("host", "comparative.example");
     const response = await handler(
-      new Request(`http://127.0.0.1${req.url ?? "/"}`, {
+      new Request(`https://comparative.example${req.url ?? "/"}`, {
         method: req.method,
-        headers: normalizeNodeHeaders(req.headers),
+        headers,
         body:
           rawBody.length > 0 && req.method !== "GET" && req.method !== "HEAD"
             ? rawBody

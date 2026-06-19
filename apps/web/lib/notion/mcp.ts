@@ -1,4 +1,5 @@
 import { NOTION_API_VERSION } from "@/lib/oauth/notion";
+import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
 
 export const NOTION_MCP_PATH = "/api/mcp/notion";
 
@@ -35,6 +36,9 @@ export async function handleNotionMcpRequest(req: Request): Promise<Response> {
     return jsonRpcError(null, -32000, "Method not allowed.", { status: 405 });
   }
 
+  const sameOriginError = validateSameOrigin(req);
+  if (sameOriginError) return sameOriginError;
+
   const accessToken = bearerToken(req);
   if (!accessToken) {
     return jsonRpcError(null, -32001, "Notion MCP requires a bearer token.", {
@@ -64,6 +68,41 @@ export async function handleNotionMcpRequest(req: Request): Promise<Response> {
     return new Response(null, { status: 202 });
   }
   return Response.json(batch ? responses : responses[0]);
+}
+
+function validateSameOrigin(req: Request): Response | null {
+  const expected = new URL(PUBLIC_BASE_URL);
+  const requestUrl = new URL(req.url);
+  const host = (
+    req.headers.get("x-forwarded-host") ??
+    req.headers.get("host") ??
+    requestUrl.host
+  ).toLowerCase();
+  if (host !== expected.host.toLowerCase()) {
+    return jsonRpcError(null, -32000, "Notion MCP host is not allowed.", {
+      status: 403,
+    });
+  }
+
+  const origin = req.headers.get("origin");
+  if (origin) {
+    try {
+      if (new URL(origin).origin !== expected.origin) {
+        return jsonRpcError(
+          null,
+          -32000,
+          "Notion MCP origin is not allowed.",
+          { status: 403 },
+        );
+      }
+    } catch {
+      return jsonRpcError(null, -32000, "Notion MCP origin is invalid.", {
+        status: 403,
+      });
+    }
+  }
+
+  return null;
 }
 
 async function handleJsonRpcMessage(
