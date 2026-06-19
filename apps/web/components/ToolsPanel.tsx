@@ -246,8 +246,7 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
               const detail = oauthStatus.providerDetails?.[it.id];
               const connected =
                 detail?.connected === true || oauthStatus[it.id] === true;
-              const toolAvailable =
-                detail?.toolAvailable ?? (it.id === "notion" ? false : connected);
+              const toolAvailable = detail?.toolAvailable ?? connected;
               const executionPending = connected && it.id === "notion" && !toolAvailable;
               const failed =
                 oauthNotice?.provider === it.id && Boolean(oauthNotice.error);

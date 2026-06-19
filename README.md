@@ -71,7 +71,7 @@ pnpm dev          # http://localhost:3000
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Separate GitHub OAuth App for per-user MCP tokens |
 | `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` | Notion OAuth integration token app for `/api/oauth/notion/*` |
 | `NOTION_API_VERSION` | Notion API version header for OAuth token exchange; defaults to `2026-03-11` |
-| `NOTION_MCP_ENDPOINT_URL` | Optional compatible Notion MCP gateway that accepts Comparative's delegated bearer token. Without it, Notion can be linked in Tools but is shown as needing setup before chat execution. |
+| `NOTION_MCP_ENDPOINT_URL` | Optional override for a compatible Comparative-owned Notion MCP gateway. Empty uses the first-party `/api/mcp/notion` endpoint. Do not point this at hosted Notion MCP. |
 | `OAUTH_ENCRYPTION_KEY` | 32-byte AES-256-GCM key for encrypting stored OAuth tokens |
 | `DATABASE_URL` | Postgres connection string |
 | `CHAT_MAX_REQUEST_BYTES` | Max `/api/chat` request body size before parsing |

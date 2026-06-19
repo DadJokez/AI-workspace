@@ -4,6 +4,12 @@ import type { McpServerSpec } from "@ai-workspace/agent-runtime";
 import { eq } from "drizzle-orm";
 
 import { decryptSecret } from "./crypto";
+import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
+import {
+  NOTION_MCP_PATH,
+  NOTION_MCP_RELAY_HEADER,
+  notionMcpRelayToken,
+} from "@/lib/notion/mcp";
 import {
   filterAttestedProviders,
   loadActiveToolAttestations,
@@ -17,9 +23,6 @@ interface McpProviderConfig {
 
 const MCP_PROVIDER_CONFIG: Record<string, McpProviderConfig> = {
   github: { endpoint: { url: "https://api.githubcopilot.com/mcp/" } },
-  // A compatible Notion MCP gateway can be supplied once the deployment owns
-  // the endpoint. Notion's hosted MCP performs its own OAuth handshake, so we
-  // do not point at it directly while Comparative stores delegated tokens.
   notion: notionMcpConfig(process.env.NOTION_MCP_ENDPOINT_URL),
 };
 
@@ -218,10 +221,24 @@ export async function buildUserMcpServers(
       console.warn(`[mcp] decrypt failed for ${row.provider}:`, err);
       continue;
     }
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+    };
+    if (
+      row.provider === "notion" &&
+      isFirstPartyNotionMcpEndpoint(endpoint.url)
+    ) {
+      try {
+        headers[NOTION_MCP_RELAY_HEADER] = notionMcpRelayToken();
+      } catch (err) {
+        console.warn("[mcp] Notion relay token generation failed:", err);
+        continue;
+      }
+    }
     out[row.provider] = {
       type: "http",
       url: endpoint.url,
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
       ...toolPolicy,
     };
   }
@@ -278,8 +295,11 @@ function buildProviderAvailability({
 }
 
 function notionMcpConfig(rawUrl: string | undefined): McpProviderConfig {
-  const endpoint = parseMcpEndpoint(rawUrl);
-  if (!endpoint) return { unavailableReason: "execution_not_configured" };
+  const value = rawUrl?.trim();
+  const endpoint = value
+    ? parseMcpEndpoint(value)
+    : { url: new URL(NOTION_MCP_PATH, PUBLIC_BASE_URL).toString() };
+  if (!endpoint) return { unavailableReason: "invalid_endpoint_url" };
   try {
     const url = new URL(endpoint.url);
     if (url.hostname === "mcp.notion.com") {
@@ -289,6 +309,19 @@ function notionMcpConfig(rawUrl: string | undefined): McpProviderConfig {
     return { unavailableReason: "invalid_endpoint_url" };
   }
   return { endpoint };
+}
+
+function isFirstPartyNotionMcpEndpoint(rawUrl: string): boolean {
+  try {
+    const actual = new URL(rawUrl);
+    const expected = new URL(NOTION_MCP_PATH, PUBLIC_BASE_URL);
+    return (
+      actual.origin === expected.origin &&
+      actual.pathname === expected.pathname
+    );
+  } catch {
+    return false;
+  }
 }
 
 function parseMcpEndpoint(rawUrl: string | undefined): { url: string } | undefined {
