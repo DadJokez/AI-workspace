@@ -108,7 +108,7 @@ Retention targets:
 | Data | Pilot retention | Enterprise target |
 |---|---|---|
 | Chat messages | Until user/admin delete | 1 year default, configurable by policy |
-| Audit log | 1 year default cleanup window, configurable by `AUDIT_LOG_RETENTION_DAYS` | 7 years or IT/compliance requirement |
+| Audit log | 1 year default dry-run window; destructive cleanup requires explicit `AUDIT_LOG_RETENTION_DAYS` | 7 years or IT/compliance requirement |
 | Recipe runs | Until manual cleanup | 1 year outputs, 7 years metadata/audit |
 | Runtime debug logs | CloudWatch default | 30-90 days |
 | OAuth tokens | Until disconnect/revocation | Until disconnect/revocation; rotate where provider supports it |
@@ -117,9 +117,11 @@ Retention targets:
 Current code applies a shared tool payload redaction helper before persisting
 tool inputs/results to chat messages, recipe runs, and `audit_log`. Audit
 retention can be dry-run with `pnpm audit:retention` and executed with
-`AUDIT_LOG_RETENTION_DRY_RUN=0 pnpm audit:retention`; production should run
-that script on an approved schedule. Follow-up code work: apply the same policy
-to `process.stderr` runtime logs before onboarding more tool providers.
+`AUDIT_LOG_RETENTION_DRY_RUN=0 AUDIT_LOG_RETENTION_DAYS=<approved-days> pnpm audit:retention`;
+the script refuses destructive cleanup without an explicit retention window.
+Production should run that script on an approved schedule. Follow-up code work:
+apply the same policy to `process.stderr` runtime logs before onboarding more
+tool providers.
 
 ## Secrets, KMS, And IaC
 

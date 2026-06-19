@@ -1,11 +1,13 @@
 import { closeDb, getDb } from "@ai-workspace/db";
 import {
+  assertDestructiveAuditRetentionConfigured,
   pruneAuditLog,
   resolveAuditRetentionDays,
 } from "@/lib/audit-retention";
 
 async function main() {
   const dryRun = process.env.AUDIT_LOG_RETENTION_DRY_RUN !== "0";
+  assertDestructiveAuditRetentionConfigured({ dryRun });
   const retentionDays = resolveAuditRetentionDays();
   const result = await pruneAuditLog({
     db: getDb(),

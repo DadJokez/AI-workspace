@@ -196,4 +196,45 @@ describe("filterAttestedProviders", () => {
       toolPolicies: { github: { allowedTools: ["get_me"] } },
     });
   });
+
+  it("does not expose non-attested write tools to read-only provider approvals", () => {
+    expect(
+      filterAttestedProviders(
+        ["github"],
+        [
+          {
+            provider: "github",
+            scopeType: "provider",
+            category: null,
+            toolName: null,
+            action: "read",
+          },
+        ],
+        [
+          {
+            id: "tool_context_read",
+            provider: "github",
+            toolName: "get_me",
+            category: "context",
+            action: "read",
+            requiresAttestation: false,
+            enabled: true,
+          },
+          {
+            id: "tool_context_write",
+            provider: "github",
+            toolName: "update_profile",
+            category: "context",
+            action: "write",
+            requiresAttestation: false,
+            enabled: true,
+          },
+        ],
+      ),
+    ).toEqual({
+      allowedProviders: ["github"],
+      deniedProviders: [],
+      toolPolicies: { github: { allowedTools: ["get_me"] } },
+    });
+  });
 });

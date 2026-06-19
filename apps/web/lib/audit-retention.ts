@@ -28,6 +28,23 @@ export function resolveAuditRetentionDays(
   );
 }
 
+export function assertDestructiveAuditRetentionConfigured({
+  dryRun,
+  raw = process.env.AUDIT_LOG_RETENTION_DAYS,
+}: {
+  dryRun: boolean;
+  raw?: string;
+}): void {
+  if (dryRun) return;
+  const value = raw?.trim();
+  const parsed = value ? Number(value) : Number.NaN;
+  if (!value || !Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(
+      "Set AUDIT_LOG_RETENTION_DAYS to a positive number of days before running destructive audit retention cleanup.",
+    );
+  }
+}
+
 export function auditRetentionCutoff(
   now = new Date(),
   retentionDays = resolveAuditRetentionDays(),

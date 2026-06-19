@@ -163,10 +163,11 @@ function isToolAllowed(
   if (!tool.enabled) return false;
   if (!tool.requiresAttestation) {
     // Non-attested catalog tools skip per-tool approval, but they still require
-    // an active provider-level attestation before the provider is mounted.
-    return attestations.some(
-      (row) => row.provider === tool.provider && row.scopeType === "provider",
-    );
+    // an active provider-level attestation that covers the tool action.
+    const providerAction = strongestProviderAction(tool.provider, attestations);
+    return providerAction
+      ? actionCovers(providerAction, tool.action)
+      : false;
   }
 
   return attestations.some((row) => {
