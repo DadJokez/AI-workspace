@@ -10,6 +10,11 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
+import {
+  ALLOWED_FEEDBACK_SCREENSHOT_MIME_TYPES,
+  FEEDBACK_SCREENSHOT_TOO_LARGE_MESSAGE,
+  MAX_FEEDBACK_SCREENSHOT_DATA_URL_CHARS,
+} from "@/lib/feedback-screenshots";
 
 export const dynamic = "force-dynamic";
 
@@ -27,13 +32,6 @@ const MAX_BODY = 4000;
 const MAX_EXPECTED = 2000;
 const MAX_TITLE = 140;
 const MAX_METADATA_JSON = 8_000;
-const MAX_SCREENSHOT_DATA_URL = 1_500_000;
-const ALLOWED_SCREENSHOT_MIME_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-]);
 
 interface FeedbackContext {
   threadId?: unknown;
@@ -234,13 +232,19 @@ export async function POST(req: Request) {
 
   if (
     typeof body.screenshotDataUrl === "string" &&
-    body.screenshotDataUrl.length > MAX_SCREENSHOT_DATA_URL
+    body.screenshotDataUrl.length > MAX_FEEDBACK_SCREENSHOT_DATA_URL_CHARS
   ) {
-    return NextResponse.json({ error: "screenshot_too_large" }, { status: 413 });
+    return NextResponse.json(
+      {
+        error: "screenshot_too_large",
+        message: FEEDBACK_SCREENSHOT_TOO_LARGE_MESSAGE,
+      },
+      { status: 413 },
+    );
   }
   const screenshotDataUrl = cleanString(
     body.screenshotDataUrl,
-    MAX_SCREENSHOT_DATA_URL,
+    MAX_FEEDBACK_SCREENSHOT_DATA_URL_CHARS,
   );
   let screenshotMimeType = screenshotDataUrl
     ? cleanString(body.screenshotMimeType, 80)
@@ -251,7 +255,7 @@ export async function POST(req: Request) {
     const declaredMimeType = screenshotMimeType?.toLowerCase();
     if (
       !dataUrlMimeType ||
-      !ALLOWED_SCREENSHOT_MIME_TYPES.has(dataUrlMimeType) ||
+      !ALLOWED_FEEDBACK_SCREENSHOT_MIME_TYPES.has(dataUrlMimeType) ||
       (declaredMimeType !== undefined && declaredMimeType !== dataUrlMimeType)
     ) {
       return NextResponse.json({ error: "invalid_screenshot" }, { status: 400 });
