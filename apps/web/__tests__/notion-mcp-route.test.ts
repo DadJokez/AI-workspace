@@ -106,6 +106,173 @@ describe("Notion MCP route", () => {
     expect(body.result.isError).toBeUndefined();
   });
 
+  it("retrieves a page with an escaped page id", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        object: "page",
+        id: "page/id",
+        url: "https://notion.so/page-id",
+        properties: {
+          Name: {
+            type: "title",
+            title: [{ plain_text: "Escaped Page" }],
+          },
+          Notes: {
+            type: "rich_text",
+            rich_text: [{ plain_text: "Visible notes" }],
+          },
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("@/app/api/mcp/notion/route");
+
+    const res = await POST(
+      mcpRequest("tools/call", {
+        name: "get_page",
+        arguments: { pageId: "page/id" },
+      }),
+    );
+    const body = await res.json();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.notion.com/v1/pages/page%2Fid",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer notion-token",
+        }),
+      }),
+    );
+    expect(body.result.content[0].text).toContain("Escaped Page");
+    expect(body.result.content[0].text).toContain("Visible notes");
+  });
+
+  it("retrieves block children with escaped block ids and clamped page size", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        object: "list",
+        has_more: true,
+        next_cursor: "cursor-2",
+        results: [
+          {
+            object: "block",
+            id: "block-1",
+            type: "paragraph",
+            has_children: false,
+            paragraph: {
+              rich_text: [{ plain_text: "A paragraph" }],
+            },
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("@/app/api/mcp/notion/route");
+
+    const res = await POST(
+      mcpRequest("tools/call", {
+        name: "get_block_children",
+        arguments: {
+          blockId: "block/id",
+          pageSize: 999,
+          startCursor: "cursor-1",
+        },
+      }),
+    );
+    const body = await res.json();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.notion.com/v1/blocks/block%2Fid/children?page_size=50&start_cursor=cursor-1",
+      expect.any(Object),
+    );
+    expect(body.result.content[0].text).toContain("A paragraph");
+    expect(body.result.content[0].text).toContain('"hasMore": true');
+  });
+
+  it("appends a text block with the expected PATCH body", async () => {
+    let capturedInit: RequestInit | undefined;
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedInit = init;
+        return Response.json({
+          object: "list",
+          results: [
+            {
+              object: "block",
+              id: "new-block",
+              type: "paragraph",
+              has_children: false,
+              paragraph: {
+                rich_text: [{ plain_text: "Added paragraph" }],
+              },
+            },
+          ],
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("@/app/api/mcp/notion/route");
+
+    const res = await POST(
+      mcpRequest("tools/call", {
+        name: "append_text_block",
+        arguments: {
+          blockId: "parent/id",
+          text: "Added paragraph",
+        },
+      }),
+    );
+    const body = await res.json();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.notion.com/v1/blocks/parent%2Fid/children",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+    expect(JSON.parse(String(capturedInit?.body))).toEqual({
+      children: [
+        {
+          object: "block",
+          type: "paragraph",
+          paragraph: {
+            rich_text: [
+              { type: "text", text: { content: "Added paragraph" } },
+            ],
+          },
+        },
+      ],
+    });
+    expect(body.result.content[0].text).toContain("Added paragraph");
+    expect(body.result.isError).toBeUndefined();
+  });
+
+  it("rejects append_text_block inputs over the Notion rich text limit", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("@/app/api/mcp/notion/route");
+
+    const res = await POST(
+      mcpRequest("tools/call", {
+        name: "append_text_block",
+        arguments: {
+          blockId: "parent-id",
+          text: "x".repeat(2_001),
+        },
+      }),
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(res.json()).resolves.toMatchObject({
+      result: {
+        isError: true,
+        content: [
+          {
+            text: "text must be 2000 characters or fewer.",
+          },
+        ],
+      },
+    });
+  });
+
   it("connects through the existing MCP client", async () => {
     const realFetch = globalThis.fetch.bind(globalThis);
     const fetchMock = vi.fn(async () =>
