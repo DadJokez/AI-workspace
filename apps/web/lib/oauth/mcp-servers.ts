@@ -4,6 +4,8 @@ import type { McpServerSpec } from "@ai-workspace/agent-runtime";
 import { eq } from "drizzle-orm";
 
 import { decryptSecret } from "./crypto";
+import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
+import { NOTION_MCP_PATH } from "@/lib/notion/mcp";
 import {
   filterAttestedProviders,
   loadActiveToolAttestations,
@@ -17,9 +19,6 @@ interface McpProviderConfig {
 
 const MCP_PROVIDER_CONFIG: Record<string, McpProviderConfig> = {
   github: { endpoint: { url: "https://api.githubcopilot.com/mcp/" } },
-  // A compatible Notion MCP gateway can be supplied once the deployment owns
-  // the endpoint. Notion's hosted MCP performs its own OAuth handshake, so we
-  // do not point at it directly while Comparative stores delegated tokens.
   notion: notionMcpConfig(process.env.NOTION_MCP_ENDPOINT_URL),
 };
 
@@ -278,8 +277,11 @@ function buildProviderAvailability({
 }
 
 function notionMcpConfig(rawUrl: string | undefined): McpProviderConfig {
-  const endpoint = parseMcpEndpoint(rawUrl);
-  if (!endpoint) return { unavailableReason: "execution_not_configured" };
+  const value = rawUrl?.trim();
+  const endpoint = value
+    ? parseMcpEndpoint(value)
+    : { url: new URL(NOTION_MCP_PATH, PUBLIC_BASE_URL).toString() };
+  if (!endpoint) return { unavailableReason: "invalid_endpoint_url" };
   try {
     const url = new URL(endpoint.url);
     if (url.hostname === "mcp.notion.com") {

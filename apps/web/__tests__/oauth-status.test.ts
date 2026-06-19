@@ -64,9 +64,9 @@ describe("GET /api/oauth/status", () => {
         },
         notion: {
           connected: true,
-          executionConfigured: false,
-          toolAvailable: false,
-          status: "connected_execution_not_configured",
+          executionConfigured: true,
+          toolAvailable: true,
+          status: "ready",
         },
         google: {
           connected: false,

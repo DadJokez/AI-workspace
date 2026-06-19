@@ -133,7 +133,7 @@ In both cases:
 
 This layer is **independent of the identity provider** in Layer 1. It uses the same `oauth_tokens` table regardless of whether the user authenticated via GitHub or PingOne.
 
-- For **delegated** systems (GitHub and Notion OAuth today; M365 / Salesforce / Workfront in future): the shell holds the user's OAuth tokens in `oauth_tokens` (AES-256-GCM encrypted with `OAUTH_ENCRYPTION_KEY`). At turn start it mints a short-lived access token and injects it into the MCP server's request as `Authorization: Bearer <token>`. **HTTP transport** is used so the header is per-request. Notion tool execution is mounted only when `NOTION_MCP_ENDPOINT_URL` points at a compatible gateway; the hosted Notion MCP performs its own OAuth handshake and is not used directly by this bearer-token path.
+- For **delegated** systems (GitHub and Notion OAuth today; M365 / Salesforce / Workfront in future): the shell holds the user's OAuth tokens in `oauth_tokens` (AES-256-GCM encrypted with `OAUTH_ENCRYPTION_KEY`). At turn start it mints a short-lived access token and injects it into the MCP server's request as `Authorization: Bearer <token>`. **HTTP transport** is used so the header is per-request. Notion mounts the first-party `/api/mcp/notion` endpoint by default; `NOTION_MCP_ENDPOINT_URL` may override it only with a compatible Comparative-owned gateway. Hosted Notion MCP performs its own OAuth handshake and is not used directly by this bearer-token path.
 - For **service-principal / M2M** systems (Databricks, S3, Redshift): stdio transport with credentials in `mcpServers[].env` at process start.
 - The tool gate checks `user_tool_attestations` and the tool catalog before
   MCP providers/tools are mounted for a turn.
@@ -142,7 +142,7 @@ This layer is **independent of the identity provider** in Layer 1. It uses the s
 **Current OAuth apps in use (POC):**
 1. `GITHUB_AUTH_CLIENT_ID` / `GITHUB_AUTH_CLIENT_SECRET` — sign-in identity app (NextAuth callback at `/api/auth/callback/github`). **Replaced by PingOne OIDC config in enterprise.**
 2. `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` — per-user GitHub MCP token app (callback at `/api/oauth/github/callback`). Scope: `repo read:user`. Stays as-is in enterprise — this is an MCP integration token, not the identity layer.
-3. `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` — per-user Notion integration token app (callback at `/api/oauth/notion/callback`). This enables the Tools connection state and encrypted token storage; runtime mounting additionally requires `NOTION_MCP_ENDPOINT_URL`. Until that compatible gateway is configured, Notion is treated as linked but not model-callable so chat cannot overclaim read/write access.
+3. `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` — per-user Notion integration token app (callback at `/api/oauth/notion/callback`). This enables the Tools connection state, encrypted token storage, and live chat mounting through the first-party `/api/mcp/notion` endpoint. `NOTION_MCP_ENDPOINT_URL` is only needed to replace that endpoint with a compatible Comparative-owned gateway.
 
 ## Recipes / skills catalog
 

@@ -38,7 +38,7 @@ afterEach(() => {
 });
 
 describe("MCP provider status", () => {
-  it("keeps linked Notion out of model-available providers without an endpoint", async () => {
+  it("makes linked Notion model-available through the internal endpoint by default", async () => {
     mockAttestations();
     const {
       loadUserMcpProviderStatus,
@@ -47,7 +47,7 @@ describe("MCP provider status", () => {
     } = await import("@/lib/oauth/mcp-servers");
 
     expect(SUPPORTED_MCP_PROVIDERS).toContain("notion");
-    expect(MOUNTABLE_MCP_PROVIDERS).not.toContain("notion");
+    expect(MOUNTABLE_MCP_PROVIDERS).toContain("notion");
 
     const status = await loadUserMcpProviderStatus(
       dbWithOauthRows([
@@ -59,38 +59,48 @@ describe("MCP provider status", () => {
 
     expect(status).toMatchObject({
       connectedProviders: ["notion"],
-      allowedProviders: [],
+      allowedProviders: ["notion"],
       deniedProviders: [],
-      executionUnavailableProviders: ["notion"],
+      executionUnavailableProviders: [],
       providerAvailability: {
         notion: {
           connected: true,
           userApproved: true,
-          executionConfigured: false,
-          toolMountable: false,
-          modelAvailable: false,
-          status: "execution_not_configured",
+          executionConfigured: true,
+          toolMountable: true,
+          modelAvailable: true,
+          status: "ready",
         },
       },
     });
   });
 
-  it("does not mount Notion without a compatible MCP endpoint", async () => {
+  it("mounts Notion with the delegated bearer token against the internal endpoint by default", async () => {
+    vi.stubEnv("NEXTAUTH_URL", "https://comparative.example");
+    vi.stubEnv(
+      "OAUTH_ENCRYPTION_KEY",
+      Buffer.alloc(32, 8).toString("base64"),
+    );
     mockAttestations();
+    const { encryptSecret } = await import("@/lib/oauth/crypto");
     const { buildUserMcpServers } = await import("@/lib/oauth/mcp-servers");
 
     const result = await buildUserMcpServers(
       dbWithOauthRows([
         {
           provider: "notion",
-          accessToken: "not-decrypted-without-endpoint",
+          accessToken: encryptSecret("notion-access-token"),
           expiresAt: null,
         },
       ]),
       "user-1",
     );
 
-    expect(result).toEqual({ mcpServers: undefined, deniedProviders: [] });
+    expect(result.mcpServers?.notion).toMatchObject({
+      type: "http",
+      url: "https://comparative.example/api/mcp/notion",
+      headers: { Authorization: "Bearer notion-access-token" },
+    });
   });
 
   it("mounts Notion with the delegated bearer token when an endpoint is configured", async () => {
@@ -123,6 +133,26 @@ describe("MCP provider status", () => {
 
   it("does not treat hosted Notion MCP as a compatible delegated-token endpoint", async () => {
     vi.stubEnv("NOTION_MCP_ENDPOINT_URL", "https://mcp.notion.com/mcp");
+    mockAttestations();
+    const { loadUserMcpProviderStatus } = await import(
+      "@/lib/oauth/mcp-servers"
+    );
+
+    const status = await loadUserMcpProviderStatus(
+      dbWithOauthRows([
+        { provider: "notion", expiresAt: new Date(Date.now() + 60_000) },
+      ]),
+      "user-1",
+    );
+
+    expect(status.providerAvailability?.notion).toMatchObject({
+      executionConfigured: false,
+      status: "execution_not_configured",
+    });
+  });
+
+  it("fails closed when an explicit Notion endpoint override is invalid", async () => {
+    vi.stubEnv("NOTION_MCP_ENDPOINT_URL", "not a url");
     mockAttestations();
     const { loadUserMcpProviderStatus } = await import(
       "@/lib/oauth/mcp-servers"
