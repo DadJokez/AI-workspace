@@ -6,7 +6,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 export const dynamic = "force-dynamic";
 
 interface InviteLookup {
-  status: "ok" | "not_found" | "expired" | "accepted";
+  status: "ok" | "not_found" | "expired" | "accepted" | "revoked";
   email?: string;
   role?: "admin" | "user";
 }
@@ -18,6 +18,7 @@ async function lookupInvitation(token: string): Promise<InviteLookup> {
       email: invitations.email,
       role: invitations.role,
       acceptedAt: invitations.acceptedAt,
+      revokedAt: invitations.revokedAt,
       expiresAt: invitations.expiresAt,
     })
     .from(invitations)
@@ -27,6 +28,7 @@ async function lookupInvitation(token: string): Promise<InviteLookup> {
   const row = rows[0];
   if (!row) return { status: "not_found" };
   if (row.acceptedAt !== null) return { status: "accepted" };
+  if (row.revokedAt !== null) return { status: "revoked" };
   if (row.expiresAt.getTime() <= Date.now()) return { status: "expired" };
   return { status: "ok", email: row.email, role: row.role };
 }
@@ -77,6 +79,14 @@ export default async function InvitePage({
       <ErrorPanel
         title="Invitation already used"
         message="This invite link has already been redeemed."
+      />
+    );
+  }
+  if (result.status === "revoked") {
+    return (
+      <ErrorPanel
+        title="Invitation revoked"
+        message="This invite link was revoked by an admin."
       />
     );
   }

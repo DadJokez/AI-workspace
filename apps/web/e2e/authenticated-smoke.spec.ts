@@ -304,4 +304,57 @@ test.describe("authenticated product smoke", () => {
     await expect(page.getByRole("heading", { name: "Starters" })).toBeVisible();
     await expect(page.getByText("Auth Smoke Starter Brief")).toBeVisible();
   });
+
+  test("sends, retries, and revokes admin invitations", async ({ page }) => {
+    const email = `alpha-${Date.now()}@example.com`;
+
+    await page.goto("/admin");
+    await expect(page.getByRole("heading", { name: "Users" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Invitations" }),
+    ).toBeVisible();
+
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Invite role").selectOption("admin");
+    const [sendResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/api/admin/invitations") &&
+          response.request().method() === "POST",
+      ),
+      page.getByRole("button", { name: "Send invite" }).click(),
+    ]);
+    expect(sendResponse.status()).toBe(201);
+
+    const row = page.locator("tr").filter({ hasText: email });
+    await expect(row).toContainText("failed");
+    await expect(row).toContainText("email is not configured");
+    await expect(row.getByRole("button", { name: "Resend" })).toBeEnabled();
+    await expect(row.getByRole("button", { name: "Revoke" })).toBeEnabled();
+
+    const [resendResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/admin/invitations/`) &&
+          response.url().endsWith("/resend") &&
+          response.request().method() === "POST",
+      ),
+      row.getByRole("button", { name: "Resend" }).click(),
+    ]);
+    expect(resendResponse.ok()).toBe(true);
+    await expect(row).toContainText("failed");
+
+    const [revokeResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/admin/invitations/`) &&
+          response.url().endsWith("/revoke") &&
+          response.request().method() === "POST",
+      ),
+      row.getByRole("button", { name: "Revoke" }).click(),
+    ]);
+    expect(revokeResponse.ok()).toBe(true);
+    await expect(row).toContainText("revoked");
+    await expect(row.getByRole("button", { name: "Resend" })).toBeDisabled();
+  });
 });

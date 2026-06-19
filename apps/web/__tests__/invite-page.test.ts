@@ -11,6 +11,7 @@ interface InviteRow {
   email: string;
   role: "admin" | "user";
   acceptedAt: Date | null;
+  revokedAt: Date | null;
   expiresAt: Date;
 }
 
@@ -91,6 +92,7 @@ describe("/invite/[token] page", () => {
         email: "a@example.com",
         role: "user",
         acceptedAt: null,
+        revokedAt: null,
         expiresAt: new Date(Date.now() - 1000),
       },
     ]);
@@ -107,6 +109,7 @@ describe("/invite/[token] page", () => {
         email: "a@example.com",
         role: "user",
         acceptedAt: new Date(),
+        revokedAt: null,
         expiresAt: new Date(Date.now() + 60_000),
       },
     ]);
@@ -117,12 +120,30 @@ describe("/invite/[token] page", () => {
     expect(collectText(tree)).toContain("Invitation already used");
   });
 
+  it("renders 'revoked' when revokedAt is set", async () => {
+    installDbMock([
+      {
+        email: "a@example.com",
+        role: "user",
+        acceptedAt: null,
+        revokedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    ]);
+    const { default: InvitePage } = await import("@/app/invite/[token]/page");
+    const tree = await InvitePage({
+      params: Promise.resolve({ token: "revoked" }),
+    });
+    expect(collectText(tree)).toContain("Invitation revoked");
+  });
+
   it("renders the sign-in CTA for a valid pending invite", async () => {
     installDbMock([
       {
         email: "valid@example.com",
         role: "admin",
         acceptedAt: null,
+        revokedAt: null,
         expiresAt: new Date(Date.now() + 60_000),
       },
     ]);

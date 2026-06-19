@@ -1,16 +1,15 @@
 import { getDb, invitations, users } from "@ai-workspace/db";
-import { and, desc, gt, isNull } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import { redirect } from "next/navigation";
+import {
+  adminInvitationSelect,
+  toAdminInvitationRow,
+  type AdminInvitationRow,
+} from "@/lib/admin-invitations";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import type { AdminUserRow } from "@/app/api/admin/users/route";
-import type { AdminInvitationRow } from "@/app/api/admin/invitations/route";
 import { UsersTable } from "./UsersTable";
 import { InvitationsPanel } from "./InvitationsPanel";
-
-function inviteUrl(token: string): string {
-  const base = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-  return `${base.replace(/\/+$/, "")}/invite/${token}`;
-}
 
 export const dynamic = "force-dynamic";
 
@@ -43,28 +42,14 @@ export default async function AdminUsersPage() {
   }));
 
   const inviteRows = await db
-    .select({
-      id: invitations.id,
-      email: invitations.email,
-      role: invitations.role,
-      token: invitations.token,
-      expiresAt: invitations.expiresAt,
-      createdAt: invitations.createdAt,
-    })
+    .select(adminInvitationSelect)
     .from(invitations)
-    .where(
-      and(isNull(invitations.acceptedAt), gt(invitations.expiresAt, new Date())),
-    )
-    .orderBy(desc(invitations.createdAt));
+    .orderBy(desc(invitations.createdAt))
+    .limit(100);
 
-  const initialInvitations: AdminInvitationRow[] = inviteRows.map((r) => ({
-    id: r.id,
-    email: r.email,
-    role: r.role,
-    inviteUrl: inviteUrl(r.token),
-    expiresAt: r.expiresAt.toISOString(),
-    createdAt: r.createdAt.toISOString(),
-  }));
+  const initialInvitations: AdminInvitationRow[] = inviteRows.map((r) =>
+    toAdminInvitationRow(r),
+  );
 
   return (
     <>

@@ -148,7 +148,29 @@ Secrets inventory:
 | `OAUTH_ENCRYPTION_KEY` | App Runner env | KMS-backed secret, rotation plan required |
 | `GITHUB_AUTH_CLIENT_SECRET` | App Runner env | Secrets Manager |
 | `GITHUB_CLIENT_SECRET` | App Runner env | Secrets Manager |
+| `INVITE_EMAIL_PROVIDER`, `INVITE_EMAIL_FROM`, `INVITE_EMAIL_AWS_REGION` | Disabled unless configured | Secrets Manager / task env for SES invite delivery |
 | AWS deploy credentials | CodeBuild role | Least-privilege deploy role in IaC |
+
+## Invitation Email Rollout
+
+Admin-created invitations attempt transactional email delivery from the admin
+panel. Production should use AWS SES so the path stays inside the AWS control
+plane:
+
+- Verify the sending domain or address in SES, with DKIM, SPF, and DMARC in
+  place before inviting alpha testers outside the sandbox recipient list.
+- Configure `INVITE_EMAIL_PROVIDER=ses`, `INVITE_EMAIL_FROM`, and
+  `INVITE_EMAIL_AWS_REGION` through Secrets Manager or approved ECS task
+  environment configuration.
+- Grant the web task role least-privilege SES send permissions for the verified
+  identity, for example `ses:SendEmail` on the SES identity ARN.
+- Keep SES sandbox limits in mind; request production sending access before
+  broad alpha invites.
+- Resends deliberately reuse the same still-valid invite token. The token stops
+  working once accepted, expired, or revoked.
+- If SES is misconfigured or rejects a send, the invite remains visible in the
+  admin panel as `failed` so an admin can retry or revoke it without copying raw
+  links around.
 
 ## Load-Test Model
 
