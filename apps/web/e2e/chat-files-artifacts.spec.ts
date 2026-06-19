@@ -281,6 +281,158 @@ test.describe("chat files and artifacts", () => {
     await expect(page.getByText("demo-artifact.html")).toBeVisible();
   });
 
+  test("keeps an open artifact preview on the latest revision", async ({
+    page,
+    isMobile,
+  }) => {
+    const initialHtml = [
+      "<!doctype html>",
+      "<html>",
+      "<head><title>Demo Artifact</title></head>",
+      "<body><h1>Demo Artifact</h1><p>Original version.</p></body>",
+      "</html>",
+    ].join("\n");
+    const revisedHtml = [
+      "<!doctype html>",
+      "<html>",
+      "<head><title>Demo Artifact</title></head>",
+      "<body><h1>Revised Demo Artifact</h1><p>Updated version.</p></body>",
+      "</html>",
+    ].join("\n");
+    const revisedArtifactSummary = {
+      ...defaultArtifactSummary,
+      id: "artifact-demo-html-v2",
+      filename: "demo-artifact-v2.html",
+      chatMessageId: "assistant-revised",
+      runId: "run-revised",
+      versionNumber: 2,
+      supersedesArtifactId: defaultArtifactSummary.id,
+      sizeBytes: revisedHtml.length,
+      createdAt: "2026-06-19T12:00:00.000Z",
+      previewUrl: "/api/workspace/artifacts/artifact-demo-html-v2/preview",
+      downloadUrl: "/api/workspace/artifacts/artifact-demo-html-v2/download",
+    };
+    let chatCount = 0;
+
+    await installMockComparativeApi(page, {
+      artifacts: [revisedArtifactSummary, defaultArtifactSummary],
+      artifactDetails: {
+        [defaultArtifactSummary.id]: {
+          ...defaultArtifactDetail,
+          content: initialHtml,
+        },
+        [revisedArtifactSummary.id]: {
+          ...revisedArtifactSummary,
+          content: revisedHtml,
+        },
+      },
+      onChat: async (body, route) => {
+        chatCount += 1;
+        if (chatCount === 1) {
+          await fulfillSse(route, [
+            {
+              type: "meta",
+              threadId: "thread-generated",
+              modelId: "sonnet-4-6",
+            },
+            {
+              type: "text-delta",
+              delta: [
+                "Here is the generated app:",
+                "",
+                '```html filename="demo-artifact.html"',
+                initialHtml,
+                "```",
+              ].join("\n"),
+            },
+            {
+              type: "persisted",
+              assistantMessageId: "assistant-generated",
+              artifacts: [defaultArtifactSummary],
+              recommendations: [],
+            },
+            { type: "done" },
+          ]);
+          return;
+        }
+
+        expect(body.threadId).toBe("thread-generated");
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-generated",
+            modelId: "sonnet-4-6",
+          },
+          {
+            type: "text-delta",
+            delta: [
+              "Updated the existing artifact:",
+              "",
+              '```html filename="updated.html"',
+              revisedHtml,
+              "```",
+            ].join("\n"),
+          },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-revised",
+            artifacts: [revisedArtifactSummary],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+
+    await page.goto("/e2e/chat");
+    await expect(page.getByText("Talk to your work.")).toBeVisible();
+
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Build a tiny HTML app and save it.");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    await expect(
+      page.getByRole("button", { name: /demo-artifact\.html/i }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: /demo-artifact\.html/i }).click();
+    const previewPane = page.getByRole("complementary", {
+      name: "Artifact preview",
+    });
+    await expect(previewPane).toBeVisible();
+    await expect(
+      previewPane.frameLocator("iframe").getByRole("heading", {
+        name: "Demo Artifact",
+      }),
+    ).toBeVisible();
+    if (isMobile) {
+      await page.getByRole("button", { name: "Close preview" }).click();
+    }
+
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("update the prior made html file with a revised headline");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    await expect(
+      page.getByRole("button", { name: /demo-artifact-v2\.html/i }),
+    ).toBeVisible();
+    if (isMobile) {
+      await page.getByRole("button", { name: /demo-artifact-v2\.html/i }).click();
+    }
+    const revisedPreviewPane = page.getByRole("complementary", {
+      name: "Artifact preview",
+    });
+    await expect(
+      revisedPreviewPane.getByText(/demo-artifact-v2\.html · v2/i),
+    ).toBeVisible();
+    await expect(
+      revisedPreviewPane.frameLocator("iframe").getByRole("heading", {
+        name: "Revised Demo Artifact",
+      }),
+    ).toBeVisible();
+  });
+
   test("collapses declared markdown artifacts instead of showing raw markdown", async ({
     page,
   }) => {

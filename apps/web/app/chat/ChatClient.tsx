@@ -92,6 +92,23 @@ export function mergeLoadedMessages(
   return [...loadedMessages, ...localOnly];
 }
 
+export function nextPreviewArtifactAfterPersisted(
+  current: WorkspaceArtifactSummary | null,
+  persistedArtifacts?: WorkspaceArtifactSummary[],
+): WorkspaceArtifactSummary | null {
+  if (!current || !persistedArtifacts?.length) return current;
+
+  const nextVersion = persistedArtifacts
+    .filter(
+      (artifact) =>
+        artifact.id !== current.id &&
+        artifact.artifactGroupId === current.artifactGroupId,
+    )
+    .sort((a, b) => b.versionNumber - a.versionNumber)[0];
+
+  return nextVersion ?? current;
+}
+
 interface ChatTab {
   id: string;
   title: string;
@@ -1345,6 +1362,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                   }
                 : m,
             ),
+          );
+          setPreviewArtifact((current) =>
+            nextPreviewArtifactAfterPersisted(current, artifacts),
           );
           if (persistedAssistantMessageId) {
             assistantDraftId = persistedAssistantMessageId;

@@ -194,6 +194,7 @@ export async function streamInlineChatRun({
       buildArtifactContextPayload({
         db,
         userId,
+        threadId: thread.id,
         message: buildArtifactLookupMessage(history, prompt),
       }),
       buildAppEditContext({ db, userId, threadId: thread.id }),
