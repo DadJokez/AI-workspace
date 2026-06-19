@@ -37,11 +37,11 @@ and can both **read** and **act**. "What PRs do I have open?"
 returns a real answer; "Send Bob the summary" performs a real action.
 This is what makes "talk to your work" real rather than aspirational.
 
-**What's live:** GitHub MCP is working end-to-end - users connect via OAuth, tokens are stored encrypted in `oauth_tokens`, the GitHub server is represented in `mcp_servers`, and the Bedrock runtime mounts it per-user with a short-lived Bearer token on each tool turn. Tool calls/results persist on chat messages after shared redaction and render as compact, expandable agent activity inside chat, MCP tool executions write redacted audit rows that admins can inspect at `/admin/audit`, registered servers/tools are visible at `/admin/tools`, long turns tolerate browser disconnects cleanly, chat turns are recorded in `runs` with runtime metadata and append-only `run_events`, and durable chat execution runs through a background-worker path with leases instead of requiring the `/api/chat` request to remain open. Running chat turns can be canceled, failed/canceled turns can be retried, and admins can request resume for queued/running runs. The manual Developer Briefing route persists redacted GitHub workflow runs in `runs` with an admin run list/detail UI, retry support for failed/canceled runs, reloadable activity, and a dated PR/CI aggregation prompt.
+**What's live:** GitHub MCP is working end-to-end - users connect via OAuth, tokens are stored encrypted in `oauth_tokens`, the GitHub server is represented in `mcp_servers`, and the Bedrock runtime mounts it per-user with a short-lived Bearer token on each tool turn. The tool catalog can constrain mounted MCP tools before they are registered with the model: provider-admin approvals stay broad, category/tool approvals expose only matching enabled catalog tools, and disabled catalog rows are hidden. Tool calls/results persist on chat messages after shared redaction and render as compact, expandable agent activity inside chat, MCP tool executions write redacted audit rows that admins can inspect at `/admin/audit`, registered servers/tools are visible at `/admin/tools`, long turns tolerate browser disconnects cleanly, chat turns are recorded in `runs` with runtime metadata and append-only `run_events`, and durable chat execution runs through a background-worker path with leases instead of requiring the `/api/chat` request to remain open. Running chat turns can be canceled, failed/canceled turns can be retried, and admins can request resume for queued/running runs. The manual Developer Briefing route persists redacted GitHub workflow runs in `runs` with an admin run list/detail UI, retry support for failed/canceled runs, reloadable activity, and a dated PR/CI aggregation prompt.
 
 **What's next (Weeks 4–8):** M365 Graph (Mail + Calendar), Workfront, Databricks, Salesforce. See the integration tier table below. The auth pattern (HTTP MCP + per-turn Bearer) is proven; the remaining work is per-integration MCP servers and the OAuth plumbing for each provider.
 
-**Requires for full J2:** lower-level tool/category filtering for write-side calls across all integrations, a verified hook workflow or MCP proxy for policy enforcement, retention automation, rate limits and quotas, and real OAuth/MCP implementations behind the expanded integration catalog.
+**Requires for full J2:** broader integration catalogs for every MCP provider, provider-specific write safety reviews, production scheduling for audit retention, rate limits and quotas, and real OAuth/MCP implementations behind the expanded integration catalog.
 
 ### J3 — Scheduled Agent 🔄 Scheduling shipped (June 2026)
 
@@ -241,7 +241,9 @@ destinations, and the user-facing skills catalog.
 Current implementation notes:
 - AI Hub passes bounded prior context into each turn and keeps product memory
   in Postgres.
-- Provider-level attestations are enforced before MCP servers are mounted.
+- Provider/category/tool attestations are enforced before MCP tools are exposed
+  to the model. Broad provider-admin approval can still expose uncataloged
+  tools, but category/tool approvals only expose enabled catalog matches.
 - Subagents and parallel tool work are promising, but they are not a J1-J3
   dependency. Use them only after the simpler tool/schedule path is stable.
 
@@ -283,10 +285,8 @@ event trigger without both.
 - **All tools must be MCP servers.** No in-process function
   handlers, no agent-side closures pretending to be tools. This
   keeps the capability surface inspectable, auditable, and reusable
-  across recipes; it's also what lets the audit log and the provider
-  attestation gate work uniformly across every mounted integration.
-  Lower-level tool/category filtering still needs a verified hook path
-  or MCP proxy.
+  across recipes; it's also what lets the audit log and the provider/category/
+  tool attestation gate work uniformly across every mounted integration.
 - **Subagents and parallel task execution are optional acceleration.**
   AI Hub should prove the simple J2/J3 tool-and-schedule path first.
   Parallelism belongs in skills only where
