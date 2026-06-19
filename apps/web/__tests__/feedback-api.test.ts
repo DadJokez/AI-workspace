@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "@ai-workspace/auth";
+import {
+  FEEDBACK_SCREENSHOT_TOO_LARGE_MESSAGE,
+  MAX_FEEDBACK_SCREENSHOT_DATA_URL_CHARS,
+} from "@/lib/feedback-screenshots";
 
 const USER_ID = "00000000-0000-4000-8000-000000000001";
 const THREAD_ID = "00000000-0000-4000-8000-000000000010";
@@ -104,18 +108,47 @@ describe("POST /api/feedback", () => {
     installMocks();
 
     const { POST } = await import("@/app/api/feedback/route");
+    const prefix = "data:image/png;base64,";
     const res = await POST(
       makeReq({
         body: "The screenshot should be rejected.",
-        screenshotDataUrl: `data:image/png;base64,${"a".repeat(1_500_001)}`,
+        screenshotDataUrl: `${prefix}${"a".repeat(
+          MAX_FEEDBACK_SCREENSHOT_DATA_URL_CHARS - prefix.length + 1,
+        )}`,
       }),
     );
 
     expect(res.status).toBe(413);
     await expect(res.json()).resolves.toMatchObject({
       error: "screenshot_too_large",
+      message: FEEDBACK_SCREENSHOT_TOO_LARGE_MESSAGE,
     });
     expect(capturedInsert).toBeUndefined();
+  });
+
+  it("accepts screenshots at the configured 5 MB data URL limit", async () => {
+    installMocks();
+
+    const { POST } = await import("@/app/api/feedback/route");
+    const prefix = "data:image/png;base64,";
+    const screenshotDataUrl = `${prefix}${"a".repeat(
+      MAX_FEEDBACK_SCREENSHOT_DATA_URL_CHARS - prefix.length,
+    )}`;
+    const res = await POST(
+      makeReq({
+        body: "The screenshot should be accepted.",
+        screenshotDataUrl,
+        screenshotName: "screen.png",
+        screenshotMimeType: "image/png",
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    expect(capturedInsert).toMatchObject({
+      screenshotDataUrl,
+      screenshotName: "screen.png",
+      screenshotMimeType: "image/png",
+    });
   });
 
   it("rejects oversized context metadata instead of storing hidden blobs", async () => {

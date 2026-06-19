@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  ALLOWED_FEEDBACK_SCREENSHOT_MIME_TYPES,
+  FEEDBACK_SCREENSHOT_TOO_LARGE_MESSAGE,
+  MAX_FEEDBACK_SCREENSHOT_BYTES,
+} from "@/lib/feedback-screenshots";
 
 export interface FeedbackContext {
   threadId?: string;
@@ -17,14 +22,6 @@ interface Props {
   context?: FeedbackContext;
   onClose: () => void;
 }
-
-const MAX_SCREENSHOT_BYTES = 1_100_000;
-const ALLOWED_SCREENSHOT_MIME_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-]);
 
 export function FeedbackReporter({ open, context, onClose }: Props) {
   const [type, setType] = useState("bug");
@@ -52,12 +49,12 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
   if (!open) return null;
 
   async function readScreenshot(file: File) {
-    if (!ALLOWED_SCREENSHOT_MIME_TYPES.has(file.type)) {
+    if (!ALLOWED_FEEDBACK_SCREENSHOT_MIME_TYPES.has(file.type)) {
       setError("Screenshot must be PNG, JPG, GIF, or WebP.");
       return;
     }
-    if (file.size > MAX_SCREENSHOT_BYTES) {
-      setError("Screenshot is too large. Keep it under 1 MB.");
+    if (file.size > MAX_FEEDBACK_SCREENSHOT_BYTES) {
+      setError(FEEDBACK_SCREENSHOT_TOO_LARGE_MESSAGE);
       return;
     }
     const dataUrl = await new Promise<string>((resolve, reject) => {

@@ -431,4 +431,75 @@ test.describe("chat workflow regressions", () => {
       messagePreview: "Done.",
     });
   });
+
+  test("accepts 5 MB feedback screenshots and rejects larger images", async ({
+    page,
+  }) => {
+    let feedbackBody: Record<string, unknown> | undefined;
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      onFeedback: async (body, route) => {
+        feedbackBody = body;
+        await json(
+          route,
+          {
+            report: {
+              id: "00000000-0000-4000-8000-000000000502",
+              status: "new",
+              createdAt: "2026-06-14T20:00:00.000Z",
+            },
+          },
+          201,
+        );
+      },
+    });
+
+    await gotoE2EChat(page);
+    const feedbackNav = page.locator('[data-tour="nav-feedback"]');
+    const openMenu = page.getByRole("button", { name: "Open menu" });
+    if (await openMenu.isVisible()) {
+      await openMenu.click();
+      await expect(feedbackNav).toBeInViewport();
+    }
+    await feedbackNav.click();
+    const dialog = page.getByRole("dialog", { name: "Report feedback" });
+    await expect(dialog).toBeVisible();
+
+    const fileInput = dialog.locator(
+      'input[type="file"][accept="image/png,image/jpeg,image/gif,image/webp"]',
+    );
+    await fileInput.setInputFiles({
+      name: "too-large.png",
+      mimeType: "image/png",
+      buffer: Buffer.alloc(5 * 1024 * 1024 + 1),
+    });
+    await expect(
+      page.getByText("Screenshot is too large. Keep it under 5 MB."),
+    ).toBeVisible();
+
+    await fileInput.setInputFiles({
+      name: "five-megabytes.png",
+      mimeType: "image/png",
+      buffer: Buffer.alloc(5 * 1024 * 1024),
+    });
+    await expect(page.getByText(/five-megabytes\.png · remove/)).toBeVisible();
+    await expect(
+      page.getByText("Screenshot is too large. Keep it under 5 MB."),
+    ).toHaveCount(0);
+
+    await page
+      .getByLabel("What happened")
+      .fill("The feedback screenshot upload should work.");
+    await page.getByRole("button", { name: "Send feedback" }).click();
+
+    await expect(page.getByText(/feedback sent/i)).toBeVisible();
+    expect(feedbackBody).toMatchObject({
+      body: "The feedback screenshot upload should work.",
+      screenshotName: "five-megabytes.png",
+      screenshotMimeType: "image/png",
+    });
+    expect(String(feedbackBody?.screenshotDataUrl ?? "")).toMatch(
+      /^data:image\/png;base64,/,
+    );
+  });
 });
