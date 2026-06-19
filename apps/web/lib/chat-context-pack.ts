@@ -74,6 +74,7 @@ export interface ChatContextProviderItem {
   approved: boolean;
   mounted: boolean;
   pendingApproval: boolean;
+  executionUnavailable?: boolean;
   injected: boolean;
 }
 
@@ -100,6 +101,7 @@ export interface ChatContextReceipt {
     mounted: string[];
     builtinMounted: string[];
     pendingApproval: string[];
+    executionUnavailable: string[];
     providers: ChatContextProviderItem[];
   };
   work: {
@@ -147,6 +149,7 @@ export interface ChatContextPack {
     approved: ChatContextProviderItem[];
     mounted: ChatContextProviderItem[];
     pendingApproval: ChatContextProviderItem[];
+    executionUnavailable: ChatContextProviderItem[];
   };
   work: {
     threadSummary?: ChatContextItem;
@@ -302,6 +305,8 @@ export function buildChatContextPack({
     approvedProviders: providerStatus.allowedProviders,
     mountedProviders,
     pendingApprovalProviders: blockedProviders,
+    executionUnavailableProviders:
+      providerStatus.executionUnavailableProviders ?? [],
     injected: shouldRenderPreamble,
   });
   const capabilityItem = capabilityGraph
@@ -345,6 +350,9 @@ export function buildChatContextPack({
       mounted: uniqueStrings(mountedProviders),
       builtinMounted: uniqueStrings(builtinTools),
       pendingApproval: blockedProviders,
+      executionUnavailable: uniqueStrings(
+        providerStatus.executionUnavailableProviders ?? [],
+      ),
       providers: providerItems,
     },
     work: {
@@ -405,6 +413,7 @@ export function buildChatContextPack({
           connectedProviders: receipt.tools.mounted,
           availableProviders: receipt.tools.approved,
           blockedProviders: receipt.tools.pendingApproval,
+          unavailableProviders: receipt.tools.executionUnavailable,
           builtinTools: receipt.tools.builtinMounted,
           modelId,
           artifactContext: artifacts || null,
@@ -434,6 +443,9 @@ export function buildChatContextPack({
       approved: providerItems.filter((item) => item.approved),
       mounted: providerItems.filter((item) => item.mounted),
       pendingApproval: providerItems.filter((item) => item.pendingApproval),
+      executionUnavailable: providerItems.filter(
+        (item) => item.executionUnavailable,
+      ),
     },
     work: {
       ...(threadSummaryItem ? { threadSummary: threadSummaryItem } : {}),
@@ -457,7 +469,9 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
       receipt.tools.approved,
     )}; mounted this turn ${formatList(receipt.tools.mounted)}; built-in mounted ${formatList(
       receipt.tools.builtinMounted,
-    )}; pending approval ${formatList(receipt.tools.pendingApproval)}.`,
+    )}; pending approval ${formatList(
+      receipt.tools.pendingApproval,
+    )}; execution unavailable ${formatList(receipt.tools.executionUnavailable)}.`,
   );
   lines.push(
     `- Work context: ${receipt.work.recentMessages} recent message(s); ` +
@@ -586,23 +600,27 @@ function buildProviderItems({
   approvedProviders,
   mountedProviders,
   pendingApprovalProviders,
+  executionUnavailableProviders,
   injected,
 }: {
   connectedProviders: readonly string[];
   approvedProviders: readonly string[];
   mountedProviders: readonly string[];
   pendingApprovalProviders: readonly string[];
+  executionUnavailableProviders: readonly string[];
   injected: boolean;
 }): ChatContextProviderItem[] {
   const connected = new Set(connectedProviders);
   const approved = new Set(approvedProviders);
   const mounted = new Set(mountedProviders);
   const pending = new Set(pendingApprovalProviders);
+  const unavailable = new Set(executionUnavailableProviders);
   return uniqueStrings([
     ...connectedProviders,
     ...approvedProviders,
     ...mountedProviders,
     ...pendingApprovalProviders,
+    ...executionUnavailableProviders,
   ]).map((provider) => ({
     provider,
     source: mounted.has(provider)
@@ -617,6 +635,7 @@ function buildProviderItems({
     approved: approved.has(provider),
     mounted: mounted.has(provider),
     pendingApproval: pending.has(provider),
+    executionUnavailable: unavailable.has(provider),
     injected,
   }));
 }

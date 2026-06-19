@@ -142,7 +142,7 @@ This layer is **independent of the identity provider** in Layer 1. It uses the s
 **Current OAuth apps in use (POC):**
 1. `GITHUB_AUTH_CLIENT_ID` / `GITHUB_AUTH_CLIENT_SECRET` — sign-in identity app (NextAuth callback at `/api/auth/callback/github`). **Replaced by PingOne OIDC config in enterprise.**
 2. `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` — per-user GitHub MCP token app (callback at `/api/oauth/github/callback`). Scope: `repo read:user`. Stays as-is in enterprise — this is an MCP integration token, not the identity layer.
-3. `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` — per-user Notion integration token app (callback at `/api/oauth/notion/callback`). This enables the Tools connection state and encrypted token storage; runtime mounting additionally requires `NOTION_MCP_ENDPOINT_URL`.
+3. `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` — per-user Notion integration token app (callback at `/api/oauth/notion/callback`). This enables the Tools connection state and encrypted token storage; runtime mounting additionally requires `NOTION_MCP_ENDPOINT_URL`. Until that compatible gateway is configured, Notion is treated as linked but not model-callable so chat cannot overclaim read/write access.
 
 ## Recipes / skills catalog
 

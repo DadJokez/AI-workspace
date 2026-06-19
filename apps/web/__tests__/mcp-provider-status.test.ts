@@ -38,13 +38,16 @@ afterEach(() => {
 });
 
 describe("MCP provider status", () => {
-  it("recognizes active Notion connections and ignores expired tokens", async () => {
+  it("keeps linked Notion out of model-available providers without an endpoint", async () => {
     mockAttestations();
-    const { loadUserMcpProviderStatus, SUPPORTED_MCP_PROVIDERS } = await import(
-      "@/lib/oauth/mcp-servers"
-    );
+    const {
+      loadUserMcpProviderStatus,
+      MOUNTABLE_MCP_PROVIDERS,
+      SUPPORTED_MCP_PROVIDERS,
+    } = await import("@/lib/oauth/mcp-servers");
 
     expect(SUPPORTED_MCP_PROVIDERS).toContain("notion");
+    expect(MOUNTABLE_MCP_PROVIDERS).not.toContain("notion");
 
     const status = await loadUserMcpProviderStatus(
       dbWithOauthRows([
@@ -56,8 +59,19 @@ describe("MCP provider status", () => {
 
     expect(status).toMatchObject({
       connectedProviders: ["notion"],
-      allowedProviders: ["notion"],
+      allowedProviders: [],
       deniedProviders: [],
+      executionUnavailableProviders: ["notion"],
+      providerAvailability: {
+        notion: {
+          connected: true,
+          userApproved: true,
+          executionConfigured: false,
+          toolMountable: false,
+          modelAvailable: false,
+          status: "execution_not_configured",
+        },
+      },
     });
   });
 
@@ -104,6 +118,26 @@ describe("MCP provider status", () => {
       type: "http",
       url: "https://notion-mcp.example/mcp",
       headers: { Authorization: "Bearer notion-access-token" },
+    });
+  });
+
+  it("does not treat hosted Notion MCP as a compatible delegated-token endpoint", async () => {
+    vi.stubEnv("NOTION_MCP_ENDPOINT_URL", "https://mcp.notion.com/mcp");
+    mockAttestations();
+    const { loadUserMcpProviderStatus } = await import(
+      "@/lib/oauth/mcp-servers"
+    );
+
+    const status = await loadUserMcpProviderStatus(
+      dbWithOauthRows([
+        { provider: "notion", expiresAt: new Date(Date.now() + 60_000) },
+      ]),
+      "user-1",
+    );
+
+    expect(status.providerAvailability?.notion).toMatchObject({
+      executionConfigured: false,
+      status: "execution_not_configured",
     });
   });
 });

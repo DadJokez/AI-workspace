@@ -92,9 +92,11 @@ export async function resolveActivatedSkillForChat({
 
   const checkProviderAccess = deps.checkProviderAccess ?? checkSkillProviderAccess;
   const access = await checkProviderAccess(db, actor.id, skill.mcpProviders);
+  const executionUnavailable = access.executionUnavailable ?? [];
   if (
     access.missingConnections.length > 0 ||
-    access.deniedAttestations.length > 0
+    access.deniedAttestations.length > 0 ||
+    executionUnavailable.length > 0
   ) {
     const parts = [
       access.missingConnections.length
@@ -102,6 +104,9 @@ export async function resolveActivatedSkillForChat({
         : "",
       access.deniedAttestations.length
         ? `approve ${access.deniedAttestations.join(", ")}`
+        : "",
+      executionUnavailable.length
+        ? `wait for chat execution to be enabled for ${executionUnavailable.join(", ")}`
         : "",
     ].filter(Boolean);
     return {

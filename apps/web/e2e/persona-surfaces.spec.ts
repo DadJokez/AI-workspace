@@ -102,7 +102,7 @@ test.describe("persona and workspace surfaces", () => {
     const githubCard = page.getByTestId("tool-card-github");
     await expect(githubCard.getByText("GitHub")).toBeVisible();
     await expect(githubCard.getByText("Connected")).toBeVisible();
-    await expect(githubCard.getByText("Linked to your account")).toBeVisible();
+    await expect(githubCard.getByText("Ready in chat")).toBeVisible();
   });
 
   test("shows a connect link for disconnected GitHub", async ({
@@ -149,8 +149,8 @@ test.describe("persona and workspace surfaces", () => {
 
     await openNavItem(page, "Tools", isMobile);
     const connectedCard = page.getByTestId("tool-card-notion");
-    await expect(connectedCard.getByText("Connected")).toBeVisible();
-    await expect(connectedCard.getByText("Linked to your account")).toBeVisible();
+    await expect(connectedCard.getByText("Linked")).toBeVisible();
+    await expect(connectedCard.getByText("Setup needed for chat")).toBeVisible();
     await expect(connectedCard.getByRole("link", { name: "Reconnect" }))
       .toHaveAttribute("href", "/api/oauth/notion/start");
 

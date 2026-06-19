@@ -24,6 +24,18 @@ interface OAuthNotice {
   error?: string;
 }
 
+interface OAuthProviderDetail {
+  connected?: boolean;
+  executionConfigured?: boolean;
+  toolAvailable?: boolean;
+  status?: string;
+  reason?: string;
+}
+
+interface OAuthStatusPayload extends Record<string, unknown> {
+  providerDetails?: Record<string, OAuthProviderDetail>;
+}
+
 const INTEGRATIONS: Integration[] = [
   {
     id: "github",
@@ -127,7 +139,7 @@ const INTEGRATIONS: Integration[] = [
 ];
 
 export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
-  const [oauthStatus, setOauthStatus] = useState<Record<string, boolean>>({});
+  const [oauthStatus, setOauthStatus] = useState<OAuthStatusPayload>({});
   const [oauthNotice, setOauthNotice] = useState<OAuthNotice | undefined>();
   const [activeIntegration, setActiveIntegration] = useState<
     Integration | undefined
@@ -139,7 +151,7 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!cancelled && data && typeof data === "object") {
-          setOauthStatus(data as Record<string, boolean>);
+          setOauthStatus(data as OAuthStatusPayload);
         }
       })
       .catch(() => {
@@ -231,7 +243,12 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {INTEGRATIONS.map((it) => {
-              const connected = oauthStatus[it.id] === true;
+              const detail = oauthStatus.providerDetails?.[it.id];
+              const connected =
+                detail?.connected === true || oauthStatus[it.id] === true;
+              const toolAvailable =
+                detail?.toolAvailable ?? (it.id === "notion" ? false : connected);
+              const executionPending = connected && it.id === "notion" && !toolAvailable;
               const failed =
                 oauthNotice?.provider === it.id && Boolean(oauthNotice.error);
               return (
@@ -262,6 +279,10 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
                       <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
                         Auth failed
                       </span>
+                    ) : executionPending ? (
+                      <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+                        Linked
+                      </span>
                     ) : connected ? (
                       <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-ink">
                         <svg
@@ -288,7 +309,9 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
                       connected ? (
                         <div className="flex flex-col items-end gap-1 text-right">
                           <span className="text-[11px] text-muted">
-                            Linked to your account
+                            {executionPending
+                              ? "Setup needed for chat"
+                              : "Ready in chat"}
                           </span>
                           <a
                             href={`/api/oauth/${it.id}/start`}

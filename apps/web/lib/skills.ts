@@ -5,21 +5,17 @@ import {
   chatMessages,
   chatThreads,
   type Database,
-  oauthTokens,
   runs,
   type Skill,
   skills,
 } from "@ai-workspace/db";
 import { DEFAULT_MODEL_ID, isValidModelId } from "@ai-workspace/agent";
-import { eq } from "drizzle-orm";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
-import { SUPPORTED_MCP_PROVIDERS } from "@/lib/oauth/mcp-servers";
-import { appendRunEventWithNextSequence } from "@/lib/run-events";
 import {
-  filterAttestedProviders,
-  loadActiveToolAttestations,
-  loadToolCatalogForProviders,
-} from "@/lib/tool-attestations";
+  loadUserMcpProviderStatus,
+  SUPPORTED_MCP_PROVIDERS,
+} from "@/lib/oauth/mcp-servers";
+import { appendRunEventWithNextSequence } from "@/lib/run-events";
 
 /**
  * Trigger types whose runs execute on the shared chat-run worker. Chat turns
@@ -236,6 +232,8 @@ export interface SkillProviderAccess {
   missingConnections: string[];
   /** Declared providers connected but lacking an active attestation. */
   deniedAttestations: string[];
+  /** Declared providers connected and attested but not executable here. */
+  executionUnavailable: string[];
 }
 
 /**
@@ -249,50 +247,32 @@ export async function checkSkillProviderAccess(
   declaredProviders: string[],
 ): Promise<SkillProviderAccess> {
   if (declaredProviders.length === 0) {
-    return { ready: [], missingConnections: [], deniedAttestations: [] };
+    return {
+      ready: [],
+      missingConnections: [],
+      deniedAttestations: [],
+      executionUnavailable: [],
+    };
   }
 
-  const rows = await db
-    .select({ provider: oauthTokens.provider, expiresAt: oauthTokens.expiresAt })
-    .from(oauthTokens)
-    .where(eq(oauthTokens.userId, userId));
-  const connected = new Set(
-    rows.filter(isActiveOAuthToken).map((r) => r.provider),
-  );
-
+  const providerStatus = await loadUserMcpProviderStatus(db, userId, {
+    onlyProviders: declaredProviders,
+  });
+  const connected = new Set(providerStatus.connectedProviders);
   const missingConnections = declaredProviders.filter(
     (p) => !connected.has(p),
   );
-  const connectedDeclared = declaredProviders.filter((p) => connected.has(p));
+  const ready = declaredProviders.filter((p) =>
+    providerStatus.allowedProviders.includes(p),
+  );
+  const deniedAttestations = declaredProviders.filter((p) =>
+    providerStatus.deniedProviders.includes(p),
+  );
+  const executionUnavailable = declaredProviders.filter((p) =>
+    (providerStatus.executionUnavailableProviders ?? []).includes(p),
+  );
 
-  let ready: string[] = [];
-  let deniedAttestations: string[] = [];
-  if (connectedDeclared.length > 0) {
-    const [attestations, catalog] = await Promise.all([
-      loadActiveToolAttestations(db, userId),
-      loadToolCatalogForProviders(db, connectedDeclared),
-    ]);
-    const gated = filterAttestedProviders(
-      connectedDeclared,
-      attestations,
-      catalog,
-    );
-    ready = gated.allowedProviders;
-    deniedAttestations = gated.deniedProviders;
-  }
-
-  return { ready, missingConnections, deniedAttestations };
-}
-
-function isActiveOAuthToken(row: {
-  expiresAt?: Date | string | null;
-}): boolean {
-  if (!row.expiresAt) return true;
-  const expiresAt =
-    row.expiresAt instanceof Date
-      ? row.expiresAt.getTime()
-      : Date.parse(row.expiresAt);
-  return Number.isFinite(expiresAt) && expiresAt > Date.now();
+  return { ready, missingConnections, deniedAttestations, executionUnavailable };
 }
 
 export interface CreateSkillRunResult {

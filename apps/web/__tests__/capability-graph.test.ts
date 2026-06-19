@@ -124,6 +124,48 @@ describe("capability graph", () => {
     });
   });
 
+  it("marks connected providers as setup-required when execution is unavailable", () => {
+    const graph = buildCapabilityGraph({
+      userId: "user-1",
+      providerStatus: {
+        connectedProviders: ["notion"],
+        allowedProviders: [],
+        deniedProviders: [],
+        executionUnavailableProviders: ["notion"],
+      },
+      skills: [
+        {
+          id: "skill-1",
+          slug: "notion-briefing",
+          name: "Notion Briefing",
+          ownerUserId: "user-1",
+          isStarter: false,
+          mcpProviders: ["notion"],
+        },
+      ],
+      now: NOW,
+    });
+
+    expect(graph.providers[0]).toMatchObject({
+      status: "setup_required",
+      runnableNow: false,
+      needsApproval: false,
+      executionUnavailableProviders: ["notion"],
+    });
+    expect(graph.skills[0]).toMatchObject({
+      status: "provider_setup_required",
+      runnableNow: false,
+      needsApproval: false,
+      missingProviders: [],
+      pendingApprovalProviders: [],
+      executionUnavailableProviders: ["notion"],
+    });
+    expect(recommendationInputsFromCapabilityGraph(graph)).toMatchObject({
+      connectedProviders: ["notion"],
+      approvedProviders: [],
+    });
+  });
+
   it("marks provider-dependent skills not runnable when no provider is connected", () => {
     const graph = buildCapabilityGraph({
       userId: "user-1",

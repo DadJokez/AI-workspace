@@ -385,10 +385,6 @@ function hasToolIntent(value: string): string | null {
   if (hasRecentGithubWorkLookup(value)) {
     return "github_recent_work_lookup";
   }
-  const notion = hasNotionLookupIntent(value);
-  if (notion) {
-    return notion;
-  }
   const webLookup = hasWebLookupIntent(value);
   if (webLookup) {
     return webLookup;
@@ -467,7 +463,15 @@ function hasGithubName(value: string): boolean {
 }
 
 function hasNotionLookupIntent(value: string): string | null {
-  if (!/\b(notion|workspace docs?|team docs?|pages?|databases?)\b/.test(value)) {
+  const explicitNotion = /\bnotion\b/.test(value);
+  const workspaceDocs = /\b(workspace|team|company|internal)\s+docs?\b/.test(
+    value,
+  );
+  const ownedNotionResource =
+    /\b(my|our)\s+(notion|notion\s+docs?|docs?|pages?|databases?)\b/.test(
+      value,
+    );
+  if (!explicitNotion && !workspaceDocs && !ownedNotionResource) {
     return null;
   }
   if (
@@ -477,7 +481,7 @@ function hasNotionLookupIntent(value: string): string | null {
   ) {
     return "notion_provider_lookup";
   }
-  if (/\bmy\s+(notion|docs?|pages?|databases?)\b/.test(value)) {
+  if (ownedNotionResource) {
     return "notion_owned_resource";
   }
   return null;

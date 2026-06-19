@@ -100,6 +100,7 @@ describe("resolveActivatedSkillForChat", () => {
           ready: [],
           missingConnections: ["github"],
           deniedAttestations: [],
+          executionUnavailable: [],
         })),
       },
     });
@@ -109,6 +110,37 @@ describe("resolveActivatedSkillForChat", () => {
       status: 409,
       error: "skill_provider_unavailable",
       message: expect.stringContaining("connect github"),
+    });
+  });
+
+  it("returns 409 when the selected skill provider is linked but not executable", async () => {
+    const result = await resolveActivatedSkillForChat({
+      db: dbWithSkills([skill]),
+      actor,
+      activatedSkills: [
+        {
+          id: skill.id,
+          source: "explicit",
+        },
+      ],
+      deps: {
+        canRunSkill: vi.fn(async () => true),
+        checkProviderAccess: vi.fn(async () => ({
+          ready: [],
+          missingConnections: [],
+          deniedAttestations: [],
+          executionUnavailable: ["notion"],
+        })),
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 409,
+      error: "skill_provider_unavailable",
+      message: expect.stringContaining(
+        "chat execution to be enabled for notion",
+      ),
     });
   });
 
@@ -129,6 +161,7 @@ describe("resolveActivatedSkillForChat", () => {
           ready: ["github"],
           missingConnections: [],
           deniedAttestations: [],
+          executionUnavailable: [],
         })),
       },
     });
@@ -155,6 +188,7 @@ describe("resolveActivatedSkillForChat", () => {
       ready: ["github"],
       missingConnections: [],
       deniedAttestations: [],
+      executionUnavailable: [],
     }));
 
     const result = await resolveActivatedSkillForChat({

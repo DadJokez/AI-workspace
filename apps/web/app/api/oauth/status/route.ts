@@ -3,10 +3,15 @@ import { getDb, oauthTokens } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { getMcpProviderExecutionStatus } from "@/lib/oauth/mcp-servers";
 
 export const dynamic = "force-dynamic";
 
 type Provider = "github" | "notion" | "google";
+type ProviderConnectionStatus =
+  | "not_connected"
+  | "ready"
+  | "connected_execution_not_configured";
 
 /**
  * GET /api/oauth/status — { github, notion, google } booleans for the caller.
@@ -52,5 +57,32 @@ export async function GET() {
     google: connected.has("google"),
   };
 
-  return NextResponse.json(status);
+  return NextResponse.json({
+    ...status,
+    providerDetails: {
+      github: providerDetails("github", connected.has("github")),
+      notion: providerDetails("notion", connected.has("notion")),
+      google: providerDetails("google", connected.has("google")),
+    },
+  });
+}
+
+function providerDetails(provider: Provider, connected: boolean) {
+  const execution =
+    provider === "google"
+      ? { executionConfigured: false, reason: "unsupported_provider" }
+      : getMcpProviderExecutionStatus(provider);
+  const toolAvailable = connected && execution.executionConfigured;
+  const status: ProviderConnectionStatus = !connected
+    ? "not_connected"
+    : toolAvailable
+      ? "ready"
+      : "connected_execution_not_configured";
+  return {
+    connected,
+    executionConfigured: execution.executionConfigured,
+    toolAvailable,
+    status,
+    ...(execution.reason ? { reason: execution.reason } : {}),
+  };
 }
