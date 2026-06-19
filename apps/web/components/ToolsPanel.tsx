@@ -19,6 +19,11 @@ interface Integration {
   authHint?: string;
 }
 
+interface OAuthNotice {
+  provider: string;
+  error?: string;
+}
+
 const INTEGRATIONS: Integration[] = [
   {
     id: "github",
@@ -106,7 +111,7 @@ const INTEGRATIONS: Integration[] = [
     initial: "N",
     bg: "#000000",
     fg: "#ffffff",
-    real: false,
+    real: true,
     authHint: "Notion OAuth",
   },
   {
@@ -123,6 +128,7 @@ const INTEGRATIONS: Integration[] = [
 
 export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
   const [oauthStatus, setOauthStatus] = useState<Record<string, boolean>>({});
+  const [oauthNotice, setOauthNotice] = useState<OAuthNotice | undefined>();
   const [activeIntegration, setActiveIntegration] = useState<
     Integration | undefined
   >();
@@ -142,6 +148,15 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const provider = params.get("connected");
+    if (!provider) return;
+    const error = params.get("error") ?? undefined;
+    setOauthNotice({ provider, error });
   }, []);
 
   useEffect(() => {
@@ -217,9 +232,12 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {INTEGRATIONS.map((it) => {
               const connected = oauthStatus[it.id] === true;
+              const failed =
+                oauthNotice?.provider === it.id && Boolean(oauthNotice.error);
               return (
                 <div
                   key={it.id}
+                  data-testid={`tool-card-${it.id}`}
                   className="flex flex-col gap-3 rounded-lg border border-hairline p-4 transition-colors hover:bg-subtle"
                 >
                   <div className="flex items-start gap-3">
@@ -240,7 +258,11 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
                     </div>
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    {connected ? (
+                    {failed ? (
+                      <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+                        Auth failed
+                      </span>
+                    ) : connected ? (
                       <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-ink">
                         <svg
                           viewBox="0 0 16 16"
@@ -264,15 +286,23 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
                     )}
                     {it.real ? (
                       connected ? (
-                        <span className="text-[11px] text-muted">
-                          Linked to your account
-                        </span>
+                        <div className="flex flex-col items-end gap-1 text-right">
+                          <span className="text-[11px] text-muted">
+                            Linked to your account
+                          </span>
+                          <a
+                            href={`/api/oauth/${it.id}/start`}
+                            className="text-[11px] text-muted underline-offset-2 hover:text-ink hover:underline"
+                          >
+                            Reconnect
+                          </a>
+                        </div>
                       ) : (
                         <a
-                          href="/api/oauth/github/start"
+                          href={`/api/oauth/${it.id}/start`}
                           className="rounded-md border border-hairline bg-canvas px-3 py-1 text-xs font-medium text-ink hover:bg-subtle"
                         >
-                          Connect
+                          {failed ? "Reconnect" : "Connect"}
                         </a>
                       )
                     ) : (

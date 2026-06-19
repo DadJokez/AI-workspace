@@ -385,6 +385,10 @@ function hasToolIntent(value: string): string | null {
   if (hasRecentGithubWorkLookup(value)) {
     return "github_recent_work_lookup";
   }
+  const notion = hasNotionLookupIntent(value);
+  if (notion) {
+    return notion;
+  }
   const webLookup = hasWebLookupIntent(value);
   if (webLookup) {
     return webLookup;
@@ -415,6 +419,12 @@ function hasCapabilityBackedToolIntent(
   value: string,
   capabilitySignals: ResolvedRoutingCapabilitySignals,
 ): string | null {
+  if (
+    hasApprovedProvider(capabilitySignals, "notion") &&
+    hasNotionLookupIntent(value)
+  ) {
+    return "capability_graph_notion_lookup";
+  }
   if (!hasApprovedProvider(capabilitySignals, "github")) return null;
   if (/\bwhat should i tackle( first| next)?\b/.test(value)) {
     return "capability_graph_github_work_lookup";
@@ -454,6 +464,23 @@ function hasWebLookupIntent(value: string): string | null {
 
 function hasGithubName(value: string): boolean {
   return /\b(github|gh|git hub)\b/.test(value);
+}
+
+function hasNotionLookupIntent(value: string): string | null {
+  if (!/\b(notion|workspace docs?|team docs?|pages?|databases?)\b/.test(value)) {
+    return null;
+  }
+  if (
+    /\b(check|inspect|look|peek|find|search|query|list|read|show|see|view|summarize|summary|recap|open)\b/.test(
+      value,
+    )
+  ) {
+    return "notion_provider_lookup";
+  }
+  if (/\bmy\s+(notion|docs?|pages?|databases?)\b/.test(value)) {
+    return "notion_owned_resource";
+  }
+  return null;
 }
 
 function hasGithubCapabilityProbe(value: string): boolean {

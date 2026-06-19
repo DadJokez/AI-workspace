@@ -253,10 +253,12 @@ export async function checkSkillProviderAccess(
   }
 
   const rows = await db
-    .select({ provider: oauthTokens.provider })
+    .select({ provider: oauthTokens.provider, expiresAt: oauthTokens.expiresAt })
     .from(oauthTokens)
     .where(eq(oauthTokens.userId, userId));
-  const connected = new Set(rows.map((r) => r.provider));
+  const connected = new Set(
+    rows.filter(isActiveOAuthToken).map((r) => r.provider),
+  );
 
   const missingConnections = declaredProviders.filter(
     (p) => !connected.has(p),
@@ -280,6 +282,17 @@ export async function checkSkillProviderAccess(
   }
 
   return { ready, missingConnections, deniedAttestations };
+}
+
+function isActiveOAuthToken(row: {
+  expiresAt?: Date | string | null;
+}): boolean {
+  if (!row.expiresAt) return true;
+  const expiresAt =
+    row.expiresAt instanceof Date
+      ? row.expiresAt.getTime()
+      : Date.parse(row.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
 }
 
 export interface CreateSkillRunResult {

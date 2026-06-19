@@ -31,11 +31,21 @@ export async function GET() {
   const db = getDb();
 
   const rows = await db
-    .select({ provider: oauthTokens.provider })
+    .select({ provider: oauthTokens.provider, expiresAt: oauthTokens.expiresAt })
     .from(oauthTokens)
     .where(eq(oauthTokens.userId, sessionUser.id));
 
-  const connected = new Set(rows.map((r) => r.provider));
+  const now = Date.now();
+  const connected = new Set(
+    rows
+      .filter(
+        (r) =>
+          !r.expiresAt ||
+          (r.expiresAt instanceof Date ? r.expiresAt.getTime() : Date.parse(r.expiresAt)) >
+            now,
+      )
+      .map((r) => r.provider),
+  );
   const status: Record<Provider, boolean> = {
     github: connected.has("github"),
     notion: connected.has("notion"),
