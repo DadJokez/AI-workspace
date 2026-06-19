@@ -59,8 +59,26 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
         spec !== null &&
         typeof (spec as { url?: unknown }).url === "string"
       ) {
-        const s = spec as { url: string; headers?: Record<string, string> };
-        mcpServers[name] = { url: s.url, headers: s.headers };
+        const s = spec as {
+          url: string;
+          headers?: Record<string, string>;
+          allowedTools?: unknown;
+          blockedTools?: unknown;
+        };
+        mcpServers[name] = {
+          url: s.url,
+          headers: s.headers,
+          allowedTools: Array.isArray(s.allowedTools)
+            ? s.allowedTools.filter(
+                (tool): tool is string => typeof tool === "string",
+              )
+            : undefined,
+          blockedTools: Array.isArray(s.blockedTools)
+            ? s.blockedTools.filter(
+                (tool): tool is string => typeof tool === "string",
+              )
+            : undefined,
+        };
       }
     }
   }

@@ -21,6 +21,8 @@ export type McpServerSpec =
       type: "http" | "sse";
       url: string;
       headers?: Record<string, string>;
+      allowedTools?: string[];
+      blockedTools?: string[];
     };
 
 export interface RuntimeRunMetadata {

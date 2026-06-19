@@ -18,6 +18,7 @@ import { appendRunEventWithNextSequence } from "@/lib/run-events";
 import {
   filterAttestedProviders,
   loadActiveToolAttestations,
+  loadToolCatalogForProviders,
 } from "@/lib/tool-attestations";
 
 /**
@@ -265,8 +266,15 @@ export async function checkSkillProviderAccess(
   let ready: string[] = [];
   let deniedAttestations: string[] = [];
   if (connectedDeclared.length > 0) {
-    const attestations = await loadActiveToolAttestations(db, userId);
-    const gated = filterAttestedProviders(connectedDeclared, attestations);
+    const [attestations, catalog] = await Promise.all([
+      loadActiveToolAttestations(db, userId),
+      loadToolCatalogForProviders(db, connectedDeclared),
+    ]);
+    const gated = filterAttestedProviders(
+      connectedDeclared,
+      attestations,
+      catalog,
+    );
     ready = gated.allowedProviders;
     deniedAttestations = gated.deniedProviders;
   }

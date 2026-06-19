@@ -21,6 +21,13 @@ import type { Tool } from "./types";
 export interface McpHttpServerSpec {
   url: string;
   headers?: Record<string, string>;
+  /**
+   * Provider-native MCP tool names that may be exposed to the model. Omit to
+   * expose every listed tool; pass an empty list to expose none.
+   */
+  allowedTools?: string[];
+  /** Provider-native MCP tool names that must not be exposed. */
+  blockedTools?: string[];
 }
 
 export interface McpToolConnection {
@@ -74,7 +81,13 @@ export async function connectMcpTools(
 
       const listed = await client.listTools();
       let count = 0;
+      const allowedTools = spec.allowedTools
+        ? new Set(spec.allowedTools)
+        : null;
+      const blockedTools = spec.blockedTools ? new Set(spec.blockedTools) : null;
       for (const t of listed.tools) {
+        if (blockedTools?.has(t.name)) continue;
+        if (allowedTools && !allowedTools.has(t.name)) continue;
         const name = mcpToolName(provider, t.name);
         if (seenNames.has(name)) continue;
         seenNames.add(name);

@@ -1,8 +1,12 @@
 import { auditLog, getDb, users } from "@ai-workspace/db";
-import { and, desc, eq, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, lt, type SQL } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import {
+  auditRetentionCutoff,
+  resolveAuditRetentionDays,
+} from "@/lib/audit-retention";
 import { FilterPill, titleize } from "@/app/admin/ui";
 
 export const dynamic = "force-dynamic";
@@ -35,31 +39,40 @@ export default async function AdminAuditPage({ searchParams }: Props) {
   if (provider !== "all") conditions.push(eq(auditLog.provider, provider));
 
   const db = getDb();
-  const rows = await db
-    .select({
-      id: auditLog.id,
-      actorUserId: auditLog.actorUserId,
-      actorEmail: users.email,
-      actorName: users.displayName,
-      actionType: auditLog.actionType,
-      status: auditLog.status,
-      provider: auditLog.provider,
-      toolName: auditLog.toolName,
-      toolCallId: auditLog.toolCallId,
-      chatThreadId: auditLog.chatThreadId,
-      chatMessageId: auditLog.chatMessageId,
-      runId: auditLog.runId,
-      error: auditLog.error,
-      metadata: auditLog.metadata,
-      startedAt: auditLog.startedAt,
-      completedAt: auditLog.completedAt,
-      createdAt: auditLog.createdAt,
-    })
-    .from(auditLog)
-    .leftJoin(users, eq(auditLog.actorUserId, users.id))
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(auditLog.createdAt))
-    .limit(100);
+  const retentionDays = resolveAuditRetentionDays();
+  const retentionCutoff = auditRetentionCutoff(new Date(), retentionDays);
+  const [rows, retentionRows] = await Promise.all([
+    db
+      .select({
+        id: auditLog.id,
+        actorUserId: auditLog.actorUserId,
+        actorEmail: users.email,
+        actorName: users.displayName,
+        actionType: auditLog.actionType,
+        status: auditLog.status,
+        provider: auditLog.provider,
+        toolName: auditLog.toolName,
+        toolCallId: auditLog.toolCallId,
+        chatThreadId: auditLog.chatThreadId,
+        chatMessageId: auditLog.chatMessageId,
+        runId: auditLog.runId,
+        error: auditLog.error,
+        metadata: auditLog.metadata,
+        startedAt: auditLog.startedAt,
+        completedAt: auditLog.completedAt,
+        createdAt: auditLog.createdAt,
+      })
+      .from(auditLog)
+      .leftJoin(users, eq(auditLog.actorUserId, users.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(auditLog.createdAt))
+      .limit(100),
+    db
+      .select({ value: count(auditLog.id) })
+      .from(auditLog)
+      .where(lt(auditLog.createdAt, retentionCutoff)),
+  ]);
+  const retentionEligible = retentionRows[0]?.value ?? 0;
 
   const failed = rows.filter((row) => row.status === "failed").length;
   const denied = rows.filter((row) => row.status === "denied").length;
@@ -72,6 +85,13 @@ export default async function AdminAuditPage({ searchParams }: Props) {
           Recent tool, workflow, attestation, and rate-limit events from the
           compliance ledger.
         </p>
+      </div>
+
+      <div className="grid gap-3 px-6 pb-4 md:grid-cols-4">
+        <Metric label="Retention" value={`${retentionDays}d`} />
+        <Metric label="Eligible to prune" value={retentionEligible} />
+        <Metric label="Failed shown" value={failed} />
+        <Metric label="Denied shown" value={denied} />
       </div>
 
       <div className="flex flex-wrap items-center gap-2 px-6 pb-4">
@@ -222,6 +242,17 @@ export default async function AdminAuditPage({ searchParams }: Props) {
         </table>
       </div>
     </section>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-md border border-hairline bg-surface px-4 py-3">
+      <div className="text-[11px] uppercase tracking-wider text-muted">
+        {label}
+      </div>
+      <div className="mt-2 text-xl font-semibold text-ink">{value}</div>
+    </div>
   );
 }
 

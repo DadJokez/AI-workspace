@@ -11,7 +11,7 @@ IT-owned infrastructure before broad rollout.
 | Dependency audit | Partial | Next.js, Bedrock SDK, Drizzle, PostCSS, and PrismJS patches/overrides applied. Remaining audit findings are transitive and tracked below. |
 | Health checks | Pilot shipped | `/api/health` checks DB connectivity/latency and runtime configuration. |
 | Rate limits and quotas | Pilot shipped | `/api/chat`, skill runs, and Developer Briefing enforce shared Postgres fixed-window request limits plus body/message caps. ECS web scale-out requires the shared limiter migration and a multi-task 429 smoke. |
-| Logging/redaction/retention | Partial | Shared tool payload redaction is applied before chat/tool/run/audit persistence; retention automation is still pending. |
+| Logging/redaction/retention | Pilot shipped | Shared tool payload redaction is applied before chat/tool/run/audit persistence; audit retention has a configurable cleanup script and admin visibility. |
 | KMS/Secrets/IaC | Plan defined | Current App Runner env vars are acceptable for POC only. ECS/Fargate target requires Secrets Manager/KMS and IaC. |
 | Load-test model | Model defined | Synthetic scenarios and thresholds are ready for a follow-up test harness. |
 
@@ -108,16 +108,20 @@ Retention targets:
 | Data | Pilot retention | Enterprise target |
 |---|---|---|
 | Chat messages | Until user/admin delete | 1 year default, configurable by policy |
-| Audit log | Indefinite in pilot | 7 years or IT/compliance requirement |
+| Audit log | 1 year default dry-run window; destructive cleanup requires explicit `AUDIT_LOG_RETENTION_DAYS` | 7 years or IT/compliance requirement |
 | Recipe runs | Until manual cleanup | 1 year outputs, 7 years metadata/audit |
 | Runtime debug logs | CloudWatch default | 30-90 days |
 | OAuth tokens | Until disconnect/revocation | Until disconnect/revocation; rotate where provider supports it |
 | Future S3/Athena Agent Wire | Not live | Lifecycle policy by data classification |
 
 Current code applies a shared tool payload redaction helper before persisting
-tool inputs/results to chat messages, recipe runs, and `audit_log`. Follow-up
-code work: apply the same policy to `process.stderr` runtime logs before
-onboarding more tool providers.
+tool inputs/results to chat messages, recipe runs, and `audit_log`. Audit
+retention can be dry-run with `pnpm audit:retention` and executed with
+`AUDIT_LOG_RETENTION_DRY_RUN=0 AUDIT_LOG_RETENTION_DAYS=<approved-days> pnpm audit:retention`;
+the script refuses destructive cleanup without an explicit retention window.
+Production should run that script on an approved schedule. Follow-up code work:
+apply the same policy to `process.stderr` runtime logs before onboarding more
+tool providers.
 
 ## Secrets, KMS, And IaC
 

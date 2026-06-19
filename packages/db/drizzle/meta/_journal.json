@@ -197,6 +197,13 @@
       "when": 1781715600000,
       "tag": "0027_app_lifecycle_versions",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1781884800000,
+      "tag": "0028_github_tools_catalog_seed",
+      "breakpoints": true
     }
   ]
 }

@@ -21,6 +21,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "audit:prod": "pnpm audit --prod",
+    "audit:retention": "pnpm --filter @ai-workspace/web audit:retention",
     "start": "pnpm --filter @ai-workspace/web start",
     "eval": "pnpm --filter @ai-workspace/evals eval",
     "transcripts:replay": "pnpm --filter @ai-workspace/evals transcripts:replay",

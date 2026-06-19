@@ -108,7 +108,7 @@ AWS-only simplification.
 | Journey | Runtime supports | AI Hub must own | Current stance |
 |---|---|---|---|
 | **J1 Chat** | Bedrock streaming, model selection, direct text turns, cancellation at the product layer. | Auth, thread ownership, Postgres messages, bounded context, user settings, model labels, UI state, and runtime selection. | Supported. AI Hub supplies bounded prior context and keeps product memory in Postgres. |
-| **J2 Chat with Tools** | Bedrock tool loop with MCP servers mounted per turn, streamed activity events, model dispatch. | Per-user OAuth token vault, provider-level mount gating, audit rows, tool/result persistence, lower-level tool/category policy, user-facing connection flows, and redaction. | Supported with constraints. Provider-level gates control whether a provider is mounted; category/tool filtering belongs in the MCP proxy path. |
+| **J2 Chat with Tools** | Bedrock tool loop with MCP servers mounted per turn, streamed activity events, model dispatch. | Per-user OAuth token vault, provider/category/tool mount gating, audit rows, tool/result persistence, user-facing connection flows, and redaction. | Supported with constraints. Provider-admin approvals can expose broad provider tools; category/tool approvals only expose enabled catalog matches. |
 | **J3 Scheduled Agents** | AgentCore worker execution through the same runtime seam. | Schedule definitions, worker/cron trigger, `runs`, idempotency, retries, timeouts, quotas, delivery destinations, reconnect UI, and failure handling. | Supported for time-based schedules; event/webhook triggers remain backlog. |
 
 Do not assume the runtime owns enterprise scheduling, quota enforcement, data
@@ -135,7 +135,8 @@ This layer is **independent of the identity provider** in Layer 1. It uses the s
 
 - For **delegated** systems (GitHub today; M365 / Salesforce / Workfront in future): the shell holds the user's OAuth tokens in `oauth_tokens` (AES-256-GCM encrypted with `OAUTH_ENCRYPTION_KEY`). At turn start it mints a short-lived access token and injects it into the MCP server's request as `Authorization: Bearer <token>`. **HTTP transport** is used so the header is per-request.
 - For **service-principal / M2M** systems (Databricks, S3, Redshift): stdio transport with credentials in `mcpServers[].env` at process start.
-- The tool gate checks `user_tool_attestations` before MCP providers are mounted for a turn.
+- The tool gate checks `user_tool_attestations` and the tool catalog before
+  MCP providers/tools are mounted for a turn.
 - The chat route writes one `audit_log` row per MCP tool execution after each assistant message is persisted. Future hooks/admin routes can reuse the same ledger shape.
 
 **Current OAuth apps in use (POC):**
@@ -302,13 +303,13 @@ data first, then wired into OAuth/runtime behavior as they graduate.
 `user_tool_attestations` records each user's explicit approval for a provider,
 category, or individual tool. Rows preserve who approved the scope, when it was
 approved, the maximum action level covered (`read`, `write`, or `admin`), and
-optional tool-catalog linkage. Revocation is modeled by stamping `revoked_at`
-and `revoked_by` instead of deleting the approval history. The future
-tool gate queries active rows (`revoked_at IS NULL`) by user and provider
-before mounting MCP servers for the turn. Denied providers are written to the
-audit log with `status='denied'`. Category/tool-scoped rows are preserved for
-the future lower-level MCP proxy, where individual tool calls can be filtered
-without exposing an entire provider.
+optional tool-catalog linkage. The tool gate queries active rows
+(`revoked_at IS NULL`) by user and provider before registering MCP tools for
+the turn. Denied providers are written to the audit log with `status='denied'`.
+Provider-admin approvals remain broad so existing OAuth connections keep
+working even when a provider adds uncataloged tools. Category and tool-scoped
+approvals only expose enabled rows from `tools_catalog`, and disabled catalog
+rows are never registered with the model.
 
 ## Prompt guardrails
 

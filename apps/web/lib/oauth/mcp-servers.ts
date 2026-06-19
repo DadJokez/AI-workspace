@@ -7,6 +7,7 @@ import { decryptSecret } from "./crypto";
 import {
   filterAttestedProviders,
   loadActiveToolAttestations,
+  loadToolCatalogForProviders,
 } from "@/lib/tool-attestations";
 
 const MCP_ENDPOINTS: Record<string, { url: string }> = {
@@ -21,6 +22,10 @@ export interface UserMcpProviderStatus {
   connectedProviders: string[];
   allowedProviders: string[];
   deniedProviders: string[];
+  toolPolicies?: Record<
+    string,
+    { allowedTools?: string[]; blockedTools?: string[] }
+  >;
 }
 
 export async function loadUserMcpProviderStatus(
@@ -40,20 +45,19 @@ export async function loadUserMcpProviderStatus(
       connectedProviders: [],
       allowedProviders: [],
       deniedProviders: [],
+      toolPolicies: {},
     };
   }
 
   const connectedProviders = uniqueSupportedProviders(rows, options);
-  const { allowedProviders, deniedProviders } = await resolveAttestedProviders(
-    db,
-    userId,
-    connectedProviders,
-  );
+  const { allowedProviders, deniedProviders, toolPolicies } =
+    await resolveAttestedProviders(db, userId, connectedProviders);
 
   return {
     connectedProviders,
     allowedProviders,
     deniedProviders,
+    toolPolicies,
   };
 }
 
@@ -112,7 +116,8 @@ export async function buildUserMcpServers(
   for (const row of rows) {
     const endpoint = MCP_ENDPOINTS[row.provider];
     if (!endpoint) continue;
-    if (!allowed.has(row.provider)) continue;
+    const toolPolicy = status.toolPolicies?.[row.provider];
+    if (!allowed.has(row.provider) || !toolPolicy) continue;
     let token: string;
     try {
       token = decryptSecret(row.accessToken);
@@ -124,6 +129,7 @@ export async function buildUserMcpServers(
       type: "http",
       url: endpoint.url,
       headers: { Authorization: `Bearer ${token}` },
+      ...toolPolicy,
     };
   }
   return {
@@ -153,15 +159,29 @@ async function resolveAttestedProviders(
   db: Database,
   userId: string,
   requestedProviders: string[],
-): Promise<{ allowedProviders: string[]; deniedProviders: string[] }> {
+): Promise<{
+  allowedProviders: string[];
+  deniedProviders: string[];
+  toolPolicies: Record<
+    string,
+    { allowedTools?: string[]; blockedTools?: string[] }
+  >;
+}> {
   if (requestedProviders.length === 0) {
-    return { allowedProviders: [], deniedProviders: [] };
+    return { allowedProviders: [], deniedProviders: [], toolPolicies: {} };
   }
   try {
-    const attestations = await loadActiveToolAttestations(db, userId);
-    return filterAttestedProviders(requestedProviders, attestations);
+    const [attestations, catalog] = await Promise.all([
+      loadActiveToolAttestations(db, userId),
+      loadToolCatalogForProviders(db, requestedProviders),
+    ]);
+    return filterAttestedProviders(requestedProviders, attestations, catalog);
   } catch (err) {
     console.warn("[mcp] attestation lookup failed; denying MCP providers:", err);
-    return { allowedProviders: [], deniedProviders: requestedProviders };
+    return {
+      allowedProviders: [],
+      deniedProviders: requestedProviders,
+      toolPolicies: {},
+    };
   }
 }

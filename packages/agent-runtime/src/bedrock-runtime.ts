@@ -105,7 +105,12 @@ export function pickHttpMcpServers(
   if (!servers) return out;
   for (const [name, spec] of Object.entries(servers)) {
     if ((spec.type === "http" || spec.type === "sse") && "url" in spec) {
-      out[name] = { url: spec.url, headers: spec.headers };
+      out[name] = {
+        url: spec.url,
+        headers: spec.headers,
+        allowedTools: spec.allowedTools,
+        blockedTools: spec.blockedTools,
+      };
     }
   }
   return out;
