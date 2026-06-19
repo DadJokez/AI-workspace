@@ -161,7 +161,13 @@ function isToolAllowed(
   attestations: readonly ProviderAttestation[],
 ): boolean {
   if (!tool.enabled) return false;
-  if (!tool.requiresAttestation) return true;
+  if (!tool.requiresAttestation) {
+    // Non-attested catalog tools skip per-tool approval, but they still require
+    // an active provider-level attestation before the provider is mounted.
+    return attestations.some(
+      (row) => row.provider === tool.provider && row.scopeType === "provider",
+    );
+  }
 
   return attestations.some((row) => {
     if (row.provider !== tool.provider) return false;

@@ -159,4 +159,37 @@ describe("BedrockRuntime with MCP servers", () => {
       },
     });
   });
+
+  it("keeps blocked MCP tools hidden even when they are also allowed", async () => {
+    server = await startTestMcpServer();
+    const client = new ScriptedBedrockClient();
+    const runtime = new BedrockRuntime({ client });
+
+    const events: AgentEvent[] = [];
+    for await (const ev of runtime.runTurn({
+      threadId: "thread-4",
+      modelId: "sonnet-4-6",
+      messages: [{ role: "user", content: "run the echo tool" }],
+      context: { userId: "u1" },
+      mcpServers: {
+        github: {
+          type: "http",
+          url: server.url,
+          allowedTools: ["echo"],
+          blockedTools: ["echo"],
+        },
+      },
+    })) {
+      events.push(ev);
+    }
+
+    expect(events).toContainEqual({
+      type: "tool-result",
+      result: {
+        toolCallId: "call-1",
+        output: "Tool not registered: github__echo",
+        isError: true,
+      },
+    });
+  });
 });

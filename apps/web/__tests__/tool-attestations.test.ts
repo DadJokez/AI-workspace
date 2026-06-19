@@ -141,11 +141,43 @@ describe("filterAttestedProviders", () => {
     });
   });
 
-  it("allows non-attested catalog tools without user attestation", () => {
+  it("denies non-attested catalog tools until the provider is attested", () => {
     expect(
       filterAttestedProviders(
         ["github"],
         [],
+        [
+          {
+            id: "tool_public_context",
+            provider: "github",
+            toolName: "get_me",
+            category: "context",
+            action: "read",
+            requiresAttestation: false,
+            enabled: true,
+          },
+        ],
+      ),
+    ).toEqual({
+      allowedProviders: [],
+      deniedProviders: ["github"],
+      toolPolicies: {},
+    });
+  });
+
+  it("allows non-attested catalog tools after provider attestation", () => {
+    expect(
+      filterAttestedProviders(
+        ["github"],
+        [
+          {
+            provider: "github",
+            scopeType: "provider",
+            category: null,
+            toolName: null,
+            action: "read",
+          },
+        ],
         [
           {
             id: "tool_public_context",
