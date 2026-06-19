@@ -81,6 +81,34 @@ describe("chat context pack", () => {
     expect(pack.prompt.systemPrompt).toContain("No connected account tool is mounted");
   });
 
+  it("records linked providers whose execution is not configured", () => {
+    const pack = buildChatContextPack({
+      ...baseInput(),
+      providerStatus: providerStatus({
+        connectedProviders: ["notion"],
+        executionUnavailableProviders: ["notion"],
+      }),
+      mountedProviders: [],
+    });
+
+    expect(pack.receipts[0]?.tools).toMatchObject({
+      connected: ["notion"],
+      approved: [],
+      mounted: [],
+      executionUnavailable: ["notion"],
+    });
+    expect(pack.tools.executionUnavailable[0]).toMatchObject({
+      provider: "notion",
+      connected: true,
+      approved: false,
+      mounted: false,
+      executionUnavailable: true,
+    });
+    expect(pack.prompt.systemPrompt).toContain(
+      "Connected account tools linked but not enabled for chat execution",
+    );
+  });
+
   it("keeps account tools visible when an activated no-tool skill mounts none", () => {
     const pack = buildChatContextPack({
       ...baseInput(),

@@ -10,26 +10,83 @@ import {
   loadToolCatalogForProviders,
 } from "@/lib/tool-attestations";
 
-const MCP_ENDPOINTS: Record<string, { url: string } | undefined> = {
-  github: { url: "https://api.githubcopilot.com/mcp/" },
+interface McpProviderConfig {
+  endpoint?: { url: string };
+  unavailableReason?: string;
+}
+
+const MCP_PROVIDER_CONFIG: Record<string, McpProviderConfig> = {
+  github: { endpoint: { url: "https://api.githubcopilot.com/mcp/" } },
   // A compatible Notion MCP gateway can be supplied once the deployment owns
   // the endpoint. Notion's hosted MCP performs its own OAuth handshake, so we
   // do not point at it directly while Comparative stores delegated tokens.
-  notion: process.env.NOTION_MCP_ENDPOINT_URL
-    ? { url: process.env.NOTION_MCP_ENDPOINT_URL }
-    : undefined,
+  notion: notionMcpConfig(process.env.NOTION_MCP_ENDPOINT_URL),
 };
 
-/** Provider slugs AI Hub can mount today; skills validate against this. */
-export const SUPPORTED_MCP_PROVIDERS = Object.keys(MCP_ENDPOINTS);
+/**
+ * Provider slugs Comparative knows how to connect/configure. A provider may be
+ * connectable before it is executable in the current deployment.
+ */
+export const SUPPORTED_MCP_PROVIDERS = Object.keys(MCP_PROVIDER_CONFIG);
+
+/** Provider slugs whose MCP endpoint is actually configured for this process. */
+export const MOUNTABLE_MCP_PROVIDERS = SUPPORTED_MCP_PROVIDERS.filter((provider) =>
+  isMcpProviderExecutionConfigured(provider),
+);
+
+export interface McpProviderExecutionStatus {
+  executionConfigured: boolean;
+  reason?: string;
+}
+
+export function getMcpProviderExecutionStatus(
+  provider: string,
+): McpProviderExecutionStatus {
+  const config = MCP_PROVIDER_CONFIG[provider];
+  if (!config) {
+    return { executionConfigured: false, reason: "unsupported_provider" };
+  }
+  if (!config.endpoint) {
+    return {
+      executionConfigured: false,
+      reason: config.unavailableReason ?? "execution_not_configured",
+    };
+  }
+  return { executionConfigured: true };
+}
+
+export function isMcpProviderExecutionConfigured(provider: string): boolean {
+  return Boolean(MCP_PROVIDER_CONFIG[provider]?.endpoint);
+}
 
 export interface UserMcpProviderStatus {
+  /** Active delegated OAuth/token connections, regardless of runtime mounting. */
   connectedProviders: string[];
+  /** Connected + attested + executable in the current deployment. */
   allowedProviders: string[];
+  /** Connected but blocked by user/tool attestation. */
   deniedProviders: string[];
+  /** Connected + attested, but this deployment cannot mount the provider yet. */
+  executionUnavailableProviders?: string[];
   toolPolicies?: Record<
     string,
     { allowedTools?: string[]; blockedTools?: string[] }
+  >;
+  providerAvailability?: Record<
+    string,
+    {
+      connected: boolean;
+      tokenValid: boolean;
+      userApproved: boolean;
+      executionConfigured: boolean;
+      toolMountable: boolean;
+      modelAvailable: boolean;
+      status:
+        | "ready"
+        | "pending_approval"
+        | "execution_not_configured"
+        | "unsupported_provider";
+    }
   >;
 }
 
@@ -53,19 +110,44 @@ export async function loadUserMcpProviderStatus(
       connectedProviders: [],
       allowedProviders: [],
       deniedProviders: [],
+      executionUnavailableProviders: [],
       toolPolicies: {},
+      providerAvailability: {},
     };
   }
 
   const connectedProviders = uniqueSupportedProviders(rows, options);
-  const { allowedProviders, deniedProviders, toolPolicies } =
+  const {
+    allowedProviders: attestedProviders,
+    deniedProviders,
+    toolPolicies: attestedToolPolicies,
+  } =
     await resolveAttestedProviders(db, userId, connectedProviders);
+  const allowedProviders = attestedProviders.filter((provider) =>
+    isMcpProviderExecutionConfigured(provider),
+  );
+  const executionUnavailableProviders = attestedProviders.filter(
+    (provider) => !isMcpProviderExecutionConfigured(provider),
+  );
+  const toolPolicies = Object.fromEntries(
+    Object.entries(attestedToolPolicies).filter(([provider]) =>
+      allowedProviders.includes(provider),
+    ),
+  );
 
   return {
     connectedProviders,
     allowedProviders,
     deniedProviders,
+    executionUnavailableProviders,
     toolPolicies,
+    providerAvailability: buildProviderAvailability({
+      connectedProviders,
+      attestedProviders,
+      allowedProviders,
+      deniedProviders,
+      executionUnavailableProviders,
+    }),
   };
 }
 
@@ -125,7 +207,7 @@ export async function buildUserMcpServers(
 
   const out: Record<string, McpServerSpec> = {};
   for (const row of rows) {
-    const endpoint = MCP_ENDPOINTS[row.provider];
+    const endpoint = MCP_PROVIDER_CONFIG[row.provider]?.endpoint;
     if (!endpoint) continue;
     const toolPolicy = status.toolPolicies?.[row.provider];
     if (!allowed.has(row.provider) || !toolPolicy) continue;
@@ -147,6 +229,78 @@ export async function buildUserMcpServers(
     mcpServers: Object.keys(out).length > 0 ? out : undefined,
     deniedProviders,
   };
+}
+
+function buildProviderAvailability({
+  connectedProviders,
+  attestedProviders,
+  allowedProviders,
+  deniedProviders,
+  executionUnavailableProviders,
+}: {
+  connectedProviders: readonly string[];
+  attestedProviders: readonly string[];
+  allowedProviders: readonly string[];
+  deniedProviders: readonly string[];
+  executionUnavailableProviders: readonly string[];
+}): UserMcpProviderStatus["providerAvailability"] {
+  const attested = new Set(attestedProviders);
+  const allowed = new Set(allowedProviders);
+  const denied = new Set(deniedProviders);
+  const unavailable = new Set(executionUnavailableProviders);
+  return Object.fromEntries(
+    connectedProviders.map((provider) => {
+      const execution = getMcpProviderExecutionStatus(provider);
+      const modelAvailable = allowed.has(provider);
+      const status = modelAvailable
+        ? "ready"
+        : denied.has(provider)
+          ? "pending_approval"
+          : unavailable.has(provider)
+            ? "execution_not_configured"
+            : execution.reason === "unsupported_provider"
+              ? "unsupported_provider"
+              : "pending_approval";
+      return [
+        provider,
+        {
+          connected: true,
+          tokenValid: true,
+          userApproved: attested.has(provider),
+          executionConfigured: execution.executionConfigured,
+          toolMountable: modelAvailable,
+          modelAvailable,
+          status,
+        },
+      ];
+    }),
+  );
+}
+
+function notionMcpConfig(rawUrl: string | undefined): McpProviderConfig {
+  const endpoint = parseMcpEndpoint(rawUrl);
+  if (!endpoint) return { unavailableReason: "execution_not_configured" };
+  try {
+    const url = new URL(endpoint.url);
+    if (url.hostname === "mcp.notion.com") {
+      return { unavailableReason: "hosted_notion_mcp_uses_separate_oauth" };
+    }
+  } catch {
+    return { unavailableReason: "invalid_endpoint_url" };
+  }
+  return { endpoint };
+}
+
+function parseMcpEndpoint(rawUrl: string | undefined): { url: string } | undefined {
+  const value = rawUrl?.trim();
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
+    return { url: url.toString() };
+  } catch {
+    return undefined;
+  }
 }
 
 function uniqueSupportedProviders(

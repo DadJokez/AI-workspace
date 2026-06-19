@@ -34,6 +34,7 @@ export interface CapabilityEntry {
   readyProviders: string[];
   missingProviders: string[];
   pendingApprovalProviders: string[];
+  executionUnavailableProviders?: string[];
   mountedNow?: boolean;
   status: string;
   why: string;
@@ -156,6 +157,7 @@ export function buildCapabilityGraph({
   const connected = unique(providerStatus.connectedProviders);
   const approved = unique(providerStatus.allowedProviders);
   const pending = unique(providerStatus.deniedProviders);
+  const unavailable = unique(providerStatus.executionUnavailableProviders ?? []);
   const mounted = new Set(mountedProviders);
 
   return {
@@ -163,7 +165,9 @@ export function buildCapabilityGraph({
     generatedAt: now.toISOString(),
     providers: connected.map((provider) => {
       const isApproved = approved.includes(provider);
-      const needsApproval = pending.includes(provider) || !isApproved;
+      const executionUnavailable = unavailable.includes(provider);
+      const needsApproval =
+        pending.includes(provider) || (!isApproved && !executionUnavailable);
       return {
         id: `provider:${provider}`,
         kind: "provider",
@@ -175,16 +179,23 @@ export function buildCapabilityGraph({
         readyProviders: isApproved ? [provider] : [],
         missingProviders: [],
         pendingApprovalProviders: needsApproval ? [provider] : [],
+        executionUnavailableProviders: executionUnavailable ? [provider] : [],
         mountedNow: mounted.has(provider),
-        status: isApproved ? "approved" : "pending_approval",
+        status: isApproved
+          ? "approved"
+          : executionUnavailable
+            ? "setup_required"
+            : "pending_approval",
         why: isApproved
           ? `${label(provider)} is connected and approved for this user.`
+          : executionUnavailable
+            ? `${label(provider)} is connected, but chat execution is not configured for this deployment.`
           : `${label(provider)} is connected but pending approval for this user.`,
         metadata: { provider },
       } satisfies CapabilityEntry;
     }),
     skills: skills.map((skill) =>
-      buildSkillCapability(skill, userId, connected, approved, pending),
+      buildSkillCapability(skill, userId, connected, approved, pending, unavailable),
     ),
     apps: apps.map((app) => buildAppCapability(app, userId)),
     schedules: schedules.map(buildScheduleCapability),
@@ -271,6 +282,7 @@ function buildSkillCapability(
   connectedProviders: readonly string[],
   approvedProviders: readonly string[],
   pendingProviders: readonly string[],
+  unavailableProviders: readonly string[],
 ): CapabilityEntry {
   const required = unique(skill.mcpProviders);
   const readyProviders = required.filter((provider) =>
@@ -282,7 +294,13 @@ function buildSkillCapability(
   const pendingApprovalProviders = required.filter(
     (provider) =>
       connectedProviders.includes(provider) &&
+      !unavailableProviders.includes(provider) &&
       (pendingProviders.includes(provider) || !approvedProviders.includes(provider)),
+  );
+  const executionUnavailableProviders = required.filter(
+    (provider) =>
+      connectedProviders.includes(provider) &&
+      unavailableProviders.includes(provider),
   );
   const source = skill.sharedWithMe
     ? "shared"
@@ -290,7 +308,9 @@ function buildSkillCapability(
       ? "owned"
       : "starter";
   const runnableNow =
-    missingProviders.length === 0 && pendingApprovalProviders.length === 0;
+    missingProviders.length === 0 &&
+    pendingApprovalProviders.length === 0 &&
+    executionUnavailableProviders.length === 0;
   return {
     id: `skill:${skill.id}`,
     kind: "skill",
@@ -302,8 +322,19 @@ function buildSkillCapability(
     readyProviders,
     missingProviders,
     pendingApprovalProviders,
-    status: runnableNow ? "ready" : "needs_provider",
-    why: skillWhy(skill, source, missingProviders, pendingApprovalProviders),
+    executionUnavailableProviders,
+    status: runnableNow
+      ? "ready"
+      : executionUnavailableProviders.length > 0
+        ? "provider_setup_required"
+        : "needs_provider",
+    why: skillWhy(
+      skill,
+      source,
+      missingProviders,
+      pendingApprovalProviders,
+      executionUnavailableProviders,
+    ),
     metadata: {
       skillId: skill.id,
       slug: skill.slug,
@@ -404,6 +435,7 @@ function skillWhy(
   source: CapabilitySource,
   missingProviders: readonly string[],
   pendingApprovalProviders: readonly string[],
+  executionUnavailableProviders: readonly string[],
 ): string {
   if (missingProviders.length > 0) {
     return `${skill.name} is ${source}, but needs ${formatList(
@@ -414,6 +446,11 @@ function skillWhy(
     return `${skill.name} is ${source}, but ${formatList(
       pendingApprovalProviders,
     )} is pending approval.`;
+  }
+  if (executionUnavailableProviders.length > 0) {
+    return `${skill.name} is ${source}, but ${formatList(
+      executionUnavailableProviders,
+    )} execution is not configured for this deployment.`;
   }
   return `${skill.name} is ${source} and can run now.`;
 }

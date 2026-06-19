@@ -87,7 +87,8 @@ export async function POST(
   );
   if (
     access.missingConnections.length > 0 ||
-    access.deniedAttestations.length > 0
+    access.deniedAttestations.length > 0 ||
+    access.executionUnavailable.length > 0
   ) {
     const parts: string[] = [];
     if (access.missingConnections.length > 0) {
@@ -100,12 +101,18 @@ export async function POST(
         `approve tool access for ${access.deniedAttestations.join(", ")}`,
       );
     }
+    if (access.executionUnavailable.length > 0) {
+      parts.push(
+        `wait for chat execution to be enabled for ${access.executionUnavailable.join(", ")}`,
+      );
+    }
     return NextResponse.json(
       {
         error: "provider_access_required",
         message: `This skill needs tools you haven't enabled yet — ${parts.join(" and ")}.`,
         missingConnections: access.missingConnections,
         deniedAttestations: access.deniedAttestations,
+        executionUnavailable: access.executionUnavailable,
       },
       { status: 409 },
     );

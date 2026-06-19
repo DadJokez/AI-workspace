@@ -68,6 +68,23 @@ describe("tool-use honesty grounding", () => {
     expect(preamble).not.toContain("No external tools are connected yet");
   });
 
+  it("does not present linked-but-unavailable tools as callable", () => {
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: [],
+      availableProviders: [],
+      unavailableProviders: ["notion"],
+    });
+
+    expect(preamble).toContain(
+      "Connected account tools linked but not enabled for chat execution",
+    );
+    expect(preamble).toContain("Notion: pages, databases, team docs");
+    expect(preamble).toContain("Do not claim you can use them");
+    expect(preamble).not.toContain("Connected tools available");
+    expect(preamble).not.toContain("No external tools are connected yet");
+  });
+
   it("describes mounted built-in URL fetch without claiming account tools are connected", () => {
     const preamble = buildAgentPreamble({
       user: { displayName: "Rob", customInstructions: null },

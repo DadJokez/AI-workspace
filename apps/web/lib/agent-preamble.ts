@@ -23,6 +23,8 @@ interface PreambleInput {
   accountConnectedProviders?: readonly string[];
   /** Connected provider keys withheld because this user has not approved them. */
   blockedProviders?: readonly string[];
+  /** Connected provider keys that cannot be mounted in this deployment. */
+  unavailableProviders?: readonly string[];
   /** Built-in non-account tools mounted for this turn, such as public URL fetch. */
   builtinTools?: readonly string[];
   /** The model running this turn, so the assistant can self-identify correctly. */
@@ -55,6 +57,7 @@ export function buildAgentPreamble({
   accountConnectedProviders,
   availableProviders,
   blockedProviders = [],
+  unavailableProviders = [],
   builtinTools = [],
   modelId,
   artifactContext,
@@ -119,6 +122,28 @@ export function buildAgentPreamble({
         "No connected account tool is mounted in this lightweight turn. That only means this turn was routed for fast chat; it does NOT mean the account tool is disconnected. Do not say no tools are connected. If the user's request needs live data from a connected account tool, do not guess, do not invent a result, and do not ask the user to refresh. Say you need to check it and answer only after a tool-backed turn provides a result.",
       );
     }
+    if (unavailableProviders.length > 0) {
+      lines.push("");
+      lines.push(
+        "Connected account tools linked but not enabled for chat execution in this deployment:",
+      );
+      for (const p of unavailableProviders) {
+        lines.push(`- ${PROVIDER_DESCRIPTIONS[p] ?? p}`);
+      }
+      lines.push(
+        "Do not claim you can read, search, write, or summarize these linked tools yet. If the user asks for one, say the account is connected but chat execution is not enabled for it yet.",
+      );
+    }
+  } else if (unavailableProviders.length > 0) {
+    lines.push(
+      "Connected account tools linked but not enabled for chat execution in this deployment:",
+    );
+    for (const p of unavailableProviders) {
+      lines.push(`- ${PROVIDER_DESCRIPTIONS[p] ?? p}`);
+    }
+    lines.push(
+      "These account connections exist, but no callable tools are mounted or available for them yet. Do not claim you can use them. If asked, say the account is connected but chat execution is not enabled yet.",
+    );
   } else if (blockedProviders.length > 0) {
     lines.push(
       "Connected account tools exist, but none are currently approved for use in this turn.",
@@ -174,7 +199,7 @@ export function buildAgentPreamble({
 
   lines.push("");
   lines.push(
-    "Always prefer using connected tools over suggesting CLI commands, environment variables, or manual workarounds. The connected tools support both reads AND writes (creating issues, opening pull requests, creating repositories, etc.) — call them directly when the user asks for those operations.",
+    "Always prefer using mounted or model-available connected tools over suggesting CLI commands, environment variables, or manual workarounds. The callable connected tools support both reads AND writes (creating issues, opening pull requests, creating repositories, etc.) — call them directly when the user asks for those operations.",
   );
   lines.push("");
   lines.push(

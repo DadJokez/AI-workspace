@@ -51,10 +51,30 @@ describe("GET /api/oauth/status", () => {
     const { GET } = await import("@/app/api/oauth/status/route");
 
     const res = await GET();
-    await expect(res.json()).resolves.toEqual({
+    await expect(res.json()).resolves.toMatchObject({
       github: true,
       notion: true,
       google: false,
+      providerDetails: {
+        github: {
+          connected: true,
+          executionConfigured: true,
+          toolAvailable: true,
+          status: "ready",
+        },
+        notion: {
+          connected: true,
+          executionConfigured: false,
+          toolAvailable: false,
+          status: "connected_execution_not_configured",
+        },
+        google: {
+          connected: false,
+          executionConfigured: false,
+          toolAvailable: false,
+          status: "not_connected",
+        },
+      },
     });
   });
 });

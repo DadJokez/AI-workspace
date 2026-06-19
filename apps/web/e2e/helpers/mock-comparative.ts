@@ -9,7 +9,7 @@ interface MockChatOptions {
   artifactDetails?: Record<string, unknown>;
   skills?: unknown[];
   user?: Record<string, unknown>;
-  oauthStatus?: Record<string, boolean>;
+  oauthStatus?: Record<string, unknown>;
   vault?: {
     approvedMarkdown?: string;
     approvedItems?: MockMemoryItem[];

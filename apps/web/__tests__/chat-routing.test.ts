@@ -145,19 +145,54 @@ describe("decideChatRuntimeRoute", () => {
     });
   });
 
-  it("routes Notion document lookups to local tool streaming", () => {
+  it("keeps Notion document lookups on fast chat until Notion is executable", () => {
     expect(
       decideChatRuntimeRoute({
         message: "search my Notion docs for the launch notes",
         runtimeV2: true,
       }),
     ).toMatchObject({
-      lane: "tool-local",
+      lane: "fast-local",
       executionMode: "local",
-      runtimeTarget: "bedrock-agent",
+      runtimeTarget: "direct-chat",
       useWorker: false,
+      useMcp: false,
+      reasons: ["default_fast_local"],
+    });
+  });
+
+  it("routes Notion lookups only when Notion is model-available", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "search my Notion docs for the launch notes",
+        runtimeV2: true,
+        capabilitySignals: {
+          connectedProviders: ["notion"],
+          approvedProviders: ["notion"],
+        },
+      }),
+    ).toMatchObject({
+      lane: "tool-local",
+      runtimeTarget: "bedrock-agent",
       useMcp: true,
-      reasons: ["notion_provider_lookup"],
+      reasons: ["capability_graph_notion_lookup"],
+    });
+  });
+
+  it("does not route generic database/page language to Notion", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "list the databases and show me the pages",
+        runtimeV2: true,
+        capabilitySignals: {
+          connectedProviders: ["notion"],
+          approvedProviders: ["notion"],
+        },
+      }),
+    ).toMatchObject({
+      lane: "fast-local",
+      useMcp: false,
+      reasons: ["default_fast_local"],
     });
   });
 
