@@ -5,7 +5,11 @@ import { eq } from "drizzle-orm";
 
 import { decryptSecret } from "./crypto";
 import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
-import { NOTION_MCP_PATH } from "@/lib/notion/mcp";
+import {
+  NOTION_MCP_PATH,
+  NOTION_MCP_RELAY_HEADER,
+  notionMcpRelayToken,
+} from "@/lib/notion/mcp";
 import {
   filterAttestedProviders,
   loadActiveToolAttestations,
@@ -217,10 +221,24 @@ export async function buildUserMcpServers(
       console.warn(`[mcp] decrypt failed for ${row.provider}:`, err);
       continue;
     }
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+    };
+    if (
+      row.provider === "notion" &&
+      isFirstPartyNotionMcpEndpoint(endpoint.url)
+    ) {
+      try {
+        headers[NOTION_MCP_RELAY_HEADER] = notionMcpRelayToken();
+      } catch (err) {
+        console.warn("[mcp] Notion relay token generation failed:", err);
+        continue;
+      }
+    }
     out[row.provider] = {
       type: "http",
       url: endpoint.url,
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
       ...toolPolicy,
     };
   }
@@ -291,6 +309,19 @@ function notionMcpConfig(rawUrl: string | undefined): McpProviderConfig {
     return { unavailableReason: "invalid_endpoint_url" };
   }
   return { endpoint };
+}
+
+function isFirstPartyNotionMcpEndpoint(rawUrl: string): boolean {
+  try {
+    const actual = new URL(rawUrl);
+    const expected = new URL(NOTION_MCP_PATH, PUBLIC_BASE_URL);
+    return (
+      actual.origin === expected.origin &&
+      actual.pathname === expected.pathname
+    );
+  } catch {
+    return false;
+  }
 }
 
 function parseMcpEndpoint(rawUrl: string | undefined): { url: string } | undefined {

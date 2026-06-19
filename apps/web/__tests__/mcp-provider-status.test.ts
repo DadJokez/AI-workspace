@@ -1,5 +1,8 @@
+import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Database } from "@ai-workspace/db";
+
+const RELAY_HMAC_MESSAGE = "comparative:notion-mcp-relay:v1";
 
 function mockAttestations() {
   vi.doMock("@/lib/tool-attestations", async () => {
@@ -99,7 +102,12 @@ describe("MCP provider status", () => {
     expect(result.mcpServers?.notion).toMatchObject({
       type: "http",
       url: "https://comparative.example/api/mcp/notion",
-      headers: { Authorization: "Bearer notion-access-token" },
+      headers: {
+        Authorization: "Bearer notion-access-token",
+        "X-Comparative-MCP-Relay": relayToken(
+          Buffer.alloc(32, 8).toString("base64"),
+        ),
+      },
     });
   });
 
@@ -129,6 +137,12 @@ describe("MCP provider status", () => {
       url: "https://notion-mcp.example/mcp",
       headers: { Authorization: "Bearer notion-access-token" },
     });
+    const notionServer = result.mcpServers?.notion;
+    expect(
+      notionServer && "headers" in notionServer
+        ? notionServer.headers
+        : undefined,
+    ).not.toHaveProperty("X-Comparative-MCP-Relay");
   });
 
   it("does not treat hosted Notion MCP as a compatible delegated-token endpoint", async () => {
@@ -171,3 +185,7 @@ describe("MCP provider status", () => {
     });
   });
 });
+
+function relayToken(key: string): string {
+  return createHmac("sha256", key).update(RELAY_HMAC_MESSAGE).digest("hex");
+}
