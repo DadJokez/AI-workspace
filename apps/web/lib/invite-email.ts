@@ -244,7 +244,7 @@ async function sendSesEmail(input: {
   };
 }
 
-function signAwsJsonRequest(input: {
+export function signAwsJsonRequest(input: {
   method: string;
   path: string;
   host: string;
