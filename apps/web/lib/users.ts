@@ -1,4 +1,5 @@
 import {
+  auditLog,
   type User as DbUser,
   getDb,
   invitations,
@@ -30,6 +31,7 @@ export async function findPendingInvitation(
       and(
         eq(invitations.email, email),
         isNull(invitations.acceptedAt),
+        isNull(invitations.revokedAt),
         gt(invitations.expiresAt, new Date()),
       ),
     )
@@ -107,6 +109,20 @@ export async function ensureUser(authUser: AuthUser): Promise<DbUser> {
       .update(invitations)
       .set({ acceptedAt: new Date() })
       .where(eq(invitations.id, pendingInvite.id));
+    await db.insert(auditLog).values({
+      actorUserId: inserted[0]!.id,
+      actionType: "invite.accept",
+      status: "succeeded",
+      provider: "ai-hub",
+      toolName: "invitations",
+      input: {
+        invitationId: pendingInvite.id,
+        email: authUser.email,
+        role,
+      },
+      startedAt: new Date(),
+      completedAt: new Date(),
+    });
   }
 
   return inserted[0]!;

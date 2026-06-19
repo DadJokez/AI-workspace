@@ -277,7 +277,9 @@ export const oauthTokens = pgTable(
  *
  * `email` is not unique — re-issuing an invite for the same address is
  * legitimate (lost link, expired link). Lookup filters on `acceptedAt IS
- * NULL AND expiresAt > now()` to find the active invite.
+ * NULL AND revokedAt IS NULL AND expiresAt > now()` to find the active invite.
+ * Email delivery is tracked here so admins can retry failed sends without
+ * losing the underlying single-purpose token.
  */
 export const invitations = pgTable(
   "invitations",
@@ -290,14 +292,34 @@ export const invitations = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: uuid("revoked_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    emailStatus: text("email_status")
+      .$type<"not_sent" | "sent" | "failed">()
+      .notNull()
+      .default("not_sent"),
+    emailSendAttempts: integer("email_send_attempts").notNull().default(0),
+    lastEmailAttemptedAt: timestamp("last_email_attempted_at", {
+      withTimezone: true,
+    }),
+    lastEmailSentAt: timestamp("last_email_sent_at", { withTimezone: true }),
+    lastEmailError: text("last_email_error"),
+    lastEmailMessageId: text("last_email_message_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (t) => ({
     tokenUnique: uniqueIndex("invitations_token_idx").on(t.token),
     emailIdx: index("invitations_email_idx").on(t.email),
+    revokedIdx: index("invitations_revoked_idx").on(t.revokedAt),
+    emailStatusIdx: index("invitations_email_status_idx").on(t.emailStatus),
   }),
 );
 

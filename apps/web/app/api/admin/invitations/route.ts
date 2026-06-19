@@ -1,30 +1,24 @@
 import { randomBytes } from "node:crypto";
 import { getDb, invitations } from "@ai-workspace/db";
-import { and, desc, gt, isNull } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import {
+  INVITE_TTL_MS,
+  adminInvitationSelect,
+  auditInvitationEvent,
+  inviteEmailRateLimit,
+  sendAndRecordInvitationEmail,
+  toAdminInvitationRow,
+  type AdminInvitationRow,
+} from "@/lib/admin-invitations";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { checkRateLimit } from "@/lib/request-limits";
 
 export const dynamic = "force-dynamic";
-
-const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
-export interface AdminInvitationRow {
-  id: string;
-  email: string;
-  role: "admin" | "user";
-  inviteUrl: string;
-  expiresAt: string;
-  createdAt: string;
-}
 
 interface PostBody {
   email?: string;
   role?: "admin" | "user";
-}
-
-function inviteUrl(token: string): string {
-  const base = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-  return `${base.replace(/\/+$/, "")}/invite/${token}`;
 }
 
 export async function POST(req: Request) {
@@ -44,13 +38,36 @@ export async function POST(req: Request) {
   }
 
   const role: "admin" | "user" = body.role === "admin" ? "admin" : "user";
+  const db = getDb();
+  const rate = await checkRateLimit(
+    db,
+    `invite-email:${auth.user.id}`,
+    inviteEmailRateLimit,
+  );
+  if (!rate.allowed) {
+    return NextResponse.json(
+      {
+        error: "rate_limited",
+        message: "Too many invitation emails. Please wait and try again.",
+        retryAfterSeconds: rate.retryAfterSeconds,
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(rate.retryAfterSeconds),
+          "X-RateLimit-Limit": String(rate.limit),
+          "X-RateLimit-Remaining": String(rate.remaining),
+          "X-RateLimit-Reset": rate.resetAt.toISOString(),
+        },
+      },
+    );
+  }
 
   // 32 random bytes → 64 hex chars. Hex (not base64url) so the token survives
   // any URL encoding/casing weirdness without escaping.
   const token = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
 
-  const db = getDb();
   const inserted = await db
     .insert(invitations)
     .values({
@@ -60,25 +77,24 @@ export async function POST(req: Request) {
       invitedBy: auth.user.id,
       expiresAt,
     })
-    .returning({
-      id: invitations.id,
-      email: invitations.email,
-      role: invitations.role,
-      token: invitations.token,
-      expiresAt: invitations.expiresAt,
-      createdAt: invitations.createdAt,
-    });
+    .returning(adminInvitationSelect);
 
   const row = inserted[0]!;
-  const out: AdminInvitationRow = {
-    id: row.id,
-    email: row.email,
-    role: row.role,
-    inviteUrl: inviteUrl(row.token),
-    expiresAt: row.expiresAt.toISOString(),
-    createdAt: row.createdAt.toISOString(),
-  };
-  return NextResponse.json({ invitation: out }, { status: 201 });
+  await auditInvitationEvent({
+    db,
+    actorUserId: auth.user.id,
+    invitation: row,
+    actionType: "invite.create",
+    status: "succeeded",
+    metadata: { expiresAt: row.expiresAt.toISOString() },
+  });
+  const result = await sendAndRecordInvitationEmail({
+    db,
+    actor: auth.user,
+    invitation: row,
+    actionType: "invite.send",
+  });
+  return NextResponse.json(result, { status: 201 });
 }
 
 export async function GET() {
@@ -87,27 +103,11 @@ export async function GET() {
 
   const db = getDb();
   const rows = await db
-    .select({
-      id: invitations.id,
-      email: invitations.email,
-      role: invitations.role,
-      token: invitations.token,
-      expiresAt: invitations.expiresAt,
-      createdAt: invitations.createdAt,
-    })
+    .select(adminInvitationSelect)
     .from(invitations)
-    .where(
-      and(isNull(invitations.acceptedAt), gt(invitations.expiresAt, new Date())),
-    )
-    .orderBy(desc(invitations.createdAt));
+    .orderBy(desc(invitations.createdAt))
+    .limit(100);
 
-  const out: AdminInvitationRow[] = rows.map((r) => ({
-    id: r.id,
-    email: r.email,
-    role: r.role,
-    inviteUrl: inviteUrl(r.token),
-    expiresAt: r.expiresAt.toISOString(),
-    createdAt: r.createdAt.toISOString(),
-  }));
+  const out: AdminInvitationRow[] = rows.map((r) => toAdminInvitationRow(r));
   return NextResponse.json({ invitations: out });
 }

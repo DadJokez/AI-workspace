@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import type { AdminInvitationRow } from "@/app/api/admin/invitations/route";
+import type {
+  AdminInvitationRow,
+  AdminInvitationStatus,
+} from "@/lib/admin-invitations";
 
 type Role = "admin" | "user";
 
@@ -26,14 +29,23 @@ export function InvitationsPanel({ initialInvitations }: Props) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("user");
   const [busy, setBusy] = useState(false);
+  const [actionBusyId, setActionBusyId] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
-  const [latestUrl, setLatestUrl] = useState<string | undefined>();
+  const [notice, setNotice] = useState<string | undefined>();
   const [copiedId, setCopiedId] = useState<string | undefined>();
 
-  async function generate(e: React.FormEvent) {
+  function upsertRow(invitation: AdminInvitationRow) {
+    setRows((rs) => [
+      invitation,
+      ...rs.filter((row) => row.id !== invitation.id),
+    ]);
+  }
+
+  async function sendInvite(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(undefined);
+    setNotice(undefined);
     try {
       const res = await fetch("/api/admin/invitations", {
         method: "POST",
@@ -46,15 +58,69 @@ export function InvitationsPanel({ initialInvitations }: Props) {
         };
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
-      const body = (await res.json()) as { invitation: AdminInvitationRow };
-      setRows((rs) => [body.invitation, ...rs]);
-      setLatestUrl(body.invitation.inviteUrl);
+      const body = (await res.json()) as {
+        invitation: AdminInvitationRow;
+        warning?: string;
+      };
+      upsertRow(body.invitation);
+      setNotice(invitationNotice(body.invitation, body.warning));
       setEmail("");
       setRole("user");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed");
+      setError(friendlyError(err));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function resend(invitation: AdminInvitationRow) {
+    setActionBusyId(invitation.id);
+    setError(undefined);
+    setNotice(undefined);
+    try {
+      const res = await fetch(
+        `/api/admin/invitations/${encodeURIComponent(invitation.id)}/resend`,
+        { method: "POST" },
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        invitation?: AdminInvitationRow;
+        warning?: string;
+        error?: string;
+      };
+      if (!res.ok || !body.invitation) {
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      upsertRow(body.invitation);
+      setNotice(invitationNotice(body.invitation, body.warning, true));
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setActionBusyId(undefined);
+    }
+  }
+
+  async function revoke(invitation: AdminInvitationRow) {
+    setActionBusyId(invitation.id);
+    setError(undefined);
+    setNotice(undefined);
+    try {
+      const res = await fetch(
+        `/api/admin/invitations/${encodeURIComponent(invitation.id)}/revoke`,
+        { method: "POST" },
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        invitation?: AdminInvitationRow;
+        error?: string;
+      };
+      if (!res.ok || !body.invitation) {
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      upsertRow(body.invitation);
+      setNotice(`Invite revoked for ${body.invitation.email}.`);
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setActionBusyId(undefined);
     }
   }
 
@@ -74,13 +140,13 @@ export function InvitationsPanel({ initialInvitations }: Props) {
       <div className="px-6 pb-3 pt-4">
         <h2 className="text-base font-semibold text-ink">Invitations</h2>
         <p className="mt-1 text-[12px] text-muted">
-          Generate a one-time link to onboard a new user. Links expire after 7
-          days.
+          Send a one-time invite to onboard a new user. Links expire after 7
+          days and can be resent or revoked.
         </p>
       </div>
 
       <form
-        onSubmit={generate}
+        onSubmit={sendInvite}
         className="flex flex-wrap items-end gap-3 px-6 pb-4"
       >
         <label className="flex flex-col gap-1">
@@ -98,7 +164,7 @@ export function InvitationsPanel({ initialInvitations }: Props) {
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-[11px] uppercase tracking-wider text-muted">
-            Role
+            Invite role
           </span>
           <select
             value={role}
@@ -114,33 +180,16 @@ export function InvitationsPanel({ initialInvitations }: Props) {
           disabled={busy || email.length === 0}
           className="rounded-md bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {busy ? "Generating…" : "Generate Link"}
+          {busy ? "Sending..." : "Send invite"}
         </button>
         {error ? (
           <span className="text-[12px] text-red-400">{error}</span>
         ) : null}
       </form>
 
-      {latestUrl ? (
-        <div className="mx-6 mb-4 rounded-md border border-hairline bg-subtle/40 p-3">
-          <div className="text-[11px] uppercase tracking-wider text-muted">
-            New invite link
-          </div>
-          <div className="mt-1 flex items-center gap-2">
-            <input
-              readOnly
-              value={latestUrl}
-              onFocus={(e) => e.currentTarget.select()}
-              className="flex-1 rounded border border-hairline bg-canvas px-2 py-1 text-[12px] text-ink"
-            />
-            <button
-              type="button"
-              onClick={() => copy("__latest", latestUrl)}
-              className="rounded-md border border-hairline px-2 py-1 text-[12px] text-ink hover:bg-subtle"
-            >
-              {copiedId === "__latest" ? "Copied" : "Copy"}
-            </button>
-          </div>
+      {notice ? (
+        <div className="mx-6 mb-4 rounded-md border border-hairline bg-subtle/40 px-3 py-2 text-[12px] text-muted">
+          {notice}
         </div>
       ) : null}
 
@@ -155,6 +204,9 @@ export function InvitationsPanel({ initialInvitations }: Props) {
                 Role
               </th>
               <th className="border-b border-hairline px-4 py-2 font-medium">
+                Status
+              </th>
+              <th className="border-b border-hairline px-4 py-2 font-medium">
                 Expires
               </th>
               <th
@@ -167,10 +219,10 @@ export function InvitationsPanel({ initialInvitations }: Props) {
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={4}
+                  colSpan={5}
                   className="border-b border-hairline px-6 py-8 text-center text-[12px] text-muted"
                 >
-                  No pending invitations.
+                  No invitations yet.
                 </td>
               </tr>
             ) : (
@@ -190,17 +242,49 @@ export function InvitationsPanel({ initialInvitations }: Props) {
                       {inv.role}
                     </span>
                   </td>
+                  <td className="border-b border-hairline px-4 py-3 align-middle">
+                    <div className="flex flex-col gap-1">
+                      <span
+                        className={`inline-flex w-fit items-center rounded px-2 py-0.5 text-[11px] uppercase tracking-wider ${statusClass(
+                          inv.status,
+                        )}`}
+                      >
+                        {statusLabel(inv.status)}
+                      </span>
+                      <span className="text-[11px] text-muted">
+                        {statusDetail(inv)}
+                      </span>
+                    </div>
+                  </td>
                   <td className="border-b border-hairline px-4 py-3 align-middle text-muted">
                     {relativeFuture(inv.expiresAt)}
                   </td>
                   <td className="border-b border-hairline px-6 py-3 align-middle text-right">
-                    <button
-                      type="button"
-                      onClick={() => copy(inv.id, inv.inviteUrl)}
-                      className="rounded-md border border-hairline px-2 py-1 text-[12px] text-ink hover:bg-subtle"
-                    >
-                      {copiedId === inv.id ? "Copied" : "Copy link"}
-                    </button>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => resend(inv)}
+                        disabled={!inv.canResend || actionBusyId === inv.id}
+                        className="rounded-md border border-hairline px-2 py-1 text-[12px] text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        {actionBusyId === inv.id ? "Working..." : "Resend"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => revoke(inv)}
+                        disabled={!inv.canRevoke || actionBusyId === inv.id}
+                        className="rounded-md border border-hairline px-2 py-1 text-[12px] text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        Revoke
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => copy(inv.id, inv.inviteUrl)}
+                        className="rounded-md border border-hairline px-2 py-1 text-[12px] text-muted hover:bg-subtle hover:text-ink"
+                      >
+                        {copiedId === inv.id ? "Copied" : "Copy link"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))
@@ -210,4 +294,97 @@ export function InvitationsPanel({ initialInvitations }: Props) {
       </div>
     </section>
   );
+}
+
+function statusLabel(status: AdminInvitationStatus) {
+  return status.replace(/_/g, " ");
+}
+
+function statusClass(status: AdminInvitationStatus) {
+  switch (status) {
+    case "sent":
+    case "accepted":
+      return "bg-emerald-500/15 text-emerald-300";
+    case "failed":
+      return "bg-red-500/15 text-red-300";
+    case "revoked":
+    case "expired":
+      return "bg-subtle text-muted";
+    case "pending":
+    default:
+      return "bg-accent/15 text-accent";
+  }
+}
+
+function statusDetail(invitation: AdminInvitationRow) {
+  if (invitation.status === "accepted") {
+    return invitation.acceptedAt
+      ? `Accepted ${shortDate(invitation.acceptedAt)}`
+      : "Accepted";
+  }
+  if (invitation.status === "revoked") {
+    return invitation.revokedAt
+      ? `Revoked ${shortDate(invitation.revokedAt)}`
+      : "Revoked";
+  }
+  if (invitation.status === "expired") return "No longer usable";
+  if (invitation.status === "failed") {
+    return `Email failed: ${friendlyEmailCode(invitation.lastEmailError)}`;
+  }
+  if (invitation.lastEmailSentAt) {
+    return `Sent ${shortDate(invitation.lastEmailSentAt)}`;
+  }
+  return "Email not sent yet";
+}
+
+function invitationNotice(
+  invitation: AdminInvitationRow,
+  warning?: string,
+  resent = false,
+) {
+  if (warning || invitation.status === "failed") {
+    return `Invite ${resent ? "resend" : "created"}, but email failed for ${
+      invitation.email
+    }: ${friendlyEmailCode(warning ?? invitation.lastEmailError)}. You can retry from the row below.`;
+  }
+  return `Invite ${resent ? "resent" : "sent"} to ${invitation.email}.`;
+}
+
+function friendlyError(err: unknown) {
+  if (!(err instanceof Error)) return "Request failed.";
+  return friendlyEmailCode(err.message);
+}
+
+function friendlyEmailCode(code: string | null | undefined) {
+  switch (code) {
+    case "email_provider_disabled":
+      return "email is not configured";
+    case "email_sender_missing":
+      return "sender is missing";
+    case "email_region_missing":
+      return "AWS region is missing";
+    case "aws_credentials_missing":
+    case "aws_credentials_unavailable":
+    case "aws_credentials_invalid":
+      return "AWS credentials are unavailable";
+    case "email_send_failed":
+      return "provider rejected the email";
+    case "rate_limited":
+      return "too many invite sends";
+    case "invitation_not_resendable":
+      return "this invite can no longer be resent";
+    case "invitation_already_accepted":
+      return "this invite was already accepted";
+    default:
+      return code ?? "unknown error";
+  }
+}
+
+function shortDate(iso: string) {
+  return new Date(iso).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
