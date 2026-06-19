@@ -87,6 +87,62 @@ describe("matchArtifact", () => {
       "api-notes.md",
     );
   });
+
+  it("matches the current thread's newest html artifact for vague revision requests", () => {
+    const artifacts = [
+      artifact({
+        id: "artifact-current-v2",
+        title: "HTML Capabilities Demo",
+        filename: "html-capabilities-demo-v2.html",
+        threadId: "thread-current",
+        artifactGroupId: "group-current",
+        versionNumber: 2,
+      }),
+      artifact({
+        id: "artifact-current-v1",
+        title: "HTML Capabilities Demo",
+        filename: "html-capabilities-demo.html",
+        threadId: "thread-current",
+        artifactGroupId: "group-current",
+        versionNumber: 1,
+      }),
+      artifact({
+        id: "artifact-other",
+        title: "Marketing Page",
+        filename: "marketing-page.html",
+        threadId: "thread-other",
+      }),
+    ];
+
+    expect(
+      matchArtifact("update the prior made html file", artifacts, {
+        threadId: "thread-current",
+      })?.id,
+    ).toBe("artifact-current-v2");
+  });
+
+  it("does not use vague pronouns to pull an unrelated cross-thread artifact", () => {
+    expect(matchArtifact("make it more blue", ARTIFACTS)).toBeNull();
+  });
+
+  it("does not fall back to a different file type when a kind is named", () => {
+    const artifacts = [
+      artifact({
+        id: "artifact-current-md",
+        title: "Launch Notes",
+        filename: "launch-notes.md",
+        kind: "markdown",
+        mimeType: "text/markdown",
+        threadId: "thread-current",
+      }),
+    ];
+
+    expect(
+      matchArtifact("update the prior html file", artifacts, {
+        threadId: "thread-current",
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("formatArtifactContext", () => {

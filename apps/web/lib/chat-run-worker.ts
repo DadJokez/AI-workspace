@@ -328,6 +328,7 @@ async function executeClaimedChatRun({
     buildArtifactContextPayload({
       db,
       userId: run.userId,
+      threadId: thread.id,
       message: buildArtifactLookupMessage(history, inputs.prompt, {
         preferFallback: WORKER_TRIGGER_TYPE_SET.has(run.triggerType),
       }),

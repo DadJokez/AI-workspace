@@ -31,6 +31,13 @@ const STOPWORDS = new Set([
   "site", "report", "brief", "deck", "note", "notes", "version", "draft",
 ]);
 
+const REVISION_INTENT_RE =
+  /\b(?:update|edit|revise|revision|change|modify|tweak|fix|repair|adjust|restyle|redesign|rework|iterate|improve|enhance|add|remove|replace|rename)\b/i;
+const ARTIFACT_REFERENCE_RE =
+  /\b(?:artifact|file|document|doc|html|htm|page|site|app|deck|markdown|md|csv|json|spreadsheet|sheet)\b/i;
+const RECENT_REFERENCE_RE =
+  /\b(?:it|that|this|same|existing|current|prior|previous|last|latest|earlier|the one)\b/i;
+
 /** Significant lowercase tokens from an artifact's title + filename stem. */
 function artifactTokens(artifact: WorkspaceArtifactSummary): string[] {
   const stem = artifact.filename.replace(/\.[^.]+$/, "");
@@ -52,6 +59,7 @@ function artifactTokens(artifact: WorkspaceArtifactSummary): string[] {
 export function matchArtifact(
   message: string,
   artifacts: readonly WorkspaceArtifactSummary[],
+  options: { threadId?: string } = {},
 ): WorkspaceArtifactSummary | null {
   const normalized = ` ${message.toLowerCase()} `;
   // Word-boundary tokens of the message (set membership), so the token "api"
@@ -80,7 +88,42 @@ export function matchArtifact(
       bestScore = hits;
     }
   }
-  return best;
+  return best ?? matchImplicitRevisionArtifact(message, artifacts, options);
+}
+
+export function matchImplicitRevisionArtifact(
+  message: string,
+  artifacts: readonly WorkspaceArtifactSummary[],
+  { threadId }: { threadId?: string } = {},
+): WorkspaceArtifactSummary | null {
+  if (!REVISION_INTENT_RE.test(message)) return null;
+  if (!ARTIFACT_REFERENCE_RE.test(message) && !RECENT_REFERENCE_RE.test(message)) {
+    return null;
+  }
+
+  const kindHint = artifactKindHint(message);
+  const currentThreadArtifacts = threadId
+    ? artifacts.filter((artifact) => artifact.threadId === threadId)
+    : [];
+  const candidates =
+    currentThreadArtifacts.length > 0 ? currentThreadArtifacts : artifacts;
+  const matchingKind = kindHint
+    ? candidates.filter((artifact) => artifactMatchesKindHint(artifact, kindHint))
+    : candidates;
+  const scoped = kindHint ? matchingKind : candidates;
+  if (scoped.length === 0) return null;
+
+  // Vague "make it blue" style follow-ups are only safe when the thread itself
+  // has an artifact. Without thread scope, require an explicit file/artifact
+  // reference so cross-thread library context does not hijack ordinary chat.
+  if (
+    currentThreadArtifacts.length === 0 &&
+    !ARTIFACT_REFERENCE_RE.test(message)
+  ) {
+    return null;
+  }
+
+  return scoped[0] ?? null;
 }
 
 const LIST_INTENT_RE =
@@ -164,10 +207,12 @@ export function formatArtifactContext({
 export async function buildArtifactContextPayload({
   db,
   userId,
+  threadId,
   message,
 }: {
   db: Database;
   userId: string;
+  threadId?: string;
   message: string;
 }): Promise<ArtifactContextPayload | null> {
   let artifacts: WorkspaceArtifactSummary[];
@@ -182,7 +227,7 @@ export async function buildArtifactContextPayload({
   }
   if (artifacts.length === 0) return null;
 
-  const matched = matchArtifact(message, artifacts);
+  const matched = matchArtifact(message, artifacts, { threadId });
   if (!matched && !LIST_INTENT_RE.test(message)) return null;
 
   let matchedContent: MatchedArtifactContent | null = null;
@@ -209,4 +254,43 @@ export async function buildArtifactContextPayload({
     text: formatArtifactContext({ artifacts, matched: matchedContent }),
     matchedArtifact: matched,
   };
+}
+
+function artifactKindHint(message: string): string | null {
+  if (/\b(?:html|htm|web ?page|page|site|app)\b/i.test(message)) {
+    return "html";
+  }
+  if (/\b(?:markdown|md)\b/i.test(message)) return "markdown";
+  if (/\b(?:csv|spreadsheet|sheet)\b/i.test(message)) return "data";
+  if (/\bjson\b/i.test(message)) return "data";
+  return null;
+}
+
+function artifactMatchesKindHint(
+  artifact: WorkspaceArtifactSummary,
+  kindHint: string,
+): boolean {
+  if (kindHint === "html") {
+    return (
+      artifact.kind === "html" ||
+      artifact.mimeType === "text/html" ||
+      /\.(?:html|htm)$/i.test(artifact.filename)
+    );
+  }
+  if (kindHint === "markdown") {
+    return (
+      artifact.kind === "markdown" ||
+      artifact.mimeType === "text/markdown" ||
+      /\.(?:md|markdown)$/i.test(artifact.filename)
+    );
+  }
+  if (kindHint === "data") {
+    return (
+      artifact.kind === "data" ||
+      artifact.mimeType === "application/json" ||
+      artifact.mimeType === "text/csv" ||
+      /\.(?:csv|json)$/i.test(artifact.filename)
+    );
+  }
+  return false;
 }
