@@ -197,6 +197,16 @@ describe("skills helpers", () => {
       expect(ok.input.modelId).toBeTruthy();
     }
 
+    const notion = parseSkillInput({
+      name: "Notion Briefing",
+      systemPrompt: "Summarize the docs.",
+      mcpProviders: ["notion"],
+    });
+    expect(notion.ok).toBe(true);
+    if (notion.ok) {
+      expect(notion.input.mcpProviders).toEqual(["notion"]);
+    }
+
     const badProvider = parseSkillInput({
       name: "X",
       systemPrompt: "Y",

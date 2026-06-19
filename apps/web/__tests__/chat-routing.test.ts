@@ -145,6 +145,22 @@ describe("decideChatRuntimeRoute", () => {
     });
   });
 
+  it("routes Notion document lookups to local tool streaming", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "search my Notion docs for the launch notes",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "tool-local",
+      executionMode: "local",
+      runtimeTarget: "bedrock-agent",
+      useWorker: false,
+      useMcp: true,
+      reasons: ["notion_provider_lookup"],
+    });
+  });
+
   it("routes GitHub capability probes to local tool streaming", () => {
     expect(
       decideChatRuntimeRoute({

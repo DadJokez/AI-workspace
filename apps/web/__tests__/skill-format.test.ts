@@ -44,6 +44,24 @@ describe("parseSkillMarkdown", () => {
     expect(result.skill.warnings.join(" ")).toMatch(/salesforce/);
   });
 
+  it("accepts Notion as a supported provider in skill frontmatter", () => {
+    const md = [
+      "---",
+      "name: notion-summary",
+      "description: Summarizes Notion docs.",
+      "mcp_providers: [notion]",
+      "---",
+      "Use Notion context to summarize workspace docs.",
+    ].join("\n");
+
+    const result = parseSkillMarkdown(md);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.skill.mcpProviders).toEqual(["notion"]);
+    expect(result.skill.warnings).toEqual([]);
+  });
+
   it("rejects missing frontmatter, name, description, or body", () => {
     expect(parseSkillMarkdown("just text").ok).toBe(false);
     expect(

@@ -10,9 +10,14 @@ import {
   loadToolCatalogForProviders,
 } from "@/lib/tool-attestations";
 
-const MCP_ENDPOINTS: Record<string, { url: string }> = {
+const MCP_ENDPOINTS: Record<string, { url: string } | undefined> = {
   github: { url: "https://api.githubcopilot.com/mcp/" },
-  // notion / google land here when their OAuth flows ship.
+  // A compatible Notion MCP gateway can be supplied once the deployment owns
+  // the endpoint. Notion's hosted MCP performs its own OAuth handshake, so we
+  // do not point at it directly while Comparative stores delegated tokens.
+  notion: process.env.NOTION_MCP_ENDPOINT_URL
+    ? { url: process.env.NOTION_MCP_ENDPOINT_URL }
+    : undefined,
 };
 
 /** Provider slugs AI Hub can mount today; skills validate against this. */
@@ -36,7 +41,10 @@ export async function loadUserMcpProviderStatus(
   let rows: Array<{ provider: string }>;
   try {
     rows = await db
-      .select({ provider: oauthTokens.provider })
+      .select({
+        provider: oauthTokens.provider,
+        expiresAt: oauthTokens.expiresAt,
+      })
       .from(oauthTokens)
       .where(eq(oauthTokens.userId, userId));
   } catch (err) {
@@ -92,6 +100,7 @@ export async function buildUserMcpServers(
       .select({
         provider: oauthTokens.provider,
         accessToken: oauthTokens.accessToken,
+        expiresAt: oauthTokens.expiresAt,
       })
       .from(oauthTokens)
       .where(eq(oauthTokens.userId, userId));
@@ -99,6 +108,8 @@ export async function buildUserMcpServers(
     console.warn("[mcp] oauth_tokens lookup failed:", err);
     return { mcpServers: undefined, deniedProviders: [] };
   }
+
+  rows = rows.filter(isActiveOAuthToken);
 
   if (options?.onlyProviders) {
     const allowlist = new Set(options.onlyProviders);
@@ -139,7 +150,7 @@ export async function buildUserMcpServers(
 }
 
 function uniqueSupportedProviders(
-  rows: Array<{ provider: string }>,
+  rows: Array<{ provider: string; expiresAt?: Date | string | null }>,
   options?: { onlyProviders?: string[] },
 ): string[] {
   const allowlist = options?.onlyProviders
@@ -148,11 +159,25 @@ function uniqueSupportedProviders(
   return Array.from(
     new Set(
       rows
+        .filter(isActiveOAuthToken)
         .map((row) => row.provider)
-        .filter((provider) => MCP_ENDPOINTS[provider])
+        .filter((provider) =>
+          SUPPORTED_MCP_PROVIDERS.includes(provider),
+        )
         .filter((provider) => !allowlist || allowlist.has(provider)),
     ),
   );
+}
+
+function isActiveOAuthToken(row: {
+  expiresAt?: Date | string | null;
+}): boolean {
+  if (!row.expiresAt) return true;
+  const expiresAt =
+    row.expiresAt instanceof Date
+      ? row.expiresAt.getTime()
+      : Date.parse(row.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
 }
 
 async function resolveAttestedProviders(

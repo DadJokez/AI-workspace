@@ -368,6 +368,14 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0];
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("connected")) {
+      setView("tools");
+    }
+  }, []);
+
   function validatestring(
     id: string | undefined,
     knownIds: Set<string>,

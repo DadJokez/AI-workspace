@@ -99,9 +99,10 @@ test.describe("persona and workspace surfaces", () => {
 
     await openNavItem(page, "Tools", isMobile);
     await expect(page.getByRole("heading", { name: "Tools" })).toBeVisible();
-    await expect(page.getByText("GitHub")).toBeVisible();
-    await expect(page.getByText("Connected")).toBeVisible();
-    await expect(page.getByText("Linked to your account")).toBeVisible();
+    const githubCard = page.getByTestId("tool-card-github");
+    await expect(githubCard.getByText("GitHub")).toBeVisible();
+    await expect(githubCard.getByText("Connected")).toBeVisible();
+    await expect(githubCard.getByText("Linked to your account")).toBeVisible();
   });
 
   test("shows a connect link for disconnected GitHub", async ({
@@ -114,9 +115,51 @@ test.describe("persona and workspace surfaces", () => {
     await gotoE2EChat(page);
 
     await openNavItem(page, "Tools", isMobile);
-    await expect(page.getByText("Not connected")).toBeVisible();
-    const connect = page.getByRole("link", { name: "Connect" });
+    const githubCard = page.getByTestId("tool-card-github");
+    await expect(githubCard.getByText("Not connected")).toBeVisible();
+    const connect = githubCard.getByRole("link", { name: "Connect" });
     await expect(connect).toHaveAttribute("href", "/api/oauth/github/start");
+  });
+
+  test("reports Notion connection states in Tools", async ({
+    page,
+    isMobile,
+  }) => {
+    await installMockComparativeApi(page, {
+      oauthStatus: { github: false, notion: false },
+    });
+    await gotoE2EChat(page);
+
+    await openNavItem(page, "Tools", isMobile);
+    const notionCard = page.getByTestId("tool-card-notion");
+    await expect(notionCard.getByText("Notion")).toBeVisible();
+    await expect(notionCard.getByText("Not connected")).toBeVisible();
+    await expect(notionCard.getByRole("link", { name: "Connect" }))
+      .toHaveAttribute("href", "/api/oauth/notion/start");
+  });
+
+  test("shows connected and failed Notion OAuth feedback in Tools", async ({
+    page,
+    isMobile,
+  }) => {
+    await installMockComparativeApi(page, {
+      oauthStatus: { github: false, notion: true },
+    });
+    await gotoE2EChat(page);
+
+    await openNavItem(page, "Tools", isMobile);
+    const connectedCard = page.getByTestId("tool-card-notion");
+    await expect(connectedCard.getByText("Connected")).toBeVisible();
+    await expect(connectedCard.getByText("Linked to your account")).toBeVisible();
+    await expect(connectedCard.getByRole("link", { name: "Reconnect" }))
+      .toHaveAttribute("href", "/api/oauth/notion/start");
+
+    await page.goto("/e2e/chat?connected=notion&error=invalid_state");
+    await expect(page.getByRole("heading", { name: "Tools" })).toBeVisible();
+    const failedCard = page.getByTestId("tool-card-notion");
+    await expect(failedCard.getByText("Auth failed")).toBeVisible();
+    await expect(failedCard.getByRole("link", { name: "Reconnect" }))
+      .toHaveAttribute("href", "/api/oauth/notion/start");
   });
 
   test("saves profile and custom instruction settings", async ({
