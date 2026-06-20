@@ -4,6 +4,7 @@ import {
   installMockComparativeApi,
 } from "./helpers/mock-comparative";
 import { gotoE2EChat } from "./helpers/navigation";
+import { COMPARATIVE_VERSION_LABEL } from "../lib/product-version";
 
 test.skip(
   !!process.env.PLAYWRIGHT_BASE_URL,
@@ -22,12 +23,14 @@ test.describe("chat shell guardrails", () => {
     await expect(landingOrb).toBeVisible();
     await expect(landingOrb).toHaveAttribute("width", "88");
     await expect(landingOrb).toHaveAttribute("height", "88");
-    await expect(page.locator("main").getByText("Alpha v0.1.0")).toBeVisible();
+    await expect(
+      page.locator("main").getByText(COMPARATIVE_VERSION_LABEL),
+    ).toBeVisible();
     if (!testInfo.project.name.includes("mobile")) {
       await expect(
         page
           .locator('aside[aria-label="Primary"]')
-          .getByText("Alpha v0.1.0"),
+          .getByText(COMPARATIVE_VERSION_LABEL),
       ).toBeVisible();
     }
   });
