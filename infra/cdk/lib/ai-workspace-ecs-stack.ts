@@ -22,6 +22,9 @@ const APP_SECRET_FIELDS = [
   "NOTION_CLIENT_ID",
   "NOTION_CLIENT_SECRET",
   "OAUTH_ENCRYPTION_KEY",
+  "INVITE_EMAIL_PROVIDER",
+  "INVITE_EMAIL_FROM",
+  "INVITE_EMAIL_AWS_REGION",
 ] as const;
 
 const WORKER_TASK_SIZE = {
@@ -57,6 +60,11 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       this,
       "aiWorkspace:appSecretName",
       "ai-workspace/production/app",
+    );
+    const inviteEmailIdentityName = contextString(
+      this,
+      "aiWorkspace:inviteEmailIdentityName",
+      "comparative.builtwithrobot.link",
     );
     const dbSecurityGroupId = contextString(
       this,
@@ -181,6 +189,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       memoryLimitMiB: 1024,
     });
     grantBedrockInvoke(webTask);
+    grantSesSendEmail(webTask, inviteEmailIdentityName);
     webTask.addContainer("web", {
       image: ecs.ContainerImage.fromEcrRepository(repository, "latest"),
       containerName: "web",
@@ -391,6 +400,21 @@ function grantBedrockInvoke(task: ecs.FargateTaskDefinition): void {
     new iam.PolicyStatement({
       actions: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
       resources: ["*"],
+    }),
+  );
+}
+
+function grantSesSendEmail(
+  task: ecs.FargateTaskDefinition,
+  identityName: string,
+): void {
+  const stack = cdk.Stack.of(task);
+  task.addToTaskRolePolicy(
+    new iam.PolicyStatement({
+      actions: ["ses:SendEmail"],
+      resources: [
+        `arn:${stack.partition}:ses:${stack.region}:${stack.account}:identity/${identityName}`,
+      ],
     }),
   );
 }
