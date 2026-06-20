@@ -13,7 +13,7 @@ test.skip(
 test.describe("chat shell guardrails", () => {
   test("shows a prominent Comparative mark on the empty chat landing page", async ({
     page,
-  }) => {
+  }, testInfo) => {
     await installMockComparativeApi(page);
 
     await gotoE2EChat(page);
@@ -22,6 +22,14 @@ test.describe("chat shell guardrails", () => {
     await expect(landingOrb).toBeVisible();
     await expect(landingOrb).toHaveAttribute("width", "88");
     await expect(landingOrb).toHaveAttribute("height", "88");
+    await expect(page.locator("main").getByText("Alpha v0.1.0")).toBeVisible();
+    if (!testInfo.project.name.includes("mobile")) {
+      await expect(
+        page
+          .locator('aside[aria-label="Primary"]')
+          .getByText("Alpha v0.1.0"),
+      ).toBeVisible();
+    }
   });
 
   test("blocks empty and whitespace-only submits", async ({ page }) => {
