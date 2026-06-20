@@ -30,6 +30,17 @@ const themeInitScript = `
 })();
 `;
 
+function AlphaBadge() {
+  return (
+    <div
+      aria-label="Alpha version"
+      className="pointer-events-none fixed left-1/2 top-[max(env(safe-area-inset-top),0.5rem)] z-[90] -translate-x-1/2 rounded-full border border-[#87b5ff]/70 bg-[#0047ff] px-2.5 py-1 text-[10px] font-semibold uppercase leading-none tracking-[0.18em] text-white shadow-[0_0_24px_rgba(0,71,255,0.55)] ring-1 ring-white/20"
+    >
+      Alpha
+    </div>
+  );
+}
+
 export default function RootLayout({
   children,
 }: {
@@ -40,7 +51,10 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className="bg-canvas text-ink antialiased">{children}</body>
+      <body className="bg-canvas text-ink antialiased">
+        <AlphaBadge />
+        {children}
+      </body>
     </html>
   );
 }
