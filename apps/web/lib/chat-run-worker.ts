@@ -76,6 +76,7 @@ interface ChatRunInputs {
   requestedProviders?: string[];
   uploadedFiles?: ChatContextUploadedFile[];
   artifactContextTarget?: unknown;
+  separateFromArtifact?: unknown;
   [key: string]: unknown;
 }
 
@@ -338,9 +339,21 @@ async function executeClaimedChatRun({
   const storedArtifactTarget = parseWorkspaceArtifactVersionTarget(
     inputs.artifactContextTarget,
   );
-  const artifactContextTarget = artifactContextPayload?.matchedArtifact
-    ? toWorkspaceArtifactVersionTarget(artifactContextPayload.matchedArtifact)
+  const storedSeparateFromArtifact = parseWorkspaceArtifactVersionTarget(
+    inputs.separateFromArtifact,
+  );
+  const artifactContextTarget = artifactContextPayload
+    ? artifactContextPayload.mode === "revision" &&
+      artifactContextPayload.matchedArtifact
+      ? toWorkspaceArtifactVersionTarget(artifactContextPayload.matchedArtifact)
+      : null
     : storedArtifactTarget;
+  const separateFromArtifact = artifactContextPayload
+    ? artifactContextPayload.mode === "separate" &&
+      artifactContextPayload.matchedArtifact
+      ? toWorkspaceArtifactVersionTarget(artifactContextPayload.matchedArtifact)
+      : null
+    : storedSeparateFromArtifact;
   const artifactContext = artifactContextPayload?.text ?? null;
   const combinedArtifactContext = [appEditContext, artifactContext]
     .filter(Boolean)
@@ -450,6 +463,7 @@ async function executeClaimedChatRun({
         deniedMcpProviders: blockedProviders,
         contextReceipt,
         ...(artifactContextTarget ? { artifactContextTarget } : {}),
+        ...(separateFromArtifact ? { separateFromArtifact } : {}),
       },
       updatedAt: new Date(),
     })
@@ -649,6 +663,7 @@ async function executeClaimedChatRun({
     terminalStatus: runError ? "failed" : "succeeded",
     error: runError,
     artifactContextTarget,
+    separateFromArtifact,
   });
 }
 
@@ -668,6 +683,7 @@ async function persistAssistantResult({
   terminalStatus,
   error,
   artifactContextTarget,
+  separateFromArtifact,
 }: {
   db: Database;
   run: Run;
@@ -684,6 +700,7 @@ async function persistAssistantResult({
   terminalStatus: ChatRunTerminalStatus;
   error: string | null;
   artifactContextTarget?: WorkspaceArtifactVersionTarget | null;
+  separateFromArtifact?: WorkspaceArtifactVersionTarget | null;
 }): Promise<void> {
   if (await isRunCanceled(db, run.id)) return;
 
@@ -741,6 +758,7 @@ async function persistAssistantResult({
           runId: run.id,
           assistantText,
           targetArtifact: artifactContextTarget,
+          separateFromArtifact,
         }).catch((err) => {
           process.stderr.write(
             `[workspace-artifact-create-error] ${JSON.stringify({

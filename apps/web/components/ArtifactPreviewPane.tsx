@@ -160,8 +160,7 @@ export function ArtifactPreviewPane({
               {activeArtifact.title}
             </h2>
             <p className="truncate text-[11px] text-muted">
-              {activeArtifact.filename} · v{activeArtifact.versionNumber} ·{" "}
-              {formatBytes(activeArtifact.sizeBytes)}
+              {activeArtifact.filename} · {formatBytes(activeArtifact.sizeBytes)}
             </p>
           </div>
           <a

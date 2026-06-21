@@ -44,6 +44,7 @@ interface CreateArtifactsInput {
   runId?: string | null;
   assistantText: string;
   targetArtifact?: WorkspaceArtifactVersionTarget | null;
+  separateFromArtifact?: WorkspaceArtifactVersionTarget | null;
 }
 
 export interface ParsedArtifact {
@@ -94,6 +95,7 @@ export async function createArtifactsFromAssistantMessage({
   runId,
   assistantText,
   targetArtifact,
+  separateFromArtifact,
 }: CreateArtifactsInput): Promise<WorkspaceArtifactSummary[]> {
   const parsed = parseAssistantArtifacts(assistantText);
   if (parsed.length === 0) return [];
@@ -103,6 +105,7 @@ export async function createArtifactsFromAssistantMessage({
     threadId,
     artifacts: parsed,
     targetArtifact,
+    separateFromArtifact,
   });
 
   const rows = await db
@@ -331,12 +334,14 @@ async function planArtifactVersions({
   threadId,
   artifacts,
   targetArtifact,
+  separateFromArtifact,
 }: {
   db: Database;
   userId: string;
   threadId: string;
   artifacts: readonly ParsedArtifact[];
   targetArtifact?: WorkspaceArtifactVersionTarget | null;
+  separateFromArtifact?: WorkspaceArtifactVersionTarget | null;
 }): Promise<
   Array<{ artifact: ParsedArtifact; version: PlannedArtifactVersion }>
 > {
@@ -358,6 +363,7 @@ async function planArtifactVersions({
     artifacts,
     priorArtifacts: priorRows,
     targetArtifact,
+    separateFromArtifact,
   });
 }
 
@@ -365,10 +371,12 @@ export function planArtifactVersionsForExistingArtifacts({
   artifacts,
   priorArtifacts,
   targetArtifact,
+  separateFromArtifact,
 }: {
   artifacts: readonly ParsedArtifact[];
   priorArtifacts: readonly ArtifactVersionPrior[];
   targetArtifact?: WorkspaceArtifactVersionTarget | null;
+  separateFromArtifact?: WorkspaceArtifactVersionTarget | null;
 }): Array<{ artifact: ParsedArtifact; version: PlannedArtifactVersion }> {
   const targetKey = targetArtifact
     ? artifactKeyFromArtifact(targetArtifact)
@@ -411,21 +419,43 @@ export function planArtifactVersionsForExistingArtifacts({
 
   for (const [index, artifact] of artifacts.entries()) {
     const parsedArtifactKey = artifactKeyFromFilename(artifact.filename);
+    const separateFromKey = separateFromArtifact
+      ? artifactKeyFromArtifact(separateFromArtifact)
+      : null;
+    const separateFilename =
+      separateFromArtifact &&
+      separateFromKey &&
+      isCompatibleArtifactRevision(artifact.filename, separateFromArtifact.filename) &&
+      (parsedArtifactKey === separateFromKey ||
+        (artifacts.length === 1 && isGenericRevisionFilename(artifact.filename)))
+        ? filenameForSeparateCopy({
+            emittedFilename: artifact.filename,
+            sourceArtifact: separateFromArtifact,
+            existingKeys: latestByKey,
+          })
+        : null;
     const useTarget =
+      !separateFilename &&
       !!targetArtifact &&
       !!targetKey &&
       (parsedArtifactKey === targetKey ||
         (artifacts.length === 1 &&
           isCompatibleArtifactRevision(artifact.filename, targetArtifact.filename) &&
           !latestByKey.has(parsedArtifactKey)));
-    const artifactKey = useTarget ? targetKey : parsedArtifactKey;
-    const prior = latestByKey.get(artifactKey);
+    const artifactKey = separateFilename
+      ? artifactKeyFromVisibleFilename(separateFilename)
+      : useTarget
+        ? targetKey
+        : parsedArtifactKey;
+    const prior = separateFilename ? undefined : latestByKey.get(artifactKey);
     const versionNumber = prior ? prior.versionNumber + 1 : 1;
     const artifactGroupId = prior?.artifactGroupId ?? randomUUID();
-    const filename = filenameForVersion(
-      useTarget ? targetArtifact.filename : artifact.filename,
-      versionNumber,
-    );
+    const existingArtifact = useTarget ? targetArtifact : prior;
+    const filename =
+      separateFilename ??
+      (existingArtifact
+        ? canonicalFilenameForArtifact(existingArtifact)
+        : sanitizeFilename(artifact.filename));
     const version: PlannedArtifactVersion = {
       artifactKey,
       artifactGroupId,
@@ -798,26 +828,69 @@ function artifactKeyFromFilename(filename: string): string {
   return `${base || "artifact"}.${ext || "txt"}`;
 }
 
-function filenameForVersion(filename: string, versionNumber: number): string {
-  const clean = sanitizeFilename(filename);
-  if (versionNumber <= 1 || filenameAlreadyHasVersion(clean, versionNumber)) {
-    return clean;
+function artifactKeyFromVisibleFilename(filename: string): string {
+  const clean = sanitizeFilename(filename).toLowerCase();
+  const dot = clean.lastIndexOf(".");
+  const ext = dot === -1 ? "txt" : clean.slice(dot + 1);
+  return clean.includes(".") ? clean : `${clean}.${ext}`;
+}
+
+function filenameForSeparateCopy({
+  emittedFilename,
+  sourceArtifact,
+  existingKeys,
+}: {
+  emittedFilename: string;
+  sourceArtifact: Pick<WorkspaceArtifact, "filename" | "metadata">;
+  existingKeys: ReadonlyMap<string, unknown>;
+}): string {
+  const emitted = sanitizeFilename(emittedFilename);
+  const source = canonicalFilenameForArtifact(sourceArtifact);
+  const emittedKey = artifactKeyFromVisibleFilename(emitted);
+  const sourceKey = artifactKeyFromVisibleFilename(source);
+  if (
+    emittedKey !== sourceKey &&
+    !isGenericRevisionFilename(emitted) &&
+    !existingKeys.has(emittedKey)
+  ) {
+    return emitted;
   }
+
+  const dot = source.lastIndexOf(".");
+  const stem = dot === -1 ? source : source.slice(0, dot);
+  const ext = dot === -1 ? "" : source.slice(dot);
+  for (let i = 1; i < 100; i++) {
+    const suffix = i === 1 ? "copy" : `copy-${i}`;
+    const candidate = `${stem}-${suffix}${ext}`;
+    if (!existingKeys.has(artifactKeyFromVisibleFilename(candidate))) {
+      return candidate;
+    }
+  }
+  return `${stem}-copy-${Date.now()}${ext}`;
+}
+
+function isGenericRevisionFilename(filename: string): boolean {
+  const clean = sanitizeFilename(filename).toLowerCase();
+  const dot = clean.lastIndexOf(".");
+  const stem = dot === -1 ? clean : clean.slice(0, dot);
+  return /^(?:updated|revised|revision|artifact|file|document|output|result)(?:[-_ ]?\d+)?$/.test(
+    stem,
+  );
+}
+
+function canonicalFilenameForArtifact(artifact: Pick<WorkspaceArtifact, "filename">): string {
+  return filenameWithoutVisibleVersionSuffix(artifact.filename);
+}
+
+function filenameWithoutVisibleVersionSuffix(filename: string): string {
+  const clean = sanitizeFilename(filename);
   const dot = clean.lastIndexOf(".");
   const stem = dot === -1 ? clean : clean.slice(0, dot);
   const ext = dot === -1 ? "" : clean.slice(dot);
-  const base = stem.replace(/(?:[-_. ]v(?:ersion)?[-_. ]?\d+|[-_. ]+\d+)$/i, "");
-  return `${base || "artifact"}-v${versionNumber}${ext}`;
-}
-
-function filenameAlreadyHasVersion(
-  filename: string,
-  versionNumber: number,
-): boolean {
-  const dot = filename.lastIndexOf(".");
-  const stem = dot === -1 ? filename : filename.slice(0, dot);
-  const escaped = String(versionNumber).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?:^|[-_. ])v(?:ersion)?[-_. ]?${escaped}$`, "i").test(stem);
+  const base = stem
+    .replace(/(?:^|[-_. ])v(?:ersion)?[-_. ]?\d+$/i, "")
+    .replace(/[-_. ]+$/, "");
+  return `${base || "artifact"}${ext}`;
 }
 
 function isCompatibleArtifactRevision(

@@ -199,9 +199,16 @@ export async function streamInlineChatRun({
       }),
       buildAppEditContext({ db, userId, threadId: thread.id }),
     ]);
-    const artifactContextTarget = artifactContextPayload?.matchedArtifact
-      ? toWorkspaceArtifactVersionTarget(artifactContextPayload.matchedArtifact)
-      : null;
+    const artifactContextTarget =
+      artifactContextPayload?.mode === "revision" &&
+      artifactContextPayload.matchedArtifact
+        ? toWorkspaceArtifactVersionTarget(artifactContextPayload.matchedArtifact)
+        : null;
+    const separateFromArtifact =
+      artifactContextPayload?.mode === "separate" &&
+      artifactContextPayload.matchedArtifact
+        ? toWorkspaceArtifactVersionTarget(artifactContextPayload.matchedArtifact)
+        : null;
     const artifactContext = artifactContextPayload?.text ?? null;
     const combinedArtifactContext = [appEditContext, artifactContext]
       .filter(Boolean)
@@ -312,6 +319,7 @@ export async function streamInlineChatRun({
           deniedMcpProviders: blockedProviders,
           contextReceipt,
           ...(artifactContextTarget ? { artifactContextTarget } : {}),
+          ...(separateFromArtifact ? { separateFromArtifact } : {}),
           metrics: buildTimingMetrics(timing),
         },
         updatedAt: new Date(),
@@ -541,6 +549,7 @@ export async function streamInlineChatRun({
           typeof skill.id === "string" ? [skill.id] : [],
         ) ?? [],
       artifactContextTarget,
+      separateFromArtifact,
       completedAt,
     });
 
@@ -584,6 +593,7 @@ async function persistInlineAssistantResult({
   timingMetrics,
   suppressedSkillIds,
   artifactContextTarget,
+  separateFromArtifact,
   completedAt,
 }: {
   db: Database;
@@ -608,6 +618,7 @@ async function persistInlineAssistantResult({
   timingMetrics: ChatRunTimingMetrics;
   suppressedSkillIds: string[];
   artifactContextTarget?: WorkspaceArtifactVersionTarget | null;
+  separateFromArtifact?: WorkspaceArtifactVersionTarget | null;
   completedAt: Date;
 }): Promise<{
   assistantMessageId: string | undefined;
@@ -668,6 +679,7 @@ async function persistInlineAssistantResult({
         runId: runId,
         assistantText,
         targetArtifact: artifactContextTarget,
+        separateFromArtifact,
       });
       if (artifacts.length > 0) {
         await appendInlineRunEvent(db, runId, {
