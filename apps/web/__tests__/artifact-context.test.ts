@@ -205,6 +205,12 @@ describe("formatArtifactContext", () => {
     ).toBe("revision");
     expect(
       artifactContextModeForMessage({
+        message: "update the report and make this a new version with corrected totals",
+        matched: true,
+      }),
+    ).toBe("revision");
+    expect(
+      artifactContextModeForMessage({
         message: "show me v2 of the report",
         matched: true,
       }),

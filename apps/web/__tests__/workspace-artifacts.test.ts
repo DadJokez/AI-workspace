@@ -222,6 +222,40 @@ Here is the revised version:
     });
   });
 
+  it("preserves the source artifact's visible filename casing on revision", () => {
+    const artifacts = parseAssistantArtifacts(`
+\`\`\`html filename="updated.html"
+<!doctype html>
+<html>
+<head><title>Budget Report</title></head>
+<body><h1>Corrected totals</h1></body>
+</html>
+\`\`\`
+`);
+    const targetArtifact: WorkspaceArtifactVersionTarget = {
+      id: "artifact-budget-v2",
+      title: "Budget Report",
+      filename: "Budget-Report-v2.html",
+      artifactGroupId: "artifact-group-budget",
+      versionNumber: 2,
+      metadata: { artifactKey: "budget-report.html" },
+    };
+
+    const planned = planArtifactVersionsForExistingArtifacts({
+      artifacts,
+      priorArtifacts: [],
+      targetArtifact,
+    });
+
+    expect(planned[0]?.version).toMatchObject({
+      artifactKey: "budget-report.html",
+      artifactGroupId: "artifact-group-budget",
+      filename: "Budget-Report.html",
+      versionNumber: 3,
+      supersedesArtifactId: "artifact-budget-v2",
+    });
+  });
+
   it("does not absorb a different file type into a matched artifact group", () => {
     const artifacts = parseAssistantArtifacts(`
 \`\`\`css filename="styles.css"

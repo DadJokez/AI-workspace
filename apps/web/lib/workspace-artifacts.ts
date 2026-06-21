@@ -878,17 +878,7 @@ function isGenericRevisionFilename(filename: string): boolean {
   );
 }
 
-function canonicalFilenameForArtifact(
-  artifact: Pick<WorkspaceArtifact, "filename" | "metadata">,
-): string {
-  const metadata = normalizeMetadata(artifact.metadata);
-  const artifactKey =
-    typeof metadata?.artifactKey === "string"
-      ? sanitizeFilename(metadata.artifactKey)
-      : null;
-  if (artifactKey && normalizedExtension(artifactKey) === normalizedExtension(artifact.filename)) {
-    return artifactKey;
-  }
+function canonicalFilenameForArtifact(artifact: Pick<WorkspaceArtifact, "filename">): string {
   return filenameWithoutVisibleVersionSuffix(artifact.filename);
 }
 
