@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { COMPARATIVE_VERSION_LABEL } from "@/lib/product-version";
 import { ThinkingOrb } from "./ThinkingOrb";
 
 interface NavItem {
@@ -608,6 +609,9 @@ export function Sidebar({
           className="relative mt-auto shrink-0 border-t border-hairline px-3 py-3"
           ref={userMenuRef}
         >
+          <div className="mb-2 px-1 text-[10px] font-medium uppercase tracking-[0.16em] text-muted/70">
+            {COMPARATIVE_VERSION_LABEL}
+          </div>
           <button
             type="button"
             onClick={() => onSignOut && setUserMenuOpen((v) => !v)}

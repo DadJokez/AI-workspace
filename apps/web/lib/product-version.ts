@@ -1,0 +1,2 @@
+export const COMPARATIVE_VERSION = "0.1.0";
+export const COMPARATIVE_VERSION_LABEL = `Alpha v${COMPARATIVE_VERSION}`;

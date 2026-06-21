@@ -3,6 +3,7 @@
 import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
 import { ChatInput, type SlashSkill } from "@/components/ChatInput";
 import type { ChatAttachment } from "@/lib/attachments";
+import { COMPARATIVE_VERSION_LABEL } from "@/lib/product-version";
 import type { ActivatedSlashSkill } from "@/lib/skill-commands";
 import {
   FeedbackReporter,
@@ -1962,6 +1963,9 @@ function EmptyState({ onPick }: { onPick: (s: string) => void }) {
         next — connect what you have in{" "}
         <span className="text-ink">Tools</span>.
       </p>
+      <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted/60">
+        {COMPARATIVE_VERSION_LABEL}
+      </div>
       <div className="flex flex-wrap justify-center gap-2 pt-4">
         {samples.map((s) => (
           <button
