@@ -33,8 +33,16 @@ const STOPWORDS = new Set([
 
 const REVISION_INTENT_RE =
   /\b(?:update|edit|revise|revision|change|modify|tweak|fix|repair|adjust|restyle|redesign|rework|iterate|improve|enhance|add|remove|replace|rename)\b/i;
-const SEPARATE_ARTIFACT_INTENT_RE =
-  /\b(?:copy|duplicate|fork|variant|alternative|alternate|separate|new version|new copy|v\d+|version\s+\d+|keep (?:the )?original|do not overwrite|don't overwrite)\b/i;
+const SEPARATE_ARTIFACT_INTENT_PATTERNS = [
+  /\b(?:make|create|save|generate|write|produce|build)\s+(?:me\s+)?(?:a|an|another|new|separate)?\s*(?:copy|fork|duplicate|variant|alternate|alternative)\b/i,
+  /\b(?:make|create|save|generate|write|produce|build)\s+(?:this|that|it|the\s+\w[\w -]*)\s+as\s+(?:a|an)?\s*(?:copy|fork|duplicate|variant|alternate|alternative|new version|v\d+)\b/i,
+  /\bas\s+(?:a|an)?\s*(?:copy|fork|duplicate|separate variant|new version|v\d+)\b/i,
+  /\b(?:new|separate)\s+(?:copy|fork|duplicate|variant|version)\b/i,
+  /\b(?:fork|duplicate|clone)\s+(?:this|that|it|the\s+(?:artifact|file|document|doc|page|app|deck|html|markdown|md))\b/i,
+  /\b(?:v\d+|version\s+\d+)\b/i,
+  /\bkeep (?:the )?original\b/i,
+  /\b(?:do not|don't)\s+overwrite\b/i,
+];
 const ARTIFACT_REFERENCE_RE =
   /\b(?:artifact|file|document|doc|html|htm|page|site|app|deck|markdown|md|csv|json|spreadsheet|sheet)\b/i;
 const RECENT_REFERENCE_RE =
@@ -100,7 +108,7 @@ export function matchImplicitRevisionArtifact(
 ): WorkspaceArtifactSummary | null {
   if (
     !REVISION_INTENT_RE.test(message) &&
-    !SEPARATE_ARTIFACT_INTENT_RE.test(message)
+    !hasSeparateArtifactIntent(message)
   ) {
     return null;
   }
@@ -172,7 +180,11 @@ export function artifactContextModeForMessage({
   matched: boolean;
 }): ArtifactContextMode {
   if (!matched) return "manifest";
-  return SEPARATE_ARTIFACT_INTENT_RE.test(message) ? "separate" : "revision";
+  return hasSeparateArtifactIntent(message) ? "separate" : "revision";
+}
+
+function hasSeparateArtifactIntent(message: string): boolean {
+  return SEPARATE_ARTIFACT_INTENT_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 /**

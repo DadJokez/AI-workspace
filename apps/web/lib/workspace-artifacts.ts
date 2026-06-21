@@ -418,17 +418,22 @@ export function planArtifactVersionsForExistingArtifacts({
   }> = [];
 
   for (const [index, artifact] of artifacts.entries()) {
+    const parsedArtifactKey = artifactKeyFromFilename(artifact.filename);
+    const separateFromKey = separateFromArtifact
+      ? artifactKeyFromArtifact(separateFromArtifact)
+      : null;
     const separateFilename =
       separateFromArtifact &&
-      artifacts.length === 1 &&
-      isCompatibleArtifactRevision(artifact.filename, separateFromArtifact.filename)
+      separateFromKey &&
+      isCompatibleArtifactRevision(artifact.filename, separateFromArtifact.filename) &&
+      (parsedArtifactKey === separateFromKey ||
+        (artifacts.length === 1 && isGenericRevisionFilename(artifact.filename)))
         ? filenameForSeparateCopy({
             emittedFilename: artifact.filename,
             sourceArtifact: separateFromArtifact,
             existingKeys: latestByKey,
           })
         : null;
-    const parsedArtifactKey = artifactKeyFromFilename(artifact.filename);
     const useTarget =
       !separateFilename &&
       !!targetArtifact &&

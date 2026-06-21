@@ -187,6 +187,18 @@ describe("formatArtifactContext", () => {
     ).toBe("revision");
     expect(
       artifactContextModeForMessage({
+        message: "fix the copy on the page",
+        matched: true,
+      }),
+    ).toBe("revision");
+    expect(
+      artifactContextModeForMessage({
+        message: "add alternative text to the image",
+        matched: true,
+      }),
+    ).toBe("revision");
+    expect(
+      artifactContextModeForMessage({
         message: "what files do I have?",
         matched: false,
       }),
