@@ -1950,8 +1950,8 @@ function EmptyState({ onPick }: { onPick: (s: string) => void }) {
     <div className="flex flex-col items-center gap-4 py-24 text-center">
       <ThinkingOrb
         state="idle"
-        size={88}
-        stroke={8}
+        size={176}
+        stroke={6}
         label="Comparative"
         className="text-ink"
       />

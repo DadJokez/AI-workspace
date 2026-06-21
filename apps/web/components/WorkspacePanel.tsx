@@ -149,8 +149,8 @@ function ArtifactGroupRow({
             {latest.title}
           </button>
           <p className="mt-0.5 truncate text-[12px] text-muted">
-            {latest.filename} · v{latest.versionNumber} ·{" "}
-            {formatBytes(latest.sizeBytes)} · {formatDate(latest.createdAt)}
+            {latest.filename} · {formatBytes(latest.sizeBytes)} ·{" "}
+            {formatDate(latest.createdAt)}
           </p>
         </div>
         {versions.length > 1 ? (

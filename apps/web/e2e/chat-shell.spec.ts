@@ -21,8 +21,8 @@ test.describe("chat shell guardrails", () => {
 
     const landingOrb = page.locator('main svg[aria-label="Comparative"]');
     await expect(landingOrb).toBeVisible();
-    await expect(landingOrb).toHaveAttribute("width", "88");
-    await expect(landingOrb).toHaveAttribute("height", "88");
+    await expect(landingOrb).toHaveAttribute("width", "176");
+    await expect(landingOrb).toHaveAttribute("height", "176");
     await expect(
       page.locator("main").getByText(COMPARATIVE_VERSION_LABEL),
     ).toBeVisible();

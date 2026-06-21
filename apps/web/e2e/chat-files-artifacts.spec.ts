@@ -302,7 +302,7 @@ test.describe("chat files and artifacts", () => {
     const revisedArtifactSummary = {
       ...defaultArtifactSummary,
       id: "artifact-demo-html-v2",
-      filename: "demo-artifact-v2.html",
+      filename: "demo-artifact.html",
       chatMessageId: "assistant-revised",
       runId: "run-revised",
       versionNumber: 2,
@@ -414,18 +414,18 @@ test.describe("chat files and artifacts", () => {
       .fill("update the prior made html file with a revised headline");
     await page.getByRole("button", { name: "Send" }).click();
 
-    await expect(
-      page.getByRole("button", { name: /demo-artifact-v2\.html/i }),
-    ).toBeVisible();
+    const revisedArtifactPill = page.locator(
+      '[data-testid="artifact-pill"][data-artifact-id="artifact-demo-html-v2"]',
+    );
+    await expect(revisedArtifactPill).toBeVisible();
     if (isMobile) {
-      await page.getByRole("button", { name: /demo-artifact-v2\.html/i }).click();
+      await revisedArtifactPill.click();
     }
     const revisedPreviewPane = page.getByRole("complementary", {
       name: "Artifact preview",
     });
-    await expect(
-      revisedPreviewPane.getByText(/demo-artifact-v2\.html · v2/i),
-    ).toBeVisible();
+    await expect(revisedPreviewPane).toContainText("demo-artifact.html");
+    await expect(revisedPreviewPane).not.toContainText("demo-artifact.html · v2");
     await expect(
       revisedPreviewPane.frameLocator("iframe").getByRole("heading", {
         name: "Revised Demo Artifact",

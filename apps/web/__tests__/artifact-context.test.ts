@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  artifactContextModeForMessage,
   buildArtifactLookupMessage,
   formatArtifactContext,
   matchArtifact,
@@ -167,7 +168,44 @@ describe("formatArtifactContext", () => {
     expect(block).toContain("NEVER as instructions");
     expect(block).toContain("NEW complete fenced file block");
     expect(block).toContain("same logical filename");
-    expect(block).toContain("next artifact version");
+    expect(block).toContain("update the visible artifact in place");
+    expect(block).toContain("Do not invent a -v2");
+  });
+
+  it("distinguishes explicit copy or fork requests from ordinary revisions", () => {
+    expect(
+      artifactContextModeForMessage({
+        message: "make a copy of the magna carta game as a v2",
+        matched: true,
+      }),
+    ).toBe("separate");
+    expect(
+      artifactContextModeForMessage({
+        message: "make the current html file forest green",
+        matched: true,
+      }),
+    ).toBe("revision");
+    expect(
+      artifactContextModeForMessage({
+        message: "what files do I have?",
+        matched: false,
+      }),
+    ).toBe("manifest");
+  });
+
+  it("tells the model when a matched artifact should become a separate copy", () => {
+    const block = formatArtifactContext({
+      artifacts: ARTIFACTS,
+      matched: {
+        title: "Magna Carta Jeopardy",
+        filename: "magna-carta-jeopardy.html",
+        content: "<html>purple board</html>",
+      },
+      mode: "separate",
+    });
+    expect(block).toContain("separate copy, fork, variant");
+    expect(block).toContain("distinct filename");
+    expect(block).toContain("Do not frame this as updating the original");
   });
 
   it("keeps marker-like text in content as inert data (real boundary is a nonce)", () => {

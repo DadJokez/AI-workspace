@@ -240,6 +240,8 @@ function ArtifactStrip({
           <button
             key={artifact.id}
             type="button"
+            data-testid="artifact-pill"
+            data-artifact-id={artifact.id}
             onClick={() => onOpenArtifact(artifact)}
             className={artifactPillClassName}
           >
@@ -249,6 +251,8 @@ function ArtifactStrip({
           <a
             key={artifact.id}
             href={artifact.previewUrl}
+            data-testid="artifact-pill"
+            data-artifact-id={artifact.id}
             className={artifactPillClassName}
           >
             <ArtifactPillContent artifact={artifact} />
@@ -273,11 +277,6 @@ function ArtifactPillContent({
         {artifact.kind.slice(0, 4)}
       </span>
       <span className="min-w-0 truncate font-medium">{artifact.filename}</span>
-      {artifact.versionNumber > 1 ? (
-        <span className="shrink-0 rounded-full bg-white/[0.18] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white/[0.88]">
-          v{artifact.versionNumber}
-        </span>
-      ) : null}
       <span className="shrink-0 text-white/[0.72]">
         {formatBytes(artifact.sizeBytes)}
       </span>

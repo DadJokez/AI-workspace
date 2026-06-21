@@ -10,8 +10,7 @@ function artifact(
 ): WorkspaceArtifactSummary {
   return {
     title: "Demo Artifact",
-    filename:
-      partial.versionNumber > 1 ? "demo-artifact-v2.html" : "demo-artifact.html",
+    filename: "demo-artifact.html",
     kind: "html",
     mimeType: "text/html",
     sizeBytes: 1200,
