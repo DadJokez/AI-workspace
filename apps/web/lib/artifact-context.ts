@@ -37,9 +37,8 @@ const SEPARATE_ARTIFACT_INTENT_PATTERNS = [
   /\b(?:make|create|save|generate|write|produce|build)\s+(?:me\s+)?(?:a|an|another|new|separate)?\s*(?:copy|fork|duplicate|variant|alternate|alternative)\b/i,
   /\b(?:make|create|save|generate|write|produce|build)\s+(?:this|that|it|the\s+\w[\w -]*)\s+as\s+(?:a|an)?\s*(?:copy|fork|duplicate|variant|alternate|alternative|new version|v\d+)\b/i,
   /\bas\s+(?:a|an)?\s*(?:copy|fork|duplicate|separate variant|new version|v\d+)\b/i,
-  /\b(?:new|separate)\s+(?:copy|fork|duplicate|variant|version)\b/i,
+  /\b(?:new|separate)\s+(?:copy|fork|duplicate|variant|version|v\d+)\b/i,
   /\b(?:fork|duplicate|clone)\s+(?:this|that|it|the\s+(?:artifact|file|document|doc|page|app|deck|html|markdown|md))\b/i,
-  /\b(?:v\d+|version\s+\d+)\b/i,
   /\bkeep (?:the )?original\b/i,
   /\b(?:do not|don't)\s+overwrite\b/i,
 ];

@@ -199,6 +199,24 @@ describe("formatArtifactContext", () => {
     ).toBe("revision");
     expect(
       artifactContextModeForMessage({
+        message: "update the v2 section heading",
+        matched: true,
+      }),
+    ).toBe("revision");
+    expect(
+      artifactContextModeForMessage({
+        message: "show me v2 of the report",
+        matched: true,
+      }),
+    ).toBe("revision");
+    expect(
+      artifactContextModeForMessage({
+        message: "save this as a v2",
+        matched: true,
+      }),
+    ).toBe("separate");
+    expect(
+      artifactContextModeForMessage({
         message: "what files do I have?",
         matched: false,
       }),
