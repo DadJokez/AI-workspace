@@ -36,6 +36,13 @@ interface OAuthStatusPayload extends Record<string, unknown> {
   providerDetails?: Record<string, OAuthProviderDetail>;
 }
 
+interface IntegrationCardState {
+  integration: Integration;
+  connected: boolean;
+  executionPending: boolean;
+  failed: boolean;
+}
+
 const INTEGRATIONS: Integration[] = [
   {
     id: "github",
@@ -184,6 +191,28 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
     return () => window.removeEventListener("keydown", handler);
   }, [activeIntegration, onClose]);
 
+  const cards = INTEGRATIONS.map((integration): IntegrationCardState => {
+    const detail = oauthStatus.providerDetails?.[integration.id];
+    const connected =
+      detail?.connected === true || oauthStatus[integration.id] === true;
+    const toolAvailable = detail?.toolAvailable ?? connected;
+    return {
+      integration,
+      connected,
+      executionPending:
+        connected && integration.id === "notion" && !toolAvailable,
+      failed:
+        oauthNotice?.provider === integration.id && Boolean(oauthNotice.error),
+    };
+  });
+  const connectedCards = cards.filter((card) => card.connected);
+  const availableCards = cards.filter(
+    (card) => !card.connected && card.integration.real,
+  );
+  const comingSoonCards = cards.filter(
+    (card) => !card.connected && !card.integration.real,
+  );
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-11 shrink-0 items-center gap-1 border-b border-hairline bg-canvas">
@@ -241,105 +270,27 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {INTEGRATIONS.map((it) => {
-              const detail = oauthStatus.providerDetails?.[it.id];
-              const connected =
-                detail?.connected === true || oauthStatus[it.id] === true;
-              const toolAvailable = detail?.toolAvailable ?? connected;
-              const executionPending = connected && it.id === "notion" && !toolAvailable;
-              const failed =
-                oauthNotice?.provider === it.id && Boolean(oauthNotice.error);
-              return (
-                <div
-                  key={it.id}
-                  data-testid={`tool-card-${it.id}`}
-                  className="flex flex-col gap-3 rounded-lg border border-hairline p-4 transition-colors hover:bg-subtle"
-                >
-                  <div className="flex items-start gap-3">
-                    <div
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-base font-semibold"
-                      style={{ backgroundColor: it.bg, color: it.fg }}
-                      aria-hidden
-                    >
-                      {it.initial}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-ink">
-                        {it.name}
-                      </div>
-                      <div className="line-clamp-2 text-[12px] text-muted">
-                        {it.description}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    {failed ? (
-                      <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
-                        Auth failed
-                      </span>
-                    ) : executionPending ? (
-                      <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
-                        Linked
-                      </span>
-                    ) : connected ? (
-                      <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-ink">
-                        <svg
-                          viewBox="0 0 16 16"
-                          width="12"
-                          height="12"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
-                        >
-                          <path d="m3 8 3.5 3.5L13 5" />
-                        </svg>
-                        Connected
-                      </span>
-                    ) : (
-                      <span className="rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
-                        {it.real ? "Not connected" : "Coming soon"}
-                      </span>
-                    )}
-                    {it.real ? (
-                      connected ? (
-                        <div className="flex flex-col items-end gap-1 text-right">
-                          <span className="text-[11px] text-muted">
-                            {executionPending
-                              ? "Setup needed for chat"
-                              : "Ready in chat"}
-                          </span>
-                          <a
-                            href={`/api/oauth/${it.id}/start`}
-                            className="text-[11px] text-muted underline-offset-2 hover:text-ink hover:underline"
-                          >
-                            Reconnect
-                          </a>
-                        </div>
-                      ) : (
-                        <a
-                          href={`/api/oauth/${it.id}/start`}
-                          className="rounded-md border border-hairline bg-canvas px-3 py-1 text-xs font-medium text-ink hover:bg-subtle"
-                        >
-                          {failed ? "Reconnect" : "Connect"}
-                        </a>
-                      )
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setActiveIntegration(it)}
-                        className="rounded-md border border-hairline bg-canvas px-3 py-1 text-xs font-medium text-ink hover:bg-subtle"
-                      >
-                        Connect
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+          <div className="flex flex-col gap-5">
+            {connectedCards.length > 0 ? (
+              <ToolsSection
+                title="Connected"
+                testId="tools-section-connected"
+                cards={connectedCards}
+                onOpenComingSoon={setActiveIntegration}
+              />
+            ) : null}
+            <ToolsSection
+              title="Available"
+              testId="tools-section-available"
+              cards={availableCards}
+              onOpenComingSoon={setActiveIntegration}
+            />
+            <ToolsSection
+              title="Coming soon"
+              testId="tools-section-coming-soon"
+              cards={comingSoonCards}
+              onOpenComingSoon={setActiveIntegration}
+            />
           </div>
         </div>
       </div>
@@ -350,6 +301,136 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
           onClose={() => setActiveIntegration(undefined)}
         />
       ) : null}
+    </div>
+  );
+}
+
+function ToolsSection({
+  title,
+  testId,
+  cards,
+  onOpenComingSoon,
+}: {
+  title: string;
+  testId: string;
+  cards: IntegrationCardState[];
+  onOpenComingSoon: (integration: Integration) => void;
+}) {
+  if (cards.length === 0) return null;
+  return (
+    <section data-testid={testId} className="flex flex-col gap-2">
+      <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted">
+        {title}
+      </h3>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {cards.map((card) => (
+          <IntegrationCard
+            key={card.integration.id}
+            card={card}
+            onOpenComingSoon={onOpenComingSoon}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function IntegrationCard({
+  card,
+  onOpenComingSoon,
+}: {
+  card: IntegrationCardState;
+  onOpenComingSoon: (integration: Integration) => void;
+}) {
+  const { integration, connected, executionPending, failed } = card;
+  return (
+    <div
+      data-testid={`tool-card-${integration.id}`}
+      className={`flex flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-subtle ${
+        connected
+          ? "border-[#2f6bff]/45 bg-[#06112f]/35 shadow-[0_0_18px_rgba(0,92,255,0.16)]"
+          : "border-hairline"
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-base font-semibold"
+          style={{ backgroundColor: integration.bg, color: integration.fg }}
+          aria-hidden
+        >
+          {integration.initial}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-ink">
+            {integration.name}
+          </div>
+          <div className="line-clamp-2 text-[12px] text-muted">
+            {integration.description}
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        {failed ? (
+          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+            Auth failed
+          </span>
+        ) : executionPending ? (
+          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+            Linked
+          </span>
+        ) : connected ? (
+          <span className="inline-flex items-center gap-1 rounded bg-[#0b3ed9]/45 px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#dbe8ff] ring-1 ring-[#67a3ff]/35">
+            <svg
+              viewBox="0 0 16 16"
+              width="12"
+              height="12"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m3 8 3.5 3.5L13 5" />
+            </svg>
+            Connected
+          </span>
+        ) : (
+          <span className="rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+            {integration.real ? "Not connected" : "Coming soon"}
+          </span>
+        )}
+        {integration.real ? (
+          connected ? (
+            <div className="flex flex-col items-end gap-1 text-right">
+              <span className="text-[11px] text-muted">
+                {executionPending ? "Setup needed for chat" : "Ready in chat"}
+              </span>
+              <a
+                href={`/api/oauth/${integration.id}/start`}
+                className="text-[11px] text-muted underline-offset-2 hover:text-ink hover:underline"
+              >
+                Reconnect
+              </a>
+            </div>
+          ) : (
+            <a
+              href={`/api/oauth/${integration.id}/start`}
+              className="rounded-md border border-hairline bg-canvas px-3 py-1 text-xs font-medium text-ink hover:bg-subtle"
+            >
+              {failed ? "Reconnect" : "Connect"}
+            </a>
+          )
+        ) : (
+          <button
+            type="button"
+            onClick={() => onOpenComingSoon(integration)}
+            className="rounded-md border border-hairline bg-canvas px-3 py-1 text-xs font-medium text-ink hover:bg-subtle"
+          >
+            Connect
+          </button>
+        )}
+      </div>
     </div>
   );
 }

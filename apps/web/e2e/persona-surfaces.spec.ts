@@ -138,6 +138,33 @@ test.describe("persona and workspace surfaces", () => {
       .toHaveAttribute("href", "/api/oauth/notion/start");
   });
 
+  test("prioritizes connected tools above disconnected tools", async ({
+    page,
+    isMobile,
+  }) => {
+    await installMockComparativeApi(page, {
+      oauthStatus: { github: false, notion: true },
+    });
+    await gotoE2EChat(page);
+
+    await openNavItem(page, "Tools", isMobile);
+    const connectedSection = page.getByTestId("tools-section-connected");
+    const availableSection = page.getByTestId("tools-section-available");
+
+    await expect(connectedSection.getByTestId("tool-card-notion"))
+      .toBeVisible();
+    await expect(availableSection.getByTestId("tool-card-github"))
+      .toBeVisible();
+
+    const cardOrder = await page
+      .locator('[data-testid^="tool-card-"]')
+      .evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute("data-testid")),
+      );
+    expect(cardOrder[0]).toBe("tool-card-notion");
+    expect(cardOrder[1]).toBe("tool-card-github");
+  });
+
   test("shows connected and failed Notion OAuth feedback in Tools", async ({
     page,
     isMobile,
