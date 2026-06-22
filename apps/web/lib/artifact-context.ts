@@ -21,7 +21,10 @@ import {
  */
 
 const MANIFEST_LIMIT = 24;
-const MAX_INJECTED_CONTENT_CHARS = 60_000;
+// Workspace artifacts are capped at 500k chars when saved. Keep revision
+// context aligned with that cap so the model never revises a silently truncated
+// copy of an artifact that Comparative can otherwise store.
+const MAX_INJECTED_CONTENT_CHARS = 500_000;
 
 // Words too generic to identify a specific artifact by title.
 const STOPWORDS = new Set([
@@ -47,6 +50,19 @@ const ARTIFACT_REFERENCE_RE =
   /\b(?:artifact|file|document|doc|html|htm|page|site|app|deck|markdown|md|csv|json|spreadsheet|sheet)\b/i;
 const RECENT_REFERENCE_RE =
   /\b(?:it|that|this|same|existing|current|prior|previous|last|latest|earlier|the one)\b/i;
+const LIST_INTENT_RE =
+  /\bartifacts?\b|\bmy (files|docs|documents|work|stuff)\b|what (have|did) i (make|made|create|build|built)|(things|stuff) i('| ha)?ve (made|built|created)/i;
+
+export function shouldIncludeArtifactManifestForMessage(message: string): boolean {
+  return LIST_INTENT_RE.test(message) || hasArtifactRevisionReference(message);
+}
+
+function hasArtifactRevisionReference(message: string): boolean {
+  return (
+    (REVISION_INTENT_RE.test(message) || hasSeparateArtifactIntent(message)) &&
+    (ARTIFACT_REFERENCE_RE.test(message) || RECENT_REFERENCE_RE.test(message))
+  );
+}
 
 /** Significant lowercase tokens from an artifact's title + filename stem. */
 function artifactTokens(artifact: WorkspaceArtifactSummary): string[] {
@@ -141,9 +157,6 @@ export function matchImplicitRevisionArtifact(
   return scoped[0] ?? null;
 }
 
-const LIST_INTENT_RE =
-  /\bartifacts?\b|\bmy (files|docs|documents|work|stuff)\b|what (have|did) i (make|made|create|build|built)|(things|stuff) i('| ha)?ve (made|built|created)/i;
-
 export function buildArtifactLookupMessage(
   messages: readonly { role: string; content: string }[],
   fallback: string,
@@ -195,10 +208,14 @@ export function formatArtifactContext({
   artifacts,
   matched,
   mode = matched ? "revision" : "manifest",
+  unresolvedReference = false,
+  unavailableMatched,
 }: {
   artifacts: readonly WorkspaceArtifactSummary[];
   matched: MatchedArtifactContent | null;
   mode?: ArtifactContextMode;
+  unresolvedReference?: boolean;
+  unavailableMatched?: Pick<WorkspaceArtifactSummary, "title" | "filename"> | null;
 }): string {
   const lines: string[] = [];
   lines.push(
@@ -206,6 +223,20 @@ export function formatArtifactContext({
   );
   for (const artifact of artifacts) {
     lines.push(`- "${artifact.title}" — ${artifact.kind}, ${artifact.filename}`);
+  }
+
+  if (unresolvedReference) {
+    lines.push("");
+    lines.push(
+      "The user appears to be asking to revise, update, fork, or otherwise work on an existing artifact, but no single artifact matched confidently. Do NOT create a new artifact and do NOT guess which file to edit. Ask the user which artifact they mean, using the exact artifact titles or filenames listed above.",
+    );
+  }
+
+  if (unavailableMatched) {
+    lines.push("");
+    lines.push(
+      `The user appears to be referring to "${unavailableMatched.title}" (${unavailableMatched.filename}), but Comparative could not load that artifact's content for this turn. Do NOT create a new artifact from memory. Tell the user the artifact content could not be loaded and ask them to retry or choose another artifact.`,
+    );
   }
 
   if (matched) {
@@ -267,13 +298,16 @@ export async function buildArtifactContextPayload({
   if (artifacts.length === 0) return null;
 
   const matched = matchArtifact(message, artifacts, { threadId });
-  if (!matched && !LIST_INTENT_RE.test(message)) return null;
+  const unresolvedReference =
+    !matched && hasArtifactRevisionReference(message);
+  if (!matched && !shouldIncludeArtifactManifestForMessage(message)) return null;
   const mode = artifactContextModeForMessage({
     message,
     matched: Boolean(matched),
   });
 
   let matchedContent: MatchedArtifactContent | null = null;
+  let unavailableMatched: WorkspaceArtifactSummary | null = null;
   if (matched) {
     try {
       const full = await loadWorkspaceArtifactForUser({
@@ -287,16 +321,26 @@ export async function buildArtifactContextPayload({
           filename: full.filename,
           content: full.content,
         };
+      } else {
+        unavailableMatched = matched;
       }
     } catch {
-      // Manifest alone still helps the model name what it can see.
+      unavailableMatched = matched;
     }
   }
+  const effectiveMatched = matchedContent ? matched : null;
+  const effectiveMode: ArtifactContextMode = matchedContent ? mode : "manifest";
 
   return {
-    text: formatArtifactContext({ artifacts, matched: matchedContent, mode }),
-    matchedArtifact: matched,
-    mode,
+    text: formatArtifactContext({
+      artifacts,
+      matched: matchedContent,
+      mode: effectiveMode,
+      unresolvedReference,
+      unavailableMatched,
+    }),
+    matchedArtifact: effectiveMatched,
+    mode: effectiveMode,
   };
 }
 

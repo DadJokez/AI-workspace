@@ -98,6 +98,18 @@ Here is the improved game:
     expect(artifacts).toHaveLength(0);
   });
 
+  it("does not persist explicit html snippets as complete artifacts", () => {
+    const artifacts = parseAssistantArtifacts(`
+Here is the updated section:
+
+\`\`\`html filename="theme-picker.html"
+<section class="theme-picker">Only the changed section</section>
+\`\`\`
+`);
+
+    expect(artifacts).toHaveLength(0);
+  });
+
   it("ignores tiny illustrative snippets without filenames", () => {
     const artifacts = parseAssistantArtifacts(`
 \`\`\`ts
