@@ -86,14 +86,14 @@ export default async function AdminFeedbackPage({ searchParams }: Props) {
 
   return (
     <section className="py-2">
-      <div className="px-6 pb-3 pt-4">
+      <div className="px-4 pb-3 pt-4 sm:px-6">
         <h2 className="text-base font-semibold text-ink">Feedback</h2>
         <p className="mt-1 text-[12px] text-muted">
           Alpha tester reports with chat context, browser details, and triage state.
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 px-6 pb-4">
+      <div className="flex flex-wrap items-center gap-2 px-4 pb-4 sm:px-6">
         {STATUS_FILTERS.map((item) => {
           const count =
             item.value === "all" ? total : (countByStatus.get(item.value) ?? 0);
@@ -107,7 +107,7 @@ export default async function AdminFeedbackPage({ searchParams }: Props) {
             </FilterPill>
           );
         })}
-        <span className="ml-auto text-[12px] text-muted">
+        <span className="w-full text-[12px] text-muted sm:ml-auto sm:w-auto">
           showing {out.length.toLocaleString()} report{out.length === 1 ? "" : "s"}
         </span>
       </div>

@@ -168,7 +168,7 @@ test.describe("chat files and artifacts", () => {
     page,
     isMobile,
   }) => {
-    const repeatedRows = Array.from({ length: 80 }, (_, index) => {
+    const repeatedRows = Array.from({ length: 240 }, (_, index) => {
       return `<li>Demo row ${index + 1}</li>`;
     }).join("");
     const htmlDoc = [
@@ -229,6 +229,18 @@ test.describe("chat files and artifacts", () => {
     await expect(
       page.getByRole("button", { name: /demo-artifact\.html/i }),
     ).toBeVisible();
+
+    await page.getByText("Show code").click();
+    const codePreview = page.getByTestId("artifact-code-preview-scroll");
+    await expect(codePreview).toBeVisible();
+    await expect(codePreview).toContainText("Demo row 240");
+    const codeMetrics = await codePreview.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      text: element.textContent ?? "",
+    }));
+    expect(codeMetrics.scrollHeight).toBeGreaterThan(codeMetrics.clientHeight);
+    expect(codeMetrics.text).not.toContain("\n...");
 
     const chatPane = page.getByTestId("chat-workspace-pane");
     const chatWidthBefore = await chatPane.evaluate(

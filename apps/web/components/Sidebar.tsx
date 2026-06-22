@@ -307,7 +307,7 @@ export function Sidebar({
       <aside
         aria-label="Primary"
         data-density="nav"
-        className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col overflow-y-auto border-r border-hairline bg-sidebar transition-transform duration-200 md:static md:z-auto md:w-60 md:max-w-none md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col overflow-hidden border-r border-hairline bg-sidebar transition-transform duration-200 md:static md:z-auto md:w-60 md:max-w-none md:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -339,61 +339,62 @@ export function Sidebar({
           </button>
         </div>
 
-        <div className="shrink-0 px-2 pb-1.5 pt-2">
-          <div className="flex min-h-[28px] items-center gap-1 px-2 pb-1 pt-1">
-            <button
-              type="button"
-              onClick={() => setHistoryOpen((v) => !v)}
-              aria-expanded={historyOpen}
-              aria-label={
-                historyOpen
-                  ? `Collapse ${historyLabel.toLowerCase()}`
-                  : `Expand ${historyLabel.toLowerCase()}`
-              }
-              className="flex flex-1 items-center gap-1.5 rounded-md text-left text-[10px] font-medium uppercase tracking-wider text-muted hover:text-ink"
-            >
-              <svg
-                viewBox="0 0 16 16"
-                width="10"
-                height="10"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className={`transition-transform ${historyOpen ? "rotate-90" : ""}`}
-                aria-hidden="true"
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="shrink-0 px-2 pb-1.5 pt-2">
+            <div className="flex min-h-[28px] items-center gap-1 px-2 pb-1 pt-1">
+              <button
+                type="button"
+                onClick={() => setHistoryOpen((v) => !v)}
+                aria-expanded={historyOpen}
+                aria-label={
+                  historyOpen
+                    ? `Collapse ${historyLabel.toLowerCase()}`
+                    : `Expand ${historyLabel.toLowerCase()}`
+                }
+                className="flex flex-1 items-center gap-1.5 rounded-md text-left text-[10px] font-medium uppercase tracking-wider text-muted hover:text-ink"
               >
-                <path d="m6 4 4 4-4 4" />
-              </svg>
-              <span>{historyLabel}</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleNewChat}
-              aria-label="New chat"
-              title="New chat"
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-subtle hover:text-ink"
-            >
-              <IconPlus />
-            </button>
-          </div>
-          {historyOpen ? (
-            <div className="max-h-[40vh] overflow-y-auto">
-              {threadsLoading && threads.length === 0 ? (
-                <ThreadsSkeleton />
-              ) : threadsError && threads.length === 0 ? (
-                <div className="px-2 py-2 text-[12px] text-muted">
-                  Couldn&apos;t load history. Try again later.
-                </div>
-              ) : threads.length === 0 ? (
-                <div className="px-2 py-2 text-[12px] text-muted">
-                  No conversations yet.
-                </div>
-              ) : (
-                <div className="flex flex-col pb-1.5">
-                  <ul className="flex flex-col">
-                    {threads.map((t) => {
+                <svg
+                  viewBox="0 0 16 16"
+                  width="10"
+                  height="10"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={`transition-transform ${historyOpen ? "rotate-90" : ""}`}
+                  aria-hidden="true"
+                >
+                  <path d="m6 4 4 4-4 4" />
+                </svg>
+                <span>{historyLabel}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleNewChat}
+                aria-label="New chat"
+                title="New chat"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-subtle hover:text-ink"
+              >
+                <IconPlus />
+              </button>
+            </div>
+            {historyOpen ? (
+              <div className="max-h-[40vh] overflow-y-auto">
+                {threadsLoading && threads.length === 0 ? (
+                  <ThreadsSkeleton />
+                ) : threadsError && threads.length === 0 ? (
+                  <div className="px-2 py-2 text-[12px] text-muted">
+                    Couldn&apos;t load history. Try again later.
+                  </div>
+                ) : threads.length === 0 ? (
+                  <div className="px-2 py-2 text-[12px] text-muted">
+                    No conversations yet.
+                  </div>
+                ) : (
+                  <div className="flex flex-col pb-1.5">
+                    <ul className="flex flex-col">
+                      {threads.map((t) => {
                           const active = t.id === activeThreadId;
                           const title = t.title?.trim() || "Untitled";
                           const isRenaming = renamingId === t.id;
@@ -526,28 +527,28 @@ export function Sidebar({
                               ) : null}
                             </li>
                           );
-                        })}
-                  </ul>
-                </div>
-              )}
-            </div>
-          ) : null}
-        </div>
+                          })}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
 
-        <nav className="shrink-0 px-2 pb-2">
-          {navGroups.map((group, gi) => (
-            <div key={gi} className="py-1.5">
-              <div className="mx-2 mb-1.5 h-px bg-hairline" aria-hidden />
-              {group.label ? (
-                <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted">
-                  {group.label}
-                </div>
-              ) : null}
-              <ul className="flex flex-col">
-                {group.items.map((item) => {
-                  const active = item.id === activeNavId;
-                  const disabled = !!item.disabled;
-                  if (item.href) {
+          <nav className="shrink-0 px-2 pb-2">
+            {navGroups.map((group, gi) => (
+              <div key={gi} className="py-1.5">
+                <div className="mx-2 mb-1.5 h-px bg-hairline" aria-hidden />
+                {group.label ? (
+                  <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted">
+                    {group.label}
+                  </div>
+                ) : null}
+                <ul className="flex flex-col">
+                  {group.items.map((item) => {
+                    const active = item.id === activeNavId;
+                    const disabled = !!item.disabled;
+                    if (item.href) {
                     return (
                       <li key={item.id}>
                         <a
@@ -569,41 +570,42 @@ export function Sidebar({
                       </li>
                     );
                   }
-                  return (
-                    <li key={item.id}>
-                      <button
-                        type="button"
-                        data-tour={`nav-${item.id}`}
-                        onClick={() => handleNavClick(item)}
-                        disabled={disabled}
-                        aria-current={active ? "page" : undefined}
-                        aria-disabled={disabled || undefined}
-                        title={item.tooltip}
-                        className={`flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] md:min-h-0 md:py-1.5 ${
-                          disabled
-                            ? "cursor-not-allowed text-muted/60"
-                            : active
-                              ? "bg-subtle text-ink"
-                              : "text-muted hover:bg-subtle hover:text-ink"
-                        }`}
-                      >
-                        <span className="flex h-4 w-4 items-center justify-center text-current">
-                          {item.icon}
-                        </span>
-                        <span className="flex-1 truncate">{item.label}</span>
-                        {item.badge ? (
-                          <span className="rounded bg-subtle px-1.5 text-[10px] uppercase tracking-wider text-muted">
-                            {item.badge}
+                    return (
+                      <li key={item.id}>
+                        <button
+                          type="button"
+                          data-tour={`nav-${item.id}`}
+                          onClick={() => handleNavClick(item)}
+                          disabled={disabled}
+                          aria-current={active ? "page" : undefined}
+                          aria-disabled={disabled || undefined}
+                          title={item.tooltip}
+                          className={`flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] md:min-h-0 md:py-1.5 ${
+                            disabled
+                              ? "cursor-not-allowed text-muted/60"
+                              : active
+                                ? "bg-subtle text-ink"
+                                : "text-muted hover:bg-subtle hover:text-ink"
+                          }`}
+                        >
+                          <span className="flex h-4 w-4 items-center justify-center text-current">
+                            {item.icon}
                           </span>
-                        ) : null}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
-        </nav>
+                          <span className="flex-1 truncate">{item.label}</span>
+                          {item.badge ? (
+                            <span className="rounded bg-subtle px-1.5 text-[10px] uppercase tracking-wider text-muted">
+                              {item.badge}
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+          </nav>
+        </div>
 
         <div
           className="relative mt-auto shrink-0 border-t border-hairline px-3 py-3"
