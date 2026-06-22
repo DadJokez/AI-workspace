@@ -8,6 +8,7 @@ export interface GoldenTranscriptConfig {
   expect: {
     availableCapabilities?: string[];
     modelClaimsMatchLabels?: boolean;
+    assistantIdentityConsistent?: boolean;
     describedFilesHaveArtifacts?: boolean;
     attachmentMentionsHaveEvidence?: boolean;
     noManualSaveInstructionsAfterArtifacts?: boolean;
@@ -78,7 +79,16 @@ const CAPABILITY_DENIALS: Record<string, RegExp> = {
     /\b(github (is )?(not connected|disconnected)|don't have (access to )?github|do not have (access to )?github|can't access github|cannot access github|not able to reach github|unable to reach github|no tools are connected|not connected to github)\b/i,
   tools:
     /\b(no tools are connected|don't have access to tools|do not have access to tools|can't access tools|cannot access tools)\b/i,
+  // Locks the cross-thread artifact regression: a new thread must reach the
+  // user's existing artifacts by name, never claim it is starting blank.
+  artifacts:
+    /\b(don't (see|have) any (prior |previous |earlier |saved )?artifacts|do not (see|have) any (prior |previous |earlier |saved )?artifacts|don't have access to (your )?(prior|previous|earlier|other) (artifacts|conversations|chats|threads)|can't (see|access) (your )?(prior|previous|earlier|other) (artifacts|conversations|chats|threads)|this is a (brand[- ]?new|fresh|new|separate) (conversation|chat|thread)|starting (over|fresh|from scratch)|no (prior|previous|earlier) (conversation|chat|context) (to|that i can) (reference|access|see))\b/i,
 };
+
+// A competitor-identity claim a correct assistant never makes. The negative
+// lookahead keeps honest denials ("I'm not ChatGPT") from tripping it.
+const COMPETITOR_IDENTITY_RE =
+  /\b(?:i am|i'?m|i’m|you are talking to|you'?re talking to|you’re talking to|you are using|you'?re using|you’re using|this is)\s+(?!not\b|no\b|never\b)(?:really\s+)?(?:a |an |the )?(chatgpt|gpt(?:[-\s]?\d[\w.]*)?|google\s+bard|bard|gemini)\b/i;
 
 export function parseGoldenTranscriptConfig(
   markdown: string,
@@ -249,6 +259,9 @@ function evaluateTranscript(
   if (expect.modelClaimsMatchLabels) {
     assertions.push(assertModelClaimsMatchLabels(transcript));
   }
+  if (expect.assistantIdentityConsistent) {
+    assertions.push(assertAssistantIdentityConsistent(transcript));
+  }
   if (expect.describedFilesHaveArtifacts) {
     assertions.push(assertDescribedFilesHaveArtifacts(transcript));
   }
@@ -308,6 +321,22 @@ function assertModelClaimsMatchLabels(
     label: "assistant model claims match transcript labels",
     detail: mismatch
       ? `assistant message ${mismatch.message.index} label "${mismatch.message.modelLabel}" conflicts with claim(s): ${mismatch.claimFamilies.join(", ")}`
+      : undefined,
+  };
+}
+
+function assertAssistantIdentityConsistent(
+  transcript: ParsedTranscript,
+): ReplayAssertionResult {
+  const claim = transcript.messages
+    .filter((message) => message.role === "assistant")
+    .map((message) => ({ message, match: message.content.match(COMPETITOR_IDENTITY_RE)?.[0] }))
+    .find((item) => item.match);
+  return {
+    ok: !claim,
+    label: "assistant does not claim a competitor identity",
+    detail: claim
+      ? `assistant message ${claim.message.index} claimed a competitor identity with "${claim.match}"`
       : undefined,
   };
 }
