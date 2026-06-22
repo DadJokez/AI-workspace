@@ -630,9 +630,11 @@ function shouldSaveArtifact({
   if (!closed && !isLikelyCompleteUnclosedArtifact(content, language, explicitFilename)) {
     return false;
   }
+  if (isHtmlArtifactCandidate(content, language, explicitFilename)) {
+    return isCompleteHtmlDocument(content);
+  }
   if (explicitFilename) return true;
   if (content.length < MIN_IMPLICIT_ARTIFACT_CHARS) return false;
-  if (/<!doctype\s+html|<html[\s>]/i.test(content)) return true;
   if (language === "markdown" || language === "md") {
     return /^#\s+\S/m.test(content);
   }
@@ -641,22 +643,37 @@ function shouldSaveArtifact({
   return false;
 }
 
-function isLikelyCompleteUnclosedArtifact(
+function isHtmlArtifactCandidate(
   content: string,
   language: string,
   explicitFilename?: string,
 ): boolean {
   const normalizedLanguage = normalizeLanguage(language);
   const filename = explicitFilename?.toLowerCase() ?? "";
-
-  if (
+  return (
     normalizedLanguage === "html" ||
     filename.endsWith(".html") ||
     filename.endsWith(".htm") ||
     /<!doctype\s+html|<html[\s>]/i.test(content)
-  ) {
+  );
+}
+
+function isCompleteHtmlDocument(content: string): boolean {
+  const trimmed = content.trimEnd();
+  return /<!doctype\s+html|<html[\s>]/i.test(trimmed) && /<\/html>\s*$/i.test(trimmed);
+}
+
+function isLikelyCompleteUnclosedArtifact(
+  content: string,
+  language: string,
+  explicitFilename?: string,
+): boolean {
+  if (isHtmlArtifactCandidate(content, language, explicitFilename)) {
     return /<\/body>\s*<\/html>\s*$/i.test(content.trimEnd());
   }
+
+  const normalizedLanguage = normalizeLanguage(language);
+  const filename = explicitFilename?.toLowerCase() ?? "";
 
   if (normalizedLanguage === "json" || filename.endsWith(".json")) {
     try {

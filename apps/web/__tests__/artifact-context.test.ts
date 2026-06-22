@@ -4,6 +4,7 @@ import {
   buildArtifactLookupMessage,
   formatArtifactContext,
   matchArtifact,
+  shouldIncludeArtifactManifestForMessage,
 } from "@/lib/artifact-context";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 
@@ -242,6 +243,51 @@ describe("formatArtifactContext", () => {
     expect(block).toContain("separate copy, fork, variant");
     expect(block).toContain("distinct filename");
     expect(block).toContain("Do not frame this as updating the original");
+  });
+
+  it("returns manifest context for unresolved artifact revision requests", () => {
+    expect(shouldIncludeArtifactManifestForMessage("update the prior html file")).toBe(
+      true,
+    );
+    expect(shouldIncludeArtifactManifestForMessage("make me a brand new html page")).toBe(
+      false,
+    );
+
+    const block = formatArtifactContext({
+      artifacts: ARTIFACTS,
+      matched: null,
+      unresolvedReference: true,
+    });
+
+    expect(block).toContain("no single artifact matched confidently");
+    expect(block).toContain("Do NOT create a new artifact");
+    expect(block).toContain("Magna Carta Jeopardy");
+  });
+
+  it("injects large artifact content without the old 60k truncation", () => {
+    const largeContent = `<html><body>${"x".repeat(70_000)}</body></html>`;
+    const block = formatArtifactContext({
+      artifacts: ARTIFACTS,
+      matched: {
+        title: "Large Demo",
+        filename: "large-demo.html",
+        content: largeContent,
+      },
+    });
+
+    expect(block).toContain(largeContent);
+    expect(block).not.toContain("artifact truncated for length");
+  });
+
+  it("prevents revisions when a matched artifact's content cannot be loaded", () => {
+    const block = formatArtifactContext({
+      artifacts: ARTIFACTS,
+      matched: null,
+      unavailableMatched: ARTIFACTS[0]!,
+    });
+
+    expect(block).toContain("could not load that artifact's content");
+    expect(block).toContain("Do NOT create a new artifact from memory");
   });
 
   it("keeps marker-like text in content as inert data (real boundary is a nonce)", () => {
