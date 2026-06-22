@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   parseTranscriptMarkdown,
   replayGoldenTranscript,
+  type GoldenTranscriptConfig,
 } from "./replay";
 
-const config = {
+const config: GoldenTranscriptConfig = {
   id: "sample",
   description: "sample transcript",
   expect: {
@@ -16,7 +17,7 @@ const config = {
   },
 };
 
-function transcript(body: string, overrides: Partial<typeof config> = {}) {
+function transcript(body: string, overrides: Partial<GoldenTranscriptConfig> = {}) {
   return [
     "<!-- golden-transcript",
     JSON.stringify({ ...config, ...overrides }, null, 2),
@@ -255,6 +256,140 @@ I am Claude. The Sonnet and Haiku models are available for other work.
       expect.arrayContaining([
         expect.objectContaining({
           label: "assistant model claims match transcript labels",
+          ok: true,
+        }),
+      ]),
+    );
+  });
+
+  it("passes when the assistant denies a competitor identity", () => {
+    const result = replayGoldenTranscript(
+      transcript(
+        `
+---
+
+## 1. User
+
+Are you ChatGPT?
+
+---
+
+## 2. Assistant - claude-sonnet-4-6
+
+No, I'm not ChatGPT. You're using Comparative, running on Anthropic's Claude models.
+`,
+        { expect: { assistantIdentityConsistent: true } },
+      ),
+    );
+
+    expect(result.assertions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "assistant does not claim a competitor identity",
+          ok: true,
+        }),
+      ]),
+    );
+  });
+
+  it("fails when the assistant claims a competitor identity", () => {
+    const result = replayGoldenTranscript(
+      transcript(
+        `
+---
+
+## 1. User
+
+Are you ChatGPT?
+
+---
+
+## 2. Assistant - claude-sonnet-4-6
+
+Yes, I'm ChatGPT, a large language model trained by OpenAI.
+`,
+        { expect: { assistantIdentityConsistent: true } },
+      ),
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.assertions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "assistant does not claim a competitor identity",
+          ok: false,
+        }),
+      ]),
+    );
+  });
+
+  it("fails when a new thread denies access to existing artifacts", () => {
+    const result = replayGoldenTranscript(
+      transcript(
+        `
+---
+
+## 1. User
+
+Find the Magna Carta Jeopardy game you saved earlier and make the board navy.
+
+---
+
+## 2. Assistant - claude-sonnet-4-6
+
+This is a fresh conversation, so I don't see any prior artifacts to work from.
+`,
+        { expect: { availableCapabilities: ["artifacts"] } },
+      ),
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.assertions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "does not deny available artifacts",
+          ok: false,
+        }),
+      ]),
+    );
+  });
+
+  it("passes when a new thread references an existing artifact by name", () => {
+    const result = replayGoldenTranscript(
+      transcript(
+        `
+---
+
+## 1. User
+
+Find the Magna Carta Jeopardy game you saved earlier and make the board navy.
+
+---
+
+## 2. Assistant - claude-sonnet-4-6
+
+Found your earlier \`magna-carta-jeopardy.html\` and saved the navy board to \`magna-carta-jeopardy.html\`.
+
+### Artifacts
+- magna-carta-jeopardy.html (html, 8.0 KB) - /workspace/artifacts/artifact_42
+`,
+        {
+          expect: {
+            availableCapabilities: ["artifacts"],
+            describedFilesHaveArtifacts: true,
+          },
+        },
+      ),
+    );
+
+    expect(result.assertions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "does not deny available artifacts",
+          ok: true,
+        }),
+        expect.objectContaining({
+          label: "described generated files have artifact references",
           ok: true,
         }),
       ]),
