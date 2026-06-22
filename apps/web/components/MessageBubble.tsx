@@ -342,12 +342,6 @@ function ArtifactCodePreview({
   artifact?: WorkspaceArtifactSummary;
   pending?: boolean;
 }) {
-  const snippet = code
-    .split("\n")
-    .slice(0, 18)
-    .join("\n")
-    .slice(0, 1600)
-    .trimEnd();
   const label = artifact?.filename ?? "generated document";
   const kind = artifact?.kind ?? language ?? "file";
   const saveState = artifact ? null : pending ? "Saving" : "Not saved";
@@ -368,10 +362,10 @@ function ArtifactCodePreview({
           </span>
         ) : null}
         <span className="shrink-0 text-[11px] text-[#88a8e8] group-open:hidden">
-          Show snippet
+          Show code
         </span>
         <span className="hidden shrink-0 text-[11px] text-[#88a8e8] group-open:inline">
-          Hide snippet
+          Hide code
         </span>
       </summary>
       <div className="border-t border-[#2f6bff]/25">
@@ -379,9 +373,11 @@ function ArtifactCodePreview({
           <span className="min-w-0 truncate">{label}</span>
           <span className="shrink-0">{formatBytes(code.length)}</span>
         </div>
-        <pre className="max-h-52 overflow-auto whitespace-pre-wrap border-t border-[#2f6bff]/20 px-3 py-2 font-mono text-[11px] leading-relaxed text-[#c9dcff] [overflow-wrap:anywhere]">
-          {snippet}
-          {snippet.length < code.length ? "\n..." : ""}
+        <pre
+          data-testid="artifact-code-preview-scroll"
+          className="max-h-[min(60vh,34rem)] overflow-auto whitespace-pre-wrap border-t border-[#2f6bff]/20 px-3 py-2 font-mono text-[11px] leading-relaxed text-[#c9dcff] [overflow-wrap:anywhere]"
+        >
+          {code}
         </pre>
       </div>
     </details>
