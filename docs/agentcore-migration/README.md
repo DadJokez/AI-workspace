@@ -20,6 +20,8 @@ cost — model inference dominates spend and doesn't move.
 5. [05-adr/](05-adr/) — ADRs 001–005 (all Proposed).
 6. [specs/](specs/) — gateway targets, skills, IAM, observability, eval, **cost model**, security, and
    3 `CreateHarness` example JSONs.
+7. [runbooks/](runbooks/) — manual spikes and operator guides, starting with
+   [Salesforce Gateway + Harness](runbooks/salesforce-gateway-harness-spike.md).
 
 ## Confirmed framing (2026-06-19)
 

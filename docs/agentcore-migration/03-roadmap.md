@@ -50,6 +50,8 @@ the network landmine — so a harness can run against a real tool safely.
   ([01 §10](01-current-state.md)); tighten the spike Bedrock IAM from `*` to the 3 inference-profile ARNs.
 - **Out of scope:** any user-facing change; creating harnesses.
 - **Deliverables:** CDK for Gateway + roles + network; one Gateway target invokable from a test harness.
+  The manual Salesforce Developer Edition proof path is captured in
+  [runbooks/salesforce-gateway-harness-spike.md](runbooks/salesforce-gateway-harness-spike.md).
 - **Success criteria:** a throwaway harness invokes `@databricks/run_sql` via Gateway with Identity-
   vault auth, in a private subnet, with scoped IAM. CloudTrail shows the call.
 - **Risks:** Identity-vault connector setup for Databricks/M365 (auth is the hard part — SAP deferred);
