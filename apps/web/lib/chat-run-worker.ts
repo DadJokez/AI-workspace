@@ -29,6 +29,7 @@ import {
 import {
   buildArtifactContextPayload,
   buildArtifactLookupMessage,
+  resolveArtifactContextTargets,
 } from "@/lib/artifact-context";
 import {
   buildAppEditContext,
@@ -55,7 +56,6 @@ import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import {
   createArtifactsFromAssistantMessage,
   parseWorkspaceArtifactVersionTarget,
-  toWorkspaceArtifactVersionTarget,
   type WorkspaceArtifactVersionTarget,
 } from "@/lib/workspace-artifacts";
 import { createRecommendationsForAssistantMessage } from "@/lib/recommendation-persistence";
@@ -342,18 +342,12 @@ async function executeClaimedChatRun({
   const storedSeparateFromArtifact = parseWorkspaceArtifactVersionTarget(
     inputs.separateFromArtifact,
   );
-  const artifactContextTarget = artifactContextPayload
-    ? artifactContextPayload.mode === "revision" &&
-      artifactContextPayload.matchedArtifact
-      ? toWorkspaceArtifactVersionTarget(artifactContextPayload.matchedArtifact)
-      : null
-    : storedArtifactTarget;
-  const separateFromArtifact = artifactContextPayload
-    ? artifactContextPayload.mode === "separate" &&
-      artifactContextPayload.matchedArtifact
-      ? toWorkspaceArtifactVersionTarget(artifactContextPayload.matchedArtifact)
-      : null
-    : storedSeparateFromArtifact;
+  const { artifactContextTarget, separateFromArtifact } =
+    resolveArtifactContextTargets({
+      payload: artifactContextPayload,
+      storedArtifactTarget,
+      storedSeparateFromArtifact,
+    });
   const artifactContext = artifactContextPayload?.text ?? null;
   const combinedArtifactContext = [appEditContext, artifactContext]
     .filter(Boolean)

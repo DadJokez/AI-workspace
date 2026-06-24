@@ -3,6 +3,9 @@ import type { Database } from "@ai-workspace/db";
 import {
   loadWorkspaceArtifactForUser,
   loadWorkspaceArtifacts,
+  loadWorkspaceArtifactsForThread,
+  toWorkspaceArtifactVersionTarget,
+  type WorkspaceArtifactVersionTarget,
   type WorkspaceArtifactSummary,
 } from "@/lib/workspace-artifacts";
 
@@ -171,6 +174,23 @@ export function buildArtifactLookupMessage(
   return rawUserTurns.length > 0 ? rawUserTurns.join("\n\n") : fallback;
 }
 
+export function mergeArtifactContextManifests({
+  globalArtifacts,
+  threadArtifacts,
+}: {
+  globalArtifacts: readonly WorkspaceArtifactSummary[];
+  threadArtifacts: readonly WorkspaceArtifactSummary[];
+}): WorkspaceArtifactSummary[] {
+  const seen = new Set<string>();
+  const merged: WorkspaceArtifactSummary[] = [];
+  for (const artifact of [...threadArtifacts, ...globalArtifacts]) {
+    if (seen.has(artifact.id)) continue;
+    seen.add(artifact.id);
+    merged.push(artifact);
+  }
+  return merged;
+}
+
 export interface MatchedArtifactContent {
   title: string;
   filename: string;
@@ -184,6 +204,30 @@ export interface ArtifactContextPayload {
 }
 
 export type ArtifactContextMode = "manifest" | "revision" | "separate";
+
+export function resolveArtifactContextTargets({
+  payload,
+  storedArtifactTarget,
+  storedSeparateFromArtifact,
+}: {
+  payload: ArtifactContextPayload | null;
+  storedArtifactTarget?: WorkspaceArtifactVersionTarget | null;
+  storedSeparateFromArtifact?: WorkspaceArtifactVersionTarget | null;
+}): {
+  artifactContextTarget: WorkspaceArtifactVersionTarget | null;
+  separateFromArtifact: WorkspaceArtifactVersionTarget | null;
+} {
+  return {
+    artifactContextTarget:
+      payload?.mode === "revision" && payload.matchedArtifact
+        ? toWorkspaceArtifactVersionTarget(payload.matchedArtifact)
+        : storedArtifactTarget ?? null,
+    separateFromArtifact:
+      payload?.mode === "separate" && payload.matchedArtifact
+        ? toWorkspaceArtifactVersionTarget(payload.matchedArtifact)
+        : storedSeparateFromArtifact ?? null,
+  };
+}
 
 export function artifactContextModeForMessage({
   message,
@@ -287,10 +331,24 @@ export async function buildArtifactContextPayload({
 }): Promise<ArtifactContextPayload | null> {
   let artifacts: WorkspaceArtifactSummary[];
   try {
-    artifacts = await loadWorkspaceArtifacts({
-      db,
-      userId,
-      limit: MANIFEST_LIMIT,
+    const [globalArtifacts, threadArtifacts] = await Promise.all([
+      loadWorkspaceArtifacts({
+        db,
+        userId,
+        limit: MANIFEST_LIMIT,
+      }),
+      threadId
+        ? loadWorkspaceArtifactsForThread({
+            db,
+            userId,
+            threadId,
+            limit: MANIFEST_LIMIT,
+          })
+        : Promise.resolve([]),
+    ]);
+    artifacts = mergeArtifactContextManifests({
+      globalArtifacts,
+      threadArtifacts,
     });
   } catch {
     return null;
