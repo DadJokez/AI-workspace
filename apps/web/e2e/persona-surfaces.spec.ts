@@ -133,6 +133,8 @@ test.describe("persona and workspace surfaces", () => {
     await openNavItem(page, "Tools", isMobile);
     const notionCard = page.getByTestId("tool-card-notion");
     await expect(notionCard.getByText("Notion")).toBeVisible();
+    await expect(notionCard.getByText(/Search, summarize, query/))
+      .toBeVisible();
     await expect(notionCard.getByText("Not connected")).toBeVisible();
     await expect(notionCard.getByRole("link", { name: "Connect" }))
       .toHaveAttribute("href", "/api/oauth/notion/start");
