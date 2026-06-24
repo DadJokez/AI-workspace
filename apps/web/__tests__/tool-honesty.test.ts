@@ -79,7 +79,7 @@ describe("tool-use honesty grounding", () => {
     expect(preamble).toContain(
       "Connected account tools linked but not enabled for chat execution",
     );
-    expect(preamble).toContain("Notion: pages, databases, team docs");
+    expect(preamble).toContain("Notion: search/read pages");
     expect(preamble).toContain("Do not claim you can use them");
     expect(preamble).not.toContain("Connected tools available");
     expect(preamble).not.toContain("No external tools are connected yet");

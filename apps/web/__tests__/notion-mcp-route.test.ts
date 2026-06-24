@@ -173,8 +173,18 @@ describe("Notion MCP route", () => {
         tools: [
           { name: "search" },
           { name: "get_page" },
+          { name: "get_page_markdown" },
+          { name: "get_page_property" },
           { name: "get_block_children" },
+          { name: "get_database" },
+          { name: "get_data_source" },
+          { name: "query_data_source" },
           { name: "append_text_block" },
+          { name: "append_blocks" },
+          { name: "create_page" },
+          { name: "update_page_properties" },
+          { name: "archive_page" },
+          { name: "archive_block" },
         ],
       },
     });
@@ -325,6 +335,78 @@ describe("Notion MCP route", () => {
     expect(body.result.content[0].text).toContain("Visible notes");
   });
 
+  it("retrieves a page as markdown", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        object: "page_markdown",
+        id: "page-1",
+        markdown: "# Launch Notes\n\nShip it.",
+        truncated: false,
+        unknown_block_ids: [],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("@/app/api/mcp/notion/route");
+
+    const res = await POST(
+      mcpRequest("tools/call", {
+        name: "get_page_markdown",
+        arguments: { pageId: "page/id", includeTranscript: true },
+      }),
+    );
+    const body = await res.json();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.notion.com/v1/pages/page%2Fid/markdown?include_transcript=true",
+      expect.any(Object),
+    );
+    expect(body.result.content[0].text).toContain("# Launch Notes");
+    expect(body.result.content[0].text).toContain('"truncated": false');
+  });
+
+  it("retrieves paginated page property values", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        object: "list",
+        type: "property_item",
+        has_more: true,
+        next_cursor: "next-prop",
+        next_url: "https://api.notion.com/next",
+        property_item: { object: "property_item", id: "rel", type: "relation" },
+        results: [
+          {
+            object: "property_item",
+            id: "rel",
+            type: "relation",
+            relation: { id: "related-page" },
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("@/app/api/mcp/notion/route");
+
+    const res = await POST(
+      mcpRequest("tools/call", {
+        name: "get_page_property",
+        arguments: {
+          pageId: "page/id",
+          propertyId: "prop/id",
+          pageSize: 999,
+          startCursor: "cursor-1",
+        },
+      }),
+    );
+    const body = await res.json();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.notion.com/v1/pages/page%2Fid/properties/prop%2Fid?page_size=50&start_cursor=cursor-1",
+      expect.any(Object),
+    );
+    expect(body.result.content[0].text).toContain("related-page");
+    expect(body.result.content[0].text).toContain('"nextCursor": "next-prop"');
+  });
+
   it("retrieves block children with escaped block ids and clamped page size", async () => {
     const fetchMock = vi.fn(async () =>
       Response.json({
@@ -365,6 +447,135 @@ describe("Notion MCP route", () => {
     );
     expect(body.result.content[0].text).toContain("A paragraph");
     expect(body.result.content[0].text).toContain('"hasMore": true');
+  });
+
+  it("retrieves database metadata with data source ids", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        object: "database",
+        id: "db-1",
+        url: "https://notion.so/db-1",
+        parent: { type: "page_id", page_id: "parent-1" },
+        title: [{ plain_text: "Product Roadmap" }],
+        description: [{ plain_text: "Planning database" }],
+        data_sources: [
+          { id: "data-source-1", name: "Tasks" },
+          { id: "data-source-2", name: "Risks" },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("@/app/api/mcp/notion/route");
+
+    const res = await POST(
+      mcpRequest("tools/call", {
+        name: "get_database",
+        arguments: { databaseId: "db/id" },
+      }),
+    );
+    const body = await res.json();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.notion.com/v1/databases/db%2Fid",
+      expect.any(Object),
+    );
+    expect(body.result.content[0].text).toContain("Product Roadmap");
+    expect(body.result.content[0].text).toContain("data-source-1");
+  });
+
+  it("retrieves a data source schema", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        object: "data_source",
+        id: "data-source-1",
+        title: [{ plain_text: "Tasks" }],
+        description: [{ plain_text: "Team tasks" }],
+        parent: { type: "database_id", database_id: "db-1" },
+        database_parent: { type: "page_id", page_id: "parent-1" },
+        properties: {
+          Name: { id: "title", name: "Name", type: "title", title: {} },
+          Status: {
+            id: "status",
+            name: "Status",
+            type: "select",
+            select: { options: [{ id: "todo", name: "Todo" }] },
+          },
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("@/app/api/mcp/notion/route");
+
+    const res = await POST(
+      mcpRequest("tools/call", {
+        name: "get_data_source",
+        arguments: { dataSourceId: "data/source" },
+      }),
+    );
+    const body = await res.json();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.notion.com/v1/data_sources/data%2Fsource",
+      expect.any(Object),
+    );
+    expect(body.result.content[0].text).toContain("Team tasks");
+    expect(body.result.content[0].text).toContain('"options"');
+    expect(body.result.content[0].text).toContain("Todo");
+  });
+
+  it("queries data source rows with filters and sorts", async () => {
+    let capturedInit: RequestInit | undefined;
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedInit = init;
+        return Response.json({
+          object: "list",
+          has_more: false,
+          next_cursor: null,
+          results: [
+            {
+              object: "page",
+              id: "row-1",
+              url: "https://notion.so/row-1",
+              parent: { type: "data_source_id", data_source_id: "ds-1" },
+              properties: {
+                Name: {
+                  type: "title",
+                  title: [{ plain_text: "Alpha row" }],
+                },
+                Status: { type: "select", select: { name: "Active" } },
+              },
+            },
+          ],
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("@/app/api/mcp/notion/route");
+
+    const res = await POST(
+      mcpRequest("tools/call", {
+        name: "query_data_source",
+        arguments: {
+          dataSourceId: "ds/id",
+          pageSize: 25,
+          filter: { property: "Status", select: { equals: "Active" } },
+          sorts: [{ property: "Name", direction: "ascending" }],
+        },
+      }),
+    );
+    const body = await res.json();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.notion.com/v1/data_sources/ds%2Fid/query",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(JSON.parse(String(capturedInit?.body))).toEqual({
+      page_size: 25,
+      filter: { property: "Status", select: { equals: "Active" } },
+      sorts: [{ property: "Name", direction: "ascending" }],
+    });
+    expect(body.result.content[0].text).toContain("Alpha row");
   });
 
   it("appends a text block with the expected PATCH body", async () => {
@@ -421,6 +632,226 @@ describe("Notion MCP route", () => {
     });
     expect(body.result.content[0].text).toContain("Added paragraph");
     expect(body.result.isError).toBeUndefined();
+  });
+
+  it("appends richer block types with position controls", async () => {
+    let capturedInit: RequestInit | undefined;
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedInit = init;
+        return Response.json({
+          object: "list",
+          has_more: false,
+          next_cursor: null,
+          results: [
+            {
+              object: "block",
+              id: "new-heading",
+              type: "heading_2",
+              has_children: false,
+              heading_2: { rich_text: [{ plain_text: "Plan" }] },
+            },
+            {
+              object: "block",
+              id: "new-todo",
+              type: "to_do",
+              has_children: false,
+              to_do: {
+                rich_text: [{ plain_text: "Follow up" }],
+                checked: true,
+              },
+            },
+          ],
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("@/app/api/mcp/notion/route");
+
+    const res = await POST(
+      mcpRequest("tools/call", {
+        name: "append_blocks",
+        arguments: {
+          blockId: "parent/id",
+          afterBlockId: "after/id",
+          blocks: [
+            { type: "heading_2", text: "Plan" },
+            { type: "to_do", text: "Follow up", checked: true },
+            { type: "divider" },
+          ],
+        },
+      }),
+    );
+    const body = await res.json();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.notion.com/v1/blocks/parent%2Fid/children",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+    expect(JSON.parse(String(capturedInit?.body))).toEqual({
+      children: [
+        {
+          object: "block",
+          type: "heading_2",
+          heading_2: {
+            rich_text: [{ type: "text", text: { content: "Plan" } }],
+          },
+        },
+        {
+          object: "block",
+          type: "to_do",
+          to_do: {
+            rich_text: [{ type: "text", text: { content: "Follow up" } }],
+            checked: true,
+          },
+        },
+        { object: "block", type: "divider", divider: {} },
+      ],
+      position: {
+        type: "after_block",
+        after_block: { id: "after/id" },
+      },
+    });
+    expect(body.result.content[0].text).toContain("Follow up");
+  });
+
+  it("creates a page under a parent page with markdown content", async () => {
+    let capturedInit: RequestInit | undefined;
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedInit = init;
+        return Response.json({
+          object: "page",
+          id: "new-page",
+          url: "https://notion.so/new-page",
+          parent: { type: "page_id", page_id: "parent-1" },
+          properties: {
+            title: {
+              type: "title",
+              title: [{ plain_text: "Weekly Brief" }],
+            },
+          },
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("@/app/api/mcp/notion/route");
+
+    const res = await POST(
+      mcpRequest("tools/call", {
+        name: "create_page",
+        arguments: {
+          parentPageId: "parent/id",
+          title: "Weekly Brief",
+          markdown: "# Weekly Brief\n\nDone.",
+        },
+      }),
+    );
+    const body = await res.json();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.notion.com/v1/pages",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(JSON.parse(String(capturedInit?.body))).toEqual({
+      parent: { page_id: "parent/id" },
+      properties: {
+        title: {
+          title: [{ type: "text", text: { content: "Weekly Brief" } }],
+        },
+      },
+      markdown: "# Weekly Brief\n\nDone.",
+    });
+    expect(body.result.content[0].text).toContain("Weekly Brief");
+  });
+
+  it("updates page properties", async () => {
+    let capturedInit: RequestInit | undefined;
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedInit = init;
+        return Response.json({
+          object: "page",
+          id: "page-1",
+          properties: {
+            Status: { type: "select", select: { name: "Done" } },
+          },
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("@/app/api/mcp/notion/route");
+
+    await POST(
+      mcpRequest("tools/call", {
+        name: "update_page_properties",
+        arguments: {
+          pageId: "page/id",
+          properties: { Status: { select: { name: "Done" } } },
+        },
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.notion.com/v1/pages/page%2Fid",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+    expect(JSON.parse(String(capturedInit?.body))).toEqual({
+      properties: { Status: { select: { name: "Done" } } },
+    });
+  });
+
+  it("archives pages and blocks through write-safe wrappers", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          object: "page",
+          id: "page-1",
+          in_trash: true,
+          properties: {},
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          object: "block",
+          id: "block-1",
+          type: "paragraph",
+          in_trash: true,
+          paragraph: { rich_text: [{ plain_text: "Archived" }] },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("@/app/api/mcp/notion/route");
+
+    await POST(
+      mcpRequest("tools/call", {
+        name: "archive_page",
+        arguments: { pageId: "page/id" },
+      }),
+    );
+    const blockRes = await POST(
+      mcpRequest("tools/call", {
+        name: "archive_block",
+        arguments: { blockId: "block/id" },
+      }),
+    );
+    const blockBody = await blockRes.json();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.notion.com/v1/pages/page%2Fid",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ in_trash: true }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.notion.com/v1/blocks/block%2Fid",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(blockBody.result.content[0].text).toContain('"inTrash": true');
   });
 
   it("rejects append_text_block inputs over the Notion rich text limit", async () => {

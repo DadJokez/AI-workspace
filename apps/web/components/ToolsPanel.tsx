@@ -126,7 +126,7 @@ const INTEGRATIONS: Integration[] = [
   {
     id: "notion",
     name: "Notion",
-    description: "Pages, databases, and team docs",
+    description: "Search, summarize, query, create, and update workspace docs",
     initial: "N",
     bg: "#000000",
     fg: "#ffffff",

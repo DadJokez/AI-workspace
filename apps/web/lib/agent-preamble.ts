@@ -46,7 +46,8 @@ interface PreambleInput {
 const PROVIDER_DESCRIPTIONS: Record<string, string> = {
   github:
     "GitHub: repositories, issues, pull requests, code search (pre-authorized, no token needed)",
-  notion: "Notion: pages, databases, team docs (pre-authorized)",
+  notion:
+    "Notion: search/read pages, read markdown, inspect databases/data sources, query rows, create/update pages, append blocks (pre-authorized)",
   google:
     "Google Calendar: events, meetings, availability (pre-authorized)",
 };
