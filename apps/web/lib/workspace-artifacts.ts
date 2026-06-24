@@ -162,6 +162,32 @@ export async function loadWorkspaceArtifacts({
   return rows.map(serializeWorkspaceArtifact);
 }
 
+export async function loadWorkspaceArtifactsForThread({
+  db,
+  userId,
+  threadId,
+  limit = 100,
+}: {
+  db: Database;
+  userId: string;
+  threadId: string;
+  limit?: number;
+}): Promise<WorkspaceArtifactSummary[]> {
+  const rows = await db
+    .select()
+    .from(workspaceArtifacts)
+    .where(
+      and(
+        eq(workspaceArtifacts.userId, userId),
+        eq(workspaceArtifacts.threadId, threadId),
+      ),
+    )
+    .orderBy(desc(workspaceArtifacts.createdAt))
+    .limit(Math.max(1, Math.min(200, limit)));
+
+  return rows.map(serializeWorkspaceArtifact);
+}
+
 export async function loadWorkspaceArtifactForUser({
   db,
   userId,

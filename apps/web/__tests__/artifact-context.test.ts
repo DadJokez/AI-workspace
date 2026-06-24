@@ -3,10 +3,15 @@ import {
   artifactContextModeForMessage,
   buildArtifactLookupMessage,
   formatArtifactContext,
+  mergeArtifactContextManifests,
   matchArtifact,
+  resolveArtifactContextTargets,
   shouldIncludeArtifactManifestForMessage,
 } from "@/lib/artifact-context";
-import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import type {
+  WorkspaceArtifactSummary,
+  WorkspaceArtifactVersionTarget,
+} from "@/lib/workspace-artifacts";
 
 /**
  * Cross-thread artifact context. Born from a real failure: asked to restyle "the
@@ -144,6 +149,39 @@ describe("matchArtifact", () => {
         threadId: "thread-current",
       }),
     ).toBeNull();
+  });
+
+  it("keeps reopened thread artifacts even when global recent artifacts would omit them", () => {
+    const reopenedThreadArtifact = artifact({
+      id: "artifact-old-thread-v3",
+      title: "Ancient Dashboard",
+      filename: "ancient-dashboard-v3.html",
+      threadId: "thread-old",
+      artifactGroupId: "group-ancient-dashboard",
+      versionNumber: 3,
+      createdAt: "2026-05-01T00:00:00.000Z",
+    });
+    const globalRecentArtifacts = Array.from({ length: 24 }, (_, index) =>
+      artifact({
+        id: `artifact-new-${index}`,
+        title: `New Artifact ${index}`,
+        filename: `new-artifact-${index}.html`,
+        threadId: `thread-new-${index}`,
+        createdAt: `2026-06-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
+      }),
+    );
+
+    const merged = mergeArtifactContextManifests({
+      globalArtifacts: globalRecentArtifacts,
+      threadArtifacts: [reopenedThreadArtifact],
+    });
+
+    expect(merged[0]?.id).toBe(reopenedThreadArtifact.id);
+    expect(
+      matchArtifact("update the prior html file", merged, {
+        threadId: "thread-old",
+      })?.id,
+    ).toBe(reopenedThreadArtifact.id);
   });
 });
 
@@ -323,5 +361,64 @@ describe("buildArtifactLookupMessage", () => {
         { preferFallback: true },
       ),
     ).toBe("Update the Magna Carta Jeopardy artifact.");
+  });
+});
+
+describe("resolveArtifactContextTargets", () => {
+  it("preserves the stored target when retry context rebuild has only a manifest", () => {
+    const storedArtifactTarget: WorkspaceArtifactVersionTarget = {
+      id: "artifact-old-thread-v3",
+      title: "Ancient Dashboard",
+      filename: "ancient-dashboard-v3.html",
+      artifactGroupId: "group-ancient-dashboard",
+      versionNumber: 3,
+      metadata: { artifactKey: "ancient-dashboard.html" },
+    };
+
+    const targets = resolveArtifactContextTargets({
+      payload: {
+        text: "manifest only",
+        matchedArtifact: null,
+        mode: "manifest",
+      },
+      storedArtifactTarget,
+    });
+
+    expect(targets.artifactContextTarget).toEqual(storedArtifactTarget);
+    expect(targets.separateFromArtifact).toBeNull();
+  });
+
+  it("replaces a stored target when the rebuilt context confidently matches a revision", () => {
+    const storedArtifactTarget: WorkspaceArtifactVersionTarget = {
+      id: "artifact-old",
+      title: "Old",
+      filename: "old.html",
+      artifactGroupId: "group-old",
+      versionNumber: 1,
+      metadata: null,
+    };
+    const matched = artifact({
+      id: "artifact-new",
+      title: "New",
+      filename: "new.html",
+      artifactGroupId: "group-new",
+      versionNumber: 2,
+      metadata: { artifactKey: "new.html" },
+    });
+
+    const targets = resolveArtifactContextTargets({
+      payload: {
+        text: "matched",
+        matchedArtifact: matched,
+        mode: "revision",
+      },
+      storedArtifactTarget,
+    });
+
+    expect(targets.artifactContextTarget).toMatchObject({
+      id: "artifact-new",
+      artifactGroupId: "group-new",
+      versionNumber: 2,
+    });
   });
 });
