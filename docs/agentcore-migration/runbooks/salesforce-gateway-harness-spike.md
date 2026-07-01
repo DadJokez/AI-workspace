@@ -42,40 +42,103 @@ References:
 - [AgentCore Harness get started](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-get-started.html)
 - [InvokeHarness API](https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_InvokeHarness.html)
 - [Salesforce client credentials flow](https://help.salesforce.com/s/articleView?id=xcloud.connected_app_client_credentials_setup.htm&language=en_US&type=5)
+- [Salesforce external client app credentials flow](https://help.salesforce.com/s/articleView?id=xcloud.configure_client_credentials_flow_for_external_client_apps.htm&language=en_US&type=5)
 
 ## Phase 1: Salesforce Developer Edition
 
 1. Sign up for a free Developer Edition org at
    `https://developer.salesforce.com/signup`.
-2. Verify email, set the password, and note the instance URL.
-3. In Salesforce Setup, create a Connected App or External Client App.
-4. Enable OAuth and include these scopes:
-   - `api`
-   - `refresh_token offline_access`
-   - `id`
-5. Enable the client credentials flow and assign a run-as user. Salesforce
-   requires an execution user even for server-to-server auth.
-6. Copy the Consumer Key and Consumer Secret.
-7. Sanity-check outside AWS:
+2. Verify email, set the password, and note the org URL.
+   - Lightning UI URLs often look like
+     `https://ORG.develop.lightning.force.com/lightning/...`.
+   - API server URLs usually use the matching
+     `https://ORG.develop.my.salesforce.com` host.
+3. In Salesforce Setup, create an External Client App. In older orgs this can
+   appear as a Connected App.
+4. Enable OAuth.
+5. If Salesforce requires a callback URL, use the Comparative callback placeholder:
+
+   ```text
+   https://comparative.builtwithrobot.link/api/integrations/salesforce/callback
+   ```
+
+   This callback is not used by the client credentials flow, but Salesforce
+   still requires a syntactically valid URL when OAuth is enabled.
+6. Add only the required OAuth scope for the spike:
+   - `Manage user data via APIs (api)`
+
+   Optional:
+   - `Access the identity URL service (id, profile, email, address, phone)`
+
+   Do not add `full`, `web`, or `refresh_token offline_access` for this
+   server-to-server spike. Refresh tokens are for delegated user flows, not the
+   client credentials path used here.
+7. Enable only the client credentials flow. Leave SAML, Canvas, Mobile, Push,
+   Authorization Code, Device, JWT Bearer, and Token Exchange flows disabled.
+8. In OAuth Policies, set:
+   - Permitted Users: `All users can self-authorize` is acceptable for the dev
+     spike. If Salesforce rejects the execution user, switch to
+     `Admin approved users are pre-authorized` and assign the user/profile.
+   - Enable Client Credentials Flow: checked.
+   - Run As Username: the exact Salesforce username from Setup -> Users, not
+     necessarily the email address used to sign up. Developer Edition usernames
+     can look generated, for example `rob.fea863df9cc1@agentforce.com`.
+   - IP Relaxation: `Relax IP restrictions` for the spike, because AgentCore
+     will call Salesforce from AWS infrastructure, not Rob's browser IP.
+9. Save the app. If Salesforce reports "Enter a valid execution user," verify
+   that the Run As user is active, API-enabled, and copied exactly from the
+   Salesforce Username column.
+10. Copy the Consumer Key and Consumer Secret from Consumer Details or OAuth
+    Credentials. Do not paste the secret into chat, GitHub, or committed files.
+11. Sanity-check outside AWS with a zsh/bash-safe prompt flow:
 
 ```bash
-export SF_KEY="replace-me"
-export SF_SECRET="replace-me"
+printf "Salesforce Consumer Key / Client ID: "
+IFS= read -r SF_CLIENT_ID
+
+printf "Salesforce Consumer Secret / Client Secret: "
+stty -echo
+IFS= read -r SF_CLIENT_SECRET
+stty echo
+printf "\n"
 
 TOKEN_JSON="$(curl -s https://login.salesforce.com/services/oauth2/token \
   -d grant_type=client_credentials \
-  -d client_id="$SF_KEY" \
-  -d client_secret="$SF_SECRET")"
+  --data-urlencode "client_id=$SF_CLIENT_ID" \
+  --data-urlencode "client_secret=$SF_CLIENT_SECRET")"
 
+printf '%s' "$TOKEN_JSON" | jq '{
+  token_received: (.access_token != null),
+  instance_url,
+  token_type,
+  error,
+  error_description
+}'
+```
+
+Pass condition: `token_received` is `true`. Do not print the raw access token.
+
+Then query the dev org:
+
+```bash
 export SF_TOKEN="$(printf '%s' "$TOKEN_JSON" | jq -r .access_token)"
 export SF_INSTANCE="$(printf '%s' "$TOKEN_JSON" | jq -r .instance_url)"
 
-curl -s "$SF_INSTANCE/services/data/v61.0/query?q=SELECT+Id,Name+FROM+Account+LIMIT+5" \
+curl -s "$SF_INSTANCE/services/data/v61.0/query/?q=SELECT+Id,Name+FROM+Account+LIMIT+5" \
   -H "Authorization: Bearer $SF_TOKEN" | jq .
 ```
 
 Pass condition: Salesforce returns Account records or an empty but valid query
 response. Auth or permission errors must be fixed before touching AgentCore.
+Common errors:
+
+- `invalid_client_id`: the key prompt was blank or the wrong Consumer Key was
+  copied.
+- `invalid_client`: the Consumer Secret is wrong.
+- `invalid_grant` or `no client credentials user enabled`: the Run As user is
+  missing, invalid, inactive, or not authorized for the app.
+- API/object permission errors: the Run As user lacks API access or read access
+  to the queried object.
 
 ## Phase 2: Gateway + Salesforce Target
 
@@ -102,7 +165,7 @@ client-credentials using:
 - client id: Salesforce Consumer Key
 - client secret: Salesforce Consumer Secret
 - token URL: `https://login.salesforce.com/services/oauth2/token`
-- scopes: empty or the scopes configured above, depending on the wizard prompt
+- scopes: empty or `api`, depending on the wizard prompt
 
 Deploy and confirm tool exposure:
 
