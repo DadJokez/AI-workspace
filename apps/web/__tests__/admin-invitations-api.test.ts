@@ -16,7 +16,7 @@ const userSession: SessionUser = {
 };
 
 const fixedDate = new Date("2026-06-20T00:00:00Z");
-const futureDate = new Date("2026-07-01T00:00:00Z");
+const futureDate = new Date("2099-07-01T00:00:00Z");
 
 interface DbHooks {
   insertReturning?: Array<Record<string, unknown>>;
