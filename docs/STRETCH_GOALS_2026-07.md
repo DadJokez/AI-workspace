@@ -1,9 +1,11 @@
 # Stretch Goals — The Wow-Factor Layer (July 2026)
 
-Seven long-horizon bets that turn Comparative from a useful assistant into a
+Twelve long-horizon bets that turn Comparative from a useful assistant into a
 tool people evangelize and can't work without. Companion to
 [`docs/BRAINSTORM_2026-07.md`](BRAINSTORM_2026-07.md) (the 90-day plan): the
 90-day work is the *foundation*; these are what it's a foundation *for*.
+(Goals 1–7 were the first cut; 8–12 were added the same day from a second
+brainstorm round.)
 
 **How to use this doc:** each goal is written to be scoped later without
 re-having the conversation — what it is, the demo moment, the substrate that
@@ -24,6 +26,11 @@ roughly this order too:
 | 5 | Multi-Agent Workrooms | Drafter + critic + gates, productized | Every important deliverable gets adversarial review |
 | 6 | Org Brain | Curated org knowledge you can ask anything | A new hire's first week runs on it |
 | 7 | Audit-Grade Replay | A "why" button on every answer | IT watches a full run replay and relaxes |
+| 8 | Chat-Platform Presence | Comparative as a Teams/Slack member | It answers the question mid-debate, in-channel, with a citation |
+| 9 | Self-Extending Connections | "Connect me to X" → drafted spec → admin approval → live | A connector exists 30 minutes after someone asked |
+| 10 | Automation Coach | Work analytics that propose automations | "Comparative reclaimed 4.5 hours for you this month" |
+| 11 | Deep Research Agent | Adversarially verified, citation-grade reports | A report you'd forward to leadership without checking it |
+| 12 | Computer-Use Lane | A sandboxed browser for no-API systems | The expense portal from 2019 gets filed for you |
 
 ---
 
@@ -607,27 +614,472 @@ zero incidents where a receipt claimed something that didn't happen.
 
 ---
 
+## 8. Chat-Platform Presence — meet them where they work
+
+**One-liner.** Comparative as a first-class member of Teams/Slack: DM it like
+a coworker, @mention it in a channel to summon it with that thread's context,
+and receive workstream notifications and approval-inbox cards as chat messages
+with buttons.
+
+**Demo moment.** Mid-debate in a channel, someone types "@Comparative what did
+we actually decide about this in March?" and it answers in-channel with the
+org-brain citation, source, and owner. The other five people in the channel
+just watched the product sell itself.
+
+**Why us.** Adoption physics: the assistant that lives where attention already
+is wins by default, and every other bet on this list — workstreams (#2),
+inbox (#1), meetings (#3) — gets an order of magnitude more touchpoints when
+its outputs arrive in the tool people already have open. It's also the
+cheapest multiplier: the hard parts (governance, identity, delivery) exist;
+this adds channels, not capabilities.
+
+**Substrate already built.**
+- The notification center (#292) is the seam: Slack/Teams become **delivery
+  adapters** behind the same abstraction (in-app | email | slack | teams).
+- Per-user identity + OAuth model (`oauth_tokens`, attestations) extends to
+  chat-platform identity linking.
+- `packages/mcp-servers/src/teams.ts` already exists as a placeholder stub —
+  Teams was always on the map.
+- The approval inbox (#1) defines the card + action-button contract that chat
+  surfaces render.
+
+**Architecture sketch (V1).**
+- Channel adapter layer on the notification pipeline: each notification/digest
+  renders to an adapter (Slack Block Kit, Teams Adaptive Cards) with deep
+  links back into Comparative.
+- Identity linking: a user connects Slack/Teams from Tools like any provider;
+  the platform user id maps to their Comparative user. Unlinked platform
+  users get nothing — no anonymous surface.
+- Inbound tiers, in strictly increasing difficulty:
+  1. **Outbound only** — notifications + digests as DMs.
+  2. **DM conversations** — a DM is a Comparative thread for the linked user,
+     full per-user scoping, same as the web app.
+  3. **Channel mentions** — the hard one (see watch-outs).
+- Approval cards: V1 deep-links to the inbox; V2 renders approve/reject
+  buttons in-platform (button presses verified against the linked identity,
+  audited like any approval).
+
+**The channel-scoping rule (non-negotiable).** An in-channel answer is visible
+to everyone in the channel, but it's computed with *someone's* credentials.
+Rule: channel answers may only draw on context every channel member could
+access — org-scope knowledge (#6), public artifacts, the channel's own
+messages. Never the summoner's private mail, memory, or tool data. If the
+real answer needs private context, reply in-channel with "DM'd you" and take
+it to the DM. This needs its own eval class before channel mode ships.
+
+**Thin slice.** Slack, outbound only: workstream/schedule notifications and
+the daily digest as DMs with deep links. Alpha testers are on Slack; GP means
+Teams later — build the adapter interface once, ship Slack first.
+
+**Full vision.** Both platforms; DM threads; channel mentions with the scoping
+rule; approval buttons in-platform; meeting-loop nudges (#3) arriving as DMs;
+"add Comparative to this channel" as the org-brain's front door.
+
+**Dependencies.** #292 (hard); #1 for approval cards; #6 before channel
+mentions are worth much; Teams app store review is its own enterprise-phase
+gate (admin consent, compliance questionnaire).
+
+**Risks / watch-outs.**
+- The channel-scoping rule is the whole security story — one private-context
+  leak into a channel is the worst possible incident short of cross-user data
+  access. Evals + conservative defaults (channel mode off until explicitly
+  enabled per workspace).
+- Notification fatigue transfers: a noisy assistant in Slack is muted forever.
+  The acceptance-rate throttling from #292 applies per-channel-adapter.
+- Two platform SDKs to maintain — keep the adapter surface minimal (render
+  card, receive button press, receive message) so platform churn stays cheap.
+
+**Open questions for scoping.**
+- One bot identity for the workspace vs. per-user authorized apps? (Lean: one
+  bot, per-user identity linking — simpler install, standard pattern.)
+- Do button-press approvals require a Comparative re-auth for high-stakes
+  actions, or is linked identity enough?
+- Slack Enterprise Grid / Teams tenant policies: where does the install
+  permission live relative to Comparative admin policy?
+
+**Success signal.** % of notifications consumed in-platform; DM threads per
+week; the first unsolicited "can you add it to our channel" request.
+
+---
+
+## 9. Self-Extending Connection Layer — "connect me to anything"
+
+**One-liner.** The integration factory (#294), automated by the assistant
+itself: a user asks "can you connect to Greenhouse?" → the assistant
+researches the API, drafts the Gateway OpenAPI spec, scopes, credential
+provider config, and catalog entries as a **proposed integration** → an admin
+reviews exactly what it can touch → approved, live.
+
+**Demo moment.** A connector existing 30 minutes after someone asked for it —
+with an admin having reviewed the precise scopes on a diff-style approval
+card. "Our harness grows its own integrations, with human approval" is a moat
+claim no one else can make honestly.
+
+**Why us.** This is only possible *because* of the Gateway convergence:
+integrations became configuration (spec + credential provider + catalog rows),
+and drafting configuration against public API docs is exactly what the
+assistant is good at. The governance layer means a drafted integration is
+proposed into the same attestation/audit machine as a hand-built one — the
+trust story doesn't change, only the authoring speed.
+
+**Substrate already built.**
+- The Gateway pattern (#294/#296): integration = OpenAPI spec + OAuth
+  credential provider + `mcp_servers`/`tools_catalog` rows. ADR-0004 defines
+  the mapping this feature automates.
+- Web fetch/search for API-doc research; workroom critic machinery (#5) for
+  adversarial spec review; `user_tool_attestations` so end users still
+  individually attest before use.
+- The Salesforce spike (#279) is the manual walkthrough of exactly the steps
+  being automated — it doubles as this feature's requirements doc.
+
+**Architecture sketch (V1).**
+- `proposed_integrations`: requester, target service, research notes with
+  cited doc sources, drafted OpenAPI spec, requested scopes, credential
+  provider config (auth type, token URL — never actual credentials), critic
+  review results, status (`draft | critic_review | admin_review | approved |
+  rejected | live`).
+- Drafting flow (durable run): research the API docs → draft a spec
+  constrained to a **read-only template** by default (write endpoints require
+  explicit justification per endpoint) → critic agent reviews for least
+  privilege (no wildcard scopes, minimal endpoints, correct auth flow,
+  untrusted-data framing noted).
+- Admin approval surface: the spec rendered human-readably — "this grants
+  read access to job postings and candidates at api.greenhouse.io, via OAuth
+  client credentials" — with the raw spec one click away. Approve → register
+  the Gateway target + catalog rows; reject → feedback to requester.
+- Provisioning IAM: the control-plane role that can create Gateway targets is
+  powerful — separate role, invoked only by the approval transition,
+  server-side, audited. The model never holds it.
+
+**Thin slice.** Stop before auto-provisioning: the assistant produces the
+proposed-integration artifact (spec + scopes + config + research citations)
+and files the admin-review issue; a human runs the registration from the
+artifact (the #279 runbook steps). Proves draft quality before wiring the
+control plane.
+
+**Full vision.** One-click provisioning from the approval card; requester
+notified when live; usage-driven suggestions ("three people asked about
+Greenhouse data this month — draft the connector?"); drafted connectors
+shareable across the org catalog with their review provenance attached.
+
+**Dependencies.** #294/#296 landed and validated (hard); #5's critic pattern
+(a single review-skill works before full workrooms exist); web search;
+AgentCore control-plane automation for the full version.
+
+**Risks / watch-outs.**
+- **The admin review is the product.** If review culture degrades to
+  rubber-stamping, this is a security hole with a great demo. Mitigations:
+  read-only default template, per-endpoint justification for anything else,
+  critic pass before a human ever sees it, and rate limits on proposals.
+- Spec quality against messy/undocumented APIs — the thin slice's
+  human-runs-registration step is also the quality feedback loop.
+- Each live Gateway target has real cost — proposals should carry a cost
+  estimate, and unused connectors should age out (usage data exists in audit).
+
+**Open questions for scoping.**
+- Which admin role approves — same as tool-registry admin, or a distinct
+  "integration officer" capability?
+- Are user-specific connectors allowed (only the requester attests) or is
+  everything org-visible in the catalog?
+- Version upgrades: when the target API changes, who owns the spec bump —
+  re-run the drafting flow with a diff review?
+
+**Success signal.** Request→live lead time (days → hours); number of live
+assistant-drafted connectors; zero scope-overreach incidents post-review.
+
+---
+
+## 10. Automation Coach — "where does my week go"
+
+**One-liner.** Personal work analytics with teeth: from calendar, mail, and
+the runs ledger, the assistant shows each user their week's shape — then
+proposes *specific* automations grounded in observed repetition, pre-built and
+one tap from live: "You've assembled essentially the same Monday status
+report six weeks running; here's a skill + schedule that does it — want it?"
+
+**Demo moment.** A personal dashboard that says "Comparative reclaimed 4.5
+hours for you this month" — with receipts (which automations, which runs,
+conservative per-run estimates the user can adjust). That number is what users
+tell their teammates, and what leadership asks to see aggregated.
+
+**Why us.** This is the growth loop: the product that teaches each user to use
+it more, converting usage into more usage automatically. The recommendation
+machinery already models suggest-and-accept; the coach gives it evidence and
+a scoreboard. It's also "Agent Wire lite" pointed at the individual first —
+the org-level adoption story (#9 in the brainstorm doc) falls out of
+aggregating what the coach already computes, with consent.
+
+**Substrate already built.**
+- `recommendations` + `recommendation-persistence` (quiet dismissible cards,
+  acceptance audited — and #245's lesson: recommendation memory must be
+  honest); capability graph for what the user *could* run;
+  runs ledger with cost/duration; Gmail/Calendar signal (#297); the memory
+  worker lane for background analysis (`memory-capture.ts` pattern).
+
+**Architecture sketch (V1).**
+- Pattern detectors on the memory-worker lane (per-user, background):
+  - **Repetition detector**: near-duplicate prompts/skill-runs across weeks
+    (the strongest automation signal, available today from thread history —
+    no new integrations needed).
+  - **Calendar shape**: recurring meetings without prep, status-meeting load,
+    focus fragmentation (needs #297).
+  - **Mail patterns**: recurring report sends, same-shape replies (needs
+    #297; feeds inbox drafters in #1).
+- Proposals are recommendation cards carrying a **pre-configured draft** —
+  accepting creates the skill + schedule (or workstream, or inbox drafter)
+  already wired, not a suggestion to go build one.
+- Time-reclaimed ledger: each accepted automation logs a conservative,
+  user-adjustable minutes-saved estimate per run; the coach page shows the
+  running total and the automations behind it.
+- Weekly coach digest folded into #292's digest, not a separate nag.
+
+**Thin slice.** The repetition detector alone, over the user's own thread
+history → "you've asked for roughly this four times — want it as a scheduled
+skill?" with one-tap creation. No calendar, no mail, no dashboard — just the
+loop that turns repeated work into skills, which is the capability funnel's
+first conversion made automatic.
+
+**Full vision.** Full work-shape dashboard; coach-aware onboarding ("people
+in roles like yours automate these three things first" — needs #78's
+share-card substrate); opt-in org aggregates for the adoption story,
+firewalled from the personal view.
+
+**Dependencies.** Recommendations engine (shipped), #297 for
+calendar/mail-based detectors, #292 for delivery, #1/#2 as richer acceptance
+targets. The thin slice depends on nothing new.
+
+**Risks / watch-outs.**
+- **Surveillance vibes are fatal.** Strictly personal-scope, opt-in
+  analytics, never manager-visible, no cross-user comparison — the same
+  principles as #78. Org aggregates only with explicit consent and k-anonymity.
+- Inflated claims corrode trust (the honesty spine applies to metrics too):
+  conservative estimates, labeled as estimates, user-correctable.
+- Noise: a coach that suggests badly is dismissed forever — acceptance-rate
+  throttling per detector, and detectors that underperform get turned off.
+
+**Open questions for scoping.**
+- Where do behavioral features live and for how long (a `user_work_patterns`
+  store with aggressive retention limits, or computed-on-demand)?
+- Does the coach ever proactively message, or only surface in digest + a
+  page? (Lean: digest + page; no interruptions.)
+- What's the consent UX for the eventual org-aggregate view?
+
+**Success signal.** Automations accepted per user per month; the
+time-reclaimed number being *believed* (spot-check survey); retention delta
+between coached and uncoached users.
+
+---
+
+## 11. Deep Research Agent — the analyst on demand
+
+**One-liner.** Citation-grade research as a first-class deliverable: fan out
+across web and connected internal tools, cross-check claims adversarially, and
+produce a report where **every claim carries a source and the shaky ones say
+so** — with internal and external sources visibly distinguished.
+
+**Demo moment.** "Should we build or buy for X? Give me the landscape." Twenty
+minutes later: a report you'd forward to leadership without re-checking it,
+because the citations are real, the confidence annotations are honest, and
+the two claims that couldn't be verified are *labeled as such*.
+
+**Why us.** Consumer deep-research tools hallucinate citations; the honesty
+spine is precisely the differentiator. And no consumer tool can do the fusion
+move: web research *combined with* the org's own data (Salesforce numbers,
+internal docs, meeting decisions) under per-user credentials and governance —
+that fusion is where research becomes decision-support.
+
+**Substrate already built.**
+- `web__fetch_url` with SSRF hardening + nonce framing (the ingestion
+  discipline exists); web search is on the near-term parity list; the durable
+  lane + runs ledger for long multi-phase runs; workroom critic machinery
+  (#5) is the verification pass; artifacts for the deliverable; source
+  logging feeds replay receipts (#7).
+
+**Architecture sketch (V1).**
+- A research run is a durable multi-phase run:
+  1. **Plan** — decompose the question, present the plan (+ time/cost
+     estimate) for a quick confirm on big runs.
+  2. **Sweep** — bounded fan-out of searches/fetches; every source logged
+     (URL, retrieval time, excerpt) to the run's source ledger.
+  3. **Extract** — claims pulled with their supporting excerpts.
+  4. **Verify** — the adversarial pass: each load-bearing claim checked
+     against an independent source, or against the cited page itself (does it
+     actually support the claim — the anti-citation-laundering check);
+     unverifiable claims marked, not dropped silently.
+  5. **Synthesize** — the report artifact: claim-level citations, confidence
+     annotations, methodology note, source bibliography.
+- Internal fusion: the same loop may query connected tools with the
+  requester's credentials; internal citations render distinctly and never
+  leave the user's scoping (a shared report must strip or re-gate internal
+  source content — same rule class as #8's channel scoping).
+- Budget: per-run cost cap, user-visible estimate up front, progress via run
+  events.
+
+**Thin slice.** Web-only, single verification pass, citations mandatory,
+"unverified" labeling — shipped as a skill ("Deep Research") on the durable
+lane. Internal-tool fusion is phase two.
+
+**Full vision.** Scheduled research (workstream-fed competitive monitoring);
+research workrooms (drafter + domain critic); org research library (reports
+as shareable artifacts with their source ledgers attached — feeding #6);
+freshness re-runs ("this report is 90 days old — refresh it?").
+
+**Dependencies.** Web search tool (the near-term parity item — hard
+dependency); durable lane; #5's critic machinery helps but a single
+verify-skill suffices for V1. Genuinely early-startable after web search
+ships.
+
+**Risks / watch-outs.**
+- **Verification is the feature.** Without the adversarial pass this is
+  long-form generation with footnotes — the failure mode that burned every
+  consumer tool. The verify step needs its own evals: seeded-false-claim
+  fixtures where the pipeline must catch the plant (same discipline as #5's
+  critic evals).
+- Cost per report: bounded sweep, visible estimates, budget caps.
+- Web content is hostile input at scale — nonce framing everywhere (already
+  standard), and the report must never execute instructions found in sources.
+- Shared reports leaking internal-source content past the recipient's
+  scope — re-gate on share.
+
+**Open questions for scoping.**
+- Default depth/budget, and how the user dials it (quick scan | standard |
+  exhaustive)?
+- Are fetched source snapshots retained for replay/audit (lean: yes,
+  excerpt-level, with retention policy) — full pages are a copyright and
+  storage question?
+- Report format standard — one house style, or per-use-case templates?
+
+**Success signal.** Reports shared/forwarded (the trust proxy); citation
+spot-check pass rate ≥ 95%; seeded-claim catch rate in evals; repeat usage
+per user.
+
+---
+
+## 12. Computer-Use Lane — hands for legacy systems
+
+**One-liner.** A sandboxed browser the agent can drive for the enterprise long
+tail that will *never* get an API: the old expense portal, the vendor site,
+the internal tool from 2019. Every session recorded and replayable (#7); every
+consequential action gated through the approval inbox (#1).
+
+**Demo moment.** "File my expense report from these receipts" — against a
+portal IT hasn't touched in seven years. It's the single most jaw-dropping
+demo on any list, because it's the work everyone hates most.
+
+**Why us.** The integration roadmap (#294, even #9) reaches systems with APIs;
+this reaches everything else *at once*. And it's consistent with "rent the
+loop, own the seam": **AgentCore ships a managed browser tool**, so the
+dangerous infrastructure (isolation, session management) is rented, while the
+parts we must own — credentials, approvals, recording, audit — land on
+governance that already exists.
+
+**Substrate already built.**
+- AgentCore managed browser tool (the migration packet's platform bet paying
+  out); the durable Fargate lane for long sessions; replay (#7) for session
+  recording; approval inbox (#1) for action gating; Secrets Manager + the
+  encrypted credential patterns; audit log.
+
+**Architecture sketch (V1).**
+- `browser_sessions` tied to runs: one isolated AgentCore browser sandbox per
+  session, no shared browser state between users or sessions, ever.
+- **The credential decision (the make-or-break design call).** Two models:
+  1. *Interactive handoff* — the user logs into the target site themselves
+     through a controlled viewport; the agent proceeds in the authenticated
+     session; credentials never exist as text the model sees. Safest, needs
+     the user present at session start.
+  2. *Stored site credentials* — per-site secrets in Secrets Manager,
+     injected by the harness (never through the model), per-site admin
+     policy. Enables unattended runs; much heavier review.
+  V1 is handoff-only. Stored credentials are a separate, later fight.
+- Action policy: navigation/reading is free; form submissions, purchases,
+  deletions, sends require an inbox approval carrying a **screenshot of the
+  pending action** — the user approves what they can see.
+- Page content is hostile input: DOM text and screenshots are nonce-framed
+  data; an on-page instruction ("paste your password here") must never become
+  agent behavior — this extends #299's eval class to the DOM.
+- Full session recording (video + DOM event stream) stored with the run,
+  replayable via #7, with retention policy and access auditing (recordings
+  contain whatever was on screen).
+- Site allowlist per org, admin-managed. No open web driving in V1.
+
+**Thin slice.** Read-only reconnaissance on one allowlisted internal portal:
+"go check the status of my request in the portal and report back, with a
+screenshot." No writes, no approvals needed, handoff auth, full recording.
+It proves the sandbox, the recording, and the reliability story before any
+consequential action is possible.
+
+**Full vision.** Write actions behind inbox approvals; workstreams (#2) that
+include portal steps; graceful-failure handoff as a designed experience
+("I got to step 3 and the form changed — here's where I am" + screenshot +
+resume-control button); eventually stored-credential unattended runs for the
+most-proven sites.
+
+**Dependencies.** #1 approval inbox (hard, for any write); #7 replay (hard —
+recording without replay review is liability without benefit); AgentCore
+browser tool availability in-region; the durable lane. Sequence this last —
+it composes everything else's trust machinery.
+
+**Risks / watch-outs.**
+- **Heaviest security review on the list**, by design: browser sessions
+  contain credentials and whatever renders on screen. Recording retention,
+  redaction, and access control need answers before the first session.
+- Reliability on janky UIs is genuinely hard — expect 60–80% task success and
+  design for it: graceful failure with state handoff is a *feature*, not an
+  apology. Set expectations in UX (attended-assist first, autonomy later).
+- Cost per session (a browser sandbox is expensive relative to a chat turn) —
+  visible estimates, session caps.
+- Anti-bot measures and ToS on external sites — another reason V1 is
+  internal-portal allowlist only.
+
+**Open questions for scoping.**
+- Recording retention and who may replay (the #7 watching-the-watchers
+  question, sharpened — recordings are the most sensitive artifact the
+  product would hold)?
+- Attended-only V1 (user watches live, can seize control) vs. background
+  with checkpoint screenshots?
+- What does the site-allowlist approval process look like — per-site security
+  mini-review?
+
+**Success signal.** Tasks completed end-to-end on no-API systems; quality of
+failure handoffs (user completes from where the agent stopped without
+starting over); the security review passing on the first serious read.
+
+---
+
 ## How these compose
 
-The seven aren't a menu of equals — they're one system seen from seven sides:
+The twelve aren't a menu of equals — they're one system seen from twelve
+sides:
 
 - **#292/#293 (delivery + triggers)** is the nervous system → **workstreams
-  (#2)** are its brain → the **approval inbox (#1)** is its hands.
+  (#2)** are its brain → the **approval inbox (#1)** is its hands → and
+  **chat-platform presence (#8)** multiplies every touchpoint by putting the
+  nervous system's outputs where attention already lives.
 - **Gmail/Calendar (#297)** feeds the **meeting loop (#3)**, whose
-  commitments feed **workstreams (#2)** and the **inbox (#1)**.
+  commitments feed **workstreams (#2)** and the **inbox (#1)** — and gives the
+  **automation coach (#10)** its richest signal.
 - **J4 + schedules** become **living apps (#4)**; alert thresholds make
   living apps visual workstreams.
-- The **model registry (#295)** makes **workroom (#5)** roles
-  model-diverse; workroom rubrics and meeting decisions feed the
-  **org brain (#6)**.
-- **Replay (#7)** is the trust floor under all of it — and the cheapest to
-  start.
+- The **model registry (#295)** makes **workroom (#5)** roles model-diverse;
+  workroom rubrics and meeting decisions feed the **org brain (#6)**; the
+  same critic machinery is the **deep research agent's (#11)** verification
+  pass and the **self-extending connection layer's (#9)** spec reviewer.
+- The **Gateway convergence (#294)** is what makes **#9** possible at all —
+  integrations became configuration, so the assistant can draft them.
+- The **coach (#10)** is the growth loop on the recommendations engine:
+  usage → observed patterns → accepted automations → more usage.
+- **Replay (#7)** is the trust floor under all of it — and the precondition
+  for the **computer-use lane (#12)**, which composes replay + inbox +
+  durable lane into the highest-wow, highest-review bet on the list.
 
 Suggested sequencing conversation when the time comes: **#7 early** (cheap,
-compounds trust), **#1 + #2 as the flagship pair** (they're the product's
-identity shift), **#3 next** (rides the Gmail wave), **#4 after J4 phase 2 and
-the artifact consolidation**, **#5 when a quality flagship is wanted**, **#6
-only once teams exist and usage is real**.
+compounds trust), **#10's thin slice early too** (repetition detector needs
+nothing new and grows usage), **#1 + #2 as the flagship pair** (the product's
+identity shift), **#8 outbound + #11 riding the web-search and Gmail waves**,
+**#3 next**, **#4 after J4 phase 2 and the artifact consolidation**, **#5 and
+#9 when the Gateway pattern and critic machinery are proven**, **#6 once
+teams exist and usage is real**, **#12 last** — it spends every piece of
+trust machinery the others build.
 
 Every one of these inherits the non-negotiables: per-user data scoping, no
 credential escalation, untrusted content framed as data, capability honesty,
