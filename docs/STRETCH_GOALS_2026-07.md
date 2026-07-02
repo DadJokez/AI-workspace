@@ -724,8 +724,10 @@ trust story doesn't change, only the authoring speed.
 
 **Substrate already built.**
 - The Gateway pattern (#294/#296): integration = OpenAPI spec + OAuth
-  credential provider + `mcp_servers`/`tools_catalog` rows. ADR-0004 defines
-  the mapping this feature automates.
+  credential provider + `mcp_servers`/`tools_catalog` rows. The Gateway ADR
+  to be drafted under #296 (ADR-0004, not yet written) will formalize the
+  mapping this feature automates; until it lands, the mapping lives in the
+  #294 epic and `docs/agentcore-migration/specs/gateway-targets.md`.
 - Web fetch/search for API-doc research; workroom critic machinery (#5) for
   adversarial spec review; `user_tool_attestations` so end users still
   individually attest before use.
