@@ -3,7 +3,7 @@
 Cofounder-style review of where Comparative is and where to take it next.
 Synthesized from a full read of the codebase, docs/ADRs/specs, all 95 closed +
 3 open issues, and the June PR history. The committed direction at the bottom
-is groomed into issues #291–#295.
+is groomed into issues #291–#295, with epic children broken out as #296–#305.
 
 ## The thesis
 
@@ -51,8 +51,9 @@ of ChatGPT every morning.
 
 ### Horizon 1 — Now (unblock + compound what exists)
 
-1. **Verify invite email end-to-end** (#291) — SES prod approved; land PR #272
-   and confirm real delivery. Highest leverage-per-hour in the backlog.
+1. **Verify invite email end-to-end** (#291) — SES prod approved; Codex
+   verifies via AWS CLI, refreshes PR #272, Rob merges. Highest
+   leverage-per-hour in the backlog.
 2. **Finish J3: proactive delivery** (#292) — notification center + daily
    digest. Runs complete today but results sit in threads nobody reopens.
    "Work is waiting for you" is the biggest perceived-value jump available.
@@ -76,11 +77,13 @@ of ChatGPT every morning.
 
 ### Horizon 2 — Next (the integration factory + app loop)
 
-- **Integration factory via AgentCore Gateway** (#294): execute the Salesforce
-  spike, converge on Gateway as the one integration pattern (spec +
-  credential provider + catalog rows = a new integration), then ship **M365
-  Graph Mail + Calendar** first — it unlocks Meeting Prep and Weekly Status,
-  the two most universal flagship use cases, and both feed the delivery loop.
+- **Integration factory via AgentCore Gateway** (#294, children #296–#299):
+  execute the Salesforce spike, converge on Gateway as the one integration
+  pattern (spec + credential provider + catalog rows = a new integration),
+  then ship **Gmail + Google Calendar** first — all alpha testers are on
+  Gmail, and mail + calendar unlock Meeting Prep and Weekly Status, both
+  feeding the delivery loop. M365 Graph is the enterprise follow-on on the
+  same pattern once Comparative runs in an enterprise box.
 - **J4 conversational build-iterate loop** (#133 phase 2) — the roadmap's own
   "biggest value unlock"; data model shipped, iteration UX is the multiplier.
 - **Projects/workspaces + user-facing memory surface** — the KM ADR designs
@@ -128,8 +131,8 @@ triggered runs whose output the user opens and acts on (Cursor's
 
 | When | What | Issues |
 | --- | --- | --- |
-| Week 0 | Verify SES invite email, land PR #272, get to ~15 weekly users | #291 |
+| Week 0 | Verify SES invite email via AWS CLI (Codex), land PR #272, get to ~15 weekly users | #291 |
 | Weeks 1–4 | Proactive delivery loop: notification center + digest, then email delivery, then GitHub event triggers | #292, #293 |
-| Weeks 3–8 | Integration factory: execute Gateway spike, converge pattern, ship M365 Graph Mail + Calendar, Meeting Prep / Weekly Status flagship skills | #294 (+#279) |
-| Weeks 6–12 | Model qualification substrate: registry, scorecard pipeline, cost/capability routing | #295 |
+| Weeks 3–8 | Integration factory: execute Gateway spike, converge pattern (ADR), ship Gmail + Google Calendar, Meeting Prep / Weekly Status flagship skills | #294 → #296–#299 (+#279) |
+| Weeks 6–12 | Model qualification substrate: registry, scorecard pipeline, admin page, routing, first non-Anthropic models on cheap lanes | #295 → #300–#305 |
 | Continuous | One enterprise-gate item per cycle; artifact-revision consolidation before J4 phase 2; J4 iterate loop once weekly usage is real | #133 |
