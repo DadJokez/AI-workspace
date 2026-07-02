@@ -6,7 +6,7 @@ Synthesized from a full read of the codebase, docs/ADRs/specs, all 95 closed +
 is groomed into issues #291–#295, with epic children broken out as #296–#305.
 
 Long-horizon companion: [`docs/STRETCH_GOALS_2026-07.md`](STRETCH_GOALS_2026-07.md)
-— the seven wow-factor bets this 90-day plan is the foundation for.
+— the twelve wow-factor bets this 90-day plan is the foundation for.
 
 ## The thesis
 
