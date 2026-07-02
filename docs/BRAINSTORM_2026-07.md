@@ -5,6 +5,9 @@ Synthesized from a full read of the codebase, docs/ADRs/specs, all 95 closed +
 3 open issues, and the June PR history. The committed direction at the bottom
 is groomed into issues #291–#295, with epic children broken out as #296–#305.
 
+Long-horizon companion: [`docs/STRETCH_GOALS_2026-07.md`](STRETCH_GOALS_2026-07.md)
+— the twelve wow-factor bets this 90-day plan is the foundation for.
+
 ## The thesis
 
 **"Cursor for knowledge work."** Own three layers permanently — the **harness**
