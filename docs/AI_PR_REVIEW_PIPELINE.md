@@ -44,7 +44,10 @@ GitHub Actions, and human review in this repository.
 - `.github/workflows/claude.yml` handles explicit `@claude` mentions.
 - `.github/workflows/claude-code-review.yml` handles automatic review after
   `CI` and `Product Smoke` both succeed, then publishes the final
-  `Claude verdict` commit status.
+  `Claude verdict` commit status. It writes the hidden
+  `<!-- claude-reviewed: SHA -->` marker only after the Claude review action
+  completes successfully; if a marker already exists, it republishes the
+  verdict so stale red statuses do not block clean PRs.
 - `.github/workflows/claude-verdict.yml` publishes an initial red
   `Claude verdict` status for new PR commits and refreshes the status when
   labels or reviews change.
@@ -59,6 +62,12 @@ GitHub Actions, and human review in this repository.
   - `local browser smoke`
   - `Claude verdict`
   - resolved conversations
+
+The production AWS CodeBuild project (`ai-workspace-build`) is intentionally
+outside the PR merge gate. It deploys merged `main` commits only. Its webhook
+must stay filtered to `PUSH` events where `HEAD_REF` is `^refs/heads/main$`,
+with pull-request build approval disabled; otherwise GitHub can show cosmetic
+red CodeBuild statuses on otherwise clean PR commits.
 
 Approving reviews are a human workflow expectation, not a current GitHub branch
 protection requirement. Rob still owns merge judgment even when all mechanical

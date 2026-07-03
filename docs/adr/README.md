@@ -9,6 +9,7 @@ an IT reviewer) understands the reasoning without archaeology.
 | [0001](./0001-context-knowledge-management.md) | Context & Knowledge Management: curated-context-first, defer the vector DB | Accepted |
 | [0002](./0002-skill-format.md) | Skill format: database rows at runtime, SKILL.md for portability | Accepted |
 | [0003](./0003-aws-only-runtime-substrate.md) | Runtime substrate: Bedrock + AgentCore, remove Cursor SDK | Accepted |
+| [0004](./0004-agentcore-gateway-integration-pattern.md) | AgentCore Gateway integration pattern | Proposed |
 
 New ADR: copy the format of 0001 (Context → Decision → Consequences →
 Alternatives → Revisit when), number it sequentially, and add a row here.
