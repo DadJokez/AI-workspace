@@ -60,6 +60,26 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       "aiWorkspace:appSecretName",
       "ai-workspace/production/app",
     );
+    const inviteEmailIdentityName = contextString(
+      this,
+      "aiWorkspace:inviteEmailIdentityName",
+      "comparative.builtwithrobot.link",
+    );
+    const inviteEmailProvider = contextString(
+      this,
+      "aiWorkspace:inviteEmailProvider",
+      "ses",
+    );
+    const inviteEmailFrom = contextString(
+      this,
+      "aiWorkspace:inviteEmailFrom",
+      "no-reply@comparative.builtwithrobot.link",
+    );
+    const inviteEmailAwsRegion = contextString(
+      this,
+      "aiWorkspace:inviteEmailAwsRegion",
+      cdk.Stack.of(this).region,
+    );
     const dbSecurityGroupId = contextString(
       this,
       "aiWorkspace:dbSecurityGroupId",
@@ -183,6 +203,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       memoryLimitMiB: 1024,
     });
     grantBedrockInvoke(webTask);
+    grantSesSendEmail(webTask, inviteEmailIdentityName, inviteEmailAwsRegion);
     webTask.addContainer("web", {
       image: ecs.ContainerImage.fromEcrRepository(repository, "latest"),
       containerName: "web",
@@ -195,6 +216,9 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
         ...commonEnvironment,
         CHAT_RUN_IN_PROCESS_WORKER: "0",
         MEMORY_CAPTURE_IN_PROCESS_SCHEDULER: "0",
+        INVITE_EMAIL_PROVIDER: inviteEmailProvider,
+        INVITE_EMAIL_FROM: inviteEmailFrom,
+        INVITE_EMAIL_AWS_REGION: inviteEmailAwsRegion,
       },
       secrets: commonSecrets,
     });
@@ -393,6 +417,22 @@ function grantBedrockInvoke(task: ecs.FargateTaskDefinition): void {
     new iam.PolicyStatement({
       actions: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
       resources: ["*"],
+    }),
+  );
+}
+
+function grantSesSendEmail(
+  task: ecs.FargateTaskDefinition,
+  identityName: string,
+  region: string,
+): void {
+  const stack = cdk.Stack.of(task);
+  task.addToTaskRolePolicy(
+    new iam.PolicyStatement({
+      actions: ["ses:SendEmail"],
+      resources: [
+        `arn:${stack.partition}:ses:${region}:${stack.account}:identity/${identityName}`,
+      ],
     }),
   );
 }
