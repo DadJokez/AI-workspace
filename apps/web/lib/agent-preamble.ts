@@ -49,7 +49,7 @@ const PROVIDER_DESCRIPTIONS: Record<string, string> = {
   notion:
     "Notion: search/read pages, read markdown, inspect databases/data sources, query rows, create/update pages, append blocks (pre-authorized)",
   google:
-    "Google Calendar: events, meetings, availability (pre-authorized)",
+    "Google Mail and Calendar: Gmail messages, events, meetings, and availability (pre-authorized)",
 };
 
 export function buildAgentPreamble({

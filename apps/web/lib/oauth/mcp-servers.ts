@@ -24,6 +24,7 @@ interface McpProviderConfig {
 const MCP_PROVIDER_CONFIG: Record<string, McpProviderConfig> = {
   github: { endpoint: { url: "https://api.githubcopilot.com/mcp/" } },
   notion: notionMcpConfig(process.env.NOTION_MCP_ENDPOINT_URL),
+  google: { unavailableReason: "gateway_not_configured" },
 };
 
 /**

@@ -77,4 +77,26 @@ describe("GET /api/oauth/status", () => {
       },
     });
   });
+
+  it("reports Google connected but pending execution until a Gateway target exists", async () => {
+    rows = [
+      { provider: "google", expiresAt: new Date(Date.now() + 60_000) },
+    ];
+    installMocks();
+    const { GET } = await import("@/app/api/oauth/status/route");
+
+    const res = await GET();
+    await expect(res.json()).resolves.toMatchObject({
+      google: true,
+      providerDetails: {
+        google: {
+          connected: true,
+          executionConfigured: false,
+          toolAvailable: false,
+          status: "connected_execution_not_configured",
+          reason: "gateway_not_configured",
+        },
+      },
+    });
+  });
 });
