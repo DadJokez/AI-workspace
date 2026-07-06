@@ -140,6 +140,23 @@ test.describe("persona and workspace surfaces", () => {
       .toHaveAttribute("href", "/api/oauth/notion/start");
   });
 
+  test("shows a connect link for Google Mail and Calendar", async ({
+    page,
+    isMobile,
+  }) => {
+    await installMockComparativeApi(page, {
+      oauthStatus: { github: false, notion: false, google: false },
+    });
+    await gotoE2EChat(page);
+
+    await openNavItem(page, "Tools", isMobile);
+    const googleCard = page.getByTestId("tool-card-google");
+    await expect(googleCard.getByText("Google Mail & Calendar")).toBeVisible();
+    await expect(googleCard.getByText("Not connected")).toBeVisible();
+    await expect(googleCard.getByRole("link", { name: "Connect" }))
+      .toHaveAttribute("href", "/api/oauth/google/start");
+  });
+
   test("prioritizes connected tools above disconnected tools", async ({
     page,
     isMobile,

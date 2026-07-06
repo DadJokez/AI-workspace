@@ -11,6 +11,7 @@ export interface StoreOAuthConnectionInput {
   refreshToken?: string | null;
   expiresAt?: Date | null;
   scope?: string | null;
+  attestationAction?: "read" | "write" | "admin";
   attestationReason: string;
   attestationSource: string;
 }
@@ -23,6 +24,7 @@ export async function storeOAuthConnection({
   refreshToken = null,
   expiresAt = null,
   scope = null,
+  attestationAction = "admin",
   attestationReason,
   attestationSource,
 }: StoreOAuthConnectionInput) {
@@ -68,7 +70,7 @@ export async function storeOAuthConnection({
       userId,
       scopeType: "provider",
       provider,
-      action: "admin",
+      action: attestationAction,
       approvedBy: userId,
       reason: attestationReason,
       metadata: { source: attestationSource },

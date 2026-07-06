@@ -68,10 +68,7 @@ export async function GET() {
 }
 
 function providerDetails(provider: Provider, connected: boolean) {
-  const execution =
-    provider === "google"
-      ? { executionConfigured: false, reason: "unsupported_provider" }
-      : getMcpProviderExecutionStatus(provider);
+  const execution = getMcpProviderExecutionStatus(provider);
   const toolAvailable = connected && execution.executionConfigured;
   const status: ProviderConnectionStatus = !connected
     ? "not_connected"

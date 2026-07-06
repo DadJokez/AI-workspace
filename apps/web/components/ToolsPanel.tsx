@@ -135,12 +135,12 @@ const INTEGRATIONS: Integration[] = [
   },
   {
     id: "google",
-    name: "Google Calendar",
-    description: "Events, meetings, and availability",
+    name: "Google Mail & Calendar",
+    description: "Gmail messages, events, meetings, and availability",
     initial: "G",
     bg: "#34A853",
     fg: "#ffffff",
-    real: false,
+    real: true,
     authHint: "Google OAuth",
   },
 ];
@@ -199,8 +199,7 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
     return {
       integration,
       connected,
-      executionPending:
-        connected && integration.id === "notion" && !toolAvailable,
+      executionPending: connected && !toolAvailable,
       failed:
         oauthNotice?.provider === integration.id && Boolean(oauthNotice.error),
     };
