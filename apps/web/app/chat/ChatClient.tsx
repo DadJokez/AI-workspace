@@ -16,6 +16,7 @@ import { SearchPanel } from "@/components/SearchPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { WelcomeWizard } from "@/components/WelcomeWizard";
 import { shouldShowTour } from "@/lib/tour";
+import { NotificationsPanel } from "@/components/NotificationsPanel";
 import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
 import { ToolsPanel } from "@/components/ToolsPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -44,7 +45,14 @@ import { useEffect, useRef, useState } from "react";
 // Model ids come from the AWS-backed model registry exposed by /api/models.
 const FALLBACK_DEFAULT_MODEL_ID = "sonnet-4-6";
 
-type View = "chat" | "settings" | "search" | "tools" | "vault" | "workspace";
+type View =
+  | "chat"
+  | "settings"
+  | "search"
+  | "tools"
+  | "vault"
+  | "workspace"
+  | "notifications";
 
 const DEFAULT_MODEL_PREFIX = "ai-workspace-default-model:";
 
@@ -377,6 +385,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const [slashSkills, setSlashSkills] = useState<SlashSkill[]>([]);
   const [recommendationPendingId, setRecommendationPendingId] =
     useState<string>();
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -392,6 +401,28 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     if (params.has("connected")) {
       setView("tools");
     }
+  }, []);
+
+  // Unread-notification badge: poll so the count updates without a hard
+  // refresh (scheduled runs complete in the background worker).
+  useEffect(() => {
+    let cancelled = false;
+    async function poll() {
+      try {
+        const res = await fetch("/api/notifications");
+        if (!res.ok) return;
+        const body = (await res.json()) as { unreadCount?: number };
+        if (!cancelled) setUnreadNotifications(body.unreadCount ?? 0);
+      } catch {
+        // Offline or transient — the next tick retries.
+      }
+    }
+    void poll();
+    const id = setInterval(poll, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, []);
 
   function validatestring(
@@ -1626,6 +1657,13 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
               onOpenSidebar={() => setSidebarOpen(true)}
               onOpenArtifact={openArtifactPreview}
             />
+          ) : view === "notifications" ? (
+            <NotificationsPanel
+              onClose={() => setView("chat")}
+              onOpenSidebar={() => setSidebarOpen(true)}
+              onOpenThread={openThread}
+              onUnreadChange={setUnreadNotifications}
+            />
           ) : (
             <>
               <header className="flex h-11 shrink-0 items-center justify-between border-b border-hairline bg-canvas">
@@ -1668,6 +1706,41 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                       disabled={busy || activeHasPendingRun}
                     />
                   ) : null}
+                  <button
+                    type="button"
+                    aria-label={
+                      unreadNotifications > 0
+                        ? `Notifications (${unreadNotifications} unread)`
+                        : "Notifications"
+                    }
+                    title="Notifications"
+                    data-testid="notification-bell"
+                    onClick={() => setView("notifications")}
+                    className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-muted hover:bg-subtle hover:text-ink"
+                  >
+                    <svg
+                      viewBox="0 0 16 16"
+                      width="14"
+                      height="14"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M8 2a3.5 3.5 0 0 0-3.5 3.5c0 3-1.5 4.5-1.5 4.5h10s-1.5-1.5-1.5-4.5A3.5 3.5 0 0 0 8 2Z" />
+                      <path d="M6.8 12.5a1.3 1.3 0 0 0 2.4 0" />
+                    </svg>
+                    {unreadNotifications > 0 ? (
+                      <span
+                        data-testid="notification-badge"
+                        className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-semibold text-white"
+                      >
+                        {unreadNotifications > 9 ? "9+" : unreadNotifications}
+                      </span>
+                    ) : null}
+                  </button>
                   <button
                     type="button"
                     aria-label="Download chat transcript"

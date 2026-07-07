@@ -59,6 +59,7 @@ import {
   type WorkspaceArtifactVersionTarget,
 } from "@/lib/workspace-artifacts";
 import { createRecommendationsForAssistantMessage } from "@/lib/recommendation-persistence";
+import { createScheduledRunNotification } from "@/lib/notifications";
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 const DEFAULT_RUNTIME_TIMEOUT_MS = 60 * 60 * 1000;
@@ -874,6 +875,8 @@ async function persistAssistantResult({
 
   if (updatedRows.length === 0) return;
 
+  await createScheduledRunNotification(db, run, terminalStatus, threadId);
+
   if (terminalStatus === "succeeded" && assistantMessageId) {
     try {
       await enqueueMemoryCapture(db, {
@@ -936,6 +939,8 @@ async function markRunFailed(
     .returning({ id: runs.id });
 
   if (updatedRows.length === 0) return;
+
+  await createScheduledRunNotification(db, { ...run, error: message }, "failed");
 
   await appendWorkerRunEvent(db, run.id, {
     eventType: "run_failed",
