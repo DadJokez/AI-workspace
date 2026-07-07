@@ -4,6 +4,7 @@ import { runSuite } from "./harness";
 import type { CapabilityResult, EvalSuite } from "./types";
 import { contextFaithfulnessSuite } from "./cases/context-faithfulness.cases";
 import { dateGroundingSuite } from "./cases/date-grounding.cases";
+import { gmailCalendarFaithfulnessSuite } from "./cases/gmail-calendar-faithfulness.cases";
 import { skillFaithfulnessSuite } from "./cases/skill-faithfulness.cases";
 import { toolGroundingSuite } from "./cases/tool-grounding.cases";
 
@@ -12,6 +13,7 @@ const SUITES: EvalSuite[] = [
   skillFaithfulnessSuite,
   contextFaithfulnessSuite,
   toolGroundingSuite,
+  gmailCalendarFaithfulnessSuite,
 ];
 
 /**
