@@ -107,7 +107,7 @@ export function createWebSearchTool({
       const resultCount = normalizeCount(count);
       const retrievedAt = now().toISOString();
 
-      const { results, note } = await braveSearch({
+      const results = await braveSearch({
         query: effectiveQuery,
         count: resultCount,
         apiKey,
@@ -129,7 +129,6 @@ export function createWebSearchTool({
           ? {
               results: [],
               emptyResult:
-                note ??
                 "The search provider returned no results for this query. Say so plainly; never invent results.",
             }
           : { results: formatSearchResultsData(results) }),
@@ -150,7 +149,7 @@ async function braveSearch({
   apiKey: string;
   fetchImpl: typeof fetch;
   delayImpl: (ms: number) => Promise<void>;
-}): Promise<{ results: WebSearchResult[]; note?: string }> {
+}): Promise<WebSearchResult[]> {
   const url = new URL(BRAVE_ENDPOINT);
   url.searchParams.set("q", query);
   url.searchParams.set("count", String(count));
@@ -194,7 +193,7 @@ async function braveSearch({
         "Web search failed: the search provider returned an unreadable response.",
       );
     }
-    return { results: mapBraveResults(body, count) };
+    return mapBraveResults(body, count);
   }
 }
 
