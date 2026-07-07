@@ -37,6 +37,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@ai-workspace/evals": "workspace:*",
     "@eslint/eslintrc": "^3.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@playwright/test": "^1.60.0",
