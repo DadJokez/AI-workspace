@@ -45,6 +45,19 @@ function setSession(user: SessionUser | null) {
 }
 
 function installDbMock() {
+  // #300: routes consult the registry for chat-enabled models; the fixture
+  // registry keeps all three tiers enabled like the seeded production state.
+  vi.doMock("@/lib/model-registry", () => ({
+    enabledModelsForPurpose: async () => [
+      "haiku-4-5",
+      "sonnet-4-6",
+      "opus-4-7",
+    ],
+    isModelEnabled: async (_db: unknown, id: string) =>
+      ["haiku-4-5", "sonnet-4-6", "opus-4-7"].includes(id),
+    resolveModelForPurpose: async () => "sonnet-4-6",
+  }));
+
   vi.doMock("@ai-workspace/db", async () => {
     const actual =
       await vi.importActual<typeof import("@ai-workspace/db")>(
@@ -226,6 +239,27 @@ describe("skills helpers", () => {
     const missingPrompt = parseSkillInput({ name: "X" });
     expect(missingPrompt.ok).toBe(false);
     if (!missingPrompt.ok) expect(missingPrompt.error.field).toBe("systemPrompt");
+  });
+
+  it("rejects pinning a registered-but-disabled model (#300)", async () => {
+    const { parseSkillInput } = await import("@/lib/skills");
+    const enabledModelIds = new Set(["haiku-4-5", "sonnet-4-6"]);
+
+    const disabled = parseSkillInput(
+      { name: "X", systemPrompt: "Y", modelId: "opus-4-7" },
+      { enabledModelIds },
+    );
+    expect(disabled.ok).toBe(false);
+    if (!disabled.ok) {
+      expect(disabled.error.field).toBe("modelId");
+      expect(disabled.error.message).toMatch(/not enabled/i);
+    }
+
+    const enabled = parseSkillInput(
+      { name: "X", systemPrompt: "Y", modelId: "sonnet-4-6" },
+      { enabledModelIds },
+    );
+    expect(enabled.ok).toBe(true);
   });
 });
 
