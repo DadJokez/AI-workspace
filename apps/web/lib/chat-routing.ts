@@ -1,3 +1,4 @@
+import { isWebSearchConfigured } from "@ai-workspace/agent/web-search-tool";
 import type { ChatExecutionMode } from "@/lib/chat-execution-mode";
 import type { CapabilityEntry, CapabilityGraph } from "@/lib/capability-graph";
 
@@ -389,6 +390,10 @@ function hasToolIntent(value: string): string | null {
   if (webLookup) {
     return webLookup;
   }
+  const webSearch = hasWebSearchIntent(value);
+  if (webSearch) {
+    return webSearch;
+  }
   if (
     (hasGithubName(value) || /\b(repos?|repositories?)\b/.test(value)) &&
     GITHUB_LOOKUP_ACTION_RE.test(value)
@@ -454,6 +459,26 @@ function hasWebLookupIntent(value: string): string | null {
     )
   ) {
     return "web_url_lookup";
+  }
+  return null;
+}
+
+/**
+ * Explicit web-search asks (#313). Gated on deployment configuration so an
+ * unconfigured deployment never escalates the lane for a tool that cannot
+ * mount — search stays invisible, and the assistant honestly has no search.
+ */
+function hasWebSearchIntent(value: string): string | null {
+  if (!isWebSearchConfigured()) return null;
+  if (
+    /\b(search|look\s?up|find|check|research|google)\b[^.?!]{0,60}\b(web|online|internet|news)\b/.test(
+      value,
+    ) ||
+    /\b(web|internet)\s+search\b/.test(value) ||
+    /\bsearch\s+(the\s+)?(web|internet|online)\b/.test(value) ||
+    /\bgoogle\s+(it|for|this|that)\b/.test(value)
+  ) {
+    return "web_search_lookup";
   }
   return null;
 }
@@ -595,6 +620,9 @@ export function explainChatRuntimeRoute(route: ChatRuntimeRoute): string {
     return "Queued durable local work because this request needs resilient, longer-running execution.";
   }
   if (route.lane === "tool-local") {
+    if (route.reasons.includes("web_search_lookup")) {
+      return "Mounted web search because this request asks to search the public web.";
+    }
     if (route.reasons.some((reason) => reason.startsWith("web_"))) {
       return "Mounted public URL fetch because this request asks to inspect or summarize a web page.";
     }

@@ -6,12 +6,14 @@ import { contextFaithfulnessSuite } from "./cases/context-faithfulness.cases";
 import { dateGroundingSuite } from "./cases/date-grounding.cases";
 import { skillFaithfulnessSuite } from "./cases/skill-faithfulness.cases";
 import { toolGroundingSuite } from "./cases/tool-grounding.cases";
+import { webSearchFaithfulnessSuite } from "./cases/web-search-faithfulness.cases";
 
 const SUITES: EvalSuite[] = [
   dateGroundingSuite,
   skillFaithfulnessSuite,
   contextFaithfulnessSuite,
   toolGroundingSuite,
+  webSearchFaithfulnessSuite,
 ];
 
 /**
