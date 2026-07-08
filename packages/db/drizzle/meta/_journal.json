@@ -213,7 +213,7 @@
       "breakpoints": true
     },
     {
-"idx": 30,
+      "idx": 30,
       "version": "7",
       "when": 1783728000000,
       "tag": "0030_notifications",
