@@ -1,6 +1,7 @@
 import { getDb } from "@ai-workspace/db";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { isModelEnabled } from "@/lib/model-registry";
 import { parseSkillMarkdown } from "@/lib/skill-format";
 import { auditSkillMutation, insertSkillWithUniqueSlug } from "@/lib/skills";
 
@@ -46,6 +47,15 @@ export async function POST(req: Request) {
   }
 
   const db = getDb();
+  if (!(await isModelEnabled(db, parsed.skill.modelId, "chat"))) {
+    return NextResponse.json(
+      {
+        error: "invalid_skill_md",
+        message: "Model is not enabled for skills.",
+      },
+      { status: 400 },
+    );
+  }
   const skill = await insertSkillWithUniqueSlug(db, {
     slug: parsed.skill.slug,
     name: parsed.skill.name,

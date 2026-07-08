@@ -46,6 +46,7 @@ import {
   normalizeRuntimeError,
   type NormalizedRuntimeError,
 } from "@/lib/runtime-errors";
+import { enabledModelsForPurpose } from "@/lib/model-registry";
 import {
   resolveRuntimeModelSelection,
   type RuntimeModelSelection,
@@ -135,12 +136,14 @@ export async function streamInlineChatRun({
     inlineStartedAt: new Date(),
   };
   const runtimeName = resolveRuntimeName(route);
+  // #300: this turn may only use models enabled for its lane's purpose.
   const modelSelection = resolveRuntimeModelSelection({
     requestedModelId: modelId,
     route,
     runtimeName,
     message: prompt,
     forceRequestedModel: modelOverride,
+    enabledModelIds: new Set(await enabledModelsForPurpose(db, route.lane)),
   });
   const runtimeModelId = modelSelection.modelId;
   const runtime = getRuntime({

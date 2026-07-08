@@ -53,6 +53,12 @@ function installMocks() {
     getSessionUser: async () => sessionUser,
   }));
 
+  // #300: the route rejects defaults that aren't chat-enabled in the registry.
+  vi.doMock("@/lib/model-registry", () => ({
+    isModelEnabled: async (_db: unknown, id: string) =>
+      ["haiku-4-5", "sonnet-4-6", "opus-4-7"].includes(id),
+  }));
+
   vi.doMock("@ai-workspace/db", async () => {
     const actual =
       await vi.importActual<typeof import("@ai-workspace/db")>(
@@ -121,17 +127,34 @@ describe("/api/user", () => {
     dbHooks.onUpdateSet = (set) => {
       setReceived = set;
     };
-    dbHooks.updateReturning = [{ ...baseRow, defaultModelId: "default" }];
+    dbHooks.updateReturning = [{ ...baseRow, defaultModelId: "haiku-4-5" }];
 
     const { PATCH } = await import("@/app/api/user/route");
-    const res = (await PATCH(makeReq({ defaultModelId: "default" })))!;
+    const res = (await PATCH(makeReq({ defaultModelId: "haiku-4-5" })))!;
 
     expect(res.status).toBe(200);
-    expect(setReceived).toEqual({ defaultModelId: "default" });
+    expect(setReceived).toEqual({ defaultModelId: "haiku-4-5" });
     const body = (await res.json()) as {
       user: { defaultModelId: string | null };
     };
-    expect(body.user.defaultModelId).toBe("default");
+    expect(body.user.defaultModelId).toBe("haiku-4-5");
+  });
+
+  it("rejects a default model the registry has not enabled (#300)", async () => {
+    installMocks();
+    let setReceived: Record<string, unknown> | undefined;
+    dbHooks.onUpdateSet = (set) => {
+      setReceived = set;
+    };
+
+    const { PATCH } = await import("@/app/api/user/route");
+    const res = (await PATCH(makeReq({ defaultModelId: "gpt-junk" })))!;
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "invalid_defaultModelId",
+    });
+    expect(setReceived).toBeUndefined();
   });
 
   it("clears blank default model ids", async () => {

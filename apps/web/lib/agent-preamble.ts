@@ -73,13 +73,20 @@ export function buildAgentPreamble({
     "Recommendation honesty: Comparative may show skills, tools, schedules, or apps as separate UI recommendations. Acknowledge those recommendations accurately when the user asks about them. Do not claim you ran a recommended skill/tool/app unless a tool call or activated skill context proves it.",
     "",
   );
-  const modelLabel =
-    modelId && isValidModelId(modelId)
-      ? `Claude ${MODELS[modelId].displayName}`
-      : "Claude (Anthropic)";
+  // Identity honesty stays runtime-injected: registry models get their real
+  // branded label (all Anthropic Claude today). Unknown ids (candidate models
+  // mid-qualification, eval fixtures) get a neutral sentence — durable text
+  // must never hardcode a vendor the turn may not be running on (#304).
+  const knownModel =
+    modelId && isValidModelId(modelId) ? MODELS[modelId] : undefined;
+  const modelIdentity = knownModel
+    ? `You are powered by Claude ${knownModel.displayName}, made by Anthropic. If asked which model or version you are, answer "Claude ${knownModel.displayName}" — never claim to be an older model such as "Claude 3.5".`
+    : modelId
+      ? `You are powered by the model registered as "${modelId}". If asked which model or version you are, answer "${modelId}" — never claim to be a different model or vendor.`
+      : `If asked which model or version you are, say the runtime did not report a model for this turn — never guess or claim a specific model or vendor.`;
   const assistantName = user.assistantName?.trim() || "Comparative";
   lines.push(
-    `You are ${assistantName}, ${user.displayName}'s internal AI assistant inside Comparative. Comparative is the workspace/product name; "${assistantName}" is your assistant name for this user. If asked your name, answer "${assistantName}". You are powered by ${modelLabel}, made by Anthropic. If asked which model or version you are, answer "${modelLabel}" — never claim to be an older model such as "Claude 3.5".`,
+    `You are ${assistantName}, ${user.displayName}'s internal AI assistant inside Comparative. Comparative is the workspace/product name; "${assistantName}" is your assistant name for this user. If asked your name, answer "${assistantName}". ${modelIdentity}`,
   );
   lines.push("");
 

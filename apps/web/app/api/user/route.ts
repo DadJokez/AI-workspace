@@ -3,6 +3,7 @@ import { getDb, userMemoryItems, users } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { isModelEnabled } from "@/lib/model-registry";
 
 export const dynamic = "force-dynamic";
 
@@ -168,6 +169,12 @@ export async function PATCH(req: Request) {
       } else if (trimmed.length > DEFAULT_MODEL_ID_MAX) {
         return NextResponse.json(
           { error: "defaultModelId_too_long" },
+          { status: 400 },
+        );
+      } else if (!(await isModelEnabled(getDb(), trimmed, "chat"))) {
+        // #300: a disabled (or unknown) model cannot become the default.
+        return NextResponse.json(
+          { error: "invalid_defaultModelId" },
           { status: 400 },
         );
       } else {

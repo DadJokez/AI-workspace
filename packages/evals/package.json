@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Self-running eval harness (specs/004): real-model behavior cases per capability, deterministic + judge assertions. Cases are data, not code.",
+  "exports": {
+    "./portability": "./src/portability/context-portability.ts"
+  },
   "scripts": {
     "eval": "tsx src/run.ts",
     "transcripts:replay": "tsx src/transcripts/replay.ts",

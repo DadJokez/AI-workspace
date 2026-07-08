@@ -14,7 +14,7 @@ checks the deployed public surface.
 | Authenticated browser smoke | `pnpm smoke:browser:auth` | Every PR and `main` push via `Product Smoke` | Real protected-route access with a test-only NextAuth JWT, disposable Postgres fixtures for the signed-in user and skills catalog, signed-in chat, uploads, generated artifact preview, recommendations, artifacts menu, and transcript download |
 | Production public smoke | `pnpm smoke:prod` | Scheduled every 6 hours and manual dispatch via `Product Smoke` | Public deployment health, DB/runtime health, login page, protected redirect, model metadata, anonymous chat guard |
 | Production authenticated smoke | `pnpm smoke:prod:auth` | CodeBuild after ECS services stabilize | Signed-in DB/runtime health, locked-down smoke identity, scoped thread access, live signed-in chat, persisted markdown artifact, artifact listing, server-side transcript export, and failed/stale smoke-run backlog checks |
-| Real-model evals | `pnpm eval` | Nightly and manual via `Nightly Evals` | Model/prompt/harness regressions: date grounding, Vault truthfulness, fixture-backed GitHub tool routing, tool honesty, skill faithfulness, recommendation faithfulness, artifact content treated as inert data, memory-capture secret redaction, provider-missing skill honesty |
+| Real-model evals | `pnpm eval` | Nightly and manual via `Nightly Evals` | Model/prompt/harness regressions: date grounding, Vault truthfulness, fixture-backed GitHub tool routing, tool honesty, skill faithfulness, recommendation faithfulness, artifact content treated as inert data, memory-capture secret redaction, provider-missing skill honesty, Gmail/Calendar faithfulness (email-body injection resistance, attestation/empty-result/disconnected/scope/tool-error honesty) |
 | Golden transcript replay | `pnpm transcripts:replay` | Manual today; CI candidate after fixture count grows | Downloaded chat regressions: denied Vault/tool/artifact access, model label mismatch, competitor-identity claims, missing artifact evidence, missing attachment evidence, manual save instructions after artifact creation, in-place artifact revision (same filename), and cross-thread artifact reference by name |
 | Manual visual QA | `docs/QA_CHECKLIST.md` | Before large UX releases | Visual polish, mobile ergonomics, artifact preview feel, activity receipts, edge cases that still need judgment |
 
@@ -49,6 +49,39 @@ Every bug that reaches Rob should become one of these before the fix merges:
 
 If none of those fit, add a manual QA checklist item and create a follow-up
 issue to automate it.
+
+## Context Portability Contract
+
+Durable prompt objects — skills, starter skills, the agent-preamble template,
+and context-pack templates — must stay **provider-neutral** so a future model
+swap is a config change, not a rewrite (issue #304, part of the #295
+model-qualification thesis).
+
+Banned in durable text:
+
+- Provider/model self-references: "as Claude", "you are Claude", "made by
+  Anthropic", and equivalent claims for any vendor (ChatGPT/OpenAI/GPT-n,
+  Gemini).
+- Vendor-specific instruction idioms where a neutral phrasing exists, e.g.
+  the Anthropic `<thinking>` tag convention.
+
+Still allowed:
+
+- **Runtime identity injection.** The runtime states the *actual* current
+  model at turn time (see `buildAgentPreamble` and the golden transcript
+  `identity-comparative-anthropic.md`). Identity honesty is unchanged: a turn
+  served by a registry Claude model still self-identifies as that model. The
+  neutrality requirement is that a turn served by an unknown/neutral model id
+  must not inherit any hardcoded vendor branding.
+- **Registry model ids as config vocabulary.** `model: sonnet-4-6` in a skill
+  or the Skill Creator's tier guidance names a product registry key, not a
+  vendor identity claim.
+
+Enforced by `checkContextPortability` in
+`packages/evals/src/portability/context-portability.ts` (pattern deny-list,
+no judge calls). The wiring over the real durable objects lives in
+`apps/web/__tests__/context-portability.test.ts`, so the check runs on every
+PR through the normal `pnpm test` CI step.
 
 ## How To Run
 
