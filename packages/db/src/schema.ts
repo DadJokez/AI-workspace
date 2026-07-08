@@ -161,6 +161,41 @@ export const users = pgTable(
   }),
 );
 
+/**
+ * Per-purpose model enablement (#300) — the DB half of the model registry.
+ * Model metadata (provider, family, cost, capabilities) stays in
+ * `packages/agent/src/models.ts`; this table says which registered model may
+ * serve which purpose/lane. Admin-editable later (#302). A model with no row
+ * for a purpose is DISABLED for it — so a newly registered model is disabled
+ * everywhere until qualified (#301) and explicitly enabled. Seeded by
+ * migration with the three Claude tiers enabled for every current purpose
+ * (no behavior change).
+ */
+export const modelEnablement = pgTable(
+  "model_enablement",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Product model id from packages/agent (e.g. "sonnet-4-6"). */
+    modelId: text("model_id").notNull(),
+    /** A ModelPurpose: chat, fast-local, tool-local, durable-local, summaries, routing, memory-capture. */
+    purpose: text("purpose").notNull(),
+    enabled: boolean("enabled").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    modelPurposeUnique: uniqueIndex("model_enablement_model_purpose_idx").on(
+      t.modelId,
+      t.purpose,
+    ),
+    purposeIdx: index("model_enablement_purpose_idx").on(t.purpose, t.enabled),
+  }),
+);
+
 export const chatThreads = pgTable(
   "chat_threads",
   {
@@ -1260,6 +1295,8 @@ export type RunEvent = typeof runEvents.$inferSelect;
 export type NewRunEvent = typeof runEvents.$inferInsert;
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
+export type ModelEnablement = typeof modelEnablement.$inferSelect;
+export type NewModelEnablement = typeof modelEnablement.$inferInsert;
 export type MemoryCaptureQueueItem = typeof memoryCaptureQueue.$inferSelect;
 export type NewMemoryCaptureQueueItem = typeof memoryCaptureQueue.$inferInsert;
 export type UserMemoryItem = typeof userMemoryItems.$inferSelect;

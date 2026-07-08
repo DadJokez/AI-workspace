@@ -28,6 +28,7 @@ import {
 } from "@/lib/chat-activated-skills";
 import { buildActivatedSkillChatPrompt } from "@/lib/skills";
 import { streamInlineChatRun } from "@/lib/chat-inline-runner";
+import { isModelEnabled, resolveModelForPurpose } from "@/lib/model-registry";
 import {
   declaredAttachmentCountFromMessage,
   foldAttachmentsIntoPrompt,
@@ -220,7 +221,14 @@ export async function POST(req: Request) {
     );
   }
   const activatedSkill = activatedSkillResult.activatedSkill;
-  const modelId = activatedSkill?.skill.modelId ?? requestedModelId;
+  // #300: a model disabled for user-facing chat can never be selected — not
+  // via /model, the request body, or a stale skill pin. Disabled or unknown
+  // ids resolve to the enabled default instead.
+  const requestedOrPinnedModelId =
+    activatedSkill?.skill.modelId ?? requestedModelId;
+  const modelId = (await isModelEnabled(db, requestedOrPinnedModelId, "chat"))
+    ? requestedOrPinnedModelId
+    : await resolveModelForPurpose(db, "chat");
 
   let thread: ChatThread;
   if (body.threadId) {

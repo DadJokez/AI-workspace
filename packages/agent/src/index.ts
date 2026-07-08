@@ -13,12 +13,14 @@ export type {
 export {
   DEFAULT_MODEL_ID,
   MODEL_IDS,
+  MODEL_PURPOSES,
   MODELS,
   estimateCostUsd,
   getModel,
   isValidModelId,
+  isValidModelPurpose,
 } from "./models";
-export type { ModelId, ModelMetadata } from "./models";
+export type { ModelId, ModelMetadata, ModelPurpose } from "./models";
 
 export { normalizeToolInputSchema, ToolRegistry } from "./registry";
 export type { BedrockToolConfig } from "./registry";

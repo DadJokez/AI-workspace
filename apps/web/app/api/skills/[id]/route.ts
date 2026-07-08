@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import type { SessionUser } from "@ai-workspace/auth";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { enabledModelsForPurpose } from "@/lib/model-registry";
 import { auditSkillMutation, parseSkillInput } from "@/lib/skills";
 import { canActorAccessSkill } from "@/lib/shares";
 
@@ -74,7 +75,10 @@ export async function PATCH(req: Request, context: RouteContext) {
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
-  const parsed = parseSkillInput(body);
+  const db = getDb();
+  const parsed = parseSkillInput(body, {
+    enabledModelIds: new Set(await enabledModelsForPurpose(db, "chat")),
+  });
   if (!parsed.ok) {
     return NextResponse.json(
       { error: "invalid_skill", field: parsed.error.field, message: parsed.error.message },
@@ -82,7 +86,6 @@ export async function PATCH(req: Request, context: RouteContext) {
     );
   }
 
-  const db = getDb();
   const rows = await db
     .update(skills)
     .set({
