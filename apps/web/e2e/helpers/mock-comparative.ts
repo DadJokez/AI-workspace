@@ -10,6 +10,13 @@ interface MockChatOptions {
   skills?: unknown[];
   user?: Record<string, unknown>;
   oauthStatus?: Record<string, unknown>;
+  notifications?: MockNotification[];
+  digest?: {
+    since: string;
+    completedRuns: unknown[];
+    failedRuns: unknown[];
+    newShares: unknown[];
+  };
   vault?: {
     approvedMarkdown?: string;
     approvedItems?: MockMemoryItem[];
@@ -32,6 +39,18 @@ interface MockChatOptions {
     body: Record<string, unknown>,
     route: Route,
   ) => Promise<void> | void;
+}
+
+export interface MockNotification {
+  id: string;
+  type: "run_succeeded" | "run_failed";
+  title: string;
+  body: string | null;
+  runId: string | null;
+  threadId: string | null;
+  readAt: string | null;
+  acceptedAt: string | null;
+  createdAt: string;
 }
 
 interface MockMemoryItem {
@@ -188,6 +207,7 @@ export async function installMockComparativeApi(
   let approvedMarkdown =
     options.vault?.approvedMarkdown ??
     buildApprovedMarkdown(approvedItems);
+  const notificationItems = [...(options.notifications ?? [])];
 
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -248,6 +268,52 @@ export async function installMockComparativeApi(
 
     if (path === "/api/oauth/status") {
       return json(route, oauthStatus);
+    }
+
+    if (path === "/api/notifications") {
+      if (request.method() === "PATCH") {
+        const body = await postJson(request);
+        const ids =
+          body.all === true
+            ? notificationItems.map((n) => n.id)
+            : Array.isArray(body.ids)
+              ? (body.ids as string[])
+              : [];
+        for (const n of notificationItems) {
+          if (ids.includes(n.id) && !n.readAt) n.readAt = now;
+        }
+        return json(route, { ok: true });
+      }
+      return json(route, {
+        notifications: notificationItems,
+        unreadCount: notificationItems.filter((n) => !n.readAt).length,
+      });
+    }
+
+    if (path === "/api/notifications/digest") {
+      return json(route, {
+        digest: options.digest ?? {
+          since: now,
+          completedRuns: [],
+          failedRuns: [],
+          newShares: [],
+        },
+      });
+    }
+
+    const notificationOpenMatch = path.match(
+      /^\/api\/notifications\/([^/]+)\/open$/,
+    );
+    if (notificationOpenMatch && request.method() === "POST") {
+      const item = notificationItems.find(
+        (n) => n.id === notificationOpenMatch[1],
+      );
+      if (!item) {
+        return json(route, { error: "notification_not_found" }, 404);
+      }
+      item.readAt = item.readAt ?? now;
+      item.acceptedAt = item.acceptedAt ?? now;
+      return json(route, { notification: item });
     }
 
     if (path === "/api/feedback") {

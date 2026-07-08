@@ -11,6 +11,7 @@ import {
 } from "@ai-workspace/db";
 import { DEFAULT_MODEL_ID, isValidModelId } from "@ai-workspace/agent";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
+import { isModelEnabled, resolveModelForPurpose } from "@/lib/model-registry";
 import {
   loadUserMcpProviderStatus,
   SUPPORTED_MCP_PROVIDERS,
@@ -51,6 +52,14 @@ const PROMPT_MAX = 20_000;
  */
 export function parseSkillInput(
   value: unknown,
+  options: {
+    /**
+     * Chat-enabled model ids from the registry (#300). When provided, a
+     * disabled model cannot be pinned to a skill. Omitted = validity-only
+     * (registry membership) for callers without a db handle.
+     */
+    enabledModelIds?: ReadonlySet<string>;
+  } = {},
 ): { ok: true; input: SkillInput } | { ok: false; error: SkillValidationError } {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return {
@@ -96,6 +105,15 @@ export function parseSkillInput(
     return {
       ok: false,
       error: { field: "modelId", message: "Unknown model id." },
+    };
+  }
+  if (options.enabledModelIds && !options.enabledModelIds.has(modelId)) {
+    return {
+      ok: false,
+      error: {
+        field: "modelId",
+        message: "Model is not enabled for skills.",
+      },
     };
   }
 
@@ -304,6 +322,12 @@ export async function createSkillRun({
 }): Promise<CreateSkillRunResult> {
   const now = new Date();
 
+  // #300: a pinned model that has since been disabled for the durable lane
+  // cannot serve the run — resolve to the enabled default instead.
+  const runModelId = (await isModelEnabled(db, skill.modelId, "durable-local"))
+    ? skill.modelId
+    : await resolveModelForPurpose(db, "durable-local");
+
   let targetThreadId = threadId ?? null;
   if (!targetThreadId) {
     const threadRows = await db
@@ -311,7 +335,7 @@ export async function createSkillRun({
       .values({
         userId: actorUserId,
         title: `Skill: ${skill.name}`,
-        defaultModelId: skill.modelId,
+        defaultModelId: runModelId,
         titleSource: "manual",
       })
       .returning({ id: chatThreads.id });
@@ -340,7 +364,7 @@ export async function createSkillRun({
       threadId: targetThreadId,
       triggerType,
       status: "queued",
-      modelId: skill.modelId,
+      modelId: runModelId,
       inputs: {
         prompt,
         threadId: targetThreadId,
@@ -384,7 +408,7 @@ export async function createSkillRun({
     runId,
     input: { skillId: skill.id, skillSlug: skill.slug },
     metadata: {
-      modelId: skill.modelId,
+      modelId: runModelId,
       mcpProviders: skill.mcpProviders,
       triggerType,
       ...(scheduleId ? { scheduleId } : {}),

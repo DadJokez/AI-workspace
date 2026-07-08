@@ -1,5 +1,6 @@
 import {
   DEFAULT_MODEL_ID,
+  MODEL_IDS,
   MODELS,
   isValidModelId,
   type ModelId,
@@ -54,6 +55,7 @@ export function resolveRuntimeModelSelection({
   directModelId = process.env.RUNTIME_V2_DIRECT_MODEL_ID,
   message,
   forceRequestedModel = false,
+  enabledModelIds,
 }: {
   requestedModelId: string;
   route: Pick<ChatRuntimeRoute, "runtimeTarget">;
@@ -63,15 +65,30 @@ export function resolveRuntimeModelSelection({
   message?: string;
   /** True when the user explicitly pinned a supported model for this turn. */
   forceRequestedModel?: boolean;
+  /**
+   * Registry enablement for this turn's purpose (#300). Candidates outside
+   * the set are skipped as if they weren't registered — a disabled model can
+   * never be selected. Omitted = all registry models allowed.
+   */
+  enabledModelIds?: ReadonlySet<string>;
 }): RuntimeModelSelection {
   void _route;
   void runtimeName;
+
+  const allowed = (id: ModelId) =>
+    !enabledModelIds || enabledModelIds.has(id);
+  // End-of-chain fallback when preferred candidates are disabled: the app
+  // default when enabled, else the first enabled model in registry order.
+  const fallbackModelId = (): ModelId =>
+    allowed(DEFAULT_MODEL_ID)
+      ? DEFAULT_MODEL_ID
+      : (MODEL_IDS.find((id) => allowed(id)) ?? DEFAULT_MODEL_ID);
 
   const configuredDirectModel = directModelId?.trim().toLowerCase();
   const normalizedRequested = requestedModelId.trim().toLowerCase();
   const requestedAlias = DIRECT_MODEL_ALIASES[normalizedRequested];
 
-  if (forceRequestedModel && requestedAlias) {
+  if (forceRequestedModel && requestedAlias && allowed(requestedAlias)) {
     return directSelection({
       requestedModelId,
       modelId: requestedAlias,
@@ -80,7 +97,11 @@ export function resolveRuntimeModelSelection({
     });
   }
 
-  if (forceRequestedModel && isValidModelId(normalizedRequested)) {
+  if (
+    forceRequestedModel &&
+    isValidModelId(normalizedRequested) &&
+    allowed(normalizedRequested)
+  ) {
     return directSelection({
       requestedModelId,
       modelId: normalizedRequested,
@@ -91,14 +112,19 @@ export function resolveRuntimeModelSelection({
 
   // Autopilot: pick the model per ask instead of pinning one.
   if (configuredDirectModel === "auto" && typeof message === "string") {
+    const pick = selectAutopilotModel(message);
     return directSelection({
       requestedModelId,
-      modelId: selectAutopilotModel(message),
+      modelId: allowed(pick) ? pick : fallbackModelId(),
       reason: "runtime_v2_autopilot",
     });
   }
 
-  if (configuredDirectModel && isValidModelId(configuredDirectModel)) {
+  if (
+    configuredDirectModel &&
+    isValidModelId(configuredDirectModel) &&
+    allowed(configuredDirectModel)
+  ) {
     return directSelection({
       requestedModelId,
       modelId: configuredDirectModel,
@@ -106,7 +132,7 @@ export function resolveRuntimeModelSelection({
     });
   }
 
-  if (requestedAlias) {
+  if (requestedAlias && allowed(requestedAlias)) {
     return directSelection({
       requestedModelId,
       modelId: requestedAlias,
@@ -115,7 +141,7 @@ export function resolveRuntimeModelSelection({
     });
   }
 
-  if (isValidModelId(normalizedRequested)) {
+  if (isValidModelId(normalizedRequested) && allowed(normalizedRequested)) {
     return directSelection({
       requestedModelId,
       modelId: normalizedRequested,
@@ -126,7 +152,7 @@ export function resolveRuntimeModelSelection({
 
   return directSelection({
     requestedModelId,
-    modelId: DEFAULT_MODEL_ID,
+    modelId: fallbackModelId(),
     reason: "default_model_fallback",
     ignoredDirectModelId: configuredDirectModel,
   });
