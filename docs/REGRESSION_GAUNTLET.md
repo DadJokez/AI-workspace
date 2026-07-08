@@ -50,6 +50,39 @@ Every bug that reaches Rob should become one of these before the fix merges:
 If none of those fit, add a manual QA checklist item and create a follow-up
 issue to automate it.
 
+## Context Portability Contract
+
+Durable prompt objects — skills, starter skills, the agent-preamble template,
+and context-pack templates — must stay **provider-neutral** so a future model
+swap is a config change, not a rewrite (issue #304, part of the #295
+model-qualification thesis).
+
+Banned in durable text:
+
+- Provider/model self-references: "as Claude", "you are Claude", "made by
+  Anthropic", and equivalent claims for any vendor (ChatGPT/OpenAI/GPT-n,
+  Gemini).
+- Vendor-specific instruction idioms where a neutral phrasing exists, e.g.
+  the Anthropic `<thinking>` tag convention.
+
+Still allowed:
+
+- **Runtime identity injection.** The runtime states the *actual* current
+  model at turn time (see `buildAgentPreamble` and the golden transcript
+  `identity-comparative-anthropic.md`). Identity honesty is unchanged: a turn
+  served by a registry Claude model still self-identifies as that model. The
+  neutrality requirement is that a turn served by an unknown/neutral model id
+  must not inherit any hardcoded vendor branding.
+- **Registry model ids as config vocabulary.** `model: sonnet-4-6` in a skill
+  or the Skill Creator's tier guidance names a product registry key, not a
+  vendor identity claim.
+
+Enforced by `checkContextPortability` in
+`packages/evals/src/portability/context-portability.ts` (pattern deny-list,
+no judge calls). The wiring over the real durable objects lives in
+`apps/web/__tests__/context-portability.test.ts`, so the check runs on every
+PR through the normal `pnpm test` CI step.
+
 ## How To Run
 
 ```bash
