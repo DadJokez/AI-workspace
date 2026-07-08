@@ -7,6 +7,7 @@ import { dateGroundingSuite } from "./cases/date-grounding.cases";
 import { gmailCalendarFaithfulnessSuite } from "./cases/gmail-calendar-faithfulness.cases";
 import { skillFaithfulnessSuite } from "./cases/skill-faithfulness.cases";
 import { toolGroundingSuite } from "./cases/tool-grounding.cases";
+import { webSearchFaithfulnessSuite } from "./cases/web-search-faithfulness.cases";
 
 const SUITES: EvalSuite[] = [
   dateGroundingSuite,
@@ -14,6 +15,7 @@ const SUITES: EvalSuite[] = [
   contextFaithfulnessSuite,
   toolGroundingSuite,
   gmailCalendarFaithfulnessSuite,
+  webSearchFaithfulnessSuite,
 ];
 
 /**

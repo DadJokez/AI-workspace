@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildCapabilityGraph } from "@/lib/capability-graph";
 import {
   applyActivatedSkillRoute,
@@ -143,6 +143,46 @@ describe("decideChatRuntimeRoute", () => {
       useMcp: true,
       reasons: ["web_url_lookup"],
     });
+  });
+
+  it("routes explicit web-search asks to the tool lane only when search is configured (#313)", () => {
+    vi.stubEnv("WEB_SEARCH_PROVIDER", "brave");
+    vi.stubEnv("BRAVE_SEARCH_API_KEY", "test-key");
+    expect(
+      decideChatRuntimeRoute({
+        message: "search the web for enterprise AI assistant reviews",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "tool-local",
+      reasons: ["web_search_lookup"],
+    });
+
+    // Unconfigured: no escalation, no web reason — the tool never mounts,
+    // so the assistant honestly has no search this deployment.
+    vi.stubEnv("WEB_SEARCH_PROVIDER", "");
+    vi.stubEnv("BRAVE_SEARCH_API_KEY", "");
+    const route = decideChatRuntimeRoute({
+      message: "search the web for enterprise AI assistant reviews",
+      runtimeV2: true,
+    });
+    expect(route.lane).toBe("fast-local");
+    expect(route.reasons.some((r) => r.startsWith("web_"))).toBe(false);
+    vi.unstubAllEnvs();
+  });
+
+  it("keeps URL inspection on the URL-fetch reason even when search is configured", () => {
+    vi.stubEnv("WEB_SEARCH_PROVIDER", "brave");
+    vi.stubEnv("BRAVE_SEARCH_API_KEY", "test-key");
+    expect(
+      decideChatRuntimeRoute({
+        message: "https://example.com/ what is the html for this site?",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      reasons: ["web_url_lookup"],
+    });
+    vi.unstubAllEnvs();
   });
 
   it("keeps Notion document lookups on fast chat until Notion is executable", () => {

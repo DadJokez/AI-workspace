@@ -10,6 +10,7 @@
     "./models": "./src/models.ts",
     "./registry": "./src/registry.ts",
     "./web-fetch-tool": "./src/web-fetch-tool.ts",
+    "./web-search-tool": "./src/web-search-tool.ts",
     "./types": "./src/types.ts"
   },
   "scripts": {

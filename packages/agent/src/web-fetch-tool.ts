@@ -4,10 +4,14 @@ import * as http from "node:http";
 import * as https from "node:https";
 import { isIP } from "node:net";
 import type { Tool } from "./types";
+import { WEB_SEARCH_TOOL_NAME, createWebSearchTool } from "./web-search-tool";
 
 export const WEB_FETCH_TOOL_NAME = "web__fetch_url";
 
-export const BUILTIN_TOOL_NAMES = [WEB_FETCH_TOOL_NAME] as const;
+export const BUILTIN_TOOL_NAMES = [
+  WEB_FETCH_TOOL_NAME,
+  WEB_SEARCH_TOOL_NAME,
+] as const;
 export type BuiltinToolName = (typeof BUILTIN_TOOL_NAMES)[number];
 
 const DEFAULT_MAX_BYTES = 64_000;
@@ -51,6 +55,7 @@ export function createBuiltinTools(names: readonly string[] = []): Tool[] {
   const tools: Tool[] = [];
   for (const name of names) {
     if (name === WEB_FETCH_TOOL_NAME) tools.push(createWebFetchTool());
+    if (name === WEB_SEARCH_TOOL_NAME) tools.push(createWebSearchTool());
   }
   return tools;
 }
