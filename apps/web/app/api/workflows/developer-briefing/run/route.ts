@@ -10,6 +10,7 @@ import {
   buildDeveloperBriefingPrompt,
   DEVELOPER_BRIEFING_SKILL_SLUG,
 } from "@/lib/developer-briefing";
+import { isModelEnabled, resolveModelForPurpose } from "@/lib/model-registry";
 import { buildUserMcpServers } from "@/lib/oauth/mcp-servers";
 import {
   checkRateLimit,
@@ -66,7 +67,7 @@ export async function POST(req: Request) {
   }
 
   const body = (await req.json().catch(() => ({}))) as PostBody;
-  const modelId =
+  const requestedModelId =
     typeof body.modelId === "string" && body.modelId.trim().length > 0
       ? body.modelId
       : DEFAULT_MODEL_ID;
@@ -76,6 +77,9 @@ export async function POST(req: Request) {
       : null;
 
   const db = getDb();
+  const modelId = (await isModelEnabled(db, requestedModelId, "durable-local"))
+    ? requestedModelId
+    : await resolveModelForPurpose(db, "durable-local");
   const runtime = getRuntime();
   const briefingPrompt = buildDeveloperBriefingPrompt();
 

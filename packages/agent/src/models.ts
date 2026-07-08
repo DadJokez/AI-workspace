@@ -1,24 +1,56 @@
 /**
- * Model registry.
+ * Model registry (metadata half).
  *
- * Three Claude models are enabled day one. Selectable per chat thread and per
- * recipe — right tool for the job, cost-conscious story for IT.
+ * Describes every model the product can represent: provider, family,
+ * capabilities, cost, context window. Any Bedrock model behind the converse
+ * API fits this shape — the `provider` field keeps the door open beyond
+ * Anthropic without implementing anything else yet (#300).
+ *
+ * Enablement is NOT here: which models may serve which purpose/lane lives in
+ * the `model_enablement` DB table (admin-editable later, #302), resolved via
+ * `apps/web/lib/model-registry.ts`. A model listed here but with no
+ * enablement rows is registered-but-disabled everywhere — the required
+ * default for unqualified models (#301).
  *
  * Bedrock model IDs use cross-region inference profiles ("us." prefix) so
  * traffic spreads across regions automatically. If your deployment is locked
  * to a single region, swap to the unprefixed `anthropic.claude-*` IDs.
  *
  * NOTE: verify the exact `bedrockModelId` strings against your Bedrock console
- * (Model access page) before first deploy — Anthropic occasionally publishes
+ * (Model access page) before first deploy — providers occasionally publish
  * new dated revisions.
  */
 
 export const MODEL_IDS = ["haiku-4-5", "sonnet-4-6", "opus-4-7"] as const;
 export type ModelId = (typeof MODEL_IDS)[number];
 
+/**
+ * Everything that resolves a model does so for one of these purposes. The
+ * first three are the chat runtime lanes (`ChatRuntimeLane`); the rest are
+ * internal consumers. Enablement is persisted per (model, purpose).
+ */
+export const MODEL_PURPOSES = [
+  /** User-facing selection: /model command, skill pinning, default prefs. */
+  "chat",
+  "fast-local",
+  "tool-local",
+  "durable-local",
+  /** Thread titles + rolling summaries. */
+  "summaries",
+  /** Routing/classification calls (autopilot stays heuristic today). */
+  "routing",
+  /** Vault memory-capture reviewer. */
+  "memory-capture",
+] as const;
+export type ModelPurpose = (typeof MODEL_PURPOSES)[number];
+
 export interface ModelMetadata {
   id: ModelId;
   bedrockModelId: string;
+  /** Who makes the model (e.g. "anthropic", "amazon", "meta", "mistral"). */
+  provider: string;
+  /** Model family within the provider (e.g. "claude", "nova", "llama"). */
+  family: string;
   displayName: string;
   blurb: string;
   /** USD per 1M input tokens */
@@ -27,6 +59,7 @@ export interface ModelMetadata {
   costPer1MOutput: number;
   supportsToolUse: boolean;
   supportsStreaming: boolean;
+  supportsVision: boolean;
   contextWindow: number;
   defaultMaxTokens: number;
   /** Suggested use cases — surfaced in the model selector tooltip. */
@@ -37,12 +70,15 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
   "haiku-4-5": {
     id: "haiku-4-5",
     bedrockModelId: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    provider: "anthropic",
+    family: "claude",
     displayName: "Haiku 4.5",
     blurb: "Fast and cheap. Routing, classification, simple Q&A.",
     costPer1MInput: 0.8,
     costPer1MOutput: 4,
     supportsToolUse: true,
     supportsStreaming: true,
+    supportsVision: true,
     contextWindow: 200_000,
     defaultMaxTokens: 4096,
     recommendedFor: [
@@ -54,12 +90,15 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
   "sonnet-4-6": {
     id: "sonnet-4-6",
     bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+    provider: "anthropic",
+    family: "claude",
     displayName: "Sonnet 4.6",
     blurb: "Balanced default. Most chat, recipes, and tool use.",
     costPer1MInput: 3,
     costPer1MOutput: 15,
     supportsToolUse: true,
     supportsStreaming: true,
+    supportsVision: true,
     contextWindow: 200_000,
     defaultMaxTokens: 8192,
     recommendedFor: [
@@ -71,12 +110,15 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
   "opus-4-7": {
     id: "opus-4-7",
     bedrockModelId: "us.anthropic.claude-opus-4-7",
+    provider: "anthropic",
+    family: "claude",
     displayName: "Opus 4.7",
     blurb: "Heavy reasoning. Planning, complex analysis, recipe authoring.",
     costPer1MInput: 15,
     costPer1MOutput: 75,
     supportsToolUse: true,
     supportsStreaming: true,
+    supportsVision: true,
     contextWindow: 200_000,
     defaultMaxTokens: 8192,
     recommendedFor: [
@@ -95,6 +137,10 @@ export function getModel(id: ModelId): ModelMetadata {
 
 export function isValidModelId(s: string): s is ModelId {
   return (MODEL_IDS as readonly string[]).includes(s);
+}
+
+export function isValidModelPurpose(s: string): s is ModelPurpose {
+  return (MODEL_PURPOSES as readonly string[]).includes(s);
 }
 
 /**

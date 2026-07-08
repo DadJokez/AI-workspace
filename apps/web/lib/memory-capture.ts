@@ -1,4 +1,3 @@
-import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import { getRuntime } from "@ai-workspace/agent-runtime";
 import {
   chatMessages,
@@ -10,6 +9,7 @@ import {
   type UserMemoryItem,
 } from "@ai-workspace/db";
 import { and, asc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { resolveModelForPurpose } from "@/lib/model-registry";
 import {
   buildVaultMarkdown,
   loadUserMemoryItems,
@@ -256,6 +256,7 @@ async function processCaptureGroup(
   }
 
   const suggestions = await extractMemorySuggestions({
+    db,
     userId,
     reviewDoc,
     signal,
@@ -369,10 +370,12 @@ async function loadCaptureMessages(
 }
 
 async function extractMemorySuggestions({
+  db,
   userId,
   reviewDoc,
   signal,
 }: {
+  db: Database;
   userId: string;
   reviewDoc: string;
   signal?: AbortSignal;
@@ -380,7 +383,11 @@ async function extractMemorySuggestions({
   const runtime = getRuntime({ runtime: "bedrock" });
   let text = "";
   const errors: string[] = [];
-  const modelId = process.env.MEMORY_CAPTURE_MODEL_ID ?? DEFAULT_MODEL_ID;
+  // #300: internal consumers resolve their model per purpose from the
+  // registry; the env var stays as a preference, not a bypass.
+  const modelId = await resolveModelForPurpose(db, "memory-capture", {
+    preferred: process.env.MEMORY_CAPTURE_MODEL_ID,
+  });
   const systemPrompt = [
     "You are Comparative's Vault memory reviewer.",
     "Extract only durable, user-useful personal context from queued chats.",
