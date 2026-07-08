@@ -141,6 +141,14 @@ export const users = pgTable(
      * NULL = never seen it; the chat shell shows the tour once on sign-in.
      */
     tourCompletedAt: timestamp("tour_completed_at", { withTimezone: true }),
+    /**
+     * When the user last opened the daily digest. The digest rolls up
+     * scheduled-run results and new shares since this instant ("since you
+     * were last here"). `lastSeenAt` can't serve here — it is bumped on
+     * every session load. NULL = never viewed; the digest falls back to
+     * the trailing 24 hours.
+     */
+    digestViewedAt: timestamp("digest_viewed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -543,6 +551,47 @@ export const runEvents = pgTable(
     runIdx: index("run_events_run_idx").on(t.runId, t.sequence, t.occurredAt),
     typeIdx: index("run_events_type_idx").on(t.eventType),
     toolCallIdx: index("run_events_tool_call_idx").on(t.toolCallId),
+  }),
+);
+
+/**
+ * Per-user notification inbox (issue #292). Written by the chat-run worker
+ * when a scheduled run reaches a terminal status; read by the bell/center in
+ * the app shell. Strictly per-user — queries scope with `eq(userId, caller)`,
+ * never an admin bypass. `run_id` is unique so worker retries can never
+ * produce a duplicate notification for the same run. `accepted_at` is the
+ * north-star signal: set the first time the user opens the notification's
+ * run output ("accepted proactive work").
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** "run_succeeded" | "run_failed" — failure renders distinguishably. */
+    type: text("type").notNull(),
+    title: text("title").notNull(),
+    body: text("body"),
+    runId: uuid("run_id").references(() => runs.id, { onDelete: "cascade" }),
+    /** Deep-link target: the thread the run's output landed in. */
+    threadId: uuid("thread_id").references(() => chatThreads.id, {
+      onDelete: "set null",
+    }),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userIdx: index("notifications_user_idx").on(
+      t.userId,
+      sql`${t.createdAt} DESC`,
+    ),
+    /** Multiple NULLs allowed; non-null run ids are one-notification-per-run. */
+    runUnique: uniqueIndex("notifications_run_idx").on(t.runId),
   }),
 );
 
@@ -1244,6 +1293,8 @@ export type AppEditSession = typeof appEditSessions.$inferSelect;
 export type NewAppEditSession = typeof appEditSessions.$inferInsert;
 export type RunEvent = typeof runEvents.$inferSelect;
 export type NewRunEvent = typeof runEvents.$inferInsert;
+export type Notification = typeof notifications.$inferSelect;
+export type NewNotification = typeof notifications.$inferInsert;
 export type ModelEnablement = typeof modelEnablement.$inferSelect;
 export type NewModelEnablement = typeof modelEnablement.$inferInsert;
 export type MemoryCaptureQueueItem = typeof memoryCaptureQueue.$inferSelect;
