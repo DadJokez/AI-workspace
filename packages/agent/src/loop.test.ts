@@ -4,7 +4,8 @@ import type {
   BedrockStreamEvent,
   ConverseStreamParams,
 } from "./clients";
-import { runAgentLoop } from "./loop";
+import { MAX_TOKENS_TRUNCATION_NOTICE, runAgentLoop } from "./loop";
+import { MODELS } from "./models";
 import { ToolRegistry } from "./registry";
 
 /** Records every ConverseStreamParams and replies with an empty turn. */
@@ -78,5 +79,54 @@ describe("runAgentLoop system prompt caching", () => {
     expect(params?.volatileSystemSuffix).toContain(
       "Treat this as ground truth for any date or time reasoning",
     );
+  });
+});
+
+/** Streams a long partial answer, then reports the output cap was hit. */
+class TruncatingClient implements BedrockClient {
+  async *converseStream(
+    _params: ConverseStreamParams,
+  ): AsyncIterable<BedrockStreamEvent> {
+    yield { type: "text-delta", text: "<!doctype html><html><head><style>.card {" };
+    yield { type: "stop", reason: "max_tokens" };
+  }
+}
+
+async function collectText(client: BedrockClient): Promise<string> {
+  let text = "";
+  const events = runAgentLoop({
+    modelId: "sonnet-4-6",
+    messages: [{ role: "user", content: "build me an app" }],
+    registry: new ToolRegistry(),
+    context: { userId: "u1" },
+    client,
+  });
+  for await (const ev of events) {
+    if (ev.type === "text-delta") text += ev.delta;
+  }
+  return text;
+}
+
+describe("runAgentLoop max_tokens truncation", () => {
+  it("appends a visible truncation notice when the output cap cuts the response", async () => {
+    const text = await collectText(new TruncatingClient());
+    expect(text).toContain("<!doctype html>");
+    expect(text.endsWith(MAX_TOKENS_TRUNCATION_NOTICE)).toBe(true);
+  });
+
+  it("does not add the notice on a normal end_turn", async () => {
+    const text = await collectText(new CaptureClient());
+    expect(text).toBe("ok");
+    expect(text).not.toContain("output length limit");
+  });
+});
+
+describe("model output caps", () => {
+  it("gives every model enough output room for a complete artifact", () => {
+    // 8192 truncated every HTML-app build mid-file (issue #320); keep the
+    // floor high enough that a full artifact fits.
+    for (const model of Object.values(MODELS)) {
+      expect(model.defaultMaxTokens).toBeGreaterThanOrEqual(16_000);
+    }
   });
 });
