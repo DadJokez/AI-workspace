@@ -203,9 +203,16 @@ export class RealBedrockClient implements BedrockClient {
 
     const toolConfig = toAwsToolConfiguration(params.toolConfig);
 
+    // Prompt caching: Bedrock evaluates checkpoints in tools → system →
+    // messages order, so the checkpoint after the system prompt covers the
+    // tool definitions too. Prefixes below the model's minimum (1,024 tokens
+    // on Sonnet 4.6, 4,096 on Haiku 4.5) are silently left uncached — never
+    // an error — so this is safe for short prompts.
     const command = new ConverseStreamCommand({
       modelId: params.bedrockModelId,
-      system: params.systemPrompt ? [{ text: params.systemPrompt }] : undefined,
+      system: params.systemPrompt
+        ? [{ text: params.systemPrompt }, { cachePoint: { type: "default" } }]
+        : undefined,
       messages,
       toolConfig,
       inferenceConfig: { maxTokens: params.maxTokens },
@@ -260,10 +267,16 @@ export class RealBedrockClient implements BedrockClient {
                 : "end_turn";
         yield { type: "stop", reason };
       } else if (chunk.metadata?.usage) {
+        const usage = chunk.metadata.usage;
         yield {
           type: "usage",
-          tokensIn: chunk.metadata.usage.inputTokens ?? 0,
-          tokensOut: chunk.metadata.usage.outputTokens ?? 0,
+          // With prompt caching, `inputTokens` counts only uncached tokens;
+          // add cache reads/writes so tokensIn stays "total tokens sent".
+          tokensIn:
+            (usage.inputTokens ?? 0) +
+            (usage.cacheReadInputTokens ?? 0) +
+            (usage.cacheWriteInputTokens ?? 0),
+          tokensOut: usage.outputTokens ?? 0,
         };
       }
     }
@@ -274,19 +287,21 @@ export function toAwsToolConfiguration(
   toolConfig?: BedrockToolConfig,
 ): ToolConfiguration | undefined {
   if (!toolConfig) return undefined;
-  return {
-    tools: toolConfig.tools.map(
-      (t): Tool => ({
-        toolSpec: {
-          name: t.toolSpec.name,
-          description: t.toolSpec.description,
-          inputSchema: {
-            json: t.toolSpec.inputSchema.json as unknown as DocumentType,
-          },
+  const tools = toolConfig.tools.map(
+    (t): Tool => ({
+      toolSpec: {
+        name: t.toolSpec.name,
+        description: t.toolSpec.description,
+        inputSchema: {
+          json: t.toolSpec.inputSchema.json as unknown as DocumentType,
         },
-      }),
-    ),
-  };
+      },
+    }),
+  );
+  // Checkpoint after the tool definitions so a mid-conversation system-prompt
+  // change doesn't also evict the (larger, more stable) tools cache.
+  tools.push({ cachePoint: { type: "default" } });
+  return { tools };
 }
 
 /**
