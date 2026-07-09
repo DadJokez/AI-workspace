@@ -39,7 +39,11 @@ export type {
   FakeBedrockClientOptions,
 } from "./clients";
 
-export { DEFAULT_MAX_TOOL_ITERATIONS, runAgentLoop } from "./loop";
+export {
+  DEFAULT_MAX_TOOL_ITERATIONS,
+  MAX_TOKENS_TRUNCATION_NOTICE,
+  runAgentLoop,
+} from "./loop";
 export type { RunAgentLoopParams } from "./loop";
 
 export { connectMcpTools, mcpToolName } from "./mcp";
