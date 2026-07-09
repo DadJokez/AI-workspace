@@ -11,7 +11,7 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "output/pdf/comparative-alpha-tester-guide.pdf"
 SHOT_DIR = ROOT / "tmp/pdfs/alpha-guide/screenshots"
 

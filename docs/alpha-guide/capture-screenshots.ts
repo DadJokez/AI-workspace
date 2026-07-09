@@ -8,11 +8,11 @@ import {
   fulfillSse,
   installMockComparativeApi,
   now,
-} from "../../../apps/web/e2e/helpers/mock-comparative";
+} from "../../apps/web/e2e/helpers/mock-comparative";
 
 const baseUrl = "http://127.0.0.1:3000";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(scriptDir, "../../..");
+const repoRoot = path.resolve(scriptDir, "../..");
 const outDir = path.join(repoRoot, "tmp/pdfs/alpha-guide/screenshots");
 
 const alphaSkills = [
