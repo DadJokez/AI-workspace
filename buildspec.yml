@@ -4,6 +4,7 @@ env:
   variables:
     IMAGE_REPO_NAME: ai-workspace
     AGENTCORE_IMAGE_REPO_NAME: ai-workspace-agentcore-agent
+    AGENTCORE_RUNTIME_ID: ai_workspace_agent_spike-5n8RLRBVz5
     APP_SECRET_NAME: ai-workspace/production/app
     ECS_CLUSTER_NAME: ai-workspace-prod
     ECS_WEB_SERVICE_NAME: ai-workspace-web
@@ -54,10 +55,14 @@ phases:
       - 'docker push $REPOSITORY_URI:worker-$COMMIT_TAG'
       - 'docker push $REPOSITORY_URI:memory-worker-latest'
       - 'docker push $REPOSITORY_URI:memory-worker-$COMMIT_TAG'
-      # AgentCore Runtime resolves :latest when it cold-starts a new session,
-      # so pushing is the deploy; no service restart to force here.
       - 'docker push $AGENTCORE_REPOSITORY_URI:latest'
       - 'docker push $AGENTCORE_REPOSITORY_URI:$COMMIT_TAG'
+      # AgentCore pins the image digest per runtime version (pushing :latest
+      # alone deploys nothing), so cut a new version pinned to this commit's
+      # tag, carrying over the runtime's current config unchanged.
+      - 'echo Cutting a new AgentCore runtime version...'
+      - 'AGENTCORE_CONFIG=$(aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id "$AGENTCORE_RUNTIME_ID" --output json)'
+      - 'aws bedrock-agentcore-control update-agent-runtime --agent-runtime-id "$AGENTCORE_RUNTIME_ID" --agent-runtime-artifact "{\"containerConfiguration\":{\"containerUri\":\"$AGENTCORE_REPOSITORY_URI:$COMMIT_TAG\"}}" --role-arn "$(echo "$AGENTCORE_CONFIG" | jq -r .roleArn)" --network-configuration "$(echo "$AGENTCORE_CONFIG" | jq -c .networkConfiguration)" --protocol-configuration "$(echo "$AGENTCORE_CONFIG" | jq -c .protocolConfiguration)" --environment-variables "$(echo "$AGENTCORE_CONFIG" | jq -c .environmentVariables)" --lifecycle-configuration "$(echo "$AGENTCORE_CONFIG" | jq -c .lifecycleConfiguration)" --description "$(echo "$AGENTCORE_CONFIG" | jq -r .description)" >/dev/null'
       - 'echo Forcing ECS service deployments...'
       - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_WEB_SERVICE_NAME" --force-new-deployment >/dev/null'
       - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_CHAT_WORKER_SERVICE_NAME" --force-new-deployment >/dev/null'
