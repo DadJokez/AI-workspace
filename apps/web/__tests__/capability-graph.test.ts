@@ -124,7 +124,54 @@ describe("capability graph", () => {
     });
   });
 
-  it("marks connected providers as coming-soon when execution is unavailable", () => {
+  it("marks connected providers as coming-soon when the reason is coming-soon", () => {
+    const graph = buildCapabilityGraph({
+      userId: "user-1",
+      providerStatus: {
+        connectedProviders: ["google"],
+        allowedProviders: [],
+        deniedProviders: [],
+        executionUnavailableProviders: ["google"],
+        comingSoonProviders: ["google"],
+      },
+      skills: [
+        {
+          id: "skill-1",
+          slug: "google-briefing",
+          name: "Google Briefing",
+          ownerUserId: "user-1",
+          isStarter: false,
+          mcpProviders: ["google"],
+        },
+      ],
+      now: NOW,
+    });
+
+    expect(graph.providers[0]).toMatchObject({
+      status: "coming_soon",
+      runnableNow: false,
+      needsApproval: false,
+      executionUnavailableProviders: ["google"],
+    });
+    expect(graph.providers[0]?.why).toContain("not live yet");
+    expect(graph.skills[0]).toMatchObject({
+      status: "provider_coming_soon",
+      runnableNow: false,
+      needsApproval: false,
+      missingProviders: [],
+      pendingApprovalProviders: [],
+      executionUnavailableProviders: ["google"],
+    });
+    expect(recommendationInputsFromCapabilityGraph(graph)).toMatchObject({
+      connectedProviders: ["google"],
+      approvedProviders: [],
+    });
+  });
+
+  it("does not mark unavailable-for-other-reasons providers as coming-soon (#323 review)", () => {
+    // Execution-unavailable but NOT in the coming-soon subset (e.g. a
+    // misconfigured endpoint). It must not borrow the reassuring coming-soon
+    // status/why, or a broken tool reads as "ships later, nothing's wrong."
     const graph = buildCapabilityGraph({
       userId: "user-1",
       providerStatus: {
@@ -132,6 +179,7 @@ describe("capability graph", () => {
         allowedProviders: [],
         deniedProviders: [],
         executionUnavailableProviders: ["notion"],
+        comingSoonProviders: [],
       },
       skills: [
         {
@@ -147,23 +195,19 @@ describe("capability graph", () => {
     });
 
     expect(graph.providers[0]).toMatchObject({
-      status: "coming_soon",
+      status: "execution_unavailable",
       runnableNow: false,
       needsApproval: false,
       executionUnavailableProviders: ["notion"],
     });
+    expect(graph.providers[0]?.why).not.toContain("not live yet");
+    expect(graph.providers[0]?.why).toContain("not enabled");
     expect(graph.skills[0]).toMatchObject({
-      status: "provider_coming_soon",
+      status: "provider_execution_unavailable",
       runnableNow: false,
-      needsApproval: false,
-      missingProviders: [],
-      pendingApprovalProviders: [],
       executionUnavailableProviders: ["notion"],
     });
-    expect(recommendationInputsFromCapabilityGraph(graph)).toMatchObject({
-      connectedProviders: ["notion"],
-      approvedProviders: [],
-    });
+    expect(graph.skills[0]?.why).not.toContain("not live yet");
   });
 
   it("marks provider-dependent skills not runnable when no provider is connected", () => {

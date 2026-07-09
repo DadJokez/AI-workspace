@@ -414,6 +414,9 @@ export function buildChatContextPack({
           availableProviders: receipt.tools.approved,
           blockedProviders: receipt.tools.pendingApproval,
           unavailableProviders: receipt.tools.executionUnavailable,
+          comingSoonProviders: uniqueStrings(
+            providerStatus.comingSoonProviders ?? [],
+          ),
           builtinTools: receipt.tools.builtinMounted,
           modelId,
           artifactContext: artifacts || null,

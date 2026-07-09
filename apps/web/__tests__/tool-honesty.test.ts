@@ -80,11 +80,34 @@ describe("tool-use honesty grounding", () => {
       "Connected account tools linked but not enabled for chat execution",
     );
     expect(preamble).toContain("Notion: search/read pages");
-    expect(preamble).toContain("Do not claim you can use them");
+    expect(preamble).toContain(
+      "Do not claim you can read, search, write, or summarize these linked tools yet",
+    );
     expect(preamble).toContain("do not offer to check them");
-    expect(preamble).toContain("no setup step is missing");
     expect(preamble).not.toContain("Connected tools available");
     expect(preamble).not.toContain("No external tools are connected yet");
+  });
+
+  it("keeps the 'nothing is broken / coming soon' assurance off non-coming-soon unavailable tools (#323 review)", () => {
+    // A provider can be execution-unavailable for a *broken* reason (e.g. a
+    // misconfigured Notion endpoint), not just "not shipped yet". Only the
+    // coming-soon subset may claim nothing is misconfigured; others must get
+    // neutral phrasing so we never hand a genuinely broken tool a false
+    // all-clear.
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: [],
+      availableProviders: [],
+      unavailableProviders: ["notion"],
+      comingSoonProviders: [],
+    });
+
+    expect(preamble).toContain(
+      "chat execution is not enabled for it in this deployment",
+    );
+    expect(preamble).not.toContain("the integration is coming soon");
+    expect(preamble).not.toContain("nothing is broken");
+    expect(preamble).not.toContain("no setup step is missing");
   });
 
   it("frames linked Google as coming soon, not as a broken or callable tool (#323)", () => {
@@ -97,6 +120,7 @@ describe("tool-use honesty grounding", () => {
       connectedProviders: ["github"],
       availableProviders: ["github"],
       unavailableProviders: ["google"],
+      comingSoonProviders: ["google"],
     });
 
     expect(preamble).toContain(
@@ -109,6 +133,25 @@ describe("tool-use honesty grounding", () => {
     expect(preamble).toContain("do not offer to check them");
     expect(preamble).toContain("the integration is coming soon");
     expect(preamble).toContain("no setup step is missing");
+  });
+
+  it("splits coming-soon and broken providers when both are unavailable (#323 review)", () => {
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: ["github"],
+      availableProviders: ["github"],
+      unavailableProviders: ["google", "notion"],
+      comingSoonProviders: ["google"],
+    });
+
+    // Google keeps the reassuring coming-soon copy…
+    expect(preamble).toContain("For Google:");
+    expect(preamble).toContain("the integration is coming soon");
+    // …while Notion gets neutral phrasing with no false all-clear.
+    expect(preamble).toContain("For Notion:");
+    expect(preamble).toContain(
+      "chat execution is not enabled for it in this deployment",
+    );
   });
 
   it("describes mounted built-in URL fetch without claiming account tools are connected", () => {

@@ -158,6 +158,10 @@ export function buildCapabilityGraph({
   const approved = unique(providerStatus.allowedProviders);
   const pending = unique(providerStatus.deniedProviders);
   const unavailable = unique(providerStatus.executionUnavailableProviders ?? []);
+  // "Coming soon" is a strict subset of unavailable: only these get the
+  // reassuring "not live yet, ships later" framing. Other unavailable reasons
+  // (misconfigured endpoint, unknown) must not claim nothing is wrong (#323).
+  const comingSoon = new Set(unique(providerStatus.comingSoonProviders ?? []));
   const mounted = new Set(mountedProviders);
 
   return {
@@ -166,6 +170,7 @@ export function buildCapabilityGraph({
     providers: connected.map((provider) => {
       const isApproved = approved.includes(provider);
       const executionUnavailable = unavailable.includes(provider);
+      const isComingSoon = executionUnavailable && comingSoon.has(provider);
       const needsApproval =
         pending.includes(provider) || (!isApproved && !executionUnavailable);
       return {
@@ -183,19 +188,31 @@ export function buildCapabilityGraph({
         mountedNow: mounted.has(provider),
         status: isApproved
           ? "approved"
-          : executionUnavailable
+          : isComingSoon
             ? "coming_soon"
-            : "pending_approval",
+            : executionUnavailable
+              ? "execution_unavailable"
+              : "pending_approval",
         why: isApproved
           ? `${label(provider)} is connected and approved for this user.`
-          : executionUnavailable
+          : isComingSoon
             ? `${label(provider)} is linked, but its chat integration is not live yet — chat cannot act on it until it ships.`
-          : `${label(provider)} is connected but pending approval for this user.`,
+            : executionUnavailable
+              ? `${label(provider)} is linked, but chat execution is not enabled for it in this deployment — the reason isn't known here, so don't assume it's simply coming soon.`
+              : `${label(provider)} is connected but pending approval for this user.`,
         metadata: { provider },
       } satisfies CapabilityEntry;
     }),
     skills: skills.map((skill) =>
-      buildSkillCapability(skill, userId, connected, approved, pending, unavailable),
+      buildSkillCapability(
+        skill,
+        userId,
+        connected,
+        approved,
+        pending,
+        unavailable,
+        comingSoon,
+      ),
     ),
     apps: apps.map((app) => buildAppCapability(app, userId)),
     schedules: schedules.map(buildScheduleCapability),
@@ -283,6 +300,7 @@ function buildSkillCapability(
   approvedProviders: readonly string[],
   pendingProviders: readonly string[],
   unavailableProviders: readonly string[],
+  comingSoonProviders: ReadonlySet<string>,
 ): CapabilityEntry {
   const required = unique(skill.mcpProviders);
   const readyProviders = required.filter((provider) =>
@@ -326,7 +344,11 @@ function buildSkillCapability(
     status: runnableNow
       ? "ready"
       : executionUnavailableProviders.length > 0
-        ? "provider_coming_soon"
+        ? executionUnavailableProviders.every((provider) =>
+            comingSoonProviders.has(provider),
+          )
+          ? "provider_coming_soon"
+          : "provider_execution_unavailable"
         : "needs_provider",
     why: skillWhy(
       skill,
@@ -334,6 +356,7 @@ function buildSkillCapability(
       missingProviders,
       pendingApprovalProviders,
       executionUnavailableProviders,
+      comingSoonProviders,
     ),
     metadata: {
       skillId: skill.id,
@@ -436,6 +459,7 @@ function skillWhy(
   missingProviders: readonly string[],
   pendingApprovalProviders: readonly string[],
   executionUnavailableProviders: readonly string[],
+  comingSoonProviders: ReadonlySet<string>,
 ): string {
   if (missingProviders.length > 0) {
     return `${skill.name} is ${source}, but needs ${formatList(
@@ -448,9 +472,16 @@ function skillWhy(
     )} is pending approval.`;
   }
   if (executionUnavailableProviders.length > 0) {
-    return `${skill.name} is ${source}, but the ${formatList(
-      executionUnavailableProviders,
-    )} chat integration is not live yet.`;
+    const allComingSoon = executionUnavailableProviders.every((provider) =>
+      comingSoonProviders.has(provider),
+    );
+    return allComingSoon
+      ? `${skill.name} is ${source}, but the ${formatList(
+          executionUnavailableProviders,
+        )} chat integration is not live yet.`
+      : `${skill.name} is ${source}, but chat execution for ${formatList(
+          executionUnavailableProviders,
+        )} is not enabled in this deployment.`;
   }
   return `${skill.name} is ${source} and can run now.`;
 }

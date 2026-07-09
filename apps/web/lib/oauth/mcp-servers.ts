@@ -66,6 +66,22 @@ export function isMcpProviderExecutionConfigured(provider: string): boolean {
   return Boolean(MCP_PROVIDER_CONFIG[provider]?.endpoint);
 }
 
+/**
+ * True only when a provider is unavailable *because its integration is not
+ * shipped yet* ("coming soon"), as opposed to a broken/misconfigured endpoint
+ * (`invalid_endpoint_url`, `hosted_notion_mcp_uses_separate_oauth`) or a
+ * generic `execution_not_configured`. The "linked, nothing is broken, coming
+ * soon" reassurance in the preamble and capability graph must key off this and
+ * never the blanket "execution unavailable" flag — otherwise a genuinely
+ * misconfigured provider gets a false "nothing is missing on your side" (#323
+ * review).
+ */
+export function isProviderComingSoon(provider: string): boolean {
+  return (
+    getMcpProviderExecutionStatus(provider).reason === "integration_coming_soon"
+  );
+}
+
 export interface UserMcpProviderStatus {
   /** Active delegated OAuth/token connections, regardless of runtime mounting. */
   connectedProviders: string[];
@@ -75,6 +91,13 @@ export interface UserMcpProviderStatus {
   deniedProviders: string[];
   /** Connected + attested, but this deployment cannot mount the provider yet. */
   executionUnavailableProviders?: string[];
+  /**
+   * Subset of `executionUnavailableProviders` whose reason is specifically
+   * "integration_coming_soon" (linked, nothing broken, ships later) — not a
+   * misconfigured or unknown-reason unavailability. Consumers reserve the
+   * reassuring "coming soon" copy for these only.
+   */
+  comingSoonProviders?: string[];
   toolPolicies?: Record<
     string,
     { allowedTools?: string[]; blockedTools?: string[] }
@@ -118,6 +141,7 @@ export async function loadUserMcpProviderStatus(
       allowedProviders: [],
       deniedProviders: [],
       executionUnavailableProviders: [],
+      comingSoonProviders: [],
       toolPolicies: {},
       providerAvailability: {},
     };
@@ -136,6 +160,9 @@ export async function loadUserMcpProviderStatus(
   const executionUnavailableProviders = attestedProviders.filter(
     (provider) => !isMcpProviderExecutionConfigured(provider),
   );
+  const comingSoonProviders = executionUnavailableProviders.filter(
+    isProviderComingSoon,
+  );
   const toolPolicies = Object.fromEntries(
     Object.entries(attestedToolPolicies).filter(([provider]) =>
       allowedProviders.includes(provider),
@@ -147,6 +174,7 @@ export async function loadUserMcpProviderStatus(
     allowedProviders,
     deniedProviders,
     executionUnavailableProviders,
+    comingSoonProviders,
     toolPolicies,
     providerAvailability: buildProviderAvailability({
       connectedProviders,
