@@ -1,3 +1,4 @@
+import { MAX_TOKENS_TRUNCATION_NOTICE } from "@ai-workspace/agent";
 import { expect, test } from "@playwright/test";
 import {
   defaultArtifactDetail,
@@ -291,6 +292,65 @@ test.describe("chat files and artifacts", () => {
       page.getByRole("heading", { level: 1, name: "Artifacts" }),
     ).toBeVisible();
     await expect(page.getByText("demo-artifact.html")).toBeVisible();
+  });
+
+  test("shows the truncation notice as visible prose when cut off mid-artifact", async ({
+    page,
+  }) => {
+    // #320: the model is cut off mid-artifact, so its text ends with an open
+    // ```html fence. runAgentLoop closes that dangling fence and appends the
+    // truncation notice. The notice must render as a visible callout below the
+    // collapsed artifact — not get parsed into (and hidden behind) the code
+    // fence, which was the honesty failure this PR targets.
+    const rows = Array.from(
+      { length: 240 },
+      (_, index) => `<li>Row ${index + 1}</li>`,
+    ).join("");
+    const truncatedHtml = [
+      "<!doctype html>",
+      "<html>",
+      "<head><title>Cut Off App</title></head>",
+      `<body><h1>Cut Off App</h1><ul>${rows}`, // cut off mid-body: no </ul></body></html>
+    ].join("\n");
+    // What runAgentLoop emits: model text + loop-injected fence close + notice.
+    const emitted = `${[
+      "Here is the app:",
+      "",
+      "```html",
+      truncatedHtml,
+      "```", // injected by the loop to close the dangling fence
+    ].join("\n")}${MAX_TOKENS_TRUNCATION_NOTICE}`;
+
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      onChat: async (_body, route) => {
+        await fulfillSse(route, [
+          { type: "meta", threadId: "thread-truncated", modelId: "sonnet-4-6" },
+          { type: "text-delta", delta: emitted },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-truncated",
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+
+    await page.goto("/e2e/chat");
+    await expect(page.getByText("Talk to your work.")).toBeVisible();
+
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Build a big HTML app.");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    // The artifact collapses (its code is hidden behind "Show code")…
+    await expect(page.getByText("Document content collapsed")).toBeVisible();
+    // …yet the truncation notice is still visible as prose, proving it landed
+    // outside the fence rather than being swallowed into the collapsed code.
+    await expect(page.getByText(/output length limit/i)).toBeVisible();
   });
 
   test("keeps an open artifact preview on the latest revision", async ({

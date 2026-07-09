@@ -61,6 +61,13 @@ export interface ModelMetadata {
   supportsStreaming: boolean;
   supportsVision: boolean;
   contextWindow: number;
+  /**
+   * Per-turn output cap passed to Converse. Must leave room for a complete
+   * artifact — a full HTML app runs 20–30K output tokens, and 8192 truncated
+   * every app build mid-file (issue #320). Every lane streams, so large caps
+   * don't risk request timeouts; the models' own output ceilings are 64K
+   * (Haiku 4.5) and 128K (Sonnet/Opus 4.x).
+   */
   defaultMaxTokens: number;
   /** Suggested use cases — surfaced in the model selector tooltip. */
   recommendedFor: readonly string[];
@@ -87,7 +94,7 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     supportsStreaming: true,
     supportsVision: true,
     contextWindow: 200_000,
-    defaultMaxTokens: 4096,
+    defaultMaxTokens: 16_000,
     recommendedFor: [
       "quick lookups",
       "classification / routing",
@@ -107,7 +114,7 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     supportsStreaming: true,
     supportsVision: true,
     contextWindow: 200_000,
-    defaultMaxTokens: 8192,
+    defaultMaxTokens: 32_000,
     recommendedFor: [
       "general chat",
       "recipe execution",
@@ -127,7 +134,7 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     supportsStreaming: true,
     supportsVision: true,
     contextWindow: 200_000,
-    defaultMaxTokens: 8192,
+    defaultMaxTokens: 32_000,
     recommendedFor: [
       "multi-step planning",
       "hard reasoning",

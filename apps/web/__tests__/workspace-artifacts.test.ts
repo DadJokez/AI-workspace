@@ -1,3 +1,4 @@
+import { MAX_TOKENS_TRUNCATION_NOTICE } from "@ai-workspace/agent";
 import { describe, expect, it } from "vitest";
 import {
   parseAssistantArtifacts,
@@ -96,6 +97,31 @@ Here is the improved game:
   <div class="score">`);
 
     expect(artifacts).toHaveLength(0);
+  });
+
+  it("keeps the max_tokens truncation notice out of the recovered artifact", () => {
+    // The #320 emit path: model is cut off mid-artifact (open ```html fence),
+    // then runAgentLoop closes the dangling fence and appends the notice. The
+    // notice must render as trailing prose, never as part of the saved .html.
+    const html = `<!DOCTYPE html>
+<html>
+<head><title>Advanced Magna Carta Jeopardy</title></head>
+<body>${"<section>Question</section>".repeat(30)}</body>
+</html>`;
+    const emitted = `
+Here is the improved game:
+
+\`\`\`html filename="advanced-magna-carta-jeopardy.html"
+${html}
+\`\`\`${MAX_TOKENS_TRUNCATION_NOTICE}`;
+
+    const artifacts = parseAssistantArtifacts(emitted);
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]?.filename).toBe("advanced-magna-carta-jeopardy.html");
+    expect(artifacts[0]?.content).not.toContain("output length limit");
+    expect(artifacts[0]?.content).not.toContain(MAX_TOKENS_TRUNCATION_NOTICE);
+    expect(artifacts[0]?.content).toContain("</html>");
   });
 
   it("does not persist explicit html snippets as complete artifacts", () => {
