@@ -66,6 +66,12 @@ export interface ModelMetadata {
   recommendedFor: readonly string[];
 }
 
+/**
+ * Cost figures are us.* inference-profile rates (the ~10% geo uplift for the
+ * deliberate US-residency choice), verified against Cost Explorer June 2026 —
+ * not first-party list prices. Keep in sync with what the account actually
+ * pays; router-lane selection (#303) and cost displays read these fields.
+ */
 export const MODELS: Record<ModelId, ModelMetadata> = {
   "haiku-4-5": {
     id: "haiku-4-5",
@@ -74,8 +80,8 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     family: "claude",
     displayName: "Haiku 4.5",
     blurb: "Fast and cheap. Routing, classification, simple Q&A.",
-    costPer1MInput: 0.8,
-    costPer1MOutput: 4,
+    costPer1MInput: 1.1,
+    costPer1MOutput: 5.5,
     supportsToolUse: true,
     supportsStreaming: true,
     supportsVision: true,
@@ -94,8 +100,8 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     family: "claude",
     displayName: "Sonnet 4.6",
     blurb: "Balanced default. Most chat, recipes, and tool use.",
-    costPer1MInput: 3,
-    costPer1MOutput: 15,
+    costPer1MInput: 3.3,
+    costPer1MOutput: 16.5,
     supportsToolUse: true,
     supportsStreaming: true,
     supportsVision: true,
@@ -114,8 +120,8 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     family: "claude",
     displayName: "Opus 4.7",
     blurb: "Heavy reasoning. Planning, complex analysis, recipe authoring.",
-    costPer1MInput: 15,
-    costPer1MOutput: 75,
+    costPer1MInput: 16.5,
+    costPer1MOutput: 82.5,
     supportsToolUse: true,
     supportsStreaming: true,
     supportsVision: true,
