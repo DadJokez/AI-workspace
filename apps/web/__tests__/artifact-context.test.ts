@@ -3,6 +3,7 @@ import {
   artifactContextModeForMessage,
   buildArtifactLookupMessage,
   formatArtifactContext,
+  hasConvertToNewArtifactIntent,
   mergeArtifactContextManifests,
   matchArtifact,
   resolveArtifactContextTargets,
@@ -151,6 +152,55 @@ describe("matchArtifact", () => {
     ).toBeNull();
   });
 
+  // Issue #319: "turn this into an html web app" grabbed an unrelated app from
+  // another thread (the newest html artifact in the global library) and the
+  // model claimed the requested app already existed.
+  it("does not route a convert-into request to an unrelated cross-thread artifact", () => {
+    const library = [
+      artifact({
+        title: "Franz Ferdinand",
+        filename: "franz-ferdinand.html",
+        threadId: "thread-other",
+      }),
+      ...ARTIFACTS,
+    ];
+    // Prior turns are joined into the lookup message, so a revision verb from
+    // an earlier turn ("improve", "add") must not hijack the conversion turn.
+    const joined = [
+      "write me an article about the history of the telephone",
+      "improve the intro and add a section on mobile phones",
+      "Nice turn this into an html web app make it look like notion",
+    ].join("\n\n");
+    expect(matchArtifact(joined, library, { threadId: "thread-current" })).toBeNull();
+  });
+
+  it("does not guess among multiple cross-thread artifacts for an implicit revision", () => {
+    const library = [
+      artifact({ title: "Franz Ferdinand", filename: "franz-ferdinand.html", threadId: "t1" }),
+      artifact({ title: "Marketing Page", filename: "marketing-page.html", threadId: "t2" }),
+    ];
+    expect(
+      matchArtifact("update the html app", library, { threadId: "thread-current" }),
+    ).toBeNull();
+  });
+
+  it("still matches an implicit cross-thread revision when exactly one artifact fits", () => {
+    const library = [
+      artifact({ title: "Franz Ferdinand", filename: "franz-ferdinand.html", threadId: "t1" }),
+      artifact({
+        title: "Budget",
+        filename: "budget.csv",
+        kind: "data",
+        mimeType: "text/csv",
+        threadId: "t2",
+      }),
+    ];
+    expect(
+      matchArtifact("update the html app", library, { threadId: "thread-current" })
+        ?.filename,
+    ).toBe("franz-ferdinand.html");
+  });
+
   it("keeps reopened thread artifacts even when global recent artifacts would omit them", () => {
     const reopenedThreadArtifact = artifact({
       id: "artifact-old-thread-v3",
@@ -281,6 +331,60 @@ describe("formatArtifactContext", () => {
     expect(block).toContain("separate copy, fork, variant");
     expect(block).toContain("distinct filename");
     expect(block).toContain("Do not frame this as updating the original");
+  });
+
+  it("recognizes convert-into requests without misfiring on ordinary revisions", () => {
+    expect(
+      hasConvertToNewArtifactIntent(
+        "Nice turn this into an html web app make it look like notion",
+      ),
+    ).toBe(true);
+    expect(hasConvertToNewArtifactIntent("convert my notes to markdown")).toBe(true);
+    expect(hasConvertToNewArtifactIntent("can you make this article into a website")).toBe(
+      true,
+    );
+    // Revisions and unrelated phrasing must stay out of the conversion path.
+    expect(hasConvertToNewArtifactIntent("turn the intro into a table")).toBe(false);
+    expect(hasConvertToNewArtifactIntent("make changes to my app")).toBe(false);
+    expect(hasConvertToNewArtifactIntent("make the current html file forest green")).toBe(
+      false,
+    );
+  });
+
+  it("frames a conversion of an explicitly named source as a separate new file", () => {
+    expect(
+      artifactContextModeForMessage({
+        message: "convert the magna carta jeopardy game into a markdown doc",
+        matched: true,
+      }),
+    ).toBe("separate");
+  });
+
+  it("tells the model to bail out honestly when the matched artifact is unrelated", () => {
+    const block = formatArtifactContext({
+      artifacts: ARTIFACTS,
+      matched: {
+        title: "Magna Carta Jeopardy",
+        filename: "magna-carta-jeopardy.html",
+        content: "<html>purple board</html>",
+      },
+    });
+    expect(block).toContain("This match is a heuristic");
+    expect(block).toContain("never claim an existing artifact already satisfies");
+  });
+
+  it("skips manifest priming for convert-into requests so the model just creates", () => {
+    expect(
+      shouldIncludeArtifactManifestForMessage(
+        "Nice turn this into an html web app make it look like notion",
+      ),
+    ).toBe(false);
+    // But an explicit list request still wins.
+    expect(
+      shouldIncludeArtifactManifestForMessage(
+        "what artifacts do I have? turn this into a web app",
+      ),
+    ).toBe(true);
   });
 
   it("returns manifest context for unresolved artifact revision requests", () => {
