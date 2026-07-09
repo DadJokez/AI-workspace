@@ -3,6 +3,7 @@ import {
   ConverseStreamCommand,
   type ContentBlock,
   type Message,
+  type SystemContentBlock,
   type Tool,
   type ToolConfiguration,
 } from "@aws-sdk/client-bedrock-runtime";
@@ -67,7 +68,18 @@ export type BedrockContentBlock =
 export interface ConverseStreamParams {
   /** The Bedrock-side model id (e.g. `us.anthropic.claude-sonnet-4-6-v1:0`). */
   bedrockModelId: string;
+  /**
+   * Stable system text. Must be byte-identical across turns of a conversation
+   * — it sits inside the prompt-cache prefix, and any per-request byte
+   * (timestamps, request ids) makes every turn a cache miss that still pays
+   * the cache-write premium.
+   */
   systemPrompt?: string;
+  /**
+   * System text rendered AFTER the cache checkpoint. Anything that varies per
+   * request (e.g. the current clock) goes here, not in `systemPrompt`.
+   */
+  volatileSystemSuffix?: string;
   messages: BedrockMessage[];
   toolConfig?: BedrockToolConfig;
   maxTokens: number;
@@ -204,15 +216,25 @@ export class RealBedrockClient implements BedrockClient {
     const toolConfig = toAwsToolConfiguration(params.toolConfig);
 
     // Prompt caching: Bedrock evaluates checkpoints in tools → system →
-    // messages order, so the checkpoint after the system prompt covers the
-    // tool definitions too. Prefixes below the model's minimum (1,024 tokens
-    // on Sonnet 4.6, 4,096 on Haiku 4.5) are silently left uncached — never
-    // an error — so this is safe for short prompts.
+    // messages order, so the checkpoint after the stable system prompt covers
+    // the tool definitions too. The volatile suffix renders after the
+    // checkpoint so it can't invalidate the cached prefix. Prefixes below the
+    // model's minimum (1,024 tokens on Sonnet 4.6, 4,096 on Haiku 4.5) are
+    // silently left uncached — never an error — so short prompts are safe.
+    const system: SystemContentBlock[] = [];
+    if (params.systemPrompt) {
+      system.push(
+        { text: params.systemPrompt },
+        { cachePoint: { type: "default" } },
+      );
+    }
+    if (params.volatileSystemSuffix) {
+      system.push({ text: params.volatileSystemSuffix });
+    }
+
     const command = new ConverseStreamCommand({
       modelId: params.bedrockModelId,
-      system: params.systemPrompt
-        ? [{ text: params.systemPrompt }, { cachePoint: { type: "default" } }]
-        : undefined,
+      system: system.length > 0 ? system : undefined,
       messages,
       toolConfig,
       inferenceConfig: { maxTokens: params.maxTokens },

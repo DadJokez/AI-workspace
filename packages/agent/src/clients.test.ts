@@ -102,6 +102,43 @@ describe("RealBedrockClient prompt caching", () => {
     ]);
   });
 
+  it("renders the volatile suffix after the cache checkpoint", async () => {
+    const inputs = stubSend();
+    const client = new RealBedrockClient();
+    await collect(
+      client.converseStream({
+        bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        systemPrompt: "You are a helpful assistant.",
+        volatileSystemSuffix: "Current date and time (UTC): 2026-07-09T01:00:00.000Z.",
+        messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
+        maxTokens: 100,
+      }),
+    );
+
+    expect(inputs[0]?.system).toEqual([
+      { text: "You are a helpful assistant." },
+      { cachePoint: { type: "default" } },
+      { text: "Current date and time (UTC): 2026-07-09T01:00:00.000Z." },
+    ]);
+  });
+
+  it("sends a volatile-only system without a cachePoint", async () => {
+    const inputs = stubSend();
+    const client = new RealBedrockClient();
+    await collect(
+      client.converseStream({
+        bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        volatileSystemSuffix: "Current date and time (UTC): 2026-07-09T01:00:00.000Z.",
+        messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
+        maxTokens: 100,
+      }),
+    );
+
+    expect(inputs[0]?.system).toEqual([
+      { text: "Current date and time (UTC): 2026-07-09T01:00:00.000Z." },
+    ]);
+  });
+
   it("omits system entirely (no orphan cachePoint) without a system prompt", async () => {
     const inputs = stubSend();
     const client = new RealBedrockClient();
