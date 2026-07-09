@@ -4,7 +4,7 @@ import type { Database } from "@ai-workspace/db";
 
 const RELAY_HMAC_MESSAGE = "comparative:notion-mcp-relay:v1";
 
-function mockAttestations() {
+function mockAttestations(provider = "notion") {
   vi.doMock("@/lib/tool-attestations", async () => {
     const actual = await vi.importActual<
       typeof import("@/lib/tool-attestations")
@@ -13,7 +13,7 @@ function mockAttestations() {
       ...actual,
       loadActiveToolAttestations: async () => [
         {
-          provider: "notion",
+          provider,
           scopeType: "provider",
           category: null,
           toolName: null,
@@ -163,6 +163,55 @@ describe("MCP provider status", () => {
       executionConfigured: false,
       status: "execution_not_configured",
     });
+  });
+
+  it("keeps linked Google out of the chat tool surface until its integration ships (#323)", async () => {
+    vi.stubEnv(
+      "OAUTH_ENCRYPTION_KEY",
+      Buffer.alloc(32, 8).toString("base64"),
+    );
+    mockAttestations("google");
+    const { encryptSecret } = await import("@/lib/oauth/crypto");
+    const {
+      buildUserMcpServers,
+      loadUserMcpProviderStatus,
+      MOUNTABLE_MCP_PROVIDERS,
+      SUPPORTED_MCP_PROVIDERS,
+    } = await import("@/lib/oauth/mcp-servers");
+
+    // Connectable, never mountable: OAuth tokens present ≠ tools available.
+    expect(SUPPORTED_MCP_PROVIDERS).toContain("google");
+    expect(MOUNTABLE_MCP_PROVIDERS).not.toContain("google");
+
+    const rows = [
+      {
+        provider: "google",
+        accessToken: encryptSecret("google-access-token"),
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    ];
+
+    const status = await loadUserMcpProviderStatus(
+      dbWithOauthRows(rows),
+      "user-1",
+    );
+    expect(status).toMatchObject({
+      connectedProviders: ["google"],
+      allowedProviders: [],
+      executionUnavailableProviders: ["google"],
+      providerAvailability: {
+        google: {
+          connected: true,
+          executionConfigured: false,
+          toolMountable: false,
+          modelAvailable: false,
+          status: "execution_not_configured",
+        },
+      },
+    });
+
+    const mounted = await buildUserMcpServers(dbWithOauthRows(rows), "user-1");
+    expect(mounted.mcpServers).toBeUndefined();
   });
 
   it("fails closed when an explicit Notion endpoint override is invalid", async () => {

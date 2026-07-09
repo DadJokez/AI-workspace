@@ -25,6 +25,14 @@ interface PreambleInput {
   blockedProviders?: readonly string[];
   /** Connected provider keys that cannot be mounted in this deployment. */
   unavailableProviders?: readonly string[];
+  /**
+   * Subset of `unavailableProviders` whose reason is specifically "coming
+   * soon" (linked, nothing broken, ships later). Only these get the reassuring
+   * "nothing is missing on your side" copy; other unavailable providers keep
+   * neutral "execution isn't enabled here" phrasing so a genuinely
+   * misconfigured tool never gets a false all-clear (#323 review).
+   */
+  comingSoonProviders?: readonly string[];
   /** Built-in non-account tools mounted for this turn, such as public URL fetch. */
   builtinTools?: readonly string[];
   /** The model running this turn, so the assistant can self-identify correctly. */
@@ -59,12 +67,20 @@ export function buildAgentPreamble({
   availableProviders,
   blockedProviders = [],
   unavailableProviders = [],
+  comingSoonProviders = [],
   builtinTools = [],
   modelId,
   artifactContext,
   vaultContextRequested = false,
 }: PreambleInput): string {
   const lines: string[] = [];
+  const comingSoonSet = new Set(comingSoonProviders);
+  const comingSoonUnavailable = unavailableProviders.filter((p) =>
+    comingSoonSet.has(p),
+  );
+  const otherUnavailable = unavailableProviders.filter(
+    (p) => !comingSoonSet.has(p),
+  );
 
   // Date grounding is NOT stamped here: the preamble travels in the cached
   // Bedrock prompt prefix, where a per-turn timestamp would defeat prompt
@@ -138,26 +154,18 @@ export function buildAgentPreamble({
     }
     if (unavailableProviders.length > 0) {
       lines.push("");
-      lines.push(
-        "Connected account tools linked but not enabled for chat execution in this deployment:",
-      );
-      for (const p of unavailableProviders) {
-        lines.push(`- ${PROVIDER_DESCRIPTIONS[p] ?? p}`);
-      }
-      lines.push(
-        "Do not claim you can read, search, write, or summarize these linked tools yet. If the user asks for one, say the account is connected but chat execution is not enabled for it yet.",
-      );
+      pushUnavailableGuidance(lines, {
+        unavailable: unavailableProviders,
+        comingSoon: comingSoonUnavailable,
+        other: otherUnavailable,
+      });
     }
   } else if (unavailableProviders.length > 0) {
-    lines.push(
-      "Connected account tools linked but not enabled for chat execution in this deployment:",
-    );
-    for (const p of unavailableProviders) {
-      lines.push(`- ${PROVIDER_DESCRIPTIONS[p] ?? p}`);
-    }
-    lines.push(
-      "These account connections exist, but no callable tools are mounted or available for them yet. Do not claim you can use them. If asked, say the account is connected but chat execution is not enabled yet.",
-    );
+    pushUnavailableGuidance(lines, {
+      unavailable: unavailableProviders,
+      comingSoon: comingSoonUnavailable,
+      other: otherUnavailable,
+    });
   } else if (blockedProviders.length > 0) {
     lines.push(
       "Connected account tools exist, but none are currently approved for use in this turn.",
@@ -229,4 +237,50 @@ export function buildAgentPreamble({
   );
 
   return lines.join("\n");
+}
+
+/**
+ * Renders the "linked but not executable" tool section. The reassuring "coming
+ * soon, nothing is broken on your side" line is emitted only for the coming-soon
+ * subset; other unavailable providers (misconfigured endpoint, unknown reason)
+ * get a neutral "execution isn't enabled here" line so the model never gives a
+ * false all-clear for a genuinely broken integration (#323 review).
+ */
+function pushUnavailableGuidance(
+  lines: string[],
+  {
+    unavailable,
+    comingSoon,
+    other,
+  }: {
+    unavailable: readonly string[];
+    comingSoon: readonly string[];
+    other: readonly string[];
+  },
+): void {
+  lines.push(
+    "Connected account tools linked but not enabled for chat execution in this deployment:",
+  );
+  for (const p of unavailable) {
+    lines.push(`- ${PROVIDER_DESCRIPTIONS[p] ?? p}`);
+  }
+  lines.push(
+    "Do not claim you can read, search, write, or summarize these linked tools yet, and do not offer to check them or promise a tool-backed follow-up.",
+  );
+  if (comingSoon.length > 0) {
+    lines.push(
+      `For ${providerNames(comingSoon)}: if the user asks, say plainly that their account is linked but chat can't act on it yet — the integration is coming soon — and that nothing is broken and no setup step is missing on their side.`,
+    );
+  }
+  if (other.length > 0) {
+    lines.push(
+      `For ${providerNames(other)}: if the user asks, say plainly that their account is linked but chat execution is not enabled for it in this deployment. Do not tell the user it is simply "coming soon" or reassure them that nothing is misconfigured — the reason is not known here, so do not offer that assurance.`,
+    );
+  }
+}
+
+function providerNames(providers: readonly string[]): string {
+  return providers
+    .map((p) => (p ? p[0]!.toUpperCase() + p.slice(1) : p))
+    .join(", ");
 }
