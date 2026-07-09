@@ -37,3 +37,7 @@ coverage/
 eval-reports/
 playwright-report/
 test-results/
+
+# local scratch — never commit
+output/
+tmp/
