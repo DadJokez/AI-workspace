@@ -120,7 +120,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     const cluster = new ecs.Cluster(this, "Cluster", {
       clusterName: "ai-workspace-prod",
       vpc,
-      containerInsightsV2: ecs.ContainerInsights.ENABLED,
+      containerInsightsV2: ecs.ContainerInsights.DISABLED,
     });
 
     const webSecurityGroup = new ec2.SecurityGroup(this, "WebSecurityGroup", {
