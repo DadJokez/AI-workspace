@@ -67,10 +67,11 @@ export interface ModelMetadata {
 }
 
 /**
- * Cost figures are us.* inference-profile rates (the ~10% geo uplift for the
- * deliberate US-residency choice), verified against Cost Explorer June 2026 —
- * not first-party list prices. Keep in sync with what the account actually
- * pays; router-lane selection (#303) and cost displays read these fields.
+ * Cost figures are us.* geo cross-region inference-profile rates (deliberate
+ * US-residency choice): Bedrock list + the 10% regional-endpoint premium, as
+ * of July 2026 — not global-endpoint list prices. Keep in sync with what the
+ * account actually pays; router-lane selection (#303) and cost displays read
+ * these fields.
  */
 export const MODELS: Record<ModelId, ModelMetadata> = {
   "haiku-4-5": {
@@ -120,8 +121,8 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     family: "claude",
     displayName: "Opus 4.7",
     blurb: "Heavy reasoning. Planning, complex analysis, recipe authoring.",
-    costPer1MInput: 16.5,
-    costPer1MOutput: 82.5,
+    costPer1MInput: 5.5,
+    costPer1MOutput: 27.5,
     supportsToolUse: true,
     supportsStreaming: true,
     supportsVision: true,

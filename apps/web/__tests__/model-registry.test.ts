@@ -140,15 +140,16 @@ describe("cache", () => {
 });
 
 describe("cost metadata", () => {
-  it("matches the us.* inference-profile rates the account pays (Cost Explorer, June 2026)", () => {
-    // Not list prices — see the note above MODELS in packages/agent/src/models.ts.
-    // Router-lane selection (#303) reads these; don't "fix" them back to list.
+  it("matches the us.* geo cross-region inference-profile rates (list + 10%, July 2026)", () => {
+    // Not global-endpoint list prices — see the note above MODELS in
+    // packages/agent/src/models.ts. Router-lane selection (#303) reads these;
+    // don't "fix" them back to list.
     expect(MODELS["haiku-4-5"].costPer1MInput).toBe(1.1);
     expect(MODELS["haiku-4-5"].costPer1MOutput).toBe(5.5);
     expect(MODELS["sonnet-4-6"].costPer1MInput).toBe(3.3);
     expect(MODELS["sonnet-4-6"].costPer1MOutput).toBe(16.5);
-    expect(MODELS["opus-4-7"].costPer1MInput).toBe(16.5);
-    expect(MODELS["opus-4-7"].costPer1MOutput).toBe(82.5);
+    expect(MODELS["opus-4-7"].costPer1MInput).toBe(5.5);
+    expect(MODELS["opus-4-7"].costPer1MOutput).toBe(27.5);
   });
 
   it("estimateCostUsd combines input and output rates", () => {
