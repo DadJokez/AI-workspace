@@ -124,7 +124,7 @@ describe("capability graph", () => {
     });
   });
 
-  it("marks connected providers as setup-required when execution is unavailable", () => {
+  it("marks connected providers as coming-soon when execution is unavailable", () => {
     const graph = buildCapabilityGraph({
       userId: "user-1",
       providerStatus: {
@@ -147,13 +147,13 @@ describe("capability graph", () => {
     });
 
     expect(graph.providers[0]).toMatchObject({
-      status: "setup_required",
+      status: "coming_soon",
       runnableNow: false,
       needsApproval: false,
       executionUnavailableProviders: ["notion"],
     });
     expect(graph.skills[0]).toMatchObject({
-      status: "provider_setup_required",
+      status: "provider_coming_soon",
       runnableNow: false,
       needsApproval: false,
       missingProviders: [],

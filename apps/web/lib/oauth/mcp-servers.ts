@@ -24,7 +24,10 @@ interface McpProviderConfig {
 const MCP_PROVIDER_CONFIG: Record<string, McpProviderConfig> = {
   github: { endpoint: { url: "https://api.githubcopilot.com/mcp/" } },
   notion: notionMcpConfig(process.env.NOTION_MCP_ENDPOINT_URL),
-  google: { unavailableReason: "gateway_not_configured" },
+  // Connectable but not executable: the chat-side Gmail/Calendar integration
+  // (#297) has not shipped. Adding the endpoint here is what flips google from
+  // "coming soon" to live — UI and preamble messaging key off this reason.
+  google: { unavailableReason: "integration_coming_soon" },
 };
 
 /**

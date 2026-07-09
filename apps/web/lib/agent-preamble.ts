@@ -145,7 +145,7 @@ export function buildAgentPreamble({
         lines.push(`- ${PROVIDER_DESCRIPTIONS[p] ?? p}`);
       }
       lines.push(
-        "Do not claim you can read, search, write, or summarize these linked tools yet. If the user asks for one, say the account is connected but chat execution is not enabled for it yet.",
+        "Do not claim you can read, search, write, or summarize these linked tools yet, and do not offer to check them or promise a tool-backed follow-up. If the user asks for one, say plainly that their account is linked but chat can't act on it yet — the integration is coming soon — and that nothing is broken and no setup step is missing on their side.",
       );
     }
   } else if (unavailableProviders.length > 0) {
@@ -156,7 +156,7 @@ export function buildAgentPreamble({
       lines.push(`- ${PROVIDER_DESCRIPTIONS[p] ?? p}`);
     }
     lines.push(
-      "These account connections exist, but no callable tools are mounted or available for them yet. Do not claim you can use them. If asked, say the account is connected but chat execution is not enabled yet.",
+      "These account connections exist, but no callable tools are mounted or available for them yet. Do not claim you can use them, and do not offer to check them or promise a tool-backed follow-up. If asked, say plainly that the account is linked but chat can't act on it yet — the integration is coming soon — and that nothing is broken and no setup step is missing on their side.",
     );
   } else if (blockedProviders.length > 0) {
     lines.push(

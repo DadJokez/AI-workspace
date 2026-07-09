@@ -184,12 +184,12 @@ export function buildCapabilityGraph({
         status: isApproved
           ? "approved"
           : executionUnavailable
-            ? "setup_required"
+            ? "coming_soon"
             : "pending_approval",
         why: isApproved
           ? `${label(provider)} is connected and approved for this user.`
           : executionUnavailable
-            ? `${label(provider)} is connected, but chat execution is not configured for this deployment.`
+            ? `${label(provider)} is linked, but its chat integration is not live yet — chat cannot act on it until it ships.`
           : `${label(provider)} is connected but pending approval for this user.`,
         metadata: { provider },
       } satisfies CapabilityEntry;
@@ -326,7 +326,7 @@ function buildSkillCapability(
     status: runnableNow
       ? "ready"
       : executionUnavailableProviders.length > 0
-        ? "provider_setup_required"
+        ? "provider_coming_soon"
         : "needs_provider",
     why: skillWhy(
       skill,
@@ -448,9 +448,9 @@ function skillWhy(
     )} is pending approval.`;
   }
   if (executionUnavailableProviders.length > 0) {
-    return `${skill.name} is ${source}, but ${formatList(
+    return `${skill.name} is ${source}, but the ${formatList(
       executionUnavailableProviders,
-    )} execution is not configured for this deployment.`;
+    )} chat integration is not live yet.`;
   }
   return `${skill.name} is ${source} and can run now.`;
 }

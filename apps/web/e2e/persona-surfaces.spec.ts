@@ -157,6 +157,39 @@ test.describe("persona and workspace surfaces", () => {
       .toHaveAttribute("href", "/api/oauth/google/start");
   });
 
+  test("shows linked Google as coming soon, not ready in chat", async ({
+    page,
+    isMobile,
+  }) => {
+    // #323: a Google OAuth connection must not read as a working chat tool
+    // until the runtime integration ships.
+    await installMockComparativeApi(page, {
+      oauthStatus: {
+        github: false,
+        notion: false,
+        google: true,
+        providerDetails: {
+          google: {
+            connected: true,
+            executionConfigured: false,
+            toolAvailable: false,
+            status: "connected_execution_not_configured",
+            reason: "integration_coming_soon",
+          },
+        },
+      },
+    });
+    await gotoE2EChat(page);
+
+    await openNavItem(page, "Tools", isMobile);
+    const connectedSection = page.getByTestId("tools-section-connected");
+    const googleCard = connectedSection.getByTestId("tool-card-google");
+    await expect(googleCard.getByText("Linked")).toBeVisible();
+    await expect(googleCard.getByText("Chat actions coming soon")).toBeVisible();
+    await expect(googleCard.getByText("Ready in chat")).not.toBeVisible();
+    await expect(googleCard.getByText("Setup needed for chat")).not.toBeVisible();
+  });
+
   test("prioritizes connected tools above disconnected tools", async ({
     page,
     isMobile,

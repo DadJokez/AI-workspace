@@ -81,8 +81,34 @@ describe("tool-use honesty grounding", () => {
     );
     expect(preamble).toContain("Notion: search/read pages");
     expect(preamble).toContain("Do not claim you can use them");
+    expect(preamble).toContain("do not offer to check them");
+    expect(preamble).toContain("no setup step is missing");
     expect(preamble).not.toContain("Connected tools available");
     expect(preamble).not.toContain("No external tools are connected yet");
+  });
+
+  it("frames linked Google as coming soon, not as a broken or callable tool (#323)", () => {
+    // The #323 failure: Google OAuth succeeded, the UI said "connected", and
+    // the assistant implied it could read Gmail/Calendar while the runtime had
+    // no Google tools. The preamble must steer the model to "linked, chat
+    // actions coming soon" — never a capability claim, never a setup errand.
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: ["github"],
+      availableProviders: ["github"],
+      unavailableProviders: ["google"],
+    });
+
+    expect(preamble).toContain(
+      "Connected account tools linked but not enabled for chat execution",
+    );
+    expect(preamble).toContain("Google Mail and Calendar");
+    expect(preamble).toContain(
+      "Do not claim you can read, search, write, or summarize these linked tools yet",
+    );
+    expect(preamble).toContain("do not offer to check them");
+    expect(preamble).toContain("the integration is coming soon");
+    expect(preamble).toContain("no setup step is missing");
   });
 
   it("describes mounted built-in URL fetch without claiming account tools are connected", () => {
