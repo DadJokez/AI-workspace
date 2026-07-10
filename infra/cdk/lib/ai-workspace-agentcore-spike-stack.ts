@@ -144,6 +144,18 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
             ],
           }),
           new iam.PolicyStatement({
+            sid: "RunNativeArmAgentCoreImageBuild",
+            actions: ["codebuild:StartBuild", "codebuild:BatchGetBuilds"],
+            resources: [
+              this.formatArn({
+                service: "codebuild",
+                resource: "project",
+                resourceName: "ai-workspace-build",
+                arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME,
+              }),
+            ],
+          }),
+          new iam.PolicyStatement({
             sid: "UpdateComparativeAgentCoreRuntime",
             actions: [
               "bedrock-agentcore:GetAgentRuntime",

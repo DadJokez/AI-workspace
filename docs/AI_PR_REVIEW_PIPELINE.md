@@ -70,10 +70,13 @@ with pull-request build approval disabled; otherwise GitHub can show cosmetic
 red CodeBuild statuses on otherwise clean PR commits.
 
 The AgentCore runtime remains owned by `AiWorkspaceAgentCoreSpikeStack`.
-CodeBuild pushes an immutable image tag, then updates that stack's
-`AgentImageTag` parameter; it never mutates the runtime directly. The stack
-attaches a narrowly scoped deployment policy to `CodeBuildAIWorkspaceRole` so
-the build can update only this stack/runtime and pass only its execution role.
+The main x86 CodeBuild job launches a native ARM child build for the AgentCore
+image while it builds the ECS images, then waits for that child before updating
+the stack's `AgentImageTag` parameter. This avoids QEMU and public Docker Hub
+pulls while preserving one immutable tag for the whole deploy. CodeBuild never
+mutates the runtime directly. The stack attaches a narrowly scoped deployment
+policy to `CodeBuildAIWorkspaceRole` so the build can launch only its own
+project, update only this stack/runtime, and pass only its execution role.
 
 Approving reviews are a human workflow expectation, not a current GitHub branch
 protection requirement. Rob still owns merge judgment even when all mechanical

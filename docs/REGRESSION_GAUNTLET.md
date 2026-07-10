@@ -121,6 +121,9 @@ queues a durable AgentCore worker turn with a built-in tool schema mounted,
 checks smoke-run backlog health, and then removes the smoke user data on
 success. The durable turn verifies that the deployed runtime version is ready,
 the chat worker can invoke it, and Bedrock accepts its tool configuration.
+Before deployment, the x86 parent job must also observe a successful native ARM
+child build for the same source commit; a failed or timed-out child blocks the
+stack update and production smoke.
 Failed smoke runs leave the tagged smoke rows in place for debugging; the next
 run clears stale smoke data before starting. Backlog checks fail on terminal
 failures immediately and on active smoke rows only after they are stale, so a

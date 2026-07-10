@@ -1,0 +1,24 @@
+version: 0.2
+
+env:
+  variables:
+    AGENTCORE_IMAGE_REPO_NAME: ai-workspace-agentcore-agent
+
+phases:
+  pre_build:
+    commands:
+      - 'test "$(uname -m)" = "aarch64"'
+      - 'AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)'
+      - 'aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com'
+      - 'AGENTCORE_REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$AGENTCORE_IMAGE_REPO_NAME'
+      - 'COMMIT_TAG=${AGENTCORE_COMMIT_TAG:-${CODEBUILD_RESOLVED_SOURCE_VERSION:-manual}}'
+      - 'test -n "$COMMIT_TAG" && test "$COMMIT_TAG" != "manual"'
+  build:
+    commands:
+      - 'echo Building native linux/arm64 AgentCore image for $COMMIT_TAG...'
+      - 'docker build -f apps/agentcore-agent/Dockerfile -t $AGENTCORE_REPOSITORY_URI:latest -t $AGENTCORE_REPOSITORY_URI:$COMMIT_TAG .'
+  post_build:
+    commands:
+      - 'docker push $AGENTCORE_REPOSITORY_URI:latest'
+      - 'docker push $AGENTCORE_REPOSITORY_URI:$COMMIT_TAG'
+      - 'echo Published native linux/arm64 AgentCore image $AGENTCORE_REPOSITORY_URI:$COMMIT_TAG'
