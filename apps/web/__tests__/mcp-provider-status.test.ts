@@ -26,10 +26,11 @@ function mockAttestations(provider = "notion") {
 }
 
 function dbWithOauthRows(rows: Array<Record<string, unknown>>): Database {
-  const chain = {
-    from: () => chain,
-    where: async () => rows,
-  };
+  const chain: Record<string, unknown> = {};
+  chain.from = () => chain;
+  chain.where = () => chain;
+  chain.limit = async () => rows;
+  chain.then = (resolve: (value: unknown) => void) => resolve(rows);
   return {
     select: () => chain,
   } as unknown as Database;
@@ -165,7 +166,8 @@ describe("MCP provider status", () => {
     });
   });
 
-  it("keeps linked Google out of the chat tool surface until its integration ships (#323)", async () => {
+  it("mounts sufficiently scoped Google through the governed first-party MCP surface", async () => {
+    vi.stubEnv("NEXTAUTH_URL", "https://comparative.example");
     vi.stubEnv(
       "OAUTH_ENCRYPTION_KEY",
       Buffer.alloc(32, 8).toString("base64"),
@@ -179,15 +181,16 @@ describe("MCP provider status", () => {
       SUPPORTED_MCP_PROVIDERS,
     } = await import("@/lib/oauth/mcp-servers");
 
-    // Connectable, never mountable: OAuth tokens present ≠ tools available.
     expect(SUPPORTED_MCP_PROVIDERS).toContain("google");
-    expect(MOUNTABLE_MCP_PROVIDERS).not.toContain("google");
+    expect(MOUNTABLE_MCP_PROVIDERS).toContain("google");
 
     const rows = [
       {
         provider: "google",
         accessToken: encryptSecret("google-access-token"),
-        expiresAt: new Date(Date.now() + 60_000),
+        refreshToken: encryptSecret("google-refresh-token"),
+        expiresAt: new Date(Date.now() + 5 * 60_000),
+        scope: googleScopes(),
       },
     ];
 
@@ -197,21 +200,43 @@ describe("MCP provider status", () => {
     );
     expect(status).toMatchObject({
       connectedProviders: ["google"],
-      allowedProviders: [],
-      executionUnavailableProviders: ["google"],
+      allowedProviders: ["google"],
+      executionUnavailableProviders: [],
       providerAvailability: {
         google: {
           connected: true,
-          executionConfigured: false,
-          toolMountable: false,
-          modelAvailable: false,
-          status: "execution_not_configured",
+          tokenValid: true,
+          executionConfigured: true,
+          toolMountable: true,
+          modelAvailable: true,
+          status: "ready",
         },
       },
     });
 
     const mounted = await buildUserMcpServers(dbWithOauthRows(rows), "user-1");
-    expect(mounted.mcpServers).toBeUndefined();
+    expect(mounted.mcpServers?.google).toMatchObject({
+      type: "http",
+      url: "https://comparative.example/api/mcp/google",
+      headers: {
+        Authorization: "Bearer google-access-token",
+        "X-Comparative-MCP-Relay": expect.any(String),
+        "X-Comparative-Google-Context": expect.any(String),
+      },
+      allowedTools: expect.arrayContaining([
+        "search_mail",
+        "get_message",
+        "list_events",
+        "prepare_event",
+      ]),
+    });
+    const googleServer = mounted.mcpServers?.google;
+    const allowedTools =
+      googleServer && "url" in googleServer
+        ? googleServer.allowedTools
+        : undefined;
+    expect(allowedTools).not.toContain("create_draft");
+    expect(allowedTools).not.toContain("create_event");
   });
 
   it("fails closed when an explicit Notion endpoint override is invalid", async () => {
@@ -237,4 +262,13 @@ describe("MCP provider status", () => {
 
 function relayToken(key: string): string {
   return createHmac("sha256", key).update(RELAY_HMAC_MESSAGE).digest("hex");
+}
+
+function googleScopes(): string {
+  return [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.compose",
+    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/calendar.events.owned",
+  ].join(" ");
 }

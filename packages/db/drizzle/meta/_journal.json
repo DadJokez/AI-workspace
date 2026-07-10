@@ -225,6 +225,13 @@
       "when": 1783814400000,
       "tag": "0031_model_enablement",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1783900800000,
+      "tag": "0032_google_tools_catalog",
+      "breakpoints": true
     }
   ]
 }

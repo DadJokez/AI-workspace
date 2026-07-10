@@ -383,7 +383,16 @@ async function executeClaimedChatRun({
     const mcpAccess = await buildUserMcpServers(
       db,
       run.userId,
-      mcpProviderScope.mountOptions,
+      {
+        ...mcpProviderScope.mountOptions,
+        turnContext: {
+          runId: run.id,
+          threadId: thread.id,
+          prompt: inputs.prompt,
+          history,
+          interactive: run.triggerType === "chat",
+        },
+      },
     );
     mcpServers = mcpAccess.mcpServers;
     deniedMcpProviders = mcpAccess.deniedProviders;

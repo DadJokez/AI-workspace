@@ -74,7 +74,7 @@ afterEach(() => {
 });
 
 describe("Google OAuth routes", () => {
-  it("redirects authenticated users to Google authorize with read-only Mail and Calendar scopes", async () => {
+  it("requests the approved Gmail and Calendar read/write scopes", async () => {
     installMocks();
     const { GET } = await import("@/app/api/oauth/google/start/route");
 
@@ -98,12 +98,19 @@ describe("Google OAuth routes", () => {
       "https://www.googleapis.com/auth/gmail.readonly",
     );
     expect(url.searchParams.get("scope")).toContain(
+      "https://www.googleapis.com/auth/gmail.compose",
+    );
+    expect(url.searchParams.get("scope")).toContain(
       "https://www.googleapis.com/auth/calendar.readonly",
+    );
+    expect(url.searchParams.get("scope")).toContain(
+      "https://www.googleapis.com/auth/calendar.events.owned",
     );
     expect(res.headers.get("set-cookie")).toContain("google_oauth_state=");
   });
 
-  it("stores encrypted Google tokens and creates a read provider attestation", async () => {
+  it("stores encrypted Google tokens and creates a write provider attestation", async () => {
+    selectRows = [{ id: "existing-read-attestation", action: "read" }];
     installMocks();
     const fetchMock = vi.fn(async () =>
       new Response(
@@ -112,7 +119,7 @@ describe("Google OAuth routes", () => {
           refresh_token: "google-refresh-token",
           expires_in: 3600,
           scope:
-            "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly",
+            "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events.owned",
           token_type: "Bearer",
         }),
         { status: 200, headers: { "content-type": "application/json" } },
@@ -162,9 +169,69 @@ describe("Google OAuth routes", () => {
       userId: session.id,
       scopeType: "provider",
       provider: "google",
-      action: "read",
+      action: "write",
       metadata: { source: "google_oauth_callback" },
     });
+  });
+
+  it("does not duplicate a write approval when an older read approval also exists", async () => {
+    selectRows = [
+      { id: "existing-read-attestation", action: "read" },
+      { id: "existing-write-attestation", action: "write" },
+    ];
+    installMocks();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            access_token: "google-access-token",
+            scope:
+              "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events.owned",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+
+    const { GET } = await import("@/app/api/oauth/google/callback/route");
+    await GET(
+      new Request(
+        "https://comparative.example/api/oauth/google/callback?code=abc&state=state-123",
+        { headers: { cookie: "google_oauth_state=state-123" } },
+      ),
+    );
+
+    expect(capturedAttestationValues).toBeUndefined();
+  });
+
+  it("fails closed when Google omits the authoritative granted-scope list", async () => {
+    installMocks();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            access_token: "google-access-token",
+            refresh_token: "google-refresh-token",
+            expires_in: 3600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+
+    const { GET } = await import("@/app/api/oauth/google/callback/route");
+    const res = await GET(
+      new Request(
+        "https://comparative.example/api/oauth/google/callback?code=abc&state=state-123",
+        { headers: { cookie: "google_oauth_state=state-123" } },
+      ),
+    );
+
+    expect(res.status).toBe(302);
+    expect(capturedTokenValues?.scope).toBeNull();
+    expect(capturedAttestationValues).toMatchObject({ action: "write" });
   });
 
   it("redirects failed callbacks back to Tools with an actionable error", async () => {

@@ -5,7 +5,6 @@ import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
 import { storeOAuthConnection } from "@/lib/oauth/connection";
 import {
   GOOGLE_CLIENT_ID,
-  GOOGLE_OAUTH_SCOPE,
   GOOGLE_OAUTH_STATE_COOKIE,
   GOOGLE_PROVIDER,
   GOOGLE_REDIRECT_URI,
@@ -130,8 +129,10 @@ export async function GET(req: Request) {
     accessToken: tokenJson.access_token,
     refreshToken: tokenJson.refresh_token ?? null,
     expiresAt,
-    scope: tokenJson.scope ?? GOOGLE_OAUTH_SCOPE,
-    attestationAction: "read",
+    // Scope sufficiency is an authorization boundary. Never record requested
+    // scopes as granted when Google did not return an authoritative list.
+    scope: tokenJson.scope ?? null,
+    attestationAction: "write",
     attestationReason: "Approved during Google Mail and Calendar connection.",
     attestationSource: "google_oauth_callback",
   });

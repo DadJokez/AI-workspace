@@ -8,7 +8,7 @@ const session: SessionUser = {
   role: "user",
 };
 
-let rows: Array<{ provider: string; expiresAt: Date | null }> = [];
+let providerAvailability: Record<string, Record<string, unknown>> = {};
 
 function installMocks() {
   vi.doMock("@/lib/auth/getSessionUser", () => ({
@@ -19,21 +19,16 @@ function installMocks() {
       await vi.importActual<typeof import("@ai-workspace/db")>(
         "@ai-workspace/db",
       );
-    const selectQuery: Record<string, unknown> = {};
-    selectQuery.from = () => selectQuery;
-    selectQuery.where = async () => rows;
-    return {
-      ...actual,
-      getDb: () =>
-        ({
-          select: () => selectQuery,
-        }) as never,
-    };
+    return { ...actual, getDb: () => ({}) };
   });
+  vi.doMock("@/lib/oauth/mcp-servers", () => ({
+    getMcpProviderExecutionStatus: () => ({ executionConfigured: true }),
+    loadUserMcpProviderStatus: async () => ({ providerAvailability }),
+  }));
 }
 
 beforeEach(() => {
-  rows = [];
+  providerAvailability = {};
 });
 
 afterEach(() => {
@@ -41,12 +36,11 @@ afterEach(() => {
 });
 
 describe("GET /api/oauth/status", () => {
-  it("reports Notion connected only when the delegated token is active", async () => {
-    rows = [
-      { provider: "github", expiresAt: null },
-      { provider: "notion", expiresAt: new Date(Date.now() + 60_000) },
-      { provider: "google", expiresAt: new Date(Date.now() - 60_000) },
-    ];
+  it("reports active providers as ready and absent providers as disconnected", async () => {
+    providerAvailability = {
+      github: readyAvailability(),
+      notion: readyAvailability(),
+    };
     installMocks();
     const { GET } = await import("@/app/api/oauth/status/route");
 
@@ -70,7 +64,7 @@ describe("GET /api/oauth/status", () => {
         },
         google: {
           connected: false,
-          executionConfigured: false,
+          executionConfigured: true,
           toolAvailable: false,
           status: "not_connected",
         },
@@ -78,10 +72,19 @@ describe("GET /api/oauth/status", () => {
     });
   });
 
-  it("reports Google connected but pending execution until a Gateway target exists", async () => {
-    rows = [
-      { provider: "google", expiresAt: new Date(Date.now() + 60_000) },
-    ];
+  it("reports an under-scoped Google grant as requiring reconnect", async () => {
+    providerAvailability = {
+      google: {
+        connected: true,
+        tokenValid: false,
+        userApproved: true,
+        executionConfigured: true,
+        toolMountable: false,
+        modelAvailable: false,
+        status: "reconnect_required",
+        reason: "insufficient_scope",
+      },
+    };
     installMocks();
     const { GET } = await import("@/app/api/oauth/status/route");
 
@@ -91,12 +94,24 @@ describe("GET /api/oauth/status", () => {
       providerDetails: {
         google: {
           connected: true,
-          executionConfigured: false,
+          executionConfigured: true,
           toolAvailable: false,
-          status: "connected_execution_not_configured",
-          reason: "integration_coming_soon",
+          status: "reconnect_required",
+          reason: "insufficient_scope",
         },
       },
     });
   });
 });
+
+function readyAvailability() {
+  return {
+    connected: true,
+    tokenValid: true,
+    userApproved: true,
+    executionConfigured: true,
+    toolMountable: true,
+    modelAvailable: true,
+    status: "ready",
+  };
+}

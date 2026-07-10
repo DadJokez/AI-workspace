@@ -45,15 +45,18 @@ export async function storeOAuthConnection({
       target: [oauthTokens.userId, oauthTokens.provider],
       set: {
         accessToken: accessTokenEnc,
-        refreshToken: refreshTokenEnc,
+        ...(refreshTokenEnc ? { refreshToken: refreshTokenEnc } : {}),
         expiresAt,
         scope,
         updatedAt: sql`now()`,
       },
     });
 
-  const existingAttestation = await db
-    .select({ id: userToolAttestations.id })
+  const existingAttestations = await db
+    .select({
+      id: userToolAttestations.id,
+      action: userToolAttestations.action,
+    })
     .from(userToolAttestations)
     .where(
       and(
@@ -63,9 +66,12 @@ export async function storeOAuthConnection({
         isNull(userToolAttestations.revokedAt),
       ),
     )
-    .limit(1);
+    .limit(100);
 
-  if (!existingAttestation[0]) {
+  const alreadyCovered = existingAttestations.some(
+    ({ action }) => actionRank(action) >= actionRank(attestationAction),
+  );
+  if (!alreadyCovered) {
     await db.insert(userToolAttestations).values({
       userId,
       scopeType: "provider",
@@ -76,4 +82,8 @@ export async function storeOAuthConnection({
       metadata: { source: attestationSource },
     });
   }
+}
+
+function actionRank(action: "read" | "write" | "admin"): number {
+  return { read: 1, write: 2, admin: 3 }[action];
 }

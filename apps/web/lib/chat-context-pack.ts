@@ -75,6 +75,7 @@ export interface ChatContextProviderItem {
   mounted: boolean;
   pendingApproval: boolean;
   executionUnavailable?: boolean;
+  reconnectRequired?: boolean;
   injected: boolean;
 }
 
@@ -102,6 +103,7 @@ export interface ChatContextReceipt {
     builtinMounted: string[];
     pendingApproval: string[];
     executionUnavailable: string[];
+    reconnectRequired: string[];
     providers: ChatContextProviderItem[];
   };
   work: {
@@ -150,6 +152,7 @@ export interface ChatContextPack {
     mounted: ChatContextProviderItem[];
     pendingApproval: ChatContextProviderItem[];
     executionUnavailable: ChatContextProviderItem[];
+    reconnectRequired: ChatContextProviderItem[];
   };
   work: {
     threadSummary?: ChatContextItem;
@@ -307,6 +310,8 @@ export function buildChatContextPack({
     pendingApprovalProviders: blockedProviders,
     executionUnavailableProviders:
       providerStatus.executionUnavailableProviders ?? [],
+    reconnectRequiredProviders:
+      providerStatus.reconnectRequiredProviders ?? [],
     injected: shouldRenderPreamble,
   });
   const capabilityItem = capabilityGraph
@@ -352,6 +357,9 @@ export function buildChatContextPack({
       pendingApproval: blockedProviders,
       executionUnavailable: uniqueStrings(
         providerStatus.executionUnavailableProviders ?? [],
+      ),
+      reconnectRequired: uniqueStrings(
+        providerStatus.reconnectRequiredProviders ?? [],
       ),
       providers: providerItems,
     },
@@ -411,12 +419,14 @@ export function buildChatContextPack({
             vaultMarkdown: vault || null,
           },
           connectedProviders: receipt.tools.mounted,
+          accountConnectedProviders: receipt.tools.connected,
           availableProviders: receipt.tools.approved,
           blockedProviders: receipt.tools.pendingApproval,
           unavailableProviders: receipt.tools.executionUnavailable,
           comingSoonProviders: uniqueStrings(
             providerStatus.comingSoonProviders ?? [],
           ),
+          reconnectRequiredProviders: receipt.tools.reconnectRequired,
           builtinTools: receipt.tools.builtinMounted,
           modelId,
           artifactContext: artifacts || null,
@@ -449,6 +459,9 @@ export function buildChatContextPack({
       executionUnavailable: providerItems.filter(
         (item) => item.executionUnavailable,
       ),
+      reconnectRequired: providerItems.filter(
+        (item) => item.reconnectRequired,
+      ),
     },
     work: {
       ...(threadSummaryItem ? { threadSummary: threadSummaryItem } : {}),
@@ -474,7 +487,9 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
       receipt.tools.builtinMounted,
     )}; pending approval ${formatList(
       receipt.tools.pendingApproval,
-    )}; execution unavailable ${formatList(receipt.tools.executionUnavailable)}.`,
+    )}; execution unavailable ${formatList(
+      receipt.tools.executionUnavailable,
+    )}; reconnect required ${formatList(receipt.tools.reconnectRequired)}.`,
   );
   lines.push(
     `- Work context: ${receipt.work.recentMessages} recent message(s); ` +
@@ -604,6 +619,7 @@ function buildProviderItems({
   mountedProviders,
   pendingApprovalProviders,
   executionUnavailableProviders,
+  reconnectRequiredProviders,
   injected,
 }: {
   connectedProviders: readonly string[];
@@ -611,6 +627,7 @@ function buildProviderItems({
   mountedProviders: readonly string[];
   pendingApprovalProviders: readonly string[];
   executionUnavailableProviders: readonly string[];
+  reconnectRequiredProviders: readonly string[];
   injected: boolean;
 }): ChatContextProviderItem[] {
   const connected = new Set(connectedProviders);
@@ -618,12 +635,14 @@ function buildProviderItems({
   const mounted = new Set(mountedProviders);
   const pending = new Set(pendingApprovalProviders);
   const unavailable = new Set(executionUnavailableProviders);
+  const reconnectRequired = new Set(reconnectRequiredProviders);
   return uniqueStrings([
     ...connectedProviders,
     ...approvedProviders,
     ...mountedProviders,
     ...pendingApprovalProviders,
     ...executionUnavailableProviders,
+    ...reconnectRequiredProviders,
   ]).map((provider) => ({
     provider,
     source: mounted.has(provider)
@@ -639,6 +658,7 @@ function buildProviderItems({
     mounted: mounted.has(provider),
     pendingApproval: pending.has(provider),
     executionUnavailable: unavailable.has(provider),
+    reconnectRequired: reconnectRequired.has(provider),
     injected,
   }));
 }

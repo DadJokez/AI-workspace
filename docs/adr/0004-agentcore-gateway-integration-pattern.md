@@ -32,6 +32,11 @@ This ADR should therefore land as **Proposed** until the spike or the first
 Gmail/Calendar Gateway target validates the command shapes and operational
 details.
 
+**Google alpha exception:** [ADR 0005](./0005-google-shared-mcp-facade.md)
+keeps Gmail and Calendar on one governed first-party MCP facade shared by the
+fast ECS and durable AgentCore lanes. That exception preserves the stable tool
+contract while Gateway latency and fast-lane workload identity are validated.
+
 ## Decision
 
 Use **AgentCore Gateway as the default integration pattern for new stateful

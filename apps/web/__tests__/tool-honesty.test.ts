@@ -135,6 +135,37 @@ describe("tool-use honesty grounding", () => {
     expect(preamble).toContain("no setup step is missing");
   });
 
+  it("tells the user to reconnect an expired or under-scoped Google grant", () => {
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: [],
+      accountConnectedProviders: ["google"],
+      availableProviders: [],
+      reconnectRequiredProviders: ["google"],
+    });
+
+    expect(preamble).toContain(
+      "Connected account tools that require OAuth reconnection",
+    );
+    expect(preamble).toContain(
+      "Google Mail and Calendar needs to be reconnected in Tools before I can use it.",
+    );
+    expect(preamble).toContain("Do not say no tools are connected");
+    expect(preamble).not.toContain("No external tools are connected yet");
+  });
+
+  it("states the Google no-send and two-turn event boundary when mounted", () => {
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: ["google"],
+      accountConnectedProviders: ["google"],
+      availableProviders: ["google"],
+    });
+
+    expect(preamble).toContain("create_draft saves a Gmail draft and never sends it");
+    expect(preamble).toContain("created only after a later explicit confirmation turn");
+  });
+
   it("splits coming-soon and broken providers when both are unavailable (#323 review)", () => {
     const preamble = buildAgentPreamble({
       user: { displayName: "Rob", customInstructions: null },

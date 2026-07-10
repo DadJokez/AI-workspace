@@ -42,6 +42,8 @@ interface IntegrationCardState {
   executionPending: boolean;
   /** Connected, but the chat integration hasn't shipped yet (vs. a setup issue). */
   comingSoon: boolean;
+  needsReconnect: boolean;
+  temporarilyUnavailable: boolean;
   failed: boolean;
 }
 
@@ -138,7 +140,7 @@ const INTEGRATIONS: Integration[] = [
   {
     id: "google",
     name: "Google Mail & Calendar",
-    description: "Gmail messages, events, meetings, and availability",
+    description: "Read Gmail and Calendar, save drafts, and create confirmed events",
     initial: "G",
     bg: "#34A853",
     fg: "#ffffff",
@@ -206,6 +208,8 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
         connected &&
         !toolAvailable &&
         detail?.reason === "integration_coming_soon",
+      needsReconnect: detail?.status === "reconnect_required",
+      temporarilyUnavailable: detail?.status === "temporarily_unavailable",
       failed:
         oauthNotice?.provider === integration.id && Boolean(oauthNotice.error),
     };
@@ -347,7 +351,15 @@ function IntegrationCard({
   card: IntegrationCardState;
   onOpenComingSoon: (integration: Integration) => void;
 }) {
-  const { integration, connected, executionPending, comingSoon, failed } = card;
+  const {
+    integration,
+    connected,
+    executionPending,
+    comingSoon,
+    needsReconnect,
+    temporarilyUnavailable,
+    failed,
+  } = card;
   return (
     <div
       data-testid={`tool-card-${integration.id}`}
@@ -378,6 +390,14 @@ function IntegrationCard({
         {failed ? (
           <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
             Auth failed
+          </span>
+        ) : needsReconnect ? (
+          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+            Reconnect
+          </span>
+        ) : temporarilyUnavailable ? (
+          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+            Unavailable
           </span>
         ) : executionPending ? (
           <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
@@ -411,6 +431,10 @@ function IntegrationCard({
               <span className="text-[11px] text-muted">
                 {comingSoon
                   ? "Chat actions coming soon"
+                  : needsReconnect
+                    ? "Renew Google access"
+                    : temporarilyUnavailable
+                      ? "Try reconnecting"
                   : executionPending
                     ? "Setup needed for chat"
                     : "Ready in chat"}

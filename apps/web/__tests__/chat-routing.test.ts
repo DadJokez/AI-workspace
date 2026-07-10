@@ -236,6 +236,45 @@ describe("decideChatRuntimeRoute", () => {
     });
   });
 
+  it("routes Gmail and Calendar requests to the fast tool lane when Google is ready", () => {
+    for (const message of [
+      "Search my Gmail for the launch thread",
+      "What is on my calendar tomorrow?",
+      "Draft an email to Sam about the project",
+      "Create a meeting with Sam next Tuesday",
+    ]) {
+      expect(
+        decideChatRuntimeRoute({
+          message,
+          runtimeV2: true,
+          capabilitySignals: {
+            connectedProviders: ["google"],
+            approvedProviders: ["google"],
+          },
+        }),
+      ).toMatchObject({
+        lane: "tool-local",
+        runtimeTarget: "bedrock-agent",
+        useWorker: false,
+        useMcp: true,
+        reasons: ["capability_graph_google_mail_calendar"],
+      });
+    }
+  });
+
+  it("does not pretend Google tools are available before the provider is ready", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "Search my Gmail for the launch thread",
+        runtimeV2: true,
+      }),
+    ).toMatchObject({
+      lane: "fast-local",
+      useMcp: false,
+      reasons: ["default_fast_local"],
+    });
+  });
+
   it("routes GitHub capability probes to local tool streaming", () => {
     expect(
       decideChatRuntimeRoute({

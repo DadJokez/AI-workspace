@@ -252,7 +252,16 @@ export async function streamInlineChatRun({
         const mcpAccess = await buildUserMcpServers(
           db,
           userId,
-          mcpProviderScope.mountOptions,
+          {
+            ...mcpProviderScope.mountOptions,
+            turnContext: {
+              runId,
+              threadId: thread.id,
+              prompt,
+              history,
+              interactive: true,
+            },
+          },
         );
         mcpServers = mcpAccess.mcpServers;
         deniedMcpProviders = mcpAccess.deniedProviders;
