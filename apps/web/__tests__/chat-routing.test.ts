@@ -262,6 +262,28 @@ describe("decideChatRuntimeRoute", () => {
     }
   });
 
+  it("keeps Google tools mounted for a Calendar confirmation follow-up", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "confirm",
+        runtimeV2: true,
+        priorUserMessages: [
+          "Create a Google Calendar event tomorrow at 4 PM",
+        ],
+        capabilitySignals: {
+          connectedProviders: ["google"],
+          approvedProviders: ["google"],
+        },
+      }),
+    ).toMatchObject({
+      lane: "tool-local",
+      runtimeTarget: "bedrock-agent",
+      useWorker: false,
+      useMcp: true,
+      reasons: ["sticky_tool_thread"],
+    });
+  });
+
   it("does not pretend Google tools are available before the provider is ready", () => {
     expect(
       decideChatRuntimeRoute({

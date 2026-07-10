@@ -191,7 +191,9 @@ export function decideChatRuntimeRoute({
   // to the tool-less fast lane and the model contradicts the turn that just used
   // tools — answering "I don't have access to GitHub" one turn after reading it.
   // Upgrade fast→tool only (never force the durable worker on a follow-up).
-  if (threadAlreadyUsedTools(priorUserMessages)) {
+  if (
+    threadAlreadyUsedTools(priorUserMessages, resolvedCapabilitySignals)
+  ) {
     reasons.push("sticky_tool_thread");
     return {
       lane: "tool-local",
@@ -300,13 +302,21 @@ export function applyActivatedSkillRoute(
 
 /**
  * True when any earlier user turn in the thread needed connected tools (a tool
- * lookup or durable code work). Once a conversation is "about" GitHub, follow-up
- * questions should keep the tools warm rather than re-deciding from keywords.
+ * lookup or durable code work). Once a conversation uses a built-in or
+ * capability-backed provider, follow-ups should keep its tools warm rather
+ * than re-deciding from the latest message alone.
  */
-function threadAlreadyUsedTools(priorUserMessages: readonly string[]): boolean {
+function threadAlreadyUsedTools(
+  priorUserMessages: readonly string[],
+  capabilitySignals: ResolvedRoutingCapabilitySignals,
+): boolean {
   return priorUserMessages.some((prior) => {
     const n = normalize(prior);
-    return hasToolIntent(n) !== null || hasDurableIntent(n) !== null;
+    return (
+      hasToolIntent(n) !== null ||
+      hasCapabilityBackedToolIntent(n, capabilitySignals) !== null ||
+      hasDurableIntent(n) !== null
+    );
   });
 }
 
