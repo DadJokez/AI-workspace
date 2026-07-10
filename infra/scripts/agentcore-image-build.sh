@@ -32,13 +32,25 @@ case "$ACTION" in
     BUILD_ID="${2:?AgentCore build ID is required}"
     POLL_SECONDS="${AGENTCORE_BUILD_POLL_SECONDS:-10}"
     MAX_POLLS="${AGENTCORE_BUILD_MAX_POLLS:-180}"
+    MAX_STATUS_ERRORS="${AGENTCORE_BUILD_MAX_STATUS_ERRORS:-3}"
+    CONSECUTIVE_STATUS_ERRORS=0
 
     for ((attempt = 1; attempt <= MAX_POLLS; attempt += 1)); do
-      STATUS=$(aws codebuild batch-get-builds \
-        --region "${AWS_DEFAULT_REGION:-us-east-1}" \
-        --ids "$BUILD_ID" \
-        --query 'builds[0].buildStatus' \
-        --output text)
+      if ! STATUS=$(aws codebuild batch-get-builds \
+          --region "${AWS_DEFAULT_REGION:-us-east-1}" \
+          --ids "$BUILD_ID" \
+          --query 'builds[0].buildStatus' \
+          --output text); then
+        ((CONSECUTIVE_STATUS_ERRORS += 1))
+        if (( CONSECUTIVE_STATUS_ERRORS >= MAX_STATUS_ERRORS )); then
+          echo "Could not read AgentCore image build $BUILD_ID status after $CONSECUTIVE_STATUS_ERRORS consecutive attempts." >&2
+          exit 1
+        fi
+        echo "Could not read AgentCore image build $BUILD_ID status; retrying ($CONSECUTIVE_STATUS_ERRORS/$MAX_STATUS_ERRORS)." >&2
+        sleep "$POLL_SECONDS"
+        continue
+      fi
+      CONSECUTIVE_STATUS_ERRORS=0
 
       case "$STATUS" in
         SUCCEEDED)

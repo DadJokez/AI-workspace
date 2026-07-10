@@ -45,6 +45,25 @@ describe("agentcore-image-build.sh", () => {
     expect(result.stdout).toContain("succeeded");
   });
 
+  it("retries transient status lookup failures", () => {
+    const result = runScript(["wait", "ai-workspace-build:child-id"], {
+      statuses: "AWS_ERROR,IN_PROGRESS,SUCCEEDED",
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("status; retrying (1/2)");
+    expect(result.stdout).toContain("succeeded");
+  });
+
+  it("fails closed after repeated status lookup failures", () => {
+    const result = runScript(["wait", "ai-workspace-build:child-id"], {
+      statuses: "AWS_ERROR,AWS_ERROR",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("after 2 consecutive attempts");
+  });
+
   it("fails the parent deploy when the ARM child build fails", () => {
     const result = runScript(["wait", "ai-workspace-build:child-id"], {
       statuses: "FAILED",
@@ -136,8 +155,12 @@ if [[ "$1 $2" == "codebuild batch-get-builds" ]]; then
   if (( index >= \${#values[@]} )); then
     index=$((\${#values[@]} - 1))
   fi
-  printf '%s\n' "\${values[$index]}"
   printf '%s' "$((count + 1))" > "$FAKE_COUNTER_PATH"
+  if [[ "\${values[$index]}" == "AWS_ERROR" ]]; then
+    printf 'simulated status lookup failure\n' >&2
+    exit 1
+  fi
+  printf '%s\n' "\${values[$index]}"
   exit 0
 fi
 
@@ -157,6 +180,7 @@ exit 1
       AGENTCORE_IMAGE_REPO_NAME: "ai-workspace-agentcore-agent",
       AGENTCORE_BUILD_POLL_SECONDS: "0",
       AGENTCORE_BUILD_MAX_POLLS: "3",
+      AGENTCORE_BUILD_MAX_STATUS_ERRORS: "2",
       CODEBUILD_RESOLVED_SOURCE_VERSION: "commit-sha",
       FAKE_CAPTURE_PATH: capturePath,
       FAKE_COUNTER_PATH: counterPath,
