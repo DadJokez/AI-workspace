@@ -72,6 +72,11 @@ export interface TurnInput {
    */
   builtinTools?: readonly string[];
   /**
+   * Force the first model step to call this mounted tool. Runtimes fail closed
+   * when it is unavailable, then resume automatic selection after the result.
+   */
+  requiredToolName?: string;
+  /**
    * Steering text for user identity, connected tools, Vault memory, artifact
    * context, and custom instructions. Bedrock and AgentCore fold it into the
    * system prompt.

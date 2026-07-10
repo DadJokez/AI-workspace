@@ -79,6 +79,9 @@ export class BedrockRuntime implements AgentRuntime {
         registry,
         context: input.context,
         signal: input.signal,
+        ...(input.requiredToolName
+          ? { requiredToolName: input.requiredToolName }
+          : {}),
         ...(this.client ? { client: this.client } : {}),
       });
     } finally {

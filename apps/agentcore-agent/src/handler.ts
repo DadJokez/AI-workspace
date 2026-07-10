@@ -26,6 +26,7 @@ export interface InvocationPayload {
   messages: AgentMessage[];
   mcpServers?: Record<string, McpHttpServerSpec>;
   builtinTools?: string[];
+  requiredToolName?: string;
   userId?: string;
   maxToolIterations?: number;
 }
@@ -97,6 +98,10 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
     builtinTools: Array.isArray(body.builtinTools)
       ? body.builtinTools.filter((tool): tool is string => typeof tool === "string")
       : undefined,
+    requiredToolName:
+      typeof body.requiredToolName === "string"
+        ? body.requiredToolName
+        : undefined,
     userId: typeof body.userId === "string" ? body.userId : undefined,
     maxToolIterations:
       typeof body.maxToolIterations === "number"
@@ -155,6 +160,9 @@ export async function runInvocation(
       registry,
       context: { userId: payload.userId ?? "agentcore" },
       signal: opts.signal,
+      ...(payload.requiredToolName
+        ? { requiredToolName: payload.requiredToolName }
+        : {}),
       ...(payload.maxToolIterations
         ? { maxToolIterations: payload.maxToolIterations }
         : {}),

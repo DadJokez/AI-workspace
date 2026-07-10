@@ -328,7 +328,10 @@ export function toAwsToolConfiguration(
   // Checkpoint after the tool definitions so a mid-conversation system-prompt
   // change doesn't also evict the (larger, more stable) tools cache.
   tools.push({ cachePoint: { type: "default" } });
-  return { tools };
+  return {
+    tools,
+    ...(toolConfig.toolChoice ? { toolChoice: toolConfig.toolChoice } : {}),
+  };
 }
 
 /**

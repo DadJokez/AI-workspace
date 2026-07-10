@@ -16,6 +16,12 @@ export interface RunAgentLoopParams {
   registry: ToolRegistry;
   /** Whitelist of tool names this run is allowed to use. Undefined = all registered tools. */
   allowedTools?: readonly string[];
+  /**
+   * Tool the first model step must request. The loop fails closed when the
+   * tool is not registered, then returns to automatic selection after the
+   * required tool result is available.
+   */
+  requiredToolName?: string;
   /** Hard cap on tool-use round trips per turn. Defaults to 8. */
   maxToolIterations?: number;
   /** Per-output-message token cap. Defaults to the model's `defaultMaxTokens`. */
@@ -84,10 +90,21 @@ export async function* runAgentLoop(
   const volatileSystemSuffix = `Current date and time (UTC): ${new Date().toISOString()}. Treat this as ground truth for any date or time reasoning; the user's local timezone may differ.`;
   const maxIter = params.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
   const tools = params.registry.list(params.allowedTools);
-  const toolConfig =
+  const baseToolConfig =
     tools.length > 0
       ? params.registry.toBedrockToolConfig(params.allowedTools)
       : undefined;
+  const requiredToolName = params.requiredToolName?.trim();
+  if (
+    requiredToolName &&
+    !tools.some((tool) => tool.name === requiredToolName)
+  ) {
+    yield {
+      type: "error",
+      message: `Required tool is unavailable: ${requiredToolName}`,
+    };
+    return;
+  }
 
   const bedrockMessages: BedrockMessage[] = params.messages.map(
     agentMessageToBedrock,
@@ -102,6 +119,13 @@ export async function* runAgentLoop(
       return;
     }
 
+    const toolConfig =
+      baseToolConfig && iter === 0 && requiredToolName
+        ? {
+            ...baseToolConfig,
+            toolChoice: { tool: { name: requiredToolName } },
+          }
+        : baseToolConfig;
     const stream = client.converseStream({
       bedrockModelId: model.bedrockModelId,
       systemPrompt,

@@ -88,7 +88,12 @@ describe("AgentCoreRuntime", () => {
       } as never,
     });
 
-    const events = await collect(runtime.runTurn(baseInput));
+    const events = await collect(
+      runtime.runTurn({
+        ...baseInput,
+        requiredToolName: "google__create_event",
+      }),
+    );
     expect(events).toEqual([
       { type: "text-delta", delta: "hi" },
       { type: "done" },
@@ -105,6 +110,7 @@ describe("AgentCoreRuntime", () => {
     const payload = JSON.parse(new TextDecoder().decode(input.payload));
     expect(payload.modelId).toBe("sonnet-4-6");
     expect(payload.userId).toBe("u1");
+    expect(payload.requiredToolName).toBe("google__create_event");
   });
 
   it("yields an error event when the invoke call throws", async () => {

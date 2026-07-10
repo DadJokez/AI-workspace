@@ -241,6 +241,7 @@ export async function streamInlineChatRun({
     );
 
     let mcpServers;
+    let requiredToolName: string | undefined;
     let deniedMcpProviders: string[] = [];
     if (route.useMcp) {
       try {
@@ -259,6 +260,7 @@ export async function streamInlineChatRun({
           },
         );
         mcpServers = mcpAccess.mcpServers;
+        requiredToolName = mcpAccess.requiredToolName;
         deniedMcpProviders = mcpAccess.deniedProviders;
       } catch (err) {
         process.stderr.write(
@@ -321,6 +323,7 @@ export async function streamInlineChatRun({
           ...(activatedSkills ? { activatedSkills } : {}),
           ...(requestedProviders ? { requestedProviders } : {}),
           mcpProviders: mountedProviders,
+          ...(requiredToolName ? { requiredToolName } : {}),
           accountConnectedMcpProviders: providerStatus.connectedProviders,
           approvedMcpProviders: providerStatus.allowedProviders,
           deniedMcpProviders: blockedProviders,
@@ -358,6 +361,7 @@ export async function streamInlineChatRun({
         modelSelection,
         reasons: route.reasons,
         mcpProviders: mountedProviders,
+        ...(requiredToolName ? { requiredToolName } : {}),
         accountConnectedMcpProviders: providerStatus.connectedProviders,
         approvedMcpProviders: providerStatus.allowedProviders,
         deniedMcpProviders: blockedProviders,
@@ -425,6 +429,7 @@ export async function streamInlineChatRun({
         },
         ...(mcpServers ? { mcpServers } : {}),
         ...(builtinTools.length > 0 ? { builtinTools } : {}),
+        ...(requiredToolName ? { requiredToolName } : {}),
       })) {
         if (signal?.aborted) {
           runtimeAbort.abort();
