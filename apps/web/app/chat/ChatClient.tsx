@@ -229,6 +229,7 @@ function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
 
 const THREADS_LIMIT = 50;
 const RUN_POLL_INTERVAL_MS = 500;
+const BACKGROUND_COMPLETION_TITLE = "✓ Done — Comparative";
 
 function makeFreshTab(modelId?: string): ChatTab {
   return {
@@ -424,8 +425,17 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const loadingThreadsRef = useRef<Set<string>>(new Set());
   const streamAbortRef = useRef<AbortController | null>(null);
   const initialThreadAppliedRef = useRef(false);
+  const pendingRunRef = useRef<{
+    tabId: string;
+    runId: string;
+    completedAssistantIds: string[];
+  } | null>(null);
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0];
+  const composerDraftKey =
+    user && activeTab
+      ? `${user.id}:${activeTab.threadId ?? "new"}`
+      : undefined;
   const latestAppDraftIds = latestAppDraftVersionIds(
     activeTab?.messages.flatMap((message) => message.appDraftVersions ?? []) ?? [],
   );
@@ -847,6 +857,74 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const activeHasPendingRun =
     activeTab?.messages.some((m) => m.pending && m.id.startsWith("run:")) ??
     false;
+  const activeTabId = activeTab?.id;
+  const activePendingRunId =
+    activeTab?.messages.find((m) => m.pending && m.id.startsWith("run:"))
+      ?.id ?? null;
+  const completedAssistantSignature =
+    activeTab?.messages
+      .filter((message) => message.role === "assistant" && !message.pending)
+      .map((message) => message.id)
+      .join("\u0000") ?? "";
+
+  useEffect(() => {
+    const completedAssistantIds = completedAssistantSignature
+      ? completedAssistantSignature.split("\u0000")
+      : [];
+    const previous = pendingRunRef.current;
+    const current =
+      activeTabId && activePendingRunId
+        ? {
+            tabId: activeTabId,
+            runId: activePendingRunId,
+            completedAssistantIds,
+          }
+        : null;
+    pendingRunRef.current = current;
+    const terminalResultVisible = previous
+      ? completedAssistantIds.some(
+          (id) =>
+            id === previous.runId ||
+            !previous.completedAssistantIds.includes(id),
+        )
+      : false;
+
+    if (
+      !previous ||
+      current ||
+      previous.tabId !== activeTabId ||
+      !terminalResultVisible ||
+      !document.hidden
+    ) {
+      return;
+    }
+
+    const previousTitle = document.title;
+    let restored = false;
+    document.title = BACKGROUND_COMPLETION_TITLE;
+
+    function restoreTitle() {
+      if (restored) return;
+      restored = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", restoreTitle);
+      if (document.title === BACKGROUND_COMPLETION_TITLE) {
+        document.title = previousTitle;
+      }
+    }
+
+    function handleVisibilityChange() {
+      if (!document.hidden) restoreTitle();
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", restoreTitle);
+    return restoreTitle;
+  }, [
+    activeTabId,
+    activePendingRunId,
+    completedAssistantSignature,
+  ]);
 
   // Keep a stable handle on refreshThreads for the polling effect below —
   // it's redefined every render, and subscribing the interval to it would
@@ -1937,9 +2015,11 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         >
           <div className="mx-auto max-w-3xl">
             <ChatInput
+              key={composerDraftKey ?? "composer-loading"}
               onSubmit={send}
               disabled={inputDisabled}
               skills={slashSkills}
+              draftKey={composerDraftKey}
               placeholder={
                 models.length === 0
                   ? "Loading models…"

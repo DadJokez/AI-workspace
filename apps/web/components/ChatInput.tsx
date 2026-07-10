@@ -37,6 +37,21 @@ import {
 } from "@/lib/model-command";
 
 const MAX_HEIGHT_PX = 200;
+const DRAFT_STORAGE_PREFIX = "comparative-chat-draft:";
+const DRAFT_PERSIST_DELAY_MS = 250;
+
+function persistComposerDraft(storageKey: string | null, text: string) {
+  if (!storageKey) return;
+  try {
+    if (text) {
+      window.localStorage.setItem(storageKey, text);
+    } else {
+      window.localStorage.removeItem(storageKey);
+    }
+  } catch {
+    // Draft recovery is best-effort and must never block the composer.
+  }
+}
 
 export interface SlashSkill extends SlashSkillCandidate {
   isStarter?: boolean;
@@ -54,6 +69,8 @@ interface Props {
   placeholder?: string;
   /** Runnable skills for the "/" palette. Empty/undefined = palette off. */
   skills?: SlashSkill[];
+  /** Stable, user-scoped conversation key used for local draft recovery. */
+  draftKey?: string;
 }
 
 /**
@@ -67,6 +84,7 @@ export function ChatInput({
   disabled,
   placeholder = "Ask anything — or type / for capabilities…",
   skills = [],
+  draftKey,
 }: Props) {
   const [text, setText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
@@ -76,6 +94,13 @@ export function ChatInput({
   const [dragOver, setDragOver] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const draftTimerRef = useRef<number | undefined>(undefined);
+  const skipNextDraftPersistRef = useRef(true);
+  const draftStorageKey = draftKey
+    ? `${DRAFT_STORAGE_PREFIX}${draftKey}`
+    : null;
+  const latestDraftRef = useRef({ storageKey: draftStorageKey, text });
+  latestDraftRef.current = { storageKey: draftStorageKey, text };
   const dictation = useDictation((spoken) => {
     setText((prev) => {
       const sep = prev && !prev.endsWith(" ") ? " " : "";
@@ -92,6 +117,61 @@ export function ChatInput({
     () => (paletteActive ? filterSkillsForCommand(text, skills) : []),
     [paletteActive, text, skills],
   );
+
+  useEffect(() => {
+    skipNextDraftPersistRef.current = true;
+    if (draftTimerRef.current !== undefined) {
+      window.clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = undefined;
+    }
+    if (!draftStorageKey) return;
+    try {
+      const restored = window.localStorage.getItem(draftStorageKey) ?? "";
+      latestDraftRef.current = { storageKey: draftStorageKey, text: restored };
+      setText(restored);
+    } catch {
+      // Storage may be unavailable in private or locked-down browsers.
+    }
+  }, [draftStorageKey]);
+
+  useEffect(() => {
+    if (skipNextDraftPersistRef.current) {
+      skipNextDraftPersistRef.current = false;
+      return;
+    }
+    if (!draftStorageKey) return;
+
+    draftTimerRef.current = window.setTimeout(() => {
+      persistComposerDraft(draftStorageKey, text);
+      draftTimerRef.current = undefined;
+    }, DRAFT_PERSIST_DELAY_MS);
+
+    return () => {
+      if (draftTimerRef.current !== undefined) {
+        window.clearTimeout(draftTimerRef.current);
+        draftTimerRef.current = undefined;
+      }
+    };
+  }, [draftStorageKey, text]);
+
+  useEffect(() => {
+    function flushLatestDraft() {
+      if (draftTimerRef.current !== undefined) {
+        window.clearTimeout(draftTimerRef.current);
+        draftTimerRef.current = undefined;
+      }
+      persistComposerDraft(
+        latestDraftRef.current.storageKey,
+        latestDraftRef.current.text,
+      );
+    }
+
+    window.addEventListener("pagehide", flushLatestDraft);
+    return () => {
+      window.removeEventListener("pagehide", flushLatestDraft);
+      flushLatestDraft();
+    };
+  }, []);
 
   useEffect(() => {
     const ta = taRef.current;
@@ -150,6 +230,15 @@ export function ChatInput({
     setAttachments((prev) => prev.filter((a) => a.name !== name));
   }
 
+  function clearPersistedDraft() {
+    if (draftTimerRef.current !== undefined) {
+      window.clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = undefined;
+    }
+    latestDraftRef.current = { storageKey: draftStorageKey, text: "" };
+    persistComposerDraft(draftStorageKey, "");
+  }
+
   function send() {
     const trimmed = text.trim();
     if (
@@ -165,6 +254,7 @@ export function ChatInput({
         attachments.length > 0 ? attachments : undefined,
         buildActivatedSlashSkill(activeSkill, trimmed),
       );
+      clearPersistedDraft();
       setText("");
       setActiveSkill(null);
       setAttachments([]);
@@ -188,6 +278,7 @@ export function ChatInput({
         undefined,
         parsed.override,
       );
+      clearPersistedDraft();
       setText("");
       setAttachments([]);
       setNotice(null);
@@ -212,6 +303,7 @@ export function ChatInput({
         attachments.length > 0 ? attachments : undefined,
         buildActivatedSlashSkill(resolved.skill, resolved.args),
       );
+      clearPersistedDraft();
       setText("");
       setAttachments([]);
       setNotice(null);
@@ -219,6 +311,7 @@ export function ChatInput({
     }
 
     onSubmit(trimmed, attachments.length > 0 ? attachments : undefined);
+    clearPersistedDraft();
     setText("");
     setAttachments([]);
     setNotice(null);
