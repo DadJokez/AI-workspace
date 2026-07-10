@@ -71,6 +71,14 @@ describe("toAwsToolConfiguration", () => {
     });
     expect(cfg?.tools?.[1]).toEqual({ cachePoint: { type: "default" } });
   });
+
+  it("passes a specific tool choice to the AWS configuration", () => {
+    const cfg = toAwsToolConfiguration({
+      ...TOOL_CONFIG,
+      toolChoice: { tool: { name: "top_song" } },
+    });
+    expect(cfg?.toolChoice).toEqual({ tool: { name: "top_song" } });
+  });
 });
 
 describe("RealBedrockClient prompt caching", () => {

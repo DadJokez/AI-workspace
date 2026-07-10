@@ -92,4 +92,6 @@ export interface BedrockToolConfig {
       inputSchema: { json: Record<string, unknown> };
     };
   }>;
+  /** Force the first model step to request one specific registered tool. */
+  toolChoice?: { tool: { name: string } };
 }

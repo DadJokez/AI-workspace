@@ -3,6 +3,7 @@ import type {
   AgentEvent,
   BedrockClient,
   BedrockStreamEvent,
+  ConverseStreamParams,
 } from "@ai-workspace/agent";
 import { BedrockRuntime } from "@ai-workspace/agent-runtime";
 import {
@@ -20,14 +21,13 @@ import {
 class ScriptedBedrockClient implements BedrockClient {
   calls = 0;
   toolResultSeen: string | null = null;
+  toolChoices: ConverseStreamParams["toolConfig"][] = [];
 
-  async *converseStream(params: {
-    messages: Array<{
-      role: string;
-      content: Array<Record<string, unknown>>;
-    }>;
-  }): AsyncIterable<BedrockStreamEvent> {
+  async *converseStream(
+    params: ConverseStreamParams,
+  ): AsyncIterable<BedrockStreamEvent> {
     this.calls += 1;
+    this.toolChoices.push(params.toolConfig);
     if (this.calls === 1) {
       yield {
         type: "tool-use",
@@ -72,6 +72,7 @@ describe("BedrockRuntime with MCP servers", () => {
       modelId: "sonnet-4-6",
       messages: [{ role: "user", content: "run the echo tool" }],
       context: { userId: "u1" },
+      requiredToolName: "github__echo",
       mcpServers: {
         github: {
           type: "http",
@@ -93,6 +94,10 @@ describe("BedrockRuntime with MCP servers", () => {
 
     // The second model call must have received the tool result.
     expect(client.toolResultSeen).toBe("echo:ping");
+    expect(client.toolChoices[0]?.toolChoice).toEqual({
+      tool: { name: "github__echo" },
+    });
+    expect(client.toolChoices[1]?.toolChoice).toBeUndefined();
     // And the bearer header must have reached the MCP wire.
     expect(
       server.authHeaders.every((h) => h === "Bearer tkn-456"),

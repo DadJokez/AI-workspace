@@ -384,6 +384,7 @@ async function executeClaimedChatRun({
   );
 
   let mcpServers;
+  let requiredToolName: string | undefined;
   let deniedMcpProviders: string[] = [];
   try {
     const mcpAccess = await buildUserMcpServers(
@@ -401,6 +402,7 @@ async function executeClaimedChatRun({
       },
     );
     mcpServers = mcpAccess.mcpServers;
+    requiredToolName = mcpAccess.requiredToolName;
     deniedMcpProviders = mcpAccess.deniedProviders;
   } catch (err) {
     process.stderr.write(
@@ -468,6 +470,7 @@ async function executeClaimedChatRun({
       inputs: {
         ...inputs,
         mcpProviders: mountedProviders,
+        ...(requiredToolName ? { requiredToolName } : {}),
         accountConnectedMcpProviders: providerStatus.connectedProviders,
         approvedMcpProviders: providerStatus.allowedProviders,
         deniedMcpProviders: blockedProviders,
@@ -578,6 +581,7 @@ async function executeClaimedChatRun({
           });
         },
         ...(mcpServers ? { mcpServers } : {}),
+        ...(requiredToolName ? { requiredToolName } : {}),
       })) {
         if (await isRunCanceled(db, run.id)) {
           runtimeAbort.abort();

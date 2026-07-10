@@ -237,6 +237,7 @@ describe("MCP provider status", () => {
         : undefined;
     expect(allowedTools).not.toContain("create_draft");
     expect(allowedTools).not.toContain("create_event");
+    expect(mounted.requiredToolName).toBeUndefined();
   });
 
   it("mounts only the confirmed Calendar write instead of a replacement proposal", async () => {
@@ -303,6 +304,7 @@ describe("MCP provider status", () => {
     expect(allowedTools).toContain("create_event");
     expect(allowedTools).not.toContain("prepare_event");
     expect(allowedTools).not.toContain("create_draft");
+    expect(mounted.requiredToolName).toBe("google__create_event");
   });
 
   it("fails closed when an explicit Notion endpoint override is invalid", async () => {

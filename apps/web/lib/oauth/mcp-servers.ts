@@ -1,3 +1,4 @@
+import { mcpToolName } from "@ai-workspace/agent";
 import type { Database } from "@ai-workspace/db";
 import { oauthTokens } from "@ai-workspace/db";
 import type { McpServerSpec } from "@ai-workspace/agent-runtime";
@@ -267,7 +268,19 @@ export async function buildUserMcpServers(
 ): Promise<{
   mcpServers: Record<string, McpServerSpec> | undefined;
   deniedProviders: string[];
+  requiredToolName?: string;
 }> {
+  const googleTurnContext = buildGoogleTurnContext({
+    userId,
+    threadId: options?.turnContext?.threadId ?? "read-only",
+    runId: options?.turnContext?.runId ?? "read-only",
+    prompt: options?.turnContext?.prompt ?? "",
+    history: options?.turnContext?.history ?? [],
+    interactive: options?.turnContext?.interactive === true,
+  });
+  const requiredToolName = googleTurnContext.confirmedEventProposal
+    ? mcpToolName("google", "create_event")
+    : undefined;
   let rows;
   try {
     rows = await db
@@ -280,7 +293,11 @@ export async function buildUserMcpServers(
       .where(eq(oauthTokens.userId, userId));
   } catch (err) {
     console.warn("[mcp] oauth_tokens lookup failed:", err);
-    return { mcpServers: undefined, deniedProviders: [] };
+    return {
+      mcpServers: undefined,
+      deniedProviders: [],
+      ...(requiredToolName ? { requiredToolName } : {}),
+    };
   }
 
   rows = rows.filter(
@@ -298,15 +315,6 @@ export async function buildUserMcpServers(
   const allowedProviders = status.allowedProviders;
   const deniedProviders = status.deniedProviders;
   const allowed = new Set(allowedProviders);
-  const googleTurnContext = buildGoogleTurnContext({
-    userId,
-    threadId: options?.turnContext?.threadId ?? "read-only",
-    runId: options?.turnContext?.runId ?? "read-only",
-    prompt: options?.turnContext?.prompt ?? "",
-    history: options?.turnContext?.history ?? [],
-    interactive: options?.turnContext?.interactive === true,
-  });
-
   const out: Record<string, McpServerSpec> = {};
   for (const row of rows) {
     const endpoint = MCP_PROVIDER_CONFIG[row.provider]?.endpoint;
@@ -372,6 +380,7 @@ export async function buildUserMcpServers(
   return {
     mcpServers: Object.keys(out).length > 0 ? out : undefined,
     deniedProviders,
+    ...(requiredToolName ? { requiredToolName } : {}),
   };
 }
 

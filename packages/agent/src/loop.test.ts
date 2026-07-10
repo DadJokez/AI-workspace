@@ -94,6 +94,93 @@ describe("runAgentLoop system prompt caching", () => {
   });
 });
 
+class RequiredToolClient implements BedrockClient {
+  readonly captured: ConverseStreamParams[] = [];
+
+  async *converseStream(
+    params: ConverseStreamParams,
+  ): AsyncIterable<BedrockStreamEvent> {
+    this.captured.push(params);
+    if (this.captured.length === 1) {
+      yield {
+        type: "tool-use",
+        id: "required-call",
+        name: "google__create_event",
+        input: {},
+      };
+      yield { type: "stop", reason: "tool_use" };
+      return;
+    }
+    yield { type: "text-delta", text: "Event created." };
+    yield { type: "stop", reason: "end_turn" };
+  }
+}
+
+describe("runAgentLoop required tools", () => {
+  it("forces the required tool only on the first model step", async () => {
+    const client = new RequiredToolClient();
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "google__create_event",
+      description: "Create the signed, confirmed event.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {},
+      },
+      handler: async () => ({ created: true }),
+    });
+
+    const events = [];
+    for await (const event of runAgentLoop({
+      modelId: "haiku-4-5",
+      messages: [{ role: "user", content: "confirm" }],
+      registry,
+      requiredToolName: "google__create_event",
+      context: { userId: "u1" },
+      client,
+    })) {
+      events.push(event);
+    }
+
+    expect(client.captured[0]?.toolConfig?.toolChoice).toEqual({
+      tool: { name: "google__create_event" },
+    });
+    expect(client.captured[1]?.toolConfig?.toolChoice).toBeUndefined();
+    expect(events).toContainEqual({
+      type: "tool-result",
+      result: {
+        toolCallId: "required-call",
+        output: { created: true },
+      },
+    });
+    expect(events).toContainEqual({ type: "done" });
+  });
+
+  it("fails closed before generation when the required tool is unavailable", async () => {
+    const client = new CaptureClient();
+    const events = [];
+    for await (const event of runAgentLoop({
+      modelId: "haiku-4-5",
+      messages: [{ role: "user", content: "confirm" }],
+      registry: new ToolRegistry(),
+      requiredToolName: "google__create_event",
+      context: { userId: "u1" },
+      client,
+    })) {
+      events.push(event);
+    }
+
+    expect(client.captured).toHaveLength(0);
+    expect(events).toEqual([
+      {
+        type: "error",
+        message: "Required tool is unavailable: google__create_event",
+      },
+    ]);
+  });
+});
+
 /**
  * Streams a long partial answer cut off mid-artifact — the #320 scenario: an
  * open ```html fence with no closing fence — then reports the output cap.
