@@ -1,90 +1,93 @@
-# Build Queue — re-triaged 2026-07-07 (post-merge)
+# Build Queue — re-triaged 2026-07-10
 
-Prioritized, dependency-ordered queue of open work. Previous triage 2026-07-06;
-re-triaged after the 2026-07-07 merge session landed all of Tier A plus web
-search (#292, #304, #299, #300, #313 → PRs #314–#318) and the housekeeping
-decisions below.
+Prioritized, dependency-ordered queue of open work. Re-triaged after the
+AgentCore deployment fixes and the overnight product tranche landed.
 
 **Consumed by `/goal`** (`.claude/commands/goal.md`): an overnight session works
 this queue top-down, skipping anything whose dependencies aren't merged to
 `main` or that is human-gated. Re-triage when this file is more than ~2 weeks
 old or the queue is empty.
 
+## Completed in this tranche
+
+- AgentCore deployment hardening landed in PRs #335 and #339; production now
+  builds the runtime on native ARM and deploys it through the normal pipeline.
+- Gmail + Calendar execution (#297) is implemented. Calendar read was proven
+  live; final Gmail acceptance is human-gated because the Gmail API is disabled
+  in Google Cloud project `327348890968`.
+- Meeting Prep + Weekly Status skills (#298), artifact revision consolidation
+  (#321), conversational app iteration (#322), and GitHub event triggers (#293)
+  shipped to `main`.
+- Chat completion notifications (#331), durable drafts (#333), raw Markdown
+  copy (#334), and edit-and-resend (#332) shipped to `main`.
+- Scheduled-agents epic #27 is closed.
+
 ## Triage summary
 
 | Issue | Title (short) | Verdict | Blocked by |
 |---|---|---|---|
-| #297 | Gmail + Calendar Gateway integration | **Ready** | — (credential gate cleared; see notes) |
+| #344 | Reconcile conversational app drafts after reload | **Ready — P0 bug** | — |
+| #330 | Per-turn token and cost meter | **Ready** | — |
 | #301 | Model qualification pipeline | **Ready** | — (#300 merged) |
-| #293 | GitHub webhook event triggers | **Ready** | — (#292 merged) |
 | #303 | Router model selection in lanes | **Ready** | — (#300 merged) |
-| #321 | Artifact revision consolidation (was G2) | **Ready** | — (hard prereq for #322) |
-| #302 | Admin model page | Ready after dep | #301 merged |
-| #298 | Meeting Prep + Weekly Status skills | Ready after dep | #297 merged |
-| #322 | J4 phase 2: conversational iterate loop (was G3) | Ready after dep | #321 merged |
+| #349 | Suppress legacy orphaned run receipts | **Ready** | — |
+| #348 | Edit-and-resend for uploaded-file prompts | **Ready** | — |
+| #302 | Admin model page | Ready after dependency | #301 merged |
 | #305 | Enable first non-Anthropic models | Rob-gated | #301–#303 + Rob's enablement click |
-| #291 | SES production invite email | **Rob-gated (ops)** | e2e proof: send + confirm a real invite (PR #272 closed as superseded by #312) |
-| #295 | [EPIC] Model qualification | Tracking only | children #300 done; #301–#305 above |
-| #294 | [EPIC] Integration factory | Tracking only | children #299 done; #297–#298 above |
-| #27 | [EPIC] Scheduled agents | Housekeeping | close when #293 lands (decision recorded on the issue) |
-| #78 | Shared AI work cards | Deferred | team/org entity doesn't exist — see G4 |
-
-Closed since last triage: #133 (verified V1-complete against main; phase 2
-filed as #322), #292/#299/#300/#304/#313 (shipped), PR #272 (superseded).
+| #297 | Gmail + Calendar Gateway integration | **Human-gated acceptance** | enable Gmail API, then live Gmail/draft and Calendar write smoke |
+| #291 | SES production invite email | **Human-gated acceptance** | send and confirm a real production invite |
+| #295 | Model qualification epic | Tracking only | children #301–#305 |
+| #294 | Integration factory epic | Tracking only | close after #297 live acceptance |
+| #78 | Shared AI work cards | Deferred | team/org entity does not exist — see G4 |
 
 ## Prioritized queue
 
-### Tier A — start tonight (unblocked, locally verifiable)
+### Tier A — unblocked and locally verifiable
 
-1. **#297 — Gmail + Calendar integration.** The pilot flagship, now fully
-   unblocked: OAuth connect flow shipped (#311), credentials provisioned and
-   deployed (verified in the production secret 2026-07-07), evals merged
-   (#299). Remaining scope: the Gateway/MCP execution target (+ OpenAPI spec),
-   catalog/audit/attestation wiring on execution, nonce-framing of message and
-   event bodies (including the mutation-check eval deferred from #316),
-   **token refresh** (refresh tokens are stored but never exchanged — grants
-   go stale in ~1h), expired-grant reconnect UX, and live e2e verification.
-2. **#301 — Model qualification pipeline.** Unblocked by #300. Runs the eval
-   gauntlet against a candidate model, persists a scorecard. Unlocks #302,
-   feeds #305.
-3. **#293 — Event triggers (GitHub webhooks).** Unblocked by #292. Closing it
-   also closes epic #27 (decision recorded there).
-4. **#303 — Router model selection within lanes.** Unblocked by #300; #302
-   surfaces its events but is not a dependency.
-5. **#321 — Artifact revision consolidation.** Refactor-with-characterization-
-   tests; hard prerequisite for #322. Mandatory before J4 phase 2 or Projects
-   stack more semantics on the revision surface.
+1. **#344 — app-draft reload hardening.** Fix the correctness regression before
+   adding more app-building behavior. Reconcile historical cards against the
+   live app version and structurally block draft creation when oversized source
+   content was omitted.
+2. **#330 — per-turn token and cost meter.** Surface usage already persisted by
+   the runtime in the chat receipt; no new provider or infrastructure needed.
+3. **#301 — model qualification pipeline.** Run the eval gauntlet against a
+   candidate model and persist a versioned scorecard. This unlocks #302 and
+   supplies the evidence required by #305.
+4. **#303 — router model selection within lanes.** Select among enabled,
+   qualified models by task class, policy, and availability while preserving
+   truthful provenance.
+5. **#349 — legacy receipt suppression.** Close the small edit-history edge
+   case identified during PR #347 review.
+6. **#348 — edit uploaded-file turns.** Extend edit-and-resend only after file
+   payload replay is explicit and test-covered.
 
-### Tier B — unblocks as Tier A merges
+### Tier B — dependency ordered
 
-6. **#302 — Admin model page** — after #301.
-7. **#298 — Meeting Prep + Weekly Status skills** — after #297.
-8. **#322 — J4 phase 2 conversational iterate loop** — after #321.
+7. **#302 — admin model page** — after #301.
+8. **#305 — qualify and enable non-Anthropic models** — after #301–#303 and
+   Rob's explicit enablement decision.
 
-### Tier C — Rob-gated, not overnight work
+### Tier C — human-gated acceptance, skip during unattended work
 
-- **GCP OAuth consent screen** — check publish status (Testing vs published)
-  and the test-user list. Testing mode = 7-day refresh expiry + 100-user cap,
-  which changes #297's reconnect design. Blocks nothing tonight, but decide
-  before #297's live verification.
-- **#291 (SES)** — production access is live and deployed (#312); what
-  remains is end-to-end proof: send a production invite, confirm receipt,
-  then close. **`/goal` must not touch this.**
-- **#305** — final qualification + enablement run; enablement click is Rob's,
-  after #301–#303.
+- **#297 (Google)** — open the Gmail API page for project `327348890968`,
+  enable the API, then prove Gmail search/read + native draft creation and the
+  Calendar proposal/confirmation/idempotency flow. Calendar read is already
+  live-proven. Do not rebuild the integration while this external gate remains.
+- **#291 (SES)** — send a production invite to a real inbox and confirm receipt.
+- **#305** — the final model enablement decision remains Rob's even after the
+  qualification and routing code is ready.
 
 ### Housekeeping
 
-- **#27**: close when #293 lands (Rob's decision, recorded on the issue
-  2026-07-07).
-- **#295 / #294**: keep open as tracking epics; no direct work.
+- Keep #295 open until #301–#305 are resolved.
+- Keep #294 open until #297 passes live acceptance; #298 is complete.
 
 ---
 
 ## Grooming specs — unfiled or under-specified work
 
-G1 (web search) shipped as #313 (PR #318). G2 filed as #321. G3 filed as
-#322. Remaining:
+G1 (web search), G2 (artifact revision consolidation), and G3 (conversational
+app iteration) are shipped. Remaining:
 
 ### G4. #78 shared work cards — prerequisite gap (keep deferred)
 
