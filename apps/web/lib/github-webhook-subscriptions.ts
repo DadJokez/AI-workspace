@@ -9,6 +9,7 @@ import { loadActiveToolAttestations } from "@/lib/tool-attestations";
 const GITHUB_API = "https://api.github.com";
 const GITHUB_API_VERSION = "2022-11-28";
 const REQUIRED_EVENTS = ["pull_request_review", "workflow_run"] as const;
+const MAX_HOOK_PAGES = 100;
 
 export type GitHubWebhookSubscriptionResult =
   | { ok: true; hookId: number; created: boolean }
@@ -140,24 +141,35 @@ export async function ensureGitHubRepositoryWebhookWithToken({
     };
   }
   const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/hooks`;
-  let listResponse: Response;
-  try {
-    listResponse = await githubRequest(fetchImpl, accessToken, path);
-  } catch {
-    return githubUnavailable();
-  }
-  if (!listResponse.ok) return githubRepositoryError(listResponse.status);
+  let existing: GitHubHook | undefined;
+  let nextPath: string | undefined = `${path}?per_page=100`;
+  const visitedPaths = new Set<string>();
+  for (let page = 0; nextPath && page < MAX_HOOK_PAGES; page += 1) {
+    if (visitedPaths.has(nextPath)) return githubUnavailable();
+    visitedPaths.add(nextPath);
 
-  let hooks: GitHubHook[];
-  try {
-    const value = (await listResponse.json()) as unknown;
-    hooks = Array.isArray(value)
-      ? value.filter(isGitHubHook).slice(0, 100)
-      : [];
-  } catch {
-    return githubUnavailable();
+    let listResponse: Response;
+    try {
+      listResponse = await githubRequest(fetchImpl, accessToken, nextPath);
+    } catch {
+      return githubUnavailable();
+    }
+    if (!listResponse.ok) return githubRepositoryError(listResponse.status);
+
+    try {
+      const value = (await listResponse.json()) as unknown;
+      const hooks = Array.isArray(value) ? value.filter(isGitHubHook) : [];
+      existing = hooks.find((hook) => hook.config?.url === webhookUrl);
+      if (existing) break;
+    } catch {
+      return githubUnavailable();
+    }
+
+    const parsedNext = nextGitHubApiPath(listResponse.headers.get("link"));
+    if (parsedNext === null) return githubUnavailable();
+    nextPath = parsedNext;
   }
-  const existing = hooks.find((hook) => hook.config?.url === webhookUrl);
+  if (nextPath && !existing) return githubUnavailable();
   const body = {
     active: true,
     events: [...REQUIRED_EVENTS],
@@ -213,6 +225,22 @@ function githubRequest(
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(10_000),
   });
+}
+
+function nextGitHubApiPath(linkHeader: string | null): string | null | undefined {
+  if (!linkHeader) return undefined;
+  const segments = linkHeader.split(",");
+  const next = segments.find((segment) => /;\s*rel="next"\s*$/.test(segment));
+  if (!next) return undefined;
+  const match = /^\s*<([^>]+)>/.exec(next);
+  if (!match) return null;
+  try {
+    const url = new URL(match[1]!);
+    if (url.origin !== GITHUB_API) return null;
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return null;
+  }
 }
 
 function githubRepositoryError(status: number): GitHubWebhookSubscriptionResult {

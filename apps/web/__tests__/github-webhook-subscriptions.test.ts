@@ -8,10 +8,14 @@ const input = {
   secret: "shared-webhook-secret",
 };
 
-function json(data: unknown, status = 200): Response {
+function json(
+  data: unknown,
+  status = 200,
+  headers: Record<string, string> = {},
+): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
   });
 }
 
@@ -40,7 +44,7 @@ describe("GitHub repository webhook provisioning", () => {
     expect(result).toEqual({ ok: true, hookId: 293, created: true });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(fetchImpl.mock.calls[0]?.[0]).toBe(
-      "https://api.github.com/repos/dadjokez/ai-workspace/hooks",
+      "https://api.github.com/repos/dadjokez/ai-workspace/hooks?per_page=100",
     );
     const createRequest = fetchImpl.mock.calls[1]?.[1];
     expect(createRequest?.method).toBe("POST");
@@ -54,6 +58,52 @@ describe("GitHub repository webhook provisioning", () => {
         secret: input.secret,
       },
     });
+  });
+
+  it("finds and updates an existing hook beyond the first page", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      config: { url: `https://example.com/hooks/${index + 1}` },
+    }));
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        json(firstPage, 200, {
+          link: '<https://api.github.com/repos/dadjokez/ai-workspace/hooks?per_page=100&page=2>; rel="next"',
+        }),
+      )
+      .mockResolvedValueOnce(
+        json([
+          {
+            id: 293,
+            active: false,
+            config: { url: input.webhookUrl },
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        json({
+          id: 293,
+          active: true,
+          events: ["pull_request_review", "workflow_run"],
+          config: { url: input.webhookUrl },
+        }),
+      );
+
+    const result = await ensureGitHubRepositoryWebhookWithToken({
+      ...input,
+      fetchImpl,
+    });
+
+    expect(result).toEqual({ ok: true, hookId: 293, created: false });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(fetchImpl.mock.calls[1]?.[0]).toBe(
+      "https://api.github.com/repos/dadjokez/ai-workspace/hooks?per_page=100&page=2",
+    );
+    expect(fetchImpl.mock.calls[2]?.[0]).toBe(
+      "https://api.github.com/repos/dadjokez/ai-workspace/hooks/293",
+    );
+    expect(fetchImpl.mock.calls[2]?.[1]?.method).toBe("PATCH");
   });
 
   it("refreshes the shared secret and event list on an existing hook", async () => {
