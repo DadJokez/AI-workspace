@@ -36,6 +36,7 @@ import {
   resolveArtifactContextTargets,
   type WorkspaceArtifactVersionTarget,
 } from "@/lib/artifact-revisions";
+import type { AppDraftVersionSummary } from "@/lib/app-draft-versions";
 import {
   buildAppEditContext,
   createDraftAppVersionsForThreadArtifacts,
@@ -567,6 +568,7 @@ export async function streamInlineChatRun({
       type: "persisted",
       assistantMessageId: persistedResult.assistantMessageId,
       artifacts: persistedResult.artifacts,
+      appDraftVersions: persistedResult.appDraftVersions,
       recommendations: persistedResult.recommendations,
       runId,
       threadId: thread.id,
@@ -629,10 +631,12 @@ async function persistInlineAssistantResult({
 }): Promise<{
   assistantMessageId: string | undefined;
   artifacts: WorkspaceArtifactSummary[];
+  appDraftVersions: AppDraftVersionSummary[];
   recommendations: PersistedRecommendation[];
 }> {
   let assistantMessageId: string | undefined;
   let artifacts: WorkspaceArtifactSummary[] = [];
+  let appDraftVersions: AppDraftVersionSummary[] = [];
   let recommendations: PersistedRecommendation[] = [];
   const shouldPersistAssistant = shouldPersistAssistantMessage({
     terminalStatus,
@@ -701,6 +705,7 @@ async function persistInlineAssistantResult({
             threadId,
             artifacts,
           });
+          appDraftVersions = appDrafts.summaries;
           if (appDrafts.created.length > 0 || appDrafts.rejected.length > 0) {
             await appendInlineRunEvent(db, runId, {
               eventType: "app_draft_versions_created",
@@ -710,13 +715,7 @@ async function persistInlineAssistantResult({
                   ? `Created ${appDrafts.created.length} draft app version${appDrafts.created.length === 1 ? "" : "s"}`
                   : "Rejected draft app versions",
               metadata: {
-                draftVersions: appDrafts.created.map((version) => ({
-                  id: version.id,
-                  appId: version.appId,
-                  artifactId: version.artifactId,
-                  versionNumber: version.versionNumber,
-                  status: version.status,
-                })),
+                draftVersions: appDraftVersions,
                 rejected: appDrafts.rejected,
               },
             });
@@ -796,6 +795,7 @@ async function persistInlineAssistantResult({
         ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
         ...(runtimeErrors.length > 0 ? { errorDetails: runtimeErrors } : {}),
         ...(artifacts.length > 0 ? { artifacts } : {}),
+        ...(appDraftVersions.length > 0 ? { appDraftVersions } : {}),
         ...(recommendations.length > 0 ? { recommendations } : {}),
         metrics: timingMetrics,
       },
@@ -848,12 +848,18 @@ async function persistInlineAssistantResult({
       runtimeTarget,
       ...(runtimeErrors.length > 0 ? { errorDetails: runtimeErrors } : {}),
       ...(artifacts.length > 0 ? { artifacts } : {}),
+      ...(appDraftVersions.length > 0 ? { appDraftVersions } : {}),
       ...(recommendations.length > 0 ? { recommendations } : {}),
       metrics: timingMetrics,
     },
   });
 
-  return { assistantMessageId, artifacts, recommendations };
+  return {
+    assistantMessageId,
+    artifacts,
+    appDraftVersions,
+    recommendations,
+  };
 }
 
 async function appendInlineRunEvent(

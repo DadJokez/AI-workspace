@@ -283,7 +283,7 @@ test.describe("authenticated product smoke", () => {
               "/api/apps/00000000-0000-4000-8000-000000000230/edit-sessions",
             ) && response.request().method() === "POST",
       ),
-      page.getByRole("button", { name: "Edit" }).click(),
+      page.getByRole("button", { name: "Edit with Comparative" }).click(),
     ]);
     expect(editResponse.ok()).toBe(true);
     await expect(page).toHaveURL(/\/chat\?threadId=/, { timeout: 15_000 });

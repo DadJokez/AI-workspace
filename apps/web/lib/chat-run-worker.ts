@@ -35,6 +35,7 @@ import {
   resolveArtifactContextTargets,
   type WorkspaceArtifactVersionTarget,
 } from "@/lib/artifact-revisions";
+import type { AppDraftVersionSummary } from "@/lib/app-draft-versions";
 import {
   buildAppEditContext,
   createDraftAppVersionsForThreadArtifacts,
@@ -775,6 +776,7 @@ async function persistAssistantResult({
           return [];
         })
       : [];
+  let appDraftVersions: AppDraftVersionSummary[] = [];
   if (artifacts.length > 0) {
     await appendWorkerRunEvent(db, run.id, {
       eventType: "workspace_artifacts_created",
@@ -789,6 +791,7 @@ async function persistAssistantResult({
         threadId,
         artifacts,
       });
+      appDraftVersions = appDrafts.summaries;
       if (appDrafts.created.length > 0 || appDrafts.rejected.length > 0) {
         await appendWorkerRunEvent(db, run.id, {
           eventType: "app_draft_versions_created",
@@ -798,13 +801,7 @@ async function persistAssistantResult({
               ? `Created ${appDrafts.created.length} draft app version${appDrafts.created.length === 1 ? "" : "s"}`
               : "Rejected draft app versions",
           metadata: {
-            draftVersions: appDrafts.created.map((version) => ({
-              id: version.id,
-              appId: version.appId,
-              artifactId: version.artifactId,
-              versionNumber: version.versionNumber,
-              status: version.status,
-            })),
+            draftVersions: appDraftVersions,
             rejected: appDrafts.rejected,
           },
         });
@@ -871,6 +868,7 @@ async function persistAssistantResult({
         runtime: runtimeName,
         ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
         ...(artifacts.length > 0 ? { artifacts } : {}),
+        ...(appDraftVersions.length > 0 ? { appDraftVersions } : {}),
         ...(recommendations.length > 0 ? { recommendations } : {}),
       },
       workerId: null,
@@ -920,6 +918,7 @@ async function persistAssistantResult({
       ...(assistantMessageId ? { assistantMessageId } : {}),
       userMessageId,
       ...(artifacts.length > 0 ? { artifacts } : {}),
+      ...(appDraftVersions.length > 0 ? { appDraftVersions } : {}),
       ...(recommendations.length > 0 ? { recommendations } : {}),
     },
   });

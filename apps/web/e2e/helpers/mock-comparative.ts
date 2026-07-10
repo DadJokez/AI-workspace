@@ -39,6 +39,11 @@ interface MockChatOptions {
     body: Record<string, unknown>,
     route: Route,
   ) => Promise<void> | void;
+  onAppDeploy?: (
+    appId: string,
+    body: Record<string, unknown>,
+    route: Route,
+  ) => Promise<void> | void;
 }
 
 export interface MockNotification {
@@ -468,6 +473,19 @@ export async function installMockComparativeApi(
         });
       }
       return json(route, { apps: [] });
+    }
+
+    const appDeployMatch = /^\/api\/apps\/([^/]+)\/deploy$/.exec(path);
+    if (appDeployMatch && request.method() === "POST") {
+      const appId = decodeURIComponent(appDeployMatch[1]!);
+      const body = await postJson(request);
+      if (options.onAppDeploy) {
+        return options.onAppDeploy(appId, body, route);
+      }
+      return json(route, {
+        versionId: body.appVersionId,
+        url: "/apps/revenue-dashboard",
+      });
     }
 
     const skillRunMatch = /^\/api\/skills\/([^/]+)\/run$/.exec(path);

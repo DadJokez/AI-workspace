@@ -3,6 +3,12 @@
 import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
 import { ChatInput, type SlashSkill } from "@/components/ChatInput";
 import type { ChatAttachment } from "@/lib/attachments";
+import {
+  latestAppDraftVersionIds,
+  markAppDraftVersionDeployed,
+  parseAppDraftVersionSummaries,
+  type AppDraftVersionSummary,
+} from "@/lib/app-draft-versions";
 import { COMPARATIVE_VERSION_LABEL } from "@/lib/product-version";
 import type { ActivatedSlashSkill } from "@/lib/skill-commands";
 import {
@@ -68,6 +74,7 @@ interface UiMessage {
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
   artifacts?: WorkspaceArtifactSummary[];
+  appDraftVersions?: AppDraftVersionSummary[];
   recommendations?: PersistedRecommendation[];
   activityEvents?: AgentActivityEvent[];
   runId?: string;
@@ -179,6 +186,7 @@ interface ThreadMessage {
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
   artifacts?: WorkspaceArtifactSummary[];
+  appDraftVersions?: AppDraftVersionSummary[];
   recommendations?: PersistedRecommendation[];
   activityEvents?: AgentActivityEvent[];
   pending?: boolean;
@@ -194,6 +202,29 @@ interface ThreadMessage {
 
 interface ThreadMessagesResponse {
   messages: ThreadMessage[];
+}
+
+function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
+  return {
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    modelId: message.modelId ?? undefined,
+    pending: message.pending,
+    status: message.status,
+    toolCalls: message.toolCalls ?? undefined,
+    toolResults: message.toolResults ?? undefined,
+    artifacts: message.artifacts,
+    appDraftVersions: message.appDraftVersions,
+    recommendations: message.recommendations,
+    activityEvents: message.activityEvents,
+    runId: message.runId,
+    runStatus: message.runStatus,
+    runError: message.runError,
+    canCancel: message.canCancel,
+    canRetry: message.canRetry,
+    canResume: message.canResume,
+  };
 }
 
 const THREADS_LIMIT = 50;
@@ -385,6 +416,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const [slashSkills, setSlashSkills] = useState<SlashSkill[]>([]);
   const [recommendationPendingId, setRecommendationPendingId] =
     useState<string>();
+  const [appDraftPendingId, setAppDraftPendingId] = useState<string>();
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -394,6 +426,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const initialThreadAppliedRef = useRef(false);
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0];
+  const latestAppDraftIds = latestAppDraftVersionIds(
+    activeTab?.messages.flatMap((message) => message.appDraftVersions ?? []) ?? [],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -697,25 +732,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       )
       .then((data) => {
         if (cancelled) return;
-        const msgs: UiMessage[] = data.messages.map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          modelId: m.modelId ?? undefined,
-          pending: m.pending,
-          status: m.status,
-          toolCalls: m.toolCalls ?? undefined,
-          toolResults: m.toolResults ?? undefined,
-          artifacts: m.artifacts,
-          recommendations: m.recommendations,
-          activityEvents: m.activityEvents,
-          runId: m.runId,
-          runStatus: m.runStatus,
-          runError: m.runError,
-          canCancel: m.canCancel,
-          canRetry: m.canRetry,
-          canResume: m.canResume,
-        }));
+        const msgs = data.messages.map(threadMessageToUiMessage);
         setTabs((prev) =>
           prev.map((t) => {
             if (t.id !== tabId) return t;
@@ -854,25 +871,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = (await r.json()) as ThreadMessagesResponse;
         if (cancelled) return;
-        const msgs: UiMessage[] = data.messages.map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          modelId: m.modelId ?? undefined,
-          pending: m.pending,
-          status: m.status,
-          toolCalls: m.toolCalls ?? undefined,
-          toolResults: m.toolResults ?? undefined,
-          artifacts: m.artifacts,
-          recommendations: m.recommendations,
-          activityEvents: m.activityEvents,
-          runId: m.runId,
-          runStatus: m.runStatus,
-          runError: m.runError,
-          canCancel: m.canCancel,
-          canRetry: m.canRetry,
-          canResume: m.canResume,
-        }));
+        const msgs = data.messages.map(threadMessageToUiMessage);
         const hasLoadedPending = msgs.some((m) => m.pending);
         setTabs((prev) =>
           prev.map((t) => {
@@ -1158,6 +1157,61 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     }
   }
 
+  async function handleAppDraftDeploy(version: AppDraftVersionSummary) {
+    if (!activeTab) return;
+    setAppDraftPendingId(version.id);
+    patchTab(activeTab.id, { error: undefined });
+    try {
+      const res = await fetch(`/api/apps/${version.appId}/deploy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appVersionId: version.id }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        url?: string;
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(body.message ?? body.error ?? "Could not deploy update.");
+      }
+      setTabs((prev) =>
+        prev.map((tab) => {
+          const current = tab.messages.flatMap(
+            (message) => message.appDraftVersions ?? [],
+          );
+          if (!current.some((candidate) => candidate.id === version.id)) {
+            return tab;
+          }
+          const updated = markAppDraftVersionDeployed(
+            current,
+            version.id,
+            body.url,
+          );
+          const updatedById = new Map(
+            updated.map((candidate) => [candidate.id, candidate]),
+          );
+          return {
+            ...tab,
+            messages: tab.messages.map((message) => ({
+              ...message,
+              appDraftVersions: message.appDraftVersions?.map(
+                (candidate) => updatedById.get(candidate.id) ?? candidate,
+              ),
+            })),
+          };
+        }),
+      );
+    } catch (err) {
+      patchTab(activeTab.id, {
+        error:
+          err instanceof Error ? err.message : "Could not deploy update.",
+      });
+    } finally {
+      setAppDraftPendingId(undefined);
+    }
+  }
+
   function downloadActiveChat() {
     if (!activeTab || activeTab.messages.length === 0) return;
     const exportedAt = new Date();
@@ -1372,6 +1426,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           const artifacts = Array.isArray(ev.artifacts)
             ? (ev.artifacts as WorkspaceArtifactSummary[])
             : undefined;
+          const appDraftVersions = parseAppDraftVersionSummaries(
+            ev.appDraftVersions,
+          );
           const recommendations = Array.isArray(ev.recommendations)
             ? (ev.recommendations as PersistedRecommendation[])
             : undefined;
@@ -1385,6 +1442,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     status: undefined,
                     modelId: assistantModel,
                     artifacts,
+                    appDraftVersions,
                     recommendations,
                     runId: undefined,
                     runStatus: undefined,
@@ -1505,25 +1563,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     const r = await fetch(`/api/threads/${threadId}/messages`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = (await r.json()) as ThreadMessagesResponse;
-    const msgs: UiMessage[] = data.messages.map((m) => ({
-      id: m.id,
-      role: m.role,
-      content: m.content,
-      modelId: m.modelId ?? undefined,
-      pending: m.pending,
-      status: m.status,
-      toolCalls: m.toolCalls ?? undefined,
-      toolResults: m.toolResults ?? undefined,
-      artifacts: m.artifacts,
-      recommendations: m.recommendations,
-      activityEvents: m.activityEvents,
-      runId: m.runId,
-      runStatus: m.runStatus,
-      runError: m.runError,
-      canCancel: m.canCancel,
-      canRetry: m.canRetry,
-      canResume: m.canResume,
-    }));
+    const msgs = data.messages.map(threadMessageToUiMessage);
     setTabs((prev) =>
       prev.map((t) =>
         t.id === tabId
@@ -1813,12 +1853,17 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     toolCalls={m.toolCalls}
                     toolResults={m.toolResults}
                     artifacts={m.artifacts}
+                    appDraftVersions={m.appDraftVersions?.filter((version) =>
+                      latestAppDraftIds.has(version.id),
+                    )}
                     recommendations={m.recommendations}
                     activityEvents={m.activityEvents}
                     assistantName={user?.assistantName}
                     onOpenArtifact={openArtifactPreview}
+                    onDeployAppDraft={handleAppDraftDeploy}
                     onRecommendationAction={handleRecommendationAction}
                     recommendationPendingId={recommendationPendingId}
+                    appDraftPendingId={appDraftPendingId}
                   />
                   {m.runId &&
                   (m.canCancel || m.canRetry || m.canResume) ? (

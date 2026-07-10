@@ -16,6 +16,7 @@ import type {
   PersistedRecommendation,
   RecommendationStatus,
 } from "@/lib/recommendations";
+import type { AppDraftVersionSummary } from "@/lib/app-draft-versions";
 import { escapeBareOrderedListMarkers } from "@/lib/chat-markdown";
 import { parseSlashDisplayMessage } from "@/lib/skill-commands";
 import { useEffect, useState } from "react";
@@ -36,15 +37,18 @@ interface Props {
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
   artifacts?: WorkspaceArtifactSummary[];
+  appDraftVersions?: AppDraftVersionSummary[];
   recommendations?: PersistedRecommendation[];
   activityEvents?: AgentActivityEvent[];
   assistantName?: string | null;
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+  onDeployAppDraft?: (version: AppDraftVersionSummary) => void;
   onRecommendationAction?: (
     recommendation: PersistedRecommendation,
     status: RecommendationStatus,
   ) => void;
   recommendationPendingId?: string;
+  appDraftPendingId?: string;
 }
 
 export function MessageBubble({
@@ -56,12 +60,15 @@ export function MessageBubble({
   toolCalls = [],
   toolResults = [],
   artifacts = [],
+  appDraftVersions = [],
   recommendations = [],
   activityEvents: persistedActivityEvents,
   assistantName,
   onOpenArtifact,
+  onDeployAppDraft,
   onRecommendationAction,
   recommendationPendingId,
+  appDraftPendingId,
 }: Props) {
   if (role === "user") {
     const slashDisplay = parseSlashDisplayMessage(content);
@@ -139,6 +146,15 @@ export function MessageBubble({
       {role === "assistant" && artifacts.length > 0 ? (
         <ArtifactStrip artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
       ) : null}
+      {role === "assistant" && appDraftVersions.length > 0 ? (
+        <AppDraftStrip
+          versions={appDraftVersions}
+          artifacts={artifacts}
+          pendingId={appDraftPendingId}
+          onOpenArtifact={onOpenArtifact}
+          onDeploy={onDeployAppDraft}
+        />
+      ) : null}
       {role === "assistant" && recommendations.length > 0 ? (
         <RecommendationStrip
           recommendations={recommendations}
@@ -153,6 +169,85 @@ export function MessageBubble({
           pending={pending}
         />
       ) : null}
+    </div>
+  );
+}
+
+function AppDraftStrip({
+  versions,
+  artifacts,
+  pendingId,
+  onOpenArtifact,
+  onDeploy,
+}: {
+  versions: AppDraftVersionSummary[];
+  artifacts: WorkspaceArtifactSummary[];
+  pendingId?: string;
+  onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+  onDeploy?: (version: AppDraftVersionSummary) => void;
+}) {
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      {versions.map((version) => {
+        const artifact = artifacts.find(
+          (candidate) => candidate.id === version.artifactId,
+        );
+        const pending = pendingId === version.id;
+        const deployed = version.status === "deployed";
+        return (
+          <div
+            key={version.id}
+            data-testid="app-draft-card"
+            data-app-version-id={version.id}
+            className="rounded-md border border-[#2f6bff]/40 bg-[#06112f]/60 px-3 py-2.5 text-[12px] text-[#dbe8ff] shadow-[0_0_18px_rgba(0,92,255,0.12)]"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_10px_rgba(40,215,255,0.7)]" />
+              <span className="font-medium">{version.appName}</span>
+              <span className="text-[#9dbdff]">v{version.versionNumber}</span>
+              <span className="ml-auto rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#b9d2ff]">
+                {deployed ? "Live" : "Draft"}
+              </span>
+            </div>
+            <p className="mt-1 text-[#9dbdff]">
+              {deployed
+                ? "This version is now live."
+                : "Draft saved. The live app has not changed."}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                disabled={!artifact}
+                onClick={() => artifact && onOpenArtifact?.(artifact)}
+                className="rounded-md border border-[#67a3ff]/35 px-2 py-1 text-[11px] font-medium text-[#dbe8ff] hover:bg-white/[0.08] disabled:opacity-40"
+              >
+                Preview
+              </button>
+              {deployed ? (
+                <a
+                  href={version.liveUrl}
+                  className="rounded-md border border-[#67a3ff]/45 bg-[#0b3ed9]/55 px-2 py-1 text-[11px] font-medium text-white hover:bg-[#0b52ff]"
+                >
+                  Open app
+                </a>
+              ) : version.canDeploy ? (
+                <button
+                  type="button"
+                  disabled={pending || !onDeploy}
+                  onClick={() => onDeploy?.(version)}
+                  className="rounded-md border border-[#67a3ff]/45 bg-[#0b3ed9]/55 px-2 py-1 text-[11px] font-medium text-white hover:bg-[#0b52ff] disabled:opacity-50"
+                >
+                  {pending ? "Deploying..." : "Deploy update"}
+                </button>
+              ) : (
+                <span className="text-[11px] text-[#9dbdff]">
+                  Ready for an owner to deploy
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

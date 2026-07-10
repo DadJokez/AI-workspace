@@ -212,6 +212,143 @@ test.describe("chat workflow regressions", () => {
     ).toBeVisible();
   });
 
+  test("#322 iterates a deployed app twice, previews the latest draft, and deploys it inline", async ({
+    page,
+  }) => {
+    const appId = "app-revenue-dashboard";
+    const firstHtml =
+      "<!doctype html><html><body><h1>Blue Revenue Dashboard</h1></body></html>";
+    const latestHtml =
+      "<!doctype html><html><body><h1>Blue Revenue Dashboard</h1><table><tr><th>Total</th><td>$42</td></tr></table></body></html>";
+    const firstArtifact = {
+      ...defaultArtifactSummary,
+      id: "artifact-app-v2",
+      title: "Revenue Dashboard v2",
+      filename: "revenue-dashboard.html",
+      artifactGroupId: "revenue-dashboard",
+      versionNumber: 2,
+      supersedesArtifactId: "artifact-app-v1",
+      sizeBytes: firstHtml.length,
+      previewUrl: "/api/workspace/artifacts/artifact-app-v2/preview",
+      downloadUrl: "/api/workspace/artifacts/artifact-app-v2/download",
+    };
+    const latestArtifact = {
+      ...firstArtifact,
+      id: "artifact-app-v3",
+      title: "Revenue Dashboard v3",
+      versionNumber: 3,
+      supersedesArtifactId: firstArtifact.id,
+      sizeBytes: latestHtml.length,
+      previewUrl: "/api/workspace/artifacts/artifact-app-v3/preview",
+      downloadUrl: "/api/workspace/artifacts/artifact-app-v3/download",
+    };
+    const draftSummary = (
+      id: string,
+      artifactId: string,
+      versionNumber: number,
+    ) => ({
+      id,
+      appId,
+      appName: "Revenue Dashboard",
+      appSlug: "revenue-dashboard",
+      artifactId,
+      versionNumber,
+      status: "draft",
+      canDeploy: true,
+      previewUrl: `/api/apps/${appId}/versions/${id}/content`,
+      liveUrl: "/apps/revenue-dashboard",
+    });
+    let chatCount = 0;
+    let deployedBody: Record<string, unknown> | undefined;
+
+    await installMockComparativeApi(page, {
+      artifacts: [latestArtifact, firstArtifact],
+      artifactDetails: {
+        [firstArtifact.id]: { ...firstArtifact, content: firstHtml },
+        [latestArtifact.id]: { ...latestArtifact, content: latestHtml },
+      },
+      onChat: async (body, route) => {
+        chatCount += 1;
+        if (chatCount === 2) {
+          expect(body.threadId).toBe("thread-app-edit");
+        }
+        const latest = chatCount === 2;
+        const artifact = latest ? latestArtifact : firstArtifact;
+        const versionId = latest ? "app-version-3" : "app-version-2";
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-app-edit",
+            modelId: "sonnet-4-6",
+          },
+          {
+            type: "text-delta",
+            delta: latest
+              ? "Added the totals row and saved the latest draft."
+              : "Updated the header and saved a draft.",
+          },
+          {
+            type: "persisted",
+            assistantMessageId: `assistant-app-edit-${chatCount}`,
+            artifacts: [artifact],
+            appDraftVersions: [
+              draftSummary(versionId, artifact.id, artifact.versionNumber),
+            ],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+      onAppDeploy: async (receivedAppId, body, route) => {
+        expect(receivedAppId).toBe(appId);
+        deployedBody = body;
+        await json(route, {
+          versionId: "app-version-3",
+          url: "/apps/revenue-dashboard",
+        });
+      },
+    });
+
+    await gotoE2EChat(page);
+    const composer = page.getByPlaceholder(/ask anything/i);
+    await composer.fill("Make the app header blue.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByTestId("app-draft-card")).toContainText("v2");
+    await expect(page.getByTestId("app-draft-card")).toContainText(
+      "live app has not changed",
+    );
+
+    await composer.fill("Now add a totals row.");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    const latestDraftCard = page.getByTestId("app-draft-card");
+    await expect(latestDraftCard).toHaveCount(1);
+    await expect(latestDraftCard).toContainText("v3");
+    await expect(latestDraftCard).not.toContainText("v2");
+    await expect(page.getByTestId("artifact-pill")).toHaveCount(2);
+
+    await latestDraftCard.getByRole("button", { name: "Preview" }).click();
+    const previewPane = page.getByRole("complementary", {
+      name: "Artifact preview",
+    });
+    await expect(previewPane).toContainText("Revenue Dashboard v3");
+    await expect(
+      previewPane.frameLocator("iframe").getByRole("cell", { name: "$42" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Close preview" }).click();
+
+    await latestDraftCard
+      .getByRole("button", { name: "Deploy update" })
+      .click();
+    await expect(latestDraftCard).toContainText("Live");
+    await expect(latestDraftCard).toContainText("This version is now live.");
+    await expect(latestDraftCard.getByRole("link", { name: "Open app" })).toHaveAttribute(
+      "href",
+      "/apps/revenue-dashboard",
+    );
+    expect(deployedBody).toEqual({ appVersionId: "app-version-3" });
+  });
+
   test("new chat replaces the active conversation instead of adding a tab", async ({
     page,
   }, testInfo) => {

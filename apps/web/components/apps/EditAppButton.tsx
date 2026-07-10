@@ -40,7 +40,7 @@ export function EditAppButton({ appId }: { appId: string }) {
         onClick={handleEdit}
         className="rounded-md border border-hairline px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
       >
-        {busy ? "Opening..." : "Edit"}
+        {busy ? "Opening..." : "Edit with Comparative"}
       </button>
       {notice ? <p className="text-[12px] text-muted">{notice}</p> : null}
     </div>
