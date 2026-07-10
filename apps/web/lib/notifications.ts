@@ -76,13 +76,13 @@ export async function createProactiveRunNotification(
         body:
           terminalStatus === "succeeded"
             ? chatRun
-              ? "A background chat run completed while you were away. Open it to see the answer."
+              ? "Your background chat run finished. Open the thread to see the answer."
               : eventTriggered
                 ? "A GitHub event triggered this run while you were away. Open it to see the result."
                 : "A scheduled run completed while you were away. Open it to see the result."
             : (run.error ??
               (chatRun
-                ? "The background chat run ended with an error."
+                ? "Your background chat run ended with an error."
                 : eventTriggered
                   ? "The GitHub event run ended with an error."
                   : "The scheduled run ended with an error.")),

@@ -78,16 +78,8 @@ test.describe("chat shell guardrails", () => {
     const draft = "Keep this half-written launch update for me";
     const input = page.getByPlaceholder(/ask anything/i);
     await input.fill(draft);
-    await expect
-      .poll(() =>
-        page.evaluate(() =>
-          Object.entries(window.localStorage)
-            .filter(([key]) => key.startsWith("comparative-chat-draft:"))
-            .map(([, value]) => value),
-        ),
-      )
-      .toContain(draft);
-
+    // Reload immediately, before the 250 ms debounce, to exercise pagehide
+    // flushing rather than merely reading an already-persisted draft.
     await page.reload();
     await expect(page.getByPlaceholder(/ask anything/i)).toHaveValue(draft);
 

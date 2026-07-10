@@ -162,7 +162,8 @@ describe("createProactiveRunNotification", () => {
       expect(captured.inserts[0]).toMatchObject({
         userId: USER_ID,
         title: "Chat finished",
-        body: expect.stringContaining("background chat run"),
+        body:
+          "Your background chat run finished. Open the thread to see the answer.",
         runId: RUN_ID,
         threadId: THREAD_ID,
       });

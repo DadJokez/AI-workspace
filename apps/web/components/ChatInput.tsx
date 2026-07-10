@@ -40,6 +40,19 @@ const MAX_HEIGHT_PX = 200;
 const DRAFT_STORAGE_PREFIX = "comparative-chat-draft:";
 const DRAFT_PERSIST_DELAY_MS = 250;
 
+function persistComposerDraft(storageKey: string | null, text: string) {
+  if (!storageKey) return;
+  try {
+    if (text) {
+      window.localStorage.setItem(storageKey, text);
+    } else {
+      window.localStorage.removeItem(storageKey);
+    }
+  } catch {
+    // Draft recovery is best-effort and must never block the composer.
+  }
+}
+
 export interface SlashSkill extends SlashSkillCandidate {
   isStarter?: boolean;
   sharedWithMe?: boolean;
@@ -86,6 +99,8 @@ export function ChatInput({
   const draftStorageKey = draftKey
     ? `${DRAFT_STORAGE_PREFIX}${draftKey}`
     : null;
+  const latestDraftRef = useRef({ storageKey: draftStorageKey, text });
+  latestDraftRef.current = { storageKey: draftStorageKey, text };
   const dictation = useDictation((spoken) => {
     setText((prev) => {
       const sep = prev && !prev.endsWith(" ") ? " " : "";
@@ -111,7 +126,9 @@ export function ChatInput({
     }
     if (!draftStorageKey) return;
     try {
-      setText(window.localStorage.getItem(draftStorageKey) ?? "");
+      const restored = window.localStorage.getItem(draftStorageKey) ?? "";
+      latestDraftRef.current = { storageKey: draftStorageKey, text: restored };
+      setText(restored);
     } catch {
       // Storage may be unavailable in private or locked-down browsers.
     }
@@ -125,15 +142,7 @@ export function ChatInput({
     if (!draftStorageKey) return;
 
     draftTimerRef.current = window.setTimeout(() => {
-      try {
-        if (text) {
-          window.localStorage.setItem(draftStorageKey, text);
-        } else {
-          window.localStorage.removeItem(draftStorageKey);
-        }
-      } catch {
-        // Draft recovery is best-effort and must never block the composer.
-      }
+      persistComposerDraft(draftStorageKey, text);
       draftTimerRef.current = undefined;
     }, DRAFT_PERSIST_DELAY_MS);
 
@@ -144,6 +153,25 @@ export function ChatInput({
       }
     };
   }, [draftStorageKey, text]);
+
+  useEffect(() => {
+    function flushLatestDraft() {
+      if (draftTimerRef.current !== undefined) {
+        window.clearTimeout(draftTimerRef.current);
+        draftTimerRef.current = undefined;
+      }
+      persistComposerDraft(
+        latestDraftRef.current.storageKey,
+        latestDraftRef.current.text,
+      );
+    }
+
+    window.addEventListener("pagehide", flushLatestDraft);
+    return () => {
+      window.removeEventListener("pagehide", flushLatestDraft);
+      flushLatestDraft();
+    };
+  }, []);
 
   useEffect(() => {
     const ta = taRef.current;
@@ -207,12 +235,8 @@ export function ChatInput({
       window.clearTimeout(draftTimerRef.current);
       draftTimerRef.current = undefined;
     }
-    if (!draftStorageKey) return;
-    try {
-      window.localStorage.removeItem(draftStorageKey);
-    } catch {
-      // Best-effort cleanup; the sent message still proceeds.
-    }
+    latestDraftRef.current = { storageKey: draftStorageKey, text: "" };
+    persistComposerDraft(draftStorageKey, "");
   }
 
   function send() {
