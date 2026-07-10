@@ -11,7 +11,7 @@
 > building this Friday"; this doc is "what experience are we shaping,
 > and how does the catalog grow to support it".
 >
-> **Status as of June 2026:** Every journey now has shipped surface. **J1** chat is mature (business file/image uploads, native image blocks for screenshots, work receipts, first-run tour, slash-command palette, quiet recommendation cards). **J2** runs GitHub end-to-end behind the attestation gate, and the **Skills** catalog (specs/002) made saved agents real: create/run/clone/share at `/skills`, 7 starters, "/" palette in chat. **J3** shipped its scheduling half - leased scheduler, timezone-safe cadences, runs into designated threads; event triggers and SES delivery remain (#27). **J4** shipped its thin slice - `apps` registry over chat-built artifacts, SSO-gated serving at `/apps/{slug}`, native artifact versions/revert, no-secrets scan (#133 tracks the full epic). **J5** shipped its seed - share skills and apps to named teammates, recipient-credentials-only, owner revocation. Substrate: fast chat and interactive tools run on **AWS Bedrock**; worker lanes (durable/skill/scheduled) execute on **Bedrock AgentCore in our account** (specs/003). The product runtime no longer depends on the Cursor SDK. The run ledger is `runs` (née `recipe_runs`); "recipes" are **skills** everywhere. M365, Salesforce, ServiceNow, SAP, Workfront, and Databricks remain next-integration placeholders.
+> **Status as of July 2026:** Every journey now has shipped surface. **J1** chat is mature (business file/image uploads, native image blocks for screenshots, work receipts, first-run tour, slash-command palette, quiet recommendation cards). **J2** runs GitHub, Gmail, Google Calendar, and Notion through governed user connections, and the **Skills** catalog made saved agents real. **J3** is now complete for its first event source: leased schedules plus signed GitHub PR-review and failed-CI triggers run Skills into designated threads and notify users; optional email delivery remains tracked separately in #291. **J4** has its thin slice plus artifact revision consolidation and conversational app iteration; #133 tracks the broader app platform. **J5** supports named Skill and App shares with recipient credentials and owner revocation. Fast chat and interactive tools run on **AWS Bedrock**; durable, Skill, scheduled, and event-triggered worker lanes execute on **Bedrock AgentCore in our account**. The product runtime no longer depends on the Cursor SDK. The run ledger is `runs`; "recipes" are **Skills** everywhere. Salesforce, ServiceNow, SAP, Workfront, and Databricks remain next-integration work.
 >
 > **Product boundary:** AI Hub is a thin enterprise wrapper around existing AI and work platforms. It should remove friction, centralize governance, and make tools discoverable; it should not rebuild Bedrock, M365, Salesforce, Workfront, Databricks, specialized IDEs, or deployment platforms unless that layer is needed for control, audit, portability, or user experience.
 
@@ -43,9 +43,9 @@ This is what makes "talk to your work" real rather than aspirational.
 
 **Requires for full J2:** broader integration catalogs for every MCP provider, provider-specific write safety reviews, production scheduling for audit retention, rate limits and quotas, and real OAuth/MCP implementations behind the expanded integration catalog.
 
-### J3 — Scheduled Agent 🔄 Scheduling shipped (June 2026)
+### J3 — Proactive Agent ✅ Schedules and GitHub events shipped (July 2026)
 
-**Shipped:** `schedules` table + leased scheduler tick in the chat-run worker; timezone-safe cadences (DST-tested); scheduled runs land in designated threads through the shared seam and execute on AgentCore. **Remaining:** event/webhook triggers and SES delivery (#27).
+**Shipped:** `schedules` table + leased scheduler tick; timezone-safe cadences (DST-tested); scheduled runs land in designated threads through the shared seam and execute on AgentCore. Signed GitHub repository webhooks now start owner-scoped Skill runs for PR reviews and failed CI, with durable delivery dedupe, rate limiting, prompt-injection framing, audit provenance, notifications, pause, and delete controls. Optional email delivery remains tracked in #291 rather than blocking the J3 product loop.
 
 The same chat-with-tools agent, invoked on a **schedule** or in
 response to an **event** instead of a user keystroke. "Every Monday
@@ -53,13 +53,10 @@ at 8am, summarize the past week and post it as the week's Status
 thread." "When a new email matching `from:ceo@*` arrives, draft a
 reply for me to review."
 
-**Requires:** J2 done + a scheduling layer (DB table holding
-schedules, a cron worker that creates a `recipe_runs` row and lets the
-chat-run worker execute it into a designated thread) + an event-trigger layer
-(inbound webhooks or polling that fires the same hook on state
-changes). Scheduling is the easier half; webhooks are where this
-graduates from "tool" to "autonomous agent". PLAN.md week 5 sequences
-the scheduling piece; webhooks are a follow-on.
+Both trigger types create ordinary `runs` rows and use the same worker,
+runtime, provider gate, audit, and notification paths as user-started Skills.
+Additional event sources remain incremental integrations rather than a new
+automation runtime.
 
 ### J4 — App Build and Deploy 🔄 Thin slice shipped (June 2026)
 

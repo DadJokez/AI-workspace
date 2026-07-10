@@ -1,11 +1,13 @@
 import { MODEL_IDS } from "@ai-workspace/agent";
-import { getDb, runs, schedules, skills } from "@ai-workspace/db";
-import { and, desc, eq } from "drizzle-orm";
+import { eventTriggers, getDb, runs, schedules, skills } from "@ai-workspace/db";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { SUPPORTED_MCP_PROVIDERS } from "@/lib/oauth/mcp-servers";
 import { canActorAccessSkill, listSharesForSubject } from "@/lib/shares";
+import { eventTriggerKind } from "@/lib/github-event-triggers";
+import { EventTriggerPanel } from "@/components/skills/EventTriggerPanel";
 import { SchedulePanel } from "@/components/skills/SchedulePanel";
 import { SharePanel } from "@/components/skills/SharePanel";
 import { SkillActions } from "@/components/skills/SkillActions";
@@ -42,6 +44,17 @@ export default async function SkillDetailPage({
       ),
     )
     .orderBy(desc(schedules.createdAt));
+  const myEventTriggers = await db
+    .select()
+    .from(eventTriggers)
+    .where(
+      and(
+        eq(eventTriggers.skillId, skill.id),
+        eq(eventTriggers.userId, sessionUser.id),
+        isNull(eventTriggers.deletedAt),
+      ),
+    )
+    .orderBy(desc(eventTriggers.createdAt));
   const history = await db
     .select({
       id: runs.id,
@@ -142,6 +155,30 @@ export default async function SkillDetailPage({
               nextRunAt: s.nextRunAt.toISOString(),
               lastError: s.lastError,
               targetThreadId: s.targetThreadId,
+            }))}
+          />
+        </div>
+      ) : null}
+
+      {!skill.archivedAt ? (
+        <div className="mt-6 border-t border-hairline pt-5">
+          <h3 className="pb-2 text-[12px] font-medium uppercase tracking-wider text-muted">
+            GitHub triggers
+          </h3>
+          <EventTriggerPanel
+            skillId={skill.id}
+            triggers={myEventTriggers.map((trigger) => ({
+              id: trigger.id,
+              repository: trigger.repository,
+              kind: eventTriggerKind(trigger),
+              filters: trigger.filters as {
+                authorLogin?: string;
+                assigneeLogin?: string;
+              },
+              threadMode: trigger.threadMode,
+              enabled: trigger.enabled,
+              lastFiredAt: trigger.lastFiredAt?.toISOString() ?? null,
+              lastError: trigger.lastError,
             }))}
           />
         </div>

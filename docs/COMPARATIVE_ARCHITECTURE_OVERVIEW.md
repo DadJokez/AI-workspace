@@ -10,7 +10,7 @@
 
 ## 1. Executive Summary
 
-Comparative is an internal enterprise AI workspace: one governed front door where employees can chat with AI, use AI against approved work systems, save reusable agents as **Skills**, schedule those Skills, share Skills and lightweight Apps with teammates, and eventually receive proactive recommendations based on their work patterns.
+Comparative is an internal enterprise AI workspace: one governed front door where employees can chat with AI, use AI against approved work systems, save reusable agents as **Skills**, run those Skills on schedules or governed events, share Skills and lightweight Apps with teammates, and receive proactive work through a notification center.
 
 The architectural thesis is intentionally narrow:
 
@@ -28,7 +28,7 @@ Comparative currently supports or is designed around five core journeys.
 |---|---|---|
 | J1 — Chat | Multi-turn AI chat with persisted user history, file/image support, model selection, and user memory controls | Shipped |
 | J2 — Chat with Tools | Chat that can read from or act against connected work systems through MCP tools | In progress; GitHub live |
-| J3 — Scheduled Agents | Skills that run on a time-based schedule and write results into a designated thread | Scheduling shipped; event triggers remain backlog |
+| J3 — Proactive Agents | Skills that run on a schedule or signed GitHub event and deliver results into a designated thread and notification center | Shipped for schedules, PR reviews, and failed CI |
 | J4 — Apps | Lightweight internal apps generated from chat artifacts and served behind workspace auth | Thin slice shipped |
 | J5 — Share | Skills and Apps shared to named teammates using recipient credentials | Seed shipped |
 
@@ -39,7 +39,7 @@ This product framing matters for IT review because Comparative is not only a cha
 ## 3. High-Level Architecture
 
 ```text
-User / Browser / Scheduled Job
+User / Browser / Scheduled Job / Signed GitHub Event
         |
         v
 Comparative Web Shell
@@ -48,13 +48,13 @@ Next.js App Router, TypeScript, Tailwind
         | owns identity, UI, policy, persistence, audit, skill/app/share UX
         v
 AgentRuntime Seam
-single runtime abstraction used by chat, skills, schedules, workflows
+single runtime abstraction used by chat, skills, schedules, event triggers, workflows
         |
         +-----------------------------+
         |                             |
         v                             v
 AWS Bedrock Runtime              Amazon Bedrock AgentCore Runtime
-fast chat + tool turns           durable chat, skills, schedules, future app-build jobs
+fast chat + tool turns           durable chat, skills, schedules, event triggers, future app-build jobs
         |                             |
         +-------------+---------------+
                       |
@@ -146,11 +146,11 @@ A Skill is a saved, shareable agent definition:
 }
 ```
 
-Users can create, run, clone, edit, archive, schedule, and share Skills. Ownership of a Skill does not grant credentials. Every execution re-gates against the executing user’s own provider tokens and attestations.
+Users can create, run, clone, edit, archive, schedule, event-trigger, and share Skills. GitHub triggers install a signed repository webhook through the trigger owner's existing OAuth grant and require repository-admin access. Each delivery is deduplicated, rate-limited, nonce-framed as untrusted data, and executed with the trigger owner's credentials only. Ownership of a Skill does not grant credentials. Every execution re-gates against the executing user’s own provider tokens and attestations.
 
 ### 5.5 Runs are the durable execution ledger
 
-The run ledger is now generalized as `runs`, replacing the older `recipe_runs` concept. This is the right name because the ledger tracks chat turns, workflow runs, skill runs, scheduled runs, and future app-build jobs.
+The run ledger is now generalized as `runs`, replacing the older `recipe_runs` concept. This is the right name because the ledger tracks chat turns, workflow runs, skill runs, scheduled runs, event-triggered runs, and future app-build jobs.
 
 Associated `run_events` provide a reloadable activity stream so long-running work can be replayed after browser reconnects or worker restarts.
 
@@ -221,9 +221,11 @@ Key product tables:
 | `oauth_tokens` | Encrypted per-user provider tokens |
 | `skills` | Saved shareable agent definitions |
 | `schedules` | Time-based recurring execution of Skills |
-| `runs` | Durable ledger for chat, workflows, Skills, schedules, and future durable jobs |
+| `event_triggers` | Owner-scoped definitions that map signed external events to Skills and thread behavior |
+| `event_trigger_deliveries` | Deduplicated webhook receipt ledger with event summary, status, and resulting run |
+| `runs` | Durable ledger for chat, workflows, Skills, schedules, event triggers, and future durable jobs |
 | `run_events` | Append-only reloadable activity stream for runs |
-| `audit_log` | Compliance/event ledger for tool, workflow, skill, schedule, share, and app actions |
+| `audit_log` | Compliance/event ledger for tool, workflow, skill, schedule, event-trigger, share, and app actions |
 | `mcp_servers` | Admin-curated registry of mountable MCP providers |
 | `tools_catalog` | User/admin-visible inventory of MCP tools |
 | `user_tool_attestations` | User approval records for provider/category/tool scopes |

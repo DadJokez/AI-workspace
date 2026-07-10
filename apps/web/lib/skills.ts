@@ -27,6 +27,7 @@ import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 export const SKILL_RUN_TRIGGER_TYPES = [
   "skill",
   "scheduled",
+  "github_event",
   "skill_retry",
 ] as const;
 
@@ -332,6 +333,34 @@ export interface CreateSkillRunResult {
   threadId: string;
 }
 
+export interface GitHubSkillTriggerContext {
+  triggerId: string;
+  deliveryId: string;
+  eventType: string;
+  eventAction: string | null;
+  repository: string;
+  summary: string;
+  promptContext: string;
+}
+
+const SAFE_GITHUB_REPOSITORY_PATTERN =
+  /^[a-z0-9](?:[a-z0-9._-]{0,99})\/[a-z0-9](?:[a-z0-9._-]{0,99})$/i;
+
+export function buildGitHubSkillDisplayMessage(
+  event: Pick<GitHubSkillTriggerContext, "eventType" | "repository">,
+): string {
+  const repository = SAFE_GITHUB_REPOSITORY_PATTERN.test(event.repository)
+    ? event.repository.toLowerCase()
+    : "connected repository";
+  const eventLabel =
+    event.eventType === "pull_request_review"
+      ? "pull request review"
+      : event.eventType === "workflow_run"
+        ? "failed CI workflow"
+        : "repository event";
+  return `GitHub event: ${eventLabel} in ${repository}`;
+}
+
 /**
  * Enqueue one execution of a skill on the shared worker pipeline. Used by
  * the run-now API (`triggerType: "skill"`) and the scheduler
@@ -345,17 +374,22 @@ export async function createSkillRun({
   skill,
   triggerType,
   scheduleId,
+  githubEvent,
   threadId,
 }: {
   db: Database;
   actorUserId: string;
   skill: Skill;
-  triggerType: "skill" | "scheduled";
+  triggerType: "skill" | "scheduled" | "github_event";
   scheduleId?: string | null;
+  githubEvent?: GitHubSkillTriggerContext;
   threadId?: string | null;
 }): Promise<CreateSkillRunResult> {
   skill = canonicalizeStarterSkill(skill);
   const now = new Date();
+  if (triggerType === "github_event" && !githubEvent) {
+    throw new Error("GitHub event context is required for an event-triggered run.");
+  }
 
   // #300: a pinned model that has since been disabled for the durable lane
   // cannot serve the run — resolve to the enabled default instead.
@@ -377,8 +411,12 @@ export async function createSkillRun({
     targetThreadId = threadRows[0]!.id;
   }
 
-  const prompt = buildSkillTurnPrompt(skill);
-  const displayMessage = buildSkillDisplayMessage(skill);
+  const prompt = githubEvent
+    ? `${buildSkillTurnPrompt(skill)}\n\n${githubEvent.promptContext}`
+    : buildSkillTurnPrompt(skill);
+  const displayMessage = githubEvent
+    ? buildGitHubSkillDisplayMessage(githubEvent)
+    : buildSkillDisplayMessage(skill);
   const messageRows = await db
     .insert(chatMessages)
     .values({
@@ -396,6 +434,8 @@ export async function createSkillRun({
       skillId: skill.id,
       skillSlug: skill.slug,
       scheduleId: scheduleId ?? null,
+      eventTriggerId: githubEvent?.triggerId ?? null,
+      eventDeliveryId: githubEvent?.deliveryId ?? null,
       threadId: targetThreadId,
       triggerType,
       status: "queued",
@@ -410,6 +450,18 @@ export async function createSkillRun({
         skillId: skill.id,
         skillSlug: skill.slug,
         ...(scheduleId ? { scheduleId } : {}),
+        ...(githubEvent
+          ? {
+              eventTriggerId: githubEvent.triggerId,
+              githubEvent: {
+                deliveryId: githubEvent.deliveryId,
+                eventType: githubEvent.eventType,
+                eventAction: githubEvent.eventAction,
+                repository: githubEvent.repository,
+                summary: githubEvent.summary,
+              },
+            }
+          : {}),
       },
       updatedAt: now,
     })
@@ -424,18 +476,33 @@ export async function createSkillRun({
     label:
       triggerType === "scheduled"
         ? `Queued scheduled run of "${skill.name}"`
+        : triggerType === "github_event"
+          ? `Queued GitHub event run of "${skill.name}"`
         : `Queued skill run of "${skill.name}"`,
     metadata: {
       skillId: skill.id,
       skillSlug: skill.slug,
       threadId: targetThreadId,
       ...(scheduleId ? { scheduleId } : {}),
+      ...(githubEvent
+        ? {
+            eventTriggerId: githubEvent.triggerId,
+            deliveryId: githubEvent.deliveryId,
+            eventType: githubEvent.eventType,
+            repository: githubEvent.repository,
+          }
+        : {}),
     },
   });
 
   await db.insert(auditLog).values({
     actorUserId,
-    actionType: triggerType === "scheduled" ? "schedule_fire" : "skill_run",
+    actionType:
+      triggerType === "scheduled"
+        ? "schedule_fire"
+        : triggerType === "github_event"
+          ? "event_trigger_fire"
+          : "skill_run",
     status: "succeeded",
     provider: "ai-hub",
     toolName: skill.slug,
@@ -447,6 +514,15 @@ export async function createSkillRun({
       mcpProviders: skill.mcpProviders,
       triggerType,
       ...(scheduleId ? { scheduleId } : {}),
+      ...(githubEvent
+        ? {
+            eventTriggerId: githubEvent.triggerId,
+            deliveryId: githubEvent.deliveryId,
+            eventType: githubEvent.eventType,
+            eventAction: githubEvent.eventAction,
+            repository: githubEvent.repository,
+          }
+        : {}),
     },
     startedAt: now,
     completedAt: now,

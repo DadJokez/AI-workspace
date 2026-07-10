@@ -78,6 +78,8 @@ export default async function AdminRunDetailPage({ params }: Props) {
       skillSlug: runs.skillSlug,
       status: runs.status,
       triggerType: runs.triggerType,
+      eventTriggerId: runs.eventTriggerId,
+      eventDeliveryId: runs.eventDeliveryId,
       runtime: runs.runtime,
       modelId: runs.modelId,
       inputs: runs.inputs,
@@ -296,6 +298,15 @@ export default async function AdminRunDetailPage({ params }: Props) {
                 value={run.actorName ?? run.actorEmail ?? "Unknown"}
               />
               <DetailRow label="Trigger" value={run.triggerType} />
+              {run.eventTriggerId ? (
+                <DetailRow
+                  label="Event trigger"
+                  value={shortId(run.eventTriggerId)}
+                />
+              ) : null}
+              {run.eventDeliveryId ? (
+                <DetailRow label="GitHub delivery" value={run.eventDeliveryId} />
+              ) : null}
               {retryInfo ? (
                 <DetailLinkRow
                   label="Retry of"

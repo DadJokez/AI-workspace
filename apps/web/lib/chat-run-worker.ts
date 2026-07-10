@@ -60,7 +60,7 @@ import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
 import { createRecommendationsForAssistantMessage } from "@/lib/recommendation-persistence";
-import { createScheduledRunNotification } from "@/lib/notifications";
+import { createProactiveRunNotification } from "@/lib/notifications";
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 const DEFAULT_RUNTIME_TIMEOUT_MS = 60 * 60 * 1000;
@@ -84,11 +84,16 @@ interface ChatRunInputs {
 
 /**
  * Runs this worker may claim: chat turns (identified by the historical
- * `skill_slug = "chat-turn"` marker) plus skill/scheduled runs (identified
- * by trigger type so any skill slug works). Inputs for all of them satisfy
+ * `skill_slug = "chat-turn"` marker) plus skill, scheduled, and event-triggered
+ * runs (identified by trigger type so any skill slug works). Inputs satisfy
  * the same {prompt, threadId, userMessageId} contract.
  */
-const WORKER_TRIGGER_TYPES = ["skill", "scheduled", "skill_retry"];
+const WORKER_TRIGGER_TYPES = [
+  "skill",
+  "scheduled",
+  "github_event",
+  "skill_retry",
+];
 const WORKER_TRIGGER_TYPE_SET = new Set<string>(WORKER_TRIGGER_TYPES);
 
 function claimableRunCondition() {
@@ -882,7 +887,7 @@ async function persistAssistantResult({
 
   if (updatedRows.length === 0) return;
 
-  await createScheduledRunNotification(db, run, terminalStatus, threadId);
+  await createProactiveRunNotification(db, run, terminalStatus, threadId);
 
   if (terminalStatus === "succeeded" && assistantMessageId) {
     try {
@@ -948,7 +953,7 @@ async function markRunFailed(
 
   if (updatedRows.length === 0) return;
 
-  await createScheduledRunNotification(db, { ...run, error: message }, "failed");
+  await createProactiveRunNotification(db, { ...run, error: message }, "failed");
 
   await appendWorkerRunEvent(db, run.id, {
     eventType: "run_failed",
