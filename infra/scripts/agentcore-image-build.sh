@@ -10,7 +10,7 @@ case "$ACTION" in
   start)
     : "${CODEBUILD_RESOLVED_SOURCE_VERSION:?CODEBUILD_RESOLVED_SOURCE_VERSION is required}"
     : "${AGENTCORE_IMAGE_REPO_NAME:?AGENTCORE_IMAGE_REPO_NAME is required}"
-    : "${COMMIT_TAG:?COMMIT_TAG is required}"
+    IMAGE_TAG="${COMMIT_TAG:-$CODEBUILD_RESOLVED_SOURCE_VERSION}"
 
     aws codebuild start-build \
       --region "${AWS_DEFAULT_REGION:-us-east-1}" \
@@ -23,7 +23,7 @@ case "$ACTION" in
       --no-report-build-status-override \
       --environment-variables-override \
         "name=AGENTCORE_IMAGE_REPO_NAME,value=$AGENTCORE_IMAGE_REPO_NAME,type=PLAINTEXT" \
-        "name=AGENTCORE_COMMIT_TAG,value=$COMMIT_TAG,type=PLAINTEXT" \
+        "name=AGENTCORE_COMMIT_TAG,value=$IMAGE_TAG,type=PLAINTEXT" \
       --query 'build.id' \
       --output text
     ;;

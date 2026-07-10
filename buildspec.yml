@@ -22,7 +22,7 @@ phases:
       - 'echo Logging in to Amazon ECR...'
       - 'aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com'
       - 'REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME'
-      - 'COMMIT_TAG=${CODEBUILD_RESOLVED_SOURCE_VERSION:-manual}'
+      - 'export COMMIT_TAG=${CODEBUILD_RESOLVED_SOURCE_VERSION:-manual}'
       # AgentCore requires linux/arm64. Launch its native ARM child build now
       # so it can run in parallel with the x86 ECS image builds below.
       - 'AGENTCORE_BUILD_ID=$(./infra/scripts/agentcore-image-build.sh start)'

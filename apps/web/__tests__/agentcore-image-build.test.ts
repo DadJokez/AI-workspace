@@ -31,6 +31,9 @@ describe("agentcore-image-build.sh", () => {
       "--image-override aws/codebuild/amazonlinux-aarch64-standard:3.0",
     );
     expect(command).toContain("--no-report-build-status-override");
+    expect(command).toContain(
+      "name=AGENTCORE_COMMIT_TAG,value=commit-sha,type=PLAINTEXT",
+    );
   });
 
   it("waits through an in-progress build until it succeeds", () => {
@@ -65,6 +68,9 @@ describe("agentcore-image-build.sh", () => {
 
     expect(parentBuildspec).not.toContain("tonistiigi/binfmt");
     expect(parentBuildspec).not.toContain("docker buildx");
+    expect(parentBuildspec).toContain(
+      "export COMMIT_TAG=${CODEBUILD_RESOLVED_SOURCE_VERSION:-manual}",
+    );
     expect(parentBuildspec).toContain("agentcore-image-build.sh start");
     expect(parentBuildspec).toContain("agentcore-image-build.sh wait");
     expect(armBuildspec).toContain('test "$(uname -m)" = "aarch64"');
@@ -128,7 +134,6 @@ exit 1
       AGENTCORE_BUILD_POLL_SECONDS: "0",
       AGENTCORE_BUILD_MAX_POLLS: "3",
       CODEBUILD_RESOLVED_SOURCE_VERSION: "commit-sha",
-      COMMIT_TAG: "commit-sha",
       FAKE_CAPTURE_PATH: capturePath,
       FAKE_COUNTER_PATH: counterPath,
       FAKE_STATUSES: statuses,
