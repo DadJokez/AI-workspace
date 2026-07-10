@@ -94,7 +94,7 @@ describe("GET /api/oauth/status", () => {
           executionConfigured: false,
           toolAvailable: false,
           status: "connected_execution_not_configured",
-          reason: "gateway_not_configured",
+          reason: "integration_coming_soon",
         },
       },
     });

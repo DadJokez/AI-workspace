@@ -30,6 +30,31 @@ export interface RunAgentLoopParams {
 export const DEFAULT_MAX_TOOL_ITERATIONS = 8;
 
 /**
+ * Appended to the assistant text when generation stops at the output-token
+ * cap. Without it the turn "succeeds" with a mid-sentence artifact and the
+ * chat looks stalled (feedback a1eff7e5 / issue #320) — the user must be told
+ * the response was cut, and the note in history lets a follow-up "continue"
+ * turn see where the cut happened.
+ */
+export const MAX_TOKENS_TRUNCATION_NOTICE =
+  "\n\n---\n*I hit my output length limit mid-response, so the content above is incomplete. Say “continue” and I’ll pick up where I left off.*";
+
+/**
+ * True when `text` ends inside an unterminated ``` code fence (an odd number of
+ * fence markers). #320 truncation cuts the model off mid-artifact, so the
+ * assistant text ends with a dangling ```` ``` ````. Every fence-parsing
+ * consumer (transcript render, artifact persistence) treats an unclosed fence
+ * as running to end-of-string — which would swallow the truncation notice into
+ * the collapsed artifact preview and the persisted `.html`, hiding it in the
+ * exact case it targets. We close the fence before the notice so it lands as
+ * its own visible markdown part and stays out of the saved artifact.
+ */
+export function hasUnclosedCodeFence(text: string): boolean {
+  const markers = text.match(/```/g);
+  return markers !== null && markers.length % 2 === 1;
+}
+
+/**
  * Runs a single chat turn end-to-end: text generation plus optional tool-use
  * round-trips. Yields `AgentEvent`s as they happen so the web layer can relay
  * them as SSE.
@@ -131,6 +156,13 @@ export async function* runAgentLoop(
     bedrockMessages.push({ role: "assistant", content: assistantBlocks });
 
     if (stopReason !== "tool_use" || pendingToolCalls.length === 0) {
+      if (stopReason === "max_tokens") {
+        const fenceClose = hasUnclosedCodeFence(pendingText) ? "\n```" : "";
+        yield {
+          type: "text-delta",
+          delta: fenceClose + MAX_TOKENS_TRUNCATION_NOTICE,
+        };
+      }
       break;
     }
 

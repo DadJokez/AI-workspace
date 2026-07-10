@@ -40,6 +40,8 @@ interface IntegrationCardState {
   integration: Integration;
   connected: boolean;
   executionPending: boolean;
+  /** Connected, but the chat integration hasn't shipped yet (vs. a setup issue). */
+  comingSoon: boolean;
   failed: boolean;
 }
 
@@ -200,6 +202,10 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
       integration,
       connected,
       executionPending: connected && !toolAvailable,
+      comingSoon:
+        connected &&
+        !toolAvailable &&
+        detail?.reason === "integration_coming_soon",
       failed:
         oauthNotice?.provider === integration.id && Boolean(oauthNotice.error),
     };
@@ -341,7 +347,7 @@ function IntegrationCard({
   card: IntegrationCardState;
   onOpenComingSoon: (integration: Integration) => void;
 }) {
-  const { integration, connected, executionPending, failed } = card;
+  const { integration, connected, executionPending, comingSoon, failed } = card;
   return (
     <div
       data-testid={`tool-card-${integration.id}`}
@@ -403,7 +409,11 @@ function IntegrationCard({
           connected ? (
             <div className="flex flex-col items-end gap-1 text-right">
               <span className="text-[11px] text-muted">
-                {executionPending ? "Setup needed for chat" : "Ready in chat"}
+                {comingSoon
+                  ? "Chat actions coming soon"
+                  : executionPending
+                    ? "Setup needed for chat"
+                    : "Ready in chat"}
               </span>
               <a
                 href={`/api/oauth/${integration.id}/start`}
