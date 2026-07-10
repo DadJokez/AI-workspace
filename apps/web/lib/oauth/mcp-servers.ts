@@ -491,8 +491,11 @@ function applyGoogleTurnToolPolicy(
   policy: { allowedTools?: string[]; blockedTools?: string[] },
   turnContext: GoogleTurnContext,
 ): { allowedTools: string[]; blockedTools?: string[] } {
+  const readAndPrepareTools = turnContext.confirmedEventProposal
+    ? GOOGLE_READ_AND_PREPARE_TOOLS.filter((tool) => tool !== "prepare_event")
+    : GOOGLE_READ_AND_PREPARE_TOOLS;
   const availableThisTurn = new Set<string>([
-    ...GOOGLE_READ_AND_PREPARE_TOOLS,
+    ...readAndPrepareTools,
     ...turnContext.allowedWrites,
   ]);
   const allowedTools = (
