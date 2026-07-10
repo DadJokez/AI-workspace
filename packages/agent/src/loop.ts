@@ -20,6 +20,8 @@ export interface RunAgentLoopParams {
   maxToolIterations?: number;
   /** Per-output-message token cap. Defaults to the model's `defaultMaxTokens`. */
   maxTokens?: number;
+  /** Optional sampling temperature. Omitted for normal product defaults. */
+  temperature?: number;
   context: ToolContext;
   /** Aborts the loop. */
   signal?: AbortSignal;
@@ -107,6 +109,7 @@ export async function* runAgentLoop(
       messages: bedrockMessages,
       toolConfig,
       maxTokens: params.maxTokens ?? model.defaultMaxTokens,
+      temperature: params.temperature,
       signal: params.signal,
     });
 

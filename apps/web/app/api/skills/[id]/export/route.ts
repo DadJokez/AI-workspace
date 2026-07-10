@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { canActorAccessSkill } from "@/lib/shares";
 import { serializeSkillToMarkdown } from "@/lib/skill-format";
+import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
 export const dynamic = "force-dynamic";
 
@@ -24,10 +25,14 @@ export async function GET(
 
   const db = getDb();
   const rows = await db.select().from(skills).where(eq(skills.id, id)).limit(1);
-  const skill = rows[0];
-  if (!skill || !(await canActorAccessSkill(db, skill, sessionUser))) {
+  const storedSkill = rows[0];
+  if (
+    !storedSkill ||
+    !(await canActorAccessSkill(db, storedSkill, sessionUser))
+  ) {
     return NextResponse.json({ error: "skill_not_found" }, { status: 404 });
   }
+  const skill = canonicalizeStarterSkill(storedSkill);
 
   const markdown = serializeSkillToMarkdown({
     slug: skill.slug,

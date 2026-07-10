@@ -83,6 +83,8 @@ export interface ConverseStreamParams {
   messages: BedrockMessage[];
   toolConfig?: BedrockToolConfig;
   maxTokens: number;
+  /** Optional sampling temperature. Omitted for normal product defaults. */
+  temperature?: number;
   signal?: AbortSignal;
 }
 
@@ -237,7 +239,10 @@ export class RealBedrockClient implements BedrockClient {
       system: system.length > 0 ? system : undefined,
       messages,
       toolConfig,
-      inferenceConfig: { maxTokens: params.maxTokens },
+      inferenceConfig: {
+        maxTokens: params.maxTokens,
+        temperature: params.temperature,
+      },
     });
 
     const response = await this.client.send(command);

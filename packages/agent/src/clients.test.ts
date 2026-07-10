@@ -102,6 +102,24 @@ describe("RealBedrockClient prompt caching", () => {
     ]);
   });
 
+  it("forwards an explicit sampling temperature to Bedrock", async () => {
+    const inputs = stubSend();
+    const client = new RealBedrockClient();
+    await collect(
+      client.converseStream({
+        bedrockModelId: "us.anthropic.claude-haiku-4-5",
+        messages: [{ role: "user", content: [{ kind: "text", text: "judge" }] }],
+        maxTokens: 200,
+        temperature: 0,
+      }),
+    );
+
+    expect(inputs[0]?.inferenceConfig).toEqual({
+      maxTokens: 200,
+      temperature: 0,
+    });
+  });
+
   it("renders the volatile suffix after the cache checkpoint", async () => {
     const inputs = stubSend();
     const client = new RealBedrockClient();

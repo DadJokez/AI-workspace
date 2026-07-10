@@ -3,8 +3,13 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { checkRateLimit, requestLimitConfig } from "@/lib/request-limits";
-import { checkSkillProviderAccess, createSkillRun } from "@/lib/skills";
+import {
+  checkSkillProviderAccess,
+  createSkillRun,
+  isSkillProviderAccessReady,
+} from "@/lib/skills";
 import { canActorRunSkill } from "@/lib/shares";
+import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
 export const dynamic = "force-dynamic";
 
@@ -75,7 +80,7 @@ export async function POST(
     .from(skills)
     .where(eq(skills.id, id))
     .limit(1);
-  const skill = rows[0];
+  const skill = rows[0] ? canonicalizeStarterSkill(rows[0]) : undefined;
   if (!skill || !(await canActorRunSkill(db, skill, sessionUser))) {
     return NextResponse.json({ error: "skill_not_found" }, { status: 404 });
   }
@@ -85,20 +90,26 @@ export async function POST(
     sessionUser.id,
     skill.mcpProviders,
   );
-  if (
-    access.missingConnections.length > 0 ||
-    access.deniedAttestations.length > 0 ||
-    access.executionUnavailable.length > 0
-  ) {
+  if (!isSkillProviderAccessReady(access)) {
     const parts: string[] = [];
     if (access.missingConnections.length > 0) {
       parts.push(
-        `connect ${access.missingConnections.join(", ")} in Settings`,
+        `connect ${access.missingConnections.join(", ")} in Tools`,
       );
     }
     if (access.deniedAttestations.length > 0) {
       parts.push(
         `approve tool access for ${access.deniedAttestations.join(", ")}`,
+      );
+    }
+    if (access.reconnectRequired.length > 0) {
+      parts.push(
+        `reconnect ${access.reconnectRequired.join(", ")} in Tools`,
+      );
+    }
+    if (access.temporarilyUnavailable.length > 0) {
+      parts.push(
+        `try ${access.temporarilyUnavailable.join(", ")} again in a moment`,
       );
     }
     if (access.executionUnavailable.length > 0) {
@@ -113,6 +124,8 @@ export async function POST(
         missingConnections: access.missingConnections,
         deniedAttestations: access.deniedAttestations,
         executionUnavailable: access.executionUnavailable,
+        reconnectRequired: access.reconnectRequired,
+        temporarilyUnavailable: access.temporarilyUnavailable,
       },
       { status: 409 },
     );

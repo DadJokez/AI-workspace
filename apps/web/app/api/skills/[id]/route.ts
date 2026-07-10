@@ -6,6 +6,7 @@ import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { enabledModelsForPurpose } from "@/lib/model-registry";
 import { auditSkillMutation, parseSkillInput } from "@/lib/skills";
 import { canActorAccessSkill } from "@/lib/shares";
+import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
 export const dynamic = "force-dynamic";
 
@@ -48,8 +49,12 @@ export async function GET(_req: Request, context: RouteContext) {
   if (!skill || !(await canActorAccessSkill(getDb(), skill, sessionUser))) {
     return notFound();
   }
+  const effectiveSkill = canonicalizeStarterSkill(skill);
   return NextResponse.json({
-    skill: { ...skill, isOwner: skill.ownerUserId === sessionUser.id },
+    skill: {
+      ...effectiveSkill,
+      isOwner: effectiveSkill.ownerUserId === sessionUser.id,
+    },
   });
 }
 

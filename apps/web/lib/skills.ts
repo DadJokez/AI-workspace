@@ -17,6 +17,7 @@ import {
   SUPPORTED_MCP_PROVIDERS,
 } from "@/lib/oauth/mcp-servers";
 import { appendRunEventWithNextSequence } from "@/lib/run-events";
+import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
 /**
  * Trigger types whose runs execute on the shared chat-run worker. Chat turns
@@ -252,6 +253,22 @@ export interface SkillProviderAccess {
   deniedAttestations: string[];
   /** Declared providers connected and attested but not executable here. */
   executionUnavailable: string[];
+  /** Declared providers whose existing OAuth grant needs renewed scopes. */
+  reconnectRequired: string[];
+  /** Declared providers whose credentials could not be used temporarily. */
+  temporarilyUnavailable: string[];
+}
+
+export function isSkillProviderAccessReady(
+  access: SkillProviderAccess,
+): boolean {
+  return (
+    access.missingConnections.length === 0 &&
+    access.deniedAttestations.length === 0 &&
+    access.executionUnavailable.length === 0 &&
+    access.reconnectRequired.length === 0 &&
+    access.temporarilyUnavailable.length === 0
+  );
 }
 
 /**
@@ -270,6 +287,8 @@ export async function checkSkillProviderAccess(
       missingConnections: [],
       deniedAttestations: [],
       executionUnavailable: [],
+      reconnectRequired: [],
+      temporarilyUnavailable: [],
     };
   }
 
@@ -289,8 +308,23 @@ export async function checkSkillProviderAccess(
   const executionUnavailable = declaredProviders.filter((p) =>
     (providerStatus.executionUnavailableProviders ?? []).includes(p),
   );
+  const reconnectRequired = declaredProviders.filter((p) =>
+    (providerStatus.reconnectRequiredProviders ?? []).includes(p),
+  );
+  const temporarilyUnavailable = declaredProviders.filter(
+    (p) =>
+      providerStatus.providerAvailability?.[p]?.status ===
+      "temporarily_unavailable",
+  );
 
-  return { ready, missingConnections, deniedAttestations, executionUnavailable };
+  return {
+    ready,
+    missingConnections,
+    deniedAttestations,
+    executionUnavailable,
+    reconnectRequired,
+    temporarilyUnavailable,
+  };
 }
 
 export interface CreateSkillRunResult {
@@ -320,6 +354,7 @@ export async function createSkillRun({
   scheduleId?: string | null;
   threadId?: string | null;
 }): Promise<CreateSkillRunResult> {
+  skill = canonicalizeStarterSkill(skill);
   const now = new Date();
 
   // #300: a pinned model that has since been disabled for the durable lane

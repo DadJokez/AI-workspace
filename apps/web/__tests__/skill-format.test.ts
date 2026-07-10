@@ -3,6 +3,7 @@ import {
   parseSkillMarkdown,
   serializeSkillToMarkdown,
 } from "@/lib/skill-format";
+import { STARTER_SKILLS } from "@/lib/starter-skills";
 
 /** ADR 0002 — SKILL.md ↔ row converter. */
 describe("parseSkillMarkdown", () => {
@@ -106,4 +107,22 @@ describe("serializeSkillToMarkdown round-trip", () => {
     expect(reparsed.skill.mcpProviders).toEqual(["github"]);
     expect(reparsed.skill.systemPrompt).toContain("one-page brief");
   });
+
+  it.each(["meeting-prep", "weekly-status"])(
+    "round-trips the %s starter without losing providers or instructions",
+    (slug) => {
+      const starter = STARTER_SKILLS.find((skill) => skill.slug === slug);
+      expect(starter).toBeDefined();
+      if (!starter) return;
+
+      const reparsed = parseSkillMarkdown(serializeSkillToMarkdown(starter));
+
+      expect(reparsed.ok).toBe(true);
+      if (!reparsed.ok) return;
+      expect(reparsed.skill.slug).toBe(starter.slug);
+      expect(reparsed.skill.modelId).toBe(starter.modelId);
+      expect(reparsed.skill.mcpProviders).toEqual(starter.mcpProviders);
+      expect(reparsed.skill.systemPrompt).toBe(starter.systemPrompt);
+    },
+  );
 });

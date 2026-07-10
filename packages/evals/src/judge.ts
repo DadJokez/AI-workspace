@@ -42,6 +42,7 @@ export async function runJudge(
       registry: new ToolRegistry(),
       context: { userId: "eval-judge" },
       maxTokens: 200,
+      temperature: 0,
       client,
     })) {
       if (ev.type === "text-delta") text += ev.delta;

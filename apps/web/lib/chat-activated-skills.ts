@@ -6,7 +6,10 @@ import {
 } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { canActorRunSkill } from "@/lib/shares";
-import { checkSkillProviderAccess } from "@/lib/skills";
+import {
+  checkSkillProviderAccess,
+  isSkillProviderAccessReady,
+} from "@/lib/skills";
 import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
 export interface ActivatedSkillRequest {
@@ -92,21 +95,22 @@ export async function resolveActivatedSkillForChat({
 
   const checkProviderAccess = deps.checkProviderAccess ?? checkSkillProviderAccess;
   const access = await checkProviderAccess(db, actor.id, skill.mcpProviders);
-  const executionUnavailable = access.executionUnavailable ?? [];
-  if (
-    access.missingConnections.length > 0 ||
-    access.deniedAttestations.length > 0 ||
-    executionUnavailable.length > 0
-  ) {
+  if (!isSkillProviderAccessReady(access)) {
     const parts = [
       access.missingConnections.length
-        ? `connect ${access.missingConnections.join(", ")}`
+        ? `connect ${access.missingConnections.join(", ")} in Tools`
         : "",
       access.deniedAttestations.length
         ? `approve ${access.deniedAttestations.join(", ")}`
         : "",
-      executionUnavailable.length
-        ? `wait for chat execution to be enabled for ${executionUnavailable.join(", ")}`
+      access.reconnectRequired.length
+        ? `reconnect ${access.reconnectRequired.join(", ")} in Tools`
+        : "",
+      access.temporarilyUnavailable.length
+        ? `try ${access.temporarilyUnavailable.join(", ")} again in a moment`
+        : "",
+      access.executionUnavailable.length
+        ? `wait for chat execution to be enabled for ${access.executionUnavailable.join(", ")}`
         : "",
     ].filter(Boolean);
     return {
