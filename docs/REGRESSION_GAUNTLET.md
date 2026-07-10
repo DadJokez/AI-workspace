@@ -117,11 +117,14 @@ worker, and memory worker services report stable. It reads `DATABASE_URL` and
 Manager secret, creates a locked-down `user` role smoke identity, mints a
 short-lived normal NextAuth JWT, runs a signed-in chat that must persist a
 markdown artifact, verifies the artifact list and protected transcript export,
+queues a durable AgentCore worker turn with a built-in tool schema mounted,
 checks smoke-run backlog health, and then removes the smoke user data on
-success. Failed smoke runs leave the tagged smoke rows in place for debugging;
-the next run clears stale smoke data before starting. Backlog checks fail on
-terminal failures immediately and on active smoke rows only after they are stale,
-so a healthy worker claiming the just-created memory job does not flap deploys.
+success. The durable turn verifies that the deployed runtime version is ready,
+the chat worker can invoke it, and Bedrock accepts its tool configuration.
+Failed smoke runs leave the tagged smoke rows in place for debugging; the next
+run clears stale smoke data before starting. Backlog checks fail on terminal
+failures immediately and on active smoke rows only after they are stale, so a
+healthy worker claiming the just-created memory job does not flap deploys.
 
 Browser smoke defaults to a local Next dev server. In local mode it enables a
 test-only `/e2e/chat` harness that renders the real chat UI with mocked APIs, so

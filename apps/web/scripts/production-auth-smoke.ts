@@ -1,5 +1,7 @@
 import { encode } from "next-auth/jwt";
 import {
+  chatMessages,
+  chatThreads,
   closeDb,
   getDb,
   memoryCaptureQueue,
@@ -16,6 +18,10 @@ const SMOKE_NAME = "Comparative Smoke";
 
 const baseUrl = normalizeBaseUrl(process.env.SMOKE_BASE_URL ?? DEFAULT_BASE_URL);
 const timeoutMs = Number(process.env.SMOKE_AUTH_TIMEOUT_MS ?? 90_000);
+const agentCoreTimeoutMs = positiveNumber(
+  process.env.SMOKE_AGENTCORE_TIMEOUT_MS,
+  180_000,
+);
 const staleBacklogMs = positiveNumber(
   process.env.SMOKE_BACKLOG_STALE_MS,
   5 * 60_000,
@@ -28,6 +34,8 @@ const state: {
   threadId?: string;
   runId?: string;
   artifactId?: string;
+  agentCoreThreadId?: string;
+  agentCoreRunId?: string;
 } = {};
 
 let passed = false;
@@ -46,10 +54,11 @@ async function main() {
     await chatArtifactCheck(cookie);
     await artifactListCheck(cookie);
     await transcriptExportCheck(cookie);
+    await agentCoreDurableLaneCheck(db);
     await workerBacklogCheck(db);
     passed = true;
     console.log(
-      `\nproduction authenticated smoke passed for ${baseUrl} thread=${state.threadId} run=${state.runId} artifact=${state.artifactId}`,
+      `\nproduction authenticated smoke passed for ${baseUrl} thread=${state.threadId} run=${state.runId} artifact=${state.artifactId} agentcoreRun=${state.agentCoreRunId}`,
     );
   } finally {
     if (cleanupMode === "always" || (cleanupMode === "success" && passed)) {
@@ -57,7 +66,7 @@ async function main() {
       console.log("cleaned production smoke user data");
     } else {
       console.log(
-        `left production smoke data for debugging user=${SMOKE_USER_ID} thread=${state.threadId ?? "n/a"} run=${state.runId ?? "n/a"} artifact=${state.artifactId ?? "n/a"}`,
+        `left production smoke data for debugging user=${SMOKE_USER_ID} thread=${state.threadId ?? "n/a"} run=${state.runId ?? "n/a"} artifact=${state.artifactId ?? "n/a"} agentcoreRun=${state.agentCoreRunId ?? "n/a"}`,
       );
     }
   }
@@ -176,6 +185,108 @@ async function transcriptExportCheck(cookie: string) {
   assert(body.includes(state.threadId), "thread export missing thread id");
   assert(body.includes(artifactFilename), "thread export missing artifact filename");
   console.log("ok transcriptExportCheck");
+}
+
+async function agentCoreDurableLaneCheck(db: ReturnType<typeof getDb>) {
+  const prompt = `Production AgentCore tool-schema smoke ${runId}. Reply with a short confirmation.`;
+  const threadRows = await db
+    .insert(chatThreads)
+    .values({
+      userId: SMOKE_USER_ID,
+      title: `AgentCore smoke ${runId}`,
+      defaultModelId: "sonnet-4-6",
+    })
+    .returning({ id: chatThreads.id });
+  const threadId = threadRows[0]!.id;
+  state.agentCoreThreadId = threadId;
+
+  const messageRows = await db
+    .insert(chatMessages)
+    .values({
+      threadId,
+      role: "user",
+      content: prompt,
+    })
+    .returning({ id: chatMessages.id });
+  const userMessageId = messageRows[0]!.id;
+
+  const runRows = await db
+    .insert(runs)
+    .values({
+      userId: SMOKE_USER_ID,
+      threadId,
+      skillSlug: "chat-turn",
+      triggerType: "chat",
+      status: "queued",
+      modelId: "sonnet-4-6",
+      inputs: {
+        prompt,
+        threadId,
+        userMessageId,
+        requestedByUserId: SMOKE_USER_ID,
+        executionMode: "local",
+        runtimeV2: false,
+        runtimeRoute: {
+          lane: "durable-local",
+          executionMode: "local",
+          runtimeTarget: "agentcore-worker",
+          runtimeV2: false,
+          useWorker: true,
+          useMcp: true,
+          includeVaultContext: true,
+          // Mounting web__fetch_url makes Bedrock validate a real tool schema.
+          reasons: ["web_fetch_url", "production_agentcore_smoke"],
+        },
+      },
+    })
+    .returning({ id: runs.id });
+  const agentCoreRunId = runRows[0]!.id;
+  state.agentCoreRunId = agentCoreRunId;
+
+  const deadline = Date.now() + agentCoreTimeoutMs;
+  while (Date.now() < deadline) {
+    const rows = await db
+      .select({
+        status: runs.status,
+        runtime: runs.runtime,
+        outputs: runs.outputs,
+        error: runs.error,
+      })
+      .from(runs)
+      .where(eq(runs.id, agentCoreRunId))
+      .limit(1);
+    const current = rows[0];
+    assert(current, "AgentCore smoke run disappeared");
+
+    if (current.status === "failed" || current.status === "canceled") {
+      throw new Error(
+        `AgentCore smoke run ${current.status}: ${current.error ?? "unknown error"}`,
+      );
+    }
+    if (current.status === "succeeded") {
+      const outputs = isRecord(current.outputs) ? current.outputs : {};
+      const providerRun = isRecord(outputs.providerRun)
+        ? outputs.providerRun
+        : {};
+      assert(current.runtime === "agentcore", "durable smoke used the wrong runtime");
+      assert(
+        providerRun.runtime === "agentcore",
+        "durable smoke provider metadata did not report AgentCore",
+      );
+      assert(
+        typeof outputs.assistantText === "string" && outputs.assistantText.length > 0,
+        "AgentCore smoke returned no assistant text",
+      );
+      console.log("ok agentCoreDurableLaneCheck");
+      return;
+    }
+
+    await delay(1_000);
+  }
+
+  throw new Error(
+    `AgentCore smoke run did not finish within ${agentCoreTimeoutMs}ms`,
+  );
 }
 
 async function workerBacklogCheck(db: ReturnType<typeof getDb>) {
@@ -346,6 +457,10 @@ function positiveNumber(value: string | undefined, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function assertStatus(response: Response, expected: number, label: string) {
   assert(
     response.status === expected,
@@ -382,7 +497,7 @@ main()
     await closeDbForExit();
     console.error(err instanceof Error ? err.stack ?? err.message : String(err));
     console.error(
-      `production authenticated smoke failed for ${baseUrl} user=${SMOKE_USER_ID} thread=${state.threadId ?? "n/a"} run=${state.runId ?? "n/a"} artifact=${state.artifactId ?? "n/a"}`,
+      `production authenticated smoke failed for ${baseUrl} user=${SMOKE_USER_ID} thread=${state.threadId ?? "n/a"} run=${state.runId ?? "n/a"} artifact=${state.artifactId ?? "n/a"} agentcoreRun=${state.agentCoreRunId ?? "n/a"}`,
     );
     process.exit(1);
   });

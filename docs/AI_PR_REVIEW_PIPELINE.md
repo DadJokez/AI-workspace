@@ -69,6 +69,13 @@ must stay filtered to `PUSH` events where `HEAD_REF` is `^refs/heads/main$`,
 with pull-request build approval disabled; otherwise GitHub can show cosmetic
 red CodeBuild statuses on otherwise clean PR commits.
 
+The `CodeBuildAIWorkspaceRole` has a narrowly scoped
+`CodeBuildAgentCoreDeployment` inline policy matching
+`infra/iam/codebuild-agentcore-deploy-policy.json`. It permits the production
+build to create a new version of the single Comparative AgentCore runtime and
+pass only that runtime's execution role. Keep the live policy and the checked-in
+policy document aligned when either runtime is replaced.
+
 Approving reviews are a human workflow expectation, not a current GitHub branch
 protection requirement. Rob still owns merge judgment even when all mechanical
 checks are green.
