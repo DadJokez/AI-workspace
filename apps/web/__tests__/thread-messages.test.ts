@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { activeRunMessageContent } from "@/lib/thread-messages";
 
 describe("activeRunMessageContent", () => {
-  it("hides interrupted artifact snippets behind a clear retry message", () => {
+  it("#244 hides interrupted artifact snippets behind a clear retry message", () => {
     const content = activeRunMessageContent({
       status: "canceled",
       output: {

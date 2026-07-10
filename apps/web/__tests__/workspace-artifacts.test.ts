@@ -1,10 +1,10 @@
 import { MAX_TOKENS_TRUNCATION_NOTICE } from "@ai-workspace/agent";
 import { describe, expect, it } from "vitest";
 import {
-  parseAssistantArtifacts,
   planArtifactVersionsForExistingArtifacts,
   type WorkspaceArtifactVersionTarget,
-} from "@/lib/workspace-artifacts";
+} from "@/lib/artifact-revisions";
+import { parseAssistantArtifacts } from "@/lib/workspace-artifacts";
 
 describe("parseAssistantArtifacts", () => {
   it("extracts explicit filename code fences as workspace artifacts", () => {
@@ -383,7 +383,7 @@ Here is the revised version:
     expect(planned[0]?.version.title).toBeUndefined();
   });
 
-  it("keeps an explicitly named copy as a separate artifact group", () => {
+  it("#276 keeps an explicitly named copy in a separate artifact group", () => {
     const artifacts = parseAssistantArtifacts(`
 \`\`\`html filename="theme-picker-copy.html"
 <!doctype html>

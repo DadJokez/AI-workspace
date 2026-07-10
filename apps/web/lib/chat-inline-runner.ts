@@ -33,6 +33,10 @@ import {
   buildArtifactLookupMessage,
 } from "@/lib/artifact-context";
 import {
+  resolveArtifactContextTargets,
+  type WorkspaceArtifactVersionTarget,
+} from "@/lib/artifact-revisions";
+import {
   buildAppEditContext,
   createDraftAppVersionsForThreadArtifacts,
 } from "@/lib/apps";
@@ -59,8 +63,6 @@ import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import {
   createArtifactsFromAssistantMessage,
-  toWorkspaceArtifactVersionTarget,
-  type WorkspaceArtifactVersionTarget,
   type WorkspaceArtifactSummary,
 } from "@/lib/workspace-artifacts";
 import {
@@ -202,16 +204,8 @@ export async function streamInlineChatRun({
       }),
       buildAppEditContext({ db, userId, threadId: thread.id }),
     ]);
-    const artifactContextTarget =
-      artifactContextPayload?.mode === "revision" &&
-      artifactContextPayload.matchedArtifact
-        ? toWorkspaceArtifactVersionTarget(artifactContextPayload.matchedArtifact)
-        : null;
-    const separateFromArtifact =
-      artifactContextPayload?.mode === "separate" &&
-      artifactContextPayload.matchedArtifact
-        ? toWorkspaceArtifactVersionTarget(artifactContextPayload.matchedArtifact)
-        : null;
+    const { artifactContextTarget, separateFromArtifact } =
+      resolveArtifactContextTargets({ payload: artifactContextPayload });
     const artifactContext = artifactContextPayload?.text ?? null;
     const combinedArtifactContext = [appEditContext, artifactContext]
       .filter(Boolean)

@@ -6,13 +6,13 @@ import {
   hasConvertToNewArtifactIntent,
   mergeArtifactContextManifests,
   matchArtifact,
-  resolveArtifactContextTargets,
   shouldIncludeArtifactManifestForMessage,
 } from "@/lib/artifact-context";
-import type {
-  WorkspaceArtifactSummary,
-  WorkspaceArtifactVersionTarget,
-} from "@/lib/workspace-artifacts";
+import {
+  resolveArtifactContextTargets,
+  type WorkspaceArtifactVersionTarget,
+} from "@/lib/artifact-revisions";
+import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 
 /**
  * Cross-thread artifact context. Born from a real failure: asked to restyle "the
@@ -96,7 +96,7 @@ describe("matchArtifact", () => {
     );
   });
 
-  it("matches the current thread's newest html artifact for vague revision requests", () => {
+  it("#256 matches the current thread's newest HTML artifact for a vague revision", () => {
     const artifacts = [
       artifact({
         id: "artifact-current-v2",
@@ -201,7 +201,7 @@ describe("matchArtifact", () => {
     ).toBe("franz-ferdinand.html");
   });
 
-  it("keeps reopened thread artifacts even when global recent artifacts would omit them", () => {
+  it("#284 keeps reopened-thread artifacts outside the global recent window", () => {
     const reopenedThreadArtifact = artifact({
       id: "artifact-old-thread-v3",
       title: "Ancient Dashboard",
@@ -261,7 +261,7 @@ describe("formatArtifactContext", () => {
     expect(block).toContain("Do not invent a -v2");
   });
 
-  it("distinguishes explicit copy or fork requests from ordinary revisions", () => {
+  it("#276 distinguishes visible-original edits from explicit copies and forks", () => {
     expect(
       artifactContextModeForMessage({
         message: "make a copy of the magna carta game as a v2",
@@ -469,7 +469,7 @@ describe("buildArtifactLookupMessage", () => {
 });
 
 describe("resolveArtifactContextTargets", () => {
-  it("preserves the stored target when retry context rebuild has only a manifest", () => {
+  it("#244 preserves the stored revision target across a manifest-only retry", () => {
     const storedArtifactTarget: WorkspaceArtifactVersionTarget = {
       id: "artifact-old-thread-v3",
       title: "Ancient Dashboard",
