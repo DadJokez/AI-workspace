@@ -7,6 +7,10 @@ import {
 } from "@ai-workspace/db";
 import { and, asc, eq, inArray, or } from "drizzle-orm";
 import type { AgentActivityEvent } from "@/lib/activity-events";
+import {
+  parseAppDraftVersionSummaries,
+  type AppDraftVersionSummary,
+} from "@/lib/app-draft-versions";
 import { runEventsToActivityEvents } from "@/lib/run-events";
 import type {
   PersistedToolCall,
@@ -25,6 +29,7 @@ export interface ChatRunOutput {
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
   artifacts?: WorkspaceArtifactSummary[];
+  appDraftVersions?: AppDraftVersionSummary[];
 }
 
 export interface ThreadMessageWithActivity {
@@ -36,6 +41,7 @@ export interface ThreadMessageWithActivity {
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
   artifacts?: WorkspaceArtifactSummary[];
+  appDraftVersions?: AppDraftVersionSummary[];
   recommendations?: PersistedRecommendation[];
   activityEvents?: AgentActivityEvent[];
   pending?: boolean;
@@ -140,6 +146,10 @@ export async function loadThreadMessagesWithRunActivity({
   }
 
   const activityByAssistantMessageId = new Map<string, AgentActivityEvent[]>();
+  const appDraftVersionsByAssistantMessageId = new Map<
+    string,
+    AppDraftVersionSummary[]
+  >();
   const artifactsByMessageId = new Map<string, WorkspaceArtifactSummary[]>();
   const activeRunMessages: ThreadMessageWithActivity[] = [];
 
@@ -160,6 +170,12 @@ export async function loadThreadMessagesWithRunActivity({
         activityByAssistantMessageId.set(
           output.assistantMessageId,
           activityEvents,
+        );
+      }
+      if (output.appDraftVersions?.length) {
+        appDraftVersionsByAssistantMessageId.set(
+          output.assistantMessageId,
+          output.appDraftVersions,
         );
       }
       continue;
@@ -187,6 +203,7 @@ export async function loadThreadMessagesWithRunActivity({
       toolCalls: output.toolCalls ?? null,
       toolResults: output.toolResults ?? null,
       artifacts: output.artifacts,
+      appDraftVersions: output.appDraftVersions,
       activityEvents,
       pending: run.status === "queued" || run.status === "running",
       status:
@@ -211,6 +228,7 @@ export async function loadThreadMessagesWithRunActivity({
     toolCalls: toToolCalls(message.toolCalls),
     toolResults: toToolResults(message.toolResults),
     artifacts: artifactsByMessageId.get(message.id),
+    appDraftVersions: appDraftVersionsByAssistantMessageId.get(message.id),
     activityEvents: activityByAssistantMessageId.get(message.id),
     recommendations: recommendationsByMessageId.get(message.id),
   }));
@@ -300,6 +318,7 @@ function parseChatRunOutput(value: unknown): ChatRunOutput {
     artifacts: Array.isArray(value.artifacts)
       ? (value.artifacts as WorkspaceArtifactSummary[])
       : undefined,
+    appDraftVersions: parseAppDraftVersionSummaries(value.appDraftVersions),
   };
 }
 

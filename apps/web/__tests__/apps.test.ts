@@ -8,6 +8,7 @@ import {
   findCredentialShapedContent,
   formatAppContentPromptBlock,
   formatAppMetadataPromptBlock,
+  formatOversizedAppEditGuidance,
   isUniqueConstraintError,
   isCompleteHtmlArtifact,
   isServableArtifact,
@@ -148,6 +149,17 @@ describe("app prompt data blocks", () => {
 
     expect(content.length).toBeLessThan(60_120);
     expect(content).toContain("app data truncated for length");
+  });
+
+  it("refuses to imply an oversized app was loaded for editing", () => {
+    const guidance = formatOversizedAppEditGuidance({
+      filename: "large-dashboard.html",
+      contentLength: 75_000,
+    });
+
+    expect(guidance).toContain("75,000 characters");
+    expect(guidance).toContain("content was not included");
+    expect(guidance).toContain("Do not claim that you inspected, edited, or saved");
   });
 
   it("frames app metadata as data too", () => {

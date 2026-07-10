@@ -402,7 +402,7 @@ describe("app lifecycle stateful paths", () => {
       artifacts: [makeArtifactSummary()],
     });
 
-    expect(result).toEqual({ created: [], rejected: [] });
+    expect(result).toEqual({ created: [], summaries: [], rejected: [] });
     expect(loadWorkspaceArtifactById).not.toHaveBeenCalled();
     expect(state.updateSets).toContainEqual(
       expect.objectContaining({ status: "revoked" }),
@@ -437,6 +437,20 @@ describe("app lifecycle stateful paths", () => {
     });
 
     expect(result.created).toEqual([createdVersion]);
+    expect(result.summaries).toEqual([
+      {
+        id: "version-4",
+        appId: "app-1",
+        appName: "Lifecycle Demo",
+        appSlug: "lifecycle-demo",
+        artifactId: "artifact-1",
+        versionNumber: 4,
+        status: "draft",
+        canDeploy: false,
+        previewUrl: "/api/apps/app-1/versions/version-4/content",
+        liveUrl: "/apps/lifecycle-demo",
+      },
+    ]);
     expect(state.insertValues).toContainEqual(
       expect.objectContaining({
         appId: "app-1",
@@ -445,6 +459,19 @@ describe("app lifecycle stateful paths", () => {
         status: "draft",
         createdByUserId: editorSession.id,
         sourceThreadId: "edit-thread-1",
+      }),
+    );
+    expect(state.insertValues).toContainEqual(
+      expect.objectContaining({
+        actionType: "app_draft_created",
+        actorUserId: editorSession.id,
+        metadata: expect.objectContaining({
+          appVersionId: "version-4",
+          appEditSessionId: "session-1",
+          artifactId: "artifact-1",
+          threadId: "edit-thread-1",
+          versionNumber: 4,
+        }),
       }),
     );
   });
