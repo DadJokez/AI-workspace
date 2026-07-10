@@ -157,12 +157,10 @@ test.describe("persona and workspace surfaces", () => {
       .toHaveAttribute("href", "/api/oauth/google/start");
   });
 
-  test("shows linked Google as coming soon, not ready in chat", async ({
+  test("shows a sufficiently scoped Google connection as ready in chat", async ({
     page,
     isMobile,
   }) => {
-    // #323: a Google OAuth connection must not read as a working chat tool
-    // until the runtime integration ships.
     await installMockComparativeApi(page, {
       oauthStatus: {
         github: false,
@@ -171,10 +169,9 @@ test.describe("persona and workspace surfaces", () => {
         providerDetails: {
           google: {
             connected: true,
-            executionConfigured: false,
-            toolAvailable: false,
-            status: "connected_execution_not_configured",
-            reason: "integration_coming_soon",
+            executionConfigured: true,
+            toolAvailable: true,
+            status: "ready",
           },
         },
       },
@@ -184,10 +181,36 @@ test.describe("persona and workspace surfaces", () => {
     await openNavItem(page, "Tools", isMobile);
     const connectedSection = page.getByTestId("tools-section-connected");
     const googleCard = connectedSection.getByTestId("tool-card-google");
-    await expect(googleCard.getByText("Linked")).toBeVisible();
-    await expect(googleCard.getByText("Chat actions coming soon")).toBeVisible();
-    await expect(googleCard.getByText("Ready in chat")).not.toBeVisible();
-    await expect(googleCard.getByText("Setup needed for chat")).not.toBeVisible();
+    await expect(googleCard.getByText("Connected")).toBeVisible();
+    await expect(googleCard.getByText("Ready in chat")).toBeVisible();
+  });
+
+  test("shows an old Google grant as needing reconnect", async ({
+    page,
+    isMobile,
+  }) => {
+    await installMockComparativeApi(page, {
+      oauthStatus: {
+        google: true,
+        providerDetails: {
+          google: {
+            connected: true,
+            executionConfigured: true,
+            toolAvailable: false,
+            status: "reconnect_required",
+            reason: "insufficient_scope",
+          },
+        },
+      },
+    });
+    await gotoE2EChat(page);
+
+    await openNavItem(page, "Tools", isMobile);
+    const googleCard = page.getByTestId("tool-card-google");
+    await expect(googleCard.getByText("Reconnect").first()).toBeVisible();
+    await expect(googleCard.getByText("Renew Google access")).toBeVisible();
+    await expect(googleCard.getByRole("link", { name: "Reconnect" }))
+      .toHaveAttribute("href", "/api/oauth/google/start");
   });
 
   test("prioritizes connected tools above disconnected tools", async ({

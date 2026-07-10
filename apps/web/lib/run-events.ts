@@ -9,6 +9,8 @@ import {
 } from "@/lib/tool-events";
 import {
   redactErrorText,
+  redactProviderToolError,
+  redactProviderToolPayload,
   redactToolPayload,
 } from "@/lib/tool-redaction";
 
@@ -104,7 +106,12 @@ export async function appendToolCallRunEvent({
     provider: call.provider,
     toolName: call.toolName,
     toolCallId: call.id,
-    input: call.input,
+    input: redactProviderToolPayload({
+      provider: call.provider,
+      toolName: call.toolName,
+      direction: "input",
+      value: call.input,
+    }),
     metadata: { rawToolName: call.name },
     occurredAt: new Date(call.startedAt),
   });
@@ -139,8 +146,18 @@ export async function appendToolResultRunEvent({
     provider: call?.provider ?? result.provider ?? null,
     toolName: call?.toolName ?? result.toolName ?? null,
     toolCallId: result.toolCallId,
-    output: result.output,
-    error: result.isError ? result.output : undefined,
+    output: redactProviderToolPayload({
+      provider: call?.provider ?? result.provider,
+      toolName: call?.toolName ?? result.toolName,
+      direction: "output",
+      value: result.output,
+    }),
+    error: result.isError
+      ? redactProviderToolError(
+          call?.provider ?? result.provider,
+          result.output,
+        )
+      : undefined,
     metadata: {
       ...(call?.name || result.name
         ? { rawToolName: call?.name ?? result.name }

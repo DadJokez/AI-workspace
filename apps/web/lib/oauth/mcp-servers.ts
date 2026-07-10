@@ -11,6 +11,20 @@ import {
   notionMcpRelayToken,
 } from "@/lib/notion/mcp";
 import {
+  GOOGLE_MCP_CONTEXT_HEADER,
+  GOOGLE_MCP_PATH,
+  GOOGLE_MCP_RELAY_HEADER,
+  buildGoogleTurnContext,
+  googleMcpRelayToken,
+  signGoogleTurnContext,
+  type GoogleHistoryMessage,
+  type GoogleTurnContext,
+} from "@/lib/google/write-authorization";
+import {
+  resolveGoogleConnection,
+  type GoogleConnectionState,
+} from "@/lib/oauth/google-token";
+import {
   filterAttestedProviders,
   loadActiveToolAttestations,
   loadToolCatalogForProviders,
@@ -24,10 +38,7 @@ interface McpProviderConfig {
 const MCP_PROVIDER_CONFIG: Record<string, McpProviderConfig> = {
   github: { endpoint: { url: "https://api.githubcopilot.com/mcp/" } },
   notion: notionMcpConfig(process.env.NOTION_MCP_ENDPOINT_URL),
-  // Connectable but not executable: the chat-side Gmail/Calendar integration
-  // (#297) has not shipped. Adding the endpoint here is what flips google from
-  // "coming soon" to live — UI and preamble messaging key off this reason.
-  google: { unavailableReason: "integration_coming_soon" },
+  google: { endpoint: { url: new URL(GOOGLE_MCP_PATH, PUBLIC_BASE_URL).toString() } },
 };
 
 /**
@@ -91,6 +102,8 @@ export interface UserMcpProviderStatus {
   deniedProviders: string[];
   /** Connected + attested, but this deployment cannot mount the provider yet. */
   executionUnavailableProviders?: string[];
+  /** Connected Google grants that must be renewed before tools can mount. */
+  reconnectRequiredProviders?: string[];
   /**
    * Subset of `executionUnavailableProviders` whose reason is specifically
    * "integration_coming_soon" (linked, nothing broken, ships later) — not a
@@ -114,10 +127,21 @@ export interface UserMcpProviderStatus {
       status:
         | "ready"
         | "pending_approval"
+        | "reconnect_required"
+        | "temporarily_unavailable"
         | "execution_not_configured"
         | "unsupported_provider";
+      reason?: string;
     }
   >;
+}
+
+export interface McpTurnContext {
+  runId: string;
+  threadId: string;
+  prompt: string;
+  history: readonly GoogleHistoryMessage[];
+  interactive: boolean;
 }
 
 export async function loadUserMcpProviderStatus(
@@ -125,7 +149,7 @@ export async function loadUserMcpProviderStatus(
   userId: string,
   options?: { onlyProviders?: string[] },
 ): Promise<UserMcpProviderStatus> {
-  let rows: Array<{ provider: string }>;
+  let rows: Array<{ provider: string; expiresAt: Date | string | null }>;
   try {
     rows = await db
       .select({
@@ -147,15 +171,43 @@ export async function loadUserMcpProviderStatus(
     };
   }
 
-  const connectedProviders = uniqueSupportedProviders(rows, options);
+  let googleConnection: GoogleConnectionState | null = null;
+  if (
+    rows.some((row) => row.provider === "google") &&
+    (!options?.onlyProviders || options.onlyProviders.includes("google"))
+  ) {
+    try {
+      googleConnection = await resolveGoogleConnection(db, userId);
+    } catch (err) {
+      console.warn("[mcp] Google connection status failed:", err);
+      googleConnection = {
+        status: "temporarily_unavailable",
+        connected: true,
+        ready: false,
+        reason: "token_refresh_failed",
+        grantedScopes: [],
+      };
+    }
+  }
+
+  const connectedProviders = uniqueSupportedProviders(
+    rows,
+    options,
+    googleConnection,
+  );
   const {
     allowedProviders: attestedProviders,
     deniedProviders,
     toolPolicies: attestedToolPolicies,
   } =
     await resolveAttestedProviders(db, userId, connectedProviders);
-  const allowedProviders = attestedProviders.filter((provider) =>
-    isMcpProviderExecutionConfigured(provider),
+  const credentialUnavailableProviders = attestedProviders.filter(
+    (provider) => provider === "google" && googleConnection?.ready !== true,
+  );
+  const allowedProviders = attestedProviders.filter(
+    (provider) =>
+      isMcpProviderExecutionConfigured(provider) &&
+      !credentialUnavailableProviders.includes(provider),
   );
   const executionUnavailableProviders = attestedProviders.filter(
     (provider) => !isMcpProviderExecutionConfigured(provider),
@@ -163,6 +215,8 @@ export async function loadUserMcpProviderStatus(
   const comingSoonProviders = executionUnavailableProviders.filter(
     isProviderComingSoon,
   );
+  const reconnectRequiredProviders =
+    googleConnection?.status === "reconnect_required" ? ["google"] : [];
   const toolPolicies = Object.fromEntries(
     Object.entries(attestedToolPolicies).filter(([provider]) =>
       allowedProviders.includes(provider),
@@ -174,6 +228,7 @@ export async function loadUserMcpProviderStatus(
     allowedProviders,
     deniedProviders,
     executionUnavailableProviders,
+    reconnectRequiredProviders,
     comingSoonProviders,
     toolPolicies,
     providerAvailability: buildProviderAvailability({
@@ -182,6 +237,7 @@ export async function loadUserMcpProviderStatus(
       allowedProviders,
       deniedProviders,
       executionUnavailableProviders,
+      googleConnection,
     }),
   };
 }
@@ -206,6 +262,7 @@ export async function buildUserMcpServers(
      * (chat behavior); `[]` = mount nothing.
      */
     onlyProviders?: string[];
+    turnContext?: McpTurnContext;
   },
 ): Promise<{
   mcpServers: Record<string, McpServerSpec> | undefined;
@@ -226,7 +283,9 @@ export async function buildUserMcpServers(
     return { mcpServers: undefined, deniedProviders: [] };
   }
 
-  rows = rows.filter(isActiveOAuthToken);
+  rows = rows.filter(
+    (row) => row.provider === "google" || isActiveOAuthToken(row),
+  );
 
   if (options?.onlyProviders) {
     const allowlist = new Set(options.onlyProviders);
@@ -239,6 +298,14 @@ export async function buildUserMcpServers(
   const allowedProviders = status.allowedProviders;
   const deniedProviders = status.deniedProviders;
   const allowed = new Set(allowedProviders);
+  const googleTurnContext = buildGoogleTurnContext({
+    userId,
+    threadId: options?.turnContext?.threadId ?? "read-only",
+    runId: options?.turnContext?.runId ?? "read-only",
+    prompt: options?.turnContext?.prompt ?? "",
+    history: options?.turnContext?.history ?? [],
+    interactive: options?.turnContext?.interactive === true,
+  });
 
   const out: Record<string, McpServerSpec> = {};
   for (const row of rows) {
@@ -247,11 +314,22 @@ export async function buildUserMcpServers(
     const toolPolicy = status.toolPolicies?.[row.provider];
     if (!allowed.has(row.provider) || !toolPolicy) continue;
     let token: string;
-    try {
-      token = decryptSecret(row.accessToken);
-    } catch (err) {
-      console.warn(`[mcp] decrypt failed for ${row.provider}:`, err);
-      continue;
+    if (row.provider === "google") {
+      try {
+        const connection = await resolveGoogleConnection(db, userId);
+        if (!connection.ready) continue;
+        token = connection.accessToken;
+      } catch (err) {
+        console.warn("[mcp] Google token resolution failed:", err);
+        continue;
+      }
+    } else {
+      try {
+        token = decryptSecret(row.accessToken);
+      } catch (err) {
+        console.warn(`[mcp] decrypt failed for ${row.provider}:`, err);
+        continue;
+      }
     }
     const headers: Record<string, string> = {
       Authorization: `Bearer ${token}`,
@@ -267,11 +345,28 @@ export async function buildUserMcpServers(
         continue;
       }
     }
+    if (
+      row.provider === "google" &&
+      isFirstPartyGoogleMcpEndpoint(endpoint.url)
+    ) {
+      try {
+        headers[GOOGLE_MCP_RELAY_HEADER] = googleMcpRelayToken();
+        headers[GOOGLE_MCP_CONTEXT_HEADER] =
+          signGoogleTurnContext(googleTurnContext);
+      } catch (err) {
+        console.warn("[mcp] Google relay signing failed:", err);
+        continue;
+      }
+    }
+    const resolvedToolPolicy =
+      row.provider === "google"
+        ? applyGoogleTurnToolPolicy(toolPolicy, googleTurnContext)
+        : toolPolicy;
     out[row.provider] = {
       type: "http",
       url: endpoint.url,
       headers,
-      ...toolPolicy,
+      ...resolvedToolPolicy,
     };
   }
   return {
@@ -286,12 +381,14 @@ function buildProviderAvailability({
   allowedProviders,
   deniedProviders,
   executionUnavailableProviders,
+  googleConnection,
 }: {
   connectedProviders: readonly string[];
   attestedProviders: readonly string[];
   allowedProviders: readonly string[];
   deniedProviders: readonly string[];
   executionUnavailableProviders: readonly string[];
+  googleConnection: GoogleConnectionState | null;
 }): UserMcpProviderStatus["providerAvailability"] {
   const attested = new Set(attestedProviders);
   const allowed = new Set(allowedProviders);
@@ -301,8 +398,13 @@ function buildProviderAvailability({
     connectedProviders.map((provider) => {
       const execution = getMcpProviderExecutionStatus(provider);
       const modelAvailable = allowed.has(provider);
+      const credentialState = provider === "google" ? googleConnection : null;
       const status = modelAvailable
         ? "ready"
+        : credentialState?.status === "reconnect_required"
+          ? "reconnect_required"
+          : credentialState?.status === "temporarily_unavailable"
+            ? "temporarily_unavailable"
         : denied.has(provider)
           ? "pending_approval"
           : unavailable.has(provider)
@@ -314,12 +416,17 @@ function buildProviderAvailability({
         provider,
         {
           connected: true,
-          tokenValid: true,
+          tokenValid: credentialState ? credentialState.ready : true,
           userApproved: attested.has(provider),
           executionConfigured: execution.executionConfigured,
           toolMountable: modelAvailable,
           modelAvailable,
           status,
+          ...(credentialState && "reason" in credentialState
+            ? { reason: credentialState.reason }
+            : execution.reason
+              ? { reason: execution.reason }
+              : {}),
         },
       ];
     }),
@@ -356,6 +463,47 @@ function isFirstPartyNotionMcpEndpoint(rawUrl: string): boolean {
   }
 }
 
+function isFirstPartyGoogleMcpEndpoint(rawUrl: string): boolean {
+  try {
+    const actual = new URL(rawUrl);
+    const expected = new URL(GOOGLE_MCP_PATH, PUBLIC_BASE_URL);
+    return (
+      actual.origin === expected.origin &&
+      actual.pathname === expected.pathname
+    );
+  } catch {
+    return false;
+  }
+}
+
+const GOOGLE_READ_AND_PREPARE_TOOLS = [
+  "search_mail",
+  "get_message",
+  "get_thread",
+  "list_calendars",
+  "list_events",
+  "get_event",
+  "query_free_busy",
+  "prepare_event",
+] as const;
+
+function applyGoogleTurnToolPolicy(
+  policy: { allowedTools?: string[]; blockedTools?: string[] },
+  turnContext: GoogleTurnContext,
+): { allowedTools: string[]; blockedTools?: string[] } {
+  const availableThisTurn = new Set<string>([
+    ...GOOGLE_READ_AND_PREPARE_TOOLS,
+    ...turnContext.allowedWrites,
+  ]);
+  const allowedTools = (
+    policy.allowedTools ?? Array.from(availableThisTurn)
+  ).filter((tool) => availableThisTurn.has(tool));
+  return {
+    allowedTools,
+    ...(policy.blockedTools ? { blockedTools: policy.blockedTools } : {}),
+  };
+}
+
 function parseMcpEndpoint(rawUrl: string | undefined): { url: string } | undefined {
   const value = rawUrl?.trim();
   if (!value) return undefined;
@@ -371,6 +519,7 @@ function parseMcpEndpoint(rawUrl: string | undefined): { url: string } | undefin
 function uniqueSupportedProviders(
   rows: Array<{ provider: string; expiresAt?: Date | string | null }>,
   options?: { onlyProviders?: string[] },
+  googleConnection?: GoogleConnectionState | null,
 ): string[] {
   const allowlist = options?.onlyProviders
     ? new Set(options.onlyProviders)
@@ -378,7 +527,11 @@ function uniqueSupportedProviders(
   return Array.from(
     new Set(
       rows
-        .filter(isActiveOAuthToken)
+        .filter((row) =>
+          row.provider === "google"
+            ? googleConnection?.connected === true
+            : isActiveOAuthToken(row),
+        )
         .map((row) => row.provider)
         .filter((provider) =>
           SUPPORTED_MCP_PROVIDERS.includes(provider),

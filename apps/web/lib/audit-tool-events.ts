@@ -3,8 +3,8 @@ import type {
   PersistedToolResult,
 } from "@/lib/tool-events";
 import {
-  redactErrorText,
-  redactToolPayload,
+  redactProviderToolError,
+  redactProviderToolPayload,
 } from "@/lib/tool-redaction";
 
 export interface BuildToolAuditRowsInput {
@@ -127,12 +127,24 @@ function buildRow({
     chatMessageId: chatMessageId ?? null,
     runId: runId ?? null,
     input: call
-      ? (redactToolPayload(call.input) as Record<string, unknown>)
+      ? (redactProviderToolPayload({
+          provider,
+          toolName,
+          direction: "input",
+          value: call.input,
+        }) as Record<string, unknown>)
       : null,
     output: result?.isError
       ? null
-      : (redactToolPayload(result?.output) ?? null),
-    error: result?.isError ? redactErrorText(result.output) : null,
+      : (redactProviderToolPayload({
+          provider,
+          toolName,
+          direction: "output",
+          value: result?.output,
+        }) ?? null),
+    error: result?.isError
+      ? redactProviderToolError(provider, result.output)
+      : null,
     metadata: {
       ...(rawToolName ? { rawToolName } : {}),
       modelId,

@@ -155,6 +155,90 @@ describe("buildToolAuditRows", () => {
     });
   });
 
+  it("keeps Google audit facts without copying mail or calendar content", () => {
+    const rows = buildToolAuditRows({
+      ...base,
+      calls: [
+        {
+          id: "call_google",
+          name: "google__create_draft",
+          provider: "google",
+          toolName: "create_draft",
+          input: {
+            to: ["sam@example.com"],
+            subject: "Confidential launch",
+            body: "Private body text",
+          },
+          startedAt: "2026-05-15T12:00:00.000Z",
+        },
+      ],
+      results: [
+        {
+          toolCallId: "call_google",
+          provider: "google",
+          toolName: "create_draft",
+          output: {
+            kind: "google_gmail_draft_created",
+            draftId: "draft-secret-id",
+            sent: false,
+          },
+          isError: false,
+          completedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    });
+
+    expect(rows[0]).toMatchObject({
+      provider: "google",
+      toolName: "create_draft",
+      input: {
+        redacted: true,
+        recipientCount: 1,
+        subjectLength: 19,
+        bodyLength: 17,
+      },
+      output: {
+        redacted: true,
+        kind: "google_gmail_draft_created",
+        sent: false,
+      },
+    });
+    expect(JSON.stringify(rows[0])).not.toContain("sam@example.com");
+    expect(JSON.stringify(rows[0])).not.toContain("Private body text");
+    expect(JSON.stringify(rows[0])).not.toContain("draft-secret-id");
+  });
+
+  it("does not persist provider error text that may contain Google content", () => {
+    const rows = buildToolAuditRows({
+      ...base,
+      calls: [
+        {
+          id: "call_google_failed",
+          name: "google__create_draft",
+          provider: "google",
+          toolName: "create_draft",
+          input: {},
+          startedAt: "2026-05-15T12:00:00.000Z",
+        },
+      ],
+      results: [
+        {
+          toolCallId: "call_google_failed",
+          provider: "google",
+          toolName: "create_draft",
+          output: "Draft for private-recipient@example.com failed.",
+          isError: true,
+          completedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    });
+
+    expect(rows[0]?.error).toBe(
+      "Google tool failed; provider content was redacted from this log.",
+    );
+    expect(JSON.stringify(rows[0])).not.toContain("private-recipient@example.com");
+  });
+
   it("keeps unmatched results auditable", () => {
     const rows = buildToolAuditRows({
       ...base,

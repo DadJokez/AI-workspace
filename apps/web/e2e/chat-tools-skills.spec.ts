@@ -76,6 +76,150 @@ test.describe("chat tools and skills", () => {
     await expect(page.getByText("Searched GitHub")).toBeVisible();
   });
 
+  test("keeps Gmail drafts and confirmed calendar writes in the current chat", async ({
+    page,
+  }) => {
+    const chatBodies: Record<string, unknown>[] = [];
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      onChat: async (body, route) => {
+        chatBodies.push(body);
+        const turn = chatBodies.length;
+        const events =
+          turn === 1
+            ? [
+                {
+                  type: "tool-call",
+                  call: {
+                    id: "google-draft",
+                    name: "google__create_draft",
+                    input: {
+                      to: ["nina@example.com"],
+                      subject: "Q2 recap",
+                      body: "The recap looks good.",
+                    },
+                  },
+                },
+                {
+                  type: "tool-result",
+                  result: {
+                    toolCallId: "google-draft",
+                    output: {
+                      kind: "google_gmail_draft_created",
+                      draftId: "draft-297",
+                      sent: false,
+                    },
+                    isError: false,
+                  },
+                },
+                {
+                  type: "text-delta",
+                  delta: "I saved the Gmail draft. It has not been sent.",
+                },
+              ]
+            : turn === 2
+              ? [
+                  {
+                    type: "tool-call",
+                    call: {
+                      id: "google-proposal",
+                      name: "google__prepare_event",
+                      input: {
+                        title: "Q2 recap review",
+                        start: "2026-07-10T15:00:00-04:00",
+                        end: "2026-07-10T15:30:00-04:00",
+                        timeZone: "America/New_York",
+                        attendees: ["nina@example.com"],
+                        sendInvitations: true,
+                      },
+                    },
+                  },
+                  {
+                    type: "tool-result",
+                    result: {
+                      toolCallId: "google-proposal",
+                      output: {
+                        kind: "google_calendar_event_proposal",
+                        proposalId: "proposal-297",
+                        requiresConfirmation: true,
+                      },
+                      isError: false,
+                    },
+                  },
+                  {
+                    type: "text-delta",
+                    delta:
+                      "Q2 recap review, July 10 from 3:00–3:30 PM ET with Nina. Google will send an invitation. Create it?",
+                  },
+                ]
+              : [
+                  {
+                    type: "tool-call",
+                    call: {
+                      id: "google-create-event",
+                      name: "google__create_event",
+                      input: { proposalId: "proposal-297" },
+                    },
+                  },
+                  {
+                    type: "tool-result",
+                    result: {
+                      toolCallId: "google-create-event",
+                      output: {
+                        kind: "google_calendar_event_created",
+                        invitationsSent: true,
+                        idempotentReplay: false,
+                      },
+                      isError: false,
+                    },
+                  },
+                  {
+                    type: "text-delta",
+                    delta: "Created the event and sent Nina's invitation.",
+                  },
+                ];
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-google-writes",
+            modelId: "sonnet-4-6",
+          },
+          ...events,
+          {
+            type: "persisted",
+            assistantMessageId: `assistant-google-${turn}`,
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+
+    await page.goto("/e2e/chat");
+    const composer = page.getByPlaceholder(/ask anything/i);
+
+    await composer.fill("Draft an email to Nina saying the Q2 recap looks good.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("I saved the Gmail draft. It has not been sent.")).toBeVisible();
+
+    await composer.fill("Create a 30-minute Q2 recap review with Nina tomorrow at 3pm.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText(/Google will send an invitation/)).toBeVisible();
+
+    await composer.fill("Create the event.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Created the event and sent Nina's invitation.")).toBeVisible();
+
+    expect(chatBodies.map((body) => body.message)).toEqual([
+      "Draft an email to Nina saying the Q2 recap looks good.",
+      "Create a 30-minute Q2 recap review with Nina tomorrow at 3pm.",
+      "Create the event.",
+    ]);
+    await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
+    await expect(page.getByTestId("active-chat-title")).toBeVisible();
+  });
+
   test("activates slash skills inside the current chat without leaking the skill prompt", async ({
     page,
   }) => {

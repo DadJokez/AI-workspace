@@ -421,6 +421,12 @@ function hasCapabilityBackedToolIntent(
   capabilitySignals: ResolvedRoutingCapabilitySignals,
 ): string | null {
   if (
+    hasApprovedProvider(capabilitySignals, "google") &&
+    hasGoogleToolIntent(value)
+  ) {
+    return "capability_graph_google_mail_calendar";
+  }
+  if (
     hasApprovedProvider(capabilitySignals, "notion") &&
     hasNotionLookupIntent(value)
   ) {
@@ -444,6 +450,17 @@ function hasCapabilityBackedToolIntent(
     return "capability_graph_github_delivery_lookup";
   }
   return null;
+}
+
+function hasGoogleToolIntent(value: string): boolean {
+  const googleResource =
+    /\b(gmail|inbox|email|e-mail|mail|calendar|calendars|event|events|meeting|meetings|availability|free\s*busy)\b/.test(
+      value,
+    );
+  if (!googleResource) return false;
+  return /\b(check|inspect|look|find|search|list|read|show|see|view|summarize|recap|draft|compose|write|save|create|schedule|book|what|when|who)\b/.test(
+    value,
+  );
 }
 
 const GITHUB_LOOKUP_ACTION_RE =

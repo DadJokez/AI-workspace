@@ -1,9 +1,11 @@
 import { AuthConfigError } from "@ai-workspace/auth";
-import { getDb, oauthTokens } from "@ai-workspace/db";
-import { eq } from "drizzle-orm";
+import { getDb } from "@ai-workspace/db";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
-import { getMcpProviderExecutionStatus } from "@/lib/oauth/mcp-servers";
+import {
+  getMcpProviderExecutionStatus,
+  loadUserMcpProviderStatus,
+} from "@/lib/oauth/mcp-servers";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +13,9 @@ type Provider = "github" | "notion" | "google";
 type ProviderConnectionStatus =
   | "not_connected"
   | "ready"
+  | "pending_approval"
+  | "reconnect_required"
+  | "temporarily_unavailable"
   | "connected_execution_not_configured";
 
 /**
@@ -35,51 +40,55 @@ export async function GET() {
 
   const db = getDb();
 
-  const rows = await db
-    .select({ provider: oauthTokens.provider, expiresAt: oauthTokens.expiresAt })
-    .from(oauthTokens)
-    .where(eq(oauthTokens.userId, sessionUser.id));
-
-  const now = Date.now();
-  const connected = new Set(
-    rows
-      .filter(
-        (r) =>
-          !r.expiresAt ||
-          (r.expiresAt instanceof Date ? r.expiresAt.getTime() : Date.parse(r.expiresAt)) >
-            now,
-      )
-      .map((r) => r.provider),
-  );
+  const providerStatus = await loadUserMcpProviderStatus(db, sessionUser.id);
+  const details = {
+    github: providerDetails("github", providerStatus.providerAvailability?.github),
+    notion: providerDetails("notion", providerStatus.providerAvailability?.notion),
+    google: providerDetails("google", providerStatus.providerAvailability?.google),
+  };
   const status: Record<Provider, boolean> = {
-    github: connected.has("github"),
-    notion: connected.has("notion"),
-    google: connected.has("google"),
+    github: details.github.connected,
+    notion: details.notion.connected,
+    google: details.google.connected,
   };
 
   return NextResponse.json({
     ...status,
-    providerDetails: {
-      github: providerDetails("github", connected.has("github")),
-      notion: providerDetails("notion", connected.has("notion")),
-      google: providerDetails("google", connected.has("google")),
-    },
+    providerDetails: details,
   });
 }
 
-function providerDetails(provider: Provider, connected: boolean) {
+function providerDetails(
+  provider: Provider,
+  availability:
+    | NonNullable<
+        Awaited<ReturnType<typeof loadUserMcpProviderStatus>>["providerAvailability"]
+      >[string]
+    | undefined,
+) {
   const execution = getMcpProviderExecutionStatus(provider);
-  const toolAvailable = connected && execution.executionConfigured;
+  const connected = availability?.connected === true;
+  const toolAvailable = availability?.modelAvailable === true;
   const status: ProviderConnectionStatus = !connected
     ? "not_connected"
     : toolAvailable
       ? "ready"
+      : availability?.status === "reconnect_required"
+        ? "reconnect_required"
+        : availability?.status === "temporarily_unavailable"
+          ? "temporarily_unavailable"
+          : availability?.status === "pending_approval"
+            ? "pending_approval"
       : "connected_execution_not_configured";
   return {
     connected,
     executionConfigured: execution.executionConfigured,
     toolAvailable,
     status,
-    ...(execution.reason ? { reason: execution.reason } : {}),
+    ...(availability?.reason
+      ? { reason: availability.reason }
+      : execution.reason
+        ? { reason: execution.reason }
+        : {}),
   };
 }

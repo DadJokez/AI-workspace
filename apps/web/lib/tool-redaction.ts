@@ -40,6 +40,71 @@ export function redactErrorText(value: unknown): string {
   return truncateString(text);
 }
 
+export function redactProviderToolError(
+  provider: string | null | undefined,
+  value: unknown,
+): string {
+  if (provider === "google") {
+    return "Google tool failed; provider content was redacted from this log.";
+  }
+  return redactErrorText(value);
+}
+
+export function redactProviderToolPayload({
+  provider,
+  toolName,
+  direction,
+  value,
+}: {
+  provider: string | null | undefined;
+  toolName: string | null | undefined;
+  direction: "input" | "output";
+  value: unknown;
+}): unknown {
+  if (provider !== "google") return redactToolPayload(value);
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { redacted: true };
+  }
+  const payload = value as Record<string, unknown>;
+  if (direction === "input") {
+    return {
+      redacted: true,
+      fields: Object.keys(payload).sort(),
+      ...(toolName === "create_draft"
+        ? {
+            recipientCount: arrayLength(payload.to),
+            ccCount: arrayLength(payload.cc),
+            bccCount: arrayLength(payload.bcc),
+            subjectLength: stringLength(payload.subject),
+            bodyLength: stringLength(payload.body),
+            replyContext: Boolean(payload.threadId || payload.inReplyTo),
+          }
+        : {}),
+      ...(toolName === "prepare_event"
+        ? {
+            attendeeCount: arrayLength(payload.attendees),
+            descriptionLength: stringLength(payload.description),
+            hasLocation: typeof payload.location === "string",
+            sendInvitations: payload.sendInvitations === true,
+          }
+        : {}),
+    };
+  }
+  return {
+    redacted: true,
+    kind: typeof payload.kind === "string" ? payload.kind : undefined,
+    sent: typeof payload.sent === "boolean" ? payload.sent : undefined,
+    invitationsSent:
+      typeof payload.invitationsSent === "boolean"
+        ? payload.invitationsSent
+        : undefined,
+    idempotentReplay:
+      typeof payload.idempotentReplay === "boolean"
+        ? payload.idempotentReplay
+        : undefined,
+  };
+}
+
 function redactValue(value: unknown, depth: number): unknown {
   if (value === null || value === undefined) return value;
   if (typeof value === "string") return redactString(value);
@@ -102,4 +167,12 @@ function safeJsonStringify(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function arrayLength(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function stringLength(value: unknown): number {
+  return typeof value === "string" ? value.length : 0;
 }
