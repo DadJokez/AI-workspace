@@ -45,10 +45,9 @@ consumer apps have trained everyone to expect — not capability gaps.
 - **Shadow trigger:** "ChatGPT remembers I'm in supply chain; I have to re-explain here every time." (The onboarding wizard, specs/005, seeds this.)
 - **Shape:** a Memory page — list, edit, delete, add manual facts; merge with the wizard's role answers.
 
-### P1.4 🔄 Stop / edit / regenerate / branch a turn — **stop + regenerate shipped (#153); edit/branch next**
-- **Gap:** can't stop a streaming answer, edit a sent message and re-run, or regenerate. Cancel exists for durable runs but not the inline lane.
-- **Shadow trigger:** "It's going the wrong way and I can't stop it." Many times a day.
-- **Shape:** stop button wired to the existing abort signal; edit-and-resend forks the thread at that message; regenerate re-runs the last user turn.
+### P1.4 ✅ Stop / edit / regenerate / branch a turn — **shipped (#153, #332)**
+- **Have:** inline Stop, durable-run cancel, regenerate, and edit-and-resend. Regenerate and edits replace the selected persisted user turn, remove the abandoned later branch, clear stale summaries, and run again in the same thread.
+- **Guardrail:** messages with uploaded files remain follow-up-only until Comparative can faithfully replay the original file payload during an edited turn.
 
 ### P1.5 🔄 Rich artifacts & inline preview — **M**
 - **Have:** HTML artifacts deploy as apps; collapsed code/doc previews in chat; workspace artifact pills open the in-tab preview pane; artifact versions are grouped with v2/v3 download and preview support.
@@ -89,7 +88,7 @@ consumer apps have trained everyone to expect — not capability gaps.
 ## Sequencing recommendation
 
 1. ~~**P1.1 file upload** — single biggest shadow-tool plug; reuses the artifacts substrate.~~ **Shipped for modern business formats.**
-2. **P1.4 stop/edit/regenerate** — cheap, removes daily friction, very visible.
+2. ~~**P1.4 stop/edit/regenerate** — cheap, removes daily friction, very visible.~~ **Shipped.**
 3. **P1.2 projects** — unlocks team context (the knowledge-management story) and is the container everything else hangs on.
 4. ~~P1.3 memory surface + specs/005 onboarding~~ — **shipped** (onboarding #150, memory view/edit/delete + add-a-fact).
 5. Then Tier 2 by demand signal (voice and web-search tend to top knowledge-worker asks).

@@ -80,6 +80,7 @@ export async function loadThreadMessagesWithRunActivity({
     db
       .select({
         id: runs.id,
+        skillSlug: runs.skillSlug,
         status: runs.status,
         modelId: runs.modelId,
         runtime: runs.runtime,
@@ -157,6 +158,8 @@ export async function loadThreadMessagesWithRunActivity({
   >();
   const artifactsByMessageId = new Map<string, WorkspaceArtifactSummary[]>();
   const activeRunMessages: ThreadMessageWithActivity[] = [];
+  const visibleMessageIds = new Set(messageIds);
+  const visibleChatRunIds = latestVisibleChatRunIds(runRows, visibleMessageIds);
 
   for (const artifact of artifactRows) {
     if (!artifact.chatMessageId) continue;
@@ -166,6 +169,15 @@ export async function loadThreadMessagesWithRunActivity({
   }
 
   for (const run of runRows) {
+    if (run.skillSlug === "chat-turn") {
+      const sourceMessageId = chatRunSourceMessageId(run.inputs);
+      if (
+        sourceMessageId &&
+        !visibleChatRunIds.has(run.id)
+      ) {
+        continue;
+      }
+    }
     const output = parseChatRunOutput(run.outputs);
     const activityEvents = runEventsToActivityEvents(
       eventsByRunId.get(run.id) ?? [],
@@ -343,4 +355,26 @@ function toToolResults(value: unknown): PersistedToolResult[] | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function chatRunSourceMessageId(inputs: unknown): string | null {
+  if (!isRecord(inputs) || typeof inputs.userMessageId !== "string") {
+    return null;
+  }
+  return inputs.userMessageId;
+}
+
+export function latestVisibleChatRunIds(
+  runs: readonly { id: string; skillSlug: string | null; inputs: unknown }[],
+  visibleMessageIds: ReadonlySet<string>,
+): Set<string> {
+  const latestByMessageId = new Map<string, string>();
+  for (const run of runs) {
+    if (run.skillSlug !== "chat-turn") continue;
+    const sourceMessageId = chatRunSourceMessageId(run.inputs);
+    if (sourceMessageId && visibleMessageIds.has(sourceMessageId)) {
+      latestByMessageId.set(sourceMessageId, run.id);
+    }
+  }
+  return new Set(latestByMessageId.values());
 }

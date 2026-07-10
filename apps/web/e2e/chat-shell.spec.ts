@@ -136,6 +136,81 @@ test.describe("chat shell guardrails", () => {
       .toBe(rawMarkdown);
   });
 
+  test("edits and resends a prior user message on the same thread", async ({
+    page,
+  }) => {
+    const chatBodies: Array<Record<string, unknown>> = [];
+    await installMockComparativeApi(page, {
+      onChat: async (body, route) => {
+        chatBodies.push(body);
+        const turn = chatBodies.length;
+        const sourceMessageIds = [
+          "11111111-1111-4111-8111-111111111111",
+          "22222222-2222-4222-8222-222222222222",
+        ];
+        const userMessageId =
+          typeof body.replaceMessageId === "string"
+            ? body.replaceMessageId
+            : sourceMessageIds[turn - 1];
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-edit",
+            userMessageId,
+            modelId: "sonnet-4-6",
+          },
+          { type: "text-delta", delta: `Answer ${turn}.` },
+          {
+            type: "persisted",
+            assistantMessageId: `assistant-edit-${turn}`,
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+    await gotoE2EChat(page);
+
+    const input = page.getByPlaceholder(/ask anything/i);
+    await input.fill("Draft the old launch update");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Answer 1.")).toBeVisible();
+    await input.fill("Add a closing line");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Answer 2.")).toBeVisible();
+
+    await input.fill("Keep this separate draft");
+    const firstMessage = page
+      .getByTestId("user-message")
+      .filter({ hasText: "Draft the old launch update" });
+    await firstMessage.hover();
+    await firstMessage.getByRole("button", { name: "Edit message" }).click();
+    await expect(page.getByTestId("edit-message-state")).toBeVisible();
+    await expect(input).toHaveValue("Draft the old launch update");
+    await page
+      .getByRole("button", { name: "Cancel editing message" })
+      .click();
+    await expect(input).toHaveValue("Keep this separate draft");
+
+    await firstMessage.getByRole("button", { name: "Edit message" }).click();
+    await input.fill("Draft the corrected launch update");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    await expect(page.getByText("Answer 3.")).toBeVisible();
+    await expect(page.getByText("Answer 1.")).toHaveCount(0);
+    await expect(page.getByText("Add a closing line")).toHaveCount(0);
+    await expect(page.getByText("Answer 2.")).toHaveCount(0);
+    expect(chatBodies).toHaveLength(3);
+    expect(chatBodies[2]).toMatchObject({
+      message: "Draft the corrected launch update",
+      threadId: "thread-edit",
+    });
+    expect(chatBodies[2]!.replaceMessageId).toBe(
+      "11111111-1111-4111-8111-111111111111",
+    );
+  });
+
   test("sends suggestions and preserves manual multiline payloads", async ({
     page,
   }) => {
@@ -277,13 +352,15 @@ test.describe("chat shell guardrails", () => {
     page,
   }, testInfo) => {
     let calls = 0;
+    const chatBodies: Array<Record<string, unknown>> = [];
     let releaseFirstResponse: (() => void) | undefined;
     const firstResponseGate = new Promise<void>((resolve) => {
       releaseFirstResponse = resolve;
     });
     await installMockComparativeApi(page, {
       artifacts: [],
-      onChat: async (_body, route) => {
+      onChat: async (body, route) => {
+        chatBodies.push(body);
         calls += 1;
         if (calls === 1) {
           await firstResponseGate;
@@ -292,6 +369,7 @@ test.describe("chat shell guardrails", () => {
           {
             type: "meta",
             threadId: "thread-header-controls",
+            userMessageId: "33333333-3333-4333-8333-333333333333",
             modelId: "sonnet-4-6",
           },
           { type: "text-delta", delta: `Shell response ${calls}.` },
@@ -371,6 +449,9 @@ test.describe("chat shell guardrails", () => {
       .click();
     await expect(page.getByText("Shell response 2.")).toBeVisible();
     expect(calls).toBe(2);
+    expect(chatBodies[1]!.replaceMessageId).toBe(
+      "33333333-3333-4333-8333-333333333333",
+    );
   });
 
   test("does not create page-level horizontal overflow", async ({ page }) => {

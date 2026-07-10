@@ -9,7 +9,7 @@ import {
   runs,
   workspaceArtifacts,
 } from "@ai-workspace/db";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
@@ -48,6 +48,10 @@ import {
   modelCommandUsageMessage,
   parseModelCommand,
 } from "@/lib/model-command";
+import {
+  isChatMessageEditId,
+  planChatMessageEdit,
+} from "@/lib/chat-message-edit";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +64,7 @@ interface ChatRequestBody {
   activatedSkills?: ActivatedSkillRequest[];
   attachments?: ChatAttachment[];
   attachmentCount?: number;
+  replaceMessageId?: string;
 }
 
 /**
@@ -105,6 +110,20 @@ export async function POST(req: Request) {
 
   if (!body.message || typeof body.message !== "string") {
     return NextResponse.json({ error: "missing_message" }, { status: 400 });
+  }
+
+  const replaceMessageId =
+    typeof body.replaceMessageId === "string" && body.replaceMessageId.trim()
+      ? body.replaceMessageId.trim()
+      : undefined;
+  if (
+    body.replaceMessageId !== undefined &&
+    (!replaceMessageId || !isChatMessageEditId(replaceMessageId))
+  ) {
+    return NextResponse.json(
+      { error: "invalid_replace_message_id" },
+      { status: 400 },
+    );
   }
 
   if (body.message.length > limits.maxMessageChars) {
@@ -247,6 +266,12 @@ export async function POST(req: Request) {
     }
     thread = owned[0];
   } else {
+    if (replaceMessageId) {
+      return NextResponse.json(
+        { error: "thread_required_for_edit" },
+        { status: 400 },
+      );
+    }
     const created = await db
       .insert(chatThreads)
       .values({
@@ -261,25 +286,81 @@ export async function POST(req: Request) {
     thread = created[0]!;
   }
 
+  let editCandidateRows:
+    | Array<{
+        id: string;
+        role: "user" | "assistant" | "tool";
+        content: string;
+      }>
+    | undefined;
+  if (replaceMessageId) {
+    if (thread.userId !== sessionUser.id) {
+      return NextResponse.json({ error: "message_not_found" }, { status: 404 });
+    }
+    editCandidateRows = await db
+      .select({
+        id: chatMessages.id,
+        role: chatMessages.role,
+        content: chatMessages.content,
+      })
+      .from(chatMessages)
+      .where(eq(chatMessages.threadId, thread.id))
+      .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
+    const editPlan = planChatMessageEdit(editCandidateRows, replaceMessageId);
+    if (!editPlan.ok) {
+      return NextResponse.json(
+        { error: editPlan.error },
+        { status: editPlan.error === "message_not_found" ? 404 : 409 },
+      );
+    }
+    const attachedArtifact = await db
+      .select({ id: workspaceArtifacts.id })
+      .from(workspaceArtifacts)
+      .where(eq(workspaceArtifacts.chatMessageId, editPlan.targetId))
+      .limit(1);
+    if (attachedArtifact[0]) {
+      return NextResponse.json(
+        {
+          error: "message_has_attachments",
+          message:
+            "Messages with uploaded files cannot be edited yet. Send a new follow-up instead.",
+        },
+        { status: 409 },
+      );
+    }
+  }
+
   // Earlier user turns in this thread, so routing can keep tools mounted for
   // follow-ups once a conversation has used them (conversation-level tool
   // stickiness). Queried before inserting the current message so it sees only
   // priors. New threads have none.
-  const priorUserMessages = body.threadId
-    ? (
-        await db
-          .select({ content: chatMessages.content })
-          .from(chatMessages)
-          .where(
-            and(
-              eq(chatMessages.threadId, thread.id),
-              eq(chatMessages.role, "user"),
-            ),
-          )
-          .orderBy(desc(chatMessages.createdAt))
-          .limit(6)
-      ).map((row) => row.content)
-    : [];
+  const editTargetIndex =
+    editCandidateRows && replaceMessageId
+      ? editCandidateRows.findIndex((row) => row.id === replaceMessageId)
+      : -1;
+  let priorUserMessages: string[] = [];
+  if (editCandidateRows && editTargetIndex >= 0) {
+    priorUserMessages = editCandidateRows
+      .slice(0, editTargetIndex)
+      .filter((row) => row.role === "user")
+      .reverse()
+      .slice(0, 6)
+      .map((row) => row.content);
+  } else if (body.threadId) {
+    priorUserMessages = (
+      await db
+        .select({ content: chatMessages.content })
+        .from(chatMessages)
+        .where(
+          and(
+            eq(chatMessages.threadId, thread.id),
+            eq(chatMessages.role, "user"),
+          ),
+        )
+        .orderBy(desc(chatMessages.createdAt))
+        .limit(6)
+    ).map((row) => row.content);
+  }
 
   const routingCapabilityGraph = await loadUserCapabilityGraph(db, sessionUser, {
     mountedProviders: [],
@@ -307,14 +388,94 @@ export async function POST(req: Request) {
     capabilityGraph: routingCapabilityGraph,
   });
 
-  const userMsg = await db
-    .insert(chatMessages)
-    .values({
-      threadId: thread.id,
-      role: "user",
-      content: body.message,
-    })
-    .returning({ id: chatMessages.id });
+  let editedUserMessageId: string | undefined;
+  if (replaceMessageId) {
+    const editResult = await db.transaction(async (tx) => {
+      const messageRows = await tx
+        .select({ id: chatMessages.id, role: chatMessages.role })
+        .from(chatMessages)
+        .where(eq(chatMessages.threadId, thread.id))
+        .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
+      const plan = planChatMessageEdit(messageRows, replaceMessageId);
+      if (!plan.ok) return plan;
+
+      const attachedArtifact = await tx
+        .select({ id: workspaceArtifacts.id })
+        .from(workspaceArtifacts)
+        .where(eq(workspaceArtifacts.chatMessageId, plan.targetId))
+        .limit(1);
+      if (attachedArtifact[0]) {
+        return { ok: false as const, error: "message_has_attachments" as const };
+      }
+
+      if (plan.deleteIds.length > 0) {
+        await tx
+          .delete(chatMessages)
+          .where(
+            and(
+              eq(chatMessages.threadId, thread.id),
+              inArray(chatMessages.id, plan.deleteIds),
+            ),
+          );
+      }
+      await tx
+        .update(chatMessages)
+        .set({ content: body.message })
+        .where(
+          and(
+            eq(chatMessages.id, plan.targetId),
+            eq(chatMessages.threadId, thread.id),
+            eq(chatMessages.role, "user"),
+          ),
+        );
+      await tx
+        .update(chatThreads)
+        .set({
+          summary: null,
+          summaryUpdatedAt: null,
+          previewSummary: null,
+          previewSummaryUpdatedAt: null,
+        })
+        .where(eq(chatThreads.id, thread.id));
+      return plan;
+    });
+
+    if (!editResult.ok) {
+      if (editResult.error === "message_has_attachments") {
+        return NextResponse.json(
+          {
+            error: "message_has_attachments",
+            message:
+              "Messages with uploaded files cannot be edited yet. Send a new follow-up instead.",
+          },
+          { status: 409 },
+        );
+      }
+      return NextResponse.json(
+        { error: editResult.error },
+        { status: editResult.error === "message_not_found" ? 404 : 409 },
+      );
+    }
+    editedUserMessageId = editResult.targetId;
+    thread = {
+      ...thread,
+      summary: null,
+      summaryUpdatedAt: null,
+      previewSummary: null,
+      previewSummaryUpdatedAt: null,
+    };
+  }
+
+  const userMsg = editedUserMessageId
+    ? [{ id: editedUserMessageId }]
+    : await db
+        .insert(chatMessages)
+        .values({
+          threadId: thread.id,
+          role: "user",
+          content: body.message,
+        })
+        .returning({ id: chatMessages.id });
 
   // The bubble shows the typed message; the model sees it plus the folded
   // attachment text. Each file is also stored as a workspace artifact so it
@@ -388,6 +549,7 @@ export async function POST(req: Request) {
         runtimeRoute,
         uploadedFiles,
         routeReceipt,
+        ...(replaceMessageId ? { replaceMessageId } : {}),
         ...(activatedSkill
           ? {
               activatedSkills: [
@@ -430,6 +592,7 @@ export async function POST(req: Request) {
         modelOverride,
         runtimeRoute,
         routeReceipt,
+        ...(replaceMessageId ? { replaceMessageId } : {}),
         ...(modelCommand ? { modelCommand } : {}),
         ...(activatedSkill
           ? {
@@ -491,6 +654,7 @@ export async function POST(req: Request) {
         runtimeV2,
         runtimeRoute,
         routeReceipt,
+        ...(replaceMessageId ? { replaceMessageId } : {}),
       });
       if (runtimeRoute.useWorker) {
         send({
