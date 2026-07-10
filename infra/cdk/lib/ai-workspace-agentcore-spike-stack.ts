@@ -31,6 +31,12 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
     const runtimeCondition = new cdk.CfnCondition(this, "RuntimeCondition", {
       expression: cdk.Fn.conditionEquals(createRuntime.valueAsString, "true"),
     });
+    const agentImageTag = new cdk.CfnParameter(this, "AgentImageTag", {
+      type: "String",
+      default: "latest",
+      description:
+        "Immutable ECR tag deployed to the AgentCore runtime. CodeBuild updates this parameter after pushing the image.",
+    });
 
     const repo = new ecr.Repository(this, "AgentImageRepo", {
       repositoryName: "ai-workspace-agentcore-agent",
@@ -90,7 +96,7 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
           "AI Hub agent loop (runAgentLoop + MCP tools) hosted on AgentCore — specs/003 spike.",
         AgentRuntimeArtifact: {
           ContainerConfiguration: {
-            ContainerUri: `${repo.repositoryUri}:latest`,
+            ContainerUri: `${repo.repositoryUri}:${agentImageTag.valueAsString}`,
           },
         },
         NetworkConfiguration: { NetworkMode: "PUBLIC" },
@@ -107,6 +113,61 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
     });
     runtime.cfnOptions.condition = runtimeCondition;
     runtime.node.addDependency(role);
+
+    // CloudFormation remains the sole owner of the runtime. CodeBuild updates
+    // only AgentImageTag on this stack after pushing an immutable image, so a
+    // later CDK deploy cannot silently restore a stale out-of-band version.
+    const codeBuildRole = iam.Role.fromRoleName(
+      this,
+      "CodeBuildDeploymentRole",
+      "CodeBuildAIWorkspaceRole",
+    );
+    const codeBuildDeployPolicy = new iam.Policy(
+      this,
+      "CodeBuildAgentCoreDeployment",
+      {
+        statements: [
+          new iam.PolicyStatement({
+            sid: "UpdateAgentCoreStack",
+            actions: [
+              "cloudformation:DescribeStacks",
+              "cloudformation:DescribeStackEvents",
+              "cloudformation:UpdateStack",
+            ],
+            resources: [
+              this.formatArn({
+                service: "cloudformation",
+                resource: "stack",
+                resourceName: `${this.stackName}/*`,
+                arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME,
+              }),
+            ],
+          }),
+          new iam.PolicyStatement({
+            sid: "UpdateComparativeAgentCoreRuntime",
+            actions: [
+              "bedrock-agentcore:GetAgentRuntime",
+              "bedrock-agentcore:UpdateAgentRuntime",
+            ],
+            resources: [runtime.getAtt("AgentRuntimeArn").toString()],
+          }),
+          new iam.PolicyStatement({
+            sid: "PassComparativeAgentCoreRuntimeRole",
+            actions: ["iam:PassRole"],
+            resources: [role.roleArn],
+            conditions: {
+              StringEquals: {
+                "iam:PassedToService": "bedrock-agentcore.amazonaws.com",
+              },
+            },
+          }),
+        ],
+      },
+    );
+    codeBuildDeployPolicy.attachToRole(codeBuildRole);
+    (
+      codeBuildDeployPolicy.node.defaultChild as iam.CfnPolicy
+    ).cfnOptions.condition = runtimeCondition;
 
     // T310: let the production web and chat-worker tasks invoke the
     // runtime. Roles are imported by their deployed names so the ECS stack
@@ -140,7 +201,8 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, "AgentImageRepoUri", {
       value: repo.repositoryUri,
-      description: "Push the linux/arm64 agent image here as :latest.",
+      description:
+        "Push the linux/arm64 agent image here, then update AgentImageTag through CloudFormation.",
     });
     new cdk.CfnOutput(this, "AgentRuntimeRoleArn", { value: role.roleArn });
     new cdk.CfnOutput(this, "AgentRuntimeArn", {
