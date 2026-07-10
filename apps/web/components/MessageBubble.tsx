@@ -49,6 +49,7 @@ interface Props {
   ) => void;
   recommendationPendingId?: string;
   appDraftPendingId?: string;
+  onEdit?: () => void;
 }
 
 export function MessageBubble({
@@ -69,11 +70,26 @@ export function MessageBubble({
   onRecommendationAction,
   recommendationPendingId,
   appDraftPendingId,
+  onEdit,
 }: Props) {
   if (role === "user") {
     const slashDisplay = parseSlashDisplayMessage(content);
     return (
-      <div className="flex w-full min-w-0 max-w-full justify-end overflow-hidden">
+      <div
+        data-testid="user-message"
+        className="group flex w-full min-w-0 max-w-full items-center justify-end overflow-hidden"
+      >
+        {onEdit ? (
+          <button
+            type="button"
+            onClick={onEdit}
+            aria-label="Edit message"
+            title="Edit message"
+            className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted opacity-70 transition-[color,opacity,background-color] hover:bg-subtle hover:text-ink focus-visible:bg-subtle focus-visible:text-ink focus-visible:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
+          >
+            <PencilIcon />
+          </button>
+        ) : null}
         <div className="max-w-[80%] overflow-hidden whitespace-pre-wrap rounded-lg bg-subtle px-3.5 py-2 text-[14px] leading-relaxed text-ink [overflow-wrap:anywhere]">
           {slashDisplay ? (
             <span className="flex flex-wrap items-center gap-1.5">
@@ -1148,6 +1164,25 @@ function ClipboardIcon() {
     >
       <rect x="4" y="3" width="8" height="11" rx="1.2" />
       <path d="M6 3V2.4A0.6 0.6 0 0 1 6.6 1.8h2.8a0.6 0.6 0 0 1 0.6 0.6V3" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="12"
+      height="12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m3 11.5-.5 2 2-.5 7.8-7.8-1.5-1.5L3 11.5Z" />
+      <path d="m9.8 4.7 1.5 1.5" />
     </svg>
   );
 }

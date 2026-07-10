@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { activeRunMessageContent } from "@/lib/thread-messages";
+import {
+  activeRunMessageContent,
+  chatRunSourceMessageId,
+  latestVisibleChatRunIds,
+} from "@/lib/thread-messages";
 
 describe("activeRunMessageContent", () => {
   it("#244 hides interrupted artifact snippets behind a clear retry message", () => {
@@ -75,5 +79,40 @@ describe("activeRunMessageContent", () => {
     expect(content).toContain("Artifact response was interrupted");
     expect(content).not.toContain("Artifact update was interrupted");
     expect(content).not.toContain("# Weekly Brief");
+  });
+});
+
+describe("chatRunSourceMessageId", () => {
+  it("finds the persisted source message used to suppress abandoned branches", () => {
+    expect(chatRunSourceMessageId({ userMessageId: "message-1" })).toBe(
+      "message-1",
+    );
+    expect(chatRunSourceMessageId({})).toBeNull();
+    expect(chatRunSourceMessageId(null)).toBeNull();
+  });
+
+  it("keeps only the latest run for messages on the visible branch", () => {
+    const runIds = latestVisibleChatRunIds(
+      [
+        {
+          id: "old-run",
+          skillSlug: "chat-turn",
+          inputs: { userMessageId: "message-1" },
+        },
+        {
+          id: "abandoned-run",
+          skillSlug: "chat-turn",
+          inputs: { userMessageId: "message-removed" },
+        },
+        {
+          id: "new-run",
+          skillSlug: "chat-turn",
+          inputs: { userMessageId: "message-1" },
+        },
+      ],
+      new Set(["message-1"]),
+    );
+
+    expect([...runIds]).toEqual(["new-run"]);
   });
 });

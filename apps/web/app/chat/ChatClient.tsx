@@ -1,7 +1,11 @@
 "use client";
 
 import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
-import { ChatInput, type SlashSkill } from "@/components/ChatInput";
+import {
+  ChatInput,
+  type ChatEditRequest,
+  type SlashSkill,
+} from "@/components/ChatInput";
 import type { ChatAttachment } from "@/lib/attachments";
 import {
   latestAppDraftVersionIds,
@@ -83,6 +87,8 @@ interface UiMessage {
   canCancel?: boolean;
   canRetry?: boolean;
   canResume?: boolean;
+  hasAttachments?: boolean;
+  persisted?: boolean;
 }
 
 export function mergeLoadedMessages(
@@ -224,6 +230,10 @@ function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
     canCancel: message.canCancel,
     canRetry: message.canRetry,
     canResume: message.canResume,
+    hasAttachments: message.artifacts?.some(
+      (artifact) => artifact.source === "user-upload",
+    ),
+    persisted: true,
   };
 }
 
@@ -419,6 +429,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     useState<string>();
   const [appDraftPendingId, setAppDraftPendingId] = useState<string>();
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [editRequest, setEditRequest] = useState<ChatEditRequest>();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -439,6 +450,10 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const latestAppDraftIds = latestAppDraftVersionIds(
     activeTab?.messages.flatMap((message) => message.appDraftVersions ?? []) ?? [],
   );
+
+  useEffect(() => {
+    setEditRequest(undefined);
+  }, [activeId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1314,11 +1329,19 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     attachments?: ChatAttachment[],
     activatedSkill?: ActivatedSlashSkill,
     modelOverride?: ChatModelOverride,
+    replaceMessageId?: string,
   ) {
     if (!activeTab || activeTab.busy) return;
     if (!text.trim() && (!attachments || attachments.length === 0)) return;
     const tabId = activeTab.id;
-    const userMsgId = crypto.randomUUID();
+    const replaceIndex = replaceMessageId
+      ? activeTab.messages.findIndex(
+          (message) => message.id === replaceMessageId && message.role === "user",
+        )
+      : -1;
+    if (replaceMessageId && replaceIndex === -1) return;
+    const originalMessages = activeTab.messages;
+    const userMsgId = replaceMessageId ?? crypto.randomUUID();
     const assistantMsgId = crypto.randomUUID();
     const modelId = activeTab.modelId ?? defaultModelId;
     const requestedModelId =
@@ -1337,8 +1360,14 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         ? `\n\n📎 ${attachments.length} file${attachments.length === 1 ? "" : "s"} attached`
         : "";
     patchTabMessages(tabId, (prev) => [
-      ...prev,
-      { id: userMsgId, role: "user", content: `${text}${attachmentNote}` },
+      ...(replaceMessageId ? prev.slice(0, replaceIndex) : prev),
+      {
+        id: userMsgId,
+        role: "user",
+        content: `${text}${attachmentNote}`,
+        hasAttachments: Boolean(attachments?.length),
+        persisted: Boolean(replaceMessageId),
+      },
       {
         id: assistantMsgId,
         role: "assistant",
@@ -1355,6 +1384,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
 
     const abort = new AbortController();
     streamAbortRef.current = abort;
+    let responseAccepted = false;
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -1368,6 +1398,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           attachmentCount: attachments?.length ?? 0,
           ...(activatedSkill ? { activatedSkills: [activatedSkill] } : {}),
           ...(attachments && attachments.length > 0 ? { attachments } : {}),
+          ...(replaceMessageId ? { replaceMessageId } : {}),
         }),
       });
       if (!res.ok) {
@@ -1377,6 +1408,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         };
         throw new Error(body.message ?? body.error ?? `HTTP ${res.status}`);
       }
+      responseAccepted = true;
 
       let assistantText = "";
       let assistantModel: string | undefined;
@@ -1390,6 +1422,15 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         if (ev.type === "meta") {
           if (typeof ev.threadId === "string") {
             patchTab(tabId, { threadId: ev.threadId });
+          }
+          if (typeof ev.userMessageId === "string") {
+            patchTabMessages(tabId, (prev) =>
+              prev.map((message) =>
+                message.id === userMsgId
+                  ? { ...message, id: ev.userMessageId as string, persisted: true }
+                  : message,
+              ),
+            );
           }
           if (typeof ev.modelId === "string") assistantModel = ev.modelId;
           const route = ev.runtimeRoute as { useWorker?: unknown } | undefined;
@@ -1578,6 +1619,10 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       }
       const message = formatChatError(err);
       patchTab(tabId, { error: message });
+      if (replaceMessageId && !responseAccepted) {
+        patchTabMessages(tabId, () => originalMessages);
+        return;
+      }
       patchTabMessages(tabId, (prev) =>
         prev.map((m) =>
           m.id === assistantMsgId
@@ -1630,11 +1675,20 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       }
     }
     if (lastUserIdx === -1) return;
-    const lastUserText = msgs[lastUserIdx]!.content;
+    const lastUserMessage = msgs[lastUserIdx]!;
+    const lastUserText = lastUserMessage.content;
     const tabId = activeTab.id;
     patchTab(tabId, { error: undefined });
-    patchTabMessages(tabId, (prev) => prev.slice(0, lastUserIdx));
-    void send(lastUserText);
+    if (!lastUserMessage.persisted) {
+      patchTabMessages(tabId, (prev) => prev.slice(0, lastUserIdx));
+    }
+    void send(
+      lastUserText,
+      undefined,
+      undefined,
+      undefined,
+      lastUserMessage.persisted ? lastUserMessage.id : undefined,
+    );
   }
 
   async function refreshActiveThreadMessages(tabId: string, threadId: string) {
@@ -1942,6 +1996,20 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     onRecommendationAction={handleRecommendationAction}
                     recommendationPendingId={recommendationPendingId}
                     appDraftPendingId={appDraftPendingId}
+                    onEdit={
+                      m.role === "user" &&
+                      !busy &&
+                      !activeHasPendingRun &&
+                      !m.hasAttachments &&
+                      m.persisted
+                        ? () =>
+                            setEditRequest({
+                              requestId: crypto.randomUUID(),
+                              messageId: m.id,
+                              content: m.content,
+                            })
+                        : undefined
+                    }
                   />
                   {m.runId &&
                   (m.canCancel || m.canRetry || m.canResume) ? (
@@ -2020,6 +2088,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
               disabled={inputDisabled}
               skills={slashSkills}
               draftKey={composerDraftKey}
+              editRequest={editRequest}
+              onEditComplete={() => setEditRequest(undefined)}
               placeholder={
                 models.length === 0
                   ? "Loading models…"

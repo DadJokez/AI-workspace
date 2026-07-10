@@ -58,12 +58,19 @@ export interface SlashSkill extends SlashSkillCandidate {
   sharedWithMe?: boolean;
 }
 
+export interface ChatEditRequest {
+  requestId: string;
+  messageId: string;
+  content: string;
+}
+
 interface Props {
   onSubmit: (
     text: string,
     attachments?: ChatAttachment[],
     activatedSkill?: ActivatedSlashSkill,
     modelOverride?: ChatModelOverride,
+    replaceMessageId?: string,
   ) => void;
   disabled?: boolean;
   placeholder?: string;
@@ -71,6 +78,8 @@ interface Props {
   skills?: SlashSkill[];
   /** Stable, user-scoped conversation key used for local draft recovery. */
   draftKey?: string;
+  editRequest?: ChatEditRequest;
+  onEditComplete?: () => void;
 }
 
 /**
@@ -85,6 +94,8 @@ export function ChatInput({
   placeholder = "Ask anything — or type / for capabilities…",
   skills = [],
   draftKey,
+  editRequest,
+  onEditComplete,
 }: Props) {
   const [text, setText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
@@ -96,11 +107,26 @@ export function ChatInput({
   const fileRef = useRef<HTMLInputElement>(null);
   const draftTimerRef = useRef<number | undefined>(undefined);
   const skipNextDraftPersistRef = useRef(true);
+  const handledEditRequestRef = useRef<string | undefined>(undefined);
+  const editBackupRef = useRef<{
+    text: string;
+    attachments: ChatAttachment[];
+    activeSkill: SlashSkill | null;
+  } | null>(null);
   const draftStorageKey = draftKey
     ? `${DRAFT_STORAGE_PREFIX}${draftKey}`
     : null;
-  const latestDraftRef = useRef({ storageKey: draftStorageKey, text });
-  latestDraftRef.current = { storageKey: draftStorageKey, text };
+  const draftTextForStorage = editRequest
+    ? (editBackupRef.current?.text ?? text)
+    : text;
+  const latestDraftRef = useRef({
+    storageKey: draftStorageKey,
+    text: draftTextForStorage,
+  });
+  latestDraftRef.current = {
+    storageKey: draftStorageKey,
+    text: draftTextForStorage,
+  };
   const dictation = useDictation((spoken) => {
     setText((prev) => {
       const sep = prev && !prev.endsWith(" ") ? " " : "";
@@ -135,10 +161,37 @@ export function ChatInput({
   }, [draftStorageKey]);
 
   useEffect(() => {
+    if (
+      !editRequest ||
+      handledEditRequestRef.current === editRequest.requestId
+    ) {
+      return;
+    }
+    if (!editBackupRef.current) {
+      editBackupRef.current = { text, attachments, activeSkill };
+    }
+    persistComposerDraft(draftStorageKey, text);
+    latestDraftRef.current = { storageKey: draftStorageKey, text };
+    handledEditRequestRef.current = editRequest.requestId;
+    setText(editRequest.content);
+    setAttachments([]);
+    setActiveSkill(null);
+    setNotice(null);
+    window.setTimeout(() => {
+      taRef.current?.focus();
+      taRef.current?.setSelectionRange(
+        editRequest.content.length,
+        editRequest.content.length,
+      );
+    }, 0);
+  }, [activeSkill, attachments, draftStorageKey, editRequest, text]);
+
+  useEffect(() => {
     if (skipNextDraftPersistRef.current) {
       skipNextDraftPersistRef.current = false;
       return;
     }
+    if (editRequest) return;
     if (!draftStorageKey) return;
 
     draftTimerRef.current = window.setTimeout(() => {
@@ -152,7 +205,7 @@ export function ChatInput({
         draftTimerRef.current = undefined;
       }
     };
-  }, [draftStorageKey, text]);
+  }, [draftStorageKey, editRequest, text]);
 
   useEffect(() => {
     function flushLatestDraft() {
@@ -239,6 +292,30 @@ export function ChatInput({
     persistComposerDraft(draftStorageKey, "");
   }
 
+  function completeSubmission() {
+    clearPersistedDraft();
+    latestDraftRef.current = { storageKey: draftStorageKey, text: "" };
+    editBackupRef.current = null;
+    handledEditRequestRef.current = undefined;
+    setText("");
+    setActiveSkill(null);
+    setAttachments([]);
+    setNotice(null);
+    onEditComplete?.();
+  }
+
+  function cancelEdit() {
+    const backup = editBackupRef.current;
+    editBackupRef.current = null;
+    handledEditRequestRef.current = undefined;
+    setText(backup?.text ?? "");
+    setAttachments(backup?.attachments ?? []);
+    setActiveSkill(backup?.activeSkill ?? null);
+    setNotice(null);
+    onEditComplete?.();
+    window.setTimeout(() => taRef.current?.focus(), 0);
+  }
+
   function send() {
     const trimmed = text.trim();
     if (
@@ -253,12 +330,10 @@ export function ChatInput({
         buildSlashSkillDisplayMessage(activeSkill, trimmed),
         attachments.length > 0 ? attachments : undefined,
         buildActivatedSlashSkill(activeSkill, trimmed),
+        undefined,
+        editRequest?.messageId,
       );
-      clearPersistedDraft();
-      setText("");
-      setActiveSkill(null);
-      setAttachments([]);
-      setNotice(null);
+      completeSubmission();
       return;
     }
 
@@ -277,11 +352,9 @@ export function ChatInput({
         attachments.length > 0 ? attachments : undefined,
         undefined,
         parsed.override,
+        editRequest?.messageId,
       );
-      clearPersistedDraft();
-      setText("");
-      setAttachments([]);
-      setNotice(null);
+      completeSubmission();
       return;
     }
 
@@ -302,19 +375,21 @@ export function ChatInput({
         buildSlashSkillDisplayMessage(resolved.skill, resolved.args),
         attachments.length > 0 ? attachments : undefined,
         buildActivatedSlashSkill(resolved.skill, resolved.args),
+        undefined,
+        editRequest?.messageId,
       );
-      clearPersistedDraft();
-      setText("");
-      setAttachments([]);
-      setNotice(null);
+      completeSubmission();
       return;
     }
 
-    onSubmit(trimmed, attachments.length > 0 ? attachments : undefined);
-    clearPersistedDraft();
-    setText("");
-    setAttachments([]);
-    setNotice(null);
+    onSubmit(
+      trimmed,
+      attachments.length > 0 ? attachments : undefined,
+      undefined,
+      undefined,
+      editRequest?.messageId,
+    );
+    completeSubmission();
   }
 
   function handleSubmit(e: FormEvent) {
@@ -414,6 +489,23 @@ export function ChatInput({
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
           Listening… {dictation.interim ? `“${dictation.interim}”` : "speak now"}
         </p>
+      ) : null}
+      {editRequest ? (
+        <div
+          data-testid="edit-message-state"
+          className="mb-1.5 flex items-center justify-between gap-2 px-1 text-[12px] text-muted"
+        >
+          <span>Editing message</span>
+          <button
+            type="button"
+            aria-label="Cancel editing message"
+            title="Cancel edit"
+            onClick={cancelEdit}
+            className="flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-subtle hover:text-ink"
+          >
+            ×
+          </button>
+        </div>
       ) : null}
       {activeSkill ? (
         <div className="mb-1.5 flex flex-wrap items-center gap-2 px-1 text-[12px] text-[#b9d2ff]">

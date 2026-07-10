@@ -27,7 +27,7 @@ of moving users through these. They're the north star.
 A user opens the workspace, types into a thread, gets a streamed
 response. Multi-turn, personal, interactive.
 
-**Shipped:** chat threads with independent histories persisted per user, prompt/context guardrails plus the summary schema/helper, sidebar history, rename/delete, Bedrock model registry with assistant labels/default settings, GitHub OAuth sign-in / sign-out, admin panel (users + invitations), settings (theme, default model), Vault memory suggestions with approval controls and generated Markdown, common business file uploads with server extraction, native Bedrock image blocks for screenshots/images, quiet recommendation cards, full mobile responsiveness. Bedrock is the default runtime; AgentCore handles durable worker lanes. The deployment path is ECS/Fargate with automatic image builds, database migrations, and forced ECS service deployments on push to `main`; App Runner remains temporary rollback during cutover. Rolling summary generation itself remains pending.
+**Shipped:** chat threads with independent histories persisted per user, prompt/context guardrails plus the summary schema/helper, sidebar history, rename/delete, Stop/regenerate/edit-and-resend controls with persisted branch replacement, Bedrock model registry with assistant labels/default settings, GitHub OAuth sign-in / sign-out, admin panel (users + invitations), settings (theme, default model), Vault memory suggestions with approval controls and generated Markdown, common business file uploads with server extraction, native Bedrock image blocks for screenshots/images, quiet recommendation cards, full mobile responsiveness. Bedrock is the default runtime; AgentCore handles durable worker lanes. The deployment path is ECS/Fargate with automatic image builds, database migrations, and forced ECS service deployments on push to `main`; App Runner remains temporary rollback during cutover. Rolling summary generation itself remains pending.
 
 ### J2 — Chat with Tools 🔄 In Progress
 
@@ -60,7 +60,7 @@ automation runtime.
 
 ### J4 — App Build and Deploy 🔄 Thin slice shipped (June 2026)
 
-**Shipped (thin slice, #133 tracks the full epic):** chat-built HTML artifacts deploy one-click into the `apps` registry, served SSO-gated at `/apps/{slug}` with a restrictive CSP; native artifact version groups with v2/v3 pills, download/preview, versions + plain-language revert; no-secrets scan at save; sharing built in. **Not yet:** the conversational build-iterate loop on a deployed app, git/pipeline substrate, per-app services.
+**Shipped (thin slice, #133 tracks the full epic):** chat-built HTML artifacts deploy one-click into the `apps` registry, served SSO-gated at `/apps/{slug}` with a restrictive CSP; native artifact version groups with v2/v3 pills, download/preview, versions + plain-language revert; conversational updates resolve the current app artifact and create a new deployable draft version; no-secrets scan at save; sharing built in. **Not yet:** git/pipeline substrate and per-app services.
 
 A user describes a small internal web app in conversation. The
 workspace agent writes the code, shows a preview, iterates with the
@@ -76,12 +76,10 @@ goes from "I wish we had a tool that…" to a live running app, with
 auth and discoverability and shareability handled, without leaving
 chat.
 
-**Requires:** code-generation loop (Bedrock for fast iteration, AgentCore for durable app-build work)
-+ a deploy controller (creates the repo, kicks the pipeline,
-provisions the target AWS service) + the SSO seam (workspace-issued bearer or
-OIDC handing off to the deployed app) + an **Apps** registry surfaced
-in the sidebar. Nothing in the current build covers any of this; J4
-is its own epic.
+**Remaining for the full journey:** expand the shipped code-generation and
+artifact iteration loop into a deploy controller that creates the repo, kicks
+the pipeline, and provisions a target AWS service; then extend the existing SSO
+seam and Apps registry to those independently hosted services.
 
 #### Git abstraction
 
