@@ -3,6 +3,8 @@ version: 0.2
 env:
   variables:
     IMAGE_REPO_NAME: ai-workspace
+    AGENTCORE_IMAGE_REPO_NAME: ai-workspace-agentcore-agent
+    AGENTCORE_STACK_NAME: AiWorkspaceAgentCoreSpikeStack
     APP_SECRET_NAME: ai-workspace/production/app
     ECS_CLUSTER_NAME: ai-workspace-prod
     ECS_WEB_SERVICE_NAME: ai-workspace-web
@@ -19,7 +21,12 @@ phases:
       - 'echo Logging in to Amazon ECR...'
       - 'aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com'
       - 'REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME'
+      - 'AGENTCORE_REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$AGENTCORE_IMAGE_REPO_NAME'
       - 'COMMIT_TAG=${CODEBUILD_RESOLVED_SOURCE_VERSION:-manual}'
+      # The AgentCore Runtime container must be linux/arm64; this CodeBuild
+      # host is x86_64, so register QEMU and build via buildx emulation.
+      - 'docker run --privileged --rm tonistiigi/binfmt --install arm64'
+      - 'docker buildx inspect agentcore-arm64 >/dev/null 2>&1 || docker buildx create --name agentcore-arm64'
   build:
     commands:
       - 'echo Build started on $(date)'
@@ -33,6 +40,7 @@ phases:
       - 'docker tag $IMAGE_REPO_NAME:worker $REPOSITORY_URI:worker-$COMMIT_TAG'
       - 'docker tag $IMAGE_REPO_NAME:memory-worker $REPOSITORY_URI:memory-worker-latest'
       - 'docker tag $IMAGE_REPO_NAME:memory-worker $REPOSITORY_URI:memory-worker-$COMMIT_TAG'
+      - 'docker buildx build --builder agentcore-arm64 --platform linux/arm64 -f apps/agentcore-agent/Dockerfile -t $AGENTCORE_REPOSITORY_URI:latest -t $AGENTCORE_REPOSITORY_URI:$COMMIT_TAG --load .'
   post_build:
     commands:
       - 'echo Running database migrations...'
@@ -47,6 +55,13 @@ phases:
       - 'docker push $REPOSITORY_URI:worker-$COMMIT_TAG'
       - 'docker push $REPOSITORY_URI:memory-worker-latest'
       - 'docker push $REPOSITORY_URI:memory-worker-$COMMIT_TAG'
+      - 'docker push $AGENTCORE_REPOSITORY_URI:latest'
+      - 'docker push $AGENTCORE_REPOSITORY_URI:$COMMIT_TAG'
+      # AgentCore pins the image digest per runtime version. Update the CDK
+      # stack's immutable image-tag parameter so CloudFormation remains the
+      # single owner of the runtime and cuts the new version.
+      - 'echo Cutting a new AgentCore runtime version...'
+      - 'AGENTCORE_IMAGE_TAG="$COMMIT_TAG" ./infra/scripts/update-agentcore-stack.sh'
       - 'echo Forcing ECS service deployments...'
       - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_WEB_SERVICE_NAME" --force-new-deployment >/dev/null'
       - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_CHAT_WORKER_SERVICE_NAME" --force-new-deployment >/dev/null'
