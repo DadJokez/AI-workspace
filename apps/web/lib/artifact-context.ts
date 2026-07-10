@@ -4,8 +4,6 @@ import {
   loadWorkspaceArtifactForUser,
   loadWorkspaceArtifacts,
   loadWorkspaceArtifactsForThread,
-  toWorkspaceArtifactVersionTarget,
-  type WorkspaceArtifactVersionTarget,
   type WorkspaceArtifactSummary,
 } from "@/lib/workspace-artifacts";
 
@@ -224,30 +222,6 @@ export interface ArtifactContextPayload {
 }
 
 export type ArtifactContextMode = "manifest" | "revision" | "separate";
-
-export function resolveArtifactContextTargets({
-  payload,
-  storedArtifactTarget,
-  storedSeparateFromArtifact,
-}: {
-  payload: ArtifactContextPayload | null;
-  storedArtifactTarget?: WorkspaceArtifactVersionTarget | null;
-  storedSeparateFromArtifact?: WorkspaceArtifactVersionTarget | null;
-}): {
-  artifactContextTarget: WorkspaceArtifactVersionTarget | null;
-  separateFromArtifact: WorkspaceArtifactVersionTarget | null;
-} {
-  return {
-    artifactContextTarget:
-      payload?.mode === "revision" && payload.matchedArtifact
-        ? toWorkspaceArtifactVersionTarget(payload.matchedArtifact)
-        : storedArtifactTarget ?? null,
-    separateFromArtifact:
-      payload?.mode === "separate" && payload.matchedArtifact
-        ? toWorkspaceArtifactVersionTarget(payload.matchedArtifact)
-        : storedSeparateFromArtifact ?? null,
-  };
-}
 
 export function artifactContextModeForMessage({
   message,

@@ -6,13 +6,13 @@ import {
   hasConvertToNewArtifactIntent,
   mergeArtifactContextManifests,
   matchArtifact,
-  resolveArtifactContextTargets,
   shouldIncludeArtifactManifestForMessage,
 } from "@/lib/artifact-context";
-import type {
-  WorkspaceArtifactSummary,
-  WorkspaceArtifactVersionTarget,
-} from "@/lib/workspace-artifacts";
+import {
+  resolveArtifactContextTargets,
+  type WorkspaceArtifactVersionTarget,
+} from "@/lib/artifact-revisions";
+import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 
 /**
  * Cross-thread artifact context. Born from a real failure: asked to restyle "the

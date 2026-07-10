@@ -29,8 +29,12 @@ import {
 import {
   buildArtifactContextPayload,
   buildArtifactLookupMessage,
-  resolveArtifactContextTargets,
 } from "@/lib/artifact-context";
+import {
+  parseWorkspaceArtifactVersionTarget,
+  resolveArtifactContextTargets,
+  type WorkspaceArtifactVersionTarget,
+} from "@/lib/artifact-revisions";
 import {
   buildAppEditContext,
   createDraftAppVersionsForThreadArtifacts,
@@ -53,11 +57,7 @@ import { buildTurnContext } from "@/lib/turn-context";
 import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
 import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
-import {
-  createArtifactsFromAssistantMessage,
-  parseWorkspaceArtifactVersionTarget,
-  type WorkspaceArtifactVersionTarget,
-} from "@/lib/workspace-artifacts";
+import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
 import { createRecommendationsForAssistantMessage } from "@/lib/recommendation-persistence";
 import { createScheduledRunNotification } from "@/lib/notifications";
 

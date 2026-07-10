@@ -1,10 +1,10 @@
 import { MAX_TOKENS_TRUNCATION_NOTICE } from "@ai-workspace/agent";
 import { describe, expect, it } from "vitest";
 import {
-  parseAssistantArtifacts,
   planArtifactVersionsForExistingArtifacts,
   type WorkspaceArtifactVersionTarget,
-} from "@/lib/workspace-artifacts";
+} from "@/lib/artifact-revisions";
+import { parseAssistantArtifacts } from "@/lib/workspace-artifacts";
 
 describe("parseAssistantArtifacts", () => {
   it("extracts explicit filename code fences as workspace artifacts", () => {
