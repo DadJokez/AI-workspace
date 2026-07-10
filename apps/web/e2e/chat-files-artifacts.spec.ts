@@ -1,16 +1,34 @@
 import { MAX_TOKENS_TRUNCATION_NOTICE } from "@ai-workspace/agent";
 import { expect, test } from "@playwright/test";
 import {
+  assistantMessage,
   defaultArtifactDetail,
   defaultArtifactSummary,
   fulfillSse,
   installMockComparativeApi,
+  userMessage,
 } from "./helpers/mock-comparative";
+import { gotoE2EChat, openPrimarySidebar } from "./helpers/navigation";
 
 test.skip(
   !!process.env.PLAYWRIGHT_BASE_URL,
   "mocked chat feature tests run only against the local e2e harness",
 );
+
+function threadSummary(id: string, title: string) {
+  return {
+    id,
+    title,
+    defaultModelId: "sonnet-4-6",
+    summary: null,
+    summaryUpdatedAt: null,
+    previewSummary: null,
+    previewSummaryUpdatedAt: null,
+    titleSource: "generated",
+    createdAt: "2026-05-01T12:00:00.000Z",
+    updatedAt: "2026-05-01T12:00:00.000Z",
+  };
+}
 
 test.describe("chat files and artifacts", () => {
   test("sends image uploads through the chat request payload", async ({
@@ -353,7 +371,7 @@ test.describe("chat files and artifacts", () => {
     await expect(page.getByText(/output length limit/i)).toBeVisible();
   });
 
-  test("keeps an open artifact preview on the latest revision", async ({
+  test("#256 keeps an open artifact preview on the latest revision", async ({
     page,
     isMobile,
   }) => {
@@ -505,7 +523,143 @@ test.describe("chat files and artifacts", () => {
     ).toBeVisible();
   });
 
-  test("collapses declared markdown artifacts instead of showing raw markdown", async ({
+  test("#284 revises an artifact after reopening an old chat", async ({
+    page,
+    isMobile,
+  }) => {
+    const threadId = "thread-old-artifact";
+    const initialHtml = [
+      "<!doctype html>",
+      "<html>",
+      "<head><title>Old Project</title></head>",
+      "<body><h1>Old Project</h1><p>Original version.</p></body>",
+      "</html>",
+    ].join("\n");
+    const revisedHtml = [
+      "<!doctype html>",
+      "<html>",
+      "<head><title>Old Project</title></head>",
+      "<body><h1>Old Project Revised</h1><p>Updated after reopening.</p></body>",
+      "</html>",
+    ].join("\n");
+    const originalArtifact = {
+      ...defaultArtifactSummary,
+      id: "artifact-old-project-v1",
+      title: "Old Project",
+      filename: "old-project.html",
+      threadId,
+      chatMessageId: "assistant-old-project",
+      runId: "run-old-project-v1",
+      artifactGroupId: "old-project",
+      sizeBytes: initialHtml.length,
+      createdAt: "2026-05-01T12:00:00.000Z",
+      previewUrl:
+        "/api/workspace/artifacts/artifact-old-project-v1/preview",
+      downloadUrl:
+        "/api/workspace/artifacts/artifact-old-project-v1/download",
+    };
+    const revisedArtifact = {
+      ...originalArtifact,
+      id: "artifact-old-project-v2",
+      chatMessageId: "assistant-old-project-revised",
+      runId: "run-old-project-v2",
+      versionNumber: 2,
+      supersedesArtifactId: originalArtifact.id,
+      sizeBytes: revisedHtml.length,
+      createdAt: "2026-07-10T05:00:00.000Z",
+      previewUrl:
+        "/api/workspace/artifacts/artifact-old-project-v2/preview",
+      downloadUrl:
+        "/api/workspace/artifacts/artifact-old-project-v2/download",
+    };
+
+    await installMockComparativeApi(page, {
+      threads: [threadSummary(threadId, "Build the old project")],
+      threadMessages: {
+        [threadId]: [
+          userMessage({
+            id: "user-old-project",
+            content: "Build the old project as an HTML file.",
+            createdAt: "2026-05-01T12:00:00.000Z",
+          }),
+          assistantMessage({
+            id: "assistant-old-project",
+            content: "I saved the original project.",
+            artifacts: [originalArtifact],
+            createdAt: "2026-05-01T12:01:00.000Z",
+          }),
+        ],
+      },
+      artifacts: [revisedArtifact, originalArtifact],
+      artifactDetails: {
+        [originalArtifact.id]: {
+          ...originalArtifact,
+          content: initialHtml,
+        },
+        [revisedArtifact.id]: {
+          ...revisedArtifact,
+          content: revisedHtml,
+        },
+      },
+      onChat: async (body, route) => {
+        expect(body.threadId).toBe(threadId);
+        await fulfillSse(route, [
+          { type: "meta", threadId, modelId: "sonnet-4-6" },
+          {
+            type: "text-delta",
+            delta: [
+              "Updated the existing artifact:",
+              "",
+              '```html filename="updated.html"',
+              revisedHtml,
+              "```",
+            ].join("\n"),
+          },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-old-project-revised",
+            artifacts: [revisedArtifact],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+
+    await gotoE2EChat(page);
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar
+      .getByRole("button", { name: /build the old project/i })
+      .click();
+
+    await expect(
+      page.locator(
+        '[data-testid="artifact-pill"][data-artifact-id="artifact-old-project-v1"]',
+      ),
+    ).toBeVisible();
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Update the prior HTML file with a revised headline.");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    const revisedArtifactPill = page.locator(
+      '[data-testid="artifact-pill"][data-artifact-id="artifact-old-project-v2"]',
+    );
+    await expect(revisedArtifactPill).toBeVisible();
+    await revisedArtifactPill.click();
+    const previewPane = page.getByRole("complementary", {
+      name: "Artifact preview",
+    });
+    await expect(previewPane).toContainText("old-project.html");
+    await expect(previewPane).not.toContainText("old-project.html · v2");
+    await expect(
+      previewPane.frameLocator("iframe").getByRole("heading", {
+        name: "Old Project Revised",
+      }),
+    ).toBeVisible();
+  });
+
+  test("#242 collapses declared Markdown instead of showing raw source", async ({
     page,
   }) => {
     const markdownArtifact = {
