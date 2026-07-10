@@ -100,6 +100,7 @@ function installDbMock() {
 
 afterEach(() => {
   dbHooks = {};
+  vi.doUnmock("@/lib/oauth/mcp-servers");
   vi.resetModules();
   vi.unstubAllGlobals();
 });
@@ -170,6 +171,47 @@ describe("skills helpers", () => {
     expect(buildSkillDisplayMessage({ name: "Weekly Status" })).toBe(
       "Run Weekly Status",
     );
+  });
+
+  it("blocks skills while providers need reconnecting or are temporarily unavailable", async () => {
+    vi.doMock("@/lib/oauth/mcp-servers", async () => {
+      const actual =
+        await vi.importActual<typeof import("@/lib/oauth/mcp-servers")>(
+          "@/lib/oauth/mcp-servers",
+        );
+      return {
+        ...actual,
+        loadUserMcpProviderStatus: vi.fn(async () => ({
+          connectedProviders: ["github", "google"],
+          allowedProviders: [],
+          deniedProviders: [],
+          executionUnavailableProviders: [],
+          reconnectRequiredProviders: ["google"],
+          providerAvailability: {
+            google: {
+              status: "reconnect_required",
+            },
+            github: {
+              status: "temporarily_unavailable",
+            },
+          },
+        })),
+      };
+    });
+    const {
+      checkSkillProviderAccess,
+      isSkillProviderAccessReady,
+    } = await import("@/lib/skills");
+
+    const access = await checkSkillProviderAccess(
+      {} as never,
+      owner.id,
+      ["github", "google"],
+    );
+
+    expect(access.reconnectRequired).toEqual(["google"]);
+    expect(access.temporarilyUnavailable).toEqual(["github"]);
+    expect(isSkillProviderAccessReady(access)).toBe(false);
   });
 
   it("enforces visibility: owner, starter, admin", async () => {

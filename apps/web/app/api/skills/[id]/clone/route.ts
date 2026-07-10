@@ -8,6 +8,7 @@ import {
   slugifySkillName,
 } from "@/lib/skills";
 import { canActorAccessSkill } from "@/lib/shares";
+import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
 export const dynamic = "force-dynamic";
 
@@ -32,13 +33,17 @@ export async function POST(
     .from(skills)
     .where(eq(skills.id, id))
     .limit(1);
-  const source = rows[0];
-  if (!source || !(await canActorAccessSkill(db, source, sessionUser))) {
+  const storedSource = rows[0];
+  if (
+    !storedSource ||
+    !(await canActorAccessSkill(db, storedSource, sessionUser))
+  ) {
     return NextResponse.json({ error: "skill_not_found" }, { status: 404 });
   }
-  if (source.archivedAt) {
+  if (storedSource.archivedAt) {
     return NextResponse.json({ error: "skill_archived" }, { status: 409 });
   }
+  const source = canonicalizeStarterSkill(storedSource);
 
   const clone = await insertSkillWithUniqueSlug(db, {
     slug: slugifySkillName(source.name),

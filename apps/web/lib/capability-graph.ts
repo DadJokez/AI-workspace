@@ -19,6 +19,7 @@ import type {
   RecommendationSkill,
 } from "@/lib/recommendations";
 import { listSkillsSharedWith } from "@/lib/shares";
+import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
 export type CapabilityKind = "provider" | "skill" | "app" | "schedule";
 export type CapabilitySource = "connected" | "owned" | "starter" | "shared";
@@ -139,7 +140,11 @@ export async function loadUserCapabilityGraph(
     userId: user.id,
     providerStatus,
     mountedProviders: options.mountedProviders,
-    skills: mergeSharedSkills(skillRows, sharedSkills, user.id),
+    skills: mergeSharedSkills(
+      skillRows.map(canonicalizeStarterSkill),
+      sharedSkills.map(canonicalizeStarterSkill),
+      user.id,
+    ),
     apps: mergeSharedApps(appRows, sharedApps, user.id),
     schedules: scheduleRows,
   });

@@ -101,6 +101,8 @@ describe("resolveActivatedSkillForChat", () => {
           missingConnections: ["github"],
           deniedAttestations: [],
           executionUnavailable: [],
+          reconnectRequired: [],
+          temporarilyUnavailable: [],
         })),
       },
     });
@@ -130,6 +132,8 @@ describe("resolveActivatedSkillForChat", () => {
           missingConnections: [],
           deniedAttestations: [],
           executionUnavailable: ["notion"],
+          reconnectRequired: [],
+          temporarilyUnavailable: [],
         })),
       },
     });
@@ -141,6 +145,36 @@ describe("resolveActivatedSkillForChat", () => {
       message: expect.stringContaining(
         "chat execution to be enabled for notion",
       ),
+    });
+  });
+
+  it("returns 409 with an actionable message when Google needs reconnecting", async () => {
+    const googleSkill = {
+      ...skill,
+      mcpProviders: ["google"],
+    } as unknown as Skill;
+    const result = await resolveActivatedSkillForChat({
+      db: dbWithSkills([googleSkill]),
+      actor,
+      activatedSkills: [{ id: googleSkill.id, source: "explicit" }],
+      deps: {
+        canRunSkill: vi.fn(async () => true),
+        checkProviderAccess: vi.fn(async () => ({
+          ready: [],
+          missingConnections: [],
+          deniedAttestations: [],
+          executionUnavailable: [],
+          reconnectRequired: ["google"],
+          temporarilyUnavailable: [],
+        })),
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 409,
+      error: "skill_provider_unavailable",
+      message: expect.stringContaining("reconnect google in Tools"),
     });
   });
 
@@ -162,6 +196,8 @@ describe("resolveActivatedSkillForChat", () => {
           missingConnections: [],
           deniedAttestations: [],
           executionUnavailable: [],
+          reconnectRequired: [],
+          temporarilyUnavailable: [],
         })),
       },
     });
@@ -189,6 +225,8 @@ describe("resolveActivatedSkillForChat", () => {
       missingConnections: [],
       deniedAttestations: [],
       executionUnavailable: [],
+      reconnectRequired: [],
+      temporarilyUnavailable: [],
     }));
 
     const result = await resolveActivatedSkillForChat({
@@ -209,7 +247,7 @@ describe("resolveActivatedSkillForChat", () => {
     expect(checkProviderAccess).toHaveBeenCalledWith(
       expect.anything(),
       actor.id,
-      ["github"],
+      ["github", "google"],
     );
     expect(result).toMatchObject({
       ok: true,
@@ -218,9 +256,9 @@ describe("resolveActivatedSkillForChat", () => {
           id: staleStarter.id,
           slug: "weekly-status",
           systemPrompt: expect.stringContaining(
-            "Use the GitHub tools before writing",
+            "Use both GitHub and Google before writing",
           ),
-          mcpProviders: ["github"],
+          mcpProviders: ["github", "google"],
         },
       },
     });

@@ -21,7 +21,11 @@ class CaptureClient implements BedrockClient {
   }
 }
 
-async function runTurn(client: BedrockClient, systemPrompt?: string) {
+async function runTurn(
+  client: BedrockClient,
+  systemPrompt?: string,
+  temperature?: number,
+) {
   const events = runAgentLoop({
     modelId: "sonnet-4-6",
     systemPrompt,
@@ -29,6 +33,7 @@ async function runTurn(client: BedrockClient, systemPrompt?: string) {
     registry: new ToolRegistry(),
     context: { userId: "u1" },
     client,
+    temperature,
   });
   for await (const _ev of events) {
     // drain
@@ -79,6 +84,13 @@ describe("runAgentLoop system prompt caching", () => {
     expect(params?.volatileSystemSuffix).toContain(
       "Treat this as ground truth for any date or time reasoning",
     );
+  });
+
+  it("forwards an explicit sampling temperature to the Bedrock seam", async () => {
+    const client = new CaptureClient();
+    await runTurn(client, undefined, 0);
+
+    expect(client.captured[0]?.temperature).toBe(0);
   });
 });
 

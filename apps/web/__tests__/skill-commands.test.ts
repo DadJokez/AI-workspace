@@ -155,12 +155,27 @@ describe("STARTER_SKILLS", () => {
     expect(zeroProvider.length).toBeGreaterThanOrEqual(5);
   });
 
-  it("grounds Weekly Status in live GitHub scope and honest fallback", () => {
+  it("grounds Weekly Status across work signals and returns an artifact", () => {
     const weekly = STARTER_SKILLS.find((s) => s.slug === "weekly-status");
     expect(weekly).toBeDefined();
-    expect(weekly?.mcpProviders).toEqual(["github"]);
-    expect(weekly?.systemPrompt).toContain("Use the GitHub tools before writing");
-    expect(weekly?.systemPrompt).toContain("state exactly what scope you queried");
-    expect(weekly?.systemPrompt).toContain("do not produce a fake weekly status");
+    expect(weekly?.mcpProviders).toEqual(["github", "google"]);
+    expect(weekly?.systemPrompt).toContain("Use both GitHub and Google before writing");
+    expect(weekly?.systemPrompt).toContain("newer_than:7d");
+    expect(weekly?.systemPrompt).toContain("Verification gaps");
+    expect(weekly?.systemPrompt).toContain(
+      'filename="weekly-status-YYYY-MM-DD.md"',
+    );
+  });
+
+  it("grounds Meeting Prep in Calendar and Gmail and returns an artifact", () => {
+    const meetingPrep = STARTER_SKILLS.find((s) => s.slug === "meeting-prep");
+    expect(meetingPrep).toBeDefined();
+    expect(meetingPrep?.mcpProviders).toEqual(["google"]);
+    expect(meetingPrep?.systemPrompt).toContain("Use Google Calendar first");
+    expect(meetingPrep?.systemPrompt).toContain("search Gmail");
+    expect(meetingPrep?.systemPrompt).toContain("no matching upcoming meeting");
+    expect(meetingPrep?.systemPrompt).toContain(
+      'filename="meeting-prep-YYYY-MM-DD.md"',
+    );
   });
 });

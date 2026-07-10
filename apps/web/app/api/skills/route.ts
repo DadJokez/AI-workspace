@@ -9,6 +9,7 @@ import {
   parseSkillInput,
 } from "@/lib/skills";
 import { listSkillsSharedWith } from "@/lib/shares";
+import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
 export const dynamic = "force-dynamic";
 
@@ -34,10 +35,16 @@ export async function GET() {
   const sharedRaw = await listSkillsSharedWith(db, sessionUser.id);
   const visibleIds = new Set(rows.map((s) => s.id));
   const all = [
-    ...rows.map((skill) => ({ skill, shared: false })),
+    ...rows.map((skill) => ({
+      skill: canonicalizeStarterSkill(skill),
+      shared: false,
+    })),
     ...sharedRaw
       .filter((s) => !visibleIds.has(s.id))
-      .map((skill) => ({ skill, shared: true })),
+      .map((skill) => ({
+        skill: canonicalizeStarterSkill(skill),
+        shared: true,
+      })),
   ];
 
   return NextResponse.json({

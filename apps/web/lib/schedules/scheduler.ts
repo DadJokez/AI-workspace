@@ -7,7 +7,12 @@ import {
 } from "@ai-workspace/db";
 import { and, asc, eq, isNull, lte, lt, or } from "drizzle-orm";
 import { computeNextRunAt } from "@/lib/schedules/next-run";
-import { createSkillRun } from "@/lib/skills";
+import {
+  checkSkillProviderAccess,
+  createSkillRun,
+  isSkillProviderAccessReady,
+} from "@/lib/skills";
+import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const CLAIM_STALE_MS = 5 * 60 * 1000;
@@ -107,7 +112,9 @@ async function fireSchedule({
     .from(skills)
     .where(eq(skills.id, schedule.skillId))
     .limit(1);
-  const skill = skillRows[0];
+  const skill = skillRows[0]
+    ? canonicalizeStarterSkill(skillRows[0])
+    : undefined;
 
   if (!skill || skill.archivedAt) {
     // Edge case from the spec: deleted/archived skill → disable gracefully
@@ -125,6 +132,24 @@ async function fireSchedule({
       })
       .where(eq(schedules.id, schedule.id));
     return;
+  }
+
+  const access = await checkSkillProviderAccess(
+    db,
+    schedule.userId,
+    skill.mcpProviders,
+  );
+  if (!isSkillProviderAccessReady(access)) {
+    const blockedProviders = [
+      ...access.missingConnections,
+      ...access.deniedAttestations,
+      ...access.reconnectRequired,
+      ...access.temporarilyUnavailable,
+      ...access.executionUnavailable,
+    ];
+    throw new Error(
+      `Provider access required before this scheduled skill can run: ${[...new Set(blockedProviders)].join(", ")}.`,
+    );
   }
 
   let threadId = schedule.targetThreadId;
