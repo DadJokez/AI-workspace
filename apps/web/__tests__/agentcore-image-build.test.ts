@@ -55,6 +55,24 @@ describe("agentcore-image-build.sh", () => {
     expect(result.stderr).toContain("https://logs.example/child");
   });
 
+  it("times out instead of allowing a stuck ARM build to continue", () => {
+    const result = runScript(["wait", "ai-workspace-build:child-id"], {
+      statuses: "IN_PROGRESS",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Timed out waiting");
+  });
+
+  it("fails closed on an unexpected CodeBuild status", () => {
+    const result = runScript(["wait", "ai-workspace-build:child-id"], {
+      statuses: "UNKNOWN",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("unexpected status: UNKNOWN");
+  });
+
   it("keeps Docker Hub and QEMU emulation out of the deploy path", () => {
     const parentBuildspec = readFileSync(join(ROOT, "buildspec.yml"), "utf8");
     const armBuildspec = readFileSync(
@@ -73,6 +91,12 @@ describe("agentcore-image-build.sh", () => {
     );
     expect(parentBuildspec).toContain("agentcore-image-build.sh start");
     expect(parentBuildspec).toContain("agentcore-image-build.sh wait");
+    expect(parentBuildspec.indexOf("agentcore-image-build.sh wait")).toBeLessThan(
+      parentBuildspec.indexOf("Running database migrations"),
+    );
+    expect(parentBuildspec.indexOf("agentcore-image-build.sh wait")).toBeLessThan(
+      parentBuildspec.indexOf("Pushing the Docker images"),
+    );
     expect(armBuildspec).toContain('test "$(uname -m)" = "aarch64"');
     expect(dockerfile).toContain("public.ecr.aws/docker/library/node");
   });
