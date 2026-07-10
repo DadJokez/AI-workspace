@@ -1,3 +1,4 @@
+import { createHmac, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { authSmokeUser, installAuthSmokeSession } from "./helpers/auth";
@@ -303,6 +304,134 @@ test.describe("authenticated product smoke", () => {
     await expect(page.getByText("Auth Smoke Shared Review")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Starters" })).toBeVisible();
     await expect(page.getByText("Auth Smoke Starter Brief")).toBeVisible();
+  });
+
+  test("creates, runs, pauses, and deletes a signed GitHub skill trigger", async ({
+    page,
+  }) => {
+    const skillId = "00000000-0000-4000-8000-000000000213";
+    const webhookSecret = "playwright-github-webhook-secret";
+    const payload = {
+      action: "submitted",
+      repository: { full_name: "DadJokez/AI-workspace" },
+      pull_request: {
+        number: 293,
+        title: "Authenticated smoke review",
+        html_url: "https://github.com/DadJokez/AI-workspace/pull/293",
+        user: { login: "auth-smoke-author" },
+        assignees: [{ login: "roblindmark" }],
+      },
+      review: {
+        state: "approved",
+        body: "Smoke review approved.",
+        html_url:
+          "https://github.com/DadJokez/AI-workspace/pull/293#review",
+        user: { login: "auth-smoke-reviewer" },
+      },
+    };
+
+    async function sendWebhook(deliveryId = randomUUID()) {
+      const rawBody = JSON.stringify(payload);
+      const signature = `sha256=${createHmac("sha256", webhookSecret)
+        .update(rawBody)
+        .digest("hex")}`;
+      return page.request.post("/api/webhooks/github", {
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": deliveryId,
+          "x-github-event": "pull_request_review",
+          "x-hub-signature-256": signature,
+        },
+        data: rawBody,
+      });
+    }
+
+    await page.goto(`/skills/${skillId}`);
+    await expect(
+      page.getByRole("heading", { name: "GitHub triggers" }),
+    ).toBeVisible();
+    await page.getByLabel("Repository").fill("DadJokez/AI-workspace");
+    await page.getByLabel("PR author").fill("auth-smoke-author");
+    await page.getByLabel("PR assignee").fill("roblindmark");
+    const [createResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/api/event-triggers") &&
+          response.request().method() === "POST",
+      ),
+      page.getByRole("button", { name: "Add trigger" }).click(),
+    ]);
+    expect(createResponse.status()).toBe(201);
+
+    const triggerRow = page.locator("li").filter({
+      hasText: "dadjokez/ai-workspace",
+    });
+    await expect(triggerRow).toContainText("Pull request review");
+    await expect(triggerRow).toContainText("author @auth-smoke-author");
+
+    const deliveryId = randomUUID();
+    const webhookResponse = await sendWebhook(deliveryId);
+    expect(webhookResponse.status()).toBe(202);
+    expect(await webhookResponse.json()).toMatchObject({
+      matched: 1,
+      fired: 1,
+      failed: 0,
+    });
+    const duplicateResponse = await sendWebhook(deliveryId);
+    expect(duplicateResponse.status()).toBe(202);
+    expect(await duplicateResponse.json()).toMatchObject({
+      matched: 1,
+      fired: 0,
+      duplicate: 1,
+    });
+
+    let notification:
+      | { title?: string; body?: string; threadId?: string | null }
+      | undefined;
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get("/api/notifications");
+          const body = (await response.json()) as {
+            notifications?: Array<{
+              title?: string;
+              body?: string;
+              threadId?: string | null;
+            }>;
+          };
+          notification = body.notifications?.find(
+            (item) => item.title === "Auth Smoke Weekly Status finished",
+          );
+          return notification?.body ?? null;
+        },
+        { timeout: 20_000 },
+      )
+      .toContain("GitHub event");
+    expect(notification?.threadId).toBeTruthy();
+
+    await page.goto(`/chat?threadId=${notification!.threadId}`);
+    await expect(page.getByText(/GitHub event: Review approved/)).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await page.goto(`/skills/${skillId}`);
+    const activeRow = page.locator("li").filter({
+      hasText: "dadjokez/ai-workspace",
+    });
+    await activeRow.getByRole("button", { name: "Pause" }).click();
+    await expect(activeRow).toContainText("paused");
+    const pausedResponse = await sendWebhook();
+    expect(pausedResponse.status()).toBe(202);
+    expect(await pausedResponse.json()).toMatchObject({ matched: 0, fired: 0 });
+
+    await activeRow.getByRole("button", { name: "Resume" }).click();
+    await expect(activeRow).not.toContainText("paused");
+    page.once("dialog", (dialog) => dialog.accept());
+    await activeRow.getByRole("button", { name: "Delete" }).click();
+    await expect(activeRow).toHaveCount(0);
+    const deletedResponse = await sendWebhook();
+    expect(deletedResponse.status()).toBe(202);
+    expect(await deletedResponse.json()).toMatchObject({ matched: 0, fired: 0 });
   });
 
   test("sends, retries, and revokes admin invitations", async ({ page }) => {

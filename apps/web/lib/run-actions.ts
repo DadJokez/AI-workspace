@@ -7,7 +7,12 @@ import {
 } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 
-const WORKER_TRIGGER_TYPES = new Set(["skill", "scheduled", "skill_retry"]);
+const WORKER_TRIGGER_TYPES = new Set([
+  "skill",
+  "scheduled",
+  "github_event",
+  "skill_retry",
+]);
 
 function isWorkerExecutableRun(
   run: Pick<Run, "skillSlug" | "triggerType">,
@@ -155,6 +160,8 @@ export async function retryChatRun({
       skillId: run.skillId,
       skillSlug: run.skillSlug,
       scheduleId: run.scheduleId,
+      eventTriggerId: run.eventTriggerId,
+      eventDeliveryId: null,
       triggerType: run.skillSlug === "chat-turn" ? "chat_retry" : "skill_retry",
       status: "queued",
       modelId: run.modelId,

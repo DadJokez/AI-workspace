@@ -95,7 +95,12 @@ export async function loadThreadMessagesWithRunActivity({
           eq(runs.threadId, threadId),
           or(
             eq(runs.skillSlug, "chat-turn"),
-            inArray(runs.triggerType, ["skill", "scheduled", "skill_retry"]),
+            inArray(runs.triggerType, [
+              "skill",
+              "scheduled",
+              "github_event",
+              "skill_retry",
+            ]),
           ),
         ),
       )

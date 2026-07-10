@@ -221,7 +221,7 @@ export function NotificationsPanel({
                 {digest!.completedRuns.map((run) => (
                   <DigestRow
                     key={run.id}
-                    label={`${run.skillName ?? run.skillSlug ?? "Scheduled run"} finished`}
+                    label={`${run.skillName ?? run.skillSlug ?? "Proactive run"} finished`}
                     tone="ok"
                     when={run.completedAt}
                     onClick={
@@ -229,7 +229,7 @@ export function NotificationsPanel({
                         ? () =>
                             onOpenThread(
                               run.threadId!,
-                              run.skillName ?? "Scheduled run",
+                              run.skillName ?? "Proactive run",
                             )
                         : undefined
                     }
@@ -238,7 +238,7 @@ export function NotificationsPanel({
                 {digest!.failedRuns.map((run) => (
                   <DigestRow
                     key={run.id}
-                    label={`${run.skillName ?? run.skillSlug ?? "Scheduled run"} failed`}
+                    label={`${run.skillName ?? run.skillSlug ?? "Proactive run"} failed`}
                     tone="error"
                     when={run.completedAt}
                     onClick={
@@ -246,7 +246,7 @@ export function NotificationsPanel({
                         ? () =>
                             onOpenThread(
                               run.threadId!,
-                              run.skillName ?? "Scheduled run",
+                              run.skillName ?? "Proactive run",
                             )
                         : undefined
                     }
@@ -274,8 +274,8 @@ export function NotificationsPanel({
               <p className="text-[12px] text-muted">Loading…</p>
             ) : items.length === 0 ? (
               <p className="text-[12px] text-muted">
-                Nothing yet. When a scheduled run finishes while you&apos;re
-                away, it lands here.
+                Nothing yet. When a scheduled or triggered run finishes while
+                you&apos;re away, it lands here.
               </p>
             ) : (
               <ul className="flex flex-col" data-testid="notification-list">

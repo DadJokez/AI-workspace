@@ -461,9 +461,58 @@ export const schedules = pgTable(
 );
 
 /**
- * Durable execution ledger for chat turns, workflow runs, skill runs, and
- * scheduled runs (formerly `recipe_runs` — renamed because chat and workflow
- * rows were never recipes). `skill_id` is nullable: chat turns have no skill.
+ * Event-driven execution definitions. V1 accepts GitHub webhooks, but source,
+ * filters, and thread mode stay generic so another governed event source can
+ * use the same lifecycle later.
+ */
+export const eventTriggers = pgTable(
+  "event_triggers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    skillId: uuid("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    source: text("source").notNull().default("github"),
+    repository: text("repository").notNull(),
+    eventType: text("event_type").notNull(),
+    action: text("action"),
+    filters: jsonb("filters").notNull().default(sql`'{}'::jsonb`),
+    threadMode: text("thread_mode").notNull().default("dedicated"),
+    targetThreadId: uuid("target_thread_id").references(() => chatThreads.id, {
+      onDelete: "set null",
+    }),
+    enabled: boolean("enabled").notNull().default(true),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    lastFiredAt: timestamp("last_fired_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    lookupIdx: index("event_triggers_lookup_idx").on(
+      t.source,
+      t.repository,
+      t.eventType,
+      t.enabled,
+      t.deletedAt,
+    ),
+    userIdx: index("event_triggers_user_idx").on(t.userId, t.createdAt),
+    skillIdx: index("event_triggers_skill_idx").on(t.skillId),
+  }),
+);
+
+/**
+ * Durable execution ledger for chat turns, workflow runs, skill runs,
+ * scheduled runs, and event-triggered runs (formerly `recipe_runs` — renamed
+ * because chat and workflow rows were never recipes). `skill_id` is nullable:
+ * chat turns have no skill.
  */
 export const runs = pgTable(
   "runs",
@@ -480,6 +529,10 @@ export const runs = pgTable(
     scheduleId: uuid("schedule_id").references(() => schedules.id, {
       onDelete: "set null",
     }),
+    eventTriggerId: uuid("event_trigger_id").references(() => eventTriggers.id, {
+      onDelete: "set null",
+    }),
+    eventDeliveryId: text("event_delivery_id"),
     threadId: uuid("thread_id").references(() => chatThreads.id, {
       onDelete: "set null",
     }),
@@ -514,6 +567,46 @@ export const runs = pgTable(
     skillIdx: index("runs_skill_idx").on(t.skillId),
     threadIdx: index("runs_thread_idx").on(t.threadId),
     scheduleIdx: index("runs_schedule_idx").on(t.scheduleId),
+    eventTriggerIdx: index("runs_event_trigger_idx").on(t.eventTriggerId),
+    eventDeliveryUnique: uniqueIndex("runs_event_delivery_idx")
+      .on(t.eventTriggerId, t.eventDeliveryId)
+      .where(sql`${t.eventTriggerId} IS NOT NULL AND ${t.eventDeliveryId} IS NOT NULL`),
+  }),
+);
+
+/**
+ * Durable webhook receipt. The unique trigger/delivery pair is claimed before
+ * enqueueing, so concurrent GitHub retries cannot create duplicate runs.
+ */
+export const eventTriggerDeliveries = pgTable(
+  "event_trigger_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    triggerId: uuid("trigger_id")
+      .notNull()
+      .references(() => eventTriggers.id, { onDelete: "cascade" }),
+    runId: uuid("run_id").references(() => runs.id, { onDelete: "set null" }),
+    source: text("source").notNull(),
+    deliveryId: text("delivery_id").notNull(),
+    eventType: text("event_type").notNull(),
+    eventAction: text("event_action"),
+    repository: text("repository").notNull(),
+    eventSummary: text("event_summary").notNull(),
+    status: text("status").notNull().default("claimed"),
+    error: text("error"),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    triggerDeliveryUnique: uniqueIndex(
+      "event_trigger_deliveries_trigger_delivery_idx",
+    ).on(t.triggerId, t.deliveryId),
+    runIdx: index("event_trigger_deliveries_run_idx").on(t.runId),
+    receivedIdx: index("event_trigger_deliveries_received_idx").on(t.receivedAt),
   }),
 );
 
@@ -556,8 +649,9 @@ export const runEvents = pgTable(
 
 /**
  * Per-user notification inbox (issue #292). Written by the chat-run worker
- * when a scheduled run reaches a terminal status; read by the bell/center in
- * the app shell. Strictly per-user — queries scope with `eq(userId, caller)`,
+ * when a scheduled or event-triggered run reaches a terminal status; read by
+ * the bell/center in the app shell. Strictly per-user — queries scope with
+ * `eq(userId, caller)`,
  * never an admin bypass. `run_id` is unique so worker retries can never
  * produce a duplicate notification for the same run. `accepted_at` is the
  * north-star signal: set the first time the user opens the notification's
@@ -1283,6 +1377,10 @@ export type Skill = typeof skills.$inferSelect;
 export type NewSkill = typeof skills.$inferInsert;
 export type Schedule = typeof schedules.$inferSelect;
 export type NewSchedule = typeof schedules.$inferInsert;
+export type EventTrigger = typeof eventTriggers.$inferSelect;
+export type NewEventTrigger = typeof eventTriggers.$inferInsert;
+export type EventTriggerDelivery = typeof eventTriggerDeliveries.$inferSelect;
+export type NewEventTriggerDelivery = typeof eventTriggerDeliveries.$inferInsert;
 export type Share = typeof shares.$inferSelect;
 export type NewShare = typeof shares.$inferInsert;
 export type App = typeof apps.$inferSelect;

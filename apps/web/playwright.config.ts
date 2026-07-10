@@ -36,8 +36,10 @@ export default defineConfig({
           NEXTAUTH_URL: baseURL,
           DATABASE_URL: localDatabaseUrl,
           BEDROCK_CLIENT: "fake",
-          CHAT_RUN_IN_PROCESS_WORKER: "0",
+          CHAT_RUN_IN_PROCESS_WORKER:
+            process.env.PLAYWRIGHT_AUTH_SMOKE === "1" ? "1" : "0",
           MEMORY_CAPTURE_IN_PROCESS_SCHEDULER: "0",
+          GITHUB_WEBHOOK_SECRET: "playwright-github-webhook-secret",
           GITHUB_AUTH_CLIENT_ID: "playwright-local-client",
           GITHUB_AUTH_CLIENT_SECRET: "playwright-local-secret",
         },

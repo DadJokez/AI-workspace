@@ -23,21 +23,23 @@ export type NotificationType = "run_succeeded" | "run_failed";
 const DIGEST_FALLBACK_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Write the inbox row for a scheduled run that reached a terminal status.
- * No-op for non-scheduled runs (chat turns and manual skill runs are
- * delivered live in the thread). The unique index on `run_id` makes this
+ * Write the inbox row for a proactive run that reached a terminal status.
+ * No-op for chat turns and manual skill runs, which are delivered live in the
+ * thread. The unique index on `run_id` makes this
  * idempotent across worker retries: exactly one notification per run.
  *
  * Never throws — a notification failure must not fail the run. Errors are
  * logged to stderr like the worker's other best-effort side effects.
  */
-export async function createScheduledRunNotification(
+export async function createProactiveRunNotification(
   db: Database,
   run: Run,
   terminalStatus: "succeeded" | "failed",
   threadId?: string | null,
 ): Promise<void> {
-  if (run.triggerType !== "scheduled") return;
+  if (run.triggerType !== "scheduled" && run.triggerType !== "github_event") {
+    return;
+  }
 
   try {
     const skillName = run.skillId
@@ -49,7 +51,8 @@ export async function createScheduledRunNotification(
             .limit(1)
         )[0]?.name
       : undefined;
-    const label = skillName ?? run.skillSlug ?? "Scheduled run";
+    const label = skillName ?? run.skillSlug ?? "Proactive run";
+    const eventTriggered = run.triggerType === "github_event";
 
     await db
       .insert(notifications)
@@ -63,8 +66,13 @@ export async function createScheduledRunNotification(
             : `${label} failed`,
         body:
           terminalStatus === "succeeded"
-            ? "A scheduled run completed while you were away. Open it to see the result."
-            : (run.error ?? "The scheduled run ended with an error."),
+            ? eventTriggered
+              ? "A GitHub event triggered this run while you were away. Open it to see the result."
+              : "A scheduled run completed while you were away. Open it to see the result."
+            : (run.error ??
+              (eventTriggered
+                ? "The GitHub event run ended with an error."
+                : "The scheduled run ended with an error.")),
         runId: run.id,
         threadId: threadId ?? run.threadId,
       })
@@ -172,7 +180,7 @@ export interface Digest {
 }
 
 /**
- * "Since you were last here" rollup: terminal scheduled runs and new active
+ * "Since you were last here" rollup: terminal proactive runs and new active
  * shares since the user's previous digest view. Reading the digest advances
  * `users.digest_viewed_at`, so the next view starts where this one ended.
  * First-ever view falls back to the trailing 24 hours.
@@ -207,7 +215,7 @@ export async function buildDigest(
       .where(
         and(
           eq(runs.userId, userId),
-          eq(runs.triggerType, "scheduled"),
+          inArray(runs.triggerType, ["scheduled", "github_event"]),
           inArray(runs.status, ["succeeded", "failed"]),
           gt(runs.completedAt, since),
         ),

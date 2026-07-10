@@ -1,6 +1,6 @@
 # AI Hub
 
-Internal AI front door for Georgia-Pacific. Single login, chat with your work data, run and schedule **skills** (saved agents), deploy small **apps** from conversation, share both with teammates — governed, audited, and executed on AWS by default.
+Internal AI front door for Georgia-Pacific. Single login, chat with your work data, run, schedule, and event-trigger **skills** (saved agents), deploy small **apps** from conversation, share both with teammates — governed, audited, and executed on AWS by default.
 
 See [`docs/ROADMAP.md`](./docs/ROADMAP.md) for the five journeys and integration roadmap.
 See [`PLAN.md`](./PLAN.md) for weekly ship plan and architectural decisions.
@@ -13,7 +13,7 @@ See [`docs/ENTERPRISE_READINESS.md`](./docs/ENTERPRISE_READINESS.md) for the IT 
 - **Drizzle** + **RDS Postgres**
 - **NextAuth v4** with GitHub OAuth (POC identity — swaps to PingOne OIDC for enterprise)
 - **AWS Bedrock** (`converseStream` + MCP client) — direct fast-chat and tool-chat lanes (`RUNTIME=bedrock`)
-- **Amazon Bedrock AgentCore** (`RUNTIME=agentcore`) — worker-lane runtime: durable chat, skill, and scheduled runs execute session-isolated in our account (`apps/agentcore-agent` container + `specs/003`)
+- **Amazon Bedrock AgentCore** (`RUNTIME=agentcore`) — worker-lane runtime: durable chat, skill, scheduled, and event-triggered runs execute session-isolated in our account (`apps/agentcore-agent` container + `specs/003`)
 - **GitHub MCP** (`api.githubcopilot.com/mcp/`) — first working tool integration
 - **ECS on Fargate** — production hosting target with separate web, chat-worker, and memory-worker services
 - **AWS App Runner** — rollback-only POC host during ECS cutover
@@ -25,7 +25,7 @@ apps/
   web/              Next.js app (UI + API routes + auth) — chat, /skills, /apps, admin
   agentcore-agent/  Agent loop container for Bedrock AgentCore (POST /invocations SSE, GET /ping)
 packages/
-  db/               Drizzle schema + client + migrations (skills, schedules, shares, apps, runs…)
+  db/               Drizzle schema + client + migrations (skills, schedules, event triggers, shares, apps, runs…)
   agent-runtime/   AgentRuntime seam (Bedrock + AgentCore runtimes + factory)
   agent/            Tool/model registries, Bedrock loop, MCP client (connectMcpTools)
   mcp-servers/      Local integration stubs; GitHub MCP is remote and mounted by apps/web/lib/oauth/mcp-servers.ts
@@ -69,6 +69,7 @@ pnpm dev          # http://localhost:3000
 | `NEXTAUTH_SECRET` | NextAuth JWT signing secret |
 | `GITHUB_AUTH_CLIENT_ID` / `GITHUB_AUTH_CLIENT_SECRET` | GitHub OAuth App for sign-in |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Separate GitHub OAuth App for per-user MCP tokens |
+| `GITHUB_WEBHOOK_SECRET` | HMAC secret for signed GitHub repository events; injected into the web task only |
 | `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` | Notion OAuth integration token app for `/api/oauth/notion/*` |
 | `NOTION_API_VERSION` | Notion API version header for OAuth token exchange; defaults to `2026-03-11` |
 | `NOTION_MCP_ENDPOINT_URL` | Optional override for a compatible Comparative-owned Notion MCP gateway. Empty uses the first-party `/api/mcp/notion` endpoint. Do not point this at hosted Notion MCP. |

@@ -176,6 +176,13 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
         ecs.Secret.fromSecretsManager(appSecret, field),
       ]),
     );
+    const webSecrets = {
+      ...commonSecrets,
+      GITHUB_WEBHOOK_SECRET: ecs.Secret.fromSecretsManager(
+        appSecret,
+        "GITHUB_WEBHOOK_SECRET",
+      ),
+    };
 
     const webLogGroup = new logs.LogGroup(this, "WebLogGroup", {
       logGroupName: "/ecs/ai-workspace/web",
@@ -220,7 +227,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
         INVITE_EMAIL_FROM: inviteEmailFrom,
         INVITE_EMAIL_AWS_REGION: inviteEmailAwsRegion,
       },
-      secrets: commonSecrets,
+      secrets: webSecrets,
     });
 
     const webService =

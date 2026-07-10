@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Database, Run } from "@ai-workspace/db";
 import {
   buildDigest,
-  createScheduledRunNotification,
+  createProactiveRunNotification,
   listNotifications,
   openNotification,
 } from "@/lib/notifications";
@@ -86,11 +86,11 @@ function fakeDb(selectResults: Array<Array<Record<string, unknown>>> = []) {
   return { db, captured };
 }
 
-describe("createScheduledRunNotification", () => {
+describe("createProactiveRunNotification", () => {
   it("writes exactly one owner-scoped notification for a scheduled run", async () => {
     const { db, captured } = fakeDb([[{ name: "Weekly Status" }]]);
 
-    await createScheduledRunNotification(db, scheduledRun(), "succeeded");
+    await createProactiveRunNotification(db, scheduledRun(), "succeeded");
 
     expect(captured.inserts).toHaveLength(1);
     expect(captured.inserts[0]).toMatchObject({
@@ -108,7 +108,7 @@ describe("createScheduledRunNotification", () => {
   it("produces a distinguishable failure notification carrying the error", async () => {
     const { db, captured } = fakeDb([[{ name: "Weekly Status" }]]);
 
-    await createScheduledRunNotification(
+    await createProactiveRunNotification(
       db,
       scheduledRun({ error: "Bedrock timed out" }),
       "failed",
@@ -121,10 +121,33 @@ describe("createScheduledRunNotification", () => {
     });
   });
 
+  it("notifies the owner when a GitHub event-triggered run finishes", async () => {
+    const { db, captured } = fakeDb([[{ name: "PR Review" }]]);
+
+    await createProactiveRunNotification(
+      db,
+      scheduledRun({
+        triggerType: "github_event",
+        scheduleId: null,
+        eventTriggerId: "00000000-0000-4000-8000-000000000293",
+        eventDeliveryId: "delivery-293",
+      }),
+      "succeeded",
+    );
+
+    expect(captured.inserts[0]).toMatchObject({
+      userId: USER_ID,
+      title: "PR Review finished",
+      body: expect.stringContaining("GitHub event"),
+      runId: RUN_ID,
+      threadId: THREAD_ID,
+    });
+  });
+
   it("does nothing for chat turns and manual skill runs", async () => {
     for (const triggerType of ["manual", "skill", "skill_retry"]) {
       const { db, captured } = fakeDb();
-      await createScheduledRunNotification(
+      await createProactiveRunNotification(
         db,
         scheduledRun({ triggerType }),
         "succeeded",
@@ -136,7 +159,7 @@ describe("createScheduledRunNotification", () => {
   it("falls back to the skill slug when the skill row is gone", async () => {
     const { db, captured } = fakeDb([[]]);
 
-    await createScheduledRunNotification(db, scheduledRun(), "succeeded");
+    await createProactiveRunNotification(db, scheduledRun(), "succeeded");
 
     expect(captured.inserts[0]).toMatchObject({
       title: "weekly-status finished",
@@ -151,7 +174,7 @@ describe("createScheduledRunNotification", () => {
     } as unknown as Database;
 
     await expect(
-      createScheduledRunNotification(db, scheduledRun(), "succeeded"),
+      createProactiveRunNotification(db, scheduledRun(), "succeeded"),
     ).resolves.toBeUndefined();
   });
 
@@ -159,7 +182,7 @@ describe("createScheduledRunNotification", () => {
     const { db, captured } = fakeDb([[{ name: "Weekly Status" }]]);
     const outputThread = "00000000-0000-4000-8000-000000000099";
 
-    await createScheduledRunNotification(
+    await createProactiveRunNotification(
       db,
       scheduledRun(),
       "succeeded",
