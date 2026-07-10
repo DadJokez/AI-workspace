@@ -35,7 +35,8 @@ export async function createRecommendationsForAssistantMessage({
   artifacts: readonly WorkspaceArtifactSummary[];
   suppressedSkillIds?: readonly string[];
 }): Promise<PersistedRecommendation[]> {
-  const [currentRows, recentRows, capabilityGraph] = await Promise.all([
+  const [currentRows, recentRows, capabilityGraph, priorRecommendationRows] =
+    await Promise.all([
     db
       .select({ content: chatMessages.content })
       .from(chatMessages)
@@ -53,6 +54,17 @@ export async function createRecommendationsForAssistantMessage({
       .orderBy(desc(chatMessages.createdAt))
       .limit(8),
     loadUserCapabilityGraph(db, { id: userId, role: "user" }),
+    db
+      .select({ metadata: recommendations.metadata })
+      .from(recommendations)
+      .where(
+        and(
+          eq(recommendations.userId, userId),
+          eq(recommendations.threadId, threadId),
+        ),
+      )
+      .orderBy(desc(recommendations.createdAt))
+      .limit(100),
   ]);
 
   const currentMessage = currentRows[0]?.content ?? "";
@@ -74,6 +86,9 @@ export async function createRecommendationsForAssistantMessage({
       mimeType: artifact.mimeType,
     })),
     suppressedSkillIds,
+    suppressedCandidateIds: priorRecommendationRows
+      .map((row) => candidateIdFromMetadata(row.metadata))
+      .filter((id): id is string => Boolean(id)),
   }).slice(0, 3);
 
   if (candidates.length === 0) return [];
@@ -101,6 +116,43 @@ export async function createRecommendationsForAssistantMessage({
     .returning();
 
   return rows.map(serializeRecommendation);
+}
+
+export async function loadRecentRecommendationsForThread({
+  db,
+  userId,
+  threadId,
+  limit = 5,
+}: {
+  db: Database;
+  userId: string;
+  threadId: string;
+  limit?: number;
+}): Promise<PersistedRecommendation[]> {
+  const resolvedLimit = Math.max(1, Math.min(limit, 10));
+  const rows = await db
+    .select()
+    .from(recommendations)
+    .where(
+      and(
+        eq(recommendations.userId, userId),
+        eq(recommendations.threadId, threadId),
+        eq(recommendations.status, "suggested"),
+      ),
+    )
+    .orderBy(desc(recommendations.createdAt))
+    .limit(resolvedLimit * 4);
+
+  const seen = new Set<string>();
+  const out: PersistedRecommendation[] = [];
+  for (const row of rows) {
+    const recommendation = serializeRecommendation(row);
+    if (seen.has(recommendation.id)) continue;
+    seen.add(recommendation.id);
+    out.push(recommendation);
+    if (out.length >= resolvedLimit) break;
+  }
+  return out;
 }
 
 export async function loadRecommendationsForMessages({
@@ -182,4 +234,9 @@ function normalizeStatus(value: string): RecommendationStatus {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function candidateIdFromMetadata(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined;
+  return typeof value.candidateId === "string" ? value.candidateId : undefined;
 }

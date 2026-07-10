@@ -18,13 +18,23 @@ export const googleTools = [
   {
     name: "search_mail",
     description:
-      "Search the connected user's Gmail using Gmail search syntax. Returns grounded message metadata and stable Gmail links; use get_message or get_thread for full content.",
+      "Search the connected user's Gmail. Choose mailbox='inbox' for received or unread mail, 'sent' for sent mail, 'drafts' for drafts, and 'all' only when the user asks across all mail. Set sinceLastSearch=true only when the user means new or changed mail since a prior Gmail check, search, summary, or update in this conversation; the server will apply the exact saved cursor and remove messages already shown. Use false for a fresh search. Do not put mailbox or since-last-search filters in query. Returns grounded message metadata and stable Gmail links; use get_message or get_thread for full content.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["query"],
+      required: ["mailbox", "sinceLastSearch"],
       properties: {
-        query: { type: "string", minLength: 1, maxLength: 500 },
+        query: {
+          type: "string",
+          maxLength: 500,
+          description:
+            "Optional Gmail content filter, such as from:alex or is:unread. Omit mailbox and time-cursor operators.",
+        },
+        mailbox: {
+          type: "string",
+          enum: ["inbox", "all", "sent", "drafts"],
+        },
+        sinceLastSearch: { type: "boolean" },
         maxResults: { type: "integer", minimum: 1, maximum: 10 },
       },
     },
@@ -198,24 +208,68 @@ export async function callGoogleTool(
 
 async function searchMail(input: unknown, context: GoogleToolContext) {
   const args = record(input);
-  const query = requiredString(args.query, "query", 500);
+  const requestedQuery = optionalString(args.query, 500) ?? "";
+  const mailbox = mailSearchMailbox(args.mailbox);
+  const sinceLastSearch = requiredBoolean(
+    args.sinceLastSearch,
+    "sinceLastSearch",
+  );
   const maxResults = integer(args.maxResults, 1, 10, 10);
+  const searchState = context.turnContext.mailSearchState;
+  if (sinceLastSearch && !searchState) {
+    throw new Error(
+      "No previous Gmail search exists in this conversation. Retry with sinceLastSearch=false.",
+    );
+  }
+  const incrementalState = sinceLastSearch ? searchState : undefined;
+  const query = buildMailSearchQuery(requestedQuery, incrementalState);
+  const excludedMessageIds = new Set(
+    incrementalState?.previousMessageIds ?? [],
+  );
+  const searchedAt = new Date().toISOString();
   const url = new URL(`${GMAIL_API_BASE}/messages`);
-  url.searchParams.set("q", query);
-  url.searchParams.set("maxResults", String(maxResults));
+  if (query) url.searchParams.set("q", query);
+  url.searchParams.set(
+    "maxResults",
+    String(Math.min(200, maxResults + excludedMessageIds.size)),
+  );
+  const mailboxLabel = googleMailboxLabel(mailbox);
+  if (mailboxLabel) url.searchParams.append("labelIds", mailboxLabel);
   const listed = await googleJson(url, context.accessToken);
   const ids = arrayOfRecords(listed.messages)
     .map((message) => optionalString(message.id, 200))
     .filter((id): id is string => Boolean(id));
-  const messages = await Promise.all(
+  const candidates = await Promise.all(
     ids.map((id) => getMessageMetadata(id, context.accessToken)),
   );
-  return frameGoogleContent("MAIL", {
-    query,
-    resultCount: messages.length,
-    nextPageToken: optionalString(listed.nextPageToken, 1000),
-    messages,
-  });
+  const messages = candidates
+    .filter((message) => {
+      if (!message.id || excludedMessageIds.has(message.id)) return false;
+      if (
+        incrementalState &&
+        (!message.internalDate ||
+          message.internalDate <= Date.parse(incrementalState.lastSearchedAt))
+      ) {
+        return false;
+      }
+      return messageMatchesMailbox(message.labelIds, mailbox);
+    })
+    .slice(0, maxResults);
+  return {
+    ...frameGoogleContent("MAIL", {
+      query,
+      resultCount: messages.length,
+      nextPageToken: optionalString(listed.nextPageToken, 1000),
+      messages,
+    }),
+    searchMetadata: {
+      searchedAt,
+      mailbox,
+      messageIds: messages
+        .map((message) => message.id)
+        .filter((id): id is string => Boolean(id)),
+    },
+  };
 }
 
 async function getMessage(input: unknown, context: GoogleToolContext) {
@@ -498,9 +552,14 @@ async function getMessageMetadata(messageId: string, accessToken: string) {
   const message = await googleJson(url, accessToken);
   const headers = gmailHeaders(record(message.payload));
   const threadId = optionalString(message.threadId, 200);
+  const internalDateValue = Number(message.internalDate);
   return {
     id: optionalString(message.id, 200),
     threadId,
+    labelIds: stringList(message.labelIds, "labelIds", 0, 100, 200),
+    internalDate: Number.isFinite(internalDateValue)
+      ? internalDateValue
+      : undefined,
     subject: headers.subject,
     from: headers.from,
     to: headers.to,
@@ -508,6 +567,62 @@ async function getMessageMetadata(messageId: string, accessToken: string) {
     snippet: optionalString(message.snippet, 2000),
     ...(threadId ? { link: gmailThreadLink(threadId) } : {}),
   };
+}
+
+function buildMailSearchQuery(
+  requestedQuery: string,
+  searchState: GoogleTurnContext["mailSearchState"],
+): string {
+  let query = requestedQuery.replace(
+    /\b-?(?:in|label):(?:inbox|sent|drafts?|outbox|all|anywhere)\b/gi,
+    " ",
+  );
+  if (searchState) {
+    query = query.replace(
+      /\b(?:after|newer_than):(?:"[^"]*"|\S+)/gi,
+      " ",
+    );
+  }
+  query = query.replace(/\s+/g, " ").trim();
+  const guards = searchState
+    ? [`after:${Math.floor(Date.parse(searchState.lastSearchedAt) / 1000)}`]
+    : [];
+  return [...(query ? [query] : []), ...guards].join(" ");
+}
+
+type GoogleMailSearchMailbox = "inbox" | "all" | "sent" | "drafts";
+
+function mailSearchMailbox(value: unknown): GoogleMailSearchMailbox {
+  if (
+    value === "inbox" ||
+    value === "all" ||
+    value === "sent" ||
+    value === "drafts"
+  ) {
+    return value;
+  }
+  throw new Error("mailbox must be inbox, all, sent, or drafts.");
+}
+
+function googleMailboxLabel(mailbox: GoogleMailSearchMailbox) {
+  if (mailbox === "inbox") return "INBOX";
+  if (mailbox === "sent") return "SENT";
+  if (mailbox === "drafts") return "DRAFT";
+  return undefined;
+}
+
+function messageMatchesMailbox(
+  labelIds: readonly string[],
+  mailbox: GoogleMailSearchMailbox,
+): boolean {
+  if (mailbox === "all") return true;
+  if (mailbox === "sent") return labelIds.includes("SENT");
+  if (mailbox === "drafts") return labelIds.includes("DRAFT");
+  return (
+    labelIds.includes("INBOX") &&
+    !labelIds.includes("DRAFT") &&
+    !labelIds.includes("SENT")
+  );
 }
 
 function normalizeMessage(message: Record<string, unknown>) {
@@ -776,6 +891,11 @@ function requiredString(value: unknown, name: string, max: number): string {
   const text = value.trim();
   if (text.length > max) throw new Error(`${name} is too long.`);
   return text;
+}
+
+function requiredBoolean(value: unknown, name: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`${name} is required.`);
+  return value;
 }
 
 function optionalString(value: unknown, max: number): string | undefined {

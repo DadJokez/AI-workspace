@@ -292,6 +292,22 @@ describe("chat context pack", () => {
       deploy_artifact_as_app: 1,
       schedule_skill: 1,
     });
+    expect(pack.receipts[0]?.contextItems).toContainEqual(
+      expect.objectContaining({
+        id: "recommendation:open-app:sales",
+        type: "recent_recommendation",
+        source: "recommendations.suggested",
+        owner: "system",
+        injected: true,
+      }),
+    );
+    expect(pack.prompt.systemPrompt).toContain(
+      "Recent recommendation cards displayed in this chat",
+    );
+    expect(pack.prompt.systemPrompt).toContain("Open Sales Dashboard");
+    expect(pack.prompt.systemPrompt).toContain(
+      "Do not deny that the card appeared",
+    );
   });
 
   it("injects a compact capability graph summary into the prompt", () => {

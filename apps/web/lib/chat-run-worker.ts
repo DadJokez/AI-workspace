@@ -59,7 +59,10 @@ import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachment
 import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
-import { createRecommendationsForAssistantMessage } from "@/lib/recommendation-persistence";
+import {
+  createRecommendationsForAssistantMessage,
+  loadRecentRecommendationsForThread,
+} from "@/lib/recommendation-persistence";
 import { createProactiveRunNotification } from "@/lib/notifications";
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
@@ -332,7 +335,8 @@ async function executeClaimedChatRun({
 
   // Match artifacts against recent RAW user messages, not the attachment-folded
   // prompt (see chat-inline-runner for the rationale).
-  const [artifactContextPayload, appEditContext] = await Promise.all([
+  const [artifactContextPayload, appEditContext, recentRecommendations] =
+    await Promise.all([
     buildArtifactContextPayload({
       db,
       userId: run.userId,
@@ -342,6 +346,11 @@ async function executeClaimedChatRun({
       }),
     }),
     buildAppEditContext({ db, userId: run.userId, threadId: thread.id }),
+    loadRecentRecommendationsForThread({
+      db,
+      userId: run.userId,
+      threadId: thread.id,
+    }),
   ]);
   const storedArtifactTarget = parseWorkspaceArtifactVersionTarget(
     inputs.artifactContextTarget,
@@ -457,6 +466,7 @@ async function executeClaimedChatRun({
     modelId: run.modelId ?? undefined,
     artifactContext: combinedArtifactContext,
     uploadedFiles,
+    recommendations: recentRecommendations,
     builtinTools,
     forcePreamble: true,
     route: runtimeRoute,

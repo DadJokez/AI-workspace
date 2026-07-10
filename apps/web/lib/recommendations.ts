@@ -70,6 +70,7 @@ export interface BuildRecommendationCandidatesInput {
   apps?: readonly RecommendationApp[];
   artifacts?: readonly RecommendationArtifact[];
   suppressedSkillIds?: readonly string[];
+  suppressedCandidateIds?: readonly string[];
 }
 
 const WORKFLOW_VERBS = new Set([
@@ -108,6 +109,23 @@ const STOPWORDS = new Set([
   "should",
 ]);
 
+const APP_MATCH_GENERIC_TOKENS = new Set([
+  "app",
+  "apps",
+  "email",
+  "emails",
+  "mail",
+  "message",
+  "messages",
+  "new",
+  "open",
+  "tool",
+  "tools",
+  "update",
+  "why",
+  "work",
+]);
+
 export function buildRecommendationCandidates({
   currentMessage,
   recentUserMessages = [],
@@ -118,6 +136,7 @@ export function buildRecommendationCandidates({
   apps = [],
   artifacts = [],
   suppressedSkillIds = [],
+  suppressedCandidateIds = [],
 }: BuildRecommendationCandidatesInput): RecommendationCandidate[] {
   const candidates: RecommendationCandidate[] = [];
   const normalized = normalize(currentMessage);
@@ -125,6 +144,7 @@ export function buildRecommendationCandidates({
   const approved = new Set(approvedProviders.map((p) => p.toLowerCase()));
   const connected = new Set(connectedProviders.map((p) => p.toLowerCase()));
   const suppressedSkills = new Set(suppressedSkillIds);
+  const suppressedCandidates = new Set(suppressedCandidateIds);
   const skillRecommendationsRequested =
     hasInlineSkillRecommendationIntent(normalized);
 
@@ -182,11 +202,13 @@ export function buildRecommendationCandidates({
     });
   }
 
-  const matchingApp = bestMatchingApp({
-    message: currentMessage,
-    roleContext,
-    apps,
-  });
+  const matchingApp = hasRecommendationDiscussionIntent(normalized)
+    ? null
+    : bestMatchingApp({
+        message: currentMessage,
+        roleContext,
+        apps,
+      });
   if (matchingApp) {
     candidates.push({
       id: `open-app:${matchingApp.id}`,
@@ -257,7 +279,11 @@ export function buildRecommendationCandidates({
     });
   }
 
-  return dedupeCandidates(candidates);
+  return dedupeCandidates(candidates).filter(
+    (candidate) =>
+      !suppressedCandidates.has(candidate.id) ||
+      hasExplicitRecommendationAction(normalized, candidate.type),
+  );
 }
 
 function bestMatchingSkill({
@@ -311,12 +337,17 @@ function bestMatchingApp({
     ...significantTokens(roleContext ?? ""),
   ]);
   let best: { app: RecommendationApp; score: number } | null = null;
+  const explicitAppIntent = hasExplicitAppIntent(normalize(message));
 
   for (const app of apps) {
     if (app.runnableNow === false) continue;
     const appTokens = significantTokens(`${app.name} ${app.description ?? ""}`);
-    const overlap = appTokens.filter((token) => queryTokens.has(token));
-    if (overlap.length === 0) continue;
+    const overlap = appTokens.filter(
+      (token) =>
+        queryTokens.has(token) && !APP_MATCH_GENERIC_TOKENS.has(token),
+    );
+    const minimumOverlap = explicitAppIntent ? 1 : 2;
+    if (overlap.length < minimumOverlap) continue;
 
     const score = overlap.length + appIntentBoost(message);
     if (!best || score > best.score) {
@@ -325,6 +356,44 @@ function bestMatchingApp({
   }
 
   return best?.app ?? null;
+}
+
+function hasExplicitAppIntent(normalized: string): boolean {
+  return (
+    /\b(open|launch|use|reuse|run|edit|update|show|find|go to)\b/.test(
+      normalized,
+    ) &&
+    /\b(app|dashboard|tool|portal|calculator|generator|picker)\b/.test(
+      normalized,
+    )
+  );
+}
+
+function hasRecommendationDiscussionIntent(normalized: string): boolean {
+  return (
+    /\b(why|how come|explain)\b/.test(normalized) &&
+    /\b(recommend|recommendation|recommended|suggest|suggestion|suggested|show|showing|shown|card|app)\b/.test(
+      normalized,
+    )
+  );
+}
+
+function hasExplicitRecommendationAction(
+  normalized: string,
+  type: RecommendationType,
+): boolean {
+  if (type === "open_existing_app" || type === "deploy_artifact_as_app") {
+    return hasExplicitAppIntent(normalized);
+  }
+  if (type === "run_existing_skill" || type === "save_as_skill") {
+    return /\b(run|use|create|save)\b.{0,50}\b(skill|workflow|automation)\b/.test(
+      normalized,
+    );
+  }
+  if (type === "schedule_skill") {
+    return /\b(schedule|every|daily|weekly|monthly)\b/.test(normalized);
+  }
+  return /\b(connect|use)\b/.test(normalized);
 }
 
 function countSimilarWorkflow(

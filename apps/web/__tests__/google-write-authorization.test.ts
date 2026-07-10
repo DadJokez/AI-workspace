@@ -97,6 +97,83 @@ describe("Google write authorization", () => {
     expect(changed.allowedWrites).toEqual([]);
   });
 
+  it("accepts short affirmative-only event confirmations and rejects qualifiers", () => {
+    for (const prompt of [
+      "yes",
+      "yep",
+      "yup!",
+      "sure",
+      "ok",
+      "okay.",
+      "approved",
+      "looks good",
+      "go ahead",
+      "please do",
+      "do it",
+      "create it",
+    ]) {
+      expect(isStrictEventConfirmation(prompt), prompt).toBe(true);
+    }
+
+    for (const prompt of [
+      "no",
+      "don't create it",
+      "yes?",
+      "yes, but move it to 4pm",
+      "okay, invite Sam too",
+      "sure if the room is free",
+      "please do not create it",
+    ]) {
+      expect(isStrictEventConfirmation(prompt), prompt).toBe(false);
+    }
+  });
+
+  it("retains factual Gmail search state without interpreting the next prompt", () => {
+    const searchedAt = "2026-07-09T19:55:10.000Z";
+    const context = buildGoogleTurnContext({
+      userId: "user-1",
+      threadId: "thread-1",
+      runId: "run-2",
+      prompt: "Tell me about the launch",
+      history: [
+        {
+          role: "assistant",
+          toolResults: [
+            {
+              name: "google__search_mail",
+              isError: false,
+              output: {
+                kind: "google_mail_content",
+                searchMetadata: {
+                  searchedAt,
+                  messageIds: ["message-a", "message-b", "message-a"],
+                },
+              },
+            },
+          ],
+        },
+      ],
+      interactive: true,
+      now: NOW,
+    });
+
+    expect(context.mailSearchState).toEqual({
+      lastSearchedAt: searchedAt,
+      previousMessageIds: ["message-a", "message-b"],
+    });
+    expect(
+      buildGoogleTurnContext({
+        userId: "user-1",
+        threadId: "thread-1",
+        runId: "run-3",
+        prompt: "Show my sent emails",
+        history: [],
+        interactive: true,
+        now: NOW,
+      }).mailSearchState,
+    ).toBeUndefined();
+  });
+
   it("does not revive an older proposal after a newer assistant response", () => {
     const proposal = eventProposal();
     const found = findLatestGoogleEventProposal(

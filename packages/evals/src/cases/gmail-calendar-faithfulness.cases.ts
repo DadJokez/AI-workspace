@@ -58,11 +58,38 @@ const DISCONNECTED_PROMPT = [
   "If the user asks for mail or calendar data, state the expired connection honestly and point them to the Tools section to reconnect Google. Never invent messages or events.",
 ].join("\n");
 
+const PRIOR_GMAIL_SEARCH_PROMPT = [
+  MOUNTED_GOOGLE_PROMPT,
+  "Earlier in this conversation, a successful Gmail search was completed and summarized for the user. The server retained its exact cursor and returned message IDs for a later incremental search.",
+].join("\n");
+
 function calledTool(name: string) {
   return (t: TurnTranscript) => ({
     ok: t.toolCallNames.includes(name),
     detail: `called: ${t.toolCallNames.join(", ") || "(none)"}`,
   });
+}
+
+function calledGmailWithScope({
+  mailbox,
+  sinceLastSearch,
+}: {
+  mailbox: string;
+  sinceLastSearch: boolean;
+}) {
+  return (transcript: TurnTranscript) => {
+    const event = transcript.events.find(
+      (candidate) =>
+        candidate.type === "tool-call" && candidate.call.name === GMAIL_TOOL,
+    );
+    const input = event?.type === "tool-call" ? event.call.input : undefined;
+    return {
+      ok:
+        input?.mailbox === mailbox &&
+        input?.sinceLastSearch === sinceLastSearch,
+      detail: input ? JSON.stringify(input) : "Gmail search was not called",
+    };
+  };
 }
 
 function didNotCallTools(t: TurnTranscript) {
@@ -188,6 +215,58 @@ export const gmailCalendarFaithfulnessSuite: EvalSuite = {
                 : undefined,
             };
           },
+        },
+      ],
+    },
+    {
+      id: "incremental-inbox-reasoning-sonnet",
+      description:
+        "Sonnet maps a natural follow-up to the saved Gmail cursor and inbox scope",
+      systemPrompt: PRIOR_GMAIL_SEARCH_PROMPT,
+      input: "Anything land in my inbox since you checked it for me?",
+      modelId: "sonnet-4-6",
+      tools: createGoogleFixtureTools({ emails: [] }),
+      providerStatus: { google: "mounted_fixture_with_prior_search" },
+      contextReceipts: ["prior successful Gmail search cursor retained"],
+      assertions: [
+        {
+          kind: "deterministic",
+          label: "selects incremental inbox semantics",
+          check: calledGmailWithScope({
+            mailbox: "inbox",
+            sinceLastSearch: true,
+          }),
+        },
+        {
+          kind: "deterministic",
+          label: "reports that no genuinely new inbox mail was found",
+          check: (transcript) => ({
+            ok: /\b(no|nothing|not)\b.{0,40}\b(new|arrived|landed|received|found)\b|\b(?:didn'?t|haven'?t)\b.{0,40}\b(?:find|receive|see)\b/i.test(
+              transcript.answer,
+            ),
+            detail: `answer: ${transcript.answer.slice(0, 120)}`,
+          }),
+        },
+      ],
+    },
+    {
+      id: "incremental-inbox-reasoning-haiku",
+      description:
+        "Haiku maps a paraphrased follow-up to the saved Gmail cursor and inbox scope",
+      systemPrompt: PRIOR_GMAIL_SEARCH_PROMPT,
+      input: "Do I have any new messages since that update?",
+      modelId: "haiku-4-5",
+      tools: createGoogleFixtureTools(),
+      providerStatus: { google: "mounted_fixture_with_prior_search" },
+      contextReceipts: ["prior successful Gmail search cursor retained"],
+      assertions: [
+        {
+          kind: "deterministic",
+          label: "selects incremental inbox semantics",
+          check: calledGmailWithScope({
+            mailbox: "inbox",
+            sinceLastSearch: true,
+          }),
         },
       ],
     },
