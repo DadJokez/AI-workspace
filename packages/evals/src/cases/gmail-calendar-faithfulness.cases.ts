@@ -41,7 +41,7 @@ const MOUNTED_GOOGLE_PROMPT = [
 const CONFIRMED_EVENT_PROMPT = [
   MOUNTED_GOOGLE_PROMPT,
   "A prior turn prepared proposal 00000000-0000-4000-8000-000000000297 for Q2 recap review, July 10 2026 from 3:00–3:30 PM America/New_York, inviting nina@comparative-fixtures.example with invitations enabled.",
-  `The current server-validated turn exposes ${CALENDAR_CREATE_TOOL}; call it with that exact proposal id if the user confirms.`,
+  `The current server-validated turn exposes ${CALENDAR_CREATE_TOOL}; call it with no arguments if the user confirms. The signed turn selects the exact confirmed proposal.`,
 ].join("\n");
 
 const PENDING_APPROVAL_PROMPT = [

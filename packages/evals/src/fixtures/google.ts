@@ -296,12 +296,11 @@ export function createGoogleFixtureTools(
   const createEvent: Tool = {
     name: CALENDAR_CREATE_TOOL,
     description:
-      "Create the exact server-confirmed event proposal. This tool is exposed only on a later explicit confirmation turn.",
+      "Create the exact server-confirmed event proposal. This tool is exposed only on a later explicit confirmation turn, and the signed turn selects the proposal.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["proposalId"],
-      properties: { proposalId: { type: "string" } },
+      properties: {},
     },
     handler: async () => ({
       kind: "google_calendar_event_created",
