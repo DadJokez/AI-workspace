@@ -7,8 +7,19 @@ export const GOOGLE_MCP_CONTEXT_HEADER = "X-Comparative-Google-Context";
 const GOOGLE_MCP_RELAY_HMAC_MESSAGE = "comparative:google-mcp-relay:v1";
 const TURN_CONTEXT_TTL_MS = 5 * 60 * 1000;
 const EVENT_PROPOSAL_TTL_MS = 30 * 60 * 1000;
+const MAX_MAIL_CURSOR_MESSAGE_IDS = 100;
 
 export type GoogleWriteTool = "create_draft" | "create_event";
+
+export interface GoogleMailSearchState {
+  lastSearchedAt: string;
+  previousMessageIds: string[];
+}
+
+export interface GoogleMailSearchMetadata {
+  searchedAt: string;
+  messageIds: string[];
+}
 
 export interface GoogleEventProposal {
   kind: "google_calendar_event_proposal";
@@ -36,6 +47,7 @@ export interface GoogleTurnContext {
   issuedAt: string;
   expiresAt: string;
   allowedWrites: GoogleWriteTool[];
+  mailSearchState?: GoogleMailSearchState;
   confirmedEventProposal?: GoogleEventProposal;
 }
 
@@ -98,6 +110,7 @@ export function buildGoogleTurnContext({
   now?: Date;
 }): GoogleTurnContext {
   const pendingProposal = findLatestGoogleEventProposal(history, now);
+  const mailSearchState = buildGoogleMailSearchState(history);
   const confirmedEventProposal =
     interactive && pendingProposal && isStrictEventConfirmation(prompt)
       ? pendingProposal
@@ -116,7 +129,68 @@ export function buildGoogleTurnContext({
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + TURN_CONTEXT_TTL_MS).toISOString(),
     allowedWrites,
+    ...(mailSearchState ? { mailSearchState } : {}),
     ...(confirmedEventProposal ? { confirmedEventProposal } : {}),
+  };
+}
+
+export function buildGoogleMailSearchState(
+  history: readonly GoogleHistoryMessage[],
+): GoogleMailSearchState | undefined {
+  const searches: GoogleMailSearchMetadata[] = [];
+
+  for (const message of history) {
+    if (message.role !== "assistant") continue;
+    const results = Array.isArray(message.toolResults) ? message.toolResults : [];
+    for (const result of results) {
+      if (!isRecord(result) || result.isError === true) continue;
+      const metadata = parseGoogleMailSearchMetadata(result.output);
+      if (metadata) searches.push(metadata);
+    }
+  }
+
+  searches.sort(
+    (left, right) => Date.parse(right.searchedAt) - Date.parse(left.searchedAt),
+  );
+  const latest = searches[0];
+  if (!latest) return undefined;
+
+  const previousMessageIds = new Set<string>();
+  for (const search of searches) {
+    for (const id of search.messageIds) {
+      if (previousMessageIds.size >= MAX_MAIL_CURSOR_MESSAGE_IDS) break;
+      previousMessageIds.add(id);
+    }
+    if (previousMessageIds.size >= MAX_MAIL_CURSOR_MESSAGE_IDS) break;
+  }
+
+  return {
+    lastSearchedAt: latest.searchedAt,
+    previousMessageIds: Array.from(previousMessageIds),
+  };
+}
+
+export function parseGoogleMailSearchMetadata(
+  value: unknown,
+): GoogleMailSearchMetadata | null {
+  if (!isRecord(value) || value.kind !== "google_mail_content") return null;
+  const metadata = isRecord(value.searchMetadata)
+    ? value.searchMetadata
+    : null;
+  if (!metadata || typeof metadata.searchedAt !== "string") return null;
+  if (!Number.isFinite(Date.parse(metadata.searchedAt))) return null;
+  if (
+    !Array.isArray(metadata.messageIds) ||
+    metadata.messageIds.length > MAX_MAIL_CURSOR_MESSAGE_IDS ||
+    !metadata.messageIds.every(
+      (id) => typeof id === "string" && id.length > 0 && id.length <= 200,
+    )
+  ) {
+    return null;
+  }
+  return {
+    searchedAt: metadata.searchedAt,
+    messageIds: Array.from(new Set(metadata.messageIds)),
   };
 }
 
@@ -259,7 +333,7 @@ export function hasExplicitDraftIntent(prompt: string): boolean {
 export function isStrictEventConfirmation(prompt: string): boolean {
   const value = prompt.toLowerCase().replace(/\s+/g, " ").trim();
   if (value.length > 80) return false;
-  return /^(yes|yes please|confirm|confirmed|looks good|go ahead|do it|create it|create the event|schedule it|schedule the event|send the invite|send the invites)[.!]*$/.test(
+  return /^(yes|yes please|yep|yup|sure|ok|okay|approved|confirm|confirmed|looks good|go ahead|please do|do it|create it|create the event|schedule it|schedule the event|send the invite|send the invites)[.!]*$/.test(
     value,
   );
 }
@@ -279,9 +353,34 @@ function isGoogleTurnContext(value: unknown): value is GoogleTurnContext {
   ) {
     return false;
   }
+  if (
+    value.mailSearchState !== undefined &&
+    !isGoogleMailSearchState(value.mailSearchState)
+  ) {
+    return false;
+  }
   return (
     value.confirmedEventProposal === undefined ||
     parseGoogleEventProposal(value.confirmedEventProposal) !== null
+  );
+}
+
+function isGoogleMailSearchState(
+  value: unknown,
+): value is GoogleMailSearchState {
+  if (
+    !isRecord(value) ||
+    typeof value.lastSearchedAt !== "string" ||
+    !Number.isFinite(Date.parse(value.lastSearchedAt))
+  ) {
+    return false;
+  }
+  return (
+    Array.isArray(value.previousMessageIds) &&
+    value.previousMessageIds.length <= MAX_MAIL_CURSOR_MESSAGE_IDS &&
+    value.previousMessageIds.every(
+      (id) => typeof id === "string" && id.length > 0 && id.length <= 200,
+    )
   );
 }
 

@@ -165,6 +165,77 @@ describe("recommendation candidates", () => {
     );
   });
 
+  it("does not recommend unrelated apps during Gmail follow-ups", () => {
+    const apps = [
+      {
+        id: "app-theme",
+        name: "Choose Your Theme",
+        description: "Pick a theme for a reusable email app.",
+        slug: "choose-your-theme",
+        runnableNow: true,
+      },
+    ];
+
+    expect(
+      buildRecommendationCandidates({
+        currentMessage: "Give me an update on any new emails since last time",
+        apps,
+      }).some((candidate) => candidate.type === "open_existing_app"),
+    ).toBe(false);
+    expect(
+      buildRecommendationCandidates({
+        currentMessage: "Why are you recommending me an app?",
+        apps,
+      }).some((candidate) => candidate.type === "open_existing_app"),
+    ).toBe(false);
+    expect(
+      buildRecommendationCandidates({
+        currentMessage: "Why did you show me the Choose Your Theme app?",
+        apps,
+      }).some((candidate) => candidate.type === "open_existing_app"),
+    ).toBe(false);
+    expect(
+      buildRecommendationCandidates({
+        currentMessage: "Open the Choose Your Theme app",
+        apps,
+      }),
+    ).toContainEqual(
+      expect.objectContaining({
+        id: "open-app:app-theme",
+        type: "open_existing_app",
+      }),
+    );
+  });
+
+  it("suppresses a repeated recommendation unless the user asks for it", () => {
+    const apps = [
+      {
+        id: "app-sales",
+        name: "Sales Dashboard",
+        description: "Sales dashboard metrics and pipeline reporting.",
+        slug: "sales-dashboard",
+        runnableNow: true,
+      },
+    ];
+
+    expect(
+      buildRecommendationCandidates({
+        currentMessage: "Compare sales dashboard metrics for the team",
+        apps,
+        suppressedCandidateIds: ["open-app:app-sales"],
+      }),
+    ).toEqual([]);
+    expect(
+      buildRecommendationCandidates({
+        currentMessage: "Open the Sales Dashboard app",
+        apps,
+        suppressedCandidateIds: ["open-app:app-sales"],
+      }),
+    ).toContainEqual(
+      expect.objectContaining({ id: "open-app:app-sales" }),
+    );
+  });
+
   it("still suggests deploying a new artifact when an unrelated app matches the prompt", () => {
     const candidates = buildRecommendationCandidates({
       currentMessage: "Reuse this sales forecast artifact as an app",

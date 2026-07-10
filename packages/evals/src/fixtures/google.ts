@@ -161,13 +161,19 @@ export function createGoogleFixtureTools(
   const listEmails: Tool = {
     name: GMAIL_SEARCH_TOOL,
     description:
-      "List recent Gmail messages from the stable Comparative Google eval fixture (read-only). Use this before answering any question about the user's email.",
+      "Search Gmail. Choose mailbox='inbox' for received or unread mail, 'sent' for sent mail, 'drafts' for drafts, and 'all' only for searches across all mail. Set sinceLastSearch=true only when the user means new or changed mail since a prior Gmail check, search, summary, or update in this conversation; the server applies the exact saved cursor and removes messages already shown. Use false for a fresh search. Do not put mailbox or since-last-search filters in query.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
+      required: ["mailbox", "sinceLastSearch"],
       properties: {
         query: { type: "string" },
-        limit: { type: "number", minimum: 1, maximum: 10 },
+        mailbox: {
+          type: "string",
+          enum: ["inbox", "all", "sent", "drafts"],
+        },
+        sinceLastSearch: { type: "boolean" },
+        maxResults: { type: "number", minimum: 1, maximum: 10 },
       },
     },
     handler: async (input) => {
@@ -179,9 +185,9 @@ export function createGoogleFixtureTools(
       const limit =
         typeof input === "object" &&
         input !== null &&
-        "limit" in input &&
-        typeof input.limit === "number"
-          ? Math.max(1, Math.min(10, input.limit))
+        "maxResults" in input &&
+        typeof input.maxResults === "number"
+          ? Math.max(1, Math.min(10, input.maxResults))
           : 10;
       return {
         provider: "google",

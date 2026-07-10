@@ -68,6 +68,7 @@ import {
 } from "@/lib/workspace-artifacts";
 import {
   createRecommendationsForAssistantMessage,
+  loadRecentRecommendationsForThread,
 } from "@/lib/recommendation-persistence";
 import type { PersistedRecommendation } from "@/lib/recommendations";
 
@@ -166,7 +167,13 @@ export async function streamInlineChatRun({
 
   try {
     const mcpProviderScope = resolveChatMcpProviderScope(requestedProviders);
-    const [userRows, history, vaultMarkdown, providerStatus] =
+    const [
+      userRows,
+      history,
+      vaultMarkdown,
+      providerStatus,
+      recentRecommendations,
+    ] =
       await Promise.all([
         db
           .select({
@@ -191,6 +198,11 @@ export async function streamInlineChatRun({
           userId,
           mcpProviderScope.accountStatusOptions,
         ),
+        loadRecentRecommendationsForThread({
+          db,
+          userId,
+          threadId: thread.id,
+        }),
       ]);
 
     // Match artifacts against recent RAW user messages, not the
@@ -296,6 +308,7 @@ export async function streamInlineChatRun({
       modelId: runtimeModelId,
       artifactContext: combinedArtifactContext,
       uploadedFiles,
+      recommendations: recentRecommendations,
       route,
       builtinTools,
     });

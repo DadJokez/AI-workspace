@@ -207,17 +207,151 @@ test.describe("chat tools and skills", () => {
     await page.getByRole("button", { name: "Send" }).click();
     await expect(page.getByText(/Google will send an invitation/)).toBeVisible();
 
-    await composer.fill("Create the event.");
+    await composer.fill("Yep.");
     await page.getByRole("button", { name: "Send" }).click();
     await expect(page.getByText("Created the event and sent Nina's invitation.")).toBeVisible();
 
     expect(chatBodies.map((body) => body.message)).toEqual([
       "Draft an email to Nina saying the Q2 recap looks good.",
       "Create a 30-minute Q2 recap review with Nina tomorrow at 3pm.",
-      "Create the event.",
+      "Yep.",
     ]);
     await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
     await expect(page.getByTestId("active-chat-title")).toBeVisible();
+  });
+
+  test("keeps incremental Gmail checks grounded in the current chat", async ({
+    page,
+  }) => {
+    const chatBodies: Record<string, unknown>[] = [];
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      onChat: async (body, route) => {
+        chatBodies.push(body);
+        const turn = chatBodies.length;
+        const events =
+          turn === 1
+            ? [
+                {
+                  type: "tool-call",
+                  call: {
+                    id: "gmail-search-initial",
+                    name: "google__search_mail",
+                    input: {
+                      query: "is:unread",
+                      mailbox: "inbox",
+                      sinceLastSearch: false,
+                    },
+                  },
+                },
+                {
+                  type: "tool-result",
+                  result: {
+                    toolCallId: "gmail-search-initial",
+                    output: { messageIds: ["message-a", "message-b"] },
+                    isError: false,
+                  },
+                },
+                {
+                  type: "text-delta",
+                  delta: "I found two unread inbox messages: Launch and Renewal.",
+                },
+              ]
+            : turn === 2
+              ? [
+                  {
+                    type: "tool-call",
+                    call: {
+                      id: "gmail-draft-follow-up",
+                      name: "google__create_draft",
+                      input: {
+                        to: ["nina@example.com"],
+                        subject: "Launch reply",
+                        body: "Thanks, Nina. I will review it today.",
+                      },
+                    },
+                  },
+                  {
+                    type: "tool-result",
+                    result: {
+                      toolCallId: "gmail-draft-follow-up",
+                      output: { draftId: "draft-follow-up", sent: false },
+                      isError: false,
+                    },
+                  },
+                  {
+                    type: "text-delta",
+                    delta: "I saved the reply as a draft. It has not been sent.",
+                  },
+                ]
+              : [
+                  {
+                    type: "tool-call",
+                    call: {
+                      id: "gmail-search-incremental",
+                      name: "google__search_mail",
+                      input: {
+                        query: "",
+                        mailbox: "inbox",
+                        sinceLastSearch: true,
+                      },
+                    },
+                  },
+                  {
+                    type: "tool-result",
+                    result: {
+                      toolCallId: "gmail-search-incremental",
+                      output: { messageIds: ["message-c"] },
+                      isError: false,
+                    },
+                  },
+                  {
+                    type: "text-delta",
+                    delta:
+                      "There is one genuinely new inbox message: Budget approval. The prior messages and your draft were not repeated.",
+                  },
+                ];
+
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-google-incremental",
+            modelId: "sonnet-4-6",
+          },
+          ...events,
+          {
+            type: "persisted",
+            assistantMessageId: `assistant-google-incremental-${turn}`,
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+
+    await page.goto("/e2e/chat");
+    const composer = page.getByPlaceholder(/ask anything/i);
+
+    await composer.fill("Check my unread inbox.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText(/two unread inbox messages/)).toBeVisible();
+
+    await composer.fill("Draft a reply to Nina saying I will review it today.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText(/saved the reply as a draft/)).toBeVisible();
+
+    await composer.fill("Anything new since your last update?");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText(/one genuinely new inbox message/)).toBeVisible();
+
+    expect(chatBodies.map((body) => body.message)).toEqual([
+      "Check my unread inbox.",
+      "Draft a reply to Nina saying I will review it today.",
+      "Anything new since your last update?",
+    ]);
+    await expect(page.getByRole("button", { name: "Open app" })).toHaveCount(0);
+    await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
   });
 
   test("activates slash skills inside the current chat without leaking the skill prompt", async ({
