@@ -76,7 +76,7 @@ export async function loadThreadMessagesWithRunActivity({
       })
       .from(chatMessages)
       .where(eq(chatMessages.threadId, threadId))
-      .orderBy(asc(chatMessages.createdAt)),
+      .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id)),
     db
       .select({
         id: runs.id,

@@ -116,8 +116,17 @@ export function ChatInput({
   const draftStorageKey = draftKey
     ? `${DRAFT_STORAGE_PREFIX}${draftKey}`
     : null;
-  const latestDraftRef = useRef({ storageKey: draftStorageKey, text });
-  latestDraftRef.current = { storageKey: draftStorageKey, text };
+  const draftTextForStorage = editRequest
+    ? (editBackupRef.current?.text ?? text)
+    : text;
+  const latestDraftRef = useRef({
+    storageKey: draftStorageKey,
+    text: draftTextForStorage,
+  });
+  latestDraftRef.current = {
+    storageKey: draftStorageKey,
+    text: draftTextForStorage,
+  };
   const dictation = useDictation((spoken) => {
     setText((prev) => {
       const sep = prev && !prev.endsWith(" ") ? " " : "";
@@ -161,6 +170,8 @@ export function ChatInput({
     if (!editBackupRef.current) {
       editBackupRef.current = { text, attachments, activeSkill };
     }
+    persistComposerDraft(draftStorageKey, text);
+    latestDraftRef.current = { storageKey: draftStorageKey, text };
     handledEditRequestRef.current = editRequest.requestId;
     setText(editRequest.content);
     setAttachments([]);
@@ -173,13 +184,14 @@ export function ChatInput({
         editRequest.content.length,
       );
     }, 0);
-  }, [activeSkill, attachments, editRequest, text]);
+  }, [activeSkill, attachments, draftStorageKey, editRequest, text]);
 
   useEffect(() => {
     if (skipNextDraftPersistRef.current) {
       skipNextDraftPersistRef.current = false;
       return;
     }
+    if (editRequest) return;
     if (!draftStorageKey) return;
 
     draftTimerRef.current = window.setTimeout(() => {
@@ -193,7 +205,7 @@ export function ChatInput({
         draftTimerRef.current = undefined;
       }
     };
-  }, [draftStorageKey, text]);
+  }, [draftStorageKey, editRequest, text]);
 
   useEffect(() => {
     function flushLatestDraft() {

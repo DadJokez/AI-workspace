@@ -188,6 +188,15 @@ test.describe("chat shell guardrails", () => {
     await firstMessage.getByRole("button", { name: "Edit message" }).click();
     await expect(page.getByTestId("edit-message-state")).toBeVisible();
     await expect(input).toHaveValue("Draft the old launch update");
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Object.entries(window.localStorage)
+            .filter(([key]) => key.startsWith("comparative-chat-draft:"))
+            .map(([, value]) => value),
+        ),
+      )
+      .toContain("Keep this separate draft");
     await page
       .getByRole("button", { name: "Cancel editing message" })
       .click();
