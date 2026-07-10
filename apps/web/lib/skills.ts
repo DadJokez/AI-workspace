@@ -343,6 +343,24 @@ export interface GitHubSkillTriggerContext {
   promptContext: string;
 }
 
+const SAFE_GITHUB_REPOSITORY_PATTERN =
+  /^[a-z0-9](?:[a-z0-9._-]{0,99})\/[a-z0-9](?:[a-z0-9._-]{0,99})$/i;
+
+export function buildGitHubSkillDisplayMessage(
+  event: Pick<GitHubSkillTriggerContext, "eventType" | "repository">,
+): string {
+  const repository = SAFE_GITHUB_REPOSITORY_PATTERN.test(event.repository)
+    ? event.repository.toLowerCase()
+    : "connected repository";
+  const eventLabel =
+    event.eventType === "pull_request_review"
+      ? "pull request review"
+      : event.eventType === "workflow_run"
+        ? "failed CI workflow"
+        : "repository event";
+  return `GitHub event: ${eventLabel} in ${repository}`;
+}
+
 /**
  * Enqueue one execution of a skill on the shared worker pipeline. Used by
  * the run-now API (`triggerType: "skill"`) and the scheduler
@@ -397,7 +415,7 @@ export async function createSkillRun({
     ? `${buildSkillTurnPrompt(skill)}\n\n${githubEvent.promptContext}`
     : buildSkillTurnPrompt(skill);
   const displayMessage = githubEvent
-    ? `GitHub event: ${githubEvent.summary}`
+    ? buildGitHubSkillDisplayMessage(githubEvent)
     : buildSkillDisplayMessage(skill);
   const messageRows = await db
     .insert(chatMessages)

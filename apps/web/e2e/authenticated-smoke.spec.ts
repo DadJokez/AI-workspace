@@ -410,9 +410,11 @@ test.describe("authenticated product smoke", () => {
     expect(notification?.threadId).toBeTruthy();
 
     await page.goto(`/chat?threadId=${notification!.threadId}`);
-    await expect(page.getByText(/GitHub event: Review approved/)).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(
+      page.getByText(
+        "GitHub event: pull request review in dadjokez/ai-workspace",
+      ),
+    ).toBeVisible({ timeout: 15_000 });
 
     await page.goto(`/skills/${skillId}`);
     const activeRow = page.locator("li").filter({
