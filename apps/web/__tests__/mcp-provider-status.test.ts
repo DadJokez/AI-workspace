@@ -239,6 +239,72 @@ describe("MCP provider status", () => {
     expect(allowedTools).not.toContain("create_event");
   });
 
+  it("mounts only the confirmed Calendar write instead of a replacement proposal", async () => {
+    vi.stubEnv("NEXTAUTH_URL", "https://comparative.example");
+    vi.stubEnv(
+      "OAUTH_ENCRYPTION_KEY",
+      Buffer.alloc(32, 8).toString("base64"),
+    );
+    mockAttestations("google");
+    const { encryptSecret } = await import("@/lib/oauth/crypto");
+    const { buildUserMcpServers } = await import("@/lib/oauth/mcp-servers");
+    const now = Date.now();
+    const rows = [
+      {
+        provider: "google",
+        accessToken: encryptSecret("google-access-token"),
+        refreshToken: encryptSecret("google-refresh-token"),
+        expiresAt: new Date(now + 5 * 60_000),
+        scope: googleScopes(),
+      },
+    ];
+
+    const mounted = await buildUserMcpServers(
+      dbWithOauthRows(rows),
+      "user-1",
+      {
+        turnContext: {
+          runId: "run-confirm",
+          threadId: "thread-1",
+          prompt: "confirm",
+          interactive: true,
+          history: [
+            {
+              role: "assistant",
+              toolResults: [
+                {
+                  output: {
+                    kind: "google_calendar_event_proposal",
+                    proposalId: "00000000-0000-4000-8000-000000000297",
+                    issuedRunId: "run-prepare",
+                    issuedAt: new Date(now - 60_000).toISOString(),
+                    expiresAt: new Date(now + 10 * 60_000).toISOString(),
+                    calendarId: "primary",
+                    title: "Confirmed event",
+                    start: "2026-07-16T16:00:00-04:00",
+                    end: "2026-07-16T16:15:00-04:00",
+                    timeZone: "America/New_York",
+                    attendees: [],
+                    sendInvitations: false,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    );
+
+    const googleServer = mounted.mcpServers?.google;
+    const allowedTools =
+      googleServer && "url" in googleServer
+        ? googleServer.allowedTools
+        : undefined;
+    expect(allowedTools).toContain("create_event");
+    expect(allowedTools).not.toContain("prepare_event");
+    expect(allowedTools).not.toContain("create_draft");
+  });
+
   it("fails closed when an explicit Notion endpoint override is invalid", async () => {
     vi.stubEnv("NOTION_MCP_ENDPOINT_URL", "not a url");
     mockAttestations();
