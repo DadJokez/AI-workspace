@@ -156,12 +156,11 @@ export const googleTools = [
   {
     name: "create_event",
     description:
-      "Create the exact previously prepared Google Calendar event after a later user turn explicitly confirms it. Accepts only the confirmed proposal id; retries are idempotent.",
+      "Create the exact previously prepared Google Calendar event after a later user turn explicitly confirms it. The signed turn context selects the confirmed proposal; call with no arguments. Retries are idempotent.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["proposalId"],
-      properties: { proposalId: { type: "string", format: "uuid" } },
+      properties: {},
     },
   },
 ] as const;
@@ -191,7 +190,7 @@ export async function callGoogleTool(
     case "prepare_event":
       return prepareEvent(input, context);
     case "create_event":
-      return createEvent(input, context);
+      return createEvent(context);
     default:
       throw new Error(`Unknown Google tool: ${name}`);
   }
@@ -415,14 +414,13 @@ async function prepareEvent(input: unknown, context: GoogleToolContext) {
   };
 }
 
-async function createEvent(input: unknown, context: GoogleToolContext) {
+async function createEvent(context: GoogleToolContext) {
   requireWrite(context, "create_event");
-  const args = record(input);
-  const proposalId = requiredString(args.proposalId, "proposalId", 100);
   const proposal = context.turnContext.confirmedEventProposal;
-  if (!proposal || proposal.proposalId !== proposalId) {
+  if (!proposal) {
     throw new Error("This event proposal was not confirmed by the current user turn.");
   }
+  const proposalId = proposal.proposalId;
   if (proposal.issuedRunId === context.turnContext.runId) {
     throw new Error("Calendar events cannot be proposed and created in the same turn.");
   }
