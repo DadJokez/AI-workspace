@@ -29,15 +29,26 @@ describe("Google MCP route", () => {
 
   it("lists the governed tools without any mail-send operation", async () => {
     const json = await rpc("tools/list", undefined, readContext());
-    const names = (
-      (json.result as { tools: Array<{ name: string }> }).tools ?? []
-    ).map((tool) => tool.name);
+    const tools =
+      (
+        json.result as {
+          tools: Array<{ name: string; inputSchema: Record<string, unknown> }>;
+        }
+      ).tools ?? [];
+    const names = tools.map((tool) => tool.name);
 
     expect(names).toContain("search_mail");
     expect(names).toContain("create_draft");
     expect(names).toContain("prepare_event");
     expect(names).toContain("create_event");
     expect(names.some((name) => /send/i.test(name))).toBe(false);
+    expect(
+      tools.find((tool) => tool.name === "create_event")?.inputSchema,
+    ).toEqual({
+      type: "object",
+      additionalProperties: false,
+      properties: {},
+    });
   });
 
   it("connects through the production MCP client and enforces its turn allowlist", async () => {
@@ -336,6 +347,14 @@ describe("Google MCP route", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
+    const denied = await rpc(
+      "tools/call",
+      { name: "create_event", arguments: {} },
+      readContext(),
+    );
+    expect(toolResult(denied).isError).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+
     const proposal = toolOutput(
       await rpc(
         "tools/call",
@@ -376,13 +395,14 @@ describe("Google MCP route", () => {
       runId: "run-2",
       history: [{ role: "assistant", toolResults: [{ output: proposal }] }],
     });
-    const args = { name: "create_event", arguments: { proposalId: proposal.proposalId } };
+    const args = { name: "create_event", arguments: {} };
 
     const first = toolOutput(await rpc("tools/call", args, context));
     const replay = toolOutput(await rpc("tools/call", args, context));
 
     expect(first).toMatchObject({
       kind: "google_calendar_event_created",
+      proposalId: proposal.proposalId,
       invitationsSent: true,
       idempotentReplay: false,
     });

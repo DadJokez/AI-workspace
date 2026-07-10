@@ -158,7 +158,7 @@ test.describe("chat tools and skills", () => {
                     call: {
                       id: "google-create-event",
                       name: "google__create_event",
-                      input: { proposalId: "proposal-297" },
+                      input: {},
                     },
                   },
                   {
