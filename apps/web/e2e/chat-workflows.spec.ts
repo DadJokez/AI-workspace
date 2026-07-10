@@ -87,6 +87,89 @@ test.describe("chat workflow regressions", () => {
     expect(transcript).toContain("demo-artifact.html (html, 1.3 KB)");
   });
 
+  test("shows a completion title when a hidden-tab background run finishes", async ({
+    page,
+  }) => {
+    const threadId = "thread-background-completion";
+    const runId = "run-background-completion";
+    const threadMessages: Record<string, unknown[]> = {
+      [threadId]: [
+        userMessage({
+          id: "user-background",
+          content: "Do this in the background",
+        }),
+        assistantMessage({
+          id: `run:${runId}`,
+          content: "",
+          pending: true,
+          status: "Working in background",
+          runId,
+          runStatus: "running",
+          canCancel: true,
+        }),
+      ],
+    };
+    await installMockComparativeApi(page, {
+      threadMessages,
+      onChat: async (_body, route) => {
+        setTimeout(() => {
+          threadMessages[threadId] = [
+            userMessage({
+              id: "user-background",
+              content: "Do this in the background",
+            }),
+            assistantMessage({
+              id: "assistant-background",
+              content: "Background answer is ready.",
+              runId,
+              runStatus: "succeeded",
+            }),
+          ];
+        }, 900);
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId,
+            runId,
+            modelId: "sonnet-4-6",
+            runtimeRoute: { useWorker: true },
+          },
+          {
+            type: "queued",
+            runId,
+            status: "Working in background",
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+    await gotoE2EChat(page);
+    const originalTitle = await page.title();
+    await page.evaluate(() => {
+      Object.defineProperty(document, "hidden", {
+        configurable: true,
+        get: () => true,
+      });
+    });
+
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Do this in the background");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect
+      .poll(() => page.title(), { timeout: 8_000 })
+      .toBe("✓ Done — Comparative");
+
+    await page.evaluate(() => {
+      Object.defineProperty(document, "hidden", {
+        configurable: true,
+        get: () => false,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await expect.poll(() => page.title()).toBe(originalTitle);
+  });
+
   test("switches conversations from sidebar history without internal chat tabs", async ({
     page,
   }, testInfo) => {

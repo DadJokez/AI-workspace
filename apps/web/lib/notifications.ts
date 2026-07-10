@@ -24,9 +24,10 @@ const DIGEST_FALLBACK_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Write the inbox row for a proactive run that reached a terminal status.
- * No-op for chat turns and manual skill runs, which are delivered live in the
- * thread. The unique index on `run_id` makes this
- * idempotent across worker retries: exactly one notification per run.
+ * Durable chat turns are included because their browser stream closes while
+ * the worker continues. Manual skill runs remain live in their thread. The
+ * unique index on `run_id` makes this idempotent across worker retries:
+ * exactly one notification per run.
  *
  * Never throws — a notification failure must not fail the run. Errors are
  * logged to stderr like the worker's other best-effort side effects.
@@ -37,12 +38,18 @@ export async function createProactiveRunNotification(
   terminalStatus: "succeeded" | "failed",
   threadId?: string | null,
 ): Promise<void> {
-  if (run.triggerType !== "scheduled" && run.triggerType !== "github_event") {
+  const chatRun =
+    run.triggerType === "chat" || run.triggerType === "chat_retry";
+  if (
+    !chatRun &&
+    run.triggerType !== "scheduled" &&
+    run.triggerType !== "github_event"
+  ) {
     return;
   }
 
   try {
-    const skillName = run.skillId
+    const skillName = !chatRun && run.skillId
       ? (
           await db
             .select({ name: skills.name })
@@ -51,7 +58,9 @@ export async function createProactiveRunNotification(
             .limit(1)
         )[0]?.name
       : undefined;
-    const label = skillName ?? run.skillSlug ?? "Proactive run";
+    const label = chatRun
+      ? "Chat"
+      : (skillName ?? run.skillSlug ?? "Proactive run");
     const eventTriggered = run.triggerType === "github_event";
 
     await db
@@ -66,13 +75,17 @@ export async function createProactiveRunNotification(
             : `${label} failed`,
         body:
           terminalStatus === "succeeded"
-            ? eventTriggered
-              ? "A GitHub event triggered this run while you were away. Open it to see the result."
-              : "A scheduled run completed while you were away. Open it to see the result."
+            ? chatRun
+              ? "A background chat run completed while you were away. Open it to see the answer."
+              : eventTriggered
+                ? "A GitHub event triggered this run while you were away. Open it to see the result."
+                : "A scheduled run completed while you were away. Open it to see the result."
             : (run.error ??
-              (eventTriggered
-                ? "The GitHub event run ended with an error."
-                : "The scheduled run ended with an error.")),
+              (chatRun
+                ? "The background chat run ended with an error."
+                : eventTriggered
+                  ? "The GitHub event run ended with an error."
+                  : "The scheduled run ended with an error.")),
         runId: run.id,
         threadId: threadId ?? run.threadId,
       })

@@ -144,7 +144,32 @@ describe("createProactiveRunNotification", () => {
     });
   });
 
-  it("does nothing for chat turns and manual skill runs", async () => {
+  it("notifies the owner when a durable chat run finishes", async () => {
+    for (const triggerType of ["chat", "chat_retry"]) {
+      const { db, captured } = fakeDb();
+
+      await createProactiveRunNotification(
+        db,
+        scheduledRun({
+          triggerType,
+          skillId: null,
+          skillSlug: "chat-turn",
+          scheduleId: null,
+        }),
+        "succeeded",
+      );
+
+      expect(captured.inserts[0]).toMatchObject({
+        userId: USER_ID,
+        title: "Chat finished",
+        body: expect.stringContaining("background chat run"),
+        runId: RUN_ID,
+        threadId: THREAD_ID,
+      });
+    }
+  });
+
+  it("does nothing for manual skill runs", async () => {
     for (const triggerType of ["manual", "skill", "skill_retry"]) {
       const { db, captured } = fakeDb();
       await createProactiveRunNotification(

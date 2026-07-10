@@ -127,9 +127,17 @@ export function MessageBubble({
   if (role === "assistant" && !pending && content.length === 0) return null;
 
   return (
-    <div className="flex w-full min-w-0 max-w-full flex-col gap-1 overflow-hidden">
-      <div className="text-[11px] font-medium tracking-wide text-muted">
-        {label}
+    <div
+      data-testid={role === "assistant" ? "assistant-message" : undefined}
+      className="group flex w-full min-w-0 max-w-full flex-col gap-1 overflow-hidden"
+    >
+      <div className="flex min-h-7 items-center gap-2">
+        <div className="text-[11px] font-medium tracking-wide text-muted">
+          {label}
+        </div>
+        {role === "assistant" && !pending && content.trim() ? (
+          <MessageCopyButton content={content} />
+        ) : null}
       </div>
       <div
         data-testid={
@@ -170,6 +178,32 @@ export function MessageBubble({
         />
       ) : null}
     </div>
+  );
+}
+
+function MessageCopyButton({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable — silently no-op */
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      aria-label={copied ? "Copied message" : "Copy message"}
+      title={copied ? "Copied" : "Copy message"}
+      className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted opacity-70 transition-[color,opacity,background-color] hover:bg-subtle hover:text-ink focus-visible:bg-subtle focus-visible:text-ink focus-visible:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
+    >
+      {copied ? <CheckIcon /> : <ClipboardIcon />}
+    </button>
   );
 }
 

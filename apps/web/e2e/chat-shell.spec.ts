@@ -69,6 +69,81 @@ test.describe("chat shell guardrails", () => {
     await expect(page.getByText("This should not be sent.")).toHaveCount(0);
   });
 
+  test("restores a composer draft after reload and clears it on send", async ({
+    page,
+  }) => {
+    await installMockComparativeApi(page);
+    await gotoE2EChat(page);
+
+    const draft = "Keep this half-written launch update for me";
+    const input = page.getByPlaceholder(/ask anything/i);
+    await input.fill(draft);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Object.entries(window.localStorage)
+            .filter(([key]) => key.startsWith("comparative-chat-draft:"))
+            .map(([, value]) => value),
+        ),
+      )
+      .toContain(draft);
+
+    await page.reload();
+    await expect(page.getByPlaceholder(/ask anything/i)).toHaveValue(draft);
+
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Done.")).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Object.keys(window.localStorage).filter((key) =>
+            key.startsWith("comparative-chat-draft:"),
+          ),
+        ),
+      )
+      .toEqual([]);
+  });
+
+  test("copies an assistant message as raw markdown", async ({
+    page,
+    context,
+  }) => {
+    const rawMarkdown =
+      "A **bold status** with [the launch doc](https://example.com/launch).";
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await installMockComparativeApi(page, {
+      onChat: async (_body, route) => {
+        await fulfillSse(route, [
+          { type: "meta", threadId: "thread-copy", modelId: "sonnet-4-6" },
+          { type: "text-delta", delta: rawMarkdown },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-copy",
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+    await gotoE2EChat(page);
+
+    await page.getByPlaceholder(/ask anything/i).fill("Draft my update");
+    await page.getByRole("button", { name: "Send" }).click();
+    const message = page
+      .getByTestId("assistant-message")
+      .filter({ hasText: "A bold status" });
+    await expect(message).toBeVisible();
+    await message.hover();
+    await message.getByRole("button", { name: "Copy message" }).click();
+    await expect(
+      message.getByRole("button", { name: "Copied message" }),
+    ).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(rawMarkdown);
+  });
+
   test("sends suggestions and preserves manual multiline payloads", async ({
     page,
   }) => {
