@@ -9,7 +9,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-type Provider = "github" | "notion" | "google";
+type Provider = "github" | "notion" | "google" | "salesforce";
 type ProviderConnectionStatus =
   | "not_connected"
   | "ready"
@@ -19,7 +19,7 @@ type ProviderConnectionStatus =
   | "connected_execution_not_configured";
 
 /**
- * GET /api/oauth/status — { github, notion, google } booleans for the caller.
+ * GET /api/oauth/status — per-provider connection booleans for the caller.
  */
 export async function GET() {
   let sessionUser;
@@ -45,11 +45,16 @@ export async function GET() {
     github: providerDetails("github", providerStatus.providerAvailability?.github),
     notion: providerDetails("notion", providerStatus.providerAvailability?.notion),
     google: providerDetails("google", providerStatus.providerAvailability?.google),
+    salesforce: providerDetails(
+      "salesforce",
+      providerStatus.providerAvailability?.salesforce,
+    ),
   };
   const status: Record<Provider, boolean> = {
     github: details.github.connected,
     notion: details.notion.connected,
     google: details.google.connected,
+    salesforce: details.salesforce.connected,
   };
 
   return NextResponse.json({

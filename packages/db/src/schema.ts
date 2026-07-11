@@ -295,6 +295,7 @@ export const oauthTokens = pgTable(
     refreshToken: text("refresh_token"),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     scope: text("scope"),
+    providerMetadata: jsonb("provider_metadata"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

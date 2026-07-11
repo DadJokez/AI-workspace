@@ -239,6 +239,20 @@
       "when": 1783987200000,
       "tag": "0033_github_event_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1784073600000,
+      "tag": "0034_oauth_provider_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1784160000000,
+      "tag": "0035_salesforce_tools_catalog",
+      "breakpoints": true
     }
   ]
 }

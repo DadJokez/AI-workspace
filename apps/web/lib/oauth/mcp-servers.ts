@@ -26,6 +26,18 @@ import {
   type GoogleConnectionState,
 } from "@/lib/oauth/google-token";
 import {
+  SALESFORCE_MCP_CONTEXT_HEADER,
+  SALESFORCE_MCP_PATH,
+  SALESFORCE_MCP_RELAY_HEADER,
+  buildSalesforceTurnContext,
+  salesforceMcpRelayToken,
+  signSalesforceTurnContext,
+} from "@/lib/salesforce/authorization";
+import {
+  resolveSalesforceConnection,
+  type SalesforceConnectionState,
+} from "@/lib/oauth/salesforce-token";
+import {
   filterAttestedProviders,
   loadActiveToolAttestations,
   loadToolCatalogForProviders,
@@ -40,6 +52,9 @@ const MCP_PROVIDER_CONFIG: Record<string, McpProviderConfig> = {
   github: { endpoint: { url: "https://api.githubcopilot.com/mcp/" } },
   notion: notionMcpConfig(process.env.NOTION_MCP_ENDPOINT_URL),
   google: { endpoint: { url: new URL(GOOGLE_MCP_PATH, PUBLIC_BASE_URL).toString() } },
+  salesforce: {
+    endpoint: { url: new URL(SALESFORCE_MCP_PATH, PUBLIC_BASE_URL).toString() },
+  },
 };
 
 /**
@@ -191,10 +206,30 @@ export async function loadUserMcpProviderStatus(
     }
   }
 
+  let salesforceConnection: SalesforceConnectionState | null = null;
+  if (
+    rows.some((row) => row.provider === "salesforce") &&
+    (!options?.onlyProviders || options.onlyProviders.includes("salesforce"))
+  ) {
+    try {
+      salesforceConnection = await resolveSalesforceConnection(db, userId);
+    } catch (err) {
+      console.warn("[mcp] Salesforce connection status failed:", err);
+      salesforceConnection = {
+        status: "temporarily_unavailable",
+        connected: true,
+        ready: false,
+        reason: "token_refresh_failed",
+        grantedScopes: [],
+      };
+    }
+  }
+
   const connectedProviders = uniqueSupportedProviders(
     rows,
     options,
     googleConnection,
+    salesforceConnection,
   );
   const {
     allowedProviders: attestedProviders,
@@ -203,7 +238,9 @@ export async function loadUserMcpProviderStatus(
   } =
     await resolveAttestedProviders(db, userId, connectedProviders);
   const credentialUnavailableProviders = attestedProviders.filter(
-    (provider) => provider === "google" && googleConnection?.ready !== true,
+    (provider) =>
+      (provider === "google" && googleConnection?.ready !== true) ||
+      (provider === "salesforce" && salesforceConnection?.ready !== true),
   );
   const allowedProviders = attestedProviders.filter(
     (provider) =>
@@ -216,8 +253,12 @@ export async function loadUserMcpProviderStatus(
   const comingSoonProviders = executionUnavailableProviders.filter(
     isProviderComingSoon,
   );
-  const reconnectRequiredProviders =
-    googleConnection?.status === "reconnect_required" ? ["google"] : [];
+  const reconnectRequiredProviders = [
+    ...(googleConnection?.status === "reconnect_required" ? ["google"] : []),
+    ...(salesforceConnection?.status === "reconnect_required"
+      ? ["salesforce"]
+      : []),
+  ];
   const toolPolicies = Object.fromEntries(
     Object.entries(attestedToolPolicies).filter(([provider]) =>
       allowedProviders.includes(provider),
@@ -239,6 +280,7 @@ export async function loadUserMcpProviderStatus(
       deniedProviders,
       executionUnavailableProviders,
       googleConnection,
+      salesforceConnection,
     }),
   };
 }
@@ -301,7 +343,10 @@ export async function buildUserMcpServers(
   }
 
   rows = rows.filter(
-    (row) => row.provider === "google" || isActiveOAuthToken(row),
+    (row) =>
+      row.provider === "google" ||
+      row.provider === "salesforce" ||
+      isActiveOAuthToken(row),
   );
 
   if (options?.onlyProviders) {
@@ -322,6 +367,7 @@ export async function buildUserMcpServers(
     const toolPolicy = status.toolPolicies?.[row.provider];
     if (!allowed.has(row.provider) || !toolPolicy) continue;
     let token: string;
+    let salesforceInstanceUrl: string | null = null;
     if (row.provider === "google") {
       try {
         const connection = await resolveGoogleConnection(db, userId);
@@ -329,6 +375,16 @@ export async function buildUserMcpServers(
         token = connection.accessToken;
       } catch (err) {
         console.warn("[mcp] Google token resolution failed:", err);
+        continue;
+      }
+    } else if (row.provider === "salesforce") {
+      try {
+        const connection = await resolveSalesforceConnection(db, userId);
+        if (!connection.ready) continue;
+        token = connection.accessToken;
+        salesforceInstanceUrl = connection.instanceUrl;
+      } catch (err) {
+        console.warn("[mcp] Salesforce token resolution failed:", err);
         continue;
       }
     } else {
@@ -366,6 +422,26 @@ export async function buildUserMcpServers(
         continue;
       }
     }
+    if (row.provider === "salesforce") {
+      if (
+        !salesforceInstanceUrl ||
+        !isFirstPartySalesforceMcpEndpoint(endpoint.url)
+      ) {
+        continue;
+      }
+      try {
+        headers[SALESFORCE_MCP_RELAY_HEADER] = salesforceMcpRelayToken();
+        headers[SALESFORCE_MCP_CONTEXT_HEADER] = signSalesforceTurnContext(
+          buildSalesforceTurnContext({
+            userId,
+            instanceUrl: salesforceInstanceUrl,
+          }),
+        );
+      } catch (err) {
+        console.warn("[mcp] Salesforce relay signing failed:", err);
+        continue;
+      }
+    }
     const resolvedToolPolicy =
       row.provider === "google"
         ? applyGoogleTurnToolPolicy(toolPolicy, googleTurnContext)
@@ -391,6 +467,7 @@ function buildProviderAvailability({
   deniedProviders,
   executionUnavailableProviders,
   googleConnection,
+  salesforceConnection,
 }: {
   connectedProviders: readonly string[];
   attestedProviders: readonly string[];
@@ -398,6 +475,7 @@ function buildProviderAvailability({
   deniedProviders: readonly string[];
   executionUnavailableProviders: readonly string[];
   googleConnection: GoogleConnectionState | null;
+  salesforceConnection: SalesforceConnectionState | null;
 }): UserMcpProviderStatus["providerAvailability"] {
   const attested = new Set(attestedProviders);
   const allowed = new Set(allowedProviders);
@@ -407,7 +485,12 @@ function buildProviderAvailability({
     connectedProviders.map((provider) => {
       const execution = getMcpProviderExecutionStatus(provider);
       const modelAvailable = allowed.has(provider);
-      const credentialState = provider === "google" ? googleConnection : null;
+      const credentialState =
+        provider === "google"
+          ? googleConnection
+          : provider === "salesforce"
+            ? salesforceConnection
+            : null;
       const status = modelAvailable
         ? "ready"
         : credentialState?.status === "reconnect_required"
@@ -485,6 +568,19 @@ function isFirstPartyGoogleMcpEndpoint(rawUrl: string): boolean {
   }
 }
 
+function isFirstPartySalesforceMcpEndpoint(rawUrl: string): boolean {
+  try {
+    const actual = new URL(rawUrl);
+    const expected = new URL(SALESFORCE_MCP_PATH, PUBLIC_BASE_URL);
+    return (
+      actual.origin === expected.origin &&
+      actual.pathname === expected.pathname
+    );
+  } catch {
+    return false;
+  }
+}
+
 const GOOGLE_READ_AND_PREPARE_TOOLS = [
   "search_mail",
   "get_message",
@@ -532,6 +628,7 @@ function uniqueSupportedProviders(
   rows: Array<{ provider: string; expiresAt?: Date | string | null }>,
   options?: { onlyProviders?: string[] },
   googleConnection?: GoogleConnectionState | null,
+  salesforceConnection?: SalesforceConnectionState | null,
 ): string[] {
   const allowlist = options?.onlyProviders
     ? new Set(options.onlyProviders)
@@ -542,7 +639,9 @@ function uniqueSupportedProviders(
         .filter((row) =>
           row.provider === "google"
             ? googleConnection?.connected === true
-            : isActiveOAuthToken(row),
+            : row.provider === "salesforce"
+              ? salesforceConnection?.connected === true
+              : isActiveOAuthToken(row),
         )
         .map((row) => row.provider)
         .filter((provider) =>

@@ -11,6 +11,8 @@ export interface StoreOAuthConnectionInput {
   refreshToken?: string | null;
   expiresAt?: Date | null;
   scope?: string | null;
+  /** Provider-specific connection metadata (e.g. Salesforce instance_url). */
+  providerMetadata?: Record<string, unknown> | null;
   attestationAction?: "read" | "write" | "admin";
   attestationReason: string;
   attestationSource: string;
@@ -24,6 +26,7 @@ export async function storeOAuthConnection({
   refreshToken = null,
   expiresAt = null,
   scope = null,
+  providerMetadata = null,
   attestationAction = "admin",
   attestationReason,
   attestationSource,
@@ -40,6 +43,7 @@ export async function storeOAuthConnection({
       refreshToken: refreshTokenEnc,
       expiresAt,
       scope,
+      providerMetadata,
     })
     .onConflictDoUpdate({
       target: [oauthTokens.userId, oauthTokens.provider],
@@ -48,6 +52,7 @@ export async function storeOAuthConnection({
         ...(refreshTokenEnc ? { refreshToken: refreshTokenEnc } : {}),
         expiresAt,
         scope,
+        ...(providerMetadata ? { providerMetadata } : {}),
         updatedAt: sql`now()`,
       },
     });

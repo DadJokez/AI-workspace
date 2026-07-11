@@ -442,6 +442,12 @@ function hasCapabilityBackedToolIntent(
   ) {
     return "capability_graph_notion_lookup";
   }
+  if (
+    hasApprovedProvider(capabilitySignals, "salesforce") &&
+    hasSalesforceToolIntent(value)
+  ) {
+    return "capability_graph_salesforce_lookup";
+  }
   if (!hasApprovedProvider(capabilitySignals, "github")) return null;
   if (/\bwhat should i tackle( first| next)?\b/.test(value)) {
     return "capability_graph_github_work_lookup";
@@ -469,6 +475,17 @@ function hasGoogleToolIntent(value: string): boolean {
     );
   if (!googleResource) return false;
   return /\b(check|inspect|look|find|search|list|read|show|see|view|summarize|recap|draft|compose|write|save|create|schedule|book|what|when|who)\b/.test(
+    value,
+  );
+}
+
+function hasSalesforceToolIntent(value: string): boolean {
+  const salesforceResource =
+    /\b(salesforce|sfdc|soql|opportunit(?:y|ies)|pipeline|accounts?|contacts?|leads?|deals?|crm)\b/.test(
+      value,
+    );
+  if (!salesforceResource) return false;
+  return /\b(check|inspect|look|find|search|list|read|show|see|view|summarize|recap|pull|report|query|how many|what|which|who|whose)\b/.test(
     value,
   );
 }
