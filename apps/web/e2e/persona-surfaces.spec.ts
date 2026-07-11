@@ -208,7 +208,9 @@ test.describe("persona and workspace surfaces", () => {
     await openNavItem(page, "Tools", isMobile);
     const googleCard = page.getByTestId("tool-card-google");
     await expect(googleCard.getByText("Reconnect").first()).toBeVisible();
-    await expect(googleCard.getByText("Renew Google access")).toBeVisible();
+    await expect(
+      googleCard.getByText("Renew Google Mail & Calendar access"),
+    ).toBeVisible();
     await expect(googleCard.getByRole("link", { name: "Reconnect" }))
       .toHaveAttribute("href", "/api/oauth/google/start");
   });
