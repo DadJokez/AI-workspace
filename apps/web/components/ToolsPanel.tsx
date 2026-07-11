@@ -70,11 +70,11 @@ const INTEGRATIONS: Integration[] = [
   {
     id: "salesforce",
     name: "Salesforce",
-    description: "Accounts, opportunities, contacts, and pipeline notes",
+    description: "Search and read accounts, opportunities, contacts, and pipeline (read-only)",
     initial: "S",
     bg: "#00A1E0",
     fg: "#001E36",
-    real: false,
+    real: true,
     authHint: "Salesforce OAuth",
   },
   {

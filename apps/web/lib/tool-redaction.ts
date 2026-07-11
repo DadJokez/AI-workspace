@@ -47,6 +47,9 @@ export function redactProviderToolError(
   if (provider === "google") {
     return "Google tool failed; provider content was redacted from this log.";
   }
+  if (provider === "salesforce") {
+    return "Salesforce tool failed; provider content was redacted from this log.";
+  }
   return redactErrorText(value);
 }
 
@@ -61,7 +64,9 @@ export function redactProviderToolPayload({
   direction: "input" | "output";
   value: unknown;
 }): unknown {
-  if (provider !== "google") return redactToolPayload(value);
+  if (provider !== "google" && provider !== "salesforce") {
+    return redactToolPayload(value);
+  }
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return { redacted: true };
   }

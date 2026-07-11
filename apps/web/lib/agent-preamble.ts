@@ -60,6 +60,15 @@ const PROVIDER_DESCRIPTIONS: Record<string, string> = {
     "Notion: search/read pages, read markdown, inspect databases/data sources, query rows, create/update pages, append blocks (pre-authorized)",
   google:
     "Google Mail and Calendar: search/read Gmail, save drafts without sending, read calendars, and create confirmed events (pre-authorized)",
+  salesforce:
+    "Salesforce: search records, run read-only SOQL SELECT queries, describe objects, and read records — strictly read-only, scoped to the user's own Salesforce permissions (pre-authorized)",
+};
+
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  google: "Google Mail and Calendar",
+  salesforce: "Salesforce",
+  github: "GitHub",
+  notion: "Notion",
 };
 
 export function buildAgentPreamble({
@@ -265,8 +274,11 @@ function pushReconnectGuidance(
   for (const provider of providers) {
     lines.push(`- ${PROVIDER_DESCRIPTIONS[provider] ?? provider}`);
   }
+  const names = providers
+    .map((provider) => PROVIDER_DISPLAY_NAMES[provider] ?? provider)
+    .join(" and ");
   lines.push(
-    'These account connections exist, but their delegated grant is expired, invalid, or missing newly required scopes. They are not callable in this turn. If the user asks for one, say exactly: "Google Mail and Calendar needs to be reconnected in Tools before I can use it." Do not say no tools are connected, and do not invent a result.',
+    `These account connections exist, but their delegated grant is expired, invalid, or missing newly required scopes. They are not callable in this turn. If the user asks for one, say exactly: "${names} needs to be reconnected in Tools before I can use it." Do not say no tools are connected, and do not invent a result.`,
   );
 }
 
