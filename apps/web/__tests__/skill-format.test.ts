@@ -33,7 +33,7 @@ describe("parseSkillMarkdown", () => {
       "---",
       "name: my-skill",
       "description: does a thing",
-      "mcp_providers: [github, salesforce]",
+      "mcp_providers: [github, workfront]",
       "---",
       "Do the thing.",
     ].join("\n");
@@ -42,7 +42,23 @@ describe("parseSkillMarkdown", () => {
     if (!result.ok) return;
     expect(result.skill.modelId).toBe("sonnet-4-6"); // DEFAULT_MODEL_ID
     expect(result.skill.mcpProviders).toEqual(["github"]);
-    expect(result.skill.warnings.join(" ")).toMatch(/salesforce/);
+    expect(result.skill.warnings.join(" ")).toMatch(/workfront/);
+  });
+
+  it("accepts Salesforce as a supported provider in skill frontmatter", () => {
+    const md = [
+      "---",
+      "name: pipeline-summary",
+      "description: Summarizes open pipeline.",
+      "mcp_providers: [salesforce]",
+      "---",
+      "Use read-only Salesforce context to summarize open pipeline.",
+    ].join("\n");
+    const result = parseSkillMarkdown(md);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.skill.mcpProviders).toEqual(["salesforce"]);
+    expect(result.skill.warnings).toEqual([]);
   });
 
   it("accepts Notion as a supported provider in skill frontmatter", () => {
