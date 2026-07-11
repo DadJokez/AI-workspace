@@ -432,7 +432,7 @@ function IntegrationCard({
                 {comingSoon
                   ? "Chat actions coming soon"
                   : needsReconnect
-                    ? "Renew Google access"
+                    ? `Renew ${integration.name} access`
                     : temporarilyUnavailable
                       ? "Try reconnecting"
                   : executionPending

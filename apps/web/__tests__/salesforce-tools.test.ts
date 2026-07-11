@@ -46,6 +46,37 @@ describe("validateReadOnlySoql", () => {
   });
 
   it.each([
+    "SELECT Id, Name FROM Account WHERE Name LIKE '%delete%'",
+    "SELECT Id FROM Account WHERE Name = 'Update Corp'",
+    "SELECT Id FROM Contact WHERE LastName = 'Merge'",
+    "SELECT Id FROM Account WHERE Notes = 'saved for reference'",
+  ])("accepts a DML/FOR word inside a string literal: %s", (soql) => {
+    expect(validateReadOnlySoql(soql)).toBe(`${soql} LIMIT 50`);
+  });
+
+  it("caps the OUTER query when only a subquery has a LIMIT", () => {
+    expect(
+      validateReadOnlySoql(
+        "SELECT Id, (SELECT Id FROM Contacts LIMIT 5) FROM Account",
+      ),
+    ).toBe("SELECT Id, (SELECT Id FROM Contacts LIMIT 5) FROM Account LIMIT 50");
+  });
+
+  it("rejects an over-ceiling OUTER limit even when a subquery LIMIT is in range", () => {
+    expect(() =>
+      validateReadOnlySoql(
+        "SELECT Id, (SELECT Id FROM Contacts LIMIT 5) FROM Account LIMIT 5000",
+      ),
+    ).toThrow(/LIMIT/i);
+  });
+
+  it("inserts the outer LIMIT before a trailing OFFSET", () => {
+    expect(validateReadOnlySoql("SELECT Id FROM Account OFFSET 100")).toBe(
+      "SELECT Id FROM Account LIMIT 50 OFFSET 100",
+    );
+  });
+
+  it.each([
     "DELETE FROM Account",
     "UPDATE Account SET Name = 'x'",
     "INSERT INTO Account",
