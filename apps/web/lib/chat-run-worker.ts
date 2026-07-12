@@ -57,6 +57,7 @@ import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
 import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
 import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
+import { normalizeRuntimeUsage } from "@/lib/runtime-usage";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
 import {
@@ -533,6 +534,9 @@ async function executeClaimedChatRun({
   let assistantText = "";
   let tokensIn = 0;
   let tokensOut = 0;
+  let inputTokens = 0;
+  let cacheReadInputTokens = 0;
+  let cacheWriteInputTokens = 0;
   let providerRunMetadata: RuntimeRunMetadata | null =
     parseOutput(run.outputs).providerRun ?? null;
   const runtimeErrors: string[] = [];
@@ -544,6 +548,13 @@ async function executeClaimedChatRun({
     toolResults: toolEvents.results(),
     tokensIn,
     tokensOut,
+    usage: {
+      tokensIn,
+      tokensOut,
+      inputTokens,
+      cacheReadInputTokens,
+      cacheWriteInputTokens,
+    },
     modelId: run.modelId,
     runtime: runtime.name,
     ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
@@ -600,8 +611,12 @@ async function executeClaimedChatRun({
         if (ev.type === "text-delta") {
           assistantText += ev.delta;
         } else if (ev.type === "usage") {
-          tokensIn = ev.tokensIn;
-          tokensOut = ev.tokensOut;
+          const usage = normalizeRuntimeUsage(ev);
+          tokensIn = usage.tokensIn;
+          tokensOut = usage.tokensOut;
+          inputTokens = usage.inputTokens;
+          cacheReadInputTokens = usage.cacheReadInputTokens;
+          cacheWriteInputTokens = usage.cacheWriteInputTokens;
         } else if (ev.type === "tool-call") {
           toolEvents.recordCall(ev.call);
           const persistedCall = toolEvents
@@ -681,6 +696,9 @@ async function executeClaimedChatRun({
     assistantText,
     tokensIn,
     tokensOut,
+    inputTokens,
+    cacheReadInputTokens,
+    cacheWriteInputTokens,
     toolCalls: toolEvents.calls(),
     toolResults: toolEvents.results(),
     providerRunMetadata,
@@ -701,6 +719,9 @@ async function persistAssistantResult({
   assistantText,
   tokensIn,
   tokensOut,
+  inputTokens,
+  cacheReadInputTokens,
+  cacheWriteInputTokens,
   toolCalls,
   toolResults,
   providerRunMetadata,
@@ -718,6 +739,9 @@ async function persistAssistantResult({
   assistantText: string;
   tokensIn: number;
   tokensOut: number;
+  inputTokens: number;
+  cacheReadInputTokens: number;
+  cacheWriteInputTokens: number;
   toolCalls: ReturnType<ReturnType<typeof createToolEventAccumulator>["calls"]>;
   toolResults: ReturnType<ReturnType<typeof createToolEventAccumulator>["results"]>;
   providerRunMetadata: RuntimeRunMetadata | null;
@@ -883,6 +907,13 @@ async function persistAssistantResult({
         toolResults,
         tokensIn,
         tokensOut,
+        usage: {
+          tokensIn,
+          tokensOut,
+          inputTokens,
+          cacheReadInputTokens,
+          cacheWriteInputTokens,
+        },
         modelId,
         runtime: runtimeName,
         ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
@@ -936,6 +967,13 @@ async function persistAssistantResult({
     metadata: {
       ...(assistantMessageId ? { assistantMessageId } : {}),
       userMessageId,
+      usage: {
+        tokensIn,
+        tokensOut,
+        inputTokens,
+        cacheReadInputTokens,
+        cacheWriteInputTokens,
+      },
       ...(artifacts.length > 0 ? { artifacts } : {}),
       ...(appDraftVersions.length > 0 ? { appDraftVersions } : {}),
       ...(recommendations.length > 0 ? { recommendations } : {}),

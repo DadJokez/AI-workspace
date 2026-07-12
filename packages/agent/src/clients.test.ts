@@ -201,7 +201,7 @@ describe("RealBedrockClient prompt caching", () => {
     ]);
   });
 
-  it("counts cache reads and writes in tokensIn", async () => {
+  it("preserves cache reads and writes alongside total tokensIn", async () => {
     stubSend([
       {
         metadata: {
@@ -229,6 +229,9 @@ describe("RealBedrockClient prompt caching", () => {
       type: "usage",
       tokensIn: 1050,
       tokensOut: 20,
+      inputTokens: 100,
+      cacheReadInputTokens: 900,
+      cacheWriteInputTokens: 50,
     });
   });
 
@@ -250,6 +253,9 @@ describe("RealBedrockClient prompt caching", () => {
       type: "usage",
       tokensIn: 42,
       tokensOut: 7,
+      inputTokens: 42,
+      cacheReadInputTokens: 0,
+      cacheWriteInputTokens: 0,
     });
   });
 });

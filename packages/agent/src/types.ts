@@ -54,6 +54,16 @@ export interface ToolResult {
   isError?: boolean;
 }
 
+export interface TokenUsage {
+  /** Total input footprint: uncached input + cache reads + cache writes. */
+  tokensIn: number;
+  tokensOut: number;
+  /** Input tokens billed at the normal input rate. */
+  inputTokens: number;
+  cacheReadInputTokens: number;
+  cacheWriteInputTokens: number;
+}
+
 /**
  * Streaming events emitted by `runAgentLoop`. The web layer relays these as SSE.
  * Concrete implementation lands in a follow-up PR; types are locked here so consumers compile.
@@ -62,6 +72,6 @@ export type AgentEvent =
   | { type: "text-delta"; delta: string }
   | { type: "tool-call"; call: ToolCall }
   | { type: "tool-result"; result: ToolResult }
-  | { type: "usage"; tokensIn: number; tokensOut: number }
+  | ({ type: "usage" } & TokenUsage)
   | { type: "error"; message: string }
   | { type: "done" };

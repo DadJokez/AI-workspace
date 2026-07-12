@@ -62,7 +62,14 @@ class ToolCallingClient implements BedrockClient {
         name: firstTool,
         input: { limit: 3 },
       };
-      yield { type: "usage", tokensIn: 8, tokensOut: 4 };
+      yield {
+        type: "usage",
+        tokensIn: 8,
+        tokensOut: 4,
+        inputTokens: 8,
+        cacheReadInputTokens: 0,
+        cacheWriteInputTokens: 0,
+      };
       yield { type: "stop", reason: "tool_use" };
       return;
     }
@@ -72,7 +79,14 @@ class ToolCallingClient implements BedrockClient {
         ? `Used fixture evidence: ${toolResult.content}`
         : "No fixture evidence available.";
     yield { type: "text-delta", text: reply };
-    yield { type: "usage", tokensIn: 12, tokensOut: 6 };
+    yield {
+      type: "usage",
+      tokensIn: 12,
+      tokensOut: 6,
+      inputTokens: 12,
+      cacheReadInputTokens: 0,
+      cacheWriteInputTokens: 0,
+    };
     yield { type: "stop", reason: "end_turn" };
   }
 }

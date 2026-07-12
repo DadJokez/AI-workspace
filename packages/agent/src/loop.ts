@@ -112,6 +112,9 @@ export async function* runAgentLoop(
 
   let totalTokensIn = 0;
   let totalTokensOut = 0;
+  let totalInputTokens = 0;
+  let totalCacheReadInputTokens = 0;
+  let totalCacheWriteInputTokens = 0;
 
   for (let iter = 0; iter < maxIter; iter++) {
     if (params.signal?.aborted) {
@@ -164,6 +167,11 @@ export async function* runAgentLoop(
       } else if (ev.type === "usage") {
         totalTokensIn += ev.tokensIn;
         totalTokensOut += ev.tokensOut;
+        // Default the breakdown for events from an older AgentCore image that
+        // still emits only total input/output counts during a rolling deploy.
+        totalInputTokens += ev.inputTokens ?? ev.tokensIn;
+        totalCacheReadInputTokens += ev.cacheReadInputTokens ?? 0;
+        totalCacheWriteInputTokens += ev.cacheWriteInputTokens ?? 0;
       } else if (ev.type === "stop") {
         stopReason = ev.reason;
       }
@@ -240,7 +248,14 @@ export async function* runAgentLoop(
     bedrockMessages.push({ role: "user", content: resultBlocks });
   }
 
-  yield { type: "usage", tokensIn: totalTokensIn, tokensOut: totalTokensOut };
+  yield {
+    type: "usage",
+    tokensIn: totalTokensIn,
+    tokensOut: totalTokensOut,
+    inputTokens: totalInputTokens,
+    cacheReadInputTokens: totalCacheReadInputTokens,
+    cacheWriteInputTokens: totalCacheWriteInputTokens,
+  };
   yield { type: "done" };
 }
 
