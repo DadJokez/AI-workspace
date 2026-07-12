@@ -512,8 +512,18 @@ function hasWebLookupIntent(value: string): string | null {
  * unconfigured deployment never escalates the lane for a tool that cannot
  * mount — search stays invisible, and the assistant honestly has no search.
  */
+/**
+ * Words that mean "this is about a connected tool's own data" (Gmail, Calendar,
+ * Notion, Salesforce, GitHub). When present, a temporal cue like "today" belongs
+ * to that tool ("what's on my calendar today?"), NOT to web search — so the
+ * natural-current-info catch below bails and lets the capability router win.
+ */
+const CONNECTED_RESOURCE_RE =
+  /\b(gmail|inbox|e-?mail|mail|calendar|calendars|event|events|meeting|meetings|availability|free\s*busy|notion|salesforce|sfdc|soql|crm|opportunit(?:y|ies)|pipeline|accounts?|contacts?|leads?|deals?|github|gh|repos?|repositories?|pull\s*requests?|prs?|commits?|branch|workflow|issues?|docs?|pages?|databases?)\b/;
+
 function hasWebSearchIntent(value: string): string | null {
   if (!isWebSearchConfigured()) return null;
+  // Explicit "search the web / google it" asks.
   if (
     /\b(search|look\s?up|find|check|research|google)\b[^.?!]{0,60}\b(web|online|internet|news)\b/.test(
       value,
@@ -521,6 +531,30 @@ function hasWebSearchIntent(value: string): string | null {
     /\b(web|internet)\s+search\b/.test(value) ||
     /\bsearch\s+(the\s+)?(web|internet|online)\b/.test(value) ||
     /\bgoogle\s+(it|for|this|that)\b/.test(value)
+  ) {
+    return "web_search_lookup";
+  }
+  // Natural questions that plainly need current, external facts — the phrasing
+  // real users reach for ("who won the England Norway game?", "what time are
+  // the World Cup games today?", "what's the weather right now?"). Only when the
+  // message isn't about a connected tool's own data, so calendar/email/etc.
+  // still route to their providers.
+  if (CONNECTED_RESOURCE_RE.test(value)) return null;
+  if (
+    /\bwho\s+won\b/.test(value) ||
+    /\b(final\s+)?scores?\b/.test(value) ||
+    /\bweather\b/.test(value) ||
+    /\b(stock|share)\s+price\b/.test(value) ||
+    /\bprice\s+of\b/.test(value) ||
+    /\b(latest|current|recent|breaking)\s+(news|version|release|price|scores?|results?|standings?|odds)\b/.test(
+      value,
+    ) ||
+    /\bwhat('?s| is|\s+are|\s+time\s+(is|are|does))\b[^.?!]{0,60}\b(today|tonight|right now|this\s+(week|weekend|morning|afternoon|evening)|currently|latest)\b/.test(
+      value,
+    ) ||
+    /\b(game|match|fixture|kickoff|kick[-\s]?off|score|result)\b[^.?!]{0,40}\b(today|tonight|last\s+night|yesterday|this\s+(week|weekend))\b/.test(
+      value,
+    )
   ) {
     return "web_search_lookup";
   }

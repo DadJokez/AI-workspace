@@ -171,6 +171,51 @@ describe("decideChatRuntimeRoute", () => {
     vi.unstubAllEnvs();
   });
 
+  it("routes natural current-info questions to web search without magic keywords (#313)", () => {
+    vi.stubEnv("WEB_SEARCH_PROVIDER", "brave");
+    vi.stubEnv("BRAVE_SEARCH_API_KEY", "test-key");
+    for (const message of [
+      "who won the england norway game?",
+      "what time are the world cup games today?",
+      "what's the weather in London right now?",
+      "what's the latest news on the merger?",
+      "what's the final score of the match tonight?",
+      "what is the price of bitcoin?",
+    ]) {
+      const route = decideChatRuntimeRoute({ message, runtimeV2: true });
+      expect(route.lane, message).toBe("tool-local");
+      expect(route.reasons, message).toContain("web_search_lookup");
+    }
+    vi.unstubAllEnvs();
+  });
+
+  it("does NOT hijack connected-tool or casual questions into web search (#313)", () => {
+    vi.stubEnv("WEB_SEARCH_PROVIDER", "brave");
+    vi.stubEnv("BRAVE_SEARCH_API_KEY", "test-key");
+    // Calendar/email "today" belongs to Google, not web search.
+    for (const message of [
+      "what's on my calendar today?",
+      "any important email in my inbox this morning?",
+      "who's in my next meeting?",
+    ]) {
+      const route = decideChatRuntimeRoute({
+        message,
+        runtimeV2: true,
+        capabilitySignals: { approvedProviders: ["google"] },
+      });
+      expect(route.reasons.some((r) => r.startsWith("web_")), message).toBe(
+        false,
+      );
+    }
+    // Casual message with a temporal word must not escalate to web search.
+    const casual = decideChatRuntimeRoute({
+      message: "how are you today?",
+      runtimeV2: true,
+    });
+    expect(casual.reasons.some((r) => r.startsWith("web_"))).toBe(false);
+    vi.unstubAllEnvs();
+  });
+
   it("keeps URL inspection on the URL-fetch reason even when search is configured", () => {
     vi.stubEnv("WEB_SEARCH_PROVIDER", "brave");
     vi.stubEnv("BRAVE_SEARCH_API_KEY", "test-key");
