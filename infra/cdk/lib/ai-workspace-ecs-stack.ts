@@ -168,7 +168,9 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       // #364: mount the stable authorized catalog and let Sonnet decide
       // whether the turn needs a tool. Regex routing remains the rollback.
       ROUTING_MODE: "model-decided",
-      RUNTIME_V2_DIRECT_MODEL_ID: "sonnet-4-6",
+      // Model-decided routing selects Sonnet 4.6 itself. Keep the direct-mode
+      // fallback on autopilot so reverting ROUTING_MODE is an atomic rollback.
+      RUNTIME_V2_DIRECT_MODEL_ID: "auto",
       NEXTAUTH_URL: `https://${domainName}`,
       LEGACY_HOST_REDIRECT_FROM:
         legacyDomainName !== domainName ? legacyDomainName : "",
