@@ -15,6 +15,7 @@ export interface RuntimeModelSelection {
   reason:
     | "runtime_v2_direct_model_config"
     | "runtime_v2_autopilot"
+    | "model_decided_sonnet"
     | "requested_model_alias"
     | "requested_model_supported"
     | "default_model_fallback";
@@ -50,7 +51,7 @@ export function selectAutopilotModel(message: string): ModelId {
 
 export function resolveRuntimeModelSelection({
   requestedModelId,
-  route: _route,
+  route,
   runtimeName,
   directModelId = process.env.RUNTIME_V2_DIRECT_MODEL_ID,
   message,
@@ -58,7 +59,7 @@ export function resolveRuntimeModelSelection({
   enabledModelIds,
 }: {
   requestedModelId: string;
-  route: Pick<ChatRuntimeRoute, "runtimeTarget">;
+  route: Pick<ChatRuntimeRoute, "runtimeTarget" | "routingMode">;
   runtimeName: RuntimeName;
   directModelId?: string;
   /** The user's message, used by autopilot to pick a model per ask. */
@@ -72,7 +73,6 @@ export function resolveRuntimeModelSelection({
    */
   enabledModelIds?: ReadonlySet<string>;
 }): RuntimeModelSelection {
-  void _route;
   void runtimeName;
 
   const allowed = (id: ModelId) =>
@@ -106,6 +106,15 @@ export function resolveRuntimeModelSelection({
       requestedModelId,
       modelId: normalizedRequested,
       reason: "requested_model_supported",
+      ignoredDirectModelId: configuredDirectModel,
+    });
+  }
+
+  if (route.routingMode === "model-decided") {
+    return directSelection({
+      requestedModelId,
+      modelId: allowed("sonnet-4-6") ? "sonnet-4-6" : fallbackModelId(),
+      reason: "model_decided_sonnet",
       ignoredDirectModelId: configuredDirectModel,
     });
   }

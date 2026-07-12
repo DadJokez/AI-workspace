@@ -129,6 +129,7 @@ export interface ChatContextReceipt {
   recommendations: Record<RecommendationType, number>;
   route?: {
     lane: ChatRuntimeRoute["lane"];
+    routingMode: NonNullable<ChatRuntimeRoute["routingMode"]>;
     runtimeTarget: ChatRuntimeRoute["runtimeTarget"];
     useWorker: boolean;
     useMcp: boolean;
@@ -419,6 +420,7 @@ export function buildChatContextPack({
       ? {
           route: {
             lane: route.lane,
+            routingMode: route.routingMode ?? "regex",
             runtimeTarget: route.runtimeTarget,
             useWorker: route.useWorker,
             useMcp: route.useMcp,
@@ -565,6 +567,7 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
   if (receipt.route) {
     lines.push(
       `- Routing: ${receipt.route.explanation} Lane ${receipt.route.lane}; ` +
+        `mode ${receipt.route.routingMode}; ` +
         `target ${receipt.route.runtimeTarget}; ` +
         `${receipt.route.useWorker ? "worker queued" : "streaming inline"}; ` +
         `${receipt.route.useMcp ? "tools mounted or available for mounting" : "no tools mounted"}; ` +

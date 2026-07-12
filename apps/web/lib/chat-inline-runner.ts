@@ -170,7 +170,10 @@ export async function streamInlineChatRun({
   const builtinTools = builtinToolsForChatRoute(route);
 
   try {
-    const mcpProviderScope = resolveChatMcpProviderScope(requestedProviders);
+    const mcpProviderScope = resolveChatMcpProviderScope(
+      requestedProviders,
+      route.routingMode,
+    );
     const [
       userRows,
       history,

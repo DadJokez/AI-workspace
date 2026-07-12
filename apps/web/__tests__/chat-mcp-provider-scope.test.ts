@@ -22,4 +22,14 @@ describe("chat MCP provider scope", () => {
     expect(scope.accountStatusOptions).toBeUndefined();
     expect(scope.mountOptions).toBeUndefined();
   });
+
+  it("keeps the full authorized catalog mounted for model-decided skill turns", () => {
+    const scope = resolveChatMcpProviderScope(
+      ["github"],
+      "model-decided",
+    );
+
+    expect(scope.accountStatusOptions).toBeUndefined();
+    expect(scope.mountOptions).toBeUndefined();
+  });
 });

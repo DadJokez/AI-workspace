@@ -11,7 +11,10 @@ import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 export function builtinToolsForChatRoute(
   route: ChatRuntimeRoute,
 ): BuiltinToolName[] {
-  if (route.reasons.some((reason) => reason.startsWith("web_"))) {
+  if (
+    route.routingMode === "model-decided" ||
+    route.reasons.some((reason) => reason.startsWith("web_"))
+  ) {
     // Search is hidden (not erroring) until Rob provisions the provider key
     // (#313): the tool never mounts and the preamble never lists it, so
     // capability questions stay honest in both states.
