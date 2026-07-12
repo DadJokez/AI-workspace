@@ -9,6 +9,7 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 import type { DocumentType } from "@smithy/types";
 import type { BedrockToolConfig } from "./registry";
+import type { TokenUsage } from "./types";
 
 /**
  * Minimal subset of Bedrock's converse-stream event surface that the loop
@@ -29,7 +30,7 @@ export type BedrockStreamEvent =
       name: string;
       input: Record<string, unknown>;
     }
-  | { type: "usage"; tokensIn: number; tokensOut: number }
+  | ({ type: "usage" } & TokenUsage)
   | {
       type: "stop";
       reason: "end_turn" | "tool_use" | "max_tokens" | "stop_sequence";
@@ -161,7 +162,14 @@ export class FakeBedrockClient implements BedrockClient {
     // Approximate token usage: ~4 chars per token.
     const tokensIn = Math.max(1, Math.ceil(userText.length / 4));
     const tokensOut = Math.max(1, Math.ceil(reply.length / 4));
-    yield { type: "usage", tokensIn, tokensOut };
+    yield {
+      type: "usage",
+      tokensIn,
+      tokensOut,
+      inputTokens: tokensIn,
+      cacheReadInputTokens: 0,
+      cacheWriteInputTokens: 0,
+    };
     yield { type: "stop", reason: "end_turn" };
   }
 }
@@ -221,8 +229,9 @@ export class RealBedrockClient implements BedrockClient {
     // messages order, so the checkpoint after the stable system prompt covers
     // the tool definitions too. The volatile suffix renders after the
     // checkpoint so it can't invalidate the cached prefix. Prefixes below the
-    // model's minimum (1,024 tokens on Sonnet 4.6, 4,096 on Haiku 4.5) are
-    // silently left uncached — never an error — so short prompts are safe.
+    // model's minimum (1,024 tokens on Sonnet 4.6; 4,096 on Sonnet 5 and
+    // Haiku 4.5) are silently left uncached — never an error — so short
+    // prompts are safe.
     const system: SystemContentBlock[] = [];
     if (params.systemPrompt) {
       system.push(
@@ -297,8 +306,11 @@ export class RealBedrockClient implements BedrockClient {
         const usage = chunk.metadata.usage;
         yield {
           type: "usage",
-          // With prompt caching, `inputTokens` counts only uncached tokens;
-          // add cache reads/writes so tokensIn stays "total tokens sent".
+          inputTokens: usage.inputTokens ?? 0,
+          cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
+          cacheWriteInputTokens: usage.cacheWriteInputTokens ?? 0,
+          // Preserve the original total alongside its separately billable
+          // components so cost and cache-hit ratios remain measurable.
           tokensIn:
             (usage.inputTokens ?? 0) +
             (usage.cacheReadInputTokens ?? 0) +

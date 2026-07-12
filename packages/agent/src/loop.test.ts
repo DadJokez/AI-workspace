@@ -94,6 +94,45 @@ describe("runAgentLoop system prompt caching", () => {
   });
 });
 
+class UsageClient implements BedrockClient {
+  async *converseStream(): AsyncIterable<BedrockStreamEvent> {
+    yield { type: "text-delta", text: "ok" };
+    yield {
+      type: "usage",
+      tokensIn: 1_050,
+      tokensOut: 20,
+      inputTokens: 100,
+      cacheReadInputTokens: 900,
+      cacheWriteInputTokens: 50,
+    };
+    yield { type: "stop", reason: "end_turn" };
+  }
+}
+
+describe("runAgentLoop usage telemetry", () => {
+  it("preserves cache token components in the final usage event", async () => {
+    const events = [];
+    for await (const event of runAgentLoop({
+      modelId: "sonnet-4-6",
+      messages: [{ role: "user", content: "hi" }],
+      registry: new ToolRegistry(),
+      context: { userId: "u1" },
+      client: new UsageClient(),
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({
+      type: "usage",
+      tokensIn: 1_050,
+      tokensOut: 20,
+      inputTokens: 100,
+      cacheReadInputTokens: 900,
+      cacheWriteInputTokens: 50,
+    });
+  });
+});
+
 class RequiredToolClient implements BedrockClient {
   readonly captured: ConverseStreamParams[] = [];
 

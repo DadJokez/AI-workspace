@@ -8,6 +8,7 @@ export type {
   ToolContext,
   ToolHandler,
   ToolResult,
+  TokenUsage,
 } from "./types";
 
 export {
@@ -27,6 +28,7 @@ export type { BedrockToolConfig } from "./registry";
 
 export {
   FakeBedrockClient,
+  RealBedrockClient,
   getBedrockClient,
   toAwsToolConfiguration,
 } from "./clients";

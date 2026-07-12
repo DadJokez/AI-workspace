@@ -160,6 +160,9 @@ export async function streamInlineChatRun({
   let assistantText = "";
   let tokensIn = 0;
   let tokensOut = 0;
+  let inputTokens = 0;
+  let cacheReadInputTokens = 0;
+  let cacheWriteInputTokens = 0;
   let providerRunMetadata: RuntimeRunMetadata | null = null;
   const runtimeErrors: NormalizedRuntimeError[] = [];
   const toolEvents = createToolEventAccumulator([]);
@@ -473,6 +476,9 @@ export async function streamInlineChatRun({
         } else if (ev.type === "usage") {
           tokensIn = ev.tokensIn;
           tokensOut = ev.tokensOut;
+          inputTokens = ev.inputTokens ?? ev.tokensIn;
+          cacheReadInputTokens = ev.cacheReadInputTokens ?? 0;
+          cacheWriteInputTokens = ev.cacheWriteInputTokens ?? 0;
         } else if (ev.type === "tool-call") {
           toolEvents.recordCall(ev.call);
           const persistedCall = toolEvents
@@ -561,6 +567,9 @@ export async function streamInlineChatRun({
       assistantText,
       tokensIn,
       tokensOut,
+      inputTokens,
+      cacheReadInputTokens,
+      cacheWriteInputTokens,
       toolCalls: toolEvents.calls(),
       toolResults: toolEvents.results(),
       providerRunMetadata,
@@ -609,6 +618,9 @@ async function persistInlineAssistantResult({
   assistantText,
   tokensIn,
   tokensOut,
+  inputTokens,
+  cacheReadInputTokens,
+  cacheWriteInputTokens,
   toolCalls,
   toolResults,
   providerRunMetadata,
@@ -634,6 +646,9 @@ async function persistInlineAssistantResult({
   assistantText: string;
   tokensIn: number;
   tokensOut: number;
+  inputTokens: number;
+  cacheReadInputTokens: number;
+  cacheWriteInputTokens: number;
   toolCalls: ReturnType<ReturnType<typeof createToolEventAccumulator>["calls"]>;
   toolResults: ReturnType<ReturnType<typeof createToolEventAccumulator>["results"]>;
   providerRunMetadata: RuntimeRunMetadata | null;
@@ -804,6 +819,13 @@ async function persistInlineAssistantResult({
         toolResults,
         tokensIn,
         tokensOut,
+        usage: {
+          tokensIn,
+          tokensOut,
+          inputTokens,
+          cacheReadInputTokens,
+          cacheWriteInputTokens,
+        },
         requestedModelId,
         modelId,
         providerModelId: modelSelection.providerModelId,
@@ -864,6 +886,13 @@ async function persistInlineAssistantResult({
       modelSelection,
       runtime: runtimeName,
       runtimeTarget,
+      usage: {
+        tokensIn,
+        tokensOut,
+        inputTokens,
+        cacheReadInputTokens,
+        cacheWriteInputTokens,
+      },
       ...(runtimeErrors.length > 0 ? { errorDetails: runtimeErrors } : {}),
       ...(artifacts.length > 0 ? { artifacts } : {}),
       ...(appDraftVersions.length > 0 ? { appDraftVersions } : {}),
