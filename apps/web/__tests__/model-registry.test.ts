@@ -65,6 +65,7 @@ describe("enabledModelsForPurpose", () => {
     expect(await enabledModelsForPurpose(db, "chat")).toEqual([
       "haiku-4-5",
       "sonnet-4-6",
+      "sonnet-5",
       "opus-4-7",
     ]);
   });
@@ -75,6 +76,7 @@ describe("isModelEnabled", () => {
     const db = fakeDb([{ modelId: "sonnet-4-6", purpose: "chat" }]);
 
     expect(await isModelEnabled(db, "sonnet-4-6", "chat")).toBe(true);
+    expect(await isModelEnabled(db, "sonnet-5", "chat")).toBe(false);
     expect(await isModelEnabled(db, "opus-4-7", "chat")).toBe(false);
     expect(await isModelEnabled(db, "gpt-troll", "chat")).toBe(false);
   });
@@ -148,6 +150,8 @@ describe("cost metadata", () => {
     expect(MODELS["haiku-4-5"].costPer1MOutput).toBe(5.5);
     expect(MODELS["sonnet-4-6"].costPer1MInput).toBe(3.3);
     expect(MODELS["sonnet-4-6"].costPer1MOutput).toBe(16.5);
+    expect(MODELS["sonnet-5"].costPer1MInput).toBe(3.3);
+    expect(MODELS["sonnet-5"].costPer1MOutput).toBe(16.5);
     expect(MODELS["opus-4-7"].costPer1MInput).toBe(5.5);
     expect(MODELS["opus-4-7"].costPer1MOutput).toBe(27.5);
   });
