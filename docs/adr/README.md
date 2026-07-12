@@ -11,6 +11,7 @@ an IT reviewer) understands the reasoning without archaeology.
 | [0003](./0003-aws-only-runtime-substrate.md) | Runtime substrate: Bedrock + AgentCore, remove Cursor SDK | Accepted |
 | [0004](./0004-agentcore-gateway-integration-pattern.md) | AgentCore Gateway integration pattern | Proposed |
 | [0005](./0005-google-shared-mcp-facade.md) | Google alpha uses one shared governed MCP facade | Accepted |
+| [0006](./0006-model-decided-tool-routing.md) | Sonnet 4.6 decides when interactive chat needs tools | Accepted |
 
 New ADR: copy the format of 0001 (Context → Decision → Consequences →
 Alternatives → Revisit when), number it sequentially, and add a row here.

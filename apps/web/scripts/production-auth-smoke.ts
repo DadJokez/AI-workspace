@@ -136,9 +136,18 @@ async function chatArtifactCheck(cookie: string) {
 
   const events = parseSseEvents(body);
   const meta = events.find((event) => event.type === "meta");
+  const model = events.find((event) => event.type === "model");
   const persisted = events.find((event) => event.type === "persisted");
   assert(isRecord(meta) && typeof meta.threadId === "string", "missing chat meta thread id");
   assert(isRecord(meta) && typeof meta.runId === "string", "missing chat meta run id");
+  assert(meta.routingMode === "model-decided", "production chat did not use model-decided routing");
+  assert(isRecord(meta.runtimeRoute), "chat meta missing runtime route");
+  assert(meta.runtimeRoute.routingMode === "model-decided", "runtime route did not preserve model-decided mode");
+  assert(meta.runtimeRoute.useMcp === true, "model-decided runtime did not mount account tools");
+  assert(isRecord(model), "missing runtime model event");
+  assert(model.modelId === "sonnet-4-6", "production chat did not run on Sonnet 4.6");
+  assert(isRecord(model.modelSelection), "runtime model event missing selection receipt");
+  assert(model.modelSelection.reason === "model_decided_sonnet", "runtime model selection was not model-decided Sonnet");
   state.threadId = meta.threadId;
   state.runId = meta.runId;
 

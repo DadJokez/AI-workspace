@@ -165,9 +165,10 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       RUNTIME: "bedrock",
       RUNTIME_V2_ENABLED: "1",
       RUNTIME_V2_DIRECT_RUNTIME: "bedrock",
-      // Autopilot (#110): pick the model per ask — Haiku for short/simple
-      // turns, Sonnet for writing/reasoning/code. Was pinned to haiku-4-5.
-      RUNTIME_V2_DIRECT_MODEL_ID: "auto",
+      // #364: mount the stable authorized catalog and let Sonnet decide
+      // whether the turn needs a tool. Regex routing remains the rollback.
+      ROUTING_MODE: "model-decided",
+      RUNTIME_V2_DIRECT_MODEL_ID: "sonnet-4-6",
       NEXTAUTH_URL: `https://${domainName}`,
       LEGACY_HOST_REDIRECT_FROM:
         legacyDomainName !== domainName ? legacyDomainName : "",
