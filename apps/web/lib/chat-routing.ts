@@ -508,11 +508,6 @@ function hasWebLookupIntent(value: string): string | null {
 }
 
 /**
- * Explicit web-search asks (#313). Gated on deployment configuration so an
- * unconfigured deployment never escalates the lane for a tool that cannot
- * mount — search stays invisible, and the assistant honestly has no search.
- */
-/**
  * Words that mean "this is about a connected tool's own data" (Gmail, Calendar,
  * Notion, Salesforce, GitHub). When present, a temporal cue like "today" belongs
  * to that tool ("what's on my calendar today?"), NOT to web search — so the
@@ -521,6 +516,11 @@ function hasWebLookupIntent(value: string): string | null {
 const CONNECTED_RESOURCE_RE =
   /\b(gmail|inbox|e-?mail|mail|calendar|calendars|event|events|meeting|meetings|availability|free\s*busy|notion|salesforce|sfdc|soql|crm|opportunit(?:y|ies)|pipeline|accounts?|contacts?|leads?|deals?|github|gh|repos?|repositories?|pull\s*requests?|prs?|commits?|branch|workflow|issues?|docs?|pages?|databases?)\b/;
 
+/**
+ * Explicit web-search asks (#313). Gated on deployment configuration so an
+ * unconfigured deployment never escalates the lane for a tool that cannot
+ * mount — search stays invisible, and the assistant honestly has no search.
+ */
 function hasWebSearchIntent(value: string): string | null {
   if (!isWebSearchConfigured()) return null;
   // Explicit "search the web / google it" asks.
@@ -542,14 +542,20 @@ function hasWebSearchIntent(value: string): string | null {
   if (CONNECTED_RESOURCE_RE.test(value)) return null;
   if (
     /\bwho\s+won\b/.test(value) ||
-    /\b(final\s+)?scores?\b/.test(value) ||
+    // "score" only in a game context — bare "score" also means essays and
+    // credit ("score this essay", "my credit score"), which are not lookups.
+    /\b(final|game|match|halftime|full[-\s]?time)\s+scores?\b/.test(value) ||
+    /\bscores?\s+(of|in|from)\s+(the\s+)?(game|match|final)/.test(value) ||
     /\bweather\b/.test(value) ||
     /\b(stock|share)\s+price\b/.test(value) ||
     /\bprice\s+of\b/.test(value) ||
     /\b(latest|current|recent|breaking)\s+(news|version|release|price|scores?|results?|standings?|odds)\b/.test(
       value,
     ) ||
-    /\bwhat('?s| is|\s+are|\s+time\s+(is|are|does))\b[^.?!]{0,60}\b(today|tonight|right now|this\s+(week|weekend|morning|afternoon|evening)|currently|latest)\b/.test(
+    // Temporal "what" questions, but never about the speaker or assistant —
+    // "what are you doing this weekend?" / "what are my tasks today?" are
+    // chatter or the user's own data, not public-web lookups.
+    /\bwhat('?s| is|\s+are|\s+time\s+(is|are|does))\s+(?!(you|your|my|our|we|i)\b)[^.?!]{0,60}\b(today|tonight|right now|this\s+(week|weekend|morning|afternoon|evening)|currently|latest)\b/.test(
       value,
     ) ||
     /\b(game|match|fixture|kickoff|kick[-\s]?off|score|result)\b[^.?!]{0,40}\b(today|tonight|last\s+night|yesterday|this\s+(week|weekend))\b/.test(

@@ -207,12 +207,20 @@ describe("decideChatRuntimeRoute", () => {
         false,
       );
     }
-    // Casual message with a temporal word must not escalate to web search.
-    const casual = decideChatRuntimeRoute({
-      message: "how are you today?",
-      runtimeV2: true,
-    });
-    expect(casual.reasons.some((r) => r.startsWith("web_"))).toBe(false);
+    // Casual/personal messages with temporal or score words must not escalate
+    // to web search — they are chatter or the user's own data.
+    for (const message of [
+      "how are you today?",
+      "what are you doing this weekend?",
+      "what are my tasks today?",
+      "score this essay for me",
+      "what's my credit score?",
+    ]) {
+      const route = decideChatRuntimeRoute({ message, runtimeV2: true });
+      expect(route.reasons.some((r) => r.startsWith("web_")), message).toBe(
+        false,
+      );
+    }
     vi.unstubAllEnvs();
   });
 
