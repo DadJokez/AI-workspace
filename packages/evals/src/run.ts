@@ -9,6 +9,8 @@ import { salesforceFaithfulnessSuite } from "./cases/salesforce-faithfulness.cas
 import { skillFaithfulnessSuite } from "./cases/skill-faithfulness.cases";
 import { toolGroundingSuite } from "./cases/tool-grounding.cases";
 import { webSearchFaithfulnessSuite } from "./cases/web-search-faithfulness.cases";
+import { modelRoutingSuite } from "./cases/model-routing.cases";
+import { estimateUsageCostUsd } from "./benchmarks/model-routing";
 
 const SUITES: EvalSuite[] = [
   dateGroundingSuite,
@@ -18,6 +20,7 @@ const SUITES: EvalSuite[] = [
   gmailCalendarFaithfulnessSuite,
   salesforceFaithfulnessSuite,
   webSearchFaithfulnessSuite,
+  modelRoutingSuite,
 ];
 
 /**
@@ -86,7 +89,16 @@ async function main() {
 
   const totalPassed = results.reduce((n, r) => n + r.passed, 0);
   const totalFailed = results.reduce((n, r) => n + r.failed, 0);
-  const approxCostUsd = (totalIn / 1_000_000) * 1 + (totalOut / 1_000_000) * 5;
+  const approxCostUsd = results.reduce(
+    (suiteTotal, result) =>
+      suiteTotal +
+      result.results.reduce(
+        (caseTotal, testCase) =>
+          caseTotal + estimateUsageCostUsd(testCase.modelId, testCase),
+        0,
+      ),
+    0,
+  );
 
   process.stdout.write(
     `\n${totalFailed === 0 ? "✅" : "❌"} ${totalPassed} passed, ${totalFailed} failed · ` +
@@ -125,6 +137,9 @@ function writeReport(
       if (c.toolCalls.length > 0) {
         md.push(`  - Tool calls: ${c.toolCalls.join(", ")}`);
       }
+      md.push(
+        `  - Model/usage: ${c.modelId}; input=${c.inputTokens}; cache-read=${c.cacheReadInputTokens}; cache-write=${c.cacheWriteInputTokens}; output=${c.tokensOut}`,
+      );
       if (c.providerStatus && Object.keys(c.providerStatus).length > 0) {
         md.push(
           `  - Provider status: ${Object.entries(c.providerStatus)

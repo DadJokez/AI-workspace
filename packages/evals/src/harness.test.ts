@@ -133,6 +133,9 @@ describe("eval harness wiring", () => {
     });
     const first = result.results[0]!;
     expect(first.answerPreview.length).toBeGreaterThan(0);
+    expect(first.inputTokens).toBeGreaterThan(0);
+    expect(first.cacheReadInputTokens).toBe(0);
+    expect(first.cacheWriteInputTokens).toBe(0);
     expect(first.tokensOut).toBeGreaterThan(0);
   });
 
@@ -234,5 +237,36 @@ describe("eval harness wiring", () => {
       threadId: "thread-prod-1",
       runId: "run-prod-1",
     });
+  });
+
+  it("passes optional multi-turn conversation history to the model", async () => {
+    const suite: EvalSuite = {
+      capability: "multi-turn-wiring",
+      defaultModelId: "haiku-4-5",
+      cases: [
+        {
+          id: "follow-up",
+          description: "latest user follow-up is evaluated with prior context",
+          input: "What about tomorrow?",
+          messages: [
+            { role: "user", content: "What is on my calendar today?" },
+            { role: "assistant", content: "You have a staff sync." },
+            { role: "user", content: "What about tomorrow?" },
+          ],
+          assertions: [
+            {
+              kind: "deterministic",
+              label: "latest follow-up reached the client",
+              check: (transcript) => transcript.answer.includes("What about tomorrow?"),
+            },
+          ],
+        },
+      ],
+    };
+
+    const client = new FakeBedrockClient({ delayMs: 0 });
+    const result = await runSuite(suite, { client, judgeClient: client });
+
+    expect(result.failed).toBe(0);
   });
 });

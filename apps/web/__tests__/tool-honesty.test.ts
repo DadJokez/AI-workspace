@@ -180,6 +180,9 @@ describe("tool-use honesty grounding", () => {
       "Prefer the connected first-party provider for the user's work data",
     );
     expect(preamble).toContain(
+      "Connected account tools represent the user's data, not the assistant's own state or plans",
+    );
+    expect(preamble).toContain(
       "Do not call a tool for greetings, casual conversation, or self-contained writing",
     );
   });

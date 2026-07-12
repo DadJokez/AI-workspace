@@ -1,4 +1,11 @@
-import type { AgentEvent, ModelId, Tool, ToolResult } from "@ai-workspace/agent";
+import type {
+  AgentEvent,
+  AgentMessage,
+  ModelId,
+  TokenUsage,
+  Tool,
+  ToolResult,
+} from "@ai-workspace/agent";
 
 /**
  * An eval case is data, not code (specs/004 FR-001). Adding a case — including
@@ -18,6 +25,8 @@ export interface EvalCase {
   systemPrompt?: string;
   /** The user message. */
   input: string;
+  /** Optional full conversation for multi-turn behavioral cases. */
+  messages?: AgentMessage[];
   /** Model to run the case on. Defaults to the suite default. */
   modelId?: ModelId;
   /**
@@ -71,16 +80,15 @@ export type Assertion =
       rubric: string;
     };
 
-export interface CaseResult {
+export interface CaseResult extends TokenUsage {
   caseId: string;
   description: string;
+  modelId: ModelId;
   threadId: string;
   runId: string;
   passed: boolean;
   assertions: AssertionResult[];
   answerPreview: string;
-  tokensIn: number;
-  tokensOut: number;
   toolCalls: string[];
   toolResults: Array<{
     toolCallId: string;

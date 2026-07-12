@@ -9,6 +9,7 @@
   },
   "scripts": {
     "eval": "tsx src/run.ts",
+    "eval:routing": "tsx src/run.ts model-routing",
     "benchmark:routing": "tsx src/benchmarks/run-model-routing.ts",
     "transcripts:replay": "tsx src/transcripts/replay.ts",
     "lint": "eslint src",

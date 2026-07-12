@@ -14,7 +14,7 @@ checks the deployed public surface.
 | Authenticated browser smoke | `pnpm smoke:browser:auth` | Every PR and `main` push via `Product Smoke` | Real protected-route access with a test-only NextAuth JWT, disposable Postgres fixtures for the signed-in user and skills catalog, signed-in chat, uploads, generated artifact preview, recommendations, artifacts menu, and transcript download |
 | Production public smoke | `pnpm smoke:prod` | Scheduled every 6 hours and manual dispatch via `Product Smoke` | Public deployment health, DB/runtime health, login page, protected redirect, model metadata, anonymous chat guard |
 | Production authenticated smoke | `pnpm smoke:prod:auth` | CodeBuild after ECS services stabilize | Signed-in DB/runtime health, locked-down smoke identity, scoped thread access, live signed-in chat, persisted markdown artifact, artifact listing, server-side transcript export, and failed/stale smoke-run backlog checks |
-| Real-model evals | `pnpm eval` | Nightly and manual via `Nightly Evals` | Model/prompt/harness regressions: date grounding, Vault truthfulness, fixture-backed GitHub tool routing, tool honesty, skill faithfulness, recommendation faithfulness, artifact content treated as inert data, memory-capture secret redaction, provider-missing skill honesty, Gmail/Calendar faithfulness (email-body injection resistance, attestation/empty-result/disconnected/scope/tool-error honesty), and flagship Meeting Prep/Weekly Status artifact grounding across GitHub, Gmail, and Calendar |
+| Real-model evals | `pnpm eval` | Nightly and manual via `Nightly Evals` | Model/prompt/harness regressions: Sonnet 4.6 semantic tool routing and no-tool cases, date grounding, Vault truthfulness, fixture-backed GitHub tool routing, tool honesty, skill faithfulness, recommendation faithfulness, artifact content treated as inert data, memory-capture secret redaction, provider-missing skill honesty, Gmail/Calendar faithfulness (email-body injection resistance, attestation/empty-result/disconnected/scope/tool-error honesty), and flagship Meeting Prep/Weekly Status artifact grounding across GitHub, Gmail, and Calendar |
 | Golden transcript replay | `pnpm transcripts:replay` | Manual today; CI candidate after fixture count grows | Downloaded chat regressions: denied Vault/tool/artifact access, model label mismatch, competitor-identity claims, missing artifact evidence, missing attachment evidence, manual save instructions after artifact creation, in-place artifact revision (same filename), and cross-thread artifact reference by name |
 | Manual visual QA | `docs/QA_CHECKLIST.md` | Before large UX releases | Visual polish, mobile ergonomics, artifact preview feel, activity receipts, edge cases that still need judgment |
 
@@ -95,6 +95,7 @@ pnpm smoke:browser:auth
 pnpm smoke:prod
 pnpm smoke:prod:auth
 pnpm eval --mock
+pnpm --filter @ai-workspace/evals eval:routing --mock
 pnpm transcripts:replay
 ```
 
@@ -102,6 +103,7 @@ Real-model evals need Bedrock access:
 
 ```bash
 AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval
+AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm --filter @ai-workspace/evals eval:routing
 ```
 
 Production smoke defaults to `https://comparative.builtwithrobot.link`; override
