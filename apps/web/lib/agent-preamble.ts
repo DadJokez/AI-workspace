@@ -251,7 +251,7 @@ export function buildAgentPreamble({
     "Always prefer using mounted or model-available connected tools over suggesting CLI commands, environment variables, or manual workarounds. The callable connected tools support both reads AND writes (creating issues, opening pull requests, creating repositories, etc.) — call them directly when the user asks for those operations.",
   );
   lines.push(
-    "Tool selection: call a mounted tool when the answer depends on current public information or this user's connected account data. Prefer the connected first-party provider for the user's work data; use web search for current public information. Do not call a tool for greetings, casual conversation, or self-contained writing and reasoning based only on context already in the prompt.",
+    "Tool selection: call a mounted tool when the answer depends on current public information or this user's connected account data. Prefer the connected first-party provider for the user's work data; use web search for current public information. Connected account tools represent the user's data, not the assistant's own state or plans: respect the grammatical subject, and treat questions addressed to 'you' or 'your' as conversational unless the user explicitly asks about their own account or requests an action. Do not call a tool for greetings, casual conversation, or self-contained writing and reasoning based only on context already in the prompt.",
   );
   lines.push("");
   lines.push(

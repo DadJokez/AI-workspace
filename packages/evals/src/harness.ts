@@ -1,6 +1,7 @@
 import {
   type AgentEvent,
   type BedrockClient,
+  type TokenUsage,
   ToolRegistry,
   getBedrockClient,
   runAgentLoop,
@@ -25,11 +26,14 @@ async function runTurn(
   client: BedrockClient,
   testCase: EvalCase,
   defaultModelId: EvalSuite["defaultModelId"],
-): Promise<TurnTranscript & { tokensIn: number; tokensOut: number }> {
+): Promise<TurnTranscript & TokenUsage> {
   const events: AgentEvent[] = [];
   let answer = "";
   let tokensIn = 0;
   let tokensOut = 0;
+  let inputTokens = 0;
+  let cacheReadInputTokens = 0;
+  let cacheWriteInputTokens = 0;
   const toolCallNames: string[] = [];
   const toolResults: TurnTranscript["toolResults"] = [];
   const registry = new ToolRegistry();
@@ -38,7 +42,7 @@ async function runTurn(
   for await (const ev of runAgentLoop({
     modelId: testCase.modelId ?? defaultModelId,
     systemPrompt: testCase.systemPrompt,
-    messages: [{ role: "user", content: testCase.input }],
+    messages: testCase.messages ?? [{ role: "user", content: testCase.input }],
     registry,
     context: { userId: "eval" },
     client,
@@ -50,6 +54,9 @@ async function runTurn(
     else if (ev.type === "usage") {
       tokensIn = ev.tokensIn;
       tokensOut = ev.tokensOut;
+      inputTokens = ev.inputTokens;
+      cacheReadInputTokens = ev.cacheReadInputTokens;
+      cacheWriteInputTokens = ev.cacheWriteInputTokens;
     }
   }
 
@@ -63,6 +70,9 @@ async function runTurn(
     fixtureEvidence: testCase.fixtureEvidence ?? [],
     tokensIn,
     tokensOut,
+    inputTokens,
+    cacheReadInputTokens,
+    cacheWriteInputTokens,
   };
 }
 
@@ -90,19 +100,24 @@ async function evaluateCase(
   structuralOnly = false,
 ): Promise<CaseResult> {
   const debugIds = evalDebugIds(testCase, capability);
-  let transcript: TurnTranscript & { tokensIn: number; tokensOut: number };
+  const modelId = testCase.modelId ?? defaultModelId;
+  let transcript: TurnTranscript & TokenUsage;
   try {
     transcript = await runTurn(client, testCase, defaultModelId);
   } catch (err) {
     return {
       caseId: testCase.id,
       description: testCase.description,
+      modelId,
       ...debugIds,
       passed: false,
       assertions: [],
       answerPreview: "",
       tokensIn: 0,
       tokensOut: 0,
+      inputTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheWriteInputTokens: 0,
       toolCalls: [],
       toolResults: [],
       providerStatus: testCase.providerStatus,
@@ -116,6 +131,7 @@ async function evaluateCase(
     return {
       caseId: testCase.id,
       description: testCase.description,
+      modelId,
       ...debugIds,
       passed: true,
       assertions: [
@@ -128,6 +144,9 @@ async function evaluateCase(
       answerPreview: transcript.answer.slice(0, 280),
       tokensIn: transcript.tokensIn,
       tokensOut: transcript.tokensOut,
+      inputTokens: transcript.inputTokens,
+      cacheReadInputTokens: transcript.cacheReadInputTokens,
+      cacheWriteInputTokens: transcript.cacheWriteInputTokens,
       toolCalls: transcript.toolCallNames,
       toolResults: summarizeToolResults(transcript.toolResults),
       providerStatus: transcript.providerStatus,
@@ -162,12 +181,16 @@ async function evaluateCase(
   return {
     caseId: testCase.id,
     description: testCase.description,
+    modelId,
     ...debugIds,
     passed: assertions.every((a) => a.ok),
     assertions,
     answerPreview: transcript.answer.slice(0, 280),
     tokensIn: transcript.tokensIn,
     tokensOut: transcript.tokensOut,
+    inputTokens: transcript.inputTokens,
+    cacheReadInputTokens: transcript.cacheReadInputTokens,
+    cacheWriteInputTokens: transcript.cacheWriteInputTokens,
     toolCalls: transcript.toolCallNames,
     toolResults: summarizeToolResults(transcript.toolResults),
     providerStatus: transcript.providerStatus,
