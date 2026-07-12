@@ -229,8 +229,8 @@ export class RealBedrockClient implements BedrockClient {
     // messages order, so the checkpoint after the stable system prompt covers
     // the tool definitions too. The volatile suffix renders after the
     // checkpoint so it can't invalidate the cached prefix. Prefixes below the
-    // model's minimum (1,024 tokens on Sonnet 4.6; 4,096 on Sonnet 5 and
-    // Haiku 4.5) are silently left uncached — never an error — so short
+    // model's minimum (1,024 tokens on Sonnet 4.6; 4,096 on Haiku 4.5) are
+    // silently left uncached — never an error — so short
     // prompts are safe.
     const system: SystemContentBlock[] = [];
     if (params.systemPrompt) {
