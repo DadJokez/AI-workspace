@@ -21,12 +21,7 @@
  * new dated revisions.
  */
 
-export const MODEL_IDS = [
-  "haiku-4-5",
-  "sonnet-4-6",
-  "sonnet-5",
-  "opus-4-7",
-] as const;
+export const MODEL_IDS = ["haiku-4-5", "sonnet-4-6", "opus-4-7"] as const;
 export type ModelId = (typeof MODEL_IDS)[number];
 
 /**
@@ -81,11 +76,9 @@ export interface ModelMetadata {
 /**
  * Cost figures are us.* geo cross-region inference-profile rates (deliberate
  * US-residency choice): Bedrock list + the 10% regional-endpoint premium, as
- * of July 2026 — not global-endpoint list prices. Sonnet 5 uses its standard
- * post-launch rate rather than the temporary promotion ending August 31,
- * 2026, so estimates remain conservative. Keep in sync with what the account
- * actually pays; router-lane selection (#303) and cost displays read these
- * fields.
+ * of July 2026 — not global-endpoint list prices. Keep in sync with what the
+ * account actually pays; router-lane selection (#303) and cost displays read
+ * these fields.
  */
 export const MODELS: Record<ModelId, ModelMetadata> = {
   "haiku-4-5": {
@@ -126,27 +119,6 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
       "general chat",
       "recipe execution",
       "everyday tool use",
-    ],
-  },
-  "sonnet-5": {
-    id: "sonnet-5",
-    bedrockModelId: "us.anthropic.claude-sonnet-5",
-    provider: "anthropic",
-    family: "claude",
-    displayName: "Sonnet 5",
-    blurb:
-      "Latest balanced model. Chat, professional work, and precise tool use.",
-    costPer1MInput: 3.3,
-    costPer1MOutput: 16.5,
-    supportsToolUse: true,
-    supportsStreaming: true,
-    supportsVision: true,
-    contextWindow: 1_000_000,
-    defaultMaxTokens: 32_000,
-    recommendedFor: [
-      "general chat",
-      "professional writing and analysis",
-      "multi-step tool use",
     ],
   },
   "opus-4-7": {

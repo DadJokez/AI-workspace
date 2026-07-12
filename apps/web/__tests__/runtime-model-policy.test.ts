@@ -36,21 +36,6 @@ describe("resolveRuntimeModelSelection", () => {
     });
   });
 
-  it("maps the Sonnet 5 Bedrock inference profile alias", () => {
-    expect(
-      resolveRuntimeModelSelection({
-        requestedModelId: "us.anthropic.claude-sonnet-5",
-        route: directRoute,
-        runtimeName: "bedrock",
-        directModelId: undefined,
-      }),
-    ).toMatchObject({
-      modelId: "sonnet-5",
-      providerModelId: "us.anthropic.claude-sonnet-5",
-      reason: "requested_model_alias",
-    });
-  });
-
   it("falls back to the product default when direct Bedrock cannot map the requested model", () => {
     expect(
       resolveRuntimeModelSelection({
