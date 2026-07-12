@@ -34,7 +34,9 @@ Single-lane architecture on Sonnet 5:
 - **Sonnet 5 (`us.anthropic.claude-sonnet-5`) becomes the default chat model.**
   Verified available in account 351478076796 / us-east-1 (model + us. inference
   profile, checked 2026-07-11). Haiku 4.5 stays in the registry as a
-  user-selectable economy option, not an auto-routed lane.
+  user-selectable economy option, not an auto-routed lane. The current
+  Haiku/Sonnet auto-*model* selection in `runtime-model-policy.ts` is separate
+  from capability-lane routing and remains in #303's scope.
 - **The stable tool set is cached.** `packages/agent/src/clients.ts` already
   writes Converse `cachePoint`s after tools and after the system prompt; the
   win requires the tool set to be stable within a conversation, which this
@@ -89,7 +91,15 @@ historically been list + 10% — verify, don't assume).
 per-turn cost on Bedrock across: (a) Haiku 4.5 tool-less (today's fast lane),
 (b) Sonnet 5 with cached full tool set, (c) Haiku 4.5 with cached full tool
 set. Prompt mix: chit-chat, natural current-info questions, provider questions.
-Results table posted to #364.
+Before running the comparison, widen the Bedrock and agent `usage` events to
+preserve `cacheReadInputTokens` and `cacheWriteInputTokens` separately from
+ordinary input tokens, then carry those values into the existing run telemetry.
+Today `clients.ts` folds all three values into `tokensIn`, so current logs cannot
+prove a cache hit or calculate a cache-read ratio. The benchmark records cold
+and warm TTFT, cache-read/write tokens, output tokens, and estimated cost; post
+the results table to #364. Sonnet 5 and Haiku 4.5 both require a 4,096-token
+minimum per cache checkpoint, so the benchmark must verify that the actual
+tools + system prefix clears that threshold and produces cache reads.
 *Checkpoint:* if (b) p50 TTFT is acceptable for chit-chat (target: within
 ~1.5× of (a) or under ~1s), proceed single-lane. If not, fall back to the
 escalation-hatch variant (appendix) — decision recorded in #364.
@@ -118,9 +128,9 @@ release as break-glass.
 - Chit-chat produces no tool calls and no meaningful latency regression
   (benchmark budget from P2).
 - The assistant never denies a mounted capability (honesty eval).
-- Cache-read ratio on multi-turn chats is visible in usage logging
-  (`clients.ts` already splits cacheRead/cacheWrite into tokensIn) and shows
-  the stable-prefix design working.
+- Cache-read and cache-write tokens remain distinct in run telemetry, making
+  the multi-turn cache-read ratio directly measurable and showing whether the
+  stable-prefix design is working.
 - Data scoping unchanged: the tool set is built exclusively from the
   requesting user's grants (existing per-user OAuth pattern).
 
@@ -131,8 +141,9 @@ release as break-glass.
   P4 evals gate the flip; tool descriptions carry "only when needed" guidance.
 - **Latency regression** → P2 checkpoint before any user-facing change; flag
   rollback after.
-- **Haiku cache minimum** (4,096 cumulative tokens vs Sonnet-class 1,024) is
-  moot in the single-lane design; it only matters in the hatch fallback.
+- **Cache minimum** is 4,096 tokens per checkpoint for both Sonnet 5 and Haiku
+  4.5. The full harness prefix is expected to clear it, but P2 measures rather
+  than assumes that; Haiku still matters in the hatch fallback.
 
 ## Appendix — fallback variant: escalation hatch
 
