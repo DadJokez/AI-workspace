@@ -21,6 +21,44 @@ describe("resolveRuntimeModelSelection", () => {
     });
   });
 
+  it("uses Sonnet 4.6 for model-decided turns instead of heuristic autopilot", () => {
+    expect(
+      resolveRuntimeModelSelection({
+        requestedModelId: "haiku-4-5",
+        route: {
+          runtimeTarget: "bedrock-agent",
+          routingMode: "model-decided",
+        },
+        runtimeName: "bedrock",
+        directModelId: "auto",
+        message: "hi",
+      }),
+    ).toMatchObject({
+      modelId: "sonnet-4-6",
+      providerModelId: "us.anthropic.claude-sonnet-4-6",
+      reason: "model_decided_sonnet",
+      ignoredDirectModelId: "auto",
+    });
+  });
+
+  it("preserves an explicit model override in model-decided mode", () => {
+    expect(
+      resolveRuntimeModelSelection({
+        requestedModelId: "opus-4-7",
+        route: {
+          runtimeTarget: "bedrock-agent",
+          routingMode: "model-decided",
+        },
+        runtimeName: "bedrock",
+        directModelId: "auto",
+        forceRequestedModel: true,
+      }),
+    ).toMatchObject({
+      modelId: "opus-4-7",
+      reason: "requested_model_supported",
+    });
+  });
+
   it("maps provider-style Bedrock model aliases when no direct model is configured", () => {
     expect(
       resolveRuntimeModelSelection({

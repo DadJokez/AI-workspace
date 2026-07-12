@@ -50,7 +50,10 @@ import {
   parseChatExecutionMode,
   type ChatExecutionMode,
 } from "@/lib/chat-execution-mode";
-import type { ChatRuntimeRoute } from "@/lib/chat-routing";
+import {
+  chatRoutingModeFromEnv,
+  type ChatRuntimeRoute,
+} from "@/lib/chat-routing";
 import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
@@ -292,7 +295,10 @@ async function executeClaimedChatRun({
   });
 
   const runtime = getRuntime({ runtime: workerRuntimeName() });
-  const mcpProviderScope = resolveChatMcpProviderScope(inputs.requestedProviders);
+  const mcpProviderScope = resolveChatMcpProviderScope(
+    inputs.requestedProviders,
+    runtimeRoute.routingMode,
+  );
   const [threadRows, userRows, vaultMarkdown, providerStatus] =
     await Promise.all([
       db
@@ -1068,6 +1074,9 @@ function parseStoredRuntimeRoute(value: unknown): ChatRuntimeRoute | undefined {
   }
   return {
     lane: value.lane,
+    routingMode: chatRoutingModeFromEnv(
+      typeof value.routingMode === "string" ? value.routingMode : "regex",
+    ),
     executionMode: parseChatExecutionMode(value.executionMode),
     runtimeTarget: value.runtimeTarget,
     runtimeV2: value.runtimeV2 === true,
@@ -1083,6 +1092,9 @@ function parseStoredRuntimeRoute(value: unknown): ChatRuntimeRoute | undefined {
 function defaultWorkerRuntimeRoute(inputs: ChatRunInputs): ChatRuntimeRoute {
   return {
     lane: "durable-local",
+    routingMode: chatRoutingModeFromEnv(
+      typeof inputs.routingMode === "string" ? inputs.routingMode : "regex",
+    ),
     executionMode: inputs.executionMode,
     runtimeTarget: "agentcore-worker",
     runtimeV2: inputs.runtimeV2 === true,

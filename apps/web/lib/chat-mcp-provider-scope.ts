@@ -1,3 +1,5 @@
+import type { ChatRoutingMode } from "@/lib/chat-routing";
+
 export interface ChatMcpProviderScope {
   /**
    * Account status grounds the model's honesty about connected tools. It must
@@ -10,10 +12,12 @@ export interface ChatMcpProviderScope {
 
 export function resolveChatMcpProviderScope(
   requestedProviders: string[] | undefined,
+  routingMode: ChatRoutingMode = "regex",
 ): ChatMcpProviderScope {
   return {
     accountStatusOptions: undefined,
-    mountOptions: Array.isArray(requestedProviders)
+    mountOptions:
+      routingMode !== "model-decided" && Array.isArray(requestedProviders)
       ? { onlyProviders: requestedProviders }
       : undefined,
   };

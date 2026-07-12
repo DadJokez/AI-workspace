@@ -7,6 +7,8 @@ export type ChatRuntimeLane =
   | "tool-local"
   | "durable-local";
 
+export type ChatRoutingMode = "regex" | "model-decided";
+
 export type ChatRuntimeTarget =
   | "direct-chat"
   | "bedrock-agent"
@@ -14,6 +16,8 @@ export type ChatRuntimeTarget =
 
 export interface ChatRuntimeRoute {
   lane: ChatRuntimeLane;
+  /** Missing only on legacy persisted runs created before #364. */
+  routingMode?: ChatRoutingMode;
   executionMode: ChatExecutionMode;
   runtimeTarget: ChatRuntimeTarget;
   runtimeV2: boolean;
@@ -52,6 +56,7 @@ export interface ChatRoutingCapabilityAvailability {
 
 export interface ChatRouteReceipt {
   lane: ChatRuntimeLane;
+  routingMode: ChatRoutingMode;
   runtimeTarget: ChatRuntimeTarget;
   useWorker: boolean;
   useMcp: boolean;
@@ -75,6 +80,7 @@ export interface ChatRouteReceipt {
 export function decideChatRuntimeRoute({
   message,
   runtimeV2 = false,
+  routingMode = chatRoutingModeFromEnv(),
   priorUserMessages = [],
   contextSignals = {},
   capabilitySignals = {},
@@ -83,6 +89,7 @@ export function decideChatRuntimeRoute({
   message: string;
   executionMode?: unknown;
   runtimeV2?: boolean;
+  routingMode?: ChatRoutingMode;
   /**
    * Earlier user turns in the same thread (most-recent first is fine; order
    * doesn't matter). Used for conversation-level tool stickiness — see the
@@ -105,6 +112,7 @@ export function decideChatRuntimeRoute({
     reasons.push(resolvedCapabilitySignals.recommendedEscalation.reason);
     return {
       lane: "durable-local",
+      routingMode,
       executionMode: "local",
       runtimeTarget: "agentcore-worker",
       runtimeV2,
@@ -120,6 +128,7 @@ export function decideChatRuntimeRoute({
     reasons.push(durableFollowUp);
     return {
       lane: "durable-local",
+      routingMode,
       executionMode: "local",
       runtimeTarget: "agentcore-worker",
       runtimeV2,
@@ -135,6 +144,7 @@ export function decideChatRuntimeRoute({
   if (durable) {
     return {
       lane: "durable-local",
+      routingMode,
       executionMode: "local",
       runtimeTarget: "agentcore-worker",
       runtimeV2,
@@ -145,11 +155,26 @@ export function decideChatRuntimeRoute({
     };
   }
 
+  if (routingMode === "model-decided") {
+    return {
+      lane: "tool-local",
+      routingMode,
+      executionMode: "local",
+      runtimeTarget: "bedrock-agent",
+      runtimeV2,
+      useWorker: false,
+      useMcp: true,
+      includeVaultContext: true,
+      reasons: ["model_decided_tool_catalog"],
+    };
+  }
+
   const tool = hasToolIntent(normalized);
   if (tool) reasons.push(tool);
   if (tool) {
     return {
       lane: "tool-local",
+      routingMode,
       executionMode: "local",
       runtimeTarget: "bedrock-agent",
       runtimeV2,
@@ -170,6 +195,7 @@ export function decideChatRuntimeRoute({
     reasons.push(capabilityTool);
     return {
       lane: "tool-local",
+      routingMode,
       executionMode: "local",
       runtimeTarget: "bedrock-agent",
       runtimeV2,
@@ -197,6 +223,7 @@ export function decideChatRuntimeRoute({
     reasons.push("sticky_tool_thread");
     return {
       lane: "tool-local",
+      routingMode,
       executionMode: "local",
       runtimeTarget: "bedrock-agent",
       runtimeV2,
@@ -209,6 +236,7 @@ export function decideChatRuntimeRoute({
 
   return {
     lane: "fast-local",
+    routingMode,
     executionMode: "local",
     runtimeTarget: "direct-chat",
     runtimeV2,
@@ -236,6 +264,7 @@ export function buildChatRouteReceipt({
   );
   return {
     lane: route.lane,
+    routingMode: route.routingMode ?? "regex",
     runtimeTarget: route.runtimeTarget,
     useWorker: route.useWorker,
     useMcp: route.useMcp,
@@ -342,6 +371,14 @@ export function runtimeV2EnabledFromEnv(
 ): boolean {
   if (!value) return false;
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+export function chatRoutingModeFromEnv(
+  value = process.env.ROUTING_MODE,
+): ChatRoutingMode {
+  return value?.trim().toLowerCase() === "model-decided"
+    ? "model-decided"
+    : "regex";
 }
 
 function normalize(value: string): string {
@@ -662,6 +699,9 @@ function hasPersonalContextIntent(value: string): string | null {
 export function explainChatRuntimeRoute(route: ChatRuntimeRoute): string {
   if (route.lane === "durable-local") {
     return "Queued durable local work because this request needs resilient, longer-running execution.";
+  }
+  if (route.routingMode === "model-decided") {
+    return "Mounted the authorized tool catalog and let Sonnet 4.6 decide whether this request needs a tool.";
   }
   if (route.lane === "tool-local") {
     if (route.reasons.includes("web_search_lookup")) {

@@ -166,6 +166,24 @@ describe("tool-use honesty grounding", () => {
     expect(preamble).toContain("created only after a later explicit confirmation turn");
   });
 
+  it("grounds semantic tool selection without keyword routing", () => {
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: ["google"],
+      builtinTools: ["web__fetch_url", "web__search"],
+    });
+
+    expect(preamble).toContain(
+      "call a mounted tool when the answer depends on current public information",
+    );
+    expect(preamble).toContain(
+      "Prefer the connected first-party provider for the user's work data",
+    );
+    expect(preamble).toContain(
+      "Do not call a tool for greetings, casual conversation, or self-contained writing",
+    );
+  });
+
   it("splits coming-soon and broken providers when both are unavailable (#323 review)", () => {
     const preamble = buildAgentPreamble({
       user: { displayName: "Rob", customInstructions: null },

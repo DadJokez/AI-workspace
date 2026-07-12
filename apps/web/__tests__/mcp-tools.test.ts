@@ -84,8 +84,10 @@ describe("connectMcpTools", () => {
     try {
       expect(connection.providers).toEqual({ github: 2 });
       const names = connection.tools.map((t) => t.name);
-      expect(names).toContain("github__echo");
-      expect(names).toContain("github__always_fails");
+      expect(names).toEqual([
+        "github__always_fails",
+        "github__echo",
+      ]);
 
       const echo = connection.tools.find((t) => t.name === "github__echo")!;
       expect(echo.inputSchema).toMatchObject({ type: "object" });
@@ -117,6 +119,27 @@ describe("connectMcpTools", () => {
       );
     } finally {
       await connection.close();
+    }
+  });
+
+  it("keeps provider and tool registration deterministic", async () => {
+    server = await startTestMcpServer();
+    const secondServer = await startTestMcpServer();
+    const connection = await connectMcpTools({
+      zeta: { url: server.url },
+      alpha: { url: secondServer.url },
+    });
+    try {
+      expect(Object.keys(connection.providers)).toEqual(["alpha", "zeta"]);
+      expect(connection.tools.map((tool) => tool.name)).toEqual([
+        "alpha__always_fails",
+        "alpha__echo",
+        "zeta__always_fails",
+        "zeta__echo",
+      ]);
+    } finally {
+      await connection.close();
+      await secondServer.close();
     }
   });
 

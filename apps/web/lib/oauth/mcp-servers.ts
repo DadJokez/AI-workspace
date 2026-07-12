@@ -353,6 +353,9 @@ export async function buildUserMcpServers(
     const allowlist = new Set(options.onlyProviders);
     rows = rows.filter((row) => allowlist.has(row.provider));
   }
+  rows = [...rows].sort((left, right) =>
+    left.provider.localeCompare(right.provider),
+  );
 
   const status = await loadUserMcpProviderStatus(db, userId, {
     onlyProviders: options?.onlyProviders,
@@ -649,7 +652,7 @@ function uniqueSupportedProviders(
         )
         .filter((provider) => !allowlist || allowlist.has(provider)),
     ),
-  );
+  ).sort((left, right) => left.localeCompare(right));
 }
 
 function isActiveOAuthToken(row: {

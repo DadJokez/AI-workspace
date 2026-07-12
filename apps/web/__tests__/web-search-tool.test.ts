@@ -236,4 +236,31 @@ describe("web search mounting", () => {
       "web__search",
     ]);
   });
+
+  it("mounts configured web tools without inspecting intent in model-decided mode", () => {
+    vi.stubEnv("WEB_SEARCH_PROVIDER", "brave");
+    vi.stubEnv("BRAVE_SEARCH_API_KEY", "test-key");
+    const modelDecidedRoute = {
+      routingMode: "model-decided",
+      reasons: ["model_decided_tool_catalog"],
+    } as ChatRuntimeRoute;
+
+    expect(builtinToolsForChatRoute(modelDecidedRoute)).toEqual([
+      "web__fetch_url",
+      "web__search",
+    ]);
+  });
+
+  it("keeps unconfigured search hidden in model-decided mode", () => {
+    vi.stubEnv("WEB_SEARCH_PROVIDER", "");
+    vi.stubEnv("BRAVE_SEARCH_API_KEY", "");
+    const modelDecidedRoute = {
+      routingMode: "model-decided",
+      reasons: ["model_decided_tool_catalog"],
+    } as ChatRuntimeRoute;
+
+    expect(builtinToolsForChatRoute(modelDecidedRoute)).toEqual([
+      "web__fetch_url",
+    ]);
+  });
 });

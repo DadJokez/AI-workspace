@@ -3,6 +3,7 @@ import { buildCapabilityGraph } from "@/lib/capability-graph";
 import {
   applyActivatedSkillRoute,
   buildChatRouteReceipt,
+  chatRoutingModeFromEnv,
   decideChatRuntimeRoute,
   runtimeV2EnabledFromEnv,
 } from "@/lib/chat-routing";
@@ -49,6 +50,55 @@ describe("decideChatRuntimeRoute", () => {
     expect(runtimeV2EnabledFromEnv("on")).toBe(true);
     expect(runtimeV2EnabledFromEnv("0")).toBe(false);
     expect(runtimeV2EnabledFromEnv(undefined)).toBe(false);
+  });
+
+  it("parses model-decided routing explicitly and safely defaults to regex", () => {
+    expect(chatRoutingModeFromEnv("model-decided")).toBe("model-decided");
+    expect(chatRoutingModeFromEnv(" MODEL-DECIDED ")).toBe("model-decided");
+    expect(chatRoutingModeFromEnv("regex")).toBe("regex");
+    expect(chatRoutingModeFromEnv("unknown")).toBe("regex");
+    expect(chatRoutingModeFromEnv(undefined)).toBe("regex");
+  });
+
+  it("mounts the stable tool catalog for ordinary model-decided turns", () => {
+    const currentInfo = decideChatRuntimeRoute({
+      message: "who won the england norway game?",
+      runtimeV2: true,
+      routingMode: "model-decided",
+    });
+    const chitChat = decideChatRuntimeRoute({
+      message: "how are you?",
+      runtimeV2: true,
+      routingMode: "model-decided",
+    });
+
+    for (const route of [currentInfo, chitChat]) {
+      expect(route).toMatchObject({
+        lane: "tool-local",
+        routingMode: "model-decided",
+        runtimeTarget: "bedrock-agent",
+        useWorker: false,
+        useMcp: true,
+        includeVaultContext: true,
+        reasons: ["model_decided_tool_catalog"],
+      });
+    }
+  });
+
+  it("keeps durable execution separate from model-decided tool selection", () => {
+    expect(
+      decideChatRuntimeRoute({
+        message: "implement the settings feature in the repo",
+        runtimeV2: true,
+        routingMode: "model-decided",
+      }),
+    ).toMatchObject({
+      lane: "durable-local",
+      routingMode: "model-decided",
+      runtimeTarget: "agentcore-worker",
+      useWorker: true,
+      useMcp: true,
+    });
   });
 
   it("ignores the removed cloud execution mode", () => {
@@ -831,6 +881,7 @@ describe("decideChatRuntimeRoute", () => {
 
     expect(receipt).toMatchObject({
       lane: "tool-local",
+      routingMode: "regex",
       useMcp: true,
       contextAvailability: {
         priorUserMessages: 2,

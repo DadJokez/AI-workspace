@@ -61,65 +61,97 @@ export async function connectMcpTools(
   servers: Record<string, McpHttpServerSpec>,
   opts: { clientName?: string } = {},
 ): Promise<McpToolConnection> {
-  const clients: Client[] = [];
+  const serverEntries = Object.entries(servers).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  const settled = await Promise.allSettled(
+    serverEntries.map(([provider, spec]) =>
+      connectMcpProvider(provider, spec, opts.clientName),
+    ),
+  );
+  const connected = settled.flatMap((result) =>
+    result.status === "fulfilled" ? [result.value] : [],
+  );
+  const failure = settled.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failure) {
+    await closeAll(connected.map((item) => item.client)).catch(() => {});
+    throw failure.reason;
+  }
+
+  const clients = connected.map((item) => item.client);
   const tools: Tool[] = [];
   const providers: Record<string, number> = {};
   const seenNames = new Set<string>();
 
-  try {
-    for (const [provider, spec] of Object.entries(servers)) {
-      const client = new Client({
-        name: opts.clientName ?? "ai-hub-bedrock-agent",
-        version: "1.0.0",
-      });
-      const transport = new StreamableHTTPClientTransport(
-        new URL(spec.url),
-        spec.headers ? { requestInit: { headers: spec.headers } } : undefined,
-      );
-      await client.connect(transport);
-      clients.push(client);
-
-      const listed = await client.listTools();
-      let count = 0;
-      const allowedTools = spec.allowedTools
-        ? new Set(spec.allowedTools)
-        : null;
-      const blockedTools = spec.blockedTools ? new Set(spec.blockedTools) : null;
-      for (const t of listed.tools) {
-        if (blockedTools?.has(t.name)) continue;
-        if (allowedTools && !allowedTools.has(t.name)) continue;
-        const name = mcpToolName(provider, t.name);
-        if (seenNames.has(name)) continue;
-        seenNames.add(name);
-        count += 1;
-        const remoteName = t.name;
-        tools.push({
-          name,
-          description: t.description ?? `${provider} tool ${remoteName}`,
-          inputSchema: (t.inputSchema ?? { type: "object" }) as JSONSchema7,
-          handler: async (input) => {
-            const result = await client.callTool({
-              name: remoteName,
-              arguments: (input ?? {}) as Record<string, unknown>,
-            });
-            const text = flattenMcpContent(result.content);
-            if (result.isError) {
-              throw new Error(text || `MCP tool ${remoteName} failed.`);
-            }
-            return result.structuredContent ?? text;
-          },
-        });
-      }
-      providers[provider] = count;
+  for (const item of connected) {
+    let count = 0;
+    for (const tool of item.tools) {
+      if (seenNames.has(tool.name)) continue;
+      seenNames.add(tool.name);
+      count += 1;
+      tools.push(tool);
     }
+    providers[item.provider] = count;
+  }
 
-    return {
-      tools,
-      providers,
-      close: () => closeAll(clients),
-    };
+  return {
+    tools,
+    providers,
+    close: () => closeAll(clients),
+  };
+}
+
+async function connectMcpProvider(
+  provider: string,
+  spec: McpHttpServerSpec,
+  clientName?: string,
+): Promise<{ provider: string; client: Client; tools: Tool[] }> {
+  const client = new Client({
+    name: clientName ?? "ai-hub-bedrock-agent",
+    version: "1.0.0",
+  });
+  try {
+    const transport = new StreamableHTTPClientTransport(
+      new URL(spec.url),
+      spec.headers ? { requestInit: { headers: spec.headers } } : undefined,
+    );
+    await client.connect(transport);
+
+    const listed = await client.listTools();
+    const allowedTools = spec.allowedTools
+      ? new Set(spec.allowedTools)
+      : null;
+    const blockedTools = spec.blockedTools ? new Set(spec.blockedTools) : null;
+    const tools = [...listed.tools]
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .flatMap((tool): Tool[] => {
+        if (blockedTools?.has(tool.name)) return [];
+        if (allowedTools && !allowedTools.has(tool.name)) return [];
+        const remoteName = tool.name;
+        return [
+          {
+            name: mcpToolName(provider, remoteName),
+            description: tool.description ?? `${provider} tool ${remoteName}`,
+            inputSchema: (tool.inputSchema ?? { type: "object" }) as JSONSchema7,
+            handler: async (input) => {
+              const result = await client.callTool({
+                name: remoteName,
+                arguments: (input ?? {}) as Record<string, unknown>,
+              });
+              const text = flattenMcpContent(result.content);
+              if (result.isError) {
+                throw new Error(text || `MCP tool ${remoteName} failed.`);
+              }
+              return result.structuredContent ?? text;
+            },
+          },
+        ];
+      });
+    return { provider, client, tools };
   } catch (err) {
-    await closeAll(clients).catch(() => {});
+    await client.close().catch(() => {});
     throw err;
   }
 }

@@ -17,6 +17,7 @@ import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
 import {
   applyActivatedSkillRoute,
   buildChatRouteReceipt,
+  chatRoutingModeFromEnv,
   decideChatRuntimeRoute,
   runtimeV2EnabledFromEnv,
 } from "@/lib/chat-routing";
@@ -184,6 +185,7 @@ export async function POST(req: Request) {
     modelCommand?.override.mode === "model" || body.modelOverride === true;
   const executionMode = parseChatExecutionMode(body.executionMode);
   const runtimeV2 = runtimeV2EnabledFromEnv();
+  const routingMode = chatRoutingModeFromEnv();
 
   const db = getDb();
   const rate = await checkRateLimit(db, `chat:${sessionUser.id}`, limits);
@@ -373,6 +375,7 @@ export async function POST(req: Request) {
     message: effectiveUserMessage,
     executionMode,
     runtimeV2,
+    routingMode,
     priorUserMessages,
     contextSignals,
     capabilityGraph: routingCapabilityGraph,
@@ -544,6 +547,7 @@ export async function POST(req: Request) {
         requestedByUserId: sessionUser.id,
         executionMode: runtimeRoute.executionMode,
         runtimeV2,
+        routingMode,
         modelOverride,
         ...(modelCommand ? { modelCommand } : {}),
         runtimeRoute,
@@ -589,6 +593,7 @@ export async function POST(req: Request) {
         userMessageId: userMsg[0]!.id,
         executionMode: runtimeRoute.executionMode,
         runtimeV2,
+        routingMode,
         modelOverride,
         runtimeRoute,
         routeReceipt,
@@ -652,6 +657,7 @@ export async function POST(req: Request) {
         modelOverride,
         executionMode: runtimeRoute.executionMode,
         runtimeV2,
+        routingMode,
         runtimeRoute,
         routeReceipt,
         ...(replaceMessageId ? { replaceMessageId } : {}),
