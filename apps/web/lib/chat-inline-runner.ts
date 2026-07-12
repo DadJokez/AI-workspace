@@ -61,6 +61,7 @@ import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
 import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
 import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
+import { normalizeRuntimeUsage } from "@/lib/runtime-usage";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import {
   createArtifactsFromAssistantMessage,
@@ -474,11 +475,12 @@ export async function streamInlineChatRun({
             });
           }
         } else if (ev.type === "usage") {
-          tokensIn = ev.tokensIn;
-          tokensOut = ev.tokensOut;
-          inputTokens = ev.inputTokens ?? ev.tokensIn;
-          cacheReadInputTokens = ev.cacheReadInputTokens ?? 0;
-          cacheWriteInputTokens = ev.cacheWriteInputTokens ?? 0;
+          const usage = normalizeRuntimeUsage(ev);
+          tokensIn = usage.tokensIn;
+          tokensOut = usage.tokensOut;
+          inputTokens = usage.inputTokens;
+          cacheReadInputTokens = usage.cacheReadInputTokens;
+          cacheWriteInputTokens = usage.cacheWriteInputTokens;
         } else if (ev.type === "tool-call") {
           toolEvents.recordCall(ev.call);
           const persistedCall = toolEvents

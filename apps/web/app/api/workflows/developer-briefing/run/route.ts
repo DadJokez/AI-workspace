@@ -17,6 +17,7 @@ import {
   contentLengthTooLarge,
   requestLimitConfig,
 } from "@/lib/request-limits";
+import { normalizeRuntimeUsage } from "@/lib/runtime-usage";
 import {
   appendRunEvent,
   appendToolCallRunEvent,
@@ -269,6 +270,9 @@ export async function POST(req: Request) {
     let briefingMarkdown = "";
     let tokensIn = 0;
     let tokensOut = 0;
+    let inputTokens = 0;
+    let cacheReadInputTokens = 0;
+    let cacheWriteInputTokens = 0;
     const errors: string[] = [];
     const toolEvents = createToolEventAccumulator(["github"]);
 
@@ -284,8 +288,12 @@ export async function POST(req: Request) {
       if (ev.type === "text-delta") {
         briefingMarkdown += ev.delta;
       } else if (ev.type === "usage") {
-        tokensIn = ev.tokensIn;
-        tokensOut = ev.tokensOut;
+        const usage = normalizeRuntimeUsage(ev);
+        tokensIn = usage.tokensIn;
+        tokensOut = usage.tokensOut;
+        inputTokens = usage.inputTokens;
+        cacheReadInputTokens = usage.cacheReadInputTokens;
+        cacheWriteInputTokens = usage.cacheWriteInputTokens;
       } else if (ev.type === "tool-call") {
         toolEvents.recordCall(ev.call);
         const persistedCall = toolEvents
@@ -327,6 +335,13 @@ export async function POST(req: Request) {
       toolResults: toolEvents.results(),
       tokensIn,
       tokensOut,
+      usage: {
+        tokensIn,
+        tokensOut,
+        inputTokens,
+        cacheReadInputTokens,
+        cacheWriteInputTokens,
+      },
       modelId,
       runtime: runtime.name,
     };
