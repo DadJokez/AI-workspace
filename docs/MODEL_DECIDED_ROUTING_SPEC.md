@@ -8,10 +8,10 @@ the PR gate)
 
 ## Problem
 
-Chat capability routing is regex-based (`hasToolIntent` ->
-`hasWebSearchIntent`, `CONNECTED_RESOURCE_RE` in
-`apps/web/lib/chat-routing.ts`). Two production failures in one week showed
-both failure modes:
+Chat capability routing is regex-based (`hasToolIntent`,
+`hasCapabilityBackedToolIntent`, `hasWebSearchIntent`, and provider-specific
+helpers in `apps/web/lib/chat-routing.ts`). Two production failures in one week
+showed both failure modes:
 
 1. **Recall:** "who won the england norway game?" matched no keyword, entered
    the tool-less lane, and denied a capability the product had.
@@ -35,9 +35,10 @@ whether to call a tool.
 - The model sees the tool names, descriptions, and schemas and decides whether
   a tool is needed. Chit-chat remains an ordinary direct response; there is no
   preliminary classifier call.
-- Provider precedence moves from intent regexes into precise tool descriptions.
-  For example, calendar questions should prefer the connected Google Calendar
-  tool over general web search.
+- Provider choice moves from the ordered checks spread across `hasToolIntent`,
+  `hasCapabilityBackedToolIntent`, and provider-specific helpers into precise
+  tool descriptions. For example, calendar questions should prefer the
+  connected Google Calendar tool over general web search.
 - Tool availability remains authorization-driven. A disconnected or
   unconfigured capability is not mounted and must not be claimed.
 - `durable-local` detection remains separate. It selects the execution
@@ -87,9 +88,11 @@ the catalog changes only when the user connects, disconnects, enables, or
 disables a capability.
 
 `packages/agent/src/clients.ts` places a Converse cache checkpoint after the
-stable tools and system prefix. Sonnet 4.6 requires 1,024 cumulative tokens for
-a cache checkpoint; the measured full prefix is approximately 11,085 tokens.
-Haiku 4.5 requires 4,096 tokens, which the same full prefix also clears.
+stable tools and system prefix. The
+[Amazon Bedrock prompt-caching table](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html)
+lists a 1,024-token minimum per checkpoint for Sonnet 4.6 and a 4,096-token
+minimum for Haiku 4.5. The measured full prefix is approximately 11,085 tokens,
+so it clears both minimums.
 
 Cache telemetry must preserve these values separately:
 
@@ -127,13 +130,17 @@ When `ROUTING_MODE=model-decided`:
 3. Mount the stable authorized tool catalog without inspecting message text.
 4. Let the model answer directly or call tools.
 
-The following no longer influence tool availability:
+The following no longer influence the standard model or mounted tool catalog:
 
 - `hasToolIntent`;
 - `hasWebSearchIntent`;
-- `CONNECTED_RESOURCE_RE`;
+- `hasCapabilityBackedToolIntent` and its provider-specific helpers;
 - prior-turn keyword stickiness; and
 - message-length-based Haiku selection.
+
+The message-length heuristic is a model-selection concern rather than a
+provider-precedence rule. Model-decided mode deliberately bypasses it for this
+rollout; longer-term economy-model selection remains in #303's scope.
 
 The old path remains intact only while `ROUTING_MODE=regex` is selected during
 the guarded rollout.
