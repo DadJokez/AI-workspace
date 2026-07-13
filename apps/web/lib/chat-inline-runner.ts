@@ -27,6 +27,7 @@ import {
 import {
   buildUserMcpServers,
   loadUserMcpProviderStatus,
+  type McpWriteAuthorizationReceipt,
 } from "@/lib/oauth/mcp-servers";
 import {
   buildArtifactContextPayload,
@@ -262,6 +263,7 @@ export async function streamInlineChatRun({
     let mcpServers;
     let requiredToolName: string | undefined;
     let deniedMcpProviders: string[] = [];
+    let writeAuthorizationReceipts: McpWriteAuthorizationReceipt[] = [];
     if (route.useMcp) {
       try {
         const mcpAccess = await buildUserMcpServers(
@@ -281,6 +283,7 @@ export async function streamInlineChatRun({
         mcpServers = mcpAccess.mcpServers;
         requiredToolName = mcpAccess.requiredToolName;
         deniedMcpProviders = mcpAccess.deniedProviders;
+        writeAuthorizationReceipts = mcpAccess.writeAuthorizationReceipts;
       } catch (err) {
         process.stderr.write(
           `[mcp-build-error] ${JSON.stringify({
@@ -344,6 +347,7 @@ export async function streamInlineChatRun({
           ...(requestedProviders ? { requestedProviders } : {}),
           mcpProviders: mountedProviders,
           ...(requiredToolName ? { requiredToolName } : {}),
+          writeAuthorizationReceipts,
           accountConnectedMcpProviders: providerStatus.connectedProviders,
           approvedMcpProviders: providerStatus.allowedProviders,
           deniedMcpProviders: blockedProviders,
@@ -360,7 +364,7 @@ export async function streamInlineChatRun({
       eventType: "context_pack_assembled",
       status: "succeeded",
       label: "Assembled context pack",
-      metadata: { contextReceipt },
+      metadata: { contextReceipt, writeAuthorizationReceipts },
     });
 
     await appendInlineRunEvent(db, runId, {
@@ -382,6 +386,7 @@ export async function streamInlineChatRun({
         reasons: route.reasons,
         mcpProviders: mountedProviders,
         ...(requiredToolName ? { requiredToolName } : {}),
+        writeAuthorizationReceipts,
         accountConnectedMcpProviders: providerStatus.connectedProviders,
         approvedMcpProviders: providerStatus.allowedProviders,
         deniedMcpProviders: blockedProviders,

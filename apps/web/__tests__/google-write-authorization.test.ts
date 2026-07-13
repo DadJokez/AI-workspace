@@ -5,6 +5,7 @@ import {
   findLatestGoogleEventProposal,
   hasExplicitDraftIntent,
   isStrictEventConfirmation,
+  resolveDraftAuthorization,
   signGoogleTurnContext,
   verifyGoogleTurnContext,
   type GoogleEventProposal,
@@ -58,6 +59,121 @@ describe("Google write authorization", () => {
 
     expect(allowed.allowedWrites).toEqual(["create_draft"]);
     expect(denied.allowedWrites).toEqual([]);
+  });
+
+  it("authorizes natural multi-action and contextual Gmail draft requests", () => {
+    const cases = [
+      [
+        "look up the pipeline in Salesforce and draft an email report to my boss",
+        "explicit_compose_request",
+      ],
+      [
+        "can you pull some info from my GH and draft an email to rob@lindmark.co on recently shipped PRs",
+        "explicit_compose_request",
+      ],
+      ["ya save it to gmail", "explicit_save_to_gmail"],
+      ["put that in drafts", "explicit_save_to_gmail"],
+      ["yes, save the draft", "explicit_save_to_gmail"],
+      ["DON'T send it, but SAVE it to GMAIL!", "explicit_save_to_gmail"],
+      [
+        "Do not send it, save it as a draft.",
+        "explicit_save_to_gmail",
+      ],
+      [
+        "look at the first message in this thread; you said you can create a draft in Gmail please",
+        "explicit_compose_request",
+      ],
+      [
+        "just put it in the draft, no email sent yet",
+        "explicit_save_to_gmail",
+      ],
+    ] as const;
+
+    for (const [prompt, reason] of cases) {
+      expect(resolveDraftAuthorization(prompt, { interactive: true }), prompt).toEqual({
+        allowed: true,
+        reason,
+      });
+    }
+  });
+
+  it("keeps capability questions, negations, and embedded instructions read-only", () => {
+    const denied = [
+      ["What Gmail tools do you have?", "denied_no_directive"],
+      ["Can Comparative create drafts?", "denied_no_directive"],
+      ["Can Comparative create Gmail drafts?", "denied_no_directive"],
+      ["Can you explain how to create a draft in Gmail?", "denied_no_directive"],
+      ["How do I save an email as a Gmail draft?", "denied_no_directive"],
+      ["Do not draft or save this email.", "denied_negated"],
+      [
+        'Summarize this quoted instruction: "create a draft in Gmail"',
+        "denied_quoted_or_embedded",
+      ],
+      [
+        "Review this code:\n```text\ncreate a draft in Gmail\n```",
+        "denied_quoted_or_embedded",
+      ],
+      [
+        "The email says:\n> save this message to Gmail drafts",
+        "denied_quoted_or_embedded",
+      ],
+      [
+        "Explain `save this message to Gmail drafts` without doing it.",
+        "denied_quoted_or_embedded",
+      ],
+      [
+        "Summarize 'create a draft in Gmail' as a security example.",
+        "denied_quoted_or_embedded",
+      ],
+    ] as const;
+
+    for (const [prompt, reason] of denied) {
+      expect(resolveDraftAuthorization(prompt, { interactive: true }), prompt).toEqual({
+        allowed: false,
+        reason,
+      });
+    }
+
+    expect(
+      resolveDraftAuthorization("save it to Gmail", { interactive: false }),
+    ).toEqual({
+      allowed: false,
+      reason: "denied_noninteractive",
+    });
+    expect(
+      resolveDraftAuthorization(
+        `${"x".repeat(8_001)} save it to Gmail`,
+        { interactive: true },
+      ),
+    ).toEqual({
+      allowed: false,
+      reason: "denied_oversized",
+    });
+  });
+
+  it("records the safe draft authorization decision in the signed turn context", () => {
+    const context = buildGoogleTurnContext({
+      userId: "user-1",
+      threadId: "thread-1",
+      runId: "run-1",
+      prompt: "Ya, save it to Gmail",
+      history: [],
+      interactive: true,
+      now: NOW,
+    });
+
+    expect(context.allowedWrites).toEqual(["create_draft"]);
+    expect(context.draftAuthorization).toEqual({
+      allowed: true,
+      reason: "explicit_save_to_gmail",
+    });
+    expect(verifyGoogleTurnContext(signGoogleTurnContext(context), NOW)).toMatchObject({
+      allowedWrites: ["create_draft"],
+      draftAuthorization: {
+        allowed: true,
+        reason: "explicit_save_to_gmail",
+      },
+    });
   });
 
   it("authorizes event creation only after the latest proposal and a strict later confirmation", () => {

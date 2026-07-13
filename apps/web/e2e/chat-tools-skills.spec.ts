@@ -76,7 +76,7 @@ test.describe("chat tools and skills", () => {
     await expect(page.getByText("Searched GitHub")).toBeVisible();
   });
 
-  test("keeps Gmail drafts and confirmed calendar writes in the current chat", async ({
+  test("keeps natural Gmail draft follow-ups and confirmed calendar writes in the current chat", async ({
     page,
   }) => {
     const chatBodies: Record<string, unknown>[] = [];
@@ -89,32 +89,9 @@ test.describe("chat tools and skills", () => {
           turn === 1
             ? [
                 {
-                  type: "tool-call",
-                  call: {
-                    id: "google-draft",
-                    name: "google__create_draft",
-                    input: {
-                      to: ["nina@example.com"],
-                      subject: "Q2 recap",
-                      body: "The recap looks good.",
-                    },
-                  },
-                },
-                {
-                  type: "tool-result",
-                  result: {
-                    toolCallId: "google-draft",
-                    output: {
-                      kind: "google_gmail_draft_created",
-                      draftId: "draft-297",
-                      sent: false,
-                    },
-                    isError: false,
-                  },
-                },
-                {
                   type: "text-delta",
-                  delta: "I saved the Gmail draft. It has not been sent.",
+                  delta:
+                    "I prepared the recent PR email for Nina. It is ready to save.",
                 },
               ]
             : turn === 2
@@ -122,62 +99,93 @@ test.describe("chat tools and skills", () => {
                   {
                     type: "tool-call",
                     call: {
-                      id: "google-proposal",
-                      name: "google__prepare_event",
+                      id: "google-draft",
+                      name: "google__create_draft",
                       input: {
-                        title: "Q2 recap review",
-                        start: "2026-07-10T15:00:00-04:00",
-                        end: "2026-07-10T15:30:00-04:00",
-                        timeZone: "America/New_York",
-                        attendees: ["nina@example.com"],
-                        sendInvitations: true,
+                        to: ["nina@example.com"],
+                        subject: "Q2 recap",
+                        body: "The recap looks good.",
                       },
                     },
                   },
                   {
                     type: "tool-result",
                     result: {
-                      toolCallId: "google-proposal",
+                      toolCallId: "google-draft",
                       output: {
-                        kind: "google_calendar_event_proposal",
-                        proposalId: "proposal-297",
-                        requiresConfirmation: true,
+                        kind: "google_gmail_draft_created",
+                        draftId: "draft-297",
+                        sent: false,
                       },
                       isError: false,
                     },
                   },
                   {
                     type: "text-delta",
-                    delta:
-                      "Q2 recap review, July 10 from 3:00–3:30 PM ET with Nina. Google will send an invitation. Create it?",
+                    delta: "I saved the Gmail draft. It has not been sent.",
                   },
                 ]
-              : [
-                  {
-                    type: "tool-call",
-                    call: {
-                      id: "google-create-event",
-                      name: "google__create_event",
-                      input: {},
-                    },
-                  },
-                  {
-                    type: "tool-result",
-                    result: {
-                      toolCallId: "google-create-event",
-                      output: {
-                        kind: "google_calendar_event_created",
-                        invitationsSent: true,
-                        idempotentReplay: false,
+              : turn === 3
+                ? [
+                    {
+                      type: "tool-call",
+                      call: {
+                        id: "google-proposal",
+                        name: "google__prepare_event",
+                        input: {
+                          title: "Q2 recap review",
+                          start: "2026-07-10T15:00:00-04:00",
+                          end: "2026-07-10T15:30:00-04:00",
+                          timeZone: "America/New_York",
+                          attendees: ["nina@example.com"],
+                          sendInvitations: true,
+                        },
                       },
-                      isError: false,
                     },
-                  },
-                  {
-                    type: "text-delta",
-                    delta: "Created the event and sent Nina's invitation.",
-                  },
-                ];
+                    {
+                      type: "tool-result",
+                      result: {
+                        toolCallId: "google-proposal",
+                        output: {
+                          kind: "google_calendar_event_proposal",
+                          proposalId: "proposal-297",
+                          requiresConfirmation: true,
+                        },
+                        isError: false,
+                      },
+                    },
+                    {
+                      type: "text-delta",
+                      delta:
+                        "Q2 recap review, July 10 from 3:00–3:30 PM ET with Nina. Google will send an invitation. Create it?",
+                    },
+                  ]
+                : [
+                    {
+                      type: "tool-call",
+                      call: {
+                        id: "google-create-event",
+                        name: "google__create_event",
+                        input: {},
+                      },
+                    },
+                    {
+                      type: "tool-result",
+                      result: {
+                        toolCallId: "google-create-event",
+                        output: {
+                          kind: "google_calendar_event_created",
+                          invitationsSent: true,
+                          idempotentReplay: false,
+                        },
+                        isError: false,
+                      },
+                    },
+                    {
+                      type: "text-delta",
+                      delta: "Created the event and sent Nina's invitation.",
+                    },
+                  ];
         await fulfillSse(route, [
           {
             type: "meta",
@@ -199,9 +207,19 @@ test.describe("chat tools and skills", () => {
     await page.goto("/e2e/chat");
     const composer = page.getByPlaceholder(/ask anything/i);
 
-    await composer.fill("Draft an email to Nina saying the Q2 recap looks good.");
+    await composer.fill(
+      "Can you pull recent PRs from my GitHub and draft an email to nina@example.com?",
+    );
     await page.getByRole("button", { name: "Send" }).click();
-    await expect(page.getByText("I saved the Gmail draft. It has not been sent.")).toBeVisible();
+    await expect(
+      page.getByText("I prepared the recent PR email for Nina. It is ready to save."),
+    ).toBeVisible();
+
+    await composer.fill("Ya, save it to Gmail.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(
+      page.getByText("I saved the Gmail draft. It has not been sent."),
+    ).toBeVisible();
 
     await composer.fill("Create a 30-minute Q2 recap review with Nina tomorrow at 3pm.");
     await page.getByRole("button", { name: "Send" }).click();
@@ -212,7 +230,8 @@ test.describe("chat tools and skills", () => {
     await expect(page.getByText("Created the event and sent Nina's invitation.")).toBeVisible();
 
     expect(chatBodies.map((body) => body.message)).toEqual([
-      "Draft an email to Nina saying the Q2 recap looks good.",
+      "Can you pull recent PRs from my GitHub and draft an email to nina@example.com?",
+      "Ya, save it to Gmail.",
       "Create a 30-minute Q2 recap review with Nina tomorrow at 3pm.",
       "Yep.",
     ]);
