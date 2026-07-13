@@ -8,8 +8,26 @@ const GOOGLE_MCP_RELAY_HMAC_MESSAGE = "comparative:google-mcp-relay:v1";
 const TURN_CONTEXT_TTL_MS = 5 * 60 * 1000;
 const EVENT_PROPOSAL_TTL_MS = 30 * 60 * 1000;
 const MAX_MAIL_CURSOR_MESSAGE_IDS = 100;
+const MAX_DRAFT_AUTHORIZATION_CHARS = 8_000;
+
+const DRAFT_AUTHORIZATION_REASONS = [
+  "explicit_compose_request",
+  "explicit_save_to_gmail",
+  "denied_noninteractive",
+  "denied_negated",
+  "denied_quoted_or_embedded",
+  "denied_no_directive",
+  "denied_oversized",
+] as const;
 
 export type GoogleWriteTool = "create_draft" | "create_event";
+export type DraftAuthorizationReason =
+  (typeof DRAFT_AUTHORIZATION_REASONS)[number];
+
+export interface DraftAuthorizationDecision {
+  allowed: boolean;
+  reason: DraftAuthorizationReason;
+}
 
 export interface GoogleMailSearchState {
   lastSearchedAt: string;
@@ -47,6 +65,7 @@ export interface GoogleTurnContext {
   issuedAt: string;
   expiresAt: string;
   allowedWrites: GoogleWriteTool[];
+  draftAuthorization?: DraftAuthorizationDecision;
   mailSearchState?: GoogleMailSearchState;
   confirmedEventProposal?: GoogleEventProposal;
 }
@@ -115,8 +134,9 @@ export function buildGoogleTurnContext({
     interactive && pendingProposal && isStrictEventConfirmation(prompt)
       ? pendingProposal
       : undefined;
+  const draftAuthorization = resolveDraftAuthorization(prompt, { interactive });
   const allowedWrites: GoogleWriteTool[] = [];
-  if (interactive && hasExplicitDraftIntent(prompt)) {
+  if (draftAuthorization.allowed) {
     allowedWrites.push("create_draft");
   }
   if (confirmedEventProposal) allowedWrites.push("create_event");
@@ -129,6 +149,7 @@ export function buildGoogleTurnContext({
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + TURN_CONTEXT_TTL_MS).toISOString(),
     allowedWrites,
+    draftAuthorization,
     ...(mailSearchState ? { mailSearchState } : {}),
     ...(confirmedEventProposal ? { confirmedEventProposal } : {}),
   };
@@ -310,24 +331,53 @@ export function parseGoogleEventProposal(
   return value as unknown as GoogleEventProposal;
 }
 
-export function hasExplicitDraftIntent(prompt: string): boolean {
-  const value = prompt.toLowerCase().replace(/\s+/g, " ").trim();
-  if (!value || value.length > 1_000) return false;
-  if (/^(?:do not|don't|dont|never|without)\b/.test(value)) return false;
+export function resolveDraftAuthorization(
+  prompt: string,
+  { interactive }: { interactive: boolean },
+): DraftAuthorizationDecision {
+  if (!interactive) {
+    return { allowed: false, reason: "denied_noninteractive" };
+  }
+  if (!prompt.trim()) {
+    return { allowed: false, reason: "denied_no_directive" };
+  }
+  if (prompt.length > MAX_DRAFT_AUTHORIZATION_CHARS) {
+    return { allowed: false, reason: "denied_oversized" };
+  }
 
-  const directRequest =
-    /^(?:please\s+)?(?:draft|compose|write|create|make|save)\b.{0,120}\b(?:email|e-mail|message|draft)\b/.test(
-      value,
-    ) || /^(?:please\s+)?draft\b.{0,80}\b(?:to|for)\b/.test(value);
-  const politeRequest =
-    /^(?:can|could|would|will)\s+you\s+(?:please\s+)?(?:draft|compose|write|create|make|save)\b.{0,120}\b(?:email|e-mail|message|draft)\b/.test(
-      value,
-    );
-  const statedNeed =
-    /^i\s+(?:want|need|would like)\s+(?:you\s+to\s+)?(?:draft|compose|write|create|make|save|an?\s+(?:email\s+)?draft)\b/.test(
-      value,
-    );
-  return directRequest || politeRequest || statedNeed;
+  const original = normalizeDraftAuthorizationText(prompt);
+  const trusted = normalizeDraftAuthorizationText(
+    stripEmbeddedAuthorizationContent(prompt),
+  );
+  if (isGenericDraftCapabilityQuestion(trusted)) {
+    return { allowed: false, reason: "denied_no_directive" };
+  }
+
+  const matches = findDraftDirectiveMatches(trusted);
+  const directMatches = matches.filter((match) =>
+    isDirectDraftDirective(trusted, match.index),
+  );
+  const allowed = directMatches.find(
+    (match) => !isDraftDirectiveNegated(trusted, match.index),
+  );
+  if (allowed) {
+    return {
+      allowed: true,
+      reason:
+        allowed.action === "save" ||
+        allowed.action === "put" ||
+        allowed.action === "add"
+          ? "explicit_save_to_gmail"
+          : "explicit_compose_request",
+    };
+  }
+  if (directMatches.length > 0) {
+    return { allowed: false, reason: "denied_negated" };
+  }
+  if (matches.length > 0 || findDraftDirectiveMatches(original).length > 0) {
+    return { allowed: false, reason: "denied_quoted_or_embedded" };
+  }
+  return { allowed: false, reason: "denied_no_directive" };
 }
 
 export function isStrictEventConfirmation(prompt: string): boolean {
@@ -359,9 +409,173 @@ function isGoogleTurnContext(value: unknown): value is GoogleTurnContext {
   ) {
     return false;
   }
+  if (
+    value.draftAuthorization !== undefined &&
+    (!isDraftAuthorizationDecision(value.draftAuthorization) ||
+      value.draftAuthorization.allowed !==
+        value.allowedWrites.includes("create_draft"))
+  ) {
+    return false;
+  }
   return (
     value.confirmedEventProposal === undefined ||
     parseGoogleEventProposal(value.confirmedEventProposal) !== null
+  );
+}
+
+interface DraftDirectiveMatch {
+  index: number;
+  action: string;
+}
+
+function findDraftDirectiveMatches(value: string): DraftDirectiveMatch[] {
+  const matches: DraftDirectiveMatch[] = [];
+  const actionTarget =
+    /\b(draft|compose|write|create|make|save|put|add)\b[^.!?;\n]{0,180}?\b(email|e-mail|gmail|drafts?)\b/g;
+  for (const match of value.matchAll(actionTarget)) {
+    matches.push({ index: match.index, action: match[1] ?? "" });
+  }
+
+  const draftRecipient = /\bdraft\b[^.!?;\n]{0,80}?\b(?:to|for)\b/g;
+  for (const match of value.matchAll(draftRecipient)) {
+    if (!matches.some((candidate) => candidate.index === match.index)) {
+      matches.push({ index: match.index, action: "draft" });
+    }
+  }
+  return matches.sort((left, right) => left.index - right.index);
+}
+
+function isDraftDirectiveNegated(value: string, actionIndex: number): boolean {
+  const prefix = value.slice(0, actionIndex);
+  const clauseBoundary = Math.max(
+    prefix.lastIndexOf("."),
+    prefix.lastIndexOf("!"),
+    prefix.lastIndexOf("?"),
+    prefix.lastIndexOf(";"),
+    prefix.lastIndexOf("\n"),
+  );
+  let clausePrefix = prefix.slice(clauseBoundary + 1);
+  const contrast = Array.from(
+    clausePrefix.matchAll(/\b(?:but|instead|however)\b/g),
+  ).at(-1);
+  if (contrast?.index !== undefined) {
+    clausePrefix = clausePrefix.slice(contrast.index + contrast[0].length);
+  }
+  if (
+    /\b(?:do not|don't|dont|never|without|avoid|stop)\b[^.!?;\n]{0,80}\b(?:send|deliver)\b[^.!?;\n]{0,40}(?:,|\band\b)\s*$/.test(
+      clausePrefix,
+    )
+  ) {
+    return false;
+  }
+  return /\b(?:do not|don't|dont|never|no need to|without|avoid|stop)\b[^.!?;\n]{0,120}$/.test(
+    clausePrefix,
+  );
+}
+
+function isDirectDraftDirective(value: string, actionIndex: number): boolean {
+  const prefix = value.slice(0, actionIndex);
+  if (!prefix.trim()) return true;
+
+  const boundary = Math.max(
+    prefix.lastIndexOf("."),
+    prefix.lastIndexOf("!"),
+    prefix.lastIndexOf("?"),
+    prefix.lastIndexOf(";"),
+    prefix.lastIndexOf("\n"),
+    prefix.lastIndexOf(":"),
+  );
+  const localPrefix = prefix.slice(boundary + 1).trim();
+  const hasLocalRequestFrame =
+    /^(?:(?:please|just|now|then|also|instead|yes|yeah|ya|yep|sure|ok|okay|go ahead|do not|don't|dont|never|no need to|avoid|stop),?|(?:can|could|would|will)\s+you(?:\s+please)?|i\s+(?:want|need|would like)(?:\s+you\s+to)?|you\s+said\s+you\s+can)$/.test(
+      localPrefix,
+    );
+  if (hasLocalRequestFrame && (boundary < 0 || prefix[boundary] === ";")) {
+    return true;
+  }
+  if (
+    (boundary < 0 || prefix[boundary] === ";") &&
+    /^(?:do not|don't|dont|never)\s+(?:send|deliver)\b[^.!?;\n]{0,80}(?:,|\band\b|\bbut\b)\s*$/.test(
+      localPrefix,
+    )
+  ) {
+    return true;
+  }
+
+  if (/[.!?;:\n]/.test(prefix)) return false;
+  if (/^(?:can|could|would|will)\s+you\b/.test(prefix)) return true;
+  if (
+    /^(?:please\s+)?(?:look\s+up|pull|check|find|search|read|get|review|summarize|analyze|prepare|use|open|inspect|compare|compile|collect)\b/.test(
+      prefix,
+    ) && /\b(?:and|then|also)\s+(?:please\s+)?$/.test(prefix)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isGenericDraftCapabilityQuestion(value: string): boolean {
+  return (
+    /^(?:can|could|does|do|will|would)\s+(?:comparative|it|this|the app|the tool)\s+[^.!?;\n]{0,80}\b(?:email|e-mail|gmail|drafts?)\b\s*[?.!]*$/.test(
+      value,
+    ) ||
+    /^(?:can|could|does|do|will|would)\s+(?:you|comparative|it|this|the app|the tool)\s+(?:create|make|save|write|draft|compose)\s+(?:emails|drafts)\s*[?.!]*$/.test(
+      value,
+    ) ||
+    /^(?:can|could|will|would)\s+you\s+(?:create|make|save|write|draft|compose)\s+gmail\s+(?:emails|drafts)\s*[?.!]*$/.test(
+      value,
+    ) ||
+    /^(?:do|does)\s+you\s+[^.!?;\n]{0,80}\b(?:email|e-mail|gmail|drafts?)\b\s*[?.!]*$/.test(
+      value,
+    ) ||
+    /\b(?:explain|show me|tell me)\s+how\s+to\b[^.!?;\n]{0,120}\b(?:draft|compose|write|create|make|save)\b/.test(
+      value,
+    ) ||
+    /^how\s+(?:do|can|would)\b[^.!?;\n]{0,120}\b(?:draft|compose|write|create|make|save)\b/.test(
+      value,
+    )
+  );
+}
+
+function stripEmbeddedAuthorizationContent(value: string): string {
+  return value
+    .replace(/```[\s\S]*?(?:```|$)/g, " ")
+    .replace(/~~~[\s\S]*?(?:~~~|$)/g, " ")
+    .replace(/^\s*>.*$/gm, " ")
+    .replace(/`[^`\n]*(?:`|$)/g, " ")
+    .replace(/"(?:\\.|[^"\\])*"/g, " ")
+    .replace(/“[^”]*”/g, " ")
+    .replace(/(^|[\s([{:\-])'[^'\n]+'(?=$|[\s)\]},.!?;:])/g, "$1 ")
+    .replace(
+      /(?:^|\n)\s*(?:(?:here(?:'s| is)\s+[^:\n]{0,120})|(?:fyi|reply|forwarded)(?:\s+(?:from|by)\s+[^:\n]{0,80})?)\s*:\s*[\s\S]*$/gim,
+      " ",
+    )
+    .replace(
+      /(?:^|\n)\s*(?:please\s+)?(?:summarize|review|analyze|explain|translate|classify)\b[^\n]{0,160}\b(?:pasted|following|below|attached|email|message|document|file|text|note|content|paragraph)\b[^\n]{0,80}(?::\s*|\n)[\s\S]*$/gim,
+      " ",
+    )
+    .replace(
+      /\b(?:the\s+)?(?:[\w-]+\s+){0,2}(?:email|message|document|file|note|text|content|paragraph|attachment|instructions?)\s+(?:says?|reads?|contains?|includes?|asks?|instructs?|wrote|writes|sent|posted|replied|shared)\b[\s\S]*$/gim,
+      " ",
+    );
+}
+
+function normalizeDraftAuthorizationText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isDraftAuthorizationDecision(
+  value: unknown,
+): value is DraftAuthorizationDecision {
+  return (
+    isRecord(value) &&
+    typeof value.allowed === "boolean" &&
+    typeof value.reason === "string" &&
+    (DRAFT_AUTHORIZATION_REASONS as readonly string[]).includes(value.reason)
   );
 }
 
