@@ -430,7 +430,7 @@ interface DraftDirectiveMatch {
 function findDraftDirectiveMatches(value: string): DraftDirectiveMatch[] {
   const matches: DraftDirectiveMatch[] = [];
   const actionTarget =
-    /\b(draft|compose|write|create|make|save|put|add)\b[^.!?;\n]{0,180}?\b(email|e-mail|message|gmail|drafts?)\b/g;
+    /\b(draft|compose|write|create|make|save|put|add)\b[^.!?;\n]{0,180}?\b(email|e-mail|gmail|drafts?)\b/g;
   for (const match of value.matchAll(actionTarget)) {
     matches.push({ index: match.index, action: match[1] ?? "" });
   }
@@ -497,7 +497,15 @@ function stripEmbeddedAuthorizationContent(value: string): string {
     .replace(/`[^`\n]*(?:`|$)/g, " ")
     .replace(/"(?:\\.|[^"\\])*"/g, " ")
     .replace(/“[^”]*”/g, " ")
-    .replace(/(^|[\s([{:\-])'[^'\n]+'(?=$|[\s)\]},.!?;:])/g, "$1 ");
+    .replace(/(^|[\s([{:\-])'[^'\n]+'(?=$|[\s)\]},.!?;:])/g, "$1 ")
+    .replace(
+      /(?:^|\n)\s*(?:please\s+)?(?:summarize|review|analyze|explain|translate|classify)\b[^\n]{0,160}\b(?:pasted|following|below|attached|email|message|document|file|text|note|content|paragraph)\b[^\n]{0,80}(?::\s*|\n)[\s\S]*$/gim,
+      " ",
+    )
+    .replace(
+      /\b(?:the\s+)?(?:[\w-]+\s+){0,2}(?:email|message|document|file|note|text|content|paragraph|attachment|instructions?)\s+(?:says?|reads?|contains?|includes?|asks?|instructs?)\b[^.!?;\n]*(?:[.!?;]|$)/gim,
+      " ",
+    );
 }
 
 function normalizeDraftAuthorizationText(value: string): string {
