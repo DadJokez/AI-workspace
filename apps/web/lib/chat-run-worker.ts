@@ -25,6 +25,7 @@ import {
 import {
   buildUserMcpServers,
   loadUserMcpProviderStatus,
+  type McpWriteAuthorizationReceipt,
 } from "@/lib/oauth/mcp-servers";
 import {
   buildArtifactContextPayload,
@@ -402,6 +403,7 @@ async function executeClaimedChatRun({
   let mcpServers;
   let requiredToolName: string | undefined;
   let deniedMcpProviders: string[] = [];
+  let writeAuthorizationReceipts: McpWriteAuthorizationReceipt[] = [];
   try {
     const mcpAccess = await buildUserMcpServers(
       db,
@@ -420,6 +422,7 @@ async function executeClaimedChatRun({
     mcpServers = mcpAccess.mcpServers;
     requiredToolName = mcpAccess.requiredToolName;
     deniedMcpProviders = mcpAccess.deniedProviders;
+    writeAuthorizationReceipts = mcpAccess.writeAuthorizationReceipts;
   } catch (err) {
     process.stderr.write(
       `[mcp-build-error] ${JSON.stringify({
@@ -488,6 +491,7 @@ async function executeClaimedChatRun({
         ...inputs,
         mcpProviders: mountedProviders,
         ...(requiredToolName ? { requiredToolName } : {}),
+        writeAuthorizationReceipts,
         accountConnectedMcpProviders: providerStatus.connectedProviders,
         approvedMcpProviders: providerStatus.allowedProviders,
         deniedMcpProviders: blockedProviders,
@@ -503,7 +507,7 @@ async function executeClaimedChatRun({
     eventType: "context_pack_assembled",
     status: "succeeded",
     label: "Assembled context pack",
-    metadata: { contextReceipt },
+    metadata: { contextReceipt, writeAuthorizationReceipts },
   });
 
   const runtimeAbort = new AbortController();

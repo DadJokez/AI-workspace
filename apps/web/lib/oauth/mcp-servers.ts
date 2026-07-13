@@ -18,6 +18,7 @@ import {
   buildGoogleTurnContext,
   googleMcpRelayToken,
   signGoogleTurnContext,
+  type DraftAuthorizationReason,
   type GoogleHistoryMessage,
   type GoogleTurnContext,
 } from "@/lib/google/write-authorization";
@@ -158,6 +159,13 @@ export interface McpTurnContext {
   prompt: string;
   history: readonly GoogleHistoryMessage[];
   interactive: boolean;
+}
+
+export interface McpWriteAuthorizationReceipt {
+  provider: "google";
+  tool: "create_draft";
+  allowed: boolean;
+  reason: DraftAuthorizationReason;
 }
 
 export async function loadUserMcpProviderStatus(
@@ -311,6 +319,7 @@ export async function buildUserMcpServers(
   mcpServers: Record<string, McpServerSpec> | undefined;
   deniedProviders: string[];
   requiredToolName?: string;
+  writeAuthorizationReceipts: McpWriteAuthorizationReceipt[];
 }> {
   const googleTurnContext = buildGoogleTurnContext({
     userId,
@@ -323,6 +332,17 @@ export async function buildUserMcpServers(
   const requiredToolName = googleTurnContext.confirmedEventProposal
     ? mcpToolName("google", "create_event")
     : undefined;
+  const draftAuthorization = googleTurnContext.draftAuthorization ?? {
+    allowed: false,
+    reason: "denied_no_directive" as const,
+  };
+  const writeAuthorizationReceipts: McpWriteAuthorizationReceipt[] = [
+    {
+      provider: "google",
+      tool: "create_draft",
+      ...draftAuthorization,
+    },
+  ];
   let rows;
   try {
     rows = await db
@@ -338,6 +358,7 @@ export async function buildUserMcpServers(
     return {
       mcpServers: undefined,
       deniedProviders: [],
+      writeAuthorizationReceipts,
       ...(requiredToolName ? { requiredToolName } : {}),
     };
   }
@@ -459,6 +480,7 @@ export async function buildUserMcpServers(
   return {
     mcpServers: Object.keys(out).length > 0 ? out : undefined,
     deniedProviders,
+    writeAuthorizationReceipts,
     ...(requiredToolName ? { requiredToolName } : {}),
   };
 }
