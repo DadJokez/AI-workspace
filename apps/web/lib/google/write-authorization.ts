@@ -331,10 +331,6 @@ export function parseGoogleEventProposal(
   return value as unknown as GoogleEventProposal;
 }
 
-export function hasExplicitDraftIntent(prompt: string): boolean {
-  return resolveDraftAuthorization(prompt, { interactive: true }).allowed;
-}
-
 export function resolveDraftAuthorization(
   prompt: string,
   { interactive }: { interactive: boolean },
@@ -358,7 +354,12 @@ export function resolveDraftAuthorization(
   }
 
   const matches = findDraftDirectiveMatches(trusted);
-  const allowed = matches.find((match) => !isDraftDirectiveNegated(trusted, match.index));
+  const directMatches = matches.filter((match) =>
+    isDirectDraftDirective(trusted, match.index),
+  );
+  const allowed = directMatches.find(
+    (match) => !isDraftDirectiveNegated(trusted, match.index),
+  );
   if (allowed) {
     return {
       allowed: true,
@@ -370,10 +371,10 @@ export function resolveDraftAuthorization(
           : "explicit_compose_request",
     };
   }
-  if (matches.length > 0) {
+  if (directMatches.length > 0) {
     return { allowed: false, reason: "denied_negated" };
   }
-  if (findDraftDirectiveMatches(original).length > 0) {
+  if (matches.length > 0 || findDraftDirectiveMatches(original).length > 0) {
     return { allowed: false, reason: "denied_quoted_or_embedded" };
   }
   return { allowed: false, reason: "denied_no_directive" };
@@ -472,12 +473,59 @@ function isDraftDirectiveNegated(value: string, actionIndex: number): boolean {
   );
 }
 
+function isDirectDraftDirective(value: string, actionIndex: number): boolean {
+  const prefix = value.slice(0, actionIndex);
+  if (!prefix.trim()) return true;
+
+  const boundary = Math.max(
+    prefix.lastIndexOf("."),
+    prefix.lastIndexOf("!"),
+    prefix.lastIndexOf("?"),
+    prefix.lastIndexOf(";"),
+    prefix.lastIndexOf("\n"),
+    prefix.lastIndexOf(":"),
+  );
+  const localPrefix = prefix.slice(boundary + 1).trim();
+  const hasLocalRequestFrame =
+    /^(?:(?:please|just|now|then|also|instead|yes|yeah|ya|yep|sure|ok|okay|go ahead|do not|don't|dont|never|no need to|avoid|stop),?|(?:can|could|would|will)\s+you(?:\s+please)?|i\s+(?:want|need|would like)(?:\s+you\s+to)?|you\s+said\s+you\s+can)$/.test(
+      localPrefix,
+    );
+  if (hasLocalRequestFrame && (boundary < 0 || prefix[boundary] === ";")) {
+    return true;
+  }
+  if (
+    (boundary < 0 || prefix[boundary] === ";") &&
+    /^(?:do not|don't|dont|never)\s+(?:send|deliver)\b[^.!?;\n]{0,80}(?:,|\band\b|\bbut\b)\s*$/.test(
+      localPrefix,
+    )
+  ) {
+    return true;
+  }
+
+  if (/[.!?;:\n]/.test(prefix)) return false;
+  if (/^(?:can|could|would|will)\s+you\b/.test(prefix)) return true;
+  if (
+    /^(?:please\s+)?(?:look\s+up|pull|check|find|search|read|get|review|summarize|analyze|prepare|use|open|inspect|compare|compile|collect)\b/.test(
+      prefix,
+    ) && /\b(?:and|then|also)\s+(?:please\s+)?$/.test(prefix)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function isGenericDraftCapabilityQuestion(value: string): boolean {
   return (
     /^(?:can|could|does|do|will|would)\s+(?:comparative|it|this|the app|the tool)\s+[^.!?;\n]{0,80}\b(?:email|e-mail|gmail|drafts?)\b\s*[?.!]*$/.test(
       value,
     ) ||
     /^(?:can|could|does|do|will|would)\s+(?:you|comparative|it|this|the app|the tool)\s+(?:create|make|save|write|draft|compose)\s+(?:emails|drafts)\s*[?.!]*$/.test(
+      value,
+    ) ||
+    /^(?:can|could|will|would)\s+you\s+(?:create|make|save|write|draft|compose)\s+gmail\s+(?:emails|drafts)\s*[?.!]*$/.test(
+      value,
+    ) ||
+    /^(?:do|does)\s+you\s+[^.!?;\n]{0,80}\b(?:email|e-mail|gmail|drafts?)\b\s*[?.!]*$/.test(
       value,
     ) ||
     /\b(?:explain|show me|tell me)\s+how\s+to\b[^.!?;\n]{0,120}\b(?:draft|compose|write|create|make|save)\b/.test(
@@ -499,11 +547,15 @@ function stripEmbeddedAuthorizationContent(value: string): string {
     .replace(/“[^”]*”/g, " ")
     .replace(/(^|[\s([{:\-])'[^'\n]+'(?=$|[\s)\]},.!?;:])/g, "$1 ")
     .replace(
+      /(?:^|\n)\s*(?:(?:here(?:'s| is)\s+[^:\n]{0,120})|(?:fyi|reply|forwarded)(?:\s+(?:from|by)\s+[^:\n]{0,80})?)\s*:\s*[\s\S]*$/gim,
+      " ",
+    )
+    .replace(
       /(?:^|\n)\s*(?:please\s+)?(?:summarize|review|analyze|explain|translate|classify)\b[^\n]{0,160}\b(?:pasted|following|below|attached|email|message|document|file|text|note|content|paragraph)\b[^\n]{0,80}(?::\s*|\n)[\s\S]*$/gim,
       " ",
     )
     .replace(
-      /\b(?:the\s+)?(?:[\w-]+\s+){0,2}(?:email|message|document|file|note|text|content|paragraph|attachment|instructions?)\s+(?:says?|reads?|contains?|includes?|asks?|instructs?)\b[^.!?;\n]*(?:[.!?;]|$)/gim,
+      /\b(?:the\s+)?(?:[\w-]+\s+){0,2}(?:email|message|document|file|note|text|content|paragraph|attachment|instructions?)\s+(?:says?|reads?|contains?|includes?|asks?|instructs?|wrote|writes|sent|posted|replied|shared)\b[\s\S]*$/gim,
       " ",
     );
 }
