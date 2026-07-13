@@ -313,7 +313,7 @@ Primary sources used:
 
 The following specification is the implementation-facing design authority. It removes the research narrative and collapses the recommendation into decisions, interfaces, flow control, and phased delivery. It assumes an AWS-hosted stack with Bedrock as the primary model layer, ECS/Fargate for app services, Step Functions for durable jobs, EventBridge Scheduler for recurring work, and fine-grained authorization externalized through a policy engine. Those assumptions are directly supported by the cited AWS capabilities discussed above.
 
-```markdown
+````markdown
 # Architecture Decision Record
 
 ## Decision
@@ -1120,4 +1120,4 @@ A feature is done only when:
 - operators can trace failures
 - users can understand what happened without seeing internal secrets
 - rollout is protected by flags and migration notes
-```
+````
