@@ -25,8 +25,11 @@ Umber design system; the source of truth is
 The app's Tailwind theme reads eight semantic RGB-triplet variables
 (`--color-canvas`, `--color-surface`, …) defined in `apps/web/app/globals.css`.
 The Umber skin remaps those triplets under the `html.skin-umber` class
-(light + dark), so the existing Tailwind classes rebrand at runtime. It is
-a class, not a data-attribute, because React 19 hydration strips unknown
-attributes from `<html>` but preserves classes — see `UiSkinSync.tsx`. Umber
+(light + dark), so the existing Tailwind classes rebrand at runtime. The
+class is applied twice by design: a pre-paint script in the root layout
+(first frame, no flash) and `UiSkinSync.tsx` (required re-assert — React 19
+hydration replaces `<html>`'s className, stripping script-added classes and
+attributes alike; the app's `dark` class survives the same way, via
+`useTheme`'s effect). Neither half is redundant. Umber
 components additionally need the token custom properties from `tokens/`,
 loaded where those components mount.

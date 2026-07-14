@@ -27,10 +27,11 @@ const themeInitScript = `
       ? stored
       : (prefersDark ? 'dark' : 'light');
     if (theme === 'dark') document.documentElement.classList.add('dark');
-    // Umber reskin opt-in (globals.css html.skin-umber). A class, not a
-    // data-attribute: React 19 hydration strips unknown attributes from
-    // <html> but preserves classes (the dark class above relies on the same
-    // guarantee). Pre-paint so an opted-in reload never flashes the old brand.
+    // Umber reskin opt-in (globals.css html.skin-umber). This covers the
+    // FIRST paint only: React 19 hydration then replaces <html>'s className,
+    // stripping script-added classes — the dark class above survives only
+    // because useTheme re-applies it in an effect, and UiSkinSync (mounted in
+    // the body below) is the equivalent required re-assert for this class.
     if (localStorage.getItem('ui-skin') === 'umber') {
       document.documentElement.classList.add('skin-umber');
     }

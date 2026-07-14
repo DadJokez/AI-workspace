@@ -28,9 +28,10 @@ html.dark {
 
 /* Umber skin (packages/umber): remaps the eight semantic slots to the Umber
  * palette so every Tailwind class rebrands at runtime. Opt-in via
- * localStorage ui-skin=umber (applied pre-paint as a class in the layout
- * init script; a class because React 19 hydration strips unknown
- * attributes from <html> but preserves classes).
+ * localStorage ui-skin=umber. Two cooperating pieces apply the class: the
+ * layout's pre-paint script (first frame) and UiSkinSync (post-hydration
+ * re-assert — React 19 hydration replaces <html>'s className, so a script
+ * alone is not enough; do not remove either half).
  * Values are RGB triplets because Tailwind consumes them via
  * rgb(var() / <alpha-value>); each line names the Umber token it mirrors —
  * re-derive from packages/umber/tokens/colors.css, never invent colors here. */
