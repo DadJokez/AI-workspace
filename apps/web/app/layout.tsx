@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { UiSkinSync } from "@/components/UiSkinSync";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,6 +27,14 @@ const themeInitScript = `
       ? stored
       : (prefersDark ? 'dark' : 'light');
     if (theme === 'dark') document.documentElement.classList.add('dark');
+    // Umber reskin opt-in (globals.css html.skin-umber). This covers the
+    // FIRST paint only: React 19 hydration then replaces <html>'s className,
+    // stripping script-added classes — the dark class above survives only
+    // because useTheme re-applies it in an effect, and UiSkinSync (mounted in
+    // the body below) is the equivalent required re-assert for this class.
+    if (localStorage.getItem('ui-skin') === 'umber') {
+      document.documentElement.classList.add('skin-umber');
+    }
   } catch (e) {}
 })();
 `;
@@ -52,6 +61,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="bg-canvas text-ink antialiased">
+        <UiSkinSync />
         <AlphaBadge />
         {children}
       </body>

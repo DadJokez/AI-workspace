@@ -1,0 +1,10 @@
+{
+  "name": "@ai-workspace/umber",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Vendored Umber design system (tokens + React components). Do not edit sources here — see README.md.",
+  "sideEffects": ["**/*.css"],
+  "peerDependencies": {
+    "react": ">=18"
+  }
+}

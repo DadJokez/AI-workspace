@@ -23,6 +23,7 @@
     "@ai-workspace/agent-runtime": "workspace:*",
     "@ai-workspace/auth": "workspace:*",
     "@ai-workspace/db": "workspace:*",
+    "@ai-workspace/umber": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "jszip": "^3.10.1",
     "mammoth": "^1.12.0",

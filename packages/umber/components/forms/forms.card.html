@@ -1,0 +1,81 @@
+<!-- @dsCard group="Components" viewport="700x600" name="Forms & Controls" subtitle="Buttons, inputs, selects, toggles — every core state" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../../styles.css" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  body { padding: 28px; background: var(--bg); }
+  .row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 24px 32px; }
+  .block { display: flex; flex-direction: column; gap: 14px; }
+  .lbl { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-subtle); }
+  hr { margin: 24px 0; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+  const { Button, IconButton, Input, Select, Checkbox, RadioGroup, Switch } = window.UmberDesignSystem_5c2597;
+
+  const Ico = ({ d }) => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{d}</svg>
+  );
+  const Sparkle = <Ico d={<path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4"/>} />;
+  const Plus = <Ico d={<><path d="M5 12h14"/><path d="M12 5v14"/></>} />;
+  const Dots = <Ico d={<><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></>} />;
+
+  function Demo() {
+    return (
+      <div>
+        <div className="block" style={{ marginBottom: 20 }}>
+          <span className="lbl">Button — variants</span>
+          <div className="row">
+            <Button variant="solid">Save changes</Button>
+            <Button variant="accent">Accent</Button>
+            <Button variant="pop" iconLeft={Plus}>Generate</Button>
+            <Button variant="outline">Outline</Button>
+            <Button variant="ghost">Ghost</Button>
+            <Button variant="link">Learn more</Button>
+          </div>
+          <div className="row">
+            <Button size="sm">Small</Button>
+            <Button size="md">Medium</Button>
+            <Button size="lg">Large</Button>
+            <Button loading>Working</Button>
+            <Button disabled>Disabled</Button>
+            <IconButton aria-label="More" variant="outline">{Dots}</IconButton>
+            <IconButton aria-label="Add">{Plus}</IconButton>
+          </div>
+        </div>
+        <hr />
+        <div className="grid">
+          <div className="block">
+            <Input label="Workspace name" placeholder="Acme Analytics" hint="Shown across the console." />
+            <Select label="Region" placeholder="Choose a region" options={["us-west-2","us-east-1","eu-central-1"]} />
+          </div>
+          <div className="block">
+            <Input label="Email" defaultValue="ada@acme" error="That address is already in use." />
+            <div className="block" style={{ gap: 12 }}>
+              <span className="lbl">Toggles</span>
+              <Checkbox label="Enable auto-scaling" description="Adds nodes when queue depth grows." defaultChecked />
+              <Switch label="Public sharing" defaultChecked />
+              <RadioGroup defaultValue="on-demand" options={[
+                { value: "on-demand", label: "On-demand" },
+                { value: "committed", label: "Committed use" },
+              ]} />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById("root")).render(<Demo />);
+</script>
+</body>
+</html>

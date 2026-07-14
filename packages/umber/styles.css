@@ -1,0 +1,15 @@
+/* ============================================================
+   Umber Design System — global entry point
+   ------------------------------------------------------------
+   Consumers link THIS file only. It is an import manifest;
+   no rules live here directly. Order matters: fonts and tokens
+   first, base/reset last so it can consume the tokens.
+   ============================================================ */
+
+@import url("tokens/fonts.css");
+@import url("tokens/colors.css");
+@import url("tokens/typography.css");
+@import url("tokens/spacing.css");
+@import url("tokens/effects.css");
+@import url("tokens/texture.css");
+@import url("tokens/base.css");

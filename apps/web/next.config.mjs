@@ -9,6 +9,7 @@ const nextConfig = {
     "@ai-workspace/auth",
     "@ai-workspace/agent-runtime",
     "@ai-workspace/db",
+    "@ai-workspace/umber",
   ],
   serverExternalPackages: ["postgres"],
 };

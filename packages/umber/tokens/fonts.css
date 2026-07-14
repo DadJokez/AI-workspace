@@ -1,0 +1,14 @@
+/* ============================================================
+   Umber — Webfonts
+   ------------------------------------------------------------
+   Primary UI/body : Geist            (grotesk, Vercel-adjacent)
+   Display / accent: Newsreader        (editorial serif, optical)
+   Utility mono    : Geist Mono        (data, code, micro-labels)
+
+   NOTE: Fonts are currently loaded from Google Fonts. For fully
+   self-hosted production use, drop woff2 binaries into
+   assets/fonts/ and replace this @import with local @font-face
+   rules. See readme.md → "Font hosting".
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,300;1,6..72,400&display=swap');
