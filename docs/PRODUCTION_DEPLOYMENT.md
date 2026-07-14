@@ -26,9 +26,11 @@ applies and waits for the CloudFormation update before the image refresh can
 begin. A failed CDK update or unstable ECS service stops the build before smoke.
 
 The CodeBuild service role may assume only the account-and-region-specific CDK
-bootstrap deploy role. CloudFormation continues to apply stack changes through
-the bootstrap execution role; CodeBuild does not receive direct broad
-CloudFormation or IAM permissions.
+bootstrap deploy and file-publishing roles. The publisher is limited to the
+bootstrap asset bucket and key used for large synthesized templates.
+CloudFormation continues to apply stack changes through the bootstrap execution
+role; CodeBuild does not receive direct broad CloudFormation or IAM
+permissions.
 
 AgentCore remains a separate stack and is updated immediately before this ECS
 handoff by `infra/scripts/update-agentcore-stack.sh`.
@@ -37,10 +39,11 @@ handoff by `infra/scripts/update-agentcore-stack.sh`.
 
 The first rollout of this deployment path must be applied by an operator from
 the reviewed commit because the previous CodeBuild role cannot grant itself
-permission to assume the CDK deploy role. Run a scoped `cdk diff` and deploy
-`AiWorkspaceEcsStack` once. That deployment adds the exact `sts:AssumeRole`
-grant managed by this stack. All subsequent merged commits use the normal
-CodeBuild path; do not leave a separate hand-written IAM policy behind.
+permission to assume the CDK bootstrap roles. Run a scoped `cdk diff` and deploy
+`AiWorkspaceEcsStack` once. That deployment adds the two exact
+`sts:AssumeRole` resources managed by this stack. All subsequent merged commits
+use the normal CodeBuild path; do not leave a separate hand-written IAM policy
+behind.
 
 ## Verification
 

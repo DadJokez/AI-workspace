@@ -86,6 +86,12 @@ describe("deploy-ecs-stack.sh", () => {
     expect(buildspec).toContain("nodejs: 20");
     expect(buildspec).toContain("pnpm@9.12.3");
     expect(buildspec).toContain(
+      'export CDK_DEFAULT_ACCOUNT="$AWS_ACCOUNT_ID"',
+    );
+    expect(buildspec).toContain(
+      'export CDK_DEFAULT_REGION="$AWS_DEFAULT_REGION"',
+    );
+    expect(buildspec).toContain(
       "pnpm --filter @ai-workspace/infra install --frozen-lockfile",
     );
     expect(deploy).toBeGreaterThan(buildspec.indexOf("docker push"));
