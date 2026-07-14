@@ -8,12 +8,21 @@ env:
     AGENTCORE_STACK_NAME: AiWorkspaceAgentCoreSpikeStack
     APP_SECRET_NAME: ai-workspace/production/app
     ECS_CLUSTER_NAME: ai-workspace-prod
+    ECS_STACK_NAME: AiWorkspaceEcsStack
     ECS_WEB_SERVICE_NAME: ai-workspace-web
     ECS_CHAT_WORKER_SERVICE_NAME: ai-workspace-chat-worker
     ECS_MEMORY_WORKER_SERVICE_NAME: ai-workspace-memory-worker
     SMOKE_BASE_URL: https://comparative.builtwithrobot.link
 
 phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+    commands:
+      - 'echo Installing CDK deployment dependencies...'
+      - 'corepack enable'
+      - 'corepack prepare pnpm@9.12.3 --activate'
+      - 'pnpm --filter @ai-workspace/infra install --frozen-lockfile'
   pre_build:
     commands:
       - 'echo Resolving AWS account ID...'
@@ -61,12 +70,8 @@ phases:
       # single owner of the runtime and cuts the new version.
       - 'echo Cutting a new AgentCore runtime version...'
       - 'AGENTCORE_IMAGE_TAG="$COMMIT_TAG" ./infra/scripts/update-agentcore-stack.sh'
-      - 'echo Forcing ECS service deployments...'
-      - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_WEB_SERVICE_NAME" --force-new-deployment >/dev/null'
-      - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_CHAT_WORKER_SERVICE_NAME" --force-new-deployment >/dev/null'
-      - 'aws ecs update-service --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --service "$ECS_MEMORY_WORKER_SERVICE_NAME" --force-new-deployment >/dev/null'
-      - 'echo Waiting for ECS services to stabilize...'
-      - 'aws ecs wait services-stable --region $AWS_DEFAULT_REGION --cluster "$ECS_CLUSTER_NAME" --services "$ECS_WEB_SERVICE_NAME" "$ECS_CHAT_WORKER_SERVICE_NAME" "$ECS_MEMORY_WORKER_SERVICE_NAME"'
+      - 'echo Reconciling the ECS stack and deploying images...'
+      - './infra/scripts/deploy-ecs-stack.sh'
       - 'echo Running authenticated production smoke...'
       - 'NEXTAUTH_SECRET=$(printf "%s" "$APP_SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)[\"NEXTAUTH_SECRET\"])")'
       - 'test -n "$NEXTAUTH_SECRET" && test "$NEXTAUTH_SECRET" != "None"'

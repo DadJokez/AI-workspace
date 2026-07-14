@@ -341,6 +341,14 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
           ],
         }),
       );
+      codeBuildRole.addToPrincipalPolicy(
+        new iam.PolicyStatement({
+          actions: ["sts:AssumeRole"],
+          resources: [
+            `arn:${this.partition}:iam::${this.account}:role/cdk-hnb659fds-deploy-role-${this.account}-${this.region}`,
+          ],
+        }),
+      );
     }
 
     new cloudwatch.Alarm(this, "WebUnhealthyHostsAlarm", {

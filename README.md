@@ -108,7 +108,11 @@ chat-run worker image, memory-capture worker image, and a small migration
 image. CodeBuild reads `ai-workspace/production/app` from Secrets Manager,
 runs Drizzle migrations, pushes the images to ECR, and forces new deployments
 for the ECS services `ai-workspace-web`, `ai-workspace-chat-worker`, and
-`ai-workspace-memory-worker`.
+`ai-workspace-memory-worker`. Before refreshing those images, CodeBuild
+reconciles `AiWorkspaceEcsStack` so task-definition and environment changes are
+live before the authenticated production smoke. The ordered paths and rollback
+procedure are documented in
+[`docs/PRODUCTION_DEPLOYMENT.md`](./docs/PRODUCTION_DEPLOYMENT.md).
 
 ## Enterprise Readiness
 
