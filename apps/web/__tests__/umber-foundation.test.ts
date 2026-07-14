@@ -34,8 +34,8 @@ describe("umber foundation (packages/umber)", () => {
       "accent",
     ];
     for (const scope of [
-      'html[data-skin="umber"]',
-      'html.dark[data-skin="umber"]',
+      'html.skin-umber ',
+      'html.dark.skin-umber ',
     ]) {
       const start = css.indexOf(scope);
       expect(start, `${scope} block missing`).toBeGreaterThan(-1);

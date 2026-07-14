@@ -28,11 +28,13 @@ html.dark {
 
 /* Umber skin (packages/umber): remaps the eight semantic slots to the Umber
  * palette so every Tailwind class rebrands at runtime. Opt-in via
- * localStorage ui-skin=umber (read pre-paint in the layout init script).
+ * localStorage ui-skin=umber (applied pre-paint as a class in the layout
+ * init script; a class because React 19 hydration strips unknown
+ * attributes from <html> but preserves classes).
  * Values are RGB triplets because Tailwind consumes them via
  * rgb(var() / <alpha-value>); each line names the Umber token it mirrors —
  * re-derive from packages/umber/tokens/colors.css, never invent colors here. */
-html[data-skin="umber"] {
+html.skin-umber {
   --color-canvas: 250 248 243; /* --bg (neutral-50) */
   --color-surface: 255 255 255; /* --surface (neutral-0) */
   --color-sidebar: 250 248 243; /* --surface-2 (neutral-50) */
@@ -43,7 +45,7 @@ html[data-skin="umber"] {
   --color-accent: 25 21 16; /* --action (neutral-900, ink-black actions) */
 }
 
-html.dark[data-skin="umber"] {
+html.dark.skin-umber {
   --color-canvas: 17 14 10; /* --bg (neutral-950) */
   --color-surface: 25 21 16; /* --surface (neutral-900) */
   --color-sidebar: 33 29 21; /* --surface-2 (neutral-850) */

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { UiSkinSync } from "@/components/UiSkinSync";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,10 +27,12 @@ const themeInitScript = `
       ? stored
       : (prefersDark ? 'dark' : 'light');
     if (theme === 'dark') document.documentElement.classList.add('dark');
-    // Umber reskin opt-in (globals.css html[data-skin="umber"]). Pre-paint,
-    // like the theme above, so an opted-in reload never flashes the old brand.
+    // Umber reskin opt-in (globals.css html.skin-umber). A class, not a
+    // data-attribute: React 19 hydration strips unknown attributes from
+    // <html> but preserves classes (the dark class above relies on the same
+    // guarantee). Pre-paint so an opted-in reload never flashes the old brand.
     if (localStorage.getItem('ui-skin') === 'umber') {
-      document.documentElement.dataset.skin = 'umber';
+      document.documentElement.classList.add('skin-umber');
     }
   } catch (e) {}
 })();
@@ -57,6 +60,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="bg-canvas text-ink antialiased">
+        <UiSkinSync />
         <AlphaBadge />
         {children}
       </body>
