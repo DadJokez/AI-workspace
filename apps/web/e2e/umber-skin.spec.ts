@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { installMockComparativeApi } from "./helpers/mock-comparative";
+import { gotoE2EChat, openNavItem } from "./helpers/navigation";
 
 test.skip(
   !!process.env.PLAYWRIGHT_BASE_URL,
@@ -33,5 +35,20 @@ test("ui-skin=umber survives hydration and remaps the palette", async ({
   await page.evaluate(() => localStorage.removeItem("ui-skin"));
   await page.reload();
   await page.waitForLoadState("networkidle");
+  await expect(page.locator("html")).not.toHaveClass(/skin-umber/);
+});
+
+test("the Settings skin control flips Umber on and off live", async ({
+  page,
+  isMobile,
+}) => {
+  await installMockComparativeApi(page);
+  await gotoE2EChat(page);
+  await openNavItem(page, "Settings", isMobile);
+
+  await page.getByRole("radio", { name: "Umber", exact: true }).click();
+  await expect(page.locator("html")).toHaveClass(/skin-umber/);
+
+  await page.getByRole("radio", { name: "Classic", exact: true }).click();
   await expect(page.locator("html")).not.toHaveClass(/skin-umber/);
 });
