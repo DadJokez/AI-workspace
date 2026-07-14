@@ -88,9 +88,11 @@ The automatic Claude review workflow should trigger from `workflow_run` on the
 `CI` and `Product Smoke` workflows and should only run after both conclusions
 are `success` for the same commit.
 
-Claude should review the pull request associated with the workflow run, not the
-Actions run URL. If the workflow cannot resolve exactly one pull request, it
-should stop instead of guessing.
+Claude should review the open pull request whose current head SHA exactly
+matches the workflow run, not every pull request that happens to contain that
+commit. This keeps lower pull requests in a stacked series attached to their
+own base-to-head diff. If the workflow cannot resolve exactly one exact-head
+match, it stops instead of guessing.
 
 Claude may read files, inspect diffs, and use `gh` for PR metadata, checks,
 comments, labels, and reviews. It must not push commits or merge PRs.
