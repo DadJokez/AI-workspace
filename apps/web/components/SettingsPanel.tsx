@@ -3,6 +3,7 @@
 import type { ModelOption } from "@/components/ModelSelector";
 import { useDensity, type Density } from "@/lib/density";
 import { useTheme, type Theme } from "@/lib/theme";
+import { useUiSkin, type UiSkin } from "@/lib/ui-skin";
 import { useEffect, useMemo, useState } from "react";
 
 interface Props {
@@ -86,6 +87,7 @@ export function SettingsPanel({
 }: Props) {
   const { theme, setTheme } = useTheme();
   const { density, setDensity } = useDensity();
+  const { skin, setSkin } = useUiSkin();
   const [nameDraft, setNameDraft] = useState(displayName);
   const [savedFlash, setSavedFlash] = useState(false);
   const [instructionsDraft, setInstructionsDraft] = useState(
@@ -294,6 +296,20 @@ export function SettingsPanel({
                 ]}
               />
             </Field>
+            <Field label="Skin">
+              <SegmentedControl<UiSkin>
+                value={skin}
+                onChange={setSkin}
+                options={[
+                  { value: "classic", label: "Classic" },
+                  { value: "umber", label: "Umber" },
+                ]}
+              />
+              <p className="text-[11px] text-muted">
+                Umber is the new warm visual identity (preview). Applies
+                immediately, only on this device.
+              </p>
+            </Field>
             <Field label="Density">
               <SegmentedControl<Density>
                 value={density}
@@ -436,6 +452,10 @@ function SegmentedControl<T extends string>({
             type="button"
             role="radio"
             aria-checked={active}
+            // Explicit name: the surrounding Field renders a <label>, which
+            // would otherwise donate its ENTIRE text content as the accessible
+            // name of the group's first radio ("Theme Dark System" for Light).
+            aria-label={o.label}
             onClick={() => onChange(o.value)}
             className={`px-3 py-1.5 text-[12px] ${
               active

@@ -17,6 +17,12 @@ import { useEffect, useRef } from "react";
  * the visual identity). Replaces the old bouncing-dots + blinking-caret
  * indicators. Under prefers-reduced-motion it renders a single static frame —
  * no morph, swell, or rotation.
+ *
+ * The canonical mark lives in packages/umber/components/media/Orb.jsx; this
+ * port exists for app-specific perf work (IntersectionObserver pausing,
+ * per-message static frames). Exactness is enforced by
+ * __tests__/brand-orb-parity.test.ts — if that fails after a re-vendor,
+ * re-derive this port from the vendored Orb.
  */
 
 const PA =
