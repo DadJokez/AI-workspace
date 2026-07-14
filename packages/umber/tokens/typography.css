@@ -1,0 +1,61 @@
+/* ============================================================
+   Umber — Typography tokens
+   ------------------------------------------------------------
+   Geist carries UI + body. Newsreader is the editorial voice,
+   reserved for display headings, pull-quotes, and lyrical
+   numerals — never for UI chrome. Geist Mono tags data,
+   code, keyboard hints, and micro-labels.
+   Type scale is a ~1.20 minor-third, tuned by hand at the
+   small end for UI legibility.
+   ============================================================ */
+
+:root {
+  /* ---- Families ---- */
+  --font-sans:  "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Newsreader", ui-serif, Georgia, "Times New Roman", serif;
+  --font-mono:  "Geist Mono", ui-monospace, "SFMono-Regular", "Menlo", monospace;
+
+  /* ---- Weights ---- */
+  --fw-light:    300; /* @kind font */
+  --fw-regular:  400; /* @kind font */
+  --fw-medium:   500; /* @kind font */
+  --fw-semibold: 600; /* @kind font */
+  --fw-bold:     700; /* @kind font */
+
+  /* ---- Size scale (rem, 16px base) ---- */
+  --text-2xs: 0.6875rem;  /* 11px — legal / mono micro */
+  --text-xs:  0.75rem;    /* 12px — labels, captions */
+  --text-sm:  0.8125rem;  /* 13px — dense UI, table body */
+  --text-base:0.9375rem;  /* 15px — default body (Notion-like) */
+  --text-md:  1.0625rem;  /* 17px — lead paragraph */
+  --text-lg:  1.3125rem;  /* 21px — h4 / card title */
+  --text-xl:  1.625rem;   /* 26px — h3 */
+  --text-2xl: 2.0625rem;  /* 33px — h2 */
+  --text-3xl: 2.625rem;   /* 42px — h1 */
+  --text-4xl: 3.5rem;     /* 56px — display */
+  --text-5xl: 4.75rem;    /* 76px — hero display */
+
+  /* ---- Line heights ---- */
+  --leading-tight:   1.12; /* @kind other */
+  --leading-snug:    1.28; /* @kind other */
+  --leading-normal:  1.5; /* @kind other */
+  --leading-relaxed: 1.65; /* @kind other */
+
+  /* ---- Tracking ---- */
+  --tracking-tight:  -0.02em; /* @kind other */
+  --tracking-snug:   -0.011em; /* @kind other */
+  --tracking-normal: 0; /* @kind other */
+  --tracking-wide:   0.02em; /* @kind other */
+  --tracking-caps:   0.08em;   /* @kind other */
+
+  /* ---- Semantic roles ---- */
+  --display-family:  var(--font-serif);
+  --display-weight:  var(--fw-regular);
+  --heading-family:  var(--font-sans);
+  --heading-weight:  var(--fw-semibold);
+  --body-family:     var(--font-sans);
+  --body-weight:     var(--fw-regular);
+  --label-family:    var(--font-sans);
+  --label-weight:    var(--fw-medium);
+  --mono-family:     var(--font-mono);
+}

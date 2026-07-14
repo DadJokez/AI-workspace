@@ -1,0 +1,21 @@
+/* ============================================================
+   Umber — Background texture
+   ------------------------------------------------------------
+   A whisper of paper grain, not a pattern. An inline SVG noise
+   is layered over the base background at low opacity. Set
+   --grain-opacity to 0 to disable, or bump toward 0.08 for a
+   more tactile paper feel. Applied globally in base.css via the
+   ::before overlay so it never interferes with content.
+   ============================================================ */
+
+:root {
+  /* fractal noise, tuned fine so it reads as tooth, not static */
+  --grain-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E"); /* @kind other */
+  --grain-opacity: 0.028; /* @kind other */
+  --grain-blend: multiply; /* @kind other */
+}
+
+[data-theme="dark"] {
+  --grain-opacity: 0.05; /* @kind other */
+  --grain-blend: overlay; /* @kind other */
+}

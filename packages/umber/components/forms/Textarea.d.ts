@@ -1,0 +1,12 @@
+import React from "react";
+
+export interface TextareaProps
+  extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
+  label?: string;
+  hint?: string;
+  error?: string;
+  style?: React.CSSProperties;
+}
+
+/** Multi-line text field, visually matched to Input. */
+export function Textarea(props: TextareaProps): JSX.Element;

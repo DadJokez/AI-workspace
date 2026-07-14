@@ -1,0 +1,57 @@
+/* ============================================================
+   Umber — Radius, border, shadow & motion tokens
+   ------------------------------------------------------------
+   Corners are gentle (4px workhorse), never pill unless the
+   element is a genuine pill (switch track, badge dot).
+   Shadows are warm-tinted and low — Umber leans on hairline
+   borders and surface contrast, not float. Motion is quick and
+   quiet: short durations, no bounce, ease-out for entrances.
+   ============================================================ */
+
+:root {
+  /* ---- Radius ---- */
+  --radius-xs:   2px;
+  --radius-sm:   4px;   /* controls, inputs, buttons */
+  --radius-md:   6px;   /* cards, popovers */
+  --radius-lg:   10px;  /* dialogs, large panels */
+  --radius-xl:   16px;
+  --radius-full: 999px;
+
+  /* ---- Borders ---- */
+  --border-w:   1px;
+  --border-w-2: 1.5px;
+  --ring-w:     2px;
+  --ring-offset:2px;
+
+  /* ---- Shadows (warm, low, layered) ---- */
+  --shadow-xs: 0 1px 1px rgba(31, 26, 15, 0.04);
+  --shadow-sm: 0 1px 2px rgba(31, 26, 15, 0.06),
+               0 1px 1px rgba(31, 26, 15, 0.04);
+  --shadow-md: 0 2px 4px rgba(31, 26, 15, 0.06),
+               0 4px 12px rgba(31, 26, 15, 0.07);
+  --shadow-lg: 0 4px 8px rgba(31, 26, 15, 0.07),
+               0 12px 32px rgba(31, 26, 15, 0.10);
+  --shadow-inset: inset 0 1px 2px rgba(31, 26, 15, 0.06);
+
+  /* focus ring (used with box-shadow) */
+  --shadow-focus: 0 0 0 var(--ring-w) var(--focus-ring),
+                  0 0 0 calc(var(--ring-w) + 1px) var(--surface);
+
+  /* ---- Motion ---- */
+  --ease-out:   cubic-bezier(0.22, 0.61, 0.36, 1); /* @kind other */
+  --ease-in-out:cubic-bezier(0.4, 0.0, 0.2, 1); /* @kind other */
+  --dur-fast:   120ms; /* @kind other */
+  --dur-base:   180ms; /* @kind other */
+  --dur-slow:   280ms; /* @kind other */
+}
+
+[data-theme="dark"] {
+  --shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.30);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.40),
+               0 1px 1px rgba(0, 0, 0, 0.30);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.40),
+               0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.45),
+               0 12px 32px rgba(0, 0, 0, 0.55);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.40);
+}

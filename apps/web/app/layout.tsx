@@ -26,6 +26,11 @@ const themeInitScript = `
       ? stored
       : (prefersDark ? 'dark' : 'light');
     if (theme === 'dark') document.documentElement.classList.add('dark');
+    // Umber reskin opt-in (globals.css html[data-skin="umber"]). Pre-paint,
+    // like the theme above, so an opted-in reload never flashes the old brand.
+    if (localStorage.getItem('ui-skin') === 'umber') {
+      document.documentElement.dataset.skin = 'umber';
+    }
   } catch (e) {}
 })();
 `;

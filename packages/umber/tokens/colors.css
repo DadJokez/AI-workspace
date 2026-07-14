@@ -1,0 +1,158 @@
+/* ============================================================
+   Umber — Color tokens
+   ------------------------------------------------------------
+   Two families do the work:
+     · neutral — warm-tinted grays (never pure #808080; every
+       step carries a trace of ochre so black + paper feel
+       related, not clinical).
+     · tan     — the signature brand warm, built around the
+       chosen #E4D5B7 parchment.
+   One reserved pop:
+     · forest  — a deep, muted forest green. Used sparingly:
+       primary actions' focus, one hero stat, a single emphasis.
+   Semantic aliases below map raw ramps to roles, and flip
+   between light (:root) and dark ([data-theme="dark"]).
+   ============================================================ */
+
+:root {
+  /* ---- Warm neutral ramp (light → dark) ---- */
+  --neutral-0:   #ffffff;
+  --neutral-50:  #faf8f3;
+  --neutral-100: #f3efe6;
+  --neutral-150: #ece7da;
+  --neutral-200: #e2dccc;
+  --neutral-300: #c9bea7;
+  --neutral-400: #a89d85;
+  --neutral-500: #82785f;
+  --neutral-600: #5f5644;
+  --neutral-700: #423b2d;
+  --neutral-800: #2b261c;
+  --neutral-850: #211d15;
+  --neutral-900: #191510;
+  --neutral-950: #110e0a;
+
+  /* ---- Tan (brand warm) ---- */
+  --tan-50:  #f8f2e6;
+  --tan-100: #f1e7d2;
+  --tan-200: #e4d5b7; /* signature */
+  --tan-300: #d6c29a;
+  --tan-400: #c7ac7c;
+  --tan-500: #b8935e;
+  --tan-600: #a17c49;
+  --tan-700: #7f6138;
+  --tan-800: #5c462a;
+
+  /* ---- Forest (reserved pop / deep green) ---- */
+  --forest-100: #e3ece6;
+  --forest-200: #c3d6cb;
+  --forest-400: #4e7365;  /* dark-mode pop */
+  --forest-500: #2a4a3a;  /* signature pop */
+  --forest-600: #21392c;
+  --forest-700: #17281f;
+
+  /* ---- Support hues (kept desaturated, used only for state) ---- */
+  --green-500: #5c7a4f;
+  --green-100: #e6ecdf;
+  --amber-500: #b0842f;
+  --amber-100: #f4e7c9;
+  --red-500:   #a8442f;
+  --red-100:   #f2ddd4;
+
+  color-scheme: light;
+}
+
+/* ============================================================
+   SEMANTIC ALIASES — LIGHT (default)
+   ============================================================ */
+:root {
+  --bg:            var(--neutral-50);
+  --bg-subtle:     var(--neutral-100);
+  --surface:       var(--neutral-0);
+  --surface-2:     var(--neutral-50);
+  --surface-hover: var(--neutral-100);
+  --surface-active:var(--neutral-150);
+  --surface-inset: var(--neutral-100);
+
+  --border:        var(--neutral-200);
+  --border-strong: var(--neutral-300);
+  --border-focus:  var(--neutral-800);
+
+  --text:          var(--neutral-900);
+  --text-muted:    var(--neutral-600);
+  --text-subtle:   var(--neutral-500);
+  --text-inverse:  var(--neutral-50);
+
+  /* Brand + pop */
+  --accent:        var(--tan-200);
+  --accent-strong: var(--tan-500);
+  --accent-fg:     var(--neutral-900);   /* text on tan */
+  --pop:           var(--forest-500);
+  --pop-hover:     var(--forest-600);
+  --pop-fg:        var(--neutral-0);
+
+  /* Solid action = ink black */
+  --action:        var(--neutral-900);
+  --action-hover:  var(--neutral-800);
+  --action-fg:     var(--neutral-50);
+
+  --focus-ring:    var(--forest-500);
+
+  --success:       var(--green-500);
+  --success-bg:    var(--green-100);
+  --warning:       var(--amber-500);
+  --warning-bg:    var(--amber-100);
+  --danger:        var(--red-500);
+  --danger-bg:     var(--red-100);
+
+  --link:          var(--forest-500);
+  --link-hover:    var(--forest-600);
+}
+
+/* ============================================================
+   SEMANTIC ALIASES — DARK
+   Warm near-black surfaces; tan warms up, forest lightens
+   just enough to read on dark.
+   ============================================================ */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg:            var(--neutral-950);
+  --bg-subtle:     var(--neutral-900);
+  --surface:       var(--neutral-900);
+  --surface-2:     var(--neutral-850);
+  --surface-hover: var(--neutral-800);
+  --surface-active:var(--neutral-700);
+  --surface-inset: #0d0b08;
+
+  --border:        #302a20;
+  --border-strong: #40392c;
+  --border-focus:  var(--tan-300);
+
+  --text:          #efe9db;
+  --text-muted:    #b3a98f;
+  --text-subtle:   #8a8069;
+  --text-inverse:  var(--neutral-950);
+
+  --accent:        var(--tan-300);
+  --accent-strong: var(--tan-400);
+  --accent-fg:     var(--neutral-950);
+  --pop:           var(--forest-400);
+  --pop-hover:     #5f8676;
+  --pop-fg:        var(--neutral-50);
+
+  --action:        var(--tan-200);
+  --action-hover:  var(--tan-100);
+  --action-fg:     var(--neutral-950);
+
+  --focus-ring:    var(--forest-400);
+
+  --success:       #8faa7d;
+  --success-bg:    #232a1d;
+  --warning:       #d0a552;
+  --warning-bg:    #2c2413;
+  --danger:        #d17359;
+  --danger-bg:     #2e1a13;
+
+  --link:          var(--tan-300);
+  --link-hover:    var(--tan-200);
+}
