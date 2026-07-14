@@ -87,7 +87,9 @@ test.describe("authenticated product smoke", () => {
           "application/vnd.openxmlformats-officedocument.presentationml.presentation",
       },
     ];
-    await page.locator('input[type="file"]').setInputFiles(
+    const fileInput = page.getByTestId("chat-file-input");
+    await expect(fileInput).toBeEnabled({ timeout: 15_000 });
+    await fileInput.setInputFiles(
       files.map((file) => ({
         ...file,
         buffer: Buffer.from(`auth smoke content for ${file.name}`),
@@ -121,6 +123,7 @@ test.describe("authenticated product smoke", () => {
     page,
     isMobile,
   }) => {
+    test.setTimeout(60_000);
     const recommendation = {
       dbId: "recommendation-auth-deploy",
       id: "deploy-app:artifact-demo-html",
@@ -230,19 +233,26 @@ test.describe("authenticated product smoke", () => {
 
     await page.getByRole("button", { name: "Close workspace" }).click();
     await expect(page.getByText("Deploy this as an app")).toBeVisible();
-    const [deployResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.url().endsWith("/api/apps") &&
-          response.request().method() === "POST",
-      ),
-      page.getByRole("button", { name: "Deploy app" }).click(),
-    ]);
-    expect(deployResponse.ok()).toBe(true);
-    await expect(page).toHaveURL(
-      /\/apps\/manage\/00000000-0000-4000-8000-000000000230$/,
-      { timeout: 15_000 },
+    const appManagementUrl =
+      /\/apps\/manage\/00000000-0000-4000-8000-000000000230$/;
+    const deployResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/apps") &&
+        response.request().method() === "POST",
     );
+    const deployNavigationPromise = page
+      .waitForURL(appManagementUrl, { timeout: 30_000 })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Deploy navigation did not complete. Current URL: ${page.url()}. ${message}`,
+        );
+      });
+    await page.getByRole("button", { name: "Deploy app" }).click();
+    const deployResponse = await deployResponsePromise;
+    expect(deployResponse.ok()).toBe(true);
+    await deployNavigationPromise;
+    await expect(page).toHaveURL(appManagementUrl);
   });
 
   test("manages app versions, sharing roles, and edit sessions", async ({

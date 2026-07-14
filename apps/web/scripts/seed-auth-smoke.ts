@@ -3,12 +3,13 @@ import {
   appVersions,
   apps,
   getDb,
+  rateLimitBuckets,
   shares,
   skills,
   users,
   workspaceArtifacts,
 } from "@ai-workspace/db";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 const smokeUserId = "00000000-0000-4000-8000-000000000203";
 const starterOwnerId = "00000000-0000-4000-8000-000000000204";
@@ -44,6 +45,9 @@ const fixtureArtifactIds = [
 async function main() {
   const db = getDb();
 
+  await db
+    .delete(rateLimitBuckets)
+    .where(eq(rateLimitBuckets.bucketKey, `invite-email:${smokeUserId}`));
   await db
     .delete(shares)
     .where(inArray(shares.subjectId, [...fixtureSkillIds, ...fixtureAppIds]));
