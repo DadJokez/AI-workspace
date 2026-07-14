@@ -33,6 +33,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # workflow_run executes trusted default-branch workflow code. Check out
+      # the matching helper before resolving or checking out the PR head.
+      - name: Checkout review gate
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+
       - name: Resolve PR and confirm both gates are green
         id: gate
         env:
@@ -41,15 +49,13 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # Exactly one open PR for this commit, or stop (don't guess).
-          count=$(gh api "repos/$REPO/commits/$SHA/pulls" \
-            --jq '[.[] | select(.state=="open")] | length')
-          if [ "$count" != "1" ]; then
-            echo "Not exactly one open PR for $SHA (found $count) — skipping."
+          # Commit containment is ambiguous for stacked PRs. Match the one
+          # open PR whose current head is exactly the completed workflow SHA.
+          if ! pr=$(gh api --paginate --slurp \
+              "repos/$REPO/pulls?state=open&per_page=100" \
+              | node .github/scripts/resolve-exact-head-pr.mjs "$SHA"); then
             echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          pr=$(gh api "repos/$REPO/commits/$SHA/pulls" \
-            --jq '[.[] | select(.state=="open")][0].number')
 
           # Require BOTH gate workflows to have a successful run at this SHA.
           # The later-completing gate triggers this and sees both green.

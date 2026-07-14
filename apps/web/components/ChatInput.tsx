@@ -103,6 +103,7 @@ export function ChatInput({
   const [activeSkill, setActiveSkill] = useState<SlashSkill | null>(null);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [uploadReady, setUploadReady] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const draftTimerRef = useRef<number | undefined>(undefined);
@@ -133,6 +134,10 @@ export function ChatInput({
       return `${prev}${sep}${spoken.trim()}`;
     });
   });
+
+  useEffect(() => {
+    setUploadReady(true);
+  }, []);
 
   const paletteActive =
     isSlashCommand(text) &&
@@ -576,8 +581,10 @@ export function ChatInput({
       >
         <input
           ref={fileRef}
+          data-testid="chat-file-input"
           type="file"
           multiple
+          disabled={disabled || !uploadReady}
           className="hidden"
           onChange={(e) => {
             if (e.target.files) void addFiles(e.target.files);
@@ -587,7 +594,7 @@ export function ChatInput({
         <button
           type="button"
           aria-label="Attach files"
-          disabled={disabled}
+          disabled={disabled || !uploadReady}
           onClick={() => fileRef.current?.click()}
           className="flex h-11 w-9 shrink-0 items-center justify-center rounded-md text-muted hover:text-ink disabled:opacity-30 sm:h-7"
         >

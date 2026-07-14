@@ -443,6 +443,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   } | null>(null);
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0];
+  const activeLoadTabId = activeTab?.id;
+  const activeLoadThreadId = activeTab?.threadId;
+  const activeLoadComplete = activeTab?.loaded;
   const composerDraftKey =
     user && activeTab
       ? `${user.id}:${activeTab.threadId ?? "new"}`
@@ -742,13 +745,12 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
 
   // Lazy-load messages for the active conversation when it becomes active.
   useEffect(() => {
-    const tab = tabs.find((t) => t.id === activeId);
-    if (!tab || tab.loaded || !tab.threadId) return;
-    if (loadingThreadsRef.current.has(tab.id)) return;
-    loadingThreadsRef.current.add(tab.id);
+    if (!activeLoadTabId || activeLoadComplete || !activeLoadThreadId) return;
+    if (loadingThreadsRef.current.has(activeLoadTabId)) return;
+    loadingThreadsRef.current.add(activeLoadTabId);
     let cancelled = false;
-    const tabId = tab.id;
-    const threadId = tab.threadId;
+    const tabId = activeLoadTabId;
+    const threadId = activeLoadThreadId;
     fetch(`/api/threads/${threadId}/messages`)
       .then((r) =>
         r.ok
@@ -793,7 +795,12 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     return () => {
       cancelled = true;
     };
-  }, [activeId, tabs, defaultModelId]);
+  }, [
+    activeLoadComplete,
+    activeLoadTabId,
+    activeLoadThreadId,
+    defaultModelId,
+  ]);
 
   // First-run welcome tour (#136): show once per user, the first time the
   // profile loads with tour_completed_at unset. Finishing or skipping
