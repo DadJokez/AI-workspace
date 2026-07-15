@@ -142,7 +142,7 @@ function redactValue(
 ): unknown {
   if (value === null || value === undefined) return value;
   if (typeof value === "string") {
-    return redactString(value, limits.maxStringLength);
+    return redactString(value, depth, limits);
   }
   if (typeof value === "number" || typeof value === "boolean") return value;
   if (typeof value === "bigint") return value.toString();
@@ -178,9 +178,33 @@ function isSensitiveKey(key: string): boolean {
   );
 }
 
-function redactString(value: string, maxLength: number): string {
+function redactString(
+  value: string,
+  depth: number,
+  limits: RedactionLimits,
+): string {
   if (looksLikeSecret(value)) return REDACTED;
-  return truncateString(redactInlineSecrets(value), maxLength);
+  const structured = parseStructuredJson(value);
+  if (structured !== undefined) {
+    return truncateString(
+      JSON.stringify(redactValue(structured, depth + 1, limits)),
+      limits.maxStringLength,
+    );
+  }
+  return truncateString(
+    redactInlineSecrets(value),
+    limits.maxStringLength,
+  );
+}
+
+function parseStructuredJson(value: string): unknown | undefined {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return undefined;
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
 function looksLikeSecret(value: string): boolean {

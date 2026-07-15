@@ -132,6 +132,37 @@ describe("provider run trace capture", () => {
     expect(serialized).not.toContain('"signature":');
   });
 
+  it("structurally redacts JSON-shaped secrets inside tool-result strings", () => {
+    const trace = createProviderTraceAccumulator();
+    trace.record({
+      type: "provider-request",
+      iteration: 1,
+      request: {
+        providerModelId: "us.anthropic.claude-sonnet-4-6",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                kind: "tool-result",
+                toolUseId: "tool-call-1",
+                content:
+                  '{"access_token":"opaque-custom-credential","nested":{"safe":"visible"}}',
+              },
+            ],
+          },
+        ],
+        tools: [],
+      },
+    });
+
+    const capture = trace.snapshot();
+    const serialized = JSON.stringify(capture);
+    expect(serialized).not.toContain("opaque-custom-credential");
+    expect(serialized).toContain("[redacted]");
+    expect(serialized).toContain("visible");
+  });
+
   it("bounds durable context and reasoning capture", () => {
     const trace = createProviderTraceAccumulator();
     trace.record({
