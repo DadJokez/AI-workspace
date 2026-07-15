@@ -98,27 +98,31 @@ export async function GET(
       .limit(250),
   ]);
 
-  const trace = redactTracePayload({
+  const trace = {
     schema: "run-inspector.v1",
     generatedAt: now.toISOString(),
-    run: {
+    run: redactTracePayload({
       ...run,
       startedAt: run.startedAt?.toISOString() ?? null,
       completedAt: run.completedAt?.toISOString() ?? null,
       createdAt: run.createdAt.toISOString(),
       updatedAt: run.updatedAt.toISOString(),
-    },
-    events: eventRows.map((event) => ({
-      ...event,
-      occurredAt: event.occurredAt.toISOString(),
-    })),
-    auditEvents: auditRows.map((event) => ({
-      ...event,
-      startedAt: event.startedAt?.toISOString() ?? null,
-      completedAt: event.completedAt?.toISOString() ?? null,
-      createdAt: event.createdAt.toISOString(),
-    })),
-  });
+    }),
+    events: eventRows.map((event) =>
+      redactTracePayload({
+        ...event,
+        occurredAt: event.occurredAt.toISOString(),
+      }),
+    ),
+    auditEvents: auditRows.map((event) =>
+      redactTracePayload({
+        ...event,
+        startedAt: event.startedAt?.toISOString() ?? null,
+        completedAt: event.completedAt?.toISOString() ?? null,
+        createdAt: event.createdAt.toISOString(),
+      }),
+    ),
+  };
 
   return NextResponse.json({ trace });
 }

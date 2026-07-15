@@ -200,4 +200,54 @@ describe("GET /api/admin/runs/[id]/trace", () => {
     expect(response.status).toBe(200);
     expect(fixtures.insertedAudit).toHaveLength(0);
   });
+
+  it("preserves the endpoint event and audit limits after read-time redaction", async () => {
+    fixtures.eventRows = Array.from({ length: 1_000 }, (_, index) => ({
+      id: `event-${index}`,
+      sequence: index + 1,
+      eventType: "provider_event",
+      status: "succeeded",
+      label: `Provider event ${index + 1}`,
+      provider: "bedrock",
+      toolName: null,
+      toolCallId: null,
+      input: null,
+      output: { index },
+      error: null,
+      metadata: null,
+      occurredAt: new Date(
+        `2026-07-15T01:00:${String(index % 60).padStart(2, "0")}.000Z`,
+      ),
+    }));
+    fixtures.auditRows = Array.from({ length: 250 }, (_, index) => ({
+      id: `audit-${index}`,
+      actionType: "tool_invoked",
+      status: "succeeded",
+      provider: "github",
+      toolName: "github_search",
+      toolCallId: `call-${index}`,
+      input: { query: `query-${index}` },
+      output: { count: index },
+      error: null,
+      metadata: null,
+      startedAt: new Date("2026-07-15T01:00:00.000Z"),
+      completedAt: new Date("2026-07-15T01:00:01.000Z"),
+      createdAt: new Date("2026-07-15T01:00:01.000Z"),
+    }));
+    setAdminResult("admin");
+    installDbMock();
+    const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
+
+    const response = await GET(
+      new Request("http://localhost/api/admin/runs/run-uuid/trace"),
+      { params: Promise.resolve({ id: "run-uuid" }) },
+    );
+    const body = (await response.json()) as {
+      trace: { events: unknown[]; auditEvents: unknown[] };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.trace.events).toHaveLength(1_000);
+    expect(body.trace.auditEvents).toHaveLength(250);
+  });
 });
