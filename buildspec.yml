@@ -19,63 +19,99 @@ phases:
     runtime-versions:
       nodejs: 20
     commands:
-      - 'echo Installing CDK deployment dependencies...'
-      - 'corepack enable'
-      - 'corepack prepare pnpm@9.12.3 --activate'
-      - 'pnpm --filter @ai-workspace/infra install --frozen-lockfile'
+      - |
+        set -euo pipefail
+        DEPLOY_DECISION_FILE=/tmp/ai-workspace-deploy-decision.env
+        if ! ./infra/scripts/classify-production-deploy.sh "$DEPLOY_DECISION_FILE"; then
+          echo "Deployment classifier failed; defaulting to a full deploy."
+          printf 'SKIP_PRODUCTION_DEPLOY=0\n' > "$DEPLOY_DECISION_FILE"
+        fi
+        . "$DEPLOY_DECISION_FILE"
+        if [[ "$SKIP_PRODUCTION_DEPLOY" == "1" ]]; then
+          echo "Skipping install for docs-only change."
+          exit 0
+        fi
+        echo Installing CDK deployment dependencies...
+        corepack enable
+        corepack prepare pnpm@9.12.3 --activate
+        pnpm --filter @ai-workspace/infra install --frozen-lockfile
   pre_build:
     commands:
-      - 'echo Resolving AWS account ID...'
-      - 'AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)'
-      - 'export CDK_DEFAULT_ACCOUNT="$AWS_ACCOUNT_ID"'
-      - 'export CDK_DEFAULT_REGION="$AWS_DEFAULT_REGION"'
-      - 'echo Account=$AWS_ACCOUNT_ID Region=$AWS_DEFAULT_REGION'
-      - 'echo Logging in to Amazon ECR...'
-      - 'aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com'
-      - 'REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME'
-      - 'export COMMIT_TAG=${CODEBUILD_RESOLVED_SOURCE_VERSION:-manual}'
-      # AgentCore requires linux/arm64. Launch its native ARM child build now
-      # so it can run in parallel with the x86 ECS image builds below.
-      - 'AGENTCORE_BUILD_ID=$(./infra/scripts/agentcore-image-build.sh start)'
-      - 'echo AgentCore image build=$AGENTCORE_BUILD_ID'
+      - |
+        set -euo pipefail
+        . /tmp/ai-workspace-deploy-decision.env
+        if [[ "$SKIP_PRODUCTION_DEPLOY" == "1" ]]; then
+          echo "Skipping pre-build for docs-only change."
+          exit 0
+        fi
+        echo Resolving AWS account ID...
+        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        export CDK_DEFAULT_ACCOUNT="$AWS_ACCOUNT_ID"
+        export CDK_DEFAULT_REGION="$AWS_DEFAULT_REGION"
+        echo Account=$AWS_ACCOUNT_ID Region=$AWS_DEFAULT_REGION
+        echo Logging in to Amazon ECR...
+        aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com"
+        REPOSITORY_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME"
+        export REPOSITORY_URI
+        export COMMIT_TAG=${CODEBUILD_RESOLVED_SOURCE_VERSION:-manual}
+        # AgentCore requires linux/arm64. Launch its native ARM child build now
+        # so it can run in parallel with the x86 ECS image builds below.
+        AGENTCORE_BUILD_ID=$(./infra/scripts/agentcore-image-build.sh start)
+        export AGENTCORE_BUILD_ID
+        echo AgentCore image build=$AGENTCORE_BUILD_ID
   build:
     commands:
-      - 'echo Build started on $(date)'
-      - 'docker build -f apps/web/Dockerfile -t $IMAGE_REPO_NAME .'
-      - 'docker build -f apps/web/Dockerfile --target migrator -t $IMAGE_REPO_NAME:migrator .'
-      - 'docker build -f apps/web/Dockerfile --target worker -t $IMAGE_REPO_NAME:worker .'
-      - 'docker build -f apps/web/Dockerfile --target memory-worker -t $IMAGE_REPO_NAME:memory-worker .'
-      - 'docker tag $IMAGE_REPO_NAME:latest $REPOSITORY_URI:latest'
-      - 'docker tag $IMAGE_REPO_NAME:latest $REPOSITORY_URI:$COMMIT_TAG'
-      - 'docker tag $IMAGE_REPO_NAME:worker $REPOSITORY_URI:worker-latest'
-      - 'docker tag $IMAGE_REPO_NAME:worker $REPOSITORY_URI:worker-$COMMIT_TAG'
-      - 'docker tag $IMAGE_REPO_NAME:memory-worker $REPOSITORY_URI:memory-worker-latest'
-      - 'docker tag $IMAGE_REPO_NAME:memory-worker $REPOSITORY_URI:memory-worker-$COMMIT_TAG'
+      - |
+        set -euo pipefail
+        . /tmp/ai-workspace-deploy-decision.env
+        if [[ "$SKIP_PRODUCTION_DEPLOY" == "1" ]]; then
+          echo "Skipping image builds for docs-only change."
+          exit 0
+        fi
+        echo Build started on $(date)
+        docker build -f apps/web/Dockerfile -t $IMAGE_REPO_NAME .
+        docker build -f apps/web/Dockerfile --target migrator -t $IMAGE_REPO_NAME:migrator .
+        docker build -f apps/web/Dockerfile --target worker -t $IMAGE_REPO_NAME:worker .
+        docker build -f apps/web/Dockerfile --target memory-worker -t $IMAGE_REPO_NAME:memory-worker .
+        docker tag $IMAGE_REPO_NAME:latest $REPOSITORY_URI:latest
+        docker tag $IMAGE_REPO_NAME:latest $REPOSITORY_URI:$COMMIT_TAG
+        docker tag $IMAGE_REPO_NAME:worker $REPOSITORY_URI:worker-latest
+        docker tag $IMAGE_REPO_NAME:worker $REPOSITORY_URI:worker-$COMMIT_TAG
+        docker tag $IMAGE_REPO_NAME:memory-worker $REPOSITORY_URI:memory-worker-latest
+        docker tag $IMAGE_REPO_NAME:memory-worker $REPOSITORY_URI:memory-worker-$COMMIT_TAG
   post_build:
     commands:
-      - 'echo Waiting for native ARM AgentCore image build...'
-      - './infra/scripts/agentcore-image-build.sh wait "$AGENTCORE_BUILD_ID"'
-      - 'echo Running database migrations...'
-      - 'APP_SECRET_JSON=$(aws secretsmanager get-secret-value --region $AWS_DEFAULT_REGION --secret-id "$APP_SECRET_NAME" --query SecretString --output text)'
-      - 'DATABASE_URL=$(printf "%s" "$APP_SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)[\"DATABASE_URL\"])")'
-      - 'test -n "$DATABASE_URL" && test "$DATABASE_URL" != "None"'
-      - 'docker run --rm -e DATABASE_URL="$DATABASE_URL" $IMAGE_REPO_NAME:migrator'
-      - 'echo Pushing the Docker images...'
-      - 'docker push $REPOSITORY_URI:latest'
-      - 'docker push $REPOSITORY_URI:$COMMIT_TAG'
-      - 'docker push $REPOSITORY_URI:worker-latest'
-      - 'docker push $REPOSITORY_URI:worker-$COMMIT_TAG'
-      - 'docker push $REPOSITORY_URI:memory-worker-latest'
-      - 'docker push $REPOSITORY_URI:memory-worker-$COMMIT_TAG'
-      # AgentCore pins the image digest per runtime version. Update the CDK
-      # stack's immutable image-tag parameter so CloudFormation remains the
-      # single owner of the runtime and cuts the new version.
-      - 'echo Cutting a new AgentCore runtime version...'
-      - 'AGENTCORE_IMAGE_TAG="$COMMIT_TAG" ./infra/scripts/update-agentcore-stack.sh'
-      - 'echo Reconciling the ECS stack and deploying images...'
-      - './infra/scripts/deploy-ecs-stack.sh'
-      - 'echo Running authenticated production smoke...'
-      - 'NEXTAUTH_SECRET=$(printf "%s" "$APP_SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)[\"NEXTAUTH_SECRET\"])")'
-      - 'test -n "$NEXTAUTH_SECRET" && test "$NEXTAUTH_SECRET" != "None"'
-      - 'docker run --rm -e DATABASE_URL="$DATABASE_URL" -e NEXTAUTH_SECRET="$NEXTAUTH_SECRET" -e SMOKE_BASE_URL="$SMOKE_BASE_URL" -e SMOKE_RUN_ID="$COMMIT_TAG" $IMAGE_REPO_NAME:worker pnpm --filter @ai-workspace/web smoke:prod:auth'
-      - 'echo Build completed on $(date)'
+      - |
+        set -euo pipefail
+        . /tmp/ai-workspace-deploy-decision.env
+        if [[ "$SKIP_PRODUCTION_DEPLOY" == "1" ]]; then
+          echo "Skipping deployment for docs-only change."
+          echo "Build completed on $(date)"
+          exit 0
+        fi
+        echo Waiting for native ARM AgentCore image build...
+        ./infra/scripts/agentcore-image-build.sh wait "$AGENTCORE_BUILD_ID"
+        echo Running database migrations...
+        APP_SECRET_JSON=$(aws secretsmanager get-secret-value --region "$AWS_DEFAULT_REGION" --secret-id "$APP_SECRET_NAME" --query SecretString --output text)
+        DATABASE_URL=$(printf "%s" "$APP_SECRET_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["DATABASE_URL"])')
+        test -n "$DATABASE_URL" && test "$DATABASE_URL" != "None"
+        docker run --rm -e DATABASE_URL="$DATABASE_URL" $IMAGE_REPO_NAME:migrator
+        echo Pushing the Docker images...
+        docker push $REPOSITORY_URI:latest
+        docker push $REPOSITORY_URI:$COMMIT_TAG
+        docker push $REPOSITORY_URI:worker-latest
+        docker push $REPOSITORY_URI:worker-$COMMIT_TAG
+        docker push $REPOSITORY_URI:memory-worker-latest
+        docker push $REPOSITORY_URI:memory-worker-$COMMIT_TAG
+        # AgentCore pins the image digest per runtime version. Update the CDK
+        # stack's immutable image-tag parameter so CloudFormation remains the
+        # single owner of the runtime and cuts the new version.
+        echo Cutting a new AgentCore runtime version...
+        AGENTCORE_IMAGE_TAG="$COMMIT_TAG" ./infra/scripts/update-agentcore-stack.sh
+        echo Reconciling the ECS stack and deploying images...
+        ./infra/scripts/deploy-ecs-stack.sh
+        echo Running authenticated production smoke...
+        NEXTAUTH_SECRET=$(printf "%s" "$APP_SECRET_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["NEXTAUTH_SECRET"])')
+        test -n "$NEXTAUTH_SECRET" && test "$NEXTAUTH_SECRET" != "None"
+        docker run --rm -e DATABASE_URL="$DATABASE_URL" -e NEXTAUTH_SECRET="$NEXTAUTH_SECRET" -e SMOKE_BASE_URL="$SMOKE_BASE_URL" -e SMOKE_RUN_ID="$COMMIT_TAG" $IMAGE_REPO_NAME:worker pnpm --filter @ai-workspace/web smoke:prod:auth
+        echo Build completed on $(date)
