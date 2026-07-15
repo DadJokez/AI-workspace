@@ -220,6 +220,101 @@ describe("runAgentLoop required tools", () => {
   });
 });
 
+class ReasoningToolClient implements BedrockClient {
+  readonly captured: ConverseStreamParams[] = [];
+
+  async *converseStream(
+    params: ConverseStreamParams,
+  ): AsyncIterable<BedrockStreamEvent> {
+    this.captured.push(params);
+    if (this.captured.length === 1) {
+      yield {
+        type: "reasoning-text-delta",
+        text: "I need the connected source.",
+        blockIndex: 0,
+      };
+      yield {
+        type: "reasoning-signature-delta",
+        signature: "signed-reasoning",
+        blockIndex: 0,
+      };
+      yield {
+        type: "tool-use",
+        id: "lookup-call",
+        name: "lookup",
+        input: { id: "42" },
+        blockIndex: 1,
+      };
+      yield { type: "stop", reason: "tool_use" };
+      yield { type: "metadata", latencyMs: 123 };
+      return;
+    }
+    yield { type: "text-delta", text: "Found it." };
+    yield { type: "stop", reason: "end_turn" };
+  }
+}
+
+describe("runAgentLoop provider trace", () => {
+  it("emits inspectable reasoning and preserves signed blocks for tool continuation", async () => {
+    const client = new ReasoningToolClient();
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "lookup",
+      description: "Look up a record.",
+      inputSchema: {
+        type: "object",
+        properties: { id: { type: "string" } },
+      },
+      handler: async () => ({ title: "Answer" }),
+    });
+
+    const events = [];
+    for await (const event of runAgentLoop({
+      modelId: "sonnet-4-6",
+      messages: [{ role: "user", content: "look it up" }],
+      registry,
+      context: { userId: "u1" },
+      client,
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({
+      type: "provider-reasoning-delta",
+      iteration: 0,
+      blockIndex: 0,
+      delta: "I need the connected source.",
+    });
+    expect(events).toContainEqual({
+      type: "provider-response-metadata",
+      iteration: 0,
+      stopReason: "tool_use",
+      additionalModelResponseFields: undefined,
+    });
+    expect(events).toContainEqual({
+      type: "provider-response-metadata",
+      iteration: 0,
+      latencyMs: 123,
+    });
+    expect(client.captured[1]?.messages[1]).toEqual({
+      role: "assistant",
+      content: [
+        {
+          kind: "reasoning",
+          text: "I need the connected source.",
+          signature: "signed-reasoning",
+        },
+        {
+          kind: "tool-use",
+          id: "lookup-call",
+          name: "lookup",
+          input: { id: "42" },
+        },
+      ],
+    });
+  });
+});
+
 /**
  * Streams a long partial answer cut off mid-artifact — the #320 scenario: an
  * open ```html fence with no closing fence — then reports the output cap.

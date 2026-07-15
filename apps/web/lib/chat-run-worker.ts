@@ -62,6 +62,10 @@ import { buildTurnContext } from "@/lib/turn-context";
 import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
 import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 import { normalizeRuntimeUsage } from "@/lib/runtime-usage";
+import {
+  createProviderTraceAccumulator,
+  persistProviderTraceCapture,
+} from "@/lib/run-trace";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
 import {
@@ -551,6 +555,7 @@ async function executeClaimedChatRun({
     parseOutput(run.outputs).providerRun ?? null;
   const runtimeErrors: string[] = [];
   const toolEvents = createToolEventAccumulator(mountedProviders);
+  const providerTrace = createProviderTraceAccumulator();
   const buildOutput = (extra: Record<string, unknown> = {}) => ({
     ...parseOutput(run.outputs),
     assistantText,
@@ -614,6 +619,7 @@ async function executeClaimedChatRun({
         ...(mcpServers ? { mcpServers } : {}),
         ...(requiredToolName ? { requiredToolName } : {}),
       })) {
+        providerTrace.record(ev);
         if (await isRunCanceled(db, run.id)) {
           runtimeAbort.abort();
           break;
@@ -672,6 +678,11 @@ async function executeClaimedChatRun({
       if (await isRunCanceled(db, run.id)) {
         runtimeAbort.abort();
       } else {
+        await persistProviderTraceCapture({
+          db,
+          runId: run.id,
+          capture: providerTrace.snapshot(),
+        });
         throw err;
       }
     }
@@ -682,6 +693,11 @@ async function executeClaimedChatRun({
   }
 
   if (await isRunCanceled(db, run.id)) {
+    await persistProviderTraceCapture({
+      db,
+      runId: run.id,
+      capture: providerTrace.snapshot(),
+    });
     await appendWorkerRunEvent(db, run.id, {
       eventType: "worker_stopped_after_cancel",
       status: "failed",
@@ -695,6 +711,12 @@ async function executeClaimedChatRun({
     : null;
   const runError =
     timeoutError ?? (runtimeErrors.length > 0 ? runtimeErrors.join("\n") : null);
+
+  await persistProviderTraceCapture({
+    db,
+    runId: run.id,
+    capture: providerTrace.snapshot(),
+  });
 
   await persistAssistantResult({
     db,

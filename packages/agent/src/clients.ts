@@ -23,17 +23,40 @@ import type { TokenUsage } from "./types";
  *   AWS messageStop                           → { type: "stop", reason }
  */
 export type BedrockStreamEvent =
-  | { type: "text-delta"; text: string }
+  | { type: "text-delta"; text: string; blockIndex?: number }
+  | {
+      type: "reasoning-text-delta";
+      text: string;
+      blockIndex: number;
+    }
+  | {
+      type: "reasoning-signature-delta";
+      signature: string;
+      blockIndex: number;
+    }
+  | {
+      type: "reasoning-redacted-delta";
+      dataBase64: string;
+      blockIndex: number;
+    }
   | {
       type: "tool-use";
       id: string;
       name: string;
       input: Record<string, unknown>;
+      blockIndex?: number;
     }
   | ({ type: "usage" } & TokenUsage)
   | {
+      type: "metadata";
+      latencyMs?: number;
+      performanceLatency?: string;
+      serviceTier?: string;
+    }
+  | {
       type: "stop";
-      reason: "end_turn" | "tool_use" | "max_tokens" | "stop_sequence";
+      reason: string;
+      additionalModelResponseFields?: unknown;
     };
 
 export interface BedrockMessage {
@@ -64,6 +87,15 @@ export type BedrockContentBlock =
       toolUseId: string;
       content: string;
       isError?: boolean;
+    }
+  | {
+      kind: "reasoning";
+      text: string;
+      signature?: string;
+    }
+  | {
+      kind: "reasoning-redacted";
+      dataBase64: string;
     };
 
 export interface ConverseStreamParams {
@@ -213,6 +245,23 @@ export class RealBedrockClient implements BedrockClient {
             },
           };
         }
+        if (b.kind === "reasoning") {
+          return {
+            reasoningContent: {
+              reasoningText: {
+                text: b.text,
+                signature: b.signature,
+              },
+            },
+          };
+        }
+        if (b.kind === "reasoning-redacted") {
+          return {
+            reasoningContent: {
+              redactedContent: Buffer.from(b.dataBase64, "base64"),
+            },
+          };
+        }
         return {
           toolResult: {
             toolUseId: b.toolUseId,
@@ -259,6 +308,7 @@ export class RealBedrockClient implements BedrockClient {
 
     let pendingToolId: string | undefined;
     let pendingToolName: string | undefined;
+    let pendingToolBlockIndex: number | undefined;
     let pendingInputJson = "";
 
     for await (const chunk of response.stream) {
@@ -269,14 +319,43 @@ export class RealBedrockClient implements BedrockClient {
         if (start?.toolUse) {
           pendingToolId = start.toolUse.toolUseId;
           pendingToolName = start.toolUse.name;
+          pendingToolBlockIndex = chunk.contentBlockStart.contentBlockIndex;
           pendingInputJson = "";
         }
       } else if (chunk.contentBlockDelta) {
         const delta = chunk.contentBlockDelta.delta;
         if (delta?.text) {
-          yield { type: "text-delta", text: delta.text };
+          yield {
+            type: "text-delta",
+            text: delta.text,
+            blockIndex: chunk.contentBlockDelta.contentBlockIndex,
+          };
         } else if (delta?.toolUse?.input) {
           pendingInputJson += delta.toolUse.input;
+        } else if (delta?.reasoningContent) {
+          const reasoning = delta.reasoningContent;
+          const blockIndex = chunk.contentBlockDelta.contentBlockIndex ?? 0;
+          if (typeof reasoning.text === "string") {
+            yield {
+              type: "reasoning-text-delta",
+              text: reasoning.text,
+              blockIndex,
+            };
+          } else if (typeof reasoning.signature === "string") {
+            yield {
+              type: "reasoning-signature-delta",
+              signature: reasoning.signature,
+              blockIndex,
+            };
+          } else if (reasoning.redactedContent) {
+            yield {
+              type: "reasoning-redacted-delta",
+              dataBase64: Buffer.from(reasoning.redactedContent).toString(
+                "base64",
+              ),
+              blockIndex,
+            };
+          }
         }
       } else if (chunk.contentBlockStop) {
         if (pendingToolId && pendingToolName) {
@@ -286,37 +365,53 @@ export class RealBedrockClient implements BedrockClient {
           } catch {
             // malformed — pass empty, handler will reject
           }
-          yield { type: "tool-use", id: pendingToolId, name: pendingToolName, input };
+          yield {
+            type: "tool-use",
+            id: pendingToolId,
+            name: pendingToolName,
+            input,
+            blockIndex: pendingToolBlockIndex,
+          };
           pendingToolId = undefined;
           pendingToolName = undefined;
+          pendingToolBlockIndex = undefined;
           pendingInputJson = "";
         }
       } else if (chunk.messageStop) {
-        const raw = chunk.messageStop.stopReason;
-        const reason =
-          raw === "tool_use"
-            ? "tool_use"
-            : raw === "max_tokens"
-              ? "max_tokens"
-              : raw === "stop_sequence"
-                ? "stop_sequence"
-                : "end_turn";
-        yield { type: "stop", reason };
-      } else if (chunk.metadata?.usage) {
-        const usage = chunk.metadata.usage;
         yield {
-          type: "usage",
-          inputTokens: usage.inputTokens ?? 0,
-          cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
-          cacheWriteInputTokens: usage.cacheWriteInputTokens ?? 0,
-          // Preserve the original total alongside its separately billable
-          // components so cost and cache-hit ratios remain measurable.
-          tokensIn:
-            (usage.inputTokens ?? 0) +
-            (usage.cacheReadInputTokens ?? 0) +
-            (usage.cacheWriteInputTokens ?? 0),
-          tokensOut: usage.outputTokens ?? 0,
+          type: "stop",
+          reason: chunk.messageStop.stopReason ?? "end_turn",
+          additionalModelResponseFields:
+            chunk.messageStop.additionalModelResponseFields,
         };
+      } else if (chunk.metadata) {
+        const usage = chunk.metadata.usage;
+        if (usage) {
+          yield {
+            type: "usage",
+            inputTokens: usage.inputTokens ?? 0,
+            cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
+            cacheWriteInputTokens: usage.cacheWriteInputTokens ?? 0,
+            // Preserve the original total alongside its separately billable
+            // components so cost and cache-hit ratios remain measurable.
+            tokensIn:
+              (usage.inputTokens ?? 0) +
+              (usage.cacheReadInputTokens ?? 0) +
+              (usage.cacheWriteInputTokens ?? 0),
+            tokensOut: usage.outputTokens ?? 0,
+          };
+        }
+        const latencyMs = chunk.metadata.metrics?.latencyMs;
+        const performanceLatency = chunk.metadata.performanceConfig?.latency;
+        const serviceTier = chunk.metadata.serviceTier?.type;
+        if (latencyMs !== undefined || performanceLatency || serviceTier) {
+          yield {
+            type: "metadata",
+            ...(latencyMs !== undefined ? { latencyMs } : {}),
+            ...(performanceLatency ? { performanceLatency } : {}),
+            ...(serviceTier ? { serviceTier } : {}),
+          };
+        }
       }
     }
   }

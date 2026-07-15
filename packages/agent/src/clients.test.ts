@@ -258,4 +258,129 @@ describe("RealBedrockClient prompt caching", () => {
       cacheWriteInputTokens: 0,
     });
   });
+
+  it("maps provider reasoning and response metadata without exposing signatures as text", async () => {
+    stubSend([
+      {
+        contentBlockDelta: {
+          contentBlockIndex: 0,
+          delta: { reasoningContent: { text: "I should inspect the repo." } },
+        },
+      },
+      {
+        contentBlockDelta: {
+          contentBlockIndex: 0,
+          delta: { reasoningContent: { signature: "signed-reasoning" } },
+        },
+      },
+      {
+        contentBlockDelta: {
+          contentBlockIndex: 1,
+          delta: {
+            reasoningContent: {
+              redactedContent: Buffer.from("encrypted"),
+            },
+          },
+        },
+      },
+      {
+        messageStop: {
+          stopReason: "end_turn",
+          additionalModelResponseFields: { traceId: "provider-trace" },
+        },
+      },
+      {
+        metadata: {
+          metrics: { latencyMs: 321 },
+          performanceConfig: { latency: "standard" },
+          serviceTier: { type: "default" },
+        },
+      },
+    ]);
+    const client = new RealBedrockClient();
+    const events = await collect(
+      client.converseStream({
+        bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
+        maxTokens: 100,
+      }),
+    );
+
+    expect(events).toEqual([
+      {
+        type: "reasoning-text-delta",
+        text: "I should inspect the repo.",
+        blockIndex: 0,
+      },
+      {
+        type: "reasoning-signature-delta",
+        signature: "signed-reasoning",
+        blockIndex: 0,
+      },
+      {
+        type: "reasoning-redacted-delta",
+        dataBase64: Buffer.from("encrypted").toString("base64"),
+        blockIndex: 1,
+      },
+      {
+        type: "stop",
+        reason: "end_turn",
+        additionalModelResponseFields: { traceId: "provider-trace" },
+      },
+      {
+        type: "metadata",
+        latencyMs: 321,
+        performanceLatency: "standard",
+        serviceTier: "default",
+      },
+    ]);
+  });
+
+  it("passes preserved reasoning blocks back to Bedrock", async () => {
+    const inputs = stubSend();
+    const client = new RealBedrockClient();
+    await collect(
+      client.converseStream({
+        bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                kind: "reasoning",
+                text: "Use the connected tool.",
+                signature: "signed-reasoning",
+              },
+              {
+                kind: "reasoning-redacted",
+                dataBase64: Buffer.from("encrypted").toString("base64"),
+              },
+            ],
+          },
+        ],
+        maxTokens: 100,
+      }),
+    );
+
+    expect(inputs[0]?.messages).toEqual([
+      {
+        role: "assistant",
+        content: [
+          {
+            reasoningContent: {
+              reasoningText: {
+                text: "Use the connected tool.",
+                signature: "signed-reasoning",
+              },
+            },
+          },
+          {
+            reasoningContent: {
+              redactedContent: Buffer.from("encrypted"),
+            },
+          },
+        ],
+      },
+    ]);
+  });
 });

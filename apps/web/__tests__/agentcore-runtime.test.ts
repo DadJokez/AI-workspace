@@ -53,6 +53,32 @@ describe("parseAgentEventSse", () => {
     ]);
   });
 
+  it("relays provider reasoning and response metadata events", async () => {
+    const events = await collect(
+      parseAgentEventSse(
+        bytes(
+          'data: {"type":"provider-reasoning-delta","iteration":0,"blockIndex":0,"delta":"Check the repository."}\n\n',
+          'data: {"type":"provider-response-metadata","iteration":0,"stopReason":"end_turn","latencyMs":321}\n\n',
+        ),
+      ),
+    );
+
+    expect(events).toEqual([
+      {
+        type: "provider-reasoning-delta",
+        iteration: 0,
+        blockIndex: 0,
+        delta: "Check the repository.",
+      },
+      {
+        type: "provider-response-metadata",
+        iteration: 0,
+        stopReason: "end_turn",
+        latencyMs: 321,
+      },
+    ]);
+  });
+
   it("ignores unknown event shapes and junk lines", async () => {
     const events = await collect(
       parseAgentEventSse(

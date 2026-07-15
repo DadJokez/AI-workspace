@@ -700,6 +700,7 @@ export async function POST(req: Request) {
           requestedProviders: activatedSkill?.skill.mcpProviders,
           signal: req.signal,
           send,
+          diagnosticStreamEnabled: sessionUser.role === "admin",
         });
       } catch (err) {
         send({

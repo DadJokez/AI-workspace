@@ -351,18 +351,26 @@ export default async function AdminRunsPage({ searchParams }: Props) {
                       </div>
                     </td>
                     <td className="border-b border-hairline px-6 py-3 align-top">
-                      {row.error ? (
-                        <div className="max-w-xl truncate font-mono text-[12px] text-red-300">
-                          {row.error}
-                        </div>
-                      ) : (
+                      <div className="flex flex-wrap gap-3">
+                        {row.error ? (
+                          <div className="max-w-xl truncate font-mono text-[12px] text-red-300">
+                            {row.error}
+                          </div>
+                        ) : (
+                          <Link
+                            href={`/admin/runs/${row.id}`}
+                            className="text-[12px] text-ink underline-offset-2 hover:underline"
+                          >
+                            View run
+                          </Link>
+                        )}
                         <Link
-                          href={`/admin/runs/${row.id}`}
-                          className="text-[12px] text-ink underline-offset-2 hover:underline"
+                          href={`/chat?inspectRun=${row.id}`}
+                          className="text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline"
                         >
-                          View run
+                          Open inspector
                         </Link>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 );
