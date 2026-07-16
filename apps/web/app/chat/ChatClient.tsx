@@ -1,6 +1,7 @@
 "use client";
 
 import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
+import { RunInspectorPane } from "@/components/RunInspectorPane";
 import {
   ChatInput,
   type ChatEditRequest,
@@ -39,6 +40,7 @@ import {
 import type { ChatModelOverride } from "@/lib/model-command";
 import { readSseStream } from "@/lib/sse";
 import type { AgentActivityEvent } from "@/lib/activity-events";
+import type { LiveReasoningBlock } from "@/lib/run-inspector";
 import {
   parseToolName,
   type PersistedToolCall,
@@ -89,6 +91,7 @@ interface UiMessage {
   canResume?: boolean;
   hasAttachments?: boolean;
   persisted?: boolean;
+  providerReasoning?: LiveReasoningBlock[];
 }
 
 export function mergeLoadedMessages(
@@ -148,6 +151,9 @@ interface ChatStreamEvent {
     | "meta"
     | "model"
     | "text-delta"
+    | "provider-reasoning-delta"
+    | "provider-reasoning-redacted"
+    | "provider-response-metadata"
     | "tool-call"
     | "tool-result"
     | "usage"
@@ -384,6 +390,41 @@ function upsertToolResult(
   return [...existing, result];
 }
 
+function updateLiveReasoning(
+  blocks: LiveReasoningBlock[] | undefined,
+  event: {
+    iteration: number;
+    blockIndex: number;
+    delta?: string;
+    redacted?: boolean;
+  },
+): LiveReasoningBlock[] {
+  const existing = blocks ?? [];
+  const index = existing.findIndex(
+    (block) =>
+      block.iteration === event.iteration &&
+      block.blockIndex === event.blockIndex,
+  );
+  const current =
+    index >= 0
+      ? existing[index]!
+      : {
+          iteration: event.iteration,
+          blockIndex: event.blockIndex,
+          text: "",
+          redacted: false,
+        };
+  const next = {
+    ...current,
+    text: current.text + (event.delta ?? ""),
+    redacted: current.redacted || event.redacted === true,
+  };
+  if (index < 0) return [...existing, next];
+  return existing.map((block, blockIndex) =>
+    blockIndex === index ? next : block,
+  );
+}
+
 function formatChatError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   if (/network|failed to fetch|load failed|terminated|aborted/i.test(message)) {
@@ -421,6 +462,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const [previewArtifact, setPreviewArtifact] =
     useState<WorkspaceArtifactSummary | null>(null);
   const [previewWidth, setPreviewWidth] = useState(640);
+  const [inspectedRunId, setInspectedRunId] = useState<string | null>(null);
+  const [inspectorWidth, setInspectorWidth] = useState(680);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [oauthConnected, setOauthConnected] = useState<Record<string, boolean>>({});
@@ -453,6 +496,19 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const latestAppDraftIds = latestAppDraftVersionIds(
     activeTab?.messages.flatMap((message) => message.appDraftVersions ?? []) ?? [],
   );
+  const inspectedMessage = inspectedRunId
+    ? activeTab?.messages.find((message) => message.runId === inspectedRunId)
+    : undefined;
+
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    const runId = new URLSearchParams(window.location.search).get("inspectRun");
+    if (runId && /^[0-9a-f-]{36}$/i.test(runId)) {
+      setInspectedRunId(runId);
+      setPreviewArtifact(null);
+      setView("chat");
+    }
+  }, [user?.role]);
 
   useEffect(() => {
     setEditRequest(undefined);
@@ -1155,7 +1211,13 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   }
 
   function openArtifactPreview(artifact: WorkspaceArtifactSummary) {
+    setInspectedRunId(null);
     setPreviewArtifact(artifact);
+  }
+
+  function openRunInspector(runId: string) {
+    setPreviewArtifact(null);
+    setInspectedRunId(runId);
   }
 
   function patchRecommendation(
@@ -1421,6 +1483,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       let assistantModel: string | undefined;
       let queuedRun = false;
       let queuedRunMessageId: string | undefined;
+      let streamRunId: string | undefined;
       let assistantDraftId = assistantMsgId;
       const isDraftMessage = (m: UiMessage) =>
         m.id === assistantMsgId || m.id === assistantDraftId;
@@ -1441,14 +1504,29 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           }
           if (typeof ev.modelId === "string") assistantModel = ev.modelId;
           const route = ev.runtimeRoute as { useWorker?: unknown } | undefined;
-          if (typeof ev.runId === "string" && route?.useWorker === true) {
-            const runMessageId = `run:${ev.runId}`;
+          if (typeof ev.runId === "string") {
+            streamRunId = ev.runId;
+            patchTabMessages(tabId, (prev) =>
+              prev.map((message) =>
+                isDraftMessage(message)
+                  ? { ...message, runId: streamRunId }
+                  : message,
+              ),
+            );
+          }
+          if (streamRunId && route?.useWorker === true) {
+            const runMessageId = `run:${streamRunId}`;
             queuedRunMessageId = runMessageId;
             assistantDraftId = runMessageId;
             patchTabMessages(tabId, (prev) =>
               prev.map((m) =>
                 m.id === assistantMsgId
-                  ? { ...m, id: runMessageId, modelId: assistantModel }
+                  ? {
+                      ...m,
+                      id: runMessageId,
+                      modelId: assistantModel,
+                      runId: streamRunId,
+                    }
                   : m,
               ),
             );
@@ -1471,6 +1549,51 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     pending: true,
                     status: undefined,
                     modelId: assistantModel,
+                  }
+                : m,
+            ),
+          );
+        } else if (
+          ev.type === "provider-reasoning-delta" &&
+          typeof ev.iteration === "number" &&
+          typeof ev.blockIndex === "number" &&
+          typeof ev.delta === "string"
+        ) {
+          patchTabMessages(tabId, (prev) =>
+            prev.map((m) =>
+              isDraftMessage(m)
+                ? {
+                    ...m,
+                    providerReasoning: updateLiveReasoning(
+                      m.providerReasoning,
+                      {
+                        iteration: ev.iteration as number,
+                        blockIndex: ev.blockIndex as number,
+                        delta: ev.delta as string,
+                      },
+                    ),
+                  }
+                : m,
+            ),
+          );
+        } else if (
+          ev.type === "provider-reasoning-redacted" &&
+          typeof ev.iteration === "number" &&
+          typeof ev.blockIndex === "number"
+        ) {
+          patchTabMessages(tabId, (prev) =>
+            prev.map((m) =>
+              isDraftMessage(m)
+                ? {
+                    ...m,
+                    providerReasoning: updateLiveReasoning(
+                      m.providerReasoning,
+                      {
+                        iteration: ev.iteration as number,
+                        blockIndex: ev.blockIndex as number,
+                        redacted: true,
+                      },
+                    ),
                   }
                 : m,
             ),
@@ -1570,8 +1693,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     artifacts,
                     appDraftVersions,
                     recommendations,
-                    runId: undefined,
-                    runStatus: undefined,
+                    runId: streamRunId ?? m.runId,
+                    runStatus: "succeeded",
                     canCancel: false,
                     canRetry: false,
                     canResume: false,
@@ -1599,8 +1722,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                 ...(queuedRun
                   ? {}
                   : {
-                      runId: undefined,
-                      runStatus: undefined,
+                      runId: streamRunId ?? m.runId,
+                      runStatus: "succeeded",
                       canCancel: false,
                       canRetry: false,
                       canResume: false,
@@ -2029,6 +2152,19 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                       onAction={runAction}
                     />
                   ) : null}
+                  {user?.role === "admin" &&
+                  m.role === "assistant" &&
+                  m.runId ? (
+                    <button
+                      type="button"
+                      aria-label="Inspect run"
+                      title="Inspect run"
+                      onClick={() => openRunInspector(m.runId!)}
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink"
+                    >
+                      <RunInspectorIcon />
+                    </button>
+                  ) : null}
                 </div>
               ))
             )}
@@ -2113,7 +2249,15 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           )}
         </section>
 
-        {previewArtifact ? (
+        {inspectedRunId && user?.role === "admin" ? (
+          <RunInspectorPane
+            runId={inspectedRunId}
+            widthPx={inspectorWidth}
+            onWidthChange={setInspectorWidth}
+            onClose={() => setInspectedRunId(null)}
+            liveReasoning={inspectedMessage?.providerReasoning}
+          />
+        ) : previewArtifact ? (
           <ArtifactPreviewPane
             artifact={previewArtifact}
             widthPx={previewWidth}
@@ -2155,6 +2299,27 @@ function DownloadIcon() {
       <path d="M8 2.5v6.8" />
       <path d="m5.2 6.8 2.8 2.8 2.8-2.8" />
       <path d="M3 12.5h10" />
+    </svg>
+  );
+}
+
+function RunInspectorIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M2.5 4.5h4M8.5 4.5h5M2.5 8h7M11.5 8h2M2.5 11.5h2M6.5 11.5h7" />
+      <circle cx="7.5" cy="4.5" r="1" />
+      <circle cx="10.5" cy="8" r="1" />
+      <circle cx="5.5" cy="11.5" r="1" />
     </svg>
   );
 }

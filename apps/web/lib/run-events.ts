@@ -11,6 +11,7 @@ import {
   redactErrorText,
   redactProviderToolError,
   redactProviderToolPayload,
+  redactTracePayload,
   redactToolPayload,
 } from "@/lib/tool-redaction";
 
@@ -31,6 +32,7 @@ export interface AppendRunEventInput {
   error?: unknown;
   metadata?: Record<string, unknown>;
   occurredAt?: Date;
+  redactionProfile?: "tool" | "trace";
 }
 
 export async function appendRunEvent({
@@ -48,7 +50,10 @@ export async function appendRunEvent({
   error,
   metadata,
   occurredAt,
+  redactionProfile = "tool",
 }: AppendRunEventInput): Promise<void> {
+  const redact =
+    redactionProfile === "trace" ? redactTracePayload : redactToolPayload;
   await db.insert(runEvents).values({
     runId,
     sequence,
@@ -61,10 +66,15 @@ export async function appendRunEvent({
     input:
       input === undefined
         ? null
-        : (redactToolPayload(input) as Record<string, unknown> | null),
-    output: output === undefined ? null : redactToolPayload(output),
+        : (redact(input) as Record<string, unknown> | null),
+    output: output === undefined ? null : redact(output),
     error: error === undefined ? null : redactErrorText(error),
-    metadata: metadata ?? null,
+    metadata:
+      metadata === undefined
+        ? null
+        : redactionProfile === "trace"
+          ? (redactTracePayload(metadata) as Record<string, unknown>)
+          : metadata,
     occurredAt: occurredAt ?? new Date(),
   });
 }

@@ -1,12 +1,36 @@
 import { describe, expect, it } from "vitest";
 import {
   redactErrorText,
+  redactTracePayload,
   redactToolCall,
   redactToolPayload,
   redactToolResult,
 } from "@/lib/tool-redaction";
 
 describe("tool redaction", () => {
+  it("keeps longer trace text while applying the same secret rules", () => {
+    const longText = "a".repeat(3_000);
+    const redacted = redactTracePayload({
+      prompt: longText,
+      authorization: "Bearer secret-value",
+    }) as Record<string, unknown>;
+
+    expect(redacted.prompt).toBe(longText);
+    expect(redacted.authorization).toBe("[redacted]");
+  });
+
+  it("redacts credentials embedded inside ordinary trace text", () => {
+    const redacted = redactTracePayload({
+      prompt:
+        "Use Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456 and client_secret=do-not-store-this-value.",
+    }) as Record<string, string>;
+
+    expect(redacted.prompt).toContain("Bearer [redacted]");
+    expect(redacted.prompt).toContain("client_secret=[redacted]");
+    expect(redacted.prompt).not.toContain("abcdefghijklmnopqrstuvwxyz123456");
+    expect(redacted.prompt).not.toContain("do-not-store-this-value");
+  });
+
   it("redacts sensitive keys recursively", () => {
     expect(
       redactToolPayload({

@@ -7,6 +7,7 @@ interface MockChatOptions {
   threadMessages?: Record<string, unknown[]>;
   artifacts?: unknown[];
   artifactDetails?: Record<string, unknown>;
+  runTraces?: Record<string, unknown>;
   skills?: unknown[];
   user?: Record<string, unknown>;
   oauthStatus?: Record<string, unknown>;
@@ -542,6 +543,15 @@ export async function installMockComparativeApi(
           updatedAt: now,
         },
       });
+    }
+
+    const runTraceMatch = /^\/api\/admin\/runs\/([^/]+)\/trace$/.exec(path);
+    if (runTraceMatch) {
+      const runId = decodeURIComponent(runTraceMatch[1]!);
+      const trace = options.runTraces?.[runId];
+      return trace
+        ? json(route, { trace })
+        : json(route, { error: "run_not_found" }, 404);
     }
 
     if (path === "/api/chat") {

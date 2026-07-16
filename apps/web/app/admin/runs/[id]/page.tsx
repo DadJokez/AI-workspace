@@ -176,6 +176,12 @@ export default async function AdminRunDetailPage({ params }: Props) {
           ) : canRetryWorkflowRun(run.status) ? (
             <RetryRunButton runId={run.id} modelId={run.modelId} />
           ) : null}
+          <Link
+            href={`/chat?inspectRun=${run.id}`}
+            className="inline-flex h-8 items-center rounded-md border border-hairline bg-canvas px-2.5 text-[12px] font-medium text-ink hover:bg-subtle"
+          >
+            Open inspector
+          </Link>
         </div>
         <p className="mt-1 text-[12px] text-muted">
           Stored workflow output, tool activity, and audit trail for this run.

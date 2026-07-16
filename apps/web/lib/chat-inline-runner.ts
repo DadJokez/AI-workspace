@@ -63,6 +63,10 @@ import { buildTurnContext } from "@/lib/turn-context";
 import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
 import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 import { normalizeRuntimeUsage } from "@/lib/runtime-usage";
+import {
+  createProviderTraceAccumulator,
+  persistProviderTraceCapture,
+} from "@/lib/run-trace";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import {
   createArtifactsFromAssistantMessage,
@@ -94,6 +98,7 @@ export interface StreamInlineChatRunInput {
   requestStartedAt?: Date;
   signal?: AbortSignal;
   send: ChatStreamSend;
+  diagnosticStreamEnabled?: boolean;
 }
 
 export interface ChatRunTimingMarks {
@@ -136,6 +141,7 @@ export async function streamInlineChatRun({
   requestStartedAt,
   signal,
   send,
+  diagnosticStreamEnabled = false,
 }: StreamInlineChatRunInput): Promise<void> {
   const timing: ChatRunTimingMarks = {
     requestStartedAt: requestStartedAt ?? new Date(),
@@ -168,6 +174,7 @@ export async function streamInlineChatRun({
   let providerRunMetadata: RuntimeRunMetadata | null = null;
   const runtimeErrors: NormalizedRuntimeError[] = [];
   const toolEvents = createToolEventAccumulator([]);
+  const providerTrace = createProviderTraceAccumulator();
   const builtinTools = builtinToolsForChatRoute(route);
 
   try {
@@ -456,6 +463,7 @@ export async function streamInlineChatRun({
         ...(builtinTools.length > 0 ? { builtinTools } : {}),
         ...(requiredToolName ? { requiredToolName } : {}),
       })) {
+        providerTrace.record(ev);
         if (signal?.aborted) {
           runtimeAbort.abort();
           break;
@@ -481,6 +489,27 @@ export async function streamInlineChatRun({
                 metrics,
               },
             });
+          }
+        } else if (ev.type === "provider-reasoning-delta") {
+          if (diagnosticStreamEnabled) {
+            send({
+              type: ev.type,
+              iteration: ev.iteration,
+              blockIndex: ev.blockIndex,
+              delta: ev.delta,
+            });
+          }
+        } else if (ev.type === "provider-reasoning-redacted") {
+          if (diagnosticStreamEnabled) {
+            send({
+              type: ev.type,
+              iteration: ev.iteration,
+              blockIndex: ev.blockIndex,
+            });
+          }
+        } else if (ev.type === "provider-response-metadata") {
+          if (diagnosticStreamEnabled) {
+            send({ ...ev });
           }
         } else if (ev.type === "usage") {
           const usage = normalizeRuntimeUsage(ev);
@@ -563,6 +592,11 @@ export async function streamInlineChatRun({
     const completedAt = new Date();
     timing.completedAt = completedAt;
     const finalMetrics = buildTimingMetrics(timing);
+    await persistProviderTraceCapture({
+      db,
+      runId,
+      capture: providerTrace.snapshot(completedAt),
+    });
 
     const persistedResult = await persistInlineAssistantResult({
       db,

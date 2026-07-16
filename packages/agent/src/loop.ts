@@ -6,7 +6,12 @@ import {
 } from "./clients";
 import { MODELS, type ModelId } from "./models";
 import type { ToolRegistry } from "./registry";
-import type { AgentEvent, AgentMessage, ToolContext } from "./types";
+import type {
+  AgentEvent,
+  AgentMessage,
+  ProviderRequestSnapshot,
+  ToolContext,
+} from "./types";
 
 export interface RunAgentLoopParams {
   modelId: ModelId;
@@ -140,15 +145,30 @@ export async function* runAgentLoop(
       signal: params.signal,
     });
 
+    yield {
+      type: "provider-request",
+      iteration: iter,
+      request: buildProviderRequestSnapshot({
+        providerModelId: model.bedrockModelId,
+        systemPrompt,
+        volatileSystemSuffix,
+        messages: bedrockMessages,
+        tools,
+      }),
+    };
+
     const assistantBlocks: BedrockContentBlock[] = [];
     let pendingText = "";
+    const reasoningBlocks = new Map<
+      number,
+      { text: string; signature: string; redactedParts: string[] }
+    >();
     const pendingToolCalls: Array<{
       id: string;
       name: string;
       input: Record<string, unknown>;
     }> = [];
-    let stopReason: "end_turn" | "tool_use" | "max_tokens" | "stop_sequence" =
-      "end_turn";
+    let stopReason = "end_turn";
 
     for await (const ev of stream) {
       if (params.signal?.aborted) {
@@ -158,6 +178,41 @@ export async function* runAgentLoop(
       if (ev.type === "text-delta") {
         pendingText += ev.text;
         yield { type: "text-delta", delta: ev.text };
+      } else if (ev.type === "reasoning-text-delta") {
+        const block = reasoningBlocks.get(ev.blockIndex) ?? {
+          text: "",
+          signature: "",
+          redactedParts: [],
+        };
+        block.text += ev.text;
+        reasoningBlocks.set(ev.blockIndex, block);
+        yield {
+          type: "provider-reasoning-delta",
+          iteration: iter,
+          blockIndex: ev.blockIndex,
+          delta: ev.text,
+        };
+      } else if (ev.type === "reasoning-signature-delta") {
+        const block = reasoningBlocks.get(ev.blockIndex) ?? {
+          text: "",
+          signature: "",
+          redactedParts: [],
+        };
+        block.signature += ev.signature;
+        reasoningBlocks.set(ev.blockIndex, block);
+      } else if (ev.type === "reasoning-redacted-delta") {
+        const block = reasoningBlocks.get(ev.blockIndex) ?? {
+          text: "",
+          signature: "",
+          redactedParts: [],
+        };
+        block.redactedParts.push(ev.dataBase64);
+        reasoningBlocks.set(ev.blockIndex, block);
+        yield {
+          type: "provider-reasoning-redacted",
+          iteration: iter,
+          blockIndex: ev.blockIndex,
+        };
       } else if (ev.type === "tool-use") {
         pendingToolCalls.push({ id: ev.id, name: ev.name, input: ev.input });
         yield {
@@ -174,9 +229,43 @@ export async function* runAgentLoop(
         totalCacheWriteInputTokens += ev.cacheWriteInputTokens ?? 0;
       } else if (ev.type === "stop") {
         stopReason = ev.reason;
+        yield {
+          type: "provider-response-metadata",
+          iteration: iter,
+          stopReason: ev.reason,
+          additionalModelResponseFields: ev.additionalModelResponseFields,
+        };
+      } else if (ev.type === "metadata") {
+        yield {
+          type: "provider-response-metadata",
+          iteration: iter,
+          ...(ev.latencyMs !== undefined ? { latencyMs: ev.latencyMs } : {}),
+          ...(ev.performanceLatency
+            ? { performanceLatency: ev.performanceLatency }
+            : {}),
+          ...(ev.serviceTier ? { serviceTier: ev.serviceTier } : {}),
+        };
       }
     }
 
+    for (const [, block] of [...reasoningBlocks].sort(
+      ([left], [right]) => left - right,
+    )) {
+      if (block.redactedParts.length > 0) {
+        assistantBlocks.push({
+          kind: "reasoning-redacted",
+          dataBase64: Buffer.concat(
+            block.redactedParts.map((part) => Buffer.from(part, "base64")),
+          ).toString("base64"),
+        });
+      } else {
+        assistantBlocks.push({
+          kind: "reasoning",
+          text: block.text,
+          ...(block.signature ? { signature: block.signature } : {}),
+        });
+      }
+    }
     if (pendingText) {
       assistantBlocks.push({ kind: "text", text: pendingText });
     }
@@ -257,6 +346,57 @@ export async function* runAgentLoop(
     cacheWriteInputTokens: totalCacheWriteInputTokens,
   };
   yield { type: "done" };
+}
+
+function buildProviderRequestSnapshot({
+  providerModelId,
+  systemPrompt,
+  volatileSystemSuffix,
+  messages,
+  tools,
+}: {
+  providerModelId: string;
+  systemPrompt?: string;
+  volatileSystemSuffix?: string;
+  messages: BedrockMessage[];
+  tools: ReturnType<ToolRegistry["list"]>;
+}): ProviderRequestSnapshot {
+  return {
+    providerModelId,
+    systemPrompt,
+    volatileSystemSuffix,
+    messages: messages.map((message) => ({
+      role: message.role,
+      content: message.content.map((block) => {
+        if (block.kind === "image") {
+          return {
+            kind: "image" as const,
+            format: block.format,
+            sizeBytes: Buffer.byteLength(block.dataBase64, "base64"),
+          };
+        }
+        if (block.kind === "reasoning") {
+          return {
+            kind: "reasoning" as const,
+            text: block.text,
+            signaturePresent: Boolean(block.signature),
+          };
+        }
+        if (block.kind === "reasoning-redacted") {
+          return {
+            kind: "reasoning-redacted" as const,
+            sizeBytes: Buffer.byteLength(block.dataBase64, "base64"),
+          };
+        }
+        return { ...block };
+      }),
+    })),
+    tools: tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    })),
+  };
 }
 
 function agentMessageToBedrock(m: AgentMessage): BedrockMessage {

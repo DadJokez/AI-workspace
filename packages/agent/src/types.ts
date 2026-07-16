@@ -64,12 +64,79 @@ export interface TokenUsage {
   cacheWriteInputTokens: number;
 }
 
+export interface ProviderResponseMetadata {
+  iteration: number;
+  stopReason?: string;
+  latencyMs?: number;
+  performanceLatency?: string;
+  serviceTier?: string;
+  additionalModelResponseFields?: unknown;
+}
+
+export type ProviderRequestContentBlock =
+  | { kind: "text"; text: string }
+  | {
+      kind: "image";
+      format: "png" | "jpeg" | "webp";
+      sizeBytes: number;
+    }
+  | {
+      kind: "tool-use";
+      id: string;
+      name: string;
+      input: Record<string, unknown>;
+    }
+  | {
+      kind: "tool-result";
+      toolUseId: string;
+      content: string;
+      isError?: boolean;
+    }
+  | {
+      kind: "reasoning";
+      text: string;
+      signaturePresent: boolean;
+    }
+  | { kind: "reasoning-redacted"; sizeBytes: number };
+
+export interface ProviderRequestSnapshot {
+  providerModelId: string;
+  systemPrompt?: string;
+  volatileSystemSuffix?: string;
+  messages: Array<{
+    role: "user" | "assistant";
+    content: ProviderRequestContentBlock[];
+  }>;
+  tools: Array<{
+    name: string;
+    description: string;
+    inputSchema: JSONSchema7;
+  }>;
+}
+
 /**
  * Streaming events emitted by `runAgentLoop`. The web layer relays these as SSE.
  * Concrete implementation lands in a follow-up PR; types are locked here so consumers compile.
  */
 export type AgentEvent =
   | { type: "text-delta"; delta: string }
+  | {
+      type: "provider-request";
+      iteration: number;
+      request: ProviderRequestSnapshot;
+    }
+  | {
+      type: "provider-reasoning-delta";
+      iteration: number;
+      blockIndex: number;
+      delta: string;
+    }
+  | {
+      type: "provider-reasoning-redacted";
+      iteration: number;
+      blockIndex: number;
+    }
+  | ({ type: "provider-response-metadata" } & ProviderResponseMetadata)
   | { type: "tool-call"; call: ToolCall }
   | { type: "tool-result"; result: ToolResult }
   | ({ type: "usage" } & TokenUsage)

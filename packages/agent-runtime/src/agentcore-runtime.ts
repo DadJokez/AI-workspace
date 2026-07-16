@@ -180,6 +180,10 @@ function parseSseEvent(raw: string): AgentEvent | null {
 
 const EVENT_TYPES = new Set([
   "text-delta",
+  "provider-request",
+  "provider-reasoning-delta",
+  "provider-reasoning-redacted",
+  "provider-response-metadata",
   "tool-call",
   "tool-result",
   "usage",

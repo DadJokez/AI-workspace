@@ -10,6 +10,27 @@ const MAX_ARRAY_ITEMS = 50;
 const MAX_OBJECT_KEYS = 100;
 const MAX_DEPTH = 8;
 
+interface RedactionLimits {
+  maxStringLength: number;
+  maxArrayItems: number;
+  maxObjectKeys: number;
+  maxDepth: number;
+}
+
+const TOOL_LIMITS: RedactionLimits = {
+  maxStringLength: MAX_STRING_LENGTH,
+  maxArrayItems: MAX_ARRAY_ITEMS,
+  maxObjectKeys: MAX_OBJECT_KEYS,
+  maxDepth: MAX_DEPTH,
+};
+
+const TRACE_LIMITS: RedactionLimits = {
+  maxStringLength: 24_000,
+  maxArrayItems: 200,
+  maxObjectKeys: 200,
+  maxDepth: 10,
+};
+
 const SENSITIVE_KEY_PATTERN =
   /(^|[_-])(access|api|auth|bearer|client|cookie|encryption|jwt|key|oauth|password|private|refresh|secret|session|signature|token)([_-]|$)|authorization|set-cookie/i;
 
@@ -30,7 +51,11 @@ export function redactToolResult(
 }
 
 export function redactToolPayload(value: unknown): unknown {
-  return redactValue(value, 0);
+  return redactValue(value, 0, TOOL_LIMITS);
+}
+
+export function redactTracePayload(value: unknown): unknown {
+  return redactValue(value, 0, TRACE_LIMITS);
 }
 
 export function redactErrorText(value: unknown): string {
@@ -110,29 +135,37 @@ export function redactProviderToolPayload({
   };
 }
 
-function redactValue(value: unknown, depth: number): unknown {
+function redactValue(
+  value: unknown,
+  depth: number,
+  limits: RedactionLimits,
+): unknown {
   if (value === null || value === undefined) return value;
-  if (typeof value === "string") return redactString(value);
+  if (typeof value === "string") {
+    return redactString(value, depth, limits);
+  }
   if (typeof value === "number" || typeof value === "boolean") return value;
   if (typeof value === "bigint") return value.toString();
   if (value instanceof Date) return value.toISOString();
-  if (depth >= MAX_DEPTH) return TRUNCATED;
+  if (depth >= limits.maxDepth) return TRUNCATED;
 
   if (Array.isArray(value)) {
     const out = value
-      .slice(0, MAX_ARRAY_ITEMS)
-      .map((item) => redactValue(item, depth + 1));
-    if (value.length > MAX_ARRAY_ITEMS) out.push(TRUNCATED);
+      .slice(0, limits.maxArrayItems)
+      .map((item) => redactValue(item, depth + 1, limits));
+    if (value.length > limits.maxArrayItems) out.push(TRUNCATED);
     return out;
   }
 
   if (typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>);
     const out: Record<string, unknown> = {};
-    for (const [key, item] of entries.slice(0, MAX_OBJECT_KEYS)) {
-      out[key] = isSensitiveKey(key) ? REDACTED : redactValue(item, depth + 1);
+    for (const [key, item] of entries.slice(0, limits.maxObjectKeys)) {
+      out[key] = isSensitiveKey(key)
+        ? REDACTED
+        : redactValue(item, depth + 1, limits);
     }
-    if (entries.length > MAX_OBJECT_KEYS) out.__truncated = true;
+    if (entries.length > limits.maxObjectKeys) out.__truncated = true;
     return out;
   }
 
@@ -145,9 +178,33 @@ function isSensitiveKey(key: string): boolean {
   );
 }
 
-function redactString(value: string): string {
+function redactString(
+  value: string,
+  depth: number,
+  limits: RedactionLimits,
+): string {
   if (looksLikeSecret(value)) return REDACTED;
-  return truncateString(value);
+  const structured = parseStructuredJson(value);
+  if (structured !== undefined) {
+    return truncateString(
+      JSON.stringify(redactValue(structured, depth + 1, limits)),
+      limits.maxStringLength,
+    );
+  }
+  return truncateString(
+    redactInlineSecrets(value),
+    limits.maxStringLength,
+  );
+}
+
+function parseStructuredJson(value: string): unknown | undefined {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return undefined;
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
 function looksLikeSecret(value: string): boolean {
@@ -160,10 +217,26 @@ function looksLikeSecret(value: string): boolean {
   return false;
 }
 
-function truncateString(value: string): string {
-  return value.length <= MAX_STRING_LENGTH
+function redactInlineSecrets(value: string): string {
+  return value
+    .replace(/\bbearer\s+[a-z0-9._~+/=-]{16,}/gi, "Bearer [redacted]")
+    .replace(
+      /\b(?:gh[pousr]_[a-z0-9_]{20,}|github_pat_[a-z0-9_]{20,})\b/gi,
+      REDACTED,
+    )
+    .replace(/\bsk-[a-z0-9_-]{20,}\b/gi, REDACTED)
+    .replace(/\bAKIA[A-Z0-9]{16}\b/g, REDACTED)
+    .replace(/\beyJ[a-z0-9_-]+\.[a-z0-9_-]+\.[a-z0-9_-]+\b/gi, REDACTED)
+    .replace(
+      /\b(access_token|api_key|client_secret|password|refresh_token|secret)\s*[:=]\s*([^\s,;&]+)/gi,
+      "$1=[redacted]",
+    );
+}
+
+function truncateString(value: string, maxLength = MAX_STRING_LENGTH): string {
+  return value.length <= maxLength
     ? value
-    : `${value.slice(0, MAX_STRING_LENGTH)}...${TRUNCATED}`;
+    : `${value.slice(0, maxLength)}...${TRUNCATED}`;
 }
 
 function safeJsonStringify(value: unknown): string {
