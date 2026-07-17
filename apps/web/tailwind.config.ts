@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import plugin from "tailwindcss/plugin";
 
 const config: Config = {
   darkMode: "class",
@@ -14,6 +15,7 @@ const config: Config = {
         muted: "rgb(var(--color-muted) / <alpha-value>)",
         subtle: "rgb(var(--color-subtle) / <alpha-value>)",
         accent: "rgb(var(--color-accent) / <alpha-value>)",
+        pop: "rgb(var(--color-pop) / <alpha-value>)",
       },
       fontFamily: {
         sans: [
@@ -28,7 +30,12 @@ const config: Config = {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    // `umber:` scopes utilities to the opt-in Umber skin (html.skin-umber,
+    // see globals.css) so components carry both skins without forking and
+    // the default stays pixel-identical.
+    plugin(({ addVariant }) => addVariant("umber", "html.skin-umber &")),
+  ],
 };
 
 export default config;
