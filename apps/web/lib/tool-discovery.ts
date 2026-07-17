@@ -45,30 +45,32 @@ export async function buildTurnToolDiscovery({
   grantedProviders: readonly string[];
   mode: Exclude<ToolDiscoveryMode, "off">;
 }): Promise<TurnToolDiscovery> {
+  const granted = new Set(grantedProviders);
+
   if (mode === "parity") {
+    const persisted = await ensureThreadActivation(
+      db,
+      thread,
+      grantedProviders,
+    );
+    // The stored set is sticky and may remember since-revoked grants; the
+    // turn mounts granted providers only.
     return {
-      activatedProviders: await ensureThreadActivation(
-        db,
-        thread,
-        grantedProviders,
+      activatedProviders: persisted.filter((provider) =>
+        granted.has(provider),
       ),
     };
   }
 
-  const granted = new Set(grantedProviders);
   const seedProviders = [
     ...parseActivation(thread.mcpSignature).filter((provider) =>
       granted.has(provider),
     ),
     ...CORE_MCP_PROVIDERS.filter((provider) => granted.has(provider)),
   ];
-  const activatedProviders = await ensureThreadActivation(
-    db,
-    thread,
-    seedProviders,
-  );
+  const persisted = await ensureThreadActivation(db, thread, seedProviders);
   return {
-    activatedProviders,
+    activatedProviders: persisted.filter((provider) => granted.has(provider)),
     catalog: await loadDiscoveryCatalog(db, grantedProviders),
   };
 }
