@@ -58,6 +58,13 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {/* Comparative ships a real native dark mode (and the Umber skin).
+            Dark Reader's forced repaint sits on top of the app's theme
+            classes, so the sun/moon toggle and Light/Dark/System controls
+            appear dead while working correctly underneath (live tester
+            confusion, 2026-07-17). This lock tag tells Dark Reader to leave
+            the site alone. */}
+        <meta name="darkreader-lock" />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="bg-canvas text-ink antialiased">
