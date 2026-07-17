@@ -3,6 +3,7 @@ import type { Database } from "@ai-workspace/db";
 import {
   buildTurnToolDiscovery,
   CORE_MCP_PROVIDERS,
+  detectRequestedProviders,
   loadDiscoveryCatalog,
 } from "@/lib/tool-discovery";
 
@@ -126,6 +127,100 @@ describe("buildTurnToolDiscovery", () => {
 
   it("core membership is the documented constant", () => {
     expect([...CORE_MCP_PROVIDERS]).toEqual(["google", "salesforce"]);
+  });
+
+  it("fast-path pre-activates a provider named in the message (#384 P3)", async () => {
+    const { db } = mockDb(catalogRows);
+    const result = await buildTurnToolDiscovery({
+      db,
+      thread: { id: "t1", mcpSignature: null },
+      grantedProviders: ["github", "google", "salesforce"],
+      mode: "on",
+      userMessage: "can you check my GitHub PRs?",
+    });
+    // github would normally stay discoverable; naming it mounts it this
+    // turn, so the cold request answers without a discovery round-trip.
+    expect(result.activatedProviders).toEqual([
+      "github",
+      "google",
+      "salesforce",
+    ]);
+    expect(result.discoverableProviders).toEqual([]);
+  });
+
+  it("fast-path never pre-activates an ungranted provider (#384 P3)", async () => {
+    const { db } = mockDb([]);
+    const result = await buildTurnToolDiscovery({
+      db,
+      thread: { id: "t1", mcpSignature: null },
+      grantedProviders: ["google"],
+      mode: "on",
+      userMessage: "check my GitHub and Notion",
+    });
+    // github/notion are named but not granted — only granted core mounts.
+    expect(result.activatedProviders).toEqual(["google"]);
+  });
+
+  it("an activated skill mounts exactly its declared bundle, not core (#384 P3)", async () => {
+    const { db } = mockDb(catalogRows);
+    const result = await buildTurnToolDiscovery({
+      db,
+      thread: { id: "t1", mcpSignature: null },
+      grantedProviders: ["github", "google", "salesforce"],
+      mode: "on",
+      skillProviders: ["github"],
+    });
+    // The skill declares github; core google/salesforce do NOT auto-mount.
+    expect(result.activatedProviders).toEqual(["github"]);
+  });
+
+  it("fast-path still adds to a skill bundle when the user names a provider (#384 P3)", async () => {
+    const { db } = mockDb(catalogRows);
+    const result = await buildTurnToolDiscovery({
+      db,
+      thread: { id: "t1", mcpSignature: null },
+      grantedProviders: ["github", "google", "salesforce"],
+      mode: "on",
+      skillProviders: ["salesforce"],
+      userMessage: "cross-reference with GitHub",
+    });
+    expect(result.activatedProviders).toEqual(["github", "salesforce"]);
+  });
+});
+
+describe("detectRequestedProviders", () => {
+  it("matches distinctive provider proper nouns, granted-only, case-insensitive", () => {
+    expect(
+      detectRequestedProviders("Check my GITHUB issues", [
+        "github",
+        "google",
+      ]),
+    ).toEqual(["github"]);
+    expect(
+      detectRequestedProviders("pull gmail and salesforce", [
+        "google",
+        "salesforce",
+        "github",
+      ]),
+    ).toEqual(["google", "salesforce"]);
+  });
+
+  it("ignores generic words and substrings (high precision)", () => {
+    // "calendar"/"mail"/"docs" are deliberately not aliases; substrings
+    // like githubusercontent must not word-boundary match.
+    expect(
+      detectRequestedProviders("check my calendar and docs", [
+        "google",
+        "notion",
+      ]),
+    ).toEqual([]);
+    expect(
+      detectRequestedProviders("raw.githubusercontent.com/foo", ["github"]),
+    ).toEqual([]);
+  });
+
+  it("returns empty for an empty message", () => {
+    expect(detectRequestedProviders("", ["github", "google"])).toEqual([]);
   });
 });
 

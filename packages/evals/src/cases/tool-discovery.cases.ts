@@ -48,11 +48,34 @@ const DISCOVERY_PROMPT = [
   "Cite PR numbers and titles exactly from tool output. Never invent pull requests.",
 ].join("\n");
 
+// The fast-path outcome: github is already mounted this turn (the user
+// named it), so the preamble presents it as a live tool, not a discoverable
+// one. The model should use it directly.
+const FAST_PATH_PROMPT = [
+  "You are Comparative, Rob's internal assistant.",
+  `Mounted tools for this turn: ${GITHUB_PR_TOOL} (GitHub, for ${githubFixtureRepo.fullName}), plus comparative__search_tools and comparative__activate_tools (tool discovery).`,
+  `Use ${GITHUB_PR_TOOL} before answering pull-request questions. Cite PR numbers and titles exactly from tool output. Never invent pull requests. Do not call the discovery tools for a provider that is already mounted.`,
+].join("\n");
+
 function activatedBeforeGitHubCall(t: TurnTranscript) {
   const activateAt = t.toolCallNames.indexOf("comparative__activate_tools");
   const githubAt = t.toolCallNames.indexOf(GITHUB_PR_TOOL);
   return {
     ok: activateAt >= 0 && githubAt > activateAt,
+    detail: `calls: ${t.toolCallNames.join(", ") || "(none)"}`,
+  };
+}
+
+function calledGitHubDirectlyNoDiscovery(t: TurnTranscript) {
+  // Fast-path (#384 P3): the provider was named, so its bundle was
+  // pre-activated before the model ran — the model must call github
+  // directly and never spend a discovery round-trip on activate/search.
+  const calledGitHub = t.toolCallNames.includes(GITHUB_PR_TOOL);
+  const spentDiscovery =
+    t.toolCallNames.includes("comparative__activate_tools") ||
+    t.toolCallNames.includes("comparative__search_tools");
+  return {
+    ok: calledGitHub && !spentDiscovery,
     detail: `calls: ${t.toolCallNames.join(", ") || "(none)"}`,
   };
 }
@@ -119,6 +142,34 @@ export const toolDiscoverySuite: EvalSuite = {
       ],
       assertions: [
         { kind: "deterministic", label: "activates github before calling it", check: activatedBeforeGitHubCall },
+        { kind: "deterministic", label: "answer cites fixture PRs", check: answerCitesFixturePrs },
+        { kind: "deterministic", label: "never denies the capability", check: neverDeniesGitHub },
+      ],
+    },
+    {
+      id: "discovery-fastpath-named-provider-skips-roundtrip",
+      description:
+        "Fast-path: naming GitHub pre-activates it, so the model answers directly with no discovery round-trip (#384 P3).",
+      systemPrompt: FAST_PATH_PROMPT,
+      input: `Check my open pull requests in ${githubFixtureRepo.fullName} on GitHub and summarize them.`,
+      tools: createGitHubFixtureTools(),
+      toolDiscovery: {
+        catalog: DISCOVERY_CATALOG,
+        dynamicToolNames: [GITHUB_PR_TOOL],
+        // The provider name in the message pre-activated github before the
+        // model ran — it starts mounted, not gated behind discovery.
+        activatedProviders: ["github"],
+      },
+      providerStatus: { github: "fastpath_mounted_fixture" },
+      contextReceipts: [
+        "Fast-path: 'GitHub' named in the message pre-activated the github bundle before the first model call.",
+      ],
+      assertions: [
+        {
+          kind: "deterministic",
+          label: "calls github directly with no discovery round-trip",
+          check: calledGitHubDirectlyNoDiscovery,
+        },
         { kind: "deterministic", label: "answer cites fixture PRs", check: answerCitesFixturePrs },
         { kind: "deterministic", label: "never denies the capability", check: neverDeniesGitHub },
       ],

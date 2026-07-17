@@ -324,6 +324,8 @@ export async function streamInlineChatRun({
             thread,
             grantedProviders: mountedProviders,
             mode: toolDiscoveryMode,
+            userMessage: prompt,
+            skillProviders: requestedProviders,
           })
         : undefined;
     const discoverableProviders = toolDiscovery?.discoverableProviders ?? [];

@@ -22,6 +22,38 @@ import { ensureThreadActivation } from "@/lib/thread-activation";
  */
 export const CORE_MCP_PROVIDERS = ["google", "salesforce"] as const;
 
+/**
+ * Provider-name fast path (#384 P3): distinctive proper nouns that name a
+ * provider, matched as whole words in the user message to pre-activate that
+ * provider's bundle before the first model call. This is capability
+ * *addressing* (the user named the system), not the intent *classification*
+ * #364 abolished — a miss just costs one discovery round, and a false
+ * positive only pre-mounts a bundle the user named, never a wrong answer.
+ * Kept high-precision: only unambiguous nouns, so generic words ("mail",
+ * "calendar", "docs") are deliberately absent.
+ */
+const PROVIDER_NAME_ALIASES: Record<string, readonly RegExp[]> = {
+  github: [/\bgithub\b/i, /\bgit\s?hub\b/i],
+  notion: [/\bnotion\b/i],
+  salesforce: [/\bsalesforce\b/i, /\bsfdc\b/i],
+  google: [/\bgoogle\b/i, /\bgmail\b/i, /\bgcal\b/i],
+};
+
+/**
+ * Providers whose proper noun appears in `message`, intersected with the
+ * user's granted set (never pre-activates an ungranted provider). Pure and
+ * order-stable (granted order preserved). Exported for direct unit pins.
+ */
+export function detectRequestedProviders(
+  message: string,
+  grantedProviders: readonly string[],
+): string[] {
+  if (!message) return [];
+  return grantedProviders.filter((provider) =>
+    PROVIDER_NAME_ALIASES[provider]?.some((pattern) => pattern.test(message)),
+  );
+}
+
 export interface TurnToolDiscovery {
   activatedProviders: string[];
   catalog?: DiscoveryCatalogEntry[];
@@ -48,11 +80,23 @@ export async function buildTurnToolDiscovery({
   thread,
   grantedProviders,
   mode,
+  userMessage,
+  skillProviders,
 }: {
   db: Database;
   thread: Pick<ChatThread, "id" | "mcpSignature">;
   grantedProviders: readonly string[];
   mode: Exclude<ToolDiscoveryMode, "off">;
+  /** Current user turn text, for the provider-name fast path (#384 P3). */
+  userMessage?: string;
+  /**
+   * An activated skill's declared MCP providers (#384 P3). When present,
+   * they are the turn's stable bundle *in place of* the core bundle — a
+   * skill mounts exactly what it declares. The model can still discover
+   * approved additions, and a provider the user names by hand still
+   * fast-path activates.
+   */
+  skillProviders?: readonly string[];
 }): Promise<TurnToolDiscovery> {
   const granted = new Set(grantedProviders);
 
@@ -72,11 +116,22 @@ export async function buildTurnToolDiscovery({
     };
   }
 
+  // On-mode base bundle: a skill's own declared set when a skill is active,
+  // otherwise the core bundle. Fast-path providers (named in the message)
+  // are always additive on top; all three are filtered to granted and
+  // unioned into the sticky activation seed.
+  const skillActive = (skillProviders?.length ?? 0) > 0;
+  const baseBundle = skillActive ? skillProviders! : CORE_MCP_PROVIDERS;
+  const fastPathProviders = detectRequestedProviders(
+    userMessage ?? "",
+    grantedProviders,
+  );
   const seedProviders = [
     ...parseActivation(thread.mcpSignature).filter((provider) =>
       granted.has(provider),
     ),
-    ...CORE_MCP_PROVIDERS.filter((provider) => granted.has(provider)),
+    ...baseBundle.filter((provider) => granted.has(provider)),
+    ...fastPathProviders,
   ];
   const persisted = await ensureThreadActivation(db, thread, seedProviders);
   const activatedProviders = persisted.filter((provider) =>
