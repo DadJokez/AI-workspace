@@ -53,9 +53,11 @@ import {
 } from "@/lib/chat-execution-mode";
 import {
   chatRoutingModeFromEnv,
+  toolDiscoveryEnabledFromEnv,
   type ChatRuntimeRoute,
 } from "@/lib/chat-routing";
 import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
+import { ensureThreadActivation } from "@/lib/thread-activation";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
@@ -592,6 +594,18 @@ async function executeClaimedChatRun({
     });
 
     try {
+      // #384 P1: sticky per-thread activation, parity mode — every granted
+      // provider activates, so mounted tools are byte-identical to flag-off.
+      const toolDiscovery = toolDiscoveryEnabledFromEnv()
+        ? {
+            activatedProviders: await ensureThreadActivation(
+              db,
+              thread,
+              mcpServers ? Object.keys(mcpServers) : [],
+            ),
+          }
+        : undefined;
+
       for await (const ev of runtime.runTurn({
         threadId: thread.id,
         modelId: run.modelId ?? "default",
@@ -622,6 +636,7 @@ async function executeClaimedChatRun({
         },
         ...(mcpServers ? { mcpServers } : {}),
         ...(requiredToolName ? { requiredToolName } : {}),
+        ...(toolDiscovery ? { toolDiscovery } : {}),
       })) {
         providerTrace.record(ev);
         if (await isRunCanceled(db, run.id)) {

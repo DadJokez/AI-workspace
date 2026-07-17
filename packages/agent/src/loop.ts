@@ -29,6 +29,14 @@ export interface RunAgentLoopParams {
   /** Whitelist of tool names this run is allowed to use. Undefined = all registered tools. */
   allowedTools?: readonly string[];
   /**
+   * Progressive tool discovery (#384): re-resolved at the top of every tool
+   * iteration so an activation that lands mid-turn swaps the mounted bundle
+   * on the NEXT model call. Wins over `allowedTools` when provided. The loop
+   * rebuilds toolConfig only when the resolved set actually changes —
+   * unchanged sets reuse the same object, keeping the tools cache warm.
+   */
+  resolveAllowedTools?: () => readonly string[] | undefined;
+  /**
    * Tool the first model step must request. The loop fails closed when the
    * tool is not registered, then returns to automatic selection after the
    * required tool result is available.
@@ -75,6 +83,18 @@ export function hasUnclosedCodeFence(text: string): boolean {
 }
 
 /**
+ * Order-sensitive identity for a mounted allow-list. Order matters: the same
+ * names in a different order produce different toolConfig bytes, which is a
+ * tools-cache write — treat it as a real change. The delimiter must sit
+ * outside the tool-name charset yet keep this file plain text: a raw NUL
+ * here once made git classify loop.ts as binary and the diff unreviewable.
+ * ASCII Unit Separator, escaped, is collision-safe and diffable.
+ */
+function allowedToolsKey(allowed: readonly string[] | undefined): string {
+  return allowed ? allowed.join("\x1f") : "\x1f*";
+}
+
+/**
  * Runs a single chat turn end-to-end: text generation plus optional tool-use
  * round-trips. Yields `AgentEvent`s as they happen so the web layer can relay
  * them as SSE.
@@ -106,10 +126,13 @@ export async function* runAgentLoop(
     .filter(Boolean)
     .join("\n\n");
   const maxIter = params.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
-  const tools = params.registry.list(params.allowedTools);
-  const baseToolConfig =
+  let mountedAllowed = params.resolveAllowedTools
+    ? params.resolveAllowedTools()
+    : params.allowedTools;
+  let tools = params.registry.list(mountedAllowed);
+  let baseToolConfig =
     tools.length > 0
-      ? params.registry.toBedrockToolConfig(params.allowedTools)
+      ? params.registry.toBedrockToolConfig(mountedAllowed)
       : undefined;
   const requiredToolName = params.requiredToolName?.trim();
   if (
@@ -137,6 +160,18 @@ export async function* runAgentLoop(
     if (params.signal?.aborted) {
       yield { type: "error", message: "aborted" };
       return;
+    }
+
+    if (iter > 0 && params.resolveAllowedTools) {
+      const nextAllowed = params.resolveAllowedTools();
+      if (allowedToolsKey(nextAllowed) !== allowedToolsKey(mountedAllowed)) {
+        mountedAllowed = nextAllowed;
+        tools = params.registry.list(mountedAllowed);
+        baseToolConfig =
+          tools.length > 0
+            ? params.registry.toBedrockToolConfig(mountedAllowed)
+            : undefined;
+      }
     }
 
     const toolConfig =

@@ -211,9 +211,13 @@ export const chatThreads = pgTable(
      */
     cursorAgentId: text("cursor_agent_id"),
     /**
-     * Stable identity of the MCP-server set the latest agent was created with.
-     * Today: sorted provider names joined with `,` (e.g. `"github"` or
-     * `"github,notion"`). Empty string = no MCP. NULL = legacy/missing value.
+     * Sticky tool-discovery activation set (#384): sorted provider names
+     * joined with `,` (e.g. `"github"` or `"github,notion"`). Providers are
+     * only ever ADDED for the life of the thread — stickiness is the
+     * tools-cache guarantee. Written by `ensureThreadActivation`
+     * (apps/web/lib/thread-activation.ts) when TOOL_DISCOVERY is on.
+     * NULL/empty = nothing activated yet. (The column predates #384 with
+     * this exact format documented but no writers.)
      */
     mcpSignature: text("mcp_signature"),
     /**

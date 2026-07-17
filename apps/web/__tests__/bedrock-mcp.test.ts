@@ -198,3 +198,65 @@ describe("BedrockRuntime with MCP servers", () => {
     });
   });
 });
+
+class EndTurnClient implements BedrockClient {
+  toolConfigs: ConverseStreamParams["toolConfig"][] = [];
+
+  async *converseStream(
+    params: ConverseStreamParams,
+  ): AsyncIterable<BedrockStreamEvent> {
+    this.toolConfigs.push(params.toolConfig);
+    yield { type: "text-delta", text: "ok" } as BedrockStreamEvent;
+    yield { type: "stop", reason: "end_turn" } as BedrockStreamEvent;
+  }
+}
+
+/**
+ * #384 P1 parity pins: with every granted provider activated, tool
+ * discovery must be byte-invisible — same schemas, same order, same turn.
+ * With nothing activated, dynamic provider tools must not mount.
+ */
+describe("BedrockRuntime tool discovery (#384 P1)", () => {
+  // Each capture gets its own loopback server — the helper serves one
+  // MCP session, so reusing it times the second connection out.
+  async function capturedToolConfig(
+    toolDiscovery?: { activatedProviders: string[] },
+  ) {
+    const server = await startTestMcpServer();
+    try {
+      const client = new EndTurnClient();
+      const runtime = new BedrockRuntime({ client });
+      for await (const _ev of runtime.runTurn({
+        threadId: "thread-discovery",
+        modelId: "sonnet-4-6",
+        messages: [{ role: "user", content: "hello" }],
+        context: { userId: "u1" },
+        mcpServers: {
+          github: { type: "http", url: server.url },
+        },
+        ...(toolDiscovery ? { toolDiscovery } : {}),
+      })) {
+        // drain
+      }
+      return client.toolConfigs[0];
+    } finally {
+      await server.close();
+    }
+  }
+
+  it("is byte-identical to today under full activation", async () => {
+    const without = await capturedToolConfig();
+    const withAll = await capturedToolConfig({
+      activatedProviders: ["github"],
+    });
+    expect(JSON.stringify(withAll)).toBe(JSON.stringify(without));
+    expect(withAll?.tools.map((t) => t.toolSpec.name)).toContain(
+      "github__echo",
+    );
+  });
+
+  it("mounts no provider tools when nothing is activated", async () => {
+    const config = await capturedToolConfig({ activatedProviders: [] });
+    expect(config).toBeUndefined();
+  });
+});

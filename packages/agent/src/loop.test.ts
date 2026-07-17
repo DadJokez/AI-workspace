@@ -427,3 +427,135 @@ describe("model output caps", () => {
     }
   });
 });
+
+/**
+ * #384 P1 — bundle swap support. First call reports a tool_use so the loop
+ * runs a second iteration; the test flips the resolved allow-list between
+ * them and asserts the mounted toolConfig follows.
+ */
+class TwoIterationClient implements BedrockClient {
+  readonly captured: ConverseStreamParams[] = [];
+
+  async *converseStream(
+    params: ConverseStreamParams,
+  ): AsyncIterable<BedrockStreamEvent> {
+    this.captured.push(params);
+    if (this.captured.length === 1) {
+      yield {
+        type: "tool-use",
+        id: "call-1",
+        name: "alpha__ping",
+        input: {},
+      };
+      yield { type: "stop", reason: "tool_use" };
+      return;
+    }
+    yield { type: "text-delta", text: "done" };
+    yield { type: "stop", reason: "end_turn" };
+  }
+}
+
+function discoveryRegistry(): ToolRegistry {
+  const registry = new ToolRegistry();
+  for (const name of ["alpha__ping", "beta__pong"]) {
+    registry.register({
+      name,
+      description: `${name} test tool`,
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {},
+      },
+      handler: async () => ({ ok: true }),
+    });
+  }
+  return registry;
+}
+
+describe("runAgentLoop tool discovery (#384 P1)", () => {
+  it("re-resolves the mounted bundle between iterations", async () => {
+    const client = new TwoIterationClient();
+    let activated = ["alpha__ping"];
+    const events = [];
+    for await (const event of runAgentLoop({
+      modelId: "sonnet-4-6",
+      messages: [{ role: "user", content: "go" }],
+      registry: discoveryRegistry(),
+      resolveAllowedTools: () => activated,
+      context: { userId: "u1" },
+      client,
+    })) {
+      events.push(event);
+      // Simulates an activation landing while iteration 0's tool executes.
+      if (event.type === "tool-result") {
+        activated = ["alpha__ping", "beta__pong"];
+      }
+    }
+
+    const names = (i: number) =>
+      client.captured[i]?.toolConfig?.tools.map((t) => t.toolSpec.name);
+    expect(names(0)).toEqual(["alpha__ping"]);
+    expect(names(1)).toEqual(["alpha__ping", "beta__pong"]);
+    expect(events).toContainEqual({ type: "done" });
+  });
+
+  it("reuses the identical toolConfig object while the bundle is unchanged", async () => {
+    const client = new TwoIterationClient();
+    for await (const _event of runAgentLoop({
+      modelId: "sonnet-4-6",
+      messages: [{ role: "user", content: "go" }],
+      registry: discoveryRegistry(),
+      resolveAllowedTools: () => ["alpha__ping", "beta__pong"],
+      context: { userId: "u1" },
+      client,
+    })) {
+      // drain
+    }
+
+    // Same object, not merely equal bytes — a rebuild would be a needless
+    // tools-cache risk surface.
+    expect(client.captured[0]?.toolConfig).toBe(client.captured[1]?.toolConfig);
+  });
+
+  it("is byte-identical to the resolver-less path under full mounting", async () => {
+    const withResolver = new TwoIterationClient();
+    for await (const _event of runAgentLoop({
+      modelId: "sonnet-4-6",
+      messages: [{ role: "user", content: "go" }],
+      registry: discoveryRegistry(),
+      resolveAllowedTools: () => ["alpha__ping", "beta__pong"],
+      context: { userId: "u1" },
+      client: withResolver,
+    })) {
+      // drain
+    }
+
+    const without = new TwoIterationClient();
+    for await (const _event of runAgentLoop({
+      modelId: "sonnet-4-6",
+      messages: [{ role: "user", content: "go" }],
+      registry: discoveryRegistry(),
+      context: { userId: "u1" },
+      client: without,
+    })) {
+      // drain
+    }
+
+    expect(JSON.stringify(withResolver.captured[0]?.toolConfig)).toBe(
+      JSON.stringify(without.captured[0]?.toolConfig),
+    );
+  });
+});
+
+describe("loop.ts source hygiene", () => {
+  it("stays plain text — no NUL bytes (git binary-diff guard)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync(
+      new URL("./loop.ts", import.meta.url),
+      "utf8",
+    );
+    // A raw NUL once made git classify this hot file as binary, rendering
+    // its diffs unreviewable. Delimiters must be escaped, never raw.
+    expect(source.includes("\0")).toBe(false);
+  });
+});

@@ -373,6 +373,19 @@ export function runtimeV2EnabledFromEnv(
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
+/**
+ * Progressive tool discovery flag (#384 P1). "on" routes tool mounting
+ * through the bundle resolver with every granted provider pre-activated —
+ * byte-identical to "off" by design until P2 narrows the default to the
+ * core bundle. Delete after the P4 measured flip.
+ */
+export function toolDiscoveryEnabledFromEnv(
+  value = process.env.TOOL_DISCOVERY,
+): boolean {
+  if (!value) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
 export function chatRoutingModeFromEnv(
   value = process.env.ROUTING_MODE,
 ): ChatRoutingMode {

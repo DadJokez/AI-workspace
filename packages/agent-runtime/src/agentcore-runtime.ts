@@ -74,6 +74,7 @@ export class AgentCoreRuntime implements AgentRuntime {
       mcpServers: pickHttpMcpServers(input.mcpServers),
       builtinTools: input.builtinTools,
       requiredToolName: input.requiredToolName,
+      toolDiscovery: input.toolDiscovery,
       userId: input.context.userId,
     });
 
