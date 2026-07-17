@@ -95,7 +95,7 @@ export function MessageBubble({
             <span className="flex flex-wrap items-center gap-1.5">
               <span
                 data-testid="slash-capability-pill"
-                className="inline-flex items-center gap-1.5 rounded-full border border-[#2f6bff]/50 bg-[#06112f]/85 px-2 py-0.5 font-mono text-[12px] text-[#dbe8ff] shadow-[0_0_14px_rgba(0,92,255,0.24)]"
+                className="inline-flex items-center gap-1.5 rounded-full border border-[#2f6bff]/50 bg-[#06112f]/85 px-2 py-0.5 font-mono text-[12px] text-[#dbe8ff] shadow-[0_0_14px_rgba(0,92,255,0.24)] umber:border-hairline umber:bg-subtle umber:text-ink umber:shadow-none"
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_10px_rgba(40,215,255,0.7)] umber:bg-pop umber:shadow-none" />
                 {slashDisplay.token}
@@ -330,7 +330,8 @@ function RecommendationStrip({
         return (
           <div
             key={recommendation.dbId}
-            className="rounded-md border border-[#2f6bff]/35 bg-[#06112f]/55 px-3 py-2 text-[12px] text-[#dbe8ff]"
+            className="rounded-md border border-[#2f6bff]/35 bg-[#06112f]/55 px-3 py-2 text-[12px] text-[#dbe8ff] umber:border-hairline umber:bg-surface umber:text-ink"
+            data-testid="recommendation-card"
           >
             <div className="flex items-start gap-2">
               <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#28d7ff] shadow-[0_0_12px_rgba(40,215,255,0.8)] umber:bg-pop umber:shadow-none" />
@@ -346,7 +347,7 @@ function RecommendationStrip({
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5 pl-3.5">
               {accepted ? (
-                <span className="rounded-md border border-[#67a3ff]/35 bg-[#0b2b77]/40 px-2 py-1 text-[11px] text-[#dbe8ff]">
+                <span className="rounded-md border border-[#67a3ff]/35 bg-[#0b2b77]/40 px-2 py-1 text-[11px] text-[#dbe8ff] umber:border-hairline umber:bg-subtle umber:text-muted">
                   Accepted
                 </span>
               ) : (
@@ -363,7 +364,7 @@ function RecommendationStrip({
                     type="button"
                     disabled={pending}
                     onClick={() => onAction?.(recommendation, "dismissed")}
-                    className="rounded-md border border-[#67a3ff]/25 px-2 py-1 text-[11px] font-medium text-[#b9d2ff] hover:bg-white/[0.08] disabled:opacity-50"
+                    className="rounded-md border border-[#67a3ff]/25 px-2 py-1 text-[11px] font-medium text-[#b9d2ff] hover:bg-white/[0.08] umber:border-hairline umber:text-ink umber:hover:bg-subtle disabled:opacity-50"
                   >
                     Dismiss
                   </button>
@@ -498,13 +499,13 @@ function ArtifactCodePreview({
   const saveState = artifact ? null : pending ? "Saving" : "Not saved";
 
   return (
-    <details className="group my-2 overflow-hidden rounded-md border border-[#2f6bff]/40 bg-[#050b1f]/70 first:mt-0 last:mb-0">
+    <details className="group my-2 overflow-hidden rounded-md border border-[#2f6bff]/40 bg-[#050b1f]/70 umber:border-hairline umber:bg-subtle first:mt-0 last:mb-0">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[12px] marker:hidden">
         <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_12px_rgba(40,215,255,0.8)] umber:bg-pop umber:shadow-none" />
-        <span className="min-w-0 flex-1 truncate font-medium text-[#dbe8ff]">
+        <span className="min-w-0 flex-1 truncate font-medium text-[#dbe8ff] umber:text-ink">
           Document content collapsed
         </span>
-        <span className="hidden shrink-0 font-mono text-[10px] uppercase text-[#8cb7ff] sm:inline">
+        <span className="hidden shrink-0 font-mono text-[10px] uppercase text-[#8cb7ff] umber:text-muted sm:inline">
           {kind}
         </span>
         {saveState ? (
@@ -512,21 +513,21 @@ function ArtifactCodePreview({
             {saveState}
           </span>
         ) : null}
-        <span className="shrink-0 text-[11px] text-[#88a8e8] group-open:hidden">
+        <span className="shrink-0 text-[11px] text-[#88a8e8] umber:text-muted group-open:hidden">
           Show code
         </span>
-        <span className="hidden shrink-0 text-[11px] text-[#88a8e8] group-open:inline">
+        <span className="hidden shrink-0 text-[11px] text-[#88a8e8] umber:text-muted group-open:inline">
           Hide code
         </span>
       </summary>
-      <div className="border-t border-[#2f6bff]/25">
-        <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] text-[#8cb7ff]">
+      <div className="border-t border-[#2f6bff]/25 umber:border-hairline">
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] text-[#8cb7ff] umber:text-muted">
           <span className="min-w-0 truncate">{label}</span>
           <span className="shrink-0">{formatBytes(code.length)}</span>
         </div>
         <pre
           data-testid="artifact-code-preview-scroll"
-          className="max-h-[min(60vh,34rem)] overflow-auto whitespace-pre-wrap border-t border-[#2f6bff]/20 px-3 py-2 font-mono text-[11px] leading-relaxed text-[#c9dcff] [overflow-wrap:anywhere]"
+          className="max-h-[min(60vh,34rem)] overflow-auto whitespace-pre-wrap border-t border-[#2f6bff]/20 umber:border-hairline px-3 py-2 font-mono text-[11px] leading-relaxed text-[#c9dcff] umber:text-ink [overflow-wrap:anywhere]"
         >
           {code}
         </pre>
