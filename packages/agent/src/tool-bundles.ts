@@ -34,6 +34,18 @@ export function providerOfToolName(name: string): string | null {
 }
 
 /**
+ * The provider slug as it appears inside MCP tool names. `mcpToolName`
+ * sanitizes `[^a-zA-Z0-9_]` to `_` when composing `${provider}__${tool}`,
+ * so a slug like "google-drive" yields tools named `google_drive__*`.
+ * Activation sets are keyed by RAW slugs — this normalizer is how the
+ * resolver matches the two namespaces, so a multi-word provider can never
+ * silently drop its tools under activation.
+ */
+export function sanitizeProviderKey(provider: string): string {
+  return provider.replace(/[^a-zA-Z0-9_]/g, "_");
+}
+
+/**
  * The mounted allow-list for one loop iteration. `dynamicToolNames` is the
  * subset of `allToolNames` that came from per-turn MCP connections — static
  * tools always mount. Returns names in `allToolNames` order.
@@ -43,10 +55,13 @@ export function resolveMountedToolNames(
   dynamicToolNames: ReadonlySet<string>,
   activatedProviders: ReadonlySet<string>,
 ): string[] {
+  const activatedKeys = new Set(
+    [...activatedProviders].map(sanitizeProviderKey),
+  );
   return allToolNames.filter((name) => {
     if (!dynamicToolNames.has(name)) return true;
     const provider = providerOfToolName(name);
-    return provider !== null && activatedProviders.has(provider);
+    return provider !== null && activatedKeys.has(provider);
   });
 }
 

@@ -62,6 +62,20 @@ describe("resolveMountedToolNames", () => {
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
   });
 
+  it("matches raw provider slugs against sanitized tool-name prefixes", () => {
+    // mcpToolName sanitizes "google-drive" into "google_drive__*" while
+    // activation is keyed by the raw slug — the resolver must bridge the
+    // namespaces or a multi-word provider silently loses every tool even
+    // under full activation (the P1 review's should-fix).
+    expect(
+      resolveMountedToolNames(
+        ["google_drive__list_files", "github__list_prs"],
+        new Set(["google_drive__list_files", "github__list_prs"]),
+        new Set(["google-drive"]),
+      ),
+    ).toEqual(["google_drive__list_files"]);
+  });
+
   it("never mounts a dynamic tool without a provider prefix", () => {
     expect(
       resolveMountedToolNames(
