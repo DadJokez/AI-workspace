@@ -73,6 +73,8 @@ interface UiMessage {
   role: "user" | "assistant" | "tool";
   content: string;
   modelId?: string;
+  tokensIn?: number | null;
+  tokensOut?: number | null;
   pending?: boolean;
   /** Live activity label shown while pending and no text has streamed yet
    *  (e.g. "Thinking…", "Calling github_list_repos…"). */
@@ -197,6 +199,8 @@ interface ThreadMessage {
   runtime: "bedrock" | "agentcore" | string | null;
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
+  tokensIn?: number | null;
+  tokensOut?: number | null;
   artifacts?: WorkspaceArtifactSummary[];
   appDraftVersions?: AppDraftVersionSummary[];
   recommendations?: PersistedRecommendation[];
@@ -222,6 +226,8 @@ function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
     role: message.role,
     content: message.content,
     modelId: message.modelId ?? undefined,
+    tokensIn: message.tokensIn,
+    tokensOut: message.tokensOut,
     pending: message.pending,
     status: message.status,
     toolCalls: message.toolCalls ?? undefined,
@@ -1681,6 +1687,10 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           const recommendations = Array.isArray(ev.recommendations)
             ? (ev.recommendations as PersistedRecommendation[])
             : undefined;
+          const tokensIn =
+            typeof ev.tokensIn === "number" ? ev.tokensIn : undefined;
+          const tokensOut =
+            typeof ev.tokensOut === "number" ? ev.tokensOut : undefined;
           patchTabMessages(tabId, (prev) =>
             prev.map((m) =>
               isDraftMessage(m)
@@ -1693,6 +1703,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     artifacts,
                     appDraftVersions,
                     recommendations,
+                    tokensIn,
+                    tokensOut,
                     runId: streamRunId ?? m.runId,
                     runStatus: "succeeded",
                     canCancel: false,
@@ -2110,6 +2122,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     role={m.role}
                     content={m.content}
                     modelId={m.modelId}
+                    tokensIn={m.tokensIn}
+                    tokensOut={m.tokensOut}
                     pending={m.pending}
                     status={m.status}
                     toolCalls={m.toolCalls}

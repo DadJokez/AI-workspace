@@ -1,6 +1,7 @@
 "use client";
 
 import { useTheme } from "@/lib/theme";
+import { formatTurnMeter } from "@/lib/turn-cost";
 import {
   buildToolActivityEvents,
   summarizeActivity,
@@ -32,6 +33,8 @@ interface Props {
   role: "user" | "assistant" | "tool";
   content: string;
   modelId?: string;
+  tokensIn?: number | null;
+  tokensOut?: number | null;
   pending?: boolean;
   status?: string;
   toolCalls?: PersistedToolCall[];
@@ -56,6 +59,8 @@ export function MessageBubble({
   role,
   content,
   modelId,
+  tokensIn,
+  tokensOut,
   pending,
   status,
   toolCalls = [],
@@ -151,6 +156,19 @@ export function MessageBubble({
         <div className="text-[11px] font-medium tracking-wide text-muted">
           {label}
         </div>
+        {role === "assistant" && !pending ? (
+          (() => {
+            const meter = formatTurnMeter(modelId, tokensIn, tokensOut);
+            return meter ? (
+              <div
+                className="text-[11px] tracking-wide text-muted/80"
+                title="Estimate at standard rates: total tokens include cache reads (billed ~10% of standard) and cache writes (~125%), so the real cost can land under or over this. The admin run page has the exact split."
+              >
+                {meter}
+              </div>
+            ) : null;
+          })()
+        ) : null}
         {role === "assistant" && !pending && content.trim() ? (
           <MessageCopyButton content={content} />
         ) : null}
