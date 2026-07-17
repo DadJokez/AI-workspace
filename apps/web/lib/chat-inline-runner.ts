@@ -421,17 +421,25 @@ export async function streamInlineChatRun({
     });
 
     try {
-      // #384 P1: sticky per-thread activation, parity mode — every granted
-      // provider activates, so mounted tools are byte-identical to flag-off.
-      const toolDiscovery = toolDiscoveryEnabledFromEnv()
-        ? {
-            activatedProviders: await ensureThreadActivation(
+      // #384: sticky per-thread activation. Parity mode activates every
+      // granted provider (byte-identical to off); on-mode starts at the
+      // core bundle + discovery tools and grows via activate_tools.
+      const toolDiscoveryMode = toolDiscoveryModeFromEnv();
+      const grantedProviders = mcpServers ? Object.keys(mcpServers) : [];
+      const toolDiscovery =
+        toolDiscoveryMode !== "off"
+          ? await buildTurnToolDiscovery({
               db,
               thread,
-              mcpServers ? Object.keys(mcpServers) : [],
-            ),
-          }
-        : undefined;
+              grantedProviders,
+              mode: toolDiscoveryMode,
+            })
+          : undefined;
+      // Tracks persisted activation across same-turn activations so a
+      // second activate never unions against a stale snapshot.
+      let activationSignature = serializeActivation(
+        toolDiscovery?.activatedProviders ?? [],
+      );
 
       for await (const ev of runtime.runTurn({
         threadId: thread.id,
@@ -485,6 +493,32 @@ export async function streamInlineChatRun({
         ...(toolDiscovery ? { toolDiscovery } : {}),
       })) {
         providerTrace.record(ev);
+        // Sticky activation persistence (#384 P2): the activate tool-call
+        // in the event stream is the single persistence trigger for both
+        // runtime lanes. Granted-only; best-effort — mounting correctness
+        // within the turn never depends on the persisted value.
+        if (
+          toolDiscovery &&
+          ev.type === "tool-call" &&
+          ev.call.name === "comparative__activate_tools"
+        ) {
+          const provider = (ev.call.input as { provider?: unknown })?.provider;
+          if (
+            typeof provider === "string" &&
+            grantedProviders.includes(provider.trim().toLowerCase())
+          ) {
+            try {
+              const activated = await ensureThreadActivation(
+                db,
+                { id: thread.id, mcpSignature: activationSignature },
+                [provider.trim().toLowerCase()],
+              );
+              activationSignature = serializeActivation(activated);
+            } catch {
+              // Next turn re-derives from granted state; never fail the run.
+            }
+          }
+        }
         if (signal?.aborted) {
           runtimeAbort.abort();
           break;

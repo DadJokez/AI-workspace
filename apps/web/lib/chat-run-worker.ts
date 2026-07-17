@@ -594,17 +594,20 @@ async function executeClaimedChatRun({
     });
 
     try {
-      // #384 P1: sticky per-thread activation, parity mode — every granted
-      // provider activates, so mounted tools are byte-identical to flag-off.
-      const toolDiscovery = toolDiscoveryEnabledFromEnv()
-        ? {
-            activatedProviders: await ensureThreadActivation(
+      // #384: sticky per-thread activation. Parity mode activates every
+      // granted provider (byte-identical to off); on-mode starts at the
+      // core bundle + discovery tools and grows via activate_tools.
+      const toolDiscoveryMode = toolDiscoveryModeFromEnv();
+      const grantedProviders = mcpServers ? Object.keys(mcpServers) : [];
+      const toolDiscovery =
+        toolDiscoveryMode !== "off"
+          ? await buildTurnToolDiscovery({
               db,
               thread,
-              mcpServers ? Object.keys(mcpServers) : [],
-            ),
-          }
-        : undefined;
+              grantedProviders,
+              mode: toolDiscoveryMode,
+            })
+          : undefined;
 
       for await (const ev of runtime.runTurn({
         threadId: thread.id,
