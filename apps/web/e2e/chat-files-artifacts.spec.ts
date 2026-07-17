@@ -64,7 +64,12 @@ test.describe("chat files and artifacts", () => {
     await page.goto("/e2e/chat");
     await expect(page.getByText("Talk to your work.")).toBeVisible();
 
-    await page.locator('input[type="file"]').setInputFiles({
+    // #398: same pre-hydration race #372/#377 fixed in authenticated-smoke —
+    // setInputFiles before React wires the input's handler silently drops the
+    // upload. The input stays disabled until hydration, so enabled = ready.
+    const fileInput = page.getByTestId("chat-file-input");
+    await expect(fileInput).toBeEnabled({ timeout: 15_000 });
+    await fileInput.setInputFiles({
       name: "screenshot.png",
       mimeType: "image/png",
       buffer: Buffer.from("fake-png-bytes"),
@@ -153,7 +158,10 @@ test.describe("chat files and artifacts", () => {
     await page.goto("/e2e/chat");
     await expect(page.getByText("Talk to your work.")).toBeVisible();
 
-    await page.locator('input[type="file"]').setInputFiles(
+    // #398: hydration barrier — see comment on the first upload above.
+    const bundleInput = page.getByTestId("chat-file-input");
+    await expect(bundleInput).toBeEnabled({ timeout: 15_000 });
+    await bundleInput.setInputFiles(
       files.map((file) => ({
         ...file,
         buffer: Buffer.from(`fake content for ${file.name}`),
