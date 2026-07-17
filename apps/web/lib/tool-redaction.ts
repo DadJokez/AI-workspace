@@ -34,6 +34,21 @@ const TRACE_LIMITS: RedactionLimits = {
 const SENSITIVE_KEY_PATTERN =
   /(^|[_-])(access|api|auth|bearer|client|cookie|encryption|jwt|key|oauth|password|private|refresh|secret|session|signature|token)([_-]|$)|authorization|set-cookie/i;
 
+/**
+ * Observability keys where "token" means model tokens, not credentials
+ * (#387): first-token latency stamps and spans. They bypass KEY-based
+ * redaction only — and only when the value is plainly telemetry (number,
+ * boolean, or a short ISO-ish timestamp). String payloads still run full
+ * value-based redaction, so a credential smuggled under a telemetry name
+ * never survives. Matched on the same snake-normalized key as
+ * SENSITIVE_KEY_PATTERN.
+ */
+const SAFE_TELEMETRY_KEY_PATTERN =
+  /(^|_)(first_token_(at|ms)|(request|provider)_to_first_token_ms)$/i;
+
+const ISO_TIMESTAMP_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/;
+
 export function redactToolCall(call: PersistedToolCall): PersistedToolCall {
   return {
     ...call,
@@ -161,9 +176,10 @@ function redactValue(
     const entries = Object.entries(value as Record<string, unknown>);
     const out: Record<string, unknown> = {};
     for (const [key, item] of entries.slice(0, limits.maxObjectKeys)) {
-      out[key] = isSensitiveKey(key)
-        ? REDACTED
-        : redactValue(item, depth + 1, limits);
+      out[key] =
+        isSensitiveKey(key) && !isSafeTelemetryEntry(key, item)
+          ? REDACTED
+          : redactValue(item, depth + 1, limits);
     }
     if (entries.length > limits.maxObjectKeys) out.__truncated = true;
     return out;
@@ -173,8 +189,22 @@ function redactValue(
 }
 
 function isSensitiveKey(key: string): boolean {
-  return SENSITIVE_KEY_PATTERN.test(
-    key.replace(/([a-z0-9])([A-Z])/g, "$1_$2"),
+  return SENSITIVE_KEY_PATTERN.test(normalizeKey(key));
+}
+
+function normalizeKey(key: string): string {
+  return key.replace(/([a-z0-9])([A-Z])/g, "$1_$2");
+}
+
+function isSafeTelemetryEntry(key: string, value: unknown): boolean {
+  if (!SAFE_TELEMETRY_KEY_PATTERN.test(normalizeKey(key))) return false;
+  if (value === null || value === undefined) return true;
+  if (typeof value === "number" || typeof value === "boolean") return true;
+  if (value instanceof Date) return true;
+  return (
+    typeof value === "string" &&
+    value.length <= 40 &&
+    ISO_TIMESTAMP_PATTERN.test(value)
   );
 }
 

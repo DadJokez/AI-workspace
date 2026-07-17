@@ -105,7 +105,14 @@ beforeEach(() => {
           prompt: "Inspect the repository",
           authorization: "Bearer should-not-leak",
         },
-        outputs: { assistantText: "Done." },
+        outputs: {
+          assistantText: "Done.",
+          metrics: {
+            firstTokenAt: "2026-07-15T01:00:01.250Z",
+            requestToFirstTokenMs: 1250,
+            providerToFirstTokenMs: 900,
+          },
+        },
         error: null,
         attemptCount: 1,
         startedAt: new Date("2026-07-15T01:00:00.000Z"),
@@ -184,6 +191,28 @@ describe("GET /api/admin/runs/[id]/trace", () => {
         status: "succeeded",
       }),
     ]);
+  });
+
+  it("preserves first-token timing telemetry through the export while credentials stay redacted (#387)", async () => {
+    setAdminResult("admin");
+    installDbMock();
+    const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
+
+    const response = await GET(
+      new Request("http://localhost/api/admin/runs/run-uuid/trace"),
+      { params: Promise.resolve({ id: "run-uuid" }) },
+    );
+    const body = (await response.json()) as { trace: unknown };
+    const serialized = JSON.stringify(body.trace);
+
+    expect(response.status).toBe(200);
+    // Timing observability survives persistence → read-time redaction →
+    // serialization with types intact…
+    expect(serialized).toContain('"firstTokenAt":"2026-07-15T01:00:01.250Z"');
+    expect(serialized).toContain('"requestToFirstTokenMs":1250');
+    expect(serialized).toContain('"providerToFirstTokenMs":900');
+    // …while credential material in the same trace does not.
+    expect(serialized).not.toContain("should-not-leak");
   });
 
   it("deduplicates polling access within the audit window", async () => {
