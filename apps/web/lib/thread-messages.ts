@@ -43,6 +43,9 @@ export interface ThreadMessageWithActivity {
   runtime: string | null;
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
+  /** Persisted per-turn usage for the cost meter (#330); null pre-#330 rows. */
+  tokensIn?: number | null;
+  tokensOut?: number | null;
   artifacts?: WorkspaceArtifactSummary[];
   appDraftVersions?: AppDraftVersionSummary[];
   recommendations?: PersistedRecommendation[];
@@ -75,6 +78,8 @@ export async function loadThreadMessagesWithRunActivity({
         runtime: chatMessages.runtime,
         toolCalls: chatMessages.toolCalls,
         toolResults: chatMessages.toolResults,
+        tokensIn: chatMessages.tokensIn,
+        tokensOut: chatMessages.tokensOut,
         createdAt: chatMessages.createdAt,
       })
       .from(chatMessages)

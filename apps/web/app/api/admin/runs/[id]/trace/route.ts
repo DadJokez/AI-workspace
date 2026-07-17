@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { redactTracePayload } from "@/lib/tool-redaction";
+import { expandProviderContextSnapshotOutput } from "@/lib/run-trace";
 
 export const dynamic = "force-dynamic";
 
@@ -111,6 +112,12 @@ export async function GET(
     events: eventRows.map((event) =>
       redactTracePayload({
         ...event,
+        // v2 traces store deduplicated payloads (#386); the Inspector and
+        // its download see the reconstructed per-request timeline either way.
+        output:
+          event.eventType === "provider_context_snapshot"
+            ? expandProviderContextSnapshotOutput(event.output)
+            : event.output,
         occurredAt: event.occurredAt.toISOString(),
       }),
     ),

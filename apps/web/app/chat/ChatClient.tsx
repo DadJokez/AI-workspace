@@ -7,7 +7,11 @@ import {
   type ChatEditRequest,
   type SlashSkill,
 } from "@/components/ChatInput";
-import type { ChatAttachment } from "@/lib/attachments";
+import {
+  stripAttachmentNoteFromMessage,
+  type ChatAttachment,
+} from "@/lib/attachments";
+import { areUploadsReplayable } from "@/lib/attachment-replay";
 import {
   latestAppDraftVersionIds,
   markAppDraftVersionDeployed,
@@ -73,6 +77,8 @@ interface UiMessage {
   role: "user" | "assistant" | "tool";
   content: string;
   modelId?: string;
+  tokensIn?: number | null;
+  tokensOut?: number | null;
   pending?: boolean;
   /** Live activity label shown while pending and no text has streamed yet
    *  (e.g. "Thinking…", "Calling github_list_repos…"). */
@@ -90,6 +96,12 @@ interface UiMessage {
   canRetry?: boolean;
   canResume?: boolean;
   hasAttachments?: boolean;
+  /**
+   * True when every user-upload on this turn can be replayed from storage
+   * (#348) — the client-side gate for showing the edit control on file
+   * turns. The server-side reconstruction remains the authority.
+   */
+  attachmentsReplayable?: boolean;
   persisted?: boolean;
   providerReasoning?: LiveReasoningBlock[];
 }
@@ -197,6 +209,8 @@ interface ThreadMessage {
   runtime: "bedrock" | "agentcore" | string | null;
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
+  tokensIn?: number | null;
+  tokensOut?: number | null;
   artifacts?: WorkspaceArtifactSummary[];
   appDraftVersions?: AppDraftVersionSummary[];
   recommendations?: PersistedRecommendation[];
@@ -222,6 +236,8 @@ function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
     role: message.role,
     content: message.content,
     modelId: message.modelId ?? undefined,
+    tokensIn: message.tokensIn,
+    tokensOut: message.tokensOut,
     pending: message.pending,
     status: message.status,
     toolCalls: message.toolCalls ?? undefined,
@@ -239,8 +255,23 @@ function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
     hasAttachments: message.artifacts?.some(
       (artifact) => artifact.source === "user-upload",
     ),
+    attachmentsReplayable: messageUploadsReplayable(message.artifacts),
     persisted: true,
   };
+}
+
+function messageUploadsReplayable(
+  artifacts: WorkspaceArtifactSummary[] | undefined,
+): boolean {
+  const uploads = (artifacts ?? []).filter(
+    (artifact) => artifact.source === "user-upload",
+  );
+  return areUploadsReplayable(
+    uploads.map((artifact) => ({
+      mimeType: artifact.mimeType,
+      metadata: artifact.metadata ?? null,
+    })),
+  );
 }
 
 const THREADS_LIMIT = 50;
@@ -1428,15 +1459,41 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       attachments && attachments.length > 0
         ? `\n\n📎 ${attachments.length} file${attachments.length === 1 ? "" : "s"} attached`
         : "";
-    patchTabMessages(tabId, (prev) => [
-      ...(replaceMessageId ? prev.slice(0, replaceIndex) : prev),
-      {
-        id: userMsgId,
-        role: "user",
-        content: `${text}${attachmentNote}`,
-        hasAttachments: Boolean(attachments?.length),
-        persisted: Boolean(replaceMessageId),
-      },
+    patchTabMessages(tabId, (prev) => {
+      // A file-turn edit sends no NEW attachments but replays the stored
+      // ones (#348) — the optimistic bubble must inherit the replaced
+      // message's chips and replayability or the turn visibly loses its
+      // files (and its re-edit affordance) until a reload.
+      const replaced = replaceMessageId
+        ? prev.find((message) => message.id === replaceMessageId)
+        : undefined;
+      const replayedUploadCount =
+        replaced?.artifacts?.filter(
+          (artifact) => artifact.source === "user-upload",
+        ).length ?? 0;
+      // User bubbles surface files via the 📎 content note (artifact pills
+      // are assistant-only) — a replay edit restores it from the replaced
+      // message so the files don't visibly vanish.
+      const replayNote =
+        !attachmentNote && replayedUploadCount > 0
+          ? `\n\n📎 ${replayedUploadCount} file${replayedUploadCount === 1 ? "" : "s"} attached`
+          : "";
+      return [
+        ...(replaceMessageId ? prev.slice(0, replaceIndex) : prev),
+        {
+          id: userMsgId,
+          role: "user",
+          content: `${text}${attachmentNote}${replayNote}`,
+          hasAttachments:
+            Boolean(attachments?.length) || Boolean(replaced?.hasAttachments),
+          // A fresh upload is replayable by construction once persisted; a
+          // replayed edit stays exactly as replayable as it already was.
+          attachmentsReplayable: replaced
+            ? replaced.attachmentsReplayable
+            : Boolean(attachments?.length),
+          ...(replaced?.artifacts ? { artifacts: replaced.artifacts } : {}),
+          persisted: Boolean(replaceMessageId),
+        },
       {
         id: assistantMsgId,
         role: "assistant",
@@ -1445,8 +1502,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         status: activatedSkill
           ? `Activated ${activatedSkill.name}…`
           : "Thinking…",
-      },
-    ]);
+        },
+      ];
+    });
 
     // New message from the user — re-stick to bottom.
     stickToBottomRef.current = true;
@@ -1681,6 +1739,10 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           const recommendations = Array.isArray(ev.recommendations)
             ? (ev.recommendations as PersistedRecommendation[])
             : undefined;
+          const tokensIn =
+            typeof ev.tokensIn === "number" ? ev.tokensIn : undefined;
+          const tokensOut =
+            typeof ev.tokensOut === "number" ? ev.tokensOut : undefined;
           patchTabMessages(tabId, (prev) =>
             prev.map((m) =>
               isDraftMessage(m)
@@ -1693,6 +1755,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     artifacts,
                     appDraftVersions,
                     recommendations,
+                    tokensIn,
+                    tokensOut,
                     runId: streamRunId ?? m.runId,
                     runStatus: "succeeded",
                     canCancel: false,
@@ -2110,6 +2174,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     role={m.role}
                     content={m.content}
                     modelId={m.modelId}
+                    tokensIn={m.tokensIn}
+                    tokensOut={m.tokensOut}
                     pending={m.pending}
                     status={m.status}
                     toolCalls={m.toolCalls}
@@ -2130,13 +2196,21 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                       m.role === "user" &&
                       !busy &&
                       !activeHasPendingRun &&
-                      !m.hasAttachments &&
+                      (!m.hasAttachments ||
+                        m.attachmentsReplayable === true) &&
                       m.persisted
                         ? () =>
                             setEditRequest({
                               requestId: crypto.randomUUID(),
                               messageId: m.id,
-                              content: m.content,
+                              content: stripAttachmentNoteFromMessage(
+                                m.content,
+                              ),
+                              attachmentCount:
+                                m.artifacts?.filter(
+                                  (artifact) =>
+                                    artifact.source === "user-upload",
+                                ).length ?? 0,
                             })
                         : undefined
                     }

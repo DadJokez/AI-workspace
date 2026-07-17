@@ -374,7 +374,7 @@ export function Sidebar({
                 onClick={handleNewChat}
                 aria-label="New chat"
                 title="New chat"
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-subtle hover:text-ink"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-subtle hover:text-ink umber:bg-pop umber:text-white umber:hover:bg-pop/90 umber:hover:text-white"
               >
                 <IconPlus />
               </button>
