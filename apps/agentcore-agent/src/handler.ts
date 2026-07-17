@@ -7,6 +7,7 @@ import {
   ToolRegistry,
   connectMcpTools,
   isValidModelId,
+  resolveMountedToolNames,
   runAgentLoop,
 } from "@ai-workspace/agent";
 import { createBuiltinTools } from "@ai-workspace/agent/web-fetch-tool";
@@ -27,8 +28,25 @@ export interface InvocationPayload {
   mcpServers?: Record<string, McpHttpServerSpec>;
   builtinTools?: string[];
   requiredToolName?: string;
+  toolDiscovery?: { activatedProviders: string[] };
   userId?: string;
   maxToolIterations?: number;
+}
+
+function parseToolDiscovery(
+  raw: unknown,
+): { activatedProviders: string[] } | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const providers = (raw as { activatedProviders?: unknown })
+    .activatedProviders;
+  if (!Array.isArray(providers)) return undefined;
+  return {
+    activatedProviders: providers.filter(
+      (provider): provider is string => typeof provider === "string",
+    ),
+  };
 }
 
 export function parseInvocationPayload(raw: unknown): InvocationPayload {
@@ -102,6 +120,7 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
       typeof body.requiredToolName === "string"
         ? body.requiredToolName
         : undefined,
+    toolDiscovery: parseToolDiscovery(body.toolDiscovery),
     userId: typeof body.userId === "string" ? body.userId : undefined,
     maxToolIterations:
       typeof body.maxToolIterations === "number"
@@ -125,6 +144,7 @@ export async function runInvocation(
   const registry = new ToolRegistry();
   registry.registerAll(createBuiltinTools(payload.builtinTools));
   let mcp: McpToolConnection | null = null;
+  const dynamicToolNames = new Set<string>();
 
   const servers = payload.mcpServers ?? {};
   if (Object.keys(servers).length > 0) {
@@ -133,7 +153,10 @@ export async function runInvocation(
         clientName: "ai-hub-agentcore-agent",
       });
       for (const tool of mcp.tools) {
-        if (!registry.has(tool.name)) registry.register(tool);
+        if (!registry.has(tool.name)) {
+          registry.register(tool);
+          dynamicToolNames.add(tool.name);
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -147,6 +170,9 @@ export async function runInvocation(
   const systemParts = [payload.systemPrompt, payload.firstTurnPreamble].filter(
     (p): p is string => typeof p === "string" && p.length > 0,
   );
+
+  const discovery = payload.toolDiscovery;
+  const activated = discovery ? new Set(discovery.activatedProviders) : null;
 
   try {
     for await (const event of runAgentLoop({
@@ -162,6 +188,16 @@ export async function runInvocation(
       signal: opts.signal,
       ...(payload.requiredToolName
         ? { requiredToolName: payload.requiredToolName }
+        : {}),
+      ...(activated
+        ? {
+            resolveAllowedTools: () =>
+              resolveMountedToolNames(
+                registry.list().map((tool) => tool.name),
+                dynamicToolNames,
+                activated,
+              ),
+          }
         : {}),
       ...(payload.maxToolIterations
         ? { maxToolIterations: payload.maxToolIterations }

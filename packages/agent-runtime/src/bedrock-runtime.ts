@@ -6,6 +6,7 @@ import {
   ToolRegistry,
   connectMcpTools,
   isValidModelId,
+  resolveMountedToolNames,
   runAgentLoop,
 } from "@ai-workspace/agent";
 import { createBuiltinTools } from "@ai-workspace/agent/web-fetch-tool";
@@ -55,12 +56,16 @@ export class BedrockRuntime implements AgentRuntime {
     registry.registerAll(createBuiltinTools(input.builtinTools));
 
     let mcp: McpToolConnection | null = null;
+    const dynamicToolNames = new Set<string>();
     const httpServers = pickHttpMcpServers(input.mcpServers);
     if (Object.keys(httpServers).length > 0) {
       try {
         mcp = await connectMcpTools(httpServers);
         for (const tool of mcp.tools) {
-          if (!registry.has(tool.name)) registry.register(tool);
+          if (!registry.has(tool.name)) {
+            registry.register(tool);
+            dynamicToolNames.add(tool.name);
+          }
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -70,6 +75,11 @@ export class BedrockRuntime implements AgentRuntime {
         };
       }
     }
+
+    const discovery = input.toolDiscovery;
+    const activated = discovery
+      ? new Set(discovery.activatedProviders)
+      : null;
 
     try {
       yield* runAgentLoop({
@@ -84,6 +94,16 @@ export class BedrockRuntime implements AgentRuntime {
         signal: input.signal,
         ...(input.requiredToolName
           ? { requiredToolName: input.requiredToolName }
+          : {}),
+        ...(activated
+          ? {
+              resolveAllowedTools: () =>
+                resolveMountedToolNames(
+                  registry.list().map((tool) => tool.name),
+                  dynamicToolNames,
+                  activated,
+                ),
+            }
           : {}),
         ...(this.client ? { client: this.client } : {}),
       });

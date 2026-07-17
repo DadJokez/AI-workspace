@@ -6,6 +6,7 @@ import {
   chatRoutingModeFromEnv,
   decideChatRuntimeRoute,
   runtimeV2EnabledFromEnv,
+  toolDiscoveryEnabledFromEnv,
 } from "@/lib/chat-routing";
 
 describe("decideChatRuntimeRoute", () => {
@@ -50,6 +51,15 @@ describe("decideChatRuntimeRoute", () => {
     expect(runtimeV2EnabledFromEnv("on")).toBe(true);
     expect(runtimeV2EnabledFromEnv("0")).toBe(false);
     expect(runtimeV2EnabledFromEnv(undefined)).toBe(false);
+  });
+
+  it("defaults tool discovery off and accepts the standard on values (#384)", () => {
+    expect(toolDiscoveryEnabledFromEnv(undefined)).toBe(false);
+    expect(toolDiscoveryEnabledFromEnv("")).toBe(false);
+    expect(toolDiscoveryEnabledFromEnv("off")).toBe(false);
+    expect(toolDiscoveryEnabledFromEnv("0")).toBe(false);
+    expect(toolDiscoveryEnabledFromEnv("on")).toBe(true);
+    expect(toolDiscoveryEnabledFromEnv(" TRUE ")).toBe(true);
   });
 
   it("parses model-decided routing explicitly and safely defaults to regex", () => {

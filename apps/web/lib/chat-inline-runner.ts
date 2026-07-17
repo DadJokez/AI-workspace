@@ -18,7 +18,11 @@ import {
 } from "@/lib/chat-context-pack";
 import { loadUserCapabilityGraph } from "@/lib/capability-graph";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
-import type { ChatRuntimeRoute } from "@/lib/chat-routing";
+import {
+  toolDiscoveryEnabledFromEnv,
+  type ChatRuntimeRoute,
+} from "@/lib/chat-routing";
+import { ensureThreadActivation } from "@/lib/thread-activation";
 import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
 import {
   enqueueMemoryCapture,
@@ -417,6 +421,18 @@ export async function streamInlineChatRun({
     });
 
     try {
+      // #384 P1: sticky per-thread activation, parity mode — every granted
+      // provider activates, so mounted tools are byte-identical to flag-off.
+      const toolDiscovery = toolDiscoveryEnabledFromEnv()
+        ? {
+            activatedProviders: await ensureThreadActivation(
+              db,
+              thread,
+              mcpServers ? Object.keys(mcpServers) : [],
+            ),
+          }
+        : undefined;
+
       for await (const ev of runtime.runTurn({
         threadId: thread.id,
         modelId: runtimeModelId,
@@ -466,6 +482,7 @@ export async function streamInlineChatRun({
         ...(mcpServers ? { mcpServers } : {}),
         ...(builtinTools.length > 0 ? { builtinTools } : {}),
         ...(requiredToolName ? { requiredToolName } : {}),
+        ...(toolDiscovery ? { toolDiscovery } : {}),
       })) {
         providerTrace.record(ev);
         if (signal?.aborted) {

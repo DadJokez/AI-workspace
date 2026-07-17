@@ -30,6 +30,14 @@ export { normalizeToolInputSchema, ToolRegistry } from "./registry";
 export type { BedrockToolConfig } from "./registry";
 
 export {
+  parseActivation,
+  providerOfToolName,
+  resolveMountedToolNames,
+  serializeActivation,
+} from "./tool-bundles";
+export type { ToolDiscoveryState } from "./tool-bundles";
+
+export {
   FakeBedrockClient,
   RealBedrockClient,
   getBedrockClient,

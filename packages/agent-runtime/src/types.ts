@@ -84,6 +84,16 @@ export interface TurnInput {
    */
   requiredToolName?: string;
   /**
+   * Progressive tool discovery (#384). When present, runtimes mount only MCP
+   * tools whose provider is in `activatedProviders` (first-party and builtin
+   * tools always mount); absent = mount everything, today's behavior. P1
+   * callers activate every granted provider, so presence is byte-identical
+   * to absence — the parity the flag flip in P2 depends on.
+   */
+  toolDiscovery?: {
+    activatedProviders: readonly string[];
+  };
+  /**
    * Steering text for user identity, connected tools, Vault memory, artifact
    * context, and custom instructions. Bedrock and AgentCore fold it into the
    * system prompt.
