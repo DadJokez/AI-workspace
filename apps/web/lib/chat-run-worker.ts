@@ -599,6 +599,7 @@ async function executeClaimedChatRun({
         context: { userId: run.userId },
         signal: runtimeAbort.signal,
         firstTurnPreamble: contextPack.prompt.systemPrompt,
+        volatileSystemSuffix: contextPack.prompt.volatileSystemSuffix,
         ...(builtinTools.length > 0 ? { builtinTools } : {}),
         onRunStarted: async (metadata) => {
           providerRunMetadata = metadata;

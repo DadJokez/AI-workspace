@@ -75,6 +75,9 @@ export class BedrockRuntime implements AgentRuntime {
       yield* runAgentLoop({
         modelId: input.modelId,
         systemPrompt: composeSystemPrompt(input),
+        ...(input.volatileSystemSuffix
+          ? { volatileSystemSuffix: input.volatileSystemSuffix }
+          : {}),
         messages: input.messages,
         registry,
         context: input.context,

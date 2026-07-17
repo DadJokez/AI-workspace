@@ -421,6 +421,7 @@ export async function streamInlineChatRun({
         threadId: thread.id,
         modelId: runtimeModelId,
         systemPrompt: contextPack.prompt.systemPrompt,
+        volatileSystemSuffix: contextPack.prompt.volatileSystemSuffix,
         messages: contextPack.prompt.messages,
         context: { userId },
         signal: runtimeAbort.signal,
