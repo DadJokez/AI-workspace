@@ -1,4 +1,6 @@
 import {
+  apps,
+  appVersions,
   chatMessages,
   type Database,
   runs,
@@ -8,6 +10,7 @@ import {
 import { and, asc, eq, inArray, or } from "drizzle-orm";
 import type { AgentActivityEvent } from "@/lib/activity-events";
 import {
+  isAppDraftVersionStatus,
   parseAppDraftVersionSummaries,
   type AppDraftVersionSummary,
 } from "@/lib/app-draft-versions";
@@ -240,6 +243,62 @@ export async function loadThreadMessagesWithRunActivity({
     });
   }
 
+  // Reconcile rehydrated draft summaries against the CURRENT app-version
+  // truth (#344). Run outputs are frozen at mint time, so after a deploy a
+  // reloaded thread would otherwise resurrect the deployed version as an
+  // actionable draft. Read-time reconciliation; runs.outputs are never
+  // rewritten. The IN-list is scoped to versions already visible in this
+  // thread's runs — do not widen it (per-user scoping).
+  const draftSummaryIds = new Set<string>();
+  for (const summaries of appDraftVersionsByAssistantMessageId.values()) {
+    for (const summary of summaries) draftSummaryIds.add(summary.id);
+  }
+  for (const message of activeRunMessages) {
+    for (const summary of message.appDraftVersions ?? []) {
+      draftSummaryIds.add(summary.id);
+    }
+  }
+  if (draftSummaryIds.size > 0) {
+    const truthRows = await db
+      .select({
+        id: appVersions.id,
+        status: appVersions.status,
+        liveVersionId: apps.liveVersionId,
+        archivedAt: apps.archivedAt,
+      })
+      .from(appVersions)
+      .innerJoin(apps, eq(appVersions.appId, apps.id))
+      .where(inArray(appVersions.id, [...draftSummaryIds]));
+    const truthById = new Map<string, AppVersionTruthRow>(
+      truthRows.map((row) => [
+        row.id,
+        {
+          id: row.id,
+          liveVersionId: row.liveVersionId,
+          archived: row.archivedAt !== null,
+          // Unknown statuses fail safe to "reverted" (non-actionable).
+          status: isAppDraftVersionStatus(row.status)
+            ? row.status
+            : "reverted",
+        },
+      ]),
+    );
+    for (const [messageId, summaries] of appDraftVersionsByAssistantMessageId) {
+      appDraftVersionsByAssistantMessageId.set(
+        messageId,
+        reconcileAppDraftVersionSummaries(summaries, truthById),
+      );
+    }
+    for (const message of activeRunMessages) {
+      if (message.appDraftVersions?.length) {
+        message.appDraftVersions = reconcileAppDraftVersionSummaries(
+          message.appDraftVersions,
+          truthById,
+        );
+      }
+    }
+  }
+
   const messages = messageRows.map((message) => ({
     ...message,
     toolCalls: toToolCalls(message.toolCalls),
@@ -253,6 +312,44 @@ export async function loadThreadMessagesWithRunActivity({
   return [...messages, ...activeRunMessages].sort(
     (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
   );
+}
+
+export interface AppVersionTruthRow {
+  id: string;
+  status: AppDraftVersionSummary["status"];
+  liveVersionId: string | null;
+  /** Archived apps keep their history visible but never a deploy affordance. */
+  archived: boolean;
+}
+
+/**
+ * Rewrites rehydrated draft summaries with current version truth (#344).
+ * Missing rows mean the draft was hard-deleted — the summary is dropped so a
+ * dead card can't render (and the next-highest version's card resurfaces via
+ * latestAppDraftVersionIds, which is correct). canDeploy narrows only: a
+ * summary minted non-deployable can never become deployable here, and
+ * anything not currently a plain draft (deployed, reverted, or the live
+ * version) is non-actionable.
+ */
+export function reconcileAppDraftVersionSummaries(
+  summaries: readonly AppDraftVersionSummary[],
+  truthById: ReadonlyMap<string, AppVersionTruthRow>,
+): AppDraftVersionSummary[] {
+  return summaries.flatMap((summary) => {
+    const truth = truthById.get(summary.id);
+    if (!truth) return [];
+    return [
+      {
+        ...summary,
+        status: truth.status,
+        canDeploy:
+          summary.canDeploy &&
+          !truth.archived &&
+          truth.status === "draft" &&
+          truth.id !== truth.liveVersionId,
+      },
+    ];
+  });
 }
 
 function terminalRunMessage(status: string, error?: string | null): string {

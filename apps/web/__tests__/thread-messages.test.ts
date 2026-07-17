@@ -1,8 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/recommendation-persistence", () => ({
+  loadRecommendationsForMessages: async () => new Map(),
+}));
 import {
   activeRunMessageContent,
   chatRunSourceMessageId,
   latestVisibleChatRunIds,
+  reconcileAppDraftVersionSummaries,
+  type AppVersionTruthRow,
 } from "@/lib/thread-messages";
 
 describe("activeRunMessageContent", () => {
@@ -114,5 +120,227 @@ describe("chatRunSourceMessageId", () => {
     );
 
     expect([...runIds]).toEqual(["new-run"]);
+  });
+});
+
+describe("reconcileAppDraftVersionSummaries (#344)", () => {
+  const summary = (overrides = {}) => ({
+    id: "version-2",
+    appId: "app-1",
+    appName: "Revenue Dashboard",
+    appSlug: "revenue-dashboard",
+    artifactId: "artifact-2",
+    versionNumber: 2,
+    status: "draft" as const,
+    canDeploy: true,
+    previewUrl: "/api/apps/app-1/versions/version-2/content",
+    liveUrl: "/apps/revenue-dashboard",
+    ...overrides,
+  });
+  const truth = (rows: AppVersionTruthRow[]) =>
+    new Map(rows.map((row) => [row.id, row]));
+
+  it("marks a since-deployed draft as deployed and non-deployable", () => {
+    expect(
+      reconcileAppDraftVersionSummaries(
+        [summary()],
+        truth([{ id: "version-2", status: "deployed", liveVersionId: "version-2", archived: false }]),
+      ),
+    ).toEqual([summary({ status: "deployed", canDeploy: false })]);
+  });
+
+  it("marks a reverted version non-deployable", () => {
+    expect(
+      reconcileAppDraftVersionSummaries(
+        [summary()],
+        truth([{ id: "version-2", status: "reverted", liveVersionId: "version-3", archived: false }]),
+      ),
+    ).toEqual([summary({ status: "reverted", canDeploy: false })]);
+  });
+
+  it("keeps a still-draft, non-live version deployable", () => {
+    expect(
+      reconcileAppDraftVersionSummaries(
+        [summary()],
+        truth([{ id: "version-2", status: "draft", liveVersionId: "version-1", archived: false }]),
+      ),
+    ).toEqual([summary()]);
+  });
+
+  it("never widens canDeploy for a summary minted non-deployable", () => {
+    expect(
+      reconcileAppDraftVersionSummaries(
+        [summary({ canDeploy: false })],
+        truth([{ id: "version-2", status: "draft", liveVersionId: "version-1", archived: false }]),
+      ),
+    ).toEqual([summary({ canDeploy: false })]);
+  });
+
+  it("never offers deploy for drafts on archived apps", () => {
+    expect(
+      reconcileAppDraftVersionSummaries(
+        [summary()],
+        truth([
+          {
+            id: "version-2",
+            status: "draft",
+            liveVersionId: "version-1",
+            archived: true,
+          },
+        ]),
+      ),
+    ).toEqual([summary({ canDeploy: false })]);
+  });
+
+  it("drops summaries whose version row was hard-deleted", () => {
+    expect(
+      reconcileAppDraftVersionSummaries([summary()], truth([])),
+    ).toEqual([]);
+  });
+});
+
+describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () => {
+  // Fluent thenable mock: every chained method returns the query; awaiting it
+  // resolves the next queue slot. Select order in the loader: messages, runs,
+  // runEvents, workspaceArtifacts, then the appVersions truth join.
+  function fluentDb(queues: unknown[][]) {
+    let calls = 0;
+    const make = (slot: number) => {
+      const q: Record<string, unknown> = new Proxy(
+        {},
+        {
+          get(_target, prop) {
+            if (prop === "then") {
+              return (resolve: (value: unknown) => void) =>
+                resolve(queues[slot] ?? []);
+            }
+            return () => q;
+          },
+        },
+      );
+      return q;
+    };
+    return {
+      db: { select: () => make(calls++) } as never,
+      selectCalls: () => calls,
+    };
+  }
+
+  const summary = (id: string, versionNumber: number, canDeploy = true) => ({
+    id,
+    appId: "app-1",
+    appName: "Revenue Dashboard",
+    appSlug: "revenue-dashboard",
+    artifactId: `artifact-${id}`,
+    versionNumber,
+    status: "draft",
+    canDeploy,
+    previewUrl: `/api/apps/app-1/versions/${id}/content`,
+    liveUrl: "/apps/revenue-dashboard",
+  });
+
+  it("rewrites persisted and active-run summaries from version truth", async () => {
+    const { loadThreadMessagesWithRunActivity } = await import(
+      "@/lib/thread-messages"
+    );
+    const { db } = fluentDb([
+      [
+        {
+          id: "m1",
+          role: "assistant",
+          content: "Saved drafts.",
+          modelId: null,
+          runtime: null,
+          toolCalls: null,
+          toolResults: null,
+          createdAt: new Date(1),
+        },
+      ],
+      [
+        {
+          id: "r1",
+          skillSlug: "chat-turn",
+          status: "succeeded",
+          modelId: null,
+          runtime: null,
+          error: null,
+          inputs: {},
+          outputs: {
+            assistantMessageId: "m1",
+            appDraftVersions: [
+              summary("vA", 2),
+              summary("vB", 3),
+              summary("vC", 4),
+            ],
+          },
+          startedAt: null,
+          createdAt: new Date(2),
+        },
+        {
+          id: "r2",
+          skillSlug: "chat-turn",
+          status: "running",
+          modelId: null,
+          runtime: null,
+          error: null,
+          inputs: {},
+          outputs: { appDraftVersions: [summary("vD", 5)] },
+          startedAt: new Date(3),
+          createdAt: new Date(3),
+        },
+      ],
+      [],
+      [],
+      [
+        // vA deployed and live; vB still "draft" but IS the live pointer;
+        // vC missing (hard-deleted); vD draft on an archived app.
+        { id: "vA", status: "deployed", liveVersionId: "vA", archivedAt: null },
+        { id: "vB", status: "draft", liveVersionId: "vB", archivedAt: null },
+        { id: "vD", status: "draft", liveVersionId: null, archivedAt: new Date(4) },
+      ],
+    ]);
+
+    const messages = await loadThreadMessagesWithRunActivity({
+      db,
+      threadId: "thread-1",
+    });
+
+    const persisted = messages.find((message) => message.id === "m1");
+    expect(persisted?.appDraftVersions).toEqual([
+      expect.objectContaining({ id: "vA", status: "deployed", canDeploy: false }),
+      expect.objectContaining({ id: "vB", status: "draft", canDeploy: false }),
+    ]);
+
+    const active = messages.find((message) => message.id === "run:r2");
+    expect(active?.appDraftVersions).toEqual([
+      expect.objectContaining({ id: "vD", status: "draft", canDeploy: false }),
+    ]);
+  });
+
+  it("skips the truth query when no summaries rehydrated", async () => {
+    const { loadThreadMessagesWithRunActivity } = await import(
+      "@/lib/thread-messages"
+    );
+    const { db, selectCalls } = fluentDb([
+      [
+        {
+          id: "m1",
+          role: "assistant",
+          content: "Plain answer.",
+          modelId: null,
+          runtime: null,
+          toolCalls: null,
+          toolResults: null,
+          createdAt: new Date(1),
+        },
+      ],
+      [],
+      [],
+      [],
+    ]);
+
+    await loadThreadMessagesWithRunActivity({ db, threadId: "thread-1" });
+    // messages, runs, artifacts — no runEvents (no runs) and no truth join.
+    expect(selectCalls()).toBe(3);
   });
 });
