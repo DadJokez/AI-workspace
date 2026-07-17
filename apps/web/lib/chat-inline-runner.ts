@@ -19,10 +19,12 @@ import {
 import { loadUserCapabilityGraph } from "@/lib/capability-graph";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import {
-  toolDiscoveryEnabledFromEnv,
+  toolDiscoveryModeFromEnv,
   type ChatRuntimeRoute,
 } from "@/lib/chat-routing";
+import { serializeActivation } from "@ai-workspace/agent";
 import { ensureThreadActivation } from "@/lib/thread-activation";
+import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
 import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
 import {
   enqueueMemoryCapture,

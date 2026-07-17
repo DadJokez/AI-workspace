@@ -53,11 +53,13 @@ import {
 } from "@/lib/chat-execution-mode";
 import {
   chatRoutingModeFromEnv,
-  toolDiscoveryEnabledFromEnv,
+  toolDiscoveryModeFromEnv,
   type ChatRuntimeRoute,
 } from "@/lib/chat-routing";
+import { serializeActivation } from "@ai-workspace/agent";
 import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
 import { ensureThreadActivation } from "@/lib/thread-activation";
+import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
@@ -608,6 +610,11 @@ async function executeClaimedChatRun({
               mode: toolDiscoveryMode,
             })
           : undefined;
+      // Tracks persisted activation across same-turn activations so a
+      // second activate never unions against a stale snapshot.
+      let activationSignature = serializeActivation(
+        toolDiscovery?.activatedProviders ?? [],
+      );
 
       for await (const ev of runtime.runTurn({
         threadId: thread.id,
@@ -642,6 +649,29 @@ async function executeClaimedChatRun({
         ...(toolDiscovery ? { toolDiscovery } : {}),
       })) {
         providerTrace.record(ev);
+        // Sticky activation persistence (#384 P2) — see chat-inline-runner.
+        if (
+          toolDiscovery &&
+          ev.type === "tool-call" &&
+          ev.call.name === "comparative__activate_tools"
+        ) {
+          const provider = (ev.call.input as { provider?: unknown })?.provider;
+          if (
+            typeof provider === "string" &&
+            grantedProviders.includes(provider.trim().toLowerCase())
+          ) {
+            try {
+              const activated = await ensureThreadActivation(
+                db,
+                { id: thread.id, mcpSignature: activationSignature },
+                [provider.trim().toLowerCase()],
+              );
+              activationSignature = serializeActivation(activated);
+            } catch {
+              // Next turn re-derives from granted state; never fail the run.
+            }
+          }
+        }
         if (await isRunCanceled(db, run.id)) {
           runtimeAbort.abort();
           break;
