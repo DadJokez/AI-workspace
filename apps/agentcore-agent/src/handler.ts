@@ -6,9 +6,11 @@ import {
   type McpToolConnection,
   ToolRegistry,
   connectMcpTools,
+  createDiscoveryTools,
   isValidModelId,
   resolveMountedToolNames,
   runAgentLoop,
+  type DiscoveryCatalogEntry,
 } from "@ai-workspace/agent";
 import { createBuiltinTools } from "@ai-workspace/agent/web-fetch-tool";
 
@@ -28,24 +30,44 @@ export interface InvocationPayload {
   mcpServers?: Record<string, McpHttpServerSpec>;
   builtinTools?: string[];
   requiredToolName?: string;
-  toolDiscovery?: { activatedProviders: string[] };
+  toolDiscovery?: {
+    activatedProviders: string[];
+    catalog?: DiscoveryCatalogEntry[];
+  };
   userId?: string;
   maxToolIterations?: number;
 }
 
 function parseToolDiscovery(
   raw: unknown,
-): { activatedProviders: string[] } | undefined {
+): InvocationPayload["toolDiscovery"] {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return undefined;
   }
   const providers = (raw as { activatedProviders?: unknown })
     .activatedProviders;
   if (!Array.isArray(providers)) return undefined;
+  const catalogRaw = (raw as { catalog?: unknown }).catalog;
+  const catalog = Array.isArray(catalogRaw)
+    ? catalogRaw.filter(
+        (entry): entry is DiscoveryCatalogEntry =>
+          typeof entry === "object" &&
+          entry !== null &&
+          typeof (entry as { provider?: unknown }).provider === "string" &&
+          typeof (entry as { tool?: unknown }).tool === "string" &&
+          typeof (entry as { description?: unknown }).description ===
+            "string" &&
+          typeof (entry as { category?: unknown }).category === "string" &&
+          ["read", "write", "admin"].includes(
+            (entry as { action?: unknown }).action as string,
+          ),
+      )
+    : undefined;
   return {
     activatedProviders: providers.filter(
       (provider): provider is string => typeof provider === "string",
     ),
+    ...(catalog?.length ? { catalog } : {}),
   };
 }
 
@@ -143,6 +165,19 @@ export async function runInvocation(
 ): Promise<void> {
   const registry = new ToolRegistry();
   registry.registerAll(createBuiltinTools(payload.builtinTools));
+  // #384 P2: discovery surface + shared activated set — an activation
+  // mid-turn mounts the expansion on the next loop iteration, and the web
+  // layer persists it from the streamed tool-call event.
+  const discovery = payload.toolDiscovery;
+  const activated = discovery ? new Set(discovery.activatedProviders) : null;
+  if (discovery?.catalog && activated) {
+    registry.registerAll(
+      createDiscoveryTools({
+        catalog: discovery.catalog,
+        activatedProviders: activated,
+      }),
+    );
+  }
   let mcp: McpToolConnection | null = null;
   const dynamicToolNames = new Set<string>();
 
@@ -170,9 +205,6 @@ export async function runInvocation(
   const systemParts = [payload.systemPrompt, payload.firstTurnPreamble].filter(
     (p): p is string => typeof p === "string" && p.length > 0,
   );
-
-  const discovery = payload.toolDiscovery;
-  const activated = discovery ? new Set(discovery.activatedProviders) : null;
 
   try {
     for await (const event of runAgentLoop({

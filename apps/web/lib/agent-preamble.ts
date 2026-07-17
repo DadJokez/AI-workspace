@@ -17,6 +17,13 @@ interface PreambleInput {
   };
   /** Provider keys mounted into this turn's mcpServers map (e.g. ["github"]). */
   connectedProviders: readonly string[];
+  /**
+   * Granted providers reachable this turn via the discovery tools but not
+   * yet mounted (#384 P2). Honesty invariant: the assistant must never
+   * deny these — the truthful answer is "I can check that" followed by an
+   * activation, not a capability denial.
+   */
+  discoverableProviders?: readonly string[];
   /** Provider keys connected/approved for the account but not necessarily mounted. */
   availableProviders?: readonly string[];
   /** Back-compat alias used by older tests/branches. */
@@ -74,6 +81,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 export function buildAgentPreamble({
   user,
   connectedProviders,
+  discoverableProviders = [],
   accountConnectedProviders,
   availableProviders,
   blockedProviders = [],
@@ -163,7 +171,20 @@ export function buildAgentPreamble({
       for (const p of mountedProviders) {
         lines.push(`- ${PROVIDER_DESCRIPTIONS[p] ?? p}`);
       }
-    } else {
+    }
+    if (discoverableProviders.length > 0) {
+      lines.push("");
+      lines.push(
+        "Available via tool discovery (connected, not yet mounted this conversation):",
+      );
+      for (const p of discoverableProviders) {
+        lines.push(`- ${PROVIDER_DESCRIPTIONS[p] ?? p}`);
+      }
+      lines.push(
+        "When the user's request needs one of these, call comparative__activate_tools with that provider (comparative__search_tools lists what each offers), then continue the task in this same turn — the tools mount from your next step. Never tell the user these are disconnected or unavailable, and never claim you already used a tool that is not mounted.",
+      );
+    }
+    if (mountedProviders.length === 0 && discoverableProviders.length === 0) {
       lines.push(
         "No connected account tool is mounted in this lightweight turn. That only means this turn was routed for fast chat; it does NOT mean the account tool is disconnected. Do not say no tools are connected. If the user's request needs live data from a connected account tool, do not guess, do not invent a result, and do not ask the user to refresh. Say you need to check it and answer only after a tool-backed turn provides a result.",
       );
