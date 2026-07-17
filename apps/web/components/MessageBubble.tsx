@@ -416,7 +416,7 @@ function ArtifactStrip({
 }
 
 const artifactPillClassName =
-  "group flex max-w-full items-center gap-2 rounded-full border border-[#67a3ff]/60 bg-[linear-gradient(135deg,#0637cf_0%,#095cff_54%,#00a6ff_100%)] px-2.5 py-1.5 text-left text-[12px] text-white shadow-[0_0_22px_rgba(0,92,255,0.34)] transition hover:brightness-110";
+  "group flex max-w-full items-center gap-2 rounded-full border border-[#67a3ff]/60 bg-[linear-gradient(135deg,#0637cf_0%,#095cff_54%,#00a6ff_100%)] px-2.5 py-1.5 text-left text-[12px] text-white shadow-[0_0_22px_rgba(0,92,255,0.34)] transition hover:brightness-110 umber:border-accent umber:bg-none umber:bg-accent umber:text-canvas umber:shadow-none";
 
 function ArtifactPillContent({
   artifact,
@@ -425,14 +425,14 @@ function ArtifactPillContent({
 }) {
   return (
     <>
-      <span className="shrink-0 rounded-full bg-white/[0.16] px-1.5 py-0.5 font-mono text-[10px] uppercase text-white/[0.86] ring-1 ring-white/[0.18]">
+      <span className="shrink-0 rounded-full bg-white/[0.16] px-1.5 py-0.5 font-mono text-[10px] uppercase text-white/[0.86] ring-1 ring-white/[0.18] umber:bg-canvas/20 umber:text-canvas umber:ring-canvas/25">
         {artifact.kind.slice(0, 4)}
       </span>
       <span className="min-w-0 truncate font-medium">{artifact.filename}</span>
-      <span className="shrink-0 text-white/[0.72]">
+      <span className="shrink-0 text-white/[0.72] umber:text-canvas/80">
         {formatBytes(artifact.sizeBytes)}
       </span>
-      <span className="hidden shrink-0 rounded-full bg-white/[0.18] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white/[0.88] group-hover:bg-white/[0.24] sm:inline">
+      <span className="hidden shrink-0 rounded-full bg-white/[0.18] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white/[0.88] group-hover:bg-white/[0.24] umber:bg-canvas/20 umber:text-canvas umber:group-hover:bg-canvas/30 sm:inline">
         Preview
       </span>
     </>

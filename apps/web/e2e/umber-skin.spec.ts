@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   assistantMessage,
+  defaultArtifactSummary,
   installMockComparativeApi,
   userMessage,
 } from "./helpers/mock-comparative";
@@ -83,6 +84,15 @@ test("chat chrome cards resolve to Umber surfaces under skin-umber", async ({
             "<!doctype html><html><body>hi</body></html>",
             "```",
           ].join("\n"),
+          artifacts: [
+            {
+              ...defaultArtifactSummary,
+              id: "artifact-umber",
+              threadId: "thread-umber-chrome",
+              chatMessageId: "assistant-umber-chrome",
+              runId: "run-umber-chrome",
+            },
+          ],
           recommendations: [
             {
               dbId: "recommendation-umber-chrome",
@@ -119,7 +129,11 @@ test("chat chrome cards resolve to Umber surfaces under skin-umber", async ({
     const styles = getComputedStyle(document.documentElement);
     const toRgb = (slot: string) =>
       `rgb(${styles.getPropertyValue(slot).trim().split(/\s+/).join(", ")})`;
-    return { surface: toRgb("--color-surface"), subtle: toRgb("--color-subtle") };
+    return {
+      surface: toRgb("--color-surface"),
+      subtle: toRgb("--color-subtle"),
+      accent: toRgb("--color-accent"),
+    };
   });
 
   const card = page.getByTestId("recommendation-card");
@@ -131,6 +145,13 @@ test("chat chrome cards resolve to Umber surfaces under skin-umber", async ({
     .filter({ hasText: "Document content collapsed" });
   await expect(codePreview).toBeVisible();
   await expect(codePreview).toHaveCSS("background-color", tokens.subtle);
+
+  // The artifact pill drops its electric-blue gradient for the flat accent
+  // CTA — background-image gone, background-color on-token.
+  const pill = page.getByTestId("artifact-pill").first();
+  await expect(pill).toBeVisible();
+  await expect(pill).toHaveCSS("background-image", "none");
+  await expect(pill).toHaveCSS("background-color", tokens.accent);
 });
 
 test("the Settings skin control flips Umber on and off live", async ({
