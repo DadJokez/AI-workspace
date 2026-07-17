@@ -11,7 +11,7 @@ import {
   stripAttachmentNoteFromMessage,
   type ChatAttachment,
 } from "@/lib/attachments";
-import { isReplayableUploadMetadata } from "@/lib/attachment-replay";
+import { areUploadsReplayable } from "@/lib/attachment-replay";
 import {
   latestAppDraftVersionIds,
   markAppDraftVersionDeployed,
@@ -266,11 +266,11 @@ function messageUploadsReplayable(
   const uploads = (artifacts ?? []).filter(
     (artifact) => artifact.source === "user-upload",
   );
-  return (
-    uploads.length > 0 &&
-    uploads.every((artifact) =>
-      isReplayableUploadMetadata(artifact.mimeType, artifact.metadata),
-    )
+  return areUploadsReplayable(
+    uploads.map((artifact) => ({
+      mimeType: artifact.mimeType,
+      metadata: artifact.metadata ?? null,
+    })),
   );
 }
 

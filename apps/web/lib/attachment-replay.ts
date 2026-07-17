@@ -48,8 +48,12 @@ const RUNTIME_IMAGE_MIMES = new Set([
 ]);
 
 /**
- * Rows must be passed in original upload order (createdAt, then id) so the
- * replayed fold matches the original turn byte-for-byte.
+ * Order comes from `metadata.uploadIndex` — the ordinal the upload path
+ * stamps per file, and the ONLY record of request order (bulk insert
+ * shares one createdAt; uuid tiebreak is random). Multi-file rows without
+ * it (legacy uploads) fail closed: their original fold order is
+ * unrecoverable, and replaying a reordered prompt would silently break the
+ * byte-parity guarantee for order-sensitive requests.
  */
 export function reconstructStoredAttachments(
   rows: readonly StoredUploadArtifact[],
@@ -61,8 +65,24 @@ export function reconstructStoredAttachments(
     return { ok: false, reason: "too_many_stored_uploads" };
   }
 
+  const indexed = rows.map((row) => ({
+    row,
+    uploadIndex: uploadIndexOf(row.metadata),
+  }));
+  let ordered: readonly StoredUploadArtifact[];
+  if (indexed.every((entry) => entry.uploadIndex !== null)) {
+    ordered = indexed
+      .slice()
+      .sort((left, right) => left.uploadIndex! - right.uploadIndex!)
+      .map((entry) => entry.row);
+  } else if (rows.length === 1) {
+    ordered = rows;
+  } else {
+    return { ok: false, reason: "upload_order_unknown" };
+  }
+
   const attachments: PreparedChatAttachment[] = [];
-  for (const row of rows) {
+  for (const row of ordered) {
     const name = row.filename ?? row.title;
     const metadata = asRecord(row.metadata);
     if (!name || !row.mimeType || !metadata) {
@@ -153,6 +173,36 @@ export function isReplayableUploadMetadata(
     return record.storageEncoding === "base64";
   }
   return true;
+}
+
+function uploadIndexOf(metadata: unknown): number | null {
+  const record = asRecord(metadata);
+  const value = record?.uploadIndex;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : null;
+}
+
+/**
+ * Message-level replayability for the UI gate (#348): every upload must be
+ * individually replayable AND multi-file turns must carry the ordinal that
+ * makes their fold order deterministic.
+ */
+export function areUploadsReplayable(
+  uploads: ReadonlyArray<{ mimeType: string | null; metadata: unknown }>,
+): boolean {
+  if (uploads.length === 0) return false;
+  if (
+    !uploads.every((upload) =>
+      isReplayableUploadMetadata(upload.mimeType, upload.metadata),
+    )
+  ) {
+    return false;
+  }
+  return (
+    uploads.length === 1 ||
+    uploads.every((upload) => uploadIndexOf(upload.metadata) !== null)
+  );
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

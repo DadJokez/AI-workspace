@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  areUploadsReplayable,
   isReplayableUploadMetadata,
   reconstructStoredAttachments,
   type StoredUploadArtifact,
@@ -16,6 +17,7 @@ function docRow(overrides: Partial<StoredUploadArtifact> = {}): StoredUploadArti
     content: "cGRmLWJ5dGVz",
     sizeBytes: 9,
     metadata: {
+      uploadIndex: 0,
       storageEncoding: "base64",
       extractionStatus: "extracted",
       extractedText: "Quarterly numbers: 42.",
@@ -34,6 +36,7 @@ function imageRow(overrides: Partial<StoredUploadArtifact> = {}): StoredUploadAr
     content: "aW1hZ2UtYnl0ZXM=",
     sizeBytes: 11,
     metadata: {
+      uploadIndex: 1,
       storageEncoding: "base64",
       extractionStatus: "metadata_only",
       extractedText: "PNG image, 640x480.",
@@ -72,14 +75,40 @@ describe("reconstructStoredAttachments", () => {
     expect(folded).toContain("Quarterly numbers: 42.");
   });
 
-  it("preserves row order so the replayed fold is byte-stable", () => {
+  it("re-sorts scrambled rows by uploadIndex so the fold matches request order", () => {
+    // Bulk insert shares one createdAt and the uuid tiebreak is random —
+    // the DB can hand rows back in any order. The ordinal must win.
     const result = reconstructStoredAttachments([imageRow(), docRow()]);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.attachments.map((a) => a.name)).toEqual([
-      "chart.png",
       "notes.pdf",
+      "chart.png",
     ]);
+  });
+
+  it("fails closed on multi-file turns whose upload order is unrecorded", () => {
+    const legacyDoc = docRow({
+      metadata: {
+        storageEncoding: "base64",
+        extractionStatus: "extracted",
+        extractedText: "Quarterly numbers: 42.",
+      },
+    });
+    const legacyImage = imageRow({
+      id: "artifact-img-legacy",
+      metadata: {
+        storageEncoding: "base64",
+        extractionStatus: "metadata_only",
+        extractedText: "PNG image.",
+      },
+    });
+    expect(reconstructStoredAttachments([legacyDoc, legacyImage])).toEqual({
+      ok: false,
+      reason: "upload_order_unknown",
+    });
+    // A single legacy upload has a trivial order — still replayable.
+    expect(reconstructStoredAttachments([legacyDoc]).ok).toBe(true);
   });
 
   it("fails closed when the extracted text is missing", () => {
@@ -129,6 +158,28 @@ describe("reconstructStoredAttachments", () => {
         docRow({ kind: "mystery" as StoredUploadArtifact["kind"] }),
       ]).ok,
     ).toBe(false);
+  });
+});
+
+describe("areUploadsReplayable", () => {
+  const withIndex = (uploadIndex: number) => ({
+    mimeType: "application/pdf",
+    metadata: {
+      uploadIndex,
+      storageEncoding: "base64",
+      extractedText: "text",
+    },
+  });
+  const legacy = {
+    mimeType: "application/pdf",
+    metadata: { storageEncoding: "base64", extractedText: "text" },
+  };
+
+  it("requires ordinals for multi-file turns but not single files", () => {
+    expect(areUploadsReplayable([withIndex(0), withIndex(1)])).toBe(true);
+    expect(areUploadsReplayable([legacy])).toBe(true);
+    expect(areUploadsReplayable([withIndex(0), legacy])).toBe(false);
+    expect(areUploadsReplayable([])).toBe(false);
   });
 });
 

@@ -547,7 +547,7 @@ export async function POST(req: Request) {
   if (attachments.length > 0) {
     const secretFindings = scanAttachmentsForSecrets(attachments);
     await db.insert(workspaceArtifacts).values(
-      attachments.map((a) => ({
+      attachments.map((a, uploadIndex) => ({
         userId: sessionUser.id,
         threadId: thread.id,
         chatMessageId: userMsg[0]!.id,
@@ -559,6 +559,10 @@ export async function POST(req: Request) {
         sizeBytes: a.sizeBytes,
         source: "user-upload",
         metadata: {
+          // Bulk insert shares one createdAt, so this ordinal is the ONLY
+          // record of request order — replay (#348) sorts by it to keep
+          // the re-folded prompt byte-identical to the original turn.
+          uploadIndex,
           storageEncoding: a.storageEncoding,
           extractionStatus: a.extractionStatus,
           extractedText: a.content,

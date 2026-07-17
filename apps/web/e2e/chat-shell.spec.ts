@@ -289,6 +289,7 @@ test.describe("chat shell guardrails", () => {
                 mimeType: "image/png",
                 sizeBytes: 1024,
                 metadata: {
+                  uploadIndex: 0,
                   storageEncoding: "base64",
                   extractionStatus: "metadata_only",
                   extractedText: "PNG image, 640x480.",
@@ -303,6 +304,7 @@ test.describe("chat shell guardrails", () => {
                   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 sizeBytes: 2048,
                 metadata: {
+                  uploadIndex: 1,
                   storageEncoding: "base64",
                   extractionStatus: "extracted",
                   extractedText: "Q2 revenue grew 12%.",
