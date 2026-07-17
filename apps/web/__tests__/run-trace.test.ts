@@ -3,8 +3,10 @@ import {
   buildPersistedTraceEvents,
   createProviderTraceAccumulator,
   expandProviderContextSnapshotOutput,
+  maybeScheduleTracePayloadPrune,
   persistProviderTraceCapture,
   pruneExpiredTracePayloads,
+  resetTracePrunePacingForTests,
   tracePayloadPruneCutoff,
   TRACE_PAYLOAD_EVENT_TYPES,
   TRACE_PAYLOAD_RETENTION_DAYS,
@@ -338,7 +340,48 @@ describe("run-trace.v2 deduplication", () => {
     expect(expandProviderContextSnapshotOutput(v1Output)).toBe(v1Output);
   });
 
-  it("prunes expired payload events but never the metrics event", async () => {
+  it("round-trips a non-prefix iteration through messagesInline", () => {
+    const trace = createProviderTraceAccumulator();
+    trace.record({
+      type: "provider-request",
+      iteration: 0,
+      request: {
+        providerModelId: "us.anthropic.claude-sonnet-4-6",
+        messages: [
+          { role: "user", content: [{ kind: "text", text: "divergent" }] },
+        ],
+        tools: catalog,
+      } as never,
+    });
+    trace.record({
+      type: "provider-request",
+      iteration: 1,
+      request: {
+        providerModelId: "us.anthropic.claude-sonnet-4-6",
+        // NOT an extension of iteration 0 — the future-proofing branch.
+        messages: [
+          { role: "user", content: [{ kind: "text", text: "rewritten" }] },
+          { role: "assistant", content: [{ kind: "text", text: "later" }] },
+        ],
+        tools: catalog,
+      } as never,
+    });
+
+    const capture = trace.snapshot();
+    expect(capture.requests[0]?.messagesInline).toBe(true);
+    const expanded = expandProviderContextSnapshotOutput({
+      shared: capture.shared,
+      requests: capture.requests,
+    }) as { requests: Array<{ request: Record<string, unknown> }> };
+    const first = expanded.requests[0]!.request.messages as Array<{
+      content: Array<{ text?: string }>;
+    }>;
+    expect(first[0]?.content[0]?.text).toBe("divergent");
+    expect(first).toHaveLength(1);
+  });
+
+  it("prunes expired payload events but never the metrics event, at most once per interval", async () => {
+    resetTracePrunePacingForTests();
     const captured: unknown[] = [];
     const db = {
       delete: (table: unknown) => ({
@@ -348,6 +391,29 @@ describe("run-trace.v2 deduplication", () => {
         },
       }),
     };
+    // Paced entry point: first call fires, an immediate second call is a
+    // no-op — the hot chat path never repeats the table-wide delete.
+    expect(
+      maybeScheduleTracePayloadPrune({
+        db: db as never,
+        now: new Date("2026-07-17T00:00:00.000Z"),
+      }),
+    ).toBe(true);
+    expect(
+      maybeScheduleTracePayloadPrune({
+        db: db as never,
+        now: new Date("2026-07-17T00:05:00.000Z"),
+      }),
+    ).toBe(false);
+    expect(
+      maybeScheduleTracePayloadPrune({
+        db: db as never,
+        now: new Date("2026-07-17T07:00:00.000Z"),
+      }),
+    ).toBe(true);
+    await Promise.resolve();
+
+    captured.length = 0;
     await pruneExpiredTracePayloads({
       db: db as never,
       now: new Date("2026-07-17T00:00:00.000Z"),

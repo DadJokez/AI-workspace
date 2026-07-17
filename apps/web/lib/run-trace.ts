@@ -315,17 +315,46 @@ export async function persistProviderTraceCapture({
     );
   }
 
-  // Retention rides on the write path so it needs no scheduler; a failed
-  // prune never blocks the trace that just persisted.
-  try {
-    await pruneExpiredTracePayloads({ db });
-  } catch (error) {
+  // Retention rides on the write path so it needs no scheduler — but paced
+  // and detached: the delete is table-wide (event_type + occurred_at, only
+  // event_type indexed), so it fires at most once per interval per process
+  // and is never awaited by the turn that triggered it.
+  maybeScheduleTracePayloadPrune({ db });
+}
+
+const PRUNE_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000;
+let lastPruneAttemptAtMs = 0;
+
+/**
+ * Fires the retention prune at most once per {@link PRUNE_MIN_INTERVAL_MS}
+ * per process, fire-and-forget. Returns whether a prune was started —
+ * callers never wait on it and a failure only logs (the next eligible turn
+ * retries).
+ */
+export function maybeScheduleTracePayloadPrune({
+  db,
+  now = new Date(),
+}: {
+  db: Database;
+  now?: Date;
+}): boolean {
+  if (now.getTime() - lastPruneAttemptAtMs < PRUNE_MIN_INTERVAL_MS) {
+    return false;
+  }
+  lastPruneAttemptAtMs = now.getTime();
+  void pruneExpiredTracePayloads({ db, now }).catch((error) => {
     process.stderr.write(
       `[provider-trace-prune-error] ${JSON.stringify({
         message: error instanceof Error ? error.message : String(error),
       })}\n`,
     );
-  }
+  });
+  return true;
+}
+
+/** Test hook: clears the per-process prune pacing state. */
+export function resetTracePrunePacingForTests(): void {
+  lastPruneAttemptAtMs = 0;
 }
 
 /**
@@ -440,7 +469,10 @@ function captureDeduplicatedRequests(
  * (they are the payload the dedup exists to keep); when they alone exceed
  * the budget the transcript, then catalogs, degrade to truncation stubs.
  * Remaining budget bounds per-iteration entries newest-first, matching the
- * v1 policy of preserving the most recent context.
+ * v1 policy of preserving the most recent context. The budget is
+ * best-effort, not a hard cap: a pathological distinct-system-prompt set
+ * could keep sharedBytes above the limit, but redaction's own string/array
+ * caps bound every element well before that matters.
  */
 function applyTraceByteBudget(
   shared: ProviderTraceSharedSections,
