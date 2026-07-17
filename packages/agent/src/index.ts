@@ -38,6 +38,16 @@ export {
 export type { ToolDiscoveryState } from "./tool-bundles";
 
 export {
+  ACTIVATE_TOOLS_NAME,
+  createDiscoveryTools,
+  SEARCH_TOOLS_NAME,
+} from "./discovery-tools";
+export type {
+  DiscoveryCatalogEntry,
+  DiscoveryToolsOptions,
+} from "./discovery-tools";
+
+export {
   FakeBedrockClient,
   RealBedrockClient,
   getBedrockClient,

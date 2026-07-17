@@ -3,7 +3,9 @@ import {
   type BedrockClient,
   type TokenUsage,
   ToolRegistry,
+  createDiscoveryTools,
   getBedrockClient,
+  resolveMountedToolNames,
   runAgentLoop,
 } from "@ai-workspace/agent";
 import type {
@@ -38,12 +40,34 @@ async function runTurn(
   const toolResults: TurnTranscript["toolResults"] = [];
   const registry = new ToolRegistry();
   registry.registerAll(testCase.tools ?? []);
+  // #384 P2: discovery-enabled cases run the production wiring — shared
+  // activated set, sticky activation, per-iteration bundle resolution.
+  let resolveAllowedTools: (() => readonly string[] | undefined) | undefined;
+  if (testCase.toolDiscovery) {
+    const activated = new Set(testCase.toolDiscovery.activatedProviders ?? []);
+    registry.registerAll(
+      createDiscoveryTools({
+        catalog: testCase.toolDiscovery.catalog,
+        activatedProviders: activated,
+      }),
+    );
+    const dynamicToolNames = new Set(
+      testCase.toolDiscovery.dynamicToolNames ?? [],
+    );
+    resolveAllowedTools = () =>
+      resolveMountedToolNames(
+        registry.list().map((tool) => tool.name),
+        dynamicToolNames,
+        activated,
+      );
+  }
 
   for await (const ev of runAgentLoop({
     modelId: testCase.modelId ?? defaultModelId,
     systemPrompt: testCase.systemPrompt,
     messages: testCase.messages ?? [{ role: "user", content: testCase.input }],
     registry,
+    ...(resolveAllowedTools ? { resolveAllowedTools } : {}),
     context: { userId: "eval" },
     client,
   })) {

@@ -53,11 +53,13 @@ import {
 } from "@/lib/chat-execution-mode";
 import {
   chatRoutingModeFromEnv,
-  toolDiscoveryEnabledFromEnv,
+  toolDiscoveryModeFromEnv,
   type ChatRuntimeRoute,
 } from "@/lib/chat-routing";
+import { serializeActivation } from "@ai-workspace/agent";
 import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
-import { ensureThreadActivation } from "@/lib/thread-activation";
+import { persistActivationFromEvent } from "@/lib/thread-activation";
+import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
@@ -443,6 +445,19 @@ async function executeClaimedChatRun({
   }
 
   const mountedProviders = mcpServers ? Object.keys(mcpServers) : [];
+  // #384: sticky per-thread activation, resolved BEFORE the context pack
+  // so the preamble/receipt tell the truth about what this turn mounts.
+  const toolDiscoveryMode = toolDiscoveryModeFromEnv();
+  const toolDiscovery =
+    toolDiscoveryMode !== "off" && mountedProviders.length > 0
+      ? await buildTurnToolDiscovery({
+          db,
+          thread,
+          grantedProviders: mountedProviders,
+          mode: toolDiscoveryMode,
+        })
+      : undefined;
+  const discoverableProviders = toolDiscovery?.discoverableProviders ?? [];
   const blockedProviders = uniqueStrings([
     ...providerStatus.deniedProviders,
     ...deniedMcpProviders,
@@ -479,7 +494,10 @@ async function executeClaimedChatRun({
     vaultMarkdown,
     vaultContextRequested: true,
     providerStatus,
-    mountedProviders,
+    mountedProviders: toolDiscovery
+      ? toolDiscovery.activatedProviders
+      : mountedProviders,
+    discoverableProviders,
     deniedMcpProviders,
     capabilityGraph,
     modelId: run.modelId ?? undefined,
@@ -594,17 +612,12 @@ async function executeClaimedChatRun({
     });
 
     try {
-      // #384 P1: sticky per-thread activation, parity mode — every granted
-      // provider activates, so mounted tools are byte-identical to flag-off.
-      const toolDiscovery = toolDiscoveryEnabledFromEnv()
-        ? {
-            activatedProviders: await ensureThreadActivation(
-              db,
-              thread,
-              mcpServers ? Object.keys(mcpServers) : [],
-            ),
-          }
-        : undefined;
+      // Tracks persisted activation across same-turn activations so a
+      // second activate never unions against a stale snapshot.
+      const grantedProviders = mountedProviders;
+      let activationSignature = serializeActivation(
+        toolDiscovery?.activatedProviders ?? [],
+      );
 
       for await (const ev of runtime.runTurn({
         threadId: thread.id,
@@ -639,6 +652,17 @@ async function executeClaimedChatRun({
         ...(toolDiscovery ? { toolDiscovery } : {}),
       })) {
         providerTrace.record(ev);
+        // Sticky activation persistence (#384 P2) — the shared trigger for
+        // both runtime lanes; see persistActivationFromEvent.
+        if (toolDiscovery) {
+          activationSignature = await persistActivationFromEvent({
+            db,
+            threadId: thread.id,
+            grantedProviders,
+            event: ev,
+            currentSignature: activationSignature,
+          });
+        }
         if (await isRunCanceled(db, run.id)) {
           runtimeAbort.abort();
           break;

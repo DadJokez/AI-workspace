@@ -19,10 +19,12 @@ import {
 import { loadUserCapabilityGraph } from "@/lib/capability-graph";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import {
-  toolDiscoveryEnabledFromEnv,
+  toolDiscoveryModeFromEnv,
   type ChatRuntimeRoute,
 } from "@/lib/chat-routing";
-import { ensureThreadActivation } from "@/lib/thread-activation";
+import { serializeActivation } from "@ai-workspace/agent";
+import { persistActivationFromEvent } from "@/lib/thread-activation";
+import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
 import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
 import {
   enqueueMemoryCapture,
@@ -310,6 +312,21 @@ export async function streamInlineChatRun({
     }
 
     const mountedProviders = mcpServers ? Object.keys(mcpServers) : [];
+    // #384: sticky per-thread activation, resolved BEFORE the context pack
+    // so the preamble/receipt tell the truth about what this turn mounts.
+    // Parity mode activates every granted provider (byte-identical to
+    // off); on-mode starts at the core bundle + discovery tools.
+    const toolDiscoveryMode = toolDiscoveryModeFromEnv();
+    const toolDiscovery =
+      toolDiscoveryMode !== "off" && mountedProviders.length > 0
+        ? await buildTurnToolDiscovery({
+            db,
+            thread,
+            grantedProviders: mountedProviders,
+            mode: toolDiscoveryMode,
+          })
+        : undefined;
+    const discoverableProviders = toolDiscovery?.discoverableProviders ?? [];
     const blockedProviders = uniqueStrings([
       ...providerStatus.deniedProviders,
       ...deniedMcpProviders,
@@ -326,7 +343,10 @@ export async function streamInlineChatRun({
       vaultMarkdown,
       vaultContextRequested: route.includeVaultContext,
       providerStatus,
-      mountedProviders,
+      mountedProviders: toolDiscovery
+        ? toolDiscovery.activatedProviders
+        : mountedProviders,
+      discoverableProviders,
       deniedMcpProviders,
       capabilityGraph,
       modelId: runtimeModelId,
@@ -421,17 +441,12 @@ export async function streamInlineChatRun({
     });
 
     try {
-      // #384 P1: sticky per-thread activation, parity mode — every granted
-      // provider activates, so mounted tools are byte-identical to flag-off.
-      const toolDiscovery = toolDiscoveryEnabledFromEnv()
-        ? {
-            activatedProviders: await ensureThreadActivation(
-              db,
-              thread,
-              mcpServers ? Object.keys(mcpServers) : [],
-            ),
-          }
-        : undefined;
+      // Tracks persisted activation across same-turn activations so a
+      // second activate never unions against a stale snapshot.
+      const grantedProviders = mountedProviders;
+      let activationSignature = serializeActivation(
+        toolDiscovery?.activatedProviders ?? [],
+      );
 
       for await (const ev of runtime.runTurn({
         threadId: thread.id,
@@ -485,6 +500,17 @@ export async function streamInlineChatRun({
         ...(toolDiscovery ? { toolDiscovery } : {}),
       })) {
         providerTrace.record(ev);
+        // Sticky activation persistence (#384 P2) — the shared trigger for
+        // both runtime lanes; see persistActivationFromEvent.
+        if (toolDiscovery) {
+          activationSignature = await persistActivationFromEvent({
+            db,
+            threadId: thread.id,
+            grantedProviders,
+            event: ev,
+            currentSignature: activationSignature,
+          });
+        }
         if (signal?.aborted) {
           runtimeAbort.abort();
           break;

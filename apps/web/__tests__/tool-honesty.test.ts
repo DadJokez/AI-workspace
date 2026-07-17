@@ -218,4 +218,19 @@ describe("tool-use honesty grounding", () => {
     expect(preamble).toContain("No connected account tools are mounted");
     expect(preamble).not.toContain("No external tools are connected yet");
   });
+
+  it("advertises discoverable providers as activatable, never denies them (#384 P2)", () => {
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: ["google"],
+      discoverableProviders: ["github"],
+      accountConnectedProviders: ["google", "github"],
+    });
+
+    expect(preamble).toContain("Available via tool discovery");
+    expect(preamble).toContain("comparative__activate_tools");
+    // The honesty rule for the discoverable set: activate + continue,
+    // never call disconnected, never claim an unmounted tool ran.
+    expect(preamble).toContain("Never tell the user these are disconnected");
+  });
 });

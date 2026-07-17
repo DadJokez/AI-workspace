@@ -1,6 +1,7 @@
 import type {
   AgentEvent,
   AgentMessage,
+  DiscoveryCatalogEntry,
   ModelId,
   TokenUsage,
   Tool,
@@ -41,6 +42,18 @@ export interface EvalCase {
   contextReceipts?: string[];
   /** Stable fixture facts the answer is expected to cite. */
   fixtureEvidence?: string[];
+  /**
+   * Progressive tool discovery behavioral setup (#384 P2). Mounts the
+   * first-party discovery tools over `catalog`, and gates the case's
+   * `dynamicToolNames` behind sticky activation — the loop starts with
+   * `activatedProviders` and grows as the model calls
+   * comparative__activate_tools, exactly like production.
+   */
+  toolDiscovery?: {
+    catalog: readonly DiscoveryCatalogEntry[];
+    dynamicToolNames?: readonly string[];
+    activatedProviders?: readonly string[];
+  };
   /** Assertions; a case passes only if all pass. */
   assertions: Assertion[];
 }

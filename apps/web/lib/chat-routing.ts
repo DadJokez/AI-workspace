@@ -374,16 +374,25 @@ export function runtimeV2EnabledFromEnv(
 }
 
 /**
- * Progressive tool discovery flag (#384 P1). "on" routes tool mounting
- * through the bundle resolver with every granted provider pre-activated —
- * byte-identical to "off" by design until P2 narrows the default to the
- * core bundle. Delete after the P4 measured flip.
+ * Progressive tool discovery flag (#384). Three states:
+ * - "off" (default): the resolver is never constructed — today's code path.
+ * - "parity" (P1): every granted provider pre-activated, byte-identical to
+ *   off; exists to prove the substrate changes nothing.
+ * - "on" (P2): conversations start at the core bundle plus the discovery
+ *   tools; providers activate stickily via comparative__activate_tools.
+ * Delete after the P4 measured flip.
  */
-export function toolDiscoveryEnabledFromEnv(
+export type ToolDiscoveryMode = "off" | "parity" | "on";
+
+export function toolDiscoveryModeFromEnv(
   value = process.env.TOOL_DISCOVERY,
-): boolean {
-  if (!value) return false;
-  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+): ToolDiscoveryMode {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "parity") return "parity";
+  if (normalized && ["1", "true", "yes", "on"].includes(normalized)) {
+    return "on";
+  }
+  return "off";
 }
 
 export function chatRoutingModeFromEnv(
