@@ -23,7 +23,7 @@ import {
   type ChatRuntimeRoute,
 } from "@/lib/chat-routing";
 import { serializeActivation } from "@ai-workspace/agent";
-import { ensureThreadActivation } from "@/lib/thread-activation";
+import { persistActivationFromEvent } from "@/lib/thread-activation";
 import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
 import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
 import {
@@ -500,31 +500,16 @@ export async function streamInlineChatRun({
         ...(toolDiscovery ? { toolDiscovery } : {}),
       })) {
         providerTrace.record(ev);
-        // Sticky activation persistence (#384 P2): the activate tool-call
-        // in the event stream is the single persistence trigger for both
-        // runtime lanes. Granted-only; best-effort — mounting correctness
-        // within the turn never depends on the persisted value.
-        if (
-          toolDiscovery &&
-          ev.type === "tool-call" &&
-          ev.call.name === "comparative__activate_tools"
-        ) {
-          const provider = (ev.call.input as { provider?: unknown })?.provider;
-          if (
-            typeof provider === "string" &&
-            grantedProviders.includes(provider.trim().toLowerCase())
-          ) {
-            try {
-              const activated = await ensureThreadActivation(
-                db,
-                { id: thread.id, mcpSignature: activationSignature },
-                [provider.trim().toLowerCase()],
-              );
-              activationSignature = serializeActivation(activated);
-            } catch {
-              // Next turn re-derives from granted state; never fail the run.
-            }
-          }
+        // Sticky activation persistence (#384 P2) — the shared trigger for
+        // both runtime lanes; see persistActivationFromEvent.
+        if (toolDiscovery) {
+          activationSignature = await persistActivationFromEvent({
+            db,
+            threadId: thread.id,
+            grantedProviders,
+            event: ev,
+            currentSignature: activationSignature,
+          });
         }
         if (signal?.aborted) {
           runtimeAbort.abort();
