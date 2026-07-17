@@ -125,6 +125,56 @@ beforeEach(() => {
     ],
     eventRows: [
       {
+        id: "event-snapshot-uuid",
+        sequence: 0,
+        eventType: "provider_context_snapshot",
+        status: "succeeded",
+        label: "Captured 2 provider request snapshots",
+        provider: "bedrock",
+        toolName: null,
+        toolCallId: null,
+        input: null,
+        // v2 deduplicated payload (#386): the route must expand it back to
+        // the per-request timeline before serving.
+        output: {
+          shared: {
+            tools: {
+              toolhash1: [{ name: "github_search", description: "Search." }],
+            },
+            systemPrompts: { prompthash1: "You are the harness." },
+            messages: [
+              { role: "user", content: [{ kind: "text", text: "start" }] },
+              { role: "assistant", content: [{ kind: "text", text: "step" }] },
+            ],
+          },
+          requests: [
+            {
+              iteration: 0,
+              providerModelId: "us.anthropic.claude-sonnet-4-6",
+              requestHash: "r1",
+              systemPromptHash: "prompthash1",
+              messagesHash: "m1",
+              toolsHash: "toolhash1",
+              messagesCount: 1,
+              request: { providerModelId: "us.anthropic.claude-sonnet-4-6" },
+            },
+            {
+              iteration: 1,
+              providerModelId: "us.anthropic.claude-sonnet-4-6",
+              requestHash: "r2",
+              systemPromptHash: "prompthash1",
+              messagesHash: "m2",
+              toolsHash: "toolhash1",
+              messagesCount: 2,
+              request: { providerModelId: "us.anthropic.claude-sonnet-4-6" },
+            },
+          ],
+        },
+        error: null,
+        metadata: { schema: "run-trace.v2", schemaVersion: 2 },
+        occurredAt: new Date("2026-07-15T01:00:00.500Z"),
+      },
+      {
         id: "event-uuid",
         sequence: 1,
         eventType: "provider_reasoning",
@@ -213,6 +263,44 @@ describe("GET /api/admin/runs/[id]/trace", () => {
     expect(serialized).toContain('"providerToFirstTokenMs":900');
     // …while credential material in the same trace does not.
     expect(serialized).not.toContain("should-not-leak");
+  });
+
+  it("serves v2 snapshots as the reconstructed per-request timeline (#386)", async () => {
+    setAdminResult("admin");
+    installDbMock();
+    const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
+
+    const response = await GET(
+      new Request("http://localhost/api/admin/runs/run-uuid/trace"),
+      { params: Promise.resolve({ id: "run-uuid" }) },
+    );
+    const body = (await response.json()) as {
+      trace: { events: Array<Record<string, unknown>> };
+    };
+    const snapshot = body.trace.events.find(
+      (event) => event.eventType === "provider_context_snapshot",
+    );
+    expect(snapshot).toBeDefined();
+    const output = snapshot!.output as {
+      requests: Array<{ request: Record<string, unknown> }>;
+      shared?: unknown;
+    };
+    // Expanded: every request carries its own tools/systemPrompt/messages
+    // again, and the deduplicated shared section is gone from the wire.
+    expect(output.shared).toBeUndefined();
+    expect(output.requests).toHaveLength(2);
+    expect(output.requests[0]!.request.tools).toEqual([
+      { name: "github_search", description: "Search." },
+    ]);
+    expect(output.requests[0]!.request.systemPrompt).toBe(
+      "You are the harness.",
+    );
+    expect(
+      (output.requests[0]!.request.messages as unknown[]).length,
+    ).toBe(1);
+    expect(
+      (output.requests[1]!.request.messages as unknown[]).length,
+    ).toBe(2);
   });
 
   it("deduplicates polling access within the audit window", async () => {
