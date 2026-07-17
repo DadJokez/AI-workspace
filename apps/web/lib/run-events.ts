@@ -315,7 +315,10 @@ function runEventDetail(event: {
   toolName?: string | null;
 }): string | undefined {
   const metadata = isRecord(event.metadata) ? event.metadata : null;
-  if (event.eventType === "uploaded_files_stored") {
+  if (
+    event.eventType === "uploaded_files_stored" ||
+    event.eventType === "uploaded_files_replayed"
+  ) {
     const files = Array.isArray(metadata?.uploadedFiles)
       ? metadata.uploadedFiles
       : [];

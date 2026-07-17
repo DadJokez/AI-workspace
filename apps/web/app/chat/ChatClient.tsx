@@ -7,7 +7,11 @@ import {
   type ChatEditRequest,
   type SlashSkill,
 } from "@/components/ChatInput";
-import type { ChatAttachment } from "@/lib/attachments";
+import {
+  stripAttachmentNoteFromMessage,
+  type ChatAttachment,
+} from "@/lib/attachments";
+import { isReplayableUploadMetadata } from "@/lib/attachment-replay";
 import {
   latestAppDraftVersionIds,
   markAppDraftVersionDeployed,
@@ -92,6 +96,12 @@ interface UiMessage {
   canRetry?: boolean;
   canResume?: boolean;
   hasAttachments?: boolean;
+  /**
+   * True when every user-upload on this turn can be replayed from storage
+   * (#348) — the client-side gate for showing the edit control on file
+   * turns. The server-side reconstruction remains the authority.
+   */
+  attachmentsReplayable?: boolean;
   persisted?: boolean;
   providerReasoning?: LiveReasoningBlock[];
 }
@@ -245,8 +255,23 @@ function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
     hasAttachments: message.artifacts?.some(
       (artifact) => artifact.source === "user-upload",
     ),
+    attachmentsReplayable: messageUploadsReplayable(message.artifacts),
     persisted: true,
   };
+}
+
+function messageUploadsReplayable(
+  artifacts: WorkspaceArtifactSummary[] | undefined,
+): boolean {
+  const uploads = (artifacts ?? []).filter(
+    (artifact) => artifact.source === "user-upload",
+  );
+  return (
+    uploads.length > 0 &&
+    uploads.every((artifact) =>
+      isReplayableUploadMetadata(artifact.mimeType, artifact.metadata),
+    )
+  );
 }
 
 const THREADS_LIMIT = 50;
@@ -1441,6 +1466,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         role: "user",
         content: `${text}${attachmentNote}`,
         hasAttachments: Boolean(attachments?.length),
+        // A fresh upload is replayable by construction once persisted.
+        attachmentsReplayable: Boolean(attachments?.length),
         persisted: Boolean(replaceMessageId),
       },
       {
@@ -2144,13 +2171,21 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                       m.role === "user" &&
                       !busy &&
                       !activeHasPendingRun &&
-                      !m.hasAttachments &&
+                      (!m.hasAttachments ||
+                        m.attachmentsReplayable === true) &&
                       m.persisted
                         ? () =>
                             setEditRequest({
                               requestId: crypto.randomUUID(),
                               messageId: m.id,
-                              content: m.content,
+                              content: stripAttachmentNoteFromMessage(
+                                m.content,
+                              ),
+                              attachmentCount:
+                                m.artifacts?.filter(
+                                  (artifact) =>
+                                    artifact.source === "user-upload",
+                                ).length ?? 0,
                             })
                         : undefined
                     }

@@ -36,7 +36,9 @@ import {
   scanAttachmentsForSecrets,
   validateAttachments,
   type ChatAttachment,
+  type PreparedChatAttachment,
 } from "@/lib/attachments";
+import { reconstructStoredAttachments } from "@/lib/attachment-replay";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
 import {
   checkRateLimit,
@@ -295,6 +297,8 @@ export async function POST(req: Request) {
         content: string;
       }>
     | undefined;
+  let replayedAttachments: PreparedChatAttachment[] | undefined;
+  let replayedArtifactIds: string[] | undefined;
   if (replaceMessageId) {
     if (thread.userId !== sessionUser.id) {
       return NextResponse.json({ error: "message_not_found" }, { status: 404 });
@@ -315,20 +319,54 @@ export async function POST(req: Request) {
         { status: editPlan.error === "message_not_found" ? 404 : 409 },
       );
     }
-    const attachedArtifact = await db
-      .select({ id: workspaceArtifacts.id })
+    // #348: a file-bearing turn edits by replaying its stored uploads.
+    // Reconstruction fails closed — anything short of the full original
+    // payload keeps the follow-up-only behavior.
+    const attachedRows = await db
+      .select({
+        id: workspaceArtifacts.id,
+        title: workspaceArtifacts.title,
+        filename: workspaceArtifacts.filename,
+        kind: workspaceArtifacts.kind,
+        mimeType: workspaceArtifacts.mimeType,
+        content: workspaceArtifacts.content,
+        sizeBytes: workspaceArtifacts.sizeBytes,
+        metadata: workspaceArtifacts.metadata,
+        source: workspaceArtifacts.source,
+      })
       .from(workspaceArtifacts)
       .where(eq(workspaceArtifacts.chatMessageId, editPlan.targetId))
-      .limit(1);
-    if (attachedArtifact[0]) {
-      return NextResponse.json(
-        {
-          error: "message_has_attachments",
-          message:
-            "Messages with uploaded files cannot be edited yet. Send a new follow-up instead.",
-        },
-        { status: 409 },
+      .orderBy(asc(workspaceArtifacts.createdAt), asc(workspaceArtifacts.id));
+    if (attachedRows.length > 0) {
+      if (attachments.length > 0) {
+        return NextResponse.json(
+          {
+            error: "attachments_conflict_with_replay",
+            message:
+              "Editing this message re-sends its original files. Remove the newly attached files, or send them in a new message.",
+          },
+          { status: 400 },
+        );
+      }
+      const uploads = attachedRows.filter(
+        (row) => row.source === "user-upload",
       );
+      const replay =
+        uploads.length === attachedRows.length
+          ? reconstructStoredAttachments(uploads)
+          : ({ ok: false, reason: "non_upload_artifact_attached" } as const);
+      if (!replay.ok) {
+        return NextResponse.json(
+          {
+            error: "message_has_attachments",
+            message:
+              "Messages with uploaded files cannot be edited yet. Send a new follow-up instead.",
+          },
+          { status: 409 },
+        );
+      }
+      replayedAttachments = replay.attachments;
+      replayedArtifactIds = uploads.map((row) => row.id);
     }
   }
 
@@ -369,7 +407,7 @@ export async function POST(req: Request) {
   });
   const contextSignals = {
     priorUserMessagesCount: priorUserMessages.length,
-    uploadedFilesAvailable: attachments.length > 0,
+    uploadedFilesAvailable: (replayedAttachments ?? attachments).length > 0,
   };
   let runtimeRoute = decideChatRuntimeRoute({
     message: effectiveUserMessage,
@@ -402,12 +440,18 @@ export async function POST(req: Request) {
       const plan = planChatMessageEdit(messageRows, replaceMessageId);
       if (!plan.ok) return plan;
 
-      const attachedArtifact = await tx
+      // #348: the artifact set must match what reconstruction saw before
+      // the transaction (empty for text-only turns). Anything else appearing
+      // or disappearing means the replay payload is stale — fail closed.
+      const attachedNow = await tx
         .select({ id: workspaceArtifacts.id })
         .from(workspaceArtifacts)
-        .where(eq(workspaceArtifacts.chatMessageId, plan.targetId))
-        .limit(1);
-      if (attachedArtifact[0]) {
+        .where(eq(workspaceArtifacts.chatMessageId, plan.targetId));
+      const expectedArtifactIds = new Set(replayedArtifactIds ?? []);
+      if (
+        attachedNow.length !== expectedArtifactIds.size ||
+        attachedNow.some((row) => !expectedArtifactIds.has(row.id))
+      ) {
         return { ok: false as const, error: "message_has_attachments" as const };
       }
 
@@ -486,11 +530,14 @@ export async function POST(req: Request) {
   const modelVisibleMessage = activatedSkill
     ? buildActivatedSkillChatPrompt(activatedSkill.skill, activatedSkill.args)
     : effectiveUserMessage;
+  // #348: an edited file-bearing turn replays its stored uploads — same
+  // fold, same runtime payload, sourced from storage instead of the request.
+  const effectiveAttachments = replayedAttachments ?? attachments;
   const promptForModel = foldAttachmentsIntoPrompt(
     modelVisibleMessage,
-    attachments,
+    effectiveAttachments,
   );
-  const uploadedFiles = attachments.map((a) => ({
+  const uploadedFiles = effectiveAttachments.map((a) => ({
     name: a.name,
     mimeType: a.mimeType,
     sizeBytes: a.sizeBytes,
@@ -624,6 +671,24 @@ export async function POST(req: Request) {
         status: "succeeded",
         label: `Stored ${attachments.length} uploaded file${attachments.length === 1 ? "" : "s"}`,
         metadata: { uploadedFiles },
+        occurredAt: queuedAt,
+      });
+    } else if (replayedAttachments) {
+      // Replay receipt (#348). The bytes already live on the artifact rows,
+      // so the event records names/sizes only — no runtimeContent copies.
+      await appendRunEvent({
+        db,
+        runId: chatRunId,
+        sequence: 2,
+        eventType: "uploaded_files_replayed",
+        status: "succeeded",
+        label: `Replayed ${replayedAttachments.length} stored file${replayedAttachments.length === 1 ? "" : "s"} from the edited message`,
+        metadata: {
+          uploadedFiles: uploadedFiles.map(
+            ({ runtimeContent: _runtimeContent, ...rest }) => rest,
+          ),
+          replayedArtifactIds,
+        },
         occurredAt: queuedAt,
       });
     }
