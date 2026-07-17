@@ -86,6 +86,30 @@ describe("runAgentLoop system prompt caching", () => {
     );
   });
 
+  it("composes the caller's volatile context ahead of the clock, off the cached prefix (#385)", async () => {
+    const client = new CaptureClient();
+    const events = runAgentLoop({
+      modelId: "sonnet-4-6",
+      systemPrompt: "You are the christmas checker.",
+      volatileSystemSuffix: "Context receipt for this turn: 3 recent message(s).",
+      messages: [{ role: "user", content: "hi" }],
+      registry: new ToolRegistry(),
+      context: { userId: "u1" },
+      client,
+    });
+    for await (const _ev of events) {
+      // drain
+    }
+
+    const params = client.captured[0];
+    expect(params?.systemPrompt).not.toContain("Context receipt");
+    const suffix = params?.volatileSystemSuffix ?? "";
+    const receiptAt = suffix.indexOf("Context receipt for this turn");
+    const clockAt = suffix.indexOf("Current date and time (UTC)");
+    expect(receiptAt).toBeGreaterThanOrEqual(0);
+    expect(clockAt).toBeGreaterThan(receiptAt);
+  });
+
   it("forwards an explicit sampling temperature to the Bedrock seam", async () => {
     const client = new CaptureClient();
     await runTurn(client, undefined, 0);

@@ -142,6 +142,8 @@ export interface ChatContextReceipt {
 export interface ChatContextPack {
   prompt: {
     systemPrompt?: string;
+    /** Per-turn context rendered after the prompt-cache checkpoint (#385). */
+    volatileSystemSuffix?: string;
     messages: AgentMessage[];
   };
   user: ChatContextUser & {
@@ -432,6 +434,10 @@ export function buildChatContextPack({
       : {}),
   };
 
+  // #385: the stable prefix must stay byte-identical across consecutive
+  // turns — it sits under the Bedrock system cache checkpoint. Per-turn
+  // material (context receipt, recommendation cards with their random
+  // nonces) renders in volatileSystemSuffix, after the checkpoint.
   const systemPrompt = shouldRenderPreamble
     ? [
         buildAgentPreamble({
@@ -457,8 +463,12 @@ export function buildChatContextPack({
         }),
         "",
         ...(capabilityGraph && hasCapabilityState
-          ? [renderCapabilitySummaryForPrompt(capabilityGraph), ""]
+          ? [renderCapabilitySummaryForPrompt(capabilityGraph)]
           : []),
+      ].join("\n")
+    : undefined;
+  const volatileSystemSuffix = shouldRenderPreamble
+    ? [
         ...(recommendations.length > 0
           ? [renderRecentRecommendationsForPrompt(recommendations), ""]
           : []),
@@ -469,6 +479,7 @@ export function buildChatContextPack({
   return {
     prompt: {
       systemPrompt,
+      volatileSystemSuffix,
       messages,
     },
     user: {

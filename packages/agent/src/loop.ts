@@ -16,6 +16,13 @@ import type {
 export interface RunAgentLoopParams {
   modelId: ModelId;
   systemPrompt?: string;
+  /**
+   * Dynamic per-turn context (context receipts, recommendation cards).
+   * Rendered AFTER the prompt-cache checkpoint, composed ahead of the loop's
+   * own clock line — so per-turn variation never invalidates the cached
+   * tools+system prefix (#385).
+   */
+  volatileSystemSuffix?: string;
   messages: AgentMessage[];
   /** Tool registry to resolve calls against. Empty registry = no tools. */
   registry: ToolRegistry;
@@ -92,7 +99,12 @@ export async function* runAgentLoop(
   // "now" — without this, date questions get confident hallucinations
   // (observed: "31 days until Christmas 2024", mid-June 2026). Rendered after
   // the cache checkpoint so the per-turn timestamp can't defeat caching.
-  const volatileSystemSuffix = `Current date and time (UTC): ${new Date().toISOString()}. Treat this as ground truth for any date or time reasoning; the user's local timezone may differ.`;
+  const volatileSystemSuffix = [
+    params.volatileSystemSuffix,
+    `Current date and time (UTC): ${new Date().toISOString()}. Treat this as ground truth for any date or time reasoning; the user's local timezone may differ.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const maxIter = params.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
   const tools = params.registry.list(params.allowedTools);
   const baseToolConfig =

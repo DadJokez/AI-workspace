@@ -160,8 +160,8 @@ describe("faithfulness harness assembly", () => {
         open_existing_app: 1,
       },
     });
-    expect(pack.prompt.systemPrompt).toContain("Context receipt for this turn");
-    expect(pack.prompt.systemPrompt).toContain("Routing: Mounted local tools");
+    expect(pack.prompt.volatileSystemSuffix).toContain("Context receipt for this turn");
+    expect(pack.prompt.volatileSystemSuffix).toContain("Routing: Mounted local tools");
     expect(pack.prompt.systemPrompt).toContain("Capability graph summary");
     expect(recommendationTypes(recommendations)).toEqual(
       expect.arrayContaining([

@@ -53,11 +53,23 @@ export class AgentCoreRuntime implements AgentRuntime {
       executionMode: "local",
     });
 
+    // The AgentCore container's payload contract has no volatile-suffix seam;
+    // fold the per-turn context onto the END of firstTurnPreamble so the
+    // durable lane never drops it and the container's [systemPrompt,
+    // firstTurnPreamble] composition keeps today's ordering (receipt last).
+    // No cache regression: this lane had no stable system-prefix cache.
+    const firstTurnPreamble =
+      [input.firstTurnPreamble, input.volatileSystemSuffix]
+        .filter(
+          (part): part is string =>
+            typeof part === "string" && part.length > 0,
+        )
+        .join("\n\n") || undefined;
     const payload = JSON.stringify({
       threadId: input.threadId,
       modelId: input.modelId,
       systemPrompt: input.systemPrompt,
-      firstTurnPreamble: input.firstTurnPreamble,
+      firstTurnPreamble,
       messages: input.messages,
       mcpServers: pickHttpMcpServers(input.mcpServers),
       builtinTools: input.builtinTools,

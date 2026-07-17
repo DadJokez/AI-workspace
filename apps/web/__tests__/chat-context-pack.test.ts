@@ -157,7 +157,7 @@ describe("chat context pack", () => {
       explanation: expect.stringContaining("Mounted local tools"),
     });
     expect(pack.prompt.systemPrompt).toContain("Mounted tools for this turn");
-    expect(pack.prompt.systemPrompt).toContain("Routing: Mounted local tools");
+    expect(pack.prompt.volatileSystemSuffix).toContain("Routing: Mounted local tools");
   });
 
   it("records artifact context availability", () => {
@@ -199,7 +199,7 @@ describe("chat context pack", () => {
       visibility: "hidden_prompt",
       injected: true,
     });
-    expect(pack.prompt.systemPrompt).toContain("uploaded files brief.csv");
+    expect(pack.prompt.volatileSystemSuffix).toContain("uploaded files brief.csv");
   });
 
   it("exposes profile, thread, and message context as auditable items", () => {
@@ -231,7 +231,7 @@ describe("chat context pack", () => {
         expect.objectContaining({ source: "chat_messages" }),
       ]),
     );
-    expect(pack.prompt.systemPrompt).toContain("Context sources:");
+    expect(pack.prompt.volatileSystemSuffix).toContain("Context sources:");
   });
 
   it("buckets recommendation candidates for future capability recommendations", () => {
@@ -301,11 +301,11 @@ describe("chat context pack", () => {
         injected: true,
       }),
     );
-    expect(pack.prompt.systemPrompt).toContain(
+    expect(pack.prompt.volatileSystemSuffix).toContain(
       "Recent recommendation cards displayed in this chat",
     );
-    expect(pack.prompt.systemPrompt).toContain("Open Sales Dashboard");
-    expect(pack.prompt.systemPrompt).toContain(
+    expect(pack.prompt.volatileSystemSuffix).toContain("Open Sales Dashboard");
+    expect(pack.prompt.volatileSystemSuffix).toContain(
       "Do not deny that the card appeared",
     );
   });
@@ -327,7 +327,7 @@ describe("chat context pack", () => {
       ],
     });
 
-    const prompt = pack.prompt.systemPrompt ?? "";
+    const prompt = pack.prompt.volatileSystemSuffix ?? "";
     const beginMatch = prompt.match(
       /<<<RECOMMENDATION-CARDS ([0-9a-f-]{36})>>>/,
     );
@@ -343,6 +343,40 @@ describe("chat context pack", () => {
     expect(endIndex).toBeGreaterThan(hostileIndex);
     expect(prompt.slice(endIndex + end.length)).not.toContain(
       "ignore prior instructions",
+    );
+  });
+
+  it("keeps the system prompt byte-stable across turns that differ only in per-turn context (#385)", () => {
+    const turnOne = buildChatContextPack({
+      ...baseInput(),
+      messages: [{ role: "user", content: "hello" }],
+    });
+    const turnTwo = buildChatContextPack({
+      ...baseInput(),
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "hey" },
+        { role: "user", content: "and what about apps? give me the roadmap" },
+      ],
+      uploadedFiles: [
+        { name: "notes.txt", mimeType: "text/plain", sizeBytes: 12 },
+      ],
+    });
+
+    // The stable prefix sits under the Bedrock system cache checkpoint: any
+    // byte of per-turn drift here re-writes the whole cached prefix.
+    expect(turnOne.prompt.systemPrompt).toBe(turnTwo.prompt.systemPrompt);
+
+    // The per-turn facts still reach the model — after the checkpoint.
+    expect(turnOne.prompt.volatileSystemSuffix).not.toBe(
+      turnTwo.prompt.volatileSystemSuffix,
+    );
+    expect(turnTwo.prompt.volatileSystemSuffix).toContain(
+      "Context receipt for this turn",
+    );
+    expect(turnTwo.prompt.volatileSystemSuffix).toContain("notes.txt");
+    expect(turnOne.prompt.systemPrompt).not.toContain(
+      "Context receipt for this turn",
     );
   });
 

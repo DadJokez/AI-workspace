@@ -55,6 +55,13 @@ export interface TurnInput {
   modelId: string;
   /** Optional system prompt override. */
   systemPrompt?: string;
+  /**
+   * Dynamic per-turn context (context receipts, recommendation cards). The
+   * Bedrock runtime renders it after the prompt-cache checkpoint (#385);
+   * runtimes without that seam append it to the system prompt so no context
+   * is ever dropped.
+   */
+  volatileSystemSuffix?: string;
   /** Bounded chat context. Bedrock and AgentCore consume the supplied context. */
   messages: AgentMessage[];
   /** Per-request context passed to tool handlers (and hooks, when wired). */
