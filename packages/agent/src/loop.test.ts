@@ -546,3 +546,16 @@ describe("runAgentLoop tool discovery (#384 P1)", () => {
     );
   });
 });
+
+describe("loop.ts source hygiene", () => {
+  it("stays plain text — no NUL bytes (git binary-diff guard)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync(
+      new URL("./loop.ts", import.meta.url),
+      "utf8",
+    );
+    // A raw NUL once made git classify this hot file as binary, rendering
+    // its diffs unreviewable. Delimiters must be escaped, never raw.
+    expect(source.includes("\0")).toBe(false);
+  });
+});
