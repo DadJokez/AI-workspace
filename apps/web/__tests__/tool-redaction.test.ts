@@ -57,6 +57,42 @@ describe("tool redaction", () => {
     });
   });
 
+  it("preserves first-token timing telemetry (#387)", () => {
+    expect(
+      redactTracePayload({
+        metrics: {
+          firstTokenAt: "2026-07-15T01:00:01.250Z",
+          requestToFirstTokenMs: 1250,
+          providerToFirstTokenMs: 900,
+        },
+        tokensIn: 1050,
+      }),
+    ).toEqual({
+      metrics: {
+        firstTokenAt: "2026-07-15T01:00:01.250Z",
+        requestToFirstTokenMs: 1250,
+        providerToFirstTokenMs: 900,
+      },
+      tokensIn: 1050,
+    });
+  });
+
+  it("still redacts credentials smuggled under telemetry names (#387)", () => {
+    expect(
+      redactTracePayload({
+        // The allowlist is key AND value shape: a string that is not a
+        // short ISO timestamp keeps the sensitive-key treatment.
+        firstTokenAt: "ghp_16C7e42F292c6912E7710c838347Ae178B4a",
+        requestToFirstTokenMs: "Bearer abc.def.ghi",
+        accessToken: 12345,
+      }),
+    ).toEqual({
+      firstTokenAt: "[redacted]",
+      requestToFirstTokenMs: "[redacted]",
+      accessToken: "[redacted]",
+    });
+  });
+
   it("redacts token-shaped string values", () => {
     expect(
       redactToolPayload({
