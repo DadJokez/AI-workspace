@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test";
 import {
+  assistantMessage,
   fulfillSse,
   installMockComparativeApi,
+  userMessage,
 } from "./helpers/mock-comparative";
-import { gotoE2EChat } from "./helpers/navigation";
+import { gotoE2EChat, openPrimarySidebar } from "./helpers/navigation";
 import { COMPARATIVE_VERSION_LABEL } from "../lib/product-version";
 
 test.skip(
@@ -218,6 +220,207 @@ test.describe("chat shell guardrails", () => {
     expect(chatBodies[2]!.replaceMessageId).toBe(
       "11111111-1111-4111-8111-111111111111",
     );
+  });
+
+  // #348: file-bearing turns edit by replaying stored uploads. The image and
+  // the Office-style document exercise both replay channels (native image
+  // block + extracted text); the second thread pins the fail-closed side.
+  test("edits and resends a file-bearing user message, replaying stored uploads", async ({
+    page,
+  }, testInfo) => {
+    const isMobile = testInfo.project.name.includes("mobile");
+    const fileMessageId = "33333333-3333-4333-8333-333333333333";
+    const uploadArtifact = (
+      id: string,
+      overrides: Record<string, unknown>,
+    ) => ({
+      id,
+      source: "user-upload",
+      threadId: "thread-files",
+      chatMessageId: fileMessageId,
+      runId: null,
+      artifactGroupId: id,
+      versionNumber: 1,
+      supersedesArtifactId: null,
+      versionSummary: null,
+      createdAt: "2026-06-14T20:00:00.000Z",
+      updatedAt: "2026-06-14T20:00:00.000Z",
+      ...overrides,
+    });
+    const chatBodies: Array<Record<string, unknown>> = [];
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      threads: [
+        {
+          id: "thread-files",
+          title: "quarterly numbers",
+          defaultModelId: "sonnet-4-6",
+          summary: null,
+          summaryUpdatedAt: null,
+          previewSummary: null,
+          previewSummaryUpdatedAt: null,
+          titleSource: "generated",
+          createdAt: "2026-06-14T20:00:00.000Z",
+          updatedAt: "2026-06-14T20:00:00.000Z",
+        },
+        {
+          id: "thread-broken-files",
+          title: "legacy upload",
+          defaultModelId: "sonnet-4-6",
+          summary: null,
+          summaryUpdatedAt: null,
+          previewSummary: null,
+          previewSummaryUpdatedAt: null,
+          titleSource: "generated",
+          createdAt: "2026-06-14T19:00:00.000Z",
+          updatedAt: "2026-06-14T19:00:00.000Z",
+        },
+      ],
+      threadMessages: {
+        "thread-files": [
+          userMessage({
+            id: fileMessageId,
+            content: "Summarize the attached numbers",
+            artifacts: [
+              uploadArtifact("upload-image", {
+                title: "chart.png",
+                filename: "chart.png",
+                kind: "image",
+                mimeType: "image/png",
+                sizeBytes: 1024,
+                metadata: {
+                  uploadIndex: 0,
+                  storageEncoding: "base64",
+                  extractionStatus: "metadata_only",
+                  extractedText: "PNG image, 640x480.",
+                  image: { width: 640, height: 480 },
+                },
+              }),
+              uploadArtifact("upload-doc", {
+                title: "q2.docx",
+                filename: "q2.docx",
+                kind: "document",
+                mimeType:
+                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                sizeBytes: 2048,
+                metadata: {
+                  uploadIndex: 1,
+                  storageEncoding: "base64",
+                  extractionStatus: "extracted",
+                  extractedText: "Q2 revenue grew 12%.",
+                },
+              }),
+            ],
+          }),
+          assistantMessage({
+            id: "assistant-files-1",
+            content: "The numbers show growth.",
+          }),
+        ],
+        "thread-broken-files": [
+          userMessage({
+            id: "44444444-4444-4444-8444-444444444444",
+            content: "Legacy upload without replay data",
+            artifacts: [
+              uploadArtifact("upload-legacy", {
+                title: "old.pdf",
+                filename: "old.pdf",
+                kind: "document",
+                mimeType: "application/pdf",
+                sizeBytes: 4096,
+                metadata: { storageEncoding: "base64" },
+              }),
+            ],
+          }),
+          assistantMessage({
+            id: "assistant-files-2",
+            content: "Legacy answer.",
+          }),
+        ],
+      },
+      onChat: async (body, route) => {
+        chatBodies.push(body);
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-files",
+            userMessageId:
+              typeof body.replaceMessageId === "string"
+                ? body.replaceMessageId
+                : "55555555-5555-4555-8555-555555555555",
+            modelId: "sonnet-4-6",
+          },
+          { type: "text-delta", delta: "Revised answer over the files." },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-files-replay",
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+    await gotoE2EChat(page);
+
+    // Fail-closed side first: uploads without replay data keep follow-up-only.
+    let sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: /legacy upload/i }).click();
+    const legacyMessage = page
+      .getByTestId("user-message")
+      .filter({ hasText: "Legacy upload without replay data" });
+    await expect(legacyMessage).toBeVisible();
+    await legacyMessage.hover();
+    await expect(
+      legacyMessage.getByRole("button", { name: "Edit message" }),
+    ).toHaveCount(0);
+
+    // Replayable side: image + document turn is editable.
+    sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: /quarterly numbers/i }).click();
+    const fileMessage = page
+      .getByTestId("user-message")
+      .filter({ hasText: "Summarize the attached numbers" });
+    await expect(fileMessage).toBeVisible();
+    await fileMessage.hover();
+    await fileMessage.getByRole("button", { name: "Edit message" }).click();
+
+    await expect(page.getByTestId("edit-message-state")).toBeVisible();
+    await expect(page.getByTestId("edit-replay-note")).toContainText(
+      "2 uploaded files will be re-sent unchanged",
+    );
+
+    const input = page.getByPlaceholder(/ask anything/i);
+    await expect(input).toHaveValue("Summarize the attached numbers");
+    await input.fill("Summarize the attached numbers by quarter");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    await expect(
+      page.getByText("Revised answer over the files."),
+    ).toBeVisible();
+    await expect(page.getByText("The numbers show growth.")).toHaveCount(0);
+    expect(chatBodies).toHaveLength(1);
+    expect(chatBodies[0]).toMatchObject({
+      message: "Summarize the attached numbers by quarter",
+      threadId: "thread-files",
+      replaceMessageId: fileMessageId,
+    });
+    // The replay sources files from storage — the edit request must not
+    // carry a fresh attachments payload.
+    expect(chatBodies[0]!.attachments).toBeUndefined();
+    expect(chatBodies[0]!.attachmentCount).toBe(0);
+
+    // Streaming-route regression (#405 review): the edited turn keeps its
+    // file indicator and its re-edit affordance without any reload — the
+    // optimistic bubble inherits the replaced message's attachment state.
+    const editedMessage = page
+      .getByTestId("user-message")
+      .filter({ hasText: "Summarize the attached numbers by quarter" });
+    await expect(editedMessage).toContainText("📎 2 files attached");
+    await editedMessage.hover();
+    await expect(
+      editedMessage.getByRole("button", { name: "Edit message" }),
+    ).toBeVisible();
   });
 
   test("sends suggestions and preserves manual multiline payloads", async ({

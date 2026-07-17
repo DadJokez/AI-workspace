@@ -98,6 +98,16 @@ export interface AttachmentValidation {
   attachments: PreparedChatAttachment[];
 }
 
+/**
+ * Removes the optimistic "📎 N files attached" bubble suffix so editing a
+ * just-sent file message never resends the decoration as content (#348).
+ * Server-persisted content never contains it (body.message is the clean
+ * text), so this is a no-op on reloaded messages.
+ */
+export function stripAttachmentNoteFromMessage(message: string): string {
+  return message.replace(/(?:\n\s*)?📎\s+\d+\s+files?\s+attached\s*$/i, "");
+}
+
 export function declaredAttachmentCountFromMessage(message: string): number | null {
   const match = /(?:^|\n)\s*📎\s+(\d+)\s+files?\s+attached\s*$/i.exec(message);
   if (!match?.[1]) return null;
