@@ -445,6 +445,23 @@ async function executeClaimedChatRun({
   }
 
   const mountedProviders = mcpServers ? Object.keys(mcpServers) : [];
+  // #384: sticky per-thread activation, resolved BEFORE the context pack
+  // so the preamble/receipt tell the truth about what this turn mounts.
+  const toolDiscoveryMode = toolDiscoveryModeFromEnv();
+  const toolDiscovery =
+    toolDiscoveryMode !== "off" && mountedProviders.length > 0
+      ? await buildTurnToolDiscovery({
+          db,
+          thread,
+          grantedProviders: mountedProviders,
+          mode: toolDiscoveryMode,
+        })
+      : undefined;
+  const discoverableProviders = toolDiscovery?.catalog
+    ? mountedProviders.filter(
+        (provider) => !toolDiscovery.activatedProviders.includes(provider),
+      )
+    : [];
   const blockedProviders = uniqueStrings([
     ...providerStatus.deniedProviders,
     ...deniedMcpProviders,
@@ -481,7 +498,10 @@ async function executeClaimedChatRun({
     vaultMarkdown,
     vaultContextRequested: true,
     providerStatus,
-    mountedProviders,
+    mountedProviders: toolDiscovery
+      ? toolDiscovery.activatedProviders
+      : mountedProviders,
+    discoverableProviders,
     deniedMcpProviders,
     capabilityGraph,
     modelId: run.modelId ?? undefined,
@@ -596,22 +616,9 @@ async function executeClaimedChatRun({
     });
 
     try {
-      // #384: sticky per-thread activation. Parity mode activates every
-      // granted provider (byte-identical to off); on-mode starts at the
-      // core bundle + discovery tools and grows via activate_tools.
-      const toolDiscoveryMode = toolDiscoveryModeFromEnv();
-      const grantedProviders = mcpServers ? Object.keys(mcpServers) : [];
-      const toolDiscovery =
-        toolDiscoveryMode !== "off"
-          ? await buildTurnToolDiscovery({
-              db,
-              thread,
-              grantedProviders,
-              mode: toolDiscoveryMode,
-            })
-          : undefined;
       // Tracks persisted activation across same-turn activations so a
       // second activate never unions against a stale snapshot.
+      const grantedProviders = mountedProviders;
       let activationSignature = serializeActivation(
         toolDiscovery?.activatedProviders ?? [],
       );

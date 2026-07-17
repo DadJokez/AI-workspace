@@ -102,6 +102,8 @@ export interface ChatContextReceipt {
     connected: string[];
     approved: string[];
     mounted: string[];
+    /** Reachable via tool discovery this turn, not yet mounted (#384). */
+    discoverable: string[];
     builtinMounted: string[];
     pendingApproval: string[];
     executionUnavailable: string[];
@@ -177,6 +179,12 @@ export interface BuildChatContextPackInput {
   vaultContextRequested: boolean;
   providerStatus: UserMcpProviderStatus;
   mountedProviders: readonly string[];
+  /**
+   * Granted providers whose tools are reachable via tool discovery but not
+   * mounted this turn (#384 P2). The preamble/receipt must present these
+   * honestly: available, one activation away — never "disconnected".
+   */
+  discoverableProviders?: readonly string[];
   deniedMcpProviders?: readonly string[];
   capabilityGraph?: CapabilityGraph;
   modelId?: string;
@@ -197,6 +205,7 @@ export function buildChatContextPack({
   vaultContextRequested,
   providerStatus,
   mountedProviders,
+  discoverableProviders = [],
   deniedMcpProviders = [],
   capabilityGraph,
   modelId,
@@ -377,6 +386,7 @@ export function buildChatContextPack({
       connected: uniqueStrings(providerStatus.connectedProviders),
       approved: uniqueStrings(providerStatus.allowedProviders),
       mounted: uniqueStrings(mountedProviders),
+      discoverable: uniqueStrings(discoverableProviders),
       builtinMounted: uniqueStrings(builtinTools),
       pendingApproval: blockedProviders,
       executionUnavailable: uniqueStrings(
@@ -448,6 +458,7 @@ export function buildChatContextPack({
             vaultMarkdown: vault || null,
           },
           connectedProviders: receipt.tools.mounted,
+          discoverableProviders: receipt.tools.discoverable,
           accountConnectedProviders: receipt.tools.connected,
           availableProviders: receipt.tools.approved,
           blockedProviders: receipt.tools.pendingApproval,
