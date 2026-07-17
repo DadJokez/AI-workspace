@@ -326,11 +326,7 @@ export async function streamInlineChatRun({
             mode: toolDiscoveryMode,
           })
         : undefined;
-    const discoverableProviders = toolDiscovery?.catalog
-      ? mountedProviders.filter(
-          (provider) => !toolDiscovery.activatedProviders.includes(provider),
-        )
-      : [];
+    const discoverableProviders = toolDiscovery?.discoverableProviders ?? [];
     const blockedProviders = uniqueStrings([
       ...providerStatus.deniedProviders,
       ...deniedMcpProviders,

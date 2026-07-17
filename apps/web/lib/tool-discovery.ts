@@ -25,6 +25,15 @@ export const CORE_MCP_PROVIDERS = ["google", "salesforce"] as const;
 export interface TurnToolDiscovery {
   activatedProviders: string[];
   catalog?: DiscoveryCatalogEntry[];
+  /**
+   * Providers the preamble may honestly advertise as reachable via
+   * discovery this turn: granted, not yet activated, AND present in the
+   * catalog (so `comparative__activate_tools` will actually accept them).
+   * Deriving this here — not from grants alone — keeps the preamble from
+   * promising a provider the activate tool would refuse (the honesty
+   * spine). Empty in parity mode.
+   */
+  discoverableProviders: string[];
 }
 
 /**
@@ -59,6 +68,7 @@ export async function buildTurnToolDiscovery({
       activatedProviders: persisted.filter((provider) =>
         granted.has(provider),
       ),
+      discoverableProviders: [],
     };
   }
 
@@ -69,10 +79,20 @@ export async function buildTurnToolDiscovery({
     ...CORE_MCP_PROVIDERS.filter((provider) => granted.has(provider)),
   ];
   const persisted = await ensureThreadActivation(db, thread, seedProviders);
-  return {
-    activatedProviders: persisted.filter((provider) => granted.has(provider)),
-    catalog: await loadDiscoveryCatalog(db, grantedProviders),
-  };
+  const activatedProviders = persisted.filter((provider) =>
+    granted.has(provider),
+  );
+  const catalog = await loadDiscoveryCatalog(db, grantedProviders);
+  // Only providers that are granted AND have enabled catalog rows are
+  // actually activatable, so only those may be advertised. A granted
+  // provider whose catalog is absent/all-disabled is neither mounted nor
+  // promised (the honesty spine — the preamble must never point the model
+  // at a provider the activate tool will refuse).
+  const activated = new Set(activatedProviders);
+  const discoverableProviders = [
+    ...new Set(catalog.map((entry) => entry.provider)),
+  ].filter((provider) => granted.has(provider) && !activated.has(provider));
+  return { activatedProviders, catalog, discoverableProviders };
 }
 
 /**

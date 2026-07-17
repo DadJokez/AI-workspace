@@ -73,9 +73,42 @@ describe("buildTurnToolDiscovery", () => {
     });
     // github (heavy) stays discoverable; the light core mounts.
     expect(result.activatedProviders).toEqual(["google", "salesforce"]);
+    // google is core (activated), so only github is advertised as
+    // discoverable — and only because it has an enabled catalog row.
+    expect(result.discoverableProviders).toEqual(["github"]);
     expect(result.catalog?.map((entry) => `${entry.provider}__${entry.tool}`)).toEqual(
       ["github__list_pull_requests", "google__search_email"],
     );
+  });
+
+  it("never advertises a non-core granted provider whose catalog is empty or all-disabled", async () => {
+    // notion is granted and non-core but every row is disabled — the
+    // activate tool would refuse it, so the preamble must not promise it
+    // (honesty spine). github has an enabled row and stays advertised.
+    const { db } = mockDb([
+      ...catalogRows,
+      {
+        provider: "notion",
+        toolName: "search",
+        displayName: null,
+        description: "Disabled everywhere.",
+        category: "docs",
+        action: "read",
+        enabled: false,
+      },
+    ]);
+    const result = await buildTurnToolDiscovery({
+      db,
+      thread: { id: "t1", mcpSignature: null },
+      grantedProviders: ["github", "notion"],
+      mode: "on",
+    });
+    expect(result.discoverableProviders).toEqual(["github"]);
+    expect(
+      result.catalog?.some((entry) => entry.provider === "notion"),
+    ).toBe(false);
+    // notion is non-core and has no enabled row → not activated either.
+    expect(result.activatedProviders).not.toContain("notion");
   });
 
   it("on mode keeps prior activations sticky and drops revoked grants", async () => {
