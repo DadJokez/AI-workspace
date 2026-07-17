@@ -10,7 +10,7 @@ describe("formatTurnMeter (#330)", () => {
   it("formats tokens and cost at standard registry rates", () => {
     // 21,533 in + 10 out on sonnet-4-6 (3.30/16.50 per MTok) ≈ $0.0712
     expect(formatTurnMeter("sonnet-4-6", 21_533, 10)).toBe(
-      "21.5k tokens · ~$0.07",
+      "21.5k tokens · \u2264$0.07",
     );
   });
 
@@ -25,5 +25,9 @@ describe("formatTurnMeter (#330)", () => {
 
   it("uses M for millions", () => {
     expect(formatTurnMeter(null, 2_400_000, 0)).toBe("2.4M tokens");
+  });
+
+  it("never renders 1000k at the M boundary", () => {
+    expect(formatTurnMeter(null, 999_600, 0)).toBe("1M tokens");
   });
 });

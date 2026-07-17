@@ -162,7 +162,7 @@ export function MessageBubble({
             return meter ? (
               <div
                 className="text-[11px] tracking-wide text-muted/80"
-                title="Estimated at standard rates from this turn's total tokens; the admin run page has the cached/uncached split."
+                title="Upper bound at standard rates: total tokens include cache reads, which bill at ~10% of standard. The admin run page has the exact cached/uncached split."
               >
                 {meter}
               </div>

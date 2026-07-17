@@ -4,8 +4,11 @@ import { estimateCostUsd, isValidModelId } from "@ai-workspace/agent/models";
  * Per-turn token & cost meter (#330). Pure formatting over the persisted
  * tokensIn/tokensOut counts and the registry rate card — trust-visible cost
  * in one muted line. tokensIn is "total tokens sent" (uncached + cache
- * reads/writes folded in by the runtime), so the estimate is an upper bound
- * at standard rates; the run detail page has the cached/uncached split.
+ * reads/writes folded in by the runtime, and cache reads bill at ~0.1x), so
+ * the estimate is an UPPER BOUND at standard rates — the label says "≤" to
+ * keep the number honest on heavily-cached turns. A true split needs
+ * per-message cache columns (migration — Rob's call, tracked as follow-up);
+ * the admin run page has the real split meanwhile.
  */
 export function formatTurnMeter(
   modelId: string | null | undefined,
@@ -22,11 +25,12 @@ export function formatTurnMeter(
 
   const cost = estimateCostUsd(modelId, input, output);
   if (cost < 0.005) return `${tokens} · <$0.01`;
-  return `${tokens} · ~$${cost.toFixed(2)}`;
+  return `${tokens} · \u2264$${cost.toFixed(2)}`;
 }
 
 function formatTokenCount(count: number): string {
-  if (count >= 1_000_000) {
+  // 999,500+ would otherwise round to "1000k" in the k branch.
+  if (count >= 999_500) {
     return `${trimTrailingZero((count / 1_000_000).toFixed(1))}M`;
   }
   if (count >= 1_000) {
