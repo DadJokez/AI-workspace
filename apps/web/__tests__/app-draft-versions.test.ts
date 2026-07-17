@@ -25,6 +25,28 @@ function version(
 }
 
 describe("app draft version summaries", () => {
+  it("passes deployed and reverted statuses through transport (#344)", () => {
+    const deployed = version({ status: "deployed", canDeploy: false });
+    const reverted = version({
+      id: "version-1",
+      versionNumber: 1,
+      status: "reverted",
+      canDeploy: false,
+    });
+    expect(parseAppDraftVersionSummaries([deployed, reverted])).toEqual([
+      deployed,
+      reverted,
+    ]);
+  });
+
+  it("keeps the highest version per app regardless of status (#344)", () => {
+    const latest = latestAppDraftVersionIds([
+      version({ id: "version-2", versionNumber: 2, status: "deployed", canDeploy: false }),
+      version({ id: "version-3", versionNumber: 3 }),
+    ]);
+    expect([...latest]).toEqual(["version-3"]);
+  });
+
   it("parses complete summaries and drops malformed transport data", () => {
     expect(
       parseAppDraftVersionSummaries([
