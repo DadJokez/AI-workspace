@@ -516,9 +516,9 @@ export function ChatInput({
         <div className="mb-1.5 flex flex-wrap items-center gap-2 px-1 text-[12px] text-[#b9d2ff]">
           <span
             data-testid="active-slash-skill"
-            className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#2f6bff]/50 bg-[#06112f]/80 px-2 py-1 shadow-[0_0_16px_rgba(0,92,255,0.22)]"
+            className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#2f6bff]/50 bg-[#06112f]/80 px-2 py-1 shadow-[0_0_16px_rgba(0,92,255,0.22)] umber:border-hairline umber:bg-subtle umber:shadow-none"
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_12px_rgba(40,215,255,0.8)]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_12px_rgba(40,215,255,0.8)] umber:bg-pop umber:shadow-none" />
             <span className="font-mono">{slashSkillToken(activeSkill)}</span>
             <span className="text-[#88a8e8]">{activeSkill.name}</span>
             <button

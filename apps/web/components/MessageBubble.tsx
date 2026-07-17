@@ -97,7 +97,7 @@ export function MessageBubble({
                 data-testid="slash-capability-pill"
                 className="inline-flex items-center gap-1.5 rounded-full border border-[#2f6bff]/50 bg-[#06112f]/85 px-2 py-0.5 font-mono text-[12px] text-[#dbe8ff] shadow-[0_0_14px_rgba(0,92,255,0.24)]"
               >
-                <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_10px_rgba(40,215,255,0.7)]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_10px_rgba(40,215,255,0.7)] umber:bg-pop umber:shadow-none" />
                 {slashDisplay.token}
               </span>
               {slashDisplay.body ? (
@@ -253,17 +253,17 @@ function AppDraftStrip({
             key={version.id}
             data-testid="app-draft-card"
             data-app-version-id={version.id}
-            className="rounded-md border border-[#2f6bff]/40 bg-[#06112f]/60 px-3 py-2.5 text-[12px] text-[#dbe8ff] shadow-[0_0_18px_rgba(0,92,255,0.12)]"
+            className="rounded-md border border-[#2f6bff]/40 bg-[#06112f]/60 px-3 py-2.5 text-[12px] text-[#dbe8ff] shadow-[0_0_18px_rgba(0,92,255,0.12)] umber:border-hairline umber:bg-surface umber:text-ink umber:shadow-none"
           >
             <div className="flex flex-wrap items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_10px_rgba(40,215,255,0.7)]" />
+              <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_10px_rgba(40,215,255,0.7)] umber:bg-pop umber:shadow-none" />
               <span className="font-medium">{version.appName}</span>
-              <span className="text-[#9dbdff]">v{version.versionNumber}</span>
-              <span className="ml-auto rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#b9d2ff]">
+              <span className="text-[#9dbdff] umber:text-muted">v{version.versionNumber}</span>
+              <span className="ml-auto rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#b9d2ff] umber:bg-subtle umber:text-muted">
                 {deployed ? "Live" : reverted ? "Superseded" : "Draft"}
               </span>
             </div>
-            <p className="mt-1 text-[#9dbdff]">
+            <p className="mt-1 text-[#9dbdff] umber:text-muted">
               {deployed
                 ? "This version is now live."
                 : reverted
@@ -275,14 +275,14 @@ function AppDraftStrip({
                 type="button"
                 disabled={!artifact}
                 onClick={() => artifact && onOpenArtifact?.(artifact)}
-                className="rounded-md border border-[#67a3ff]/35 px-2 py-1 text-[11px] font-medium text-[#dbe8ff] hover:bg-white/[0.08] disabled:opacity-40"
+                className="rounded-md border border-[#67a3ff]/35 px-2 py-1 text-[11px] font-medium text-[#dbe8ff] hover:bg-white/[0.08] umber:border-hairline umber:text-ink umber:hover:bg-subtle disabled:opacity-40"
               >
                 Preview
               </button>
               {deployed ? (
                 <a
                   href={version.liveUrl}
-                  className="rounded-md border border-[#67a3ff]/45 bg-[#0b3ed9]/55 px-2 py-1 text-[11px] font-medium text-white hover:bg-[#0b52ff]"
+                  className="rounded-md border border-[#67a3ff]/45 bg-[#0b3ed9]/55 px-2 py-1 text-[11px] font-medium text-white hover:bg-[#0b52ff] umber:border-accent umber:bg-accent umber:text-canvas umber:hover:bg-accent/90"
                 >
                   Open app
                 </a>
@@ -291,12 +291,12 @@ function AppDraftStrip({
                   type="button"
                   disabled={pending || !onDeploy}
                   onClick={() => onDeploy?.(version)}
-                  className="rounded-md border border-[#67a3ff]/45 bg-[#0b3ed9]/55 px-2 py-1 text-[11px] font-medium text-white hover:bg-[#0b52ff] disabled:opacity-50"
+                  className="rounded-md border border-[#67a3ff]/45 bg-[#0b3ed9]/55 px-2 py-1 text-[11px] font-medium text-white hover:bg-[#0b52ff] umber:border-accent umber:bg-accent umber:text-canvas umber:hover:bg-accent/90 disabled:opacity-50"
                 >
                   {pending ? "Deploying..." : "Deploy update"}
                 </button>
               ) : (
-                <span className="text-[11px] text-[#9dbdff]">
+                <span className="text-[11px] text-[#9dbdff] umber:text-muted">
                   Ready for an owner to deploy
                 </span>
               )}
@@ -333,14 +333,14 @@ function RecommendationStrip({
             className="rounded-md border border-[#2f6bff]/35 bg-[#06112f]/55 px-3 py-2 text-[12px] text-[#dbe8ff]"
           >
             <div className="flex items-start gap-2">
-              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#28d7ff] shadow-[0_0_12px_rgba(40,215,255,0.8)]" />
+              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#28d7ff] shadow-[0_0_12px_rgba(40,215,255,0.8)] umber:bg-pop umber:shadow-none" />
               <div className="min-w-0 flex-1">
                 <div className="font-medium">{recommendation.title}</div>
-                <div className="mt-0.5 text-[#9dbdff]">
+                <div className="mt-0.5 text-[#9dbdff] umber:text-muted">
                   {recommendation.reason}
                 </div>
               </div>
-              <span className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[#b9d2ff]">
+              <span className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[#b9d2ff] umber:bg-subtle umber:text-muted">
                 {recommendationLabel(recommendation.type)}
               </span>
             </div>
@@ -355,7 +355,7 @@ function RecommendationStrip({
                     type="button"
                     disabled={pending}
                     onClick={() => onAction?.(recommendation, "accepted")}
-                    className="rounded-md border border-[#67a3ff]/45 bg-[#0b3ed9]/55 px-2 py-1 text-[11px] font-medium text-white hover:bg-[#0b52ff] disabled:opacity-50"
+                    className="rounded-md border border-[#67a3ff]/45 bg-[#0b3ed9]/55 px-2 py-1 text-[11px] font-medium text-white hover:bg-[#0b52ff] umber:border-accent umber:bg-accent umber:text-canvas umber:hover:bg-accent/90 disabled:opacity-50"
                   >
                     {pending ? "Saving..." : acceptLabel(recommendation)}
                   </button>
@@ -500,7 +500,7 @@ function ArtifactCodePreview({
   return (
     <details className="group my-2 overflow-hidden rounded-md border border-[#2f6bff]/40 bg-[#050b1f]/70 first:mt-0 last:mb-0">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[12px] marker:hidden">
-        <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_12px_rgba(40,215,255,0.8)]" />
+        <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_12px_rgba(40,215,255,0.8)] umber:bg-pop umber:shadow-none" />
         <span className="min-w-0 flex-1 truncate font-medium text-[#dbe8ff]">
           Document content collapsed
         </span>
