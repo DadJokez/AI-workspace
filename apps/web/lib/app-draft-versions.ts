@@ -26,7 +26,7 @@ export function parseAppDraftVersionSummaries(
       typeof candidate.versionNumber !== "number" ||
       !Number.isInteger(candidate.versionNumber) ||
       candidate.versionNumber < 1 ||
-      !isAppVersionStatus(candidate.status) ||
+      !isAppDraftVersionStatus(candidate.status) ||
       typeof candidate.canDeploy !== "boolean" ||
       typeof candidate.previewUrl !== "string" ||
       typeof candidate.liveUrl !== "string"
@@ -90,7 +90,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isAppVersionStatus(
+export function isAppDraftVersionStatus(
   value: unknown,
 ): value is AppDraftVersionSummary["status"] {
   return value === "draft" || value === "deployed" || value === "reverted";

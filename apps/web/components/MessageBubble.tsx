@@ -244,6 +244,10 @@ function AppDraftStrip({
         );
         const pending = pendingId === version.id;
         const deployed = version.status === "deployed";
+        // Reconciliation (#344) delivers "reverted" as a steady state: a
+        // version that was live and has since been superseded. It must not
+        // read as a fresh draft.
+        const reverted = version.status === "reverted";
         return (
           <div
             key={version.id}
@@ -256,13 +260,15 @@ function AppDraftStrip({
               <span className="font-medium">{version.appName}</span>
               <span className="text-[#9dbdff]">v{version.versionNumber}</span>
               <span className="ml-auto rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#b9d2ff]">
-                {deployed ? "Live" : "Draft"}
+                {deployed ? "Live" : reverted ? "Superseded" : "Draft"}
               </span>
             </div>
             <p className="mt-1 text-[#9dbdff]">
               {deployed
                 ? "This version is now live."
-                : "Draft saved. The live app has not changed."}
+                : reverted
+                  ? "This version is no longer live."
+                  : "Draft saved. The live app has not changed."}
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <button
@@ -280,7 +286,7 @@ function AppDraftStrip({
                 >
                   Open app
                 </a>
-              ) : version.canDeploy ? (
+              ) : reverted ? null : version.canDeploy ? (
                 <button
                   type="button"
                   disabled={pending || !onDeploy}
