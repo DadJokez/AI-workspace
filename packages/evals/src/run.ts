@@ -10,6 +10,7 @@ import { skillFaithfulnessSuite } from "./cases/skill-faithfulness.cases";
 import { toolGroundingSuite } from "./cases/tool-grounding.cases";
 import { webSearchFaithfulnessSuite } from "./cases/web-search-faithfulness.cases";
 import { modelRoutingSuite } from "./cases/model-routing.cases";
+import { toolDiscoverySuite } from "./cases/tool-discovery.cases";
 import { estimateUsageCostUsd } from "./benchmarks/model-routing";
 
 const SUITES: EvalSuite[] = [
@@ -21,6 +22,7 @@ const SUITES: EvalSuite[] = [
   salesforceFaithfulnessSuite,
   webSearchFaithfulnessSuite,
   modelRoutingSuite,
+  toolDiscoverySuite,
 ];
 
 /**
