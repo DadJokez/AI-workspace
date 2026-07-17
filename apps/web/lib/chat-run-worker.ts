@@ -347,7 +347,7 @@ async function executeClaimedChatRun({
 
   // Match artifacts against recent RAW user messages, not the attachment-folded
   // prompt (see chat-inline-runner for the rationale).
-  const [artifactContextPayload, appEditContext, recentRecommendations] =
+  const [artifactContextPayload, appEditContextResult, recentRecommendations] =
     await Promise.all([
     buildArtifactContextPayload({
       db,
@@ -377,6 +377,9 @@ async function executeClaimedChatRun({
       storedSeparateFromArtifact,
     });
   const artifactContext = artifactContextPayload?.text ?? null;
+  const appEditContext = appEditContextResult?.context ?? null;
+  const appEditSourceOmitted =
+    appEditContextResult?.contentOmittedForSize ?? false;
   const combinedArtifactContext = [appEditContext, artifactContext]
     .filter(Boolean)
     .join("\n\n");
@@ -738,6 +741,7 @@ async function executeClaimedChatRun({
     error: runError,
     artifactContextTarget,
     separateFromArtifact,
+    appEditSourceOmitted,
   });
 }
 
@@ -761,6 +765,7 @@ async function persistAssistantResult({
   error,
   artifactContextTarget,
   separateFromArtifact,
+  appEditSourceOmitted,
 }: {
   db: Database;
   run: Run;
@@ -781,6 +786,7 @@ async function persistAssistantResult({
   error: string | null;
   artifactContextTarget?: WorkspaceArtifactVersionTarget | null;
   separateFromArtifact?: WorkspaceArtifactVersionTarget | null;
+  appEditSourceOmitted: boolean;
 }): Promise<void> {
   if (await isRunCanceled(db, run.id)) return;
 
@@ -865,6 +871,7 @@ async function persistAssistantResult({
         userId: run.userId,
         threadId,
         artifacts,
+        sourceContentOmitted: appEditSourceOmitted,
       });
       appDraftVersions = appDrafts.summaries;
       if (appDrafts.created.length > 0 || appDrafts.rejected.length > 0) {

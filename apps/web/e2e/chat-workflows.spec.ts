@@ -722,4 +722,114 @@ test.describe("chat workflow regressions", () => {
       /^data:image\/png;base64,/,
     );
   });
+  test("renders server-reconciled app draft payloads: live non-deployable, superseded inert, later draft actionable (#344)", async ({
+    page,
+  }, testInfo) => {
+    const isMobile = testInfo.project.name.includes("mobile");
+    const appId = "app-reconciled";
+    const reconciled = (
+      id: string,
+      versionNumber: number,
+      status: string,
+      canDeploy: boolean,
+    ) => ({
+      id,
+      appId,
+      appName: "Revenue Dashboard",
+      appSlug: "revenue-dashboard",
+      artifactId: `artifact-${id}`,
+      versionNumber,
+      status,
+      canDeploy,
+      previewUrl: `/api/apps/${appId}/versions/${id}/content`,
+      liveUrl: "/apps/revenue-dashboard",
+    });
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      threads: [
+        threadSummary("thread-deployed-only", "deployed dashboard chat"),
+        threadSummary("thread-later-draft", "later draft chat"),
+      ],
+      threadMessages: {
+        // A1: the live version rehydrates as Live and non-deployable.
+        "thread-deployed-only": [
+          userMessage({ id: "u-reconciled-1", content: "edit my dashboard" }),
+          assistantMessage({
+            id: "a-reconciled-1",
+            content: "Deployed earlier.",
+            appDraftVersions: [reconciled("app-version-2", 2, "deployed", false)],
+          }),
+        ],
+        // A2: superseded (reverted) version + later draft — only the draft
+        // is actionable, and the reverted card must not read as a draft.
+        "thread-later-draft": [
+          userMessage({ id: "u-reconciled-2", content: "edit again" }),
+          assistantMessage({
+            id: "a-reconciled-2",
+            content: "Reverted v1.",
+            appDraftVersions: [
+              {
+                ...reconciled("app-version-1", 1, "reverted", false),
+                appId: "app-superseded",
+                appName: "Legacy Dashboard",
+                appSlug: "legacy-dashboard",
+                liveUrl: "/apps/legacy-dashboard",
+              },
+            ],
+          }),
+          userMessage({ id: "u-reconciled-2b", content: "deploy v2" }),
+          assistantMessage({
+            id: "a-reconciled-2b",
+            content: "Deployed v2.",
+            appDraftVersions: [reconciled("app-version-2", 2, "deployed", false)],
+          }),
+          userMessage({ id: "u-reconciled-3", content: "one more tweak" }),
+          assistantMessage({
+            id: "a-reconciled-3",
+            content: "Draft v3 saved.",
+            appDraftVersions: [reconciled("app-version-3", 3, "draft", true)],
+          }),
+        ],
+      },
+    });
+
+    await gotoE2EChat(page);
+    let sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar
+      .getByRole("button", { name: /deployed dashboard chat/i })
+      .click();
+    const liveCard = page.getByTestId("app-draft-card");
+    await expect(liveCard).toHaveCount(1);
+    await expect(liveCard).toContainText("Live");
+    await expect(liveCard).toContainText("This version is now live.");
+    await expect(
+      liveCard.getByRole("button", { name: "Deploy update" }),
+    ).toHaveCount(0);
+    await expect(liveCard.getByRole("link", { name: "Open app" })).toHaveAttribute(
+      "href",
+      "/apps/revenue-dashboard",
+    );
+
+    await page.reload();
+    sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: /later draft chat/i }).click();
+    const cards = page.getByTestId("app-draft-card");
+    await expect(cards).toHaveCount(2);
+
+    const supersededCard = cards.filter({ hasText: "Legacy Dashboard" });
+    await expect(supersededCard).toContainText("Superseded");
+    await expect(supersededCard).toContainText("This version is no longer live.");
+    await expect(
+      supersededCard.getByRole("button", { name: "Deploy update" }),
+    ).toHaveCount(0);
+    await expect(supersededCard).not.toContainText("Ready for an owner to deploy");
+
+    const draftCard = cards.filter({ hasText: "Revenue Dashboard" });
+    await expect(draftCard).toHaveCount(1);
+    await expect(draftCard).toContainText("v3");
+    await expect(draftCard).not.toContainText("v2");
+    await expect(
+      draftCard.getByRole("button", { name: "Deploy update" }),
+    ).toBeVisible();
+  });
 });

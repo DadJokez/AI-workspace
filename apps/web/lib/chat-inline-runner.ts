@@ -223,7 +223,7 @@ export async function streamInlineChatRun({
     // Match artifacts against recent RAW user messages, not the
     // attachment-folded prompt — so uploaded file bytes can't pull in an
     // unrelated artifact, while "it/that one" follow-ups still have context.
-    const [artifactContextPayload, appEditContext] = await Promise.all([
+    const [artifactContextPayload, appEditContextResult] = await Promise.all([
       buildArtifactContextPayload({
         db,
         userId,
@@ -235,6 +235,9 @@ export async function streamInlineChatRun({
     const { artifactContextTarget, separateFromArtifact } =
       resolveArtifactContextTargets({ payload: artifactContextPayload });
     const artifactContext = artifactContextPayload?.text ?? null;
+    const appEditContext = appEditContextResult?.context ?? null;
+    const appEditSourceOmitted =
+      appEditContextResult?.contentOmittedForSize ?? false;
     const combinedArtifactContext = [appEditContext, artifactContext]
       .filter(Boolean)
       .join("\n\n");
@@ -628,6 +631,7 @@ export async function streamInlineChatRun({
         ) ?? [],
       artifactContextTarget,
       separateFromArtifact,
+      appEditSourceOmitted,
       completedAt,
     });
 
@@ -676,6 +680,7 @@ async function persistInlineAssistantResult({
   suppressedSkillIds,
   artifactContextTarget,
   separateFromArtifact,
+  appEditSourceOmitted,
   completedAt,
 }: {
   db: Database;
@@ -704,6 +709,7 @@ async function persistInlineAssistantResult({
   suppressedSkillIds: string[];
   artifactContextTarget?: WorkspaceArtifactVersionTarget | null;
   separateFromArtifact?: WorkspaceArtifactVersionTarget | null;
+  appEditSourceOmitted: boolean;
   completedAt: Date;
 }): Promise<{
   assistantMessageId: string | undefined;
@@ -781,6 +787,7 @@ async function persistInlineAssistantResult({
             userId,
             threadId,
             artifacts,
+            sourceContentOmitted: appEditSourceOmitted,
           });
           appDraftVersions = appDrafts.summaries;
           if (appDrafts.created.length > 0 || appDrafts.rejected.length > 0) {
