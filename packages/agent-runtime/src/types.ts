@@ -1,6 +1,7 @@
 import type {
   AgentEvent,
   AgentMessage,
+  DiscoveryCatalogEntry,
   ToolContext,
 } from "@ai-workspace/agent";
 

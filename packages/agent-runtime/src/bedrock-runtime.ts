@@ -5,6 +5,7 @@ import {
   type McpToolConnection,
   ToolRegistry,
   connectMcpTools,
+  createDiscoveryTools,
   isValidModelId,
   resolveMountedToolNames,
   runAgentLoop,
@@ -55,6 +56,23 @@ export class BedrockRuntime implements AgentRuntime {
     registry.registerAll(this.registry.list());
     registry.registerAll(createBuiltinTools(input.builtinTools));
 
+    // #384 P2: the discovery surface is part of the core bundle. The
+    // activated set is SHARED between these handlers and the resolver
+    // below, so an activation mid-turn mounts the expansion on the next
+    // loop iteration.
+    const discovery = input.toolDiscovery;
+    const activated = discovery
+      ? new Set(discovery.activatedProviders)
+      : null;
+    if (discovery?.catalog && activated) {
+      registry.registerAll(
+        createDiscoveryTools({
+          catalog: discovery.catalog,
+          activatedProviders: activated,
+        }),
+      );
+    }
+
     let mcp: McpToolConnection | null = null;
     const dynamicToolNames = new Set<string>();
     const httpServers = pickHttpMcpServers(input.mcpServers);
@@ -75,11 +93,6 @@ export class BedrockRuntime implements AgentRuntime {
         };
       }
     }
-
-    const discovery = input.toolDiscovery;
-    const activated = discovery
-      ? new Set(discovery.activatedProviders)
-      : null;
 
     try {
       yield* runAgentLoop({
