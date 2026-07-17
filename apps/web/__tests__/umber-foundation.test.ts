@@ -77,6 +77,7 @@ describe("umber foundation (packages/umber)", () => {
           muted: "--text-muted",
           subtle: "--surface-active",
           accent: "--action",
+          pop: "--pop",
         },
       },
       "html.dark.skin-umber ": {
@@ -90,6 +91,7 @@ describe("umber foundation (packages/umber)", () => {
           muted: "--text-muted",
           subtle: "--surface-hover",
           accent: "--action",
+          pop: "--pop",
         },
       },
     };

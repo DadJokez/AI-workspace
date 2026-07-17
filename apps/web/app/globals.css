@@ -1,3 +1,5 @@
+@import "@ai-workspace/umber/tokens/typography.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -12,6 +14,9 @@
   --color-muted: 107 107 107;
   --color-subtle: 240 239 235;
   --color-accent: 26 26 26;
+  /* pop = the reserved emphasis color. Classic maps it to accent so the
+   * `umber:` utilities are inert outside the skin. */
+  --color-pop: 26 26 26;
 }
 
 html.dark {
@@ -24,6 +29,7 @@ html.dark {
   --color-muted: 142 142 142;
   --color-subtle: 37 37 37;
   --color-accent: 229 229 229;
+  --color-pop: 229 229 229;
 }
 
 /* Umber skin (packages/umber): remaps the eight semantic slots to the Umber
@@ -44,6 +50,13 @@ html.skin-umber {
   --color-muted: 95 86 68; /* --text-muted (neutral-600) */
   --color-subtle: 236 231 218; /* --surface-active (neutral-150) */
   --color-accent: 25 21 16; /* --action (neutral-900, ink-black actions) */
+  --color-pop: 42 74 58; /* --pop (forest-500) — ONE emphasis per view */
+}
+
+/* Umber typography: Geist stacks from packages/umber tokens; system-font
+ * fallbacks render until self-hosted woff2 binaries land upstream. */
+html.skin-umber body {
+  font-family: var(--font-sans);
 }
 
 html.dark.skin-umber {
@@ -55,6 +68,7 @@ html.dark.skin-umber {
   --color-muted: 179 169 143; /* --text-muted (#b3a98f) */
   --color-subtle: 43 38 28; /* --surface-hover (neutral-800) */
   --color-accent: 228 213 183; /* --action (tan-200: dark-mode actions go tan) */
+  --color-pop: 78 115 101; /* --pop (forest-400, dark) */
 }
 
 html,
