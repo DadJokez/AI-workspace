@@ -86,12 +86,16 @@ export interface TurnInput {
   /**
    * Progressive tool discovery (#384). When present, runtimes mount only MCP
    * tools whose provider is in `activatedProviders` (first-party and builtin
-   * tools always mount); absent = mount everything, today's behavior. P1
-   * callers activate every granted provider, so presence is byte-identical
-   * to absence — the parity the flag flip in P2 depends on.
+   * tools always mount); absent = mount everything, today's behavior.
+   * `catalog` (P2) additionally mounts the first-party discovery tools —
+   * the model can search it and stickily activate provider expansions
+   * mid-turn; the web layer persists activations from the tool-call event
+   * stream. Parity mode passes every granted provider with no catalog and
+   * is byte-identical to absence.
    */
   toolDiscovery?: {
     activatedProviders: readonly string[];
+    catalog?: readonly DiscoveryCatalogEntry[];
   };
   /**
    * Steering text for user identity, connected tools, Vault memory, artifact
