@@ -58,6 +58,17 @@ test("chat chrome cards resolve to Umber surfaces under skin-umber", async ({
 }) => {
   await installMockComparativeApi(page, {
     artifacts: [],
+    skills: [
+      {
+        id: "skill-umber-check",
+        slug: "umber-check",
+        name: "Umber Check",
+        description: "Fixture skill for the composer pill.",
+        mcpProviders: [],
+        isStarter: true,
+        sharedWithMe: false,
+      },
+    ],
     threads: [
       {
         id: "thread-umber-chrome",
@@ -133,6 +144,7 @@ test("chat chrome cards resolve to Umber surfaces under skin-umber", async ({
       surface: toRgb("--color-surface"),
       subtle: toRgb("--color-subtle"),
       accent: toRgb("--color-accent"),
+      ink: toRgb("--color-ink"),
     };
   });
 
@@ -152,6 +164,18 @@ test("chat chrome cards resolve to Umber surfaces under skin-umber", async ({
   await expect(pill).toBeVisible();
   await expect(pill).toHaveCSS("background-image", "none");
   await expect(pill).toHaveCSS("background-color", tokens.accent);
+
+  // The composer's active-slash-skill pill: cream surface AND ink text —
+  // the surface flipping without the text is the low-contrast half-reskin
+  // a class-flip test can't see.
+  await page.getByPlaceholder(/ask anything/i).fill("/umber");
+  await page
+    .getByRole("button", { name: /Umber Check Fixture skill/i })
+    .click();
+  const skillPill = page.getByTestId("active-slash-skill");
+  await expect(skillPill).toContainText("/umber-check");
+  await expect(skillPill).toHaveCSS("background-color", tokens.subtle);
+  await expect(skillPill).toHaveCSS("color", tokens.ink);
 });
 
 test("the Settings skin control flips Umber on and off live", async ({

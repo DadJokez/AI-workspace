@@ -509,7 +509,7 @@ function ArtifactCodePreview({
           {kind}
         </span>
         {saveState ? (
-          <span className="shrink-0 rounded-full border border-amber-300/25 bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-100">
+          <span className="shrink-0 rounded-full border border-amber-300/25 bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-100 umber:border-hairline umber:bg-surface umber:text-ink">
             {saveState}
           </span>
         ) : null}
