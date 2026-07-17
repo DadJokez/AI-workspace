@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildPersistedTraceEvents,
   createProviderTraceAccumulator,
+  expandProviderContextSnapshotOutput,
   persistProviderTraceCapture,
+  pruneExpiredTracePayloads,
+  tracePayloadPruneCutoff,
+  TRACE_PAYLOAD_EVENT_TYPES,
+  TRACE_PAYLOAD_RETENTION_DAYS,
 } from "@/lib/run-trace";
 
 describe("provider run trace capture", () => {
@@ -185,18 +190,28 @@ describe("provider run trace capture", () => {
     });
 
     const capture = trace.snapshot();
-    expect(capture.requests[0]).toMatchObject({
+    // v2 (#386): the oversized transcript is deduplicated into the shared
+    // section, so the byte budget lands there — with explicit metadata —
+    // while the per-iteration entry stays intact.
+    expect(capture.shared.messagesTruncated).toBe(true);
+    expect(capture.shared.messages).toMatchObject({
       truncated: true,
-      request: { truncated: true },
+      originalSizeBytes: expect.any(Number),
     });
+    expect(capture.requests[0]?.truncated).toBeUndefined();
     expect(capture.reasoning.blocks[0]).toMatchObject({ truncated: true });
     expect(capture.reasoning.blocks[0]?.text).toContain(
       "[truncated by standard trace policy]",
     );
     expect(capture.limits).toMatchObject({
-      truncatedRequestCount: 1,
       truncatedReasoningBlockCount: 1,
     });
+    expect(capture.limits.storage.storedBytes).toBeLessThan(
+      capture.limits.contextByteLimit,
+    );
+    expect(capture.limits.storage.originalBytes).toBeGreaterThan(
+      capture.limits.contextByteLimit,
+    );
   });
 
   it("does not fail the chat when trace persistence fails", async () => {
@@ -224,5 +239,136 @@ describe("provider run trace capture", () => {
       expect.stringContaining("provider-trace-persist-error"),
     );
     stderr.mockRestore();
+  });
+});
+
+/**
+ * #386 — deduplicated storage, reconstruction parity, retention.
+ */
+describe("run-trace.v2 deduplication", () => {
+  const catalog = Array.from({ length: 40 }, (_tool, index) => ({
+    name: `github_tool_${index}`,
+    description: `Does GitHub thing number ${index}. ${"d".repeat(600)}`,
+    inputSchema: { type: "object", properties: {} },
+  }));
+  const systemPrompt = `You are the harness. ${"s".repeat(8_000)}`;
+
+  function recordIterations(count: number) {
+    const trace = createProviderTraceAccumulator();
+    const messages: Array<{ role: "user" | "assistant"; content: unknown[] }> =
+      [{ role: "user", content: [{ kind: "text", text: "start" }] }];
+    for (let iteration = 0; iteration < count; iteration += 1) {
+      trace.record({
+        type: "provider-request",
+        iteration,
+        request: {
+          providerModelId: "us.anthropic.claude-sonnet-4-6",
+          systemPrompt,
+          messages: messages.map((message) => ({ ...message })),
+          tools: catalog,
+        } as never,
+      });
+      messages.push(
+        { role: "assistant", content: [{ kind: "text", text: `step ${iteration}` }] },
+        { role: "user", content: [{ kind: "tool-result", toolUseId: `t${iteration}`, content: "ok" }] },
+      );
+    }
+    return trace;
+  }
+
+  it("stores the unchanged catalog and system prompt exactly once across iterations", () => {
+    for (const iterations of [1, 2, 5]) {
+      const capture = recordIterations(iterations).snapshot();
+      expect(capture.requests).toHaveLength(iterations);
+      expect(Object.keys(capture.shared.tools)).toHaveLength(1);
+      expect(Object.keys(capture.shared.systemPrompts)).toHaveLength(1);
+      const serialized = JSON.stringify(capture);
+      expect(serialized.match(/github_tool_39/g)).toHaveLength(1);
+      // Every iteration references the same shared content by hash.
+      const toolsHashes = new Set(capture.requests.map((request) => request.toolsHash));
+      expect(toolsHashes.size).toBe(1);
+      expect([...toolsHashes][0]! in capture.shared.tools).toBe(true);
+    }
+  });
+
+  it("records per-iteration transcripts as prefixes of the shared transcript", () => {
+    const capture = recordIterations(3).snapshot();
+    expect(Array.isArray(capture.shared.messages)).toBe(true);
+    const counts = capture.requests.map((request) => request.messagesCount);
+    expect(counts).toEqual([1, 3, 5]);
+    expect(capture.requests.every((request) => !request.messagesInline)).toBe(true);
+  });
+
+  it("benchmark: a three-iteration tool run stores a fraction of the v1 bytes", () => {
+    const capture = recordIterations(3).snapshot();
+    const { storedBytes, originalBytes } = capture.limits.storage;
+    expect(storedBytes).toBeGreaterThan(0);
+    // v1 would repeat the ~30KB catalog + ~8KB prompt on every iteration.
+    expect(storedBytes).toBeLessThan(originalBytes / 2);
+    process.stdout.write(
+      `[trace-storage-benchmark] iterations=3 v1Bytes=${originalBytes} v2Bytes=${storedBytes} saved=${Math.round((1 - storedBytes / originalBytes) * 100)}%\n`,
+    );
+  });
+
+  it("reconstructs the v1 per-request timeline from a v2 snapshot", () => {
+    const capture = recordIterations(2).snapshot();
+    const expanded = expandProviderContextSnapshotOutput({
+      shared: capture.shared,
+      requests: capture.requests,
+    }) as { requests: Array<Record<string, unknown>> };
+
+    expect(expanded.requests).toHaveLength(2);
+    for (const [index, request] of expanded.requests.entries()) {
+      const payload = request.request as Record<string, unknown>;
+      expect(Array.isArray(payload.tools)).toBe(true);
+      expect((payload.tools as unknown[]).length).toBe(40);
+      expect(typeof payload.systemPrompt).toBe("string");
+      expect(Array.isArray(payload.messages)).toBe(true);
+      expect((payload.messages as unknown[]).length).toBe(1 + index * 2);
+      expect(request.messagesCount).toBeUndefined();
+    }
+  });
+
+  it("passes v1 snapshot payloads through expansion untouched", () => {
+    const v1Output = {
+      requests: [
+        { iteration: 0, request: { providerModelId: "m", messages: [], tools: [] } },
+      ],
+    };
+    expect(expandProviderContextSnapshotOutput(v1Output)).toBe(v1Output);
+  });
+
+  it("prunes expired payload events but never the metrics event", async () => {
+    const captured: unknown[] = [];
+    const db = {
+      delete: (table: unknown) => ({
+        where: (condition: unknown) => {
+          captured.push({ table, condition });
+          return Promise.resolve([]);
+        },
+      }),
+    };
+    await pruneExpiredTracePayloads({
+      db: db as never,
+      now: new Date("2026-07-17T00:00:00.000Z"),
+    });
+    // One bounded delete fired; the pruned set and cutoff are pinned via
+    // their exported definitions (the drizzle condition itself is opaque).
+    expect(captured).toHaveLength(1);
+    expect(TRACE_PAYLOAD_EVENT_TYPES).toEqual([
+      "provider_context_snapshot",
+      "provider_reasoning",
+    ]);
+    expect(TRACE_PAYLOAD_EVENT_TYPES).not.toContain(
+      "provider_response_metadata",
+    );
+    expect(
+      tracePayloadPruneCutoff(new Date("2026-07-17T00:00:00.000Z")),
+    ).toEqual(
+      new Date(
+        Date.UTC(2026, 6, 17) -
+          TRACE_PAYLOAD_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+      ),
+    );
   });
 });
