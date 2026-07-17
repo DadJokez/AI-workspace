@@ -163,6 +163,14 @@ export async function loadThreadMessagesWithRunActivity({
   const activeRunMessages: ThreadMessageWithActivity[] = [];
   const visibleMessageIds = new Set(messageIds);
   const visibleChatRunIds = latestVisibleChatRunIds(runRows, visibleMessageIds);
+  const latestVisibleUserMessageAt = messageRows.reduce<Date | null>(
+    (latest, message) =>
+      message.role === "user" &&
+      (!latest || message.createdAt.getTime() > latest.getTime())
+        ? message.createdAt
+        : latest,
+    null,
+  );
 
   for (const artifact of artifactRows) {
     if (!artifact.chatMessageId) continue;
@@ -178,6 +186,9 @@ export async function loadThreadMessagesWithRunActivity({
         sourceMessageId &&
         !visibleChatRunIds.has(run.id)
       ) {
+        continue;
+      }
+      if (isOrphanedLegacyChatRun(run, latestVisibleUserMessageAt)) {
         continue;
       }
     }
@@ -459,6 +470,35 @@ export function chatRunSourceMessageId(inputs: unknown): string | null {
     return null;
   }
   return inputs.userMessageId;
+}
+
+/**
+ * Conservative orphan rule for LEGACY chat-turn runs (#349) — runs persisted
+ * before `runs.inputs.userMessageId` existed, so branch membership cannot be
+ * proven. A legacy failed/canceled chat-turn receipt renders only while it is
+ * still the newest thing in the conversation: once any visible user message
+ * postdates it (edit-and-resend, regenerate, or simply moving on), it is
+ * residue from a removed or abandoned branch and is suppressed. Scheduled,
+ * Skill, and event-triggered receipts are untouched (rule is chat-turn only).
+ * Chosen over a one-time userMessageId backfill: the backfill is a DB
+ * migration (human-owned) and cannot recover branch membership anyway.
+ */
+export function isOrphanedLegacyChatRun(
+  run: {
+    skillSlug: string | null;
+    status: string;
+    inputs: unknown;
+    createdAt: Date;
+  },
+  latestVisibleUserMessageAt: Date | null,
+): boolean {
+  if (run.skillSlug !== "chat-turn") return false;
+  if (chatRunSourceMessageId(run.inputs)) return false;
+  if (run.status !== "failed" && run.status !== "canceled") return false;
+  return (
+    latestVisibleUserMessageAt !== null &&
+    latestVisibleUserMessageAt.getTime() > run.createdAt.getTime()
+  );
 }
 
 export function latestVisibleChatRunIds(
