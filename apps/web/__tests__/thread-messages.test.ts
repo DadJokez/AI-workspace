@@ -6,6 +6,7 @@ vi.mock("@/lib/recommendation-persistence", () => ({
 import {
   activeRunMessageContent,
   chatRunSourceMessageId,
+  isOrphanedLegacyChatRun,
   latestVisibleChatRunIds,
   reconcileAppDraftVersionSummaries,
   type AppVersionTruthRow,
@@ -342,5 +343,114 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
     await loadThreadMessagesWithRunActivity({ db, threadId: "thread-1" });
     // messages, runs, artifacts — no runEvents (no runs) and no truth join.
     expect(selectCalls()).toBe(3);
+  });
+});
+
+describe("isOrphanedLegacyChatRun (#349)", () => {
+  const legacyRun = (overrides: Partial<Parameters<typeof isOrphanedLegacyChatRun>[0]> = {}) => ({
+    skillSlug: "chat-turn",
+    status: "failed",
+    inputs: {},
+    createdAt: new Date(1000),
+    ...overrides,
+  });
+
+  it("suppresses a legacy failed chat run once a newer user message exists", () => {
+    expect(isOrphanedLegacyChatRun(legacyRun(), new Date(2000))).toBe(true);
+    expect(
+      isOrphanedLegacyChatRun(legacyRun({ status: "canceled" }), new Date(2000)),
+    ).toBe(true);
+  });
+
+  it("keeps a legacy failure that is still the conversation tail", () => {
+    expect(isOrphanedLegacyChatRun(legacyRun(), new Date(500))).toBe(false);
+    expect(isOrphanedLegacyChatRun(legacyRun(), null)).toBe(false);
+  });
+
+  it("never touches modern runs, other statuses, or non-chat receipts", () => {
+    expect(
+      isOrphanedLegacyChatRun(
+        legacyRun({ inputs: { userMessageId: "m1" } }),
+        new Date(2000),
+      ),
+    ).toBe(false);
+    expect(
+      isOrphanedLegacyChatRun(legacyRun({ status: "running" }), new Date(2000)),
+    ).toBe(false);
+    expect(
+      isOrphanedLegacyChatRun(
+        legacyRun({ skillSlug: "weekly-status" }),
+        new Date(2000),
+      ),
+    ).toBe(false);
+  });
+
+  it("suppresses legacy residue in the full loader after an edit", async () => {
+    const { loadThreadMessagesWithRunActivity } = await import(
+      "@/lib/thread-messages"
+    );
+    const messageRow = (id: string, role: string, at: number) => ({
+      id,
+      role,
+      content: `${id} content`,
+      modelId: null,
+      runtime: null,
+      toolCalls: null,
+      toolResults: null,
+      createdAt: new Date(at),
+    });
+    const legacyFailed = {
+      id: "legacy-1",
+      skillSlug: "chat-turn",
+      status: "failed",
+      modelId: null,
+      runtime: null,
+      error: "boom",
+      inputs: {},
+      outputs: {},
+      startedAt: null,
+      createdAt: new Date(1500),
+    };
+    const makeDb = (queues: unknown[][]) => {
+      let calls = 0;
+      const make = (slot: number) =>
+        new Proxy(
+          {},
+          {
+            get(_target, prop) {
+              if (prop === "then") {
+                return (resolve: (value: unknown) => void) =>
+                  resolve(queues[slot] ?? []);
+              }
+              return () => make(slot);
+            },
+          },
+        );
+      return { select: () => make(calls++) } as never;
+    };
+
+    // Edited thread: the replacement user message postdates the legacy run.
+    const edited = await loadThreadMessagesWithRunActivity({
+      db: makeDb([
+        [messageRow("u1", "user", 1000), messageRow("u2", "user", 2000)],
+        [legacyFailed],
+        [],
+        [],
+      ]),
+      threadId: "thread-1",
+    });
+    expect(edited.some((message) => message.id === "run:legacy-1")).toBe(false);
+
+    // Untouched thread: the legacy failure is still the tail — keep it.
+    const untouched = await loadThreadMessagesWithRunActivity({
+      db: makeDb([
+        [messageRow("u1", "user", 1000)],
+        [legacyFailed],
+        [],
+        [],
+      ]),
+      threadId: "thread-1",
+    });
+    expect(untouched.some((message) => message.id === "run:legacy-1")).toBe(true);
   });
 });
