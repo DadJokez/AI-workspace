@@ -455,6 +455,8 @@ async function executeClaimedChatRun({
           thread,
           grantedProviders: mountedProviders,
           mode: toolDiscoveryMode,
+          userMessage: inputs.prompt,
+          skillProviders: inputs.requestedProviders,
         })
       : undefined;
   const discoverableProviders = toolDiscovery?.discoverableProviders ?? [];
