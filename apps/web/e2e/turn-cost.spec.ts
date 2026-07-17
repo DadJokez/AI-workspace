@@ -48,5 +48,5 @@ test("assistant messages show the token & cost meter from persisted usage", asyn
   await gotoE2EChat(page);
   const sidebar = await openPrimarySidebar(page, isMobile);
   await sidebar.getByRole("button", { name: /meter chat/i }).click();
-  await expect(page.getByText("21.5k tokens · \u2264$0.07")).toBeVisible();
+  await expect(page.getByText("21.5k tokens · ~$0.07")).toBeVisible();
 });
