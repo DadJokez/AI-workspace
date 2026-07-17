@@ -409,6 +409,18 @@ test.describe("chat shell guardrails", () => {
     // carry a fresh attachments payload.
     expect(chatBodies[0]!.attachments).toBeUndefined();
     expect(chatBodies[0]!.attachmentCount).toBe(0);
+
+    // Streaming-route regression (#405 review): the edited turn keeps its
+    // file indicator and its re-edit affordance without any reload — the
+    // optimistic bubble inherits the replaced message's attachment state.
+    const editedMessage = page
+      .getByTestId("user-message")
+      .filter({ hasText: "Summarize the attached numbers by quarter" });
+    await expect(editedMessage).toContainText("📎 2 files attached");
+    await editedMessage.hover();
+    await expect(
+      editedMessage.getByRole("button", { name: "Edit message" }),
+    ).toBeVisible();
   });
 
   test("sends suggestions and preserves manual multiline payloads", async ({

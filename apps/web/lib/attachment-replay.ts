@@ -169,6 +169,12 @@ export function isReplayableUploadMetadata(
   ) {
     return false;
   }
+  if (
+    record.extractionStatus !== "extracted" &&
+    record.extractionStatus !== "metadata_only"
+  ) {
+    return false;
+  }
   if (RUNTIME_IMAGE_MIMES.has(mimeType)) {
     return record.storageEncoding === "base64";
   }

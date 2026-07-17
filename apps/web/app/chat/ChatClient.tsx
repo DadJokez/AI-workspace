@@ -1459,17 +1459,41 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       attachments && attachments.length > 0
         ? `\n\n📎 ${attachments.length} file${attachments.length === 1 ? "" : "s"} attached`
         : "";
-    patchTabMessages(tabId, (prev) => [
-      ...(replaceMessageId ? prev.slice(0, replaceIndex) : prev),
-      {
-        id: userMsgId,
-        role: "user",
-        content: `${text}${attachmentNote}`,
-        hasAttachments: Boolean(attachments?.length),
-        // A fresh upload is replayable by construction once persisted.
-        attachmentsReplayable: Boolean(attachments?.length),
-        persisted: Boolean(replaceMessageId),
-      },
+    patchTabMessages(tabId, (prev) => {
+      // A file-turn edit sends no NEW attachments but replays the stored
+      // ones (#348) — the optimistic bubble must inherit the replaced
+      // message's chips and replayability or the turn visibly loses its
+      // files (and its re-edit affordance) until a reload.
+      const replaced = replaceMessageId
+        ? prev.find((message) => message.id === replaceMessageId)
+        : undefined;
+      const replayedUploadCount =
+        replaced?.artifacts?.filter(
+          (artifact) => artifact.source === "user-upload",
+        ).length ?? 0;
+      // User bubbles surface files via the 📎 content note (artifact pills
+      // are assistant-only) — a replay edit restores it from the replaced
+      // message so the files don't visibly vanish.
+      const replayNote =
+        !attachmentNote && replayedUploadCount > 0
+          ? `\n\n📎 ${replayedUploadCount} file${replayedUploadCount === 1 ? "" : "s"} attached`
+          : "";
+      return [
+        ...(replaceMessageId ? prev.slice(0, replaceIndex) : prev),
+        {
+          id: userMsgId,
+          role: "user",
+          content: `${text}${attachmentNote}${replayNote}`,
+          hasAttachments:
+            Boolean(attachments?.length) || Boolean(replaced?.hasAttachments),
+          // A fresh upload is replayable by construction once persisted; a
+          // replayed edit stays exactly as replayable as it already was.
+          attachmentsReplayable: replaced
+            ? replaced.attachmentsReplayable
+            : Boolean(attachments?.length),
+          ...(replaced?.artifacts ? { artifacts: replaced.artifacts } : {}),
+          persisted: Boolean(replaceMessageId),
+        },
       {
         id: assistantMsgId,
         role: "assistant",
@@ -1478,8 +1502,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         status: activatedSkill
           ? `Activated ${activatedSkill.name}…`
           : "Thinking…",
-      },
-    ]);
+        },
+      ];
+    });
 
     // New message from the user — re-stick to bottom.
     stickToBottomRef.current = true;

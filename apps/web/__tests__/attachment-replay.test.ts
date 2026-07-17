@@ -167,12 +167,17 @@ describe("areUploadsReplayable", () => {
     metadata: {
       uploadIndex,
       storageEncoding: "base64",
+      extractionStatus: "extracted",
       extractedText: "text",
     },
   });
   const legacy = {
     mimeType: "application/pdf",
-    metadata: { storageEncoding: "base64", extractedText: "text" },
+    metadata: {
+      storageEncoding: "base64",
+      extractionStatus: "extracted",
+      extractedText: "text",
+    },
   };
 
   it("requires ordinals for multi-file turns but not single files", () => {
@@ -188,12 +193,14 @@ describe("isReplayableUploadMetadata", () => {
     expect(
       isReplayableUploadMetadata("application/pdf", {
         storageEncoding: "base64",
+        extractionStatus: "extracted",
         extractedText: "text",
       }),
     ).toBe(true);
     expect(
       isReplayableUploadMetadata("image/png", {
         storageEncoding: "base64",
+        extractionStatus: "metadata_only",
         extractedText: "img",
       }),
     ).toBe(true);
@@ -201,7 +208,16 @@ describe("isReplayableUploadMetadata", () => {
     expect(
       isReplayableUploadMetadata("image/png", {
         storageEncoding: "utf8",
+        extractionStatus: "metadata_only",
         extractedText: "img",
+      }),
+    ).toBe(false);
+    // The client mirrors the server's extractionStatus requirement so the
+    // pencil never leads to a guaranteed 409 (review minor on #405).
+    expect(
+      isReplayableUploadMetadata("application/pdf", {
+        storageEncoding: "base64",
+        extractedText: "text",
       }),
     ).toBe(false);
     expect(isReplayableUploadMetadata("application/pdf", {})).toBe(false);
