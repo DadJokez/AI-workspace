@@ -253,6 +253,8 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
           runtime: null,
           toolCalls: null,
           toolResults: null,
+          tokensIn: 21_533,
+          tokensOut: 10,
           createdAt: new Date(1),
         },
       ],
@@ -306,6 +308,9 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
     });
 
     const persisted = messages.find((message) => message.id === "m1");
+    // #330: persisted usage rides through to the cost meter.
+    expect(persisted?.tokensIn).toBe(21_533);
+    expect(persisted?.tokensOut).toBe(10);
     expect(persisted?.appDraftVersions).toEqual([
       expect.objectContaining({ id: "vA", status: "deployed", canDeploy: false }),
       expect.objectContaining({ id: "vB", status: "draft", canDeploy: false }),

@@ -643,6 +643,8 @@ export async function streamInlineChatRun({
     send({
       type: "persisted",
       assistantMessageId: persistedResult.assistantMessageId,
+      tokensIn,
+      tokensOut,
       artifacts: persistedResult.artifacts,
       appDraftVersions: persistedResult.appDraftVersions,
       recommendations: persistedResult.recommendations,
