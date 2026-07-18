@@ -389,10 +389,14 @@ export function toolDiscoveryModeFromEnv(
 ): ToolDiscoveryMode {
   const normalized = value?.trim().toLowerCase();
   if (normalized === "parity") return "parity";
-  if (normalized && ["1", "true", "yes", "on"].includes(normalized)) {
-    return "on";
+  if (normalized && ["0", "false", "no", "off"].includes(normalized)) {
+    return "off";
   }
-  return "off";
+  // Default flipped to "on" by the #384 P4 measurement (2026-07-18): warm
+  // TTFT −15%, cold greeting cache-write −66%, tool selection 12/12 in both
+  // arms (docs/research/TOOL_DISCOVERY_BENCHMARK_2026-07-18.md). The env
+  // var remains an escape hatch; delete it after one stable release.
+  return "on";
 }
 
 export function chatRoutingModeFromEnv(
