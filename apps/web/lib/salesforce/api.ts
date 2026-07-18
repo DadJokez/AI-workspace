@@ -184,21 +184,44 @@ function stripParenGroups(input: string): string {
   return current;
 }
 
-async function runSoql(input: unknown, context: SalesforceToolContext) {
-  const args = record(input);
-  const soql = validateReadOnlySoql(requiredString(args.soql, "soql"));
+export interface ReadOnlySoqlResult {
+  soql: string;
+  totalSize: number | null;
+  done: boolean;
+  records: Record<string, unknown>[];
+}
+
+/**
+ * Execute a single read-only SELECT and return the STRUCTURED rows — no
+ * model framing. Read-only is enforced by `validateReadOnlySoql` plus the
+ * GET-only `/query` endpoint. Used by the model's `run_soql` (which then
+ * frames the result) and by the app data endpoint (#407), which serves the
+ * rows as JSON to a deployed app's Refresh under the viewer's own token.
+ */
+export async function queryReadOnlySoql(
+  rawSoql: string,
+  context: SalesforceToolContext,
+): Promise<ReadOnlySoqlResult> {
+  const soql = validateReadOnlySoql(rawSoql);
   const body = await salesforceGet(
     context,
     `/query?${new URLSearchParams({ q: soql })}`,
   );
-  const records = arrayOfRecords(body.records);
-  return frameSalesforceContent({
-    tool: "run_soql",
+  return {
     soql,
     totalSize: numberOrNull(body.totalSize),
     done: body.done === true,
-    records,
-  });
+    records: arrayOfRecords(body.records),
+  };
+}
+
+async function runSoql(input: unknown, context: SalesforceToolContext) {
+  const args = record(input);
+  const result = await queryReadOnlySoql(
+    requiredString(args.soql, "soql"),
+    context,
+  );
+  return frameSalesforceContent({ tool: "run_soql", ...result });
 }
 
 async function searchRecords(input: unknown, context: SalesforceToolContext) {

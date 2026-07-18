@@ -23,6 +23,24 @@ import {
 } from "@/lib/shares";
 import { findCredentialShapedContent } from "@/lib/secret-scan";
 export { findCredentialShapedContent };
+import { bindingQueryStrings } from "@/lib/app-data-bindings";
+
+/**
+ * Secret-scan an app artifact's HTML content AND its #407 data-binding
+ * queries — a credential smuggled into a pinned SOQL string in metadata
+ * would otherwise bypass the content-only scan.
+ */
+function scanArtifactForSecrets(artifact: {
+  content: string;
+  metadata: unknown;
+}): string[] {
+  return [
+    ...findCredentialShapedContent(artifact.content),
+    ...bindingQueryStrings(artifact.metadata).flatMap((query) =>
+      findCredentialShapedContent(query),
+    ),
+  ];
+}
 import { slugifySkillName, suffixedSkillSlug } from "@/lib/skills";
 import {
   loadWorkspaceArtifactById,
@@ -538,7 +556,7 @@ export async function deployAppVersion({
   if (!isCompleteHtmlArtifact(artifact)) {
     throw new Error("Only complete self-contained HTML documents can be deployed.");
   }
-  const secretFindings = findCredentialShapedContent(artifact.content);
+  const secretFindings = scanArtifactForSecrets(artifact);
   if (secretFindings.length > 0) {
     throw new Error(
       `Deploy blocked: the document appears to contain ${secretFindings.join(
@@ -1022,7 +1040,7 @@ export async function createDraftAppVersionsForThreadArtifacts({
       });
       continue;
     }
-    const secretFindings = findCredentialShapedContent(artifact.content);
+    const secretFindings = scanArtifactForSecrets(artifact);
     if (secretFindings.length > 0) {
       rejected.push({
         artifactId: artifactSummary.id,
@@ -1141,7 +1159,9 @@ export async function auditAppMutation({
     | "app_deploy_denied"
     | "app_deploy_failed_secret_scan"
     | "app_edit_denied"
-    | "app_open_denied";
+    | "app_open_denied"
+    | "app_data_refresh"
+    | "app_data_denied";
   appId: string;
   appSlug: string;
   status?: "started" | "succeeded" | "failed" | "denied";
