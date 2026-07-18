@@ -47,6 +47,8 @@ describe("filterAttestedProviders", () => {
       allowedProviders: ["github"],
       deniedProviders: [],
       toolPolicies: { github: {} },
+    
+      toolActions: {},
     });
   });
 
@@ -55,6 +57,7 @@ describe("filterAttestedProviders", () => {
       allowedProviders: [],
       deniedProviders: ["github"],
       toolPolicies: {},
+      toolActions: {},
     });
   });
 
@@ -89,6 +92,11 @@ describe("filterAttestedProviders", () => {
           blockedTools: ["delete_file"],
         },
       },
+      toolActions: {
+        github__get_file_contents: "read",
+        github__create_or_update_file: "write",
+        github__delete_file: "write",
+      },
     });
   });
 
@@ -116,6 +124,11 @@ describe("filterAttestedProviders", () => {
           blockedTools: ["delete_file"],
         },
       },
+      toolActions: {
+        github__get_file_contents: "read",
+        github__create_or_update_file: "write",
+        github__delete_file: "write",
+      },
     });
   });
 
@@ -138,6 +151,11 @@ describe("filterAttestedProviders", () => {
       allowedProviders: ["github"],
       deniedProviders: [],
       toolPolicies: { github: { blockedTools: ["delete_file"] } },
+      toolActions: {
+        github__get_file_contents: "read",
+        github__create_or_update_file: "write",
+        github__delete_file: "write",
+      },
     });
   });
 
@@ -162,6 +180,7 @@ describe("filterAttestedProviders", () => {
       allowedProviders: [],
       deniedProviders: ["github"],
       toolPolicies: {},
+      toolActions: { github__get_me: "read" },
     });
   });
 
@@ -194,6 +213,7 @@ describe("filterAttestedProviders", () => {
       allowedProviders: ["github"],
       deniedProviders: [],
       toolPolicies: { github: { allowedTools: ["get_me"] } },
+      toolActions: { github__get_me: "read" },
     });
   });
 
@@ -235,6 +255,10 @@ describe("filterAttestedProviders", () => {
       allowedProviders: ["github"],
       deniedProviders: [],
       toolPolicies: { github: { allowedTools: ["get_me"] } },
+      toolActions: {
+        github__get_me: "read",
+        github__update_profile: "write",
+      },
     });
   });
 });

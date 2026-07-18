@@ -6,6 +6,12 @@ import {
   redactProviderToolError,
   redactProviderToolPayload,
 } from "@/lib/tool-redaction";
+import {
+  observedPolicyDecision,
+  toolActionKey,
+  type ObservedPolicyDecision,
+  type ToolActionLevel,
+} from "@/lib/tool-policy";
 
 export interface BuildToolAuditRowsInput {
   actorUserId: string;
@@ -16,6 +22,13 @@ export interface BuildToolAuditRowsInput {
   runtime: string;
   calls: readonly PersistedToolCall[];
   results: readonly PersistedToolResult[];
+  /**
+   * Catalog action per `provider__toolName` (#410 P1, observe mode). When
+   * present, every row records what the tri-state policy WOULD have decided
+   * — nothing is enforced yet. Absent (e.g. builtin web tools with no
+   * catalog rows), the stamp is omitted rather than guessed.
+   */
+  toolActions?: Record<string, ToolActionLevel>;
 }
 
 export interface ToolAuditRow {
@@ -35,6 +48,7 @@ export interface ToolAuditRow {
     rawToolName?: string;
     modelId: string;
     runtime: string;
+    policyDecision?: ObservedPolicyDecision;
   };
   startedAt: Date | null;
   completedAt: Date | null;
@@ -49,6 +63,7 @@ export function buildToolAuditRows({
   runtime,
   calls,
   results,
+  toolActions,
 }: BuildToolAuditRowsInput): ToolAuditRow[] {
   const resultsById = new Map(results.map((result) => [result.toolCallId, result]));
   const callsById = new Map(calls.map((call) => [call.id, call]));
@@ -66,6 +81,7 @@ export function buildToolAuditRows({
         runtime,
         call,
         result,
+        toolActions,
       }),
     );
   }
@@ -81,6 +97,7 @@ export function buildToolAuditRows({
         modelId,
         runtime,
         result,
+        toolActions,
       }),
     );
   }
@@ -97,6 +114,7 @@ function buildRow({
   runtime,
   call,
   result,
+  toolActions,
 }: {
   actorUserId: string;
   chatThreadId?: string | null;
@@ -106,6 +124,7 @@ function buildRow({
   runtime: string;
   call?: PersistedToolCall;
   result?: PersistedToolResult;
+  toolActions?: Record<string, ToolActionLevel>;
 }): ToolAuditRow {
   const status = !result
     ? "started"
@@ -149,6 +168,14 @@ function buildRow({
       ...(rawToolName ? { rawToolName } : {}),
       modelId,
       runtime,
+      // #410 P1 observe mode: what the tri-state policy WOULD have decided.
+      ...(toolActions && provider
+        ? {
+            policyDecision: observedPolicyDecision(
+              toolActions[toolActionKey(provider, toolName)],
+            ),
+          }
+        : {}),
     },
     startedAt: call ? new Date(call.startedAt) : null,
     completedAt: result ? new Date(result.completedAt) : null,
