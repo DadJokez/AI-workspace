@@ -53,15 +53,20 @@ describe("decideChatRuntimeRoute", () => {
     expect(runtimeV2EnabledFromEnv(undefined)).toBe(false);
   });
 
-  it("parses the three tool-discovery states and defaults off (#384)", () => {
-    expect(toolDiscoveryModeFromEnv(undefined)).toBe("off");
-    expect(toolDiscoveryModeFromEnv("")).toBe("off");
-    expect(toolDiscoveryModeFromEnv("off")).toBe("off");
-    expect(toolDiscoveryModeFromEnv("0")).toBe("off");
-    expect(toolDiscoveryModeFromEnv("parity")).toBe("parity");
-    expect(toolDiscoveryModeFromEnv(" PARITY ")).toBe("parity");
+  it("parses the three tool-discovery states and defaults ON post-P4 flip (#384)", () => {
+    // Default flipped 2026-07-18 by the P4 measurement (see
+    // docs/research/TOOL_DISCOVERY_BENCHMARK_2026-07-18.md); the env var
+    // stays as an explicit escape hatch until the flag is deleted.
+    expect(toolDiscoveryModeFromEnv(undefined)).toBe("on");
+    expect(toolDiscoveryModeFromEnv("")).toBe("on");
     expect(toolDiscoveryModeFromEnv("on")).toBe("on");
     expect(toolDiscoveryModeFromEnv(" TRUE ")).toBe("on");
+    expect(toolDiscoveryModeFromEnv("parity")).toBe("parity");
+    expect(toolDiscoveryModeFromEnv(" PARITY ")).toBe("parity");
+    expect(toolDiscoveryModeFromEnv("off")).toBe("off");
+    expect(toolDiscoveryModeFromEnv("0")).toBe("off");
+    expect(toolDiscoveryModeFromEnv("FALSE")).toBe("off");
+    expect(toolDiscoveryModeFromEnv("no")).toBe("off");
   });
 
   it("parses model-decided routing explicitly and safely defaults to regex", () => {

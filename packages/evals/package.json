@@ -14,7 +14,8 @@
     "transcripts:replay": "tsx src/transcripts/replay.ts",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "benchmark:discovery": "tsx src/benchmarks/run-tool-discovery.ts"
   },
   "dependencies": {
     "@ai-workspace/agent": "workspace:*",
