@@ -27,7 +27,7 @@ import {
   type ActivatedSkillForChat,
   type ActivatedSkillRequest,
 } from "@/lib/chat-activated-skills";
-import { buildActivatedSkillChatPrompt } from "@/lib/skills";
+import { buildActivatedSkillUserMessage } from "@/lib/skills";
 import { streamInlineChatRun } from "@/lib/chat-inline-runner";
 import { isModelEnabled, resolveModelForPurpose } from "@/lib/model-registry";
 import {
@@ -527,8 +527,11 @@ export async function POST(req: Request) {
   // The bubble shows the typed message; the model sees it plus the folded
   // attachment text. Each file is also stored as a workspace artifact so it
   // renders as a chip on the turn (and is downloadable later).
+  // #416: the skill's operating instructions pin into the stable system
+  // prefix (via the context pack's activeSkill input) instead of riding the
+  // summarizable user message; only the user's own request stays here.
   const modelVisibleMessage = activatedSkill
-    ? buildActivatedSkillChatPrompt(activatedSkill.skill, activatedSkill.args)
+    ? buildActivatedSkillUserMessage(activatedSkill.args)
     : effectiveUserMessage;
   // #348: an edited file-bearing turn replays its stored uploads — same
   // fold, same runtime payload, sourced from storage instead of the request.
@@ -617,6 +620,12 @@ export async function POST(req: Request) {
                 },
               ],
               requestedProviders: activatedSkill.skill.mcpProviders,
+              activeSkillPrompt: {
+                id: activatedSkill.skill.id,
+                slug: activatedSkill.skill.slug,
+                name: activatedSkill.skill.name,
+                systemPrompt: activatedSkill.skill.systemPrompt,
+              },
             }
           : {}),
       },
@@ -767,6 +776,14 @@ export async function POST(req: Request) {
               ]
             : undefined,
           requestedProviders: activatedSkill?.skill.mcpProviders,
+          activeSkillPrompt: activatedSkill
+            ? {
+                id: activatedSkill.skill.id,
+                slug: activatedSkill.skill.slug,
+                name: activatedSkill.skill.name,
+                systemPrompt: activatedSkill.skill.systemPrompt,
+              }
+            : undefined,
           signal: req.signal,
           send,
           diagnosticStreamEnabled: sessionUser.role === "admin",

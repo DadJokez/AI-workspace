@@ -26,6 +26,7 @@ import {
 import { serializeActivation } from "@ai-workspace/agent";
 import { persistActivationFromEvent } from "@/lib/thread-activation";
 import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
+import type { PinnedActiveSkill } from "@/lib/pinned-context";
 import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
 import {
   enqueueMemoryCapture,
@@ -100,6 +101,7 @@ export interface StreamInlineChatRunInput {
   modelOverride?: boolean;
   route: ChatRuntimeRoute;
   activatedSkills?: Array<Record<string, unknown>>;
+  activeSkillPrompt?: PinnedActiveSkill;
   requestedProviders?: string[];
   uploadedFiles?: ChatContextUploadedFile[];
   requestStartedAt?: Date;
@@ -143,6 +145,7 @@ export async function streamInlineChatRun({
   modelOverride = false,
   route,
   activatedSkills,
+  activeSkillPrompt,
   requestedProviders,
   uploadedFiles = [],
   requestStartedAt,
@@ -358,6 +361,7 @@ export async function streamInlineChatRun({
       recommendations: recentRecommendations,
       route,
       builtinTools,
+      activeSkill: activeSkillPrompt ?? null,
     });
     const contextReceipt = contextPack.receipts[0]!;
     timing.contextReadyAt = new Date();
