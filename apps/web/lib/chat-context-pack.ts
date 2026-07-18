@@ -2,6 +2,13 @@ import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@ai-workspace/agent";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
 import {
+  PINNED_PRECEDENCE_NOTE,
+  buildPinnedContextReceipt,
+  renderPinnedActiveSkill,
+  type PinnedActiveSkill,
+  type PinnedContextReceipt,
+} from "@/lib/pinned-context";
+import {
   renderCapabilitySummaryForPrompt,
   type CapabilityGraph,
 } from "@/lib/capability-graph";
@@ -129,6 +136,8 @@ export interface ChatContextReceipt {
   };
   contextItems: ChatContextItem[];
   recommendations: Record<RecommendationType, number>;
+  /** #416: hash + sources of the stable pinned prefix this turn ran under. */
+  pinnedContext?: PinnedContextReceipt;
   route?: {
     lane: ChatRuntimeRoute["lane"];
     routingMode: NonNullable<ChatRuntimeRoute["routingMode"]>;
@@ -195,6 +204,12 @@ export interface BuildChatContextPackInput {
   builtinTools?: readonly string[];
   forcePreamble?: boolean;
   now?: Date;
+  /**
+   * The explicitly activated skill's operating instructions (#416): pinned
+   * into the stable system prefix for THIS execution, never embedded in
+   * the user message where a summarizer could rewrite or drop them.
+   */
+  activeSkill?: PinnedActiveSkill | null;
 }
 
 export function buildChatContextPack({
@@ -214,6 +229,7 @@ export function buildChatContextPack({
   recommendations = [],
   route,
   builtinTools = [],
+  activeSkill,
   forcePreamble = false,
   now = new Date(),
 }: BuildChatContextPackInput): ChatContextPack {
@@ -228,6 +244,7 @@ export function buildChatContextPack({
   const hasCapabilityState = capabilityGraphHasEntries(capabilityGraph);
   const shouldRenderPreamble =
     forcePreamble ||
+    Boolean(activeSkill) ||
     Boolean(route?.useMcp) ||
     builtinTools.length > 0 ||
     Boolean(route?.includeVaultContext) ||
@@ -476,8 +493,21 @@ export function buildChatContextPack({
         ...(capabilityGraph && hasCapabilityState
           ? [renderCapabilitySummaryForPrompt(capabilityGraph)]
           : []),
+        // #416 pinned constraint layer: precedence is part of the stable
+        // prefix, and an active skill's operating instructions pin here —
+        // never in the (summarizable) user message. Deterministic content
+        // only; the pin is verified by hash stability in the receipt.
+        "",
+        PINNED_PRECEDENCE_NOTE,
+        ...(activeSkill ? ["", renderPinnedActiveSkill(activeSkill)] : []),
       ].join("\n")
     : undefined;
+  if (systemPrompt !== undefined) {
+    receipt.pinnedContext = buildPinnedContextReceipt(
+      systemPrompt,
+      activeSkill,
+    );
+  }
   const volatileSystemSuffix = shouldRenderPreamble
     ? [
         ...(recommendations.length > 0

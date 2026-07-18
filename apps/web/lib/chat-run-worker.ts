@@ -61,6 +61,7 @@ import { serializeActivation } from "@ai-workspace/agent";
 import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
 import { persistActivationFromEvent } from "@/lib/thread-activation";
 import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
+import type { PinnedActiveSkill } from "@/lib/pinned-context";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
@@ -93,6 +94,7 @@ interface ChatRunInputs {
   executionMode: ChatExecutionMode;
   /** Skill runs restrict MCP mounting to their declared providers. */
   requestedProviders?: string[];
+  activeSkillPrompt?: PinnedActiveSkill;
   uploadedFiles?: ChatContextUploadedFile[];
   artifactContextTarget?: unknown;
   separateFromArtifact?: unknown;
@@ -510,6 +512,7 @@ async function executeClaimedChatRun({
     builtinTools,
     forcePreamble: true,
     route: runtimeRoute,
+    activeSkill: sanitizeActiveSkillPrompt(inputs.activeSkillPrompt),
   });
   const contextReceipt = contextPack.receipts[0]!;
 
@@ -1228,6 +1231,22 @@ function defaultWorkerRuntimeRoute(inputs: ChatRunInputs): ChatRuntimeRoute {
 function parseOutput(value: unknown): StoredChatRunOutput {
   if (!isRecord(value)) return {};
   return value as StoredChatRunOutput;
+}
+
+function sanitizeActiveSkillPrompt(
+  value: unknown,
+): PinnedActiveSkill | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (
+    typeof v.id !== "string" ||
+    typeof v.slug !== "string" ||
+    typeof v.name !== "string" ||
+    typeof v.systemPrompt !== "string"
+  ) {
+    return null;
+  }
+  return { id: v.id, slug: v.slug, name: v.name, systemPrompt: v.systemPrompt };
 }
 
 function sanitizeUploadedFiles(
