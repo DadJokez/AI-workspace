@@ -10,6 +10,7 @@ import {
   type PlannedArtifactVersion,
   type WorkspaceArtifactVersionTarget,
 } from "@/lib/artifact-revisions";
+import { scrubBindingsForClient } from "@/lib/app-data-bindings";
 
 const MAX_ARTIFACTS_PER_MESSAGE = 5;
 const MAX_ARTIFACT_CHARS = 500_000;
@@ -666,7 +667,10 @@ function slugify(value: string): string {
 }
 
 function normalizeMetadata(value: unknown): Record<string, unknown> | null {
-  return isRecord(value) ? value : null;
+  // Every serialized artifact flows to clients through here, so strip the raw
+  // query out of any #407 data bindings — viewers invoke bindings by id and
+  // must never receive the author's pinned query text.
+  return scrubBindingsForClient(isRecord(value) ? value : null);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
