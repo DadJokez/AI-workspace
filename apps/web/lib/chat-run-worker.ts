@@ -18,6 +18,7 @@ import {
 } from "@/lib/chat-context-pack";
 import { loadUserCapabilityGraph } from "@/lib/capability-graph";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
+import type { ToolActionLevel } from "@/lib/tool-policy";
 import {
   enqueueMemoryCapture,
   startInProcessMemoryCaptureScheduler,
@@ -764,6 +765,7 @@ async function executeClaimedChatRun({
   });
 
   await persistAssistantResult({
+    toolActions: providerStatus.toolActions,
     db,
     run,
     threadId: thread.id,
@@ -788,6 +790,7 @@ async function executeClaimedChatRun({
 }
 
 async function persistAssistantResult({
+  toolActions,
   db,
   run,
   threadId,
@@ -809,6 +812,7 @@ async function persistAssistantResult({
   separateFromArtifact,
   appEditSourceOmitted,
 }: {
+  toolActions?: Record<string, ToolActionLevel>;
   db: Database;
   run: Run;
   threadId: string;
@@ -870,6 +874,7 @@ async function persistAssistantResult({
       runtime: runtimeName,
       calls: toolCalls,
       results: toolResults,
+      toolActions,
     });
     if (toolAuditRows.length > 0) {
       await db.insert(auditLog).values(toolAuditRows);

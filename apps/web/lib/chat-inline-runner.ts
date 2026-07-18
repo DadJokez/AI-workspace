@@ -18,6 +18,7 @@ import {
 } from "@/lib/chat-context-pack";
 import { loadUserCapabilityGraph } from "@/lib/capability-graph";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
+import type { ToolActionLevel } from "@/lib/tool-policy";
 import {
   toolDiscoveryModeFromEnv,
   type ChatRuntimeRoute,
@@ -648,6 +649,7 @@ export async function streamInlineChatRun({
     });
 
     const persistedResult = await persistInlineAssistantResult({
+      toolActions: providerStatus.toolActions,
       db,
       runId,
       userId,
@@ -702,6 +704,7 @@ export async function streamInlineChatRun({
 }
 
 async function persistInlineAssistantResult({
+  toolActions,
   db,
   runId,
   userId,
@@ -731,6 +734,7 @@ async function persistInlineAssistantResult({
   appEditSourceOmitted,
   completedAt,
 }: {
+  toolActions?: Record<string, ToolActionLevel>;
   db: Database;
   runId: string;
   userId: string;
@@ -804,6 +808,7 @@ async function persistInlineAssistantResult({
       runtime: runtimeName,
       calls: toolCalls,
       results: toolResults,
+      toolActions,
     });
     if (toolAuditRows.length > 0) {
       await db.insert(auditLog).values(toolAuditRows);

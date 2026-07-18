@@ -1,6 +1,7 @@
 import type { Database } from "@ai-workspace/db";
 import { toolsCatalog, userToolAttestations } from "@ai-workspace/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
+import { toolActionKey, type ToolActionLevel } from "@/lib/tool-policy";
 
 export interface ProviderAttestation {
   provider: string;
@@ -28,6 +29,12 @@ export interface ProviderGateResult {
     string,
     { allowedTools?: string[]; blockedTools?: string[] }
   >;
+  /**
+   * Catalog action level per `provider__toolName` (#410): the input to the
+   * tool-policy decision stamped on every execution audit row. Built from
+   * the same catalog rows the attestation gate already loads.
+   */
+  toolActions: Record<string, ToolActionLevel>;
 }
 
 /**
@@ -46,6 +53,10 @@ export function filterAttestedProviders(
   const allowedProviders: string[] = [];
   const deniedProviders: string[] = [];
   const toolPolicies: ProviderGateResult["toolPolicies"] = {};
+  const toolActions: ProviderGateResult["toolActions"] = {};
+  for (const entry of catalog) {
+    toolActions[toolActionKey(entry.provider, entry.toolName)] = entry.action;
+  }
 
   for (const provider of requestedProviders) {
     const catalogRows = catalogByProvider.get(provider) ?? [];
@@ -87,7 +98,7 @@ export function filterAttestedProviders(
     }
   }
 
-  return { allowedProviders, deniedProviders, toolPolicies };
+  return { allowedProviders, deniedProviders, toolPolicies, toolActions };
 }
 
 export async function loadActiveToolAttestations(

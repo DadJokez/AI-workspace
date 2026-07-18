@@ -11,6 +11,7 @@ import {
   NOTION_MCP_RELAY_HEADER,
   notionMcpRelayToken,
 } from "@/lib/notion/mcp";
+import type { ToolActionLevel } from "@/lib/tool-policy";
 import {
   GOOGLE_MCP_CONTEXT_HEADER,
   GOOGLE_MCP_PATH,
@@ -132,6 +133,8 @@ export interface UserMcpProviderStatus {
     string,
     { allowedTools?: string[]; blockedTools?: string[] }
   >;
+  /** Catalog action per `provider__toolName` for policy audit stamps (#410). */
+  toolActions?: Record<string, ToolActionLevel>;
   providerAvailability?: Record<
     string,
     {
@@ -191,6 +194,7 @@ export async function loadUserMcpProviderStatus(
       executionUnavailableProviders: [],
       comingSoonProviders: [],
       toolPolicies: {},
+      toolActions: {},
       providerAvailability: {},
     };
   }
@@ -243,6 +247,7 @@ export async function loadUserMcpProviderStatus(
     allowedProviders: attestedProviders,
     deniedProviders,
     toolPolicies: attestedToolPolicies,
+    toolActions,
   } =
     await resolveAttestedProviders(db, userId, connectedProviders);
   const credentialUnavailableProviders = attestedProviders.filter(
@@ -281,6 +286,7 @@ export async function loadUserMcpProviderStatus(
     reconnectRequiredProviders,
     comingSoonProviders,
     toolPolicies,
+    toolActions,
     providerAvailability: buildProviderAvailability({
       connectedProviders,
       attestedProviders,
@@ -699,9 +705,15 @@ async function resolveAttestedProviders(
     string,
     { allowedTools?: string[]; blockedTools?: string[] }
   >;
+  toolActions: Record<string, ToolActionLevel>;
 }> {
   if (requestedProviders.length === 0) {
-    return { allowedProviders: [], deniedProviders: [], toolPolicies: {} };
+    return {
+      allowedProviders: [],
+      deniedProviders: [],
+      toolPolicies: {},
+      toolActions: {},
+    };
   }
   try {
     const [attestations, catalog] = await Promise.all([
@@ -715,6 +727,7 @@ async function resolveAttestedProviders(
       allowedProviders: [],
       deniedProviders: requestedProviders,
       toolPolicies: {},
+      toolActions: {},
     };
   }
 }
