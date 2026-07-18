@@ -11,6 +11,8 @@ import {
   type WorkspaceArtifactVersionTarget,
 } from "@/lib/artifact-revisions";
 import { scrubBindingsForClient } from "@/lib/app-data-bindings";
+import { deriveBindingsFromTurnTools } from "@/lib/app-data-bootstrap";
+import type { ToolCall, ToolResult } from "@ai-workspace/agent";
 
 const MAX_ARTIFACTS_PER_MESSAGE = 5;
 const MAX_ARTIFACT_CHARS = 500_000;
@@ -51,6 +53,13 @@ interface CreateArtifactsInput {
   assistantText: string;
   targetArtifact?: WorkspaceArtifactVersionTarget | null;
   separateFromArtifact?: WorkspaceArtifactVersionTarget | null;
+  /**
+   * The minting turn's tool activity (#407): successful run_soql calls
+   * become pinned dataBindings on servable HTML artifacts, so "share as a
+   * live app" works without the user asking for wiring.
+   */
+  turnToolCalls?: readonly ToolCall[];
+  turnToolResults?: readonly ToolResult[];
 }
 
 export interface ParsedArtifact {
@@ -78,9 +87,15 @@ export async function createArtifactsFromAssistantMessage({
   assistantText,
   targetArtifact,
   separateFromArtifact,
+  turnToolCalls,
+  turnToolResults,
 }: CreateArtifactsInput): Promise<WorkspaceArtifactSummary[]> {
   const parsed = parseAssistantArtifacts(assistantText);
   if (parsed.length === 0) return [];
+  const derivedBindings = deriveBindingsFromTurnTools(
+    turnToolCalls,
+    turnToolResults,
+  );
   const planned = await planArtifactVersions({
     db,
     userId,
@@ -114,6 +129,11 @@ export async function createArtifactsFromAssistantMessage({
           artifactKey: version.artifactKey,
           originalFilename: artifact.filename,
           versionNumber: version.versionNumber,
+          // #407: pin the turn's live-data bindings on servable HTML only.
+          ...(derivedBindings.length > 0 &&
+          artifact.mimeType === "text/html"
+            ? { dataBindings: derivedBindings }
+            : {}),
         },
       })),
     )

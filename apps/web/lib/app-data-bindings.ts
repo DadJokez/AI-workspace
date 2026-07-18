@@ -29,7 +29,8 @@ export interface DataBinding {
 /** The client-safe view of a binding: everything except the raw query. */
 export type PublicDataBinding = Omit<DataBinding, "query">;
 
-const MAX_BINDINGS = 12;
+export const MAX_DATA_BINDINGS = 12;
+const MAX_BINDINGS = MAX_DATA_BINDINGS;
 const MAX_LABEL_CHARS = 120;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
