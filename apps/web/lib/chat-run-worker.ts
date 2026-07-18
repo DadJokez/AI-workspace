@@ -887,6 +887,8 @@ async function persistAssistantResult({
           assistantText,
           targetArtifact: artifactContextTarget,
           separateFromArtifact,
+          turnToolCalls: toolCalls,
+          turnToolResults: toolResults,
         }).catch((err) => {
           process.stderr.write(
             `[workspace-artifact-create-error] ${JSON.stringify({

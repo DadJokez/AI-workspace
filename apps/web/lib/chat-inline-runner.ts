@@ -821,6 +821,8 @@ async function persistInlineAssistantResult({
         assistantText,
         targetArtifact: artifactContextTarget,
         separateFromArtifact,
+        turnToolCalls: toolCalls,
+        turnToolResults: toolResults,
       });
       if (artifacts.length > 0) {
         await appendInlineRunEvent(db, runId, {

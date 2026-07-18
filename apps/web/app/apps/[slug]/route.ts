@@ -3,6 +3,11 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { auditAppMutation, canActorOpenApp, getLiveAppVersion } from "@/lib/apps";
+import { parseDataBindings } from "@/lib/app-data-bindings";
+import {
+  buildAppDataBootstrap,
+  injectAppDataBootstrap,
+} from "@/lib/app-data-bootstrap";
 import { loadWorkspaceArtifactById } from "@/lib/workspace-artifacts";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +30,15 @@ const APP_CSP = [
   "base-uri 'none'",
   "frame-ancestors 'self'",
 ].join("; ");
+
+// Live-data apps (#407, Rob-approved 2026-07-18): ONLY a binding-bearing app
+// gets same-origin fetch — so it can call its own viewer-scoped data
+// endpoint — and nothing else changes. Apps without bindings keep the fully
+// closed sandbox above, byte-identical.
+const APP_CSP_WITH_DATA = APP_CSP.replace(
+  "connect-src 'none'",
+  "connect-src 'self'",
+);
 
 export async function GET(
   req: Request,
@@ -80,11 +94,31 @@ export async function GET(
     });
   }
 
-  return new NextResponse(artifact.content, {
+  const bindings = parseDataBindings(artifact.metadata);
+  const body =
+    bindings.length > 0
+      ? injectAppDataBootstrap(
+          artifact.content,
+          buildAppDataBootstrap(
+            app.id,
+            // Allowlist, never omit-the-secret: fields added to DataBinding
+            // later stay server-side unless deliberately exposed here.
+            bindings.map((binding) => ({
+              id: binding.id,
+              provider: binding.provider,
+              kind: binding.kind,
+              ...(binding.label ? { label: binding.label } : {}),
+            })),
+          ),
+        )
+      : artifact.content;
+
+  return new NextResponse(body, {
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",
-      "content-security-policy": APP_CSP,
+      "content-security-policy":
+        bindings.length > 0 ? APP_CSP_WITH_DATA : APP_CSP,
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
       "cache-control": "private, no-store",
