@@ -50,6 +50,35 @@ function AlphaBadge() {
   );
 }
 
+function BuiltByMark() {
+  // Rob & Robot lockup (assets from DadJokez/rob-and-robot): ink on light
+  // themes, tan on dark — the brand palette matches both skins. Fixed
+  // bottom-right, under the safe-area inset, below modal layers.
+  const shared =
+    "h-5 w-auto opacity-50 transition-opacity duration-200 group-hover:opacity-90";
+  return (
+    <div
+      title="Built by Rob and Robot"
+      aria-label="Built by Rob and Robot"
+      className="group fixed bottom-[max(env(safe-area-inset-bottom),0.375rem)] right-2 z-40 select-none"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- 4KB static badge; the image optimizer would cost more than it saves. */}
+      <img
+        src="/brand/rob-and-robot-ink.png"
+        alt="Rob and Robot"
+        className={`${shared} dark:hidden`}
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element -- see above. */}
+      <img
+        src="/brand/rob-and-robot-tan.png"
+        alt=""
+        aria-hidden="true"
+        className={`${shared} hidden dark:block`}
+      />
+    </div>
+  );
+}
+
 export default function RootLayout({
   children,
 }: {
@@ -71,6 +100,7 @@ export default function RootLayout({
         <UiSkinSync />
         <AlphaBadge />
         {children}
+        <BuiltByMark />
       </body>
     </html>
   );
