@@ -144,10 +144,13 @@ export async function runChatRunWorkerLoop({
 
 /**
  * #443: fail `running` runs that have no lease and a stale heartbeat. Worker
- * runs always carry a lease (expired leases are re-claimable instead), so
- * this only ever matches the inline lane after a web-process death — the
- * inline shell heartbeats `lastHeartbeatAt` while streaming, and its crash
- * handler marks clean failures directly, leaving only true orphans here.
+ * runs always carry a lease (expired leases are re-claimable instead), and
+ * the sweep is scoped to `skill_slug = "chat-turn"` — the inline chat lane it
+ * owns — so it cannot reach other inline lanes (e.g. the developer-briefing
+ * workflow, which also inserts `running` runs without a lease or heartbeat).
+ * Within the chat lane the inline shell heartbeats `lastHeartbeatAt` while
+ * streaming and its crash handler marks clean failures directly, leaving only
+ * true orphans here.
  */
 export async function reapOrphanedRuns({
   db,
@@ -170,6 +173,10 @@ export async function reapOrphanedRuns({
     })
     .where(
       and(
+        // Scope to the inline chat lane this reaper owns. Other inline lanes
+        // (developer-briefing) also run leaseless + heartbeat-less and would
+        // otherwise be falsely reaped mid-turn (#443 review).
+        eq(runs.skillSlug, "chat-turn"),
         eq(runs.status, "running"),
         isNull(runs.leaseExpiresAt),
         or(

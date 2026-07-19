@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Database, Run } from "@ai-workspace/db";
 import { chatThreads } from "@ai-workspace/db";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 /**
  * #442 — the worker lane is now a thin shell around the shared
@@ -190,6 +191,32 @@ describe("processQueuedChatRun", () => {
       "failed",
       "thread-1",
     );
+  });
+
+  it("scopes the reaper to the chat lane so other inline runs are never reaped (#443 review)", async () => {
+    // The developer-briefing lane also inserts `running` runs with no lease
+    // and no heartbeat; the reaper must not reach them. Render the real query
+    // predicate and assert it is bound to skill_slug = 'chat-turn'.
+    let captured: unknown;
+    const db = {
+      update: () => ({
+        set: () => ({
+          where: (condition: unknown) => {
+            captured = condition;
+            return { returning: async () => [] };
+          },
+        }),
+      }),
+    } as unknown as Database;
+
+    await reapOrphanedRuns({ db });
+
+    const { sql, params } = new PgDialect().sqlToQuery(captured as never);
+    expect(sql).toContain("skill_slug");
+    expect(params).toContain("chat-turn");
+    // A non-chat orphan shape (null lease, stale updatedAt) is excluded by
+    // that predicate, so no row is returned and nothing is notified.
+    expect(createProactiveRunNotification).not.toHaveBeenCalled();
   });
 
   it("marks the run failed when the core throws", async () => {
