@@ -42,3 +42,49 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  scoping-integration:
+    name: scoping integration (real Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: scoping
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.12.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Migrate test database
+        env:
+          DATABASE_URL: postgres://postgres:ci@localhost:5432/scoping
+        run: pnpm --filter @ai-workspace/db db:migrate
+
+      # #444: cross-user scoping proven through real route handlers and real
+      # WHERE clauses — the unit-lane db mocks structurally cannot do this.
+      - name: Scoping integration tests
+        env:
+          INTEGRATION_DATABASE_URL: postgres://postgres:ci@localhost:5432/scoping
+        run: pnpm --filter @ai-workspace/web test:integration
