@@ -108,6 +108,26 @@ export function stripAttachmentNoteFromMessage(message: string): string {
   return message.replace(/(?:\n\s*)?📎\s+\d+\s+files?\s+attached\s*$/i, "");
 }
 
+/**
+ * The declared attachment count for the payload-presence guard (#347/#430):
+ * the MAX of the client's count field and the count parsed from the
+ * message text. The 📎 note is client-generated, so text declaring files
+ * that did not arrive is always a payload failure — an explicit
+ * `attachmentCount: 0` must not defeat the text signal (that combination
+ * is exactly how the phantom-attachment turns in #430 reached the model).
+ */
+export function resolveDeclaredAttachmentCount(
+  bodyCount: unknown,
+  message: string,
+): number {
+  const fromBody =
+    typeof bodyCount === "number" && Number.isFinite(bodyCount)
+      ? Math.max(0, Math.floor(bodyCount))
+      : 0;
+  const fromText = declaredAttachmentCountFromMessage(message) ?? 0;
+  return Math.max(fromBody, fromText);
+}
+
 export function declaredAttachmentCountFromMessage(message: string): number | null {
   const match = /(?:^|\n)\s*📎\s+(\d+)\s+files?\s+attached\s*$/i.exec(message);
   if (!match?.[1]) return null;
