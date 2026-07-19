@@ -14,8 +14,13 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 1 : undefined,
-  timeout: 30_000,
-  expect: { timeout: 5_000 },
+  // The authenticated smoke drives real turns through a dev-mode server on a
+  // 2-core CI runner; the suite sits right at the edge of Playwright's 30s
+  // default, and a runner-speed dip (2026-07-19) tipped green tests into
+  // deterministic timeouts. Headroom over precision: these are smoke gates,
+  // not latency benchmarks.
+  timeout: 60_000,
+  expect: { timeout: 10_000 },
   reporter: process.env.CI
     ? [["list"], ["html", { open: "never" }]]
     : [["list"]],
