@@ -31,7 +31,7 @@ import { buildActivatedSkillUserMessage } from "@/lib/skills";
 import { streamInlineChatRun } from "@/lib/chat-inline-runner";
 import { isModelEnabled, resolveModelForPurpose } from "@/lib/model-registry";
 import {
-  declaredAttachmentCountFromMessage,
+  resolveDeclaredAttachmentCount,
   foldAttachmentsIntoPrompt,
   scanAttachmentsForSecrets,
   validateAttachments,
@@ -162,11 +162,13 @@ export async function POST(req: Request) {
     );
   }
   const effectiveUserMessage = modelCommand?.body ?? body.message;
-  const declaredAttachmentCount =
-    typeof body.attachmentCount === "number" && Number.isFinite(body.attachmentCount)
-      ? Math.max(0, Math.floor(body.attachmentCount))
-      : declaredAttachmentCountFromMessage(body.message);
-  if ((declaredAttachmentCount ?? 0) > attachments.length) {
+  // #430: max(count field, text note) — an explicit attachmentCount: 0
+  // must not defeat a message that visibly declares attached files.
+  const declaredAttachmentCount = resolveDeclaredAttachmentCount(
+    body.attachmentCount,
+    body.message,
+  );
+  if (declaredAttachmentCount > attachments.length) {
     return NextResponse.json(
       {
         error: "missing_attachment_payload",

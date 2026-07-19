@@ -204,3 +204,21 @@ function preparedAttachment({
     extractionStatus: "extracted",
   };
 }
+
+describe("resolveDeclaredAttachmentCount (#430)", () => {
+  it("text note is an authoritative floor — explicit 0 cannot defeat it", async () => {
+    const { resolveDeclaredAttachmentCount } = await import("@/lib/attachments");
+    expect(
+      resolveDeclaredAttachmentCount(0, "what is this pic of?\n\n📎 1 file attached"),
+    ).toBe(1);
+    expect(resolveDeclaredAttachmentCount(0, "  📎 1 file attached")).toBe(1);
+  });
+
+  it("takes the max of both signals and defaults missing to 0", async () => {
+    const { resolveDeclaredAttachmentCount } = await import("@/lib/attachments");
+    expect(resolveDeclaredAttachmentCount(3, "hi 📎 2 files attached")).toBe(3);
+    expect(resolveDeclaredAttachmentCount(undefined, "📎 2 files attached")).toBe(2);
+    expect(resolveDeclaredAttachmentCount(undefined, "just a message")).toBe(0);
+    expect(resolveDeclaredAttachmentCount(Number.NaN, "hey")).toBe(0);
+  });
+});

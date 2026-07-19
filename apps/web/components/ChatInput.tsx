@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import {
   MAX_ATTACHMENTS,
+  MAX_ATTACHMENT_BYTES,
   isSupportedAttachmentName,
   mimeTypeForAttachmentName,
   unsupportedAttachmentMessage,
@@ -277,6 +278,14 @@ export function ChatInput({
     for (const file of incoming.slice(0, room)) {
       if (!isSupportedAttachmentName(file.name)) {
         setNotice(unsupportedAttachmentMessage(file.name));
+        continue;
+      }
+      // #430: reject oversize at attach time — a too-big file must never
+      // reach send, where a phantom "file attached" note could outlive it.
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        setNotice(
+          `"${file.name}" is ${formatBytes(file.size)} — the limit is ${formatBytes(MAX_ATTACHMENT_BYTES)} per file. Compress or resize it and try again.`,
+        );
         continue;
       }
       try {
