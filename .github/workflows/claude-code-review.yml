@@ -16,6 +16,10 @@ on:
 
 permissions:
   contents: read
+  # The gates-green check reads workflow runs; GitHub began enforcing the
+  # documented `actions: read` requirement for that endpoint on 2026-07-19,
+  # 403-ing every review run.
+  actions: read
   pull-requests: write
   issues: write
   statuses: write
