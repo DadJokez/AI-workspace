@@ -572,6 +572,9 @@ export async function streamInlineChatRun({
           inputTokens = usage.inputTokens;
           cacheReadInputTokens = usage.cacheReadInputTokens;
           cacheWriteInputTokens = usage.cacheWriteInputTokens;
+          // #359: live token counts for the run footer — totals only, the
+          // full breakdown ships with `persisted` as before.
+          send({ type: "usage", tokensIn, tokensOut });
         } else if (ev.type === "tool-call") {
           toolEvents.recordCall(ev.call);
           const persistedCall = toolEvents
@@ -585,7 +588,11 @@ export async function streamInlineChatRun({
               call: persistedCall,
             });
           }
-          send({ type: "tool-call", call: ev.call });
+          // #359: stream the REDACTED copy — the live SSE previously sent
+          // the raw runtime payload while only the persisted copy was
+          // redacted, so a viewer's live stream could carry what replay
+          // would have scrubbed.
+          send({ type: "tool-call", call: persistedCall ?? ev.call });
         } else if (ev.type === "tool-result") {
           toolEvents.recordResult(ev.result);
           const persistedResult = toolEvents
@@ -603,7 +610,8 @@ export async function streamInlineChatRun({
               result: persistedResult,
             });
           }
-          send({ type: "tool-result", result: ev.result });
+          // #359: redacted copy on the live stream too (see tool-call above).
+          send({ type: "tool-result", result: persistedResult ?? ev.result });
         } else if (ev.type === "error") {
           const normalized = normalizeRuntimeError(
             ev.message,

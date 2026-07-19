@@ -14,7 +14,10 @@ import {
   parseAppDraftVersionSummaries,
   type AppDraftVersionSummary,
 } from "@/lib/app-draft-versions";
-import { runEventsToActivityEvents } from "@/lib/run-events";
+import {
+  derivePhaseFromRunEvents,
+  runEventsToActivityEvents,
+} from "@/lib/run-events";
 import type {
   PersistedToolCall,
   PersistedToolResult,
@@ -52,6 +55,8 @@ export interface ThreadMessageWithActivity {
   activityEvents?: AgentActivityEvent[];
   pending?: boolean;
   status?: string;
+  /** #359: deterministic phase for in-flight runs, derived server-side. */
+  runPhase?: string;
   runId?: string;
   runStatus?: string;
   runError?: string | null;
@@ -231,6 +236,13 @@ export async function loadThreadMessagesWithRunActivity({
       appDraftVersions: output.appDraftVersions,
       activityEvents,
       pending: run.status === "queued" || run.status === "running",
+      // #359: reload reconstructs the live footer's phase from persisted
+      // events, so refresh mid-run shows the same state as the stream did.
+      ...(run.status === "queued" || run.status === "running"
+        ? {
+            runPhase: derivePhaseFromRunEvents(eventsByRunId.get(run.id) ?? []),
+          }
+        : {}),
       status:
         latestActivityLabel(activityEvents) ??
         (run.status === "queued"

@@ -216,3 +216,152 @@ describe("runEventsToActivityEvents", () => {
     expect(events[0]?.detail).toContain("workspace_artifacts 1/1");
   });
 });
+
+describe("derivePhaseFromRunEvents (#359)", () => {
+  const seq = (
+    entries: Array<[string, number]>,
+  ): Array<{ eventType: string; sequence: number }> =>
+    entries.map(([eventType, sequence]) => ({ eventType, sequence }));
+
+  it("later events win and tool activity supersedes planning", async () => {
+    const { derivePhaseFromRunEvents } = await import("@/lib/run-events");
+    expect(derivePhaseFromRunEvents([])).toBe("starting");
+    expect(
+      derivePhaseFromRunEvents(
+        seq([
+          ["run_started", 1],
+          ["context_pack_assembled", 2],
+        ]),
+      ),
+    ).toBe("reading");
+    expect(
+      derivePhaseFromRunEvents(
+        seq([
+          ["provider_run_started", 3],
+          ["tool_call", 4],
+        ]),
+      ),
+    ).toBe("using tools");
+    expect(
+      derivePhaseFromRunEvents(
+        seq([
+          ["tool_result", 5],
+          ["workspace_artifacts_created", 6],
+          ["run_completed", 7],
+        ]),
+      ),
+    ).toBe("done");
+  });
+
+  it("ignores trace-lane events entirely", async () => {
+    const { derivePhaseFromRunEvents } = await import("@/lib/run-events");
+    expect(
+      derivePhaseFromRunEvents(
+        seq([
+          ["context_pack_assembled", 1],
+          ["provider_context_snapshot", 2],
+          ["provider_reasoning", 3],
+          ["provider_response_metadata", 4],
+        ]),
+      ),
+    ).toBe("reading");
+  });
+});
+
+describe("trace-event filtering in receipts (#359)", () => {
+  it("never renders trace rows as activity", async () => {
+    const { runEventsToActivityEvents } = await import("@/lib/run-events");
+    const events = runEventsToActivityEvents([
+      {
+        id: "e1",
+        sequence: 1,
+        eventType: "provider_context_snapshot",
+        status: "succeeded",
+        label: "Provider context snapshot",
+        toolCallId: null,
+        error: null,
+        occurredAt: new Date("2026-07-18T00:00:00Z"),
+      },
+      {
+        id: "e2",
+        sequence: 2,
+        eventType: "context_pack_assembled",
+        status: "succeeded",
+        label: "Context pack assembled",
+        toolCallId: null,
+        error: null,
+        occurredAt: new Date("2026-07-18T00:00:01Z"),
+      },
+    ]);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.label).toContain("context");
+  });
+});
+
+describe("workspace_artifacts_created labels (#359)", () => {
+  const base = {
+    id: "e1",
+    sequence: 1,
+    eventType: "workspace_artifacts_created",
+    status: "succeeded" as const,
+    label: "Created 1 workspace artifact",
+    toolCallId: null,
+    error: null,
+    occurredAt: new Date("2026-07-18T00:00:00Z"),
+  };
+
+  it("renders Edited file · +N −N from structured metadata", async () => {
+    const { runEventsToActivityEvents } = await import("@/lib/run-events");
+    const [event] = runEventsToActivityEvents([
+      {
+        ...base,
+        metadata: {
+          artifacts: [
+            {
+              filename: "report.html",
+              supersedesArtifactId: "prev-1",
+              metadata: { lineDelta: { added: 14, removed: 3 } },
+            },
+          ],
+        },
+      },
+    ]);
+    expect(event!.label).toBe("Edited report.html · +14 −3");
+  });
+
+  it("renders Created N files and falls back to the stored label", async () => {
+    const { runEventsToActivityEvents } = await import("@/lib/run-events");
+    const [multi] = runEventsToActivityEvents([
+      {
+        ...base,
+        metadata: {
+          artifacts: [{ filename: "a.md" }, { filename: "b.md" }],
+        },
+      },
+    ]);
+    expect(multi!.label).toBe("Created 2 files");
+    const [fallback] = runEventsToActivityEvents([{ ...base }]);
+    expect(fallback!.label).toBe("Created 1 workspace artifact");
+  });
+
+  it("marks approximate deltas with ~", async () => {
+    const { runEventsToActivityEvents } = await import("@/lib/run-events");
+    const [event] = runEventsToActivityEvents([
+      {
+        ...base,
+        metadata: {
+          artifacts: [
+            {
+              filename: "big.html",
+              supersedesArtifactId: "prev-1",
+              metadata: {
+                lineDelta: { added: 100, removed: 90, approximate: true },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+    expect(event!.label).toBe("Edited big.html · ~+100 −90");
+  });
+});
