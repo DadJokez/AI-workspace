@@ -13,10 +13,10 @@
   "scripts": {
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
-    "db:generate": "drizzle-kit generate",
+    "db:generate": "echo 'BLOCKED (#449): drizzle meta snapshots are intentionally frozen at 0023 while migrations run to 0035+. Migrations are handwritten SQL + a _journal.json entry \u2014 see packages/db/README.md. Running drizzle-kit generate/check against the stale meta emits WRONG output.' && exit 1",
     "db:migrate": "tsx src/migrate.ts",
     "db:studio": "drizzle-kit studio",
-    "db:check": "drizzle-kit check"
+    "db:check": "echo 'BLOCKED (#449): drizzle meta snapshots are intentionally frozen at 0023 while migrations run to 0035+. Migrations are handwritten SQL + a _journal.json entry \u2014 see packages/db/README.md. Running drizzle-kit generate/check against the stale meta emits WRONG output.' && exit 1"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
