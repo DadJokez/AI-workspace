@@ -55,10 +55,20 @@ production.
 
 ## Rollback
 
-For an image-only regression, restore the last good immutable ECR tags to the
-three mutable service tags (`latest`, `worker-latest`, and
-`memory-worker-latest`), run `infra/scripts/deploy-ecs-stack.sh` with the good
-commit SHA, and require the authenticated smoke to pass.
+Task definitions pin the immutable commit tag (`ImageTag` stack parameter,
+#449) — what runs is exactly what a specific build pushed, and `latest` is
+only the parameter default for manual deploys. For an image-only regression,
+one command rolls all three services to a previously built commit:
+
+```bash
+AWS_DEFAULT_REGION=us-east-1 ./infra/scripts/rollback-ecs.sh <good-commit-sha>
+```
+
+The script validates the tags exist in ECR, redeploys `AiWorkspaceEcsStack`
+with `ImageTag=<sha>`, and waits for the services to stabilize. It does NOT
+roll back database migrations — before rolling across a migration, confirm
+the expand/contract rule holds (older code must run against the newer
+schema); if it does not, revert the migration first.
 
 For an infrastructure regression, revert the offending CDK change in source
 and deploy `AiWorkspaceEcsStack` from that revision before refreshing ECS. Do

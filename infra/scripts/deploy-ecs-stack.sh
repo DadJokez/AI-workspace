@@ -15,10 +15,14 @@ SERVICES=(
   "$ECS_MEMORY_WORKER_SERVICE_NAME"
 )
 
-echo "Reconciling $ECS_STACK_NAME before refreshing ECS images..."
+echo "Reconciling $ECS_STACK_NAME and pinning images to commit $COMMIT_TAG..."
+# #449: ImageTag pins task definitions to the immutable commit-tagged images
+# the build phase pushed, so what runs is exactly what this build produced —
+# and rollback is redeploying the stack with a prior tag (rollback-ecs.sh).
 CDK_DEFAULT_REGION="$AWS_DEFAULT_REGION" \
   pnpm --filter @ai-workspace/infra exec cdk deploy "$ECS_STACK_NAME" \
   --require-approval never \
+  --parameters "ImageTag=$COMMIT_TAG" \
   --exclusively
 
 echo "Forcing ECS service deployments for commit $COMMIT_TAG..."

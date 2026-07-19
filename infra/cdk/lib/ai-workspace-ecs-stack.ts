@@ -39,6 +39,17 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
+    // #449: immutable image deploys. The pipeline passes the commit tag so
+    // task definitions pin the exact image that was built; "latest" remains
+    // only as the default for manual/console deploys. Mirrors the AgentCore
+    // stack's AgentImageTag parameter.
+    const imageTag = new cdk.CfnParameter(this, "ImageTag", {
+      type: "String",
+      default: "latest",
+      description:
+        "ECR image tag suffix to deploy (commit SHA in CI; 'latest' only for manual deploys). Workers use worker-<tag>/memory-worker-<tag>.",
+    });
+
     const domainName = contextString(
       this,
       "aiWorkspace:domainName",
@@ -219,7 +230,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     grantBedrockInvoke(webTask);
     grantSesSendEmail(webTask, inviteEmailIdentityName, inviteEmailAwsRegion);
     webTask.addContainer("web", {
-      image: ecs.ContainerImage.fromEcrRepository(repository, "latest"),
+      image: ecs.ContainerImage.fromEcrRepository(repository, imageTag.valueAsString),
       containerName: "web",
       portMappings: [{ containerPort: 3000 }],
       logging: ecs.LogDrivers.awsLogs({
@@ -290,7 +301,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     const chatWorkerService = createWorkerService(this, {
       cluster,
       repository,
-      tag: "worker-latest",
+      tag: `worker-${imageTag.valueAsString}`,
       family: "ai-workspace-chat-worker",
       serviceName: "ai-workspace-chat-worker",
       containerName: "chat-worker",
@@ -312,7 +323,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     const memoryWorkerService = createWorkerService(this, {
       cluster,
       repository,
-      tag: "memory-worker-latest",
+      tag: `memory-worker-${imageTag.valueAsString}`,
       family: "ai-workspace-memory-worker",
       serviceName: "ai-workspace-memory-worker",
       containerName: "memory-worker",
