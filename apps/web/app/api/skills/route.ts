@@ -8,6 +8,7 @@ import {
   insertSkillWithUniqueSlug,
   parseSkillInput,
 } from "@/lib/skills";
+import { evaluateSkillNamingGate } from "@/lib/skills-naming-gate";
 import { listSkillsSharedWith } from "@/lib/shares";
 import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
@@ -87,6 +88,20 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { error: "invalid_skill", field: parsed.error.field, message: parsed.error.message },
       { status: 400 },
+    );
+  }
+
+  // #412: impersonation/reserved-prefix + description lint before the
+  // suffix-on-collision insert can mint a lookalike slug.
+  const naming = await evaluateSkillNamingGate(db, {
+    name: parsed.input.name,
+    description: parsed.input.description,
+    actor: sessionUser,
+  });
+  if (naming) {
+    return NextResponse.json(
+      { error: naming.error, field: naming.field, message: naming.message },
+      { status: naming.status },
     );
   }
 
