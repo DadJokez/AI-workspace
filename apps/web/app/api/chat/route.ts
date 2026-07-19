@@ -12,7 +12,6 @@ import {
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
-import { userScope } from "@/lib/auth/scope";
 import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
 import {
   applyActivatedSkillRoute,
@@ -257,13 +256,16 @@ export async function POST(req: Request) {
 
   let thread: ChatThread;
   if (body.threadId) {
+    // Posting a message MUTATES the thread, so this is owner-scoped with no
+    // admin bypass — userScope() is read-side only per its own contract, and
+    // using it here let admins write into other users' threads (#445).
     const owned = await db
       .select()
       .from(chatThreads)
       .where(
         and(
           eq(chatThreads.id, body.threadId),
-          userScope(sessionUser, chatThreads.userId),
+          eq(chatThreads.userId, sessionUser.id),
         ),
       )
       .limit(1);
