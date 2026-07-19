@@ -1,0 +1,115 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ChatThread, Database } from "@ai-workspace/db";
+import type { ChatRuntimeRoute } from "@/lib/chat-routing";
+
+/**
+ * #443 — the inline shell's crash discipline: a throw anywhere in the shared
+ * pipeline marks the run failed (never stranding it in `running`) and still
+ * propagates so the route can report the error, while a clean turn leaves
+ * the terminal state to the pipeline's own persist tail.
+ */
+
+vi.mock("@/lib/execute-chat-turn", () => ({
+  executeChatTurn: vi.fn(async () => undefined),
+}));
+vi.mock("@ai-workspace/agent-runtime", () => ({
+  getRuntime: vi.fn(() => ({ name: "bedrock" })),
+}));
+vi.mock("@/lib/model-registry", () => ({
+  enabledModelsForPurpose: vi.fn(async () => ["sonnet-4-6"]),
+}));
+vi.mock("@/lib/runtime-model-policy", () => ({
+  resolveRuntimeModelSelection: vi.fn(() => ({
+    requestedModelId: "sonnet-4-6",
+    modelId: "sonnet-4-6",
+    providerModelId: "us.anthropic.claude-sonnet-4-6",
+    reason: "requested_model_supported",
+  })),
+}));
+vi.mock("@/lib/run-events", () => ({
+  appendRunEventBestEffort: vi.fn(async () => undefined),
+}));
+
+import { streamInlineChatRun } from "@/lib/chat-inline-runner";
+import { executeChatTurn } from "@/lib/execute-chat-turn";
+import { appendRunEventBestEffort } from "@/lib/run-events";
+
+function fakeDb(updates: Array<Record<string, unknown>>): Database {
+  return {
+    update: () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: () => {
+          updates.push(values);
+          const promise = Promise.resolve(undefined);
+          return Object.assign(promise, {
+            returning: async () => [{ id: "run-1" }],
+          });
+        },
+      }),
+    }),
+  } as unknown as Database;
+}
+
+function inlineArgs(db: Database) {
+  return {
+    db,
+    runId: "run-1",
+    thread: { id: "thread-1", summary: null } as unknown as ChatThread,
+    userId: "user-1",
+    userMessageId: "user-msg-1",
+    prompt: "hi",
+    modelId: "sonnet-4-6",
+    route: {
+      lane: "tool-local",
+      routingMode: "regex",
+      executionMode: "local",
+      runtimeTarget: "direct-chat",
+      runtimeV2: true,
+      useWorker: false,
+      useMcp: true,
+      includeVaultContext: true,
+      reasons: ["test"],
+    } as ChatRuntimeRoute,
+    send: () => {},
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe("streamInlineChatRun crash discipline (#443)", () => {
+  it("marks the run failed and rethrows when the pipeline throws", async () => {
+    vi.mocked(executeChatTurn).mockRejectedValueOnce(
+      new Error("context assembly exploded"),
+    );
+    const updates: Array<Record<string, unknown>> = [];
+
+    await expect(streamInlineChatRun(inlineArgs(fakeDb(updates)))).rejects.toThrow(
+      "context assembly exploded",
+    );
+
+    const terminal = updates.find((update) => update.status === "failed");
+    expect(terminal).toMatchObject({
+      status: "failed",
+      error: "context assembly exploded",
+    });
+    expect(appendRunEventBestEffort).toHaveBeenCalledWith(
+      "chat-inline-event-error",
+      expect.objectContaining({
+        runId: "run-1",
+        eventType: "run_failed",
+        status: "failed",
+      }),
+    );
+  });
+
+  it("writes no failure state when the pipeline completes", async () => {
+    const updates: Array<Record<string, unknown>> = [];
+
+    await streamInlineChatRun(inlineArgs(fakeDb(updates)));
+
+    expect(updates.find((update) => update.status === "failed")).toBeUndefined();
+    expect(appendRunEventBestEffort).not.toHaveBeenCalled();
+  });
+});

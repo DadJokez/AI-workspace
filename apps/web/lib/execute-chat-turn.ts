@@ -142,6 +142,8 @@ export type ChatTurnLane =
       kind: "worker";
       /** Claim-time snapshot; prior outputs seed resume + terminal merge. */
       run: Run;
+      /** Lease owner id; terminal writes are fenced on it (#443). */
+      workerId: string;
       /** Parsed run inputs, re-persisted with mount metadata folded in. */
       storedInputs: Record<string, unknown>;
       executionMode: ChatExecutionMode;
@@ -1181,12 +1183,22 @@ async function persistChatTurnResult({
       completedAt,
       updatedAt: completedAt,
     })
-    .where(and(eq(runs.id, runId), ne(runs.status, "canceled")))
+    .where(
+      lane.kind === "worker"
+        ? // #443: fenced on workerId — a worker that lost its lease to a
+          // reclaim or admin resume must not overwrite the current owner.
+          and(
+            eq(runs.id, runId),
+            ne(runs.status, "canceled"),
+            eq(runs.workerId, lane.workerId),
+          )
+        : and(eq(runs.id, runId), ne(runs.status, "canceled")),
+    )
     .returning({ id: runs.id });
 
   if (lane.kind === "worker") {
-    // A concurrent cancel won the terminal write; stop here so a canceled
-    // run never notifies or reports completion.
+    // A concurrent cancel or a fencing loss won the terminal write; stop
+    // here so a superseded execution never notifies or reports completion.
     if (updatedRows.length === 0) {
       return {
         assistantMessageId,

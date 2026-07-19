@@ -28,9 +28,15 @@ vi.mock("@/lib/notifications", () => ({
   createProactiveRunNotification: vi.fn(async () => undefined),
 }));
 
-import { processQueuedChatRun } from "@/lib/chat-run-worker";
+import {
+  heartbeatRunLease,
+  processQueuedChatRun,
+  reapOrphanedRuns,
+} from "@/lib/chat-run-worker";
 import { executeChatTurn } from "@/lib/execute-chat-turn";
 import { resolveModelForPurpose } from "@/lib/model-registry";
+import { appendRunEventBestEffort } from "@/lib/run-events";
+import { createProactiveRunNotification } from "@/lib/notifications";
 
 function claimedRun(overrides: Partial<Run> = {}): Run {
   return {
@@ -97,7 +103,7 @@ describe("processQueuedChatRun", () => {
     const run = claimedRun();
     const db = fakeDb(run);
 
-    await processQueuedChatRun({ db, runId: "run-1" });
+    await processQueuedChatRun({ db, runId: "run-1", workerId: "w-test" });
 
     const turn = vi.mocked(executeChatTurn).mock.calls[0]![0];
     expect(turn.userId).toBe("user-1");
@@ -109,6 +115,7 @@ describe("processQueuedChatRun", () => {
     expect(turn.lane).toMatchObject({
       kind: "worker",
       run,
+      workerId: "w-test",
       executionMode: "local",
       preferArtifactFallback: true,
       storedArtifactTarget: null,
@@ -128,6 +135,61 @@ describe("processQueuedChatRun", () => {
       kind: "worker",
       preferArtifactFallback: false,
     });
+  });
+
+  it("reports the lease as lost when the fenced heartbeat matches no row (#443)", async () => {
+    const emptyDb = {
+      update: () => ({
+        set: () => ({
+          where: () => ({ returning: async () => [] }),
+        }),
+      }),
+    } as unknown as Database;
+    await expect(heartbeatRunLease(emptyDb, "run-1", "w-test")).resolves.toBe(
+      false,
+    );
+
+    const heldDb = {
+      update: () => ({
+        set: () => ({
+          where: () => ({ returning: async () => [{ id: "run-1" }] }),
+        }),
+      }),
+    } as unknown as Database;
+    await expect(heartbeatRunLease(heldDb, "run-1", "w-test")).resolves.toBe(
+      true,
+    );
+  });
+
+  it("reaps leaseless runs with dead heartbeats and notifies (#443)", async () => {
+    const orphan = claimedRun({ triggerType: "chat" } as Partial<Run>);
+    const db = {
+      update: () => ({
+        set: (values: Record<string, unknown>) => ({
+          where: () => ({
+            returning: async () => [{ ...orphan, error: values.error }],
+          }),
+        }),
+      }),
+    } as unknown as Database;
+
+    const reaped = await reapOrphanedRuns({ db });
+
+    expect(reaped).toBe(1);
+    expect(appendRunEventBestEffort).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        runId: "run-1",
+        eventType: "run_failed",
+        status: "failed",
+      }),
+    );
+    expect(createProactiveRunNotification).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({ id: "run-1" }),
+      "failed",
+      "thread-1",
+    );
   });
 
   it("marks the run failed when the core throws", async () => {
