@@ -79,19 +79,47 @@ export async function appendRunEvent({
   });
 }
 
+export async function nextRunEventSequence(
+  db: Database,
+  runId: string,
+): Promise<number> {
+  const rows = await db
+    .select({ sequence: runEvents.sequence })
+    .from(runEvents)
+    .where(eq(runEvents.runId, runId))
+    .orderBy(desc(runEvents.sequence))
+    .limit(1);
+  return (rows[0]?.sequence ?? 0) + 1;
+}
+
 export async function appendRunEventWithNextSequence(
   input: Omit<AppendRunEventInput, "sequence">,
 ): Promise<void> {
-  const rows = await input.db
-    .select({ sequence: runEvents.sequence })
-    .from(runEvents)
-    .where(eq(runEvents.runId, input.runId))
-    .orderBy(desc(runEvents.sequence))
-    .limit(1);
   await appendRunEvent({
     ...input,
-    sequence: (rows[0]?.sequence ?? 0) + 1,
+    sequence: await nextRunEventSequence(input.db, input.runId),
   });
+}
+
+/**
+ * Best-effort append: run-event bookkeeping must never kill a turn. Failures
+ * are logged under `[<logTag>]` and swallowed.
+ */
+export async function appendRunEventBestEffort(
+  logTag: string,
+  input: Omit<AppendRunEventInput, "sequence">,
+): Promise<void> {
+  try {
+    await appendRunEventWithNextSequence(input);
+  } catch (err) {
+    process.stderr.write(
+      `[${logTag}] ${JSON.stringify({
+        runId: input.runId,
+        eventType: input.eventType,
+        message: err instanceof Error ? err.message : String(err),
+      })}\n`,
+    );
+  }
 }
 
 export async function appendToolCallRunEvent({
