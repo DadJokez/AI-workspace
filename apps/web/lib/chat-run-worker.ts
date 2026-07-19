@@ -1,6 +1,6 @@
 import { getRuntime } from "@ai-workspace/agent-runtime";
 import { chatThreads, type Database, runs, type Run } from "@ai-workspace/db";
-import { and, asc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { ChatContextUploadedFile } from "@/lib/chat-context-pack";
 import {
   parseChatExecutionMode,
@@ -24,6 +24,9 @@ import {
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 const DEFAULT_RUNTIME_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
+/** How long an inline run may go without a heartbeat before it is orphaned. */
+const DEFAULT_ORPHAN_MAX_AGE_MS = 15 * 60 * 1000;
+const ORPHAN_SWEEP_INTERVAL_MS = 60_000;
 
 type ChatRunWorkerStatus = "idle" | "running" | "succeeded" | "failed";
 
@@ -116,12 +119,86 @@ export async function runChatRunWorkerLoop({
     DEFAULT_POLL_INTERVAL_MS,
   signal,
 }: ChatRunWorkerLoopInput): Promise<void> {
+  let lastSweepAt = 0;
   while (!signal?.aborted) {
+    // #443: reap stranded inline runs (no lease, dead heartbeat) so a web
+    // process crash never leaves a thread showing "Working…" forever.
+    if (Date.now() - lastSweepAt >= ORPHAN_SWEEP_INTERVAL_MS) {
+      lastSweepAt = Date.now();
+      try {
+        await reapOrphanedRuns({ db });
+      } catch (err) {
+        process.stderr.write(
+          `[chat-run-orphan-sweep-error] ${JSON.stringify({
+            message: err instanceof Error ? err.message : String(err),
+          })}\n`,
+        );
+      }
+    }
     const result = await processQueuedChatRun({ db, workerId, signal });
     if (result.status === "idle") {
       await delay(pollIntervalMs, signal);
     }
   }
+}
+
+/**
+ * #443: fail `running` runs that have no lease and a stale heartbeat. Worker
+ * runs always carry a lease (expired leases are re-claimable instead), and
+ * the sweep is scoped to `skill_slug = "chat-turn"` — the inline chat lane it
+ * owns — so it cannot reach other inline lanes (e.g. the developer-briefing
+ * workflow, which also inserts `running` runs without a lease or heartbeat).
+ * Within the chat lane the inline shell heartbeats `lastHeartbeatAt` while
+ * streaming and its crash handler marks clean failures directly, leaving only
+ * true orphans here.
+ */
+export async function reapOrphanedRuns({
+  db,
+  maxAgeMs = numberFromEnv("CHAT_RUN_ORPHAN_MAX_AGE_MS") ??
+    DEFAULT_ORPHAN_MAX_AGE_MS,
+}: {
+  db: Database;
+  maxAgeMs?: number;
+}): Promise<number> {
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - maxAgeMs);
+  const reaped = await db
+    .update(runs)
+    .set({
+      status: "failed",
+      error:
+        "The run was orphaned: its process stopped before finishing the turn.",
+      completedAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        // Scope to the inline chat lane this reaper owns. Other inline lanes
+        // (developer-briefing) also run leaseless + heartbeat-less and would
+        // otherwise be falsely reaped mid-turn (#443 review).
+        eq(runs.skillSlug, "chat-turn"),
+        eq(runs.status, "running"),
+        isNull(runs.leaseExpiresAt),
+        or(
+          lt(runs.lastHeartbeatAt, cutoff),
+          and(isNull(runs.lastHeartbeatAt), lt(runs.updatedAt, cutoff)),
+        ),
+      ),
+    )
+    .returning();
+
+  for (const run of reaped) {
+    await appendRunEventBestEffort("chat-run-event-error", {
+      db,
+      runId: run.id,
+      eventType: "run_failed",
+      status: "failed",
+      label: "Run orphaned by a stopped process",
+      error: run.error,
+    });
+    await createProactiveRunNotification(db, run, "failed", run.threadId);
+  }
+  return reaped.length;
 }
 
 export async function processQueuedChatRun({
@@ -144,7 +221,7 @@ export async function processQueuedChatRun({
       return { status: "succeeded", runId: claimed.id };
     }
     const message = err instanceof Error ? err.message : String(err);
-    await markRunFailed(db, claimed, message);
+    await markRunFailed(db, claimed, message, workerId);
     process.stderr.write(
       `[chat-run-worker-error] ${JSON.stringify({
         runId: claimed.id,
@@ -284,14 +361,29 @@ async function executeClaimedChatRun({
 
   const heartbeat = setInterval(
     () => {
-      void heartbeatRunLease(db, run.id).catch((err) => {
-        process.stderr.write(
-          `[chat-run-heartbeat-error] ${JSON.stringify({
-            runId: run.id,
-            message: err instanceof Error ? err.message : String(err),
-          })}\n`,
-        );
-      });
+      void heartbeatRunLease(db, run.id, workerId)
+        .then((held) => {
+          // #443: another worker owns the run now (expired-lease reclaim or
+          // admin resume). Stop executing instead of double-running the turn.
+          if (!held) {
+            process.stderr.write(
+              `[chat-run-lease-lost] ${JSON.stringify({
+                runId: run.id,
+                workerId,
+              })}\n`,
+            );
+            clearInterval(heartbeat);
+            runtimeAbort.abort();
+          }
+        })
+        .catch((err) => {
+          process.stderr.write(
+            `[chat-run-heartbeat-error] ${JSON.stringify({
+              runId: run.id,
+              message: err instanceof Error ? err.message : String(err),
+            })}\n`,
+          );
+        });
     },
     Math.max(
       15_000,
@@ -322,6 +414,7 @@ async function executeClaimedChatRun({
       lane: {
         kind: "worker",
         run,
+        workerId,
         storedInputs: inputs,
         executionMode: inputs.executionMode,
         timeoutMs,
@@ -345,10 +438,13 @@ async function markRunFailed(
   db: Database,
   run: Run,
   message: string,
+  workerId: string,
 ): Promise<void> {
   if (await isRunCanceled(db, run.id)) return;
 
   const completedAt = new Date();
+  // #443: fenced on workerId — a worker that lost its lease must not write
+  // a terminal state over the current owner's execution.
   const updatedRows = await db
     .update(runs)
     .set({
@@ -360,7 +456,13 @@ async function markRunFailed(
       completedAt,
       updatedAt: completedAt,
     })
-    .where(and(eq(runs.id, run.id), ne(runs.status, "canceled")))
+    .where(
+      and(
+        eq(runs.id, run.id),
+        ne(runs.status, "canceled"),
+        eq(runs.workerId, workerId),
+      ),
+    )
     .returning({ id: runs.id });
 
   if (updatedRows.length === 0) return;
@@ -377,17 +479,34 @@ async function markRunFailed(
   });
 }
 
-async function heartbeatRunLease(db: Database, runId: string): Promise<void> {
+/**
+ * Renew this worker's lease. Returns false when the run is no longer ours —
+ * canceled, finished, or claimed by another worker (#443 fencing) — so the
+ * caller can abort instead of double-executing.
+ */
+export async function heartbeatRunLease(
+  db: Database,
+  runId: string,
+  workerId: string,
+): Promise<boolean> {
   const now = new Date();
   const leaseMs = numberFromEnv("CHAT_RUN_WORKER_LEASE_MS") ?? DEFAULT_LEASE_MS;
-  await db
+  const rows = await db
     .update(runs)
     .set({
       leaseExpiresAt: new Date(now.getTime() + leaseMs),
       lastHeartbeatAt: now,
       updatedAt: now,
     })
-    .where(and(eq(runs.id, runId), ne(runs.status, "canceled")));
+    .where(
+      and(
+        eq(runs.id, runId),
+        ne(runs.status, "canceled"),
+        eq(runs.workerId, workerId),
+      ),
+    )
+    .returning({ id: runs.id });
+  return rows.length > 0;
 }
 
 function parseChatRunInputs(value: unknown): ChatRunInputs {

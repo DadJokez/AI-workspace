@@ -152,6 +152,8 @@ interface FakeDbState {
   runStatus: string;
   inserts: Array<{ table: unknown; values: unknown }>;
   runUpdates: Array<Record<string, unknown>>;
+  /** Rows the update chain's .returning() resolves to (fencing tests). */
+  updateReturning?: Array<{ id: string }>;
 }
 
 function fakeDb(state: FakeDbState): Database {
@@ -196,7 +198,7 @@ function fakeDb(state: FakeDbState): Database {
           state.runUpdates.push(values);
           const promise = Promise.resolve(undefined);
           return Object.assign(promise, {
-            returning: async () => [{ id: "run-1" }],
+            returning: async () => state.updateReturning ?? [{ id: "run-1" }],
           });
         },
       }),
@@ -309,6 +311,7 @@ function workerInput(
     lane: {
       kind: "worker",
       run,
+      workerId: "w-test",
       storedInputs: { prompt: "hi", threadId: "thread-1" },
       executionMode: "local",
       timeoutMs: 60_000,
@@ -475,6 +478,19 @@ describe("executeChatTurn — persist tail", () => {
     expect(eventTypes).toContain("worker_started");
     expect(eventTypes).toContain("run_completed");
     expect(eventTypes).not.toContain("inline_runtime_started");
+  });
+
+  it("does not notify or report completion when the worker terminal write is fenced out (#443)", async () => {
+    const { input, state } = workerInput();
+    // Another worker owns the run: the fenced terminal update matches 0 rows.
+    state.updateReturning = [];
+    await executeChatTurn(input);
+
+    expect(createProactiveRunNotification).not.toHaveBeenCalled();
+    const eventTypes = vi
+      .mocked(appendRunEventBestEffort)
+      .mock.calls.map(([, event]) => event.eventType);
+    expect(eventTypes).not.toContain("run_completed");
   });
 
   it("does not persist or notify when the worker run was canceled mid-turn", async () => {
