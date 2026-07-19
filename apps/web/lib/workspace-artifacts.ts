@@ -12,6 +12,7 @@ import {
 } from "@/lib/artifact-revisions";
 import { scrubBindingsForClient } from "@/lib/app-data-bindings";
 import { deriveBindingsFromTurnTools } from "@/lib/app-data-bootstrap";
+import { computeLineDelta } from "@/lib/artifact-diff";
 import type { ToolCall, ToolResult } from "@ai-workspace/agent";
 
 const MAX_ARTIFACTS_PER_MESSAGE = 5;
@@ -96,7 +97,7 @@ export async function createArtifactsFromAssistantMessage({
     turnToolCalls,
     turnToolResults,
   );
-  const planned = await planArtifactVersions({
+  const { planned, priorContentById } = await planArtifactVersions({
     db,
     userId,
     threadId,
@@ -134,6 +135,15 @@ export async function createArtifactsFromAssistantMessage({
           artifact.mimeType === "text/html"
             ? { dataBindings: derivedBindings }
             : {}),
+          // #359: revision line-delta for the work receipt (+N −N).
+          ...(() => {
+            const priorContent = version.supersedesArtifactId
+              ? priorContentById.get(version.supersedesArtifactId)
+              : undefined;
+            if (priorContent === undefined) return {};
+            const delta = computeLineDelta(priorContent, artifact.content);
+            return delta ? { lineDelta: delta } : {};
+          })(),
         },
       })),
     )
@@ -334,9 +344,11 @@ async function planArtifactVersions({
   artifacts: readonly ParsedArtifact[];
   targetArtifact?: WorkspaceArtifactVersionTarget | null;
   separateFromArtifact?: WorkspaceArtifactVersionTarget | null;
-}): Promise<
-  Array<{ artifact: ParsedArtifact; version: PlannedArtifactVersion }>
-> {
+}): Promise<{
+  planned: Array<{ artifact: ParsedArtifact; version: PlannedArtifactVersion }>;
+  /** Prior content by artifact id, for revision line-delta counts (#359). */
+  priorContentById: Map<string, string>;
+}> {
   const scope =
     targetArtifact?.artifactGroupId
       ? or(
@@ -351,12 +363,15 @@ async function planArtifactVersions({
     .orderBy(desc(workspaceArtifacts.versionNumber), desc(workspaceArtifacts.createdAt))
     .limit(200);
 
-  return planArtifactVersionsForExistingArtifacts({
-    artifacts,
-    priorArtifacts: priorRows,
-    targetArtifact,
-    separateFromArtifact,
-  });
+  return {
+    planned: planArtifactVersionsForExistingArtifacts({
+      artifacts,
+      priorArtifacts: priorRows,
+      targetArtifact,
+      separateFromArtifact,
+    }),
+    priorContentById: new Map(priorRows.map((row) => [row.id, row.content])),
+  };
 }
 
 function extractFencedCodeBlocks(text: string): FencedCodeBlock[] {

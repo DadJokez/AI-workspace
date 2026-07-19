@@ -35,6 +35,9 @@ interface Props {
   modelId?: string;
   tokensIn?: number | null;
   tokensOut?: number | null;
+  /** #359 live footer inputs — set only while the run is pending. */
+  livePhase?: string;
+  liveTokens?: number;
   pending?: boolean;
   status?: string;
   toolCalls?: PersistedToolCall[];
@@ -61,6 +64,8 @@ export function MessageBubble({
   modelId,
   tokensIn,
   tokensOut,
+  livePhase,
+  liveTokens,
   pending,
   status,
   toolCalls = [],
@@ -209,6 +214,8 @@ export function MessageBubble({
           events={activityEvents}
           summary={activitySummary ?? "Thinking..."}
           pending={pending}
+          livePhase={livePhase}
+          liveTokens={liveTokens}
         />
       ) : null}
     </div>
@@ -819,14 +826,26 @@ function acceptLabel(recommendation: PersistedRecommendation): string {
  * category receipts ("Checked GitHub · 4 steps"), each expanding into
  * human-readable steps, with raw payloads behind one more disclosure.
  */
+function formatReceiptTokens(count: number): string {
+  if (count >= 1_000) {
+    const value = (count / 1_000).toFixed(1);
+    return `${value.endsWith(".0") ? value.slice(0, -2) : value}k`;
+  }
+  return String(count);
+}
+
 function WorkReceipts({
   events,
   summary,
   pending,
+  livePhase,
+  liveTokens,
 }: {
   events: AgentActivityEvent[];
   summary: string;
   pending?: boolean;
+  livePhase?: string;
+  liveTokens?: number;
 }) {
   const mounted = useMounted();
   const [fallbackStartedAt, setFallbackStartedAt] = useState<number | null>(
@@ -841,7 +860,16 @@ function WorkReceipts({
       : startedAt
     : lastActivityTime(events) ?? startedAt;
   const duration = formatDuration(Math.max(0, endedAt - startedAt));
-  const headline = pending ? `Working for ${duration}` : `Worked for ${duration}`;
+  // #359 live footer: elapsed · tokens · deterministic phase. Every part is
+  // event-derived — never model narration, never a percentage or ETA.
+  const liveParts = [
+    `Working for ${duration}`,
+    ...(pending && typeof liveTokens === "number" && liveTokens > 0
+      ? [`${formatReceiptTokens(liveTokens)} tokens`]
+      : []),
+    ...(pending && livePhase ? [livePhase] : []),
+  ];
+  const headline = pending ? liveParts.join(" · ") : `Worked for ${duration}`;
 
   useEffect(() => {
     if (firstEventAt !== null || fallbackStartedAt !== null) return;

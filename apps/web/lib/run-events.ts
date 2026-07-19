@@ -197,7 +197,12 @@ export function runEventsToActivityEvents(
 ): AgentActivityEvent[] {
   const latestToolEvents = new Map<string, AgentActivityEvent>();
   const generalEvents: AgentActivityEvent[] = [];
-  const sortedEvents = [...events].sort(compareRunEvents);
+  // Trace-lane rows (#386) share run_events with the receipt lane; they are
+  // admin diagnostics, not user-visible work, and previously fell through
+  // to the "progress" category as phantom rows (#359).
+  const sortedEvents = [...events]
+    .filter((event) => !isTraceRunEvent(event.eventType))
+    .sort(compareRunEvents);
   let terminalSequence: number | null = null;
   for (const event of sortedEvents) {
     if (isTerminalRunEvent(event.eventType)) {
@@ -276,6 +281,107 @@ function isTerminalRunEvent(eventType?: string): boolean {
   );
 }
 
+/**
+ * "Edited report.html · +14 −3" / "Created 2 files" from the artifact
+ * summaries stamped on the workspace_artifacts_created event (#359). Only
+ * structured metadata is used — safe filenames, mint-time diff counts.
+ */
+function artifactsCreatedLabel(metadata: unknown): string | null {
+  if (!isRecord(metadata) || !Array.isArray(metadata.artifacts)) return null;
+  const artifacts = metadata.artifacts.filter(isRecord);
+  if (artifacts.length === 0) return null;
+
+  let added = 0;
+  let removed = 0;
+  let approximate = false;
+  let edits = 0;
+  for (const artifact of artifacts) {
+    if (artifact.supersedesArtifactId) edits++;
+    const meta = isRecord(artifact.metadata) ? artifact.metadata : null;
+    const delta = meta && isRecord(meta.lineDelta) ? meta.lineDelta : null;
+    if (delta) {
+      added += numberValue(delta.added) ?? 0;
+      removed += numberValue(delta.removed) ?? 0;
+      if (delta.approximate === true) approximate = true;
+    }
+  }
+
+  const verb = edits === artifacts.length && edits > 0 ? "Edited" : "Created";
+  const noun =
+    artifacts.length === 1
+      ? typeof artifacts[0]!.filename === "string"
+        ? (artifacts[0]!.filename as string)
+        : "1 file"
+      : `${artifacts.length} files`;
+  const deltaPart =
+    added + removed > 0
+      ? ` · ${approximate ? "~" : ""}+${added} −${removed}`
+      : "";
+  return `${verb} ${noun}${deltaPart}`;
+}
+
+function isTraceRunEvent(eventType?: string): boolean {
+  return (
+    eventType === "provider_context_snapshot" ||
+    eventType === "provider_reasoning" ||
+    eventType === "provider_response_metadata"
+  );
+}
+
+/**
+ * Deterministic run phase for the live footer (#359): derived only from
+ * structured events, never model narration. Later events win; tool events
+ * dominate until something later supersedes them.
+ */
+export type RunPhase =
+  | "starting"
+  | "reading"
+  | "planning"
+  | "using tools"
+  | "editing"
+  | "validating"
+  | "publishing"
+  | "finalizing"
+  | "done";
+
+const PHASE_BY_EVENT: Record<string, RunPhase> = {
+  run_queued: "starting",
+  run_started: "starting",
+  worker_claimed: "starting",
+  worker_started: "starting",
+  inline_runtime_started: "starting",
+  uploaded_files_stored: "reading",
+  uploaded_files_replayed: "reading",
+  context_pack_assembled: "reading",
+  provider_run_started: "planning",
+  first_token_streamed: "finalizing",
+  tool_call: "using tools",
+  tool_result: "using tools",
+  workspace_artifacts_created: "editing",
+  app_draft_versions_created: "publishing",
+  run_completed: "done",
+  run_failed: "done",
+  run_canceled: "done",
+  worker_stopped_after_cancel: "done",
+};
+
+export function derivePhaseFromRunEvents(
+  events: readonly { eventType?: string; sequence: number }[],
+): RunPhase {
+  let phase: RunPhase = "starting";
+  let phaseSequence = -1;
+  for (const event of events) {
+    if (isTraceRunEvent(event.eventType)) continue;
+    const mapped = event.eventType ? PHASE_BY_EVENT[event.eventType] : undefined;
+    if (!mapped) continue;
+    if (event.sequence >= phaseSequence) {
+      phase = mapped;
+      phaseSequence = event.sequence;
+    }
+  }
+  return phase;
+}
+
 function categoryForRunEvent(event: {
   eventType?: string;
   label: string;
@@ -291,6 +397,9 @@ function runEventActivityLabel(event: {
   label: string;
   metadata?: unknown;
 }): string {
+  if (event.eventType === "workspace_artifacts_created") {
+    return artifactsCreatedLabel(event.metadata) ?? event.label;
+  }
   if (event.eventType !== "context_pack_assembled") return event.label;
   const receipt = contextReceiptFromMetadata(event.metadata);
   const vault = isRecord(receipt?.vault) ? receipt.vault : null;

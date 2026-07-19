@@ -83,6 +83,9 @@ interface UiMessage {
   /** Live activity label shown while pending and no text has streamed yet
    *  (e.g. "Thinking…", "Calling github_list_repos…"). */
   status?: string;
+  /** #359 live footer: deterministic phase + running token total. */
+  livePhase?: string;
+  liveTokens?: number;
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
   artifacts?: WorkspaceArtifactSummary[];
@@ -217,6 +220,7 @@ interface ThreadMessage {
   activityEvents?: AgentActivityEvent[];
   pending?: boolean;
   status?: string;
+  runPhase?: string;
   runId?: string;
   runStatus?: string;
   runError?: string | null;
@@ -240,6 +244,7 @@ function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
     tokensOut: message.tokensOut,
     pending: message.pending,
     status: message.status,
+    livePhase: message.runPhase,
     toolCalls: message.toolCalls ?? undefined,
     toolResults: message.toolResults ?? undefined,
     artifacts: message.artifacts,
@@ -1607,7 +1612,30 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     pending: true,
                     status: undefined,
                     modelId: assistantModel,
+                    livePhase: "finalizing",
                   }
+                : m,
+            ),
+          );
+        } else if (
+          ev.type === "usage" &&
+          typeof ev.tokensIn === "number" &&
+          typeof ev.tokensOut === "number"
+        ) {
+          // #359: live token totals for the run footer; the authoritative
+          // final values still arrive with `persisted`.
+          const tokensIn = ev.tokensIn;
+          const tokensOut = ev.tokensOut;
+          patchTabMessages(tabId, (prev) =>
+            prev.map((m) =>
+              isDraftMessage(m) ? { ...m, liveTokens: tokensIn + tokensOut } : m,
+            ),
+          );
+        } else if (ev.type === "metrics" && ev.stage === "provider_started") {
+          patchTabMessages(tabId, (prev) =>
+            prev.map((m) =>
+              isDraftMessage(m) && !m.livePhase
+                ? { ...m, livePhase: "planning" }
                 : m,
             ),
           );
@@ -1668,6 +1696,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                 ? {
                     ...m,
                     status,
+                    livePhase: "using tools",
                     toolCalls: persistedCall
                       ? upsertToolCall(m.toolCalls, persistedCall)
                       : m.toolCalls,
@@ -1751,6 +1780,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     id: persistedAssistantMessageId ?? m.id,
                     pending: false,
                     status: undefined,
+                    livePhase: undefined,
+                    liveTokens: undefined,
                     modelId: assistantModel,
                     artifacts,
                     appDraftVersions,
@@ -2178,6 +2209,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     tokensOut={m.tokensOut}
                     pending={m.pending}
                     status={m.status}
+                    livePhase={m.livePhase}
+                    liveTokens={m.liveTokens}
                     toolCalls={m.toolCalls}
                     toolResults={m.toolResults}
                     artifacts={m.artifacts}
