@@ -1,91 +1,31 @@
-import {
-  getRuntime,
-  type RuntimeRunMetadata,
-} from "@ai-workspace/agent-runtime";
-import {
-  auditLog,
-  chatMessages,
-  chatThreads,
-  type Database,
-  runs,
-  type Run,
-  users,
-} from "@ai-workspace/db";
+import { getRuntime } from "@ai-workspace/agent-runtime";
+import { chatThreads, type Database, runs, type Run } from "@ai-workspace/db";
 import { and, asc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
-import {
-  buildChatContextPack,
-  type ChatContextUploadedFile,
-} from "@/lib/chat-context-pack";
-import { loadUserCapabilityGraph } from "@/lib/capability-graph";
-import { buildToolAuditRows } from "@/lib/audit-tool-events";
-import type { ToolActionLevel } from "@/lib/tool-policy";
-import {
-  enqueueMemoryCapture,
-  startInProcessMemoryCaptureScheduler,
-} from "@/lib/memory-capture";
-import {
-  buildUserMcpServers,
-  loadUserMcpProviderStatus,
-  type McpWriteAuthorizationReceipt,
-} from "@/lib/oauth/mcp-servers";
-import {
-  buildArtifactContextPayload,
-  buildArtifactLookupMessage,
-} from "@/lib/artifact-context";
-import {
-  parseWorkspaceArtifactVersionTarget,
-  resolveArtifactContextTargets,
-  type WorkspaceArtifactVersionTarget,
-} from "@/lib/artifact-revisions";
-import type { AppDraftVersionSummary } from "@/lib/app-draft-versions";
-import {
-  buildAppEditContext,
-  createDraftAppVersionsForThreadArtifacts,
-} from "@/lib/apps";
-import { shouldPersistAssistantMessage } from "@/lib/assistant-persistence";
-import {
-  appendRunEventWithNextSequence,
-  appendToolCallRunEvent,
-  appendToolResultRunEvent,
-} from "@/lib/run-events";
+import type { ChatContextUploadedFile } from "@/lib/chat-context-pack";
 import {
   parseChatExecutionMode,
   type ChatExecutionMode,
 } from "@/lib/chat-execution-mode";
 import {
   chatRoutingModeFromEnv,
-  toolDiscoveryModeFromEnv,
   type ChatRuntimeRoute,
 } from "@/lib/chat-routing";
-import { serializeActivation } from "@ai-workspace/agent";
-import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
-import { persistActivationFromEvent } from "@/lib/thread-activation";
-import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
+import { parseWorkspaceArtifactVersionTarget } from "@/lib/artifact-revisions";
 import type { PinnedActiveSkill } from "@/lib/pinned-context";
-import { createToolEventAccumulator } from "@/lib/tool-events";
-import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
-import { buildTurnContext } from "@/lib/turn-context";
-import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
-import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
-import { normalizeRuntimeUsage } from "@/lib/runtime-usage";
-import {
-  createProviderTraceAccumulator,
-  persistProviderTraceCapture,
-} from "@/lib/run-trace";
-import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
-import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
-import {
-  createRecommendationsForAssistantMessage,
-  loadRecentRecommendationsForThread,
-} from "@/lib/recommendation-persistence";
+import { appendRunEventBestEffort } from "@/lib/run-events";
+import { resolveModelForPurpose } from "@/lib/model-registry";
 import { createProactiveRunNotification } from "@/lib/notifications";
+import {
+  executeChatTurn,
+  isRunCanceled,
+  numberFromEnv,
+} from "@/lib/execute-chat-turn";
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 const DEFAULT_RUNTIME_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
 
 type ChatRunWorkerStatus = "idle" | "running" | "succeeded" | "failed";
-type ChatRunTerminalStatus = "succeeded" | "failed";
 
 interface ChatRunInputs {
   prompt: string;
@@ -120,13 +60,6 @@ function claimableRunCondition() {
     eq(runs.skillSlug, "chat-turn"),
     inArray(runs.triggerType, WORKER_TRIGGER_TYPES),
   );
-}
-
-interface StoredChatRunOutput {
-  assistantText?: string;
-  assistantMessageId?: string;
-  providerRun?: RuntimeRunMetadata;
-  [key: string]: unknown;
 }
 
 interface ProcessChatRunInput {
@@ -196,7 +129,10 @@ export async function processQueuedChatRun({
   runId,
   workerId = `worker-${process.pid}`,
   signal,
-}: ProcessChatRunInput): Promise<{ status: ChatRunWorkerStatus; runId?: string }> {
+}: ProcessChatRunInput): Promise<{
+  status: ChatRunWorkerStatus;
+  runId?: string;
+}> {
   const claimed = await claimChatRun({ db, runId, workerId });
   if (!claimed) return { status: "idle" };
 
@@ -282,6 +218,13 @@ async function findNextClaimableRunId(db: Database): Promise<string | null> {
   return rows[0]?.id ?? null;
 }
 
+/**
+ * Worker-lane shell around the shared turn pipeline (#442): claims are done
+ * by the caller; this parses stored inputs, re-validates the model against
+ * the registry at turn time (#300 — queued runs no longer trust a stale
+ * `run.modelId` verbatim), and wraps `executeChatTurn` with the lane's
+ * timeout, lease heartbeat, and shutdown-signal wiring.
+ */
 async function executeClaimedChatRun({
   db,
   run,
@@ -297,10 +240,10 @@ async function executeClaimedChatRun({
   const runtimeRoute =
     parseStoredRuntimeRoute(inputs.runtimeRoute) ??
     defaultWorkerRuntimeRoute(inputs);
-  const builtinTools = builtinToolsForChatRoute(runtimeRoute);
-  const threadId = inputs.threadId;
 
-  await appendWorkerRunEvent(db, run.id, {
+  await appendRunEventBestEffort("chat-run-event-error", {
+    db,
+    runId: run.id,
     eventType: "worker_claimed",
     status: "pending",
     label: "Background worker claimed the run",
@@ -308,239 +251,16 @@ async function executeClaimedChatRun({
   });
 
   const runtime = getRuntime({ runtime: workerRuntimeName() });
-  const mcpProviderScope = resolveChatMcpProviderScope(
-    inputs.requestedProviders,
-    runtimeRoute.routingMode,
-  );
-  const [threadRows, userRows, vaultMarkdown, providerStatus] =
-    await Promise.all([
-      db
-        .select()
-        .from(chatThreads)
-        .where(eq(chatThreads.id, threadId))
-        .limit(1),
-      db
-        .select({
-          displayName: users.displayName,
-          assistantName: users.assistantName,
-          customInstructions: users.customInstructions,
-          role: users.role,
-        })
-        .from(users)
-        .where(eq(users.id, run.userId))
-        .limit(1),
-      loadApprovedVaultMarkdown(db, run.userId),
-      loadUserMcpProviderStatus(
-        db,
-        run.userId,
-        mcpProviderScope.accountStatusOptions,
-      ),
-    ]);
-
+  const threadRows = await db
+    .select()
+    .from(chatThreads)
+    .where(eq(chatThreads.id, inputs.threadId))
+    .limit(1);
   const thread = threadRows[0];
   if (!thread) throw new Error("Chat thread was not found for queued run.");
-  const user = userRows[0] ?? {
-    displayName: "User",
-    assistantName: null,
-    customInstructions: null,
-    role: "user" as const,
-  };
 
-  const history = await db
-    .select()
-    .from(chatMessages)
-    .where(eq(chatMessages.threadId, thread.id))
-    .orderBy(asc(chatMessages.createdAt));
-
-  // Match artifacts against recent RAW user messages, not the attachment-folded
-  // prompt (see chat-inline-runner for the rationale).
-  const [artifactContextPayload, appEditContextResult, recentRecommendations] =
-    await Promise.all([
-    buildArtifactContextPayload({
-      db,
-      userId: run.userId,
-      threadId: thread.id,
-      message: buildArtifactLookupMessage(history, inputs.prompt, {
-        preferFallback: WORKER_TRIGGER_TYPE_SET.has(run.triggerType),
-      }),
-    }),
-    buildAppEditContext({ db, userId: run.userId, threadId: thread.id }),
-    loadRecentRecommendationsForThread({
-      db,
-      userId: run.userId,
-      threadId: thread.id,
-    }),
-  ]);
-  const storedArtifactTarget = parseWorkspaceArtifactVersionTarget(
-    inputs.artifactContextTarget,
-  );
-  const storedSeparateFromArtifact = parseWorkspaceArtifactVersionTarget(
-    inputs.separateFromArtifact,
-  );
-  const { artifactContextTarget, separateFromArtifact } =
-    resolveArtifactContextTargets({
-      payload: artifactContextPayload,
-      storedArtifactTarget,
-      storedSeparateFromArtifact,
-    });
-  const artifactContext = artifactContextPayload?.text ?? null;
-  const appEditContext = appEditContextResult?.context ?? null;
-  const appEditSourceOmitted =
-    appEditContextResult?.contentOmittedForSize ?? false;
-  const combinedArtifactContext = [appEditContext, artifactContext]
-    .filter(Boolean)
-    .join("\n\n");
-
-  const uploadedFiles = sanitizeUploadedFiles(inputs.uploadedFiles);
-  const agentMessages = attachUploadedFilesToLatestUserMessage(
-    buildTurnContext({
-      messages: history,
-      currentMessageContent: inputs.prompt,
-      threadSummary: thread.summary,
-      recentMessageLimit: numberFromEnv("CHAT_RECENT_MESSAGE_LIMIT"),
-      maxContextChars: numberFromEnv("CHAT_CONTEXT_CHAR_LIMIT"),
-      maxMessageChars: numberFromEnv("CHAT_CONTEXT_MESSAGE_CHAR_LIMIT"),
-      onGuardrailEvent: (event) => {
-        process.stderr.write(
-          `[turn-context-guardrail] ${JSON.stringify({
-            threadId: thread.id,
-            userId: run.userId,
-            runId: run.id,
-            ...event,
-          })}\n`,
-        );
-      },
-    }),
-    uploadedFiles,
-  );
-
-  let mcpServers;
-  let requiredToolName: string | undefined;
-  let deniedMcpProviders: string[] = [];
-  let writeAuthorizationReceipts: McpWriteAuthorizationReceipt[] = [];
-  try {
-    const mcpAccess = await buildUserMcpServers(
-      db,
-      run.userId,
-      {
-        ...mcpProviderScope.mountOptions,
-        turnContext: {
-          runId: run.id,
-          threadId: thread.id,
-          prompt: inputs.prompt,
-          history,
-          interactive: run.triggerType === "chat",
-        },
-      },
-    );
-    mcpServers = mcpAccess.mcpServers;
-    requiredToolName = mcpAccess.requiredToolName;
-    deniedMcpProviders = mcpAccess.deniedProviders;
-    writeAuthorizationReceipts = mcpAccess.writeAuthorizationReceipts;
-  } catch (err) {
-    process.stderr.write(
-      `[mcp-build-error] ${JSON.stringify({
-        runId: run.id,
-        threadId: thread.id,
-        message: err instanceof Error ? err.message : String(err),
-      })}\n`,
-    );
-  }
-
-  const mountedProviders = mcpServers ? Object.keys(mcpServers) : [];
-  // #384: sticky per-thread activation, resolved BEFORE the context pack
-  // so the preamble/receipt tell the truth about what this turn mounts.
-  const toolDiscoveryMode = toolDiscoveryModeFromEnv();
-  const toolDiscovery =
-    toolDiscoveryMode !== "off" && mountedProviders.length > 0
-      ? await buildTurnToolDiscovery({
-          db,
-          thread,
-          grantedProviders: mountedProviders,
-          mode: toolDiscoveryMode,
-          userMessage: inputs.prompt,
-          skillProviders: inputs.requestedProviders,
-        })
-      : undefined;
-  const discoverableProviders = toolDiscovery?.discoverableProviders ?? [];
-  const blockedProviders = uniqueStrings([
-    ...providerStatus.deniedProviders,
-    ...deniedMcpProviders,
-  ]);
-  const capabilityGraph = await loadUserCapabilityGraph(
-    db,
-    { id: run.userId, role: user.role },
-    { mountedProviders },
-  );
-
-  if (blockedProviders.length > 0) {
-    await db.insert(auditLog).values(
-      blockedProviders.map((provider) => ({
-        actorUserId: run.userId,
-        actionType: "mcp_tool_attestation",
-        status: "denied" as const,
-        provider,
-        toolName: "*",
-        chatThreadId: thread.id,
-        runId: run.id,
-        input: { provider },
-        error: `Tool provider "${provider}" is connected but has no active user attestation.`,
-        metadata: { modelId: run.modelId, runtime: runtime.name },
-        startedAt: new Date(),
-        completedAt: new Date(),
-      })),
-    );
-  }
-
-  const contextPack = buildChatContextPack({
-    user,
-    messages: agentMessages,
-    threadSummary: thread.summary,
-    vaultMarkdown,
-    vaultContextRequested: true,
-    providerStatus,
-    mountedProviders: toolDiscovery
-      ? toolDiscovery.activatedProviders
-      : mountedProviders,
-    discoverableProviders,
-    deniedMcpProviders,
-    capabilityGraph,
-    modelId: run.modelId ?? undefined,
-    artifactContext: combinedArtifactContext,
-    uploadedFiles,
-    recommendations: recentRecommendations,
-    builtinTools,
-    forcePreamble: true,
-    route: runtimeRoute,
-    activeSkill: sanitizeActiveSkillPrompt(inputs.activeSkillPrompt),
-  });
-  const contextReceipt = contextPack.receipts[0]!;
-
-  await db
-    .update(runs)
-    .set({
-      runtime: runtime.name,
-      inputs: {
-        ...inputs,
-        mcpProviders: mountedProviders,
-        ...(requiredToolName ? { requiredToolName } : {}),
-        writeAuthorizationReceipts,
-        accountConnectedMcpProviders: providerStatus.connectedProviders,
-        approvedMcpProviders: providerStatus.allowedProviders,
-        deniedMcpProviders: blockedProviders,
-        contextReceipt,
-        ...(artifactContextTarget ? { artifactContextTarget } : {}),
-        ...(separateFromArtifact ? { separateFromArtifact } : {}),
-      },
-      updatedAt: new Date(),
-    })
-    .where(eq(runs.id, run.id));
-
-  await appendWorkerRunEvent(db, run.id, {
-    eventType: "context_pack_assembled",
-    status: "succeeded",
-    label: "Assembled context pack",
-    metadata: { contextReceipt, writeAuthorizationReceipts },
+  const modelId = await resolveModelForPurpose(db, runtimeRoute.lane, {
+    preferred: run.modelId,
   });
 
   const runtimeAbort = new AbortController();
@@ -562,514 +282,63 @@ async function executeClaimedChatRun({
   }, timeoutMs);
   timeout.unref?.();
 
-  const heartbeat = setInterval(() => {
-    void heartbeatRunLease(db, run.id).catch((err) => {
-      process.stderr.write(
-        `[chat-run-heartbeat-error] ${JSON.stringify({
-          runId: run.id,
-          message: err instanceof Error ? err.message : String(err),
-        })}\n`,
-      );
-    });
-  }, Math.max(15_000, Math.floor((numberFromEnv("CHAT_RUN_WORKER_LEASE_MS") ?? DEFAULT_LEASE_MS) / 3)));
+  const heartbeat = setInterval(
+    () => {
+      void heartbeatRunLease(db, run.id).catch((err) => {
+        process.stderr.write(
+          `[chat-run-heartbeat-error] ${JSON.stringify({
+            runId: run.id,
+            message: err instanceof Error ? err.message : String(err),
+          })}\n`,
+        );
+      });
+    },
+    Math.max(
+      15_000,
+      Math.floor(
+        (numberFromEnv("CHAT_RUN_WORKER_LEASE_MS") ?? DEFAULT_LEASE_MS) / 3,
+      ),
+    ),
+  );
   heartbeat.unref?.();
 
-  let assistantText = "";
-  let tokensIn = 0;
-  let tokensOut = 0;
-  let inputTokens = 0;
-  let cacheReadInputTokens = 0;
-  let cacheWriteInputTokens = 0;
-  let providerRunMetadata: RuntimeRunMetadata | null =
-    parseOutput(run.outputs).providerRun ?? null;
-  const runtimeErrors: string[] = [];
-  const toolEvents = createToolEventAccumulator(mountedProviders);
-  const providerTrace = createProviderTraceAccumulator();
-  const buildOutput = (extra: Record<string, unknown> = {}) => ({
-    ...parseOutput(run.outputs),
-    assistantText,
-    toolCalls: toolEvents.calls(),
-    toolResults: toolEvents.results(),
-    tokensIn,
-    tokensOut,
-    usage: {
-      tokensIn,
-      tokensOut,
-      inputTokens,
-      cacheReadInputTokens,
-      cacheWriteInputTokens,
-    },
-    modelId: run.modelId,
-    runtime: runtime.name,
-    ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
-    ...extra,
-  });
-
   try {
-    await appendWorkerRunEvent(db, run.id, {
-      eventType: "worker_started",
-      status: "pending",
-      label: "Background worker started the agent run",
-      metadata: {
-        runtime: runtime.name,
-        modelId: run.modelId,
+    await executeChatTurn({
+      db,
+      runId: run.id,
+      userId: run.userId,
+      thread,
+      prompt: inputs.prompt,
+      userMessageId: inputs.userMessageId,
+      route: runtimeRoute,
+      runtime,
+      runtimeAbort,
+      modelId,
+      requestedProviders: inputs.requestedProviders,
+      activeSkillPrompt: sanitizeActiveSkillPrompt(inputs.activeSkillPrompt),
+      uploadedFiles: sanitizeUploadedFiles(inputs.uploadedFiles),
+      suppressedSkillIds: activatedSkillIdsFromInputs(run.inputs),
+      interactive: run.triggerType === "chat",
+      lane: {
+        kind: "worker",
+        run,
+        storedInputs: inputs,
         executionMode: inputs.executionMode,
+        timeoutMs,
+        preferArtifactFallback: WORKER_TRIGGER_TYPE_SET.has(run.triggerType),
+        storedArtifactTarget: parseWorkspaceArtifactVersionTarget(
+          inputs.artifactContextTarget,
+        ),
+        storedSeparateFromArtifact: parseWorkspaceArtifactVersionTarget(
+          inputs.separateFromArtifact,
+        ),
       },
     });
-
-    try {
-      // Tracks persisted activation across same-turn activations so a
-      // second activate never unions against a stale snapshot.
-      const grantedProviders = mountedProviders;
-      let activationSignature = serializeActivation(
-        toolDiscovery?.activatedProviders ?? [],
-      );
-
-      for await (const ev of runtime.runTurn({
-        threadId: thread.id,
-        modelId: run.modelId ?? "default",
-        messages: contextPack.prompt.messages,
-        context: { userId: run.userId },
-        signal: runtimeAbort.signal,
-        firstTurnPreamble: contextPack.prompt.systemPrompt,
-        volatileSystemSuffix: contextPack.prompt.volatileSystemSuffix,
-        ...(builtinTools.length > 0 ? { builtinTools } : {}),
-        onRunStarted: async (metadata) => {
-          providerRunMetadata = metadata;
-          await db
-            .update(runs)
-            .set({
-              outputs: buildOutput({
-                lifecycle: "provider_started",
-                providerRun: metadata,
-              }),
-              updatedAt: new Date(),
-            })
-            .where(eq(runs.id, run.id));
-          await appendWorkerRunEvent(db, run.id, {
-            eventType: "provider_run_started",
-            status: "pending",
-            label: `Started ${runtime.name} run`,
-            metadata: metadata as unknown as Record<string, unknown>,
-          });
-        },
-        ...(mcpServers ? { mcpServers } : {}),
-        ...(requiredToolName ? { requiredToolName } : {}),
-        ...(toolDiscovery ? { toolDiscovery } : {}),
-      })) {
-        providerTrace.record(ev);
-        // Sticky activation persistence (#384 P2) — the shared trigger for
-        // both runtime lanes; see persistActivationFromEvent.
-        if (toolDiscovery) {
-          activationSignature = await persistActivationFromEvent({
-            db,
-            threadId: thread.id,
-            grantedProviders,
-            event: ev,
-            currentSignature: activationSignature,
-          });
-        }
-        if (await isRunCanceled(db, run.id)) {
-          runtimeAbort.abort();
-          break;
-        }
-        if (ev.type === "text-delta") {
-          assistantText += ev.delta;
-        } else if (ev.type === "usage") {
-          const usage = normalizeRuntimeUsage(ev);
-          tokensIn = usage.tokensIn;
-          tokensOut = usage.tokensOut;
-          inputTokens = usage.inputTokens;
-          cacheReadInputTokens = usage.cacheReadInputTokens;
-          cacheWriteInputTokens = usage.cacheWriteInputTokens;
-        } else if (ev.type === "tool-call") {
-          toolEvents.recordCall(ev.call);
-          const persistedCall = toolEvents
-            .calls()
-            .find((call) => call.id === ev.call.id);
-          if (persistedCall) {
-            await appendToolCallRunEvent({
-              db,
-              runId: run.id,
-              sequence: await nextRunEventSequence(db, run.id),
-              call: persistedCall,
-            });
-          }
-        } else if (ev.type === "tool-result") {
-          toolEvents.recordResult(ev.result);
-          const persistedResult = toolEvents
-            .results()
-            .find((result) => result.toolCallId === ev.result.toolCallId);
-          if (persistedResult) {
-            const persistedCall = toolEvents
-              .calls()
-              .find((call) => call.id === ev.result.toolCallId);
-            await appendToolResultRunEvent({
-              db,
-              runId: run.id,
-              sequence: await nextRunEventSequence(db, run.id),
-              call: persistedCall,
-              result: persistedResult,
-            });
-          }
-        } else if (ev.type === "error") {
-          runtimeErrors.push(ev.message);
-          process.stderr.write(
-            `[chat-run-worker-runtime-error] ${JSON.stringify({
-              runId: run.id,
-              threadId: thread.id,
-              message: ev.message,
-            })}\n`,
-          );
-        }
-      }
-    } catch (err) {
-      if (await isRunCanceled(db, run.id)) {
-        runtimeAbort.abort();
-      } else {
-        await persistProviderTraceCapture({
-          db,
-          runId: run.id,
-          capture: providerTrace.snapshot(),
-        });
-        throw err;
-      }
-    }
   } finally {
     clearInterval(heartbeat);
     clearTimeout(timeout);
     signal?.removeEventListener("abort", externalAbort);
   }
-
-  if (await isRunCanceled(db, run.id)) {
-    await persistProviderTraceCapture({
-      db,
-      runId: run.id,
-      capture: providerTrace.snapshot(),
-    });
-    await appendWorkerRunEvent(db, run.id, {
-      eventType: "worker_stopped_after_cancel",
-      status: "failed",
-      label: "Worker stopped after cancellation",
-    });
-    return;
-  }
-
-  const timeoutError = runtimeAbort.signal.aborted
-    ? `Chat runtime timed out after ${timeoutMs}ms.`
-    : null;
-  const runError =
-    timeoutError ?? (runtimeErrors.length > 0 ? runtimeErrors.join("\n") : null);
-
-  await persistProviderTraceCapture({
-    db,
-    runId: run.id,
-    capture: providerTrace.snapshot(),
-  });
-
-  await persistAssistantResult({
-    toolActions: providerStatus.toolActions,
-    db,
-    run,
-    threadId: thread.id,
-    userMessageId: inputs.userMessageId,
-    modelId: run.modelId ?? "default",
-    runtimeName: runtime.name,
-    assistantText,
-    tokensIn,
-    tokensOut,
-    inputTokens,
-    cacheReadInputTokens,
-    cacheWriteInputTokens,
-    toolCalls: toolEvents.calls(),
-    toolResults: toolEvents.results(),
-    providerRunMetadata,
-    terminalStatus: runError ? "failed" : "succeeded",
-    error: runError,
-    artifactContextTarget,
-    separateFromArtifact,
-    appEditSourceOmitted,
-  });
-}
-
-async function persistAssistantResult({
-  toolActions,
-  db,
-  run,
-  threadId,
-  userMessageId,
-  modelId,
-  runtimeName,
-  assistantText,
-  tokensIn,
-  tokensOut,
-  inputTokens,
-  cacheReadInputTokens,
-  cacheWriteInputTokens,
-  toolCalls,
-  toolResults,
-  providerRunMetadata,
-  terminalStatus,
-  error,
-  artifactContextTarget,
-  separateFromArtifact,
-  appEditSourceOmitted,
-}: {
-  toolActions?: Record<string, ToolActionLevel>;
-  db: Database;
-  run: Run;
-  threadId: string;
-  userMessageId: string;
-  modelId: string;
-  runtimeName: string;
-  assistantText: string;
-  tokensIn: number;
-  tokensOut: number;
-  inputTokens: number;
-  cacheReadInputTokens: number;
-  cacheWriteInputTokens: number;
-  toolCalls: ReturnType<ReturnType<typeof createToolEventAccumulator>["calls"]>;
-  toolResults: ReturnType<ReturnType<typeof createToolEventAccumulator>["results"]>;
-  providerRunMetadata: RuntimeRunMetadata | null;
-  terminalStatus: ChatRunTerminalStatus;
-  error: string | null;
-  artifactContextTarget?: WorkspaceArtifactVersionTarget | null;
-  separateFromArtifact?: WorkspaceArtifactVersionTarget | null;
-  appEditSourceOmitted: boolean;
-}): Promise<void> {
-  if (await isRunCanceled(db, run.id)) return;
-
-  const output = parseOutput(run.outputs);
-  let assistantMessageId = output.assistantMessageId;
-
-  const shouldPersistAssistant = shouldPersistAssistantMessage({
-    terminalStatus,
-    assistantText,
-    toolCallsCount: toolCalls.length,
-    toolResultsCount: toolResults.length,
-  });
-
-  if (!assistantMessageId && shouldPersistAssistant) {
-    const persisted = await db
-      .insert(chatMessages)
-      .values({
-        threadId,
-        role: "assistant",
-        content: assistantText,
-        modelId,
-        runtime: runtimeName,
-        tokensIn,
-        tokensOut,
-        toolCalls,
-        toolResults,
-      })
-      .returning({ id: chatMessages.id });
-    assistantMessageId = persisted[0]!.id;
-  }
-
-  if (assistantMessageId) {
-    const toolAuditRows = buildToolAuditRows({
-      actorUserId: run.userId,
-      chatThreadId: threadId,
-      chatMessageId: assistantMessageId,
-      runId: run.id,
-      modelId,
-      runtime: runtimeName,
-      calls: toolCalls,
-      results: toolResults,
-      toolActions,
-    });
-    if (toolAuditRows.length > 0) {
-      await db.insert(auditLog).values(toolAuditRows);
-    }
-  }
-
-  const artifacts =
-    terminalStatus === "succeeded" && assistantMessageId
-      ? await createArtifactsFromAssistantMessage({
-          db,
-          userId: run.userId,
-          threadId,
-          chatMessageId: assistantMessageId,
-          runId: run.id,
-          assistantText,
-          targetArtifact: artifactContextTarget,
-          separateFromArtifact,
-          turnToolCalls: toolCalls,
-          turnToolResults: toolResults,
-        }).catch((err) => {
-          process.stderr.write(
-            `[workspace-artifact-create-error] ${JSON.stringify({
-              runId: run.id,
-              threadId,
-              assistantMessageId,
-              message: err instanceof Error ? err.message : String(err),
-            })}\n`,
-          );
-          return [];
-        })
-      : [];
-  let appDraftVersions: AppDraftVersionSummary[] = [];
-  if (artifacts.length > 0) {
-    await appendWorkerRunEvent(db, run.id, {
-      eventType: "workspace_artifacts_created",
-      status: "succeeded",
-      label: `Created ${artifacts.length} workspace artifact${artifacts.length === 1 ? "" : "s"}`,
-      metadata: { artifacts },
-    });
-    try {
-      const appDrafts = await createDraftAppVersionsForThreadArtifacts({
-        db,
-        userId: run.userId,
-        threadId,
-        artifacts,
-        sourceContentOmitted: appEditSourceOmitted,
-      });
-      appDraftVersions = appDrafts.summaries;
-      if (appDrafts.created.length > 0 || appDrafts.rejected.length > 0) {
-        await appendWorkerRunEvent(db, run.id, {
-          eventType: "app_draft_versions_created",
-          status: appDrafts.rejected.length > 0 ? "failed" : "succeeded",
-          label:
-            appDrafts.created.length > 0
-              ? `Created ${appDrafts.created.length} draft app version${appDrafts.created.length === 1 ? "" : "s"}`
-              : "Rejected draft app versions",
-          metadata: {
-            draftVersions: appDraftVersions,
-            rejected: appDrafts.rejected,
-          },
-        });
-      }
-    } catch (err) {
-      process.stderr.write(
-        `[app-draft-version-create-error] ${JSON.stringify({
-          runId: run.id,
-          threadId,
-          assistantMessageId,
-          message: err instanceof Error ? err.message : String(err),
-        })}\n`,
-      );
-    }
-  }
-  const recommendations =
-    terminalStatus === "succeeded" && assistantMessageId
-      ? await createRecommendationsForAssistantMessage({
-          db,
-          userId: run.userId,
-          threadId,
-          chatMessageId: assistantMessageId,
-          runId: run.id,
-          userMessageId,
-          artifacts,
-          suppressedSkillIds: activatedSkillIdsFromInputs(run.inputs),
-        }).catch((err) => {
-          process.stderr.write(
-            `[recommendation-create-error] ${JSON.stringify({
-              runId: run.id,
-              threadId,
-              assistantMessageId,
-              message: err instanceof Error ? err.message : String(err),
-            })}\n`,
-          );
-          return [];
-        })
-      : [];
-
-  if (await isRunCanceled(db, run.id)) return;
-
-  const completedAt = new Date();
-  await refreshThreadPresentationMetadata({
-    db,
-    threadId,
-    now: completedAt,
-  });
-
-  const updatedRows = await db
-    .update(runs)
-    .set({
-      status: terminalStatus,
-      error,
-      outputs: {
-        ...output,
-        assistantText,
-        ...(assistantMessageId ? { assistantMessageId } : {}),
-        userMessageId,
-        toolCalls,
-        toolResults,
-        tokensIn,
-        tokensOut,
-        usage: {
-          tokensIn,
-          tokensOut,
-          inputTokens,
-          cacheReadInputTokens,
-          cacheWriteInputTokens,
-        },
-        modelId,
-        runtime: runtimeName,
-        ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
-        ...(artifacts.length > 0 ? { artifacts } : {}),
-        ...(appDraftVersions.length > 0 ? { appDraftVersions } : {}),
-        ...(recommendations.length > 0 ? { recommendations } : {}),
-      },
-      workerId: null,
-      leaseExpiresAt: null,
-      lastHeartbeatAt: completedAt,
-      completedAt,
-      updatedAt: completedAt,
-    })
-    .where(and(eq(runs.id, run.id), ne(runs.status, "canceled")))
-    .returning({ id: runs.id });
-
-  if (updatedRows.length === 0) return;
-
-  await createProactiveRunNotification(db, run, terminalStatus, threadId);
-
-  if (terminalStatus === "succeeded" && assistantMessageId) {
-    try {
-      await enqueueMemoryCapture(db, {
-        userId: run.userId,
-        threadId,
-        fromMessageId: userMessageId,
-        toMessageId: assistantMessageId,
-        runId: run.id,
-        reason: "chat_turn",
-      });
-      startInProcessMemoryCaptureScheduler({ db });
-    } catch (err) {
-      process.stderr.write(
-        `[memory-capture-enqueue-error] ${JSON.stringify({
-          runId: run.id,
-          threadId,
-          message: err instanceof Error ? err.message : String(err),
-        })}\n`,
-      );
-    }
-  }
-
-  await appendWorkerRunEvent(db, run.id, {
-    eventType: terminalStatus === "succeeded" ? "run_completed" : "run_failed",
-    status: terminalStatus,
-    label:
-      terminalStatus === "succeeded"
-        ? "Stored assistant answer"
-        : "Run ended with errors",
-    ...(error ? { error } : {}),
-    metadata: {
-      ...(assistantMessageId ? { assistantMessageId } : {}),
-      userMessageId,
-      usage: {
-        tokensIn,
-        tokensOut,
-        inputTokens,
-        cacheReadInputTokens,
-        cacheWriteInputTokens,
-      },
-      ...(artifacts.length > 0 ? { artifacts } : {}),
-      ...(appDraftVersions.length > 0 ? { appDraftVersions } : {}),
-      ...(recommendations.length > 0 ? { recommendations } : {}),
-    },
-  });
 }
 
 async function markRunFailed(
@@ -1098,7 +367,9 @@ async function markRunFailed(
 
   await createProactiveRunNotification(db, { ...run, error: message }, "failed");
 
-  await appendWorkerRunEvent(db, run.id, {
+  await appendRunEventBestEffort("chat-run-event-error", {
+    db,
+    runId: run.id,
     eventType: "run_failed",
     status: "failed",
     label: "Background worker failed the run",
@@ -1117,46 +388,6 @@ async function heartbeatRunLease(db: Database, runId: string): Promise<void> {
       updatedAt: now,
     })
     .where(and(eq(runs.id, runId), ne(runs.status, "canceled")));
-}
-
-async function isRunCanceled(db: Database, runId: string): Promise<boolean> {
-  const rows = await db
-    .select({ status: runs.status })
-    .from(runs)
-    .where(eq(runs.id, runId))
-    .limit(1);
-  return rows[0]?.status === "canceled";
-}
-
-async function appendWorkerRunEvent(
-  db: Database,
-  runId: string,
-  input: Omit<
-    Parameters<typeof appendRunEventWithNextSequence>[0],
-    "db" | "runId"
-  >,
-): Promise<void> {
-  try {
-    await appendRunEventWithNextSequence({ db, runId, ...input });
-  } catch (err) {
-    process.stderr.write(
-      `[chat-run-event-error] ${JSON.stringify({
-        runId: runId,
-        eventType: input.eventType,
-        message: err instanceof Error ? err.message : String(err),
-      })}\n`,
-    );
-  }
-}
-
-async function nextRunEventSequence(
-  db: Database,
-  runId: string,
-): Promise<number> {
-  const rows = await db.execute<{ sequence: number }>(
-    sql`select coalesce(max(sequence), 0)::int + 1 as sequence from run_events where run_id = ${runId}`,
-  );
-  return rows[0]?.sequence ?? 1;
 }
 
 function parseChatRunInputs(value: unknown): ChatRunInputs {
@@ -1207,7 +438,9 @@ function parseStoredRuntimeRoute(value: unknown): ChatRuntimeRoute | undefined {
     useMcp: value.useMcp === true,
     includeVaultContext: value.includeVaultContext === true,
     reasons: Array.isArray(value.reasons)
-      ? value.reasons.filter((reason): reason is string => typeof reason === "string")
+      ? value.reasons.filter(
+          (reason): reason is string => typeof reason === "string",
+        )
       : ["stored_runtime_route"],
   };
 }
@@ -1228,14 +461,7 @@ function defaultWorkerRuntimeRoute(inputs: ChatRunInputs): ChatRuntimeRoute {
   };
 }
 
-function parseOutput(value: unknown): StoredChatRunOutput {
-  if (!isRecord(value)) return {};
-  return value as StoredChatRunOutput;
-}
-
-function sanitizeActiveSkillPrompt(
-  value: unknown,
-): PinnedActiveSkill | null {
+function sanitizeActiveSkillPrompt(value: unknown): PinnedActiveSkill | null {
   if (typeof value !== "object" || value === null) return null;
   const v = value as Record<string, unknown>;
   if (
@@ -1249,9 +475,7 @@ function sanitizeActiveSkillPrompt(
   return { id: v.id, slug: v.slug, name: v.name, systemPrompt: v.systemPrompt };
 }
 
-function sanitizeUploadedFiles(
-  value: unknown,
-): ChatContextUploadedFile[] {
+function sanitizeUploadedFiles(value: unknown): ChatContextUploadedFile[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((file) => {
     if (!isRecord(file) || typeof file.name !== "string") return [];
@@ -1293,19 +517,8 @@ function workerRuntimeName(): "agentcore" | "bedrock" {
   return "bedrock";
 }
 
-function numberFromEnv(name: string): number | undefined {
-  const raw = process.env[name];
-  if (!raw) return undefined;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function uniqueStrings(values: readonly string[]): string[] {
-  return Array.from(new Set(values));
 }
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
