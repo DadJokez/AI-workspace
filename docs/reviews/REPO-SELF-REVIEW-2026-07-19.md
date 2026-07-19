@@ -1,5 +1,7 @@
 # Repo Self-Review — 2026-07-19
 
+> **Erratum (2026-07-19, same day).** The "Anything else" note below claiming **"No ADR directory"** is **wrong**: `docs/adr/` already existed with ADRs 0001–0006 and an index README. The claim appeared in the unverified "anything else" prose — the lower-confidence tier this review explicitly flags — and was not adversarially checked. It has been corrected by *extending* the existing practice (ADRs 0007–0012 added under [#453](https://github.com/DadJokez/AI-workspace/issues/453)), not by creating a directory. Noting it here because a review that hides its own misses is worth less than one that owns them.
+
 **Method.** 14 dimension reviewers + 2 vibe-tell hunters + a git historian read the repo in parallel (1,339 file/command inspections); every critical/high finding then faced a 3-vote adversarial refutation panel instructed to kill anything whose evidence didn't check out on a fresh read. 13 of 14 survived; 1 was refuted and is excluded from all verdicts (it appears in the appendix with its refutation, per the no-manufactured-severity rule). Six survivors had severity moderated down by the panel for stage. Three findings exceeded the verification cap and are marked *unverified* wherever cited. Read-only: no source was modified.
 
 ---
@@ -111,7 +113,7 @@ Then, in order: scoping integration tests against a real Postgres (kills Top-10 
 ## Anything else worth mentioning
 
 - **Bus factor is 1 human + 1 harness.** Rob owns merges/migrations/infra; the AI session owns everything else. The receipts/audit machinery partially compensates (decisions are reconstructable), but there is no second human who has read this code. The docs corpus is unusually large and mostly honest — but the two authority docs drifting (Top-10 #10) is exactly the failure mode of doc-heavy solo repos.
-- **No ADR directory.** Decision rationale lives in PR bodies, issue threads, and memory files — recoverable but not curated. The five `docs/specs/*` research documents are excellent and clearly marked as research; promoting accepted ones to ADRs would be cheap.
+- **No ADR directory.** ~~Decision rationale lives in PR bodies, issue threads, and memory files — recoverable but not curated.~~ **[Corrected — see erratum at top: `docs/adr/` existed with 0001–0006; the gap was under-coverage, not absence. Extended to 0012.]** The five `docs/specs/*` research documents are excellent and clearly marked as research; promoting accepted ones to ADRs would be cheap.
 - **Operational readiness is the biggest gap between ambition and state**: backups unverified in-repo, no restore drill evidence, no staging environment, alerting absent (Top-10 #8). For an enterprise-IT-review ambition, this rung matters more than any code finding above medium.
 - **What the process reveals:** the repo *is* its own best argument — the gate caught real bugs all week (documented in PR threads), the eval/benchmark culture measured a default flip instead of vibing it, and this review itself (adversarial refutation killing one of its own findings) is the discipline working. The tells that remain are the residue of speed, and they are all extractable.
 
