@@ -11,6 +11,7 @@ import {
   isSkillProviderAccessReady,
 } from "@/lib/skills";
 import { canonicalizeStarterSkill } from "@/lib/starter-skills";
+import { isReservedSkillSlug } from "@/lib/skill-naming";
 
 export interface ActivatedSkillRequest {
   id?: string;
@@ -90,6 +91,20 @@ export async function resolveActivatedSkillForChat({
       status: 404,
       error: "skill_not_found",
       message: "That skill is not available in your workspace.",
+    };
+  }
+
+  // #412 reservation re-check at load time: a reserved-prefixed slug may
+  // only ever resolve to a starter row. Rows predating the create-time
+  // gate (or seed drift) refuse activation rather than run under a name
+  // that implies platform authority.
+  if (!skill.isStarter && isReservedSkillSlug(skill.slug)) {
+    return {
+      ok: false,
+      status: 409,
+      error: "skill_reserved_slug",
+      message:
+        "This skill uses a reserved name and can't be activated. Rename it first.",
     };
   }
 

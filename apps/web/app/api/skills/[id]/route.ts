@@ -5,6 +5,7 @@ import type { SessionUser } from "@ai-workspace/auth";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { enabledModelsForPurpose } from "@/lib/model-registry";
 import { auditSkillMutation, parseSkillInput } from "@/lib/skills";
+import { evaluateSkillNamingGate } from "@/lib/skills-naming-gate";
 import { canActorAccessSkill } from "@/lib/shares";
 import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
@@ -88,6 +89,21 @@ export async function PATCH(req: Request, context: RouteContext) {
     return NextResponse.json(
       { error: "invalid_skill", field: parsed.error.field, message: parsed.error.message },
       { status: 400 },
+    );
+  }
+
+  // #412: renames get the same impersonation gate as creation; the skill's
+  // own slug is exempt so saving without a rename never conflicts.
+  const naming = await evaluateSkillNamingGate(db, {
+    name: parsed.input.name,
+    description: parsed.input.description,
+    actor: sessionUser,
+    selfSlug: skill.slug,
+  });
+  if (naming) {
+    return NextResponse.json(
+      { error: naming.error, field: naming.field, message: naming.message },
+      { status: naming.status },
     );
   }
 
