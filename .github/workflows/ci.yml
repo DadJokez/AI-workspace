@@ -28,6 +28,17 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      # Standard Next.js CI cache: a warm .next/cache cuts `next build` from
+      # ~90s to ~20s locally. Source-hash miss falls back to the lockfile
+      # restore-key, which still restores a mostly-warm compiler cache.
+      - name: Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: apps/web/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/**/*.ts', 'apps/web/**/*.tsx', 'packages/**/*.ts', '!**/node_modules/**', '!apps/web/.next/**') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+
       - name: Install
         run: pnpm install --frozen-lockfile
 
@@ -111,3 +122,42 @@ jobs:
         env:
           INTEGRATION_DATABASE_URL: postgres://postgres:ci@localhost:5432/scoping
         run: pnpm --filter @ai-workspace/web test:integration
+
+  # Non-blocking (not in the required-check set; promoting it is Rob's call —
+  # branch protection is human-owned). Today infra errors surface for the
+  # first time during the production deploy; this synths both stacks on every
+  # PR instead. No continue-on-error: when it breaks, it should fail loudly.
+  infra-synth:
+    name: infra synth
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.12.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # CDK_DEFAULT_ACCOUNT must match the account baked into the committed
+      # cdk.context.json lookup-cache keys (Vpc/HostedZone.fromLookup); a
+      # dummy account misses the cache and forces a live AWS call, which CI
+      # has no credentials for. The account id is already committed in
+      # cdk.json and cdk.context.json — it is not a secret. --no-lookups
+      # turns any future uncached lookup into a crisp "missing context"
+      # failure instead of a credentials error.
+      - name: CDK synth (offline, cached context)
+        env:
+          CDK_DEFAULT_ACCOUNT: "351478076796"
+          CDK_DEFAULT_REGION: us-east-1
+          AWS_EC2_METADATA_DISABLED: "true"
+        run: pnpm --filter @ai-workspace/infra exec cdk synth --quiet --no-lookups
