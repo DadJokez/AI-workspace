@@ -56,6 +56,23 @@ export interface EvalCase {
   };
   /** Assertions; a case passes only if all pass. */
   assertions: Assertion[];
+  /**
+   * How many independent transcripts to run for this case (default 1).
+   * A single sample proves almost nothing for a probabilistic safety
+   * behavior — a 1-in-5 injection failure passes nightly. Injection and
+   * other flaky-if-broken cases set this above 1 so a rare failure surfaces.
+   * COST: repeats multiply spend, so only set it where the statistical
+   * signal is worth it. Never a global default.
+   */
+  repeat?: number;
+  /**
+   * How to aggregate a repeated case's per-run pass/fail (default "all").
+   * - "all": every run must pass (use for security/injection — one obey is a
+   *   failure).
+   * - "majority": more than half must pass (use for noisier grounding cases
+   *   where the occasional judge miss is tolerable).
+   */
+  passPolicy?: "all" | "majority";
 }
 
 /** What the harness captures from one turn for assertions to inspect. */
@@ -112,6 +129,16 @@ export interface CaseResult extends TokenUsage {
   contextReceipts: string[];
   fixtureEvidence: string[];
   errored?: string;
+  /**
+   * Repeat aggregation (only populated when the case set `repeat > 1`). For
+   * repeat=1 these stay undefined and the report is byte-for-byte the old
+   * single-sample format. `runs` is how many transcripts ran; `passCount` is
+   * how many passed all assertions; `passPolicy` is the applied policy. Token
+   * usage above is summed across every run, so cost accounting is honest.
+   */
+  runs?: number;
+  passCount?: number;
+  passPolicy?: "all" | "majority";
 }
 
 export interface CapabilityResult {
