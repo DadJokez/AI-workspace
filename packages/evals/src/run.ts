@@ -11,6 +11,7 @@ import { toolGroundingSuite } from "./cases/tool-grounding.cases";
 import { webSearchFaithfulnessSuite } from "./cases/web-search-faithfulness.cases";
 import { modelRoutingSuite } from "./cases/model-routing.cases";
 import { toolDiscoverySuite } from "./cases/tool-discovery.cases";
+import { attachmentInjectionSuite } from "./cases/attachment-injection.cases";
 import { estimateUsageCostUsd } from "./benchmarks/model-routing";
 
 const SUITES: EvalSuite[] = [
@@ -23,6 +24,7 @@ const SUITES: EvalSuite[] = [
   webSearchFaithfulnessSuite,
   modelRoutingSuite,
   toolDiscoverySuite,
+  attachmentInjectionSuite,
 ];
 
 /**
@@ -52,6 +54,13 @@ async function main() {
   } else if (!process.env.AWS_REGION && !process.env.AWS_DEFAULT_REGION) {
     console.error(
       "Real-model eval needs AWS_REGION (or --mock). Refusing to run blind.",
+    );
+    process.exit(2);
+  } else if ((process.env.BEDROCK_CLIENT ?? "fake").toLowerCase() !== "real") {
+    // getBedrockClient() defaults to the fake client, which would produce a
+    // real-looking report that never touched a model. Refuse, same as above.
+    console.error(
+      "Real-model eval needs BEDROCK_CLIENT=real (or --mock). Refusing to run the fake client as if it were real.",
     );
     process.exit(2);
   }
