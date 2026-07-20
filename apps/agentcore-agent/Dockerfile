@@ -6,7 +6,7 @@
 #     -f apps/agentcore-agent/Dockerfile \
 #     -t <account>.dkr.ecr.<region>.amazonaws.com/ai-workspace-agentcore-agent:latest \
 #     --push .
-ARG NODE_VERSION=20-bookworm-slim
+ARG NODE_VERSION=24-bookworm-slim
 FROM public.ecr.aws/docker/library/node:${NODE_VERSION}
 
 RUN corepack enable

@@ -43,6 +43,29 @@ jobs:
       - name: Build
         run: pnpm build
 
+  # #459: fail the pipeline when a high/critical advisory lands in the
+  # production dependency graph (xlsx's CVEs reached prod because nothing
+  # looked). Moderate/low findings report but do not block.
+  dependency-audit:
+    name: dependency CVE audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.12.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high
+
   scoping-integration:
     name: scoping integration (real Postgres)
     runs-on: ubuntu-latest
