@@ -81,36 +81,6 @@ export function googleMcpRelayToken(): string {
     .digest("hex");
 }
 
-export function createGoogleTurnContextHeader({
-  userId,
-  threadId,
-  runId,
-  prompt,
-  history,
-  interactive,
-  now = new Date(),
-}: {
-  userId: string;
-  threadId: string;
-  runId: string;
-  prompt: string;
-  history: readonly GoogleHistoryMessage[];
-  interactive: boolean;
-  now?: Date;
-}): string {
-  return signGoogleTurnContext(
-    buildGoogleTurnContext({
-      userId,
-      threadId,
-      runId,
-      prompt,
-      history,
-      interactive,
-      now,
-    }),
-  );
-}
-
 export function buildGoogleTurnContext({
   userId,
   threadId,

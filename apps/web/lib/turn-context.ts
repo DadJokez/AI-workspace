@@ -17,7 +17,6 @@ interface BuildTurnContextInput {
    * content such as folded file attachments.
    */
   currentMessageContent?: string;
-  threadSummary?: string | null;
   recentMessageLimit?: number;
   maxContextChars?: number;
   maxMessageChars?: number;
@@ -27,7 +26,6 @@ interface BuildTurnContextInput {
 export interface TurnContextGuardrailEvent {
   type:
     | "message_truncated"
-    | "summary_truncated"
     | "history_dropped"
     | "context_budget_exceeded";
   originalChars?: number;
@@ -48,7 +46,6 @@ export interface TurnContextGuardrailEvent {
 export function buildTurnContext({
   messages,
   currentMessageContent,
-  threadSummary,
   recentMessageLimit = DEFAULT_RECENT_MESSAGE_LIMIT,
   maxContextChars = DEFAULT_CONTEXT_CHAR_LIMIT,
   maxMessageChars = DEFAULT_MESSAGE_CHAR_LIMIT,
@@ -106,39 +103,6 @@ export function buildTurnContext({
     retainedChars += chars;
   }
 
-  const summary = threadSummary?.trim();
-  let summaryMessage: AgentMessage | null = null;
-  if (summary) {
-    summaryMessage = {
-      role: "user",
-      content: [
-        "Conversation summary from earlier turns:",
-        truncateForContext(summary, messageBudget, {
-          marker: "[Summary truncated for prompt budget]",
-          eventType: "summary_truncated",
-          onGuardrailEvent,
-          maxContextChars: contextBudget,
-          maxMessageChars: messageBudget,
-          recentMessageLimit: limit,
-        }),
-        "Use this as background context. Recent raw messages follow.",
-      ].join("\n\n"),
-    };
-    const chars = messageChars(summaryMessage);
-    if (contextBudget === 0 || retainedChars + chars <= contextBudget) {
-      retainedChars += chars;
-    } else {
-      summaryMessage = null;
-      onGuardrailEvent?.({
-        type: "history_dropped",
-        droppedMessages: 1,
-        maxContextChars: contextBudget,
-        maxMessageChars: messageBudget,
-        recentMessageLimit: limit,
-      });
-    }
-  }
-
   if (droppedMessages > 0) {
     onGuardrailEvent?.({
       type: "history_dropped",
@@ -152,7 +116,6 @@ export function buildTurnContext({
   const modelProvenanceMessage = buildModelProvenanceMessage(recent);
 
   return coalesceAdjacentMessages([
-    ...(summaryMessage ? [summaryMessage] : []),
     ...(modelProvenanceMessage ? [modelProvenanceMessage] : []),
     ...retainedHistory,
     currentMessage,
@@ -211,7 +174,7 @@ function truncateForContext(
   maxChars: number,
   opts: {
     marker: string;
-    eventType: "message_truncated" | "summary_truncated";
+    eventType: "message_truncated";
     onGuardrailEvent?: (event: TurnContextGuardrailEvent) => void;
     maxContextChars: number;
     maxMessageChars: number;

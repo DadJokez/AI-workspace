@@ -48,8 +48,6 @@ export async function GET(req: Request) {
       id: chatThreads.id,
       title: chatThreads.title,
       defaultModelId: chatThreads.defaultModelId,
-      summary: chatThreads.summary,
-      summaryUpdatedAt: chatThreads.summaryUpdatedAt,
       previewSummary: chatThreads.previewSummary,
       previewSummaryUpdatedAt: chatThreads.previewSummaryUpdatedAt,
       titleSource: chatThreads.titleSource,

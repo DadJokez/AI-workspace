@@ -16,9 +16,7 @@ import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
 import {
   applyActivatedSkillRoute,
   buildChatRouteReceipt,
-  chatRoutingModeFromEnv,
   decideChatRuntimeRoute,
-  runtimeV2EnabledFromEnv,
 } from "@/lib/chat-routing";
 import { loadUserCapabilityGraph } from "@/lib/capability-graph";
 import {
@@ -187,8 +185,6 @@ export async function POST(req: Request) {
   const modelOverride =
     modelCommand?.override.mode === "model" || body.modelOverride === true;
   const executionMode = parseChatExecutionMode(body.executionMode);
-  const runtimeV2 = runtimeV2EnabledFromEnv();
-  const routingMode = chatRoutingModeFromEnv();
 
   const db = getDb();
   const rate = await checkRateLimit(db, `chat:${sessionUser.id}`, limits);
@@ -416,10 +412,7 @@ export async function POST(req: Request) {
   let runtimeRoute = decideChatRuntimeRoute({
     message: effectiveUserMessage,
     executionMode,
-    runtimeV2,
-    routingMode,
     priorUserMessages,
-    contextSignals,
     capabilityGraph: routingCapabilityGraph,
   });
   if (activatedSkill) {
@@ -482,8 +475,6 @@ export async function POST(req: Request) {
       await tx
         .update(chatThreads)
         .set({
-          summary: null,
-          summaryUpdatedAt: null,
           previewSummary: null,
           previewSummaryUpdatedAt: null,
         })
@@ -510,8 +501,6 @@ export async function POST(req: Request) {
     editedUserMessageId = editResult.targetId;
     thread = {
       ...thread,
-      summary: null,
-      summaryUpdatedAt: null,
       previewSummary: null,
       previewSummaryUpdatedAt: null,
     };
@@ -604,8 +593,6 @@ export async function POST(req: Request) {
         userMessageId: userMsg[0]!.id,
         requestedByUserId: sessionUser.id,
         executionMode: runtimeRoute.executionMode,
-        runtimeV2,
-        routingMode,
         modelOverride,
         ...(modelCommand ? { modelCommand } : {}),
         runtimeRoute,
@@ -656,8 +643,6 @@ export async function POST(req: Request) {
         modelId,
         userMessageId: userMsg[0]!.id,
         executionMode: runtimeRoute.executionMode,
-        runtimeV2,
-        routingMode,
         modelOverride,
         runtimeRoute,
         routeReceipt,
@@ -738,8 +723,6 @@ export async function POST(req: Request) {
         modelId,
         modelOverride,
         executionMode: runtimeRoute.executionMode,
-        runtimeV2,
-        routingMode,
         runtimeRoute,
         routeReceipt,
         ...(replaceMessageId ? { replaceMessageId } : {}),

@@ -109,52 +109,13 @@ describe("buildTurnContext", () => {
     ]);
   });
 
-  it("coalesces summary context with adjacent user history", () => {
+  it("sends only the current message when recent limit is zero", () => {
     const context = buildTurnContext({
-      threadSummary: "Earlier context.",
-      messages: [msg("user", "old"), msg("assistant", ""), msg("user", "current")],
-    });
-
-    expect(context).toEqual([
-      {
-        role: "user",
-        content: expect.stringContaining(
-          "Conversation summary from earlier turns:",
-        ),
-      },
-    ]);
-    expect(context[0]?.content).toContain("Earlier context.");
-    expect(context[0]?.content).toContain("old");
-    expect(context[0]?.content).toContain("current");
-  });
-
-  it("prepends a non-empty thread summary as background context", () => {
-    const context = buildTurnContext({
-      threadSummary: "The user is planning a deploy workflow.",
-      messages: [msg("assistant", "prior"), msg("user", "current")],
-      recentMessageLimit: 1,
-    });
-
-    expect(context[0]?.role).toBe("user");
-    expect(context[0]?.content).toContain("Conversation summary");
-    expect(context[0]?.content).toContain("deploy workflow");
-    expect(context.slice(1)).toEqual([
-      { role: "assistant", content: "prior" },
-      { role: "user", content: "current" },
-    ]);
-  });
-
-  it("can send only merged summary plus current message when recent limit is zero", () => {
-    const context = buildTurnContext({
-      threadSummary: "Earlier context.",
       messages: [msg("user", "old"), msg("user", "current")],
       recentMessageLimit: 0,
     });
 
-    expect(context).toHaveLength(1);
-    expect(context[0]?.role).toBe("user");
-    expect(context[0]?.content).toContain("Earlier context.");
-    expect(context[0]?.content).toContain("current");
+    expect(context).toEqual([{ role: "user", content: "current" }]);
   });
 
   it("drops oldest recent messages when the context budget is reached", () => {

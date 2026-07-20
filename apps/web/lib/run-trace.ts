@@ -6,7 +6,6 @@ import { appendRunEventWithNextSequence } from "@/lib/run-events";
 import { redactTracePayload } from "@/lib/tool-redaction";
 
 export const RUN_TRACE_SCHEMA = "run-trace.v2" as const;
-export const RUN_TRACE_SCHEMA_V1 = "run-trace.v1" as const;
 export const RUN_TRACE_REDACTION_POLICY = "trace-redaction.v1" as const;
 const MAX_PERSISTED_CONTEXT_BYTES = 750_000;
 const MAX_REASONING_BLOCKS = 64;
