@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_VERSION=20-alpine
+# Runtime Node must track a supported LTS (#459). The CodeBuild *host* still
+# runs Node 20 (buildspec.yml) because its console-owned image lacks 24 — that
+# host only drives docker/cdk and is tracked in #467.
+ARG NODE_VERSION=24-alpine
 
 FROM public.ecr.aws/docker/library/node:${NODE_VERSION} AS base
 RUN corepack enable
