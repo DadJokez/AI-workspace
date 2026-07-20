@@ -499,3 +499,38 @@ test.describe("authenticated product smoke", () => {
     await expect(row.getByRole("button", { name: "Resend" })).toBeDisabled();
   });
 });
+
+test.describe("magic-link sign-in request (logged out)", () => {
+  // No session cookie installed: these drive the real request-phase pipeline
+  // (csrf → signin/email → invite gate → adapter token write). SES stays
+  // disabled in this environment, so the allowed path no-ops the actual send
+  // (the link is logged server-side) — no email ever leaves the suite.
+
+  test("existing tester email gets the neutral link-sent state", async ({
+    page,
+  }) => {
+    await page.goto("/login");
+    await page.getByLabel("Email address").fill(authSmokeUser.email);
+    await page
+      .getByRole("button", { name: "Email me a sign-in link" })
+      .click();
+    await expect(
+      page.getByText(/if that address is invited, a sign-in link is on its way/i),
+    ).toBeVisible();
+  });
+
+  test("stranger email gets the SAME neutral state — no account-existence oracle", async ({
+    page,
+  }) => {
+    await page.goto("/login");
+    await page
+      .getByLabel("Email address")
+      .fill("definitely-not-invited-e2e@example.com");
+    await page
+      .getByRole("button", { name: "Email me a sign-in link" })
+      .click();
+    await expect(
+      page.getByText(/if that address is invited, a sign-in link is on its way/i),
+    ).toBeVisible();
+  });
+});

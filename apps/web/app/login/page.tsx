@@ -2,7 +2,8 @@ import { redirect } from "next/navigation";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ThinkingOrb } from "@/components/ThinkingOrb";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
-import { LoginButton } from "./LoginButton";
+import { enabledAuthProviders } from "@/lib/auth/nextauth";
+import { LoginForm } from "./LoginForm";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,10 @@ export default async function LoginPage({ searchParams }: Props) {
           </p>
         </div>
 
-        <LoginButton callbackUrl={sanitizeCallbackUrl(callbackUrl) ?? "/chat"} />
+        <LoginForm
+          callbackUrl={sanitizeCallbackUrl(callbackUrl) ?? "/chat"}
+          providers={enabledAuthProviders()}
+        />
 
         {error ? <ErrorMessage code={error} /> : null}
 
@@ -59,9 +63,17 @@ function ErrorMessage({ code }: { code: string }) {
       ? "This account isn't authorized. Ask an admin to invite your email."
       : code === "OAuthSignin" || code === "OAuthCallback"
         ? "Couldn't reach GitHub. Try again in a moment."
-        : code === "Configuration"
-          ? "Sign-in is misconfigured. Contact an admin."
-          : `Sign-in failed (${code}).`;
+        : code === "Verification"
+          ? "That sign-in link is invalid or has expired. Request a new one."
+          : code === "EmailSignin"
+            ? "Couldn't send the sign-in link. Try again in a moment."
+            : code === "RateLimited"
+              ? "Too many sign-in links requested. Wait a few minutes and try again."
+              : code === "OAuthAccountNotLinked"
+                ? "That sign-in method is linked to a different account."
+                : code === "Configuration"
+                  ? "Sign-in is misconfigured. Contact an admin."
+                  : `Sign-in failed (${code}).`;
   return (
     <div className="mt-4 rounded-md border border-hairline bg-canvas px-3 py-2 text-[12px] text-ink">
       {message}

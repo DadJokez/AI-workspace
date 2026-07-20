@@ -1,4 +1,11 @@
-import { createHash, createHmac } from "node:crypto";
+import { SesEmailError, escapeHtml, sendSesEmail, sesEnvConfig } from "@/lib/aws-ses";
+
+/**
+ * Invitation email sending. The SigV4/SES core lives in `lib/aws-ses.ts`
+ * (shared with magic-link sign-in mail); this module owns the invitation
+ * rendering and the `InvitationEmailError` contract that
+ * `lib/admin-invitations.ts` records per-invite delivery status against.
+ */
 
 export interface SendInvitationEmailInput {
   to: string;
@@ -25,54 +32,46 @@ export class InvitationEmailError extends Error {
   }
 }
 
-interface AwsCredentials {
-  accessKeyId: string;
-  secretAccessKey: string;
-  sessionToken?: string;
-}
-
 export async function sendInvitationEmail(
   input: SendInvitationEmailInput,
 ): Promise<SendInvitationEmailResult> {
-  const provider = (process.env.INVITE_EMAIL_PROVIDER ?? "disabled")
-    .trim()
-    .toLowerCase();
-  if (provider !== "ses") {
+  const config = sesEnvConfig();
+  if (config.provider !== "ses") {
     throw new InvitationEmailError(
       "email_provider_disabled",
       "Invitation email sending is not configured.",
     );
   }
-
-  const from = process.env.INVITE_EMAIL_FROM?.trim();
-  if (!from) {
+  if (!config.from) {
     throw new InvitationEmailError(
       "email_sender_missing",
       "Invitation email sender is not configured.",
     );
   }
-
-  const region =
-    process.env.INVITE_EMAIL_AWS_REGION ??
-    process.env.AWS_REGION ??
-    process.env.AWS_DEFAULT_REGION;
-  if (!region) {
+  if (!config.region) {
     throw new InvitationEmailError(
       "email_region_missing",
       "AWS region for invitation email sending is not configured.",
     );
   }
 
-  const credentials = await resolveAwsCredentials();
-  return sendSesEmail({
-    region,
-    credentials,
-    from,
-    to: input.to,
-    subject: "You have been invited to Comparative",
-    text: renderInvitationText(input),
-    html: renderInvitationHtml(input),
-  });
+  try {
+    return await sendSesEmail({
+      region: config.region,
+      from: config.from,
+      to: input.to,
+      subject: "You have been invited to Comparative",
+      text: renderInvitationText(input),
+      html: renderInvitationHtml(input),
+    });
+  } catch (err) {
+    // Preserve the pre-refactor contract: everything thrown from this module
+    // is an InvitationEmailError with the same codes callers already track.
+    if (err instanceof SesEmailError) {
+      throw new InvitationEmailError(err.code, err.message, err.status);
+    }
+    throw err;
+  }
 }
 
 export function renderInvitationText(input: SendInvitationEmailInput): string {
@@ -127,216 +126,4 @@ export function renderInvitationHtml(input: SendInvitationEmailInput): string {
     </table>
   </body>
 </html>`;
-}
-
-async function resolveAwsCredentials(): Promise<AwsCredentials> {
-  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-  if (accessKeyId && secretAccessKey) {
-    return {
-      accessKeyId,
-      secretAccessKey,
-      sessionToken: process.env.AWS_SESSION_TOKEN,
-    };
-  }
-
-  const metadataUrl = process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI
-    ? process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI
-    : process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI
-      ? `http://169.254.170.2${process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI}`
-      : null;
-  if (!metadataUrl) {
-    throw new InvitationEmailError(
-      "aws_credentials_missing",
-      "AWS credentials for invitation email sending are not available.",
-    );
-  }
-
-  const headers: Record<string, string> = {};
-  if (process.env.AWS_CONTAINER_AUTHORIZATION_TOKEN) {
-    headers.authorization = process.env.AWS_CONTAINER_AUTHORIZATION_TOKEN;
-  }
-  const res = await fetch(metadataUrl, { headers });
-  if (!res.ok) {
-    throw new InvitationEmailError(
-      "aws_credentials_unavailable",
-      "AWS task credentials for invitation email sending are unavailable.",
-      res.status,
-    );
-  }
-  const body = (await res.json().catch(() => null)) as
-    | {
-        AccessKeyId?: string;
-        SecretAccessKey?: string;
-        Token?: string;
-      }
-    | null;
-  if (!body?.AccessKeyId || !body.SecretAccessKey) {
-    throw new InvitationEmailError(
-      "aws_credentials_invalid",
-      "AWS task credentials for invitation email sending are invalid.",
-    );
-  }
-  return {
-    accessKeyId: body.AccessKeyId,
-    secretAccessKey: body.SecretAccessKey,
-    sessionToken: body.Token,
-  };
-}
-
-async function sendSesEmail(input: {
-  region: string;
-  credentials: AwsCredentials;
-  from: string;
-  to: string;
-  subject: string;
-  text: string;
-  html: string;
-}): Promise<SendInvitationEmailResult> {
-  const host = `email.${input.region}.amazonaws.com`;
-  const path = "/v2/email/outbound-emails";
-  const endpoint = `https://${host}${path}`;
-  const payload = JSON.stringify({
-    FromEmailAddress: input.from,
-    Destination: { ToAddresses: [input.to] },
-    Content: {
-      Simple: {
-        Subject: { Data: input.subject, Charset: "UTF-8" },
-        Body: {
-          Text: { Data: input.text, Charset: "UTF-8" },
-          Html: { Data: input.html, Charset: "UTF-8" },
-        },
-      },
-    },
-  });
-  const signed = signAwsJsonRequest({
-    method: "POST",
-    path,
-    host,
-    region: input.region,
-    service: "ses",
-    payload,
-    credentials: input.credentials,
-    now: new Date(),
-  });
-
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...signed,
-    },
-    body: payload,
-  });
-  if (!res.ok) {
-    throw new InvitationEmailError(
-      "email_send_failed",
-      "SES rejected the invitation email.",
-      res.status,
-    );
-  }
-  const body = (await res.json().catch(() => null)) as
-    | { MessageId?: string }
-    | null;
-  return {
-    provider: "ses",
-    messageId: typeof body?.MessageId === "string" ? body.MessageId : null,
-  };
-}
-
-export function signAwsJsonRequest(input: {
-  method: string;
-  path: string;
-  host: string;
-  region: string;
-  service: string;
-  payload: string;
-  credentials: AwsCredentials;
-  now: Date;
-}): Record<string, string> {
-  const amzDate = awsDateTime(input.now);
-  const dateStamp = amzDate.slice(0, 8);
-  const payloadHash = sha256Hex(input.payload);
-  const headers: Record<string, string> = {
-    host: input.host,
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-date": amzDate,
-  };
-  if (input.credentials.sessionToken) {
-    headers["x-amz-security-token"] = input.credentials.sessionToken;
-  }
-  const signedHeaders = Object.keys(headers).sort().join(";");
-  const canonicalHeaders = Object.keys(headers)
-    .sort()
-    .map((key) => `${key}:${headers[key]}\n`)
-    .join("");
-  const canonicalRequest = [
-    input.method,
-    input.path,
-    "",
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
-  const credentialScope = `${dateStamp}/${input.region}/${input.service}/aws4_request`;
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    sha256Hex(canonicalRequest),
-  ].join("\n");
-  const signature = hmacHex(
-    signingKey(input.credentials.secretAccessKey, dateStamp, input.region, input.service),
-    stringToSign,
-  );
-
-  return {
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-date": amzDate,
-    ...(input.credentials.sessionToken
-      ? { "x-amz-security-token": input.credentials.sessionToken }
-      : {}),
-    authorization: [
-      `AWS4-HMAC-SHA256 Credential=${input.credentials.accessKeyId}/${credentialScope}`,
-      `SignedHeaders=${signedHeaders}`,
-      `Signature=${signature}`,
-    ].join(", "),
-  };
-}
-
-function signingKey(
-  secretAccessKey: string,
-  dateStamp: string,
-  region: string,
-  service: string,
-): Buffer {
-  const kDate = hmacBuffer(`AWS4${secretAccessKey}`, dateStamp);
-  const kRegion = hmacBuffer(kDate, region);
-  const kService = hmacBuffer(kRegion, service);
-  return hmacBuffer(kService, "aws4_request");
-}
-
-function awsDateTime(date: Date): string {
-  return date.toISOString().replace(/[:-]|\.\d{3}/g, "");
-}
-
-function sha256Hex(value: string): string {
-  return createHash("sha256").update(value, "utf8").digest("hex");
-}
-
-function hmacBuffer(key: string | Buffer, value: string): Buffer {
-  return createHmac("sha256", key).update(value, "utf8").digest();
-}
-
-function hmacHex(key: string | Buffer, value: string): string {
-  return createHmac("sha256", key).update(value, "utf8").digest("hex");
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }

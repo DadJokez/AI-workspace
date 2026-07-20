@@ -6,6 +6,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -368,6 +369,36 @@ export const invitations = pgTable(
     emailIdx: index("invitations_email_idx").on(t.email),
     revokedIdx: index("invitations_revoked_idx").on(t.revokedAt),
     emailStatusIdx: index("invitations_email_status_idx").on(t.emailStatus),
+  }),
+);
+
+/**
+ * NextAuth email (magic-link) verification tokens. One row per outstanding
+ * sign-in link. `token` is NOT the raw link token: next-auth v4 hashes it
+ * (SHA-256 of `${token}${NEXTAUTH_SECRET}`) before it ever reaches the
+ * adapter, so a DB leak exposes nothing clickable. Rows are single-use —
+ * `useVerificationToken` deletes on read — and short-lived (15-minute
+ * `maxAge` on the email provider; expiry is enforced by next-auth core
+ * against `expires`). Expired never-clicked rows are swept opportunistically
+ * when the same identifier requests a new link.
+ */
+export const verificationTokens = pgTable(
+  "verification_tokens",
+  {
+    /** The email address the link was issued to (lowercased by next-auth). */
+    identifier: text("identifier").notNull(),
+    /** SHA-256(rawToken + NEXTAUTH_SECRET), hex — hashed by next-auth core. */
+    token: text("token").notNull(),
+    expires: timestamp("expires", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({
+      name: "verification_tokens_identifier_token_pk",
+      columns: [t.identifier, t.token],
+    }),
   }),
 );
 
