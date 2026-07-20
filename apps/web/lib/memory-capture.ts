@@ -20,6 +20,7 @@ const DEFAULT_CAPTURE_LIMIT = 40;
 const DEFAULT_WORKER_POLL_MS = 20 * 60 * 1000;
 const DEFAULT_IN_PROCESS_DELAY_MS = 20 * 60 * 1000;
 const DEFAULT_PROCESSING_STALE_MS = 30 * 60 * 1000;
+const SETTLED_ROW_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_REVIEW_DOC_CHARS = 90_000;
 const MAX_MESSAGE_CHARS = 12_000;
 const MAX_MEMORY_BODY_CHARS = 600;
@@ -149,6 +150,7 @@ export async function processPendingMemoryCaptures({
   captures: number;
   suggestions: number;
 }> {
+  await sweepSettledMemoryCaptures(db);
   const claimed = await claimPendingCaptures(db, {
     userId,
     limit,
@@ -182,6 +184,29 @@ export async function processPendingMemoryCaptures({
     captures: claimed.length,
     suggestions: totalSuggestions,
   };
+}
+
+/**
+ * #462: the queue is insert-per-turn and was delete-never, so it grew without
+ * bound. Settled rows (processed/skipped/failed) are kept for a retention
+ * window — failed rows stay debuggable and the run_id unique index keeps
+ * enqueue idempotent across retries — then deleted on the next worker pass.
+ */
+export async function sweepSettledMemoryCaptures(
+  db: Database,
+  now: Date = new Date(),
+): Promise<void> {
+  await db
+    .delete(memoryCaptureQueue)
+    .where(
+      and(
+        inArray(memoryCaptureQueue.status, ["processed", "skipped", "failed"]),
+        lt(
+          memoryCaptureQueue.processedAt,
+          new Date(now.getTime() - SETTLED_ROW_RETENTION_MS),
+        ),
+      ),
+    );
 }
 
 async function claimPendingCaptures(

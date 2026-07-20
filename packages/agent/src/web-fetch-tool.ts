@@ -232,32 +232,52 @@ function parseAndValidateUrl(rawUrl: string): URL {
   return url;
 }
 
+const LOCAL_GUARD_NOTE =
+  "This failed locally inside Comparative's fetch guard before any request reached the site — it is not evidence the site blocked the request.";
+
 async function assertPublicHostname(
   hostname: string,
   lookupImpl: typeof dnsLookup,
 ): Promise<void> {
-  await resolvePublicAddress(hostname, lookupImpl);
+  await resolvePublicAddresses(hostname, lookupImpl);
 }
 
 function createGuardedLookup(lookupImpl: typeof dnsLookup): GuardedLookup {
-  return ((hostname, _options, callback) => {
-    resolvePublicAddress(hostname, lookupImpl)
-      .then(({ address, family }) => callback(null, address, family))
-      .catch((err) => callback(toErrnoException(err), "", 0));
+  return ((hostname, options, callback) => {
+    // Node may invoke lookup(hostname, callback) with the options argument omitted.
+    const done = (typeof options === "function" ? options : callback) as (
+      err: NodeJS.ErrnoException | null,
+      address?: string | { address: string; family: number }[],
+      family?: number,
+    ) => void;
+    const wantsAll =
+      typeof options === "object" && options !== null && Boolean(options.all);
+    resolvePublicAddresses(hostname, lookupImpl)
+      .then((addresses) => {
+        if (wantsAll) {
+          done(null, addresses);
+          return;
+        }
+        const first = addresses[0]!;
+        done(null, first.address, first.family);
+      })
+      .catch((err) => done(toErrnoException(err)));
   }) as GuardedLookup;
 }
 
-async function resolvePublicAddress(
+async function resolvePublicAddresses(
   hostname: string,
   lookupImpl: typeof dnsLookup,
-): Promise<{ address: string; family: number }> {
+): Promise<{ address: string; family: number }[]> {
   const normalized = hostname.toLowerCase().replace(/\.$/, "");
   if (
     normalized === "localhost" ||
     normalized.endsWith(".localhost") ||
     normalized.endsWith(".local")
   ) {
-    throw new Error(`URL fetch blocked private hostname "${hostname}".`);
+    throw new Error(
+      `URL fetch blocked private hostname "${hostname}". ${LOCAL_GUARD_NOTE}`,
+    );
   }
 
   const literalIpVersion = isIP(normalized);
@@ -265,25 +285,28 @@ async function resolvePublicAddress(
     ? [{ address: normalized, family: literalIpVersion }]
     : await lookupImpl(normalized, { all: true, verbatim: true }).catch((err) => {
         throw new Error(
-          `URL fetch could not resolve "${hostname}": ${errorText(err)}`,
+          `URL fetch could not resolve "${hostname}": ${errorText(err)}. ${LOCAL_GUARD_NOTE}`,
         );
       });
 
   if (addresses.length === 0) {
-    throw new Error(`URL fetch could not resolve "${hostname}".`);
-  }
-
-  const blocked = addresses.find((entry) => isBlockedIp(entry.address));
-  if (blocked) {
     throw new Error(
-      `URL fetch blocked private or reserved address "${blocked.address}" for "${hostname}".`,
+      `URL fetch could not resolve "${hostname}": no addresses returned. ${LOCAL_GUARD_NOTE}`,
     );
   }
-  const first = addresses[0]!;
-  return {
-    address: first.address,
-    family: typeof first.family === "number" ? first.family : isIP(first.address),
-  };
+
+  const guarded = addresses.map((entry) => ({
+    address: entry.address,
+    family:
+      typeof entry.family === "number" ? entry.family : isIP(entry.address),
+  }));
+  const blocked = guarded.find((entry) => isBlockedIp(entry.address));
+  if (blocked) {
+    throw new Error(
+      `URL fetch blocked private or reserved address "${blocked.address}" for "${hostname}". ${LOCAL_GUARD_NOTE}`,
+    );
+  }
+  return guarded;
 }
 
 function isBlockedIp(address: string): boolean {
