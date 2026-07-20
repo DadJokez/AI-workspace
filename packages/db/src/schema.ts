@@ -747,6 +747,19 @@ export const memoryCaptureQueue = pgTable(
       t.threadId,
       t.createdAt,
     ),
+    /** #462: the chat_messages FKs cascade on delete; without these a thread
+     * delete walks the whole queue once per message. */
+    fromMessageIdx: index("memory_capture_queue_from_message_idx").on(
+      t.fromMessageId,
+    ),
+    toMessageIdx: index("memory_capture_queue_to_message_idx").on(
+      t.toMessageId,
+    ),
+    /** #462: worker claim scan — status filter ordered by age, no user filter. */
+    statusCreatedIdx: index("memory_capture_queue_status_created_idx").on(
+      t.status,
+      t.createdAt,
+    ),
     runUnique: uniqueIndex("memory_capture_queue_run_idx").on(t.runId),
   }),
 );
