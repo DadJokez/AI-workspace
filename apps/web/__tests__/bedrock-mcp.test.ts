@@ -92,8 +92,14 @@ describe("BedrockRuntime with MCP servers", () => {
     const toolResult = events.find((e) => e.type === "tool-result");
     expect(toolResult).toMatchObject({ result: { output: "echo:ping" } });
 
-    // The second model call must have received the tool result.
-    expect(client.toolResultSeen).toBe("echo:ping");
+    // The second model call must have received the tool result — #497:
+    // MCP output reaches the model nonce-framed as DATA, while the
+    // tool-result event above keeps the raw text for persistence.
+    expect(client.toolResultSeen).toContain("echo:ping");
+    expect(client.toolResultSeen).toContain("Tool result from github__echo");
+    expect(client.toolResultSeen).toMatch(
+      /<<<TOOL-RESULT [0-9a-f-]{36}>>>[\s\S]*<<<END-TOOL-RESULT [0-9a-f-]{36}>>>/,
+    );
     expect(client.toolChoices[0]?.toolChoice).toEqual({
       tool: { name: "github__echo" },
     });

@@ -12,6 +12,7 @@ import { webSearchFaithfulnessSuite } from "./cases/web-search-faithfulness.case
 import { modelRoutingSuite } from "./cases/model-routing.cases";
 import { toolDiscoverySuite } from "./cases/tool-discovery.cases";
 import { attachmentInjectionSuite } from "./cases/attachment-injection.cases";
+import { mcpInjectionSuite } from "./cases/mcp-injection.cases";
 import { estimateUsageCostUsd } from "./benchmarks/model-routing";
 
 const SUITES: EvalSuite[] = [
@@ -25,6 +26,7 @@ const SUITES: EvalSuite[] = [
   modelRoutingSuite,
   toolDiscoverySuite,
   attachmentInjectionSuite,
+  mcpInjectionSuite,
 ];
 
 /**

@@ -6,6 +6,7 @@ import {
 } from "./clients";
 import { MODELS, type ModelId } from "./models";
 import type { ToolRegistry } from "./registry";
+import { frameUntrustedToolResult } from "./tool-result-framing";
 import type {
   AgentEvent,
   AgentMessage,
@@ -355,6 +356,12 @@ export async function* runAgentLoop(
         });
         continue;
       }
+      // #497: tools flagged `untrustedOutput` (every MCP-backed tool) get
+      // their serialized output nonce-framed as DATA here — the model-visible
+      // boundary — while the yielded `tool-result` event keeps the raw output
+      // so persistence and structured consumers never see the markers. Error
+      // text is attacker-controlled through the same channel, so it is framed
+      // too.
       try {
         const output = await tool.handler(call.input, params.context);
         const text = typeof output === "string" ? output : JSON.stringify(output);
@@ -365,7 +372,9 @@ export async function* runAgentLoop(
         resultBlocks.push({
           kind: "tool-result",
           toolUseId: call.id,
-          content: text,
+          content: tool.untrustedOutput
+            ? frameUntrustedToolResult(tool.name, text)
+            : text,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -376,7 +385,9 @@ export async function* runAgentLoop(
         resultBlocks.push({
           kind: "tool-result",
           toolUseId: call.id,
-          content: msg,
+          content: tool.untrustedOutput
+            ? frameUntrustedToolResult(tool.name, msg)
+            : msg,
           isError: true,
         });
       }
