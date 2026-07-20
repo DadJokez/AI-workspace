@@ -128,3 +128,32 @@ describe("parseInvocationPayload toolDiscovery", () => {
     ).toBeUndefined();
   });
 });
+
+describe("parseInvocationPayload userTimeZone (#432)", () => {
+  it("keeps a valid IANA zone from the payload", () => {
+    expect(
+      parseInvocationPayload({
+        ...BASE_PAYLOAD,
+        userTimeZone: "America/New_York",
+      }).userTimeZone,
+    ).toBe("America/New_York");
+  });
+
+  it("drops garbage, offsets, and non-string values at the trust boundary", () => {
+    expect(
+      parseInvocationPayload({
+        ...BASE_PAYLOAD,
+        userTimeZone: "'; DROP TABLE runs;--",
+      }).userTimeZone,
+    ).toBeUndefined();
+    expect(
+      parseInvocationPayload({ ...BASE_PAYLOAD, userTimeZone: "+05:30" })
+        .userTimeZone,
+    ).toBeUndefined();
+    expect(
+      parseInvocationPayload({ ...BASE_PAYLOAD, userTimeZone: 42 })
+        .userTimeZone,
+    ).toBeUndefined();
+    expect(parseInvocationPayload(BASE_PAYLOAD).userTimeZone).toBeUndefined();
+  });
+});

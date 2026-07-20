@@ -1526,6 +1526,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           message: text,
           threadId: activeTab.threadId,
           modelId: requestedModelId,
+          // #432: ground "today"/"tomorrow" in the browser's zone. The server
+          // validates it as a real IANA zone and ignores anything else.
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           ...(modelOverride?.mode === "model" ? { modelOverride: true } : {}),
           attachmentCount: attachments?.length ?? 0,
           ...(activatedSkill ? { activatedSkills: [activatedSkill] } : {}),

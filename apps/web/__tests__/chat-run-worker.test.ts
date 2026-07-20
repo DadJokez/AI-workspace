@@ -138,6 +138,51 @@ describe("processQueuedChatRun", () => {
     });
   });
 
+  it("hands a stored chat-turn timezone to the core so retries keep the clock context (#432)", async () => {
+    const run = claimedRun({
+      triggerType: "chat",
+      inputs: {
+        prompt: "what should I do tomorrow?",
+        threadId: "thread-1",
+        userMessageId: "user-msg-1",
+        executionMode: "local",
+        userTimeZone: "America/New_York",
+      },
+    } as Partial<Run>);
+
+    await processQueuedChatRun({ db: fakeDb(run), runId: "run-1" });
+
+    const turn = vi.mocked(executeChatTurn).mock.calls[0]![0];
+    expect(turn.userTimeZone).toBe("America/New_York");
+  });
+
+  it("re-validates the stored timezone and drops anything that is not an IANA zone (#432)", async () => {
+    const run = claimedRun({
+      triggerType: "chat",
+      inputs: {
+        prompt: "hi",
+        threadId: "thread-1",
+        userMessageId: "user-msg-1",
+        executionMode: "local",
+        userTimeZone: "'; DROP TABLE runs;--",
+      },
+    } as Partial<Run>);
+
+    await processQueuedChatRun({ db: fakeDb(run), runId: "run-1" });
+
+    const turn = vi.mocked(executeChatTurn).mock.calls[0]![0];
+    expect(turn.userTimeZone).toBeUndefined();
+  });
+
+  it("leaves scheduled/skill runs without a timezone UTC-only (#432)", async () => {
+    const run = claimedRun({ triggerType: "scheduled" } as Partial<Run>);
+
+    await processQueuedChatRun({ db: fakeDb(run), runId: "run-1" });
+
+    const turn = vi.mocked(executeChatTurn).mock.calls[0]![0];
+    expect(turn.userTimeZone).toBeUndefined();
+  });
+
   it("reports the lease as lost when the fenced heartbeat matches no row (#443)", async () => {
     const emptyDb = {
       update: () => ({

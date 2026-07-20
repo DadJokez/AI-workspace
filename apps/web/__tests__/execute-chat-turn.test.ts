@@ -405,6 +405,47 @@ describe("executeChatTurn — tool-event provider hints (#442 drift fix)", () =>
   });
 });
 
+describe("executeChatTurn — timezone grounding (#432)", () => {
+  it("threads the validated zone into runTurn and preserves it in the inline inputs rewrite", async () => {
+    const { input, captured, state } = inlineInput({
+      userTimeZone: "America/New_York",
+    });
+    await executeChatTurn(input);
+
+    expect(captured.turnInput?.userTimeZone).toBe("America/New_York");
+    // The inline lane rebuilds runs.inputs from scratch; dropping the zone
+    // here would strand a queued/retried execution on UTC-only.
+    const inputsRewrite = state.runUpdates.find((update) => "inputs" in update);
+    expect(inputsRewrite).toBeDefined();
+    expect(
+      (inputsRewrite!.inputs as Record<string, unknown>).userTimeZone,
+    ).toBe("America/New_York");
+  });
+
+  it("stays absent end-to-end when no zone was sent", async () => {
+    const { input, captured, state } = inlineInput();
+    await executeChatTurn(input);
+
+    expect(
+      captured.turnInput && "userTimeZone" in captured.turnInput,
+    ).toBe(false);
+    const inputsRewrite = state.runUpdates.find((update) => "inputs" in update);
+    expect(inputsRewrite).toBeDefined();
+    expect(
+      "userTimeZone" in (inputsRewrite!.inputs as Record<string, unknown>),
+    ).toBe(false);
+  });
+
+  it("threads a re-validated stored zone through the worker lane's runTurn input", async () => {
+    const { input, captured } = workerInput({
+      userTimeZone: "Europe/Stockholm",
+    });
+    await executeChatTurn(input);
+
+    expect(captured.turnInput?.userTimeZone).toBe("Europe/Stockholm");
+  });
+});
+
 describe("executeChatTurn — persist tail", () => {
   it("stores the assistant answer and finishes the run on the inline lane", async () => {
     const { input, sent, state } = inlineInput();

@@ -8,6 +8,7 @@ import {
   connectMcpTools,
   createDiscoveryTools,
   isValidModelId,
+  normalizeUserTimeZone,
   resolveMountedToolNames,
   runAgentLoop,
   type DiscoveryCatalogEntry,
@@ -26,6 +27,8 @@ export interface InvocationPayload {
   modelId: string;
   systemPrompt?: string;
   firstTurnPreamble?: string;
+  /** Validated IANA zone for the clock statement (#432); invalid → absent. */
+  userTimeZone?: string;
   messages: AgentMessage[];
   mcpServers?: Record<string, McpHttpServerSpec>;
   builtinTools?: string[];
@@ -133,6 +136,10 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
       typeof body.firstTurnPreamble === "string"
         ? body.firstTurnPreamble
         : undefined,
+    // Re-validated at this trust boundary (#432): the payload crosses the
+    // wire, and an invalid zone must degrade to UTC-only, never reach the
+    // prompt or throw inside the loop.
+    userTimeZone: normalizeUserTimeZone(body.userTimeZone),
     messages: body.messages as AgentMessage[],
     mcpServers,
     builtinTools: Array.isArray(body.builtinTools)
@@ -214,6 +221,9 @@ export async function runInvocation(
       >[0]["modelId"],
       systemPrompt:
         systemParts.length > 0 ? systemParts.join("\n\n") : undefined,
+      ...(payload.userTimeZone
+        ? { userTimeZone: payload.userTimeZone }
+        : {}),
       messages: payload.messages,
       registry,
       context: { userId: payload.userId ?? "agentcore" },
