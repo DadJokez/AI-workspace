@@ -49,14 +49,19 @@ jobs:
 
           state="success"
           description="Claude review passed for this commit"
-          marker="<!-- claude-reviewed: $SHA -->"
+
+          # The review-happened fact is the `Claude review completed` commit
+          # status posted by the review workflow — not a comment marker, which
+          # anyone able to comment (including a steered @claude session) could
+          # forge (#459). Posting a status requires statuses:write.
+          completed=$(gh api "repos/$REPO/commits/$SHA/status" \
+            --jq '.statuses[] | select(.context=="Claude review completed") | .state')
 
           if gh api "repos/$REPO/issues/$PR_NUMBER/labels" --paginate --jq '.[].name' \
               | grep -qx "needs-codex"; then
             state="failure"
             description="Claude requested changes; needs-codex is present"
-          elif ! gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate --jq '.[].body' \
-              | grep -qF "$marker"; then
+          elif [ "$completed" != "success" ]; then
             state="failure"
             description="Claude review has not passed for this commit"
           fi

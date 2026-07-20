@@ -72,12 +72,15 @@ jobs:
             fi
           done
 
-          # Dedup: skip the expensive review if this SHA already has the
-          # completed-review marker, but still publish the verdict below so a
-          # stale failure from PR-open does not keep branch protection blocked.
-          marker="<!-- claude-reviewed: $SHA -->"
-          if gh api "repos/$REPO/issues/$pr/comments" --paginate --jq '.[].body' \
-              | grep -qF "$marker"; then
+          # Dedup: skip the expensive review if this SHA already carries the
+          # completed-review commit status, but still publish the verdict below
+          # so a stale failure from PR-open does not keep branch protection
+          # blocked. The status channel requires statuses:write, which the
+          # on-demand @claude workflow deliberately lacks (#459) — a PR comment
+          # can no longer green the gate.
+          completed=$(gh api "repos/$REPO/commits/$SHA/status" \
+            --jq '.statuses[] | select(.context=="Claude review completed") | .state')
+          if [ "$completed" = "success" ]; then
             echo "Already reviewed $SHA — skipping."
             echo "go=false" >> "$GITHUB_OUTPUT"
             echo "already_reviewed=true" >> "$GITHUB_OUTPUT"
@@ -129,21 +132,24 @@ jobs:
               gh pr edit ${{ steps.gate.outputs.pr }} --remove-label needs-codex
             Do NOT push commits and do NOT merge — Rob owns merges.
 
-      - name: Record Claude review marker
+      - name: Record Claude review completion
         if: steps.gate.outputs.go == 'true' && steps.claude_review.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ steps.gate.outputs.pr }}
           SHA: ${{ github.event.workflow_run.head_sha }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
 
-          marker="<!-- claude-reviewed: $SHA -->"
-          if ! gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate --jq '.[].body' \
-              | grep -qF "$marker"; then
-            gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" -f body="$marker" >/dev/null
-          fi
+          # The authenticated review-happened fact (#459). A commit status, not
+          # a comment: posting one requires statuses:write, so neither a PR
+          # commenter nor the @claude workflow's token can forge it.
+          gh api -X POST "repos/$REPO/statuses/$SHA" \
+            -f state="success" \
+            -f context="Claude review completed" \
+            -f description="Automated review completed for this commit" \
+            -f target_url="$TARGET_URL" >/dev/null
 
       - name: Publish Claude verdict
         if: >-
@@ -164,7 +170,9 @@ jobs:
 
           state="success"
           description="Claude review passed for this commit"
-          marker="<!-- claude-reviewed: $SHA -->"
+
+          completed=$(gh api "repos/$REPO/commits/$SHA/status" \
+            --jq '.statuses[] | select(.context=="Claude review completed") | .state')
 
           if [ "$REVIEW_RAN" = "true" ] && [ "$CLAUDE_OUTCOME" != "success" ]; then
             state="failure"
@@ -173,8 +181,7 @@ jobs:
               | grep -qx "needs-codex"; then
             state="failure"
             description="Claude requested changes; needs-codex is present"
-          elif ! gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate --jq '.[].body' \
-              | grep -qF "$marker"; then
+          elif [ "$completed" != "success" ]; then
             state="failure"
             description="Claude review has not passed for this commit"
           fi
