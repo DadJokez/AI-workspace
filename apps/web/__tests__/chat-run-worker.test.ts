@@ -33,8 +33,9 @@ import {
   heartbeatRunLease,
   processQueuedChatRun,
   reapOrphanedRuns,
+  runChatRunWorkerLoop,
 } from "@/lib/chat-run-worker";
-import { executeChatTurn } from "@/lib/execute-chat-turn";
+import { executeChatTurn, numberFromEnv } from "@/lib/execute-chat-turn";
 import { resolveModelForPurpose } from "@/lib/model-registry";
 import { appendRunEventBestEffort } from "@/lib/run-events";
 import { createProactiveRunNotification } from "@/lib/notifications";
@@ -235,5 +236,149 @@ describe("processQueuedChatRun", () => {
       expect.objectContaining({ id: "run-1", error: "boom" }),
       "failed",
     );
+  });
+});
+
+/**
+ * #448 — the loop claims and executes up to WORKER_RUN_CONCURRENCY runs at
+ * once. Claims stay sequential; executions overlap; every in-flight run keeps
+ * heartbeating its own fenced lease.
+ */
+describe("runChatRunWorkerLoop concurrency (#448)", () => {
+  function loopDb(queuedRuns: Run[]) {
+    const state = {
+      queued: [...queuedRuns],
+      claims: [] as string[],
+      heartbeats: [] as unknown[][],
+    };
+    const db = {
+      update: () => ({
+        set: (values: Record<string, unknown>) => ({
+          where: (condition: unknown) => ({
+            returning: async () => {
+              if (values.status === "running") {
+                const { params } = new PgDialect().sqlToQuery(
+                  condition as never,
+                );
+                const run = state.queued.find((r) => params.includes(r.id));
+                if (!run) return [];
+                state.queued = state.queued.filter((r) => r.id !== run.id);
+                state.claims.push(run.id);
+                return [run];
+              }
+              // Reaper / markRunFailed writes: nothing to reap or fail.
+              if (values.status !== undefined) return [];
+              // Fenced lease heartbeat (no status in the set clause).
+              const { params } = new PgDialect().sqlToQuery(condition as never);
+              state.heartbeats.push(params);
+              return [{ id: "held" }];
+            },
+          }),
+        }),
+      }),
+      select: () => ({
+        from: (table: unknown) => ({
+          where: () => ({
+            orderBy: () => ({
+              limit: async () =>
+                state.queued[0] ? [{ id: state.queued[0].id }] : [],
+            }),
+            limit: async () =>
+              table === chatThreads ? [{ id: "thread-1", summary: null }] : [],
+          }),
+        }),
+      }),
+    } as unknown as Database;
+    return { db, state };
+  }
+
+  const queuedRun = (id: string) => claimedRun({ id } as Partial<Run>);
+
+  function deferredTurns() {
+    const resolvers = new Map<string, () => void>();
+    vi.mocked(executeChatTurn).mockImplementation(
+      (input: { runId: string }) =>
+        new Promise((resolve) => {
+          resolvers.set(input.runId, () => resolve(undefined));
+        }) as never,
+    );
+    return resolvers;
+  }
+
+  it("caps in-flight runs and keeps claiming while a slow run executes", async () => {
+    vi.mocked(numberFromEnv).mockImplementation((name: string) =>
+      name === "WORKER_RUN_CONCURRENCY" ? 2 : undefined,
+    );
+    const { db, state } = loopDb([
+      queuedRun("run-1"),
+      queuedRun("run-2"),
+      queuedRun("run-3"),
+    ]);
+    const turns = deferredTurns();
+    const controller = new AbortController();
+
+    const loop = runChatRunWorkerLoop({
+      db,
+      workerId: "w-cap",
+      pollIntervalMs: 5,
+      signal: controller.signal,
+    });
+
+    // Both slots fill without waiting for either turn to finish.
+    await vi.waitFor(() => expect(state.claims).toEqual(["run-1", "run-2"]));
+    // Saturated: several poll ticks later the third run is still unclaimed.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(state.claims).toEqual(["run-1", "run-2"]);
+
+    // Finishing one run frees a slot while run-2 is still mid-turn.
+    turns.get("run-1")!();
+    await vi.waitFor(() =>
+      expect(state.claims).toEqual(["run-1", "run-2", "run-3"]),
+    );
+    expect(turns.has("run-2")).toBe(true);
+    expect(turns.has("run-3")).toBe(true);
+
+    controller.abort();
+    for (const finish of turns.values()) finish();
+    await loop;
+  });
+
+  it("heartbeats every in-flight lease, fenced on the worker id", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(numberFromEnv).mockImplementation((name: string) => {
+        if (name === "WORKER_RUN_CONCURRENCY") return 2;
+        // Lease 45s → heartbeat interval max(15s, 45s / 3) = 15s.
+        if (name === "CHAT_RUN_WORKER_LEASE_MS") return 45_000;
+        return undefined;
+      });
+      const { db, state } = loopDb([queuedRun("run-1"), queuedRun("run-2")]);
+      const turns = deferredTurns();
+      const controller = new AbortController();
+
+      const loop = runChatRunWorkerLoop({
+        db,
+        workerId: "w-hb",
+        pollIntervalMs: 1_000,
+        signal: controller.signal,
+      });
+
+      await vi.waitFor(() => expect(state.claims).toEqual(["run-1", "run-2"]));
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      const heartbeatsFor = (runId: string) =>
+        state.heartbeats.filter((params) => params.includes(runId));
+      expect(heartbeatsFor("run-1").length).toBeGreaterThan(0);
+      expect(heartbeatsFor("run-2").length).toBeGreaterThan(0);
+      for (const params of state.heartbeats) {
+        expect(params).toContain("w-hb");
+      }
+
+      controller.abort();
+      for (const finish of turns.values()) finish();
+      await loop;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

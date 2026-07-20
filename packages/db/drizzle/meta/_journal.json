@@ -253,6 +253,13 @@
       "when": 1784160000000,
       "tag": "0035_salesforce_tools_catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1784419200000,
+      "tag": "0036_run_events_sequence_unique",
+      "breakpoints": true
     }
   ]
 }
