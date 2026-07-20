@@ -44,10 +44,13 @@ GitHub Actions, and human review in this repository.
 - `.github/workflows/claude.yml` handles explicit `@claude` mentions.
 - `.github/workflows/claude-code-review.yml` handles automatic review after
   `CI` and `Product Smoke` both succeed, then publishes the final
-  `Claude verdict` commit status. It writes the hidden
-  `<!-- claude-reviewed: SHA -->` marker only after the Claude review action
-  completes successfully; if a marker already exists, it republishes the
-  verdict so stale red statuses do not block clean PRs.
+  `Claude verdict` commit status. It records a `Claude review completed`
+  commit status only after the Claude review action completes successfully;
+  if that status already exists for the SHA, it republishes the verdict so
+  stale red statuses do not block clean PRs. A commit status — not a PR
+  comment — is the review-happened fact because posting one requires
+  `statuses: write`, which PR commenters and the `@claude` workflow's token
+  do not have (#459).
 - `.github/workflows/claude-verdict.yml` publishes an initial red
   `Claude verdict` status for new PR commits and refreshes the status when
   labels or reviews change.
@@ -99,8 +102,8 @@ comments, labels, and reviews. It must not push commits or merge PRs.
 
 The required `Claude verdict` status is the mechanical merge gate:
 
-- `failure` if the current head SHA does not have a
-  `<!-- claude-reviewed: SHA -->` marker.
+- `failure` if the current head SHA does not carry a successful
+  `Claude review completed` commit status.
 - `failure` if the PR has the `needs-codex` label.
 - `failure` if the Claude Code review action fails to complete.
 - `success` only when the current head SHA was reviewed and `needs-codex` is
