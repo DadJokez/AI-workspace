@@ -462,22 +462,36 @@ async function extractAttachmentText({
   }
 
   if (ext === "xlsx") {
-    const XLSX = await import("xlsx");
-    const workbook = XLSX.read(buffer, { type: "buffer" });
+    // exceljs replaced xlsx (#446): SheetJS 0.18.5 carried two high CVEs
+    // (prototype pollution + ReDoS) with no npm-published fix, and this is
+    // the one place untrusted spreadsheet bytes are parsed.
+    const ExcelJS = (await import("exceljs")).default;
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
     const parts: string[] = [];
-    for (const sheetName of workbook.SheetNames.slice(0, 10)) {
-      const sheet = workbook.Sheets[sheetName];
-      if (!sheet) continue;
-      const csv = XLSX.utils.sheet_to_csv(sheet).trim();
+    const totalSheets = workbook.worksheets.length;
+    for (const sheet of workbook.worksheets.slice(0, 10)) {
+      const lines: string[] = [];
+      sheet.eachRow({ includeEmpty: false }, (row) => {
+        const values: string[] = [];
+        row.eachCell({ includeEmpty: true }, (cell) => {
+          const text = cell.text ?? "";
+          values.push(
+            /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text,
+          );
+        });
+        lines.push(values.join(","));
+      });
+      const csv = lines.join("\n").trim();
       if (!csv) continue;
-      parts.push(`# Sheet: ${sheetName}\n${csv}`);
+      parts.push(`# Sheet: ${sheet.name}\n${csv}`);
     }
     return {
       content: parts.join("\n\n") || `[No extractable cells found in ${name}.]`,
       status: "extracted",
       notes:
-        workbook.SheetNames.length > 10
-          ? [`Only the first 10 of ${workbook.SheetNames.length} sheets were extracted.`]
+        totalSheets > 10
+          ? [`Only the first 10 of ${totalSheets} sheets were extracted.`]
           : [],
     };
   }
