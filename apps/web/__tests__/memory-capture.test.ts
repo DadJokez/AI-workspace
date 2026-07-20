@@ -40,6 +40,7 @@ vi.mock("@ai-workspace/agent-runtime", () => ({
 import {
   enqueueMemoryCapture,
   processPendingMemoryCaptures,
+  sweepSettledMemoryCaptures,
 } from "@/lib/memory-capture";
 
 /**
@@ -58,7 +59,8 @@ function fakeDb(config: {
   const captured: {
     updates: Array<{ table: string; set: Record<string, unknown>; where: SQL }>;
     inserts: Array<{ table: string; values: unknown }>;
-  } = { updates: [], inserts: [] };
+    deletes: Array<{ table: string; where: SQL }>;
+  } = { updates: [], inserts: [], deletes: [] };
 
   const dequeue = (
     queues: Record<string, Array<Array<Record<string, unknown>>>>,
@@ -103,6 +105,13 @@ function fakeDb(config: {
           onConflictDoNothing: () => pending,
           returning: async () => [],
         });
+      },
+    }),
+    // #462's retention sweep runs at the top of every processing pass.
+    delete: (table: Table) => ({
+      where: (where: SQL) => {
+        captured.deletes.push({ table: getTableName(table), where });
+        return Promise.resolve();
       },
     }),
   } as unknown as Database;
@@ -495,5 +504,66 @@ describe("enqueueMemoryCapture", () => {
         },
       },
     ]);
+  });
+});
+
+/**
+ * #462's sweep tests, carried over in the union merge with the spine-coverage
+ * suite above. Self-contained chainable fake (array-of-select-results shape)
+ * kept under distinct names — the main suite's fakeDb takes a config object.
+ */
+function sweepFakeDb(selectResults: Array<Array<Record<string, unknown>>> = []) {
+  const captured: { deleteWheres: SQL[] } = { deleteWheres: [] };
+  const nextSelect = () => Promise.resolve(selectResults.shift() ?? []);
+  function selectChain(): Record<string, unknown> {
+    const chain: Record<string, unknown> = {};
+    chain.from = () => chain;
+    chain.where = () => {
+      const pending = nextSelect();
+      return Object.assign(pending, {
+        orderBy: () => pending,
+        limit: () => pending,
+      });
+    };
+    return chain;
+  }
+  const db = {
+    select: () => selectChain(),
+    delete: () => ({
+      where: (condition: SQL) => {
+        captured.deleteWheres.push(condition);
+        return Promise.resolve();
+      },
+    }),
+  } as unknown as Database;
+  return { db, captured };
+}
+
+describe("sweepSettledMemoryCaptures (#462)", () => {
+  it("deletes only settled rows past the 7-day retention bound", async () => {
+    const { db, captured } = sweepFakeDb();
+    const now = new Date("2026-07-19T12:00:00Z");
+
+    await sweepSettledMemoryCaptures(db, now);
+
+    expect(captured.deleteWheres).toHaveLength(1);
+    const query = new PgDialect().sqlToQuery(captured.deleteWheres[0]!);
+    expect(query.sql).toContain('"status" in (');
+    expect(query.sql).toContain('"processed_at" <');
+    expect(query.params).toEqual([
+      "processed",
+      "skipped",
+      "failed",
+      "2026-07-12T12:00:00.000Z",
+    ]);
+  });
+
+  it("sweeps settled rows on every pass, even an idle one", async () => {
+    const { db, captured } = sweepFakeDb();
+
+    const result = await processPendingMemoryCaptures({ db });
+
+    expect(result).toEqual({ status: "idle", captures: 0, suggestions: 0 });
+    expect(captured.deleteWheres).toHaveLength(1);
   });
 });
