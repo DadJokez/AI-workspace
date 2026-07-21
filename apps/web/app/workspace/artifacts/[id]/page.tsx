@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { AlphaBadge } from "@/components/AlphaBadge";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import {
   loadWorkspaceArtifactForUser,
@@ -59,7 +60,10 @@ export default async function WorkspaceArtifactPage({
           Back to chat
         </Link>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-semibold">{artifact.title}</h1>
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="truncate text-sm font-semibold">{artifact.title}</h1>
+            <AlphaBadge placement="inline" />
+          </div>
           <p className="truncate text-xs text-muted">
             {artifact.filename} · {formatBytes(artifact.sizeBytes)}
           </p>

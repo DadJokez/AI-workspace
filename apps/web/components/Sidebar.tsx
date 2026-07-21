@@ -10,6 +10,7 @@ import {
   SIDEBAR_COLLAPSED_STORAGE_KEY,
 } from "@/lib/sidebar-layout";
 import { ThinkingOrb } from "./ThinkingOrb";
+import { useHorizontalSwipe } from "./useHorizontalSwipe";
 
 interface NavItem {
   id: string;
@@ -204,6 +205,11 @@ export function Sidebar({
     .map((s) => s[0]?.toUpperCase() ?? "")
     .join("");
   const hasAccountMenu = Boolean(onNavSelect || onSignOut);
+  const closeSwipe = useHorizontalSwipe({
+    direction: "left",
+    disabled: !open,
+    onSwipe: onClose,
+  });
 
   const historyLabel = "Chats";
 
@@ -386,10 +392,11 @@ export function Sidebar({
       <aside
         id="primary-sidebar"
         aria-label="Primary"
+        onPointerDown={closeSwipe}
         data-density="nav"
         data-sidebar-state={rail ? "rail" : "expanded"}
         data-auto-collapsed={temporaryTabletRail || undefined}
-        className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col overflow-hidden border-r border-hairline bg-sidebar transition-[transform,width] duration-base ease-umber-out md:static md:z-auto md:w-[var(--active-sidebar-w)] md:max-w-none md:shrink-0 md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] touch-pan-y flex-col overflow-hidden border-r border-hairline bg-sidebar transition-[transform,width] duration-base ease-umber-out md:static md:z-auto md:w-[var(--active-sidebar-w)] md:max-w-none md:shrink-0 md:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
         style={

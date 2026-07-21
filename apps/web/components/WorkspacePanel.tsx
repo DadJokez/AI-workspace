@@ -44,7 +44,7 @@ export function WorkspacePanel({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-11 shrink-0 items-center gap-1 border-b border-hairline bg-canvas">
+      <header className="flex h-11 shrink-0 touch-none items-center gap-1 border-b border-hairline bg-canvas md:touch-auto">
         <h1 className="flex-1 truncate px-2 text-sm font-medium text-ink">
           Artifacts
         </h1>

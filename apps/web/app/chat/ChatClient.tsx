@@ -4,6 +4,7 @@ import {
   parseAssistantSources,
   type AssistantSource,
 } from "@ai-workspace/agent/sources";
+import { AlphaBadge } from "@/components/AlphaBadge";
 import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
 import { RunInspectorPane } from "@/components/RunInspectorPane";
 import { SlideOverPane } from "@/components/SlideOverPane";
@@ -47,6 +48,7 @@ import { NotificationsPanel } from "@/components/NotificationsPanel";
 import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { WorkspacePanel } from "@/components/WorkspacePanel";
+import { useHorizontalSwipe } from "@/components/useHorizontalSwipe";
 import {
   buildChatTranscriptMarkdown,
   chatTranscriptFilename,
@@ -571,6 +573,12 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   const [editRequest, setEditRequest] = useState<ChatEditRequest>();
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const closeRightPane = useCallback(() => setRightPane(null), []);
+  const openSidebarSwipe = useHorizontalSwipe({
+    direction: "right",
+    edge: "left",
+    disabled: sidebarOpen || rightPane !== null,
+    onSwipe: () => setSidebarOpen(true),
+  });
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -2261,6 +2269,14 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-canvas text-ink">
+      {!sidebarOpen && rightPane === null ? (
+        <div
+          aria-hidden="true"
+          data-testid="sidebar-swipe-edge"
+          onPointerDown={openSidebarSwipe}
+          className="fixed bottom-24 left-0 top-12 z-20 w-6 touch-pan-y md:hidden"
+        />
+      ) : null}
       <Sidebar
         userName={user?.displayName}
         userEmail={user?.email}
@@ -2309,25 +2325,28 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                     <path d="M2 4h12M2 8h12M2 12h12" />
                   </svg>
                 </button>
-                <div className="flex min-w-0 flex-1 items-center px-3">
+                <div className="flex min-w-0 flex-1 items-center gap-2 px-3">
                   <div
                     data-testid="active-chat-title"
-                    className="truncate text-sm font-medium text-muted"
+                    className="min-w-0 truncate text-sm font-medium text-muted"
                     title={activeTab.title}
                   >
                     {activeTab.threadId ? activeTab.title : "New chat"}
                   </div>
+                  <AlphaBadge placement="inline" />
                 </div>
                 <div className="flex shrink-0 items-center gap-1 px-2 sm:gap-1.5 sm:px-3">
                   {!runtimeV2Enabled &&
                   models.length > 0 &&
                   activeTab.modelId ? (
-                    <ModelSelector
-                      value={activeTab.modelId}
-                      onChange={handleModelChange}
-                      options={models}
-                      disabled={busy || activeHasPendingRun}
-                    />
+                    <div className="hidden min-[400px]:block">
+                      <ModelSelector
+                        value={activeTab.modelId}
+                        onChange={handleModelChange}
+                        options={models}
+                        disabled={busy || activeHasPendingRun}
+                      />
+                    </div>
                   ) : null}
                   {runtimeV2Enabled ? (
                     <div
@@ -2342,7 +2361,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                           ? `Resolved model: ${resolvedModelName}${resolvedLaneName ? ` · ${resolvedLaneName} lane` : ""}`
                           : "Comparative selects the model automatically for each turn"
                       }
-                      className="flex h-7 min-w-0 max-w-20 shrink items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 text-2xs text-muted sm:max-w-56"
+                      className="hidden h-7 min-w-0 max-w-20 shrink items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 text-2xs text-muted min-[400px]:flex sm:max-w-56"
                     >
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-info" />
                       <span className="min-w-0 truncate sm:hidden">

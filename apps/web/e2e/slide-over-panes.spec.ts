@@ -10,6 +10,7 @@ import {
   openNavItem,
   openPrimarySidebar,
 } from "./helpers/navigation";
+import { swipe } from "./helpers/swipe";
 
 test.skip(
   !!process.env.PLAYWRIGHT_BASE_URL,
@@ -78,7 +79,51 @@ test.describe("right slide-over panes", () => {
     await expect(scrollRegion).toBeAttached();
     await expectScrollPosition(scrollRegion, scrollBefore);
 
-    if (!isMobile) {
+    if (isMobile) {
+      await artifactsPane.evaluate((pane) => {
+        const scroller = document.createElement("div");
+        scroller.dataset.testid = "horizontal-swipe-guard";
+        Object.assign(scroller.style, {
+          position: "absolute",
+          top: "5rem",
+          right: "1rem",
+          zIndex: "80",
+          width: "12rem",
+          height: "2.75rem",
+          overflowX: "auto",
+          background: "var(--surface)",
+        });
+        const content = document.createElement("div");
+        content.style.width = "40rem";
+        content.style.height = "100%";
+        scroller.append(content);
+        pane.append(scroller);
+      });
+      const scrollerBox = await page
+        .getByTestId("horizontal-swipe-guard")
+        .boundingBox();
+      expect(scrollerBox).toBeTruthy();
+      await swipe(
+        page,
+        { x: scrollerBox!.x + 160, y: scrollerBox!.y + 20 },
+        { x: scrollerBox!.x + 40, y: scrollerBox!.y + 20 },
+      );
+      await expect(artifactsPane).toBeVisible();
+
+      await page.getByTestId("horizontal-swipe-guard").evaluate((node) => {
+        node.remove();
+      });
+      const paneBox = await artifactsPane.boundingBox();
+      expect(paneBox).toBeTruthy();
+      await swipe(
+        page,
+        { x: paneBox!.x + paneBox!.width - 80, y: paneBox!.y + 24 },
+        { x: paneBox!.x + paneBox!.width - 200, y: paneBox!.y + 28 },
+      );
+      await expect(artifactsPane).toHaveCount(0);
+      await openNavItem(page, "Artifacts", true);
+      await expect(page.getByTestId("artifacts-pane")).toBeVisible();
+    } else {
       const widthBefore = await paneWidth(artifactsPane);
       await page.getByTestId("artifacts-pane-resizer").press("Shift+ArrowLeft");
       const resizedWidth = await paneWidth(artifactsPane);

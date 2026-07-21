@@ -116,7 +116,7 @@ export function RunInspectorPane({
       resizerTestId="run-inspector-resizer"
       storageKey="comparative.slide-over.run-inspector.width"
     >
-      <header className="flex min-h-12 shrink-0 items-center gap-2 border-b border-hairline px-3">
+      <header className="flex min-h-12 shrink-0 touch-none items-center gap-2 border-b border-hairline px-3 md:touch-auto">
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-hairline bg-surface text-muted">
           <TraceIcon />
         </span>
