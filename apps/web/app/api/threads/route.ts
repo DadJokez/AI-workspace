@@ -1,6 +1,6 @@
 import { AuthConfigError } from "@ai-workspace/auth";
 import { chatThreads, getDb } from "@ai-workspace/db";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
@@ -11,7 +11,7 @@ const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 50;
 
 /**
- * GET /api/threads?limit=8 — list threads, most recently updated first.
+ * GET /api/threads?limit=8 — list pinned threads first, then by recency.
  *
  * `role = 'user'`  → caller's threads only.
  * `role = 'admin'` → all threads across the workspace (for the admin UI),
@@ -52,6 +52,7 @@ export async function GET(req: Request) {
     .select({
       id: chatThreads.id,
       title: chatThreads.title,
+      pinned: chatThreads.pinned,
       defaultModelId: chatThreads.defaultModelId,
       previewSummary: chatThreads.previewSummary,
       previewSummaryUpdatedAt: chatThreads.previewSummaryUpdatedAt,
@@ -62,7 +63,11 @@ export async function GET(req: Request) {
     })
     .from(chatThreads)
     .where(and(scope))
-    .orderBy(desc(chatThreads.updatedAt))
+    .orderBy(
+      desc(chatThreads.pinned),
+      desc(chatThreads.updatedAt),
+      asc(chatThreads.id),
+    )
     .limit(limit);
 
   return NextResponse.json({ threads: rows });

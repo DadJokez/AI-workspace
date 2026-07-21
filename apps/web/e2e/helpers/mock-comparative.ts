@@ -191,7 +191,7 @@ export async function installMockComparativeApi(
   };
   const skills = options.skills ?? [defaultSkill];
   const apps = options.apps ?? [];
-  const threads = options.threads ?? [];
+  let threads = (options.threads ?? []) as Array<Record<string, unknown>>;
   const threadMessages = options.threadMessages ?? {};
   const oauthStatus = options.oauthStatus ?? { github: false };
   const user = {
@@ -462,6 +462,23 @@ export async function installMockComparativeApi(
     if (threadMessagesMatch) {
       const threadId = decodeURIComponent(threadMessagesMatch[1]!);
       return json(route, { messages: threadMessages[threadId] ?? [] });
+    }
+
+    const threadMetadataMatch = /^\/api\/threads\/([^/]+)$/.exec(path);
+    if (threadMetadataMatch && request.method() === "PATCH") {
+      const threadId = decodeURIComponent(threadMetadataMatch[1]!);
+      const body = await postJson(request);
+      const current = threads.find((thread) => thread.id === threadId);
+      if (!current) return json(route, { error: "thread_not_found" }, 404);
+      const next = {
+        ...current,
+        ...(typeof body.title === "string" ? { title: body.title } : {}),
+        ...(typeof body.pinned === "boolean" ? { pinned: body.pinned } : {}),
+      };
+      threads = threads.map((thread) =>
+        thread.id === threadId ? next : thread,
+      );
+      return json(route, { thread: next });
     }
 
     if (path === "/api/skills") {

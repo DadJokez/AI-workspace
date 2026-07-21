@@ -44,6 +44,7 @@ import { WelcomeWizard } from "@/components/WelcomeWizard";
 import { shouldShowTour } from "@/lib/tour";
 import { NotificationsPanel } from "@/components/NotificationsPanel";
 import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
+import { sortThreadHistory } from "@/lib/thread-history";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { WorkspacePanel } from "@/components/WorkspacePanel";
 import {
@@ -646,11 +647,14 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
 
   async function refreshThreads() {
     try {
-      const r = await fetch(`/api/threads?limit=${THREADS_LIMIT}`);
+      const r = await fetch(
+        `/api/threads?limit=${THREADS_LIMIT}&scope=mine`,
+      );
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = (await r.json()) as ThreadsResponse;
-      setThreads(data.threads);
-      syncTabTitlesFromThreads(data.threads);
+      const nextThreads = sortThreadHistory(data.threads);
+      setThreads(nextThreads);
+      syncTabTitlesFromThreads(nextThreads);
       setThreadsError(undefined);
     } catch (err) {
       setThreadsError(err instanceof Error ? err.message : String(err));
@@ -684,7 +688,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
       fetch("/api/models")
         .then((r) => (r.ok ? (r.json() as Promise<ModelsResponse>) : null))
         .catch(() => null),
-      fetch(`/api/threads?limit=${THREADS_LIMIT}`)
+      fetch(`/api/threads?limit=${THREADS_LIMIT}&scope=mine`)
         .then((r) =>
           r.ok
             ? (r.json() as Promise<ThreadsResponse>)
@@ -704,7 +708,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
       if (threadsResult instanceof Error) {
         setThreadsError(threadsResult.message);
       } else {
-        const nextThreads = threadsResult?.threads ?? [];
+        const nextThreads = sortThreadHistory(threadsResult?.threads ?? []);
         setThreads(nextThreads);
         syncTabTitlesFromThreads(nextThreads);
         setThreadsError(undefined);
@@ -1320,6 +1324,33 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
       setActiveId(fresh.id);
       setRightPane(null);
     }
+  }
+
+  async function handlePinThread(threadId: string, pinned: boolean) {
+    const res = await fetch(`/api/threads/${threadId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pinned }),
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = (await res.json()) as {
+      thread: { id: string; pinned: boolean; updatedAt: string };
+    };
+    setThreads((prev) =>
+      sortThreadHistory(
+        prev.map((thread) =>
+          thread.id === threadId
+            ? {
+                ...thread,
+                pinned: data.thread.pinned,
+                updatedAt: data.thread.updatedAt,
+              }
+            : thread,
+        ),
+      ),
+    );
   }
 
   function handleNavSelect(id: string) {
@@ -2156,6 +2187,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
         onSignOut={() => signOut({ callbackUrl: "/login" })}
         onRenameThread={handleRenameThread}
         onDeleteThread={handleDeleteThread}
+        onPinThread={handlePinThread}
       />
 
       <main className="flex h-full min-w-0 flex-1 overflow-hidden">
