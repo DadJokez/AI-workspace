@@ -1,4 +1,8 @@
 import { auditLog, getDb, runs, runEvents, users } from "@ai-workspace/db";
+import {
+  parseAssistantSources,
+  type AssistantSource,
+} from "@ai-workspace/agent";
 import { asc, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -36,6 +40,7 @@ interface RunOutput {
   runtime?: string;
   runtimeTarget?: string;
   recommendations?: PersistedRecommendation[];
+  sources?: AssistantSource[];
   errorDetails?: Array<{
     code?: string;
     category?: string;
@@ -226,6 +231,7 @@ export default async function AdminRunDetailPage({ params }: Props) {
             {primaryOutput ? (
               <div className="rounded-md border border-hairline bg-surface px-4 py-3">
                 <MessageBubble
+                  messageId={run.id}
                   role="assistant"
                   content={primaryOutput}
                   modelId={output.modelId ?? run.modelId ?? undefined}
@@ -234,6 +240,7 @@ export default async function AdminRunDetailPage({ params }: Props) {
                   activityEvents={
                     activityEvents.length > 0 ? activityEvents : undefined
                   }
+                  sources={output.sources}
                 />
               </div>
             ) : (
@@ -503,6 +510,7 @@ function parseRunOutput(value: unknown): RunOutput {
     recommendations: Array.isArray(value.recommendations)
       ? (value.recommendations as PersistedRecommendation[])
       : undefined,
+    sources: parseAssistantSources(value.sources),
     errorDetails: Array.isArray(value.errorDetails)
       ? value.errorDetails
           .filter(isRecord)

@@ -282,6 +282,15 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
           inputs: {},
           outputs: {
             assistantMessageId: "m1",
+            sources: [
+              {
+                n: 1,
+                title: "Attribution pull request",
+                url: "https://github.com/DadJokez/AI-workspace/pull/542",
+                kind: "repo",
+                toolCallId: "github-pr",
+              },
+            ],
             appDraftVersions: [
               summary("vA", 2),
               summary("vB", 3),
@@ -324,6 +333,15 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
     // #330: persisted usage rides through to the cost meter.
     expect(persisted?.tokensIn).toBe(21_533);
     expect(persisted?.tokensOut).toBe(10);
+    expect(persisted?.sources).toEqual([
+      {
+        n: 1,
+        title: "Attribution pull request",
+        url: "https://github.com/DadJokez/AI-workspace/pull/542",
+        kind: "repo",
+        toolCallId: "github-pr",
+      },
+    ]);
     expect(persisted?.appDraftVersions).toEqual([
       expect.objectContaining({ id: "vA", status: "deployed", canDeploy: false }),
       expect.objectContaining({ id: "vB", status: "draft", canDeploy: false }),

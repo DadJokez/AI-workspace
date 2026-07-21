@@ -7,6 +7,10 @@ import {
   runEvents,
   workspaceArtifacts,
 } from "@ai-workspace/db";
+import {
+  parseAssistantSources,
+  type AssistantSource,
+} from "@ai-workspace/agent";
 import { and, asc, eq, inArray, or } from "drizzle-orm";
 import type { AgentActivityEvent } from "@/lib/activity-events";
 import {
@@ -37,6 +41,7 @@ export interface ChatRunOutput {
   toolResults?: PersistedToolResult[];
   artifacts?: WorkspaceArtifactSummary[];
   appDraftVersions?: AppDraftVersionSummary[];
+  sources?: AssistantSource[];
 }
 
 export interface ThreadMessageWithActivity {
@@ -54,6 +59,7 @@ export interface ThreadMessageWithActivity {
   artifacts?: WorkspaceArtifactSummary[];
   appDraftVersions?: AppDraftVersionSummary[];
   recommendations?: PersistedRecommendation[];
+  sources?: AssistantSource[];
   activityEvents?: AgentActivityEvent[];
   pending?: boolean;
   status?: string;
@@ -168,6 +174,7 @@ export async function loadThreadMessagesWithRunActivity({
 
   const activityByAssistantMessageId = new Map<string, AgentActivityEvent[]>();
   const laneByAssistantMessageId = new Map<string, ChatRuntimeLane>();
+  const sourcesByAssistantMessageId = new Map<string, AssistantSource[]>();
   const appDraftVersionsByAssistantMessageId = new Map<
     string,
     AppDraftVersionSummary[]
@@ -215,6 +222,12 @@ export async function loadThreadMessagesWithRunActivity({
           output.appDraftVersions,
         );
       }
+      if (output.sources?.length) {
+        sourcesByAssistantMessageId.set(
+          output.assistantMessageId,
+          output.sources,
+        );
+      }
       continue;
     }
     if (
@@ -242,6 +255,7 @@ export async function loadThreadMessagesWithRunActivity({
       toolResults: output.toolResults ?? null,
       artifacts: output.artifacts,
       appDraftVersions: output.appDraftVersions,
+      sources: output.sources,
       activityEvents,
       pending: run.status === "queued" || run.status === "running",
       // #359: reload reconstructs the live footer's phase from persisted
@@ -332,6 +346,7 @@ export async function loadThreadMessagesWithRunActivity({
     artifacts: artifactsByMessageId.get(message.id),
     appDraftVersions: appDraftVersionsByAssistantMessageId.get(message.id),
     activityEvents: activityByAssistantMessageId.get(message.id),
+    sources: sourcesByAssistantMessageId.get(message.id),
     recommendations: recommendationsByMessageId.get(message.id),
   }));
 
@@ -469,6 +484,7 @@ function parseChatRunOutput(value: unknown): ChatRunOutput {
       ? (value.artifacts as WorkspaceArtifactSummary[])
       : undefined,
     appDraftVersions: parseAppDraftVersionSummaries(value.appDraftVersions),
+    sources: parseAssistantSources(value.sources),
   };
 }
 

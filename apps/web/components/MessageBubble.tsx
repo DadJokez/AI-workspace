@@ -1,5 +1,6 @@
 "use client";
 
+import type { AssistantSource } from "@ai-workspace/agent";
 import { useTheme } from "@/lib/theme";
 import { formatTurnMeter } from "@/lib/turn-cost";
 import {
@@ -21,6 +22,7 @@ import type { AppDraftVersionSummary } from "@/lib/app-draft-versions";
 import { escapeBareOrderedListMarkers } from "@/lib/chat-markdown";
 import { parseSlashDisplayMessage } from "@/lib/skill-commands";
 import { formatMessageTimestamp } from "@/lib/message-time";
+import { remarkSourceMarkers } from "@/lib/source-markers";
 import { useEffect, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -31,6 +33,7 @@ import {
 import remarkGfm from "remark-gfm";
 
 interface Props {
+  messageId?: string;
   role: "user" | "assistant" | "tool";
   content: string;
   createdAt?: string;
@@ -49,6 +52,7 @@ interface Props {
   appDraftVersions?: AppDraftVersionSummary[];
   recommendations?: PersistedRecommendation[];
   activityEvents?: AgentActivityEvent[];
+  sources?: AssistantSource[];
   assistantName?: string | null;
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
   onDeployAppDraft?: (version: AppDraftVersionSummary) => void;
@@ -62,6 +66,7 @@ interface Props {
 }
 
 export function MessageBubble({
+  messageId,
   role,
   content,
   createdAt,
@@ -79,6 +84,7 @@ export function MessageBubble({
   appDraftVersions = [],
   recommendations = [],
   activityEvents: persistedActivityEvents,
+  sources = [],
   assistantName,
   onOpenArtifact,
   onDeployAppDraft,
@@ -170,6 +176,7 @@ export function MessageBubble({
     role === "assistant" && !showThinking
       ? splitAssistantContent(content, artifacts, Boolean(pending))
       : [];
+  const sourceAnchorPrefix = `source-${(messageId ?? "message").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 
   // Suppress the "Assistant" label-only stub left behind when a turn errors
   // out before any text streamed. The error bar carries the message instead.
@@ -218,11 +225,23 @@ export function MessageBubble({
         className="min-w-0 max-w-full overflow-hidden px-px text-base leading-relaxed text-ink [overflow-wrap:anywhere]"
       >
         {showThinking ? null : role === "assistant" ? (
-          <AssistantContent parts={assistantParts} />
+          <AssistantContent
+            parts={assistantParts}
+            sources={sources}
+            sourceAnchorPrefix={sourceAnchorPrefix}
+          />
         ) : (
           <span className="whitespace-pre-wrap">{content}</span>
         )}
       </div>
+      {role === "assistant" && sources.length > 0 ? (
+        <SourceStrip
+          sources={sources}
+          artifacts={artifacts}
+          sourceAnchorPrefix={sourceAnchorPrefix}
+          onOpenArtifact={onOpenArtifact}
+        />
+      ) : null}
       {role === "assistant" && artifacts.length > 0 ? (
         <ArtifactStrip artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
       ) : null}
@@ -478,6 +497,110 @@ function ArtifactStrip({
   );
 }
 
+function SourceStrip({
+  sources,
+  artifacts,
+  sourceAnchorPrefix,
+  onOpenArtifact,
+}: {
+  sources: AssistantSource[];
+  artifacts: WorkspaceArtifactSummary[];
+  sourceAnchorPrefix: string;
+  onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+}) {
+  return (
+    <div
+      data-testid="message-sources"
+      className="mt-2 flex max-w-full flex-wrap items-center gap-1.5"
+      aria-label="Sources"
+    >
+      <span className="mr-0.5 text-2xs font-medium uppercase tracking-wide text-muted">
+        Sources
+      </span>
+      {sources.map((source) => {
+        const artifact = artifactForSource(source, artifacts);
+        const content = <SourceChipContent source={source} />;
+        const sharedProps = {
+          id: `${sourceAnchorPrefix}-${source.n}`,
+          "data-testid": `source-chip-${source.n}`,
+          className:
+            "inline-flex max-w-full items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 py-1 text-left text-xs text-muted transition-colors hover:border-muted hover:text-ink",
+          title: source.title,
+        };
+
+        if (artifact && onOpenArtifact) {
+          return (
+            <button
+              key={source.n}
+              type="button"
+              {...sharedProps}
+              onClick={() => onOpenArtifact(artifact)}
+            >
+              {content}
+            </button>
+          );
+        }
+        if (
+          source.url &&
+          (source.kind === "web" || source.kind === "repo")
+        ) {
+          return (
+            <a
+              key={source.n}
+              {...sharedProps}
+              href={source.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {content}
+            </a>
+          );
+        }
+        return (
+          <span key={source.n} {...sharedProps}>
+            {content}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function SourceChipContent({ source }: { source: AssistantSource }) {
+  return (
+    <>
+      <span className="shrink-0 font-mono text-2xs text-info">
+        [{source.n}]
+      </span>
+      <span className="shrink-0 text-2xs font-medium uppercase text-muted/80">
+        {sourceKindLabel(source.kind)}
+      </span>
+      <span className="min-w-0 max-w-56 truncate">{source.title}</span>
+    </>
+  );
+}
+
+function artifactForSource(
+  source: AssistantSource,
+  artifacts: WorkspaceArtifactSummary[],
+): WorkspaceArtifactSummary | undefined {
+  if (source.kind !== "artifact" && source.kind !== "file") return undefined;
+  return artifacts.find(
+    (artifact) =>
+      source.url === artifact.id ||
+      source.url === artifact.previewUrl ||
+      source.url === artifact.downloadUrl ||
+      source.title === artifact.filename,
+  );
+}
+
+function sourceKindLabel(kind: AssistantSource["kind"]): string {
+  if (kind === "repo") return "Repo";
+  if (kind === "artifact") return "Doc";
+  if (kind === "file") return "File";
+  return "Web";
+}
+
 const artifactPillClassName =
   "group flex max-w-full items-center gap-2 rounded-full border border-accent bg-accent px-2.5 py-1.5 text-left text-xs text-on-accent transition hover:bg-accent/90";
 
@@ -520,15 +643,31 @@ interface RenderableCodeFence {
   code: string;
 }
 
-function AssistantContent({ parts }: { parts: AssistantPart[] }) {
+function AssistantContent({
+  parts,
+  sources,
+  sourceAnchorPrefix,
+}: {
+  parts: AssistantPart[];
+  sources: AssistantSource[];
+  sourceAnchorPrefix: string;
+}) {
+  const sourceMarkerPlugin = remarkSourceMarkers(
+    sources.map((source) => source.n),
+    sourceAnchorPrefix,
+  );
+  const markdownComponents = markdownComponentsForSources(
+    sources,
+    sourceAnchorPrefix,
+  );
   return (
     <>
       {parts.map((part, index) =>
         part.type === "markdown" ? (
           <ReactMarkdown
             key={`markdown-${index}`}
-            remarkPlugins={[remarkGfm]}
-            components={MARKDOWN_COMPONENTS}
+            remarkPlugins={[remarkGfm, sourceMarkerPlugin]}
+            components={markdownComponents}
           >
             {escapeBareOrderedListMarkers(part.content)}
           </ReactMarkdown>
@@ -544,6 +683,51 @@ function AssistantContent({ parts }: { parts: AssistantPart[] }) {
       )}
     </>
   );
+}
+
+function markdownComponentsForSources(
+  sources: AssistantSource[],
+  sourceAnchorPrefix: string,
+): Components {
+  const sourcesByNumber = new Map(
+    sources.map((source) => [source.n, source] as const),
+  );
+  const markerHrefPrefix = `#${sourceAnchorPrefix}-`;
+
+  return {
+    ...MARKDOWN_COMPONENTS,
+    a: ({ href, children, ...props }) => {
+      const markerNumber = href?.startsWith(markerHrefPrefix)
+        ? Number(href.slice(markerHrefPrefix.length))
+        : Number.NaN;
+      const source = sourcesByNumber.get(markerNumber);
+      if (source && href) {
+        return (
+          <sup className="ml-0.5 align-super text-2xs leading-none">
+            <a
+              href={href}
+              aria-label={`Source ${source.n}: ${source.title}`}
+              title={source.title}
+              className="rounded-sm bg-info-bg px-1 py-0.5 font-mono text-info no-underline hover:underline"
+            >
+              {children}
+            </a>
+          </sup>
+        );
+      }
+      return (
+        <a
+          href={href}
+          className="underline"
+          target="_blank"
+          rel="noreferrer"
+          {...props}
+        >
+          {children}
+        </a>
+      );
+    },
+  };
 }
 
 function ArtifactCodePreview({

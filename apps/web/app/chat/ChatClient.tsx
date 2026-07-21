@@ -1,5 +1,9 @@
 "use client";
 
+import {
+  parseAssistantSources,
+  type AssistantSource,
+} from "@ai-workspace/agent";
 import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
 import { RunInspectorPane } from "@/components/RunInspectorPane";
 import { SlideOverPane } from "@/components/SlideOverPane";
@@ -103,6 +107,7 @@ interface UiMessage {
   appDraftVersions?: AppDraftVersionSummary[];
   recommendations?: PersistedRecommendation[];
   activityEvents?: AgentActivityEvent[];
+  sources?: AssistantSource[];
   runId?: string;
   runStatus?: string;
   runError?: string | null;
@@ -230,6 +235,7 @@ interface ThreadMessage {
   appDraftVersions?: AppDraftVersionSummary[];
   recommendations?: PersistedRecommendation[];
   activityEvents?: AgentActivityEvent[];
+  sources?: AssistantSource[];
   pending?: boolean;
   status?: string;
   runPhase?: string;
@@ -265,6 +271,7 @@ function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
     appDraftVersions: message.appDraftVersions,
     recommendations: message.recommendations,
     activityEvents: message.activityEvents,
+    sources: message.sources,
     runId: message.runId,
     runStatus: message.runStatus,
     runError: message.runError,
@@ -1874,6 +1881,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
           const recommendations = Array.isArray(ev.recommendations)
             ? (ev.recommendations as PersistedRecommendation[])
             : undefined;
+          const sources = parseAssistantSources(ev.sources);
           const tokensIn =
             typeof ev.tokensIn === "number" ? ev.tokensIn : undefined;
           const tokensOut =
@@ -1893,6 +1901,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                     artifacts,
                     appDraftVersions,
                     recommendations,
+                    sources,
                     tokensIn,
                     tokensOut,
                     runId: streamRunId ?? m.runId,
@@ -2351,6 +2360,8 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                     )}
                     recommendations={m.recommendations}
                     activityEvents={m.activityEvents}
+                    sources={m.sources}
+                    messageId={m.id}
                     assistantName={user?.assistantName}
                     onOpenArtifact={openArtifactPreview}
                     onDeployAppDraft={handleAppDraftDeploy}
