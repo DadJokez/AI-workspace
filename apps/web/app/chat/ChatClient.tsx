@@ -2068,6 +2068,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
         onClose={() => setSidebarOpen(false)}
         onNewChat={newTab}
         onSearch={openPalette}
+        autoCollapse={rightPane !== null}
         threads={threads}
         threadsLoading={threadsLoading}
         threadsError={threadsError}
