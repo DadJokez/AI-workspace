@@ -3,7 +3,7 @@
 import {
   parseAssistantSources,
   type AssistantSource,
-} from "@ai-workspace/agent";
+} from "@ai-workspace/agent/sources";
 import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
 import { RunInspectorPane } from "@/components/RunInspectorPane";
 import { SlideOverPane } from "@/components/SlideOverPane";

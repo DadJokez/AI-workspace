@@ -10,7 +10,7 @@ test.skip(
   "mocked citation tests run only against the local e2e harness",
 );
 
-test("renders persisted tool sources as safe chips and inline markers", async ({
+test("renders persisted source chips without inventing inline attribution", async ({
   page,
 }) => {
   const hostileTitle = '<img src=x onerror="globalThis.pwned=true">';
@@ -92,16 +92,12 @@ test("renders persisted tool sources as safe chips and inline markers", async ({
   await expect(repoChip).toHaveAttribute("target", "_blank");
   await expect(repoChip).toHaveAttribute("rel", "noreferrer");
 
-  const inlineMarker = page.getByRole("link", {
-    name: `Source 1: ${hostileTitle}`,
-  });
-  await expect(inlineMarker).toHaveAttribute(
-    "href",
-    "#source-assistant-citations-1",
-  );
   await expect(
-    page.locator('a[href="#source-assistant-citations-3"]'),
+    page.locator('a[href^="#source-assistant-citations-"]'),
   ).toHaveCount(0);
+  await expect(
+    page.getByText("The attribution change is ready for review [1]."),
+  ).toBeVisible();
   await expect(page.getByText("Unknown source [3].")).toBeVisible();
 
   await page.getByTestId("source-chip-2").click();

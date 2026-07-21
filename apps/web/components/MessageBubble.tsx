@@ -1,6 +1,6 @@
 "use client";
 
-import type { AssistantSource } from "@ai-workspace/agent";
+import type { AssistantSource } from "@ai-workspace/agent/sources";
 import { useTheme } from "@/lib/theme";
 import { formatTurnMeter } from "@/lib/turn-cost";
 import {
@@ -22,7 +22,6 @@ import type { AppDraftVersionSummary } from "@/lib/app-draft-versions";
 import { escapeBareOrderedListMarkers } from "@/lib/chat-markdown";
 import { parseSlashDisplayMessage } from "@/lib/skill-commands";
 import { formatMessageTimestamp } from "@/lib/message-time";
-import { remarkSourceMarkers } from "@/lib/source-markers";
 import { useEffect, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -225,11 +224,7 @@ export function MessageBubble({
         className="min-w-0 max-w-full overflow-hidden px-px text-base leading-relaxed text-ink [overflow-wrap:anywhere]"
       >
         {showThinking ? null : role === "assistant" ? (
-          <AssistantContent
-            parts={assistantParts}
-            sources={sources}
-            sourceAnchorPrefix={sourceAnchorPrefix}
-          />
+          <AssistantContent parts={assistantParts} />
         ) : (
           <span className="whitespace-pre-wrap">{content}</span>
         )}
@@ -643,31 +638,15 @@ interface RenderableCodeFence {
   code: string;
 }
 
-function AssistantContent({
-  parts,
-  sources,
-  sourceAnchorPrefix,
-}: {
-  parts: AssistantPart[];
-  sources: AssistantSource[];
-  sourceAnchorPrefix: string;
-}) {
-  const sourceMarkerPlugin = remarkSourceMarkers(
-    sources.map((source) => source.n),
-    sourceAnchorPrefix,
-  );
-  const markdownComponents = markdownComponentsForSources(
-    sources,
-    sourceAnchorPrefix,
-  );
+function AssistantContent({ parts }: { parts: AssistantPart[] }) {
   return (
     <>
       {parts.map((part, index) =>
         part.type === "markdown" ? (
           <ReactMarkdown
             key={`markdown-${index}`}
-            remarkPlugins={[remarkGfm, sourceMarkerPlugin]}
-            components={markdownComponents}
+            remarkPlugins={[remarkGfm]}
+            components={MARKDOWN_COMPONENTS}
           >
             {escapeBareOrderedListMarkers(part.content)}
           </ReactMarkdown>
@@ -683,51 +662,6 @@ function AssistantContent({
       )}
     </>
   );
-}
-
-function markdownComponentsForSources(
-  sources: AssistantSource[],
-  sourceAnchorPrefix: string,
-): Components {
-  const sourcesByNumber = new Map(
-    sources.map((source) => [source.n, source] as const),
-  );
-  const markerHrefPrefix = `#${sourceAnchorPrefix}-`;
-
-  return {
-    ...MARKDOWN_COMPONENTS,
-    a: ({ href, children, ...props }) => {
-      const markerNumber = href?.startsWith(markerHrefPrefix)
-        ? Number(href.slice(markerHrefPrefix.length))
-        : Number.NaN;
-      const source = sourcesByNumber.get(markerNumber);
-      if (source && href) {
-        return (
-          <sup className="ml-0.5 align-super text-2xs leading-none">
-            <a
-              href={href}
-              aria-label={`Source ${source.n}: ${source.title}`}
-              title={source.title}
-              className="rounded-sm bg-info-bg px-1 py-0.5 font-mono text-info no-underline hover:underline"
-            >
-              {children}
-            </a>
-          </sup>
-        );
-      }
-      return (
-        <a
-          href={href}
-          className="underline"
-          target="_blank"
-          rel="noreferrer"
-          {...props}
-        >
-          {children}
-        </a>
-      );
-    },
-  };
 }
 
 function ArtifactCodePreview({
