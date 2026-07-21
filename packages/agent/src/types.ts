@@ -23,6 +23,16 @@ export interface Tool<TInput = unknown, TOutput = unknown> {
   description: string;
   inputSchema: JSONSchema7;
   handler: ToolHandler<TInput, TOutput>;
+  /**
+   * #497: marks output a third party can influence. `connectMcpTools` sets
+   * this on every wrapped MCP tool; the agent loop then nonce-frames the
+   * serialized output as DATA at the model-visible boundary
+   * (`frameUntrustedToolResult`). Emitted `tool-result` events keep the raw
+   * output for persistence and structured consumers. First-party tools that
+   * already frame their own content (web fetch/search) leave this unset —
+   * double-framing is noise.
+   */
+  untrustedOutput?: boolean;
 }
 
 export type Role = "user" | "assistant" | "tool";
