@@ -16,9 +16,11 @@ const handler = NextAuth(authOptions) as (
 export { handler as GET };
 
 /**
- * POST wrapper: rate-limit magic-link requests per email+IP before next-auth
- * sees them (mirrors the inviteEmailRateLimit pattern). Everything else
- * passes straight through. The 429 body mimics next-auth's JSON shape
+ * POST wrapper: rate-limit magic-link requests per normalized recipient email
+ * before next-auth sees them. Everything else passes straight through. The
+ * key intentionally excludes client-supplied forwarding headers so rotating
+ * a spoofed X-Forwarded-For value cannot bypass the recipient cap. The 429
+ * body mimics next-auth's JSON shape
  * (`{ url }`) so `signIn("email", { redirect: false })` surfaces it as
  * `error: "RateLimited"` for the login form. The limit runs before any
  * account lookup, so it reveals nothing about whether an address is invited.
@@ -49,7 +51,7 @@ async function magicLinkRateLimited(
 
   const rate = await checkRateLimit(
     getDb(),
-    magicLinkRateLimitKey(email, req.headers.get("x-forwarded-for")),
+    magicLinkRateLimitKey(email),
     magicLinkRateLimit,
   );
   if (rate.allowed) return null;

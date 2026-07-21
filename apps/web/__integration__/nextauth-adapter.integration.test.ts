@@ -7,8 +7,8 @@ import { like, or, sql } from "drizzle-orm";
  * Postgres — create/use/expire/single-use is a DELETE ... RETURNING
  * contract that the unit-lane mocks can't prove.
  *
- * Suites skip (not fail) when no INTEGRATION_DATABASE_URL is provided,
- * matching the scoping suite.
+ * Suites skip (not fail) when no DATABASE_URL is provided, matching the
+ * scoping suite.
  */
 
 const DB_URL = process.env.DATABASE_URL;

@@ -81,10 +81,10 @@ export function enabledAuthProviders(): AuthProviderId[] {
 }
 
 /**
- * Rate limit for magic-link requests, keyed per email+IP by the
- * [...nextauth] route wrapper. Mirrors `inviteEmailRateLimit`
- * (lib/admin-invitations.ts) and runs through the same
- * `checkRateLimit` Postgres buckets.
+ * Rate limit for magic-link requests, keyed by normalized recipient email by
+ * the [...nextauth] route wrapper. The unauthenticated endpoint deliberately
+ * does not trust forwarding headers for this security boundary: callers can
+ * spoof X-Forwarded-For until the deployment has a verified proxy chain.
  */
 export const magicLinkRateLimit = {
   maxRequestBytes: 8 * 1024,
@@ -93,12 +93,8 @@ export const magicLinkRateLimit = {
   maxRequests: 5,
 };
 
-export function magicLinkRateLimitKey(
-  email: string,
-  xForwardedFor: string | null,
-): string {
-  const ip = (xForwardedFor ?? "").split(",")[0]!.trim() || "unknown";
-  return `magic-link:${email.trim().toLowerCase()}:${ip}`;
+export function magicLinkRateLimitKey(email: string): string {
+  return `magic-link:${email.trim().toLowerCase()}`;
 }
 
 /**
@@ -218,6 +214,9 @@ export const authOptions: NextAuthOptions = {
         // Same gate for the request phase (email.verificationRequest) and
         // the callback phase — the callback's token validity/single-use is
         // already enforced by next-auth core + the adapter by this point.
+        // The response copy is neutral, but an allowed request still includes
+        // SES latency while a denied request does not. That low-sensitivity
+        // timing signal is accepted for this invite-only tester phase.
         void email;
         return emailAllowedToSignIn(db, address);
       }
