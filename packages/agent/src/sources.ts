@@ -40,11 +40,40 @@ interface SourceCandidate {
   toolCallId: string;
 }
 
+type GitHubWalkMode = "wrapper" | "entity";
+
 const MAX_SOURCES = 20;
 const MAX_WALK_DEPTH = 7;
 const MAX_TITLE_LENGTH = 180;
 const GITHUB_URL_RE =
   /https:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\/[^\s)\]}>"']*)?/gi;
+const GITHUB_RESULT_COLLECTION_KEYS = new Set([
+  "pullRequests",
+  "pull_requests",
+  "issues",
+  "items",
+  "results",
+  "repositories",
+  "files",
+  "commits",
+  "releases",
+  "workflowRuns",
+  "workflow_runs",
+]);
+const GITHUB_RESULT_ITEM_KEYS = new Set([
+  "pullRequest",
+  "pull_request",
+  "issue",
+  "item",
+  "result",
+  "data",
+  "repository",
+  "file",
+  "commit",
+  "release",
+  "workflowRun",
+  "workflow_run",
+]);
 
 export function extractAssistantSources({
   toolCalls = [],
@@ -77,7 +106,14 @@ export function extractAssistantSources({
         stringValue(input.branch) ??
         stringValue(input.sha),
     };
-    collectGitHubSources(result.output, context, candidates, 0, new Set());
+    collectGitHubSources(
+      result.output,
+      context,
+      candidates,
+      0,
+      new Set(),
+      "wrapper",
+    );
   }
 
   const seen = new Set<string>();
@@ -137,13 +173,21 @@ function collectGitHubSources(
   candidates: SourceCandidate[],
   depth: number,
   seen: Set<object>,
+  mode: GitHubWalkMode,
 ): void {
   if (depth > MAX_WALK_DEPTH || candidates.length >= MAX_SOURCES * 2) return;
 
   if (typeof value === "string") {
     const parsed = parseJson(value);
     if (parsed !== undefined) {
-      collectGitHubSources(parsed, context, candidates, depth + 1, seen);
+      collectGitHubSources(
+        parsed,
+        context,
+        candidates,
+        depth + 1,
+        seen,
+        mode,
+      );
       return;
     }
     for (const match of value.matchAll(GITHUB_URL_RE)) {
@@ -155,7 +199,14 @@ function collectGitHubSources(
 
   if (Array.isArray(value)) {
     for (const item of value) {
-      collectGitHubSources(item, context, candidates, depth + 1, seen);
+      collectGitHubSources(
+        item,
+        context,
+        candidates,
+        depth + 1,
+        seen,
+        "entity",
+      );
     }
     return;
   }
@@ -170,26 +221,63 @@ function collectGitHubSources(
       directUrl,
       titleFromRecord(value, directUrl),
     );
+    return;
   } else {
     const path = stringValue(value.path) ?? stringValue(value.filename);
     const fileUrl = path ? githubFileUrl(path, context) : undefined;
     if (path && fileUrl) {
       addCandidate(candidates, context, fileUrl, normalizeTitle(path) ?? path);
+      return;
     }
   }
 
+  if (mode === "entity") return;
+
+  collectMcpContent(value.content, context, candidates, depth, seen);
+
   for (const [key, nested] of Object.entries(value)) {
-    if (key === "patch" || key === "diff") continue;
-    if (key === "content" && typeof nested === "string" && !looksLikeJson(nested)) {
+    if (
+      !GITHUB_RESULT_COLLECTION_KEYS.has(key) &&
+      !GITHUB_RESULT_ITEM_KEYS.has(key)
+    ) {
       continue;
     }
-    if (typeof nested === "object" && nested !== null) {
-      collectGitHubSources(nested, context, candidates, depth + 1, seen);
-    } else if (
-      typeof nested === "string" &&
-      (looksLikeJson(nested) || nested.includes("https://github.com/"))
+    const nestedMode =
+      key === "data" || key === "result" ? "wrapper" : "entity";
+    collectGitHubSources(
+      nested,
+      context,
+      candidates,
+      depth + 1,
+      seen,
+      nestedMode,
+    );
+  }
+}
+
+function collectMcpContent(
+  value: unknown,
+  context: GitHubContext,
+  candidates: SourceCandidate[],
+  depth: number,
+  seen: Set<object>,
+): void {
+  if (!Array.isArray(value)) return;
+
+  for (const block of value) {
+    if (
+      isRecord(block) &&
+      block.type === "text" &&
+      typeof block.text === "string"
     ) {
-      collectGitHubSources(nested, context, candidates, depth + 1, seen);
+      collectGitHubSources(
+        block.text,
+        context,
+        candidates,
+        depth + 1,
+        seen,
+        "wrapper",
+      );
     }
   }
 }
@@ -318,9 +406,7 @@ function safeSourceUrl(value: unknown): string | undefined {
   if (value.startsWith("/") && !value.startsWith("//")) return value;
   try {
     const parsed = new URL(value);
-    return parsed.protocol === "https:" || parsed.protocol === "http:"
-      ? parsed.toString()
-      : undefined;
+    return parsed.protocol === "https:" ? parsed.toString() : undefined;
   } catch {
     return undefined;
   }

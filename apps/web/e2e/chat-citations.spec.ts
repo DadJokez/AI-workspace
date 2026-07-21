@@ -92,9 +92,7 @@ test("renders persisted source chips without inventing inline attribution", asyn
   await expect(repoChip).toHaveAttribute("target", "_blank");
   await expect(repoChip).toHaveAttribute("rel", "noreferrer");
 
-  await expect(
-    page.locator('a[href^="#source-assistant-citations-"]'),
-  ).toHaveCount(0);
+  await expect(page.locator('a[href^="#source-"]')).toHaveCount(0);
   await expect(
     page.getByText("The attribution change is ready for review [1]."),
   ).toBeVisible();

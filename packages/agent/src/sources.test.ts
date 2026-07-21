@@ -60,6 +60,75 @@ describe("extractAssistantSources", () => {
     ]);
   });
 
+  it("does not promote nested GitHub entities from a realistic MCP pull request payload", () => {
+    const pullRequestUrl =
+      "https://github.com/DadJokez/AI-workspace/pull/543";
+    const output = {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            number: 543,
+            title: "Add grounded source chips",
+            html_url: pullRequestUrl,
+            body: "Related text mentions https://github.com/other/repo/issues/9",
+            user: {
+              login: "contributor",
+              html_url: "https://github.com/contributor",
+            },
+            head: {
+              repo: {
+                name: "AI-workspace-fork",
+                html_url: "https://github.com/contributor/AI-workspace",
+              },
+            },
+            base: {
+              repo: {
+                name: "AI-workspace",
+                html_url: "https://github.com/DadJokez/AI-workspace",
+              },
+            },
+            assignee: {
+              login: "reviewer",
+              html_url: "https://github.com/reviewer",
+            },
+            merged_by: {
+              login: "maintainer",
+              html_url: "https://github.com/maintainer",
+            },
+            requested_reviewers: [
+              {
+                login: "second-reviewer",
+                html_url: "https://github.com/second-reviewer",
+              },
+            ],
+          }),
+        },
+      ],
+    };
+
+    expect(
+      extractAssistantSources({
+        toolResults: [
+          {
+            toolCallId: "call-realistic-pr",
+            provider: "github",
+            toolName: "get_pull_request",
+            output,
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        n: 1,
+        title: "Add grounded source chips",
+        url: pullRequestUrl,
+        kind: "repo",
+        toolCallId: "call-realistic-pr",
+      },
+    ]);
+  });
+
   it("builds a repository file link from tool input and JSON text output", () => {
     expect(
       extractAssistantSources({
@@ -200,6 +269,12 @@ describe("parseAssistantSources", () => {
           kind: "web",
           url: "//evil.example/source",
         },
+        {
+          n: 5,
+          title: "Insecure transport",
+          kind: "web",
+          url: "http://example.com/source",
+        },
       ]),
     ).toEqual([
       {
@@ -216,6 +291,7 @@ describe("parseAssistantSources", () => {
       },
       { n: 3, title: "Unsafe", kind: "web" },
       { n: 4, title: "Protocol relative", kind: "web" },
+      { n: 5, title: "Insecure transport", kind: "web" },
     ]);
   });
 });

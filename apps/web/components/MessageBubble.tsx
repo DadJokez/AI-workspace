@@ -32,7 +32,6 @@ import {
 import remarkGfm from "remark-gfm";
 
 interface Props {
-  messageId?: string;
   role: "user" | "assistant" | "tool";
   content: string;
   createdAt?: string;
@@ -65,7 +64,6 @@ interface Props {
 }
 
 export function MessageBubble({
-  messageId,
   role,
   content,
   createdAt,
@@ -175,7 +173,6 @@ export function MessageBubble({
     role === "assistant" && !showThinking
       ? splitAssistantContent(content, artifacts, Boolean(pending))
       : [];
-  const sourceAnchorPrefix = `source-${(messageId ?? "message").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 
   // Suppress the "Assistant" label-only stub left behind when a turn errors
   // out before any text streamed. The error bar carries the message instead.
@@ -233,7 +230,6 @@ export function MessageBubble({
         <SourceStrip
           sources={sources}
           artifacts={artifacts}
-          sourceAnchorPrefix={sourceAnchorPrefix}
           onOpenArtifact={onOpenArtifact}
         />
       ) : null}
@@ -495,12 +491,10 @@ function ArtifactStrip({
 function SourceStrip({
   sources,
   artifacts,
-  sourceAnchorPrefix,
   onOpenArtifact,
 }: {
   sources: AssistantSource[];
   artifacts: WorkspaceArtifactSummary[];
-  sourceAnchorPrefix: string;
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
 }) {
   return (
@@ -516,7 +510,6 @@ function SourceStrip({
         const artifact = artifactForSource(source, artifacts);
         const content = <SourceChipContent source={source} />;
         const sharedProps = {
-          id: `${sourceAnchorPrefix}-${source.n}`,
           "data-testid": `source-chip-${source.n}`,
           className:
             "inline-flex max-w-full items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 py-1 text-left text-xs text-muted transition-colors hover:border-muted hover:text-ink",

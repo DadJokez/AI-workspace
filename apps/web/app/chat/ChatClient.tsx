@@ -2361,7 +2361,6 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                     recommendations={m.recommendations}
                     activityEvents={m.activityEvents}
                     sources={m.sources}
-                    messageId={m.id}
                     assistantName={user?.assistantName}
                     onOpenArtifact={openArtifactPreview}
                     onDeployAppDraft={handleAppDraftDeploy}

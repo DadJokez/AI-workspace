@@ -231,7 +231,6 @@ export default async function AdminRunDetailPage({ params }: Props) {
             {primaryOutput ? (
               <div className="rounded-md border border-hairline bg-surface px-4 py-3">
                 <MessageBubble
-                  messageId={run.id}
                   role="assistant"
                   content={primaryOutput}
                   modelId={output.modelId ?? run.modelId ?? undefined}
