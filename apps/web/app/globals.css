@@ -139,6 +139,10 @@ body {
 }
 
 :focus-visible {
+  /* Forced-colors mode drops box shadows but promotes this transparent
+   * outline to the user's system focus color. */
+  outline: 2px solid transparent;
+  outline-offset: 2px;
   box-shadow: var(--shadow-focus);
 }
 

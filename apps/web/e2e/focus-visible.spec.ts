@@ -38,10 +38,41 @@ async function expectTokenFocusRing(target: Locator) {
     };
   });
 
-  expect(presentation.outlineStyle).toBe("none");
+  expect(presentation.outlineStyle).toBe("solid");
   expect(presentation.boxShadow).not.toBe("none");
   expect(presentation.boxShadow).toContain(presentation.ringColor);
 }
+
+test("keyboard focus remains visible in forced-colors mode", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "desktop keyboard navigation is covered here");
+  await page.emulateMedia({ forcedColors: "active" });
+  await installMockComparativeApi(page);
+  await gotoE2EChat(page);
+
+  const sidebar = await openPrimarySidebar(page, false);
+  const target = sidebar.getByRole("button", { name: "New chat" });
+  await page.locator("main").click({ position: { x: 8, y: 8 } });
+  await tabTo(page, target);
+
+  const presentation = await target.evaluate((element) => {
+    const styles = getComputedStyle(element);
+    return {
+      boxShadow: styles.boxShadow,
+      outlineColor: styles.outlineColor,
+      outlineStyle: styles.outlineStyle,
+      outlineWidth: styles.outlineWidth,
+    };
+  });
+
+  expect(presentation.boxShadow).toBe("none");
+  expect(presentation.outlineStyle).toBe("solid");
+  expect(presentation.outlineWidth).toBe("2px");
+  expect(presentation.outlineColor).not.toBe("rgba(0, 0, 0, 0)");
+  expect(presentation.outlineColor).not.toBe("transparent");
+});
 
 for (const skin of ["umber", "classic"] as const) {
   for (const theme of ["light", "dark"] as const) {
