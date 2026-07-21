@@ -1,4 +1,5 @@
 import {
+  auditLog,
   type Database,
   workspaceArtifacts,
   type WorkspaceArtifact,
@@ -151,6 +152,33 @@ export async function createArtifactsFromAssistantMessage({
       target: [workspaceArtifacts.chatMessageId, workspaceArtifacts.filename],
     })
     .returning();
+
+  // #456: artifact creation audits by construction — every lane (inline,
+  // worker, and any future caller) creates artifacts through this one
+  // function. References only; content stays in workspace_artifacts.
+  if (rows.length > 0) {
+    const auditNow = new Date();
+    await db.insert(auditLog).values(
+      rows.map((row) => ({
+        actorUserId: userId,
+        actionType: "workspace_artifact_create",
+        status: "succeeded" as const,
+        provider: "ai-hub",
+        toolName: "workspace_artifact_create",
+        chatThreadId: threadId,
+        chatMessageId,
+        runId: runId ?? null,
+        input: {
+          artifactId: row.id,
+          filename: row.filename,
+          versionNumber: row.versionNumber,
+        },
+        metadata: { kind: row.kind, mimeType: row.mimeType, sizeBytes: row.sizeBytes },
+        startedAt: auditNow,
+        completedAt: auditNow,
+      })),
+    );
+  }
 
   return rows.map(serializeWorkspaceArtifact);
 }

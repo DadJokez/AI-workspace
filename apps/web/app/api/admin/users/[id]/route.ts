@@ -1,4 +1,4 @@
-import { getDb, users } from "@ai-workspace/db";
+import { auditLog, getDb, users } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
@@ -40,6 +40,11 @@ export async function PATCH(
   }
 
   const db = getDb();
+  const prior = await db
+    .select({ role: users.role })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
   const updated = await db
     .update(users)
     .set({ role: body.role })
@@ -56,6 +61,21 @@ export async function PATCH(
   if (updated.length === 0) {
     return NextResponse.json({ error: "user_not_found" }, { status: 404 });
   }
+
+  // #456: role changes are the highest-privilege mutation in the product —
+  // record actor, subject, and the before/after pair.
+  const now = new Date();
+  await db.insert(auditLog).values({
+    actorUserId: auth.user.id,
+    actionType: "admin_user_role_update",
+    status: "succeeded",
+    provider: "ai-hub",
+    toolName: "admin_user_role_update",
+    input: { subjectUserId: id },
+    metadata: { previousRole: prior[0]?.role ?? null, newRole: body.role },
+    startedAt: now,
+    completedAt: now,
+  });
 
   const row = updated[0]!;
   return NextResponse.json({

@@ -505,6 +505,21 @@ export async function POST(req: Request) {
       );
     }
     editedUserMessageId = editResult.targetId;
+    // #456: message edits are destructive (they truncate the thread tail) —
+    // audit the edit with what was removed, by reference.
+    const editAuditNow = new Date();
+    await db.insert(auditLog).values({
+      actorUserId: sessionUser.id,
+      actionType: "chat_message_edit",
+      status: "succeeded",
+      provider: "ai-hub",
+      toolName: "chat_message_edit",
+      chatThreadId: thread.id,
+      chatMessageId: editResult.targetId,
+      input: { deletedMessageIds: editResult.deleteIds },
+      startedAt: editAuditNow,
+      completedAt: editAuditNow,
+    });
     thread = {
       ...thread,
       previewSummary: null,
@@ -522,6 +537,23 @@ export async function POST(req: Request) {
           content: body.message,
         })
         .returning({ id: chatMessages.id });
+  if (!editedUserMessageId) {
+    // #456: user-content mutations audit like assistant ones (references
+    // only; the content lives in chat_messages).
+    const sendAuditNow = new Date();
+    await db.insert(auditLog).values({
+      actorUserId: sessionUser.id,
+      actionType: "chat_message_create",
+      status: "succeeded",
+      provider: "ai-hub",
+      toolName: "chat_message_create",
+      chatThreadId: thread.id,
+      chatMessageId: userMsg[0]!.id,
+      input: { role: "user" },
+      startedAt: sendAuditNow,
+      completedAt: sendAuditNow,
+    });
+  }
 
   // The bubble shows the typed message; the model sees it plus the folded
   // attachment text. Each file is also stored as a workspace artifact so it

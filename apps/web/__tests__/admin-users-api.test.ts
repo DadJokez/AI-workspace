@@ -48,6 +48,8 @@ interface DbHooks {
   updateReturning?: typeof sampleRows;
   onUpdateSet?: (set: Record<string, unknown>) => void;
   onUpdateWhereId?: (id: string) => void;
+  /** #456: audit_log inserts recorded by the mock. */
+  auditInserts?: Array<Record<string, unknown>>;
 }
 
 let dbHooks: DbHooks = {};
@@ -85,6 +87,17 @@ function installDbMock() {
           }
           if (prop === "orderBy") {
             return () => Promise.resolve(dbHooks.selectRows ?? sampleRows);
+          }
+          if (prop === "limit") {
+            // #456: the prior-role lookup awaits `.limit(1)` directly.
+            return () => Promise.resolve(dbHooks.selectRows ?? sampleRows);
+          }
+          if (prop === "values") {
+            // #456: the audit insert awaits `.values(...)` directly.
+            return (values: Record<string, unknown>) => {
+              (dbHooks.auditInserts ??= []).push(values);
+              return Promise.resolve([]);
+            };
           }
           if (prop === "returning") {
             return () =>
@@ -214,6 +227,14 @@ describe("PATCH /api/admin/users/[id]", () => {
     expect(body.user.id).toBe("user-uuid");
     expect(body.user.role).toBe("admin");
     expect(setReceived).toEqual({ role: "admin" });
+    // #456: the role change writes its audit row with the before/after pair.
+    expect(dbHooks.auditInserts).toHaveLength(1);
+    expect(dbHooks.auditInserts![0]).toMatchObject({
+      actorUserId: "admin-uuid",
+      actionType: "admin_user_role_update",
+      input: { subjectUserId: "user-uuid" },
+      metadata: { previousRole: "admin", newRole: "admin" },
+    });
   });
 
   it("rejects an invalid role payload", async () => {
