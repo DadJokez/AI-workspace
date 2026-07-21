@@ -54,7 +54,7 @@ export function RetryRunButton({
         {pending ? "Retrying..." : "Retry run"}
       </button>
       {error ? (
-        <span className="text-[12px] text-red-300">{error}</span>
+        <span className="text-[12px] text-danger">{error}</span>
       ) : null}
     </div>
   );

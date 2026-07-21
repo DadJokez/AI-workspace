@@ -78,7 +78,7 @@ export function ImportSkillPanel() {
         placeholder={"---\nname: my-skill\ndescription: what it does and when to use it\nmodel: sonnet-4-6\nmcp_providers: []\n---\nYou ..."}
         className="w-full resize-y rounded-md border border-hairline bg-canvas px-3 py-2 font-mono text-[12px] text-ink placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-ink/30"
       />
-      {error ? <p className="text-[12px] text-red-500">{error}</p> : null}
+      {error ? <p className="text-[12px] text-danger">{error}</p> : null}
       <button
         type="button"
         disabled={busy || !markdown.trim()}

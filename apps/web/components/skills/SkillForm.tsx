@@ -178,7 +178,7 @@ export function SkillForm({
         </div>
       </div>
 
-      {error ? <p className="text-[12px] text-red-500">{error}</p> : null}
+      {error ? <p className="text-[12px] text-danger">{error}</p> : null}
 
       <div>
         <button

@@ -26,7 +26,8 @@ const themeInitScript = `
     var theme = stored === 'dark' || stored === 'light'
       ? stored
       : (prefersDark ? 'dark' : 'light');
-    if (theme === 'dark') document.documentElement.classList.add('dark');
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.setAttribute('data-theme', theme);
     // Umber reskin opt-in (globals.css html.skin-umber). This covers the
     // FIRST paint only: React 19 hydration then replaces <html>'s className,
     // stripping script-added classes — the dark class above survives only

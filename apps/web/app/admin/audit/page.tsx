@@ -226,7 +226,7 @@ export default async function AdminAuditPage({ searchParams }: Props) {
                   </td>
                   <td className="border-b border-hairline px-6 py-3 align-top">
                     {row.error ? (
-                      <div className="max-w-xl whitespace-pre-wrap rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2 font-mono text-[12px] text-red-300">
+                      <div className="max-w-xl whitespace-pre-wrap rounded-md border border-danger/20 bg-danger-bg px-3 py-2 font-mono text-[12px] text-danger">
                         {truncate(row.error, 500)}
                       </div>
                     ) : (
@@ -259,11 +259,11 @@ function Metric({ label, value }: { label: string; value: number | string }) {
 function StatusDot({ status }: { status: string }) {
   const color =
     status === "succeeded"
-      ? "bg-green-400"
+      ? "bg-success"
       : status === "failed"
-        ? "bg-red-400"
+        ? "bg-danger"
         : status === "denied"
-          ? "bg-yellow-400"
+          ? "bg-warning"
           : "bg-muted";
   return <span className={`mt-1 h-2.5 w-2.5 rounded-full ${color}`} />;
 }
@@ -271,11 +271,11 @@ function StatusDot({ status }: { status: string }) {
 function StatusBadge({ status }: { status: string }) {
   const classes =
     status === "succeeded"
-      ? "bg-green-400/10 text-green-300"
+      ? "bg-success-bg text-success"
       : status === "failed"
-        ? "bg-red-400/10 text-red-300"
+        ? "bg-danger-bg text-danger"
         : status === "denied"
-          ? "bg-yellow-400/10 text-yellow-300"
+          ? "bg-warning-bg text-warning"
           : "bg-subtle text-muted";
   return (
     <span

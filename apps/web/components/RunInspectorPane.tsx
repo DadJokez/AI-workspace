@@ -348,7 +348,7 @@ function OverviewTab({ trace }: { trace: RunInspectorTrace }) {
       </dl>
 
       {trace.run.error ? (
-        <div className="border-l-2 border-red-400 px-3 py-2 text-[12px] text-red-300">
+        <div className="border-l-2 border-danger px-3 py-2 text-[12px] text-danger">
           {trace.run.error}
         </div>
       ) : null}
@@ -418,7 +418,7 @@ function ContextTab({ trace }: { trace: RunInspectorTrace }) {
                 </summary>
                 <div className="mt-3 space-y-4 pl-5">
                   {safeRequest?.truncated === true ? (
-                    <div className="border-l-2 border-amber-400 px-3 py-2 text-[11px] text-muted">
+                    <div className="border-l-2 border-warning px-3 py-2 text-[11px] text-muted">
                       Context content was truncated by the standard trace size
                       policy. Hashes still identify the exact provider request.
                     </div>
@@ -495,7 +495,7 @@ function ReasoningTab({
                 {block.redacted === true ? <span>Encrypted portion</span> : null}
                 {isActiveStatus(trace.run.status) &&
                 liveReasoning.length > 0 ? (
-                  <span className="ml-auto text-green-300">Live</span>
+                  <span className="ml-auto text-success">Live</span>
                 ) : null}
               </div>
               <div className="whitespace-pre-wrap text-[12px] leading-relaxed text-ink [overflow-wrap:anywhere]">
@@ -598,7 +598,7 @@ function EventList({
                 .join(" / ")}
             </div>
             {event.error ? (
-              <div className="text-[11px] text-red-300">{event.error}</div>
+              <div className="text-[11px] text-danger">{event.error}</div>
             ) : null}
             {event.input !== null && event.input !== undefined ? (
               <JsonSection label="Input" value={event.input} compact />
@@ -676,7 +676,7 @@ function PaneState({
   return (
     <div
       className={`flex h-full items-center justify-center px-6 text-center text-[12px] ${
-        tone === "error" ? "text-red-300" : "text-muted"
+        tone === "error" ? "text-danger" : "text-muted"
       }`}
     >
       {label}
@@ -698,10 +698,10 @@ function StatusPill({ status }: { status: string }) {
     <span
       className={`rounded px-1.5 py-0.5 text-[9px] uppercase ${
         active
-          ? "bg-blue-400/10 text-blue-300"
+          ? "bg-info-bg text-info"
           : status === "failed"
-            ? "bg-red-400/10 text-red-300"
-            : "bg-green-400/10 text-green-300"
+            ? "bg-danger-bg text-danger"
+            : "bg-success-bg text-success"
       }`}
     >
       {status}
@@ -712,12 +712,12 @@ function StatusPill({ status }: { status: string }) {
 function StatusDot({ status }: { status: string }) {
   const classes =
     status === "failed"
-      ? "bg-red-400"
+      ? "bg-danger"
       : status === "pending" || status === "running"
-        ? "animate-pulse bg-blue-400"
+        ? "animate-pulse bg-info"
         : status === "info"
           ? "bg-muted"
-          : "bg-green-400";
+          : "bg-success";
   return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${classes}`} />;
 }
 

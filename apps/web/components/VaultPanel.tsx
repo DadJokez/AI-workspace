@@ -227,7 +227,7 @@ export function VaultPanel({
           </section>
 
           {error ? (
-            <div className="rounded-md border border-red-500/25 bg-red-500/5 px-3 py-2 text-[13px] text-red-300">
+            <div className="rounded-md border border-danger/25 bg-danger-bg px-3 py-2 text-[13px] text-danger">
               {error}
             </div>
           ) : null}
@@ -262,7 +262,7 @@ export function VaultPanel({
                   className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-ink/30"
                 />
                 {addError ? (
-                  <p className="text-[12px] text-red-500">{addError}</p>
+                  <p className="text-[12px] text-danger">{addError}</p>
                 ) : null}
                 <button
                   type="button"

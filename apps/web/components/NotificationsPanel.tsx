@@ -204,7 +204,7 @@ export function NotificationsPanel({
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-10">
           {error ? (
-            <p className="text-[12px] text-red-500">
+            <p className="text-[12px] text-danger">
               Could not load notifications: {error}
             </p>
           ) : null}
@@ -293,7 +293,7 @@ export function NotificationsPanel({
                           n.readAt
                             ? "bg-transparent"
                             : n.type === "run_failed"
-                              ? "bg-red-500"
+                              ? "bg-danger"
                               : "bg-accent"
                         }`}
                       />
@@ -303,7 +303,7 @@ export function NotificationsPanel({
                             n.readAt
                               ? "font-normal text-muted"
                               : "font-medium text-ink"
-                          } ${n.type === "run_failed" ? "text-red-500" : ""}`}
+                          } ${n.type === "run_failed" ? "text-danger" : ""}`}
                         >
                           {n.title}
                         </span>
@@ -344,12 +344,12 @@ function DigestRow({
       <span
         aria-hidden="true"
         className={`block h-1.5 w-1.5 shrink-0 rounded-full ${
-          tone === "error" ? "bg-red-500" : "bg-accent"
+          tone === "error" ? "bg-danger" : "bg-accent"
         }`}
       />
       <span
         className={`min-w-0 flex-1 truncate text-[12px] ${
-          tone === "error" ? "text-red-500" : "text-ink"
+          tone === "error" ? "text-danger" : "text-ink"
         }`}
       >
         {label}

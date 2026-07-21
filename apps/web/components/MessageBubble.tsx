@@ -534,7 +534,7 @@ function ArtifactCodePreview({
           {kind}
         </span>
         {saveState ? (
-          <span className="shrink-0 rounded-full border border-amber-300/25 bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-100 umber:border-hairline umber:bg-surface umber:text-ink">
+          <span className="shrink-0 rounded-full border border-warning/25 bg-warning-bg px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
             {saveState}
           </span>
         ) : null}
@@ -1034,12 +1034,12 @@ function ActivityDot({
 }) {
   const className =
     state === "failed"
-      ? "bg-red-500"
+      ? "bg-danger"
       : state === "pending"
         ? "animate-pulse bg-muted/80"
         : subtle
           ? "bg-muted/45"
-          : "bg-emerald-500";
+          : "bg-success";
   return (
     <span
       className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${className}`}

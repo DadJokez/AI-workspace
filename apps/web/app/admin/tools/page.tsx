@@ -266,9 +266,9 @@ function Metric({ label, value }: { label: string; value: number }) {
 function StatusBadge({ status }: { status: string }) {
   const classes =
     status === "active"
-      ? "bg-green-400/10 text-green-300"
+      ? "bg-success-bg text-success"
       : status === "disabled"
-        ? "bg-red-400/10 text-red-300"
+        ? "bg-danger-bg text-danger"
         : "bg-subtle text-muted";
   return (
     <span
@@ -284,8 +284,8 @@ function ActionBadge({ action }: { action: string }) {
     action === "read"
       ? "bg-subtle text-muted"
       : action === "write"
-        ? "bg-yellow-400/10 text-yellow-300"
-        : "bg-red-400/10 text-red-300";
+        ? "bg-warning-bg text-warning"
+        : "bg-danger-bg text-danger";
   return (
     <span
       className={`inline-flex rounded px-2 py-0.5 text-[11px] uppercase tracking-wider ${classes}`}
@@ -299,7 +299,7 @@ function EnabledBadge({ enabled }: { enabled: boolean }) {
   return (
     <span
       className={`inline-flex rounded px-2 py-0.5 text-[11px] uppercase tracking-wider ${
-        enabled ? "bg-green-400/10 text-green-300" : "bg-subtle text-muted"
+        enabled ? "bg-success-bg text-success" : "bg-subtle text-muted"
       }`}
     >
       {enabled ? "Enabled" : "Disabled"}

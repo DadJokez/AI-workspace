@@ -365,7 +365,7 @@ function IntegrationCard({
       data-testid={`tool-card-${integration.id}`}
       className={`flex flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-subtle ${
         connected
-          ? "border-blue-500/35 bg-blue-50/70 shadow-[0_0_18px_rgba(37,99,235,0.12)] dark:border-[#2f6bff]/45 dark:bg-[#06112f]/35 dark:shadow-[0_0_18px_rgba(0,92,255,0.16)]"
+          ? "border-success/35 bg-success-bg"
           : "border-hairline"
       }`}
     >
@@ -404,7 +404,7 @@ function IntegrationCard({
             Linked
           </span>
         ) : connected ? (
-          <span className="inline-flex items-center gap-1 rounded bg-blue-100 px-2 py-0.5 text-[10px] uppercase tracking-wider text-blue-800 ring-1 ring-blue-500/25 dark:bg-[#0b3ed9]/45 dark:text-[#dbe8ff] dark:ring-[#67a3ff]/35">
+          <span className="inline-flex items-center gap-1 rounded bg-success-bg px-2 py-0.5 text-[10px] uppercase tracking-wider text-success ring-1 ring-success/25">
             <svg
               viewBox="0 0 16 16"
               width="12"

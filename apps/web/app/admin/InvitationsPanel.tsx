@@ -183,7 +183,7 @@ export function InvitationsPanel({ initialInvitations }: Props) {
           {busy ? "Sending..." : "Send invite"}
         </button>
         {error ? (
-          <span className="text-[12px] text-red-400">{error}</span>
+          <span className="text-[12px] text-danger">{error}</span>
         ) : null}
       </form>
 
@@ -304,9 +304,9 @@ function statusClass(status: AdminInvitationStatus) {
   switch (status) {
     case "sent":
     case "accepted":
-      return "bg-emerald-500/15 text-emerald-300";
+      return "bg-success-bg text-success";
     case "failed":
-      return "bg-red-500/15 text-red-300";
+      return "bg-danger-bg text-danger";
     case "revoked":
     case "expired":
       return "bg-subtle text-muted";

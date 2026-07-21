@@ -191,7 +191,7 @@ export function ArtifactPreviewPane({
               Loading preview...
             </div>
           ) : error ? (
-            <div className="m-4 rounded-md border border-red-500/25 bg-red-500/5 px-3 py-2 text-[13px] text-red-300">
+            <div className="m-4 rounded-md border border-danger/25 bg-danger-bg px-3 py-2 text-[13px] text-danger">
               {error}
             </div>
           ) : previewKind === "image" && detail ? (

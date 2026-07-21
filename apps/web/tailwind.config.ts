@@ -1,24 +1,40 @@
 import type { Config } from "tailwindcss";
 import plugin from "tailwindcss/plugin";
 
+const semanticColor = (name: string) =>
+  `rgb(from var(--color-${name}) r g b / <alpha-value>)`;
+
 const config: Config = {
   darkMode: "class",
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        canvas: "rgb(var(--color-canvas) / <alpha-value>)",
-        surface: "rgb(var(--color-surface) / <alpha-value>)",
-        sidebar: "rgb(var(--color-sidebar) / <alpha-value>)",
-        hairline: "rgb(var(--color-hairline) / <alpha-value>)",
-        ink: "rgb(var(--color-ink) / <alpha-value>)",
-        muted: "rgb(var(--color-muted) / <alpha-value>)",
-        subtle: "rgb(var(--color-subtle) / <alpha-value>)",
-        accent: "rgb(var(--color-accent) / <alpha-value>)",
-        pop: "rgb(var(--color-pop) / <alpha-value>)",
+        canvas: semanticColor("canvas"),
+        surface: semanticColor("surface"),
+        sidebar: semanticColor("sidebar"),
+        hairline: semanticColor("hairline"),
+        ink: semanticColor("ink"),
+        muted: semanticColor("muted"),
+        subtle: semanticColor("subtle"),
+        accent: semanticColor("accent"),
+        pop: semanticColor("pop"),
+        "on-accent": semanticColor("on-accent"),
+        "on-pop": semanticColor("on-pop"),
+        danger: semanticColor("danger"),
+        "danger-bg": semanticColor("danger-bg"),
+        success: semanticColor("success"),
+        "success-bg": semanticColor("success-bg"),
+        warning: semanticColor("warning"),
+        "warning-bg": semanticColor("warning-bg"),
+        info: semanticColor("info"),
+        "info-bg": semanticColor("info-bg"),
       },
       fontFamily: {
-        sans: [
+        sans: ["var(--font-sans)"],
+        serif: ["var(--font-serif)"],
+        mono: ["var(--font-mono)"],
+        system: [
           "ui-sans-serif",
           "system-ui",
           "-apple-system",
@@ -31,9 +47,8 @@ const config: Config = {
     },
   },
   plugins: [
-    // `umber:` scopes utilities to the opt-in Umber skin (html.skin-umber,
-    // see globals.css) so components carry both skins without forking and
-    // the default stays pixel-identical.
+    // Base tokens are shared; `umber:` still scopes the remaining legacy
+    // component-level reskin rules until the visual sweep removes them.
     plugin(({ addVariant }) => addVariant("umber", "html.skin-umber &")),
   ],
 };

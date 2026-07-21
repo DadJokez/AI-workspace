@@ -1,74 +1,47 @@
+/* Tailwind owns the app reset and component layering, so consume Umber's
+ * complete decision-token layer without its global base/grain rules. */
+@import "@ai-workspace/umber/tokens/fonts.css";
+@import "@ai-workspace/umber/tokens/colors.css";
 @import "@ai-workspace/umber/tokens/typography.css";
+@import "@ai-workspace/umber/tokens/spacing.css";
+@import "@ai-workspace/umber/tokens/effects.css";
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  color-scheme: light;
-  --color-canvas: 247 246 243;
-  --color-surface: 247 246 243;
-  --color-sidebar: 250 249 246;
-  --color-hairline: 229 229 229;
-  --color-ink: 26 26 26;
-  --color-muted: 107 107 107;
-  --color-subtle: 240 239 235;
-  --color-accent: 26 26 26;
-  /* pop = the reserved emphasis color. Classic maps it to accent so the
-   * `umber:` utilities are inert outside the skin. */
-  --color-pop: 26 26 26;
+  /* App-facing aliases. Tailwind's relative-color adapter preserves opacity
+   * modifiers while these remain linked directly to Umber's hex tokens. */
+  --color-canvas: var(--bg);
+  --color-surface: var(--surface);
+  --color-sidebar: var(--surface-2);
+  --color-hairline: var(--border);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-subtle: var(--surface-active);
+  --color-accent: var(--action);
+  --color-pop: var(--pop);
+  --color-on-accent: var(--action-fg);
+  --color-on-pop: var(--pop-fg);
+
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-success: var(--forest-500);
+  --color-success-bg: var(--success-bg);
+  --color-warning: var(--tan-800);
+  --color-warning-bg: var(--warning-bg);
+  --color-info: var(--neutral-700);
+  --color-info-bg: var(--neutral-150);
 }
 
-html.dark {
-  color-scheme: dark;
-  --color-canvas: 25 25 25;
-  --color-surface: 37 37 37;
-  --color-sidebar: 31 31 31;
-  --color-hairline: 45 45 45;
-  --color-ink: 229 229 229;
-  --color-muted: 142 142 142;
-  --color-subtle: 37 37 37;
-  --color-accent: 229 229 229;
-  --color-pop: 229 229 229;
-}
-
-/* Umber skin (packages/umber): remaps the eight semantic slots to the Umber
- * palette so every Tailwind class rebrands at runtime. Opt-in via
- * localStorage ui-skin=umber. Two cooperating pieces apply the class: the
- * layout's pre-paint script (first frame) and UiSkinSync (post-hydration
- * re-assert — React 19 hydration replaces <html>'s className, so a script
- * alone is not enough; do not remove either half).
- * Values are RGB triplets because Tailwind consumes them via
- * rgb(var() / <alpha-value>); each line names the Umber token it mirrors —
- * re-derive from packages/umber/tokens/colors.css, never invent colors here. */
-html.skin-umber {
-  --color-canvas: 250 248 243; /* --bg (neutral-50) */
-  --color-surface: 255 255 255; /* --surface (neutral-0) */
-  --color-sidebar: 250 248 243; /* --surface-2 (neutral-50) */
-  --color-hairline: 226 220 204; /* --border (neutral-200) */
-  --color-ink: 25 21 16; /* --text (neutral-900) */
-  --color-muted: 95 86 68; /* --text-muted (neutral-600) */
-  --color-subtle: 236 231 218; /* --surface-active (neutral-150) */
-  --color-accent: 25 21 16; /* --action (neutral-900, ink-black actions) */
-  --color-pop: 42 74 58; /* --pop (forest-500) — ONE emphasis per view */
-}
-
-/* Umber typography: Geist stacks from packages/umber tokens; system-font
- * fallbacks render until self-hosted woff2 binaries land upstream. */
-html.skin-umber body {
-  font-family: var(--font-sans);
-}
-
-html.dark.skin-umber {
-  --color-canvas: 17 14 10; /* --bg (neutral-950) */
-  --color-surface: 25 21 16; /* --surface (neutral-900) */
-  --color-sidebar: 33 29 21; /* --surface-2 (neutral-850) */
-  --color-hairline: 48 42 32; /* --border (#302a20) */
-  --color-ink: 239 233 219; /* --text (#efe9db) */
-  --color-muted: 179 169 143; /* --text-muted (#b3a98f) */
-  --color-subtle: 43 38 28; /* --surface-hover (neutral-800) */
-  --color-accent: 228 213 183; /* --action (tan-200: dark-mode actions go tan) */
-  --color-pop: 78 115 101; /* --pop (forest-400, dark) */
+[data-theme="dark"] {
+  --color-subtle: var(--surface-hover);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--neutral-300);
+  --color-info-bg: var(--neutral-700);
 }
 
 html,
@@ -83,9 +56,7 @@ body {
 }
 
 body {
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Inter, "Helvetica Neue", sans-serif;
+  font-family: var(--font-sans);
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 

@@ -257,7 +257,7 @@ export function SettingsPanel({
                 </p>
                 <div className="flex shrink-0 items-center gap-2">
                   {instructionsTooLong ? (
-                    <span className="text-[11px] text-red-500">
+                    <span className="text-[11px] text-danger">
                       Too long ({instructionsDraft.length} /{" "}
                       {CUSTOM_INSTRUCTIONS_MAX})
                     </span>
