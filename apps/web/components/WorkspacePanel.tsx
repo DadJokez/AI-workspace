@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 
 interface Props {
   onClose: () => void;
-  onOpenSidebar: () => void;
   onOpenArtifact: (artifact: WorkspaceArtifactSummary) => void;
 }
 
@@ -15,7 +14,6 @@ interface WorkspaceArtifactsResponse {
 
 export function WorkspacePanel({
   onClose,
-  onOpenSidebar,
   onOpenArtifact,
 }: Props) {
   const [artifacts, setArtifacts] = useState<WorkspaceArtifactSummary[]>([]);
@@ -46,14 +44,6 @@ export function WorkspacePanel({
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-11 shrink-0 items-center gap-1 border-b border-hairline bg-canvas">
-        <button
-          type="button"
-          onClick={onOpenSidebar}
-          aria-label="Open menu"
-          className="flex h-11 w-11 shrink-0 items-center justify-center text-muted hover:bg-subtle hover:text-ink md:hidden"
-        >
-          <MenuIcon />
-        </button>
         <h1 className="flex-1 truncate px-2 text-sm font-medium text-ink">
           Artifacts
         </h1>
@@ -239,23 +229,6 @@ function formatBytes(bytes: number): string {
   const kb = bytes / 1024;
   if (kb < 1024) return `${kb.toFixed(1)} KB`;
   return `${(kb / 1024).toFixed(1)} MB`;
-}
-
-function MenuIcon() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      width="16"
-      height="16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      aria-hidden="true"
-    >
-      <path d="M2 4h12M2 8h12M2 12h12" />
-    </svg>
-  );
 }
 
 function CloseIcon() {

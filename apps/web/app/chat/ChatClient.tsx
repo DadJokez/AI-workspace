@@ -2,6 +2,7 @@
 
 import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
 import { RunInspectorPane } from "@/components/RunInspectorPane";
+import { SlideOverPane } from "@/components/SlideOverPane";
 import {
   ChatInput,
   type ChatEditRequest,
@@ -62,16 +63,18 @@ import type {
   RecommendationStatus,
 } from "@/lib/recommendations";
 import { signOut } from "next-auth/react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // Model ids come from the AWS-backed model registry exposed by /api/models.
 const FALLBACK_DEFAULT_MODEL_ID = "sonnet-4-6";
 
-type View =
-  | "chat"
-  | "search"
-  | "workspace"
-  | "notifications";
+type View = "chat" | "search";
+
+type RightPane =
+  | { kind: "workspace" }
+  | { kind: "notifications" }
+  | { kind: "artifact"; artifact: WorkspaceArtifactSummary }
+  | { kind: "inspector"; runId: string };
 
 const DEFAULT_MODEL_PREFIX = "ai-workspace-default-model:";
 
@@ -500,11 +503,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     string | undefined
   >();
   const [runActionPendingId, setRunActionPendingId] = useState<string>();
-  const [previewArtifact, setPreviewArtifact] =
-    useState<WorkspaceArtifactSummary | null>(null);
-  const [previewWidth, setPreviewWidth] = useState(640);
-  const [inspectedRunId, setInspectedRunId] = useState<string | null>(null);
-  const [inspectorWidth, setInspectorWidth] = useState(680);
+  const [rightPane, setRightPane] = useState<RightPane | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [oauthConnected, setOauthConnected] = useState<Record<string, boolean>>({});
@@ -514,6 +513,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const [appDraftPendingId, setAppDraftPendingId] = useState<string>();
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [editRequest, setEditRequest] = useState<ChatEditRequest>();
+  const closeRightPane = useCallback(() => setRightPane(null), []);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -537,6 +537,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const latestAppDraftIds = latestAppDraftVersionIds(
     activeTab?.messages.flatMap((message) => message.appDraftVersions ?? []) ?? [],
   );
+  const inspectedRunId =
+    rightPane?.kind === "inspector" ? rightPane.runId : null;
   const inspectedMessage = inspectedRunId
     ? activeTab?.messages.find((message) => message.runId === inspectedRunId)
     : undefined;
@@ -545,8 +547,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     if (user?.role !== "admin") return;
     const runId = new URLSearchParams(window.location.search).get("inspectRun");
     if (runId && /^[0-9a-f-]{36}$/i.test(runId)) {
-      setInspectedRunId(runId);
-      setPreviewArtifact(null);
+      setRightPane({ kind: "inspector", runId });
       setView("chat");
     }
   }, [user?.role]);
@@ -1190,7 +1191,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     setTabs([t]);
     setActiveId(t.id);
     setView("chat");
-    setPreviewArtifact(null);
+    setRightPane(null);
   }
 
   function openThread(
@@ -1199,7 +1200,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     initialMessages: UiMessage[] = [],
   ) {
     setView("chat");
-    setPreviewArtifact(null);
+    setRightPane(null);
     const existing = activeTab?.threadId === threadId ? activeTab : undefined;
     if (existing) {
       if (initialMessages.length > 0) {
@@ -1271,30 +1272,39 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       const fresh = makeFreshTab(freshTabModel());
       setTabs([fresh]);
       setActiveId(fresh.id);
-      setPreviewArtifact(null);
+      setRightPane(null);
     }
   }
 
   function handleNavSelect(id: string) {
-    if (id === "chat") setView("chat");
-    else if (id === "settings") setSettingsSection("profile");
-    else if (id === "search") setView("search");
-    else if (id === "workspace") setView("workspace");
-    else if (id === "feedback") setFeedbackOpen(true);
-    else if (id === "admin") {
+    if (id === "chat") {
+      setView("chat");
+      setRightPane(null);
+    } else if (id === "settings") {
+      setSettingsSection("profile");
+      setRightPane(null);
+    } else if (id === "search") {
+      setView("search");
+      setRightPane(null);
+    } else if (id === "workspace") {
+      setView("chat");
+      setRightPane({ kind: "workspace" });
+    } else if (id === "feedback") {
+      setFeedbackOpen(true);
+    } else if (id === "admin") {
       // Admin lives at its own route, not as a chat-level view.
       window.location.assign("/admin");
     }
   }
 
   function openArtifactPreview(artifact: WorkspaceArtifactSummary) {
-    setInspectedRunId(null);
-    setPreviewArtifact(artifact);
+    setView("chat");
+    setRightPane({ kind: "artifact", artifact });
   }
 
   function openRunInspector(runId: string) {
-    setPreviewArtifact(null);
-    setInspectedRunId(runId);
+    setView("chat");
+    setRightPane({ kind: "inspector", runId });
   }
 
   function patchRecommendation(
@@ -1841,9 +1851,16 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                 : m,
             ),
           );
-          setPreviewArtifact((current) =>
-            nextPreviewArtifactAfterPersisted(current, artifacts),
-          );
+          setRightPane((current) => {
+            if (current?.kind !== "artifact") return current;
+            const nextArtifact = nextPreviewArtifactAfterPersisted(
+              current.artifact,
+              artifacts,
+            );
+            return nextArtifact
+              ? { kind: "artifact", artifact: nextArtifact }
+              : null;
+          });
           if (persistedAssistantMessageId) {
             assistantDraftId = persistedAssistantMessageId;
           }
@@ -2040,9 +2057,13 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         threads={threads}
         threadsLoading={threadsLoading}
         threadsError={threadsError}
-        activeThreadId={isChatView ? activeTab.threadId : undefined}
+        activeThreadId={
+          isChatView && rightPane?.kind !== "workspace"
+            ? activeTab.threadId
+            : undefined
+        }
         onOpenThread={openThread}
-        activeNavId={view}
+        activeNavId={rightPane?.kind === "workspace" ? "workspace" : view}
         onNavSelect={handleNavSelect}
         isAdmin={user?.role === "admin"}
         onSignOut={() => signOut({ callbackUrl: "/login" })}
@@ -2062,19 +2083,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
               onOpenThread={openThread}
               onClose={() => setView("chat")}
               onOpenSidebar={() => setSidebarOpen(true)}
-            />
-          ) : view === "workspace" ? (
-            <WorkspacePanel
-              onClose={() => setView("chat")}
-              onOpenSidebar={() => setSidebarOpen(true)}
-              onOpenArtifact={openArtifactPreview}
-            />
-          ) : view === "notifications" ? (
-            <NotificationsPanel
-              onClose={() => setView("chat")}
-              onOpenSidebar={() => setSidebarOpen(true)}
-              onOpenThread={openThread}
-              onUnreadChange={setUnreadNotifications}
             />
           ) : (
             <>
@@ -2127,7 +2135,13 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     }
                     title="Notifications"
                     data-testid="notification-bell"
-                    onClick={() => setView("notifications")}
+                    onClick={() =>
+                      setRightPane((current) =>
+                        current?.kind === "notifications"
+                          ? null
+                          : { kind: "notifications" },
+                      )
+                    }
                     className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-muted hover:bg-subtle hover:text-ink"
                   >
                     <svg
@@ -2375,21 +2389,52 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           )}
         </section>
 
-        {inspectedRunId && user?.role === "admin" ? (
+        {rightPane?.kind === "inspector" && user?.role === "admin" ? (
           <RunInspectorPane
-            runId={inspectedRunId}
-            widthPx={inspectorWidth}
-            onWidthChange={setInspectorWidth}
-            onClose={() => setInspectedRunId(null)}
+            runId={rightPane.runId}
+            onClose={closeRightPane}
             liveReasoning={inspectedMessage?.providerReasoning}
           />
-        ) : previewArtifact ? (
+        ) : rightPane?.kind === "artifact" ? (
           <ArtifactPreviewPane
-            artifact={previewArtifact}
-            widthPx={previewWidth}
-            onWidthChange={setPreviewWidth}
-            onClose={() => setPreviewArtifact(null)}
+            artifact={rightPane.artifact}
+            onClose={closeRightPane}
           />
+        ) : rightPane?.kind === "workspace" ? (
+          <SlideOverPane
+            ariaLabel="Artifacts"
+            defaultWidth={520}
+            minWidth={360}
+            maxWidth={800}
+            onClose={closeRightPane}
+            paneTestId="artifacts-pane"
+            resizerLabel="Resize artifacts"
+            resizerTestId="artifacts-pane-resizer"
+            storageKey="comparative.slide-over.artifacts.width"
+          >
+            <WorkspacePanel
+              onClose={closeRightPane}
+              onOpenArtifact={openArtifactPreview}
+            />
+          </SlideOverPane>
+        ) : rightPane?.kind === "notifications" ? (
+          <SlideOverPane
+            ariaLabel="Notifications"
+            defaultWidth={440}
+            minWidth={360}
+            maxWidth={720}
+            onClose={closeRightPane}
+            paneTestId="notifications-pane"
+            resizerLabel="Resize notifications"
+            resizerTestId="notifications-pane-resizer"
+            storageKey="comparative.slide-over.notifications.width"
+          >
+            <NotificationsPanel
+              onClose={closeRightPane}
+              onOpenThread={openThread}
+              onUnreadChange={setUnreadNotifications}
+            />
+          </SlideOverPane>
         ) : null}
       </main>
 

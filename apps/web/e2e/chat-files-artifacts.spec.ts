@@ -317,7 +317,9 @@ test.describe("chat files and artifacts", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Artifacts" }),
     ).toBeVisible();
-    await expect(page.getByText("demo-artifact.html")).toBeVisible();
+    await expect(
+      page.getByTestId("artifacts-pane").getByText(/demo-artifact\.html/),
+    ).toBeVisible();
   });
 
   test("shows the truncation notice as visible prose when cut off mid-artifact", async ({

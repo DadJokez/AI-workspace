@@ -229,7 +229,9 @@ test.describe("authenticated product smoke", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Artifacts" }),
     ).toBeVisible();
-    await expect(page.getByText("demo-artifact.html")).toBeVisible();
+    await expect(
+      page.getByTestId("artifacts-pane").getByText(/demo-artifact\.html/),
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "Close workspace" }).click();
     await expect(page.getByText("Deploy this as an app")).toBeVisible();
