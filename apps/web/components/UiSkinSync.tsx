@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect } from "react";
+import { applyDensityClass, readStoredDensity } from "@/lib/density";
 import { applySkinClass, readStoredSkin } from "@/lib/ui-skin";
 
 // useLayoutEffect fires before the browser paints the hydrated tree; on the
@@ -21,6 +22,7 @@ export function UiSkinSync() {
   useIsomorphicLayoutEffect(() => {
     try {
       applySkinClass(readStoredSkin());
+      applyDensityClass(readStoredDensity());
     } catch {
       /* storage disabled */
     }

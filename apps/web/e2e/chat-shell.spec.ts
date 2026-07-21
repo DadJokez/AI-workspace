@@ -6,6 +6,7 @@ import {
   userMessage,
 } from "./helpers/mock-comparative";
 import { gotoE2EChat, openPrimarySidebar } from "./helpers/navigation";
+import { swipe } from "./helpers/swipe";
 import { COMPARATIVE_VERSION_LABEL } from "../lib/product-version";
 
 test.skip(
@@ -626,7 +627,11 @@ test.describe("chat shell guardrails", () => {
     await expect(
       header.getByRole("combobox", { name: "Model", exact: true }),
     ).toHaveCount(0);
-    await expect(header.getByTestId("resolved-model-chip")).toBeVisible();
+    if (isMobile) {
+      await expect(header.getByTestId("resolved-model-chip")).toBeHidden();
+    } else {
+      await expect(header.getByTestId("resolved-model-chip")).toBeVisible();
+    }
     await expect(page.locator("html")).not.toHaveClass(/dark/);
 
     await header.getByRole("button", { name: "Switch to dark mode" }).click();
@@ -696,6 +701,15 @@ test.describe("chat shell guardrails", () => {
     const openMenu = page.getByRole("button", { name: "Open menu" }).first();
 
     await expect(sidebar).not.toBeInViewport();
+    await swipe(page, { x: 4, y: 260 }, { x: 132, y: 264 });
+    await expect(sidebar).toBeInViewport();
+    await expect
+      .poll(async () => Math.round((await sidebar.boundingBox())?.x ?? -1))
+      .toBe(0);
+
+    await swipe(page, { x: 230, y: 28 }, { x: 90, y: 32 });
+    await expect(sidebar).not.toBeInViewport();
+
     await openMenu.click();
     await expect(sidebar).toBeInViewport();
 
@@ -770,4 +784,83 @@ test.describe("chat shell guardrails", () => {
     );
     expect(pageOverflow).toBeLessThanOrEqual(1);
   });
+
+  test("keeps the mobile alpha badge in flow and compact controls tappable", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      !testInfo.project.name.includes("mobile"),
+      "mobile-only responsive behavior",
+    );
+
+    await page.addInitScript(() => {
+      window.localStorage.setItem("ai-workspace-density", "compact");
+    });
+    await page.setViewportSize({ width: 320, height: 760 });
+    await installMockComparativeApi(page);
+    await gotoE2EChat(page);
+
+    for (const width of [320, 480]) {
+      await page.setViewportSize({ width, height: 760 });
+      const header = page.locator("header").first();
+      const badge = header.locator('[data-alpha-badge="inline"]');
+      await expect(badge).toBeVisible();
+      await expect(page.locator('[data-alpha-badge="global"]')).toBeHidden();
+      if (width < 400) {
+        await expect(page.getByTestId("resolved-model-chip")).toBeHidden();
+      } else {
+        await expect(page.getByTestId("resolved-model-chip")).toBeVisible();
+      }
+      const title = page.getByTestId("active-chat-title");
+      await expect(title).toContainText("New chat");
+      expect(
+        await title.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth + 1,
+        ),
+      ).toBe(true);
+
+      const badgeBox = await badge.boundingBox();
+      const headerBox = await header.boundingBox();
+      expect(badgeBox).toBeTruthy();
+      expect(headerBox).toBeTruthy();
+      expect(badgeBox!.x).toBeGreaterThanOrEqual(headerBox!.x);
+      expect(badgeBox!.x + badgeBox!.width).toBeLessThanOrEqual(
+        headerBox!.x + headerBox!.width,
+      );
+
+      for (const control of await header.locator("button:visible").all()) {
+        const controlBox = await control.boundingBox();
+        expect(controlBox).toBeTruthy();
+        expect(boxesOverlap(badgeBox!, controlBox!)).toBe(false);
+      }
+    }
+
+    await expect(page.locator("html")).toHaveClass(/density-compact/);
+    await swipe(page, { x: 4, y: 260 }, { x: 132, y: 264 });
+    const sidebar = page.locator('aside[aria-label="Primary"]');
+    await expect(sidebar).toBeInViewport();
+
+    for (const button of await sidebar.locator("button:visible").all()) {
+      const box = await button.boundingBox();
+      expect(box).toBeTruthy();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+    for (const name of ["Attach files", "Send"]) {
+      const box = await page.getByRole("button", { name }).boundingBox();
+      expect(box).toBeTruthy();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+  });
 });
+
+function boxesOverlap(
+  first: { x: number; y: number; width: number; height: number },
+  second: { x: number; y: number; width: number; height: number },
+) {
+  return !(
+    first.x + first.width <= second.x ||
+    second.x + second.width <= first.x ||
+    first.y + first.height <= second.y ||
+    second.y + second.height <= first.y
+  );
+}

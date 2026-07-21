@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { AlphaBadge } from "@/components/AlphaBadge";
 import { CommandPaletteProvider } from "@/components/CommandPalette";
 import { UiSkinSync } from "@/components/UiSkinSync";
 import "./globals.css";
@@ -38,20 +39,12 @@ const themeInitScript = `
     if (localStorage.getItem('ui-skin') !== 'classic') {
       document.documentElement.classList.add('skin-umber');
     }
+    if (localStorage.getItem('ai-workspace-density') === 'compact') {
+      document.documentElement.classList.add('density-compact');
+    }
   } catch (e) {}
 })();
 `;
-
-function AlphaBadge() {
-  return (
-    <div
-      aria-label="Alpha version"
-      className="pointer-events-none fixed left-1/2 top-[max(env(safe-area-inset-top),0.5rem)] z-[90] -translate-x-1/2 rounded-full border border-hairline bg-surface px-2.5 py-1 text-2xs font-semibold uppercase leading-none tracking-caps text-muted shadow-sm"
-    >
-      Alpha
-    </div>
-  );
-}
 
 function BuiltByMark() {
   // Rob & Robot lockup (assets from DadJokez/rob-and-robot): ink on light

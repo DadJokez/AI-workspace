@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AlphaBadge } from "@/components/AlphaBadge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 
@@ -16,16 +17,17 @@ export default async function SkillsLayout({
   }
   return (
     <div className="flex min-h-screen flex-col bg-canvas text-ink">
-      <header className="flex items-center justify-between border-b border-hairline px-6 py-3">
-        <div className="flex items-center gap-3">
+      <header className="flex items-center justify-between gap-2 border-b border-hairline px-3 py-3 sm:px-6">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <h1 className="text-sm font-semibold text-ink">
             <Link href="/skills">Skills</Link>
           </h1>
-          <span className="text-2xs uppercase tracking-wider text-muted">
+          <AlphaBadge placement="inline" />
+          <span className="hidden text-2xs uppercase tracking-wider text-muted sm:inline">
             Workspace
           </span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <Link href="/apps" className="text-sm text-muted hover:text-ink">
             Apps
           </Link>

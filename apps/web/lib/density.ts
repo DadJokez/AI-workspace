@@ -4,15 +4,15 @@ import { useCallback, useEffect, useState } from "react";
 
 export type Density = "comfortable" | "compact";
 
-const STORAGE_KEY = "ai-workspace-density";
+export const DENSITY_STORAGE_KEY = "ai-workspace-density";
 
-function readStored(): Density {
+export function readStoredDensity(): Density {
   if (typeof localStorage === "undefined") return "comfortable";
-  const v = localStorage.getItem(STORAGE_KEY);
+  const v = localStorage.getItem(DENSITY_STORAGE_KEY);
   return v === "compact" ? "compact" : "comfortable";
 }
 
-function applyClass(density: Density) {
+export function applyDensityClass(density: Density) {
   if (typeof document === "undefined") return;
   document.documentElement.classList.toggle(
     "density-compact",
@@ -21,12 +21,12 @@ function applyClass(density: Density) {
 }
 
 export function useDensity() {
-  const [density, setDensityState] = useState<Density>(readStored);
+  const [density, setDensityState] = useState<Density>(readStoredDensity);
 
   useEffect(() => {
-    applyClass(density);
+    applyDensityClass(density);
     try {
-      localStorage.setItem(STORAGE_KEY, density);
+      localStorage.setItem(DENSITY_STORAGE_KEY, density);
     } catch {
       /* quota / disabled */
     }

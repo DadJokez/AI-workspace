@@ -73,7 +73,7 @@ export function ArtifactPreviewPane({ artifact, onClose }: Props) {
       resizerTestId="artifact-preview-resizer"
       storageKey="comparative.slide-over.artifact.width"
     >
-      <header className="flex min-h-12 shrink-0 items-center gap-2 border-b border-hairline px-3">
+      <header className="flex min-h-12 shrink-0 touch-none items-center gap-2 border-b border-hairline px-3 md:touch-auto">
         <span className="flex h-7 min-w-7 items-center justify-center rounded-full border border-hairline bg-accent px-2 font-mono text-2xs uppercase text-on-accent">
           {activeArtifact.kind.slice(0, 4)}
         </span>

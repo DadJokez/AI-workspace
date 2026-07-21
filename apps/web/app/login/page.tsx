@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { AlphaBadge } from "@/components/AlphaBadge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ThinkingOrb } from "@/components/ThinkingOrb";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
@@ -26,6 +27,7 @@ export default async function LoginPage({ searchParams }: Props) {
       </div>
       <div className="w-full max-w-sm rounded-lg border border-hairline bg-surface px-6 py-8 shadow-sm">
         <div className="flex flex-col items-center gap-2 pb-6 text-center">
+          <AlphaBadge placement="inline" />
           <ThinkingOrb
             state="idle"
             size={40}
