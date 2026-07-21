@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { COMPARATIVE_VERSION_LABEL } from "@/lib/product-version";
 import { ThinkingOrb } from "./ThinkingOrb";
 
@@ -74,6 +75,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onNewChat: () => void;
+  onSearch: () => void;
   threads: ThreadSummary[];
   threadsLoading: boolean;
   threadsError?: string;
@@ -125,6 +127,7 @@ export function Sidebar({
   open,
   onClose,
   onNewChat,
+  onSearch,
   threads,
   threadsLoading,
   threadsError,
@@ -330,6 +333,24 @@ export function Sidebar({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="px-2 pb-1 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                onSearch();
+                onClose();
+              }}
+              aria-label="Search"
+              aria-keyshortcuts="Meta+K Control+K"
+              className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-muted hover:bg-subtle hover:text-ink md:min-h-0 md:py-1.5"
+            >
+              <span className="flex h-4 w-4 items-center justify-center">
+                <IconSearch />
+              </span>
+              <span className="flex-1">Search</span>
+              <kbd className="text-2xs text-muted">⌘K</kbd>
+            </button>
+          </div>
           <div className="shrink-0 px-2 pb-1.5 pt-2">
             <div className="flex min-h-7 items-center gap-1 px-2 pb-1 pt-1">
               <button
@@ -363,6 +384,7 @@ export function Sidebar({
                 type="button"
                 onClick={handleNewChat}
                 aria-label="New chat"
+                aria-keyshortcuts="Meta+N Control+N"
                 title="New chat"
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-pop text-on-pop hover:bg-pop/90"
               >
@@ -541,7 +563,7 @@ export function Sidebar({
                     if (item.href) {
                     return (
                       <li key={item.id}>
-                        <a
+                        <Link
                           href={item.href}
                           data-tour={`nav-${item.id}`}
                           title={item.tooltip}
@@ -556,7 +578,7 @@ export function Sidebar({
                               {item.badge}
                             </span>
                           ) : null}
-                        </a>
+                        </Link>
                       </li>
                     );
                   }
@@ -863,6 +885,24 @@ function IconPlus() {
       strokeLinecap="round"
     >
       <path d="M8 3v10M3 8h10" />
+    </svg>
+  );
+}
+
+function IconSearch() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="7" cy="7" r="4" />
+      <path d="m13 13-3-3" />
     </svg>
   );
 }
