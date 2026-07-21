@@ -28,12 +28,13 @@ const themeInitScript = `
       : (prefersDark ? 'dark' : 'light');
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.setAttribute('data-theme', theme);
-    // Umber reskin opt-in (globals.css html.skin-umber). This covers the
-    // FIRST paint only: React 19 hydration then replaces <html>'s className,
+    // Umber is the default; an explicit Classic preference is the temporary
+    // escape hatch. This covers the FIRST paint only: React 19 hydration then
+    // replaces <html>'s className,
     // stripping script-added classes — the dark class above survives only
     // because useTheme re-applies it in an effect, and UiSkinSync (mounted in
     // the body below) is the equivalent required re-assert for this class.
-    if (localStorage.getItem('ui-skin') === 'umber') {
+    if (localStorage.getItem('ui-skin') !== 'classic') {
       document.documentElement.classList.add('skin-umber');
     }
   } catch (e) {}
@@ -44,7 +45,7 @@ function AlphaBadge() {
   return (
     <div
       aria-label="Alpha version"
-      className="pointer-events-none fixed left-1/2 top-[max(env(safe-area-inset-top),0.5rem)] z-[90] -translate-x-1/2 rounded-full border border-[#87b5ff]/70 bg-[#0047ff] px-2.5 py-1 text-[10px] font-semibold uppercase leading-none tracking-[0.18em] text-white shadow-[0_0_24px_rgba(0,71,255,0.55)] ring-1 ring-white/20"
+      className="pointer-events-none fixed left-1/2 top-[max(env(safe-area-inset-top),0.5rem)] z-[90] -translate-x-1/2 rounded-full border border-hairline bg-surface px-2.5 py-1 text-[10px] font-semibold uppercase leading-none tracking-[0.18em] text-muted shadow-sm"
     >
       Alpha
     </div>

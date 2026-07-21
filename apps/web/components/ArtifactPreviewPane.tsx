@@ -152,7 +152,7 @@ export function ArtifactPreviewPane({
           <span className="mx-auto block h-full w-px bg-hairline transition-colors hover:bg-ink/40" />
         </div>
         <header className="flex min-h-12 shrink-0 items-center gap-2 border-b border-hairline px-3">
-          <span className="flex h-7 min-w-7 items-center justify-center rounded-full border border-[#67a3ff]/60 bg-[linear-gradient(135deg,#0637cf_0%,#095cff_54%,#00a6ff_100%)] px-2 font-mono text-[10px] uppercase text-white shadow-[0_0_18px_rgba(0,92,255,0.28)]">
+          <span className="flex h-7 min-w-7 items-center justify-center rounded-full border border-hairline bg-accent px-2 font-mono text-[10px] uppercase text-on-accent">
             {activeArtifact.kind.slice(0, 4)}
           </span>
           <div className="min-w-0 flex-1">

@@ -542,21 +542,19 @@ export function ChatInput({
         </div>
       ) : null}
       {activeSkill ? (
-        <div className="mb-1.5 flex flex-wrap items-center gap-2 px-1 text-[12px] text-[#b9d2ff]">
+        <div className="mb-1.5 flex flex-wrap items-center gap-2 px-1 text-[12px] text-muted">
           <span
             data-testid="active-slash-skill"
-            className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#2f6bff]/50 bg-[#06112f]/80 px-2 py-1 shadow-[0_0_16px_rgba(0,92,255,0.22)] umber:border-hairline umber:bg-subtle umber:text-ink umber:shadow-none"
+            className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 py-1 text-ink"
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_12px_rgba(40,215,255,0.8)] umber:bg-pop umber:shadow-none" />
+            <span className="h-1.5 w-1.5 rounded-full bg-info" />
             <span className="font-mono">{slashSkillToken(activeSkill)}</span>
-            <span className="text-[#88a8e8] umber:text-muted">
-              {activeSkill.name}
-            </span>
+            <span className="text-muted">{activeSkill.name}</span>
             <button
               type="button"
               aria-label={`Remove ${activeSkill.name}`}
               onClick={() => setActiveSkill(null)}
-              className="ml-0.5 text-[#88a8e8] hover:text-white umber:text-muted umber:hover:text-ink"
+              className="ml-0.5 text-muted hover:text-ink"
             >
               ×
             </button>
@@ -679,7 +677,7 @@ export function ChatInput({
             (!text.trim() && attachments.length === 0 && activeSkill === null)
           }
           aria-label="Send"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-ink text-canvas disabled:opacity-30 sm:h-7 sm:w-7"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-pop text-on-pop hover:bg-pop/90 disabled:opacity-30 sm:h-7 sm:w-7"
         >
           <svg
             viewBox="0 0 16 16"
