@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { signAwsJsonRequest } from "@/lib/aws-ses";
 import {
   renderInvitationHtml,
   renderInvitationText,
-  signAwsJsonRequest,
 } from "@/lib/invite-email";
 
 const inviteInput = {

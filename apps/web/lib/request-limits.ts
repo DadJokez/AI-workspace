@@ -31,6 +31,40 @@ export interface RateLimitStore {
 
 const localBuckets = new Map<string, Bucket>();
 
+/**
+ * Opportunistic cleanup of expired `rate_limit_buckets` rows (#506 review).
+ *
+ * Buckets keyed on unauthenticated caller-controlled input (magic-link
+ * email/IP keys) mint rows without bound; nothing else deletes them. Rather
+ * than a new scheduler, every Nth `consume` on the Postgres store sweeps
+ * rows whose window closed more than SWEEP_GRACE_MS ago — piggybacking on
+ * the very code path that mints the garbage (same pattern as #462's
+ * queue-bound piggyback), so it runs on any deployment shape that rate
+ * limits at all and benefits every limiter's keys, not just magic-link.
+ *
+ * The grace period means a swept row is always long past its window: the
+ * upsert in `consume` treats `reset_at <= now` as a fresh window anyway, so
+ * deleting such rows never changes a rate-limit decision, and in-window
+ * reads can never race the sweep.
+ *
+ * Sampling is a deterministic per-process counter (not Math.random) so
+ * low-traffic processes still sweep on their first consume and tests are
+ * exact.
+ */
+const SWEEP_SAMPLE_EVERY = 50;
+const SWEEP_GRACE_MS = 60 * 60 * 1000;
+let consumeCallCount = 0;
+
+export async function sweepExpiredRateLimitBuckets(
+  db: Database,
+  now = new Date(),
+): Promise<void> {
+  const cutoff = new Date(now.getTime() - SWEEP_GRACE_MS).toISOString();
+  await db.execute(
+    sql`delete from "rate_limit_buckets" where "reset_at" < ${cutoff}`,
+  );
+}
+
 export function requestLimitConfig(): RequestLimitConfig {
   return {
     maxRequestBytes: numberFromEnv("CHAT_MAX_REQUEST_BYTES", 8 * 1024 * 1024),
@@ -83,6 +117,7 @@ export async function checkRateLimitWithStore(
 
 export function resetRequestLimitBuckets(): void {
   localBuckets.clear();
+  consumeCallCount = 0;
 }
 
 export function inMemoryRateLimitStore(
@@ -136,6 +171,19 @@ function postgresRateLimitStore(db: Database): RateLimitStore {
       if (!row) {
         throw new Error("Rate-limit bucket update returned no row.");
       }
+
+      // Sampled sweep (see sweepExpiredRateLimitBuckets). Sweeps on the
+      // first consume of a fresh process, then every SWEEP_SAMPLE_EVERY-th.
+      // A sweep failure must never fail the rate-limit decision.
+      consumeCallCount += 1;
+      if (consumeCallCount % SWEEP_SAMPLE_EVERY === 1) {
+        try {
+          await sweepExpiredRateLimitBuckets(db, now);
+        } catch (err) {
+          console.warn("rate_limit_buckets sweep failed", err);
+        }
+      }
+
       return {
         count: Number(row.count),
         resetAt:
