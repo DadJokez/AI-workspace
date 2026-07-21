@@ -74,63 +74,52 @@ test("keyboard focus remains visible in forced-colors mode", async ({
   expect(presentation.outlineColor).not.toBe("transparent");
 });
 
-for (const skin of ["umber", "classic"] as const) {
-  for (const theme of ["light", "dark"] as const) {
-    test(`keyboard focus uses the token ring in ${skin} ${theme} mode`, async ({
-      page,
-      isMobile,
-    }) => {
-      test.skip(isMobile, "desktop keyboard navigation is covered here");
-      await page.addInitScript(
-        ({ storedSkin, storedTheme }) => {
-          localStorage.setItem("ui-skin", storedSkin);
-          localStorage.setItem("theme", storedTheme);
-        },
-        { storedSkin: skin, storedTheme: theme },
-      );
-      await installMockComparativeApi(page);
-      await gotoE2EChat(page);
-      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
-      if (skin === "umber") {
-        await expect(page.locator("html")).toHaveClass(/skin-umber/);
-      } else {
-        await expect(page.locator("html")).not.toHaveClass(/skin-umber/);
-      }
+for (const theme of ["light", "dark"] as const) {
+  test(`keyboard focus uses the token ring in ${theme} mode`, async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(isMobile, "desktop keyboard navigation is covered here");
+    await page.addInitScript((storedTheme) => {
+      localStorage.setItem("theme", storedTheme);
+    }, theme);
+    await installMockComparativeApi(page);
+    await gotoE2EChat(page);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
 
-      const sidebar = await openPrimarySidebar(page, false);
-      const composer = page.getByPlaceholder(/ask anything/i);
-      const composerRail = composer.locator("xpath=ancestor::form");
-      const restingComposerBorder = await composerRail.evaluate(
-        (element) => getComputedStyle(element).borderColor,
-      );
-      const targets = [
-        sidebar.getByRole("button", { name: "New chat" }),
-        sidebar.getByRole("link", { name: "Skills", exact: true }),
-        composer,
-      ];
+    const sidebar = await openPrimarySidebar(page, false);
+    const composer = page.getByPlaceholder(/ask anything/i);
+    const composerRail = composer.locator("xpath=ancestor::form");
+    const restingComposerBorder = await composerRail.evaluate(
+      (element) => getComputedStyle(element).borderColor,
+    );
+    const targets = [
+      sidebar.getByRole("button", { name: "New chat" }),
+      sidebar.getByRole("link", { name: "Skills", exact: true }),
+      composer,
+    ];
 
-      await page.locator("main").click({ position: { x: 8, y: 8 } });
-      for (const target of targets) {
-        await tabTo(page, target);
-        await expectTokenFocusRing(target);
-      }
-      await expect
-        .poll(() =>
-          composerRail.evaluate(
-            (element) => getComputedStyle(element).borderColor,
-          ),
-        )
-        .toBe(restingComposerBorder);
+    await page.locator("main").click({ position: { x: 8, y: 8 } });
+    for (const target of targets) {
+      await tabTo(page, target);
+      await expectTokenFocusRing(target);
+    }
+    await expect
+      .poll(() =>
+        composerRail.evaluate(
+          (element) => getComputedStyle(element).borderColor,
+        ),
+      )
+      .toBe(restingComposerBorder);
 
-      const pointerTarget = sidebar.getByRole("button", { name: "New chat" });
-      await pointerTarget.click();
-      await expect
-        .poll(() =>
-          pointerTarget.evaluate(
-            (element) => getComputedStyle(element).boxShadow,
-          ),
-        )
-        .toBe("none");
-    });
-  }
+    const pointerTarget = sidebar.getByRole("button", { name: "New chat" });
+    await pointerTarget.click();
+    await expect
+      .poll(() =>
+        pointerTarget.evaluate(
+          (element) => getComputedStyle(element).boxShadow,
+        ),
+      )
+      .toBe("none");
+  });
 }

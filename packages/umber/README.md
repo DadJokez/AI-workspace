@@ -22,14 +22,9 @@ Umber design system; the source of truth is
 
 ## How Comparative consumes it
 
-The app's Tailwind theme reads eight semantic RGB-triplet variables
-(`--color-canvas`, `--color-surface`, …) defined in `apps/web/app/globals.css`.
-The Umber skin remaps those triplets under the `html.skin-umber` class
-(light + dark), so the existing Tailwind classes rebrand at runtime. The
-class is applied twice by design: a pre-paint script in the root layout
-(first frame, no flash) and `UiSkinSync.tsx` (required re-assert — React 19
-hydration replaces `<html>`'s className, stripping script-added classes and
-attributes alike; the app's `dark` class survives the same way, via
-`useTheme`'s effect). Neither half is redundant. Umber
-components additionally need the token custom properties from `tokens/`,
-loaded where those components mount.
+The app imports Umber's decision tokens globally in
+`apps/web/app/globals.css`. Tailwind's semantic colors point directly to those
+tokens, so every component uses the same Umber identity in light and dark
+themes. The root layout applies the stored theme before first paint and the
+client theme hook re-asserts it after React hydration. Umber components use
+the same token custom properties from `tokens/`.

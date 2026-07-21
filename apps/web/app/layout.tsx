@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { AlphaBadge } from "@/components/AlphaBadge";
 import { CommandPaletteProvider } from "@/components/CommandPalette";
-import { UiSkinSync } from "@/components/UiSkinSync";
+import { UiPreferencesSync } from "@/components/UiPreferencesSync";
 import "./globals.css";
 
 const geist = localFont({
@@ -66,15 +66,6 @@ const themeInitScript = `
       : (prefersDark ? 'dark' : 'light');
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.setAttribute('data-theme', theme);
-    // Umber is the default; an explicit Classic preference is the temporary
-    // escape hatch. This covers the FIRST paint only: React 19 hydration then
-    // replaces <html>'s className,
-    // stripping script-added classes — the dark class above survives only
-    // because useTheme re-applies it in an effect, and UiSkinSync (mounted in
-    // the body below) is the equivalent required re-assert for this class.
-    if (localStorage.getItem('ui-skin') !== 'classic') {
-      document.documentElement.classList.add('skin-umber');
-    }
     if (localStorage.getItem('ai-workspace-density') === 'compact') {
       document.documentElement.classList.add('density-compact');
     }
@@ -84,7 +75,7 @@ const themeInitScript = `
 
 function BuiltByMark() {
   // Rob & Robot lockup (assets from DadJokez/rob-and-robot): ink on light
-  // themes, tan on dark — the brand palette matches both skins. Fixed
+  // themes, tan on dark — the brand palette matches both themes. Fixed
   // bottom-right, under the safe-area inset, below modal layers.
   const shared =
     "h-5 w-auto opacity-50 transition-opacity duration-base group-hover:opacity-90";
@@ -123,7 +114,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        {/* Comparative ships a real native dark mode (and the Umber skin).
+        {/* Comparative ships a real native dark mode with the Umber identity.
             Dark Reader's forced repaint sits on top of the app's theme
             classes, so the sun/moon toggle and Light/Dark/System controls
             appear dead while working correctly underneath (live tester
@@ -133,7 +124,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="bg-canvas text-ink antialiased">
-        <UiSkinSync />
+        <UiPreferencesSync />
         <AlphaBadge />
         <CommandPaletteProvider>{children}</CommandPaletteProvider>
         <BuiltByMark />
