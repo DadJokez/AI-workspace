@@ -79,7 +79,7 @@ export async function appendRunEvent({
   });
 }
 
-export async function nextRunEventSequence(
+async function nextRunEventSequence(
   db: Database,
   runId: string,
 ): Promise<number> {
@@ -92,13 +92,55 @@ export async function nextRunEventSequence(
   return (rows[0]?.sequence ?? 0) + 1;
 }
 
+/** Initial insert plus up to two retries on a sequence collision (#443). */
+const SEQUENCE_INSERT_ATTEMPTS = 3;
+
+/**
+ * Postgres unique_violation (23505). Drizzle can wrap the driver error, so
+ * walk the `cause` chain a few levels.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!current || typeof current !== "object") return false;
+    const maybe = current as { code?: unknown; cause?: unknown };
+    if (maybe.code === "23505") return true;
+    current = maybe.cause;
+  }
+  return false;
+}
+
+/**
+ * Allocate the next sequence and insert, retrying on a unique-violation.
+ * Read-max-then-insert is racy under dual writers (a fenced-out worker racing
+ * the new lease holder); the `run_events (run_id, sequence)` unique index
+ * turns that race into a 23505 (#443), and re-reading the max lands the late
+ * writer after the winner instead of on top of it.
+ */
+async function insertRunEventAtNextSequence(
+  db: Database,
+  runId: string,
+  insert: (sequence: number) => Promise<void>,
+): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    const sequence = await nextRunEventSequence(db, runId);
+    try {
+      await insert(sequence);
+      return;
+    } catch (err) {
+      if (attempt >= SEQUENCE_INSERT_ATTEMPTS || !isUniqueViolation(err)) {
+        throw err;
+      }
+    }
+  }
+}
+
 export async function appendRunEventWithNextSequence(
   input: Omit<AppendRunEventInput, "sequence">,
 ): Promise<void> {
-  await appendRunEvent({
-    ...input,
-    sequence: await nextRunEventSequence(input.db, input.runId),
-  });
+  await insertRunEventAtNextSequence(input.db, input.runId, (sequence) =>
+    appendRunEvent({ ...input, sequence }),
+  );
 }
 
 /**
@@ -130,14 +172,15 @@ export async function appendToolCallRunEvent({
 }: {
   db: Database;
   runId: string;
-  sequence: number;
+  /** Omit to allocate the next sequence with collision retry (#443). */
+  sequence?: number;
   call: PersistedToolCall;
 }): Promise<void> {
   const activity = buildToolActivityEvents([call], [])[0];
-  await appendRunEvent({
+  const insert = (allocated: number) => appendRunEvent({
     db,
     runId,
-    sequence,
+    sequence: allocated,
     eventType: "tool_call",
     status: "pending",
     label: activity?.label ?? "Started a tool step",
@@ -153,6 +196,8 @@ export async function appendToolCallRunEvent({
     metadata: { rawToolName: call.name },
     occurredAt: new Date(call.startedAt),
   });
+  if (sequence !== undefined) return insert(sequence);
+  return insertRunEventAtNextSequence(db, runId, insert);
 }
 
 export async function appendToolResultRunEvent({
@@ -164,7 +209,8 @@ export async function appendToolResultRunEvent({
 }: {
   db: Database;
   runId: string;
-  sequence: number;
+  /** Omit to allocate the next sequence with collision retry (#443). */
+  sequence?: number;
   call?: PersistedToolCall;
   result: PersistedToolResult;
 }): Promise<void> {
@@ -172,10 +218,10 @@ export async function appendToolResultRunEvent({
     call ? [call] : [],
     [result],
   )[0];
-  await appendRunEvent({
+  const insert = (allocated: number) => appendRunEvent({
     db,
     runId,
-    sequence,
+    sequence: allocated,
     eventType: "tool_result",
     status: result.isError ? "failed" : "succeeded",
     label:
@@ -203,6 +249,8 @@ export async function appendToolResultRunEvent({
     },
     occurredAt: new Date(result.completedAt),
   });
+  if (sequence !== undefined) return insert(sequence);
+  return insertRunEventAtNextSequence(db, runId, insert);
 }
 
 export function runEventsToActivityEvents(

@@ -43,6 +43,11 @@ import {
 } from "@/lib/chat-export";
 import type { ChatModelOverride } from "@/lib/model-command";
 import { readSseStream } from "@/lib/sse";
+import {
+  shouldReloadThread,
+  type RunStatusResponse,
+  type RunStatusSnapshot,
+} from "@/lib/run-poll";
 import type { AgentActivityEvent } from "@/lib/activity-events";
 import type { LiveReasoningBlock } from "@/lib/run-inspector";
 import {
@@ -975,6 +980,10 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const activePendingRunId =
     activeTab?.messages.find((m) => m.pending && m.id.startsWith("run:"))
       ?.id ?? null;
+  // The run's database id, for the slim status poll (#447). Placeholder ids
+  // are always `run:<uuid>`.
+  const activePendingRunDbId =
+    activePendingRunId?.slice("run:".length) ?? null;
   const completedAssistantSignature =
     activeTab?.messages
       .filter((message) => message.role === "assistant" && !message.pending)
@@ -1048,21 +1057,26 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     refreshThreadsRef.current = refreshThreads;
   });
 
-  // Background runs no longer keep the `/api/chat` request open. Poll the
-  // thread while a pending run placeholder is visible so reloadable run events
-  // and the terminal assistant message appear without a manual refresh.
+  // Background runs no longer keep the `/api/chat` request open. While a
+  // pending run placeholder is visible, poll the run's slim status endpoint
+  // (#447) and reload the full thread — messages + events + artifact
+  // content — only when the status/event cursor actually moved. The old poll
+  // refetched the whole thread every 500ms and discarded it when nothing had
+  // changed.
   useEffect(() => {
-    if (!activeTab?.threadId || !activeHasPendingRun) return;
+    if (!activeTab?.threadId || !activePendingRunDbId) return;
     const tabId = activeTab.id;
     const threadId = activeTab.threadId;
+    const runId = activePendingRunDbId;
     let cancelled = false;
+    let cursor: RunStatusSnapshot | null = null;
 
-    async function refreshPendingRun() {
+    async function refreshPendingRun(): Promise<boolean> {
       try {
         const r = await fetch(`/api/threads/${threadId}/messages`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = (await r.json()) as ThreadMessagesResponse;
-        if (cancelled) return;
+        if (cancelled) return false;
         const msgs = data.messages.map(threadMessageToUiMessage);
         const hasLoadedPending = msgs.some((m) => m.pending);
         setTabs((prev) =>
@@ -1081,20 +1095,49 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           }),
         );
         if (!hasLoadedPending) void refreshThreadsRef.current();
+        return true;
       } catch (err) {
         if (!cancelled) {
           console.error("failed to refresh pending run", err);
+        }
+        return false;
+      }
+    }
+
+    async function pollRunStatus() {
+      try {
+        const r = await fetch(`/api/runs/${runId}/status`);
+        if (cancelled) return;
+        if (!r.ok) {
+          // Fail open to the pre-#447 behavior: a vanished run (404) still
+          // needs the full reload to clear its placeholder.
+          void refreshPendingRun();
+          return;
+        }
+        const data = (await r.json()) as RunStatusResponse;
+        const next: RunStatusSnapshot = {
+          status: data.run.status,
+          latestEventSequence: data.run.latestEventSequence,
+        };
+        if (shouldReloadThread(cursor, next)) {
+          const reloaded = await refreshPendingRun();
+          if (!reloaded) return; // keep the cursor; retry next tick
+        }
+        cursor = next;
+      } catch (err) {
+        if (!cancelled) {
+          console.error("failed to poll pending run status", err);
         }
       }
     }
 
     void refreshPendingRun();
-    const interval = setInterval(refreshPendingRun, RUN_POLL_INTERVAL_MS);
+    const interval = setInterval(pollRunStatus, RUN_POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [activeTab?.id, activeTab?.threadId, activeHasPendingRun]);
+  }, [activeTab?.id, activeTab?.threadId, activePendingRunDbId]);
 
   // Auto-scroll: only if user is at (or near) the bottom.
   useEffect(() => {
@@ -1526,6 +1569,9 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           message: text,
           threadId: activeTab.threadId,
           modelId: requestedModelId,
+          // #432: ground "today"/"tomorrow" in the browser's zone. The server
+          // validates it as a real IANA zone and ignores anything else.
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           ...(modelOverride?.mode === "model" ? { modelOverride: true } : {}),
           attachmentCount: attachments?.length ?? 0,
           ...(activatedSkill ? { activatedSkills: [activatedSkill] } : {}),

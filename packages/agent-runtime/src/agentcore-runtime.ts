@@ -70,6 +70,9 @@ export class AgentCoreRuntime implements AgentRuntime {
       modelId: input.modelId,
       systemPrompt: input.systemPrompt,
       firstTurnPreamble,
+      // #432: the container re-validates before use; an older deployed image
+      // simply ignores the extra field and stays UTC-only.
+      userTimeZone: input.userTimeZone,
       messages: input.messages,
       mcpServers: pickHttpMcpServers(input.mcpServers),
       builtinTools: input.builtinTools,

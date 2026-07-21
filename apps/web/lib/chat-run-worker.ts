@@ -1,3 +1,4 @@
+import { normalizeUserTimeZone } from "@ai-workspace/agent";
 import { getRuntime } from "@ai-workspace/agent-runtime";
 import { chatThreads, type Database, runs, type Run } from "@ai-workspace/db";
 import { and, asc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
@@ -21,6 +22,8 @@ import {
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 const DEFAULT_RUNTIME_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
+/** #448: how many claimed runs a single worker executes concurrently. */
+const DEFAULT_RUN_CONCURRENCY = 3;
 /** How long an inline run may go without a heartbeat before it is orphaned. */
 const DEFAULT_ORPHAN_MAX_AGE_MS = 15 * 60 * 1000;
 const ORPHAN_SWEEP_INTERVAL_MS = 60_000;
@@ -116,6 +119,15 @@ export async function runChatRunWorkerLoop({
     DEFAULT_POLL_INTERVAL_MS,
   signal,
 }: ChatRunWorkerLoopInput): Promise<void> {
+  // #448: bounded per-worker concurrency. Claims stay sequential; executions
+  // run concurrently up to the cap. The lease protocol is multi-claimant-safe
+  // (#443 fencing + the run_events (run_id, sequence) unique index), and each
+  // in-flight run heartbeats its own lease from executeClaimedChatRun.
+  const concurrency = Math.max(
+    1,
+    Math.floor(numberFromEnv("WORKER_RUN_CONCURRENCY") ?? DEFAULT_RUN_CONCURRENCY),
+  );
+  const inFlight = new Set<Promise<void>>();
   let lastSweepAt = 0;
   while (!signal?.aborted) {
     // #443: reap stranded inline runs (no lease, dead heartbeat) so a web
@@ -132,11 +144,38 @@ export async function runChatRunWorkerLoop({
         );
       }
     }
-    const result = await processQueuedChatRun({ db, workerId, signal });
-    if (result.status === "idle") {
-      await delay(pollIntervalMs, signal);
+    const claimed =
+      inFlight.size < concurrency ? await claimChatRun({ db, workerId }) : null;
+    if (claimed) {
+      // A rejected task (bookkeeping DB failure) must not tear down the other
+      // in-flight runs, so log it here instead of letting it escape the loop.
+      const task: Promise<void> = runClaimedChatRun({
+        db,
+        run: claimed,
+        workerId,
+        signal,
+      })
+        .then(() => undefined)
+        .catch((err: unknown) => {
+          process.stderr.write(
+            `[chat-run-worker-error] ${JSON.stringify({
+              runId: claimed.id,
+              threadId: claimed.threadId,
+              message: err instanceof Error ? err.message : String(err),
+            })}\n`,
+          );
+        })
+        .finally(() => inFlight.delete(task));
+      inFlight.add(task);
+      // Another slot may still be free — try to claim again immediately.
+      continue;
     }
+    // Idle or at capacity: wake on the next poll tick or a finished run.
+    await Promise.race([delay(pollIntervalMs, signal), ...inFlight]);
   }
+  // Graceful shutdown: in-flight runs observe the abort signal; wait for
+  // their terminal writes before returning.
+  await Promise.all(inFlight);
 }
 
 /**
@@ -209,24 +248,37 @@ export async function processQueuedChatRun({
 }> {
   const claimed = await claimChatRun({ db, runId, workerId });
   if (!claimed) return { status: "idle" };
+  return runClaimedChatRun({ db, run: claimed, workerId, signal });
+}
 
+async function runClaimedChatRun({
+  db,
+  run,
+  workerId,
+  signal,
+}: {
+  db: Database;
+  run: Run;
+  workerId: string;
+  signal?: AbortSignal;
+}): Promise<{ status: ChatRunWorkerStatus; runId: string }> {
   try {
-    await executeClaimedChatRun({ db, run: claimed, workerId, signal });
-    return { status: "succeeded", runId: claimed.id };
+    await executeClaimedChatRun({ db, run, workerId, signal });
+    return { status: "succeeded", runId: run.id };
   } catch (err) {
-    if (await isRunCanceled(db, claimed.id)) {
-      return { status: "succeeded", runId: claimed.id };
+    if (await isRunCanceled(db, run.id)) {
+      return { status: "succeeded", runId: run.id };
     }
     const message = err instanceof Error ? err.message : String(err);
-    await markRunFailed(db, claimed, message, workerId);
+    await markRunFailed(db, run, message, workerId);
     process.stderr.write(
       `[chat-run-worker-error] ${JSON.stringify({
-        runId: claimed.id,
-        threadId: claimed.threadId,
+        runId: run.id,
+        threadId: run.threadId,
         message,
       })}\n`,
     );
-    return { status: "failed", runId: claimed.id };
+    return { status: "failed", runId: run.id };
   }
 }
 
@@ -406,6 +458,10 @@ async function executeClaimedChatRun({
       requestedProviders: inputs.requestedProviders,
       activeSkillPrompt: sanitizeActiveSkillPrompt(inputs.activeSkillPrompt),
       uploadedFiles: sanitizeUploadedFiles(inputs.uploadedFiles),
+      // #432: only chat turns ever store a zone; scheduled/skill runs have
+      // none and stay UTC-only. Re-validated because stored JSON is not a
+      // trusted prompt source either.
+      userTimeZone: normalizeUserTimeZone(inputs.userTimeZone),
       suppressedSkillIds: activatedSkillIdsFromInputs(run.inputs),
       interactive: run.triggerType === "chat",
       lane: {

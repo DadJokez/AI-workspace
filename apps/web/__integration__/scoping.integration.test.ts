@@ -3,6 +3,8 @@ import {
   chatMessages,
   chatThreads,
   createDb,
+  runEvents,
+  runs,
   users,
   workspaceArtifacts,
 } from "@ai-workspace/db";
@@ -231,6 +233,43 @@ suite("cross-user scoping (real Postgres, real handlers)", () => {
     });
     expect(ok.status).toBe(200);
     expect(await ok.text()).toContain("alice-secret");
+  });
+
+  it("run status poll (#447) 404s cross-user and returns the cursor for the owner", async () => {
+    const { GET } = await import("@/app/api/runs/[id]/status/route");
+    const [run] = await db
+      .insert(runs)
+      .values({
+        userId: seeded.alice.id,
+        threadId: seeded.aliceThreadId,
+        skillSlug: "chat-turn",
+        status: "running",
+      })
+      .returning();
+    await db.insert(runEvents).values({
+      runId: run!.id,
+      sequence: 2,
+      eventType: "provider_run_started",
+      label: "Started bedrock run",
+    });
+
+    currentUser = seeded.bob;
+    const denied = await GET(new Request("http://test.local"), {
+      params: Promise.resolve({ id: run!.id }),
+    });
+    expect(denied.status).toBe(404);
+
+    currentUser = seeded.alice;
+    const ok = await GET(new Request("http://test.local"), {
+      params: Promise.resolve({ id: run!.id }),
+    });
+    expect(ok.status).toBe(200);
+    const body = (await ok.json()) as {
+      run: { id: string; status: string; latestEventSequence: number | null };
+    };
+    expect(body.run.id).toBe(run!.id);
+    expect(body.run.status).toBe("running");
+    expect(body.run.latestEventSequence).toBe(2);
   });
 
   it("thread export is denied cross-user", async () => {
