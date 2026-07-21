@@ -28,14 +28,15 @@ import { MessageBubble } from "@/components/MessageBubble";
 import { ThinkingOrb } from "@/components/ThinkingOrb";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
 import { SearchPanel } from "@/components/SearchPanel";
-import { SettingsPanel } from "@/components/SettingsPanel";
+import {
+  SettingsModal,
+  type SettingsSection,
+} from "@/components/SettingsModal";
 import { WelcomeWizard } from "@/components/WelcomeWizard";
 import { shouldShowTour } from "@/lib/tour";
 import { NotificationsPanel } from "@/components/NotificationsPanel";
 import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
-import { ToolsPanel } from "@/components/ToolsPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { VaultPanel } from "@/components/VaultPanel";
 import { WorkspacePanel } from "@/components/WorkspacePanel";
 import {
   buildChatTranscriptMarkdown,
@@ -68,10 +69,7 @@ const FALLBACK_DEFAULT_MODEL_ID = "sonnet-4-6";
 
 type View =
   | "chat"
-  | "settings"
   | "search"
-  | "tools"
-  | "vault"
   | "workspace"
   | "notifications";
 
@@ -496,6 +494,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
 
   const [bootstrapped, setBootstrapped] = useState(false);
   const [view, setView] = useState<View>("chat");
+  const [settingsSection, setSettingsSection] =
+    useState<SettingsSection | null>(null);
   const [userDefaultModelId, setUserDefaultModelId] = useState<
     string | undefined
   >();
@@ -559,7 +559,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.has("connected")) {
-      setView("tools");
+      setSettingsSection("integrations");
     }
   }, []);
 
@@ -716,7 +716,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
-        setView("settings");
+        setSettingsSection("profile");
       }
     };
     window.addEventListener("keydown", handler);
@@ -1277,10 +1277,8 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
 
   function handleNavSelect(id: string) {
     if (id === "chat") setView("chat");
-    else if (id === "settings") setView("settings");
+    else if (id === "settings") setSettingsSection("profile");
     else if (id === "search") setView("search");
-    else if (id === "tools") setView("tools");
-    else if (id === "vault") setView("vault");
     else if (id === "workspace") setView("workspace");
     else if (id === "feedback") setFeedbackOpen(true);
     else if (id === "admin") {
@@ -2057,40 +2055,11 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           data-testid="chat-workspace-pane"
           className="flex h-full min-w-0 flex-1 flex-col"
         >
-          {view === "settings" ? (
-            <SettingsPanel
-              userEmail={user?.email}
-              displayName={user?.displayName ?? ""}
-              customInstructions={user?.customInstructions ?? null}
-              onProfileUpdated={handleProfileUpdated}
-              models={models}
-              defaultModelId={defaultModelId}
-              userDefaultModelId={userDefaultModelId}
-              onUserDefaultModelChange={updateUserDefaultModel}
-              runtimeV2Enabled={runtimeV2Enabled}
-              onClose={() => setView("chat")}
-              onOpenSidebar={() => setSidebarOpen(true)}
-              onReplayTour={() => {
-                setView("chat");
-                setWizardOpen(true);
-              }}
-            />
-          ) : view === "search" ? (
+          {view === "search" ? (
             <SearchPanel
               threads={threads}
               threadsLoading={threadsLoading}
               onOpenThread={openThread}
-              onClose={() => setView("chat")}
-              onOpenSidebar={() => setSidebarOpen(true)}
-            />
-          ) : view === "tools" ? (
-            <ToolsPanel
-              onClose={() => setView("chat")}
-              onOpenSidebar={() => setSidebarOpen(true)}
-            />
-          ) : view === "vault" ? (
-            <VaultPanel
-              userName={user?.displayName}
               onClose={() => setView("chat")}
               onOpenSidebar={() => setSidebarOpen(true)}
             />
@@ -2235,6 +2204,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
 
         <div
           ref={scrollRef}
+          data-testid="chat-scroll-region"
           onScroll={handleScroll}
           className="flex-1 overflow-x-hidden overflow-y-auto"
         >
@@ -2243,7 +2213,10 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8"
           >
             {messages.length === 0 ? (
-              <EmptyState onPick={send} />
+              <EmptyState
+                onPick={send}
+                onOpenIntegrations={() => setSettingsSection("integrations")}
+              />
             ) : (
               messages.map((m) => (
                 <div key={m.id} className="flex flex-col gap-2">
@@ -2420,12 +2393,33 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         ) : null}
       </main>
 
+      {settingsSection ? (
+        <SettingsModal
+          userEmail={user?.email}
+          displayName={user?.displayName ?? ""}
+          customInstructions={user?.customInstructions ?? null}
+          initialSection={settingsSection}
+          onProfileUpdated={handleProfileUpdated}
+          models={models}
+          defaultModelId={defaultModelId}
+          userDefaultModelId={userDefaultModelId}
+          onUserDefaultModelChange={updateUserDefaultModel}
+          runtimeV2Enabled={runtimeV2Enabled}
+          onClose={() => setSettingsSection(null)}
+          onReplayTour={() => setWizardOpen(true)}
+        />
+      ) : null}
+
       <WelcomeWizard
         open={wizardOpen}
         initialAssistantName={user?.assistantName ?? null}
         connected={oauthConnected}
         onSave={saveWizardStep}
         onComplete={completeWizard}
+        onOpenIntegrations={() => {
+          setWizardOpen(false);
+          setSettingsSection("integrations");
+        }}
       />
       <FeedbackReporter
         open={feedbackOpen}
@@ -2529,7 +2523,13 @@ function RunControls({
   );
 }
 
-function EmptyState({ onPick }: { onPick: (s: string) => void }) {
+function EmptyState({
+  onPick,
+  onOpenIntegrations,
+}: {
+  onPick: (s: string) => void;
+  onOpenIntegrations: () => void;
+}) {
   // Sample prompts that work today, not aspirational ones tied to
   // integrations that aren't wired yet. GitHub MCP is the only live tool;
   // the other prompts are pure-model so they work without any connections.
@@ -2554,7 +2554,14 @@ function EmptyState({ onPick }: { onPick: (s: string) => void }) {
       <p className="max-w-md text-sm text-muted">
         GitHub is wired up today. Office 365, Salesforce, and Workfront are
         next — connect what you have in{" "}
-        <span className="text-ink">Tools</span>.
+        <button
+          type="button"
+          onClick={onOpenIntegrations}
+          className="font-medium text-ink underline decoration-hairline underline-offset-2 hover:decoration-ink"
+        >
+          Integrations
+        </button>
+        .
       </p>
       <div className="text-2xs font-medium uppercase tracking-caps text-muted/60">
         {COMPARATIVE_VERSION_LABEL}

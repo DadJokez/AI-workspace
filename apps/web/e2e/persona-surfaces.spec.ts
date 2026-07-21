@@ -4,7 +4,11 @@ import {
   now,
   regularUser,
 } from "./helpers/mock-comparative";
-import { gotoE2EChat, openNavItem, openPrimarySidebar } from "./helpers/navigation";
+import {
+  gotoE2EChat,
+  openPrimarySidebar,
+  openSettingsSection,
+} from "./helpers/navigation";
 
 test.skip(
   !!process.env.PLAYWRIGHT_BASE_URL,
@@ -88,7 +92,7 @@ test.describe("persona and workspace surfaces", () => {
     ).toBeVisible();
   });
 
-  test("reports GitHub connection state in Tools", async ({
+  test("reports GitHub connection state in Integrations", async ({
     page,
     isMobile,
   }) => {
@@ -97,8 +101,10 @@ test.describe("persona and workspace surfaces", () => {
     });
     await gotoE2EChat(page);
 
-    await openNavItem(page, "Tools", isMobile);
-    await expect(page.getByRole("heading", { name: "Tools" })).toBeVisible();
+    await openSettingsSection(page, "Integrations", isMobile);
+    await expect(
+      page.getByRole("heading", { name: "Integrations" }),
+    ).toBeVisible();
     const githubCard = page.getByTestId("tool-card-github");
     await expect(githubCard.getByText("GitHub")).toBeVisible();
     await expect(githubCard.getByText("Connected")).toBeVisible();
@@ -114,14 +120,14 @@ test.describe("persona and workspace surfaces", () => {
     });
     await gotoE2EChat(page);
 
-    await openNavItem(page, "Tools", isMobile);
+    await openSettingsSection(page, "Integrations", isMobile);
     const githubCard = page.getByTestId("tool-card-github");
     await expect(githubCard.getByText("Not connected")).toBeVisible();
     const connect = githubCard.getByRole("link", { name: "Connect" });
     await expect(connect).toHaveAttribute("href", "/api/oauth/github/start");
   });
 
-  test("reports Notion connection states in Tools", async ({
+  test("reports Notion connection states in Integrations", async ({
     page,
     isMobile,
   }) => {
@@ -130,7 +136,7 @@ test.describe("persona and workspace surfaces", () => {
     });
     await gotoE2EChat(page);
 
-    await openNavItem(page, "Tools", isMobile);
+    await openSettingsSection(page, "Integrations", isMobile);
     const notionCard = page.getByTestId("tool-card-notion");
     await expect(notionCard.getByText("Notion")).toBeVisible();
     await expect(notionCard.getByText(/Search, summarize, query/))
@@ -149,7 +155,7 @@ test.describe("persona and workspace surfaces", () => {
     });
     await gotoE2EChat(page);
 
-    await openNavItem(page, "Tools", isMobile);
+    await openSettingsSection(page, "Integrations", isMobile);
     const googleCard = page.getByTestId("tool-card-google");
     await expect(googleCard.getByText("Google Mail & Calendar")).toBeVisible();
     await expect(googleCard.getByText("Not connected")).toBeVisible();
@@ -178,7 +184,7 @@ test.describe("persona and workspace surfaces", () => {
     });
     await gotoE2EChat(page);
 
-    await openNavItem(page, "Tools", isMobile);
+    await openSettingsSection(page, "Integrations", isMobile);
     const connectedSection = page.getByTestId("tools-section-connected");
     const googleCard = connectedSection.getByTestId("tool-card-google");
     await expect(googleCard.getByText("Connected")).toBeVisible();
@@ -205,7 +211,7 @@ test.describe("persona and workspace surfaces", () => {
     });
     await gotoE2EChat(page);
 
-    await openNavItem(page, "Tools", isMobile);
+    await openSettingsSection(page, "Integrations", isMobile);
     const googleCard = page.getByTestId("tool-card-google");
     await expect(googleCard.getByText("Reconnect").first()).toBeVisible();
     await expect(
@@ -224,7 +230,7 @@ test.describe("persona and workspace surfaces", () => {
     });
     await gotoE2EChat(page);
 
-    await openNavItem(page, "Tools", isMobile);
+    await openSettingsSection(page, "Integrations", isMobile);
     const connectedSection = page.getByTestId("tools-section-connected");
     const availableSection = page.getByTestId("tools-section-available");
 
@@ -242,7 +248,7 @@ test.describe("persona and workspace surfaces", () => {
     expect(cardOrder[1]).toBe("tool-card-github");
   });
 
-  test("shows connected and failed Notion OAuth feedback in Tools", async ({
+  test("shows connected and failed Notion OAuth feedback in Integrations", async ({
     page,
     isMobile,
   }) => {
@@ -251,7 +257,7 @@ test.describe("persona and workspace surfaces", () => {
     });
     await gotoE2EChat(page);
 
-    await openNavItem(page, "Tools", isMobile);
+    await openSettingsSection(page, "Integrations", isMobile);
     const connectedCard = page.getByTestId("tool-card-notion");
     await expect(connectedCard.getByText("Connected")).toBeVisible();
     await expect(connectedCard.getByText("Ready in chat")).toBeVisible();
@@ -259,7 +265,9 @@ test.describe("persona and workspace surfaces", () => {
       .toHaveAttribute("href", "/api/oauth/notion/start");
 
     await page.goto("/e2e/chat?connected=notion&error=invalid_state");
-    await expect(page.getByRole("heading", { name: "Tools" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Integrations" }),
+    ).toBeVisible();
     const failedCard = page.getByTestId("tool-card-notion");
     await expect(failedCard.getByText("Auth failed")).toBeVisible();
     await expect(failedCard.getByRole("link", { name: "Reconnect" }))
@@ -273,27 +281,25 @@ test.describe("persona and workspace surfaces", () => {
     await installMockComparativeApi(page);
     await gotoE2EChat(page);
 
-    await openNavItem(page, "Settings", isMobile);
-    const displayName = page.getByLabel("Display name");
+    const settings = await openSettingsSection(page, "Profile", isMobile);
+    const displayName = settings.getByLabel("Display name");
     await expect(displayName).toHaveValue("Rob");
 
     await displayName.fill("Rob QA");
-    await displayName.press("Enter");
+    await settings.getByRole("button", { name: "Save" }).click();
     await expect(displayName).toHaveValue("Rob QA");
-    await expect(
-      page
-        .locator("label")
-        .filter({ hasText: "Display name" })
-        .getByText("Saved"),
-    ).toBeVisible();
+    await expect(settings.getByText("Saved")).toBeVisible();
 
-    const instructionsField = page
-      .locator("label")
-      .filter({ hasText: "Tell the assistant about yourself" });
-    await instructionsField
-      .getByLabel(/Tell the assistant about yourself/i)
-      .fill("Prefer concise regression notes with the risky bits called out.");
-    await page.getByRole("button", { name: "Save" }).click();
-    await expect(instructionsField.getByText("Saved")).toBeVisible();
+    await settings
+      .getByRole("button", { name: "Instructions", exact: true })
+      .click();
+    const instructionsField = settings.getByLabel(
+      "How should Comparative work with you?",
+    );
+    await instructionsField.fill(
+      "Prefer concise regression notes with the risky bits called out.",
+    );
+    await settings.getByRole("button", { name: "Save" }).click();
+    await expect(settings.getByText("Saved")).toBeVisible();
   });
 });

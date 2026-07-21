@@ -27,16 +27,11 @@ interface NavGroup {
 /**
  * Nav layout maps to journeys J2-J5 — chat (J1) is the whole app, so it
  * doesn't appear as a nav item. New chats start from the "+" next to the
- * History header. Tools (J2) is live for connecting integrations; the
- * rest are visible-but-disabled so the roadmap is legible at a glance.
+ * History header. Account-level configuration lives in the Settings modal.
  */
 const groups: NavGroup[] = [
   {
-    items: [
-      { id: "tools", label: "Tools", icon: <IconTool /> },
-      { id: "vault", label: "Vault", icon: <IconVault /> },
-      { id: "workspace", label: "Artifacts", icon: <IconFolder /> },
-    ],
+    items: [{ id: "workspace", label: "Artifacts", icon: <IconFolder /> }],
   },
   {
     label: "Build & automate",
@@ -58,10 +53,7 @@ const groups: NavGroup[] = [
     ],
   },
   {
-    items: [
-      { id: "feedback", label: "Feedback", icon: <IconFeedback /> },
-      { id: "settings", label: "Settings", icon: <IconCog /> },
-    ],
+    items: [{ id: "feedback", label: "Feedback", icon: <IconFeedback /> }],
   },
 ];
 
@@ -155,6 +147,7 @@ export function Sidebar({
   const [deleting, setDeleting] = useState(false);
 
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const accountButtonRef = useRef<HTMLButtonElement>(null);
   const threadMenuRef = useRef<HTMLLIElement>(null);
 
   const navGroups = useMemo<NavGroup[]>(() => {
@@ -175,6 +168,7 @@ export function Sidebar({
     .slice(0, 2)
     .map((s) => s[0]?.toUpperCase() ?? "")
     .join("");
+  const hasAccountMenu = Boolean(onNavSelect || onSignOut);
 
   const historyLabel = "Chats";
 
@@ -611,14 +605,16 @@ export function Sidebar({
             {COMPARATIVE_VERSION_LABEL}
           </div>
           <button
+            ref={accountButtonRef}
             type="button"
-            onClick={() => onSignOut && setUserMenuOpen((v) => !v)}
-            disabled={!onSignOut}
-            aria-haspopup={onSignOut ? "menu" : undefined}
-            aria-expanded={onSignOut ? userMenuOpen : undefined}
-            aria-label={onSignOut ? "Account menu" : undefined}
+            data-settings-trigger="true"
+            onClick={() => hasAccountMenu && setUserMenuOpen((v) => !v)}
+            disabled={!hasAccountMenu}
+            aria-haspopup={hasAccountMenu ? "menu" : undefined}
+            aria-expanded={hasAccountMenu ? userMenuOpen : undefined}
+            aria-label={hasAccountMenu ? "Account menu" : undefined}
             className={`flex w-full items-center gap-2.5 rounded-md px-1 py-1 text-left ${
-              onSignOut ? "hover:bg-subtle" : "cursor-default"
+              hasAccountMenu ? "hover:bg-subtle" : "cursor-default"
             }`}
           >
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-subtle text-2xs font-medium text-ink">
@@ -632,7 +628,7 @@ export function Sidebar({
                 <div className="truncate text-2xs text-muted">{userEmail}</div>
               ) : null}
             </div>
-            {onSignOut ? (
+            {hasAccountMenu ? (
               <svg
                 viewBox="0 0 16 16"
                 width="10"
@@ -652,23 +648,40 @@ export function Sidebar({
             ) : null}
           </button>
 
-          {userMenuOpen && onSignOut ? (
+          {userMenuOpen && hasAccountMenu ? (
             <div
               role="menu"
               className="absolute bottom-[calc(100%-4px)] left-3 right-3 z-10 overflow-hidden rounded-md border border-hairline bg-surface shadow-md"
             >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setUserMenuOpen(false);
-                  onSignOut();
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-subtle"
-              >
-                <IconSignOut />
-                <span>Sign out</span>
-              </button>
+              {onNavSelect ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    accountButtonRef.current?.focus();
+                    onNavSelect("settings");
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-subtle"
+                >
+                  <IconCog />
+                  <span>Settings</span>
+                </button>
+              ) : null}
+              {onSignOut ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    onSignOut();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-subtle"
+                >
+                  <IconSignOut />
+                  <span>Sign out</span>
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -937,42 +950,6 @@ function IconSignOut() {
       strokeLinecap="round"
     >
       <path d="M9 4V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-1M11 5l3 3-3 3M6 8h8" />
-    </svg>
-  );
-}
-
-function IconTool() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinejoin="round"
-    >
-      <path d="M10.8 2.2a3 3 0 0 0-3.9 3.9l-4.4 4.4a1.4 1.4 0 0 0 2 2l4.4-4.4a3 3 0 0 0 3.9-3.9l-1.7 1.7-1.4-1.4z" />
-    </svg>
-  );
-}
-
-function IconVault() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinejoin="round"
-      strokeLinecap="round"
-    >
-      <rect x="2.5" y="3" width="11" height="10.5" rx="1.5" />
-      <path d="M5.5 3V2.5A1.5 1.5 0 0 1 7 1h2a1.5 1.5 0 0 1 1.5 1.5V3" />
-      <circle cx="8" cy="8" r="1.3" />
-      <path d="M8 9.3v1.5" />
     </svg>
   );
 }

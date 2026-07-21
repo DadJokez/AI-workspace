@@ -1,11 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
-interface Props {
-  onClose: () => void;
-  onOpenSidebar: () => void;
-}
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface Integration {
   id: string;
@@ -149,12 +144,16 @@ const INTEGRATIONS: Integration[] = [
   },
 ];
 
-export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
+export function IntegrationsSettings() {
   const [oauthStatus, setOauthStatus] = useState<OAuthStatusPayload>({});
   const [oauthNotice, setOauthNotice] = useState<OAuthNotice | undefined>();
   const [activeIntegration, setActiveIntegration] = useState<
     Integration | undefined
   >();
+  const closeIntegration = useCallback(
+    () => setActiveIntegration(undefined),
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -181,19 +180,6 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
     const error = params.get("error") ?? undefined;
     setOauthNotice({ provider, error });
   }, []);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (activeIntegration) {
-        setActiveIntegration(undefined);
-        return;
-      }
-      onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [activeIntegration, onClose]);
 
   const cards = INTEGRATIONS.map((integration): IntegrationCardState => {
     const detail = oauthStatus.providerDetails?.[integration.id];
@@ -223,91 +209,41 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
   );
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex h-11 shrink-0 items-center gap-1 border-b border-hairline bg-canvas">
-        <button
-          type="button"
-          onClick={onOpenSidebar}
-          aria-label="Open menu"
-          className="flex h-11 w-11 shrink-0 items-center justify-center text-muted hover:bg-subtle hover:text-ink md:hidden"
-        >
-          <svg
-            viewBox="0 0 16 16"
-            width="16"
-            height="16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            aria-hidden="true"
-          >
-            <path d="M2 4h12M2 8h12M2 12h12" />
-          </svg>
-        </button>
-        <h1 className="flex-1 truncate px-2 text-sm font-medium text-ink">
-          Tools
-        </h1>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close tools"
-          className="mr-2 flex h-9 w-9 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink"
-        >
-          <svg
-            viewBox="0 0 16 16"
-            width="14"
-            height="14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            aria-hidden="true"
-          >
-            <path d="m4 4 8 8M12 4l-8 8" />
-          </svg>
-        </button>
-      </header>
+    <div className="flex flex-col gap-5">
+      <div>
+        <h2 className="text-md font-semibold text-ink">Integrations</h2>
+        <p className="mt-1 text-sm text-muted">
+          Connect services to give Comparative access to your work.
+        </p>
+      </div>
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-2xl flex-col gap-4 px-4 py-6 sm:px-6 sm:py-10">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-2xs font-medium uppercase tracking-wider text-muted">
-              Integrations
-            </h2>
-            <p className="text-xs text-muted">
-              Connect a service to give chat access to your data there.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-5">
-            {connectedCards.length > 0 ? (
-              <ToolsSection
-                title="Connected"
-                testId="tools-section-connected"
-                cards={connectedCards}
-                onOpenComingSoon={setActiveIntegration}
-              />
-            ) : null}
-            <ToolsSection
-              title="Available"
-              testId="tools-section-available"
-              cards={availableCards}
-              onOpenComingSoon={setActiveIntegration}
-            />
-            <ToolsSection
-              title="Coming soon"
-              testId="tools-section-coming-soon"
-              cards={comingSoonCards}
-              onOpenComingSoon={setActiveIntegration}
-            />
-          </div>
-        </div>
+      <div className="flex flex-col gap-5">
+        {connectedCards.length > 0 ? (
+          <ToolsSection
+            title="Connected"
+            testId="tools-section-connected"
+            cards={connectedCards}
+            onOpenComingSoon={setActiveIntegration}
+          />
+        ) : null}
+        <ToolsSection
+          title="Available"
+          testId="tools-section-available"
+          cards={availableCards}
+          onOpenComingSoon={setActiveIntegration}
+        />
+        <ToolsSection
+          title="Coming soon"
+          testId="tools-section-coming-soon"
+          cards={comingSoonCards}
+          onOpenComingSoon={setActiveIntegration}
+        />
       </div>
 
       {activeIntegration ? (
         <IntegrationModal
           integration={activeIntegration}
-          onClose={() => setActiveIntegration(undefined)}
+          onClose={closeIntegration}
         />
       ) : null}
     </div>
@@ -475,12 +411,31 @@ function IntegrationModal({
   integration: Integration;
   onClose: () => void;
 }) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", handleEscape, true);
+    return () => {
+      window.removeEventListener("keydown", handleEscape, true);
+      window.requestAnimationFrame(() => previouslyFocused?.focus());
+    };
+  }, [onClose]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="integration-modal-title"
+      data-settings-nested-dialog="true"
     >
       <div
         aria-hidden="true"
@@ -516,6 +471,7 @@ function IntegrationModal({
         </p>
         <div className="flex justify-end">
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={onClose}
             className="rounded-md bg-ink px-3 py-1.5 text-xs font-medium text-canvas hover:opacity-90"

@@ -7,8 +7,8 @@ import {
 } from "./helpers/mock-comparative";
 import {
   gotoE2EChat,
-  openNavItem,
   openPrimarySidebar,
+  openSettingsSection,
 } from "./helpers/navigation";
 
 test.skip(
@@ -248,7 +248,7 @@ test("the Settings skin control exposes Classic as an escape hatch", async ({
 }) => {
   await installMockComparativeApi(page);
   await gotoE2EChat(page);
-  await openNavItem(page, "Settings", isMobile);
+  await openSettingsSection(page, "Appearance", isMobile);
 
   await expect(
     page.getByRole("radio", { name: "Umber", exact: true }),

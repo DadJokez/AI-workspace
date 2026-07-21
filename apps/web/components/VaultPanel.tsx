@@ -6,8 +6,6 @@ import remarkGfm from "remark-gfm";
 
 interface Props {
   userName?: string;
-  onClose: () => void;
-  onOpenSidebar: () => void;
 }
 
 interface MemoryItem {
@@ -53,11 +51,7 @@ const MEMORY_CATEGORIES = [
   { value: "personal_context", label: "Personal Context" },
 ];
 
-export function VaultPanel({
-  userName,
-  onClose,
-  onOpenSidebar,
-}: Props) {
+export function MemorySettings({ userName }: Props) {
   const [approvedMarkdown, setApprovedMarkdown] = useState("");
   const [approvedItems, setApprovedItems] = useState<MemoryItem[]>([]);
   const [suggestions, setSuggestions] = useState<MemoryItem[]>([]);
@@ -162,216 +156,161 @@ export function VaultPanel({
   const owner = userName?.trim() || "User";
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex h-11 shrink-0 items-center gap-1 border-b border-hairline bg-canvas">
+    <div className="flex flex-col gap-5">
+      <section className="flex flex-wrap items-start justify-between gap-3 border-b border-hairline pb-4">
+        <div>
+          <h2 className="text-md font-semibold text-ink">Memory</h2>
+          <p className="mt-1 text-sm text-muted">
+            What Comparative has learned about {owner}.
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            {approvedItems.length} approved · {suggestions.length} suggested
+          </p>
+        </div>
         <button
           type="button"
-          onClick={onOpenSidebar}
-          aria-label="Open menu"
-          className="flex h-11 w-11 shrink-0 items-center justify-center text-muted hover:bg-subtle hover:text-ink md:hidden"
+          onClick={() => void loadVault()}
+          disabled={loading}
+          className="rounded-md border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <svg
-            viewBox="0 0 16 16"
-            width="16"
-            height="16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            aria-hidden="true"
-          >
-            <path d="M2 4h12M2 8h12M2 12h12" />
-          </svg>
+          Refresh
         </button>
-        <h1 className="flex-1 truncate px-2 text-sm font-medium text-ink">
-          Vault
-        </h1>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close vault"
-          className="mr-2 flex h-9 w-9 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink"
-        >
-          <svg
-            viewBox="0 0 16 16"
-            width="14"
-            height="14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            aria-hidden="true"
-          >
-            <path d="m4 4 8 8M12 4l-8 8" />
-          </svg>
-        </button>
-      </header>
+      </section>
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
-          <section className="flex flex-wrap items-start justify-between gap-3 border-b border-hairline pb-4">
-            <div>
-              <h2 className="text-base font-semibold text-ink">{owner}</h2>
-              <p className="mt-1 text-xs text-muted">
-                {approvedItems.length} approved · {suggestions.length} suggested
-              </p>
-            </div>
+      {error ? (
+        <div className="rounded-md border border-danger/25 bg-danger-bg px-3 py-2 text-sm text-danger">
+          {error}
+        </div>
+      ) : null}
+
+      <section>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-ink">
+            What the assistant remembers about you
+          </h2>
+          <button
+            type="button"
+            onClick={() => setAddOpen((v) => !v)}
+            className="rounded-md border border-hairline px-2.5 py-1 text-xs text-ink hover:bg-subtle"
+          >
+            {addOpen ? "Cancel" : "Add a fact"}
+          </button>
+        </div>
+        {addOpen ? (
+          <div className="mb-3 flex flex-col gap-2 rounded-md border border-hairline p-3">
+            <input
+              value={addTitle}
+              onChange={(e) => setAddTitle(e.target.value)}
+              placeholder="Short title (e.g. My team)"
+              maxLength={120}
+              className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-muted"
+            />
+            <textarea
+              value={addBody}
+              onChange={(e) => setAddBody(e.target.value)}
+              rows={3}
+              placeholder="The fact (e.g. I'm a supply-chain analyst on the Crossett team; I prefer concise, bulleted answers.)"
+              className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-muted"
+            />
+            {addError ? (
+              <p className="text-xs text-danger">{addError}</p>
+            ) : null}
             <button
               type="button"
-              onClick={() => void loadVault()}
-              disabled={loading}
-              className="rounded-md border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={addBusy || !addTitle.trim() || !addBody.trim()}
+              onClick={addFact}
+              className="self-start rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-canvas hover:opacity-90 disabled:opacity-50"
             >
-              Refresh
+              {addBusy ? "Saving…" : "Save fact"}
             </button>
-          </section>
+          </div>
+        ) : null}
+      </section>
 
-          {error ? (
-            <div className="rounded-md border border-danger/25 bg-danger-bg px-3 py-2 text-sm text-danger">
-              {error}
-            </div>
-          ) : null}
-
-          <section>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-ink">
-                What the assistant remembers about you
-              </h2>
-              <button
-                type="button"
-                onClick={() => setAddOpen((v) => !v)}
-                className="rounded-md border border-hairline px-2.5 py-1 text-xs text-ink hover:bg-subtle"
-              >
-                {addOpen ? "Cancel" : "Add a fact"}
-              </button>
-            </div>
-            {addOpen ? (
-              <div className="mb-3 flex flex-col gap-2 rounded-md border border-hairline p-3">
-                <input
-                  value={addTitle}
-                  onChange={(e) => setAddTitle(e.target.value)}
-                  placeholder="Short title (e.g. My team)"
-                  maxLength={120}
-                  className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-muted"
-                />
-                <textarea
-                  value={addBody}
-                  onChange={(e) => setAddBody(e.target.value)}
-                  rows={3}
-                  placeholder="The fact (e.g. I'm a supply-chain analyst on the Crossett team; I prefer concise, bulleted answers.)"
-                  className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-muted"
-                />
-                {addError ? (
-                  <p className="text-xs text-danger">{addError}</p>
-                ) : null}
-                <button
-                  type="button"
-                  disabled={addBusy || !addTitle.trim() || !addBody.trim()}
-                  onClick={addFact}
-                  className="self-start rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-canvas hover:opacity-90 disabled:opacity-50"
-                >
-                  {addBusy ? "Saving…" : "Save fact"}
-                </button>
-              </div>
-            ) : null}
-          </section>
-
-          <section>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-ink">Vault Markdown</h2>
-            </div>
-            <div className="min-h-40 rounded-lg border border-hairline bg-canvas px-4 py-3">
-              {loading ? (
-                <p className="text-sm text-muted">Loading Vault...</p>
-              ) : approvedMarkdown.trim() ? (
-                <div className="prose prose-sm max-w-none text-ink prose-headings:text-ink prose-p:text-ink prose-li:text-ink prose-strong:text-ink">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {approvedMarkdown}
-                  </ReactMarkdown>
-                </div>
-              ) : (
-                <p className="text-sm text-muted">
-                  No approved Vault memory yet.
-                </p>
-              )}
-            </div>
-          </section>
-
-          <section>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-ink">
-                Suggested Updates
-              </h2>
-              <span className="text-xs text-muted">
-                {suggestions.length}
-              </span>
-            </div>
-            {loading ? (
-              <div className="rounded-md border border-hairline px-4 py-6 text-center text-sm text-muted">
-                Loading suggestions...
-              </div>
-            ) : suggestions.length === 0 ? (
-              <div className="rounded-md border border-hairline px-4 py-6 text-center text-sm text-muted">
-                No suggested updates.
-              </div>
-            ) : (
-              <div className="grid gap-3">
-                {suggestions.map((item) => (
-                  <MemorySuggestionCard
-                    key={item.id}
-                    item={item}
-                    editing={editingId === item.id}
-                    draft={draft}
-                    pending={actionPendingId === item.id}
-                    onDraftChange={setDraft}
-                    onEdit={() => startEdit(item)}
-                    onCancelEdit={() => setEditingId(undefined)}
-                    onApprove={() =>
-                      void patchMemory(
-                        item.id,
-                        "approve",
-                        editingId === item.id ? draft : undefined,
-                      )
-                    }
-                    onDismiss={() => void patchMemory(item.id, "dismiss")}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-
-          {approvedItems.length > 0 ? (
-            <section>
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h2 className="text-sm font-semibold text-ink">
-                  Approved Items
-                </h2>
-                <span className="text-xs text-muted">
-                  {approvedItems.length}
-                </span>
-              </div>
-              <div className="grid gap-2">
-                {approvedItems.map((item) => (
-                  <MemoryApprovedCard
-                    key={item.id}
-                    item={item}
-                    editing={editingId === item.id}
-                    draft={draft}
-                    pending={actionPendingId === item.id}
-                    onDraftChange={setDraft}
-                    onEdit={() => startEdit(item)}
-                    onCancelEdit={() => setEditingId(undefined)}
-                    onSave={() =>
-                      void patchMemory(item.id, "edit", draft)
-                    }
-                    onArchive={() => void patchMemory(item.id, "archive")}
-                  />
-                ))}
-              </div>
-            </section>
-          ) : null}
+      <section>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-ink">Vault Markdown</h2>
         </div>
-      </div>
+        <div className="min-h-40 rounded-lg border border-hairline bg-canvas px-4 py-3">
+          {loading ? (
+            <p className="text-sm text-muted">Loading Vault...</p>
+          ) : approvedMarkdown.trim() ? (
+            <div className="prose prose-sm max-w-none text-ink prose-headings:text-ink prose-p:text-ink prose-li:text-ink prose-strong:text-ink">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {approvedMarkdown}
+              </ReactMarkdown>
+            </div>
+          ) : (
+            <p className="text-sm text-muted">No approved Vault memory yet.</p>
+          )}
+        </div>
+      </section>
+
+      <section>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-ink">
+            Suggested Updates
+          </h2>
+          <span className="text-xs text-muted">{suggestions.length}</span>
+        </div>
+        {loading ? (
+          <div className="rounded-md border border-hairline px-4 py-6 text-center text-sm text-muted">
+            Loading suggestions...
+          </div>
+        ) : suggestions.length === 0 ? (
+          <div className="rounded-md border border-hairline px-4 py-6 text-center text-sm text-muted">
+            No suggested updates.
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {suggestions.map((item) => (
+              <MemorySuggestionCard
+                key={item.id}
+                item={item}
+                editing={editingId === item.id}
+                draft={draft}
+                pending={actionPendingId === item.id}
+                onDraftChange={setDraft}
+                onEdit={() => startEdit(item)}
+                onCancelEdit={() => setEditingId(undefined)}
+                onApprove={() =>
+                  void patchMemory(
+                    item.id,
+                    "approve",
+                    editingId === item.id ? draft : undefined,
+                  )
+                }
+                onDismiss={() => void patchMemory(item.id, "dismiss")}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {approvedItems.length > 0 ? (
+        <section>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-ink">Approved Items</h2>
+            <span className="text-xs text-muted">{approvedItems.length}</span>
+          </div>
+          <div className="grid gap-2">
+            {approvedItems.map((item) => (
+              <MemoryApprovedCard
+                key={item.id}
+                item={item}
+                editing={editingId === item.id}
+                draft={draft}
+                pending={actionPendingId === item.id}
+                onDraftChange={setDraft}
+                onEdit={() => startEdit(item)}
+                onCancelEdit={() => setEditingId(undefined)}
+                onSave={() => void patchMemory(item.id, "edit", draft)}
+                onArchive={() => void patchMemory(item.id, "archive")}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

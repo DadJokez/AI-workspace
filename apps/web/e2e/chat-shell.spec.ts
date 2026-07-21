@@ -717,11 +717,13 @@ test.describe("chat shell guardrails", () => {
 
     await openMenu.click();
     await expect(sidebar).toBeInViewport();
-    await sidebar.getByRole("button", { name: "Tools", exact: true }).click();
-    await expect(sidebar).not.toBeInViewport();
-    await expect(page.getByRole("heading", { name: "Tools" })).toBeVisible();
+    await sidebar.getByRole("button", { name: "Account menu" }).click();
+    await sidebar.getByRole("menuitem", { name: "Settings" }).click();
+    await expect(sidebar).toBeInViewport();
+    const settings = page.getByRole("dialog", { name: "Settings" });
+    await expect(settings).toBeVisible();
+    await settings.getByRole("button", { name: "Close settings" }).click();
 
-    await page.getByRole("button", { name: "Open menu" }).first().click();
     await expect(sidebar).toBeInViewport();
     await sidebar.getByRole("button", { name: "New chat" }).click();
     await expect(sidebar).not.toBeInViewport();

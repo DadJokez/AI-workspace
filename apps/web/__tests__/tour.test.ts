@@ -48,8 +48,6 @@ describe("TOUR_STEPS", () => {
       "chat-input",
       "nav-skills",
       "nav-apps",
-      "nav-tools",
-      "nav-vault",
       "nav-workspace",
       "nav-feedback",
     ]);
