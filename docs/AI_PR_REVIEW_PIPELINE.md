@@ -60,11 +60,34 @@ GitHub Actions, and human review in this repository.
 - The GitHub label `needs-codex` exists.
 - The repository has the `CLAUDE_CODE_OAUTH_TOKEN` Actions secret configured.
 - Codex Cloud has GitHub access for this repository.
-- Branch protection for `main` requires:
-  - `lint + typecheck + build`
-  - `local browser smoke`
-  - `Claude verdict`
-  - resolved conversations
+- `.github/workflows/merge-gate-audit.yml` re-verifies the full gate on every
+  push to `main` and files a labeled incident issue on any violation (#479).
+
+## Merge Protocol (#479)
+
+**There is no server-side merge enforcement.** GitHub branch protection is not
+available on this repository's current plan (private repo, free tier) — the
+protection API returns 403 and `branchProtectionRules` is empty. Every merge
+gate in this pipeline is convention, verified by tooling, not enforced by
+GitHub. (Enforcement by construction requires GitHub Pro or a public repo —
+Rob's call, tracked in #479.)
+
+Consequences:
+
+- **Merges go through `scripts/verified-merge.sh <pr>` only.** It verifies the
+  full gate — successful `CI` and `Product Smoke` runs at the PR's current
+  head SHA, a success `Claude verdict` status, and no red or unfinished
+  check-run or status — then merges pinned to that exact SHA with
+  `--match-head-commit`, so a commit racing in between verification and merge
+  aborts the merge.
+- **`gh pr merge --auto` is prohibited.** Without branch protection GitHub
+  reports every PR as "clean", and gh silently falls back from arming
+  auto-merge to merging immediately — that fallback caused incident #479
+  (five merges before their gates finished, three with a red required check).
+- **`merge-gate-audit.yml` is the backstop.** After every push to `main` it
+  re-verifies the merged PR's head-SHA gate and files a `security`/`ops`
+  incident issue on any violation — including direct pushes to `main`, which
+  remain break-glass only. A bypass can still happen; a silent one cannot.
 
 The production AWS CodeBuild project (`ai-workspace-build`) is intentionally
 outside the PR merge gate. It deploys merged `main` commits only. Its webhook
