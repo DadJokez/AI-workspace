@@ -53,77 +53,6 @@
   --color-info-bg: var(--neutral-700);
 }
 
-/* One-release Classic escape hatch. Keep the component layer shared and
- * change only semantic decisions here: Classic retains the former neutral
- * shell and cobalt action language without reviving per-component neon or
- * glow overrides. The pre-paint script adds .skin-umber by default, so this
- * branch is selected only by an explicit stored Classic preference. */
-html:not(.skin-umber) {
-  color-scheme: light;
-  --bg: #f7f6f3;
-  --bg-subtle: #f0efeb;
-  --surface: #f7f6f3;
-  --surface-2: #faf9f6;
-  --surface-hover: #f0efeb;
-  --surface-active: #ebeae6;
-  --surface-inset: #f0efeb;
-
-  --border: #e5e5e5;
-  --border-strong: #cfcfcf;
-  --border-focus: #095cff;
-
-  --text: #1a1a1a;
-  --text-muted: #6b6b6b;
-  --text-subtle: #858585;
-  --text-inverse: #ffffff;
-
-  --accent: #095cff;
-  --accent-strong: #0047e1;
-  --accent-fg: #ffffff;
-  --pop: #095cff;
-  --pop-hover: #0047e1;
-  --pop-fg: #ffffff;
-  --action: #095cff;
-  --action-hover: #0047e1;
-  --action-fg: #ffffff;
-  --focus-ring: #095cff;
-  --link: #095cff;
-  --link-hover: #0047e1;
-}
-
-html[data-theme="dark"]:not(.skin-umber) {
-  color-scheme: dark;
-  --bg: #191919;
-  --bg-subtle: #1f1f1f;
-  --surface: #252525;
-  --surface-2: #1f1f1f;
-  --surface-hover: #2d2d2d;
-  --surface-active: #333333;
-  --surface-inset: #171717;
-
-  --border: #2d2d2d;
-  --border-strong: #474747;
-  --border-focus: #67a3ff;
-
-  --text: #e5e5e5;
-  --text-muted: #8e8e8e;
-  --text-subtle: #737373;
-  --text-inverse: #191919;
-
-  --accent: #2f6bff;
-  --accent-strong: #095cff;
-  --accent-fg: #ffffff;
-  --pop: #2f6bff;
-  --pop-hover: #095cff;
-  --pop-fg: #ffffff;
-  --action: #2f6bff;
-  --action-hover: #095cff;
-  --action-fg: #ffffff;
-  --focus-ring: #67a3ff;
-  --link: #87b5ff;
-  --link-hover: #b9d2ff;
-}
-
 html,
 body {
   height: 100%;
@@ -142,7 +71,7 @@ body {
 
 /* The shared token focus treatment is a product-wide invariant. Keep it
  * unlayered so component utilities cannot accidentally erase keyboard focus
- * visibility in either skin. */
+ * visibility in either theme. */
 :focus {
   outline: none;
 }
