@@ -29,7 +29,7 @@ export function LoginForm({ callbackUrl, providers }: Props) {
 
   if (!emailEnabled && !githubEnabled) {
     return (
-      <p className="text-center text-[13px] text-muted">
+      <p className="text-center text-sm text-muted">
         Sign-in is not configured. Contact an admin.
       </p>
     );
@@ -67,7 +67,7 @@ export function LoginForm({ callbackUrl, providers }: Props) {
   if (linkState === "sent") {
     return (
       <div className="flex flex-col gap-3 text-center">
-        <p className="text-[13px] text-ink">
+        <p className="text-sm text-ink">
           If that address is invited, a sign-in link is on its way. It expires
           in 15 minutes.
         </p>
@@ -77,7 +77,7 @@ export function LoginForm({ callbackUrl, providers }: Props) {
             setLinkState("idle");
             setEmail("");
           }}
-          className="text-[12px] text-muted underline underline-offset-2 hover:text-ink"
+          className="text-xs text-muted underline underline-offset-2 hover:text-ink"
         >
           Use a different address
         </button>
@@ -91,7 +91,7 @@ export function LoginForm({ callbackUrl, providers }: Props) {
         <form onSubmit={requestLink} className="flex flex-col gap-2">
           <label
             htmlFor="login-email"
-            className="text-[12px] font-medium text-ink"
+            className="text-xs font-medium text-ink"
           >
             Email address
           </label>
@@ -103,12 +103,12 @@ export function LoginForm({ callbackUrl, providers }: Props) {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="you@company.com"
-            className="w-full rounded-md border border-hairline bg-canvas px-3 py-2 text-[13px] text-ink placeholder:text-muted"
+            className="w-full rounded-md border border-hairline bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted"
           />
           <button
             type="submit"
             disabled={busy}
-            className="flex w-full items-center justify-center rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-canvas hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex w-full items-center justify-center rounded-md bg-ink px-4 py-2.5 text-sm font-semibold text-canvas hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {busy ? "Sending…" : "Email me a sign-in link"}
           </button>
@@ -118,7 +118,7 @@ export function LoginForm({ callbackUrl, providers }: Props) {
       {emailEnabled && githubEnabled ? (
         <div className="flex items-center gap-3 py-1">
           <span className="h-px flex-1 bg-hairline" aria-hidden="true" />
-          <span className="text-[11px] uppercase tracking-wide text-muted">
+          <span className="text-2xs uppercase tracking-wide text-muted">
             or
           </span>
           <span className="h-px flex-1 bg-hairline" aria-hidden="true" />
@@ -133,7 +133,7 @@ export function LoginForm({ callbackUrl, providers }: Props) {
             void signIn("github", { callbackUrl });
           }}
           disabled={busy}
-          className="flex w-full items-center justify-center gap-2 rounded-md border border-hairline bg-canvas px-4 py-2.5 text-[13px] font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex w-full items-center justify-center gap-2 rounded-md border border-hairline bg-canvas px-4 py-2.5 text-sm font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
         >
           <GitHubIcon />
           <span>Sign in with GitHub</span>
@@ -141,7 +141,7 @@ export function LoginForm({ callbackUrl, providers }: Props) {
       ) : null}
 
       {error ? (
-        <div className="rounded-md border border-hairline bg-canvas px-3 py-2 text-[12px] text-ink">
+        <div className="rounded-md border border-hairline bg-canvas px-3 py-2 text-xs text-ink">
           {error}
         </div>
       ) : null}

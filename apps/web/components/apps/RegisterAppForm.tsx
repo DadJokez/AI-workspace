@@ -20,7 +20,7 @@ export function RegisterAppForm({ artifacts }: { artifacts: ArtifactOption[] }) 
 
   if (artifacts.length === 0) {
     return (
-      <p className="rounded-md border border-hairline px-3 py-3 text-[12px] text-muted">
+      <p className="rounded-md border border-hairline px-3 py-3 text-xs text-muted">
         No HTML artifacts yet — ask the assistant to build a page in chat
         first.
       </p>
@@ -57,10 +57,10 @@ export function RegisterAppForm({ artifacts }: { artifacts: ArtifactOption[] }) 
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-      <label className="flex flex-col gap-1 text-[12px] text-muted">
+      <label className="flex flex-col gap-1 text-xs text-muted">
         Artifact
         <select
-          className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink"
+          className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink"
           value={artifactId}
           onChange={(e) => setArtifactId(e.target.value)}
         >
@@ -73,10 +73,10 @@ export function RegisterAppForm({ artifacts }: { artifacts: ArtifactOption[] }) 
         </select>
       </label>
       <div className="flex items-end gap-2">
-        <label className="flex flex-1 flex-col gap-1 text-[12px] text-muted">
+        <label className="flex flex-1 flex-col gap-1 text-xs text-muted">
           App name
           <input
-            className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink"
+            className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Team briefing dashboard"
@@ -87,12 +87,12 @@ export function RegisterAppForm({ artifacts }: { artifacts: ArtifactOption[] }) 
         <button
           type="submit"
           disabled={busy || !artifactId}
-          className="rounded-md border border-hairline px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
+          className="rounded-md border border-hairline px-3 py-1.5 text-sm font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
         >
           {busy ? "Deploying…" : "Deploy"}
         </button>
       </div>
-      {notice ? <p className="text-[12px] text-muted">{notice}</p> : null}
+      {notice ? <p className="text-xs text-muted">{notice}</p> : null}
     </form>
   );
 }

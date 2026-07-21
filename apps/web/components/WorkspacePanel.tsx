@@ -61,7 +61,7 @@ export function WorkspacePanel({
           type="button"
           onClick={() => void loadArtifacts()}
           disabled={loading}
-          className="mr-1 rounded-md border border-hairline px-3 py-1.5 text-[12px] font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+          className="mr-1 rounded-md border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
         >
           Refresh
         </button>
@@ -79,24 +79,24 @@ export function WorkspacePanel({
         <div className="mx-auto flex max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
           <section className="border-b border-hairline pb-4">
             <h2 className="text-base font-semibold text-ink">Artifacts</h2>
-            <p className="mt-1 text-[12px] text-muted">
+            <p className="mt-1 text-xs text-muted">
               {artifactGroups.length} artifact{artifactGroups.length === 1 ? "" : "s"} ·{" "}
               {artifacts.length} version{artifacts.length === 1 ? "" : "s"}
             </p>
           </section>
 
           {error ? (
-            <div className="rounded-md border border-danger/25 bg-danger-bg px-3 py-2 text-[13px] text-danger">
+            <div className="rounded-md border border-danger/25 bg-danger-bg px-3 py-2 text-sm text-danger">
               {error}
             </div>
           ) : null}
 
           {loading ? (
-            <div className="rounded-md border border-hairline px-4 py-6 text-center text-[13px] text-muted">
+            <div className="rounded-md border border-hairline px-4 py-6 text-center text-sm text-muted">
               Loading artifacts...
             </div>
           ) : artifactGroups.length === 0 ? (
-            <div className="rounded-md border border-hairline px-4 py-6 text-center text-[13px] text-muted">
+            <div className="rounded-md border border-hairline px-4 py-6 text-center text-sm text-muted">
               No artifacts yet.
             </div>
           ) : (
@@ -134,7 +134,7 @@ function ArtifactGroupRow({
   return (
     <details className="group rounded-md border border-hairline px-3 py-2.5">
       <summary className="flex cursor-pointer list-none items-center gap-3 marker:hidden">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-subtle text-[11px] font-semibold uppercase text-muted">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-subtle text-2xs font-semibold uppercase text-muted">
           {latest.kind.slice(0, 4)}
         </span>
         <div className="min-w-0 flex-1">
@@ -148,20 +148,20 @@ function ArtifactGroupRow({
           >
             {latest.title}
           </button>
-          <p className="mt-0.5 truncate text-[12px] text-muted">
+          <p className="mt-0.5 truncate text-xs text-muted">
             {latest.filename} · {formatBytes(latest.sizeBytes)} ·{" "}
             {formatDate(latest.createdAt)}
           </p>
         </div>
         {versions.length > 1 ? (
-          <span className="shrink-0 rounded-full border border-hairline px-2 py-0.5 text-[11px] text-muted">
+          <span className="shrink-0 rounded-full border border-hairline px-2 py-0.5 text-2xs text-muted">
             {versions.length} versions
           </span>
         ) : null}
         <a
           href={latest.downloadUrl}
           onClick={(event) => event.stopPropagation()}
-          className="rounded-md border border-hairline px-2.5 py-1.5 text-[12px] font-medium text-ink hover:bg-subtle"
+          className="rounded-md border border-hairline px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-subtle"
         >
           Download
         </a>
@@ -172,9 +172,9 @@ function ArtifactGroupRow({
             {previousVersions.map((artifact) => (
               <div
                 key={artifact.id}
-                className="flex min-w-0 items-center gap-2 pl-12 text-[12px]"
+                className="flex min-w-0 items-center gap-2 pl-12 text-xs"
               >
-                <span className="shrink-0 rounded bg-subtle px-1.5 py-0.5 font-mono text-[10px] text-muted">
+                <span className="shrink-0 rounded bg-subtle px-1.5 py-0.5 font-mono text-2xs text-muted">
                   v{artifact.versionNumber}
                 </span>
                 <button

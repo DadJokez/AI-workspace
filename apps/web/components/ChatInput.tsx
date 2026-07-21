@@ -466,11 +466,11 @@ export function ChatInput({
     <div className="relative w-full">
       {paletteActive ? (
         <div className="absolute bottom-full left-0 right-0 z-30 mb-2 overflow-hidden rounded-lg border border-hairline bg-canvas shadow-xl">
-          <p className="border-b border-hairline px-3 py-1.5 text-[11px] uppercase tracking-wider text-muted">
+          <p className="border-b border-hairline px-3 py-1.5 text-2xs uppercase tracking-wider text-muted">
             Capabilities
           </p>
           {matches.length === 0 ? (
-            <p className="px-3 py-3 text-[13px] text-muted">
+            <p className="px-3 py-3 text-sm text-muted">
               Nothing matches. Browse{" "}
               <Link href="/skills" className="text-ink underline">
                 Skills
@@ -489,15 +489,15 @@ export function ChatInput({
                       index === highlight ? "bg-subtle" : ""
                     }`}
                   >
-                    <span className="shrink-0 text-[13px] font-medium text-ink">
+                    <span className="shrink-0 text-sm font-medium text-ink">
                       {skill.name}
                     </span>
                     {skill.mcpProviders.length > 0 ? (
-                      <span className="shrink-0 rounded bg-ink/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                      <span className="shrink-0 rounded bg-ink/5 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
                         {skill.mcpProviders.join(" · ")}
                       </span>
                     ) : null}
-                    <span className="min-w-0 flex-1 truncate text-[12px] text-muted">
+                    <span className="min-w-0 flex-1 truncate text-xs text-muted">
                       {skill.description}
                     </span>
                   </button>
@@ -505,14 +505,14 @@ export function ChatInput({
               ))}
             </ul>
           )}
-          <p className="border-t border-hairline px-3 py-1.5 text-[11px] text-muted">
+          <p className="border-t border-hairline px-3 py-1.5 text-2xs text-muted">
             ↑↓ choose · Enter select · Tab select · Esc dismiss
           </p>
         </div>
       ) : null}
 
       {dictation.listening ? (
-        <p className="mb-1.5 flex items-center gap-2 px-1 text-[12px] text-danger/80">
+        <p className="mb-1.5 flex items-center gap-2 px-1 text-xs text-danger/80">
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
           Listening… {dictation.interim ? `“${dictation.interim}”` : "speak now"}
         </p>
@@ -520,7 +520,7 @@ export function ChatInput({
       {editRequest ? (
         <div
           data-testid="edit-message-state"
-          className="mb-1.5 flex items-center justify-between gap-2 px-1 text-[12px] text-muted"
+          className="mb-1.5 flex items-center justify-between gap-2 px-1 text-xs text-muted"
         >
           <span>
             Editing message
@@ -542,7 +542,7 @@ export function ChatInput({
         </div>
       ) : null}
       {activeSkill ? (
-        <div className="mb-1.5 flex flex-wrap items-center gap-2 px-1 text-[12px] text-muted">
+        <div className="mb-1.5 flex flex-wrap items-center gap-2 px-1 text-xs text-muted">
           <span
             data-testid="active-slash-skill"
             className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 py-1 text-ink"
@@ -562,7 +562,7 @@ export function ChatInput({
           <span className="text-muted">Active for this message</span>
         </div>
       ) : notice ? (
-        <p className="mb-1.5 px-1 text-[12px] text-muted">{notice}</p>
+        <p className="mb-1.5 px-1 text-xs text-muted">{notice}</p>
       ) : null}
 
       {attachments.length > 0 ? (
@@ -570,10 +570,10 @@ export function ChatInput({
           {attachments.map((a) => (
             <span
               key={a.name}
-              className="flex items-center gap-1.5 rounded-md border border-hairline bg-subtle px-2 py-1 text-[12px] text-ink"
+              className="flex items-center gap-1.5 rounded-md border border-hairline bg-subtle px-2 py-1 text-xs text-ink"
             >
               <PaperclipIcon />
-              <span className="max-w-[160px] truncate">{a.name}</span>
+              <span className="max-w-40 truncate">{a.name}</span>
               {typeof a.sizeBytes === "number" ? (
                 <span className="text-muted">{formatBytes(a.sizeBytes)}</span>
               ) : null}

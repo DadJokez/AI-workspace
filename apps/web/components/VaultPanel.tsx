@@ -212,7 +212,7 @@ export function VaultPanel({
           <section className="flex flex-wrap items-start justify-between gap-3 border-b border-hairline pb-4">
             <div>
               <h2 className="text-base font-semibold text-ink">{owner}</h2>
-              <p className="mt-1 text-[12px] text-muted">
+              <p className="mt-1 text-xs text-muted">
                 {approvedItems.length} approved · {suggestions.length} suggested
               </p>
             </div>
@@ -220,14 +220,14 @@ export function VaultPanel({
               type="button"
               onClick={() => void loadVault()}
               disabled={loading}
-              className="rounded-md border border-hairline px-3 py-1.5 text-[12px] font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-md border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
             >
               Refresh
             </button>
           </section>
 
           {error ? (
-            <div className="rounded-md border border-danger/25 bg-danger-bg px-3 py-2 text-[13px] text-danger">
+            <div className="rounded-md border border-danger/25 bg-danger-bg px-3 py-2 text-sm text-danger">
               {error}
             </div>
           ) : null}
@@ -240,7 +240,7 @@ export function VaultPanel({
               <button
                 type="button"
                 onClick={() => setAddOpen((v) => !v)}
-                className="rounded-md border border-hairline px-2.5 py-1 text-[12px] text-ink hover:bg-subtle"
+                className="rounded-md border border-hairline px-2.5 py-1 text-xs text-ink hover:bg-subtle"
               >
                 {addOpen ? "Cancel" : "Add a fact"}
               </button>
@@ -252,23 +252,23 @@ export function VaultPanel({
                   onChange={(e) => setAddTitle(e.target.value)}
                   placeholder="Short title (e.g. My team)"
                   maxLength={120}
-                  className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink placeholder:text-muted"
+                  className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-muted"
                 />
                 <textarea
                   value={addBody}
                   onChange={(e) => setAddBody(e.target.value)}
                   rows={3}
                   placeholder="The fact (e.g. I'm a supply-chain analyst on the Crossett team; I prefer concise, bulleted answers.)"
-                  className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink placeholder:text-muted"
+                  className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-muted"
                 />
                 {addError ? (
-                  <p className="text-[12px] text-danger">{addError}</p>
+                  <p className="text-xs text-danger">{addError}</p>
                 ) : null}
                 <button
                   type="button"
                   disabled={addBusy || !addTitle.trim() || !addBody.trim()}
                   onClick={addFact}
-                  className="self-start rounded-md bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas hover:opacity-90 disabled:opacity-50"
+                  className="self-start rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-canvas hover:opacity-90 disabled:opacity-50"
                 >
                   {addBusy ? "Saving…" : "Save fact"}
                 </button>
@@ -282,7 +282,7 @@ export function VaultPanel({
             </div>
             <div className="min-h-40 rounded-lg border border-hairline bg-canvas px-4 py-3">
               {loading ? (
-                <p className="text-[13px] text-muted">Loading Vault...</p>
+                <p className="text-sm text-muted">Loading Vault...</p>
               ) : approvedMarkdown.trim() ? (
                 <div className="prose prose-sm max-w-none text-ink prose-headings:text-ink prose-p:text-ink prose-li:text-ink prose-strong:text-ink">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -290,7 +290,7 @@ export function VaultPanel({
                   </ReactMarkdown>
                 </div>
               ) : (
-                <p className="text-[13px] text-muted">
+                <p className="text-sm text-muted">
                   No approved Vault memory yet.
                 </p>
               )}
@@ -302,16 +302,16 @@ export function VaultPanel({
               <h2 className="text-sm font-semibold text-ink">
                 Suggested Updates
               </h2>
-              <span className="text-[12px] text-muted">
+              <span className="text-xs text-muted">
                 {suggestions.length}
               </span>
             </div>
             {loading ? (
-              <div className="rounded-md border border-hairline px-4 py-6 text-center text-[13px] text-muted">
+              <div className="rounded-md border border-hairline px-4 py-6 text-center text-sm text-muted">
                 Loading suggestions...
               </div>
             ) : suggestions.length === 0 ? (
-              <div className="rounded-md border border-hairline px-4 py-6 text-center text-[13px] text-muted">
+              <div className="rounded-md border border-hairline px-4 py-6 text-center text-sm text-muted">
                 No suggested updates.
               </div>
             ) : (
@@ -346,7 +346,7 @@ export function VaultPanel({
                 <h2 className="text-sm font-semibold text-ink">
                   Approved Items
                 </h2>
-                <span className="text-[12px] text-muted">
+                <span className="text-xs text-muted">
                   {approvedItems.length}
                 </span>
               </div>
@@ -404,7 +404,7 @@ function MemoryApprovedCard({
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-muted">
+          <div className="text-2xs font-medium uppercase tracking-wider text-muted">
             {item.categoryLabel}
           </div>
           {editing ? (
@@ -414,7 +414,7 @@ function MemoryApprovedCard({
                 onChange={(e) =>
                   onDraftChange({ ...draft, category: e.target.value })
                 }
-                className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink"
+                className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink"
               >
                 {MEMORY_CATEGORIES.map((category) => (
                   <option key={category.value} value={category.value}>
@@ -427,7 +427,7 @@ function MemoryApprovedCard({
                 onChange={(e) =>
                   onDraftChange({ ...draft, title: e.target.value })
                 }
-                className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink"
+                className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink"
               />
               <textarea
                 value={draft.bodyMd}
@@ -435,15 +435,15 @@ function MemoryApprovedCard({
                   onDraftChange({ ...draft, bodyMd: e.target.value })
                 }
                 rows={4}
-                className="min-h-24 rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] leading-relaxed text-ink"
+                className="min-h-24 rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm leading-relaxed text-ink"
               />
             </div>
           ) : (
             <>
-              <h3 className="mt-1 text-[13px] font-medium text-ink">
+              <h3 className="mt-1 text-sm font-medium text-ink">
                 {item.title}
               </h3>
-              <p className="mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-muted [overflow-wrap:anywhere]">
+              <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted [overflow-wrap:anywhere]">
                 {item.bodyMd}
               </p>
             </>
@@ -457,7 +457,7 @@ function MemoryApprovedCard({
                 type="button"
                 onClick={onSave}
                 disabled={pending}
-                className="rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md bg-ink px-2.5 py-1 text-xs font-medium text-canvas hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Save
               </button>
@@ -465,7 +465,7 @@ function MemoryApprovedCard({
                 type="button"
                 onClick={onCancelEdit}
                 disabled={pending}
-                className="rounded-md border border-hairline px-2.5 py-1 text-[12px] text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-hairline px-2.5 py-1 text-xs text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Cancel
               </button>
@@ -476,7 +476,7 @@ function MemoryApprovedCard({
                 type="button"
                 onClick={onEdit}
                 disabled={pending}
-                className="rounded-md border border-hairline px-2 py-1 text-[12px] text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-hairline px-2 py-1 text-xs text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Edit
               </button>
@@ -484,7 +484,7 @@ function MemoryApprovedCard({
                 type="button"
                 onClick={onArchive}
                 disabled={pending}
-                className="rounded-md border border-hairline px-2 py-1 text-[12px] text-muted hover:bg-subtle hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-hairline px-2 py-1 text-xs text-muted hover:bg-subtle hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Archive
               </button>
@@ -522,10 +522,10 @@ function MemorySuggestionCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+            <span className="rounded bg-subtle px-2 py-0.5 text-2xs uppercase tracking-wider text-muted">
               {item.categoryLabel}
             </span>
-            <span className="text-[11px] text-muted">
+            <span className="text-2xs text-muted">
               Confidence {item.confidence}%
             </span>
           </div>
@@ -536,7 +536,7 @@ function MemorySuggestionCard({
                 onChange={(e) =>
                   onDraftChange({ ...draft, category: e.target.value })
                 }
-                className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink"
+                className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink"
               >
                 {MEMORY_CATEGORIES.map((category) => (
                   <option key={category.value} value={category.value}>
@@ -549,7 +549,7 @@ function MemorySuggestionCard({
                 onChange={(e) =>
                   onDraftChange({ ...draft, title: e.target.value })
                 }
-                className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink"
+                className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink"
               />
               <textarea
                 value={draft.bodyMd}
@@ -557,21 +557,21 @@ function MemorySuggestionCard({
                   onDraftChange({ ...draft, bodyMd: e.target.value })
                 }
                 rows={4}
-                className="min-h-24 rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] leading-relaxed text-ink"
+                className="min-h-24 rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm leading-relaxed text-ink"
               />
             </div>
           ) : (
             <>
-              <h3 className="mt-3 text-[14px] font-semibold text-ink">
+              <h3 className="mt-3 text-base font-semibold text-ink">
                 {item.title}
               </h3>
-              <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-ink [overflow-wrap:anywhere]">
+              <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-ink [overflow-wrap:anywhere]">
                 {item.bodyMd}
               </p>
             </>
           )}
           {item.reason ? (
-            <p className="mt-2 text-[12px] leading-relaxed text-muted">
+            <p className="mt-2 text-xs leading-relaxed text-muted">
               {item.reason}
             </p>
           ) : null}
@@ -584,7 +584,7 @@ function MemorySuggestionCard({
                 type="button"
                 onClick={onApprove}
                 disabled={pending}
-                className="rounded-md bg-ink px-3 py-1.5 text-[12px] font-medium text-canvas hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md bg-ink px-3 py-1.5 text-xs font-medium text-canvas hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Approve
               </button>
@@ -592,7 +592,7 @@ function MemorySuggestionCard({
                 type="button"
                 onClick={onCancelEdit}
                 disabled={pending}
-                className="rounded-md border border-hairline px-3 py-1.5 text-[12px] font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Cancel
               </button>
@@ -603,7 +603,7 @@ function MemorySuggestionCard({
                 type="button"
                 onClick={onApprove}
                 disabled={pending}
-                className="rounded-md bg-ink px-3 py-1.5 text-[12px] font-medium text-canvas hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md bg-ink px-3 py-1.5 text-xs font-medium text-canvas hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Approve
               </button>
@@ -611,7 +611,7 @@ function MemorySuggestionCard({
                 type="button"
                 onClick={onEdit}
                 disabled={pending}
-                className="rounded-md border border-hairline px-3 py-1.5 text-[12px] font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Edit
               </button>
@@ -619,7 +619,7 @@ function MemorySuggestionCard({
                 type="button"
                 onClick={onDismiss}
                 disabled={pending}
-                className="rounded-md border border-hairline px-3 py-1.5 text-[12px] font-medium text-muted hover:bg-subtle hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-hairline px-3 py-1.5 text-xs font-medium text-muted hover:bg-subtle hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Dismiss
               </button>
@@ -642,7 +642,7 @@ function MemoryEvidence({
     ? `/chat?threadId=${encodeURIComponent(item.sourceThreadId)}`
     : null;
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted">
+    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-muted">
       <span>Confidence {item.confidence}%</span>
       <span>{prefix} {formatDate(prefix === "Suggested" ? item.createdAt : item.updatedAt)}</span>
       {sourceHref ? (

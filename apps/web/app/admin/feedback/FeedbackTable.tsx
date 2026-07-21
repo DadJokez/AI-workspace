@@ -110,7 +110,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
   if (items.length === 0) {
     return (
       <div className="px-4 pb-10 sm:px-6">
-        <div className="rounded-lg border border-hairline bg-surface px-4 py-8 text-center text-[13px] text-muted">
+        <div className="rounded-lg border border-hairline bg-surface px-4 py-8 text-center text-sm text-muted">
           No feedback reports in this view.
         </div>
       </div>
@@ -120,7 +120,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
   return (
     <div className="px-4 pb-10 sm:px-6">
       {error ? (
-        <div className="mb-3 rounded-md border border-danger/30 bg-danger-bg px-3 py-2 text-[13px] text-danger">
+        <div className="mb-3 rounded-md border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger">
           {error}
         </div>
       ) : null}
@@ -133,7 +133,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
           return (
             <article
               key={row.id}
-              className="rounded-lg border border-hairline bg-surface p-3 text-[13px]"
+              className="rounded-lg border border-hairline bg-surface p-3 text-sm"
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
@@ -145,7 +145,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
                       href={issueHref}
                       target="_blank"
                       rel="noreferrer"
-                      className="mt-1 inline-flex rounded-full border border-cyan-400/35 bg-cyan-400/10 px-2 py-0.5 text-[11px] font-medium text-cyan-100 hover:border-cyan-300/60 hover:bg-cyan-400/15"
+                      className="mt-1 inline-flex rounded-full border border-cyan-400/35 bg-cyan-400/10 px-2 py-0.5 text-2xs font-medium text-cyan-100 hover:border-cyan-300/60 hover:bg-cyan-400/15"
                       title="Open linked GitHub item"
                     >
                       Reviewed {issueTag?.label ?? "GitHub"}
@@ -159,14 +159,14 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
                 {row.body}
               </div>
               {row.expected ? (
-                <div className="mt-2 text-[12px] text-muted">
+                <div className="mt-2 text-xs text-muted">
                   Expected: <span className="text-ink/80">{row.expected}</span>
                 </div>
               ) : null}
 
-              <dl className="mt-3 grid gap-2 text-[12px] text-muted">
+              <dl className="mt-3 grid gap-2 text-xs text-muted">
                 <div>
-                  <dt className="text-[10px] uppercase tracking-wider text-muted/70">
+                  <dt className="text-2xs uppercase tracking-wider text-muted/70">
                     Reporter
                   </dt>
                   <dd className="mt-0.5 break-words text-ink/85">
@@ -178,7 +178,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
                 </div>
                 {row.threadTitle ? (
                   <div>
-                    <dt className="text-[10px] uppercase tracking-wider text-muted/70">
+                    <dt className="text-2xs uppercase tracking-wider text-muted/70">
                       Thread
                     </dt>
                     <dd className="mt-0.5 break-words text-ink/85">
@@ -208,7 +208,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
               </dl>
 
               <div className="mt-3">
-                <label className="grid gap-1 text-[12px] text-muted">
+                <label className="grid gap-1 text-xs text-muted">
                   <span>Status</span>
                   <StatusSelect
                     value={row.status}
@@ -221,7 +221,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
 
               {hasScreenshot ? <ScreenshotPreview row={row} /> : null}
               <details className="mt-2">
-                <summary className="cursor-pointer text-[12px] text-muted hover:text-ink">
+                <summary className="cursor-pointer text-xs text-muted hover:text-ink">
                   Triage notes
                 </summary>
                 <FeedbackNotesEditor
@@ -236,8 +236,8 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
       </div>
 
       <div className="hidden overflow-x-auto rounded-lg border border-hairline bg-surface md:block">
-        <table className="w-full min-w-[760px] text-left text-[13px]">
-          <thead className="border-b border-hairline text-[11px] uppercase tracking-wider text-muted">
+        <table className="w-full min-w-[760px] text-left text-sm">
+          <thead className="border-b border-hairline text-2xs uppercase tracking-wider text-muted">
             <tr>
               <th className="px-3 py-2 font-medium">Report</th>
               <th className="px-3 py-2 font-medium">User</th>
@@ -264,23 +264,23 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
                           href={issueHref}
                           target="_blank"
                           rel="noreferrer"
-                          className="rounded-full border border-cyan-400/35 bg-cyan-400/10 px-2 py-0.5 text-[11px] font-medium text-cyan-100 hover:border-cyan-300/60 hover:bg-cyan-400/15"
+                          className="rounded-full border border-cyan-400/35 bg-cyan-400/10 px-2 py-0.5 text-2xs font-medium text-cyan-100 hover:border-cyan-300/60 hover:bg-cyan-400/15"
                           title="Open linked GitHub item"
                         >
                           Reviewed {issueTag?.label ?? "GitHub"}
                         </a>
                       ) : null}
                     </div>
-                    <div className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-ink/85">
+                    <div className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-ink/85">
                       {row.body}
                     </div>
                     {row.expected ? (
-                      <div className="mt-2 text-[12px] text-muted">
+                      <div className="mt-2 text-xs text-muted">
                         Expected:{" "}
                         <span className="text-ink/80">{row.expected}</span>
                       </div>
                     ) : null}
-                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted">
+                    <div className="mt-2 flex flex-wrap gap-2 text-2xs text-muted">
                       <span>{formatType(row.type)}</span>
                       {row.threadTitle ? (
                         <span>Thread: {row.threadTitle}</span>
@@ -302,7 +302,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
                     </div>
                     {hasScreenshot ? <ScreenshotPreview row={row} /> : null}
                     <details className="mt-2">
-                      <summary className="cursor-pointer text-[12px] text-muted hover:text-ink">
+                      <summary className="cursor-pointer text-xs text-muted hover:text-ink">
                         Triage notes
                       </summary>
                       <FeedbackNotesEditor
@@ -312,7 +312,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
                       />
                     </details>
                   </td>
-                  <td className="px-3 py-3 text-[12px]">
+                  <td className="px-3 py-3 text-xs">
                     <div className="text-ink">{row.userName ?? "Unknown"}</div>
                     <div className="mt-0.5 text-muted">
                       {row.userEmail ?? "—"}
@@ -354,7 +354,7 @@ function StatusSelect({
       value={value}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
-      className={`rounded-md border border-hairline bg-canvas px-2 py-1 text-[12px] text-ink focus-visible:border-ink/30 ${className}`}
+      className={`rounded-md border border-hairline bg-canvas px-2 py-1 text-xs text-ink focus-visible:border-ink/30 ${className}`}
     >
       {STATUS_OPTIONS.map((option) => (
         <option key={option.value} value={option.value}>
@@ -412,15 +412,15 @@ function ScreenshotPreview({ row }: { row: AdminFeedbackRow }) {
         if (e.currentTarget.open) void loadScreenshot();
       }}
     >
-      <summary className="cursor-pointer text-[12px] text-muted hover:text-ink">
+      <summary className="cursor-pointer text-xs text-muted hover:text-ink">
         Screenshot
       </summary>
       {loading ? (
-        <div className="mt-2 rounded-md border border-hairline bg-canvas px-3 py-2 text-[12px] text-muted">
+        <div className="mt-2 rounded-md border border-hairline bg-canvas px-3 py-2 text-xs text-muted">
           Loading screenshot…
         </div>
       ) : error ? (
-        <div className="mt-2 rounded-md border border-danger/30 bg-danger-bg px-3 py-2 text-[12px] text-danger">
+        <div className="mt-2 rounded-md border border-danger/30 bg-danger-bg px-3 py-2 text-xs text-danger">
           {error}
         </div>
       ) : screenshot ? (
@@ -433,7 +433,7 @@ function ScreenshotPreview({ row }: { row: AdminFeedbackRow }) {
           className="mt-2 h-auto max-h-72 max-w-full rounded-md border border-hairline object-contain"
         />
       ) : (
-        <div className="mt-2 rounded-md border border-hairline bg-canvas px-3 py-2 text-[12px] text-muted">
+        <div className="mt-2 rounded-md border border-hairline bg-canvas px-3 py-2 text-xs text-muted">
           Expand to load {row.screenshotName ?? "screenshot"}.
         </div>
       )}
@@ -461,20 +461,20 @@ function FeedbackNotesEditor({
         value={linkedIssueUrl}
         onChange={(e) => setLinkedIssueUrl(e.target.value)}
         placeholder="GitHub issue URL"
-        className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[12px] text-ink focus-visible:border-ink/30"
+        className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-xs text-ink focus-visible:border-ink/30"
       />
       <textarea
         value={adminNotes}
         onChange={(e) => setAdminNotes(e.target.value)}
         placeholder="Admin notes"
         rows={3}
-        className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[12px] text-ink focus-visible:border-ink/30"
+        className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-xs text-ink focus-visible:border-ink/30"
       />
       <button
         type="button"
         disabled={saving}
         onClick={() => onSave({ adminNotes, linkedIssueUrl })}
-        className="justify-self-start rounded-md border border-hairline bg-canvas px-2.5 py-1 text-[12px] font-medium text-ink hover:bg-subtle disabled:opacity-50"
+        className="justify-self-start rounded-md border border-hairline bg-canvas px-2.5 py-1 text-xs font-medium text-ink hover:bg-subtle disabled:opacity-50"
       >
         {saving ? "Saving…" : "Save notes"}
       </button>
@@ -490,7 +490,7 @@ function SeverityBadge({ value }: { value: string }) {
         ? "border-hairline bg-canvas text-muted"
         : "border-warning/30 bg-warning-bg text-warning";
   return (
-    <span className={`rounded-md border px-2 py-1 text-[11px] uppercase tracking-wider ${className}`}>
+    <span className={`rounded-md border px-2 py-1 text-2xs uppercase tracking-wider ${className}`}>
       {value}
     </span>
   );

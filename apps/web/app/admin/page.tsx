@@ -56,7 +56,7 @@ export default async function AdminUsersPage() {
       <section className="py-2">
         <div className="px-6 pb-3 pt-4">
           <h2 className="text-base font-semibold text-ink">Users</h2>
-          <p className="mt-1 text-[12px] text-muted">
+          <p className="mt-1 text-xs text-muted">
             {initialUsers.length} {initialUsers.length === 1 ? "user" : "users"}.
             Promote or demote with the role selector. You can&apos;t demote yourself.
           </p>

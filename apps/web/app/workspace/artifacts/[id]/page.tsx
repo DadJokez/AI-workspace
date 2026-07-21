@@ -54,19 +54,19 @@ export default async function WorkspaceArtifactPage({
       <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b border-hairline px-4 py-2">
         <Link
           href="/chat"
-          className="rounded-md border border-hairline px-3 py-1.5 text-[12px] font-medium text-muted hover:bg-subtle hover:text-ink"
+          className="rounded-md border border-hairline px-3 py-1.5 text-xs font-medium text-muted hover:bg-subtle hover:text-ink"
         >
           Back to chat
         </Link>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">{artifact.title}</h1>
-          <p className="truncate text-[12px] text-muted">
+          <p className="truncate text-xs text-muted">
             {artifact.filename} · {formatBytes(artifact.sizeBytes)}
           </p>
         </div>
         <a
           href={summary.downloadUrl}
-          className="rounded-md bg-ink px-3 py-1.5 text-[12px] font-medium text-canvas hover:opacity-90"
+          className="rounded-md bg-ink px-3 py-1.5 text-xs font-medium text-canvas hover:opacity-90"
         >
           Download
         </a>
@@ -96,7 +96,7 @@ export default async function WorkspaceArtifactPage({
             </ReactMarkdown>
           </article>
         ) : (
-          <pre className="m-0 min-h-full overflow-auto whitespace-pre-wrap px-4 py-4 font-mono text-[12px] leading-relaxed [overflow-wrap:anywhere]">
+          <pre className="m-0 min-h-full overflow-auto whitespace-pre-wrap px-4 py-4 font-mono text-xs leading-relaxed [overflow-wrap:anywhere]">
             {content}
           </pre>
         )}

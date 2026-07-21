@@ -24,7 +24,7 @@ export function FilterPill({
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
-      className={`rounded-md border px-2.5 py-1 text-[12px] ${
+      className={`rounded-md border px-2.5 py-1 text-xs ${
         active
           ? "border-ink bg-ink text-canvas"
           : "border-hairline text-muted hover:bg-subtle hover:text-ink"

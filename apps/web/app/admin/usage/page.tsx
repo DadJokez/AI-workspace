@@ -112,7 +112,7 @@ export default async function AdminUsagePage({ searchParams }: Props) {
     <section className="py-2">
       <div className="px-6 pb-3 pt-4">
         <h2 className="text-base font-semibold text-ink">Usage</h2>
-        <p className="mt-1 text-[12px] text-muted">
+        <p className="mt-1 text-xs text-muted">
           Workspace-wide adoption over the last {WINDOW_LABELS[range]}, from the
           run ledger. Every chat turn, skill, and scheduled run counts.
         </p>
@@ -124,7 +124,7 @@ export default async function AdminUsagePage({ searchParams }: Props) {
             {WINDOW_LABELS[w]}
           </FilterPill>
         ))}
-        <span className="ml-auto text-[12px] text-muted">
+        <span className="ml-auto text-xs text-muted">
           since {since.toISOString().slice(0, 10)}
         </span>
       </div>
@@ -150,8 +150,8 @@ export default async function AdminUsagePage({ searchParams }: Props) {
       <div className="px-6 pb-6">
         <div className="rounded-lg border border-hairline bg-surface p-4">
           <div className="mb-3 flex items-baseline justify-between">
-            <h3 className="text-[13px] font-medium text-ink">Runs per day</h3>
-            <span className="text-[11px] uppercase tracking-wider text-muted">
+            <h3 className="text-sm font-medium text-ink">Runs per day</h3>
+            <span className="text-2xs uppercase tracking-wider text-muted">
               peak {maxDay.toLocaleString()}/day
             </span>
           </div>
@@ -215,18 +215,18 @@ export default async function AdminUsagePage({ searchParams }: Props) {
           {topUsers.length === 0 ? (
             <EmptyHint>No attributed runs yet.</EmptyHint>
           ) : (
-            <table className="w-full text-[13px]">
+            <table className="w-full text-sm">
               <tbody>
                 {topUsers.map((u, i) => (
                   <tr key={u.userId} className="border-b border-hairline last:border-0">
-                    <td className="py-2 pr-2 text-[12px] text-muted">{i + 1}</td>
+                    <td className="py-2 pr-2 text-xs text-muted">{i + 1}</td>
                     <td className="py-2 pr-4">
                       <div className="text-ink">{u.name ?? "Unknown user"}</div>
-                      <div className="text-[12px] text-muted">{u.email ?? "—"}</div>
+                      <div className="text-xs text-muted">{u.email ?? "—"}</div>
                     </td>
                     <td className="py-2 text-right font-medium text-ink">
                       {u.count.toLocaleString()}
-                      <span className="ml-1 text-[12px] font-normal text-muted">
+                      <span className="ml-1 text-xs font-normal text-muted">
                         ({percent(u.count, totals.total)}%)
                       </span>
                     </td>
@@ -254,13 +254,13 @@ function Metric({
 }) {
   return (
     <div className="rounded-lg border border-hairline bg-surface px-4 py-3">
-      <div className="text-[11px] uppercase tracking-wider text-muted">{label}</div>
+      <div className="text-2xs uppercase tracking-wider text-muted">{label}</div>
       <div
         className={`mt-1 text-2xl font-semibold ${emphasis ? "text-pop" : "text-ink"}`}
       >
         {value}
       </div>
-      {hint ? <div className="mt-1 text-[12px] text-muted">{hint}</div> : null}
+      {hint ? <div className="mt-1 text-xs text-muted">{hint}</div> : null}
     </div>
   );
 }
@@ -268,7 +268,7 @@ function Metric({
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-lg border border-hairline bg-surface p-4">
-      <h3 className="mb-3 text-[13px] font-medium text-ink">{title}</h3>
+      <h3 className="mb-3 text-sm font-medium text-ink">{title}</h3>
       <div className="flex flex-col gap-2.5">{children}</div>
     </div>
   );
@@ -286,9 +286,9 @@ function BarRow({
   const pct = percent(count, total);
   return (
     <div>
-      <div className="flex items-baseline justify-between text-[13px]">
+      <div className="flex items-baseline justify-between text-sm">
         <span className="text-ink">{label}</span>
-        <span className="text-[12px] text-muted">
+        <span className="text-xs text-muted">
           {count.toLocaleString()} · {pct}%
         </span>
       </div>
@@ -303,7 +303,7 @@ function BarRow({
 }
 
 function EmptyHint({ children }: { children: ReactNode }) {
-  return <div className="py-6 text-center text-[12px] text-muted">{children}</div>;
+  return <div className="py-6 text-center text-xs text-muted">{children}</div>;
 }
 
 function formatModel(modelId: string | null): string {

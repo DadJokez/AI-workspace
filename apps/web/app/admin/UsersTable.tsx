@@ -75,9 +75,9 @@ export function UsersTable({ initialUsers, currentUserId }: Props) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-separate border-spacing-0 text-[13px]">
+      <table className="w-full border-separate border-spacing-0 text-sm">
         <thead>
-          <tr className="text-left text-[11px] uppercase tracking-wider text-muted">
+          <tr className="text-left text-2xs uppercase tracking-wider text-muted">
             <th className="border-b border-hairline px-6 py-2 font-medium">
               User
             </th>
@@ -105,19 +105,19 @@ export function UsersTable({ initialUsers, currentUserId }: Props) {
               <tr key={u.id} className="hover:bg-subtle/40">
                 <td className="border-b border-hairline px-6 py-3 align-middle">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-subtle text-[11px] font-medium text-ink">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-subtle text-2xs font-medium text-ink">
                       {initials(u.displayName, u.email) || "?"}
                     </div>
                     <div className="min-w-0">
                       <div className="truncate text-ink">
                         {u.displayName}
                         {isSelf ? (
-                          <span className="ml-2 text-[11px] text-muted">
+                          <span className="ml-2 text-2xs text-muted">
                             (you)
                           </span>
                         ) : null}
                       </div>
-                      <div className="truncate text-[12px] text-muted">
+                      <div className="truncate text-xs text-muted">
                         {u.email}
                       </div>
                     </div>
@@ -125,7 +125,7 @@ export function UsersTable({ initialUsers, currentUserId }: Props) {
                 </td>
                 <td className="border-b border-hairline px-4 py-3 align-middle">
                   <span
-                    className={`inline-flex items-center rounded px-2 py-0.5 text-[11px] uppercase tracking-wider ${
+                    className={`inline-flex items-center rounded px-2 py-0.5 text-2xs uppercase tracking-wider ${
                       u.role === "admin"
                         ? "bg-accent/15 text-accent"
                         : "bg-subtle text-muted"
@@ -143,7 +143,7 @@ export function UsersTable({ initialUsers, currentUserId }: Props) {
                 <td className="border-b border-hairline px-6 py-3 align-middle text-right">
                   <div className="flex items-center justify-end gap-2">
                     {hasError ? (
-                      <span className="text-[11px] text-danger">
+                      <span className="text-2xs text-danger">
                         Update failed
                       </span>
                     ) : null}
@@ -154,7 +154,7 @@ export function UsersTable({ initialUsers, currentUserId }: Props) {
                       onChange={(e) =>
                         changeRole(u.id, e.target.value as Role)
                       }
-                      className="rounded-md border border-hairline bg-canvas px-2 py-1 text-[12px] text-ink disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-md border border-hairline bg-canvas px-2 py-1 text-xs text-ink disabled:cursor-not-allowed disabled:opacity-60"
                       title={
                         isSelf ? "You can't demote yourself" : undefined
                       }

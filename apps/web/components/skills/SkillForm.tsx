@@ -86,8 +86,8 @@ export function SkillForm({
   }
 
   const inputClass =
-    "w-full rounded-md border border-hairline bg-canvas px-3 py-2 text-[13px] text-ink placeholder:text-muted";
-  const labelClass = "block text-[12px] font-medium text-muted";
+    "w-full rounded-md border border-hairline bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted";
+  const labelClass = "block text-xs font-medium text-muted";
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -159,7 +159,7 @@ export function SkillForm({
             {providerOptions.map((provider) => (
               <label
                 key={provider}
-                className="flex items-center gap-2 text-[13px] text-ink"
+                className="flex items-center gap-2 text-sm text-ink"
               >
                 <input
                   type="checkbox"
@@ -170,7 +170,7 @@ export function SkillForm({
               </label>
             ))}
             {providerOptions.length === 0 ? (
-              <span className="text-[12px] text-muted">
+              <span className="text-xs text-muted">
                 No tool providers available yet.
               </span>
             ) : null}
@@ -178,13 +178,13 @@ export function SkillForm({
         </div>
       </div>
 
-      {error ? <p className="text-[12px] text-danger">{error}</p> : null}
+      {error ? <p className="text-xs text-danger">{error}</p> : null}
 
       <div>
         <button
           type="submit"
           disabled={busy}
-          className="rounded-md border border-hairline px-4 py-2 text-[13px] font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
+          className="rounded-md border border-hairline px-4 py-2 text-sm font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
         >
           {busy
             ? "Saving…"

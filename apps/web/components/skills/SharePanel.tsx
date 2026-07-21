@@ -111,7 +111,7 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
           {shares.map((share) => (
             <li
               key={share.id}
-              className="flex items-center justify-between rounded-md border border-hairline px-3 py-2 text-[12px]"
+              className="flex items-center justify-between rounded-md border border-hairline px-3 py-2 text-xs"
             >
               <div className="min-w-0">
                 <span className="text-ink">
@@ -130,7 +130,7 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
                         e.target.value === "editor" ? "editor" : "viewer",
                       )
                     }
-                    className="rounded-md border border-hairline bg-canvas px-2 py-1 text-[12px] text-ink"
+                    className="rounded-md border border-hairline bg-canvas px-2 py-1 text-xs text-ink"
                   >
                     <option value="viewer">Viewer</option>
                     <option value="editor">Editor</option>
@@ -149,7 +149,7 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
           ))}
         </ul>
       ) : (
-        <p className="text-[12px] text-muted">
+        <p className="text-xs text-muted">
           {subjectType === "app"
             ? "Not shared yet. Viewers can open the app; editors can draft changes. Nobody receives your credentials."
             : "Not shared yet. Recipients can run and clone it with their own credentials — never yours."}
@@ -157,11 +157,11 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
       )}
 
       <form onSubmit={handleShare} className="flex items-end gap-2">
-        <label className="flex flex-1 flex-col gap-1 text-[12px] text-muted">
+        <label className="flex flex-1 flex-col gap-1 text-xs text-muted">
           Share with (email)
           <input
             type="email"
-            className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink"
+            className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="teammate@example.com"
@@ -169,14 +169,14 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
           />
         </label>
         {subjectType === "app" ? (
-          <label className="flex flex-col gap-1 text-[12px] text-muted">
+          <label className="flex flex-col gap-1 text-xs text-muted">
             Role
             <select
               value={role}
               onChange={(e) =>
                 setRole(e.target.value === "editor" ? "editor" : "viewer")
               }
-              className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink"
+              className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink"
             >
               <option value="viewer">Viewer</option>
               <option value="editor">Editor</option>
@@ -186,12 +186,12 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
         <button
           type="submit"
           disabled={busy}
-          className="rounded-md border border-hairline px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
+          className="rounded-md border border-hairline px-3 py-1.5 text-sm font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
         >
           {busy ? "Sharing…" : "Share"}
         </button>
       </form>
-      {notice ? <p className="text-[12px] text-muted">{notice}</p> : null}
+      {notice ? <p className="text-xs text-muted">{notice}</p> : null}
     </div>
   );
 }

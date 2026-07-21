@@ -271,10 +271,10 @@ export function ToolsPanel({ onClose, onOpenSidebar }: Props) {
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-2xl flex-col gap-4 px-4 py-6 sm:px-6 sm:py-10">
           <div className="flex flex-col gap-1">
-            <h2 className="text-[10px] font-medium uppercase tracking-wider text-muted">
+            <h2 className="text-2xs font-medium uppercase tracking-wider text-muted">
               Integrations
             </h2>
-            <p className="text-[12px] text-muted">
+            <p className="text-xs text-muted">
               Connect a service to give chat access to your data there.
             </p>
           </div>
@@ -328,7 +328,7 @@ function ToolsSection({
   if (cards.length === 0) return null;
   return (
     <section data-testid={testId} className="flex flex-col gap-2">
-      <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted">
+      <h3 className="text-2xs font-medium uppercase tracking-wider text-muted">
         {title}
       </h3>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -381,30 +381,30 @@ function IntegrationCard({
           <div className="text-sm font-medium text-ink">
             {integration.name}
           </div>
-          <div className="line-clamp-2 text-[12px] text-muted">
+          <div className="line-clamp-2 text-xs text-muted">
             {integration.description}
           </div>
         </div>
       </div>
       <div className="flex items-center justify-between gap-2">
         {failed ? (
-          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-2xs uppercase tracking-wider text-muted">
             Auth failed
           </span>
         ) : needsReconnect ? (
-          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-2xs uppercase tracking-wider text-muted">
             Reconnect
           </span>
         ) : temporarilyUnavailable ? (
-          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-2xs uppercase tracking-wider text-muted">
             Unavailable
           </span>
         ) : executionPending ? (
-          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-2xs uppercase tracking-wider text-muted">
             Linked
           </span>
         ) : connected ? (
-          <span className="inline-flex items-center gap-1 rounded bg-success-bg px-2 py-0.5 text-[10px] uppercase tracking-wider text-success ring-1 ring-success/25">
+          <span className="inline-flex items-center gap-1 rounded bg-success-bg px-2 py-0.5 text-2xs uppercase tracking-wider text-success ring-1 ring-success/25">
             <svg
               viewBox="0 0 16 16"
               width="12"
@@ -421,14 +421,14 @@ function IntegrationCard({
             Connected
           </span>
         ) : (
-          <span className="rounded bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+          <span className="rounded bg-subtle px-2 py-0.5 text-2xs uppercase tracking-wider text-muted">
             {integration.real ? "Not connected" : "Coming soon"}
           </span>
         )}
         {integration.real ? (
           connected ? (
             <div className="flex flex-col items-end gap-1 text-right">
-              <span className="text-[11px] text-muted">
+              <span className="text-2xs text-muted">
                 {comingSoon
                   ? "Chat actions coming soon"
                   : needsReconnect
@@ -441,7 +441,7 @@ function IntegrationCard({
               </span>
               <a
                 href={`/api/oauth/${integration.id}/start`}
-                className="text-[11px] text-muted underline-offset-2 hover:text-ink hover:underline"
+                className="text-2xs text-muted underline-offset-2 hover:text-ink hover:underline"
               >
                 Reconnect
               </a>
@@ -506,7 +506,7 @@ function IntegrationModal({
             >
               {integration.name}
             </h3>
-            <p className="text-[12px] text-muted">{integration.description}</p>
+            <p className="text-xs text-muted">{integration.description}</p>
           </div>
         </div>
         <p className="text-sm text-ink">

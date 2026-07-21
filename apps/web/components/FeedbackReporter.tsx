@@ -135,7 +135,7 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
             <h2 id="feedback-title" className="text-sm font-semibold text-ink">
               Report feedback
             </h2>
-            <p className="mt-0.5 text-[12px] text-muted">
+            <p className="mt-0.5 text-xs text-muted">
               Send the issue with enough context for us to reproduce it.
             </p>
           </div>
@@ -151,13 +151,13 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
 
         {sentId ? (
           <div className="grid gap-3 px-4 py-5">
-            <div className="rounded-md border border-success/40 bg-success-bg px-3 py-2 text-[13px] text-success">
+            <div className="rounded-md border border-success/40 bg-success-bg px-3 py-2 text-sm text-success">
               Feedback sent. Report {sentId.slice(0, 8)} is in the admin inbox.
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="justify-self-end rounded-md border border-hairline bg-canvas px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-subtle"
+              className="justify-self-end rounded-md border border-hairline bg-canvas px-3 py-1.5 text-sm font-medium text-ink hover:bg-subtle"
             >
               Done
             </button>
@@ -166,12 +166,12 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
           <>
             <div className="grid gap-3 overflow-y-auto px-4 py-4">
               <div className="grid gap-2 sm:grid-cols-2">
-                <label className="grid gap-1 text-[12px] font-medium text-muted">
+                <label className="grid gap-1 text-xs font-medium text-muted">
                   Type
                   <select
                     value={type}
                     onChange={(e) => setType(e.target.value)}
-                    className="rounded-md border border-hairline bg-canvas px-2 py-2 text-[13px] text-ink focus-visible:border-ink/30"
+                    className="rounded-md border border-hairline bg-canvas px-2 py-2 text-sm text-ink focus-visible:border-ink/30"
                   >
                     <option value="bug">Bug</option>
                     <option value="confusing_answer">Confusing answer</option>
@@ -180,12 +180,12 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
                     <option value="other">Other</option>
                   </select>
                 </label>
-                <label className="grid gap-1 text-[12px] font-medium text-muted">
+                <label className="grid gap-1 text-xs font-medium text-muted">
                   Severity
                   <select
                     value={severity}
                     onChange={(e) => setSeverity(e.target.value)}
-                    className="rounded-md border border-hairline bg-canvas px-2 py-2 text-[13px] text-ink focus-visible:border-ink/30"
+                    className="rounded-md border border-hairline bg-canvas px-2 py-2 text-sm text-ink focus-visible:border-ink/30"
                   >
                     <option value="normal">Normal</option>
                     <option value="high">High</option>
@@ -194,7 +194,7 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
                 </label>
               </div>
 
-              <label className="grid gap-1 text-[12px] font-medium text-muted">
+              <label className="grid gap-1 text-xs font-medium text-muted">
                 What happened
                 <textarea
                   ref={textareaRef}
@@ -202,23 +202,23 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
                   onChange={(e) => setBody(e.target.value)}
                   rows={5}
                   maxLength={4000}
-                  className="resize-y rounded-md border border-hairline bg-canvas px-3 py-2 text-[13px] leading-relaxed text-ink focus-visible:border-ink/30"
+                  className="resize-y rounded-md border border-hairline bg-canvas px-3 py-2 text-sm leading-relaxed text-ink focus-visible:border-ink/30"
                 />
               </label>
 
-              <label className="grid gap-1 text-[12px] font-medium text-muted">
+              <label className="grid gap-1 text-xs font-medium text-muted">
                 Expected behavior
                 <textarea
                   value={expected}
                   onChange={(e) => setExpected(e.target.value)}
                   rows={3}
                   maxLength={2000}
-                  className="resize-y rounded-md border border-hairline bg-canvas px-3 py-2 text-[13px] leading-relaxed text-ink focus-visible:border-ink/30"
+                  className="resize-y rounded-md border border-hairline bg-canvas px-3 py-2 text-sm leading-relaxed text-ink focus-visible:border-ink/30"
                 />
               </label>
 
               <div className="flex flex-wrap items-center gap-3">
-                <label className="inline-flex items-center gap-2 text-[13px] text-ink">
+                <label className="inline-flex items-center gap-2 text-sm text-ink">
                   <input
                     type="checkbox"
                     checked={includeContext}
@@ -228,14 +228,14 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
                   Include current chat context
                 </label>
                 {context?.threadTitle ? (
-                  <span className="min-w-0 truncate text-[12px] text-muted">
+                  <span className="min-w-0 truncate text-xs text-muted">
                     {context.threadTitle}
                   </span>
                 ) : null}
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <label className="cursor-pointer rounded-md border border-hairline bg-canvas px-2.5 py-1.5 text-[12px] font-medium text-ink hover:bg-subtle">
+                <label className="cursor-pointer rounded-md border border-hairline bg-canvas px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-subtle">
                   Attach screenshot
                   <input
                     type="file"
@@ -251,7 +251,7 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
                   <button
                     type="button"
                     onClick={() => setScreenshot(null)}
-                    className="rounded-md border border-hairline bg-canvas px-2.5 py-1.5 text-[12px] text-muted hover:bg-subtle hover:text-ink"
+                    className="rounded-md border border-hairline bg-canvas px-2.5 py-1.5 text-xs text-muted hover:bg-subtle hover:text-ink"
                   >
                     {screenshot.name} · remove
                   </button>
@@ -259,7 +259,7 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
               </div>
 
               {error ? (
-                <div className="rounded-md border border-danger/30 bg-danger-bg px-3 py-2 text-[13px] text-danger">
+                <div className="rounded-md border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger">
                   {error}
                 </div>
               ) : null}
@@ -270,7 +270,7 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
                 type="button"
                 onClick={onClose}
                 disabled={submitting}
-                className="rounded-md border border-hairline bg-canvas px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-subtle disabled:opacity-50"
+                className="rounded-md border border-hairline bg-canvas px-3 py-1.5 text-sm font-medium text-ink hover:bg-subtle disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -278,7 +278,7 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
                 type="button"
                 onClick={submit}
                 disabled={submitting}
-                className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas hover:opacity-90 disabled:opacity-50"
+                className="rounded-md border border-ink bg-ink px-3 py-1.5 text-sm font-medium text-canvas hover:opacity-90 disabled:opacity-50"
               >
                 {submitting ? "Sending…" : "Send feedback"}
               </button>

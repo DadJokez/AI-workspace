@@ -226,7 +226,7 @@ export function SettingsPanel({
                       placeholder="Your name"
                     />
                     {savedFlash ? (
-                      <span className="text-[11px] text-muted">Saved</span>
+                      <span className="text-2xs text-muted">Saved</span>
                     ) : null}
                   </div>
                 </Field>
@@ -251,19 +251,19 @@ export function SettingsPanel({
                 className="w-full resize-y rounded-md border border-hairline bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus-visible:border-ink/40"
               />
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[11px] text-muted">
+                <p className="text-2xs text-muted">
                   Sent to the assistant on every new chat. Updates apply to
                   new conversations.
                 </p>
                 <div className="flex shrink-0 items-center gap-2">
                   {instructionsTooLong ? (
-                    <span className="text-[11px] text-danger">
+                    <span className="text-2xs text-danger">
                       Too long ({instructionsDraft.length} /{" "}
                       {CUSTOM_INSTRUCTIONS_MAX})
                     </span>
                   ) : null}
                   {instructionsSavedFlash ? (
-                    <span className="text-[11px] text-muted">Saved</span>
+                    <span className="text-2xs text-muted">Saved</span>
                   ) : null}
                   <button
                     type="button"
@@ -305,7 +305,7 @@ export function SettingsPanel({
                   { value: "umber", label: "Umber" },
                 ]}
               />
-              <p className="text-[11px] text-muted">
+              <p className="text-2xs text-muted">
                 Umber is the default visual identity. Classic remains available
                 temporarily as an escape hatch on this device.
               </p>
@@ -319,7 +319,7 @@ export function SettingsPanel({
                   { value: "compact", label: "Compact" },
                 ]}
               />
-              <p className="text-[11px] text-muted">
+              <p className="text-2xs text-muted">
                 Compact reduces vertical spacing in the sidebar and message
                 list.
               </p>
@@ -332,14 +332,14 @@ export function SettingsPanel({
 
               <Section title="Welcome tour">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-[12px] text-muted">
+                  <p className="text-xs text-muted">
                     Replay the two-minute walkthrough of chat, Skills, Apps,
                     feedback, and permissions.
                   </p>
                   <button
                     type="button"
                     onClick={onReplayTour}
-                    className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-[13px] text-ink hover:bg-subtle"
+                    className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-sm text-ink hover:bg-subtle"
                   >
                     Show tour
                   </button>
@@ -374,9 +374,9 @@ export function SettingsPanel({
                     const active = models.find((m) => m.id === currentDefault);
                     const blurb = active?.blurb?.trim();
                     if (!blurb) return null;
-                    return <p className="text-[12px] text-ink">{blurb}</p>;
+                    return <p className="text-xs text-ink">{blurb}</p>;
                   })()}
-                  <p className="text-[11px] text-muted">
+                  <p className="text-2xs text-muted">
                     New chats start with this model when runtime v2 is off.
                   </p>
                 </Field>
@@ -398,7 +398,7 @@ function Section({
 }) {
   return (
     <section className="flex flex-col gap-4">
-      <h2 className="text-[10px] font-medium uppercase tracking-wider text-muted">
+      <h2 className="text-2xs font-medium uppercase tracking-wider text-muted">
         {title}
       </h2>
       {children}
@@ -414,8 +414,8 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label className="flex flex-col gap-1.5 text-[13px] text-ink">
-      <span className="text-[12px] font-medium text-ink">{label}</span>
+    <label className="flex flex-col gap-1.5 text-sm text-ink">
+      <span className="text-xs font-medium text-ink">{label}</span>
       {children}
     </label>
   );
@@ -457,7 +457,7 @@ function SegmentedControl<T extends string>({
             // name of the group's first radio ("Theme Dark System" for Light).
             aria-label={o.label}
             onClick={() => onChange(o.value)}
-            className={`px-3 py-1.5 text-[12px] ${
+            className={`px-3 py-1.5 text-xs ${
               active
                 ? "bg-subtle text-ink"
                 : "bg-canvas text-muted hover:bg-subtle hover:text-ink"

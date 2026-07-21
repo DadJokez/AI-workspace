@@ -33,7 +33,7 @@ export function AppActions({ appId }: { appId: string }) {
       type="button"
       disabled={busy}
       onClick={handleArchive}
-      className="rounded-md border border-hairline px-3 py-1.5 text-[13px] text-muted hover:text-ink disabled:opacity-50"
+      className="rounded-md border border-hairline px-3 py-1.5 text-sm text-muted hover:text-ink disabled:opacity-50"
     >
       {busy ? "Archiving…" : "Archive app"}
     </button>

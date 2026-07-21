@@ -81,7 +81,7 @@ export default async function AdminAuditPage({ searchParams }: Props) {
     <section className="py-2">
       <div className="px-6 pb-3 pt-4">
         <h2 className="text-base font-semibold text-ink">Audit</h2>
-        <p className="mt-1 text-[12px] text-muted">
+        <p className="mt-1 text-xs text-muted">
           Recent tool, workflow, attestation, and rate-limit events from the
           compliance ledger.
         </p>
@@ -125,16 +125,16 @@ export default async function AdminAuditPage({ searchParams }: Props) {
         >
           Comparative
         </FilterPill>
-        <span className="ml-auto text-[12px] text-muted">
+        <span className="ml-auto text-xs text-muted">
           {rows.length} shown
           {failed > 0 || denied > 0 ? `, ${failed} failed, ${denied} denied` : ""}
         </span>
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full border-separate border-spacing-0 text-[13px]">
+        <table className="w-full border-separate border-spacing-0 text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wider text-muted">
+            <tr className="text-left text-2xs uppercase tracking-wider text-muted">
               <th className="border-b border-hairline px-6 py-2 font-medium">
                 Event
               </th>
@@ -157,7 +157,7 @@ export default async function AdminAuditPage({ searchParams }: Props) {
               <tr>
                 <td
                   colSpan={5}
-                  className="border-b border-hairline px-6 py-10 text-center text-[12px] text-muted"
+                  className="border-b border-hairline px-6 py-10 text-center text-xs text-muted"
                 >
                   No audit events match this filter.
                 </td>
@@ -172,7 +172,7 @@ export default async function AdminAuditPage({ searchParams }: Props) {
                         <div className="font-medium text-ink">
                           {formatAction(row.actionType)}
                         </div>
-                        <div className="mt-1 text-[12px] text-muted">
+                        <div className="mt-1 text-xs text-muted">
                           {formatDateTime(row.createdAt)}
                           {row.completedAt && row.startedAt
                             ? ` - ${formatDuration(row.startedAt, row.completedAt)}`
@@ -188,7 +188,7 @@ export default async function AdminAuditPage({ searchParams }: Props) {
                     <div className="max-w-56 truncate text-ink">
                       {row.actorName ?? "Unknown user"}
                     </div>
-                    <div className="max-w-56 truncate text-[12px] text-muted">
+                    <div className="max-w-56 truncate text-xs text-muted">
                       {row.actorEmail ?? row.actorUserId ?? "No actor"}
                     </div>
                   </td>
@@ -196,11 +196,11 @@ export default async function AdminAuditPage({ searchParams }: Props) {
                     <div className="text-ink">
                       {row.provider ? titleize(row.provider) : "Platform"}
                     </div>
-                    <div className="mt-1 max-w-56 truncate font-mono text-[12px] text-muted">
+                    <div className="mt-1 max-w-56 truncate font-mono text-xs text-muted">
                       {row.toolName ?? "n/a"}
                     </div>
                   </td>
-                  <td className="border-b border-hairline px-4 py-3 align-top text-[12px] text-muted">
+                  <td className="border-b border-hairline px-4 py-3 align-top text-xs text-muted">
                     {row.chatThreadId ? (
                       <Link
                         href={`/chat?threadId=${row.chatThreadId}`}
@@ -226,11 +226,11 @@ export default async function AdminAuditPage({ searchParams }: Props) {
                   </td>
                   <td className="border-b border-hairline px-6 py-3 align-top">
                     {row.error ? (
-                      <div className="max-w-xl whitespace-pre-wrap rounded-md border border-danger/20 bg-danger-bg px-3 py-2 font-mono text-[12px] text-danger">
+                      <div className="max-w-xl whitespace-pre-wrap rounded-md border border-danger/20 bg-danger-bg px-3 py-2 font-mono text-xs text-danger">
                         {truncate(row.error, 500)}
                       </div>
                     ) : (
-                      <div className="text-[12px] text-muted">
+                      <div className="text-xs text-muted">
                         {summarizeMetadata(row.metadata)}
                       </div>
                     )}
@@ -248,7 +248,7 @@ export default async function AdminAuditPage({ searchParams }: Props) {
 function Metric({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="rounded-md border border-hairline bg-surface px-4 py-3">
-      <div className="text-[11px] uppercase tracking-wider text-muted">
+      <div className="text-2xs uppercase tracking-wider text-muted">
         {label}
       </div>
       <div className="mt-2 text-xl font-semibold text-ink">{value}</div>
@@ -279,7 +279,7 @@ function StatusBadge({ status }: { status: string }) {
           : "bg-subtle text-muted";
   return (
     <span
-      className={`inline-flex rounded px-2 py-0.5 text-[11px] uppercase tracking-wider ${classes}`}
+      className={`inline-flex rounded px-2 py-0.5 text-2xs uppercase tracking-wider ${classes}`}
     >
       {status}
     </span>

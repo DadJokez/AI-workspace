@@ -134,18 +134,18 @@ export function WelcomeTour({ open, onClose }: WelcomeTourProps) {
         className="fixed left-1/2 w-[min(92vw,420px)] -translate-x-1/2 rounded-xl border border-hairline bg-canvas p-5 text-ink shadow-2xl"
         style={cardPosition(spotlight)}
       >
-        <p className="text-[11px] font-medium uppercase tracking-wider text-muted">
+        <p className="text-2xs font-medium uppercase tracking-wider text-muted">
           {stepIndex + 1} of {TOUR_STEPS.length}
         </p>
-        <h2 className="mt-1.5 text-[16px] font-semibold">{step.title}</h2>
-        <p className="mt-2 text-[13px] leading-relaxed text-muted">
+        <h2 className="mt-1.5 text-md font-semibold">{step.title}</h2>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
           {step.body}
         </p>
         <div className="mt-4 flex items-center justify-between">
           <button
             type="button"
             onClick={onClose}
-            className="text-[12px] text-muted hover:text-ink"
+            className="text-xs text-muted hover:text-ink"
           >
             Skip tour
           </button>
@@ -154,7 +154,7 @@ export function WelcomeTour({ open, onClose }: WelcomeTourProps) {
               <button
                 type="button"
                 onClick={() => setStepIndex((i) => i - 1)}
-                className="rounded-md border border-hairline px-3 py-1.5 text-[13px] text-ink hover:bg-subtle"
+                className="rounded-md border border-hairline px-3 py-1.5 text-sm text-ink hover:bg-subtle"
               >
                 Back
               </button>
@@ -162,7 +162,7 @@ export function WelcomeTour({ open, onClose }: WelcomeTourProps) {
             <button
               type="button"
               onClick={() => (isLast ? onClose() : setStepIndex((i) => i + 1))}
-              className="rounded-md bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas hover:opacity-90"
+              className="rounded-md bg-ink px-3.5 py-1.5 text-sm font-medium text-canvas hover:opacity-90"
             >
               {isLast ? "Get started" : "Next"}
             </button>

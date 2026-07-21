@@ -49,12 +49,12 @@ export function RetryRunButton({
         type="button"
         onClick={retry}
         disabled={pending}
-        className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-medium text-canvas disabled:cursor-not-allowed disabled:opacity-60"
+        className="rounded-md border border-ink bg-ink px-3 py-1.5 text-xs font-medium text-canvas disabled:cursor-not-allowed disabled:opacity-60"
       >
         {pending ? "Retrying..." : "Retry run"}
       </button>
       {error ? (
-        <span className="text-[12px] text-danger">{error}</span>
+        <span className="text-xs text-danger">{error}</span>
       ) : null}
     </div>
   );

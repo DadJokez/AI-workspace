@@ -100,12 +100,15 @@ export function MessageBubble({
             <PencilIcon />
           </button>
         ) : null}
-        <div className="max-w-[80%] overflow-hidden whitespace-pre-wrap rounded-lg bg-subtle px-3.5 py-2 text-[14px] leading-relaxed text-ink [overflow-wrap:anywhere]">
+        <div
+          data-testid="user-message-content"
+          className="max-w-[80%] overflow-hidden whitespace-pre-wrap rounded-lg bg-subtle px-3.5 py-2 text-base leading-relaxed text-ink [overflow-wrap:anywhere]"
+        >
           {slashDisplay ? (
             <span className="flex flex-wrap items-center gap-1.5">
               <span
                 data-testid="slash-capability-pill"
-                className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 py-0.5 font-mono text-[12px] text-ink"
+                className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 py-0.5 font-mono text-xs text-ink"
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-info" />
                 {slashDisplay.token}
@@ -158,7 +161,7 @@ export function MessageBubble({
       className="group flex w-full min-w-0 max-w-full flex-col gap-1 overflow-hidden"
     >
       <div className="flex min-h-7 items-center gap-2">
-        <div className="text-[11px] font-medium tracking-wide text-muted">
+        <div className="text-2xs font-medium tracking-wide text-muted">
           {label}
         </div>
         {role === "assistant" && !pending ? (
@@ -166,7 +169,7 @@ export function MessageBubble({
             const meter = formatTurnMeter(modelId, tokensIn, tokensOut);
             return meter ? (
               <div
-                className="text-[11px] tracking-wide text-muted/80"
+                className="text-2xs tracking-wide text-muted/80"
                 title="Estimate at standard rates: total tokens include cache reads (billed ~10% of standard) and cache writes (~125%), so the real cost can land under or over this. The admin run page has the exact split."
               >
                 {meter}
@@ -182,7 +185,7 @@ export function MessageBubble({
         data-testid={
           role === "assistant" ? "assistant-message-content" : undefined
         }
-        className="min-w-0 max-w-full overflow-hidden px-px text-[14px] leading-relaxed text-ink [overflow-wrap:anywhere]"
+        className="min-w-0 max-w-full overflow-hidden px-px text-base leading-relaxed text-ink [overflow-wrap:anywhere]"
       >
         {showThinking ? null : role === "assistant" ? (
           <AssistantContent parts={assistantParts} />
@@ -283,13 +286,13 @@ function AppDraftStrip({
             key={version.id}
             data-testid="app-draft-card"
             data-app-version-id={version.id}
-            className="rounded-md border border-hairline bg-surface px-3 py-2.5 text-[12px] text-ink"
+            className="rounded-md border border-hairline bg-surface px-3 py-2.5 text-xs text-ink"
           >
             <div className="flex flex-wrap items-center gap-2">
               <span className={`h-1.5 w-1.5 rounded-full ${statusDot}`} />
               <span className="font-medium">{version.appName}</span>
               <span className="text-muted">v{version.versionNumber}</span>
-              <span className="ml-auto rounded bg-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+              <span className="ml-auto rounded bg-subtle px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-muted">
                 {deployed ? "Live" : reverted ? "Superseded" : "Draft"}
               </span>
             </div>
@@ -305,14 +308,14 @@ function AppDraftStrip({
                 type="button"
                 disabled={!artifact}
                 onClick={() => artifact && onOpenArtifact?.(artifact)}
-                className="rounded-md border border-hairline px-2 py-1 text-[11px] font-medium text-ink hover:bg-subtle disabled:opacity-40"
+                className="rounded-md border border-hairline px-2 py-1 text-2xs font-medium text-ink hover:bg-subtle disabled:opacity-40"
               >
                 Preview
               </button>
               {deployed ? (
                 <a
                   href={version.liveUrl}
-                  className="rounded-md border border-accent bg-accent px-2 py-1 text-[11px] font-medium text-on-accent hover:bg-accent/90"
+                  className="rounded-md border border-accent bg-accent px-2 py-1 text-2xs font-medium text-on-accent hover:bg-accent/90"
                 >
                   Open app
                 </a>
@@ -321,12 +324,12 @@ function AppDraftStrip({
                   type="button"
                   disabled={pending || !onDeploy}
                   onClick={() => onDeploy?.(version)}
-                  className="rounded-md border border-accent bg-accent px-2 py-1 text-[11px] font-medium text-on-accent hover:bg-accent/90 disabled:opacity-50"
+                  className="rounded-md border border-accent bg-accent px-2 py-1 text-2xs font-medium text-on-accent hover:bg-accent/90 disabled:opacity-50"
                 >
                   {pending ? "Deploying..." : "Deploy update"}
                 </button>
               ) : (
-                <span className="text-[11px] text-muted">
+                <span className="text-2xs text-muted">
                   Ready for an owner to deploy
                 </span>
               )}
@@ -360,7 +363,7 @@ function RecommendationStrip({
         return (
           <div
             key={recommendation.dbId}
-            className="rounded-md border border-hairline bg-surface px-3 py-2 text-[12px] text-ink"
+            className="rounded-md border border-hairline bg-surface px-3 py-2 text-xs text-ink"
             data-testid="recommendation-card"
           >
             <div className="flex items-start gap-2">
@@ -371,13 +374,13 @@ function RecommendationStrip({
                   {recommendation.reason}
                 </div>
               </div>
-              <span className="shrink-0 rounded-full bg-subtle px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+              <span className="shrink-0 rounded-full bg-subtle px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
                 {recommendationLabel(recommendation.type)}
               </span>
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5 pl-3.5">
               {accepted ? (
-                <span className="rounded-md border border-success/35 bg-success-bg px-2 py-1 text-[11px] text-success">
+                <span className="rounded-md border border-success/35 bg-success-bg px-2 py-1 text-2xs text-success">
                   Accepted
                 </span>
               ) : (
@@ -386,7 +389,7 @@ function RecommendationStrip({
                     type="button"
                     disabled={pending}
                     onClick={() => onAction?.(recommendation, "accepted")}
-                    className="rounded-md border border-accent bg-accent px-2 py-1 text-[11px] font-medium text-on-accent hover:bg-accent/90 disabled:opacity-50"
+                    className="rounded-md border border-accent bg-accent px-2 py-1 text-2xs font-medium text-on-accent hover:bg-accent/90 disabled:opacity-50"
                   >
                     {pending ? "Saving..." : acceptLabel(recommendation)}
                   </button>
@@ -394,7 +397,7 @@ function RecommendationStrip({
                     type="button"
                     disabled={pending}
                     onClick={() => onAction?.(recommendation, "dismissed")}
-                    className="rounded-md border border-hairline px-2 py-1 text-[11px] font-medium text-ink hover:bg-subtle disabled:opacity-50"
+                    className="rounded-md border border-hairline px-2 py-1 text-2xs font-medium text-ink hover:bg-subtle disabled:opacity-50"
                   >
                     Dismiss
                   </button>
@@ -446,7 +449,7 @@ function ArtifactStrip({
 }
 
 const artifactPillClassName =
-  "group flex max-w-full items-center gap-2 rounded-full border border-accent bg-accent px-2.5 py-1.5 text-left text-[12px] text-on-accent transition hover:bg-accent/90";
+  "group flex max-w-full items-center gap-2 rounded-full border border-accent bg-accent px-2.5 py-1.5 text-left text-xs text-on-accent transition hover:bg-accent/90";
 
 function ArtifactPillContent({
   artifact,
@@ -455,14 +458,14 @@ function ArtifactPillContent({
 }) {
   return (
     <>
-      <span className="shrink-0 rounded-full bg-canvas/20 px-1.5 py-0.5 font-mono text-[10px] uppercase text-on-accent/85 ring-1 ring-on-accent/25">
+      <span className="shrink-0 rounded-full bg-canvas/20 px-1.5 py-0.5 font-mono text-2xs uppercase text-on-accent/85 ring-1 ring-on-accent/25">
         {artifact.kind.slice(0, 4)}
       </span>
       <span className="min-w-0 truncate font-medium">{artifact.filename}</span>
       <span className="shrink-0 text-on-accent/75">
         {formatBytes(artifact.sizeBytes)}
       </span>
-      <span className="hidden shrink-0 rounded-full bg-canvas/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-on-accent/90 group-hover:bg-canvas/30 sm:inline">
+      <span className="hidden shrink-0 rounded-full bg-canvas/20 px-1.5 py-0.5 text-2xs font-semibold uppercase text-on-accent/90 group-hover:bg-canvas/30 sm:inline">
         Preview
       </span>
     </>
@@ -530,34 +533,34 @@ function ArtifactCodePreview({
 
   return (
     <details className="group my-2 overflow-hidden rounded-md border border-hairline bg-subtle first:mt-0 last:mb-0">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[12px] marker:hidden">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs marker:hidden">
         <span className="h-1.5 w-1.5 rounded-full bg-info" />
         <span className="min-w-0 flex-1 truncate font-medium text-ink">
           Document content collapsed
         </span>
-        <span className="hidden shrink-0 font-mono text-[10px] uppercase text-muted sm:inline">
+        <span className="hidden shrink-0 font-mono text-2xs uppercase text-muted sm:inline">
           {kind}
         </span>
         {saveState ? (
-          <span className="shrink-0 rounded-full border border-warning/25 bg-warning-bg px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
+          <span className="shrink-0 rounded-full border border-warning/25 bg-warning-bg px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-warning">
             {saveState}
           </span>
         ) : null}
-        <span className="shrink-0 text-[11px] text-muted group-open:hidden">
+        <span className="shrink-0 text-2xs text-muted group-open:hidden">
           Show code
         </span>
-        <span className="hidden shrink-0 text-[11px] text-muted group-open:inline">
+        <span className="hidden shrink-0 text-2xs text-muted group-open:inline">
           Hide code
         </span>
       </summary>
       <div className="border-t border-hairline">
-        <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] text-muted">
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-2xs text-muted">
           <span className="min-w-0 truncate">{label}</span>
           <span className="shrink-0">{formatBytes(code.length)}</span>
         </div>
         <pre
           data-testid="artifact-code-preview-scroll"
-          className="max-h-[min(60vh,34rem)] overflow-auto whitespace-pre-wrap border-t border-hairline px-3 py-2 font-mono text-[11px] leading-relaxed text-ink [overflow-wrap:anywhere]"
+          className="max-h-[min(60vh,34rem)] overflow-auto whitespace-pre-wrap border-t border-hairline px-3 py-2 font-mono text-2xs leading-relaxed text-ink [overflow-wrap:anywhere]"
         >
           {code}
         </pre>
@@ -883,7 +886,7 @@ function WorkReceipts({
 
   if (events.length === 0) {
     return (
-      <div className="mt-2 flex items-center gap-2 border-t border-hairline/70 pt-2 text-[12px] text-muted/80">
+      <div className="mt-2 flex items-center gap-2 border-t border-hairline/70 pt-2 text-xs text-muted/80">
         <ActivityDot state={pending ? "pending" : "succeeded"} subtle />
         <span>{pending ? headline : summary}</span>
         {pending ? <span className="text-muted/60">{summary}</span> : null}
@@ -902,17 +905,17 @@ function WorkReceipts({
 
   return (
     <details
-      className="group mt-2 max-w-full overflow-hidden border-t border-hairline/70 pt-2 text-[12px] text-muted/80"
+      className="group mt-2 max-w-full overflow-hidden border-t border-hairline/70 pt-2 text-xs text-muted/80"
       open={pending}
     >
       <summary className="flex cursor-pointer list-none items-center gap-2 py-0.5 [overflow-wrap:anywhere] marker:hidden">
         <ActivityDot state={state} subtle />
         <span className="font-medium text-muted/90">{headline}</span>
         <span className="text-muted/60">{summary}</span>
-        <span className="ml-auto hidden shrink-0 text-[11px] text-muted/60 sm:inline">
+        <span className="ml-auto hidden shrink-0 text-2xs text-muted/60 sm:inline">
           {eventLabel}
         </span>
-        <span className="shrink-0 text-[14px] leading-none text-muted/60 transition group-open:rotate-90">
+        <span className="shrink-0 text-base leading-none text-muted/60 transition group-open:rotate-90">
           ›
         </span>
       </summary>
@@ -931,7 +934,7 @@ function WorkReceipts({
                 <span className="min-w-0 flex-1 truncate text-muted/85">
                   {receipt.label}
                 </span>
-                <span className="shrink-0 text-[13px] leading-none text-muted/50 transition group-open/receipt:rotate-90">
+                <span className="shrink-0 text-sm leading-none text-muted/50 transition group-open/receipt:rotate-90">
                   ›
                 </span>
               </summary>
@@ -956,13 +959,13 @@ function ReceiptSteps({ events }: { events: AgentActivityEvent[] }) {
             <div className="[overflow-wrap:anywhere]">{event.label}</div>
             {event.detail ? (
               <details className="group/raw mt-0.5">
-                <summary className="cursor-pointer list-none text-[11px] text-muted/55 hover:text-muted/80 marker:hidden">
+                <summary className="cursor-pointer list-none text-2xs text-muted/55 hover:text-muted/80 marker:hidden">
                   <span className="group-open/raw:hidden">View details</span>
                   <span className="hidden group-open/raw:inline">
                     Hide details
                   </span>
                 </summary>
-                <div className="mt-1 max-h-32 overflow-auto rounded border border-hairline/70 bg-canvas/40 px-2 py-1 font-mono text-[11px] leading-snug text-muted/65 [overflow-wrap:anywhere]">
+                <div className="mt-1 max-h-32 overflow-auto rounded border border-hairline/70 bg-canvas/40 px-2 py-1 font-mono text-2xs leading-snug text-muted/65 [overflow-wrap:anywhere]">
                   {event.detail}
                 </div>
               </details>
@@ -1047,7 +1050,7 @@ function ActivityDot({
           : "bg-success";
   return (
     <span
-      className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${className}`}
+      className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${className}`}
       aria-hidden="true"
     />
   );
@@ -1091,7 +1094,7 @@ const MARKDOWN_COMPONENTS: Components = {
   table: ({ children }) => (
     <div className="my-2 w-full overflow-x-auto first:mt-0 last:mb-0">
       <table
-        className="border-collapse text-[13px]"
+        className="border-collapse text-sm"
         style={{ width: "min-content", minWidth: "100%" }}
       >
         {children}
@@ -1133,7 +1136,7 @@ const MARKDOWN_COMPONENTS: Components = {
     }
     return (
       <code
-        className="break-all rounded bg-subtle px-1 py-0.5 font-mono text-[12px]"
+        className="break-all rounded bg-subtle px-1 py-0.5 font-mono text-xs"
         {...rest}
       >
         {children}
@@ -1162,7 +1165,7 @@ function CodeBlock({ language, code }: { language: string; code: string }) {
         type="button"
         onClick={copy}
         aria-label={copied ? "Copied" : "Copy code"}
-        className="absolute right-2 top-2 z-10 flex h-7 items-center gap-1 rounded bg-canvas/80 px-2 py-1 text-[11px] text-muted backdrop-blur transition-colors hover:text-ink"
+        className="absolute right-2 top-2 z-10 flex h-7 items-center gap-1 rounded bg-canvas/80 px-2 py-1 text-2xs text-muted backdrop-blur transition-colors hover:text-ink"
       >
         {copied ? (
           <>

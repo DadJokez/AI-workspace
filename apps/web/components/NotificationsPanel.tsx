@@ -204,7 +204,7 @@ export function NotificationsPanel({
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-10">
           {error ? (
-            <p className="text-[12px] text-danger">
+            <p className="text-xs text-danger">
               Could not load notifications: {error}
             </p>
           ) : null}
@@ -214,7 +214,7 @@ export function NotificationsPanel({
               data-testid="daily-digest"
               className="flex flex-col gap-2"
             >
-              <h2 className="text-[10px] font-medium uppercase tracking-wider text-muted">
+              <h2 className="text-2xs font-medium uppercase tracking-wider text-muted">
                 Since you were last here
               </h2>
               <div className="flex flex-col gap-1.5 rounded-lg border border-hairline bg-subtle/40 p-3">
@@ -267,13 +267,13 @@ export function NotificationsPanel({
           ) : null}
 
           <section className="flex flex-col gap-2">
-            <h2 className="text-[10px] font-medium uppercase tracking-wider text-muted">
+            <h2 className="text-2xs font-medium uppercase tracking-wider text-muted">
               All notifications
             </h2>
             {loading ? (
-              <p className="text-[12px] text-muted">Loading…</p>
+              <p className="text-xs text-muted">Loading…</p>
             ) : items.length === 0 ? (
-              <p className="text-[12px] text-muted">
+              <p className="text-xs text-muted">
                 Nothing yet. When a scheduled or triggered run finishes while
                 you&apos;re away, it lands here.
               </p>
@@ -299,7 +299,7 @@ export function NotificationsPanel({
                       />
                       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                         <span
-                          className={`truncate text-[13px] ${
+                          className={`truncate text-sm ${
                             n.readAt
                               ? "font-normal text-muted"
                               : "font-medium text-ink"
@@ -308,12 +308,12 @@ export function NotificationsPanel({
                           {n.title}
                         </span>
                         {n.body ? (
-                          <span className="line-clamp-2 text-[12px] text-muted">
+                          <span className="line-clamp-2 text-xs text-muted">
                             {n.body}
                           </span>
                         ) : null}
                       </span>
-                      <span className="mt-0.5 shrink-0 text-[11px] text-muted">
+                      <span className="mt-0.5 shrink-0 text-2xs text-muted">
                         {relativeTime(n.createdAt)}
                       </span>
                     </button>
@@ -348,14 +348,14 @@ function DigestRow({
         }`}
       />
       <span
-        className={`min-w-0 flex-1 truncate text-[12px] ${
+        className={`min-w-0 flex-1 truncate text-xs ${
           tone === "error" ? "text-danger" : "text-ink"
         }`}
       >
         {label}
       </span>
       {when ? (
-        <span className="shrink-0 text-[11px] text-muted">
+        <span className="shrink-0 text-2xs text-muted">
           {relativeTime(when)}
         </span>
       ) : null}

@@ -36,7 +36,7 @@ export default async function SkillsPage() {
       <div className="flex items-center justify-between pb-4">
         <div>
           <h2 className="text-base font-semibold text-ink">Skill catalog</h2>
-          <p className="mt-1 text-[12px] text-muted">
+          <p className="mt-1 text-xs text-muted">
             Saved agent definitions you can run, clone, and (soon) schedule
             and share.
           </p>
@@ -45,7 +45,7 @@ export default async function SkillsPage() {
           {sessionUser.role === "admin" ? <SeedStartersButton /> : null}
           <Link
             href="/skills/new"
-            className="rounded-md border border-hairline px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-ink/5"
+            className="rounded-md border border-hairline px-3 py-1.5 text-sm font-medium text-ink hover:bg-ink/5"
           >
             New skill
           </Link>
@@ -54,7 +54,7 @@ export default async function SkillsPage() {
 
       {rows.length === 0 ? (
         <div className="rounded-lg border border-hairline px-4 py-6 text-center">
-          <p className="text-[13px] text-muted">
+          <p className="text-sm text-muted">
             No skills yet. Create one, or seed the starter skills.
           </p>
         </div>
@@ -84,7 +84,7 @@ function SkillGroup({
 }) {
   return (
     <div className="pb-6">
-      <h3 className="pb-2 text-[12px] font-medium uppercase tracking-wider text-muted">
+      <h3 className="pb-2 text-xs font-medium uppercase tracking-wider text-muted">
         {title}
       </h3>
       <div className="grid gap-3 md:grid-cols-2">
@@ -96,20 +96,20 @@ function SkillGroup({
             <div className="flex items-start justify-between gap-2">
               <Link
                 href={`/skills/${skill.id}`}
-                className="text-[14px] font-medium text-ink hover:underline"
+                className="text-base font-medium text-ink hover:underline"
               >
                 {skill.name}
               </Link>
               {skill.isStarter ? (
-                <span className="rounded-full border border-hairline px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+                <span className="rounded-full border border-hairline px-2 py-0.5 text-2xs uppercase tracking-wider text-muted">
                   Starter
                 </span>
               ) : null}
             </div>
             {skill.description ? (
-              <p className="text-[12px] text-muted">{skill.description}</p>
+              <p className="text-xs text-muted">{skill.description}</p>
             ) : null}
-            <p className="text-[11px] text-muted">
+            <p className="text-2xs text-muted">
               {skill.modelId}
               {skill.mcpProviders.length > 0
                 ? ` · tools: ${skill.mcpProviders.join(", ")}`

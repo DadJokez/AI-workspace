@@ -38,11 +38,11 @@ export function EditAppButton({ appId }: { appId: string }) {
         type="button"
         disabled={busy}
         onClick={handleEdit}
-        className="rounded-md border border-hairline px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
+        className="rounded-md border border-hairline px-3 py-1.5 text-sm font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
       >
         {busy ? "Opening..." : "Edit with Comparative"}
       </button>
-      {notice ? <p className="text-[12px] text-muted">{notice}</p> : null}
+      {notice ? <p className="text-xs text-muted">{notice}</p> : null}
     </div>
   );
 }

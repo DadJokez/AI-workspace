@@ -73,16 +73,16 @@ export default async function SkillDetailPage({
   return (
     <section className="px-6 py-6">
       <div className="pb-4">
-        <Link href="/skills" className="text-[12px] text-muted hover:text-ink">
+        <Link href="/skills" className="text-xs text-muted hover:text-ink">
           ← Back to catalog
         </Link>
         <div className="mt-2 flex items-start justify-between gap-4">
           <div>
             <h2 className="text-base font-semibold text-ink">{skill.name}</h2>
-            <p className="mt-1 text-[12px] text-muted">
+            <p className="mt-1 text-xs text-muted">
               {skill.description ?? "No description."}
             </p>
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               {skill.modelId}
               {skill.mcpProviders.length > 0
                 ? ` · tools: ${skill.mcpProviders.join(", ")}`
@@ -95,7 +95,7 @@ export default async function SkillDetailPage({
             <div className="flex items-center gap-3">
               <a
                 href={`/api/skills/${skill.id}/export`}
-                className="text-[12px] text-muted hover:text-ink"
+                className="text-xs text-muted hover:text-ink"
                 title="Download as a portable SKILL.md"
               >
                 Export
@@ -108,7 +108,7 @@ export default async function SkillDetailPage({
 
       {isOwner && !skill.archivedAt ? (
         <div className="border-t border-hairline pt-5">
-          <h3 className="pb-3 text-[12px] font-medium uppercase tracking-wider text-muted">
+          <h3 className="pb-3 text-xs font-medium uppercase tracking-wider text-muted">
             Edit
           </h3>
           <SkillForm
@@ -127,13 +127,13 @@ export default async function SkillDetailPage({
         </div>
       ) : (
         <div className="border-t border-hairline pt-5">
-          <h3 className="pb-2 text-[12px] font-medium uppercase tracking-wider text-muted">
+          <h3 className="pb-2 text-xs font-medium uppercase tracking-wider text-muted">
             Instructions
           </h3>
-          <pre className="whitespace-pre-wrap rounded-lg border border-hairline p-4 text-[12px] text-ink">
+          <pre className="whitespace-pre-wrap rounded-lg border border-hairline p-4 text-xs text-ink">
             {skill.systemPrompt}
           </pre>
-          <p className="mt-2 text-[12px] text-muted">
+          <p className="mt-2 text-xs text-muted">
             Clone this skill to make your own editable copy.
           </p>
         </div>
@@ -141,7 +141,7 @@ export default async function SkillDetailPage({
 
       {!skill.archivedAt ? (
         <div className="mt-6 border-t border-hairline pt-5">
-          <h3 className="pb-2 text-[12px] font-medium uppercase tracking-wider text-muted">
+          <h3 className="pb-2 text-xs font-medium uppercase tracking-wider text-muted">
             Schedule
           </h3>
           <SchedulePanel
@@ -162,7 +162,7 @@ export default async function SkillDetailPage({
 
       {!skill.archivedAt ? (
         <div className="mt-6 border-t border-hairline pt-5">
-          <h3 className="pb-2 text-[12px] font-medium uppercase tracking-wider text-muted">
+          <h3 className="pb-2 text-xs font-medium uppercase tracking-wider text-muted">
             GitHub triggers
           </h3>
           <EventTriggerPanel
@@ -186,7 +186,7 @@ export default async function SkillDetailPage({
 
       {isOwner && !skill.archivedAt ? (
         <div className="mt-6 border-t border-hairline pt-5">
-          <h3 className="pb-2 text-[12px] font-medium uppercase tracking-wider text-muted">
+          <h3 className="pb-2 text-xs font-medium uppercase tracking-wider text-muted">
             Sharing
           </h3>
           <SharePanel
@@ -202,17 +202,17 @@ export default async function SkillDetailPage({
       ) : null}
 
       <div className="mt-6 border-t border-hairline pt-5">
-        <h3 className="pb-2 text-[12px] font-medium uppercase tracking-wider text-muted">
+        <h3 className="pb-2 text-xs font-medium uppercase tracking-wider text-muted">
           Recent runs
         </h3>
         {history.length === 0 ? (
-          <p className="text-[12px] text-muted">No runs yet.</p>
+          <p className="text-xs text-muted">No runs yet.</p>
         ) : (
           <ul className="flex flex-col gap-1">
             {history.map((run) => (
               <li
                 key={run.id}
-                className="flex items-center justify-between rounded-md border border-hairline px-3 py-2 text-[12px]"
+                className="flex items-center justify-between rounded-md border border-hairline px-3 py-2 text-xs"
               >
                 <span className="text-ink">
                   {run.status}

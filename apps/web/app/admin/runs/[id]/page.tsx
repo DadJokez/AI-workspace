@@ -154,7 +154,7 @@ export default async function AdminRunDetailPage({ params }: Props) {
   return (
     <section className="py-2">
       <div className="px-6 pb-3 pt-4">
-        <div className="flex flex-wrap items-center gap-2 text-[12px] text-muted">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
           <Link href="/admin/runs" className="hover:text-ink">
             Runs
           </Link>
@@ -178,12 +178,12 @@ export default async function AdminRunDetailPage({ params }: Props) {
           ) : null}
           <Link
             href={`/chat?inspectRun=${run.id}`}
-            className="inline-flex h-8 items-center rounded-md border border-hairline bg-canvas px-2.5 text-[12px] font-medium text-ink hover:bg-subtle"
+            className="inline-flex h-8 items-center rounded-md border border-hairline bg-canvas px-2.5 text-xs font-medium text-ink hover:bg-subtle"
           >
             Open inspector
           </Link>
         </div>
-        <p className="mt-1 text-[12px] text-muted">
+        <p className="mt-1 text-xs text-muted">
           Stored workflow output, tool activity, and audit trail for this run.
         </p>
       </div>
@@ -212,15 +212,15 @@ export default async function AdminRunDetailPage({ params }: Props) {
         <div className="min-w-0 space-y-6">
           {run.error ? (
             <section>
-              <h3 className="mb-2 text-[13px] font-semibold text-ink">Error</h3>
-              <div className="whitespace-pre-wrap rounded-md border border-danger/20 bg-danger-bg px-3 py-2 font-mono text-[12px] text-danger [overflow-wrap:anywhere]">
+              <h3 className="mb-2 text-sm font-semibold text-ink">Error</h3>
+              <div className="whitespace-pre-wrap rounded-md border border-danger/20 bg-danger-bg px-3 py-2 font-mono text-xs text-danger [overflow-wrap:anywhere]">
                 {run.error}
               </div>
             </section>
           ) : null}
 
           <section>
-            <h3 className="mb-2 text-[13px] font-semibold text-ink">
+            <h3 className="mb-2 text-sm font-semibold text-ink">
               {primaryOutputLabel}
             </h3>
             {primaryOutput ? (
@@ -237,24 +237,24 @@ export default async function AdminRunDetailPage({ params }: Props) {
                 />
               </div>
             ) : (
-              <div className="rounded-md border border-hairline px-4 py-6 text-center text-[12px] text-muted">
+              <div className="rounded-md border border-hairline px-4 py-6 text-center text-xs text-muted">
                 No assistant output was stored for this run.
               </div>
             )}
           </section>
 
           <section>
-            <h3 className="mb-2 text-[13px] font-semibold text-ink">
+            <h3 className="mb-2 text-sm font-semibold text-ink">
               Activity
             </h3>
             {runEventRows.length === 0 ? (
-              <div className="rounded-md border border-hairline px-4 py-6 text-center text-[12px] text-muted">
+              <div className="rounded-md border border-hairline px-4 py-6 text-center text-xs text-muted">
                 No run activity events are stored yet.
               </div>
             ) : (
               <div className="divide-y divide-hairline rounded-md border border-hairline bg-surface">
                 {runEventRows.map((event) => (
-                  <div key={event.id} className="px-3 py-2 text-[12px]">
+                  <div key={event.id} className="px-3 py-2 text-xs">
                     <div className="flex min-w-0 items-center gap-2">
                       <StatusDot status={event.status} />
                       <span className="font-medium text-ink">
@@ -264,13 +264,13 @@ export default async function AdminRunDetailPage({ params }: Props) {
                         {formatDateTime(event.occurredAt)}
                       </span>
                     </div>
-                    <div className="mt-1 font-mono text-[11px] text-muted">
+                    <div className="mt-1 font-mono text-2xs text-muted">
                       {[event.eventType, event.provider, event.toolName]
                         .filter(Boolean)
                         .join(" / ")}
                     </div>
                     {event.error ? (
-                      <div className="mt-1 line-clamp-3 font-mono text-[11px] text-danger">
+                      <div className="mt-1 line-clamp-3 font-mono text-2xs text-danger">
                         {event.error}
                       </div>
                     ) : null}
@@ -281,14 +281,14 @@ export default async function AdminRunDetailPage({ params }: Props) {
           </section>
 
           <section>
-            <h3 className="mb-2 text-[13px] font-semibold text-ink">
+            <h3 className="mb-2 text-sm font-semibold text-ink">
               Stored Tool Data
             </h3>
-            <details className="rounded-md border border-hairline bg-surface px-3 py-2 text-[12px] text-muted">
+            <details className="rounded-md border border-hairline bg-surface px-3 py-2 text-xs text-muted">
               <summary className="cursor-pointer list-none marker:hidden">
                 Redacted calls and results
               </summary>
-              <pre className="mt-2 max-h-[28rem] overflow-auto border-t border-hairline pt-2 font-mono text-[11px] leading-relaxed text-ink [overflow-wrap:anywhere]">
+              <pre className="mt-2 max-h-[28rem] overflow-auto border-t border-hairline pt-2 font-mono text-2xs leading-relaxed text-ink [overflow-wrap:anywhere]">
                 {JSON.stringify({ toolCalls, toolResults }, null, 2)}
               </pre>
             </details>
@@ -297,8 +297,8 @@ export default async function AdminRunDetailPage({ params }: Props) {
 
         <aside className="space-y-6">
           <section>
-            <h3 className="mb-2 text-[13px] font-semibold text-ink">Run</h3>
-            <dl className="divide-y divide-hairline rounded-md border border-hairline text-[12px]">
+            <h3 className="mb-2 text-sm font-semibold text-ink">Run</h3>
+            <dl className="divide-y divide-hairline rounded-md border border-hairline text-xs">
               <DetailRow
                 label="User"
                 value={run.actorName ?? run.actorEmail ?? "Unknown"}
@@ -364,10 +364,10 @@ export default async function AdminRunDetailPage({ params }: Props) {
           </section>
 
           <section>
-            <h3 className="mb-2 text-[13px] font-semibold text-ink">
+            <h3 className="mb-2 text-sm font-semibold text-ink">
               Timing
             </h3>
-            <dl className="divide-y divide-hairline rounded-md border border-hairline text-[12px]">
+            <dl className="divide-y divide-hairline rounded-md border border-hairline text-xs">
               <DetailRow
                 label="1st token"
                 value={formatNullableMs(output.metrics?.requestToFirstTokenMs)}
@@ -388,14 +388,14 @@ export default async function AdminRunDetailPage({ params }: Props) {
           </section>
 
           <section>
-            <h3 className="mb-2 text-[13px] font-semibold text-ink">Prompt</h3>
-            <div className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-hairline bg-surface px-3 py-2 text-[12px] text-muted [overflow-wrap:anywhere]">
+            <h3 className="mb-2 text-sm font-semibold text-ink">Prompt</h3>
+            <div className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-hairline bg-surface px-3 py-2 text-xs text-muted [overflow-wrap:anywhere]">
               {prompt ?? "No input prompt was stored."}
             </div>
           </section>
 
           <section>
-            <h3 className="mb-2 text-[13px] font-semibold text-ink">
+            <h3 className="mb-2 text-sm font-semibold text-ink">
               Context Debug
             </h3>
             <DebugJsonBlock
@@ -405,7 +405,7 @@ export default async function AdminRunDetailPage({ params }: Props) {
           </section>
 
           <section>
-            <h3 className="mb-2 text-[13px] font-semibold text-ink">
+            <h3 className="mb-2 text-sm font-semibold text-ink">
               Recommendations
             </h3>
             <DebugJsonBlock
@@ -419,18 +419,18 @@ export default async function AdminRunDetailPage({ params }: Props) {
           </section>
 
           <section>
-            <h3 className="mb-2 text-[13px] font-semibold text-ink">
+            <h3 className="mb-2 text-sm font-semibold text-ink">
               Audit Events
             </h3>
             <div className="rounded-md border border-hairline">
               {auditRows.length === 0 ? (
-                <div className="px-3 py-6 text-center text-[12px] text-muted">
+                <div className="px-3 py-6 text-center text-xs text-muted">
                   No audit events are linked to this run.
                 </div>
               ) : (
                 <div className="divide-y divide-hairline">
                   {auditRows.map((row) => (
-                    <div key={row.id} className="px-3 py-2 text-[12px]">
+                    <div key={row.id} className="px-3 py-2 text-xs">
                       <div className="flex items-center gap-2">
                         <StatusDot status={row.status} />
                         <span className="font-medium text-ink">
@@ -440,14 +440,14 @@ export default async function AdminRunDetailPage({ params }: Props) {
                           {formatDateTime(row.createdAt)}
                         </span>
                       </div>
-                      <div className="mt-1 font-mono text-[11px] text-muted">
+                      <div className="mt-1 font-mono text-2xs text-muted">
                         {[row.provider, row.toolName]
                           .filter(Boolean)
                           .join(" / ") ||
                           "platform"}
                       </div>
                       {row.error ? (
-                        <div className="mt-1 line-clamp-3 font-mono text-[11px] text-danger">
+                        <div className="mt-1 line-clamp-3 font-mono text-2xs text-danger">
                           {row.error}
                         </div>
                       ) : null}
@@ -623,7 +623,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-hairline bg-surface px-3 py-2">
-      <div className="text-[11px] uppercase tracking-wider text-muted">
+      <div className="text-2xs uppercase tracking-wider text-muted">
         {label}
       </div>
       <div className="mt-1 truncate text-sm font-semibold text-ink">{value}</div>
@@ -673,17 +673,17 @@ function DebugJsonBlock({
 }) {
   if (value === undefined || value === null) {
     return (
-      <div className="rounded-md border border-hairline px-3 py-4 text-[12px] text-muted">
+      <div className="rounded-md border border-hairline px-3 py-4 text-xs text-muted">
         {emptyLabel}
       </div>
     );
   }
   return (
-    <details className="rounded-md border border-hairline bg-surface px-3 py-2 text-[12px] text-muted">
+    <details className="rounded-md border border-hairline bg-surface px-3 py-2 text-xs text-muted">
       <summary className="cursor-pointer list-none marker:hidden">
         Inspect JSON
       </summary>
-      <pre className="mt-2 max-h-80 overflow-auto border-t border-hairline pt-2 font-mono text-[11px] leading-relaxed text-ink [overflow-wrap:anywhere]">
+      <pre className="mt-2 max-h-80 overflow-auto border-t border-hairline pt-2 font-mono text-2xs leading-relaxed text-ink [overflow-wrap:anywhere]">
         {JSON.stringify(value, null, 2)}
       </pre>
     </details>
@@ -715,7 +715,7 @@ function StatusBadge({ status }: { status: string }) {
           : "bg-subtle text-muted";
   return (
     <span
-      className={`inline-flex rounded px-2 py-0.5 text-[11px] uppercase tracking-wider ${classes}`}
+      className={`inline-flex rounded px-2 py-0.5 text-2xs uppercase tracking-wider ${classes}`}
     >
       {status}
     </span>

@@ -152,26 +152,26 @@ export function ArtifactPreviewPane({
           <span className="mx-auto block h-full w-px bg-hairline transition-colors hover:bg-ink/40" />
         </div>
         <header className="flex min-h-12 shrink-0 items-center gap-2 border-b border-hairline px-3">
-          <span className="flex h-7 min-w-7 items-center justify-center rounded-full border border-hairline bg-accent px-2 font-mono text-[10px] uppercase text-on-accent">
+          <span className="flex h-7 min-w-7 items-center justify-center rounded-full border border-hairline bg-accent px-2 font-mono text-2xs uppercase text-on-accent">
             {activeArtifact.kind.slice(0, 4)}
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-medium text-ink">
               {activeArtifact.title}
             </h2>
-            <p className="truncate text-[11px] text-muted">
+            <p className="truncate text-2xs text-muted">
               {activeArtifact.filename} · {formatBytes(activeArtifact.sizeBytes)}
             </p>
           </div>
           <a
             href={activeArtifact.downloadUrl}
-            className="rounded-md border border-hairline px-2.5 py-1.5 text-[12px] font-medium text-ink hover:bg-subtle"
+            className="rounded-md border border-hairline px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-subtle"
           >
             Download
           </a>
           <a
             href={activeArtifact.previewUrl}
-            className="hidden rounded-md border border-hairline px-2.5 py-1.5 text-[12px] font-medium text-ink hover:bg-subtle sm:inline"
+            className="hidden rounded-md border border-hairline px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-subtle sm:inline"
           >
             Full page
           </a>
@@ -187,11 +187,11 @@ export function ArtifactPreviewPane({
 
         <div className="min-h-0 flex-1 overflow-auto bg-canvas">
           {loading ? (
-            <div className="flex h-full items-center justify-center text-[13px] text-muted">
+            <div className="flex h-full items-center justify-center text-sm text-muted">
               Loading preview...
             </div>
           ) : error ? (
-            <div className="m-4 rounded-md border border-danger/25 bg-danger-bg px-3 py-2 text-[13px] text-danger">
+            <div className="m-4 rounded-md border border-danger/25 bg-danger-bg px-3 py-2 text-sm text-danger">
               {error}
             </div>
           ) : previewKind === "image" && detail ? (
@@ -211,13 +211,13 @@ export function ArtifactPreviewPane({
               className="h-full min-h-[720px] w-full border-0 bg-white"
             />
           ) : previewKind === "markdown" ? (
-            <div className="prose prose-invert max-w-none px-4 py-4 text-[14px] leading-relaxed text-ink prose-headings:text-ink prose-a:text-ink">
+            <div className="prose prose-invert max-w-none px-4 py-4 text-base leading-relaxed text-ink prose-headings:text-ink prose-a:text-ink">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {content}
               </ReactMarkdown>
             </div>
           ) : (
-            <pre className="min-h-full whitespace-pre-wrap px-4 py-4 font-mono text-[12px] leading-relaxed text-ink [overflow-wrap:anywhere]">
+            <pre className="min-h-full whitespace-pre-wrap px-4 py-4 font-mono text-xs leading-relaxed text-ink [overflow-wrap:anywhere]">
               {content}
             </pre>
           )}
