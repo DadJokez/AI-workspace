@@ -48,11 +48,12 @@ async function main() {
   await db
     .delete(rateLimitBuckets)
     .where(eq(rateLimitBuckets.bucketKey, `invite-email:${smokeUserId}`));
-  // Magic-link request buckets from previous smoke runs (keyed email:ip) —
-  // without this, repeated local runs inside one window trip the limiter.
+  // Magic-link request buckets from previous smoke runs (the per-email cap
+  // and the email:ip dimension) — without this, repeated local runs inside
+  // one window trip the limiter.
   await db
     .delete(rateLimitBuckets)
-    .where(like(rateLimitBuckets.bucketKey, "magic-link:%"));
+    .where(like(rateLimitBuckets.bucketKey, "magic-link%"));
   await db
     .delete(shares)
     .where(inArray(shares.subjectId, [...fixtureSkillIds, ...fixtureAppIds]));

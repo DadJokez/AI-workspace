@@ -38,6 +38,9 @@ export async function sendMagicLinkEmail(
         "Magic-link email sending is not configured.",
       );
     }
+    // Safe to log here only because this branch is non-production by
+    // construction (production throws above) and the token is single-use
+    // with a 15-minute expiry.
     console.log(
       `[magic-link] Email provider disabled; sign-in link for ${input.to}: ${input.url}`,
     );

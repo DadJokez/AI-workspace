@@ -81,10 +81,18 @@ export function enabledAuthProviders(): AuthProviderId[] {
 }
 
 /**
- * Rate limit for magic-link requests, keyed by normalized recipient email by
- * the [...nextauth] route wrapper. The unauthenticated endpoint deliberately
- * does not trust forwarding headers for this security boundary: callers can
- * spoof X-Forwarded-For until the deployment has a verified proxy chain.
+ * Rate limit for magic-link requests, enforced by the [...nextauth] route
+ * wrapper across two buckets sharing this config:
+ *
+ *   1. `magic-link-email:<email>` — the REAL cap, keyed on the normalized
+ *      recipient alone. This endpoint is unauthenticated and world-reachable
+ *      (unlike the invite limiter, which keys on an authenticated admin id),
+ *      and callers can spoof X-Forwarded-For, so nothing client-supplied may
+ *      participate in the enforcing key. This is what stops email-bombing an
+ *      invited tester and burning SES quota.
+ *   2. `magic-link:<email>:<ip>` — secondary, best-effort defense-in-depth
+ *      against single-source floods when the forwarding header is honest
+ *      (see magicLinkRateLimitKey). Never the cap.
  */
 export const magicLinkRateLimit = {
   maxRequestBytes: 8 * 1024,
@@ -93,8 +101,25 @@ export const magicLinkRateLimit = {
   maxRequests: 5,
 };
 
-export function magicLinkRateLimitKey(email: string): string {
-  return `magic-link:${email.trim().toLowerCase()}`;
+/** The primary, spoof-proof bucket: normalized recipient email only. */
+export function magicLinkEmailRateLimitKey(email: string): string {
+  return `magic-link-email:${email.trim().toLowerCase()}`;
+}
+
+/**
+ * The secondary email+IP bucket. Uses the RIGHTMOST x-forwarded-for entry —
+ * the hop our own ALB appended — because clients can prepend arbitrary
+ * values, which makes the leftmost entry attacker-controlled. Best-effort
+ * only until the deployment has a trusted client-IP source; the email-only
+ * bucket above is the enforcement that matters.
+ */
+export function magicLinkRateLimitKey(
+  email: string,
+  xForwardedFor: string | null,
+): string {
+  const hops = (xForwardedFor ?? "").split(",");
+  const ip = hops[hops.length - 1]!.trim() || "unknown";
+  return `magic-link:${email.trim().toLowerCase()}:${ip}`;
 }
 
 /**

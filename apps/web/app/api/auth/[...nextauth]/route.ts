@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@ai-workspace/db";
 import {
   authOptions,
+  magicLinkEmailRateLimitKey,
   magicLinkRateLimit,
   magicLinkRateLimitKey,
 } from "@/lib/auth/nextauth";
@@ -16,11 +17,12 @@ const handler = NextAuth(authOptions) as (
 export { handler as GET };
 
 /**
- * POST wrapper: rate-limit magic-link requests per normalized recipient email
- * before next-auth sees them. Everything else passes straight through. The
- * key intentionally excludes client-supplied forwarding headers so rotating
- * a spoofed X-Forwarded-For value cannot bypass the recipient cap. The 429
- * body mimics next-auth's JSON shape
+ * POST wrapper: rate-limit magic-link requests before next-auth sees them.
+ * Two buckets, both consumed per request: the per-email bucket is the
+ * enforcing cap (its key excludes client-supplied forwarding headers, so
+ * rotating a spoofed X-Forwarded-For cannot bypass it); the email+IP bucket
+ * is best-effort defense-in-depth keyed on the ALB-appended hop. Everything
+ * else passes straight through. The 429 body mimics next-auth's JSON shape
  * (`{ url }`) so `signIn("email", { redirect: false })` surfaces it as
  * `error: "RateLimited"` for the login form. The limit runs before any
  * account lookup, so it reveals nothing about whether an address is invited.
@@ -49,11 +51,20 @@ async function magicLinkRateLimited(
   const email = form?.get("email")?.toString().trim().toLowerCase() ?? "";
   if (!email) return null; // next-auth rejects the malformed request itself
 
-  const rate = await checkRateLimit(
-    getDb(),
-    magicLinkRateLimitKey(email),
+  const db = getDb();
+  // Primary cap first: spoof-proof, per recipient.
+  const emailRate = await checkRateLimit(
+    db,
+    magicLinkEmailRateLimitKey(email),
     magicLinkRateLimit,
   );
+  // Secondary best-effort dimension: per recipient + ALB-appended hop.
+  const ipRate = await checkRateLimit(
+    db,
+    magicLinkRateLimitKey(email, req.headers.get("x-forwarded-for")),
+    magicLinkRateLimit,
+  );
+  const rate = !emailRate.allowed ? emailRate : ipRate;
   if (rate.allowed) return null;
 
   const base = (process.env.NEXTAUTH_URL ?? url.origin).replace(/\/+$/, "");
