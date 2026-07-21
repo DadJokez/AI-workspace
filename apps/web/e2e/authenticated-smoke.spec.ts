@@ -454,7 +454,7 @@ test.describe("authenticated product smoke", () => {
     await page.goto("/admin");
     await expect(page.getByRole("heading", { name: "Users" })).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Invitations" }),
+      page.getByRole("heading", { name: "Invitations", exact: true }),
     ).toBeVisible();
 
     await page.getByLabel("Email").fill(email);
