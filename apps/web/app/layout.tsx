@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { CommandPaletteProvider } from "@/components/CommandPalette";
 import { UiSkinSync } from "@/components/UiSkinSync";
 import "./globals.css";
 
@@ -101,7 +102,7 @@ export default function RootLayout({
       <body className="bg-canvas text-ink antialiased">
         <UiSkinSync />
         <AlphaBadge />
-        {children}
+        <CommandPaletteProvider>{children}</CommandPaletteProvider>
         <BuiltByMark />
       </body>
     </html>

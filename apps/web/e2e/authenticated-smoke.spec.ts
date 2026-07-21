@@ -500,6 +500,27 @@ test.describe("authenticated product smoke", () => {
     await expect(row).toContainText("revoked");
     await expect(row.getByRole("button", { name: "Resend" })).toBeDisabled();
   });
+
+  test("opens the global command palette across protected surfaces", async ({
+    page,
+  }) => {
+    for (const path of ["/skills", "/apps", "/admin"]) {
+      await page.goto(path);
+      await expect(page).toHaveURL(new RegExp(`${path.replace("/", "\\/")}$`));
+      await page.keyboard.press("Control+K");
+      const palette = page.getByRole("dialog", { name: "Command palette" });
+      await expect(palette).toBeVisible();
+      await expect(palette.getByRole("combobox")).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(palette).toHaveCount(0);
+    }
+
+    await page.keyboard.press("Control+K");
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await palette.getByRole("combobox").fill("Usage");
+    await palette.getByRole("option", { name: /Usage/ }).click();
+    await expect(page).toHaveURL(/\/admin\/usage$/);
+  });
 });
 
 test.describe("magic-link sign-in request (logged out)", () => {

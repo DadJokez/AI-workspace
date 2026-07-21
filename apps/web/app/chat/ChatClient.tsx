@@ -28,7 +28,10 @@ import {
 import { MessageBubble } from "@/components/MessageBubble";
 import { ThinkingOrb } from "@/components/ThinkingOrb";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
-import { SearchPanel } from "@/components/SearchPanel";
+import {
+  useCommandPalette,
+  useRegisterCommandPaletteActions,
+} from "@/components/CommandPalette";
 import {
   SettingsModal,
   type SettingsSection,
@@ -63,12 +66,11 @@ import type {
   RecommendationStatus,
 } from "@/lib/recommendations";
 import { signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 // Model ids come from the AWS-backed model registry exposed by /api/models.
 const FALLBACK_DEFAULT_MODEL_ID = "sonnet-4-6";
-
-type View = "chat" | "search";
 
 type RightPane =
   | { kind: "workspace" }
@@ -479,9 +481,12 @@ const STICK_BOTTOM_THRESHOLD = 100;
 
 interface ChatClientProps {
   initialThreadId?: string;
+  initialOpen?: "settings" | "artifacts";
 }
 
-export function ChatClient({ initialThreadId }: ChatClientProps) {
+export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
+  const router = useRouter();
+  const { openPalette } = useCommandPalette();
   const [models, setModels] = useState<ModelOption[]>([]);
   const [defaultModelId, setDefaultModelId] =
     useState<string>(FALLBACK_DEFAULT_MODEL_ID);
@@ -496,14 +501,17 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
   const [threadsError, setThreadsError] = useState<string | undefined>();
 
   const [bootstrapped, setBootstrapped] = useState(false);
-  const [view, setView] = useState<View>("chat");
   const [settingsSection, setSettingsSection] =
-    useState<SettingsSection | null>(null);
+    useState<SettingsSection | null>(() =>
+      initialOpen === "settings" ? "profile" : null,
+    );
   const [userDefaultModelId, setUserDefaultModelId] = useState<
     string | undefined
   >();
   const [runActionPendingId, setRunActionPendingId] = useState<string>();
-  const [rightPane, setRightPane] = useState<RightPane | null>(null);
+  const [rightPane, setRightPane] = useState<RightPane | null>(() =>
+    initialOpen === "artifacts" ? { kind: "workspace" } : null,
+  );
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [oauthConnected, setOauthConnected] = useState<Record<string, boolean>>({});
@@ -548,7 +556,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     const runId = new URLSearchParams(window.location.search).get("inspectRun");
     if (runId && /^[0-9a-f-]{36}$/i.test(runId)) {
       setRightPane({ kind: "inspector", runId });
-      setView("chat");
     }
   }, [user?.role]);
 
@@ -803,8 +810,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
       return;
     }
     initialThreadAppliedRef.current = true;
-    setView("chat");
-
     const thread = threads.find((t) => t.id === initialThreadId);
     const validIds = new Set(models.map((m) => m.id));
     const modelId = validatestring(
@@ -1190,7 +1195,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     const t = makeFreshTab(freshTabModel());
     setTabs([t]);
     setActiveId(t.id);
-    setView("chat");
     setRightPane(null);
   }
 
@@ -1199,7 +1203,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     title: string,
     initialMessages: UiMessage[] = [],
   ) {
-    setView("chat");
     setRightPane(null);
     const existing = activeTab?.threadId === threadId ? activeTab : undefined;
     if (existing) {
@@ -1278,32 +1281,24 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
 
   function handleNavSelect(id: string) {
     if (id === "chat") {
-      setView("chat");
       setRightPane(null);
     } else if (id === "settings") {
       setSettingsSection("profile");
       setRightPane(null);
-    } else if (id === "search") {
-      setView("search");
-      setRightPane(null);
     } else if (id === "workspace") {
-      setView("chat");
       setRightPane({ kind: "workspace" });
     } else if (id === "feedback") {
       setFeedbackOpen(true);
     } else if (id === "admin") {
-      // Admin lives at its own route, not as a chat-level view.
-      window.location.assign("/admin");
+      router.push("/admin");
     }
   }
 
   function openArtifactPreview(artifact: WorkspaceArtifactSummary) {
-    setView("chat");
     setRightPane({ kind: "artifact", artifact });
   }
 
   function openRunInspector(runId: string) {
-    setView("chat");
     setRightPane({ kind: "inspector", runId });
   }
 
@@ -2020,10 +2015,28 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
     }
   }
 
+  useRegisterCommandPaletteActions({
+    newChat: () => {
+      setSettingsSection(null);
+      newTab();
+    },
+    openArtifacts: () => {
+      setSettingsSection(null);
+      setRightPane({ kind: "workspace" });
+    },
+    openSettings: () => {
+      setSettingsSection("profile");
+      setRightPane(null);
+    },
+    openThread: (threadId, title) => {
+      setSettingsSection(null);
+      openThread(threadId, title);
+    },
+  });
+
   if (!activeTab) return null;
   const { busy, error, messages } = activeTab;
   const inputDisabled = busy || activeHasPendingRun || models.length === 0;
-  const isChatView = view === "chat";
   const lastAssistantMessage = [...messages]
     .reverse()
     .find((message) => message.role === "assistant");
@@ -2054,16 +2067,15 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onNewChat={newTab}
+        onSearch={openPalette}
         threads={threads}
         threadsLoading={threadsLoading}
         threadsError={threadsError}
         activeThreadId={
-          isChatView && rightPane?.kind !== "workspace"
-            ? activeTab.threadId
-            : undefined
+          rightPane?.kind !== "workspace" ? activeTab.threadId : undefined
         }
         onOpenThread={openThread}
-        activeNavId={rightPane?.kind === "workspace" ? "workspace" : view}
+        activeNavId={rightPane?.kind === "workspace" ? "workspace" : "chat"}
         onNavSelect={handleNavSelect}
         isAdmin={user?.role === "admin"}
         onSignOut={() => signOut({ callbackUrl: "/login" })}
@@ -2076,17 +2088,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
           data-testid="chat-workspace-pane"
           className="flex h-full min-w-0 flex-1 flex-col"
         >
-          {view === "search" ? (
-            <SearchPanel
-              threads={threads}
-              threadsLoading={threadsLoading}
-              onOpenThread={openThread}
-              onClose={() => setView("chat")}
-              onOpenSidebar={() => setSidebarOpen(true)}
-            />
-          ) : (
-            <>
-              <header className="flex h-11 shrink-0 items-center justify-between border-b border-hairline bg-canvas">
+          <header className="flex h-11 shrink-0 items-center justify-between border-b border-hairline bg-canvas">
                 <button
                   type="button"
                   onClick={() => setSidebarOpen(true)}
@@ -2214,7 +2216,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                   ) : null}
                   <ThemeToggle />
                 </div>
-              </header>
+          </header>
 
         <div
           ref={scrollRef}
@@ -2385,8 +2387,6 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             />
           </div>
         </div>
-            </>
-          )}
         </section>
 
         {rightPane?.kind === "inspector" && user?.role === "admin" ? (

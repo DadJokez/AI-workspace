@@ -1,6 +1,6 @@
 import { AuthConfigError } from "@ai-workspace/auth";
 import { chatThreads, getDb } from "@ai-workspace/db";
-import { and, desc } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
@@ -14,7 +14,8 @@ const MAX_LIMIT = 50;
  * GET /api/threads?limit=8 — list threads, most recently updated first.
  *
  * `role = 'user'`  → caller's threads only.
- * `role = 'admin'` → all threads across the workspace (for the admin UI).
+ * `role = 'admin'` → all threads across the workspace (for the admin UI),
+ * unless `scope=mine` is requested by a personal navigation surface.
  */
 export async function GET(req: Request) {
   let sessionUser;
@@ -40,6 +41,10 @@ export async function GET(req: Request) {
     Number.isFinite(parsed) && parsed > 0
       ? Math.min(parsed, MAX_LIMIT)
       : DEFAULT_LIMIT;
+  const scope =
+    url.searchParams.get("scope") === "mine"
+      ? eq(chatThreads.userId, sessionUser.id)
+      : userScope(sessionUser, chatThreads.userId);
 
   const db = getDb();
 
@@ -56,7 +61,7 @@ export async function GET(req: Request) {
       userId: chatThreads.userId,
     })
     .from(chatThreads)
-    .where(and(userScope(sessionUser, chatThreads.userId)))
+    .where(and(scope))
     .orderBy(desc(chatThreads.updatedAt))
     .limit(limit);
 

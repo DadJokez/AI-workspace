@@ -9,6 +9,7 @@ interface MockChatOptions {
   artifactDetails?: Record<string, unknown>;
   runTraces?: Record<string, unknown>;
   skills?: unknown[];
+  apps?: unknown[];
   user?: Record<string, unknown>;
   oauthStatus?: Record<string, unknown>;
   notifications?: MockNotification[];
@@ -189,6 +190,7 @@ export async function installMockComparativeApi(
     ...(options.artifactDetails ?? {}),
   };
   const skills = options.skills ?? [defaultSkill];
+  const apps = options.apps ?? [];
   const threads = options.threads ?? [];
   const threadMessages = options.threadMessages ?? {};
   const oauthStatus = options.oauthStatus ?? { github: false };
@@ -269,6 +271,10 @@ export async function installMockComparativeApi(
         }
         return json(route, { user });
       }
+      return json(route, { user });
+    }
+
+    if (path === "/api/me") {
       return json(route, { user });
     }
 
@@ -473,7 +479,7 @@ export async function installMockComparativeApi(
           },
         });
       }
-      return json(route, { apps: [] });
+      return json(route, { apps });
     }
 
     const appDeployMatch = /^\/api\/apps\/([^/]+)\/deploy$/.exec(path);
