@@ -110,7 +110,7 @@ describe("umber foundation (packages/umber)", () => {
     expect(globals).not.toMatch(/--color-[\w-]+:\s*[\d ]+;/);
     expect(globals).toContain("--color-success: var(--forest-500);");
     expect(globals).toContain("--color-warning: var(--tan-800);");
-    expect(globals).toContain("--color-info: var(--forest-200);");
+    expect(globals).toContain("--color-info: var(--neutral-300);");
     expect(tailwind).toContain(
       "rgb(from var(--color-${name}) r g b / <alpha-value>)",
     );
@@ -147,9 +147,17 @@ describe("umber foundation (packages/umber)", () => {
 
     const ratios = { light: measured(light), dark: measured(dark) };
     expect(ratios).toEqual({
-      light: { danger: 4.55, success: 8.15, warning: 7.24, info: 8.14 },
-      dark: { danger: 4.95, success: 5.78, warning: 6.71, info: 7.28 },
+      light: { danger: 4.55, success: 8.15, warning: 7.24, info: 8.98 },
+      dark: { danger: 4.95, success: 5.78, warning: 6.71, info: 6.02 },
     });
+    for (const theme of [light, dark]) {
+      expect(resolveHex(theme, "--color-info")).not.toBe(
+        resolveHex(theme, "--color-success"),
+      );
+      expect(resolveHex(theme, "--color-info-bg")).not.toBe(
+        resolveHex(theme, "--color-success-bg"),
+      );
+    }
     for (const theme of Object.values(ratios)) {
       for (const ratio of Object.values(theme)) {
         expect(ratio).toBeGreaterThanOrEqual(4.5);

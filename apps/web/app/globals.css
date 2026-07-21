@@ -31,8 +31,8 @@
   --color-success-bg: var(--success-bg);
   --color-warning: var(--tan-800);
   --color-warning-bg: var(--warning-bg);
-  --color-info: var(--forest-500);
-  --color-info-bg: var(--forest-100);
+  --color-info: var(--neutral-700);
+  --color-info-bg: var(--neutral-150);
 }
 
 [data-theme="dark"] {
@@ -40,8 +40,8 @@
   --color-danger: var(--danger);
   --color-success: var(--success);
   --color-warning: var(--warning);
-  --color-info: var(--forest-200);
-  --color-info-bg: var(--surface-active);
+  --color-info: var(--neutral-300);
+  --color-info-bg: var(--neutral-700);
 }
 
 html,
