@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   mergeLoadedMessages,
   nextPreviewArtifactAfterPersisted,
-} from "@/app/chat/ChatClient";
+} from "@/app/chat/chat-client-state";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 
 function artifact(
