@@ -1,7 +1,43 @@
 import type { Metadata, Viewport } from "next";
+import localFont from "next/font/local";
 import { CommandPaletteProvider } from "@/components/CommandPalette";
 import { UiSkinSync } from "@/components/UiSkinSync";
 import "./globals.css";
+
+const geist = localFont({
+  src: "./fonts/Geist-Variable.woff2",
+  display: "swap",
+  style: "normal",
+  weight: "100 900",
+  variable: "--font-geist-local",
+});
+
+const geistMono = localFont({
+  src: "./fonts/GeistMono-Variable.woff2",
+  display: "swap",
+  style: "normal",
+  weight: "100 900",
+  variable: "--font-geist-mono-local",
+});
+
+const newsreader = localFont({
+  src: [
+    {
+      path: "./fonts/Newsreader-Regular.woff2",
+      style: "normal",
+      weight: "400",
+    },
+    {
+      path: "./fonts/Newsreader-Italic.woff2",
+      style: "italic",
+      weight: "400",
+    },
+  ],
+  display: "swap",
+  variable: "--font-newsreader-local",
+});
+
+const localFontVariables = `${geist.variable} ${geistMono.variable} ${newsreader.variable}`;
 
 export const metadata: Metadata = {
   title: "Comparative",
@@ -88,7 +124,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      className={localFontVariables}
+      suppressHydrationWarning
+    >
       <head>
         {/* Comparative ships a real native dark mode (and the Umber skin).
             Dark Reader's forced repaint sits on top of the app's theme

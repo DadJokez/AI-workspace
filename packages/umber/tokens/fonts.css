@@ -6,9 +6,8 @@
    Utility mono    : Geist Mono        (data, code, micro-labels)
 
    NOTE: The remote Google Fonts @import was removed 2026-07-17 so
-   enterprise consumers (Comparative) ship zero third-party
-   egress; the token stacks in typography.css fall back to system
-   fonts until binaries land. To restore the brand fonts, drop
-   woff2 binaries into assets/fonts/ and add local @font-face
-   rules here. See readme.md → "Font hosting".
+   enterprise consumers ship zero third-party egress. Each host
+   application is responsible for mounting local font files and
+   overriding the family variables from typography.css. Comparative
+   does this with next/font/local in its root layout.
    ============================================================ */
