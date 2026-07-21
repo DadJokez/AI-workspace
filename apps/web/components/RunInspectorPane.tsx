@@ -375,7 +375,7 @@ function TimelineTab({
           onChange={(event) =>
             onFilterChange(event.target.value as TimelineFilter)
           }
-          className="h-8 rounded-md border border-hairline bg-canvas px-2 text-[11px] text-ink outline-none"
+          className="h-8 rounded-md border border-hairline bg-canvas px-2 text-[11px] text-ink"
         >
           <option value="all">All events</option>
           <option value="provider">Provider</option>

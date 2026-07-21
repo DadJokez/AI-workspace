@@ -131,6 +131,17 @@ body {
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
+/* The shared token focus treatment is a product-wide invariant. Keep it
+ * unlayered so component utilities cannot accidentally erase keyboard focus
+ * visibility in either skin. */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  box-shadow: var(--shadow-focus);
+}
+
 /* Pad the bottom of the chat input rail so it sits above the iPhone home
  * indicator on devices that report a non-zero safe-area-inset-bottom.
  * Requires `viewport-fit=cover` on the viewport meta to expose the inset.

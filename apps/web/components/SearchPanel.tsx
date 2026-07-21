@@ -102,7 +102,7 @@ export function SearchPanel({
             // iOS Safari (and Comet, which inherits the WebKit zoom rule) zoom
             // the page on focus.
             style={{ fontSize: "16px" }}
-            className="flex-1 bg-transparent py-2 text-base text-ink outline-none placeholder:text-muted"
+            className="flex-1 bg-transparent py-2 text-base text-ink placeholder:text-muted"
           />
         </div>
         <button

@@ -428,7 +428,7 @@ export function Sidebar({
                                     onBlur={() => void commitRename(t.id)}
                                     disabled={renameSaving}
                                     aria-label="Rename thread"
-                                    className="min-w-0 flex-1 rounded border border-hairline bg-canvas px-1.5 py-1 text-[13px] text-ink outline-none focus:border-ink/30"
+                                    className="min-w-0 flex-1 rounded border border-hairline bg-canvas px-1.5 py-1 text-[13px] text-ink focus-visible:border-ink/30"
                                   />
                                 </div>
                               ) : (
