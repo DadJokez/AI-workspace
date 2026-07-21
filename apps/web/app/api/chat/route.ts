@@ -1,4 +1,4 @@
-import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
+import { DEFAULT_MODEL_ID, normalizeUserTimeZone } from "@ai-workspace/agent";
 import { AuthConfigError } from "@ai-workspace/auth";
 import {
   auditLog,
@@ -67,6 +67,8 @@ interface ChatRequestBody {
   attachments?: ChatAttachment[];
   attachmentCount?: number;
   replaceMessageId?: string;
+  /** Browser-reported IANA timezone (#432); validated server-side. */
+  timeZone?: string;
 }
 
 /**
@@ -189,6 +191,10 @@ export async function POST(req: Request) {
   const executionMode = parseChatExecutionMode(body.executionMode);
   const runtimeV2 = runtimeV2EnabledFromEnv();
   const routingMode = chatRoutingModeFromEnv();
+  // #432: the browser's timezone grounds "today"/"tomorrow" for interactive
+  // turns. Anything that is not a real IANA zone is treated as absent — an
+  // arbitrary request string must never reach the prompt.
+  const userTimeZone = normalizeUserTimeZone(body.timeZone);
 
   const db = getDb();
   const rate = await checkRateLimit(db, `chat:${sessionUser.id}`, limits);
@@ -611,6 +617,9 @@ export async function POST(req: Request) {
         runtimeRoute,
         uploadedFiles,
         routeReceipt,
+        // #432: preserved so a queued or retried execution of this turn uses
+        // the same clock context the user sent it with.
+        ...(userTimeZone ? { userTimeZone } : {}),
         ...(replaceMessageId ? { replaceMessageId } : {}),
         ...(activatedSkill
           ? {
@@ -768,6 +777,7 @@ export async function POST(req: Request) {
           route: runtimeRoute,
           requestStartedAt,
           uploadedFiles,
+          userTimeZone,
           activatedSkills: activatedSkill
             ? [
                 {

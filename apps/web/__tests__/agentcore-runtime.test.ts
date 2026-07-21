@@ -118,6 +118,7 @@ describe("AgentCoreRuntime", () => {
       runtime.runTurn({
         ...baseInput,
         requiredToolName: "google__create_event",
+        userTimeZone: "America/New_York",
       }),
     );
     expect(events).toEqual([
@@ -137,6 +138,8 @@ describe("AgentCoreRuntime", () => {
     expect(payload.modelId).toBe("sonnet-4-6");
     expect(payload.userId).toBe("u1");
     expect(payload.requiredToolName).toBe("google__create_event");
+    // #432: the clock context rides the payload into the container.
+    expect(payload.userTimeZone).toBe("America/New_York");
   });
 
   it("yields an error event when the invoke call throws", async () => {

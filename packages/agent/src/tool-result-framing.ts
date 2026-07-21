@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-
 /**
  * #497: data-not-instructions framing for tool output that third parties can
  * influence. First-party channels already frame untrusted bytes (artifacts,
@@ -30,7 +28,10 @@ export function frameUntrustedToolResult(
   toolName: string,
   text: string,
 ): string {
-  const nonce = randomUUID();
+  // Web Crypto global (Node ≥19 + browsers) — a `node:crypto` import here
+  // breaks the client bundle because this module is reachable from client
+  // code via the package barrel.
+  const nonce = globalThis.crypto.randomUUID();
   const begin = `<<<TOOL-RESULT ${nonce}>>>`;
   const end = `<<<END-TOOL-RESULT ${nonce}>>>`;
   const content = text

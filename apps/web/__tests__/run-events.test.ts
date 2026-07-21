@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { runEventsToActivityEvents } from "@/lib/run-events";
+import type { Database } from "@ai-workspace/db";
+import {
+  appendRunEventWithNextSequence,
+  appendToolCallRunEvent,
+  runEventsToActivityEvents,
+} from "@/lib/run-events";
 
 describe("runEventsToActivityEvents", () => {
   it("keeps the latest event for each tool call and preserves lifecycle events", () => {
@@ -214,6 +219,160 @@ describe("runEventsToActivityEvents", () => {
     ]);
     expect(events[0]?.detail).toContain("mounted tools: github");
     expect(events[0]?.detail).toContain("workspace_artifacts 1/1");
+  });
+});
+
+/**
+ * #443 — read-max-then-insert can race under dual writers; the
+ * run_events (run_id, sequence) unique index turns the race into a 23505
+ * and the append helpers re-read the max and retry.
+ */
+describe("sequence allocation retry (#443)", () => {
+  function sequenceDb({
+    maxes,
+    insertErrors = [],
+  }: {
+    /** Max sequence returned by each successive read (last value repeats). */
+    maxes: number[];
+    /** Errors thrown by successive inserts before inserts start succeeding. */
+    insertErrors?: unknown[];
+  }) {
+    const inserted: Array<Record<string, unknown>> = [];
+    let reads = 0;
+    let inserts = 0;
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            orderBy: () => ({
+              limit: async () => {
+                const max = maxes[Math.min(reads, maxes.length - 1)]!;
+                reads += 1;
+                return max === 0 ? [] : [{ sequence: max }];
+              },
+            }),
+          }),
+        }),
+      }),
+      insert: () => ({
+        values: async (values: Record<string, unknown>) => {
+          const error = insertErrors[inserts];
+          inserts += 1;
+          if (error !== undefined) throw error;
+          inserted.push(values);
+        },
+      }),
+    } as unknown as Database;
+    return { db, inserted, counts: () => ({ reads, inserts }) };
+  }
+
+  function uniqueViolation(): Error {
+    const err = new Error(
+      'duplicate key value violates unique constraint "run_events_run_sequence_unique_idx"',
+    );
+    (err as Error & { code: string }).code = "23505";
+    return err;
+  }
+
+  const baseInput = {
+    runId: "run-1",
+    eventType: "run_started",
+    label: "Started",
+  };
+
+  it("re-reads the max and retries after a unique violation", async () => {
+    const { db, inserted, counts } = sequenceDb({
+      maxes: [4, 5],
+      insertErrors: [uniqueViolation()],
+    });
+
+    await appendRunEventWithNextSequence({ ...baseInput, db });
+
+    expect(counts()).toEqual({ reads: 2, inserts: 2 });
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]).toMatchObject({ runId: "run-1", sequence: 6 });
+  });
+
+  it("retries a drizzle-wrapped violation found on the cause chain", async () => {
+    const { db, inserted } = sequenceDb({
+      maxes: [0, 1],
+      insertErrors: [new Error("query failed", { cause: uniqueViolation() })],
+    });
+
+    await appendRunEventWithNextSequence({ ...baseInput, db });
+
+    expect(inserted[0]).toMatchObject({ sequence: 2 });
+  });
+
+  it("rethrows non-conflict errors without retrying", async () => {
+    const boom = new Error("connection reset");
+    const { db, counts } = sequenceDb({ maxes: [1], insertErrors: [boom] });
+
+    await expect(
+      appendRunEventWithNextSequence({ ...baseInput, db }),
+    ).rejects.toBe(boom);
+    expect(counts()).toEqual({ reads: 1, inserts: 1 });
+  });
+
+  it("gives up after exhausting its attempts", async () => {
+    const { db, counts } = sequenceDb({
+      maxes: [1],
+      insertErrors: [uniqueViolation(), uniqueViolation(), uniqueViolation()],
+    });
+
+    await expect(
+      appendRunEventWithNextSequence({ ...baseInput, db }),
+    ).rejects.toMatchObject({ code: "23505" });
+    expect(counts()).toEqual({ reads: 3, inserts: 3 });
+  });
+
+  it("allocates with retry when a tool event omits the sequence", async () => {
+    const { db, inserted, counts } = sequenceDb({
+      maxes: [7, 8],
+      insertErrors: [uniqueViolation()],
+    });
+
+    await appendToolCallRunEvent({
+      db,
+      runId: "run-1",
+      call: {
+        id: "tool-1",
+        name: "github__search",
+        provider: "github",
+        toolName: "search",
+        input: { q: "prs" },
+        startedAt: "2026-07-19T00:00:00.000Z",
+      },
+    });
+
+    expect(counts()).toEqual({ reads: 2, inserts: 2 });
+    expect(inserted[0]).toMatchObject({
+      runId: "run-1",
+      sequence: 9,
+      eventType: "tool_call",
+      toolCallId: "tool-1",
+    });
+  });
+
+  it("uses the caller's sequence verbatim when provided", async () => {
+    const { db, inserted, counts } = sequenceDb({ maxes: [99] });
+
+    await appendToolCallRunEvent({
+      db,
+      runId: "run-1",
+      sequence: 3,
+      call: {
+        id: "tool-1",
+        name: "github__search",
+        provider: "github",
+        toolName: "search",
+        input: {},
+        startedAt: "2026-07-19T00:00:00.000Z",
+      },
+    });
+
+    expect(counts()).toEqual({ reads: 0, inserts: 1 });
+    expect(inserted[0]).toMatchObject({ sequence: 3 });
   });
 });
 
