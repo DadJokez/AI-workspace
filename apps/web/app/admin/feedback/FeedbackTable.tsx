@@ -120,7 +120,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
   return (
     <div className="px-4 pb-10 sm:px-6">
       {error ? (
-        <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[13px] text-red-200">
+        <div className="mb-3 rounded-md border border-danger/30 bg-danger-bg px-3 py-2 text-[13px] text-danger">
           {error}
         </div>
       ) : null}
@@ -420,7 +420,7 @@ function ScreenshotPreview({ row }: { row: AdminFeedbackRow }) {
           Loading screenshot…
         </div>
       ) : error ? (
-        <div className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-200">
+        <div className="mt-2 rounded-md border border-danger/30 bg-danger-bg px-3 py-2 text-[12px] text-danger">
           {error}
         </div>
       ) : screenshot ? (
@@ -485,10 +485,10 @@ function FeedbackNotesEditor({
 function SeverityBadge({ value }: { value: string }) {
   const className =
     value === "high"
-      ? "border-red-500/30 bg-red-500/10 text-red-200"
+      ? "border-danger/30 bg-danger-bg text-danger"
       : value === "low"
         ? "border-hairline bg-canvas text-muted"
-        : "border-amber-500/30 bg-amber-500/10 text-amber-100";
+        : "border-warning/30 bg-warning-bg text-warning";
   return (
     <span className={`rounded-md border px-2 py-1 text-[11px] uppercase tracking-wider ${className}`}>
       {value}

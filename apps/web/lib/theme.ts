@@ -27,6 +27,7 @@ function effectivelyDark(theme: Theme): boolean {
 function applyClass(dark: boolean) {
   if (typeof document === "undefined") return;
   document.documentElement.classList.toggle("dark", dark);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
 }
 
 export function useTheme() {

@@ -191,7 +191,7 @@ export function WelcomeWizard({
                 href="/api/oauth/github/start"
                 className={`flex items-center justify-between rounded-md border px-3 py-2.5 text-[14px] ${
                   connected.github
-                    ? "border-emerald-500/40 bg-emerald-500/5"
+                    ? "border-success/40 bg-success-bg"
                     : "border-hairline hover:bg-subtle"
                 }`}
               >

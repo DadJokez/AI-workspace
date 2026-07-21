@@ -151,7 +151,7 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
 
         {sentId ? (
           <div className="grid gap-3 px-4 py-5">
-            <div className="rounded-md border border-emerald-600/40 bg-emerald-500/10 px-3 py-2 text-[13px] text-emerald-800 dark:border-emerald-500/30 dark:text-emerald-100">
+            <div className="rounded-md border border-success/40 bg-success-bg px-3 py-2 text-[13px] text-success">
               Feedback sent. Report {sentId.slice(0, 8)} is in the admin inbox.
             </div>
             <button
@@ -259,7 +259,7 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
               </div>
 
               {error ? (
-                <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[13px] text-red-200">
+                <div className="rounded-md border border-danger/30 bg-danger-bg px-3 py-2 text-[13px] text-danger">
                   {error}
                 </div>
               ) : null}

@@ -512,7 +512,7 @@ export function ChatInput({
       ) : null}
 
       {dictation.listening ? (
-        <p className="mb-1.5 flex items-center gap-2 px-1 text-[12px] text-red-500/80">
+        <p className="mb-1.5 flex items-center gap-2 px-1 text-[12px] text-danger/80">
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
           Listening… {dictation.interim ? `“${dictation.interim}”` : "speak now"}
         </p>
@@ -641,7 +641,7 @@ export function ChatInput({
             onClick={dictation.toggle}
             className={`flex h-11 w-9 shrink-0 items-center justify-center rounded-md disabled:opacity-30 sm:h-7 ${
               dictation.listening
-                ? "text-red-500"
+                ? "text-danger"
                 : "text-muted hover:text-ink"
             }`}
           >

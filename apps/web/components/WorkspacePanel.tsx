@@ -86,7 +86,7 @@ export function WorkspacePanel({
           </section>
 
           {error ? (
-            <div className="rounded-md border border-red-500/25 bg-red-500/5 px-3 py-2 text-[13px] text-red-300">
+            <div className="rounded-md border border-danger/25 bg-danger-bg px-3 py-2 text-[13px] text-danger">
               {error}
             </div>
           ) : null}

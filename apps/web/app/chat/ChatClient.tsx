@@ -2178,7 +2178,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     {unreadNotifications > 0 ? (
                       <span
                         data-testid="notification-badge"
-                        className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-semibold text-white"
+                        className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-semibold text-on-accent"
                       >
                         {unreadNotifications > 9 ? "9+" : unreadNotifications}
                       </span>

@@ -21,7 +21,7 @@ test.skip(
 // UiSkinSync must re-assert it. This locks the end state down — it fails if
 // either half regresses (it did once: the class silently vanished after
 // hydration before UiSkinSync existed).
-test("ui-skin=umber survives hydration and remaps the palette", async ({
+test("the Umber token palette and skin class survive hydration", async ({
   page,
 }) => {
   await page.goto("/login");
@@ -33,14 +33,18 @@ test("ui-skin=umber survives hydration and remaps the palette", async ({
   await page.waitForLoadState("networkidle");
 
   await expect(page.locator("html")).toHaveClass(/skin-umber/);
-  const canvas = await page.evaluate(() =>
-    getComputedStyle(document.documentElement)
-      .getPropertyValue("--color-canvas")
-      .trim(),
-  );
-  expect(canvas).toBe("250 248 243"); // Umber --bg (neutral-50), not the default 247 246 243
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  const canvas = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.color = "rgb(from var(--color-canvas) r g b)";
+    document.body.appendChild(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  });
+  await expect(page.locator("body")).toHaveCSS("background-color", canvas);
 
-  // And the default stays untouched without the opt-in.
+  // The skin preference remains independent from the shared token palette.
   await page.evaluate(() => localStorage.removeItem("ui-skin"));
   await page.reload();
   await page.waitForLoadState("networkidle");
@@ -137,14 +141,19 @@ test("chat chrome cards resolve to Umber surfaces under skin-umber", async ({
   await expect(page.locator("html")).toHaveClass(/skin-umber/);
 
   const tokens = await page.evaluate(() => {
-    const styles = getComputedStyle(document.documentElement);
-    const toRgb = (slot: string) =>
-      `rgb(${styles.getPropertyValue(slot).trim().split(/\s+/).join(", ")})`;
+    const resolveColor = (slot: string) => {
+      const probe = document.createElement("span");
+      probe.style.color = `rgb(from var(${slot}) r g b)`;
+      document.body.appendChild(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    };
     return {
-      surface: toRgb("--color-surface"),
-      subtle: toRgb("--color-subtle"),
-      accent: toRgb("--color-accent"),
-      ink: toRgb("--color-ink"),
+      surface: resolveColor("--color-surface"),
+      subtle: resolveColor("--color-subtle"),
+      accent: resolveColor("--color-accent"),
+      ink: resolveColor("--color-ink"),
     };
   });
 

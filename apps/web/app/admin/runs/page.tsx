@@ -353,7 +353,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
                     <td className="border-b border-hairline px-6 py-3 align-top">
                       <div className="flex flex-wrap gap-3">
                         {row.error ? (
-                          <div className="max-w-xl truncate font-mono text-[12px] text-red-300">
+                          <div className="max-w-xl truncate font-mono text-[12px] text-danger">
                             {row.error}
                           </div>
                         ) : (
@@ -397,11 +397,11 @@ function Metric({ label, value }: { label: string; value: number | string }) {
 function StatusDot({ status }: { status: string }) {
   const color =
     status === "succeeded"
-      ? "bg-green-400"
+      ? "bg-success"
       : status === "failed"
-        ? "bg-red-400"
+        ? "bg-danger"
         : status === "running"
-          ? "animate-pulse bg-blue-400"
+          ? "animate-pulse bg-info"
           : "bg-muted";
   return <span className={`mt-1 h-2.5 w-2.5 rounded-full ${color}`} />;
 }
@@ -409,11 +409,11 @@ function StatusDot({ status }: { status: string }) {
 function StatusBadge({ status }: { status: string }) {
   const classes =
     status === "succeeded"
-      ? "bg-green-400/10 text-green-300"
+      ? "bg-success-bg text-success"
       : status === "failed"
-        ? "bg-red-400/10 text-red-300"
+        ? "bg-danger-bg text-danger"
         : status === "running"
-          ? "bg-blue-400/10 text-blue-300"
+          ? "bg-info-bg text-info"
           : "bg-subtle text-muted";
   return (
     <span

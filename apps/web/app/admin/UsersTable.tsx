@@ -143,7 +143,7 @@ export function UsersTable({ initialUsers, currentUserId }: Props) {
                 <td className="border-b border-hairline px-6 py-3 align-middle text-right">
                   <div className="flex items-center justify-end gap-2">
                     {hasError ? (
-                      <span className="text-[11px] text-red-400">
+                      <span className="text-[11px] text-danger">
                         Update failed
                       </span>
                     ) : null}

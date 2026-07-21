@@ -213,7 +213,7 @@ export default async function AdminRunDetailPage({ params }: Props) {
           {run.error ? (
             <section>
               <h3 className="mb-2 text-[13px] font-semibold text-ink">Error</h3>
-              <div className="whitespace-pre-wrap rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2 font-mono text-[12px] text-red-300 [overflow-wrap:anywhere]">
+              <div className="whitespace-pre-wrap rounded-md border border-danger/20 bg-danger-bg px-3 py-2 font-mono text-[12px] text-danger [overflow-wrap:anywhere]">
                 {run.error}
               </div>
             </section>
@@ -270,7 +270,7 @@ export default async function AdminRunDetailPage({ params }: Props) {
                         .join(" / ")}
                     </div>
                     {event.error ? (
-                      <div className="mt-1 line-clamp-3 font-mono text-[11px] text-red-300">
+                      <div className="mt-1 line-clamp-3 font-mono text-[11px] text-danger">
                         {event.error}
                       </div>
                     ) : null}
@@ -447,7 +447,7 @@ export default async function AdminRunDetailPage({ params }: Props) {
                           "platform"}
                       </div>
                       {row.error ? (
-                        <div className="mt-1 line-clamp-3 font-mono text-[11px] text-red-300">
+                        <div className="mt-1 line-clamp-3 font-mono text-[11px] text-danger">
                           {row.error}
                         </div>
                       ) : null}
@@ -693,13 +693,13 @@ function DebugJsonBlock({
 function StatusDot({ status }: { status: string }) {
   const color =
     status === "succeeded"
-      ? "bg-green-400"
+      ? "bg-success"
       : status === "failed"
-        ? "bg-red-400"
+        ? "bg-danger"
         : status === "running" || status === "started" || status === "pending"
-          ? "animate-pulse bg-blue-400"
+          ? "animate-pulse bg-info"
           : status === "denied"
-            ? "bg-yellow-400"
+            ? "bg-warning"
             : "bg-muted";
   return <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} />;
 }
@@ -707,11 +707,11 @@ function StatusDot({ status }: { status: string }) {
 function StatusBadge({ status }: { status: string }) {
   const classes =
     status === "succeeded"
-      ? "bg-green-400/10 text-green-300"
+      ? "bg-success-bg text-success"
       : status === "failed"
-        ? "bg-red-400/10 text-red-300"
+        ? "bg-danger-bg text-danger"
         : status === "running"
-          ? "bg-blue-400/10 text-blue-300"
+          ? "bg-info-bg text-info"
           : "bg-subtle text-muted";
   return (
     <span
