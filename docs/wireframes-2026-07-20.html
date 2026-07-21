@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comparative — proposed UI wireframes (2026-07-20)</title>
+<style>
+  :root {
+    --paper: #fafafa;
+    --frame: #ffffff;
+    --line: #c9c9c9;
+    --line-soft: #e2e2e2;
+    --fill: #efefef;
+    --fill-mid: #dcdcdc;
+    --fill-dark: #3a3a3a;
+    --ink: #1f1f1f;
+    --mute: #737373;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 48px 24px 96px;
+  }
+  .page { max-width: 1060px; margin: 0 auto; }
+  h1 { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; }
+  .intro { color: var(--mute); max-width: 720px; margin: 10px 0 8px; }
+  .meta { font-size: 12px; color: var(--mute); text-transform: uppercase; letter-spacing: 0.08em; }
+
+  section.fig { margin-top: 64px; }
+  .fig h2 { font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
+  .fig .sub { color: var(--mute); margin: 6px 0 18px; max-width: 760px; }
+  .fig-num { color: var(--mute); font-weight: 500; margin-right: 6px; }
+
+  /* wireframe frame */
+  .frame {
+    background: var(--frame);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* generic wireframe atoms */
+  .bar   { background: var(--fill-mid); border-radius: 3px; height: 10px; }
+  .bar.lite { background: var(--fill); }
+  .bar.dark { background: var(--fill-dark); }
+  .dot   { width: 22px; height: 22px; border-radius: 50%; background: var(--fill-mid); flex: none; }
+  .label { font-size: 11px; color: var(--mute); text-transform: uppercase; letter-spacing: 0.07em; }
+  .txt   { font-size: 12.5px; color: var(--ink); }
+  .txt.mute { color: var(--mute); }
+  .chip  {
+    display: inline-block; font-size: 11px; color: var(--mute);
+    border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; background: #fff;
+  }
+  .btn {
+    display: inline-block; font-size: 12px; padding: 5px 12px; border-radius: 4px;
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
+  }
+  .btn.primary { background: var(--fill-dark); color: #fff; border-color: var(--fill-dark); }
+  .kbd {
+    font: 11px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 3px; padding: 0 5px; background: #fff; color: var(--mute);
+  }
+
+  /* annotation badges + legend */
+  .note {
+    position: absolute; z-index: 5;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--ink); color: #fff;
+    font-size: 12px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.9);
+  }
+  .note.inline { position: static; display: inline-flex; vertical-align: middle; box-shadow: none; flex: none; }
+  .legend { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 32px; }
+  .legend li { display: flex; gap: 10px; list-style: none; align-items: flex-start; }
+  .legend .note { position: static; flex: none; box-shadow: none; margin-top: 2px; width: 20px; height: 20px; font-size: 11px; }
+  .legend p { font-size: 13.5px; color: var(--ink); }
+  .legend b { font-weight: 600; }
+  @media (max-width: 720px) { .legend { grid-template-columns: 1fr; } }
+
+  /* ============ fig 1: app shell ============ */
+  .shell { display: flex; height: 560px; }
+  .shell .side {
+    width: 218px; flex: none; background: #f4f4f4; border-right: 1px solid var(--line-soft);
+    display: flex; flex-direction: column; padding: 12px; gap: 6px; position: relative;
+  }
+  .side .row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; }
+  .side .row.active { background: var(--fill-mid); }
+  .side .row .ic { width: 14px; height: 14px; border: 1.5px solid var(--mute); border-radius: 3px; flex: none; }
+  .side .sec { margin-top: 12px; }
+  .thread { padding: 5px 8px 5px 22px; }
+  .shell .main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+  .topbar {
+    height: 42px; border-bottom: 1px solid var(--line-soft); display: flex; align-items: center;
+    gap: 12px; padding: 0 16px; position: relative;
+  }
+  .thread-area { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 24px; gap: 18px; overflow: hidden; }
+  .thread-col { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 14px; }
+  .composer {
+    border-top: 1px solid var(--line-soft); padding: 12px 24px 16px; display: flex; justify-content: center;
+  }
+  .composer .box {
+    width: 100%; max-width: 560px; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; display: flex; align-items: center; gap: 10px; background: #fff; position: relative;
+  }
+  .shell .drawer {
+    width: 250px; flex: none; border-left: 1px solid var(--line); background: #fbfbfb;
+    display: flex; flex-direction: column; position: relative;
+  }
+  .drawer .head { height: 42px; border-bottom: 1px solid var(--line-soft); display: flex; align-items: center; padding: 0 14px; gap: 8px; }
+  .drawer .body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .grip { position: absolute; left: -3px; top: 45%; width: 5px; height: 46px; border-radius: 3px; background: var(--fill-mid); }
+
+  /* messages (shared by fig 1 + 2) */
+  .msg-user { align-self: flex-end; max-width: 78%; background: var(--fill); border-radius: 10px; padding: 10px 14px; }
+  .msg-ai { display: flex; flex-direction: column; gap: 8px; }
+  .attrib { display: flex; align-items: center; gap: 8px; }
+  .receipt {
+    border: 1px dashed var(--line); border-radius: 6px; padding: 7px 10px;
+    display: flex; align-items: center; gap: 8px; background: #fcfcfc; position: relative;
+  }
+  .cites { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; position: relative; }
+  .cite {
+    display: inline-flex; gap: 6px; align-items: center; font-size: 11px; color: var(--mute);
+    border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; background: #fff;
+  }
+  .cite .n { font-weight: 700; color: var(--ink); }
+
+  /* ============ fig 2: thread detail ============ */
+  .thread-frame { padding: 28px; display: flex; justify-content: center; }
+  .thread-frame .thread-col { max-width: 620px; gap: 18px; }
+  .codeblock { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; position: relative; }
+  .codeblock .cb-head { display: flex; justify-content: space-between; align-items: center; background: var(--fill); padding: 5px 10px; }
+  .codeblock .cb-body { padding: 10px; display: flex; flex-direction: column; gap: 6px; background: #fcfcfc; }
+  .steps { border-left: 2px solid var(--line-soft); margin: 4px 0 0 10px; padding-left: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .step { display: flex; align-items: center; gap: 8px; }
+  .sdot { width: 8px; height: 8px; border-radius: 50%; background: var(--fill-mid); flex: none; }
+  .pill-scroll {
+    position: absolute; right: 40px; bottom: 96px;
+    border: 1px solid var(--line); background: #fff; border-radius: 999px;
+    font-size: 11px; color: var(--mute); padding: 5px 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  }
+
+  /* ============ fig 3: settings ============ */
+  .settings-stage { height: 480px; background: repeating-linear-gradient(45deg, #f1f1f1 0 10px, #ececec 10px 20px); display: flex; align-items: center; justify-content: center; }
+  .settings-modal {
+    width: 720px; max-width: 92%; height: 400px; background: #fff; border: 1px solid var(--line);
+    border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,0.18); display: flex; overflow: hidden; position: relative;
+  }
+  .settings-nav { width: 172px; flex: none; background: #f6f6f6; border-right: 1px solid var(--line-soft); padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; position: relative; }
+  .settings-nav .row { padding: 7px 10px; border-radius: 4px; font-size: 12.5px; color: var(--mute); }
+  .settings-nav .row.active { background: var(--fill-mid); color: var(--ink); font-weight: 600; }
+  .settings-body { flex: 1; padding: 22px 26px; display: flex; flex-direction: column; gap: 16px; overflow: hidden; position: relative; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .input { border: 1px solid var(--line); border-radius: 5px; height: 30px; background: #fff; max-width: 320px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; width: max-content; }
+  .seg span { font-size: 12px; padding: 5px 14px; color: var(--mute); border-right: 1px solid var(--line); }
+  .seg span:last-child { border-right: 0; }
+  .seg span.on { background: var(--fill-dark); color: #fff; }
+
+  /* ============ fig 4: cmd-k + empty ============ */
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 860px) { .duo { grid-template-columns: 1fr; } }
+  .stage { height: 430px; background: repeating-linear-gradient(45deg, #f1f1f1 0 10px, #ececec 10px 20px); display: flex; align-items: flex-start; justify-content: center; padding-top: 56px; position: relative; }
+  .palette {
+    width: 460px; max-width: 90%; background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.18); overflow: hidden; position: relative;
+  }
+  .palette .search { display: flex; gap: 10px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line-soft); }
+  .palette .group { padding: 8px 6px 4px; }
+  .palette .row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 5px; }
+  .palette .row.active { background: var(--fill); }
+  .palette .row .ic { width: 13px; height: 13px; border: 1.5px solid var(--mute); border-radius: 3px; flex: none; }
+  .palette .foot { border-top: 1px solid var(--line-soft); padding: 7px 14px; display: flex; gap: 14px; }
+  .empty-frame { height: 430px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; position: relative; }
+  .orb { width: 84px; height: 84px; border-radius: 50%; border: 2px solid var(--fill-dark); position: relative; }
+  .orb::after { content: ""; position: absolute; inset: 14px; border-radius: 50%; border: 1.5px dashed var(--mute); }
+  .sugg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; max-width: 420px; margin-top: 6px; position: relative; }
+  .sugg .s { border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; background: #fff; }
+
+  footer { margin-top: 72px; color: var(--mute); font-size: 12.5px; border-top: 1px solid var(--line-soft); padding-top: 16px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <p class="meta">Comparative · design wireframes · 2026-07-20</p>
+  <h1>Proposed UI wireframes</h1>
+  <p class="intro">Grayscale layout sketches for the recommendations in
+  <b>design-audit-2026-07-20.md</b>. These show structure and behavior, not final
+  visuals — in production everything picks up the Umber palette (warm neutrals,
+  parchment tan, one forest-green highlight per screen). Numbered dots are
+  annotations; read them with the list under each drawing.</p>
+
+  <!-- ================= FIG 1 ================= -->
+  <section class="fig">
+    <h2><span class="fig-num">1.</span>Main layout — sidebar, chat, slide-over panel</h2>
+    <p class="sub">The overall shell keeps today's three-column idea, with two changes:
+    the thread list gets pinning and date groups, and panels like Tools/Vault slide in
+    on the right instead of replacing your chat.</p>
+
+    <div class="frame">
+      <div class="shell">
+        <!-- sidebar -->
+        <aside class="side">
+          <span class="note" style="top:10px; right:10px;">1</span>
+          <div class="row"><div class="dot" style="width:18px;height:18px;"></div><span class="txt" style="font-weight:600;">Comparative</span></div>
+          <div class="row" style="border:1px solid var(--line); background:#fff; justify-content:space-between;">
+            <span class="txt">New chat</span><span class="kbd">⌘N</span>
+          </div>
+          <div class="row"><span class="ic"></span><span class="txt mute">Search</span><span class="kbd" style="margin-left:auto;">⌘K</span><span class="note inline" style="margin-left:6px;">2</span></div>
+
+          <div class="sec label">Pinned <span class="note inline" style="margin-left:6px;">3</span></div>
+          <div class="thread"><div class="bar" style="width:80%;"></div></div>
+          <div class="thread"><div class="bar lite" style="width:65%;"></div></div>
+
+          <div class="sec label">Today</div>
+          <div class="thread row active" style="padding:5px 8px 5px 22px;"><div class="bar dark" style="width:75%;"></div></div>
+          <div class="thread"><div class="bar lite" style="width:60%;"></div></div>
+
+          <div class="sec label">Previous 7 days</div>
+          <div class="thread"><div class="bar lite" style="width:70%;"></div></div>
+          <div class="thread"><div class="bar lite" style="width:50%;"></div></div>
+
+          <div class="sec label" style="margin-top:auto;">Build &amp; automate</div>
+          <div class="row"><span class="ic"></span><span class="txt mute">Skills</span></div>
+          <div class="row"><span class="ic"></span><span class="txt mute">Apps</span></div>
+          <div class="row" style="border-top:1px solid var(--line-soft); padding-top:10px;"><div class="dot"></div><div><div class="txt">Rob L.</div><div class="txt mute" style="font-size:10.5px;">Settings · Sign out</div></div><span class="note inline" style="margin-left:auto;">4</span></div>
+        </aside>
+
+        <!-- main -->
+        <div class="main">
+          <div class="topbar">
+            <div class="bar" style="width:150px;"></div>
+            <span class="chip">claude-fable-5</span><span class="note inline">5</span>
+            <span style="margin-left:auto;" class="txt mute">🔔</span>
+          </div>
+          <div class="thread-area">
+            <div class="thread-col">
+              <div class="msg-user"><div class="bar lite" style="width:180px;"></div></div>
+              <div class="msg-ai">
+                <div class="attrib"><span class="txt mute" style="font-size:11px;">Comparative · 2 min ago</span></div>
+                <div class="bar lite" style="width:100%;"></div>
+                <div class="bar lite" style="width:92%;"></div>
+                <div class="bar lite" style="width:60%;"></div>
+              </div>
+              <div class="msg-user"><div class="bar lite" style="width:140px;"></div></div>
+              <div class="msg-ai">
+                <div class="attrib"><span class="txt mute" style="font-size:11px;">Comparative · just now</span></div>
+                <div class="bar lite" style="width:100%;"></div>
+                <div class="bar lite" style="width:75%;"></div>
+              </div>
+            </div>
+          </div>
+          <div class="composer">
+            <div class="box">
+              <span class="txt mute">＋</span>
+              <span class="txt mute" style="flex:1;">Ask anything — / for capabilities…</span>
+              <span class="btn primary">Send</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- right drawer -->
+        <aside class="drawer">
+          <span class="note" style="top:10px; right:10px;">6</span>
+          <div class="grip"></div>
+          <div class="head"><span class="txt" style="font-weight:600;">Tools</span><span class="txt mute" style="margin-left:auto;">✕</span></div>
+          <div class="body">
+            <div class="label">Connected</div>
+            <div class="receipt" style="border-style:solid;"><div class="dot" style="width:16px;height:16px;"></div><div class="bar" style="width:90px;"></div></div>
+            <div class="label" style="margin-top:6px;">Available</div>
+            <div class="receipt" style="border-style:solid;"><div class="dot" style="width:16px;height:16px;"></div><div class="bar lite" style="width:110px;"></div></div>
+            <div class="receipt" style="border-style:solid;"><div class="dot" style="width:16px;height:16px;"></div><div class="bar lite" style="width:70px;"></div></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <ul class="legend">
+      <li><span class="note">1</span><p><b>Collapsible sidebar.</b> Same 240px column as today, but a toggle shrinks it to a thin icon rail — useful on laptops, and automatic on tablets when a right panel is open.</p></li>
+      <li><span class="note">2</span><p><b>Search lives in the sidebar and opens the ⌘K palette</b> (figure 4). This replaces the current SearchPanel, which nothing in the UI can actually open today.</p></li>
+      <li><span class="note">3</span><p><b>Thread list gets Pinned / Today / Previous 7 days groups.</b> Right now it's one flat list — hard to find anything once you have 30+ chats. Pin lives in each row's ⋯ menu.</p></li>
+      <li><span class="note">4</span><p><b>Settings moves to the account area</b> and opens as a modal over the chat (figure 3), so you never lose your place in the conversation.</p></li>
+      <li><span class="note">5</span><p><b>The model is always visible</b> in the header — even in runtime-V2 mode, where today the picker just disappears. Honesty about "which model answered" is part of the product's spine.</p></li>
+      <li><span class="note">6</span><p><b>Tools / Vault / Artifacts slide in from the right</b> as a resizable panel (drag the grip) instead of replacing the whole chat. The chat and its scroll position stay put. This reuses the split-pane code that artifacts already have.</p></li>
+    </ul>
+  </section>
+
+  <!-- ================= FIG 2 ================= -->
+  <section class="fig">
+    <h2><span class="fig-num">2.</span>Message thread — user vs AI, tool work, citations</h2>
+    <p class="sub">The current asymmetry is kept (user = compact bubble, AI = full-width
+    text) because it reads well. Additions: timestamps, a clearer work receipt, and a new
+    sources row for when answers rely on tools or documents.</p>
+
+    <div class="frame">
+      <div class="thread-frame">
+        <div class="thread-col">
+
+          <div class="msg-user" style="position:relative;">
+            <span class="note" style="top:-10px; right:-10px;">1</span>
+            <div class="txt">Summarize the open PRs on the billing repo and flag anything risky.</div>
+          </div>
+
+          <div class="msg-ai" style="position:relative;">
+            <div class="attrib">
+              <span class="txt mute" style="font-size:11px;">Comparative · claude-fable-5 · 2:41 PM · ~$0.04</span>
+              <span class="note inline">2</span>
+              <span class="txt mute" style="margin-left:auto; font-size:11px;">⧉ copy</span>
+            </div>
+
+            <div class="receipt">
+              <span class="note" style="top:-10px; right:-10px;">3</span>
+              <div class="sdot"></div>
+              <span class="txt mute">Worked for 12s · Checked GitHub · 4 steps</span>
+              <span class="txt mute" style="margin-left:auto;">▾</span>
+            </div>
+            <div class="steps">
+              <div class="step"><span class="sdot"></span><div class="bar lite" style="width:190px;"></div></div>
+              <div class="step"><span class="sdot"></span><div class="bar lite" style="width:150px;"></div></div>
+              <div class="step"><span class="sdot"></span><div class="bar lite" style="width:220px;"></div></div>
+            </div>
+
+            <div class="txt" style="margin-top:6px;">Three PRs are open. Two are routine dependency bumps; <b>#512 changes the proration logic</b> and has no tests touching the new branch <span class="cite" style="padding:1px 7px;"><span class="n">1</span></span>.</div>
+
+            <div class="codeblock">
+              <div class="cb-head"><span class="label" style="letter-spacing:0.04em;">ts</span><span class="txt mute" style="font-size:11px;">⧉ copy</span></div>
+              <div class="cb-body">
+                <div class="bar" style="width:70%;"></div>
+                <div class="bar" style="width:85%;"></div>
+                <div class="bar" style="width:55%;"></div>
+              </div>
+            </div>
+
+            <div class="cites">
+              <span class="note" style="top:-10px; left:-10px;">4</span>
+              <span class="label" style="margin-right:2px;">Sources</span>
+              <span class="cite"><span class="n">1</span> github.com · PR #512</span>
+              <span class="cite"><span class="n">2</span> github.com · PR #509</span>
+              <span class="cite"><span class="n">3</span> billing/README.md</span>
+            </div>
+          </div>
+
+          <div class="msg-ai" style="position:relative;">
+            <div class="attrib">
+              <div class="dot" style="width:16px;height:16px; border:2px solid var(--fill-dark); background:#fff;"></div>
+              <span class="txt mute" style="font-size:11px;">Working for 4s · 312 tokens · using tools</span>
+              <span class="note inline">5</span>
+            </div>
+            <div class="bar lite" style="width:88%;"></div>
+            <div class="bar lite" style="width:40%;"></div>
+          </div>
+
+        </div>
+      </div>
+      <div class="pill-scroll">↓ Jump to latest <span class="note inline" style="width:18px;height:18px;font-size:10px;">6</span></div>
+    </div>
+
+    <ul class="legend">
+      <li><span class="note">1</span><p><b>User messages stay as compact right-aligned bubbles</b>, but pasted code/links now render properly instead of as raw text.</p></li>
+      <li><span class="note">2</span><p><b>Every message gets a timestamp</b> next to the existing model + cost label (hover shows the exact time). Today no message has a time at all.</p></li>
+      <li><span class="note">3</span><p><b>Work receipt, kept as-is conceptually:</b> one quiet collapsed line ("how I did this"), expanding to grouped steps with raw detail. This is already one of the app's best patterns.</p></li>
+      <li><span class="note">4</span><p><b>New: a Sources row</b> ("what I relied on") with numbered chips that match inline markers in the answer. Distinct from the receipt. Designing this now means web/M365 connectors land with citations from day one.</p></li>
+      <li><span class="note">5</span><p><b>Streaming state:</b> the orb sits in the attribution row of the pending message with the live "working / tokens / phase" line the app already computes.</p></li>
+      <li><span class="note">6</span><p><b>"Jump to latest" pill</b> appears when you scroll up during a stream. The code already tracks stick-to-bottom; it just has no visible affordance.</p></li>
+    </ul>
+  </section>
+
+  <!-- ================= FIG 3 ================= -->
+  <section class="fig">
+    <h2><span class="fig-num">3.</span>Settings — modal with a section rail</h2>
+    <p class="sub">Today Settings replaces the entire chat and is one long scroll.
+    Proposed: a centered modal (chat stays visible behind it) with sections on the left —
+    the pattern Claude.ai, Linear, and Notion all use. Memory (Vault) and Integrations
+    (Tools) become sections here too, so everything about "how my assistant behaves"
+    lives in one place.</p>
+
+    <div class="frame">
+      <div class="settings-stage">
+        <div class="settings-modal">
+          <div class="settings-nav">
+            <span class="note" style="top:10px; right:10px;">1</span>
+            <div class="row active">Profile</div>
+            <div class="row">Instructions</div>
+            <div class="row">Appearance</div>
+            <div class="row">Model</div>
+            <div class="row">Memory</div>
+            <div class="row">Integrations</div>
+            <div class="row" style="margin-top:auto; font-size:11px;">v0.9 · alpha</div>
+          </div>
+          <div class="settings-body">
+            <span class="note" style="top:14px; right:14px;">2</span>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span class="txt" style="font-weight:650; font-size:15px;">Profile</span>
+              <span class="txt mute">✕ &nbsp;<span class="kbd">esc</span></span>
+            </div>
+            <div class="field">
+              <span class="label">Display name</span>
+              <div class="input"></div>
+            </div>
+            <div class="field">
+              <span class="label">Assistant name</span>
+              <div class="input" style="max-width:240px;"></div>
+            </div>
+            <div class="field">
+              <span class="label">Theme</span>
+              <div class="seg"><span>Light</span><span class="on">System</span><span>Dark</span></div>
+              <span class="note inline" style="position:absolute; right:14px; bottom:88px;">3</span>
+            </div>
+            <div class="field">
+              <span class="label">Density</span>
+              <div class="seg"><span class="on">Comfortable</span><span>Compact</span></div>
+            </div>
+            <div style="margin-top:auto; display:flex; gap:8px; justify-content:flex-end;">
+              <span class="btn">Cancel</span><span class="btn primary">Save changes</span><span class="note inline">4</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <ul class="legend">
+      <li><span class="note">1</span><p><b>Section rail:</b> Profile, Instructions, Appearance, Model, Memory (today's Vault), Integrations (today's Tools). One home for all configuration instead of three separate full-screen panels.</p></li>
+      <li><span class="note">2</span><p><b>Modal over the chat</b> — the hatched area is your conversation, still there. Esc or ✕ returns you exactly where you were. ⌘, still opens it.</p></li>
+      <li><span class="note">3</span><p><b>Segmented controls stay</b> — the existing ones are well-built (good keyboard + screen-reader behavior). Just reused here.</p></li>
+      <li><span class="note">4</span><p><b>One consistent save model per section.</b> Today name saves on blur, instructions via a button, theme instantly — three behaviors. Instant-apply for appearance; explicit Save for text fields, with unsaved-changes warning.</p></li>
+    </ul>
+  </section>
+
+  <!-- ================= FIG 4 ================= -->
+  <section class="fig">
+    <h2><span class="fig-num">4.</span>New patterns — ⌘K palette &amp; a personal empty state</h2>
+    <p class="sub">Left: the command palette (replaces the unreachable SearchPanel).
+    Right: the first-run / new-chat screen, personalized from what onboarding already
+    knows about the user.</p>
+
+    <div class="duo">
+      <div class="frame">
+        <div class="stage">
+          <div class="palette">
+            <div class="search"><span class="txt mute">🔍</span><span class="txt mute">Search chats, skills, apps, actions…</span><span class="kbd" style="margin-left:auto;">esc</span><span class="note inline">1</span></div>
+            <div class="group">
+              <div class="label" style="padding:2px 10px;">Chats</div>
+              <div class="row active"><span class="ic"></span><div class="bar" style="width:170px;"></div><span class="txt mute" style="margin-left:auto; font-size:10.5px;">Today</span></div>
+              <div class="row"><span class="ic"></span><div class="bar lite" style="width:130px;"></div></div>
+            </div>
+            <div class="group">
+              <div class="label" style="padding:2px 10px;">Skills</div>
+              <div class="row"><span class="ic"></span><div class="bar lite" style="width:110px;"></div></div>
+            </div>
+            <div class="group">
+              <div class="label" style="padding:2px 10px;">Actions <span class="note inline" style="width:18px;height:18px;font-size:10px;">2</span></div>
+              <div class="row"><span class="ic"></span><span class="txt">New chat</span><span class="kbd" style="margin-left:auto;">⌘N</span></div>
+              <div class="row"><span class="ic"></span><span class="txt">Toggle theme</span></div>
+            </div>
+            <div class="foot"><span class="txt mute" style="font-size:11px;">↑↓ navigate</span><span class="txt mute" style="font-size:11px;">↵ open</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="frame">
+        <div class="empty-frame">
+          <div class="orb"></div>
+          <div style="text-align:center;">
+            <div class="txt" style="font-size:20px; font-weight:600; letter-spacing:-0.01em;">Good morning, Rob. <span class="note inline">3</span></div>
+            <div class="txt mute" style="margin-top:4px;">GitHub is connected. What should we look at?</div>
+          </div>
+          <div class="sugg">
+            <span class="note" style="top:-11px; right:-11px;">4</span>
+            <div class="s"><div class="bar lite" style="width:85%;"></div><div class="bar lite" style="width:55%; margin-top:5px;"></div></div>
+            <div class="s"><div class="bar lite" style="width:70%;"></div><div class="bar lite" style="width:45%; margin-top:5px;"></div></div>
+            <div class="s"><div class="bar lite" style="width:80%;"></div><div class="bar lite" style="width:60%; margin-top:5px;"></div></div>
+            <div class="s"><div class="bar lite" style="width:65%;"></div><div class="bar lite" style="width:40%; margin-top:5px;"></div></div>
+          </div>
+          <span class="txt mute" style="font-size:11px;">Suggestions come from your role &amp; recent work</span>
+        </div>
+      </div>
+    </div>
+
+    <ul class="legend">
+      <li><span class="note">1</span><p><b>⌘K opens one palette for everything:</b> jump to any chat, skill, app, or admin page, or run an action. Complements the "/" capability palette in the composer (which stays as-is).</p></li>
+      <li><span class="note">2</span><p><b>Actions section</b> makes the palette useful even with few chats — new chat, toggle theme, open settings, go to admin. This is the feature that makes power users feel at home (Linear muscle memory).</p></li>
+      <li><span class="note">3</span><p><b>Greets by name and states what's connected</b> — the onboarding wizard already collects name, role, and tools; the empty state should use them. Keeps the honest "here's what works today" framing.</p></li>
+      <li><span class="note">4</span><p><b>Suggestions become role-aware</b> (the recommendations API exists) instead of four hardcoded prompts. In Umber styling, the headline here is the one place the serif display face appears.</p></li>
+    </ul>
+  </section>
+
+  <footer>
+    Comparative design wireframes · 2026-07-20 · companion to docs/design-audit-2026-07-20.md.
+    Grayscale is deliberate: layout and behavior only. Production styling = Umber tokens
+    (warm neutrals, parchment tan, forest-green pop, Geist/Newsreader type, 4px corners,
+    hairline borders).
+  </footer>
+</div>
+</body>
+</html>
