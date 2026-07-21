@@ -98,10 +98,15 @@ for (const skin of ["umber", "classic"] as const) {
       }
 
       const sidebar = await openPrimarySidebar(page, false);
+      const composer = page.getByPlaceholder(/ask anything/i);
+      const composerRail = composer.locator("xpath=ancestor::form");
+      const restingComposerBorder = await composerRail.evaluate(
+        (element) => getComputedStyle(element).borderColor,
+      );
       const targets = [
         sidebar.getByRole("button", { name: "New chat" }),
         sidebar.getByRole("link", { name: "Skills", exact: true }),
-        page.getByPlaceholder(/ask anything/i),
+        composer,
       ];
 
       await page.locator("main").click({ position: { x: 8, y: 8 } });
@@ -109,6 +114,13 @@ for (const skin of ["umber", "classic"] as const) {
         await tabTo(page, target);
         await expectTokenFocusRing(target);
       }
+      await expect
+        .poll(() =>
+          composerRail.evaluate(
+            (element) => getComputedStyle(element).borderColor,
+          ),
+        )
+        .toBe(restingComposerBorder);
 
       const settings = sidebar.getByRole("button", {
         name: "Settings",

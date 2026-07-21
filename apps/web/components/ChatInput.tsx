@@ -605,7 +605,7 @@ export function ChatInput({
         className={`flex w-full items-end gap-2 rounded-lg border bg-canvas p-2 ${
           dragOver
             ? "border-ink/60 ring-1 ring-ink/30"
-            : "border-hairline focus-within:border-ink/40"
+            : "border-hairline"
         }`}
       >
         <input
