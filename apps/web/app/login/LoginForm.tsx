@@ -103,7 +103,7 @@ export function LoginForm({ callbackUrl, providers }: Props) {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="you@company.com"
-            className="w-full rounded-md border border-hairline bg-canvas px-3 py-2 text-[13px] text-ink placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-ink"
+            className="w-full rounded-md border border-hairline bg-canvas px-3 py-2 text-[13px] text-ink placeholder:text-muted"
           />
           <button
             type="submit"

@@ -162,7 +162,7 @@ export function WelcomeWizard({
               }}
               maxLength={40}
               placeholder="Hub"
-              className="mt-3 w-full rounded-md border border-hairline bg-canvas px-3 py-2 text-[15px] text-ink outline-none focus:border-ink/40"
+              className="mt-3 w-full rounded-md border border-hairline bg-canvas px-3 py-2 text-[15px] text-ink focus-visible:border-ink/40"
             />
             <div className="mt-2 flex flex-wrap gap-1.5">
               {SUGGESTED_NAMES.map((n) => (
@@ -220,7 +220,7 @@ export function WelcomeWizard({
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
-                className="mt-1 w-full rounded-md border border-hairline bg-canvas px-2 py-2 text-[14px] text-ink outline-none"
+                className="mt-1 w-full rounded-md border border-hairline bg-canvas px-2 py-2 text-[14px] text-ink"
               >
                 <option value="">Choose…</option>
                 {ROLE_OPTIONS.map((r) => (
@@ -256,7 +256,7 @@ export function WelcomeWizard({
                 onChange={(e) => setFirstTask(e.target.value)}
                 maxLength={200}
                 placeholder="e.g. summarizing my weekly status"
-                className="mt-1 w-full rounded-md border border-hairline bg-canvas px-2 py-2 text-[14px] text-ink outline-none focus:border-ink/40"
+                className="mt-1 w-full rounded-md border border-hairline bg-canvas px-2 py-2 text-[14px] text-ink focus-visible:border-ink/40"
               />
             </label>
           </div>

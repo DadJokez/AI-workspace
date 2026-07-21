@@ -171,7 +171,7 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
                   <select
                     value={type}
                     onChange={(e) => setType(e.target.value)}
-                    className="rounded-md border border-hairline bg-canvas px-2 py-2 text-[13px] text-ink outline-none focus:border-ink/30"
+                    className="rounded-md border border-hairline bg-canvas px-2 py-2 text-[13px] text-ink focus-visible:border-ink/30"
                   >
                     <option value="bug">Bug</option>
                     <option value="confusing_answer">Confusing answer</option>
@@ -185,7 +185,7 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
                   <select
                     value={severity}
                     onChange={(e) => setSeverity(e.target.value)}
-                    className="rounded-md border border-hairline bg-canvas px-2 py-2 text-[13px] text-ink outline-none focus:border-ink/30"
+                    className="rounded-md border border-hairline bg-canvas px-2 py-2 text-[13px] text-ink focus-visible:border-ink/30"
                   >
                     <option value="normal">Normal</option>
                     <option value="high">High</option>
@@ -202,7 +202,7 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
                   onChange={(e) => setBody(e.target.value)}
                   rows={5}
                   maxLength={4000}
-                  className="resize-y rounded-md border border-hairline bg-canvas px-3 py-2 text-[13px] leading-relaxed text-ink outline-none focus:border-ink/30"
+                  className="resize-y rounded-md border border-hairline bg-canvas px-3 py-2 text-[13px] leading-relaxed text-ink focus-visible:border-ink/30"
                 />
               </label>
 
@@ -213,7 +213,7 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
                   onChange={(e) => setExpected(e.target.value)}
                   rows={3}
                   maxLength={2000}
-                  className="resize-y rounded-md border border-hairline bg-canvas px-3 py-2 text-[13px] leading-relaxed text-ink outline-none focus:border-ink/30"
+                  className="resize-y rounded-md border border-hairline bg-canvas px-3 py-2 text-[13px] leading-relaxed text-ink focus-visible:border-ink/30"
                 />
               </label>
 

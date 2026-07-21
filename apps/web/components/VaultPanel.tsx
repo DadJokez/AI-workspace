@@ -252,14 +252,14 @@ export function VaultPanel({
                   onChange={(e) => setAddTitle(e.target.value)}
                   placeholder="Short title (e.g. My team)"
                   maxLength={120}
-                  className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-ink/30"
+                  className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink placeholder:text-muted"
                 />
                 <textarea
                   value={addBody}
                   onChange={(e) => setAddBody(e.target.value)}
                   rows={3}
                   placeholder="The fact (e.g. I'm a supply-chain analyst on the Crossett team; I prefer concise, bulleted answers.)"
-                  className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-ink/30"
+                  className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink placeholder:text-muted"
                 />
                 {addError ? (
                   <p className="text-[12px] text-danger">{addError}</p>

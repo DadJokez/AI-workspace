@@ -605,7 +605,7 @@ export function ChatInput({
         className={`flex w-full items-end gap-2 rounded-lg border bg-canvas p-2 ${
           dragOver
             ? "border-ink/60 ring-1 ring-ink/30"
-            : "border-hairline focus-within:border-ink/40"
+            : "border-hairline"
         }`}
       >
         <input
@@ -668,7 +668,7 @@ export function ChatInput({
           // iOS Safari (and Comet, which inherits the WebKit zoom rule) zoom
           // the page on focus. Belt-and-suspenders with `text-base`.
           style={{ fontSize: "16px" }}
-          className="flex-1 resize-none bg-transparent px-2 py-2 text-base text-ink outline-none placeholder:text-muted disabled:opacity-50 sm:py-1.5"
+          className="flex-1 resize-none bg-transparent px-2 py-2 text-base text-ink placeholder:text-muted disabled:opacity-50 sm:py-1.5"
         />
         <button
           type="submit"

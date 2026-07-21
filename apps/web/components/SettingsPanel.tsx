@@ -222,7 +222,7 @@ export function SettingsPanel({
                           (e.target as HTMLInputElement).blur();
                         }
                       }}
-                      className="flex-1 rounded-md border border-hairline bg-canvas px-3 py-2 text-base text-ink outline-none placeholder:text-muted focus:border-ink/40"
+                      className="flex-1 rounded-md border border-hairline bg-canvas px-3 py-2 text-base text-ink placeholder:text-muted focus-visible:border-ink/40"
                       placeholder="Your name"
                     />
                     {savedFlash ? (
@@ -248,7 +248,7 @@ export function SettingsPanel({
                 onChange={(e) => setInstructionsDraft(e.target.value)}
                 rows={5}
                 placeholder="E.g. 'I'm a sales rep. Keep responses concise and action-oriented.'"
-                className="w-full resize-y rounded-md border border-hairline bg-canvas px-3 py-2 text-sm text-ink outline-none placeholder:text-muted focus:border-ink/40"
+                className="w-full resize-y rounded-md border border-hairline bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus-visible:border-ink/40"
               />
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[11px] text-muted">
@@ -358,7 +358,7 @@ export function SettingsPanel({
                     value={currentDefault}
                     onChange={(e) => onUserDefaultModelChange(e.target.value)}
                     disabled={models.length === 0}
-                    className="rounded-md border border-hairline bg-canvas px-2 py-2 text-sm text-ink disabled:opacity-50 focus:outline-none"
+                    className="rounded-md border border-hairline bg-canvas px-2 py-2 text-sm text-ink disabled:opacity-50"
                   >
                     {models.length === 0 ? (
                       <option value="">Loading…</option>

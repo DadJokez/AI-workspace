@@ -354,7 +354,7 @@ function StatusSelect({
       value={value}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
-      className={`rounded-md border border-hairline bg-canvas px-2 py-1 text-[12px] text-ink outline-none focus:border-ink/30 ${className}`}
+      className={`rounded-md border border-hairline bg-canvas px-2 py-1 text-[12px] text-ink focus-visible:border-ink/30 ${className}`}
     >
       {STATUS_OPTIONS.map((option) => (
         <option key={option.value} value={option.value}>
@@ -461,14 +461,14 @@ function FeedbackNotesEditor({
         value={linkedIssueUrl}
         onChange={(e) => setLinkedIssueUrl(e.target.value)}
         placeholder="GitHub issue URL"
-        className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none focus:border-ink/30"
+        className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[12px] text-ink focus-visible:border-ink/30"
       />
       <textarea
         value={adminNotes}
         onChange={(e) => setAdminNotes(e.target.value)}
         placeholder="Admin notes"
         rows={3}
-        className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none focus:border-ink/30"
+        className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[12px] text-ink focus-visible:border-ink/30"
       />
       <button
         type="button"

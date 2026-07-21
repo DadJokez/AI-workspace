@@ -86,7 +86,7 @@ export function SkillForm({
   }
 
   const inputClass =
-    "w-full rounded-md border border-hairline bg-canvas px-3 py-2 text-[13px] text-ink placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-ink/30";
+    "w-full rounded-md border border-hairline bg-canvas px-3 py-2 text-[13px] text-ink placeholder:text-muted";
   const labelClass = "block text-[12px] font-medium text-muted";
 
   return (
