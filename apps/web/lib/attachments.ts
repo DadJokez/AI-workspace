@@ -8,8 +8,8 @@ import { findCredentialShapedContent } from "@/lib/secret-scan";
  */
 
 export const MAX_ATTACHMENTS = 5;
-export const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
-export const MAX_TOTAL_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+export const MAX_TOTAL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 export const MAX_ATTACHMENT_CHARS = 200_000;
 export const MAX_TOTAL_ATTACHMENT_CHARS = 400_000;
 
@@ -396,7 +396,9 @@ async function prepareAttachment(
 
   if (payload.dataBase64) {
     const buffer = Buffer.from(payload.dataBase64, "base64");
-    const sizeBytes = payload.sizeBytes ?? buffer.byteLength;
+    // The decoded bytes are authoritative at the server trust boundary. A
+    // stale or dishonest client-supplied size must not bypass upload caps.
+    const sizeBytes = buffer.byteLength;
     const extracted = await extractAttachmentText({ name, ext, mimeType, buffer });
     return {
       name,
@@ -422,7 +424,7 @@ async function prepareAttachment(
   }
 
   const content = payload.content ?? "";
-  const sizeBytes = payload.sizeBytes ?? Buffer.byteLength(content, "utf8");
+  const sizeBytes = Buffer.byteLength(content, "utf8");
   return {
     name,
     mimeType,

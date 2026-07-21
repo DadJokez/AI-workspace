@@ -1,19 +1,30 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Database } from "@ai-workspace/db";
+import { MAX_ATTACHMENT_BYTES } from "@/lib/attachments";
 import {
   checkRateLimit,
   checkRateLimitWithStore,
   contentLengthTooLarge,
   inMemoryRateLimitStore,
+  requestLimitConfig,
   resetRequestLimitBuckets,
 } from "@/lib/request-limits";
 
 afterEach(() => {
   resetRequestLimitBuckets();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("request limits", () => {
+  it("allows base64 and JSON overhead for one maximum-size attachment", () => {
+    vi.stubEnv("CHAT_MAX_REQUEST_BYTES", "");
+    const maxRequestBytes = requestLimitConfig().maxRequestBytes;
+    const base64Bytes = 4 * Math.ceil(MAX_ATTACHMENT_BYTES / 3);
+    expect(maxRequestBytes).toBe(16 * 1024 * 1024);
+    expect(maxRequestBytes - base64Bytes).toBeGreaterThan(2 * 1024 * 1024);
+  });
+
   it("detects oversized content-length headers", () => {
     expect(contentLengthTooLarge(new Headers({ "content-length": "11" }), 10))
       .toBe(true);

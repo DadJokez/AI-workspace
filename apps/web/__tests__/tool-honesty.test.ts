@@ -10,6 +10,18 @@ import { buildAgentPreamble } from "@/lib/agent-preamble";
  * (which keeps the tool mounted so the contradiction can't arise).
  */
 describe("tool-use honesty grounding", () => {
+  it("describes chat attachment support without claiming a file was received", () => {
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: [],
+    });
+    expect(preamble).toContain("this chat accepts supported files");
+    expect(preamble).toContain("never say that Comparative cannot receive file uploads");
+    expect(preamble).toContain(
+      "Never claim to have seen or read a file until its attachment content is actually present",
+    );
+  });
+
   it("forbids denying access to connected systems", () => {
     const preamble = buildAgentPreamble({
       user: { displayName: "Rob", customInstructions: null },

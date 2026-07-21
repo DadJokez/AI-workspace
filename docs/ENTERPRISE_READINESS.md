@@ -68,7 +68,8 @@ configuration presence only; they do not make a live model call.
 ## Rate Limits, Quotas, And Cost Guardrails
 
 Shipped pilot controls:
-- `CHAT_MAX_REQUEST_BYTES`: maximum request body size before parsing.
+- `CHAT_MAX_REQUEST_BYTES`: maximum request body size before parsing (16 MiB by
+  default, allowing one 10 MiB attachment plus base64 and JSON overhead).
 - `CHAT_MAX_MESSAGE_CHARS`: maximum user message length.
 - `CHAT_RATE_LIMIT_WINDOW_MS`: fixed-window duration.
 - `CHAT_RATE_LIMIT_REQUESTS`: per-user request count in the window.

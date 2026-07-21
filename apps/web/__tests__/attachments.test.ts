@@ -3,6 +3,7 @@ import {
   MAX_ATTACHMENTS,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENT_CHARS,
+  MAX_TOTAL_ATTACHMENT_BYTES,
   declaredAttachmentCountFromMessage,
   foldAttachmentsIntoPrompt,
   isSupportedAttachmentName,
@@ -62,12 +63,48 @@ describe("attachments", () => {
         {
           name: "big.txt",
           dataBase64: bigBytes.toString("base64"),
-          sizeBytes: bigBytes.byteLength,
+          // The server must use decoded bytes, not this untrusted claim.
+          sizeBytes: 1,
         },
       ];
       const r = await validateAttachments(big);
       expect(r.ok).toBe(false);
       expect(r.error).toMatch(/too large/i);
+    });
+
+    it("accepts a raw file at the 10 MiB boundary", async () => {
+      expect(MAX_ATTACHMENT_BYTES).toBe(10 * 1024 * 1024);
+      const boundaryBytes = Buffer.alloc(MAX_ATTACHMENT_BYTES);
+      const r = await validateAttachments([
+        {
+          name: "boundary.png",
+          mimeType: "image/png",
+          dataBase64: boundaryBytes.toString("base64"),
+          sizeBytes: 1,
+        },
+      ]);
+      expect(r.ok).toBe(true);
+      expect(r.attachments[0]?.sizeBytes).toBe(MAX_ATTACHMENT_BYTES);
+    });
+
+    it("rejects files whose decoded bytes exceed the aggregate cap", async () => {
+      expect(MAX_TOTAL_ATTACHMENT_BYTES).toBe(10 * 1024 * 1024);
+      const first = Buffer.alloc(6 * 1024 * 1024);
+      const second = Buffer.alloc(5 * 1024 * 1024);
+      const r = await validateAttachments([
+        {
+          name: "first.png",
+          mimeType: "image/png",
+          dataBase64: first.toString("base64"),
+        },
+        {
+          name: "second.png",
+          mimeType: "image/png",
+          dataBase64: second.toString("base64"),
+        },
+      ]);
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/too large in total/i);
     });
 
     it("truncates oversized extracted text instead of failing the turn", async () => {
