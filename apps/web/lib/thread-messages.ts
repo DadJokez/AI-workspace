@@ -28,6 +28,7 @@ import {
 } from "@/lib/workspace-artifacts";
 import { loadRecommendationsForMessages } from "@/lib/recommendation-persistence";
 import type { PersistedRecommendation } from "@/lib/recommendations";
+import type { ChatRuntimeLane } from "@/lib/chat-routing";
 
 export interface ChatRunOutput {
   assistantMessageId?: string;
@@ -44,6 +45,7 @@ export interface ThreadMessageWithActivity {
   content: string;
   modelId: string | null;
   runtime: string | null;
+  runtimeLane?: ChatRuntimeLane;
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
   /** Persisted per-turn usage for the cost meter (#330); null pre-#330 rows. */
@@ -165,6 +167,7 @@ export async function loadThreadMessagesWithRunActivity({
   }
 
   const activityByAssistantMessageId = new Map<string, AgentActivityEvent[]>();
+  const laneByAssistantMessageId = new Map<string, ChatRuntimeLane>();
   const appDraftVersionsByAssistantMessageId = new Map<
     string,
     AppDraftVersionSummary[]
@@ -192,10 +195,14 @@ export async function loadThreadMessagesWithRunActivity({
       }
     }
     const output = parseChatRunOutput(run.outputs);
+    const runtimeLane = chatRunLane(run.inputs);
     const activityEvents = runEventsToActivityEvents(
       eventsByRunId.get(run.id) ?? [],
     );
     if (output.assistantMessageId) {
+      if (runtimeLane) {
+        laneByAssistantMessageId.set(output.assistantMessageId, runtimeLane);
+      }
       if (activityEvents.length > 0) {
         activityByAssistantMessageId.set(
           output.assistantMessageId,
@@ -230,6 +237,7 @@ export async function loadThreadMessagesWithRunActivity({
       }),
       modelId: run.modelId,
       runtime: run.runtime,
+      ...(runtimeLane ? { runtimeLane } : {}),
       toolCalls: output.toolCalls ?? null,
       toolResults: output.toolResults ?? null,
       artifacts: output.artifacts,
@@ -318,6 +326,7 @@ export async function loadThreadMessagesWithRunActivity({
 
   const messages = messageRows.map((message) => ({
     ...message,
+    runtimeLane: laneByAssistantMessageId.get(message.id),
     toolCalls: toToolCalls(message.toolCalls),
     toolResults: toToolResults(message.toolResults),
     artifacts: artifactsByMessageId.get(message.id),
@@ -429,6 +438,16 @@ function hasArtifactLikePartialOutput(
 
 function hasArtifactContextTarget(inputs: unknown): boolean {
   return isRecord(inputs) && isRecord(inputs.artifactContextTarget);
+}
+
+export function chatRunLane(inputs: unknown): ChatRuntimeLane | undefined {
+  if (!isRecord(inputs) || !isRecord(inputs.runtimeRoute)) return undefined;
+  const lane = inputs.runtimeRoute.lane;
+  return lane === "fast-local" ||
+    lane === "tool-local" ||
+    lane === "durable-local"
+    ? lane
+    : undefined;
 }
 
 function parseChatRunOutput(value: unknown): ChatRunOutput {

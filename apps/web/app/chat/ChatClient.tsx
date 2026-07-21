@@ -47,6 +47,7 @@ import {
   chatTranscriptFilename,
 } from "@/lib/chat-export";
 import type { ChatModelOverride } from "@/lib/model-command";
+import type { ChatRuntimeLane } from "@/lib/chat-routing";
 import { readSseStream } from "@/lib/sse";
 import {
   shouldReloadThread,
@@ -84,7 +85,9 @@ interface UiMessage {
   id: string;
   role: "user" | "assistant" | "tool";
   content: string;
+  createdAt?: string;
   modelId?: string;
+  runtimeLane?: ChatRuntimeLane;
   tokensIn?: number | null;
   tokensOut?: number | null;
   pending?: boolean;
@@ -217,6 +220,7 @@ interface ThreadMessage {
   role: "user" | "assistant" | "tool";
   content: string;
   modelId: string | null;
+  runtimeLane?: ChatRuntimeLane;
   runtime: "bedrock" | "agentcore" | string | null;
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
@@ -247,7 +251,9 @@ function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
     id: message.id,
     role: message.role,
     content: message.content,
+    createdAt: message.createdAt,
     modelId: message.modelId ?? undefined,
+    runtimeLane: message.runtimeLane,
     tokensIn: message.tokensIn,
     tokensOut: message.tokensOut,
     pending: message.pending,
@@ -477,6 +483,27 @@ function formatChatError(err: unknown): string {
   return message;
 }
 
+function parseRuntimeLane(value: unknown): ChatRuntimeLane | undefined {
+  return value === "fast-local" ||
+    value === "tool-local" ||
+    value === "durable-local"
+    ? value
+    : undefined;
+}
+
+function runtimeLaneLabel(lane: ChatRuntimeLane | undefined): string | null {
+  if (lane === "fast-local") return "Fast";
+  if (lane === "tool-local") return "Tools";
+  if (lane === "durable-local") return "Durable";
+  return null;
+}
+
+function compactModelName(name: string | undefined): string | undefined {
+  return name
+    ?.replace(/^(Anthropic\s+)?Claude\s+/i, "")
+    .replace(/^Amazon\s+/i, "");
+}
+
 const STICK_BOTTOM_THRESHOLD = 100;
 
 interface ChatClientProps {
@@ -491,6 +518,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   const [defaultModelId, setDefaultModelId] =
     useState<string>(FALLBACK_DEFAULT_MODEL_ID);
   const [runtimeV2Enabled, setRuntimeV2Enabled] = useState(false);
+  const [messageClock, setMessageClock] = useState(() => Date.now());
   const [tabs, setTabs] = useState<ChatTab[]>(() => [makeFreshTab()]);
   const [activeId, setActiveId] = useState<string>(() => tabs[0]!.id);
   const [user, setUser] = useState<UserResponse["user"] | undefined>();
@@ -550,6 +578,14 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   const inspectedMessage = inspectedRunId
     ? activeTab?.messages.find((message) => message.runId === inspectedRunId)
     : undefined;
+
+  useEffect(() => {
+    const intervalId = window.setInterval(
+      () => setMessageClock(Date.now()),
+      60_000,
+    );
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   useEffect(() => {
     if (user?.role !== "admin") return;
@@ -1494,6 +1530,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     const originalMessages = activeTab.messages;
     const userMsgId = replaceMessageId ?? crypto.randomUUID();
     const assistantMsgId = crypto.randomUUID();
+    const turnCreatedAt = new Date().toISOString();
     const modelId = activeTab.modelId ?? defaultModelId;
     const requestedModelId =
       modelOverride?.mode === "model" ? modelOverride.modelId : modelId;
@@ -1535,6 +1572,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
           id: userMsgId,
           role: "user",
           content: `${text}${attachmentNote}${replayNote}`,
+          createdAt: turnCreatedAt,
           hasAttachments:
             Boolean(attachments?.length) || Boolean(replaced?.hasAttachments),
           // A fresh upload is replayable by construction once persisted; a
@@ -1549,6 +1587,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
         id: assistantMsgId,
         role: "assistant",
         content: "",
+        createdAt: turnCreatedAt,
         pending: true,
         status: activatedSkill
           ? `Activated ${activatedSkill.name}…`
@@ -1593,6 +1632,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
 
       let assistantText = "";
       let assistantModel: string | undefined;
+      let assistantLane: ChatRuntimeLane | undefined;
       let queuedRun = false;
       let queuedRunMessageId: string | undefined;
       let streamRunId: string | undefined;
@@ -1615,13 +1655,21 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
             );
           }
           if (typeof ev.modelId === "string") assistantModel = ev.modelId;
-          const route = ev.runtimeRoute as { useWorker?: unknown } | undefined;
+          const route = ev.runtimeRoute as
+            | { useWorker?: unknown; lane?: unknown }
+            | undefined;
+          assistantLane = parseRuntimeLane(route?.lane);
           if (typeof ev.runId === "string") {
             streamRunId = ev.runId;
             patchTabMessages(tabId, (prev) =>
               prev.map((message) =>
                 isDraftMessage(message)
-                  ? { ...message, runId: streamRunId }
+                  ? {
+                      ...message,
+                      modelId: assistantModel,
+                      runtimeLane: assistantLane,
+                      runId: streamRunId,
+                    }
                   : message,
               ),
             );
@@ -1637,6 +1685,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                       ...m,
                       id: runMessageId,
                       modelId: assistantModel,
+                      runtimeLane: assistantLane,
                       runId: streamRunId,
                     }
                   : m,
@@ -1647,7 +1696,13 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
           assistantModel = ev.modelId;
           patchTabMessages(tabId, (prev) =>
             prev.map((m) =>
-              isDraftMessage(m) ? { ...m, modelId: assistantModel } : m,
+              isDraftMessage(m)
+                ? {
+                    ...m,
+                    modelId: assistantModel,
+                    runtimeLane: assistantLane,
+                  }
+                : m,
             ),
           );
         } else if (ev.type === "text-delta" && typeof ev.delta === "string") {
@@ -1661,6 +1716,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                     pending: true,
                     status: undefined,
                     modelId: assistantModel,
+                    runtimeLane: assistantLane,
                     livePhase: "finalizing",
                   }
                 : m,
@@ -1795,6 +1851,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                     pending: true,
                     status,
                     modelId: assistantModel,
+                    runtimeLane: assistantLane,
                   }
                 : m,
             ),
@@ -1832,6 +1889,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                     livePhase: undefined,
                     liveTokens: undefined,
                     modelId: assistantModel,
+                    runtimeLane: assistantLane,
                     artifacts,
                     appDraftVersions,
                     recommendations,
@@ -2040,6 +2098,13 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   const lastAssistantMessage = [...messages]
     .reverse()
     .find((message) => message.role === "assistant");
+  const resolvedModel = lastAssistantMessage?.modelId
+    ? models.find((model) => model.id === lastAssistantMessage.modelId)
+    : undefined;
+  const resolvedModelName =
+    resolvedModel?.displayName ?? lastAssistantMessage?.modelId;
+  const compactResolvedModelName = compactModelName(resolvedModelName);
+  const resolvedLaneName = runtimeLaneLabel(lastAssistantMessage?.runtimeLane);
   const lastArtifact = [...messages]
     .reverse()
     .flatMap((message) => message.artifacts ?? [])
@@ -2128,6 +2193,35 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                       options={models}
                       disabled={busy || activeHasPendingRun}
                     />
+                  ) : null}
+                  {runtimeV2Enabled ? (
+                    <div
+                      data-testid="resolved-model-chip"
+                      aria-label={
+                        resolvedModelName
+                          ? `Resolved model: ${resolvedModelName}${resolvedLaneName ? `, ${resolvedLaneName} lane` : ""}`
+                          : "Model selected automatically when the assistant responds"
+                      }
+                      title={
+                        resolvedModelName
+                          ? `Resolved model: ${resolvedModelName}${resolvedLaneName ? ` · ${resolvedLaneName} lane` : ""}`
+                          : "Comparative selects the model automatically for each turn"
+                      }
+                      className="flex h-7 min-w-0 max-w-20 shrink items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 text-2xs text-muted sm:max-w-56"
+                    >
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-info" />
+                      <span className="min-w-0 truncate sm:hidden">
+                        {compactResolvedModelName ?? "Auto"}
+                      </span>
+                      <span className="hidden min-w-0 truncate sm:inline">
+                        {resolvedModelName ?? "Auto model"}
+                      </span>
+                      {resolvedLaneName ? (
+                        <span className="hidden shrink-0 border-l border-hairline pl-1.5 sm:inline">
+                          {resolvedLaneName}
+                        </span>
+                      ) : null}
+                    </div>
                   ) : null}
                   <button
                     type="button"
@@ -2240,6 +2334,8 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                   <MessageBubble
                     role={m.role}
                     content={m.content}
+                    createdAt={m.createdAt}
+                    nowMs={messageClock}
                     modelId={m.modelId}
                     tokensIn={m.tokensIn}
                     tokensOut={m.tokensOut}

@@ -20,6 +20,7 @@ import type {
 import type { AppDraftVersionSummary } from "@/lib/app-draft-versions";
 import { escapeBareOrderedListMarkers } from "@/lib/chat-markdown";
 import { parseSlashDisplayMessage } from "@/lib/skill-commands";
+import { formatMessageTimestamp } from "@/lib/message-time";
 import { useEffect, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -32,6 +33,8 @@ import remarkGfm from "remark-gfm";
 interface Props {
   role: "user" | "assistant" | "tool";
   content: string;
+  createdAt?: string;
+  nowMs?: number;
   modelId?: string;
   tokensIn?: number | null;
   tokensOut?: number | null;
@@ -61,6 +64,8 @@ interface Props {
 export function MessageBubble({
   role,
   content,
+  createdAt,
+  nowMs,
   modelId,
   tokensIn,
   tokensOut,
@@ -82,6 +87,11 @@ export function MessageBubble({
   appDraftPendingId,
   onEdit,
 }: Props) {
+  const timestamp =
+    typeof nowMs === "number"
+      ? formatMessageTimestamp(createdAt, nowMs)
+      : null;
+
   if (role === "user") {
     const slashDisplay = parseSlashDisplayMessage(content);
     return (
@@ -89,6 +99,16 @@ export function MessageBubble({
         data-testid="user-message"
         className="group flex w-full min-w-0 max-w-full items-center justify-end overflow-hidden"
       >
+        {timestamp ? (
+          <time
+            dateTime={timestamp.iso}
+            title={timestamp.iso}
+            data-testid="user-message-time"
+            className="mr-1 shrink-0 text-2xs text-muted opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
+          >
+            {timestamp.label}
+          </time>
+        ) : null}
         {onEdit ? (
           <button
             type="button"
@@ -164,6 +184,16 @@ export function MessageBubble({
         <div className="text-2xs font-medium tracking-wide text-muted">
           {label}
         </div>
+        {timestamp ? (
+          <time
+            dateTime={timestamp.iso}
+            title={timestamp.iso}
+            data-testid="assistant-message-time"
+            className="shrink-0 text-2xs text-muted/80"
+          >
+            {timestamp.label}
+          </time>
+        ) : null}
         {role === "assistant" && !pending ? (
           (() => {
             const meter = formatTurnMeter(modelId, tokensIn, tokensOut);
