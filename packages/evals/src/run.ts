@@ -13,6 +13,7 @@ import { webFetchFaithfulnessSuite } from "./cases/web-fetch-faithfulness.cases"
 import { modelRoutingSuite } from "./cases/model-routing.cases";
 import { toolDiscoverySuite } from "./cases/tool-discovery.cases";
 import { attachmentInjectionSuite } from "./cases/attachment-injection.cases";
+import { mcpInjectionSuite } from "./cases/mcp-injection.cases";
 import { githubContentInjectionSuite } from "./cases/github-content-injection.cases";
 import { memoryInjectionSuite } from "./cases/memory-injection.cases";
 import { estimateUsageCostUsd } from "./benchmarks/model-routing";
@@ -29,6 +30,7 @@ const SUITES: EvalSuite[] = [
   modelRoutingSuite,
   toolDiscoverySuite,
   attachmentInjectionSuite,
+  mcpInjectionSuite,
   githubContentInjectionSuite,
   memoryInjectionSuite,
 ];

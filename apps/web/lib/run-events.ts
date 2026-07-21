@@ -525,7 +525,6 @@ function runEventDetail(event: {
       : [];
     const parts = [
       vaultDetail(vault),
-      boolLabel(work?.threadSummaryInjected, "thread summary"),
       boolLabel(work?.artifactContextInjected, "artifact context"),
       boolLabel(work?.uploadedFilesInjected, "uploaded files"),
       Array.isArray(tools?.mounted) && tools.mounted.length > 0

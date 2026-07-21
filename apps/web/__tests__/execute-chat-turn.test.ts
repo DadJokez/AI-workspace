@@ -31,9 +31,6 @@ vi.mock("@/lib/capability-graph", () => ({
 vi.mock("@/lib/audit-tool-events", () => ({
   buildToolAuditRows: vi.fn(() => []),
 }));
-vi.mock("@/lib/chat-routing", () => ({
-  toolDiscoveryModeFromEnv: vi.fn(() => "off"),
-}));
 vi.mock("@/lib/thread-activation", () => ({
   persistActivationFromEvent: vi.fn(async ({ currentSignature }) => currentSignature),
 }));
@@ -140,6 +137,7 @@ vi.mock("@/lib/notifications", () => ({
 import {
   buildTimingMetrics,
   executeChatTurn,
+  throttleCancellationCheck,
   type ChatRunTimingMarks,
   type ExecuteChatTurnInput,
 } from "@/lib/execute-chat-turn";
@@ -369,6 +367,58 @@ describe("executeChatTurn — denied-provider attestation audit (#442 drift fix)
       status: "denied",
       provider: "salesforce",
     });
+  });
+});
+
+describe("executeChatTurn — assistant-message audit parity (#456)", () => {
+  function messageAuditRows(state: FakeDbState) {
+    return state.inserts
+      .filter((insert) => insert.table === auditLog)
+      .flatMap((insert) =>
+        (Array.isArray(insert.values)
+          ? (insert.values as Array<Record<string, unknown>>)
+          : [insert.values as Record<string, unknown>]
+        ).filter((row) => row.actionType === "chat_message_create"),
+      );
+  }
+
+  it("audits the persisted assistant message on the interactive lane", async () => {
+    const { input, state } = inlineInput();
+    await executeChatTurn(input);
+
+    const rows = messageAuditRows(state);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actorUserId: "user-1",
+      actionType: "chat_message_create",
+      status: "succeeded",
+      chatThreadId: "thread-1",
+      runId: "run-1",
+      input: { role: "assistant", lane: "inline" },
+    });
+  });
+
+  it("audits the persisted assistant message identically on the worker lane", async () => {
+    const { input, state } = workerInput();
+    await executeChatTurn(input);
+
+    const rows = messageAuditRows(state);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actionType: "chat_message_create",
+      status: "succeeded",
+      input: { role: "assistant", lane: "worker" },
+    });
+  });
+
+  it("does not audit a message when nothing was persisted", async () => {
+    // Worker resume path: assistantMessageId already exists in prior outputs,
+    // so no new chat_messages row and no new audit row.
+    const { input, state, run } = workerInput();
+    run.outputs = { assistantMessageId: "existing-msg" };
+    await executeChatTurn(input);
+
+    expect(messageAuditRows(state)).toHaveLength(0);
   });
 });
 
@@ -604,5 +654,61 @@ describe("buildTimingMetrics", () => {
 
     expect(metrics.requestToFirstTokenMs).toBeUndefined();
     expect(metrics.providerToFirstTokenMs).toBeUndefined();
+  });
+});
+
+describe("throttleCancellationCheck (#452 worker cancel cadence)", () => {
+  it("polls immediately on the first call, then at most once per interval", async () => {
+    let clock = 0;
+    const probe = vi.fn(async () => false);
+    const check = throttleCancellationCheck(probe, {
+      intervalMs: 2_000,
+      now: () => clock,
+    });
+
+    expect(await check()).toBe(false);
+    expect(probe).toHaveBeenCalledTimes(1);
+
+    // A burst of streamed events inside the interval never touches the DB.
+    for (clock of [1, 500, 1_999]) {
+      expect(await check()).toBe(false);
+    }
+    expect(probe).toHaveBeenCalledTimes(1);
+
+    clock = 2_000;
+    expect(await check()).toBe(false);
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports cancellation on the first poll after the run is canceled", async () => {
+    let clock = 0;
+    let status = false;
+    const probe = vi.fn(async () => status);
+    const check = throttleCancellationCheck(probe, {
+      intervalMs: 2_000,
+      now: () => clock,
+    });
+
+    expect(await check()).toBe(false);
+    status = true;
+    clock = 100; // still inside the interval — cached value
+    expect(await check()).toBe(false);
+    clock = 2_100;
+    expect(await check()).toBe(true);
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it("latches cancellation without re-polling", async () => {
+    let clock = 0;
+    const probe = vi.fn(async () => true);
+    const check = throttleCancellationCheck(probe, {
+      intervalMs: 2_000,
+      now: () => clock,
+    });
+
+    expect(await check()).toBe(true);
+    clock = 60_000;
+    expect(await check()).toBe(true);
+    expect(probe).toHaveBeenCalledTimes(1);
   });
 });

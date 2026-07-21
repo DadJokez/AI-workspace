@@ -1,4 +1,4 @@
-import { getDb, schedules } from "@ai-workspace/db";
+import { auditLog, getDb, schedules } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
@@ -75,6 +75,21 @@ export async function PATCH(req: Request, { params }: RouteContext) {
     .where(eq(schedules.id, schedule.id))
     .returning();
 
+  // #456: schedule changes alter what runs autonomously on the user's
+  // behalf — create is already audited; update/delete now match.
+  const updateAuditNow = new Date();
+  await db.insert(auditLog).values({
+    actorUserId: sessionUser.id,
+    actionType: "schedule_update",
+    status: "succeeded",
+    provider: "ai-hub",
+    toolName: "schedule_update",
+    input: { scheduleId: schedule.id, skillId: schedule.skillId },
+    metadata: { updates: Object.keys(updates) },
+    startedAt: updateAuditNow,
+    completedAt: updateAuditNow,
+  });
+
   return NextResponse.json({ schedule: updated[0] });
 }
 
@@ -93,5 +108,16 @@ export async function DELETE(_req: Request, { params }: RouteContext) {
   if (!rows[0]) {
     return NextResponse.json({ error: "schedule_not_found" }, { status: 404 });
   }
+  const deleteAuditNow = new Date();
+  await db.insert(auditLog).values({
+    actorUserId: sessionUser.id,
+    actionType: "schedule_delete",
+    status: "succeeded",
+    provider: "ai-hub",
+    toolName: "schedule_delete",
+    input: { scheduleId: rows[0].id },
+    startedAt: deleteAuditNow,
+    completedAt: deleteAuditNow,
+  });
   return NextResponse.json({ ok: true });
 }

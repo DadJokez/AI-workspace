@@ -69,8 +69,6 @@ export interface ThreadSummary {
   id: string;
   title: string | null;
   defaultModelId: string;
-  summary: string | null;
-  summaryUpdatedAt: string | null;
   previewSummary: string | null;
   previewSummaryUpdatedAt: string | null;
   titleSource: string;
@@ -105,11 +103,9 @@ interface Props {
 
 function threadPreviewText(thread: ThreadSummary): string | null {
   const title = thread.title?.trim();
-  const raw = [thread.previewSummary, thread.summary]
-    .map((value) => value?.trim())
-    .find((value) => value && isUsefulThreadPreview(value, title));
+  const raw = thread.previewSummary?.trim();
 
-  return raw ? trimWords(raw, 42) : null;
+  return raw && isUsefulThreadPreview(raw, title) ? trimWords(raw, 42) : null;
 }
 
 function isUsefulThreadPreview(value: string, title?: string): boolean {

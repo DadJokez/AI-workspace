@@ -1,0 +1,84 @@
+name: Merge Gate Audit
+
+# #479: this private repo's plan has no branch protection, so nothing
+# server-side stops a merge (or direct push) with red or absent checks. This
+# workflow is the backstop: after every push to main it re-verifies that the
+# merged PR's head SHA had the full gate green (CI + Product Smoke +
+# `Claude verdict`). A violation — or a direct push with no PR at all — files
+# a labeled incident issue within a minute and fails loudly on the main
+# commit. It cannot prevent a bypass; it makes a silent one impossible.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  statuses: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: merge-gate-audit-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Verify the merged PR's gate was green
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          marker="<!-- merge-gate-audit: $SHA -->"
+
+          file_incident() {
+            local title="$1" body="$2"
+            # One incident per main commit, even across reruns.
+            if gh api "repos/$GH_REPO/issues?state=open&labels=ops&per_page=100" \
+                --jq '.[].body' | grep -qF "$marker"; then
+              echo "Incident already filed for $SHA."
+              return 0
+            fi
+            # Body built via printf: a multiline string literal here would
+            # need column-1 lines, which terminate this YAML block scalar.
+            gh issue create --title "$title" --label security --label ops \
+              --body "$(printf '%s\n\n%s\n%s' "$body" "$marker" \
+                '🤖 Filed automatically by the Merge Gate Audit workflow.')"
+          }
+
+          # Resolve the PR this main commit came from (squash merge commit).
+          pr=$(gh api "repos/$GH_REPO/commits/$SHA/pulls" \
+            --jq "[.[] | select(.merge_commit_sha==\"$SHA\")][0].number // empty")
+
+          if [ -z "$pr" ]; then
+            file_incident \
+              "INCIDENT: direct push to main ($SHA) bypassed the PR gate" \
+              "Commit \`$SHA\` was pushed to main by \`$ACTOR\` without an associated merged PR. Direct pushes are break-glass only (see docs/AI_PR_REVIEW_PIPELINE.md); if this was intentional, note why here and close."
+            echo "::error::Direct push to main detected ($SHA)."
+            exit 1
+          fi
+
+          head=$(gh api "repos/$GH_REPO/pulls/$pr" --jq .head.sha)
+          echo "Auditing PR #$pr (head $head) merged as $SHA."
+
+          if ! ./scripts/verify-pr-gate.sh "$pr" "$head"; then
+            file_incident \
+              "INCIDENT: PR #$pr merged with an unverified gate" \
+              "PR #$pr was merged as \`$SHA\` but its head SHA \`$head\` did not have the full gate green (CI + Product Smoke + Claude verdict) at audit time. See the failed [audit run](${{ github.server_url }}/$GH_REPO/actions/runs/${{ github.run_id }}) for the exact red/missing checks. This is the #479 incident class — investigate before building on this commit."
+            echo "::error::Merge gate audit failed for PR #$pr ($SHA)."
+            exit 1
+          fi
+
+          echo "Gate verified green for PR #$pr at $head."

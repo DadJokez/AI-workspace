@@ -58,7 +58,6 @@ export interface ChatContextItem {
     | "custom_instruction"
     | "vault_memory"
     | "recent_message"
-    | "thread_summary"
     | "artifact_context"
     | "uploaded_file"
     | "capability_graph"
@@ -119,7 +118,6 @@ export interface ChatContextReceipt {
   };
   work: {
     recentMessages: number;
-    threadSummaryInjected: boolean;
     artifactContextInjected: boolean;
     artifactContextChars: number;
     uploadedFilesInjected: boolean;
@@ -171,7 +169,6 @@ export interface ChatContextPack {
     reconnectRequired: ChatContextProviderItem[];
   };
   work: {
-    threadSummary?: ChatContextItem;
     recentMessages: ChatContextItem[];
     artifacts: ChatContextItem[];
     uploadedFiles: ChatContextItem[];
@@ -183,7 +180,6 @@ export interface ChatContextPack {
 export interface BuildChatContextPackInput {
   user: ChatContextUser;
   messages: AgentMessage[];
-  threadSummary?: string | null;
   vaultMarkdown?: string | null;
   vaultContextRequested: boolean;
   providerStatus: UserMcpProviderStatus;
@@ -215,7 +211,6 @@ export interface BuildChatContextPackInput {
 export function buildChatContextPack({
   user,
   messages,
-  threadSummary,
   vaultMarkdown,
   vaultContextRequested,
   providerStatus,
@@ -275,19 +270,6 @@ export function buildChatContextPack({
     checked: vaultContextRequested,
     injected: shouldRenderPreamble && vault.length > 0,
   });
-  const threadSummaryItem = threadSummary?.trim()
-    ? contextItem({
-        id: "thread:summary",
-        type: "thread_summary",
-        label: "Thread summary",
-        source: "chat_threads.summary",
-        owner: "workspace",
-        freshness: "recent_thread",
-        visibility: "hidden_prompt",
-        injected: true,
-        charCount: threadSummary.trim().length,
-      })
-    : undefined;
   const recentMessageItems = messages.map((message, index) =>
     contextItem({
       id: `thread:message:${index + 1}`,
@@ -381,7 +363,6 @@ export function buildChatContextPack({
     ...profileFacts,
     ...(customInstructions ? [customInstructions] : []),
     ...vaultMemory,
-    ...(threadSummaryItem ? [threadSummaryItem] : []),
     ...recentMessageItems,
     ...artifactItems,
     ...uploadedFileItems,
@@ -416,7 +397,6 @@ export function buildChatContextPack({
     },
     work: {
       recentMessages: messages.length,
-      threadSummaryInjected: Boolean(threadSummary?.trim()),
       artifactContextInjected: artifacts.length > 0,
       artifactContextChars: artifacts.length,
       uploadedFilesInjected: uploadedFiles.length > 0,
@@ -542,7 +522,6 @@ export function buildChatContextPack({
       ),
     },
     work: {
-      ...(threadSummaryItem ? { threadSummary: threadSummaryItem } : {}),
       recentMessages: recentMessageItems,
       artifacts: artifactItems,
       uploadedFiles: uploadedFileItems,
@@ -602,7 +581,6 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
   );
   lines.push(
     `- Work context: ${receipt.work.recentMessages} recent message(s); ` +
-      `summary ${receipt.work.threadSummaryInjected ? "included" : "not included"}; ` +
       `artifacts ${receipt.work.artifactContextInjected ? "included" : "not included"}; ` +
       `uploaded files ${formatList(receipt.work.uploadedFiles.map((file) => file.name))}.`,
   );

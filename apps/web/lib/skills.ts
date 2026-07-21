@@ -18,18 +18,6 @@ import {
 import { appendRunEventWithNextSequence } from "@/lib/run-events";
 import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
-/**
- * Trigger types whose runs execute on the shared chat-run worker. Chat turns
- * are identified by `skill_slug = "chat-turn"` for historical reasons; skill
- * and scheduled runs are identified by trigger type so any skill slug works.
- */
-export const SKILL_RUN_TRIGGER_TYPES = [
-  "skill",
-  "scheduled",
-  "github_event",
-  "skill_retry",
-] as const;
-
 export interface SkillInput {
   name: string;
   description: string | null;

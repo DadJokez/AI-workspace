@@ -7,10 +7,7 @@ import {
   parseChatExecutionMode,
   type ChatExecutionMode,
 } from "@/lib/chat-execution-mode";
-import {
-  chatRoutingModeFromEnv,
-  type ChatRuntimeRoute,
-} from "@/lib/chat-routing";
+import type { ChatRoutingMode, ChatRuntimeRoute } from "@/lib/chat-routing";
 import { parseWorkspaceArtifactVersionTarget } from "@/lib/artifact-revisions";
 import type { PinnedActiveSkill } from "@/lib/pinned-context";
 import { appendRunEventBestEffort } from "@/lib/run-events";
@@ -603,12 +600,9 @@ function parseStoredRuntimeRoute(value: unknown): ChatRuntimeRoute | undefined {
   }
   return {
     lane: value.lane,
-    routingMode: chatRoutingModeFromEnv(
-      typeof value.routingMode === "string" ? value.routingMode : "regex",
-    ),
+    routingMode: parseStoredRoutingMode(value.routingMode),
     executionMode: parseChatExecutionMode(value.executionMode),
     runtimeTarget: value.runtimeTarget,
-    runtimeV2: value.runtimeV2 === true,
     useWorker: value.useWorker === true,
     useMcp: value.useMcp === true,
     includeVaultContext: value.includeVaultContext === true,
@@ -620,15 +614,20 @@ function parseStoredRuntimeRoute(value: unknown): ChatRuntimeRoute | undefined {
   };
 }
 
+/**
+ * Legacy persisted runs may predate the deleted regex routing engine; keep
+ * whatever mode they recorded so receipts stay honest about how they ran.
+ */
+function parseStoredRoutingMode(value: unknown): ChatRoutingMode {
+  return value === "model-decided" ? "model-decided" : "regex";
+}
+
 function defaultWorkerRuntimeRoute(inputs: ChatRunInputs): ChatRuntimeRoute {
   return {
     lane: "durable-local",
-    routingMode: chatRoutingModeFromEnv(
-      typeof inputs.routingMode === "string" ? inputs.routingMode : "regex",
-    ),
+    routingMode: parseStoredRoutingMode(inputs.routingMode),
     executionMode: inputs.executionMode,
     runtimeTarget: "agentcore-worker",
-    runtimeV2: inputs.runtimeV2 === true,
     useWorker: true,
     useMcp: true,
     includeVaultContext: true,

@@ -216,17 +216,19 @@ export const chatThreads = pgTable(
      * joined with `,` (e.g. `"github"` or `"github,notion"`). Providers are
      * only ever ADDED for the life of the thread — stickiness is the
      * tools-cache guarantee. Written by `ensureThreadActivation`
-     * (apps/web/lib/thread-activation.ts) when TOOL_DISCOVERY is on.
+     * (apps/web/lib/thread-activation.ts).
      * NULL/empty = nothing activated yet. (The column predates #384 with
      * this exact format documented but no writers.)
      */
     mcpSignature: text("mcp_signature"),
     /**
-     * Rolling summary of durable thread context. Used by per-turn runtime
-     * execution to avoid replaying the entire raw conversation forever.
+     * Reserved for a rolling summary of durable thread context. No writer has
+     * shipped (#413/#416 territory), so this is NULL for every thread today;
+     * nothing reads it. Columns kept so a future summarizer needs no
+     * migration.
      */
     summary: text("summary"),
-    /** Last time the rolling summary was regenerated. NULL = never summarized. */
+    /** See `summary` — no writer shipped; NULL everywhere. */
     summaryUpdatedAt: timestamp("summary_updated_at", { withTimezone: true }),
     /**
      * Short user-facing recap for sidebar hover previews. Separate from the

@@ -102,7 +102,7 @@ describe("context portability", () => {
     ]);
   });
 
-  it("turn-context templates (summary + model provenance) are provider-neutral", () => {
+  it("turn-context templates (model provenance) are provider-neutral", () => {
     const context = buildTurnContext({
       messages: [
         {
@@ -112,7 +112,6 @@ describe("context portability", () => {
         },
         { role: "user", content: "Follow-up question?" },
       ],
-      threadSummary: "A neutral rolling summary of the thread.",
     });
     const text = context
       .map((m) => (typeof m.content === "string" ? m.content : ""))

@@ -49,28 +49,12 @@ const catalogRows = [
 ];
 
 describe("buildTurnToolDiscovery", () => {
-  it("parity mode activates every granted provider with no catalog", async () => {
-    const { db, set } = mockDb();
-    const result = await buildTurnToolDiscovery({
-      db,
-      thread: { id: "t1", mcpSignature: null },
-      grantedProviders: ["github", "google"],
-      mode: "parity",
-    });
-    expect(result.activatedProviders).toEqual(["github", "google"]);
-    expect(result.catalog).toBeUndefined();
-    expect(set).toHaveBeenCalledWith(
-      expect.objectContaining({ mcpSignature: "github,google" }),
-    );
-  });
-
-  it("on mode starts new conversations at granted ∩ core plus the catalog", async () => {
+  it("starts new conversations at granted ∩ core plus the catalog", async () => {
     const { db } = mockDb(catalogRows);
     const result = await buildTurnToolDiscovery({
       db,
       thread: { id: "t1", mcpSignature: null },
       grantedProviders: ["github", "google", "salesforce"],
-      mode: "on",
     });
     // github (heavy) stays discoverable; the light core mounts.
     expect(result.activatedProviders).toEqual(["google", "salesforce"]);
@@ -102,7 +86,6 @@ describe("buildTurnToolDiscovery", () => {
       db,
       thread: { id: "t1", mcpSignature: null },
       grantedProviders: ["github", "notion"],
-      mode: "on",
     });
     expect(result.discoverableProviders).toEqual(["github"]);
     expect(
@@ -112,13 +95,12 @@ describe("buildTurnToolDiscovery", () => {
     expect(result.activatedProviders).not.toContain("notion");
   });
 
-  it("on mode keeps prior activations sticky and drops revoked grants", async () => {
+  it("keeps prior activations sticky and drops revoked grants", async () => {
     const { db } = mockDb(catalogRows);
     const result = await buildTurnToolDiscovery({
       db,
       thread: { id: "t1", mcpSignature: "github,notion" },
       grantedProviders: ["github", "google"],
-      mode: "on",
     });
     // github persists (sticky); notion is no longer granted so it neither
     // mounts nor resurfaces; core google joins.
@@ -135,7 +117,6 @@ describe("buildTurnToolDiscovery", () => {
       db,
       thread: { id: "t1", mcpSignature: null },
       grantedProviders: ["github", "google", "salesforce"],
-      mode: "on",
       userMessage: "can you check my GitHub PRs?",
     });
     // github would normally stay discoverable; naming it mounts it this
@@ -154,7 +135,6 @@ describe("buildTurnToolDiscovery", () => {
       db,
       thread: { id: "t1", mcpSignature: null },
       grantedProviders: ["google"],
-      mode: "on",
       userMessage: "check my GitHub and Notion",
     });
     // github/notion are named but not granted — only granted core mounts.
@@ -167,7 +147,6 @@ describe("buildTurnToolDiscovery", () => {
       db,
       thread: { id: "t1", mcpSignature: null },
       grantedProviders: ["github", "google", "salesforce"],
-      mode: "on",
       skillProviders: ["github"],
     });
     // The skill declares github; core google/salesforce do NOT auto-mount.
@@ -180,7 +159,6 @@ describe("buildTurnToolDiscovery", () => {
       db,
       thread: { id: "t1", mcpSignature: null },
       grantedProviders: ["github", "google", "salesforce"],
-      mode: "on",
       skillProviders: ["salesforce"],
       userMessage: "cross-reference with GitHub",
     });

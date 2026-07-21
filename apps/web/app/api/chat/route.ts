@@ -16,9 +16,7 @@ import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
 import {
   applyActivatedSkillRoute,
   buildChatRouteReceipt,
-  chatRoutingModeFromEnv,
   decideChatRuntimeRoute,
-  runtimeV2EnabledFromEnv,
 } from "@/lib/chat-routing";
 import { loadUserCapabilityGraph } from "@/lib/capability-graph";
 import {
@@ -189,8 +187,6 @@ export async function POST(req: Request) {
   const modelOverride =
     modelCommand?.override.mode === "model" || body.modelOverride === true;
   const executionMode = parseChatExecutionMode(body.executionMode);
-  const runtimeV2 = runtimeV2EnabledFromEnv();
-  const routingMode = chatRoutingModeFromEnv();
   // #432: the browser's timezone grounds "today"/"tomorrow" for interactive
   // turns. Anything that is not a real IANA zone is treated as absent — an
   // arbitrary request string must never reach the prompt.
@@ -422,10 +418,7 @@ export async function POST(req: Request) {
   let runtimeRoute = decideChatRuntimeRoute({
     message: effectiveUserMessage,
     executionMode,
-    runtimeV2,
-    routingMode,
     priorUserMessages,
-    contextSignals,
     capabilityGraph: routingCapabilityGraph,
   });
   if (activatedSkill) {
@@ -488,8 +481,6 @@ export async function POST(req: Request) {
       await tx
         .update(chatThreads)
         .set({
-          summary: null,
-          summaryUpdatedAt: null,
           previewSummary: null,
           previewSummaryUpdatedAt: null,
         })
@@ -514,10 +505,23 @@ export async function POST(req: Request) {
       );
     }
     editedUserMessageId = editResult.targetId;
+    // #456: message edits are destructive (they truncate the thread tail) —
+    // audit the edit with what was removed, by reference.
+    const editAuditNow = new Date();
+    await db.insert(auditLog).values({
+      actorUserId: sessionUser.id,
+      actionType: "chat_message_edit",
+      status: "succeeded",
+      provider: "ai-hub",
+      toolName: "chat_message_edit",
+      chatThreadId: thread.id,
+      chatMessageId: editResult.targetId,
+      input: { deletedMessageIds: editResult.deleteIds },
+      startedAt: editAuditNow,
+      completedAt: editAuditNow,
+    });
     thread = {
       ...thread,
-      summary: null,
-      summaryUpdatedAt: null,
       previewSummary: null,
       previewSummaryUpdatedAt: null,
     };
@@ -533,6 +537,23 @@ export async function POST(req: Request) {
           content: body.message,
         })
         .returning({ id: chatMessages.id });
+  if (!editedUserMessageId) {
+    // #456: user-content mutations audit like assistant ones (references
+    // only; the content lives in chat_messages).
+    const sendAuditNow = new Date();
+    await db.insert(auditLog).values({
+      actorUserId: sessionUser.id,
+      actionType: "chat_message_create",
+      status: "succeeded",
+      provider: "ai-hub",
+      toolName: "chat_message_create",
+      chatThreadId: thread.id,
+      chatMessageId: userMsg[0]!.id,
+      input: { role: "user" },
+      startedAt: sendAuditNow,
+      completedAt: sendAuditNow,
+    });
+  }
 
   // The bubble shows the typed message; the model sees it plus the folded
   // attachment text. Each file is also stored as a workspace artifact so it
@@ -610,8 +631,6 @@ export async function POST(req: Request) {
         userMessageId: userMsg[0]!.id,
         requestedByUserId: sessionUser.id,
         executionMode: runtimeRoute.executionMode,
-        runtimeV2,
-        routingMode,
         modelOverride,
         ...(modelCommand ? { modelCommand } : {}),
         runtimeRoute,
@@ -665,8 +684,6 @@ export async function POST(req: Request) {
         modelId,
         userMessageId: userMsg[0]!.id,
         executionMode: runtimeRoute.executionMode,
-        runtimeV2,
-        routingMode,
         modelOverride,
         runtimeRoute,
         routeReceipt,
@@ -747,8 +764,6 @@ export async function POST(req: Request) {
         modelId,
         modelOverride,
         executionMode: runtimeRoute.executionMode,
-        runtimeV2,
-        routingMode,
         runtimeRoute,
         routeReceipt,
         ...(replaceMessageId ? { replaceMessageId } : {}),

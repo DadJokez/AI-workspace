@@ -187,7 +187,6 @@ describe("runEventsToActivityEvents", () => {
               approvedMemoryChars: 128,
             },
             work: {
-              threadSummaryInjected: false,
               artifactContextInjected: true,
               uploadedFilesInjected: false,
             },

@@ -135,6 +135,10 @@ async function connectMcpProvider(
             name: mcpToolName(provider, remoteName),
             description: tool.description ?? `${provider} tool ${remoteName}`,
             inputSchema: (tool.inputSchema ?? { type: "object" }) as JSONSchema7,
+            // #497: MCP results are third-party content — the loop nonce-frames
+            // the serialized output as DATA before the model sees it. Set here,
+            // at the client seam, so every current and future server inherits it.
+            untrustedOutput: true,
             handler: async (input) => {
               const result = await client.callTool({
                 name: remoteName,

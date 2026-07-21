@@ -23,6 +23,16 @@ import type { SessionUser } from "@ai-workspace/auth";
 
 const DB_URL = process.env.DATABASE_URL;
 
+// #479 retro-review: locally the suite may skip without a database, but in
+// CI a missing URL means the env plumbing broke — skipping would turn this
+// gate decorative while staying green. Fail closed instead.
+if (!DB_URL && process.env.CI) {
+  throw new Error(
+    "scoping integration suite: DATABASE_URL is empty in CI — the " +
+      "INTEGRATION_DATABASE_URL plumbing is broken; refusing to green-by-skip.",
+  );
+}
+
 // The session mock: routes call getSessionUser(); tests choose the actor.
 let currentUser: SessionUser | null = null;
 vi.mock("@/lib/auth/getSessionUser", () => ({
