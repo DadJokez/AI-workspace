@@ -4,7 +4,13 @@ import { and, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
-import { FilterPill, titleize } from "@/app/admin/ui";
+import {
+  BarChart,
+  BarRow,
+  FilterPill,
+  Metric,
+  titleize,
+} from "@/app/admin/ui";
 import {
   USAGE_WINDOWS,
   buildDaySeries,
@@ -134,17 +140,24 @@ export default async function AdminUsagePage({ searchParams }: Props) {
           label="Total runs"
           value={totals.total.toLocaleString()}
           emphasis
+          variant="prominent"
         />
         <Metric
           label="Active users"
           value={totals.activeUsers.toLocaleString()}
+          variant="prominent"
         />
         <Metric
           label="Success rate"
           value={totals.total > 0 ? `${successRate}%` : "—"}
           hint={`${totals.succeeded.toLocaleString()} ok · ${totals.failed.toLocaleString()} failed`}
+          variant="prominent"
         />
-        <Metric label="Chat turns" value={totals.chatTurns.toLocaleString()} />
+        <Metric
+          label="Chat turns"
+          value={totals.chatTurns.toLocaleString()}
+          variant="prominent"
+        />
       </div>
 
       <div className="px-6 pb-6">
@@ -158,23 +171,17 @@ export default async function AdminUsagePage({ searchParams }: Props) {
           {totals.total === 0 ? (
             <EmptyHint>No runs in this window yet.</EmptyHint>
           ) : (
-            <div className="flex h-32 items-end gap-px border-b border-hairline">
-              {series.map((d) => (
-                <div
-                  key={d.day}
-                  className="group flex flex-1 items-end"
-                  style={{ minWidth: "2px" }}
-                  title={`${d.day}: ${d.count.toLocaleString()} run${d.count === 1 ? "" : "s"}`}
-                >
-                  <div
-                    className="w-full rounded-sm bg-ink/70 transition-colors group-hover:bg-ink"
-                    style={{
-                      height: `${Math.max(d.count === 0 ? 0 : 4, (d.count / maxDay) * 100)}%`,
-                    }}
-                  />
-                </div>
-              ))}
-            </div>
+            <BarChart
+              data={series.map((day) => ({
+                label: day.day,
+                value: day.count,
+              }))}
+              ariaLabel={`Runs per day over ${WINDOW_LABELS[range]}. ${totals.total.toLocaleString()} total runs; peak ${maxDay.toLocaleString()} per day.`}
+              valueLabel={(value) =>
+                `${value.toLocaleString()} run${value === 1 ? "" : "s"}`
+              }
+              yGridlines={2}
+            />
           )}
         </div>
       </div>
@@ -188,7 +195,7 @@ export default async function AdminUsagePage({ searchParams }: Props) {
               <BarRow
                 key={m.modelId ?? "unknown"}
                 label={formatModel(m.modelId)}
-                count={m.count}
+                value={m.count}
                 total={totals.total}
               />
             ))
@@ -202,7 +209,7 @@ export default async function AdminUsagePage({ searchParams }: Props) {
               <BarRow
                 key={t.triggerType}
                 label={titleize(t.triggerType)}
-                count={t.count}
+                value={t.count}
                 total={totals.total}
               />
             ))
@@ -241,63 +248,11 @@ export default async function AdminUsagePage({ searchParams }: Props) {
   );
 }
 
-function Metric({
-  label,
-  value,
-  hint,
-  emphasis = false,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  emphasis?: boolean;
-}) {
-  return (
-    <div className="rounded-lg border border-hairline bg-surface px-4 py-3">
-      <div className="text-2xs uppercase tracking-wider text-muted">{label}</div>
-      <div
-        className={`mt-1 text-2xl font-semibold ${emphasis ? "text-pop" : "text-ink"}`}
-      >
-        {value}
-      </div>
-      {hint ? <div className="mt-1 text-xs text-muted">{hint}</div> : null}
-    </div>
-  );
-}
-
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-lg border border-hairline bg-surface p-4">
       <h3 className="mb-3 text-sm font-medium text-ink">{title}</h3>
       <div className="flex flex-col gap-2.5">{children}</div>
-    </div>
-  );
-}
-
-function BarRow({
-  label,
-  count,
-  total,
-}: {
-  label: string;
-  count: number;
-  total: number;
-}) {
-  const pct = percent(count, total);
-  return (
-    <div>
-      <div className="flex items-baseline justify-between text-sm">
-        <span className="text-ink">{label}</span>
-        <span className="text-xs text-muted">
-          {count.toLocaleString()} · {pct}%
-        </span>
-      </div>
-      <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-subtle">
-        <div
-          className="h-full rounded bg-ink/60"
-          style={{ width: `${Math.max(pct === 0 ? 0 : 2, pct)}%` }}
-        />
-      </div>
     </div>
   );
 }
