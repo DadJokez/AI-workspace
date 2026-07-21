@@ -166,12 +166,12 @@ export function SearchPanel({
                     <button
                       type="button"
                       onClick={() => onOpenThread(t.id, t.title ?? "")}
-                      className="flex w-full min-h-[44px] items-center justify-between gap-3 rounded-md px-3 py-2 text-left hover:bg-subtle md:min-h-0"
+                      className="flex w-full min-h-11 items-center justify-between gap-3 rounded-md px-3 py-2 text-left hover:bg-subtle md:min-h-0"
                     >
                       <span className="min-w-0 flex-1 truncate text-sm text-ink">
                         {title}
                       </span>
-                      <span className="shrink-0 text-[11px] text-muted">
+                      <span className="shrink-0 text-2xs text-muted">
                         {relativeTime(t.updatedAt)}
                       </span>
                     </button>
@@ -191,7 +191,7 @@ function ComingSoon({ kind }: { kind: FilterKind }) {
   return (
     <div className="flex flex-col items-center gap-2 py-16 text-center">
       <div className="text-sm font-medium text-ink">{label} coming soon</div>
-      <p className="max-w-sm text-[12px] text-muted">
+      <p className="max-w-sm text-xs text-muted">
         We&apos;ll surface {label.toLowerCase()} here once they&apos;re wired
         up. For now, search is limited to your conversations.
       </p>

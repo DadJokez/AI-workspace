@@ -45,7 +45,7 @@ function AlphaBadge() {
   return (
     <div
       aria-label="Alpha version"
-      className="pointer-events-none fixed left-1/2 top-[max(env(safe-area-inset-top),0.5rem)] z-[90] -translate-x-1/2 rounded-full border border-hairline bg-surface px-2.5 py-1 text-[10px] font-semibold uppercase leading-none tracking-[0.18em] text-muted shadow-sm"
+      className="pointer-events-none fixed left-1/2 top-[max(env(safe-area-inset-top),0.5rem)] z-[90] -translate-x-1/2 rounded-full border border-hairline bg-surface px-2.5 py-1 text-2xs font-semibold uppercase leading-none tracking-caps text-muted shadow-sm"
     >
       Alpha
     </div>
@@ -57,7 +57,7 @@ function BuiltByMark() {
   // themes, tan on dark — the brand palette matches both skins. Fixed
   // bottom-right, under the safe-area inset, below modal layers.
   const shared =
-    "h-5 w-auto opacity-50 transition-opacity duration-200 group-hover:opacity-90";
+    "h-5 w-auto opacity-50 transition-opacity duration-base group-hover:opacity-90";
   return (
     <div
       title="Built by Rob and Robot"

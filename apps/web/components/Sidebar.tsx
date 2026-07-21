@@ -303,14 +303,14 @@ export function Sidebar({
       <aside
         aria-label="Primary"
         data-density="nav"
-        className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col overflow-hidden border-r border-hairline bg-sidebar transition-transform duration-200 md:static md:z-auto md:w-60 md:max-w-none md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col overflow-hidden border-r border-hairline bg-sidebar transition-transform duration-base md:static md:z-auto md:w-60 md:max-w-none md:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         <div className="flex shrink-0 items-center gap-2 px-3 py-3">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <ThinkingOrb state="idle" size={24} stroke={14} label="Comparative" />
-            <span className="truncate text-sm font-semibold tracking-[0.2em] text-ink">
+            <span className="truncate text-sm font-semibold tracking-caps text-ink">
               COMPARATIVE
             </span>
           </div>
@@ -337,7 +337,7 @@ export function Sidebar({
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="shrink-0 px-2 pb-1.5 pt-2">
-            <div className="flex min-h-[28px] items-center gap-1 px-2 pb-1 pt-1">
+            <div className="flex min-h-7 items-center gap-1 px-2 pb-1 pt-1">
               <button
                 type="button"
                 onClick={() => setHistoryOpen((v) => !v)}
@@ -347,7 +347,7 @@ export function Sidebar({
                     ? `Collapse ${historyLabel.toLowerCase()}`
                     : `Expand ${historyLabel.toLowerCase()}`
                 }
-                className="flex flex-1 items-center gap-1.5 rounded-md text-left text-[10px] font-medium uppercase tracking-wider text-muted hover:text-ink"
+                className="flex flex-1 items-center gap-1.5 rounded-md text-left text-2xs font-medium uppercase tracking-wider text-muted hover:text-ink"
               >
                 <svg
                   viewBox="0 0 16 16"
@@ -380,11 +380,11 @@ export function Sidebar({
                 {threadsLoading && threads.length === 0 ? (
                   <ThreadsSkeleton />
                 ) : threadsError && threads.length === 0 ? (
-                  <div className="px-2 py-2 text-[12px] text-muted">
+                  <div className="px-2 py-2 text-xs text-muted">
                     Couldn&apos;t load history. Try again later.
                   </div>
                 ) : threads.length === 0 ? (
-                  <div className="px-2 py-2 text-[12px] text-muted">
+                  <div className="px-2 py-2 text-xs text-muted">
                     No conversations yet.
                   </div>
                 ) : (
@@ -405,7 +405,7 @@ export function Sidebar({
                             >
                               {isRenaming ? (
                                 <div
-                                  className={`flex min-h-[44px] w-full items-center gap-1 rounded-md px-2 py-1.5 md:min-h-0 ${
+                                  className={`flex min-h-11 w-full items-center gap-1 rounded-md px-2 py-1.5 md:min-h-0 ${
                                     active ? "bg-subtle" : "bg-subtle/60"
                                   }`}
                                 >
@@ -428,12 +428,12 @@ export function Sidebar({
                                     onBlur={() => void commitRename(t.id)}
                                     disabled={renameSaving}
                                     aria-label="Rename thread"
-                                    className="min-w-0 flex-1 rounded border border-hairline bg-canvas px-1.5 py-1 text-[13px] text-ink focus-visible:border-ink/30"
+                                    className="min-w-0 flex-1 rounded border border-hairline bg-canvas px-1.5 py-1 text-sm text-ink focus-visible:border-ink/30"
                                   />
                                 </div>
                               ) : (
                                 <div
-                                  className={`flex min-h-[44px] w-full items-center gap-1 rounded-md md:min-h-0 ${
+                                  className={`flex min-h-11 w-full items-center gap-1 rounded-md md:min-h-0 ${
                                     active
                                       ? "bg-subtle text-ink"
                                       : "text-muted hover:bg-subtle hover:text-ink"
@@ -446,7 +446,7 @@ export function Sidebar({
                                     }
                                     aria-current={active ? "page" : undefined}
                                     title={title}
-                                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left text-[13px] md:py-1.5"
+                                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left text-sm md:py-1.5"
                                   >
                                     <span className="flex-1 truncate">
                                       {title}
@@ -491,7 +491,7 @@ export function Sidebar({
                                       type="button"
                                       role="menuitem"
                                       onClick={() => startRename(t)}
-                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-ink hover:bg-subtle"
+                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-subtle"
                                     >
                                       <IconPencil />
                                       <span>Rename</span>
@@ -505,7 +505,7 @@ export function Sidebar({
                                         setOpenMenuId(null);
                                         setPendingDeleteId(t.id);
                                       }}
-                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-ink hover:bg-subtle"
+                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-subtle"
                                     >
                                       <IconTrash />
                                       <span>Delete</span>
@@ -536,7 +536,7 @@ export function Sidebar({
               <div key={gi} className="py-1.5">
                 <div className="mx-2 mb-1.5 h-px bg-hairline" aria-hidden />
                 {group.label ? (
-                  <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted">
+                  <div className="px-2 pb-1 pt-1 text-2xs font-medium uppercase tracking-wider text-muted">
                     {group.label}
                   </div>
                 ) : null}
@@ -551,14 +551,14 @@ export function Sidebar({
                           href={item.href}
                           data-tour={`nav-${item.id}`}
                           title={item.tooltip}
-                          className="flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] text-muted hover:bg-subtle hover:text-ink md:min-h-0 md:py-1.5"
+                          className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-muted hover:bg-subtle hover:text-ink md:min-h-0 md:py-1.5"
                         >
                           <span className="flex h-4 w-4 items-center justify-center text-current">
                             {item.icon}
                           </span>
                           <span className="flex-1 truncate">{item.label}</span>
                           {item.badge ? (
-                            <span className="rounded bg-subtle px-1.5 text-[10px] uppercase tracking-wider text-muted">
+                            <span className="rounded bg-subtle px-1.5 text-2xs uppercase tracking-wider text-muted">
                               {item.badge}
                             </span>
                           ) : null}
@@ -576,7 +576,7 @@ export function Sidebar({
                           aria-current={active ? "page" : undefined}
                           aria-disabled={disabled || undefined}
                           title={item.tooltip}
-                          className={`flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] md:min-h-0 md:py-1.5 ${
+                          className={`flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm md:min-h-0 md:py-1.5 ${
                             disabled
                               ? "cursor-not-allowed text-muted/60"
                               : active
@@ -589,7 +589,7 @@ export function Sidebar({
                           </span>
                           <span className="flex-1 truncate">{item.label}</span>
                           {item.badge ? (
-                            <span className="rounded bg-subtle px-1.5 text-[10px] uppercase tracking-wider text-muted">
+                            <span className="rounded bg-subtle px-1.5 text-2xs uppercase tracking-wider text-muted">
                               {item.badge}
                             </span>
                           ) : null}
@@ -607,7 +607,7 @@ export function Sidebar({
           className="relative mt-auto shrink-0 border-t border-hairline px-3 py-3"
           ref={userMenuRef}
         >
-          <div className="mb-2 px-1 text-[10px] font-medium uppercase tracking-[0.16em] text-muted/70">
+          <div className="mb-2 px-1 text-2xs font-medium uppercase tracking-caps text-muted/70">
             {COMPARATIVE_VERSION_LABEL}
           </div>
           <button
@@ -621,7 +621,7 @@ export function Sidebar({
               onSignOut ? "hover:bg-subtle" : "cursor-default"
             }`}
           >
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-subtle text-[11px] font-medium text-ink">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-subtle text-2xs font-medium text-ink">
               {initials || "AI"}
             </div>
             <div className="min-w-0 flex-1">
@@ -629,7 +629,7 @@ export function Sidebar({
                 {userName ?? "Workspace"}
               </div>
               {userEmail ? (
-                <div className="truncate text-[11px] text-muted">{userEmail}</div>
+                <div className="truncate text-2xs text-muted">{userEmail}</div>
               ) : null}
             </div>
             {onSignOut ? (
@@ -664,7 +664,7 @@ export function Sidebar({
                   setUserMenuOpen(false);
                   onSignOut();
                 }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-ink hover:bg-subtle"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-subtle"
               >
                 <IconSignOut />
                 <span>Sign out</span>
@@ -694,7 +694,7 @@ function DeleteConfirm({
       aria-modal="false"
       className="absolute left-1 right-1 top-full z-30 mt-1 rounded-md border border-hairline bg-surface p-2 shadow-md"
     >
-      <p className="px-1 pb-2 text-[12px] text-ink">
+      <p className="px-1 pb-2 text-xs text-ink">
         Delete <span className="font-medium">{title}</span>? This can&apos;t be
         undone.
       </p>
@@ -703,7 +703,7 @@ function DeleteConfirm({
           type="button"
           onClick={onCancel}
           disabled={busy}
-          className="rounded border border-hairline bg-canvas px-2 py-1 text-[11px] text-ink hover:bg-subtle disabled:opacity-60"
+          className="rounded border border-hairline bg-canvas px-2 py-1 text-2xs text-ink hover:bg-subtle disabled:opacity-60"
         >
           Cancel
         </button>
@@ -711,7 +711,7 @@ function DeleteConfirm({
           type="button"
           onClick={onConfirm}
           disabled={busy}
-          className="rounded border border-hairline bg-ink px-2 py-1 text-[11px] font-medium text-canvas hover:opacity-90 disabled:opacity-60"
+          className="rounded border border-hairline bg-ink px-2 py-1 text-2xs font-medium text-canvas hover:opacity-90 disabled:opacity-60"
         >
           {busy ? "Deleting…" : "Delete"}
         </button>
@@ -818,7 +818,7 @@ function ThreadPreviewButton({
       {open && position
         ? createPortal(
             <div
-              className="pointer-events-none fixed z-[70] max-h-36 overflow-auto rounded-md border border-hairline bg-surface px-3 py-2 text-[12px] leading-relaxed text-ink shadow-lg"
+              className="pointer-events-none fixed z-[70] max-h-36 overflow-auto rounded-md border border-hairline bg-surface px-3 py-2 text-xs leading-relaxed text-ink shadow-lg"
               style={{
                 left: position.left,
                 top: position.top,

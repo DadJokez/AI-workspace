@@ -51,7 +51,7 @@ export default async function ManageAppPage({
     <section className="flex flex-col gap-6 px-6 py-6">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-[12px] text-muted">
+          <p className="text-xs text-muted">
             <Link href="/apps" className="hover:text-ink">
               Apps
             </Link>{" "}
@@ -60,13 +60,13 @@ export default async function ManageAppPage({
           <h2 className="mt-1 text-base font-semibold text-ink">
             {app.name}
             {app.archivedAt ? (
-              <span className="ml-2 rounded bg-ink/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+              <span className="ml-2 rounded bg-ink/5 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
                 Archived
               </span>
             ) : null}
           </h2>
           {app.description ? (
-            <p className="mt-1 text-[13px] text-muted">{app.description}</p>
+            <p className="mt-1 text-sm text-muted">{app.description}</p>
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -75,7 +75,7 @@ export default async function ManageAppPage({
           !app.archivedAt ? (
             <a
               href={`/apps/${app.slug}`}
-              className="rounded-md border border-hairline px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-ink/5"
+              className="rounded-md border border-hairline px-3 py-1.5 text-sm font-medium text-ink hover:bg-ink/5"
             >
               Open app
             </a>
@@ -84,7 +84,7 @@ export default async function ManageAppPage({
         </div>
       </div>
 
-      <div className="rounded-md border border-hairline px-4 py-3 text-[12px] text-muted">
+      <div className="rounded-md border border-hairline px-4 py-3 text-xs text-muted">
         Served at{" "}
         <code className="rounded bg-ink/5 px-1 py-0.5 text-ink">
           /apps/{app.slug}
@@ -108,8 +108,8 @@ export default async function ManageAppPage({
       </div>
 
       <div className="flex flex-col gap-3">
-        <h3 className="text-[14px] font-semibold text-ink">Versions</h3>
-        <p className="text-[12px] text-muted">
+        <h3 className="text-base font-semibold text-ink">Versions</h3>
+        <p className="text-xs text-muted">
           Edits create draft versions. The live URL stays stable until an owner
           deploys a draft or rolls back to a prior version.
         </p>
@@ -139,7 +139,7 @@ export default async function ManageAppPage({
 
       {canShare ? (
         <div className="flex flex-col gap-3 border-t border-hairline pt-5">
-          <h3 className="text-[14px] font-semibold text-ink">Sharing</h3>
+          <h3 className="text-base font-semibold text-ink">Sharing</h3>
           <SharePanel
             subjectType="app"
             subjectId={app.id}

@@ -92,7 +92,7 @@ export function SkillActions({
   }
 
   const buttonClass =
-    "rounded-md border border-hairline px-3 py-1.5 text-[13px] text-ink hover:bg-ink/5 disabled:opacity-50";
+    "rounded-md border border-hairline px-3 py-1.5 text-sm text-ink hover:bg-ink/5 disabled:opacity-50";
 
   return (
     <div className="flex flex-col gap-2">
@@ -124,7 +124,7 @@ export function SkillActions({
           </button>
         ) : null}
       </div>
-      {notice ? <p className="text-[12px] text-muted">{notice}</p> : null}
+      {notice ? <p className="text-xs text-muted">{notice}</p> : null}
     </div>
   );
 }

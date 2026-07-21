@@ -36,11 +36,11 @@ export function SeedStartersButton() {
         type="button"
         onClick={handleSeed}
         disabled={busy}
-        className="rounded-md border border-hairline px-3 py-1.5 text-[13px] text-ink hover:bg-ink/5 disabled:opacity-50"
+        className="rounded-md border border-hairline px-3 py-1.5 text-sm text-ink hover:bg-ink/5 disabled:opacity-50"
       >
         {busy ? "Seeding…" : "Seed starter skills"}
       </button>
-      {notice ? <p className="text-[12px] text-muted">{notice}</p> : null}
+      {notice ? <p className="text-xs text-muted">{notice}</p> : null}
     </div>
   );
 }

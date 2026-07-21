@@ -42,14 +42,14 @@ export default async function AppsPage() {
     <section className="flex flex-col gap-6 px-6 py-6">
       <div>
         <h2 className="text-base font-semibold text-ink">Your apps</h2>
-        <p className="mt-1 text-[12px] text-muted">
+        <p className="mt-1 text-xs text-muted">
           Small tools built in conversation, served behind workspace sign-in.
           No repos, no pipelines — describe, deploy, share.
         </p>
       </div>
 
       {mine.length === 0 && shared.length === 0 ? (
-        <p className="rounded-md border border-hairline px-4 py-6 text-center text-[13px] text-muted">
+        <p className="rounded-md border border-hairline px-4 py-6 text-center text-sm text-muted">
           No apps yet. Ask the assistant to build a small HTML page in chat,
           then deploy it below.
         </p>
@@ -66,26 +66,26 @@ export default async function AppsPage() {
                 className="flex items-center justify-between rounded-md border border-hairline px-4 py-3"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-[14px] font-medium text-ink">
+                  <p className="truncate text-base font-medium text-ink">
                     {app.name}
                     {sharedWithMe ? (
-                      <span className="ml-2 rounded bg-ink/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                      <span className="ml-2 rounded bg-ink/5 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
                         Shared {role === "editor" ? "editor" : "viewer"}
                       </span>
                     ) : null}
                     {app.status !== "deployed" ? (
-                      <span className="ml-2 rounded bg-ink/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                      <span className="ml-2 rounded bg-ink/5 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
                         Draft
                       </span>
                     ) : null}
                   </p>
                   {app.description ? (
-                    <p className="mt-0.5 truncate text-[12px] text-muted">
+                    <p className="mt-0.5 truncate text-xs text-muted">
                       {app.description}
                     </p>
                   ) : null}
                 </div>
-                <div className="flex shrink-0 items-center gap-3 text-[13px]">
+                <div className="flex shrink-0 items-center gap-3 text-sm">
                   {app.status === "deployed" && app.liveArtifactId ? (
                     <a
                       href={`/apps/${app.slug}`}
@@ -110,8 +110,8 @@ export default async function AppsPage() {
       )}
 
       <div className="border-t border-hairline pt-5">
-        <h3 className="text-[14px] font-semibold text-ink">Deploy an app</h3>
-        <p className="mt-1 text-[12px] text-muted">
+        <h3 className="text-base font-semibold text-ink">Deploy an app</h3>
+        <p className="mt-1 text-xs text-muted">
           Pick an HTML artifact from your conversations. Deploying serves it at
           a workspace URL only signed-in teammates you share it with can open.
         </p>

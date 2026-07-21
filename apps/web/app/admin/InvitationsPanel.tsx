@@ -139,7 +139,7 @@ export function InvitationsPanel({ initialInvitations }: Props) {
     <section className="py-2">
       <div className="px-6 pb-3 pt-4">
         <h2 className="text-base font-semibold text-ink">Invitations</h2>
-        <p className="mt-1 text-[12px] text-muted">
+        <p className="mt-1 text-xs text-muted">
           Send a one-time invite to onboard a new user. Links expire after 7
           days and can be resent or revoked.
         </p>
@@ -150,7 +150,7 @@ export function InvitationsPanel({ initialInvitations }: Props) {
         className="flex flex-wrap items-end gap-3 px-6 pb-4"
       >
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase tracking-wider text-muted">
+          <span className="text-2xs uppercase tracking-wider text-muted">
             Email
           </span>
           <input
@@ -159,17 +159,17 @@ export function InvitationsPanel({ initialInvitations }: Props) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="person@example.com"
-            className="w-72 rounded-md border border-hairline bg-canvas px-3 py-1.5 text-[13px] text-ink placeholder:text-muted"
+            className="w-72 rounded-md border border-hairline bg-canvas px-3 py-1.5 text-sm text-ink placeholder:text-muted"
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase tracking-wider text-muted">
+          <span className="text-2xs uppercase tracking-wider text-muted">
             Invite role
           </span>
           <select
             value={role}
             onChange={(e) => setRole(e.target.value as Role)}
-            className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink"
+            className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink"
           >
             <option value="user">user</option>
             <option value="admin">admin</option>
@@ -178,25 +178,25 @@ export function InvitationsPanel({ initialInvitations }: Props) {
         <button
           type="submit"
           disabled={busy || email.length === 0}
-          className="rounded-md bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-canvas hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {busy ? "Sending..." : "Send invite"}
         </button>
         {error ? (
-          <span className="text-[12px] text-danger">{error}</span>
+          <span className="text-xs text-danger">{error}</span>
         ) : null}
       </form>
 
       {notice ? (
-        <div className="mx-6 mb-4 rounded-md border border-hairline bg-subtle/40 px-3 py-2 text-[12px] text-muted">
+        <div className="mx-6 mb-4 rounded-md border border-hairline bg-subtle/40 px-3 py-2 text-xs text-muted">
           {notice}
         </div>
       ) : null}
 
       <div className="overflow-x-auto">
-        <table className="w-full border-separate border-spacing-0 text-[13px]">
+        <table className="w-full border-separate border-spacing-0 text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wider text-muted">
+            <tr className="text-left text-2xs uppercase tracking-wider text-muted">
               <th className="border-b border-hairline px-6 py-2 font-medium">
                 Email
               </th>
@@ -220,7 +220,7 @@ export function InvitationsPanel({ initialInvitations }: Props) {
               <tr>
                 <td
                   colSpan={5}
-                  className="border-b border-hairline px-6 py-8 text-center text-[12px] text-muted"
+                  className="border-b border-hairline px-6 py-8 text-center text-xs text-muted"
                 >
                   No invitations yet.
                 </td>
@@ -233,7 +233,7 @@ export function InvitationsPanel({ initialInvitations }: Props) {
                   </td>
                   <td className="border-b border-hairline px-4 py-3 align-middle">
                     <span
-                      className={`inline-flex items-center rounded px-2 py-0.5 text-[11px] uppercase tracking-wider ${
+                      className={`inline-flex items-center rounded px-2 py-0.5 text-2xs uppercase tracking-wider ${
                         inv.role === "admin"
                           ? "bg-accent/15 text-accent"
                           : "bg-subtle text-muted"
@@ -245,13 +245,13 @@ export function InvitationsPanel({ initialInvitations }: Props) {
                   <td className="border-b border-hairline px-4 py-3 align-middle">
                     <div className="flex flex-col gap-1">
                       <span
-                        className={`inline-flex w-fit items-center rounded px-2 py-0.5 text-[11px] uppercase tracking-wider ${statusClass(
+                        className={`inline-flex w-fit items-center rounded px-2 py-0.5 text-2xs uppercase tracking-wider ${statusClass(
                           inv.status,
                         )}`}
                       >
                         {statusLabel(inv.status)}
                       </span>
-                      <span className="text-[11px] text-muted">
+                      <span className="text-2xs text-muted">
                         {statusDetail(inv)}
                       </span>
                     </div>
@@ -265,7 +265,7 @@ export function InvitationsPanel({ initialInvitations }: Props) {
                         type="button"
                         onClick={() => resend(inv)}
                         disabled={!inv.canResend || actionBusyId === inv.id}
-                        className="rounded-md border border-hairline px-2 py-1 text-[12px] text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-45"
+                        className="rounded-md border border-hairline px-2 py-1 text-xs text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-45"
                       >
                         {actionBusyId === inv.id ? "Working..." : "Resend"}
                       </button>
@@ -273,14 +273,14 @@ export function InvitationsPanel({ initialInvitations }: Props) {
                         type="button"
                         onClick={() => revoke(inv)}
                         disabled={!inv.canRevoke || actionBusyId === inv.id}
-                        className="rounded-md border border-hairline px-2 py-1 text-[12px] text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-45"
+                        className="rounded-md border border-hairline px-2 py-1 text-xs text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-45"
                       >
                         Revoke
                       </button>
                       <button
                         type="button"
                         onClick={() => copy(inv.id, inv.inviteUrl)}
-                        className="rounded-md border border-hairline px-2 py-1 text-[12px] text-muted hover:bg-subtle hover:text-ink"
+                        className="rounded-md border border-hairline px-2 py-1 text-xs text-muted hover:bg-subtle hover:text-ink"
                       >
                         {copiedId === inv.id ? "Copied" : "Copy link"}
                       </button>

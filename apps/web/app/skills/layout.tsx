@@ -21,16 +21,16 @@ export default async function SkillsLayout({
           <h1 className="text-sm font-semibold text-ink">
             <Link href="/skills">Skills</Link>
           </h1>
-          <span className="text-[11px] uppercase tracking-wider text-muted">
+          <span className="text-2xs uppercase tracking-wider text-muted">
             Workspace
           </span>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/apps" className="text-[13px] text-muted hover:text-ink">
+          <Link href="/apps" className="text-sm text-muted hover:text-ink">
             Apps
           </Link>
           <ThemeToggle />
-          <Link href="/chat" className="text-[13px] text-muted hover:text-ink">
+          <Link href="/chat" className="text-sm text-muted hover:text-ink">
             Back to chat
           </Link>
         </div>

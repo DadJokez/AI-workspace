@@ -110,7 +110,7 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
   }
 
   const inputClass =
-    "rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink";
+    "rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink";
 
   return (
     <div className="flex flex-col gap-3">
@@ -119,7 +119,7 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
           {schedules.map((schedule) => (
             <li
               key={schedule.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-hairline px-3 py-2 text-[12px]"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-hairline px-3 py-2 text-xs"
             >
               <span className="text-ink">
                 {describeCadence(schedule.cadence, schedule.timezone)}
@@ -156,14 +156,14 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
           ))}
         </ul>
       ) : (
-        <p className="text-[12px] text-muted">
+        <p className="text-xs text-muted">
           No schedules yet. Results arrive in a dedicated thread without you
           asking.
         </p>
       )}
 
       <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-2">
-        <label className="flex flex-col gap-1 text-[12px] text-muted">
+        <label className="flex flex-col gap-1 text-xs text-muted">
           Repeats
           <select
             className={inputClass}
@@ -177,7 +177,7 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
           </select>
         </label>
         {preset === "weekly" ? (
-          <label className="flex flex-col gap-1 text-[12px] text-muted">
+          <label className="flex flex-col gap-1 text-xs text-muted">
             Day
             <select
               className={inputClass}
@@ -193,7 +193,7 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
           </label>
         ) : null}
         {preset === "monthly" ? (
-          <label className="flex flex-col gap-1 text-[12px] text-muted">
+          <label className="flex flex-col gap-1 text-xs text-muted">
             Day of month
             <input
               type="number"
@@ -209,7 +209,7 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
             />
           </label>
         ) : null}
-        <label className="flex flex-col gap-1 text-[12px] text-muted">
+        <label className="flex flex-col gap-1 text-xs text-muted">
           At
           <input
             type="time"
@@ -218,16 +218,16 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
             onChange={(e) => setTime(e.target.value)}
           />
         </label>
-        <span className="pb-2 text-[11px] text-muted">{timezone}</span>
+        <span className="pb-2 text-2xs text-muted">{timezone}</span>
         <button
           type="submit"
           disabled={busy}
-          className="rounded-md border border-hairline px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
+          className="rounded-md border border-hairline px-3 py-1.5 text-sm font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
         >
           {busy ? "Scheduling…" : "Add schedule"}
         </button>
       </form>
-      {notice ? <p className="text-[12px] text-muted">{notice}</p> : null}
+      {notice ? <p className="text-xs text-muted">{notice}</p> : null}
     </div>
   );
 }

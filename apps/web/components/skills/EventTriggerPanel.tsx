@@ -45,7 +45,7 @@ export function EventTriggerPanel({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const inputClass =
-    "rounded-md border border-hairline bg-canvas px-2 py-1.5 text-[13px] text-ink";
+    "rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink";
 
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
@@ -126,7 +126,7 @@ export function EventTriggerPanel({
           {triggers.map((trigger) => (
             <li
               key={trigger.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-hairline px-3 py-2 text-[12px]"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-hairline px-3 py-2 text-xs"
             >
               <span className="min-w-0 text-ink">
                 <span className="font-medium">{trigger.repository}</span>
@@ -173,11 +173,11 @@ export function EventTriggerPanel({
           ))}
         </ul>
       ) : (
-        <p className="text-[12px] text-muted">No GitHub triggers yet.</p>
+        <p className="text-xs text-muted">No GitHub triggers yet.</p>
       )}
 
       <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-2">
-        <label className="flex flex-col gap-1 text-[12px] text-muted">
+        <label className="flex flex-col gap-1 text-xs text-muted">
           Repository
           <input
             required
@@ -187,7 +187,7 @@ export function EventTriggerPanel({
             onChange={(event) => setRepository(event.target.value)}
           />
         </label>
-        <label className="flex flex-col gap-1 text-[12px] text-muted">
+        <label className="flex flex-col gap-1 text-xs text-muted">
           Event
           <select
             value={kind}
@@ -200,7 +200,7 @@ export function EventTriggerPanel({
         </label>
         {kind === "pull_request_review" ? (
           <>
-            <label className="flex flex-col gap-1 text-[12px] text-muted">
+            <label className="flex flex-col gap-1 text-xs text-muted">
               PR author
               <input
                 value={authorLogin}
@@ -209,7 +209,7 @@ export function EventTriggerPanel({
                 onChange={(event) => setAuthorLogin(event.target.value)}
               />
             </label>
-            <label className="flex flex-col gap-1 text-[12px] text-muted">
+            <label className="flex flex-col gap-1 text-xs text-muted">
               PR assignee
               <input
                 value={assigneeLogin}
@@ -220,7 +220,7 @@ export function EventTriggerPanel({
             </label>
           </>
         ) : null}
-        <label className="flex flex-col gap-1 text-[12px] text-muted">
+        <label className="flex flex-col gap-1 text-xs text-muted">
           Results
           <select
             value={threadMode}
@@ -236,12 +236,12 @@ export function EventTriggerPanel({
         <button
           type="submit"
           disabled={busyId !== null}
-          className="rounded-md border border-hairline px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
+          className="rounded-md border border-hairline px-3 py-1.5 text-sm font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
         >
           {busyId === "create" ? "Adding…" : "Add trigger"}
         </button>
       </form>
-      {notice ? <p className="text-[12px] text-muted">{notice}</p> : null}
+      {notice ? <p className="text-xs text-muted">{notice}</p> : null}
     </div>
   );
 }

@@ -77,7 +77,7 @@ export function ChatRunActionButtons({
         />
       ) : null}
       {error ? (
-        <span className="text-[12px] text-danger">{error}</span>
+        <span className="text-xs text-danger">{error}</span>
       ) : null}
     </div>
   );
@@ -101,7 +101,7 @@ function Button({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="rounded-md border border-hairline bg-canvas px-3 py-1.5 text-[12px] font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+      className="rounded-md border border-hairline bg-canvas px-3 py-1.5 text-xs font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
     >
       {pending ? pendingLabel : label}
     </button>

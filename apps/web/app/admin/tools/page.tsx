@@ -76,7 +76,7 @@ export default async function AdminToolsPage() {
     <section className="py-2">
       <div className="px-6 pb-3 pt-4">
         <h2 className="text-base font-semibold text-ink">Tools</h2>
-        <p className="mt-1 text-[12px] text-muted">
+        <p className="mt-1 text-xs text-muted">
           Registered MCP servers and the tool catalog that users can expose to
           agents.
         </p>
@@ -91,12 +91,12 @@ export default async function AdminToolsPage() {
 
       <section className="pb-6">
         <div className="px-6 pb-2">
-          <h3 className="text-[13px] font-semibold text-ink">MCP servers</h3>
+          <h3 className="text-sm font-semibold text-ink">MCP servers</h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full border-separate border-spacing-0 text-[13px]">
+          <table className="w-full border-separate border-spacing-0 text-sm">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wider text-muted">
+              <tr className="text-left text-2xs uppercase tracking-wider text-muted">
                 <th className="border-b border-hairline px-6 py-2 font-medium">
                   Server
                 </th>
@@ -119,7 +119,7 @@ export default async function AdminToolsPage() {
                 <tr>
                   <td
                     colSpan={5}
-                    className="border-b border-hairline px-6 py-8 text-center text-[12px] text-muted"
+                    className="border-b border-hairline px-6 py-8 text-center text-xs text-muted"
                   >
                     No MCP servers are registered yet.
                   </td>
@@ -131,16 +131,16 @@ export default async function AdminToolsPage() {
                       <div className="font-medium text-ink">
                         {server.displayName}
                       </div>
-                      <div className="mt-1 font-mono text-[12px] text-muted">
+                      <div className="mt-1 font-mono text-xs text-muted">
                         {server.slug}
                       </div>
                       {server.description ? (
-                        <div className="mt-1 max-w-2xl text-[12px] text-muted">
+                        <div className="mt-1 max-w-2xl text-xs text-muted">
                           {server.description}
                         </div>
                       ) : null}
                       {server.endpointUrl ? (
-                        <div className="mt-1 max-w-2xl truncate font-mono text-[11px] text-muted">
+                        <div className="mt-1 max-w-2xl truncate font-mono text-2xs text-muted">
                           {server.endpointUrl}
                         </div>
                       ) : null}
@@ -167,15 +167,15 @@ export default async function AdminToolsPage() {
 
       <section className="pb-6">
         <div className="flex flex-wrap items-center gap-3 px-6 pb-2">
-          <h3 className="text-[13px] font-semibold text-ink">Tool catalog</h3>
-          <span className="text-[12px] text-muted">
+          <h3 className="text-sm font-semibold text-ink">Tool catalog</h3>
+          <span className="text-xs text-muted">
             {writeTools} write/admin tools
           </span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full border-separate border-spacing-0 text-[13px]">
+          <table className="w-full border-separate border-spacing-0 text-sm">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wider text-muted">
+              <tr className="text-left text-2xs uppercase tracking-wider text-muted">
                 <th className="border-b border-hairline px-6 py-2 font-medium">
                   Tool
                 </th>
@@ -201,7 +201,7 @@ export default async function AdminToolsPage() {
                 <tr>
                   <td
                     colSpan={6}
-                    className="border-b border-hairline px-6 py-8 text-center text-[12px] text-muted"
+                    className="border-b border-hairline px-6 py-8 text-center text-xs text-muted"
                   >
                     No tools are cataloged yet. Seed provider tools before
                     relying on lower-level tool governance.
@@ -214,18 +214,18 @@ export default async function AdminToolsPage() {
                       <div className="font-medium text-ink">
                         {tool.displayName}
                       </div>
-                      <div className="mt-1 max-w-72 truncate font-mono text-[12px] text-muted">
+                      <div className="mt-1 max-w-72 truncate font-mono text-xs text-muted">
                         {tool.toolName}
                       </div>
                       {tool.description ? (
-                        <div className="mt-1 max-w-xl text-[12px] text-muted">
+                        <div className="mt-1 max-w-xl text-xs text-muted">
                           {tool.description}
                         </div>
                       ) : null}
                     </td>
                     <td className="border-b border-hairline px-4 py-3 align-top">
                       <div className="text-ink">{titleize(tool.provider)}</div>
-                      <div className="mt-1 text-[12px] text-muted">
+                      <div className="mt-1 text-xs text-muted">
                         {tool.serverName ?? "No server link"}
                       </div>
                     </td>
@@ -255,7 +255,7 @@ export default async function AdminToolsPage() {
 function Metric({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-md border border-hairline bg-surface px-4 py-3">
-      <div className="text-[11px] uppercase tracking-wider text-muted">
+      <div className="text-2xs uppercase tracking-wider text-muted">
         {label}
       </div>
       <div className="mt-2 text-2xl font-semibold text-ink">{value}</div>
@@ -272,7 +272,7 @@ function StatusBadge({ status }: { status: string }) {
         : "bg-subtle text-muted";
   return (
     <span
-      className={`inline-flex rounded px-2 py-0.5 text-[11px] uppercase tracking-wider ${classes}`}
+      className={`inline-flex rounded px-2 py-0.5 text-2xs uppercase tracking-wider ${classes}`}
     >
       {status}
     </span>
@@ -288,7 +288,7 @@ function ActionBadge({ action }: { action: string }) {
         : "bg-danger-bg text-danger";
   return (
     <span
-      className={`inline-flex rounded px-2 py-0.5 text-[11px] uppercase tracking-wider ${classes}`}
+      className={`inline-flex rounded px-2 py-0.5 text-2xs uppercase tracking-wider ${classes}`}
     >
       {action}
     </span>
@@ -298,7 +298,7 @@ function ActionBadge({ action }: { action: string }) {
 function EnabledBadge({ enabled }: { enabled: boolean }) {
   return (
     <span
-      className={`inline-flex rounded px-2 py-0.5 text-[11px] uppercase tracking-wider ${
+      className={`inline-flex rounded px-2 py-0.5 text-2xs uppercase tracking-wider ${
         enabled ? "bg-success-bg text-success" : "bg-subtle text-muted"
       }`}
     >

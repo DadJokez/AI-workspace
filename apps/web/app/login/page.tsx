@@ -33,8 +33,10 @@ export default async function LoginPage({ searchParams }: Props) {
             label="Comparative"
             className="text-ink"
           />
-          <h1 className="text-base font-semibold text-ink">Comparative</h1>
-          <p className="text-[13px] text-muted">
+          <h1 className="font-serif text-lg font-normal text-ink">
+            Comparative
+          </h1>
+          <p className="text-sm text-muted">
             Sign in to continue to your workspace.
           </p>
         </div>
@@ -46,7 +48,7 @@ export default async function LoginPage({ searchParams }: Props) {
 
         {error ? <ErrorMessage code={error} /> : null}
 
-        <p className="pt-6 text-center text-[11px] text-muted">
+        <p className="pt-6 text-center text-2xs text-muted">
           Access is invite-only. Ask an admin to invite your email.
         </p>
       </div>
@@ -75,7 +77,7 @@ function ErrorMessage({ code }: { code: string }) {
                   ? "Sign-in is misconfigured. Contact an admin."
                   : `Sign-in failed (${code}).`;
   return (
-    <div className="mt-4 rounded-md border border-hairline bg-canvas px-3 py-2 text-[12px] text-ink">
+    <div className="mt-4 rounded-md border border-hairline bg-canvas px-3 py-2 text-xs text-ink">
       {message}
     </div>
   );

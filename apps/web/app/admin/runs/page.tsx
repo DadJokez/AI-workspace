@@ -79,7 +79,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
     <section className="py-2">
       <div className="px-6 pb-3 pt-4">
         <h2 className="text-base font-semibold text-ink">Runs</h2>
-        <p className="mt-1 text-[12px] text-muted">
+        <p className="mt-1 text-xs text-muted">
           Recent chat, workflow, and skill executions, including Developer
           Briefing runs.
         </p>
@@ -95,10 +95,10 @@ export default async function AdminRunsPage({ searchParams }: Props) {
       <section className="px-6 pb-5">
         <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h3 className="text-[13px] font-semibold text-ink">
+            <h3 className="text-sm font-semibold text-ink">
               Runtime V2 Latency
             </h3>
-            <p className="mt-1 text-[12px] text-muted">
+            <p className="mt-1 text-xs text-muted">
               First-token latency by lane across the latest{" "}
               {runtimeReport.rowsAnalyzed} run(s). Fast-local samples:{" "}
               {runtimeReport.fastLocalSampleCount}.
@@ -106,9 +106,9 @@ export default async function AdminRunsPage({ searchParams }: Props) {
           </div>
         </div>
         <div className="overflow-x-auto rounded-md border border-hairline">
-          <table className="w-full border-separate border-spacing-0 text-[12px]">
+          <table className="w-full border-separate border-spacing-0 text-xs">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wider text-muted">
+              <tr className="text-left text-2xs uppercase tracking-wider text-muted">
                 <th className="border-b border-hairline px-3 py-2 font-medium">
                   Lane
                 </th>
@@ -158,17 +158,17 @@ export default async function AdminRunsPage({ searchParams }: Props) {
       </section>
 
       <section className="px-6 pb-5">
-        <h3 className="text-[13px] font-semibold text-ink">
+        <h3 className="text-sm font-semibold text-ink">
           Failure Groups
         </h3>
-        <p className="mt-1 text-[12px] text-muted">
+        <p className="mt-1 text-xs text-muted">
           Grouped by lane, target, provider, model, and error class. Raw prompts
           and tool payloads are not shown.
         </p>
         <div className="mt-2 overflow-x-auto rounded-md border border-hairline">
-          <table className="w-full border-separate border-spacing-0 text-[12px]">
+          <table className="w-full border-separate border-spacing-0 text-xs">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wider text-muted">
+              <tr className="text-left text-2xs uppercase tracking-wider text-muted">
                 <th className="border-b border-hairline px-3 py-2 font-medium">
                   Count
                 </th>
@@ -194,7 +194,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
                 <tr>
                   <td
                     colSpan={6}
-                    className="px-3 py-5 text-center text-[12px] text-muted"
+                    className="px-3 py-5 text-center text-xs text-muted"
                   >
                     No failed runs in this result set.
                   </td>
@@ -261,9 +261,9 @@ export default async function AdminRunsPage({ searchParams }: Props) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full border-separate border-spacing-0 text-[13px]">
+        <table className="w-full border-separate border-spacing-0 text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wider text-muted">
+            <tr className="text-left text-2xs uppercase tracking-wider text-muted">
               <th className="border-b border-hairline px-6 py-2 font-medium">
                 Run
               </th>
@@ -286,7 +286,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
               <tr>
                 <td
                   colSpan={5}
-                  className="border-b border-hairline px-6 py-10 text-center text-[12px] text-muted"
+                  className="border-b border-hairline px-6 py-10 text-center text-xs text-muted"
                 >
                   No runs match this filter.
                 </td>
@@ -306,7 +306,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
                           >
                             {formatSkill(row.skillSlug)}
                           </Link>
-                          <div className="mt-1 font-mono text-[12px] text-muted">
+                          <div className="mt-1 font-mono text-xs text-muted">
                             {shortId(row.id)}
                           </div>
                           <div className="mt-1">
@@ -319,7 +319,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
                       <div className="max-w-56 truncate text-ink">
                         {row.actorName ?? "Unknown user"}
                       </div>
-                      <div className="max-w-56 truncate text-[12px] text-muted">
+                      <div className="max-w-56 truncate text-xs text-muted">
                         {row.actorEmail ?? "No email"}
                       </div>
                     </td>
@@ -327,14 +327,14 @@ export default async function AdminRunsPage({ searchParams }: Props) {
                       <div className="text-ink">
                         {output.runtime ?? row.runtime ?? "n/a"}
                       </div>
-                      <div className="mt-1 max-w-56 truncate text-[12px] text-muted">
+                      <div className="mt-1 max-w-56 truncate text-xs text-muted">
                         {output.runtimeTarget ?? "target n/a"}
                       </div>
-                      <div className="mt-1 max-w-56 truncate text-[12px] text-muted">
+                      <div className="mt-1 max-w-56 truncate text-xs text-muted">
                         {output.modelId ?? row.modelId ?? "No model"}
                       </div>
                     </td>
-                    <td className="border-b border-hairline px-4 py-3 align-top text-[12px] text-muted">
+                    <td className="border-b border-hairline px-4 py-3 align-top text-xs text-muted">
                       <div>{formatDateTime(row.createdAt)}</div>
                       <div className="mt-1">
                         {row.startedAt && row.completedAt
@@ -353,20 +353,20 @@ export default async function AdminRunsPage({ searchParams }: Props) {
                     <td className="border-b border-hairline px-6 py-3 align-top">
                       <div className="flex flex-wrap gap-3">
                         {row.error ? (
-                          <div className="max-w-xl truncate font-mono text-[12px] text-danger">
+                          <div className="max-w-xl truncate font-mono text-xs text-danger">
                             {row.error}
                           </div>
                         ) : (
                           <Link
                             href={`/admin/runs/${row.id}`}
-                            className="text-[12px] text-ink underline-offset-2 hover:underline"
+                            className="text-xs text-ink underline-offset-2 hover:underline"
                           >
                             View run
                           </Link>
                         )}
                         <Link
                           href={`/chat?inspectRun=${row.id}`}
-                          className="text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline"
+                          className="text-xs text-muted underline-offset-2 hover:text-ink hover:underline"
                         >
                           Open inspector
                         </Link>
@@ -386,7 +386,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
 function Metric({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="rounded-md border border-hairline bg-surface px-3 py-2">
-      <div className="text-[11px] uppercase tracking-wider text-muted">
+      <div className="text-2xs uppercase tracking-wider text-muted">
         {label}
       </div>
       <div className="mt-1 text-lg font-semibold text-ink">{value}</div>
@@ -417,7 +417,7 @@ function StatusBadge({ status }: { status: string }) {
           : "bg-subtle text-muted";
   return (
     <span
-      className={`inline-flex rounded px-2 py-0.5 text-[11px] uppercase tracking-wider ${classes}`}
+      className={`inline-flex rounded px-2 py-0.5 text-2xs uppercase tracking-wider ${classes}`}
     >
       {status}
     </span>

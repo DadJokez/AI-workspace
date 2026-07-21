@@ -201,7 +201,7 @@ export function RunInspectorPane({
               </h2>
               {trace ? <StatusPill status={trace.run.status} /> : null}
             </div>
-            <p className="truncate font-mono text-[10px] text-muted">
+            <p className="truncate font-mono text-2xs text-muted">
               {runId}
             </p>
           </div>
@@ -225,7 +225,7 @@ export function RunInspectorPane({
                 role="tab"
                 aria-selected={tab === item.id}
                 onClick={() => setTab(item.id)}
-                className={`h-10 border-b px-2.5 text-[11px] font-medium ${
+                className={`h-10 border-b px-2.5 text-2xs font-medium ${
                   tab === item.id
                     ? "border-ink text-ink"
                     : "border-transparent text-muted hover:text-ink"
@@ -282,7 +282,7 @@ function OverviewTab({ trace }: { trace: RunInspectorTrace }) {
   return (
     <div className="space-y-5">
       <SectionTitle title="Execution" />
-      <dl className="grid grid-cols-2 border-l border-t border-hairline text-[12px]">
+      <dl className="grid grid-cols-2 border-l border-t border-hairline text-xs">
         <Metric label="Status" value={trace.run.status} />
         <Metric label="User" value={trace.run.actorName ?? trace.run.actorEmail} />
         <Metric
@@ -320,7 +320,7 @@ function OverviewTab({ trace }: { trace: RunInspectorTrace }) {
       </dl>
 
       <SectionTitle title="Timing and usage" />
-      <dl className="grid grid-cols-2 border-l border-t border-hairline text-[12px]">
+      <dl className="grid grid-cols-2 border-l border-t border-hairline text-xs">
         <Metric
           label="First token"
           value={formatMs(numberValue(metrics?.requestToFirstTokenMs))}
@@ -348,7 +348,7 @@ function OverviewTab({ trace }: { trace: RunInspectorTrace }) {
       </dl>
 
       {trace.run.error ? (
-        <div className="border-l-2 border-danger px-3 py-2 text-[12px] text-danger">
+        <div className="border-l-2 border-danger px-3 py-2 text-xs text-danger">
           {trace.run.error}
         </div>
       ) : null}
@@ -375,7 +375,7 @@ function TimelineTab({
           onChange={(event) =>
             onFilterChange(event.target.value as TimelineFilter)
           }
-          className="h-8 rounded-md border border-hairline bg-canvas px-2 text-[11px] text-ink"
+          className="h-8 rounded-md border border-hairline bg-canvas px-2 text-2xs text-ink"
         >
           <option value="all">All events</option>
           <option value="provider">Provider</option>
@@ -409,16 +409,16 @@ function ContextTab({ trace }: { trace: RunInspectorTrace }) {
             const safeRequest = recordValue(requestRecord?.request);
             return (
               <details key={index} className="group py-2">
-                <summary className="flex cursor-pointer list-none items-center gap-2 text-[12px] text-ink marker:hidden">
+                <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-ink marker:hidden">
                   <Chevron />
                   <span>Provider request {index + 1}</span>
-                  <span className="ml-auto font-mono text-[10px] text-muted">
+                  <span className="ml-auto font-mono text-2xs text-muted">
                     {shortHash(stringValue(requestRecord?.requestHash))}
                   </span>
                 </summary>
                 <div className="mt-3 space-y-4 pl-5">
                   {safeRequest?.truncated === true ? (
-                    <div className="border-l-2 border-warning px-3 py-2 text-[11px] text-muted">
+                    <div className="border-l-2 border-warning px-3 py-2 text-2xs text-muted">
                       Context content was truncated by the standard trace size
                       policy. Hashes still identify the exact provider request.
                     </div>
@@ -470,7 +470,7 @@ function ReasoningTab({
     <div className="space-y-4">
       <div>
         <SectionTitle title="Provider reasoning" />
-        <p className="mt-1 text-[11px] leading-relaxed text-muted">
+        <p className="mt-1 text-2xs leading-relaxed text-muted">
           Provider-returned diagnostic content may be summarized and is not a
           complete or guaranteed-faithful record of private model reasoning.
         </p>
@@ -487,7 +487,7 @@ function ReasoningTab({
         <div className="divide-y divide-hairline border-y border-hairline">
           {blocks.map((block, index) => (
             <div key={reasoningBlockKey(block, index)} className="py-3">
-              <div className="mb-2 flex items-center gap-2 text-[10px] text-muted">
+              <div className="mb-2 flex items-center gap-2 text-2xs text-muted">
                 <span>
                   Iteration {(numberValue(block.iteration) ?? 0) + 1}
                 </span>
@@ -498,7 +498,7 @@ function ReasoningTab({
                   <span className="ml-auto text-success">Live</span>
                 ) : null}
               </div>
-              <div className="whitespace-pre-wrap text-[12px] leading-relaxed text-ink [overflow-wrap:anywhere]">
+              <div className="whitespace-pre-wrap text-xs leading-relaxed text-ink [overflow-wrap:anywhere]">
                 {stringValue(block.text) ?? "Encrypted reasoning content"}
               </div>
             </div>
@@ -530,7 +530,7 @@ function OutputTab({ trace }: { trace: RunInspectorTrace }) {
     <div className="space-y-5">
       <SectionTitle title="Provider-visible output" />
       {assistantText ? (
-        <pre className="whitespace-pre-wrap border-y border-hairline py-3 font-sans text-[12px] leading-relaxed text-ink [overflow-wrap:anywhere]">
+        <pre className="whitespace-pre-wrap border-y border-hairline py-3 font-sans text-xs leading-relaxed text-ink [overflow-wrap:anywhere]">
           {assistantText}
         </pre>
       ) : (
@@ -548,12 +548,12 @@ function RawTab({ trace }: { trace: RunInspectorTrace }) {
     <div className="space-y-3">
       <div>
         <SectionTitle title="Normalized events" />
-        <p className="mt-1 text-[11px] text-muted">
+        <p className="mt-1 text-2xs text-muted">
           Schema-versioned, redacted events observed by Comparative. Raw
           provider delta retention is not enabled for this run.
         </p>
       </div>
-      <pre className="max-h-none overflow-auto border-y border-hairline py-3 font-mono text-[10px] leading-relaxed text-ink [overflow-wrap:anywhere]">
+      <pre className="max-h-none overflow-auto border-y border-hairline py-3 font-mono text-2xs leading-relaxed text-ink [overflow-wrap:anywhere]">
         {JSON.stringify(
           {
             schema: trace.schema,
@@ -583,22 +583,22 @@ function EventList({
         <details key={event.id} className="group py-2">
           <summary className="flex cursor-pointer list-none items-center gap-2 marker:hidden">
             <StatusDot status={event.status} />
-            <span className="min-w-0 flex-1 truncate text-[12px] text-ink">
+            <span className="min-w-0 flex-1 truncate text-xs text-ink">
               {event.label}
             </span>
-            <span className="shrink-0 text-[10px] text-muted">
+            <span className="shrink-0 text-2xs text-muted">
               {formatRelativeTime(event.occurredAt, events[0]?.occurredAt)}
             </span>
             <Chevron />
           </summary>
           <div className="mt-2 space-y-2 pl-4">
-            <div className="font-mono text-[10px] text-muted">
+            <div className="font-mono text-2xs text-muted">
               {[event.eventType, event.provider, event.toolName]
                 .filter(Boolean)
                 .join(" / ")}
             </div>
             {event.error ? (
-              <div className="text-[11px] text-danger">{event.error}</div>
+              <div className="text-2xs text-danger">{event.error}</div>
             ) : null}
             {event.input !== null && event.input !== undefined ? (
               <JsonSection label="Input" value={event.input} compact />
@@ -628,10 +628,10 @@ function JsonSection({
   if (value === undefined || value === null) return null;
   return (
     <details className={compact ? "" : "border-y border-hairline py-2"}>
-      <summary className="cursor-pointer list-none text-[11px] font-medium text-muted marker:hidden">
+      <summary className="cursor-pointer list-none text-2xs font-medium text-muted marker:hidden">
         {label}
       </summary>
-      <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-ink [overflow-wrap:anywhere]">
+      <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap font-mono text-2xs leading-relaxed text-ink [overflow-wrap:anywhere]">
         {JSON.stringify(value, null, 2)}
       </pre>
     </details>
@@ -643,8 +643,8 @@ function ContextValue({ label, value }: { label: string; value: unknown }) {
   if (!text) return null;
   return (
     <div>
-      <div className="mb-1 text-[10px] font-medium text-muted">{label}</div>
-      <div className="max-h-64 overflow-auto whitespace-pre-wrap text-[11px] leading-relaxed text-ink [overflow-wrap:anywhere]">
+      <div className="mb-1 text-2xs font-medium text-muted">{label}</div>
+      <div className="max-h-64 overflow-auto whitespace-pre-wrap text-2xs leading-relaxed text-ink [overflow-wrap:anywhere]">
         {text}
       </div>
     </div>
@@ -654,8 +654,8 @@ function ContextValue({ label, value }: { label: string; value: unknown }) {
 function Metric({ label, value }: { label: string; value: unknown }) {
   return (
     <div className="min-w-0 border-b border-r border-hairline px-3 py-2.5">
-      <dt className="text-[10px] text-muted">{label}</dt>
-      <dd className="mt-1 truncate text-[12px] font-medium text-ink">
+      <dt className="text-2xs text-muted">{label}</dt>
+      <dd className="mt-1 truncate text-xs font-medium text-ink">
         {typeof value === "string" && value.length > 0 ? value : "n/a"}
       </dd>
     </div>
@@ -663,7 +663,7 @@ function Metric({ label, value }: { label: string; value: unknown }) {
 }
 
 function SectionTitle({ title }: { title: string }) {
-  return <h3 className="text-[12px] font-semibold text-ink">{title}</h3>;
+  return <h3 className="text-xs font-semibold text-ink">{title}</h3>;
 }
 
 function PaneState({
@@ -675,7 +675,7 @@ function PaneState({
 }) {
   return (
     <div
-      className={`flex h-full items-center justify-center px-6 text-center text-[12px] ${
+      className={`flex h-full items-center justify-center px-6 text-center text-xs ${
         tone === "error" ? "text-danger" : "text-muted"
       }`}
     >
@@ -686,7 +686,7 @@ function PaneState({
 
 function EmptyText({ label }: { label: string }) {
   return (
-    <div className="border-y border-hairline py-6 text-center text-[11px] leading-relaxed text-muted">
+    <div className="border-y border-hairline py-6 text-center text-2xs leading-relaxed text-muted">
       {label}
     </div>
   );
@@ -696,7 +696,7 @@ function StatusPill({ status }: { status: string }) {
   const active = isActiveStatus(status);
   return (
     <span
-      className={`rounded px-1.5 py-0.5 text-[9px] uppercase ${
+      className={`rounded px-1.5 py-0.5 text-2xs uppercase ${
         active
           ? "bg-info-bg text-info"
           : status === "failed"

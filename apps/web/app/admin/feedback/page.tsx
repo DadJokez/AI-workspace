@@ -88,7 +88,7 @@ export default async function AdminFeedbackPage({ searchParams }: Props) {
     <section className="py-2">
       <div className="px-4 pb-3 pt-4 sm:px-6">
         <h2 className="text-base font-semibold text-ink">Feedback</h2>
-        <p className="mt-1 text-[12px] text-muted">
+        <p className="mt-1 text-xs text-muted">
           Alpha tester reports with chat context, browser details, and triage state.
         </p>
       </div>
@@ -107,7 +107,7 @@ export default async function AdminFeedbackPage({ searchParams }: Props) {
             </FilterPill>
           );
         })}
-        <span className="w-full text-[12px] text-muted sm:ml-auto sm:w-auto">
+        <span className="w-full text-xs text-muted sm:ml-auto sm:w-auto">
           showing {out.length.toLocaleString()} report{out.length === 1 ? "" : "s"}
         </span>
       </div>

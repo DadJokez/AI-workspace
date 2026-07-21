@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
@@ -49,6 +49,14 @@ function contrastRatio(foreground: string, background: string) {
   const first = luminance(foreground);
   const second = luminance(background);
   return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+}
+
+function sourceFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return sourceFiles(path);
+    return entry.name.endsWith(".tsx") ? [path] : [];
+  });
 }
 
 describe("umber foundation (packages/umber)", () => {
@@ -114,6 +122,40 @@ describe("umber foundation (packages/umber)", () => {
     expect(tailwind).toContain(
       "rgb(from var(--color-${name}) r g b / <alpha-value>)",
     );
+  });
+
+  it("wires Umber type, spacing, radius, shadow, and motion tokens into Tailwind", () => {
+    const tailwind = readFileSync(
+      join(__dirname, "../tailwind.config.ts"),
+      "utf8",
+    );
+
+    for (const token of [
+      "--text-2xs",
+      "--text-base",
+      "--text-5xl",
+      "--leading-normal",
+      "--fw-semibold",
+      "--space-4",
+      "--radius-md",
+      "--shadow-focus",
+      "--dur-base",
+      "--ease-out",
+    ]) {
+      expect(tailwind).toContain(`var(${token})`);
+    }
+  });
+
+  it("keeps app typography on the shared scale", () => {
+    const roots = [join(__dirname, "../app"), join(__dirname, "../components")];
+    const offenders = roots.flatMap((root) =>
+      sourceFiles(root).flatMap((file) => {
+        const matches = readFileSync(file, "utf8").match(/text-\[\d+px\]/g);
+        return matches?.map((match) => `${file}: ${match}`) ?? [];
+      }),
+    );
+
+    expect(offenders).toEqual([]);
   });
 
   it("keeps status foregrounds AA-readable on their light and dark backgrounds", () => {

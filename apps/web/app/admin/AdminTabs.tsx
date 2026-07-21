@@ -36,7 +36,7 @@ export function AdminTabs() {
               key={t.href}
               href={t.href}
               aria-current={active ? "page" : undefined}
-              className={`relative -mb-px whitespace-nowrap px-3 py-2 text-[13px] ${
+              className={`relative -mb-px whitespace-nowrap px-3 py-2 text-sm ${
                 active
                   ? "border-b-2 border-ink text-ink"
                   : "border-b-2 border-transparent text-muted hover:text-ink"

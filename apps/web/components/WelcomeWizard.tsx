@@ -148,8 +148,8 @@ export function WelcomeWizard({
 
         {step === "name" ? (
           <div>
-            <h2 className="text-[17px] font-semibold">Name your assistant</h2>
-            <p className="mt-1.5 text-[13px] text-muted">
+            <h2 className="text-md font-semibold">Name your assistant</h2>
+            <p className="mt-1.5 text-sm text-muted">
               This is your personal AI at work. Give it a name — it&apos;ll
               show up in your chats.
             </p>
@@ -162,7 +162,7 @@ export function WelcomeWizard({
               }}
               maxLength={40}
               placeholder="Hub"
-              className="mt-3 w-full rounded-md border border-hairline bg-canvas px-3 py-2 text-[15px] text-ink focus-visible:border-ink/40"
+              className="mt-3 w-full rounded-md border border-hairline bg-canvas px-3 py-2 text-base text-ink focus-visible:border-ink/40"
             />
             <div className="mt-2 flex flex-wrap gap-1.5">
               {SUGGESTED_NAMES.map((n) => (
@@ -170,7 +170,7 @@ export function WelcomeWizard({
                   key={n}
                   type="button"
                   onClick={() => setName(n)}
-                  className="rounded-full border border-hairline px-2.5 py-1 text-[12px] text-muted hover:bg-subtle hover:text-ink"
+                  className="rounded-full border border-hairline px-2.5 py-1 text-xs text-muted hover:bg-subtle hover:text-ink"
                 >
                   {n}
                 </button>
@@ -179,48 +179,48 @@ export function WelcomeWizard({
           </div>
         ) : step === "tools" ? (
           <div>
-            <h2 className="text-[17px] font-semibold">
+            <h2 className="text-md font-semibold">
               Connect your tools
             </h2>
-            <p className="mt-1.5 text-[13px] text-muted">
+            <p className="mt-1.5 text-sm text-muted">
               Let {assistantLabel} work with your real systems. You approve
               every connection; everything it does is audited.
             </p>
             <div className="mt-3 flex flex-col gap-2">
               <a
                 href="/api/oauth/github/start"
-                className={`flex items-center justify-between rounded-md border px-3 py-2.5 text-[14px] ${
+                className={`flex items-center justify-between rounded-md border px-3 py-2.5 text-base ${
                   connected.github
                     ? "border-success/40 bg-success-bg"
                     : "border-hairline hover:bg-subtle"
                 }`}
               >
                 <span className="font-medium text-ink">GitHub</span>
-                <span className="text-[12px] text-muted">
+                <span className="text-xs text-muted">
                   {connected.github ? "✓ Connected" : "Connect →"}
                 </span>
               </a>
-              <div className="flex items-center justify-between rounded-md border border-hairline px-3 py-2.5 text-[14px] opacity-60">
+              <div className="flex items-center justify-between rounded-md border border-hairline px-3 py-2.5 text-base opacity-60">
                 <span className="text-ink">
                   Microsoft 365, Salesforce, Workfront…
                 </span>
-                <span className="text-[12px] text-muted">Coming soon</span>
+                <span className="text-xs text-muted">Coming soon</span>
               </div>
             </div>
           </div>
         ) : (
           <div>
-            <h2 className="text-[17px] font-semibold">About your work</h2>
-            <p className="mt-1.5 text-[13px] text-muted">
+            <h2 className="text-md font-semibold">About your work</h2>
+            <p className="mt-1.5 text-sm text-muted">
               Three quick questions so {assistantLabel} starts out knowing a
               little about you.
             </p>
-            <label className="mt-3 block text-[12px] text-muted">
+            <label className="mt-3 block text-xs text-muted">
               What&apos;s your role?
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
-                className="mt-1 w-full rounded-md border border-hairline bg-canvas px-2 py-2 text-[14px] text-ink"
+                className="mt-1 w-full rounded-md border border-hairline bg-canvas px-2 py-2 text-base text-ink"
               >
                 <option value="">Choose…</option>
                 {ROLE_OPTIONS.map((r) => (
@@ -230,7 +230,7 @@ export function WelcomeWizard({
                 ))}
               </select>
             </label>
-            <div className="mt-3 text-[12px] text-muted">
+            <div className="mt-3 text-xs text-muted">
               Which tools do you live in?
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {TOOL_OPTIONS.map((t) => (
@@ -238,7 +238,7 @@ export function WelcomeWizard({
                     key={t}
                     type="button"
                     onClick={() => toggleTool(t)}
-                    className={`rounded-full border px-2.5 py-1 text-[12px] ${
+                    className={`rounded-full border px-2.5 py-1 text-xs ${
                       tools.includes(t)
                         ? "border-ink bg-ink text-canvas"
                         : "border-hairline text-muted hover:bg-subtle hover:text-ink"
@@ -249,14 +249,14 @@ export function WelcomeWizard({
                 ))}
               </div>
             </div>
-            <label className="mt-3 block text-[12px] text-muted">
+            <label className="mt-3 block text-xs text-muted">
               One thing you&apos;d hand off first?
               <input
                 value={firstTask}
                 onChange={(e) => setFirstTask(e.target.value)}
                 maxLength={200}
                 placeholder="e.g. summarizing my weekly status"
-                className="mt-1 w-full rounded-md border border-hairline bg-canvas px-2 py-2 text-[14px] text-ink focus-visible:border-ink/40"
+                className="mt-1 w-full rounded-md border border-hairline bg-canvas px-2 py-2 text-base text-ink focus-visible:border-ink/40"
               />
             </label>
           </div>
@@ -269,7 +269,7 @@ export function WelcomeWizard({
               clearWizardState();
               onComplete();
             }}
-            className="text-[12px] text-muted hover:text-ink"
+            className="text-xs text-muted hover:text-ink"
           >
             Skip setup
           </button>
@@ -278,7 +278,7 @@ export function WelcomeWizard({
               <button
                 type="button"
                 onClick={() => setStep(ORDER[stepIndex - 1]!)}
-                className="rounded-md border border-hairline px-3 py-1.5 text-[13px] text-ink hover:bg-subtle"
+                className="rounded-md border border-hairline px-3 py-1.5 text-sm text-ink hover:bg-subtle"
               >
                 Back
               </button>
@@ -287,7 +287,7 @@ export function WelcomeWizard({
               type="button"
               disabled={busy || (step === "name" && !name.trim())}
               onClick={goNext}
-              className="rounded-md bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas hover:opacity-90 disabled:opacity-40"
+              className="rounded-md bg-ink px-3.5 py-1.5 text-sm font-medium text-canvas hover:opacity-90 disabled:opacity-40"
             >
               {step === "tools" && !connected.github
                 ? "Skip for now"

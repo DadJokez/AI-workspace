@@ -2132,7 +2132,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                 <div className="flex min-w-0 flex-1 items-center px-3">
                   <div
                     data-testid="active-chat-title"
-                    className="truncate text-[13px] font-medium text-muted"
+                    className="truncate text-sm font-medium text-muted"
                     title={activeTab.title}
                   >
                     {activeTab.threadId ? activeTab.title : "New chat"}
@@ -2178,7 +2178,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                     {unreadNotifications > 0 ? (
                       <span
                         data-testid="notification-badge"
-                        className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-semibold text-on-accent"
+                        className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-2xs font-semibold text-on-accent"
                       >
                         {unreadNotifications > 9 ? "9+" : unreadNotifications}
                       </span>
@@ -2202,7 +2202,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
                       onClick={stopStreaming}
                       className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-hairline bg-canvas px-2 text-xs font-medium text-muted hover:bg-subtle hover:text-ink"
                     >
-                      <span className="block h-2.5 w-2.5 rounded-[2px] bg-current" />
+                      <span className="block h-2.5 w-2.5 rounded-xs bg-current" />
                       Stop
                     </button>
                   ) : canRegenerate ? (
@@ -2353,7 +2353,7 @@ export function ChatClient({ initialThreadId }: ChatClientProps) {
             {error ? (
               <div className="flex flex-col gap-2 rounded-md border border-hairline bg-subtle px-3 py-2 text-sm text-ink sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                  <span className="text-2xs font-medium uppercase tracking-wide text-muted">
                     Error
                   </span>
                   <span className="break-words [overflow-wrap:anywhere]">
@@ -2494,7 +2494,7 @@ function RunControls({
 }) {
   const pending = pendingAction?.endsWith(`:${runId}`) ?? false;
   return (
-    <div className="flex flex-wrap gap-2 text-[12px]">
+    <div className="flex flex-wrap gap-2 text-xs">
       {canCancel ? (
         <button
           type="button"
@@ -2548,7 +2548,7 @@ function EmptyState({ onPick }: { onPick: (s: string) => void }) {
         label="Comparative"
         className="text-ink"
       />
-      <div className="text-2xl font-medium tracking-tight text-ink">
+      <div className="font-serif text-2xl font-normal tracking-tight text-ink">
         Talk to your work.
       </div>
       <p className="max-w-md text-sm text-muted">
@@ -2556,7 +2556,7 @@ function EmptyState({ onPick }: { onPick: (s: string) => void }) {
         next — connect what you have in{" "}
         <span className="text-ink">Tools</span>.
       </p>
-      <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted/60">
+      <div className="text-2xs font-medium uppercase tracking-caps text-muted/60">
         {COMPARATIVE_VERSION_LABEL}
       </div>
       <div className="flex flex-wrap justify-center gap-2 pt-4">

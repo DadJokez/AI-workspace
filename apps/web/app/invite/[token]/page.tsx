@@ -41,8 +41,8 @@ function ErrorPanel({ title, message }: { title: string; message: string }) {
       </div>
       <div className="w-full max-w-md rounded-lg border border-hairline bg-subtle/30 p-8 text-center">
         <h1 className="text-base font-semibold">{title}</h1>
-        <p className="mt-2 text-[13px] text-muted">{message}</p>
-        <p className="mt-6 text-[12px] text-muted">
+        <p className="mt-2 text-sm text-muted">{message}</p>
+        <p className="mt-6 text-xs text-muted">
           Ask the admin who invited you for a fresh link.
         </p>
       </div>
@@ -102,17 +102,17 @@ export default async function InvitePage({
       </div>
       <div className="w-full max-w-md rounded-lg border border-hairline bg-subtle/30 p-8 text-center">
         <h1 className="text-base font-semibold">You&apos;ve been invited</h1>
-        <p className="mt-2 text-[13px] text-muted">
+        <p className="mt-2 text-sm text-muted">
           Sign in with GitHub to join the workspace as{" "}
           <span className="text-ink">{result.email}</span>.
         </p>
-        <p className="mt-1 text-[12px] text-muted">
+        <p className="mt-1 text-xs text-muted">
           You will be granted the{" "}
           <span className="text-ink">{result.role}</span> role.
         </p>
         <Link
           href={signInHref}
-          className="mt-6 inline-flex items-center justify-center rounded-md bg-ink px-4 py-2 text-[13px] font-medium text-canvas hover:opacity-90"
+          className="mt-6 inline-flex items-center justify-center rounded-md bg-ink px-4 py-2 text-sm font-medium text-canvas hover:opacity-90"
         >
           Continue with GitHub
         </Link>
