@@ -556,10 +556,13 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   const [appDraftPendingId, setAppDraftPendingId] = useState<string>();
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [editRequest, setEditRequest] = useState<ChatEditRequest>();
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const closeRightPane = useCallback(() => setRightPane(null), []);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
+  const jumpScrollInProgressRef = useRef(false);
+  const jumpScrollResetRef = useRef<number | undefined>(undefined);
   const loadingThreadsRef = useRef<Set<string>>(new Set());
   const streamAbortRef = useRef<AbortController | null>(null);
   const initialThreadAppliedRef = useRef(false);
@@ -605,6 +608,15 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   useEffect(() => {
     setEditRequest(undefined);
   }, [activeId]);
+
+  useEffect(
+    () => () => {
+      if (jumpScrollResetRef.current !== undefined) {
+        window.clearTimeout(jumpScrollResetRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1190,15 +1202,21 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
 
   // Auto-scroll: only if user is at (or near) the bottom.
   useEffect(() => {
-    if (!stickToBottomRef.current) return;
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    if (stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+      setShowJumpToLatest(false);
+      return;
+    }
+    setShowJumpToLatest(true);
   }, [activeTab?.messages]);
 
   // Conversation switch: re-stick to bottom and jump there.
   useEffect(() => {
     stickToBottomRef.current = true;
+    jumpScrollInProgressRef.current = false;
+    setShowJumpToLatest(false);
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
@@ -1208,7 +1226,47 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     const el = scrollRef.current;
     if (!el) return;
     const distance = el.scrollHeight - el.clientHeight - el.scrollTop;
-    stickToBottomRef.current = distance < STICK_BOTTOM_THRESHOLD;
+    const isStuck = distance < STICK_BOTTOM_THRESHOLD;
+    if (jumpScrollInProgressRef.current) {
+      stickToBottomRef.current = true;
+      setShowJumpToLatest(false);
+      if (isStuck) {
+        jumpScrollInProgressRef.current = false;
+        if (jumpScrollResetRef.current !== undefined) {
+          window.clearTimeout(jumpScrollResetRef.current);
+          jumpScrollResetRef.current = undefined;
+        }
+      }
+      return;
+    }
+    stickToBottomRef.current = isStuck;
+    if (isStuck) {
+      setShowJumpToLatest(false);
+    } else if (activeTab?.busy || activeHasPendingRun) {
+      setShowJumpToLatest(true);
+    }
+  }
+
+  function scrollToLatest() {
+    const el = scrollRef.current;
+    if (!el) return;
+    jumpScrollInProgressRef.current = true;
+    stickToBottomRef.current = true;
+    setShowJumpToLatest(false);
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    if (jumpScrollResetRef.current !== undefined) {
+      window.clearTimeout(jumpScrollResetRef.current);
+    }
+    jumpScrollResetRef.current = window.setTimeout(() => {
+      jumpScrollInProgressRef.current = false;
+      jumpScrollResetRef.current = undefined;
+      const distance = el.scrollHeight - el.clientHeight - el.scrollTop;
+      const isStuck = distance < STICK_BOTTOM_THRESHOLD;
+      stickToBottomRef.current = isStuck;
+      setShowJumpToLatest(
+        !isStuck && Boolean(activeTab?.busy || activeHasPendingRun),
+      );
+    }, 1_000);
   }
 
   function patchTab(id: string, patch: Partial<ChatTab>) {
@@ -2294,39 +2352,17 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                       <span className="block h-2.5 w-2.5 rounded-xs bg-current" />
                       Stop
                     </button>
-                  ) : canRegenerate ? (
-                    <button
-                      type="button"
-                      aria-label="Regenerate last response"
-                      title="Regenerate last response"
-                      onClick={regenerate}
-                      className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-hairline bg-canvas px-2 text-xs font-medium text-muted hover:bg-subtle hover:text-ink"
-                    >
-                      <svg
-                        viewBox="0 0 16 16"
-                        width="13"
-                        height="13"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2v3h-3" />
-                      </svg>
-                      Regenerate
-                    </button>
                   ) : null}
                   <ThemeToggle />
                 </div>
           </header>
 
+        <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
           data-testid="chat-scroll-region"
           onScroll={handleScroll}
-          className="flex-1 overflow-x-hidden overflow-y-auto"
+          className="h-full overflow-x-hidden overflow-y-auto"
         >
           <div
             data-density="messages"
@@ -2367,6 +2403,11 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                     onRecommendationAction={handleRecommendationAction}
                     recommendationPendingId={recommendationPendingId}
                     appDraftPendingId={appDraftPendingId}
+                    onRegenerate={
+                      m.id === lastAssistantMessage?.id && canRegenerate
+                        ? regenerate
+                        : undefined
+                    }
                     onEdit={
                       m.role === "user" &&
                       !busy &&
@@ -2467,6 +2508,36 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
               </div>
             ) : null}
           </div>
+        </div>
+          <span
+            data-testid="jump-to-latest-status"
+            aria-live="polite"
+            className="sr-only"
+          >
+            {showJumpToLatest ? "New content below" : ""}
+          </span>
+          {showJumpToLatest ? (
+            <button
+              type="button"
+              onClick={scrollToLatest}
+              className="absolute bottom-3 left-1/2 z-10 flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline bg-surface px-3 text-xs font-medium text-ink shadow-md hover:bg-subtle"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                width="13"
+                height="13"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M8 3v9M4.5 8.5 8 12l3.5-3.5" />
+              </svg>
+              Jump to latest
+            </button>
+          ) : null}
         </div>
 
         <div

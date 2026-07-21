@@ -61,6 +61,7 @@ interface Props {
   recommendationPendingId?: string;
   appDraftPendingId?: string;
   onEdit?: () => void;
+  onRegenerate?: () => void;
 }
 
 export function MessageBubble({
@@ -89,6 +90,7 @@ export function MessageBubble({
   recommendationPendingId,
   appDraftPendingId,
   onEdit,
+  onRegenerate,
 }: Props) {
   const timestamp =
     typeof nowMs === "number"
@@ -125,7 +127,7 @@ export function MessageBubble({
         ) : null}
         <div
           data-testid="user-message-content"
-          className="max-w-[80%] overflow-hidden whitespace-pre-wrap rounded-lg bg-subtle px-3.5 py-2 text-base leading-relaxed text-ink [overflow-wrap:anywhere]"
+          className="max-w-[80%] overflow-hidden rounded-lg bg-subtle px-3.5 py-2 text-base leading-relaxed text-ink [overflow-wrap:anywhere]"
         >
           {slashDisplay ? (
             <span className="flex flex-wrap items-center gap-1.5">
@@ -141,7 +143,7 @@ export function MessageBubble({
               ) : null}
             </span>
           ) : (
-            content
+            <UserMarkdown content={content} />
           )}
         </div>
       </div>
@@ -213,6 +215,9 @@ export function MessageBubble({
         {role === "assistant" && !pending && content.trim() ? (
           <MessageCopyButton content={content} />
         ) : null}
+        {role === "assistant" && !pending && onRegenerate ? (
+          <MessageRegenerateButton onClick={onRegenerate} />
+        ) : null}
       </div>
       <div
         data-testid={
@@ -265,6 +270,20 @@ export function MessageBubble({
   );
 }
 
+function UserMarkdown({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={USER_MARKDOWN_COMPONENTS}
+      allowedElements={USER_MARKDOWN_ELEMENTS}
+      unwrapDisallowed
+      skipHtml
+    >
+      {content}
+    </ReactMarkdown>
+  );
+}
+
 function MessageCopyButton({ content }: { content: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -287,6 +306,20 @@ function MessageCopyButton({ content }: { content: string }) {
       className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted opacity-70 transition-[color,opacity,background-color] hover:bg-subtle hover:text-ink focus-visible:bg-subtle focus-visible:text-ink focus-visible:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
     >
       {copied ? <CheckIcon /> : <ClipboardIcon />}
+    </button>
+  );
+}
+
+function MessageRegenerateButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Regenerate response"
+      title="Regenerate response"
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted opacity-70 transition-[color,opacity,background-color] hover:bg-subtle hover:text-ink focus-visible:bg-subtle focus-visible:text-ink focus-visible:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
+    >
+      <RegenerateIcon />
     </button>
   );
 }
@@ -1283,6 +1316,65 @@ const MARKDOWN_COMPONENTS: Components = {
   },
 };
 
+const USER_MARKDOWN_ELEMENTS = [
+  "p",
+  "br",
+  "strong",
+  "em",
+  "del",
+  "a",
+  "pre",
+  "code",
+  "ul",
+  "ol",
+  "li",
+  "blockquote",
+];
+
+const USER_MARKDOWN_COMPONENTS: Components = {
+  p: (props) => (
+    <p
+      className="my-1.5 whitespace-pre-wrap first:mt-0 last:mb-0"
+      {...props}
+    />
+  ),
+  ul: (props) => (
+    <ul className="my-1.5 list-disc pl-5 first:mt-0 last:mb-0" {...props} />
+  ),
+  ol: (props) => (
+    <ol
+      className="my-1.5 list-decimal pl-5 first:mt-0 last:mb-0"
+      {...props}
+    />
+  ),
+  li: (props) => <li className="my-0.5" {...props} />,
+  a: (props) => (
+    <a className="underline" target="_blank" rel="noreferrer" {...props} />
+  ),
+  blockquote: (props) => (
+    <blockquote
+      className="my-1.5 border-l-2 border-hairline pl-3 text-muted first:mt-0 last:mb-0"
+      {...props}
+    />
+  ),
+  pre: ({ children }) => <>{children}</>,
+  code: ({ className, children, ...rest }) => {
+    const match = /language-(\w+)/.exec(className ?? "");
+    if (match) {
+      const code = String(children ?? "").replace(/\n$/, "");
+      return <CodeBlock language={match[1] ?? "text"} code={code} />;
+    }
+    return (
+      <code
+        className="break-all rounded bg-canvas/70 px-1 py-0.5 font-mono text-xs"
+        {...rest}
+      >
+        {children}
+      </code>
+    );
+  },
+};
+
 function CodeBlock({ language, code }: { language: string; code: string }) {
   const { isDark } = useTheme();
   const [copied, setCopied] = useState(false);
@@ -1382,6 +1474,24 @@ function PencilIcon() {
     >
       <path d="m3 11.5-.5 2 2-.5 7.8-7.8-1.5-1.5L3 11.5Z" />
       <path d="m9.8 4.7 1.5 1.5" />
+    </svg>
+  );
+}
+
+function RegenerateIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="12"
+      height="12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2v3h-3" />
     </svg>
   );
 }

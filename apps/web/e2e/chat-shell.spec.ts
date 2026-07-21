@@ -138,6 +138,44 @@ test.describe("chat shell guardrails", () => {
       .toBe(rawMarkdown);
   });
 
+  test("renders user code and links through the restricted markdown pipeline", async ({
+    page,
+  }) => {
+    await installMockComparativeApi(page);
+    await gotoE2EChat(page);
+
+    const prompt = [
+      "Please review `inlineValue` and this block:",
+      "```js",
+      "const answer = 42;",
+      "```",
+      "[Reference](https://example.com/reference)",
+      "# This stays compact",
+      "| Unsafe | table |",
+      "| --- | --- |",
+      '<img src="x" onerror="window.__userMarkdownXss = true">',
+    ].join("\n");
+    await page.getByPlaceholder(/ask anything/i).fill(prompt);
+    await page.getByRole("button", { name: "Send" }).click();
+
+    const message = page.getByTestId("user-message").last();
+    await expect(message.getByText("inlineValue", { exact: true })).toBeVisible();
+    await expect(message.locator("pre code")).toContainText(
+      "const answer = 42;",
+    );
+    await expect(
+      message.getByRole("link", { name: "Reference" }),
+    ).toHaveAttribute("href", "https://example.com/reference");
+    await expect(message.locator("h1, table, img")).toHaveCount(0);
+    expect(
+      await page.evaluate(
+        () =>
+          (window as typeof window & { __userMarkdownXss?: boolean })
+            .__userMarkdownXss,
+      ),
+    ).toBeUndefined();
+  });
+
   test("edits and resends a prior user message on the same thread", async ({
     page,
   }) => {
@@ -656,17 +694,136 @@ test.describe("chat shell guardrails", () => {
     );
     await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
     await expect(
-      header.getByRole("button", { name: "Regenerate last response" }),
-    ).toBeVisible();
+      header.getByRole("button", { name: "Regenerate response" }),
+    ).toHaveCount(0);
 
-    await header
-      .getByRole("button", { name: "Regenerate last response" })
+    const latestAssistant = page
+      .getByTestId("assistant-message")
+      .filter({ hasText: "Shell response 1." });
+    await latestAssistant.hover();
+    await latestAssistant
+      .getByRole("button", { name: "Regenerate response" })
       .click();
     await expect(page.getByText("Shell response 2.")).toBeVisible();
     expect(calls).toBe(2);
     expect(chatBodies[1]!.replaceMessageId).toBe(
       "33333333-3333-4333-8333-333333333333",
     );
+  });
+
+  test("shows jump to latest only outside the stick zone while a turn runs", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name.includes("mobile"),
+      "desktop coverage exercises the shared scroll behavior",
+    );
+
+    let releaseResponse: (() => void) | undefined;
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    const longMessages = Array.from({ length: 18 }, (_, index) => [
+      userMessage({
+        id: `user-scroll-${index}`,
+        content: `Question ${index + 1}: ${"context ".repeat(18)}`,
+      }),
+      assistantMessage({
+        id: `assistant-scroll-${index}`,
+        content: `Answer ${index + 1}: ${"detail ".repeat(24)}`,
+      }),
+    ]).flat();
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      threads: [
+        {
+          id: "thread-scroll",
+          title: "Long conversation",
+          defaultModelId: "sonnet-4-6",
+          previewSummary: null,
+          previewSummaryUpdatedAt: null,
+          titleSource: "generated",
+          createdAt: "2026-06-14T20:00:00.000Z",
+          updatedAt: "2026-06-14T20:00:00.000Z",
+        },
+      ],
+      threadMessages: { "thread-scroll": longMessages },
+      onChat: async (_body, route) => {
+        await responseGate;
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-scroll",
+            userMessageId: "44444444-4444-4444-8444-444444444444",
+            modelId: "sonnet-4-6",
+          },
+          { type: "text-delta", delta: "Newest answer." },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-scroll-new",
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+
+    await gotoE2EChat(page);
+    await page
+      .getByRole("button", { name: "Long conversation", exact: true })
+      .click();
+    const scrollRegion = page.getByTestId("chat-scroll-region");
+    await expect
+      .poll(() =>
+        scrollRegion.evaluate(
+          (node) => node.scrollHeight - node.clientHeight - node.scrollTop,
+        ),
+      )
+      .toBeLessThan(100);
+
+    await scrollRegion.evaluate((node) => {
+      node.scrollTop = 0;
+      node.dispatchEvent(new Event("scroll"));
+    });
+    await expect(
+      page.getByRole("button", { name: "Jump to latest" }),
+    ).toHaveCount(0);
+
+    await page.getByPlaceholder(/ask anything/i).fill("Give me one more answer");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByPlaceholder("Generating…")).toBeVisible();
+
+    await scrollRegion.evaluate((node) => {
+      node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight - 60);
+      node.dispatchEvent(new Event("scroll"));
+    });
+    await expect(
+      page.getByRole("button", { name: "Jump to latest" }),
+    ).toHaveCount(0);
+
+    await scrollRegion.evaluate((node) => {
+      node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight - 140);
+      node.dispatchEvent(new Event("scroll"));
+    });
+    const jumpButton = page.getByRole("button", { name: "Jump to latest" });
+    await expect(jumpButton).toBeVisible();
+    await expect(page.getByTestId("jump-to-latest-status")).toHaveText(
+      "New content below",
+    );
+
+    await jumpButton.click();
+    await expect
+      .poll(() =>
+        scrollRegion.evaluate(
+          (node) => node.scrollHeight - node.clientHeight - node.scrollTop,
+        ),
+      )
+      .toBeLessThan(100);
+    await expect(jumpButton).toHaveCount(0);
+
+    releaseResponse?.();
+    await expect(page.getByText("Newest answer.")).toBeVisible();
   });
 
   test("does not create page-level horizontal overflow", async ({ page }) => {
