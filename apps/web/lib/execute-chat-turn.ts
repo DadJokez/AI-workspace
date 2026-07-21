@@ -168,6 +168,13 @@ export interface ExecuteChatTurnInput {
   requestedProviders?: string[];
   activeSkillPrompt?: PinnedActiveSkill | null;
   uploadedFiles?: ChatContextUploadedFile[];
+  /**
+   * Validated IANA timezone of the user's browser (#432). Interactive chat
+   * turns carry it (the worker lane re-validates it out of stored inputs);
+   * scheduled/background triggers leave it unset so their clock stays
+   * UTC-only.
+   */
+  userTimeZone?: string;
   suppressedSkillIds?: string[];
   /** Interactive turns unlock write-authorization prompts in the MCP mount. */
   interactive: boolean;
@@ -188,6 +195,7 @@ export async function executeChatTurn({
   requestedProviders,
   activeSkillPrompt,
   uploadedFiles = [],
+  userTimeZone,
   suppressedSkillIds = [],
   interactive,
   lane,
@@ -441,6 +449,9 @@ export async function executeChatTurn({
                 ? { activatedSkills: lane.activatedSkills }
                 : {}),
               ...(requestedProviders ? { requestedProviders } : {}),
+              // #432: keep the turn's clock context on the run row so a
+              // queued or retried execution resolves dates the same way.
+              ...(userTimeZone ? { userTimeZone } : {}),
               ...mountInputs,
               metrics: buildTimingMetrics(lane.timing),
             }
@@ -569,6 +580,7 @@ export async function executeChatTurn({
       context: { userId },
       signal: runtimeAbort.signal,
       volatileSystemSuffix: contextPack.prompt.volatileSystemSuffix,
+      ...(userTimeZone ? { userTimeZone } : {}),
       // Same content, different composition slot: the AgentCore container
       // composes [systemPrompt, firstTurnPreamble] itself, and the durable
       // lane has always ridden the preamble slot. Keyed by lane to preserve

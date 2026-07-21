@@ -30,6 +30,8 @@ export interface StreamInlineChatRunInput {
   activeSkillPrompt?: PinnedActiveSkill;
   requestedProviders?: string[];
   uploadedFiles?: ChatContextUploadedFile[];
+  /** Validated browser timezone for this interactive turn (#432). */
+  userTimeZone?: string;
   requestStartedAt?: Date;
   signal?: AbortSignal;
   send: ChatStreamSend;
@@ -61,6 +63,7 @@ export async function streamInlineChatRun({
   activeSkillPrompt,
   requestedProviders,
   uploadedFiles = [],
+  userTimeZone,
   requestStartedAt,
   signal,
   send,
@@ -111,6 +114,7 @@ export async function streamInlineChatRun({
       requestedProviders,
       activeSkillPrompt,
       uploadedFiles,
+      userTimeZone,
       suppressedSkillIds:
         activatedSkills?.flatMap((skill) =>
           typeof skill.id === "string" ? [skill.id] : [],

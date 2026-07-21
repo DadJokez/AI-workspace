@@ -6,6 +6,7 @@ import {
 } from "./clients";
 import { MODELS, type ModelId } from "./models";
 import type { ToolRegistry } from "./registry";
+import { renderClockStatement } from "./timezone";
 import type {
   AgentEvent,
   AgentMessage,
@@ -23,6 +24,14 @@ export interface RunAgentLoopParams {
    * tools+system prefix (#385).
    */
   volatileSystemSuffix?: string;
+  /**
+   * Validated IANA timezone of the requesting user's browser (#432). When
+   * present the per-turn clock statement adds the user's local date/time so
+   * "today"/"tomorrow" resolve in their zone; when absent the prompt says
+   * only UTC is known. Callers must pass `normalizeUserTimeZone` output —
+   * never a raw request string.
+   */
+  userTimeZone?: string;
   messages: AgentMessage[];
   /** Tool registry to resolve calls against. Empty registry = no tools. */
   registry: ToolRegistry;
@@ -121,7 +130,7 @@ export async function* runAgentLoop(
   // the cache checkpoint so the per-turn timestamp can't defeat caching.
   const volatileSystemSuffix = [
     params.volatileSystemSuffix,
-    `Current date and time (UTC): ${new Date().toISOString()}. Treat this as ground truth for any date or time reasoning; the user's local timezone may differ.`,
+    renderClockStatement(new Date(), params.userTimeZone),
   ]
     .filter(Boolean)
     .join("\n\n");

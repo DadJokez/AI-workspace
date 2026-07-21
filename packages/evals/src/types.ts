@@ -24,6 +24,11 @@ export interface EvalCase {
   runId?: string;
   /** System prompt for the turn (e.g. a skill's instructions). */
   systemPrompt?: string;
+  /**
+   * Browser-style IANA timezone for the turn (#432) — exercises the loop's
+   * local-clock grounding exactly as an interactive chat turn would.
+   */
+  userTimeZone?: string;
   /** The user message. */
   input: string;
   /** Optional full conversation for multi-turn behavioral cases. */

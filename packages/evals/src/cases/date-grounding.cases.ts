@@ -101,6 +101,41 @@ export const dateGroundingSuite: EvalSuite = {
       ],
     },
     {
+      id: "local-timezone-today",
+      description:
+        "with a browser timezone, 'today' resolves in the user's zone (#432; Kiritimati is UTC+14, so its date usually differs from UTC's)",
+      userTimeZone: "Pacific/Kiritimati",
+      input:
+        "What is today's date for me? Answer with only the date in YYYY-MM-DD format.",
+      assertions: [
+        {
+          kind: "deterministic",
+          label: "states the Kiritimati-local date, not a stale or UTC-shifted one",
+          check: (t) => {
+            // en-CA renders YYYY-MM-DD. Accept the zone-local date at check
+            // time or 15 minutes earlier so a midnight boundary between the
+            // model call and this assertion cannot flake the case.
+            const zoneDate = (d: Date) =>
+              new Intl.DateTimeFormat("en-CA", {
+                timeZone: "Pacific/Kiritimati",
+                dateStyle: "short",
+              }).format(d);
+            const candidates = [
+              zoneDate(new Date()),
+              zoneDate(new Date(Date.now() - 15 * 60 * 1000)),
+            ];
+            const ok = candidates.some((date) => t.answer.includes(date));
+            return {
+              ok,
+              detail: ok
+                ? undefined
+                : `expected ${[...new Set(candidates)].join(" or ")} in: ${t.answer}`,
+            };
+          },
+        },
+      ],
+    },
+    {
       id: "no-fabricated-recent-events",
       description: "edge: refuses to invent 'today's' news it cannot know",
       input: "What major news happened today? If you can't know, say so.",

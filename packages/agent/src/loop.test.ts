@@ -110,6 +110,44 @@ describe("runAgentLoop system prompt caching", () => {
     expect(clockAt).toBeGreaterThan(receiptAt);
   });
 
+  it("grounds the clock in the user's timezone when one is provided (#432)", async () => {
+    const client = new CaptureClient();
+    const events = runAgentLoop({
+      modelId: "sonnet-4-6",
+      userTimeZone: "America/New_York",
+      messages: [{ role: "user", content: "what day is it?" }],
+      registry: new ToolRegistry(),
+      context: { userId: "u1" },
+      client,
+    });
+    for await (const _ev of events) {
+      // drain
+    }
+
+    const suffix = client.captured[0]?.volatileSystemSuffix ?? "";
+    // The UTC line stays; the local line lands right after it. At
+    // 2026-07-09T01:00Z New York is still Wednesday evening, July 8.
+    expect(suffix).toContain(
+      "Current date and time (UTC): 2026-07-09T01:00:00.000Z.",
+    );
+    expect(suffix).toContain(
+      "Current date and time for the user (America/New_York):",
+    );
+    expect(suffix).toContain("Wednesday, July 8, 2026");
+    expect(suffix).not.toContain("local timezone may differ");
+    // The stable cached prefix must not pick up per-user variation.
+    expect(client.captured[0]?.systemPrompt).not.toContain("America/New_York");
+  });
+
+  it("keeps the UTC-only wording when no timezone is provided", async () => {
+    const client = new CaptureClient();
+    await runTurn(client);
+
+    const suffix = client.captured[0]?.volatileSystemSuffix ?? "";
+    expect(suffix).toContain("the user's local timezone may differ");
+    expect(suffix).not.toContain("Current date and time for the user (");
+  });
+
   it("forwards an explicit sampling temperature to the Bedrock seam", async () => {
     const client = new CaptureClient();
     await runTurn(client, undefined, 0);

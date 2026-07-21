@@ -65,6 +65,7 @@ async function runTurn(
   for await (const ev of runAgentLoop({
     modelId: testCase.modelId ?? defaultModelId,
     systemPrompt: testCase.systemPrompt,
+    ...(testCase.userTimeZone ? { userTimeZone: testCase.userTimeZone } : {}),
     messages: testCase.messages ?? [{ role: "user", content: testCase.input }],
     registry,
     ...(resolveAllowedTools ? { resolveAllowedTools } : {}),

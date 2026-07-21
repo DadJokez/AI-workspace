@@ -1,3 +1,4 @@
+import { normalizeUserTimeZone } from "@ai-workspace/agent";
 import { getRuntime } from "@ai-workspace/agent-runtime";
 import { chatThreads, type Database, runs, type Run } from "@ai-workspace/db";
 import { and, asc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
@@ -460,6 +461,10 @@ async function executeClaimedChatRun({
       requestedProviders: inputs.requestedProviders,
       activeSkillPrompt: sanitizeActiveSkillPrompt(inputs.activeSkillPrompt),
       uploadedFiles: sanitizeUploadedFiles(inputs.uploadedFiles),
+      // #432: only chat turns ever store a zone; scheduled/skill runs have
+      // none and stay UTC-only. Re-validated because stored JSON is not a
+      // trusted prompt source either.
+      userTimeZone: normalizeUserTimeZone(inputs.userTimeZone),
       suppressedSkillIds: activatedSkillIdsFromInputs(run.inputs),
       interactive: run.triggerType === "chat",
       lane: {
