@@ -37,6 +37,99 @@ test.describe("chat shell guardrails", () => {
     }
   });
 
+  test("personalizes the greeting, connected tools, and role-aware prompts", async ({
+    page,
+  }) => {
+    await installMockComparativeApi(page, {
+      user: {
+        displayName: "Rob Lindmark",
+        customInstructions: "My role: Engineering.",
+      },
+      oauthStatus: { github: true },
+      recommendationPrompts: {
+        connectedProviders: ["github"],
+        suggestions: [
+          "Review my open GitHub work and tell me what to tackle first",
+          "Turn these technical notes into a clear team update",
+          "Draft release notes from this list of changes",
+          "Break this technical problem into the next concrete steps",
+        ],
+      },
+    });
+
+    await gotoE2EChat(page);
+
+    await expect(page.getByTestId("empty-state-greeting")).toHaveText(
+      /Good (morning|afternoon|evening), Rob\./,
+    );
+    await expect(page.getByText("GitHub is connected.")).toBeVisible();
+    await expect(
+      page.getByRole("button", {
+        name: "Review my open GitHub work and tell me what to tackle first",
+      }),
+    ).toBeVisible();
+  });
+
+  test("falls back to useful prompts when recommendations are unavailable", async ({
+    page,
+  }) => {
+    await installMockComparativeApi(page, {
+      recommendationPromptsStatus: 503,
+      oauthStatus: { github: false },
+    });
+
+    await gotoE2EChat(page);
+
+    await expect(
+      page.getByRole("button", {
+        name: "Draft a concise project status update for my team",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("No work tools are connected yet."),
+    ).toBeVisible();
+  });
+
+  test("shows conversation-shaped skeletons while saved messages load", async ({
+    page,
+    isMobile,
+  }) => {
+    await installMockComparativeApi(page, {
+      threads: [
+        {
+          id: "thread-slow-history",
+          title: "Slow history",
+          defaultModelId: "sonnet-4-6",
+          summary: null,
+          summaryUpdatedAt: null,
+          previewSummary: null,
+          previewSummaryUpdatedAt: null,
+          titleSource: "generated",
+          createdAt: "2026-07-21T12:00:00.000Z",
+          updatedAt: "2026-07-21T12:00:00.000Z",
+        },
+      ],
+      threadMessages: {
+        "thread-slow-history": [
+          assistantMessage({
+            id: "assistant-slow-history",
+            content: "The saved conversation is ready.",
+          }),
+        ],
+      },
+      threadMessagesDelayMs: 800,
+    });
+    await gotoE2EChat(page);
+
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: "Slow history" }).click();
+
+    await expect(page.getByTestId("thread-loading-skeleton")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toHaveCount(0);
+    await expect(page.getByText("The saved conversation is ready.")).toBeVisible();
+    await expect(page.getByTestId("thread-loading-skeleton")).toHaveCount(0);
+  });
+
   test("blocks empty and whitespace-only submits", async ({ page }) => {
     let chatCalls = 0;
     await installMockComparativeApi(page, {
@@ -57,7 +150,9 @@ test.describe("chat shell guardrails", () => {
     });
 
     await gotoE2EChat(page);
-    await expect(page.getByText(/GitHub is wired up today/)).toBeVisible();
+    await expect(
+      page.getByText("No work tools are connected yet."),
+    ).toBeVisible();
 
     const input = page.getByPlaceholder(/ask anything/i);
     const send = page.getByRole("button", { name: "Send" });
@@ -599,7 +694,7 @@ test.describe("chat shell guardrails", () => {
     await gotoE2EChat(page);
     await page.evaluate(() => window.localStorage.setItem("theme", "light"));
     await page.reload();
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     const header = page.locator("header").first();
     const isMobile = testInfo.project.name.includes("mobile");
@@ -633,7 +728,7 @@ test.describe("chat shell guardrails", () => {
     await expect(page.locator("html")).toHaveClass(/dark/);
     await page.reload();
     await expect(page.locator("html")).toHaveClass(/dark/);
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
     await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
 
     const longTitlePrompt =
@@ -730,7 +825,7 @@ test.describe("chat shell guardrails", () => {
     await expect(sidebar).toBeInViewport();
     await sidebar.getByRole("button", { name: "New chat" }).click();
     await expect(sidebar).not.toBeInViewport();
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
     await expect(page.getByTestId("active-chat-title")).toContainText(
       "New chat",
     );

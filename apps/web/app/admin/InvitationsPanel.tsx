@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type {
   AdminInvitationRow,
   AdminInvitationStatus,
 } from "@/lib/admin-invitations";
+import { EmptyState } from "@/components/EmptyState";
 
 type Role = "admin" | "user";
 
@@ -25,6 +26,7 @@ function relativeFuture(iso: string): string {
 }
 
 export function InvitationsPanel({ initialInvitations }: Props) {
+  const emailInputRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState(initialInvitations);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("user");
@@ -136,7 +138,7 @@ export function InvitationsPanel({ initialInvitations }: Props) {
   }
 
   return (
-    <section className="py-2">
+    <section id="invitations" className="scroll-mt-4 py-2">
       <div className="px-6 pb-3 pt-4">
         <h2 className="text-base font-semibold text-ink">Invitations</h2>
         <p className="mt-1 text-xs text-muted">
@@ -154,6 +156,7 @@ export function InvitationsPanel({ initialInvitations }: Props) {
             Email
           </span>
           <input
+            ref={emailInputRef}
             type="email"
             required
             value={email}
@@ -220,9 +223,15 @@ export function InvitationsPanel({ initialInvitations }: Props) {
               <tr>
                 <td
                   colSpan={5}
-                  className="border-b border-hairline px-6 py-8 text-center text-xs text-muted"
+                  className="border-b border-hairline"
                 >
-                  No invitations yet.
+                  <EmptyState
+                    title="No invitations yet"
+                    description="Send an invitation when you're ready to bring someone into this workspace."
+                    actionLabel="Invite someone"
+                    onAction={() => emailInputRef.current?.focus()}
+                    className="min-h-40"
+                  />
                 </td>
               </tr>
             ) : (

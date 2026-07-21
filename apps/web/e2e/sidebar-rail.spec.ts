@@ -62,7 +62,7 @@ test.describe("desktop sidebar rail", () => {
       .toBe("true");
 
     await page.reload();
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
     await expect(sidebar).toHaveAttribute("data-sidebar-state", "rail");
     await expectSidebarWidth(sidebar, 56);
 
@@ -109,7 +109,7 @@ async function resetSidebarPreference(page: Page) {
     SIDEBAR_COLLAPSED_STORAGE_KEY,
   );
   await page.reload();
-  await expect(page.getByText("Talk to your work.")).toBeVisible();
+  await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 }
 
 async function readSidebarPreference(page: Page) {

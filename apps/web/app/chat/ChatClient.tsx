@@ -31,6 +31,7 @@ import {
 } from "@/components/FeedbackReporter";
 import { MessageBubble } from "@/components/MessageBubble";
 import { ThinkingOrb } from "@/components/ThinkingOrb";
+import { ThreadLoadingSkeleton } from "@/components/ThreadLoadingSkeleton";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
 import {
   useCommandPalette,
@@ -70,6 +71,12 @@ import type {
   PersistedRecommendation,
   RecommendationStatus,
 } from "@/lib/recommendations";
+import {
+  connectedProvidersSummary,
+  FALLBACK_EMPTY_STATE_SUGGESTIONS,
+  firstNameFromDisplayName,
+  greetingForHour,
+} from "@/lib/empty-state";
 import { signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -550,6 +557,12 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [oauthConnected, setOauthConnected] = useState<Record<string, boolean>>({});
+  const [connectedProviders, setConnectedProviders] = useState<string[] | null>(
+    null,
+  );
+  const [emptyStateSuggestions, setEmptyStateSuggestions] = useState<
+    string[] | null
+  >(null);
   const [slashSkills, setSlashSkills] = useState<SlashSkill[]>([]);
   const [recommendationPendingId, setRecommendationPendingId] =
     useState<string>();
@@ -930,7 +943,11 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
         setTabs((prev) =>
           prev.map((t) =>
             t.id === tabId
-              ? { ...t, error: `failed to load messages: ${message}` }
+              ? {
+                  ...t,
+                  error: `failed to load messages: ${message}`,
+                  loaded: true,
+                }
               : t,
           ),
         );
@@ -954,13 +971,64 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   useEffect(() => {
     if (user && shouldShowTour(user)) {
       setWizardOpen(true);
-      // Provider status drives the wizard's connect step (and resume).
-      fetch("/api/oauth/status", { credentials: "include" })
-        .then((r) => (r.ok ? r.json() : {}))
-        .then((s) => setOauthConnected(s as Record<string, boolean>))
-        .catch(() => {});
     }
   }, [user]);
+
+  // The landing-page endpoint owns role-aware prompt selection and returns
+  // the caller's actual connected providers. If it is unavailable, preserve a
+  // useful fallback and recover provider truth independently.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    setEmptyStateSuggestions(null);
+    setConnectedProviders(null);
+
+    async function loadEmptyState() {
+      try {
+        const response = await fetch("/api/recommendations/prompts", {
+          credentials: "include",
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const body = (await response.json()) as {
+          suggestions?: unknown;
+          connectedProviders?: unknown;
+        };
+        const suggestions = stringArray(body.suggestions).slice(0, 4);
+        const providers = stringArray(body.connectedProviders);
+        if (cancelled) return;
+        setEmptyStateSuggestions(
+          suggestions.length === 4
+            ? suggestions
+            : [...FALLBACK_EMPTY_STATE_SUGGESTIONS],
+        );
+        setConnectedProviders(providers);
+        setOauthConnected(providerBooleanMap(providers));
+      } catch {
+        if (cancelled) return;
+        setEmptyStateSuggestions([...FALLBACK_EMPTY_STATE_SUGGESTIONS]);
+        try {
+          const response = await fetch("/api/oauth/status", {
+            credentials: "include",
+          });
+          if (!response.ok) return;
+          const body = (await response.json()) as Record<string, unknown>;
+          const providers = Object.entries(body)
+            .filter(([, connected]) => connected === true)
+            .map(([provider]) => provider);
+          if (cancelled) return;
+          setConnectedProviders(providers);
+          setOauthConnected(providerBooleanMap(providers));
+        } catch {
+          // Keep connection copy neutral when neither source is reachable.
+        }
+      }
+    }
+
+    void loadEmptyState();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   // Skills for the "/" capability palette (#144). Loaded once; the list is
   // small and a selected skill now activates hidden context for the next chat
@@ -2332,10 +2400,15 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
             data-density="messages"
             className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8"
           >
-            {messages.length === 0 ? (
-              <EmptyState
+            {activeTab && !activeTab.loaded ? (
+              <ThreadLoadingSkeleton />
+            ) : messages.length === 0 ? (
+              <ChatEmptyState
                 onPick={send}
                 onOpenIntegrations={() => setSettingsSection("integrations")}
+                displayName={user?.displayName}
+                connectedProviders={connectedProviders}
+                suggestions={emptyStateSuggestions}
               />
             ) : (
               messages.map((m) => (
@@ -2675,24 +2748,32 @@ function RunControls({
   );
 }
 
-function EmptyState({
+function ChatEmptyState({
   onPick,
   onOpenIntegrations,
+  displayName,
+  connectedProviders,
+  suggestions,
 }: {
   onPick: (s: string) => void;
   onOpenIntegrations: () => void;
+  displayName?: string;
+  connectedProviders: string[] | null;
+  suggestions: string[] | null;
 }) {
-  // Sample prompts that work today, not aspirational ones tied to
-  // integrations that aren't wired yet. GitHub MCP is the only live tool;
-  // the other prompts are pure-model so they work without any connections.
-  const samples = [
-    "Open GitHub issues assigned to me — what should I tackle first?",
-    "Summarize what shipped in my repos this week",
-    "Draft a concise project status update for my team",
-    "What can you help me with today?",
-  ];
+  const firstName = firstNameFromDisplayName(displayName);
+  const greeting = greetingForHour(new Date().getHours());
+  const integrationAction =
+    connectedProviders?.length === 0
+      ? "Connect one in Integrations."
+      : connectedProviders
+        ? "Manage them in Integrations."
+        : "Open Integrations.";
   return (
-    <div className="flex flex-col items-center gap-4 py-24 text-center">
+    <div
+      data-testid="chat-empty-state"
+      className="flex flex-col items-center gap-4 py-24 text-center"
+    >
       <ThinkingOrb
         state="idle"
         size={176}
@@ -2700,36 +2781,55 @@ function EmptyState({
         label="Comparative"
         className="text-ink"
       />
-      <div className="font-serif text-2xl font-normal tracking-tight text-ink">
-        Talk to your work.
+      <div
+        data-testid="empty-state-greeting"
+        className="font-serif text-2xl font-normal text-ink"
+      >
+        {greeting}
+        {firstName ? `, ${firstName}` : ""}.
       </div>
       <p className="max-w-md text-sm text-muted">
-        GitHub is wired up today. Office 365, Salesforce, and Workfront are
-        next — connect what you have in{" "}
+        {connectedProvidersSummary(connectedProviders)}{" "}
         <button
           type="button"
           onClick={onOpenIntegrations}
           className="font-medium text-ink underline decoration-hairline underline-offset-2 hover:decoration-ink"
         >
-          Integrations
+          {integrationAction}
         </button>
-        .
       </p>
       <div className="text-2xs font-medium uppercase tracking-caps text-muted/60">
         {COMPARATIVE_VERSION_LABEL}
       </div>
-      <div className="flex flex-wrap justify-center gap-2 pt-4">
-        {samples.map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => onPick(s)}
-            className="rounded-md border border-hairline bg-canvas px-3 py-1.5 text-xs text-muted hover:bg-subtle hover:text-ink"
-          >
-            {s}
-          </button>
-        ))}
-      </div>
+      {suggestions ? (
+        <div className="empty-state-suggestions flex flex-wrap justify-center gap-2 pt-4">
+          {suggestions.map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              onClick={() => onPick(suggestion)}
+              className="rounded-md border border-hairline bg-canvas px-3 py-1.5 text-xs text-muted hover:bg-subtle hover:text-ink"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is string =>
+          typeof item === "string" && item.trim().length > 0,
+      )
+    : [];
+}
+
+function providerBooleanMap(
+  providers: readonly string[],
+): Record<string, boolean> {
+  return Object.fromEntries(providers.map((provider) => [provider, true]));
 }

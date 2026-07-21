@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { AdminUserRow } from "@/app/api/admin/users/route";
+import { EmptyState } from "@/components/EmptyState";
 
 interface Props {
   initialUsers: AdminUserRow[];
@@ -69,7 +70,12 @@ export function UsersTable({ initialUsers, currentUserId }: Props) {
 
   if (rows.length === 0) {
     return (
-      <div className="px-6 py-10 text-sm text-muted">No users yet.</div>
+      <EmptyState
+        title="No users yet"
+        description="Invite someone to give them access to this Comparative workspace."
+        actionLabel="Invite a user"
+        actionHref="#invitations"
+      />
     );
   }
 
