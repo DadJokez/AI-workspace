@@ -46,6 +46,8 @@ interface WelcomeWizardProps {
     assistantName?: string;
     onboarding?: { role?: string; tools?: string[]; firstTask?: string };
   }) => Promise<void>;
+  /** Opens the full Integrations settings section without losing wizard progress. */
+  onOpenIntegrations: () => void;
   /** Called when the whole flow (including the tour) completes or is skipped. */
   onComplete: () => void;
 }
@@ -58,6 +60,7 @@ export function WelcomeWizard({
   initialAssistantName,
   connected,
   onSave,
+  onOpenIntegrations,
   onComplete,
 }: WelcomeWizardProps) {
   const [step, setStep] = useState<Step>("name");
@@ -206,6 +209,13 @@ export function WelcomeWizard({
                 </span>
                 <span className="text-xs text-muted">Coming soon</span>
               </div>
+              <button
+                type="button"
+                onClick={onOpenIntegrations}
+                className="self-start text-xs font-medium text-ink underline decoration-hairline underline-offset-2 hover:decoration-ink"
+              >
+                Manage all integrations
+              </button>
             </div>
           </div>
         ) : (

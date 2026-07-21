@@ -122,14 +122,13 @@ for (const skin of ["umber", "classic"] as const) {
         )
         .toBe(restingComposerBorder);
 
-      const settings = sidebar.getByRole("button", {
-        name: "Settings",
-        exact: true,
-      });
-      await settings.click();
+      const pointerTarget = sidebar.getByRole("button", { name: "New chat" });
+      await pointerTarget.click();
       await expect
         .poll(() =>
-          settings.evaluate((element) => getComputedStyle(element).boxShadow),
+          pointerTarget.evaluate(
+            (element) => getComputedStyle(element).boxShadow,
+          ),
         )
         .toBe("none");
     });

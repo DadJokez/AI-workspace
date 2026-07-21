@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { installMockComparativeApi } from "./helpers/mock-comparative";
-import { gotoE2EChat, openNavItem } from "./helpers/navigation";
+import { gotoE2EChat, openSettingsSection } from "./helpers/navigation";
 
 test.skip(
   !!process.env.PLAYWRIGHT_BASE_URL,
@@ -15,11 +15,11 @@ test.describe("Vault memory", () => {
     await installMockComparativeApi(page);
     await gotoE2EChat(page);
 
-    await openNavItem(page, "Vault", isMobile);
+    await openSettingsSection(page, "Memory", isMobile);
     await expect(
-      page.getByRole("heading", { name: "Vault", exact: true }),
+      page.getByRole("heading", { name: "Memory", exact: true }),
     ).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Rob" })).toBeVisible();
+    await expect(page.getByText("What Comparative has learned about Rob.")).toBeVisible();
     await expect(page.getByText("1 approved · 1 suggested")).toBeVisible();
     await expect(
       page
@@ -86,7 +86,7 @@ test.describe("Vault memory", () => {
     await installMockComparativeApi(page);
     await gotoE2EChat(page);
 
-    await openNavItem(page, "Vault", isMobile);
+    await openSettingsSection(page, "Memory", isMobile);
     await expect(page.getByText("1 approved · 1 suggested")).toBeVisible();
 
     await page
@@ -133,7 +133,7 @@ test.describe("Vault memory", () => {
     });
     expect(response.memory?.categoryLabel).toBe("Working Style");
 
-    await openNavItem(page, "Vault", isMobile);
+    await openSettingsSection(page, "Memory", isMobile);
     await expect(page.getByText("2 approved · 1 suggested")).toBeVisible();
     await expect(page.getByText("Working Style").first()).toBeVisible();
     await expect(
