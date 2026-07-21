@@ -623,7 +623,10 @@ test.describe("chat shell guardrails", () => {
     await expect(
       header.getByRole("button", { name: "Switch to dark mode" }),
     ).toBeVisible();
-    await expect(header.getByLabel("Model")).toHaveCount(0);
+    await expect(
+      header.getByRole("combobox", { name: "Model", exact: true }),
+    ).toHaveCount(0);
+    await expect(header.getByTestId("resolved-model-chip")).toBeVisible();
     await expect(page.locator("html")).not.toHaveClass(/dark/);
 
     await header.getByRole("button", { name: "Switch to dark mode" }).click();

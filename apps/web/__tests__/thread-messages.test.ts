@@ -5,11 +5,24 @@ vi.mock("@/lib/recommendation-persistence", () => ({
 }));
 import {
   activeRunMessageContent,
+  chatRunLane,
   chatRunSourceMessageId,
   latestVisibleChatRunIds,
   reconcileAppDraftVersionSummaries,
   type AppVersionTruthRow,
 } from "@/lib/thread-messages";
+
+describe("chatRunLane", () => {
+  it("reads only known lanes from stored run metadata", () => {
+    expect(chatRunLane({ runtimeRoute: { lane: "tool-local" } })).toBe(
+      "tool-local",
+    );
+    expect(chatRunLane({ runtimeRoute: { lane: "somewhere-else" } })).toBe(
+      undefined,
+    );
+    expect(chatRunLane(null)).toBeUndefined();
+  });
+});
 
 describe("activeRunMessageContent", () => {
   it("#244 hides interrupted artifact snippets behind a clear retry message", () => {
