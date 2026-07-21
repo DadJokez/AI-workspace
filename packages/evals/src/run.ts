@@ -9,9 +9,12 @@ import { salesforceFaithfulnessSuite } from "./cases/salesforce-faithfulness.cas
 import { skillFaithfulnessSuite } from "./cases/skill-faithfulness.cases";
 import { toolGroundingSuite } from "./cases/tool-grounding.cases";
 import { webSearchFaithfulnessSuite } from "./cases/web-search-faithfulness.cases";
+import { webFetchFaithfulnessSuite } from "./cases/web-fetch-faithfulness.cases";
 import { modelRoutingSuite } from "./cases/model-routing.cases";
 import { toolDiscoverySuite } from "./cases/tool-discovery.cases";
 import { attachmentInjectionSuite } from "./cases/attachment-injection.cases";
+import { githubContentInjectionSuite } from "./cases/github-content-injection.cases";
+import { memoryInjectionSuite } from "./cases/memory-injection.cases";
 import { estimateUsageCostUsd } from "./benchmarks/model-routing";
 
 const SUITES: EvalSuite[] = [
@@ -22,9 +25,12 @@ const SUITES: EvalSuite[] = [
   gmailCalendarFaithfulnessSuite,
   salesforceFaithfulnessSuite,
   webSearchFaithfulnessSuite,
+  webFetchFaithfulnessSuite,
   modelRoutingSuite,
   toolDiscoverySuite,
   attachmentInjectionSuite,
+  githubContentInjectionSuite,
+  memoryInjectionSuite,
 ];
 
 /**
@@ -80,7 +86,11 @@ async function main() {
       totalIn += c.tokensIn;
       totalOut += c.tokensOut;
       const icon = c.errored ? "💥" : c.passed ? "✅" : "❌";
-      process.stdout.write(`  ${icon} ${c.caseId} — ${c.description}\n`);
+      const repeatNote =
+        c.runs && c.runs > 1
+          ? ` [${c.passCount ?? 0}/${c.runs} passed, ${c.passPolicy ?? "all"}]`
+          : "";
+      process.stdout.write(`  ${icon} ${c.caseId}${repeatNote} — ${c.description}\n`);
       if (c.errored) {
         process.stdout.write(`       error: ${c.errored}\n`);
       } else if (!c.passed) {
@@ -144,6 +154,11 @@ function writeReport(
     md.push(`## ${r.capability} — ${r.passed}/${r.passed + r.failed} passed`, "");
     for (const c of r.results) {
       md.push(`- ${c.passed ? "✅" : c.errored ? "💥" : "❌"} **${c.caseId}** — ${c.description}`);
+      if (c.runs && c.runs > 1) {
+        md.push(
+          `  - Repeats: ${c.passCount ?? 0}/${c.runs} runs passed (policy: ${c.passPolicy ?? "all"})`,
+        );
+      }
       md.push(`  - Debug IDs: thread=${c.threadId}; run=${c.runId}`);
       if (c.toolCalls.length > 0) {
         md.push(`  - Tool calls: ${c.toolCalls.join(", ")}`);

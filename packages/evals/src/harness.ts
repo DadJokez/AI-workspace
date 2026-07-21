@@ -116,67 +116,36 @@ function previewOutput(output: unknown): string {
   return (raw ?? String(output)).slice(0, 500);
 }
 
-async function evaluateCase(
+/** One transcript plus its evaluated assertions. */
+interface SingleRunResult {
+  transcript?: TurnTranscript & TokenUsage;
+  assertions: AssertionResult[];
+  passed: boolean;
+  errored?: string;
+}
+
+const EMPTY_USAGE: TokenUsage = {
+  tokensIn: 0,
+  tokensOut: 0,
+  inputTokens: 0,
+  cacheReadInputTokens: 0,
+  cacheWriteInputTokens: 0,
+};
+
+async function runOnce(
   client: BedrockClient,
   judgeClient: BedrockClient,
   testCase: EvalCase,
   defaultModelId: EvalSuite["defaultModelId"],
-  capability: string,
-  structuralOnly = false,
-): Promise<CaseResult> {
-  const debugIds = evalDebugIds(testCase, capability);
-  const modelId = testCase.modelId ?? defaultModelId;
+): Promise<SingleRunResult> {
   let transcript: TurnTranscript & TokenUsage;
   try {
     transcript = await runTurn(client, testCase, defaultModelId);
   } catch (err) {
     return {
-      caseId: testCase.id,
-      description: testCase.description,
-      modelId,
-      ...debugIds,
-      passed: false,
       assertions: [],
-      answerPreview: "",
-      tokensIn: 0,
-      tokensOut: 0,
-      inputTokens: 0,
-      cacheReadInputTokens: 0,
-      cacheWriteInputTokens: 0,
-      toolCalls: [],
-      toolResults: [],
-      providerStatus: testCase.providerStatus,
-      contextReceipts: testCase.contextReceipts ?? [],
-      fixtureEvidence: testCase.fixtureEvidence ?? [],
+      passed: false,
       errored: err instanceof Error ? err.message : String(err),
-    };
-  }
-
-  if (structuralOnly) {
-    return {
-      caseId: testCase.id,
-      description: testCase.description,
-      modelId,
-      ...debugIds,
-      passed: true,
-      assertions: [
-        {
-          ok: true,
-          label: "case executed; behavior assertions skipped in mock mode",
-          detail: `${testCase.assertions.length} assertion(s) skipped`,
-        },
-      ],
-      answerPreview: transcript.answer.slice(0, 280),
-      tokensIn: transcript.tokensIn,
-      tokensOut: transcript.tokensOut,
-      inputTokens: transcript.inputTokens,
-      cacheReadInputTokens: transcript.cacheReadInputTokens,
-      cacheWriteInputTokens: transcript.cacheWriteInputTokens,
-      toolCalls: transcript.toolCallNames,
-      toolResults: summarizeToolResults(transcript.toolResults),
-      providerStatus: transcript.providerStatus,
-      contextReceipts: transcript.contextReceipts,
-      fixtureEvidence: transcript.fixtureEvidence,
     };
   }
 
@@ -204,23 +173,134 @@ async function evaluateCase(
   }
 
   return {
+    transcript,
+    assertions,
+    passed: assertions.every((a) => a.ok),
+  };
+}
+
+function sumUsage(runs: readonly SingleRunResult[]): TokenUsage {
+  return runs.reduce<TokenUsage>((acc, run) => {
+    const usage = run.transcript ?? EMPTY_USAGE;
+    return {
+      tokensIn: acc.tokensIn + usage.tokensIn,
+      tokensOut: acc.tokensOut + usage.tokensOut,
+      inputTokens: acc.inputTokens + usage.inputTokens,
+      cacheReadInputTokens:
+        acc.cacheReadInputTokens + usage.cacheReadInputTokens,
+      cacheWriteInputTokens:
+        acc.cacheWriteInputTokens + usage.cacheWriteInputTokens,
+    };
+  }, { ...EMPTY_USAGE });
+}
+
+async function evaluateCase(
+  client: BedrockClient,
+  judgeClient: BedrockClient,
+  testCase: EvalCase,
+  defaultModelId: EvalSuite["defaultModelId"],
+  capability: string,
+  structuralOnly = false,
+): Promise<CaseResult> {
+  const debugIds = evalDebugIds(testCase, capability);
+  const modelId = testCase.modelId ?? defaultModelId;
+
+  if (structuralOnly) {
+    // Mock mode proves harness wiring only; the fake client is deterministic,
+    // so one run is representative and repeats would just burn time.
+    let transcript: TurnTranscript & TokenUsage;
+    try {
+      transcript = await runTurn(client, testCase, defaultModelId);
+    } catch (err) {
+      return {
+        caseId: testCase.id,
+        description: testCase.description,
+        modelId,
+        ...debugIds,
+        passed: false,
+        assertions: [],
+        answerPreview: "",
+        ...EMPTY_USAGE,
+        toolCalls: [],
+        toolResults: [],
+        providerStatus: testCase.providerStatus,
+        contextReceipts: testCase.contextReceipts ?? [],
+        fixtureEvidence: testCase.fixtureEvidence ?? [],
+        errored: err instanceof Error ? err.message : String(err),
+      };
+    }
+    return {
+      caseId: testCase.id,
+      description: testCase.description,
+      modelId,
+      ...debugIds,
+      passed: true,
+      assertions: [
+        {
+          ok: true,
+          label: "case executed; behavior assertions skipped in mock mode",
+          detail: `${testCase.assertions.length} assertion(s) skipped`,
+        },
+      ],
+      answerPreview: transcript.answer.slice(0, 280),
+      tokensIn: transcript.tokensIn,
+      tokensOut: transcript.tokensOut,
+      inputTokens: transcript.inputTokens,
+      cacheReadInputTokens: transcript.cacheReadInputTokens,
+      cacheWriteInputTokens: transcript.cacheWriteInputTokens,
+      toolCalls: transcript.toolCallNames,
+      toolResults: summarizeToolResults(transcript.toolResults),
+      providerStatus: transcript.providerStatus,
+      contextReceipts: transcript.contextReceipts,
+      fixtureEvidence: transcript.fixtureEvidence,
+    };
+  }
+
+  const repeat = Math.max(1, Math.floor(testCase.repeat ?? 1));
+  const passPolicy = testCase.passPolicy ?? "all";
+
+  const runs: SingleRunResult[] = [];
+  for (let i = 0; i < repeat; i++) {
+    runs.push(await runOnce(client, judgeClient, testCase, defaultModelId));
+  }
+
+  const passCount = runs.filter((run) => run.passed).length;
+  const passed =
+    passPolicy === "majority" ? passCount * 2 > repeat : passCount === repeat;
+
+  // Debug should show a losing run: prefer the first error, then the first
+  // failure. If the case passed overall, the first run is representative.
+  const representative =
+    (!passed && runs.find((run) => run.errored)) ||
+    (!passed && runs.find((run) => !run.passed)) ||
+    runs[0]!;
+  const usage = sumUsage(runs);
+  const transcript = representative.transcript;
+  const firstErrored = runs.find((run) => run.errored)?.errored;
+
+  // Only surface repeat metadata for repeated cases so repeat=1 reports stay
+  // byte-for-byte identical to the original single-sample format.
+  const repeatMeta =
+    repeat > 1 ? { runs: repeat, passCount, passPolicy } : {};
+
+  return {
     caseId: testCase.id,
     description: testCase.description,
     modelId,
     ...debugIds,
-    passed: assertions.every((a) => a.ok),
-    assertions,
-    answerPreview: transcript.answer.slice(0, 280),
-    tokensIn: transcript.tokensIn,
-    tokensOut: transcript.tokensOut,
-    inputTokens: transcript.inputTokens,
-    cacheReadInputTokens: transcript.cacheReadInputTokens,
-    cacheWriteInputTokens: transcript.cacheWriteInputTokens,
-    toolCalls: transcript.toolCallNames,
-    toolResults: summarizeToolResults(transcript.toolResults),
-    providerStatus: transcript.providerStatus,
-    contextReceipts: transcript.contextReceipts,
-    fixtureEvidence: transcript.fixtureEvidence,
+    passed,
+    assertions: representative.assertions,
+    answerPreview: transcript?.answer.slice(0, 280) ?? "",
+    ...usage,
+    toolCalls: transcript?.toolCallNames ?? [],
+    toolResults: transcript ? summarizeToolResults(transcript.toolResults) : [],
+    providerStatus: testCase.providerStatus,
+    contextReceipts: transcript?.contextReceipts ?? testCase.contextReceipts ?? [],
+    fixtureEvidence: transcript?.fixtureEvidence ?? testCase.fixtureEvidence ?? [],
+    ...(representative.errored || (!passed && firstErrored)
+      ? { errored: representative.errored ?? firstErrored }
+      : {}),
+    ...repeatMeta,
   };
 }
 
