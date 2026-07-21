@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useState } from "react";
+import { StatusBadge } from "@/app/admin/ui";
 import { getLinkedIssueTag } from "./issue-tags";
 
 export interface AdminFeedbackRow {
@@ -152,7 +153,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
                     </a>
                   ) : null}
                 </div>
-                <SeverityBadge value={row.severity} />
+                <StatusBadge status={row.severity} variant="outline" />
               </div>
 
               <div className="mt-2 whitespace-pre-wrap break-words leading-relaxed text-ink/85">
@@ -319,7 +320,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
                     </div>
                   </td>
                   <td className="px-3 py-3">
-                    <SeverityBadge value={row.severity} />
+                    <StatusBadge status={row.severity} variant="outline" />
                   </td>
                   <td className="px-3 py-3">
                     <StatusSelect
@@ -479,20 +480,6 @@ function FeedbackNotesEditor({
         {saving ? "Saving…" : "Save notes"}
       </button>
     </div>
-  );
-}
-
-function SeverityBadge({ value }: { value: string }) {
-  const className =
-    value === "high"
-      ? "border-danger/30 bg-danger-bg text-danger"
-      : value === "low"
-        ? "border-hairline bg-canvas text-muted"
-        : "border-warning/30 bg-warning-bg text-warning";
-  return (
-    <span className={`rounded-md border px-2 py-1 text-2xs uppercase tracking-wider ${className}`}>
-      {value}
-    </span>
   );
 }
 

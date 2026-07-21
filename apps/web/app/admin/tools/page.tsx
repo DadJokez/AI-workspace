@@ -7,7 +7,7 @@ import {
 import { asc, count, eq, isNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
-import { titleize } from "@/app/admin/ui";
+import { Metric, StatusBadge, titleize } from "@/app/admin/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -83,10 +83,22 @@ export default async function AdminToolsPage() {
       </div>
 
       <div className="grid gap-3 px-6 pb-5 md:grid-cols-4">
-        <Metric label="Servers" value={servers.length} />
-        <Metric label="Cataloged tools" value={tools.length} />
-        <Metric label="Enabled tools" value={enabledTools} />
-        <Metric label="Require approval" value={attestedTools} />
+        <Metric label="Servers" value={servers.length} variant="prominent" />
+        <Metric
+          label="Cataloged tools"
+          value={tools.length}
+          variant="prominent"
+        />
+        <Metric
+          label="Enabled tools"
+          value={enabledTools}
+          variant="prominent"
+        />
+        <Metric
+          label="Require approval"
+          value={attestedTools}
+          variant="prominent"
+        />
       </div>
 
       <section className="pb-6">
@@ -249,33 +261,6 @@ export default async function AdminToolsPage() {
         </div>
       </section>
     </section>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-md border border-hairline bg-surface px-4 py-3">
-      <div className="text-2xs uppercase tracking-wider text-muted">
-        {label}
-      </div>
-      <div className="mt-2 text-2xl font-semibold text-ink">{value}</div>
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const classes =
-    status === "active"
-      ? "bg-success-bg text-success"
-      : status === "disabled"
-        ? "bg-danger-bg text-danger"
-        : "bg-subtle text-muted";
-  return (
-    <span
-      className={`inline-flex rounded px-2 py-0.5 text-2xs uppercase tracking-wider ${classes}`}
-    >
-      {status}
-    </span>
   );
 }
 

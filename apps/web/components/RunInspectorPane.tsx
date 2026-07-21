@@ -1,5 +1,6 @@
 "use client";
 
+import { Metric, StatusBadge, StatusDot } from "@/app/admin/ui";
 import { SlideOverPane } from "@/components/SlideOverPane";
 import {
   type LiveReasoningBlock,
@@ -124,7 +125,7 @@ export function RunInspectorPane({
             <h2 className="truncate text-sm font-medium text-ink">
               Run Inspector
             </h2>
-            {trace ? <StatusPill status={trace.run.status} /> : null}
+            {trace ? <StatusBadge status={trace.run.status} /> : null}
           </div>
           <p className="truncate font-mono text-2xs text-muted">{runId}</p>
         </div>
@@ -205,37 +206,52 @@ function OverviewTab({ trace }: { trace: RunInspectorTrace }) {
     <div className="space-y-5">
       <SectionTitle title="Execution" />
       <dl className="grid grid-cols-2 border-l border-t border-hairline text-xs">
-        <Metric label="Status" value={trace.run.status} />
-        <Metric label="User" value={trace.run.actorName ?? trace.run.actorEmail} />
+        <Metric variant="grid" label="Status" value={trace.run.status} />
         <Metric
+          variant="grid"
+          label="User"
+          value={trace.run.actorName ?? trace.run.actorEmail}
+        />
+        <Metric
+          variant="grid"
           label="Requested model"
           value={stringValue(outputs.requestedModelId) ?? trace.run.modelId}
         />
         <Metric
+          variant="grid"
           label="Resolved model"
           value={stringValue(outputs.modelId) ?? trace.run.modelId}
         />
         <Metric
+          variant="grid"
           label="Provider model"
           value={stringValue(outputs.providerModelId)}
         />
         <Metric
+          variant="grid"
           label="Runtime target"
-          value={stringValue(outputs.runtimeTarget) ?? stringValue(inputs.runtimeTarget)}
+          value={
+            stringValue(outputs.runtimeTarget) ??
+            stringValue(inputs.runtimeTarget)
+          }
         />
         <Metric
+          variant="grid"
           label="Route reason"
           value={stringValue(modelSelection?.reason)}
         />
         <Metric
+          variant="grid"
           label="Provider run"
           value={stringValue(providerRun?.providerRunId)}
         />
         <Metric
+          variant="grid"
           label="Trace capture"
           value={stringValue(captureMetadata?.captureMode) ?? "standard"}
         />
         <Metric
+          variant="grid"
           label="Trace schema"
           value={stringValue(captureMetadata?.schema)}
         />
@@ -244,18 +260,22 @@ function OverviewTab({ trace }: { trace: RunInspectorTrace }) {
       <SectionTitle title="Timing and usage" />
       <dl className="grid grid-cols-2 border-l border-t border-hairline text-xs">
         <Metric
+          variant="grid"
           label="First token"
           value={formatMs(numberValue(metrics?.requestToFirstTokenMs))}
         />
         <Metric
+          variant="grid"
           label="Provider latency"
           value={formatMs(providerLatency(trace.events))}
         />
         <Metric
+          variant="grid"
           label="Completed"
           value={formatMs(numberValue(metrics?.requestToCompletedMs))}
         />
         <Metric
+          variant="grid"
           label="Tokens"
           value={formatTokens(
             numberValue(usage?.tokensIn) ?? numberValue(outputs.tokensIn),
@@ -263,10 +283,15 @@ function OverviewTab({ trace }: { trace: RunInspectorTrace }) {
           )}
         />
         <Metric
+          variant="grid"
           label="Cache read"
           value={formatInteger(numberValue(usage?.cacheReadInputTokens))}
         />
-        <Metric label="Attempts" value={String(trace.run.attemptCount ?? 1)} />
+        <Metric
+          variant="grid"
+          label="Attempts"
+          value={String(trace.run.attemptCount ?? 1)}
+        />
       </dl>
 
       {trace.run.error ? (
@@ -573,17 +598,6 @@ function ContextValue({ label, value }: { label: string; value: unknown }) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: unknown }) {
-  return (
-    <div className="min-w-0 border-b border-r border-hairline px-3 py-2.5">
-      <dt className="text-2xs text-muted">{label}</dt>
-      <dd className="mt-1 truncate text-xs font-medium text-ink">
-        {typeof value === "string" && value.length > 0 ? value : "n/a"}
-      </dd>
-    </div>
-  );
-}
-
 function SectionTitle({ title }: { title: string }) {
   return <h3 className="text-xs font-semibold text-ink">{title}</h3>;
 }
@@ -612,35 +626,6 @@ function EmptyText({ label }: { label: string }) {
       {label}
     </div>
   );
-}
-
-function StatusPill({ status }: { status: string }) {
-  const active = isActiveStatus(status);
-  return (
-    <span
-      className={`rounded px-1.5 py-0.5 text-2xs uppercase ${
-        active
-          ? "bg-info-bg text-info"
-          : status === "failed"
-            ? "bg-danger-bg text-danger"
-            : "bg-success-bg text-success"
-      }`}
-    >
-      {status}
-    </span>
-  );
-}
-
-function StatusDot({ status }: { status: string }) {
-  const classes =
-    status === "failed"
-      ? "bg-danger"
-      : status === "pending" || status === "running"
-        ? "animate-pulse bg-info"
-        : status === "info"
-          ? "bg-muted"
-          : "bg-success";
-  return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${classes}`} />;
 }
 
 function TraceIcon() {
