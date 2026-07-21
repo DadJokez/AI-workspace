@@ -1,4 +1,9 @@
-import { getDb, oauthTokens, userToolAttestations } from "@ai-workspace/db";
+import {
+  auditLog,
+  getDb,
+  oauthTokens,
+  userToolAttestations,
+} from "@ai-workspace/db";
 import type { Database } from "@ai-workspace/db";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { encryptSecret } from "@/lib/oauth/crypto";
@@ -87,6 +92,22 @@ export async function storeOAuthConnection({
       metadata: { source: attestationSource },
     });
   }
+
+  // #456: connecting a provider grants the assistant standing access to
+  // external data — auditable by construction here, the one write path every
+  // OAuth callback uses. No token material goes anywhere near the row.
+  const now = new Date();
+  await db.insert(auditLog).values({
+    actorUserId: userId,
+    actionType: "mcp_connection_create",
+    status: "succeeded",
+    provider,
+    toolName: "mcp_connection_create",
+    input: { attestationAction, attestationSource },
+    metadata: { scope, attestationReason },
+    startedAt: now,
+    completedAt: now,
+  });
 }
 
 function actionRank(action: "read" | "write" | "admin"): number {

@@ -370,6 +370,58 @@ describe("executeChatTurn — denied-provider attestation audit (#442 drift fix)
   });
 });
 
+describe("executeChatTurn — assistant-message audit parity (#456)", () => {
+  function messageAuditRows(state: FakeDbState) {
+    return state.inserts
+      .filter((insert) => insert.table === auditLog)
+      .flatMap((insert) =>
+        (Array.isArray(insert.values)
+          ? (insert.values as Array<Record<string, unknown>>)
+          : [insert.values as Record<string, unknown>]
+        ).filter((row) => row.actionType === "chat_message_create"),
+      );
+  }
+
+  it("audits the persisted assistant message on the interactive lane", async () => {
+    const { input, state } = inlineInput();
+    await executeChatTurn(input);
+
+    const rows = messageAuditRows(state);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actorUserId: "user-1",
+      actionType: "chat_message_create",
+      status: "succeeded",
+      chatThreadId: "thread-1",
+      runId: "run-1",
+      input: { role: "assistant", lane: "inline" },
+    });
+  });
+
+  it("audits the persisted assistant message identically on the worker lane", async () => {
+    const { input, state } = workerInput();
+    await executeChatTurn(input);
+
+    const rows = messageAuditRows(state);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actionType: "chat_message_create",
+      status: "succeeded",
+      input: { role: "assistant", lane: "worker" },
+    });
+  });
+
+  it("does not audit a message when nothing was persisted", async () => {
+    // Worker resume path: assistantMessageId already exists in prior outputs,
+    // so no new chat_messages row and no new audit row.
+    const { input, state, run } = workerInput();
+    run.outputs = { assistantMessageId: "existing-msg" };
+    await executeChatTurn(input);
+
+    expect(messageAuditRows(state)).toHaveLength(0);
+  });
+});
+
 describe("executeChatTurn — lane prompt slots", () => {
   it("keeps the interactive lane on systemPrompt", async () => {
     const { input, captured } = inlineInput();
