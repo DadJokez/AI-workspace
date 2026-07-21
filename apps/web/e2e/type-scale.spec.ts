@@ -49,7 +49,7 @@ for (const theme of ["light", "dark"] as const) {
     });
     await gotoE2EChat(page);
 
-    const headline = page.getByText("Talk to your work.", { exact: true });
+    const headline = page.getByTestId("empty-state-greeting");
     await expect(headline).toHaveCSS("font-size", "33px");
     await expect(headline).toHaveCSS("font-family", /newsreader/i);
 

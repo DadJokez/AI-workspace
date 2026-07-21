@@ -9,6 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { useHorizontalSwipe } from "@/components/useHorizontalSwipe";
 
 interface Props {
   ariaLabel: string;
@@ -40,6 +41,10 @@ export function SlideOverPane({
   minMainWidth = DEFAULT_MIN_MAIN_WIDTH,
 }: Props) {
   const [width, setWidth] = useState(defaultWidth);
+  const dismissSwipe = useHorizontalSwipe({
+    direction: "left",
+    onSwipe: onClose,
+  });
 
   const clampWidth = useCallback(
     (next: number) => {
@@ -134,6 +139,7 @@ export function SlideOverPane({
       <aside
         aria-label={ariaLabel}
         data-testid={paneTestId}
+        onPointerDown={dismissSwipe}
         style={style}
         className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-hairline bg-canvas text-ink shadow-2xl md:static md:z-auto md:h-full md:w-[var(--slide-over-width)] md:max-w-none md:shrink-0 md:shadow-none"
       >

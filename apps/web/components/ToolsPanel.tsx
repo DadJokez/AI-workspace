@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { EmptyState } from "@/components/EmptyState";
 
 interface Integration {
   id: string;
@@ -146,6 +147,7 @@ const INTEGRATIONS: Integration[] = [
 
 export function IntegrationsSettings() {
   const [oauthStatus, setOauthStatus] = useState<OAuthStatusPayload>({});
+  const [loading, setLoading] = useState(true);
   const [oauthNotice, setOauthNotice] = useState<OAuthNotice | undefined>();
   const [activeIntegration, setActiveIntegration] = useState<
     Integration | undefined
@@ -166,6 +168,9 @@ export function IntegrationsSettings() {
       })
       .catch(() => {
         /* network errors → tiles stay "not connected" */
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
@@ -218,6 +223,14 @@ export function IntegrationsSettings() {
       </div>
 
       <div className="flex flex-col gap-5">
+        {!loading && connectedCards.length === 0 ? (
+          <EmptyState
+            title="Connect your first integration"
+            description="Connected work tools let Comparative answer with your real projects, documents, and activity."
+            actionLabel="Connect GitHub"
+            actionHref="/api/oauth/github/start"
+          />
+        ) : null}
         {connectedCards.length > 0 ? (
           <ToolsSection
             title="Connected"

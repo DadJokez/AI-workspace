@@ -474,7 +474,7 @@ test.describe("chat workflow regressions", () => {
 
     const sidebar = await openPrimarySidebar(page, isMobile);
     await sidebar.getByRole("button", { name: "New chat" }).click();
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
     await expect(page.getByText("First chat answer.")).toHaveCount(0);
 
     await page.getByPlaceholder(/ask anything/i).fill("second chat question");
@@ -539,7 +539,7 @@ test.describe("chat workflow regressions", () => {
 
     await page.reload();
     await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     sidebar = await openPrimarySidebar(page, isMobile);
     await sidebar.getByRole("button", { name: /alpha reload chat/i }).click();

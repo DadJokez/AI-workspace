@@ -4,6 +4,7 @@ import {
   parseAssistantSources,
   type AssistantSource,
 } from "@ai-workspace/agent/sources";
+import { AlphaBadge } from "@/components/AlphaBadge";
 import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
 import { RunInspectorPane } from "@/components/RunInspectorPane";
 import { SlideOverPane } from "@/components/SlideOverPane";
@@ -31,6 +32,7 @@ import {
 } from "@/components/FeedbackReporter";
 import { MessageBubble } from "@/components/MessageBubble";
 import { ThinkingOrb } from "@/components/ThinkingOrb";
+import { ThreadLoadingSkeleton } from "@/components/ThreadLoadingSkeleton";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
 import {
   useCommandPalette,
@@ -44,8 +46,10 @@ import { WelcomeWizard } from "@/components/WelcomeWizard";
 import { shouldShowTour } from "@/lib/tour";
 import { NotificationsPanel } from "@/components/NotificationsPanel";
 import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
+import { sortThreadHistory } from "@/lib/thread-history";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { WorkspacePanel } from "@/components/WorkspacePanel";
+import { useHorizontalSwipe } from "@/components/useHorizontalSwipe";
 import {
   buildChatTranscriptMarkdown,
   chatTranscriptFilename,
@@ -70,6 +74,12 @@ import type {
   PersistedRecommendation,
   RecommendationStatus,
 } from "@/lib/recommendations";
+import {
+  connectedProvidersSummary,
+  FALLBACK_EMPTY_STATE_SUGGESTIONS,
+  firstNameFromDisplayName,
+  greetingForHour,
+} from "@/lib/empty-state";
 import { signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -550,16 +560,31 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [oauthConnected, setOauthConnected] = useState<Record<string, boolean>>({});
+  const [connectedProviders, setConnectedProviders] = useState<string[] | null>(
+    null,
+  );
+  const [emptyStateSuggestions, setEmptyStateSuggestions] = useState<
+    string[] | null
+  >(null);
   const [slashSkills, setSlashSkills] = useState<SlashSkill[]>([]);
   const [recommendationPendingId, setRecommendationPendingId] =
     useState<string>();
   const [appDraftPendingId, setAppDraftPendingId] = useState<string>();
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [editRequest, setEditRequest] = useState<ChatEditRequest>();
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const closeRightPane = useCallback(() => setRightPane(null), []);
+  const openSidebarSwipe = useHorizontalSwipe({
+    direction: "right",
+    edge: "left",
+    disabled: sidebarOpen || rightPane !== null,
+    onSwipe: () => setSidebarOpen(true),
+  });
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
+  const jumpScrollInProgressRef = useRef(false);
+  const jumpScrollResetRef = useRef<number | undefined>(undefined);
   const loadingThreadsRef = useRef<Set<string>>(new Set());
   const streamAbortRef = useRef<AbortController | null>(null);
   const initialThreadAppliedRef = useRef(false);
@@ -606,6 +631,15 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     setEditRequest(undefined);
   }, [activeId]);
 
+  useEffect(
+    () => () => {
+      if (jumpScrollResetRef.current !== undefined) {
+        window.clearTimeout(jumpScrollResetRef.current);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -646,11 +680,14 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
 
   async function refreshThreads() {
     try {
-      const r = await fetch(`/api/threads?limit=${THREADS_LIMIT}`);
+      const r = await fetch(
+        `/api/threads?limit=${THREADS_LIMIT}&scope=mine`,
+      );
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = (await r.json()) as ThreadsResponse;
-      setThreads(data.threads);
-      syncTabTitlesFromThreads(data.threads);
+      const nextThreads = sortThreadHistory(data.threads);
+      setThreads(nextThreads);
+      syncTabTitlesFromThreads(nextThreads);
       setThreadsError(undefined);
     } catch (err) {
       setThreadsError(err instanceof Error ? err.message : String(err));
@@ -684,7 +721,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
       fetch("/api/models")
         .then((r) => (r.ok ? (r.json() as Promise<ModelsResponse>) : null))
         .catch(() => null),
-      fetch(`/api/threads?limit=${THREADS_LIMIT}`)
+      fetch(`/api/threads?limit=${THREADS_LIMIT}&scope=mine`)
         .then((r) =>
           r.ok
             ? (r.json() as Promise<ThreadsResponse>)
@@ -704,7 +741,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
       if (threadsResult instanceof Error) {
         setThreadsError(threadsResult.message);
       } else {
-        const nextThreads = threadsResult?.threads ?? [];
+        const nextThreads = sortThreadHistory(threadsResult?.threads ?? []);
         setThreads(nextThreads);
         syncTabTitlesFromThreads(nextThreads);
         setThreadsError(undefined);
@@ -930,7 +967,11 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
         setTabs((prev) =>
           prev.map((t) =>
             t.id === tabId
-              ? { ...t, error: `failed to load messages: ${message}` }
+              ? {
+                  ...t,
+                  error: `failed to load messages: ${message}`,
+                  loaded: true,
+                }
               : t,
           ),
         );
@@ -954,13 +995,64 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   useEffect(() => {
     if (user && shouldShowTour(user)) {
       setWizardOpen(true);
-      // Provider status drives the wizard's connect step (and resume).
-      fetch("/api/oauth/status", { credentials: "include" })
-        .then((r) => (r.ok ? r.json() : {}))
-        .then((s) => setOauthConnected(s as Record<string, boolean>))
-        .catch(() => {});
     }
   }, [user]);
+
+  // The landing-page endpoint owns role-aware prompt selection and returns
+  // the caller's actual connected providers. If it is unavailable, preserve a
+  // useful fallback and recover provider truth independently.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    setEmptyStateSuggestions(null);
+    setConnectedProviders(null);
+
+    async function loadEmptyState() {
+      try {
+        const response = await fetch("/api/recommendations/prompts", {
+          credentials: "include",
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const body = (await response.json()) as {
+          suggestions?: unknown;
+          connectedProviders?: unknown;
+        };
+        const suggestions = stringArray(body.suggestions).slice(0, 4);
+        const providers = stringArray(body.connectedProviders);
+        if (cancelled) return;
+        setEmptyStateSuggestions(
+          suggestions.length === 4
+            ? suggestions
+            : [...FALLBACK_EMPTY_STATE_SUGGESTIONS],
+        );
+        setConnectedProviders(providers);
+        setOauthConnected(providerBooleanMap(providers));
+      } catch {
+        if (cancelled) return;
+        setEmptyStateSuggestions([...FALLBACK_EMPTY_STATE_SUGGESTIONS]);
+        try {
+          const response = await fetch("/api/oauth/status", {
+            credentials: "include",
+          });
+          if (!response.ok) return;
+          const body = (await response.json()) as Record<string, unknown>;
+          const providers = Object.entries(body)
+            .filter(([, connected]) => connected === true)
+            .map(([provider]) => provider);
+          if (cancelled) return;
+          setConnectedProviders(providers);
+          setOauthConnected(providerBooleanMap(providers));
+        } catch {
+          // Keep connection copy neutral when neither source is reachable.
+        }
+      }
+    }
+
+    void loadEmptyState();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   // Skills for the "/" capability palette (#144). Loaded once; the list is
   // small and a selected skill now activates hidden context for the next chat
@@ -1190,15 +1282,21 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
 
   // Auto-scroll: only if user is at (or near) the bottom.
   useEffect(() => {
-    if (!stickToBottomRef.current) return;
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    if (stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+      setShowJumpToLatest(false);
+      return;
+    }
+    setShowJumpToLatest(true);
   }, [activeTab?.messages]);
 
   // Conversation switch: re-stick to bottom and jump there.
   useEffect(() => {
     stickToBottomRef.current = true;
+    jumpScrollInProgressRef.current = false;
+    setShowJumpToLatest(false);
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
@@ -1208,7 +1306,47 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     const el = scrollRef.current;
     if (!el) return;
     const distance = el.scrollHeight - el.clientHeight - el.scrollTop;
-    stickToBottomRef.current = distance < STICK_BOTTOM_THRESHOLD;
+    const isStuck = distance < STICK_BOTTOM_THRESHOLD;
+    if (jumpScrollInProgressRef.current) {
+      stickToBottomRef.current = true;
+      setShowJumpToLatest(false);
+      if (isStuck) {
+        jumpScrollInProgressRef.current = false;
+        if (jumpScrollResetRef.current !== undefined) {
+          window.clearTimeout(jumpScrollResetRef.current);
+          jumpScrollResetRef.current = undefined;
+        }
+      }
+      return;
+    }
+    stickToBottomRef.current = isStuck;
+    if (isStuck) {
+      setShowJumpToLatest(false);
+    } else if (activeTab?.busy || activeHasPendingRun) {
+      setShowJumpToLatest(true);
+    }
+  }
+
+  function scrollToLatest() {
+    const el = scrollRef.current;
+    if (!el) return;
+    jumpScrollInProgressRef.current = true;
+    stickToBottomRef.current = true;
+    setShowJumpToLatest(false);
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    if (jumpScrollResetRef.current !== undefined) {
+      window.clearTimeout(jumpScrollResetRef.current);
+    }
+    jumpScrollResetRef.current = window.setTimeout(() => {
+      jumpScrollInProgressRef.current = false;
+      jumpScrollResetRef.current = undefined;
+      const distance = el.scrollHeight - el.clientHeight - el.scrollTop;
+      const isStuck = distance < STICK_BOTTOM_THRESHOLD;
+      stickToBottomRef.current = isStuck;
+      setShowJumpToLatest(
+        !isStuck && Boolean(activeTab?.busy || activeHasPendingRun),
+      );
+    }, 1_000);
   }
 
   function patchTab(id: string, patch: Partial<ChatTab>) {
@@ -1320,6 +1458,33 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
       setActiveId(fresh.id);
       setRightPane(null);
     }
+  }
+
+  async function handlePinThread(threadId: string, pinned: boolean) {
+    const res = await fetch(`/api/threads/${threadId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pinned }),
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = (await res.json()) as {
+      thread: { id: string; pinned: boolean; updatedAt: string };
+    };
+    setThreads((prev) =>
+      sortThreadHistory(
+        prev.map((thread) =>
+          thread.id === threadId
+            ? {
+                ...thread,
+                pinned: data.thread.pinned,
+                updatedAt: data.thread.updatedAt,
+              }
+            : thread,
+        ),
+      ),
+    );
   }
 
   function handleNavSelect(id: string) {
@@ -2135,6 +2300,14 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-canvas text-ink">
+      {!sidebarOpen && rightPane === null ? (
+        <div
+          aria-hidden="true"
+          data-testid="sidebar-swipe-edge"
+          onPointerDown={openSidebarSwipe}
+          className="fixed bottom-24 left-0 top-12 z-20 w-6 touch-pan-y md:hidden"
+        />
+      ) : null}
       <Sidebar
         userName={user?.displayName}
         userEmail={user?.email}
@@ -2156,6 +2329,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
         onSignOut={() => signOut({ callbackUrl: "/login" })}
         onRenameThread={handleRenameThread}
         onDeleteThread={handleDeleteThread}
+        onPinThread={handlePinThread}
       />
 
       <main className="flex h-full min-w-0 flex-1 overflow-hidden">
@@ -2183,25 +2357,28 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                     <path d="M2 4h12M2 8h12M2 12h12" />
                   </svg>
                 </button>
-                <div className="flex min-w-0 flex-1 items-center px-3">
+                <div className="flex min-w-0 flex-1 items-center gap-2 px-3">
                   <div
                     data-testid="active-chat-title"
-                    className="truncate text-sm font-medium text-muted"
+                    className="min-w-0 truncate text-sm font-medium text-muted"
                     title={activeTab.title}
                   >
                     {activeTab.threadId ? activeTab.title : "New chat"}
                   </div>
+                  <AlphaBadge placement="inline" />
                 </div>
                 <div className="flex shrink-0 items-center gap-1 px-2 sm:gap-1.5 sm:px-3">
                   {!runtimeV2Enabled &&
                   models.length > 0 &&
                   activeTab.modelId ? (
-                    <ModelSelector
-                      value={activeTab.modelId}
-                      onChange={handleModelChange}
-                      options={models}
-                      disabled={busy || activeHasPendingRun}
-                    />
+                    <div className="hidden min-[400px]:block">
+                      <ModelSelector
+                        value={activeTab.modelId}
+                        onChange={handleModelChange}
+                        options={models}
+                        disabled={busy || activeHasPendingRun}
+                      />
+                    </div>
                   ) : null}
                   {runtimeV2Enabled ? (
                     <div
@@ -2216,7 +2393,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                           ? `Resolved model: ${resolvedModelName}${resolvedLaneName ? ` · ${resolvedLaneName} lane` : ""}`
                           : "Comparative selects the model automatically for each turn"
                       }
-                      className="flex h-7 min-w-0 max-w-20 shrink items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 text-2xs text-muted sm:max-w-56"
+                      className="hidden h-7 min-w-0 max-w-20 shrink items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 text-2xs text-muted min-[400px]:flex sm:max-w-56"
                     >
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-info" />
                       <span className="min-w-0 truncate sm:hidden">
@@ -2294,48 +2471,31 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                       <span className="block h-2.5 w-2.5 rounded-xs bg-current" />
                       Stop
                     </button>
-                  ) : canRegenerate ? (
-                    <button
-                      type="button"
-                      aria-label="Regenerate last response"
-                      title="Regenerate last response"
-                      onClick={regenerate}
-                      className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-hairline bg-canvas px-2 text-xs font-medium text-muted hover:bg-subtle hover:text-ink"
-                    >
-                      <svg
-                        viewBox="0 0 16 16"
-                        width="13"
-                        height="13"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2v3h-3" />
-                      </svg>
-                      Regenerate
-                    </button>
                   ) : null}
                   <ThemeToggle />
                 </div>
           </header>
 
+        <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
           data-testid="chat-scroll-region"
           onScroll={handleScroll}
-          className="flex-1 overflow-x-hidden overflow-y-auto"
+          className="h-full overflow-x-hidden overflow-y-auto"
         >
           <div
             data-density="messages"
             className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8"
           >
-            {messages.length === 0 ? (
-              <EmptyState
+            {activeTab && !activeTab.loaded ? (
+              <ThreadLoadingSkeleton />
+            ) : messages.length === 0 ? (
+              <ChatEmptyState
                 onPick={send}
                 onOpenIntegrations={() => setSettingsSection("integrations")}
+                displayName={user?.displayName}
+                connectedProviders={connectedProviders}
+                suggestions={emptyStateSuggestions}
               />
             ) : (
               messages.map((m) => (
@@ -2367,6 +2527,11 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                     onRecommendationAction={handleRecommendationAction}
                     recommendationPendingId={recommendationPendingId}
                     appDraftPendingId={appDraftPendingId}
+                    onRegenerate={
+                      m.id === lastAssistantMessage?.id && canRegenerate
+                        ? regenerate
+                        : undefined
+                    }
                     onEdit={
                       m.role === "user" &&
                       !busy &&
@@ -2467,6 +2632,36 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
               </div>
             ) : null}
           </div>
+        </div>
+          <span
+            data-testid="jump-to-latest-status"
+            aria-live="polite"
+            className="sr-only"
+          >
+            {showJumpToLatest ? "New content below" : ""}
+          </span>
+          {showJumpToLatest ? (
+            <button
+              type="button"
+              onClick={scrollToLatest}
+              className="absolute bottom-3 left-1/2 z-10 flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline bg-surface px-3 text-xs font-medium text-ink shadow-md hover:bg-subtle"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                width="13"
+                height="13"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M8 3v9M4.5 8.5 8 12l3.5-3.5" />
+              </svg>
+              Jump to latest
+            </button>
+          ) : null}
         </div>
 
         <div
@@ -2675,24 +2870,32 @@ function RunControls({
   );
 }
 
-function EmptyState({
+function ChatEmptyState({
   onPick,
   onOpenIntegrations,
+  displayName,
+  connectedProviders,
+  suggestions,
 }: {
   onPick: (s: string) => void;
   onOpenIntegrations: () => void;
+  displayName?: string;
+  connectedProviders: string[] | null;
+  suggestions: string[] | null;
 }) {
-  // Sample prompts that work today, not aspirational ones tied to
-  // integrations that aren't wired yet. GitHub MCP is the only live tool;
-  // the other prompts are pure-model so they work without any connections.
-  const samples = [
-    "Open GitHub issues assigned to me — what should I tackle first?",
-    "Summarize what shipped in my repos this week",
-    "Draft a concise project status update for my team",
-    "What can you help me with today?",
-  ];
+  const firstName = firstNameFromDisplayName(displayName);
+  const greeting = greetingForHour(new Date().getHours());
+  const integrationAction =
+    connectedProviders?.length === 0
+      ? "Connect one in Integrations."
+      : connectedProviders
+        ? "Manage them in Integrations."
+        : "Open Integrations.";
   return (
-    <div className="flex flex-col items-center gap-4 py-24 text-center">
+    <div
+      data-testid="chat-empty-state"
+      className="flex flex-col items-center gap-4 py-24 text-center"
+    >
       <ThinkingOrb
         state="idle"
         size={176}
@@ -2700,36 +2903,55 @@ function EmptyState({
         label="Comparative"
         className="text-ink"
       />
-      <div className="font-serif text-2xl font-normal tracking-tight text-ink">
-        Talk to your work.
+      <div
+        data-testid="empty-state-greeting"
+        className="font-serif text-2xl font-normal text-ink"
+      >
+        {greeting}
+        {firstName ? `, ${firstName}` : ""}.
       </div>
       <p className="max-w-md text-sm text-muted">
-        GitHub is wired up today. Office 365, Salesforce, and Workfront are
-        next — connect what you have in{" "}
+        {connectedProvidersSummary(connectedProviders)}{" "}
         <button
           type="button"
           onClick={onOpenIntegrations}
           className="font-medium text-ink underline decoration-hairline underline-offset-2 hover:decoration-ink"
         >
-          Integrations
+          {integrationAction}
         </button>
-        .
       </p>
       <div className="text-2xs font-medium uppercase tracking-caps text-muted/60">
         {COMPARATIVE_VERSION_LABEL}
       </div>
-      <div className="flex flex-wrap justify-center gap-2 pt-4">
-        {samples.map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => onPick(s)}
-            className="rounded-md border border-hairline bg-canvas px-3 py-1.5 text-xs text-muted hover:bg-subtle hover:text-ink"
-          >
-            {s}
-          </button>
-        ))}
-      </div>
+      {suggestions ? (
+        <div className="empty-state-suggestions flex flex-wrap justify-center gap-2 pt-4">
+          {suggestions.map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              onClick={() => onPick(suggestion)}
+              className="rounded-md border border-hairline bg-canvas px-3 py-1.5 text-xs text-muted hover:bg-subtle hover:text-ink"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is string =>
+          typeof item === "string" && item.trim().length > 0,
+      )
+    : [];
+}
+
+function providerBooleanMap(
+  providers: readonly string[],
+): Record<string, boolean> {
+  return Object.fromEntries(providers.map((provider) => [provider, true]));
 }

@@ -6,6 +6,7 @@ import {
 import { asc, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { Metric, StatusBadge, StatusDot } from "@/app/admin/ui";
 import { MessageBubble } from "@/components/MessageBubble";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { runEventsToActivityEvents } from "@/lib/run-events";
@@ -194,9 +195,14 @@ export default async function AdminRunDetailPage({ params }: Props) {
       </div>
 
       <div className="grid gap-3 px-6 pb-5 md:grid-cols-5">
-        <Metric label="Started" value={formatNullableDate(run.startedAt)} />
+        <Metric
+          label="Started"
+          value={formatNullableDate(run.startedAt)}
+          variant="compact"
+        />
         <Metric
           label="Duration"
+          variant="compact"
           value={
             run.startedAt && run.completedAt
               ? formatDuration(run.startedAt, run.completedAt)
@@ -205,12 +211,17 @@ export default async function AdminRunDetailPage({ params }: Props) {
                 : "Not started"
           }
         />
-        <Metric label="Runtime" value={output.runtime ?? run.runtime ?? "n/a"} />
+        <Metric
+          label="Runtime"
+          value={output.runtime ?? run.runtime ?? "n/a"}
+          variant="compact"
+        />
         <Metric
           label="First token"
           value={formatNullableMs(output.metrics?.requestToFirstTokenMs)}
+          variant="compact"
         />
-        <Metric label="Tokens" value={tokenText} />
+        <Metric label="Tokens" value={tokenText} variant="compact" />
       </div>
 
       <div className="grid gap-6 px-6 pb-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -627,17 +638,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border border-hairline bg-surface px-3 py-2">
-      <div className="text-2xs uppercase tracking-wider text-muted">
-        {label}
-      </div>
-      <div className="mt-1 truncate text-sm font-semibold text-ink">{value}</div>
-    </div>
-  );
-}
-
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-2 px-3 py-2">
@@ -694,38 +694,6 @@ function DebugJsonBlock({
         {JSON.stringify(value, null, 2)}
       </pre>
     </details>
-  );
-}
-
-function StatusDot({ status }: { status: string }) {
-  const color =
-    status === "succeeded"
-      ? "bg-success"
-      : status === "failed"
-        ? "bg-danger"
-        : status === "running" || status === "started" || status === "pending"
-          ? "animate-pulse bg-info"
-          : status === "denied"
-            ? "bg-warning"
-            : "bg-muted";
-  return <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} />;
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const classes =
-    status === "succeeded"
-      ? "bg-success-bg text-success"
-      : status === "failed"
-        ? "bg-danger-bg text-danger"
-        : status === "running"
-          ? "bg-info-bg text-info"
-          : "bg-subtle text-muted";
-  return (
-    <span
-      className={`inline-flex rounded px-2 py-0.5 text-2xs uppercase tracking-wider ${classes}`}
-    >
-      {status}
-    </span>
   );
 }
 

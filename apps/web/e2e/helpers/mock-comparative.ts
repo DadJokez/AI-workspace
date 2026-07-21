@@ -1,10 +1,12 @@
 import type { Page, Request, Route } from "@playwright/test";
+import { FALLBACK_EMPTY_STATE_SUGGESTIONS } from "../../lib/empty-state";
 
 export const now = "2026-06-14T20:00:00.000Z";
 
 interface MockChatOptions {
   threads?: unknown[];
   threadMessages?: Record<string, unknown[]>;
+  threadMessagesDelayMs?: number;
   artifacts?: unknown[];
   artifactDetails?: Record<string, unknown>;
   runTraces?: Record<string, unknown>;
@@ -12,6 +14,11 @@ interface MockChatOptions {
   apps?: unknown[];
   user?: Record<string, unknown>;
   oauthStatus?: Record<string, unknown>;
+  recommendationPrompts?: {
+    suggestions: string[];
+    connectedProviders?: string[];
+  };
+  recommendationPromptsStatus?: number;
   notifications?: MockNotification[];
   digest?: {
     since: string;
@@ -191,9 +198,15 @@ export async function installMockComparativeApi(
   };
   const skills = options.skills ?? [defaultSkill];
   const apps = options.apps ?? [];
-  const threads = options.threads ?? [];
+  let threads = (options.threads ?? []) as Array<Record<string, unknown>>;
   const threadMessages = options.threadMessages ?? {};
   const oauthStatus = options.oauthStatus ?? { github: false };
+  const recommendationPrompts = options.recommendationPrompts ?? {
+    suggestions: [...FALLBACK_EMPTY_STATE_SUGGESTIONS],
+    connectedProviders: Object.entries(oauthStatus)
+      .filter(([, connected]) => connected === true)
+      .map(([provider]) => provider),
+  };
   const user = {
     id: "user-e2e",
     email: "rob@example.com",
@@ -461,7 +474,29 @@ export async function installMockComparativeApi(
     );
     if (threadMessagesMatch) {
       const threadId = decodeURIComponent(threadMessagesMatch[1]!);
+      if (options.threadMessagesDelayMs) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, options.threadMessagesDelayMs),
+        );
+      }
       return json(route, { messages: threadMessages[threadId] ?? [] });
+    }
+
+    const threadMetadataMatch = /^\/api\/threads\/([^/]+)$/.exec(path);
+    if (threadMetadataMatch && request.method() === "PATCH") {
+      const threadId = decodeURIComponent(threadMetadataMatch[1]!);
+      const body = await postJson(request);
+      const current = threads.find((thread) => thread.id === threadId);
+      if (!current) return json(route, { error: "thread_not_found" }, 404);
+      const next = {
+        ...current,
+        ...(typeof body.title === "string" ? { title: body.title } : {}),
+        ...(typeof body.pinned === "boolean" ? { pinned: body.pinned } : {}),
+      };
+      threads = threads.map((thread) =>
+        thread.id === threadId ? next : thread,
+      );
+      return json(route, { thread: next });
     }
 
     if (path === "/api/skills") {
@@ -512,6 +547,13 @@ export async function installMockComparativeApi(
     if (artifactMatch) {
       const artifactId = decodeURIComponent(artifactMatch[1]!);
       return json(route, { artifact: artifactDetails[artifactId] });
+    }
+
+    if (path === "/api/recommendations/prompts") {
+      const status = options.recommendationPromptsStatus ?? 200;
+      return status === 200
+        ? json(route, recommendationPrompts)
+        : json(route, { error: "recommendations_unavailable" }, status);
     }
 
     const recommendationMatch = /^\/api\/recommendations\/([^/]+)$/.exec(

@@ -2,6 +2,7 @@
 
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import { useEffect, useState } from "react";
+import { EmptyState } from "@/components/EmptyState";
 
 interface Props {
   onClose: () => void;
@@ -43,7 +44,7 @@ export function WorkspacePanel({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-11 shrink-0 items-center gap-1 border-b border-hairline bg-canvas">
+      <header className="flex h-11 shrink-0 touch-none items-center gap-1 border-b border-hairline bg-canvas md:touch-auto">
         <h1 className="flex-1 truncate px-2 text-sm font-medium text-ink">
           Artifacts
         </h1>
@@ -86,9 +87,12 @@ export function WorkspacePanel({
               Loading artifacts...
             </div>
           ) : artifactGroups.length === 0 ? (
-            <div className="rounded-md border border-hairline px-4 py-6 text-center text-sm text-muted">
-              No artifacts yet.
-            </div>
+            <EmptyState
+              title="No artifacts yet"
+              description="Files and working documents created in chat will collect here."
+              actionLabel="Start a chat"
+              onAction={onClose}
+            />
           ) : (
             <div className="grid gap-2">
               {artifactGroups.map((group) => (

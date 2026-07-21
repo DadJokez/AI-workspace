@@ -205,6 +205,7 @@ export const chatThreads = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     title: text("title"),
+    pinned: boolean("pinned").notNull().default(false),
     defaultModelId: text("default_model_id").notNull(),
     /**
      * Legacy runtime agent id field. Kept for migration compatibility; current
@@ -250,6 +251,11 @@ export const chatThreads = pgTable(
   (t) => ({
     userIdx: index("chat_threads_user_idx").on(
       t.userId,
+      sql`${t.updatedAt} DESC`,
+    ),
+    userPinnedIdx: index("chat_threads_user_pinned_updated_idx").on(
+      t.userId,
+      sql`${t.pinned} DESC`,
       sql`${t.updatedAt} DESC`,
     ),
   }),
