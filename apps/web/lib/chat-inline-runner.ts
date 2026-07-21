@@ -193,8 +193,5 @@ async function markInlineRunFailed(
 }
 
 function resolveRuntimeName(route: ChatRuntimeRoute): RuntimeName {
-  if (route.runtimeTarget === "agentcore-worker") return "agentcore";
-  const raw = process.env.RUNTIME_V2_DIRECT_RUNTIME?.trim().toLowerCase();
-  if (raw === "bedrock") return raw;
-  return "bedrock";
+  return route.runtimeTarget === "agentcore-worker" ? "agentcore" : "bedrock";
 }

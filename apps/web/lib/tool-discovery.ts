@@ -8,7 +8,6 @@ import {
   parseActivation,
   type DiscoveryCatalogEntry,
 } from "@ai-workspace/agent";
-import type { ToolDiscoveryMode } from "@/lib/chat-routing";
 import { ensureThreadActivation } from "@/lib/thread-activation";
 
 /**
@@ -63,30 +62,26 @@ export interface TurnToolDiscovery {
    * catalog (so `comparative__activate_tools` will actually accept them).
    * Deriving this here — not from grants alone — keeps the preamble from
    * promising a provider the activate tool would refuse (the honesty
-   * spine). Empty in parity mode.
+   * spine).
    */
   discoverableProviders: string[];
 }
 
 /**
- * Resolves the turn's activation set and (in "on" mode) the discovery
- * catalog for the model. Persistence stays sticky and additive via
- * `ensureThreadActivation`:
- * - parity: every granted provider (P1 byte-parity behavior).
- * - on: previously activated providers ∪ (granted ∩ core).
+ * Resolves the turn's activation set and the discovery catalog for the
+ * model. Persistence stays sticky and additive via `ensureThreadActivation`:
+ * previously activated providers ∪ (granted ∩ core).
  */
 export async function buildTurnToolDiscovery({
   db,
   thread,
   grantedProviders,
-  mode,
   userMessage,
   skillProviders,
 }: {
   db: Database;
   thread: Pick<ChatThread, "id" | "mcpSignature">;
   grantedProviders: readonly string[];
-  mode: Exclude<ToolDiscoveryMode, "off">;
   /** Current user turn text, for the provider-name fast path (#384 P3). */
   userMessage?: string;
   /**
@@ -100,23 +95,7 @@ export async function buildTurnToolDiscovery({
 }): Promise<TurnToolDiscovery> {
   const granted = new Set(grantedProviders);
 
-  if (mode === "parity") {
-    const persisted = await ensureThreadActivation(
-      db,
-      thread,
-      grantedProviders,
-    );
-    // The stored set is sticky and may remember since-revoked grants; the
-    // turn mounts granted providers only.
-    return {
-      activatedProviders: persisted.filter((provider) =>
-        granted.has(provider),
-      ),
-      discoverableProviders: [],
-    };
-  }
-
-  // On-mode base bundle: a skill's own declared set when a skill is active,
+  // The base bundle is a skill's own declared set when a skill is active,
   // otherwise the core bundle. Fast-path providers (named in the message)
   // are always additive on top; all three are filtered to granted and
   // unioned into the sticky activation seed.

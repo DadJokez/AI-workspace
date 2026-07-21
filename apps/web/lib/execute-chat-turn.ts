@@ -20,10 +20,7 @@ import {
 import { loadUserCapabilityGraph } from "@/lib/capability-graph";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import type { ToolActionLevel } from "@/lib/tool-policy";
-import {
-  toolDiscoveryModeFromEnv,
-  type ChatRuntimeRoute,
-} from "@/lib/chat-routing";
+import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 import type { ChatExecutionMode } from "@/lib/chat-execution-mode";
 import { persistActivationFromEvent } from "@/lib/thread-activation";
 import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
@@ -290,7 +287,6 @@ export async function executeChatTurn({
     buildTurnContext({
       messages: history,
       currentMessageContent: prompt,
-      threadSummary: thread.summary,
       recentMessageLimit: numberFromEnv("CHAT_RECENT_MESSAGE_LIMIT"),
       maxContextChars: numberFromEnv("CHAT_CONTEXT_CHAR_LIMIT"),
       maxMessageChars: numberFromEnv("CHAT_CONTEXT_MESSAGE_CHAR_LIMIT"),
@@ -342,16 +338,14 @@ export async function executeChatTurn({
   const mountedProviders = mcpServers ? Object.keys(mcpServers) : [];
   // #384: sticky per-thread activation, resolved BEFORE the context pack
   // so the preamble/receipt tell the truth about what this turn mounts.
-  // Parity mode activates every granted provider (byte-identical to
-  // off); on-mode starts at the core bundle + discovery tools.
-  const toolDiscoveryMode = toolDiscoveryModeFromEnv();
+  // Conversations start at the core bundle + discovery tools; providers
+  // activate stickily via comparative__activate_tools.
   const toolDiscovery =
-    toolDiscoveryMode !== "off" && mountedProviders.length > 0
+    mountedProviders.length > 0
       ? await buildTurnToolDiscovery({
           db,
           thread,
           grantedProviders: mountedProviders,
-          mode: toolDiscoveryMode,
           userMessage: prompt,
           skillProviders: requestedProviders,
         })
@@ -392,7 +386,6 @@ export async function executeChatTurn({
   const contextPack = buildChatContextPack({
     user,
     messages: agentMessages,
-    threadSummary: thread.summary,
     vaultMarkdown,
     vaultContextRequested: includeVaultContext,
     providerStatus,
@@ -565,6 +558,13 @@ export async function executeChatTurn({
     ...extra,
   });
 
+  // #452: the worker lane used to SELECT the run row once per streamed
+  // event — including every text-delta. Throttled to a cheap cadence; the
+  // post-stream isRunCanceled checks keep the terminal semantics exact.
+  const workerCanceled = throttleCancellationCheck(() =>
+    isRunCanceled(db, runId),
+  );
+
   try {
     // Tracks persisted activation across same-turn activations so a
     // second activate never unions against a stale snapshot.
@@ -669,7 +669,7 @@ export async function executeChatTurn({
       const canceled =
         lane.kind === "inline"
           ? (lane.signal?.aborted ?? false)
-          : await isRunCanceled(db, runId);
+          : await workerCanceled();
       if (canceled) {
         runtimeAbort.abort();
         break;
@@ -1286,6 +1286,36 @@ export async function isRunCanceled(
     .where(eq(runs.id, runId))
     .limit(1);
   return rows[0]?.status === "canceled";
+}
+
+/** Worker-lane cancellation polling cadence during event streaming (#452). */
+export const CANCELLATION_POLL_INTERVAL_MS = 2_000;
+
+/**
+ * Wraps an async cancellation probe so repeated calls poll at most once per
+ * `intervalMs`: the first call polls immediately, calls inside the interval
+ * return the last observed value, and a true result latches so cancellation
+ * is never un-seen (and never re-polled).
+ */
+export function throttleCancellationCheck(
+  isCanceled: () => Promise<boolean>,
+  {
+    intervalMs = CANCELLATION_POLL_INTERVAL_MS,
+    now = Date.now,
+  }: { intervalMs?: number; now?: () => number } = {},
+): () => Promise<boolean> {
+  let canceled = false;
+  let lastPolledAt: number | undefined;
+  return async () => {
+    if (canceled) return true;
+    const at = now();
+    if (lastPolledAt !== undefined && at - lastPolledAt < intervalMs) {
+      return false;
+    }
+    lastPolledAt = at;
+    canceled = await isCanceled();
+    return canceled;
+  };
 }
 
 interface StoredChatRunOutputs {

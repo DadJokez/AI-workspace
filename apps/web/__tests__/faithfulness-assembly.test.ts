@@ -56,7 +56,6 @@ describe("faithfulness harness assembly", () => {
     });
     const route = decideChatRuntimeRoute({
       message: "What should I tackle first?",
-      runtimeV2: true,
       capabilityGraph,
     });
     const routeReceipt = buildChatRouteReceipt({
@@ -110,7 +109,6 @@ describe("faithfulness harness assembly", () => {
       messages: [
         { role: "user", content: "What should I tackle first?" },
       ],
-      threadSummary: "Earlier: Rob asked for a weekly status workflow.",
       vaultMarkdown: "# Personal Context\n- Rob is evaluating Comparative.",
       vaultContextRequested: route.includeVaultContext,
       providerStatus: {
@@ -128,7 +126,7 @@ describe("faithfulness harness assembly", () => {
     expect(route).toMatchObject({
       lane: "tool-local",
       useMcp: true,
-      reasons: ["capability_graph_github_work_lookup"],
+      reasons: ["model_decided_tool_catalog"],
     });
     expect(routeReceipt).toMatchObject({
       toolAvailability: {
@@ -161,7 +159,9 @@ describe("faithfulness harness assembly", () => {
       },
     });
     expect(pack.prompt.volatileSystemSuffix).toContain("Context receipt for this turn");
-    expect(pack.prompt.volatileSystemSuffix).toContain("Routing: Mounted local tools");
+    expect(pack.prompt.volatileSystemSuffix).toContain(
+      "Routing: Mounted the authorized tool catalog",
+    );
     expect(pack.prompt.systemPrompt).toContain("Capability graph summary");
     expect(recommendationTypes(recommendations)).toEqual(
       expect.arrayContaining([

@@ -16,7 +16,6 @@ COPY packages/agent/package.json packages/agent/package.json
 COPY packages/agent-runtime/package.json packages/agent-runtime/package.json
 COPY packages/auth/package.json packages/auth/package.json
 COPY packages/db/package.json packages/db/package.json
-COPY packages/mcp-servers/package.json packages/mcp-servers/package.json
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
@@ -47,7 +46,6 @@ COPY --from=deps /repo/packages/agent/node_modules ./packages/agent/node_modules
 COPY --from=deps /repo/packages/agent-runtime/node_modules ./packages/agent-runtime/node_modules
 COPY --from=deps /repo/packages/auth/node_modules ./packages/auth/node_modules
 COPY --from=deps /repo/packages/db/node_modules ./packages/db/node_modules
-COPY --from=deps /repo/packages/mcp-servers/node_modules ./packages/mcp-servers/node_modules
 COPY . .
 CMD ["pnpm", "--filter", "@ai-workspace/web", "worker:chat-runs"]
 

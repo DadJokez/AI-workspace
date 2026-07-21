@@ -202,11 +202,8 @@ describe("chat context pack", () => {
     expect(pack.prompt.volatileSystemSuffix).toContain("uploaded files brief.csv");
   });
 
-  it("exposes profile, thread, and message context as auditable items", () => {
-    const pack = buildChatContextPack({
-      ...baseInput(),
-      threadSummary: "Earlier: Rob asked about GitHub access.",
-    });
+  it("exposes profile and message context as auditable items", () => {
+    const pack = buildChatContextPack(baseInput());
 
     expect(pack.user.profileFacts).toContainEqual(
       expect.objectContaining({
@@ -217,17 +214,10 @@ describe("chat context pack", () => {
         injected: true,
       }),
     );
-    expect(pack.work.threadSummary).toMatchObject({
-      id: "thread:summary",
-      source: "chat_threads.summary",
-      owner: "workspace",
-      injected: true,
-    });
     expect(pack.work.recentMessages).toHaveLength(3);
     expect(pack.receipts[0]?.contextItems).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ source: "users.display_name" }),
-        expect.objectContaining({ source: "chat_threads.summary" }),
         expect.objectContaining({ source: "chat_messages" }),
       ]),
     );
@@ -457,7 +447,6 @@ function baseInput(): Parameters<typeof buildChatContextPack>[0] {
       { role: "assistant", content: "hey" },
       { role: "user", content: "what context do you have?" },
     ],
-    threadSummary: null,
     vaultMarkdown: null,
     vaultContextRequested: false,
     providerStatus: providerStatus({}),
@@ -486,7 +475,6 @@ function route(partial: Partial<ChatRuntimeRoute> = {}): ChatRuntimeRoute {
     lane: "fast-local",
     executionMode: "local",
     runtimeTarget: "direct-chat",
-    runtimeV2: true,
     useWorker: false,
     useMcp: false,
     includeVaultContext: true,

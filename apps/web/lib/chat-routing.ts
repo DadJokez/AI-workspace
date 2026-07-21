@@ -1,4 +1,3 @@
-import { isWebSearchConfigured } from "@ai-workspace/agent/web-search-tool";
 import type { ChatExecutionMode } from "@/lib/chat-execution-mode";
 import type { CapabilityEntry, CapabilityGraph } from "@/lib/capability-graph";
 
@@ -7,6 +6,11 @@ export type ChatRuntimeLane =
   | "tool-local"
   | "durable-local";
 
+/**
+ * "regex" survives only in runs persisted before the #364 regex engine was
+ * deleted (soaked in production since 2026-07-11); every new route is
+ * "model-decided".
+ */
 export type ChatRoutingMode = "regex" | "model-decided";
 
 export type ChatRuntimeTarget =
@@ -20,7 +24,6 @@ export interface ChatRuntimeRoute {
   routingMode?: ChatRoutingMode;
   executionMode: ChatExecutionMode;
   runtimeTarget: ChatRuntimeTarget;
-  runtimeV2: boolean;
   useWorker: boolean;
   useMcp: boolean;
   includeVaultContext: boolean;
@@ -79,24 +82,18 @@ export interface ChatRouteReceipt {
 
 export function decideChatRuntimeRoute({
   message,
-  runtimeV2 = false,
-  routingMode = chatRoutingModeFromEnv(),
   priorUserMessages = [],
-  contextSignals = {},
   capabilitySignals = {},
   capabilityGraph,
 }: {
   message: string;
   executionMode?: unknown;
-  runtimeV2?: boolean;
-  routingMode?: ChatRoutingMode;
   /**
    * Earlier user turns in the same thread (most-recent first is fine; order
-   * doesn't matter). Used for conversation-level tool stickiness — see the
-   * fall-through below.
+   * doesn't matter). Used for durable-thread stickiness — see
+   * `hasDurableProceedIntent`.
    */
   priorUserMessages?: readonly string[];
-  contextSignals?: ChatRoutingContextSignals;
   capabilitySignals?: ChatRoutingCapabilitySignals;
   capabilityGraph?: CapabilityGraph;
 }): ChatRuntimeRoute {
@@ -112,10 +109,9 @@ export function decideChatRuntimeRoute({
     reasons.push(resolvedCapabilitySignals.recommendedEscalation.reason);
     return {
       lane: "durable-local",
-      routingMode,
+      routingMode: "model-decided",
       executionMode: "local",
       runtimeTarget: "agentcore-worker",
-      runtimeV2,
       useWorker: true,
       useMcp: true,
       includeVaultContext: true,
@@ -128,10 +124,9 @@ export function decideChatRuntimeRoute({
     reasons.push(durableFollowUp);
     return {
       lane: "durable-local",
-      routingMode,
+      routingMode: "model-decided",
       executionMode: "local",
       runtimeTarget: "agentcore-worker",
-      runtimeV2,
       useWorker: true,
       useMcp: true,
       includeVaultContext: true,
@@ -140,14 +135,13 @@ export function decideChatRuntimeRoute({
   }
 
   const durable = hasDurableIntent(normalized);
-  if (durable) reasons.push(durable);
   if (durable) {
+    reasons.push(durable);
     return {
       lane: "durable-local",
-      routingMode,
+      routingMode: "model-decided",
       executionMode: "local",
       runtimeTarget: "agentcore-worker",
-      runtimeV2,
       useWorker: true,
       useMcp: true,
       includeVaultContext: true,
@@ -155,95 +149,18 @@ export function decideChatRuntimeRoute({
     };
   }
 
-  if (routingMode === "model-decided") {
-    return {
-      lane: "tool-local",
-      routingMode,
-      executionMode: "local",
-      runtimeTarget: "bedrock-agent",
-      runtimeV2,
-      useWorker: false,
-      useMcp: true,
-      includeVaultContext: true,
-      reasons: ["model_decided_tool_catalog"],
-    };
-  }
-
-  const tool = hasToolIntent(normalized);
-  if (tool) reasons.push(tool);
-  if (tool) {
-    return {
-      lane: "tool-local",
-      routingMode,
-      executionMode: "local",
-      runtimeTarget: "bedrock-agent",
-      runtimeV2,
-      useWorker: false,
-      useMcp: true,
-      includeVaultContext:
-        hasPersonalContextIntent(normalized) !== null ||
-        contextSignals.vaultMemoryAvailable === true,
-      reasons,
-    };
-  }
-
-  const capabilityTool = hasCapabilityBackedToolIntent(
-    normalized,
-    resolvedCapabilitySignals,
-  );
-  if (capabilityTool) {
-    reasons.push(capabilityTool);
-    return {
-      lane: "tool-local",
-      routingMode,
-      executionMode: "local",
-      runtimeTarget: "bedrock-agent",
-      runtimeV2,
-      useWorker: false,
-      useMcp: true,
-      includeVaultContext:
-        hasPersonalContextIntent(normalized) !== null ||
-        contextSignals.vaultMemoryAvailable === true,
-      reasons,
-    };
-  }
-
-  const personalContext = hasPersonalContextIntent(normalized);
-  if (personalContext) reasons.push(personalContext);
-
-  // Conversation-level tool stickiness. This message on its own doesn't warrant
-  // tools, but if an earlier turn in the thread did, keep them mounted. Without
-  // this, a follow-up like "what repos did you check?" (no tool keywords) drops
-  // to the tool-less fast lane and the model contradicts the turn that just used
-  // tools — answering "I don't have access to GitHub" one turn after reading it.
-  // Upgrade fast→tool only (never force the durable worker on a follow-up).
-  if (
-    threadAlreadyUsedTools(priorUserMessages, resolvedCapabilitySignals)
-  ) {
-    reasons.push("sticky_tool_thread");
-    return {
-      lane: "tool-local",
-      routingMode,
-      executionMode: "local",
-      runtimeTarget: "bedrock-agent",
-      runtimeV2,
-      useWorker: false,
-      useMcp: true,
-      includeVaultContext: personalContext !== null,
-      reasons,
-    };
-  }
-
+  // #364: mount the stable authorized tool catalog and let the model decide
+  // whether the turn needs a tool. (The pre-#364 regex intent engine was
+  // deleted after soaking in production — see the ChatRoutingMode note.)
   return {
-    lane: "fast-local",
-    routingMode,
+    lane: "tool-local",
+    routingMode: "model-decided",
     executionMode: "local",
-    runtimeTarget: "direct-chat",
-    runtimeV2,
+    runtimeTarget: "bedrock-agent",
     useWorker: false,
-    useMcp: false,
-    includeVaultContext: personalContext !== null,
-    reasons: reasons.length > 0 ? reasons : ["default_fast_local"],
+    useMcp: true,
+    includeVaultContext: true,
+    reasons: ["model_decided_tool_catalog"],
   };
 }
 
@@ -329,26 +246,6 @@ export function applyActivatedSkillRoute(
   };
 }
 
-/**
- * True when any earlier user turn in the thread needed connected tools (a tool
- * lookup or durable code work). Once a conversation uses a built-in or
- * capability-backed provider, follow-ups should keep its tools warm rather
- * than re-deciding from the latest message alone.
- */
-function threadAlreadyUsedTools(
-  priorUserMessages: readonly string[],
-  capabilitySignals: ResolvedRoutingCapabilitySignals,
-): boolean {
-  return priorUserMessages.some((prior) => {
-    const n = normalize(prior);
-    return (
-      hasToolIntent(n) !== null ||
-      hasCapabilityBackedToolIntent(n, capabilitySignals) !== null ||
-      hasDurableIntent(n) !== null
-    );
-  });
-}
-
 function hasDurableProceedIntent(
   value: string,
   priorUserMessages: readonly string[],
@@ -371,40 +268,6 @@ export function runtimeV2EnabledFromEnv(
 ): boolean {
   if (!value) return false;
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
-}
-
-/**
- * Progressive tool discovery flag (#384). Three states:
- * - "off" (default): the resolver is never constructed — today's code path.
- * - "parity" (P1): every granted provider pre-activated, byte-identical to
- *   off; exists to prove the substrate changes nothing.
- * - "on" (P2): conversations start at the core bundle plus the discovery
- *   tools; providers activate stickily via comparative__activate_tools.
- * Delete after the P4 measured flip.
- */
-export type ToolDiscoveryMode = "off" | "parity" | "on";
-
-export function toolDiscoveryModeFromEnv(
-  value = process.env.TOOL_DISCOVERY,
-): ToolDiscoveryMode {
-  const normalized = value?.trim().toLowerCase();
-  if (normalized === "parity") return "parity";
-  if (normalized && ["0", "false", "no", "off"].includes(normalized)) {
-    return "off";
-  }
-  // Default flipped to "on" by the #384 P4 measurement (2026-07-18): warm
-  // TTFT −15%, cold greeting cache-write −66%, tool selection 12/12 in both
-  // arms (docs/research/TOOL_DISCOVERY_BENCHMARK_2026-07-18.md). The env
-  // var remains an escape hatch; delete it after one stable release.
-  return "on";
-}
-
-export function chatRoutingModeFromEnv(
-  value = process.env.ROUTING_MODE,
-): ChatRoutingMode {
-  return value?.trim().toLowerCase() === "model-decided"
-    ? "model-decided"
-    : "regex";
 }
 
 function normalize(value: string): string {
@@ -443,318 +306,23 @@ function hasDurableIntent(value: string): string | null {
   return null;
 }
 
-function hasToolIntent(value: string): string | null {
-  if (hasGithubCapabilityProbe(value)) {
-    return "github_capability_probe";
-  }
-  if (hasNumberedGithubReference(value)) {
-    return "github_numbered_reference";
-  }
-  if (hasCiStatusLookup(value)) {
-    return "github_ci_status_lookup";
-  }
-  if (hasOwnedGithubWorkLookup(value)) {
-    return "github_owned_work_lookup";
-  }
-  if (hasRecentGithubWorkLookup(value)) {
-    return "github_recent_work_lookup";
-  }
-  const webLookup = hasWebLookupIntent(value);
-  if (webLookup) {
-    return webLookup;
-  }
-  const webSearch = hasWebSearchIntent(value);
-  if (webSearch) {
-    return webSearch;
-  }
-  if (
-    (hasGithubName(value) || /\b(repos?|repositories?)\b/.test(value)) &&
-    GITHUB_LOOKUP_ACTION_RE.test(value)
-  ) {
-    return "github_provider_lookup";
-  }
-  if (
-    /\b(pull request|prs?|commit|branch|workflow|actions|ci)\b/.test(value) &&
-    GITHUB_LOOKUP_ACTION_RE.test(value)
-  ) {
-    return "github_resource_lookup";
-  }
-  if (
-    /\bmy\s+(repos?|repositories?|github|gh|issues?|prs?|pull requests?)\b/.test(
-      value,
-    )
-  ) {
-    return "github_owned_resource";
-  }
-  return null;
-}
-
-function hasCapabilityBackedToolIntent(
-  value: string,
-  capabilitySignals: ResolvedRoutingCapabilitySignals,
-): string | null {
-  if (
-    hasApprovedProvider(capabilitySignals, "google") &&
-    hasGoogleToolIntent(value)
-  ) {
-    return "capability_graph_google_mail_calendar";
-  }
-  if (
-    hasApprovedProvider(capabilitySignals, "notion") &&
-    hasNotionLookupIntent(value)
-  ) {
-    return "capability_graph_notion_lookup";
-  }
-  if (
-    hasApprovedProvider(capabilitySignals, "salesforce") &&
-    hasSalesforceToolIntent(value)
-  ) {
-    return "capability_graph_salesforce_lookup";
-  }
-  if (!hasApprovedProvider(capabilitySignals, "github")) return null;
-  if (/\bwhat should i tackle( first| next)?\b/.test(value)) {
-    return "capability_graph_github_work_lookup";
-  }
-  if (
-    /\b(assigned to me|for me|my queue|my work queue)\b/.test(value) &&
-    /\b(work|tasks?|issues?|prs?|pull requests?|reviews?)\b/.test(value)
-  ) {
-    return "capability_graph_github_work_lookup";
-  }
-  if (
-    /\b(summarize|recap|what)\b.*\b(shipped|merged|landed)\b.*\b(this|last)\s+(week|month)\b/.test(
-      value,
-    )
-  ) {
-    return "capability_graph_github_delivery_lookup";
-  }
-  return null;
-}
-
-function hasGoogleToolIntent(value: string): boolean {
-  const googleResource =
-    /\b(gmail|inbox|email|e-mail|mail|calendar|calendars|event|events|meeting|meetings|availability|free\s*busy)\b/.test(
-      value,
-    );
-  if (!googleResource) return false;
-  return /\b(check|inspect|look|find|search|list|read|show|see|view|summarize|recap|draft|compose|write|save|create|schedule|book|what|when|who)\b/.test(
-    value,
-  );
-}
-
-function hasSalesforceToolIntent(value: string): boolean {
-  const salesforceResource =
-    /\b(salesforce|sfdc|soql|opportunit(?:y|ies)|pipeline|accounts?|contacts?|leads?|deals?|crm)\b/.test(
-      value,
-    );
-  if (!salesforceResource) return false;
-  return /\b(check|inspect|look|find|search|list|read|show|see|view|summarize|recap|pull|report|query|how many|what|which|who|whose)\b/.test(
-    value,
-  );
-}
-
-const GITHUB_LOOKUP_ACTION_RE =
-  /\b(check|inspect|look|peek|find|search|list|read|show|see|view|summarize|compare|status|review|open|create|update|comment|close|merge|try)\b/;
-
-const PUBLIC_URL_RE = /\bhttps?:\/\/[^\s<>()"']+/i;
-
-function hasWebLookupIntent(value: string): string | null {
-  if (!PUBLIC_URL_RE.test(value)) return null;
-  if (
-    /\b(html|source|contents?|page|site|website|url|fetch|read|open|inspect|look|view|summarize|summary|extract|parse|what|tell me|show)\b/.test(
-      value,
-    )
-  ) {
-    return "web_url_lookup";
-  }
-  return null;
-}
-
-/**
- * Explicit web-search asks (#313). Gated on deployment configuration so an
- * unconfigured deployment never escalates the lane for a tool that cannot
- * mount — search stays invisible, and the assistant honestly has no search.
- */
-function hasWebSearchIntent(value: string): string | null {
-  if (!isWebSearchConfigured()) return null;
-  if (
-    /\b(search|look\s?up|find|check|research|google)\b[^.?!]{0,60}\b(web|online|internet|news)\b/.test(
-      value,
-    ) ||
-    /\b(web|internet)\s+search\b/.test(value) ||
-    /\bsearch\s+(the\s+)?(web|internet|online)\b/.test(value) ||
-    /\bgoogle\s+(it|for|this|that)\b/.test(value)
-  ) {
-    return "web_search_lookup";
-  }
-  return null;
-}
-
-function hasGithubName(value: string): boolean {
-  return /\b(github|gh|git hub)\b/.test(value);
-}
-
-function hasNotionLookupIntent(value: string): string | null {
-  const explicitNotion = /\bnotion\b/.test(value);
-  const workspaceDocs = /\b(workspace|team|company|internal)\s+docs?\b/.test(
-    value,
-  );
-  const ownedNotionResource =
-    /\b(my|our)\s+(notion|notion\s+docs?|docs?|pages?|databases?)\b/.test(
-      value,
-    );
-  if (!explicitNotion && !workspaceDocs && !ownedNotionResource) {
-    return null;
-  }
-  if (
-    /\b(check|inspect|look|peek|find|search|query|list|read|show|see|view|summarize|summary|recap|open)\b/.test(
-      value,
-    )
-  ) {
-    return "notion_provider_lookup";
-  }
-  if (ownedNotionResource) {
-    return "notion_owned_resource";
-  }
-  return null;
-}
-
-function hasGithubCapabilityProbe(value: string): boolean {
-  if (
-    hasGithubName(value) &&
-    /\b(access|connected|connect|available|tool|tools|wired|see|view|try)\b/.test(
-      value,
-    )
-  ) {
-    return true;
-  }
-  return (
-    /\btools?\b.*\bconnected\b/.test(value) &&
-    /\b(repos?|repositories?|github|gh|git hub)\b/.test(value)
-  );
-}
-
 function hasNumberedGithubReference(value: string): boolean {
   return /\b(issue|pull request|pr)\s*#?\d+\b/.test(value);
-}
-
-function hasCiStatusLookup(value: string): boolean {
-  return (
-    /\b(anything|checks?|status|failing|failed|broken|red|green|passing|queued|pending)\b.*\b(ci|actions?|workflows?|checks?)\b/.test(
-      value,
-    ) ||
-    /\b(ci|actions?|workflows?|checks?)\b.*\b(anything|status|failing|failed|broken|red|green|passing|queued|pending)\b/.test(
-      value,
-    )
-  );
-}
-
-function hasOwnedGithubWorkLookup(value: string): boolean {
-  return (
-    hasOwnershipContext(value) &&
-    /\b(pull requests?|prs?|issues?|commits?|branches?|workflows?|actions|ci|repos?|repositories?)\b/.test(
-      value,
-    ) &&
-    /\b(last|latest|recent|open|stale|assigned|reviewing|review|failing|failed|passing|status|summarize|list|show|what|which|anything)\b/.test(
-      value,
-    )
-  );
-}
-
-function hasOwnershipContext(value: string): boolean {
-  return (
-    /\b(my|mine|our|ours|we|team)\b/.test(value) ||
-    /\b(am i|i am|i'm|assigned to me|for me)\b/.test(value)
-  );
-}
-
-function hasRecentGithubWorkLookup(value: string): boolean {
-  return /\b(last|latest|recent|open|stale|failing|failed|merged|pending)\b(?:\W+\w+){0,4}\W+\b(pull requests?|prs?|commits?|branches?|workflows?|actions|ci)\b/.test(
-    value,
-  );
-}
-
-function hasPersonalContextIntent(value: string): string | null {
-  if (
-    /\b(remember|memory|vault|personal context|based on what you know|based on my context|my preferences|my style|my priorities|what do you remember about me|tell me about myself)\b/.test(
-      value,
-    )
-  ) {
-    return "personal_context_intent";
-  }
-  if (
-    /\bwhat (context|memory|memories) do you have\b/.test(value) ||
-    /\bwhat do you remember\b/.test(value)
-  ) {
-    return "personal_context_intent";
-  }
-  if (
-    /\bwhat (do you know|context do you have|context is available|context are you using)\b/.test(
-      value,
-    ) &&
-    /\b(me|my|about me|for me)\b/.test(value)
-  ) {
-    return "personal_context_intent";
-  }
-  if (
-    /\bwhat do you know about (me|my job|my role|my team|my work|my priorities|my company)\b/.test(
-      value,
-    )
-  ) {
-    return "personal_context_intent";
-  }
-  if (
-    /\b(what'?s|what is|do you know|tell me)\s+my\s+name\b/.test(value) ||
-    /\bwho am i\b/.test(value) ||
-    /\b(what'?s|what is|do you know|tell me)\s+my\s+(job|role|team|title|company)\b/.test(
-      value,
-    )
-  ) {
-    return "personal_context_intent";
-  }
-  if (
-    /\bwhat should i focus on\b/.test(value) ||
-    /\bwhat (are|should be) my priorities\b/.test(value) ||
-    /\bwhat matters most for me\b/.test(value)
-  ) {
-    return "personal_context_intent";
-  }
-  return null;
 }
 
 export function explainChatRuntimeRoute(route: ChatRuntimeRoute): string {
   if (route.lane === "durable-local") {
     return "Queued durable local work because this request needs resilient, longer-running execution.";
   }
-  if (route.routingMode === "model-decided") {
-    return "Mounted the authorized tool catalog and let Sonnet 4.6 decide whether this request needs a tool.";
-  }
-  if (route.lane === "tool-local") {
-    if (route.reasons.includes("web_search_lookup")) {
-      return "Mounted web search because this request asks to search the public web.";
-    }
-    if (route.reasons.some((reason) => reason.startsWith("web_"))) {
-      return "Mounted public URL fetch because this request asks to inspect or summarize a web page.";
-    }
-    if (route.reasons.some((reason) => reason.startsWith("github_"))) {
-      return "Mounted local tools because this request asks for live GitHub, PR, issue, CI, or repository data.";
-    }
-    if (
-      route.reasons.some((reason) =>
-        reason.startsWith("capability_graph_github"),
-      )
-    ) {
-      return "Mounted local tools because connected GitHub capabilities match this work request.";
-    }
-    if (route.reasons.includes("activated_skill_requires_tools")) {
-      return "Mounted local tools because the activated skill requires a connected provider.";
-    }
+  if (route.lane === "tool-local" && route.routingMode !== "model-decided") {
+    // Legacy persisted regex-engine routes replayed by the worker lane.
     return "Mounted local tools because this request needs live connected-system data or follows a tool-backed thread.";
   }
-  if (route.includeVaultContext) {
-    return "Used fast local chat with Vault context because this request asks for personal or profile context.";
+  if (route.lane === "fast-local") {
+    // Legacy persisted regex-engine routes replayed by the worker lane.
+    return "Used fast local chat because no live tools or durable worker were needed.";
   }
-  return "Used fast local chat because no live tools or durable worker were needed.";
+  return "Mounted the authorized tool catalog and let Sonnet 4.6 decide whether this request needs a tool.";
 }
 
 interface ResolvedRoutingCapabilitySignals {
@@ -863,12 +431,6 @@ function providerIdFromCapability(entry: CapabilityEntry): string | null {
   return normalizeProviderId(entry.name);
 }
 
-function hasApprovedProvider(
-  capabilitySignals: ResolvedRoutingCapabilitySignals,
-  provider: string,
-): boolean {
-  return capabilitySignals.approvedProviders.includes(normalizeProviderId(provider));
-}
 
 function uniqueStrings(values: readonly string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));

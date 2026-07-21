@@ -175,12 +175,9 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       BEDROCK_CLIENT: "real",
       RUNTIME: "bedrock",
       RUNTIME_V2_ENABLED: "1",
-      RUNTIME_V2_DIRECT_RUNTIME: "bedrock",
-      // #364: mount the stable authorized catalog and let Sonnet decide
-      // whether the turn needs a tool. Regex routing remains the rollback.
-      ROUTING_MODE: "model-decided",
-      // Model-decided routing selects Sonnet 4.6 itself. Keep the direct-mode
-      // fallback on autopilot so reverting ROUTING_MODE is an atomic rollback.
+      // Model-decided routing (#364, sole engine since the regex path was
+      // deleted) selects the lane model itself; keep the direct-mode
+      // fallback on autopilot.
       RUNTIME_V2_DIRECT_MODEL_ID: "auto",
       NEXTAUTH_URL: `https://${domainName}`,
       LEGACY_HOST_REDIRECT_FROM:

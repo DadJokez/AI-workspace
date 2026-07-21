@@ -140,7 +140,6 @@ async function chatArtifactCheck(cookie: string) {
   const persisted = events.find((event) => event.type === "persisted");
   assert(isRecord(meta) && typeof meta.threadId === "string", "missing chat meta thread id");
   assert(isRecord(meta) && typeof meta.runId === "string", "missing chat meta run id");
-  assert(meta.routingMode === "model-decided", "production chat did not use model-decided routing");
   assert(isRecord(meta.runtimeRoute), "chat meta missing runtime route");
   assert(meta.runtimeRoute.routingMode === "model-decided", "runtime route did not preserve model-decided mode");
   assert(meta.runtimeRoute.useMcp === true, "model-decided runtime did not mount account tools");
@@ -234,12 +233,10 @@ async function agentCoreDurableLaneCheck(db: ReturnType<typeof getDb>) {
         userMessageId,
         requestedByUserId: SMOKE_USER_ID,
         executionMode: "local",
-        runtimeV2: false,
         runtimeRoute: {
           lane: "durable-local",
           executionMode: "local",
           runtimeTarget: "agentcore-worker",
-          runtimeV2: false,
           useWorker: true,
           useMcp: true,
           includeVaultContext: true,

@@ -62,7 +62,7 @@ else
 fi
 
 echo "4/4 Run-failure metric filter + alarm..."
-LOG_GROUP="/ecs/ai-workspace-chat-worker"
+LOG_GROUP="/ecs/ai-workspace/chat-worker"
 aws logs put-metric-filter \
   --log-group-name "$LOG_GROUP" \
   --filter-name "run-failed-events" \

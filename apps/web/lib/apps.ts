@@ -197,14 +197,6 @@ export async function canActorEditApp(
   return canAppRoleEdit(await resolveAppActorRole(db, app, actor));
 }
 
-export async function canActorDeployApp(
-  db: Database,
-  app: Pick<App, "id" | "ownerUserId" | "archivedAt">,
-  actor: Pick<SessionUser, "id" | "role">,
-): Promise<boolean> {
-  return canAppRoleDeploy(await resolveAppActorRole(db, app, actor));
-}
-
 /** Openable = accessible, deployed, and pointing at a live artifact. */
 export async function canActorOpenApp(
   db: Database,

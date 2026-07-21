@@ -31,9 +31,6 @@ vi.mock("@/lib/capability-graph", () => ({
 vi.mock("@/lib/audit-tool-events", () => ({
   buildToolAuditRows: vi.fn(() => []),
 }));
-vi.mock("@/lib/chat-routing", () => ({
-  toolDiscoveryModeFromEnv: vi.fn(() => "off"),
-}));
 vi.mock("@/lib/thread-activation", () => ({
   persistActivationFromEvent: vi.fn(async ({ currentSignature }) => currentSignature),
 }));
@@ -140,6 +137,7 @@ vi.mock("@/lib/notifications", () => ({
 import {
   buildTimingMetrics,
   executeChatTurn,
+  throttleCancellationCheck,
   type ChatRunTimingMarks,
   type ExecuteChatTurnInput,
 } from "@/lib/execute-chat-turn";
@@ -604,5 +602,61 @@ describe("buildTimingMetrics", () => {
 
     expect(metrics.requestToFirstTokenMs).toBeUndefined();
     expect(metrics.providerToFirstTokenMs).toBeUndefined();
+  });
+});
+
+describe("throttleCancellationCheck (#452 worker cancel cadence)", () => {
+  it("polls immediately on the first call, then at most once per interval", async () => {
+    let clock = 0;
+    const probe = vi.fn(async () => false);
+    const check = throttleCancellationCheck(probe, {
+      intervalMs: 2_000,
+      now: () => clock,
+    });
+
+    expect(await check()).toBe(false);
+    expect(probe).toHaveBeenCalledTimes(1);
+
+    // A burst of streamed events inside the interval never touches the DB.
+    for (clock of [1, 500, 1_999]) {
+      expect(await check()).toBe(false);
+    }
+    expect(probe).toHaveBeenCalledTimes(1);
+
+    clock = 2_000;
+    expect(await check()).toBe(false);
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports cancellation on the first poll after the run is canceled", async () => {
+    let clock = 0;
+    let status = false;
+    const probe = vi.fn(async () => status);
+    const check = throttleCancellationCheck(probe, {
+      intervalMs: 2_000,
+      now: () => clock,
+    });
+
+    expect(await check()).toBe(false);
+    status = true;
+    clock = 100; // still inside the interval — cached value
+    expect(await check()).toBe(false);
+    clock = 2_100;
+    expect(await check()).toBe(true);
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it("latches cancellation without re-polling", async () => {
+    let clock = 0;
+    const probe = vi.fn(async () => true);
+    const check = throttleCancellationCheck(probe, {
+      intervalMs: 2_000,
+      now: () => clock,
+    });
+
+    expect(await check()).toBe(true);
+    clock = 60_000;
+    expect(await check()).toBe(true);
+    expect(probe).toHaveBeenCalledTimes(1);
   });
 });

@@ -34,7 +34,6 @@ function packInput(overrides: Record<string, unknown> = {}) {
       customInstructions: "Prefer terse answers.",
     },
     messages: [{ role: "user" as const, content: "hi" }],
-    threadSummary: null,
     vaultMarkdown: "- Approved fact: quarterly reviews happen Fridays.",
     vaultContextRequested: true,
     providerStatus,
@@ -76,12 +75,11 @@ describe("pinned constraint layer (#416)", () => {
     });
   });
 
-  it("keeps the pinned hash byte-identical across summary and message churn", () => {
+  it("keeps the pinned hash byte-identical across message churn", () => {
     const base = buildChatContextPack(packInput({ activeSkill: SKILL }));
     const churned = buildChatContextPack(
       packInput({
         activeSkill: SKILL,
-        threadSummary: "A totally different summary that omits every rule.",
         messages: [
           { role: "user" as const, content: "completely different message" },
           { role: "assistant" as const, content: "different reply" },
@@ -115,19 +113,6 @@ describe("pinned constraint layer (#416)", () => {
       noSkill.receipts[0]!.pinnedContext?.hash,
     ]);
     expect(hashes.size).toBe(4);
-  });
-
-  it("still carries the approved rule when a synthetic summary omits it", () => {
-    // Acceptance: the summary is background data; the pinned layer
-    // re-injects the governing rule from its authoritative source.
-    const pack = buildChatContextPack(
-      packInput({
-        activeSkill: SKILL,
-        threadSummary:
-          "Earlier the user discussed weekly status. (Summary omits the customer-name rule.)",
-      }),
-    );
-    expect(pack.prompt.systemPrompt).toContain("Never include customer names.");
   });
 
   it("receipt hash matches a direct hash of the stable prefix", () => {
