@@ -1,5 +1,6 @@
 "use client";
 
+import { SlideOverPane } from "@/components/SlideOverPane";
 import {
   type LiveReasoningBlock,
   type RunInspectorEvent,
@@ -8,16 +9,9 @@ import {
   parseRunInspectorTrace,
 } from "@/lib/run-inspector";
 import { useEffect, useMemo, useState } from "react";
-import type {
-  CSSProperties,
-  KeyboardEvent as ReactKeyboardEvent,
-  PointerEvent as ReactPointerEvent,
-} from "react";
 
 interface Props {
   runId: string;
-  widthPx: number;
-  onWidthChange: (widthPx: number) => void;
   onClose: () => void;
   liveReasoning?: LiveReasoningBlock[];
 }
@@ -45,13 +39,10 @@ const TABS: Array<{ id: InspectorTab; label: string }> = [
 
 const MIN_INSPECTOR_WIDTH = 420;
 const MAX_INSPECTOR_WIDTH = 1_000;
-const MIN_CHAT_WIDTH = 420;
 const POLL_INTERVAL_MS = 1_500;
 
 export function RunInspectorPane({
   runId,
-  widthPx,
-  onWidthChange,
   onClose,
   liveReasoning = [],
 }: Props) {
@@ -107,163 +98,94 @@ export function RunInspectorPane({
     };
   }, [runId]);
 
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  const style = {
-    "--run-inspector-width": `${widthPx}px`,
-  } as CSSProperties;
   const filteredEvents = useMemo(
     () => filterTimeline(trace?.events ?? [], timelineFilter),
     [timelineFilter, trace?.events],
   );
 
-  function clampWidth(next: number) {
-    const maxByViewport = Math.max(
-      MIN_INSPECTOR_WIDTH,
-      window.innerWidth - MIN_CHAT_WIDTH,
-    );
-    return Math.min(
-      Math.min(MAX_INSPECTOR_WIDTH, maxByViewport),
-      Math.max(MIN_INSPECTOR_WIDTH, next),
-    );
-  }
-
-  function startResize(event: ReactPointerEvent<HTMLElement>) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = widthPx;
-    const handleMove = (move: PointerEvent) => {
-      onWidthChange(clampWidth(startWidth + startX - move.clientX));
-    };
-    const stop = () => {
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", stop);
-      window.removeEventListener("pointercancel", stop);
-    };
-    window.addEventListener("pointermove", handleMove);
-    window.addEventListener("pointerup", stop);
-    window.addEventListener("pointercancel", stop);
-  }
-
-  function handleResizeKey(event: ReactKeyboardEvent<HTMLElement>) {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    const step = event.shiftKey ? 80 : 24;
-    onWidthChange(
-      clampWidth(widthPx + (event.key === "ArrowLeft" ? step : -step)),
-    );
-  }
-
   return (
-    <>
-      <div
-        aria-hidden="true"
-        onClick={onClose}
-        className="fixed inset-0 z-40 bg-black/30 md:hidden"
-      />
-      <aside
-        aria-label="Run Inspector"
-        style={style}
-        data-testid="run-inspector"
-        className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-hairline bg-canvas text-ink shadow-2xl md:static md:z-auto md:h-full md:w-[var(--run-inspector-width)] md:max-w-none md:shrink-0 md:shadow-none"
-      >
-        <div
-          role="separator"
-          aria-label="Resize Run Inspector"
-          aria-orientation="vertical"
-          aria-valuemin={MIN_INSPECTOR_WIDTH}
-          aria-valuemax={MAX_INSPECTOR_WIDTH}
-          aria-valuenow={Math.round(widthPx)}
-          data-testid="run-inspector-resizer"
-          tabIndex={0}
-          onPointerDown={startResize}
-          onKeyDown={handleResizeKey}
-          className="absolute left-0 top-0 hidden h-full w-2 -translate-x-1 cursor-col-resize touch-none border-0 bg-transparent p-0 md:block"
+    <SlideOverPane
+      ariaLabel="Run Inspector"
+      defaultWidth={680}
+      minWidth={MIN_INSPECTOR_WIDTH}
+      maxWidth={MAX_INSPECTOR_WIDTH}
+      onClose={onClose}
+      paneTestId="run-inspector"
+      resizerLabel="Resize Run Inspector"
+      resizerTestId="run-inspector-resizer"
+      storageKey="comparative.slide-over.run-inspector.width"
+    >
+      <header className="flex min-h-12 shrink-0 items-center gap-2 border-b border-hairline px-3">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-hairline bg-surface text-muted">
+          <TraceIcon />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h2 className="truncate text-sm font-medium text-ink">
+              Run Inspector
+            </h2>
+            {trace ? <StatusPill status={trace.run.status} /> : null}
+          </div>
+          <p className="truncate font-mono text-2xs text-muted">{runId}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close Run Inspector"
+          title="Close"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink"
         >
-          <span className="mx-auto block h-full w-px bg-hairline transition-colors hover:bg-ink/40" />
-        </div>
+          <CloseIcon />
+        </button>
+      </header>
 
-        <header className="flex min-h-12 shrink-0 items-center gap-2 border-b border-hairline px-3">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-hairline bg-surface text-muted">
-            <TraceIcon />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h2 className="truncate text-sm font-medium text-ink">
-                Run Inspector
-              </h2>
-              {trace ? <StatusPill status={trace.run.status} /> : null}
-            </div>
-            <p className="truncate font-mono text-2xs text-muted">
-              {runId}
-            </p>
+      <div className="shrink-0 overflow-x-auto border-b border-hairline">
+        <div role="tablist" className="flex min-w-max px-2">
+          {TABS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === item.id}
+              onClick={() => setTab(item.id)}
+              className={`h-10 border-b px-2.5 text-2xs font-medium ${
+                tab === item.id
+                  ? "border-ink text-ink"
+                  : "border-transparent text-muted hover:text-ink"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        {loading && !trace ? (
+          <PaneState label="Loading run trace..." />
+        ) : error && !trace ? (
+          <PaneState label={`Trace unavailable: ${error}`} tone="error" />
+        ) : trace ? (
+          <div className="px-4 py-4">
+            {tab === "overview" ? <OverviewTab trace={trace} /> : null}
+            {tab === "timeline" ? (
+              <TimelineTab
+                events={filteredEvents}
+                filter={timelineFilter}
+                onFilterChange={setTimelineFilter}
+              />
+            ) : null}
+            {tab === "context" ? <ContextTab trace={trace} /> : null}
+            {tab === "reasoning" ? (
+              <ReasoningTab trace={trace} liveReasoning={liveReasoning} />
+            ) : null}
+            {tab === "tools" ? <ToolsTab trace={trace} /> : null}
+            {tab === "output" ? <OutputTab trace={trace} /> : null}
+            {tab === "raw" ? <RawTab trace={trace} /> : null}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close Run Inspector"
-            title="Close"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink"
-          >
-            <CloseIcon />
-          </button>
-        </header>
-
-        <div className="shrink-0 overflow-x-auto border-b border-hairline">
-          <div role="tablist" className="flex min-w-max px-2">
-            {TABS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === item.id}
-                onClick={() => setTab(item.id)}
-                className={`h-10 border-b px-2.5 text-2xs font-medium ${
-                  tab === item.id
-                    ? "border-ink text-ink"
-                    : "border-transparent text-muted hover:text-ink"
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-auto">
-          {loading && !trace ? (
-            <PaneState label="Loading run trace..." />
-          ) : error && !trace ? (
-            <PaneState label={`Trace unavailable: ${error}`} tone="error" />
-          ) : trace ? (
-            <div className="px-4 py-4">
-              {tab === "overview" ? <OverviewTab trace={trace} /> : null}
-              {tab === "timeline" ? (
-                <TimelineTab
-                  events={filteredEvents}
-                  filter={timelineFilter}
-                  onFilterChange={setTimelineFilter}
-                />
-              ) : null}
-              {tab === "context" ? <ContextTab trace={trace} /> : null}
-              {tab === "reasoning" ? (
-                <ReasoningTab trace={trace} liveReasoning={liveReasoning} />
-              ) : null}
-              {tab === "tools" ? <ToolsTab trace={trace} /> : null}
-              {tab === "output" ? <OutputTab trace={trace} /> : null}
-              {tab === "raw" ? <RawTab trace={trace} /> : null}
-            </div>
-          ) : null}
-        </div>
-      </aside>
-    </>
+        ) : null}
+      </div>
+    </SlideOverPane>
   );
 }
 
