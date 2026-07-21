@@ -9,6 +9,11 @@ test.describe("public product smoke", () => {
       page.getByRole("heading", { name: "Comparative" }),
     ).toBeVisible();
     await expect(page.getByText("Sign in to continue")).toBeVisible();
+    // Magic link is the primary path; GitHub OAuth the secondary.
+    await expect(page.getByLabel("Email address")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Email me a sign-in link" }),
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: /sign in with github/i }),
     ).toBeVisible();

@@ -67,6 +67,7 @@ pnpm dev          # http://localhost:3000
 | `AGENTCORE_RUNTIME_ARN` | Required for `RUNTIME=agentcore` — the Bedrock AgentCore runtime to invoke |
 | `AGENTCORE_REGION` / `AGENTCORE_QUALIFIER` | Optional AgentCore region override / endpoint qualifier |
 | `NEXTAUTH_SECRET` | NextAuth JWT signing secret |
+| `AUTH_PROVIDERS` | Sign-in allowlist, comma-separated. Default `github,email` — magic links (SES) are the universal tester path, GitHub the optional secondary. `pingone` joins the known list at the enterprise OIDC cutover. |
 | `GITHUB_AUTH_CLIENT_ID` / `GITHUB_AUTH_CLIENT_SECRET` | GitHub OAuth App for sign-in |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Separate GitHub OAuth App for per-user MCP tokens |
 | `GITHUB_WEBHOOK_SECRET` | HMAC secret for signed GitHub repository events; injected into the web task only |
