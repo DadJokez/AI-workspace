@@ -69,7 +69,8 @@ configuration presence only; they do not make a live model call.
 
 Shipped pilot controls:
 - `CHAT_MAX_REQUEST_BYTES`: maximum request body size before parsing (16 MiB by
-  default, allowing one 10 MiB attachment plus base64 and JSON overhead).
+  default, allowing one 10 MiB document plus base64 and JSON overhead). Native
+  image attachments are capped at Bedrock's 3.75 MB per-image limit.
 - `CHAT_MAX_MESSAGE_CHARS`: maximum user message length.
 - `CHAT_RATE_LIMIT_WINDOW_MS`: fixed-window duration.
 - `CHAT_RATE_LIMIT_REQUESTS`: per-user request count in the window.

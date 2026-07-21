@@ -9,6 +9,8 @@ import { findCredentialShapedContent } from "@/lib/secret-scan";
 
 export const MAX_ATTACHMENTS = 5;
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+// Bedrock Converse accepts native image blocks up to 3.75 MB each.
+export const MAX_RUNTIME_IMAGE_BYTES = 3_750_000;
 export const MAX_TOTAL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 export const MAX_ATTACHMENT_CHARS = 200_000;
 export const MAX_TOTAL_ATTACHMENT_CHARS = 400_000;
@@ -195,10 +197,18 @@ export async function validateAttachments(raw: unknown): Promise<AttachmentValid
       totalBytes += prepared.sizeBytes;
       totalChars += prepared.content.length;
 
-      if (prepared.sizeBytes > MAX_ATTACHMENT_BYTES) {
+      const isRuntimeImage =
+        prepared.kind === "image" || prepared.runtimeContent?.type === "image";
+      const maxBytes = isRuntimeImage
+        ? MAX_RUNTIME_IMAGE_BYTES
+        : MAX_ATTACHMENT_BYTES;
+      if (prepared.sizeBytes > maxBytes) {
         return {
           ok: false,
-          error: `"${prepared.name}" is too large (max ${formatBytes(MAX_ATTACHMENT_BYTES)}).`,
+          error:
+            isRuntimeImage
+              ? `"${prepared.name}" is too large for image analysis (max 3.75 MB). Compress or resize it and try again.`
+              : `"${prepared.name}" is too large (max ${formatBytes(MAX_ATTACHMENT_BYTES)}).`,
           attachments: [],
         };
       }

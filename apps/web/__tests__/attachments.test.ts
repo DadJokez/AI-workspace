@@ -3,6 +3,7 @@ import {
   MAX_ATTACHMENTS,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENT_CHARS,
+  MAX_RUNTIME_IMAGE_BYTES,
   MAX_TOTAL_ATTACHMENT_BYTES,
   declaredAttachmentCountFromMessage,
   foldAttachmentsIntoPrompt,
@@ -72,9 +73,13 @@ describe("attachments", () => {
       expect(r.error).toMatch(/too large/i);
     });
 
-    it("accepts a raw file at the 10 MiB boundary", async () => {
+    it("keeps the 10 MiB per-file boundary for non-image documents", () => {
       expect(MAX_ATTACHMENT_BYTES).toBe(10 * 1024 * 1024);
-      const boundaryBytes = Buffer.alloc(MAX_ATTACHMENT_BYTES);
+    });
+
+    it("accepts an image at the Bedrock 3.75 MB boundary", async () => {
+      expect(MAX_RUNTIME_IMAGE_BYTES).toBe(3_750_000);
+      const boundaryBytes = Buffer.alloc(MAX_RUNTIME_IMAGE_BYTES);
       const r = await validateAttachments([
         {
           name: "boundary.png",
@@ -84,23 +89,55 @@ describe("attachments", () => {
         },
       ]);
       expect(r.ok).toBe(true);
-      expect(r.attachments[0]?.sizeBytes).toBe(MAX_ATTACHMENT_BYTES);
+      expect(r.attachments[0]?.sizeBytes).toBe(MAX_RUNTIME_IMAGE_BYTES);
+    });
+
+    it("rejects an image whose decoded bytes exceed the Bedrock boundary", async () => {
+      const oversizedBytes = Buffer.alloc(MAX_RUNTIME_IMAGE_BYTES + 1);
+      const r = await validateAttachments([
+        {
+          name: "oversized.png",
+          mimeType: "image/png",
+          dataBase64: oversizedBytes.toString("base64"),
+          // The decoded payload remains authoritative over this forged value.
+          sizeBytes: 1,
+        },
+      ]);
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/image analysis \(max 3\.75 MB\)/i);
+    });
+
+    it("cannot bypass the image boundary with a mismatched file extension", async () => {
+      const oversizedBytes = Buffer.alloc(MAX_RUNTIME_IMAGE_BYTES + 1);
+      const r = await validateAttachments([
+        {
+          name: "disguised.txt",
+          mimeType: "image/png",
+          dataBase64: oversizedBytes.toString("base64"),
+        },
+      ]);
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/image analysis \(max 3\.75 MB\)/i);
     });
 
     it("rejects files whose decoded bytes exceed the aggregate cap", async () => {
       expect(MAX_TOTAL_ATTACHMENT_BYTES).toBe(10 * 1024 * 1024);
-      const first = Buffer.alloc(6 * 1024 * 1024);
-      const second = Buffer.alloc(5 * 1024 * 1024);
+      const image = Buffer.alloc(3_500_000);
       const r = await validateAttachments([
         {
           name: "first.png",
           mimeType: "image/png",
-          dataBase64: first.toString("base64"),
+          dataBase64: image.toString("base64"),
         },
         {
           name: "second.png",
           mimeType: "image/png",
-          dataBase64: second.toString("base64"),
+          dataBase64: image.toString("base64"),
+        },
+        {
+          name: "third.png",
+          mimeType: "image/png",
+          dataBase64: image.toString("base64"),
         },
       ]);
       expect(r.ok).toBe(false);
