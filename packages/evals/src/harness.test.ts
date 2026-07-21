@@ -239,6 +239,124 @@ describe("eval harness wiring", () => {
     });
   });
 
+  it("defaults to a single run and omits repeat metadata for repeat=1", async () => {
+    const client = new FakeBedrockClient({ delayMs: 0 });
+    const result = await runSuite(wiringSuite, { client, judgeClient: client });
+    const pass = result.results.find((r) => r.caseId === "deterministic-pass")!;
+    expect(pass.runs).toBeUndefined();
+    expect(pass.passCount).toBeUndefined();
+    expect(pass.passPolicy).toBeUndefined();
+  });
+
+  function scriptedSuite(
+    capability: string,
+    outcomes: readonly boolean[],
+    passPolicy: "all" | "majority",
+  ): EvalSuite {
+    let call = 0;
+    return {
+      capability,
+      defaultModelId: "haiku-4-5",
+      cases: [
+        {
+          id: "scripted",
+          description: `${outcomes.length} runs, policy ${passPolicy}`,
+          input: "hello world",
+          repeat: outcomes.length,
+          passPolicy,
+          assertions: [
+            {
+              kind: "deterministic",
+              label: "scripted per-run outcome",
+              check: () => ({ ok: outcomes[call++] ?? true }),
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it("passPolicy 'all' fails the case if any single run fails", async () => {
+    const client = new FakeBedrockClient({ delayMs: 0 });
+    const result = await runSuite(
+      scriptedSuite("repeat-all", [true, true, false, true, true], "all"),
+      { client, judgeClient: client },
+    );
+    const c = result.results[0]!;
+    expect(c.runs).toBe(5);
+    expect(c.passCount).toBe(4);
+    expect(c.passPolicy).toBe("all");
+    expect(c.passed).toBe(false);
+    expect(result.failed).toBe(1);
+    // Representative transcript is a losing run: its assertions show the failure.
+    expect(c.assertions.some((a) => !a.ok)).toBe(true);
+  });
+
+  it("passPolicy 'all' passes only when every run passes", async () => {
+    const client = new FakeBedrockClient({ delayMs: 0 });
+    const result = await runSuite(
+      scriptedSuite("repeat-all-pass", [true, true, true], "all"),
+      { client, judgeClient: client },
+    );
+    const c = result.results[0]!;
+    expect(c.passCount).toBe(3);
+    expect(c.passed).toBe(true);
+  });
+
+  it("passPolicy 'majority' passes on a strict majority and fails otherwise", async () => {
+    const client = new FakeBedrockClient({ delayMs: 0 });
+    const pass = await runSuite(
+      scriptedSuite("maj-pass", [true, false, true, false, true], "majority"),
+      { client, judgeClient: client },
+    );
+    expect(pass.results[0]!.passCount).toBe(3);
+    expect(pass.results[0]!.passed).toBe(true);
+
+    const fail = await runSuite(
+      scriptedSuite("maj-fail", [true, false, false, false, true], "majority"),
+      { client, judgeClient: client },
+    );
+    expect(fail.results[0]!.passCount).toBe(2);
+    expect(fail.results[0]!.passed).toBe(false);
+
+    // A 1-of-2 tie is NOT a strict majority.
+    const tie = await runSuite(
+      scriptedSuite("maj-tie", [true, false], "majority"),
+      { client, judgeClient: client },
+    );
+    expect(tie.results[0]!.passed).toBe(false);
+  });
+
+  it("sums token usage across repeated runs so cost accounting stays honest", async () => {
+    const client = new FakeBedrockClient({ delayMs: 0 });
+    const base: EvalSuite = {
+      capability: "usage-single",
+      defaultModelId: "haiku-4-5",
+      cases: [
+        {
+          id: "u",
+          description: "single run baseline",
+          input: "hello world",
+          assertions: [
+            { kind: "deterministic", label: "ok", check: () => true },
+          ],
+        },
+      ],
+    };
+    const repeated: EvalSuite = {
+      capability: "usage-repeat",
+      defaultModelId: "haiku-4-5",
+      cases: [{ ...base.cases[0]!, repeat: 3, passPolicy: "all" }],
+    };
+    const single = await runSuite(base, { client, judgeClient: client });
+    const three = await runSuite(repeated, { client, judgeClient: client });
+    const one = single.results[0]!;
+    const many = three.results[0]!;
+    expect(one.inputTokens).toBeGreaterThan(0);
+    expect(many.inputTokens).toBe(one.inputTokens * 3);
+    expect(many.tokensOut).toBe(one.tokensOut * 3);
+  });
+
   it("passes optional multi-turn conversation history to the model", async () => {
     const suite: EvalSuite = {
       capability: "multi-turn-wiring",
