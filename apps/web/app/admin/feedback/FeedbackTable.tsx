@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useState } from "react";
 import { getLinkedIssueTag } from "./issue-tags";
+import { EmptyState } from "@/components/EmptyState";
 
 export interface AdminFeedbackRow {
   id: string;
@@ -110,9 +111,12 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
   if (items.length === 0) {
     return (
       <div className="px-4 pb-10 sm:px-6">
-        <div className="rounded-lg border border-hairline bg-surface px-4 py-8 text-center text-sm text-muted">
-          No feedback reports in this view.
-        </div>
+        <EmptyState
+          title="No feedback in this view"
+          description="Try the full feedback history to see reports in another triage state."
+          actionLabel="View all feedback"
+          actionHref="/admin/feedback?status=all"
+        />
       </div>
     );
   }

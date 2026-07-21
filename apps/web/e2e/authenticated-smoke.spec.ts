@@ -61,7 +61,7 @@ test.describe("authenticated product smoke", () => {
     });
 
     await page.goto("/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
     await expect(
       page.getByRole("button", {
         name: "Draft a concise project status update for my team",

@@ -62,7 +62,7 @@ test.describe("chat files and artifacts", () => {
     });
 
     await page.goto("/e2e/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     // #398: same pre-hydration race #372/#377 fixed in authenticated-smoke —
     // setInputFiles before React wires the input's handler silently drops the
@@ -156,7 +156,7 @@ test.describe("chat files and artifacts", () => {
     });
 
     await page.goto("/e2e/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     // #398: hydration barrier — see comment on the first upload above.
     const bundleInput = page.getByTestId("chat-file-input");
@@ -245,7 +245,7 @@ test.describe("chat files and artifacts", () => {
     });
 
     await page.goto("/e2e/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     await page
       .getByPlaceholder(/ask anything/i)
@@ -367,7 +367,7 @@ test.describe("chat files and artifacts", () => {
     });
 
     await page.goto("/e2e/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     await page
       .getByPlaceholder(/ask anything/i)
@@ -485,7 +485,7 @@ test.describe("chat files and artifacts", () => {
     });
 
     await page.goto("/e2e/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     await page
       .getByPlaceholder(/ask anything/i)

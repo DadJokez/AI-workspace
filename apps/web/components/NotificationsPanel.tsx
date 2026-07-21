@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { EmptyState } from "@/components/EmptyState";
 
 interface NotificationItem {
   id: string;
@@ -252,10 +253,12 @@ export function NotificationsPanel({
             {loading ? (
               <p className="text-xs text-muted">Loading…</p>
             ) : items.length === 0 ? (
-              <p className="text-xs text-muted">
-                Nothing yet. When a scheduled or triggered run finishes while
-                you&apos;re away, it lands here.
-              </p>
+              <EmptyState
+                title="No notifications yet"
+                description="Scheduled and triggered runs that finish while you're away will land here."
+                actionLabel="Refresh"
+                onAction={() => void load()}
+              />
             ) : (
               <ul className="flex flex-col" data-testid="notification-list">
                 {items.map((n) => (

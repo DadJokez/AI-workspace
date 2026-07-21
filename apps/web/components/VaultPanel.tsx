@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { EmptyState } from "@/components/EmptyState";
 
 interface Props {
   userName?: string;
@@ -154,6 +155,8 @@ export function MemorySettings({ userName }: Props) {
   }
 
   const owner = userName?.trim() || "User";
+  const nothingCaptured =
+    !loading && approvedItems.length === 0 && suggestions.length === 0;
 
   return (
     <div className="flex flex-col gap-5">
@@ -183,133 +186,156 @@ export function MemorySettings({ userName }: Props) {
         </div>
       ) : null}
 
-      <section>
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-ink">
-            What the assistant remembers about you
-          </h2>
-          <button
-            type="button"
-            onClick={() => setAddOpen((v) => !v)}
-            className="rounded-md border border-hairline px-2.5 py-1 text-xs text-ink hover:bg-subtle"
-          >
-            {addOpen ? "Cancel" : "Add a fact"}
-          </button>
-        </div>
-        {addOpen ? (
-          <div className="mb-3 flex flex-col gap-2 rounded-md border border-hairline p-3">
-            <input
-              value={addTitle}
-              onChange={(e) => setAddTitle(e.target.value)}
-              placeholder="Short title (e.g. My team)"
-              maxLength={120}
-              className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-muted"
-            />
-            <textarea
-              value={addBody}
-              onChange={(e) => setAddBody(e.target.value)}
-              rows={3}
-              placeholder="The fact (e.g. I'm a supply-chain analyst on the Crossett team; I prefer concise, bulleted answers.)"
-              className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-muted"
-            />
-            {addError ? (
-              <p className="text-xs text-danger">{addError}</p>
-            ) : null}
-            <button
-              type="button"
-              disabled={addBusy || !addTitle.trim() || !addBody.trim()}
-              onClick={addFact}
-              className="self-start rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-canvas hover:opacity-90 disabled:opacity-50"
-            >
-              {addBusy ? "Saving…" : "Save fact"}
-            </button>
-          </div>
-        ) : null}
-      </section>
+      {nothingCaptured && !addOpen ? (
+        <EmptyState
+          title="No memory yet"
+          description="Add a fact, or keep chatting and Comparative will suggest useful context for your approval."
+          actionLabel="Add a fact"
+          onAction={() => setAddOpen(true)}
+        />
+      ) : null}
 
-      <section>
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-ink">Vault Markdown</h2>
-        </div>
-        <div className="min-h-40 rounded-lg border border-hairline bg-canvas px-4 py-3">
-          {loading ? (
-            <p className="text-sm text-muted">Loading Vault...</p>
-          ) : approvedMarkdown.trim() ? (
-            <div className="prose prose-sm max-w-none text-ink prose-headings:text-ink prose-p:text-ink prose-li:text-ink prose-strong:text-ink">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {approvedMarkdown}
-              </ReactMarkdown>
-            </div>
-          ) : (
-            <p className="text-sm text-muted">No approved Vault memory yet.</p>
-          )}
-        </div>
-      </section>
-
-      <section>
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-ink">
-            Suggested Updates
-          </h2>
-          <span className="text-xs text-muted">{suggestions.length}</span>
-        </div>
-        {loading ? (
-          <div className="rounded-md border border-hairline px-4 py-6 text-center text-sm text-muted">
-            Loading suggestions...
-          </div>
-        ) : suggestions.length === 0 ? (
-          <div className="rounded-md border border-hairline px-4 py-6 text-center text-sm text-muted">
-            No suggested updates.
-          </div>
-        ) : (
-          <div className="grid gap-3">
-            {suggestions.map((item) => (
-              <MemorySuggestionCard
-                key={item.id}
-                item={item}
-                editing={editingId === item.id}
-                draft={draft}
-                pending={actionPendingId === item.id}
-                onDraftChange={setDraft}
-                onEdit={() => startEdit(item)}
-                onCancelEdit={() => setEditingId(undefined)}
-                onApprove={() =>
-                  void patchMemory(
-                    item.id,
-                    "approve",
-                    editingId === item.id ? draft : undefined,
-                  )
-                }
-                onDismiss={() => void patchMemory(item.id, "dismiss")}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {approvedItems.length > 0 ? (
+      {!nothingCaptured || addOpen ? (
         <section>
           <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-ink">Approved Items</h2>
-            <span className="text-xs text-muted">{approvedItems.length}</span>
+            <h2 className="text-sm font-semibold text-ink">
+              What the assistant remembers about you
+            </h2>
+            <button
+              type="button"
+              onClick={() => setAddOpen((v) => !v)}
+              className="rounded-md border border-hairline px-2.5 py-1 text-xs text-ink hover:bg-subtle"
+            >
+              {addOpen ? "Cancel" : "Add a fact"}
+            </button>
           </div>
-          <div className="grid gap-2">
-            {approvedItems.map((item) => (
-              <MemoryApprovedCard
-                key={item.id}
-                item={item}
-                editing={editingId === item.id}
-                draft={draft}
-                pending={actionPendingId === item.id}
-                onDraftChange={setDraft}
-                onEdit={() => startEdit(item)}
-                onCancelEdit={() => setEditingId(undefined)}
-                onSave={() => void patchMemory(item.id, "edit", draft)}
-                onArchive={() => void patchMemory(item.id, "archive")}
+          {addOpen ? (
+            <div className="mb-3 flex flex-col gap-2 rounded-md border border-hairline p-3">
+              <input
+                value={addTitle}
+                onChange={(e) => setAddTitle(e.target.value)}
+                placeholder="Short title (e.g. My team)"
+                maxLength={120}
+                className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-muted"
               />
-            ))}
-          </div>
+              <textarea
+                value={addBody}
+                onChange={(e) => setAddBody(e.target.value)}
+                rows={3}
+                placeholder="The fact (e.g. I'm a supply-chain analyst on the Crossett team; I prefer concise, bulleted answers.)"
+                className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-muted"
+              />
+              {addError ? (
+                <p className="text-xs text-danger">{addError}</p>
+              ) : null}
+              <button
+                type="button"
+                disabled={addBusy || !addTitle.trim() || !addBody.trim()}
+                onClick={addFact}
+                className="self-start rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-canvas hover:opacity-90 disabled:opacity-50"
+              >
+                {addBusy ? "Saving…" : "Save fact"}
+              </button>
+            </div>
+          ) : null}
         </section>
+      ) : null}
+
+      {!nothingCaptured ? (
+        <>
+          <section>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-ink">
+                Vault Markdown
+              </h2>
+            </div>
+            <div className="min-h-40 rounded-lg border border-hairline bg-canvas px-4 py-3">
+              {loading ? (
+                <p className="text-sm text-muted">Loading Vault...</p>
+              ) : approvedMarkdown.trim() ? (
+                <div className="prose prose-sm max-w-none text-ink prose-headings:text-ink prose-p:text-ink prose-li:text-ink prose-strong:text-ink">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {approvedMarkdown}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <p className="text-sm text-muted">
+                  No approved Vault memory yet.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-ink">
+                Suggested Updates
+              </h2>
+              <span className="text-xs text-muted">{suggestions.length}</span>
+            </div>
+            {loading ? (
+              <div className="rounded-md border border-hairline px-4 py-6 text-center text-sm text-muted">
+                Loading suggestions...
+              </div>
+            ) : suggestions.length === 0 ? (
+              <div className="rounded-md border border-hairline px-4 py-6 text-center text-sm text-muted">
+                No suggested updates.
+              </div>
+            ) : (
+              <div className="grid gap-3">
+                {suggestions.map((item) => (
+                  <MemorySuggestionCard
+                    key={item.id}
+                    item={item}
+                    editing={editingId === item.id}
+                    draft={draft}
+                    pending={actionPendingId === item.id}
+                    onDraftChange={setDraft}
+                    onEdit={() => startEdit(item)}
+                    onCancelEdit={() => setEditingId(undefined)}
+                    onApprove={() =>
+                      void patchMemory(
+                        item.id,
+                        "approve",
+                        editingId === item.id ? draft : undefined,
+                      )
+                    }
+                    onDismiss={() => void patchMemory(item.id, "dismiss")}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          {approvedItems.length > 0 ? (
+            <section>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold text-ink">
+                  Approved Items
+                </h2>
+                <span className="text-xs text-muted">
+                  {approvedItems.length}
+                </span>
+              </div>
+              <div className="grid gap-2">
+                {approvedItems.map((item) => (
+                  <MemoryApprovedCard
+                    key={item.id}
+                    item={item}
+                    editing={editingId === item.id}
+                    draft={draft}
+                    pending={actionPendingId === item.id}
+                    onDraftChange={setDraft}
+                    onEdit={() => startEdit(item)}
+                    onCancelEdit={() => setEditingId(undefined)}
+                    onSave={() => void patchMemory(item.id, "edit", draft)}
+                    onArchive={() => void patchMemory(item.id, "archive")}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </>
       ) : null}
     </div>
   );

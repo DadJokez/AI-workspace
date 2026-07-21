@@ -55,7 +55,7 @@ test.describe("chat tools and skills", () => {
     });
 
     await page.goto("/e2e/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     await page
       .getByPlaceholder(/ask anything/i)
@@ -410,7 +410,7 @@ test.describe("chat tools and skills", () => {
     });
 
     await page.goto("/e2e/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
     await expect(page.getByText("rob@example.com")).toBeVisible();
     await expect(page.getByPlaceholder(/ask anything/i)).toBeEnabled();
 
@@ -498,7 +498,7 @@ test.describe("chat tools and skills", () => {
     });
 
     await page.goto("/e2e/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     await page.getByPlaceholder(/ask anything/i).fill("/weekly brief");
     await expect(page.getByText("Capabilities")).toBeVisible();
@@ -563,7 +563,7 @@ test.describe("chat tools and skills", () => {
     });
 
     await page.goto("/e2e/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     await page.getByPlaceholder(/ask anything/i).fill("/model haiku say hi");
     await expect(page.getByText("Capabilities")).toHaveCount(0);

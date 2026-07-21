@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { buildRuntimeV2Report } from "@/lib/admin/run-reporting";
 import { FilterPill } from "@/app/admin/ui";
+import { EmptyState } from "@/components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -286,9 +287,15 @@ export default async function AdminRunsPage({ searchParams }: Props) {
               <tr>
                 <td
                   colSpan={5}
-                  className="border-b border-hairline px-6 py-10 text-center text-xs text-muted"
+                  className="border-b border-hairline"
                 >
-                  No runs match this filter.
+                  <EmptyState
+                    title="No runs match this filter"
+                    description="Choose another status, or start a chat to create a new run."
+                    actionLabel="Start a chat"
+                    actionHref="/chat"
+                    className="min-h-40"
+                  />
                 </td>
               </tr>
             ) : (
