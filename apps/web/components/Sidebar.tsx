@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { COMPARATIVE_VERSION_LABEL } from "@/lib/product-version";
+import {
+  isTemporaryTabletRail,
+  shouldUseSidebarRail,
+  SIDEBAR_COLLAPSED_STORAGE_KEY,
+} from "@/lib/sidebar-layout";
 import { ThinkingOrb } from "./ThinkingOrb";
 
 interface NavItem {
@@ -76,6 +81,8 @@ interface Props {
   onClose: () => void;
   onNewChat: () => void;
   onSearch: () => void;
+  /** Temporarily use the rail at tablet widths while a right pane is open. */
+  autoCollapse?: boolean;
   threads: ThreadSummary[];
   threadsLoading: boolean;
   threadsError?: string;
@@ -128,6 +135,7 @@ export function Sidebar({
   onClose,
   onNewChat,
   onSearch,
+  autoCollapse = false,
   threads,
   threadsLoading,
   threadsError,
@@ -148,6 +156,8 @@ export function Sidebar({
   const [renameSaving, setRenameSaving] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [userCollapsed, setUserCollapsed] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState<number | null>(null);
 
   const userMenuRef = useRef<HTMLDivElement>(null);
   const accountButtonRef = useRef<HTMLButtonElement>(null);
@@ -165,6 +175,28 @@ export function Sidebar({
     return [...groups.slice(0, -1), adminGroup, groups[groups.length - 1]!];
   }, [isAdmin]);
 
+  const rail = shouldUseSidebarRail({
+    userCollapsed,
+    rightPaneOpen: autoCollapse,
+    viewportWidth,
+  });
+  const temporaryTabletRail = isTemporaryTabletRail({
+    userCollapsed,
+    rightPaneOpen: autoCollapse,
+    viewportWidth,
+  });
+  const visibleNavGroups = useMemo(() => {
+    if (!rail) return navGroups;
+    return navGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter(
+          (item) => item.id === "skills" || item.id === "apps",
+        ),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [navGroups, rail]);
+
   const initials = (userName ?? userEmail ?? "?")
     .split(/[\s@.]+/)
     .filter(Boolean)
@@ -174,6 +206,60 @@ export function Sidebar({
   const hasAccountMenu = Boolean(onNavSelect || onSignOut);
 
   const historyLabel = "Chats";
+
+  const toggleCollapsed = useCallback(() => {
+    if (temporaryTabletRail) return;
+    setUserCollapsed((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(
+          SIDEBAR_COLLAPSED_STORAGE_KEY,
+          String(next),
+        );
+      } catch {
+        // The current session still responds when storage is unavailable.
+      }
+      return next;
+    });
+  }, [temporaryTabletRail]);
+
+  useEffect(() => {
+    try {
+      setUserCollapsed(
+        window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true",
+      );
+    } catch {
+      // Use the expanded default when storage is unavailable.
+    }
+    const updateViewport = () => setViewportWidth(window.innerWidth);
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+    return () => window.removeEventListener("resize", updateViewport);
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key === "\\" &&
+        viewportWidth !== null &&
+        viewportWidth >= 768
+      ) {
+        event.preventDefault();
+        toggleCollapsed();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [toggleCollapsed, viewportWidth]);
+
+  useEffect(() => {
+    if (!rail) return;
+    setUserMenuOpen(false);
+    setOpenMenuId(null);
+    setRenamingId(null);
+    setPendingDeleteId(null);
+  }, [rail]);
 
   useEffect(() => {
     if (!open) return;
@@ -298,19 +384,63 @@ export function Sidebar({
         }`}
       />
       <aside
+        id="primary-sidebar"
         aria-label="Primary"
         data-density="nav"
-        className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col overflow-hidden border-r border-hairline bg-sidebar transition-transform duration-base md:static md:z-auto md:w-60 md:max-w-none md:translate-x-0 ${
+        data-sidebar-state={rail ? "rail" : "expanded"}
+        data-auto-collapsed={temporaryTabletRail || undefined}
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col overflow-hidden border-r border-hairline bg-sidebar transition-[transform,width] duration-base ease-umber-out md:static md:z-auto md:w-[var(--active-sidebar-w)] md:max-w-none md:shrink-0 md:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
+        style={
+          {
+            "--active-sidebar-w": rail ? "3.5rem" : "var(--sidebar-w)",
+          } as React.CSSProperties
+        }
       >
-        <div className="flex shrink-0 items-center gap-2 px-3 py-3">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div
+          className={`flex shrink-0 items-center py-3 ${
+            rail ? "justify-center gap-0 px-1" : "gap-2 px-3"
+          }`}
+        >
+          <div
+            title={rail ? "Comparative" : undefined}
+            className={`flex min-w-0 items-center gap-2 ${
+              rail ? "flex-none" : "flex-1"
+            }`}
+          >
             <ThinkingOrb state="idle" size={24} stroke={14} label="Comparative" />
-            <span className="truncate text-sm font-semibold tracking-caps text-ink">
-              COMPARATIVE
-            </span>
+            {!rail ? (
+              <span className="truncate text-sm font-semibold tracking-caps text-ink">
+                COMPARATIVE
+              </span>
+            ) : null}
           </div>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            disabled={temporaryTabletRail}
+            aria-label={
+              temporaryTabletRail
+                ? "Sidebar temporarily collapsed while panel is open"
+                : rail
+                  ? "Expand sidebar"
+                  : "Collapse sidebar"
+            }
+            aria-keyshortcuts={"Meta+\\ Control+\\"}
+            aria-controls="primary-sidebar"
+            aria-pressed={rail}
+            title={
+              temporaryTabletRail
+                ? "Sidebar restores when the panel closes"
+                : rail
+                  ? "Expand sidebar (⌘\\)"
+                  : "Collapse sidebar (⌘\\)"
+            }
+            className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-subtle hover:text-ink disabled:cursor-default disabled:opacity-50 md:flex"
+          >
+            <IconSidebarToggle collapsed={rail} />
+          </button>
           <button
             type="button"
             onClick={onClose}
@@ -342,56 +472,71 @@ export function Sidebar({
               }}
               aria-label="Search"
               aria-keyshortcuts="Meta+K Control+K"
-              className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-muted hover:bg-subtle hover:text-ink md:min-h-0 md:py-1.5"
+              title={rail ? "Search (⌘K)" : undefined}
+              className={`flex min-h-11 w-full items-center rounded-md py-2 text-sm text-muted hover:bg-subtle hover:text-ink md:min-h-0 md:py-1.5 ${
+                rail ? "justify-center px-0" : "gap-2 px-2 text-left"
+              }`}
             >
               <span className="flex h-4 w-4 items-center justify-center">
                 <IconSearch />
               </span>
-              <span className="flex-1">Search</span>
-              <kbd className="text-2xs text-muted">⌘K</kbd>
+              {!rail ? (
+                <>
+                  <span className="flex-1">Search</span>
+                  <kbd className="text-2xs text-muted">⌘K</kbd>
+                </>
+              ) : null}
             </button>
           </div>
           <div className="shrink-0 px-2 pb-1.5 pt-2">
-            <div className="flex min-h-7 items-center gap-1 px-2 pb-1 pt-1">
-              <button
-                type="button"
-                onClick={() => setHistoryOpen((v) => !v)}
-                aria-expanded={historyOpen}
-                aria-label={
-                  historyOpen
-                    ? `Collapse ${historyLabel.toLowerCase()}`
-                    : `Expand ${historyLabel.toLowerCase()}`
-                }
-                className="flex flex-1 items-center gap-1.5 rounded-md text-left text-2xs font-medium uppercase tracking-wider text-muted hover:text-ink"
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  width="10"
-                  height="10"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className={`transition-transform ${historyOpen ? "rotate-90" : ""}`}
-                  aria-hidden="true"
+            <div
+              className={`flex min-h-7 items-center pb-1 pt-1 ${
+                rail ? "justify-center px-0" : "gap-1 px-2"
+              }`}
+            >
+              {!rail ? (
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen((v) => !v)}
+                  aria-expanded={historyOpen}
+                  aria-label={
+                    historyOpen
+                      ? `Collapse ${historyLabel.toLowerCase()}`
+                      : `Expand ${historyLabel.toLowerCase()}`
+                  }
+                  className="flex flex-1 items-center gap-1.5 rounded-md text-left text-2xs font-medium uppercase tracking-wider text-muted hover:text-ink"
                 >
-                  <path d="m6 4 4 4-4 4" />
-                </svg>
-                <span>{historyLabel}</span>
-              </button>
+                  <svg
+                    viewBox="0 0 16 16"
+                    width="10"
+                    height="10"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className={`transition-transform ${historyOpen ? "rotate-90" : ""}`}
+                    aria-hidden="true"
+                  >
+                    <path d="m6 4 4 4-4 4" />
+                  </svg>
+                  <span>{historyLabel}</span>
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={handleNewChat}
                 aria-label="New chat"
                 aria-keyshortcuts="Meta+N Control+N"
                 title="New chat"
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-pop text-on-pop hover:bg-pop/90"
+                className={`flex shrink-0 items-center justify-center rounded bg-pop text-on-pop hover:bg-pop/90 ${
+                  rail ? "h-8 w-8" : "h-6 w-6"
+                }`}
               >
                 <IconPlus />
               </button>
             </div>
-            {historyOpen ? (
+            {historyOpen && !rail ? (
               <div className="max-h-[40vh] overflow-y-auto">
                 {threadsLoading && threads.length === 0 ? (
                   <ThreadsSkeleton />
@@ -407,13 +552,13 @@ export function Sidebar({
                   <div className="flex flex-col pb-1.5">
                     <ul className="flex flex-col">
                       {threads.map((t) => {
-                          const active = t.id === activeThreadId;
-                          const title = t.title?.trim() || "Untitled";
-                          const isRenaming = renamingId === t.id;
-                          const isMenuOpen = openMenuId === t.id;
-                          const isPendingDelete = pendingDeleteId === t.id;
-                          const preview = threadPreviewText(t);
-                          return (
+                        const active = t.id === activeThreadId;
+                        const title = t.title?.trim() || "Untitled";
+                        const isRenaming = renamingId === t.id;
+                        const isMenuOpen = openMenuId === t.id;
+                        const isPendingDelete = pendingDeleteId === t.id;
+                        const preview = threadPreviewText(t);
+                        return (
                             <li
                               key={t.id}
                               className="group/thread relative"
@@ -538,8 +683,8 @@ export function Sidebar({
                                 />
                               ) : null}
                             </li>
-                          );
-                          })}
+                        );
+                      })}
                     </ul>
                   </div>
                 )}
@@ -548,10 +693,10 @@ export function Sidebar({
           </div>
 
           <nav className="shrink-0 px-2 pb-2">
-            {navGroups.map((group, gi) => (
+            {visibleNavGroups.map((group, gi) => (
               <div key={gi} className="py-1.5">
                 <div className="mx-2 mb-1.5 h-px bg-hairline" aria-hidden />
-                {group.label ? (
+                {group.label && !rail ? (
                   <div className="px-2 pb-1 pt-1 text-2xs font-medium uppercase tracking-wider text-muted">
                     {group.label}
                   </div>
@@ -561,27 +706,36 @@ export function Sidebar({
                     const active = item.id === activeNavId;
                     const disabled = !!item.disabled;
                     if (item.href) {
-                    return (
-                      <li key={item.id}>
-                        <Link
-                          href={item.href}
-                          data-tour={`nav-${item.id}`}
-                          title={item.tooltip}
-                          className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-muted hover:bg-subtle hover:text-ink md:min-h-0 md:py-1.5"
-                        >
-                          <span className="flex h-4 w-4 items-center justify-center text-current">
-                            {item.icon}
-                          </span>
-                          <span className="flex-1 truncate">{item.label}</span>
-                          {item.badge ? (
-                            <span className="rounded bg-subtle px-1.5 text-2xs uppercase tracking-wider text-muted">
-                              {item.badge}
+                      return (
+                        <li key={item.id}>
+                          <Link
+                            href={item.href}
+                            data-tour={`nav-${item.id}`}
+                            aria-label={rail ? item.label : undefined}
+                            title={rail ? item.label : item.tooltip}
+                            className={`flex min-h-11 w-full items-center rounded-md py-2 text-sm text-muted hover:bg-subtle hover:text-ink md:min-h-0 md:py-1.5 ${
+                              rail
+                                ? "justify-center px-0"
+                                : "gap-2 px-2 text-left"
+                            }`}
+                          >
+                            <span className="flex h-4 w-4 items-center justify-center text-current">
+                              {item.icon}
                             </span>
-                          ) : null}
-                        </Link>
-                      </li>
-                    );
-                  }
+                            {!rail ? (
+                              <span className="flex-1 truncate">
+                                {item.label}
+                              </span>
+                            ) : null}
+                            {item.badge && !rail ? (
+                              <span className="rounded bg-subtle px-1.5 text-2xs uppercase tracking-wider text-muted">
+                                {item.badge}
+                              </span>
+                            ) : null}
+                          </Link>
+                        </li>
+                      );
+                    }
                     return (
                       <li key={item.id}>
                         <button
@@ -591,8 +745,11 @@ export function Sidebar({
                           disabled={disabled}
                           aria-current={active ? "page" : undefined}
                           aria-disabled={disabled || undefined}
-                          title={item.tooltip}
-                          className={`flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm md:min-h-0 md:py-1.5 ${
+                          aria-label={rail ? item.label : undefined}
+                          title={rail ? item.label : item.tooltip}
+                          className={`flex min-h-11 w-full items-center rounded-md py-2 text-sm md:min-h-0 md:py-1.5 ${
+                            rail ? "justify-center px-0" : "gap-2 px-2 text-left"
+                          } ${
                             disabled
                               ? "cursor-not-allowed text-muted/60"
                               : active
@@ -603,8 +760,10 @@ export function Sidebar({
                           <span className="flex h-4 w-4 items-center justify-center text-current">
                             {item.icon}
                           </span>
-                          <span className="flex-1 truncate">{item.label}</span>
-                          {item.badge ? (
+                          {!rail ? (
+                            <span className="flex-1 truncate">{item.label}</span>
+                          ) : null}
+                          {item.badge && !rail ? (
                             <span className="rounded bg-subtle px-1.5 text-2xs uppercase tracking-wider text-muted">
                               {item.badge}
                             </span>
@@ -620,12 +779,16 @@ export function Sidebar({
         </div>
 
         <div
-          className="relative mt-auto shrink-0 border-t border-hairline px-3 py-3"
+          className={`relative mt-auto shrink-0 border-t border-hairline py-3 ${
+            rail ? "px-2" : "px-3"
+          }`}
           ref={userMenuRef}
         >
-          <div className="mb-2 px-1 text-2xs font-medium uppercase tracking-caps text-muted/70">
-            {COMPARATIVE_VERSION_LABEL}
-          </div>
+          {!rail ? (
+            <div className="mb-2 px-1 text-2xs font-medium uppercase tracking-caps text-muted/70">
+              {COMPARATIVE_VERSION_LABEL}
+            </div>
+          ) : null}
           <button
             ref={accountButtonRef}
             type="button"
@@ -635,22 +798,27 @@ export function Sidebar({
             aria-haspopup={hasAccountMenu ? "menu" : undefined}
             aria-expanded={hasAccountMenu ? userMenuOpen : undefined}
             aria-label={hasAccountMenu ? "Account menu" : undefined}
-            className={`flex w-full items-center gap-2.5 rounded-md px-1 py-1 text-left ${
+            title={rail ? userName ?? userEmail ?? "Account" : undefined}
+            className={`flex w-full items-center rounded-md py-1 ${
+              rail ? "justify-center px-0" : "gap-2.5 px-1 text-left"
+            } ${
               hasAccountMenu ? "hover:bg-subtle" : "cursor-default"
             }`}
           >
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-subtle text-2xs font-medium text-ink">
               {initials || "AI"}
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium text-ink">
-                {userName ?? "Workspace"}
+            {!rail ? (
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium text-ink">
+                  {userName ?? "Workspace"}
+                </div>
+                {userEmail ? (
+                  <div className="truncate text-2xs text-muted">{userEmail}</div>
+                ) : null}
               </div>
-              {userEmail ? (
-                <div className="truncate text-2xs text-muted">{userEmail}</div>
-              ) : null}
-            </div>
-            {hasAccountMenu ? (
+            ) : null}
+            {hasAccountMenu && !rail ? (
               <svg
                 viewBox="0 0 16 16"
                 width="10"
@@ -673,7 +841,11 @@ export function Sidebar({
           {userMenuOpen && hasAccountMenu ? (
             <div
               role="menu"
-              className="absolute bottom-[calc(100%-4px)] left-3 right-3 z-10 overflow-hidden rounded-md border border-hairline bg-surface shadow-md"
+              className={`absolute z-10 overflow-hidden rounded-md border border-hairline bg-surface shadow-md ${
+                rail
+                  ? "bottom-2 left-full ml-2 w-44"
+                  : "bottom-[calc(100%-4px)] left-3 right-3"
+              }`}
             >
               {onNavSelect ? (
                 <button
@@ -885,6 +1057,26 @@ function IconPlus() {
       strokeLinecap="round"
     >
       <path d="M8 3v10M3 8h10" />
+    </svg>
+  );
+}
+
+function IconSidebarToggle({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
+      <path d="M5.5 2.5v11" />
+      <path d={collapsed ? "m8.5 6 2 2-2 2" : "m11 6-2 2 2 2"} />
     </svg>
   );
 }
