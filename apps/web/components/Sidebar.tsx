@@ -67,6 +67,7 @@ const groups: NavGroup[] = [
 export interface ThreadSummary {
   id: string;
   title: string | null;
+  pinned: boolean;
   defaultModelId: string;
   previewSummary: string | null;
   previewSummaryUpdatedAt: string | null;
@@ -101,6 +102,8 @@ interface Props {
   onRenameThread?: (threadId: string, title: string) => Promise<void>;
   /** Delete a thread. Resolves on success, rejects on error. */
   onDeleteThread?: (threadId: string) => Promise<void>;
+  /** Pin or unpin a thread. Resolves on success, rejects on error. */
+  onPinThread?: (threadId: string, pinned: boolean) => Promise<void>;
 }
 
 function threadPreviewText(thread: ThreadSummary): string | null {
@@ -148,6 +151,7 @@ export function Sidebar({
   onSignOut,
   onRenameThread,
   onDeleteThread,
+  onPinThread,
 }: Props) {
   const [historyOpen, setHistoryOpen] = useState(true);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -379,6 +383,16 @@ export function Sidebar({
     }
   }
 
+  async function togglePin(thread: ThreadSummary) {
+    if (!onPinThread) return;
+    setOpenMenuId(null);
+    try {
+      await onPinThread(thread.id, !thread.pinned);
+    } catch {
+      setOpenMenuId(thread.id);
+    }
+  }
+
   return (
     <>
       <div
@@ -469,7 +483,7 @@ export function Sidebar({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="px-2 pb-1 pt-2">
             <button
               type="button"
@@ -495,7 +509,7 @@ export function Sidebar({
               ) : null}
             </button>
           </div>
-          <div className="shrink-0 px-2 pb-1.5 pt-2">
+          <div className="flex min-h-0 flex-1 flex-col px-2 pb-1.5 pt-2">
             <div
               className={`flex min-h-7 items-center pb-1 pt-1 ${
                 rail ? "justify-center px-0" : "gap-1 px-2"
@@ -544,7 +558,10 @@ export function Sidebar({
               </button>
             </div>
             {historyOpen && !rail ? (
-              <div className="max-h-[40vh] overflow-y-auto">
+              <div
+                data-testid="thread-history-list"
+                className="min-h-0 flex-1 overflow-y-auto"
+              >
                 {threadsLoading && threads.length === 0 ? (
                   <ThreadsSkeleton />
                 ) : threadsError && threads.length === 0 ? (
@@ -568,6 +585,7 @@ export function Sidebar({
                         return (
                             <li
                               key={t.id}
+                              data-thread-id={t.id}
                               className="group/thread relative"
                               ref={isMenuOpen ? threadMenuRef : null}
                             >
@@ -616,6 +634,15 @@ export function Sidebar({
                                     title={title}
                                     className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left text-sm md:py-1.5"
                                   >
+                                    {t.pinned ? (
+                                      <span
+                                        title="Pinned"
+                                        aria-hidden="true"
+                                        className="flex h-4 w-4 shrink-0 items-center justify-center text-muted"
+                                      >
+                                        <IconPin filled />
+                                      </span>
+                                    ) : null}
                                     <span className="flex-1 truncate">
                                       {title}
                                     </span>
@@ -626,7 +653,9 @@ export function Sidebar({
                                       forceVisible={isMenuOpen}
                                     />
                                   ) : null}
-                                  {(onRenameThread || onDeleteThread) ? (
+                                  {(onPinThread ||
+                                    onRenameThread ||
+                                    onDeleteThread) ? (
                                     <button
                                       type="button"
                                       onClick={(e) => {
@@ -654,6 +683,17 @@ export function Sidebar({
                                   role="menu"
                                   className="absolute right-1 top-full z-20 mt-0.5 w-40 overflow-hidden rounded-md border border-hairline bg-surface shadow-md"
                                 >
+                                  {onPinThread ? (
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => void togglePin(t)}
+                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-subtle"
+                                    >
+                                      <IconPin filled={t.pinned} />
+                                      <span>{t.pinned ? "Unpin" : "Pin"}</span>
+                                    </button>
+                                  ) : null}
                                   {onRenameThread ? (
                                     <button
                                       type="button"
@@ -1118,6 +1158,24 @@ function IconDots() {
       <circle cx="3.5" cy="8" r="1.2" />
       <circle cx="8" cy="8" r="1.2" />
       <circle cx="12.5" cy="8" r="1.2" />
+    </svg>
+  );
+}
+
+function IconPin({ filled = false }: { filled?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth="1.35"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M5.2 2.5h5.6l-.8 3 2 2v1H8.7V13L8 13.8 7.3 13V8.5H4v-1l2-2-.8-3Z" />
     </svg>
   );
 }

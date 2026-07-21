@@ -57,9 +57,9 @@ export async function GET(
 const MAX_TITLE_LEN = 200;
 
 /**
- * Rename a thread. Owner-scoped — admins can read everyone's threads but
- * we don't let cross-user renames happen here. Body: `{ title: string }`,
- * trimmed and capped at 200 chars; empty / whitespace-only is rejected.
+ * Update owner-controlled thread metadata. Exactly one field is accepted:
+ * `{ title: string }` or `{ pinned: boolean }`. Admins can read workspace
+ * threads elsewhere, but personal mutations never cross user boundaries.
  */
 export async function PATCH(
   req: Request,
@@ -73,31 +73,62 @@ export async function PATCH(
     }
 
     const body = (await req.json().catch(() => null)) as
-      | { title?: unknown }
+      | { title?: unknown; pinned?: unknown }
       | null;
-    const rawTitle = body && typeof body.title === "string" ? body.title : null;
-    if (rawTitle === null) {
+    const hasTitle =
+      body !== null && Object.prototype.hasOwnProperty.call(body, "title");
+    const hasPinned =
+      body !== null && Object.prototype.hasOwnProperty.call(body, "pinned");
+    if (!body || hasTitle === hasPinned) {
       return NextResponse.json(
-        { error: "invalid_body", message: "title (string) is required" },
+        {
+          error: "invalid_body",
+          message: "provide exactly one of title (string) or pinned (boolean)",
+        },
         { status: 400 },
       );
     }
-    const title = rawTitle.trim().slice(0, MAX_TITLE_LEN);
-    if (!title) {
-      return NextResponse.json(
-        { error: "invalid_title", message: "title cannot be empty" },
-        { status: 400 },
-      );
+
+    let updates: {
+      title?: string;
+      titleSource?: string;
+      updatedAt?: Date;
+      pinned?: boolean;
+    };
+    if (hasPinned) {
+      if (typeof body.pinned !== "boolean") {
+        return NextResponse.json(
+          { error: "invalid_pinned", message: "pinned must be a boolean" },
+          { status: 400 },
+        );
+      }
+      updates = { pinned: body.pinned };
+    } else {
+      if (typeof body.title !== "string") {
+        return NextResponse.json(
+          { error: "invalid_title", message: "title must be a string" },
+          { status: 400 },
+        );
+      }
+      const title = body.title.trim().slice(0, MAX_TITLE_LEN);
+      if (!title) {
+        return NextResponse.json(
+          { error: "invalid_title", message: "title cannot be empty" },
+          { status: 400 },
+        );
+      }
+      updates = { title, titleSource: "manual", updatedAt: new Date() };
     }
 
     const db = getDb();
     const updated = await db
       .update(chatThreads)
-      .set({ title, titleSource: "manual", updatedAt: new Date() })
+      .set(updates)
       .where(and(eq(chatThreads.id, id), eq(chatThreads.userId, sessionUser.id)))
       .returning({
         id: chatThreads.id,
         title: chatThreads.title,
+        pinned: chatThreads.pinned,
         titleSource: chatThreads.titleSource,
         updatedAt: chatThreads.updatedAt,
       });
