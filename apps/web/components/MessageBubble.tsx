@@ -1,5 +1,6 @@
 "use client";
 
+import type { AssistantSource } from "@ai-workspace/agent/sources";
 import { useTheme } from "@/lib/theme";
 import { formatTurnMeter } from "@/lib/turn-cost";
 import {
@@ -49,6 +50,7 @@ interface Props {
   appDraftVersions?: AppDraftVersionSummary[];
   recommendations?: PersistedRecommendation[];
   activityEvents?: AgentActivityEvent[];
+  sources?: AssistantSource[];
   assistantName?: string | null;
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
   onDeployAppDraft?: (version: AppDraftVersionSummary) => void;
@@ -79,6 +81,7 @@ export function MessageBubble({
   appDraftVersions = [],
   recommendations = [],
   activityEvents: persistedActivityEvents,
+  sources = [],
   assistantName,
   onOpenArtifact,
   onDeployAppDraft,
@@ -223,6 +226,13 @@ export function MessageBubble({
           <span className="whitespace-pre-wrap">{content}</span>
         )}
       </div>
+      {role === "assistant" && sources.length > 0 ? (
+        <SourceStrip
+          sources={sources}
+          artifacts={artifacts}
+          onOpenArtifact={onOpenArtifact}
+        />
+      ) : null}
       {role === "assistant" && artifacts.length > 0 ? (
         <ArtifactStrip artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
       ) : null}
@@ -476,6 +486,104 @@ function ArtifactStrip({
       )}
     </div>
   );
+}
+
+function SourceStrip({
+  sources,
+  artifacts,
+  onOpenArtifact,
+}: {
+  sources: AssistantSource[];
+  artifacts: WorkspaceArtifactSummary[];
+  onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+}) {
+  return (
+    <div
+      data-testid="message-sources"
+      className="mt-2 flex max-w-full flex-wrap items-center gap-1.5"
+      aria-label="Sources consulted"
+    >
+      <span className="mr-0.5 text-2xs font-medium uppercase text-muted">
+        Sources consulted
+      </span>
+      {sources.map((source) => {
+        const artifact = artifactForSource(source, artifacts);
+        const content = <SourceChipContent source={source} />;
+        const sharedProps = {
+          "data-testid": `source-chip-${source.n}`,
+          className:
+            "inline-flex max-w-full items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 py-1 text-left text-xs text-muted transition-colors hover:border-muted hover:text-ink",
+          title: source.title,
+        };
+
+        if (artifact && onOpenArtifact) {
+          return (
+            <button
+              key={source.n}
+              type="button"
+              {...sharedProps}
+              onClick={() => onOpenArtifact(artifact)}
+            >
+              {content}
+            </button>
+          );
+        }
+        if (
+          source.url &&
+          (source.kind === "web" || source.kind === "repo")
+        ) {
+          return (
+            <a
+              key={source.n}
+              {...sharedProps}
+              href={source.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {content}
+            </a>
+          );
+        }
+        return (
+          <span key={source.n} {...sharedProps}>
+            {content}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function SourceChipContent({ source }: { source: AssistantSource }) {
+  return (
+    <>
+      <span className="shrink-0 text-2xs font-medium uppercase text-muted/80">
+        {sourceKindLabel(source.kind)}
+      </span>
+      <span className="min-w-0 max-w-56 truncate">{source.title}</span>
+    </>
+  );
+}
+
+function artifactForSource(
+  source: AssistantSource,
+  artifacts: WorkspaceArtifactSummary[],
+): WorkspaceArtifactSummary | undefined {
+  if (source.kind !== "artifact" && source.kind !== "file") return undefined;
+  return artifacts.find(
+    (artifact) =>
+      source.url === artifact.id ||
+      source.url === artifact.previewUrl ||
+      source.url === artifact.downloadUrl ||
+      source.title === artifact.filename,
+  );
+}
+
+function sourceKindLabel(kind: AssistantSource["kind"]): string {
+  if (kind === "repo") return "Repo";
+  if (kind === "artifact") return "Doc";
+  if (kind === "file") return "File";
+  return "Web";
 }
 
 const artifactPillClassName =

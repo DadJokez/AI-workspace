@@ -12,7 +12,11 @@ import type {
   AgentRuntime,
   RuntimeRunMetadata,
 } from "@ai-workspace/agent-runtime";
-import { serializeActivation } from "@ai-workspace/agent";
+import {
+  extractAssistantSources,
+  serializeActivation,
+  type AssistantSource,
+} from "@ai-workspace/agent";
 import {
   buildChatContextPack,
   type ChatContextUploadedFile,
@@ -911,6 +915,7 @@ export async function executeChatTurn({
       artifacts: persisted.artifacts,
       appDraftVersions: persisted.appDraftVersions,
       recommendations: persisted.recommendations,
+      sources: persisted.sources,
       runId,
       threadId: thread.id,
     });
@@ -984,12 +989,14 @@ async function persistChatTurnResult({
   artifacts: WorkspaceArtifactSummary[];
   appDraftVersions: AppDraftVersionSummary[];
   recommendations: PersistedRecommendation[];
+  sources: AssistantSource[];
 }> {
   const empty = {
     assistantMessageId: undefined,
     artifacts: [],
     appDraftVersions: [],
     recommendations: [],
+    sources: [],
   };
   if (lane.kind === "worker" && (await isRunCanceled(db, runId))) return empty;
 
@@ -999,6 +1006,10 @@ async function persistChatTurnResult({
   let artifacts: WorkspaceArtifactSummary[] = [];
   let appDraftVersions: AppDraftVersionSummary[] = [];
   let recommendations: PersistedRecommendation[] = [];
+  const sources =
+    terminalStatus === "succeeded"
+      ? extractAssistantSources({ toolCalls, toolResults })
+      : [];
   const shouldPersistAssistant = shouldPersistAssistantMessage({
     terminalStatus,
     assistantText,
@@ -1155,7 +1166,13 @@ async function persistChatTurnResult({
   }
 
   if (lane.kind === "worker" && (await isRunCanceled(db, runId))) {
-    return { assistantMessageId, artifacts, appDraftVersions, recommendations };
+    return {
+      assistantMessageId,
+      artifacts,
+      appDraftVersions,
+      recommendations,
+      sources,
+    };
   }
 
   await refreshThreadPresentationMetadata({
@@ -1187,6 +1204,7 @@ async function persistChatTurnResult({
     ...(artifacts.length > 0 ? { artifacts } : {}),
     ...(appDraftVersions.length > 0 ? { appDraftVersions } : {}),
     ...(recommendations.length > 0 ? { recommendations } : {}),
+    ...(sources.length > 0 ? { sources } : {}),
   };
   const updatedRows = await db
     .update(runs)
@@ -1232,6 +1250,7 @@ async function persistChatTurnResult({
         artifacts,
         appDraftVersions,
         recommendations,
+        sources,
       };
     }
     await createProactiveRunNotification(db, lane.run, terminalStatus, threadId);
@@ -1287,11 +1306,18 @@ async function persistChatTurnResult({
       ...(artifacts.length > 0 ? { artifacts } : {}),
       ...(appDraftVersions.length > 0 ? { appDraftVersions } : {}),
       ...(recommendations.length > 0 ? { recommendations } : {}),
+      ...(sources.length > 0 ? { sources } : {}),
       ...(timingMetrics ? { metrics: timingMetrics } : {}),
     },
   });
 
-  return { assistantMessageId, artifacts, appDraftVersions, recommendations };
+  return {
+    assistantMessageId,
+    artifacts,
+    appDraftVersions,
+    recommendations,
+    sources,
+  };
 }
 
 export async function isRunCanceled(
