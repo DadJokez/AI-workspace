@@ -51,11 +51,11 @@ jobs:
               echo "Incident already filed for $SHA."
               return 0
             fi
+            # Body built via printf: a multiline string literal here would
+            # need column-1 lines, which terminate this YAML block scalar.
             gh issue create --title "$title" --label security --label ops \
-              --body "$body
-
-$marker
-🤖 Filed automatically by the Merge Gate Audit workflow."
+              --body "$(printf '%s\n\n%s\n%s' "$body" "$marker" \
+                '🤖 Filed automatically by the Merge Gate Audit workflow.')"
           }
 
           # Resolve the PR this main commit came from (squash merge commit).
