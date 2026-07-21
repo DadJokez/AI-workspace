@@ -1,5 +1,4 @@
 import type { Config } from "tailwindcss";
-import plugin from "tailwindcss/plugin";
 
 const semanticColor = (name: string) =>
   `rgb(from var(--color-${name}) r g b / <alpha-value>)`;
@@ -46,11 +45,7 @@ const config: Config = {
       },
     },
   },
-  plugins: [
-    // Base tokens are shared; `umber:` still scopes the remaining legacy
-    // component-level reskin rules until the visual sweep removes them.
-    plugin(({ addVariant }) => addVariant("umber", "html.skin-umber &")),
-  ],
+  plugins: [],
 };
 
 export default config;

@@ -11,7 +11,13 @@ const UMBER_CLASS = "skin-umber";
 
 export function readStoredSkin(): UiSkin {
   if (typeof localStorage === "undefined") return "umber";
-  return localStorage.getItem(STORAGE_KEY) === "classic" ? "classic" : "umber";
+  try {
+    return localStorage.getItem(STORAGE_KEY) === "classic"
+      ? "classic"
+      : "umber";
+  } catch {
+    return "umber";
+  }
 }
 
 export function applySkinClass(skin: UiSkin) {

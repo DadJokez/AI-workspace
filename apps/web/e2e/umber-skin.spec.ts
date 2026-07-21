@@ -215,6 +215,31 @@ test("chat chrome uses Umber surfaces by default in both themes", async ({
   await expect(pill).toHaveCSS("background-color", darkTokens.accent);
   await expect(skillPill).toHaveCSS("background-color", darkTokens.subtle);
   await expect(skillPill).toHaveCSS("color", darkTokens.ink);
+
+  // Classic is a real token-level escape hatch, not an inert class toggle.
+  // The same artifact and card components must resolve to its neutral/cobalt
+  // decisions without bringing back component-specific neon overrides.
+  await page.evaluate(() =>
+    document.documentElement.classList.remove("skin-umber"),
+  );
+  const classicTokens = await page.evaluate(() => {
+    const resolveColor = (slot: string) => {
+      const probe = document.createElement("span");
+      probe.style.color = `rgb(from var(${slot}) r g b)`;
+      document.body.appendChild(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    };
+    return {
+      surface: resolveColor("--color-surface"),
+      accent: resolveColor("--color-accent"),
+    };
+  });
+  expect(classicTokens.surface).not.toBe(darkTokens.surface);
+  expect(classicTokens.accent).not.toBe(darkTokens.accent);
+  await expect(card).toHaveCSS("background-color", classicTokens.surface);
+  await expect(pill).toHaveCSS("background-color", classicTokens.accent);
 });
 
 test("the Settings skin control exposes Classic as an escape hatch", async ({
@@ -229,10 +254,21 @@ test("the Settings skin control exposes Classic as an escape hatch", async ({
     page.getByRole("radio", { name: "Umber", exact: true }),
   ).toBeChecked();
   await expect(page.locator("html")).toHaveClass(/skin-umber/);
+  const umberCanvas = await page.locator("body").evaluate((element) =>
+    getComputedStyle(element).backgroundColor,
+  );
 
   await page.getByRole("radio", { name: "Classic", exact: true }).click();
   await expect(page.locator("html")).not.toHaveClass(/skin-umber/);
+  await expect
+    .poll(() =>
+      page
+        .locator("body")
+        .evaluate((element) => getComputedStyle(element).backgroundColor),
+    )
+    .not.toBe(umberCanvas);
 
   await page.getByRole("radio", { name: "Umber", exact: true }).click();
   await expect(page.locator("html")).toHaveClass(/skin-umber/);
+  await expect(page.locator("body")).toHaveCSS("background-color", umberCanvas);
 });
