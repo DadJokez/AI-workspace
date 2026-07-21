@@ -243,6 +243,19 @@ describe("[...nextauth] POST wrapper — magic-link rate limit", () => {
     expect(res.status).toBe(200);
   });
 
+  it("skips the bucket store entirely for syntactically invalid emails", async () => {
+    const { POST } = await loadRoute();
+
+    // Garbage input can never pass the invite gate, so it must not mint
+    // rate_limit_buckets rows; next-auth's normalizer rejects it downstream.
+    for (const bad of ["not-an-email", "a@b", "two@@ats.example", "@nodomain"]) {
+      await POST(signinEmailRequest(bad), ctx);
+    }
+
+    expect(checkRateLimit).not.toHaveBeenCalled();
+    expect(nextAuthHandler).toHaveBeenCalledTimes(4);
+  });
+
   it("lets next-auth reject a bodyless email signin instead of rate limiting it", async () => {
     const { POST } = await loadRoute();
 

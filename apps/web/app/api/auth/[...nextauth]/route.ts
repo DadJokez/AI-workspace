@@ -49,7 +49,11 @@ async function magicLinkRateLimited(
     .formData()
     .catch(() => null);
   const email = form?.get("email")?.toString().trim().toLowerCase() ?? "";
-  if (!email) return null; // next-auth rejects the malformed request itself
+  // Missing or syntactically invalid addresses can never pass the invite
+  // gate, and next-auth's own normalizer rejects them — skip the store so
+  // garbage input mints no rate_limit_buckets rows (same shape check as the
+  // admin invitations route).
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
 
   const db = getDb();
   // Primary cap first: spoof-proof, per recipient.
