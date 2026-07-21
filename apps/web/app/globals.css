@@ -11,6 +11,15 @@
 @tailwind utilities;
 
 :root {
+  /* next/font emits hashed local family names through these variables. Keep
+   * the shared Umber stacks as explicit fallbacks for resilient first paint. */
+  --font-sans: var(--font-geist-local), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-serif: var(--font-newsreader-local), ui-serif, Georgia,
+    "Times New Roman", serif;
+  --font-mono: var(--font-geist-mono-local), ui-monospace, "SFMono-Regular",
+    Menlo, monospace;
+
   /* App-facing aliases. Tailwind's relative-color adapter preserves opacity
    * modifiers while these remain linked directly to Umber's hex tokens. */
   --color-canvas: var(--bg);
