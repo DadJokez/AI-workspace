@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-06-19
-- **Deciders:** Rob, GP IT (PingOne), InfoSec
+- **Deciders:** Rob, IT (PingOne), InfoSec
 - **Context docs:** [02 §3](../02-target-architecture.md), [iam](../specs/iam-and-execution-roles.md), [security](../specs/security-and-compliance.md)
 
 ## Context

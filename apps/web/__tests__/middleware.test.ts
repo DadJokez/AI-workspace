@@ -81,20 +81,20 @@ describe("middleware — auth gate", () => {
   });
 
   it("redirects the legacy production host to the canonical host", async () => {
-    process.env.LEGACY_HOST_REDIRECT_FROM = "ai-workspace.builtwithrobot.link";
-    process.env.NEXTAUTH_URL = "https://comparative.builtwithrobot.link";
+    process.env.LEGACY_HOST_REDIRECT_FROM = "ai-workspace.comparative.example";
+    process.env.NEXTAUTH_URL = "https://app.comparative.example";
 
     const res = await middleware(
       makeReq(
         "/chat?tab=latest",
         "",
-        "ai-workspace.builtwithrobot.link",
+        "ai-workspace.comparative.example",
       ),
     );
 
     expect(res.status).toBe(308);
     expect(res.headers.get("location")).toBe(
-      "https://comparative.builtwithrobot.link/chat?tab=latest",
+      "https://app.comparative.example/chat?tab=latest",
     );
     expect(getTokenMock).not.toHaveBeenCalled();
   });

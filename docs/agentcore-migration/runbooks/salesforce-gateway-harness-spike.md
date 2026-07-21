@@ -16,7 +16,7 @@ dev org, with traces.
 
 - Do not commit Salesforce client secrets, access tokens, instance URLs tied to a
   real customer org, or generated `.env` files.
-- Use a Salesforce Developer Edition org with sample data, not a GP or customer
+- Use a Salesforce Developer Edition org with sample data, not an enterprise or customer
   tenant.
 - Keep the first OpenAPI target read-only. Only expose `SELECT` SOQL and object
   describe endpoints for this spike.
@@ -59,7 +59,7 @@ References:
 5. If Salesforce requires a callback URL, use the Comparative callback placeholder:
 
    ```text
-   https://comparative.builtwithrobot.link/api/integrations/salesforce/callback
+   https://app.comparative.example/api/integrations/salesforce/callback
    ```
 
    This callback is not used by the client credentials flow, but Salesforce

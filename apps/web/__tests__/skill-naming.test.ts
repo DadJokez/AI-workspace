@@ -132,7 +132,7 @@ describe("lintSkillDescription", () => {
 
   it("rejects false-authority claims", () => {
     expect(
-      lintSkillDescription("The official GP-approved expense tool."),
+      lintSkillDescription("The official org-approved expense tool."),
     ).toMatchObject({ ok: false, reason: "false_authority" });
   });
 });

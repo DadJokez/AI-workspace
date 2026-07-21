@@ -1,6 +1,6 @@
 # Desktop Parity Backlog
 
-> **The bar:** a Georgia-Pacific knowledge worker should never feel a reason to
+> **The bar:** an enterprise knowledge worker should never feel a reason to
 > open ChatGPT, Claude Desktop, or a personal Copilot instead of AI Hub. Every
 > gap below is a reason someone reaches for a shadow tool — and shadow tools
 > are the exact risk the paved road exists to eliminate. So this backlog is a

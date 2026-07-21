@@ -25,7 +25,7 @@ usage and any feature gaps are known (B2/S6).
 
 | | Bedrock-native (proposed default) | Claude Platform on AWS |
 |---|---|---|
-| Billing | unified AWS bill / EDP alignment (GP-friendly) | separate channel; reconcile |
+| Billing | unified AWS bill / EDP alignment (enterprise-friendly) | separate channel; reconcile |
 | IAM | model ARNs scoped in exec role ([iam](../specs/iam-and-execution-roles.md)) | channel-specific auth |
 | Features | Bedrock cadence | day-0 Anthropic features |
 | Residency | cross-region `us.` profiles (confirm B6) or single-region | confirm channel residency |

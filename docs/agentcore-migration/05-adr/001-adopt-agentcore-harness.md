@@ -2,7 +2,7 @@
 
 - **Status:** Proposed (pending B1, B3 in [04-open-questions.md](../04-open-questions.md))
 - **Date:** 2026-06-19
-- **Deciders:** Rob (owns merges), GP InfoSec (isolation review)
+- **Deciders:** Rob (owns merges), InfoSec (isolation review)
 - **Context docs:** [01-current-state](../01-current-state.md), [02-target-architecture](../02-target-architecture.md), [03-roadmap](../03-roadmap.md)
 - **Extends:** [docs/adr/0003-aws-only-runtime-substrate.md](../../adr/0003-aws-only-runtime-substrate.md)
 

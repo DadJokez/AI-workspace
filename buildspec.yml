@@ -12,7 +12,10 @@ env:
     ECS_WEB_SERVICE_NAME: ai-workspace-web
     ECS_CHAT_WORKER_SERVICE_NAME: ai-workspace-chat-worker
     ECS_MEMORY_WORKER_SERVICE_NAME: ai-workspace-memory-worker
-    SMOKE_BASE_URL: https://comparative.builtwithrobot.link
+    # SMOKE_BASE_URL is deliberately NOT set here. buildspec variables take
+    # precedence over project-level environment variables, so hardcoding it
+    # would pin every deploy's smoke run to one deployment's hostname. Set it
+    # on the CodeBuild project instead.
 
 phases:
   install:

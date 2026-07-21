@@ -25,7 +25,7 @@ const VAULT_CONTEXT_PROMPT = [
   "Personal context approved by the user:",
   "# Personal Context",
   "## Identity",
-  "- **Name:** Rob Lindmark",
+  "- **Name:** Alex Example",
 ].join("\n");
 
 const EMPTY_VAULT_CONTEXT_PROMPT = [
@@ -183,7 +183,7 @@ export const contextFaithfulnessSuite: EvalSuite = {
           kind: "judge",
           label: "answers from approved Vault memory",
           rubric:
-            "The system prompt includes approved Vault memory saying the user's name is Rob Lindmark. PASS only if the answer acknowledges Vault access and answers that the user's name is Rob Lindmark. FAIL if it denies Vault access or says it cannot know.",
+            "The system prompt includes approved Vault memory saying the user's name is Alex Example. PASS only if the answer acknowledges Vault access and answers that the user's name is Alex Example. FAIL if it denies Vault access or says it cannot know.",
         },
       ],
     },
@@ -206,7 +206,7 @@ export const contextFaithfulnessSuite: EvalSuite = {
         {
           kind: "deterministic",
           label: "does not fabricate a remembered name",
-          check: (t) => !/\brob lindmark\b/i.test(t.answer),
+          check: (t) => !/\balex example\b/i.test(t.answer),
         },
         {
           kind: "judge",

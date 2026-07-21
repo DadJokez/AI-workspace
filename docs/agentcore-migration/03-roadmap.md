@@ -89,7 +89,7 @@ to the harness via versioned endpoints; establish the eval baseline.
   ([eval-and-optimization-loop.md](specs/eval-and-optimization-loop.md)). **Gate before ramp:** eval set
   green + cost baseline from Phase B.
 - **Parallel:** PingOne SSO swap (~1.5 dev-weeks) — NextAuth provider change, `ping_subject` already
-  wired ([02 §3](02-target-architecture.md)); land before exposing to broad GP users.
+  wired ([02 §3](02-target-architecture.md)); land before exposing to broad enterprise users.
 - **Out of scope:** durable/skill lanes; multi-model switching.
 - **Deliverables:** % rollout control; eval baseline; rollback runbook (repoint `PROD` to prior version).
 - **Success criteria:** at 100%, error rate ≤ current, faithfulness ≥ baseline, $/turn within projection,
@@ -102,7 +102,7 @@ to the harness via versioned endpoints; establish the eval baseline.
 
 ## Phase D — Multi-model + skills rollout (weeks 8–10, ~3 dev-weeks)
 
-**Goals:** mid-session model switching where it pays; deploy the GP skills bundle to S3; enable
+**Goals:** mid-session model switching where it pays; deploy the org skills bundle to S3; enable
 `awsSkills` for the AWS-ops agent.
 
 - **In scope:** shell sets per-invocation `model` (Opus-plan → Sonnet-draft → Haiku-summarize); skills
@@ -162,7 +162,7 @@ in-Fargate loop + the custom-code Runtime container; keep Fargate as the thin au
 | **Total** | **~18 dev-weeks** (~16 calendar weeks with the parallel PingOne track) | |
 
 ## Global stop conditions (pause the whole program, reassess)
-- AgentCore not GA / not compliant in the approved GP region.
-- GP InfoSec rejects the microVM isolation or Identity-vault model.
+- AgentCore not GA / not compliant in the approved enterprise region.
+- InfoSec rejects the microVM isolation or Identity-vault model.
 - A cross-user data-scoping defect in any phase (highest-severity; the product's trust spine).
 - Realized cost materially diverges from [cost-model.md](specs/cost-model.md) after Phase B baseline.

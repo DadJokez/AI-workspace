@@ -4,7 +4,7 @@
 # access (this is deliberately a reviewed script Rob runs, not something the
 # app or CI executes):
 #
-#   AWS_DEFAULT_REGION=us-east-1 OPS_ALERT_EMAIL=rob@lindmark.co \
+#   AWS_DEFAULT_REGION=us-east-1 OPS_ALERT_EMAIL=admin@example.com \
 #     ./infra/scripts/setup-ops-alarms.sh
 #
 # Creates:

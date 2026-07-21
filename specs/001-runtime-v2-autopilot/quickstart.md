@@ -5,7 +5,7 @@
 Open:
 
 ```text
-https://runtime-v2.ai-workspace.builtwithrobot.link/api/health
+https://runtime-v2.ai-workspace.comparative.example/api/health
 ```
 
 Expected:

@@ -6,7 +6,7 @@
 
 ## Preview Validation
 
-- [x] CHK001 `https://runtime-v2.ai-workspace.builtwithrobot.link/api/health` returns healthy DB/runtime checks.
+- [x] CHK001 `https://runtime-v2.ai-workspace.comparative.example/api/health` returns healthy DB/runtime checks.
 - [ ] CHK002 Preview GitHub OAuth callback is configured if browser login is required.
 - [ ] CHK003 Simple prompt `say pong and nothing else` streams inline.
 - [ ] CHK004 Simple prompt stores `lane = fast-local`, `runtimeTarget = direct-chat`, and `executionMode = local`.

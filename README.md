@@ -1,6 +1,6 @@
 # AI Hub
 
-Internal AI front door for Georgia-Pacific. Single login, chat with your work data, run, schedule, and event-trigger **skills** (saved agents), deploy small **apps** from conversation, share both with teammates — governed, audited, and executed on AWS by default.
+Internal AI front door for the enterprise. Single login, chat with your work data, run, schedule, and event-trigger **skills** (saved agents), deploy small **apps** from conversation, share both with teammates — governed, audited, and executed on AWS by default.
 
 See [`docs/ROADMAP.md`](./docs/ROADMAP.md) for the five journeys and integration roadmap.
 See [`PLAN.md`](./PLAN.md) for weekly ship plan and architectural decisions.

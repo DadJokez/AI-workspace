@@ -10,7 +10,7 @@ import {
 } from "@ai-workspace/db";
 import { and, eq, inArray, lt, or } from "drizzle-orm";
 
-const DEFAULT_BASE_URL = "https://comparative.builtwithrobot.link";
+const DEFAULT_BASE_URL = "https://app.comparative.example";
 const SMOKE_USER_ID = "00000000-0000-4000-8000-000000000206";
 const SMOKE_GH_SUB = "comparative-production-smoke";
 const SMOKE_EMAIL = "comparative-smoke@example.com";

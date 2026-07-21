@@ -1,0 +1,57 @@
+{
+  "_comment": "Synthetic CDK lookup cache used only by CI (see .github/workflows/ci.yml). It lets `cdk synth --no-lookups` run offline without committing a real AWS account's VPC/hosted-zone data. Every id here is fake; it is never used to deploy. Keys must stay in sync with CDK_DEFAULT_ACCOUNT/CDK_DEFAULT_REGION and aiWorkspace:hostedZoneName in cdk.json.",
+  "vpc-provider:account=000000000000:filter.isDefault=true:region=us-east-1:returnAsymmetricSubnets=true": {
+    "vpcId": "vpc-00000000000000000",
+    "vpcCidrBlock": "172.31.0.0/16",
+    "ownerAccountId": "000000000000",
+    "availabilityZones": [],
+    "subnetGroups": [
+      {
+        "name": "Public",
+        "type": "Public",
+        "subnets": [
+          {
+            "subnetId": "subnet-00000000000000001",
+            "cidr": "172.31.0.0/20",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-00000000000000000"
+          },
+          {
+            "subnetId": "subnet-00000000000000002",
+            "cidr": "172.31.80.0/20",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-00000000000000000"
+          },
+          {
+            "subnetId": "subnet-00000000000000003",
+            "cidr": "172.31.16.0/20",
+            "availabilityZone": "us-east-1c",
+            "routeTableId": "rtb-00000000000000000"
+          },
+          {
+            "subnetId": "subnet-00000000000000004",
+            "cidr": "172.31.32.0/20",
+            "availabilityZone": "us-east-1d",
+            "routeTableId": "rtb-00000000000000000"
+          },
+          {
+            "subnetId": "subnet-00000000000000005",
+            "cidr": "172.31.48.0/20",
+            "availabilityZone": "us-east-1e",
+            "routeTableId": "rtb-00000000000000000"
+          },
+          {
+            "subnetId": "subnet-00000000000000006",
+            "cidr": "172.31.64.0/20",
+            "availabilityZone": "us-east-1f",
+            "routeTableId": "rtb-00000000000000000"
+          }
+        ]
+      }
+    ]
+  },
+  "hosted-zone:account=000000000000:domainName=comparative.example:region=us-east-1": {
+    "Id": "/hostedzone/Z00000000000000000000",
+    "Name": "comparative.example."
+  }
+}

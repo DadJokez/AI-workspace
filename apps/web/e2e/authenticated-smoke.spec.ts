@@ -331,7 +331,7 @@ test.describe("authenticated product smoke", () => {
         title: "Authenticated smoke review",
         html_url: "https://github.com/DadJokez/AI-workspace/pull/293",
         user: { login: "auth-smoke-author" },
-        assignees: [{ login: "roblindmark" }],
+        assignees: [{ login: "example-user" }],
       },
       review: {
         state: "approved",
@@ -364,7 +364,7 @@ test.describe("authenticated product smoke", () => {
     ).toBeVisible();
     await page.getByLabel("Repository").fill("DadJokez/AI-workspace");
     await page.getByLabel("PR author").fill("auth-smoke-author");
-    await page.getByLabel("PR assignee").fill("roblindmark");
+    await page.getByLabel("PR assignee").fill("example-user");
     const [createResponse] = await Promise.all([
       page.waitForResponse(
         (response) =>

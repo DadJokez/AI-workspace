@@ -252,7 +252,7 @@ Current target stack:
 | Web runtime | ECS service on Fargate |
 | Worker runtime | Separate ECS services for chat runs and memory capture |
 | Ingress | ALB, ACM certificate, Route 53 |
-| Domain | `comparative.builtwithrobot.link`; older `ai-workspace.builtwithrobot.link` retained as a legacy alias |
+| Domain | `app.comparative.example`; older `ai-workspace.comparative.example` retained as a legacy alias |
 | Database | RDS Postgres |
 | Secrets | AWS Secrets Manager target |
 | Observability | CloudWatch logs, metrics, alarms, ALB health checks |

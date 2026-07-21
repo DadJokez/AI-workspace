@@ -19,7 +19,7 @@ function pullRequestReviewPayload(overrides: Record<string, unknown> = {}) {
       title: "Add GitHub event triggers",
       html_url: "https://github.com/DadJokez/AI-workspace/pull/293",
       user: { login: "author-user" },
-      assignees: [{ login: "RobLindmark" }],
+      assignees: [{ login: "Example-User" }],
     },
     review: {
       state: "approved",
@@ -51,7 +51,7 @@ describe("GitHub event trigger input", () => {
       repository: "DadJokez/AI-workspace",
       kind: "pull_request_review",
       authorLogin: "Author-User",
-      assigneeLogin: "RobLindmark",
+      assigneeLogin: "Example-User",
       threadMode: "new",
     });
 
@@ -65,7 +65,7 @@ describe("GitHub event trigger input", () => {
         action: "submitted",
         filters: {
           authorLogin: "author-user",
-          assigneeLogin: "roblindmark",
+          assigneeLogin: "example-user",
         },
         threadMode: "new",
       },
@@ -128,7 +128,7 @@ describe("GitHub webhook normalization and matching", () => {
       pullRequest: {
         number: 293,
         authorLogin: "author-user",
-        assigneeLogins: ["roblindmark"],
+        assigneeLogins: ["example-user"],
         reviewState: "approved",
         reviewBody: "Looks good.",
       },
@@ -148,7 +148,7 @@ describe("GitHub webhook normalization and matching", () => {
         trigger({
           filters: {
             authorLogin: "author-user",
-            assigneeLogin: "roblindmark",
+            assigneeLogin: "example-user",
           },
         }),
         event,

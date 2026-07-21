@@ -257,7 +257,7 @@ describe("POST /api/feedback", () => {
         body: "The first token took ten seconds.",
         expected: "It should start streaming quickly.",
         includeContext: true,
-        pageUrl: "https://comparative.builtwithrobot.link/chat",
+        pageUrl: "https://app.comparative.example/chat",
         userAgent: "Vitest",
         viewport: { width: 1200, height: 800 },
         context: {
@@ -285,7 +285,7 @@ describe("POST /api/feedback", () => {
       title: "The first token took ten seconds.",
       body: "The first token took ten seconds.",
       expected: "It should start streaming quickly.",
-      pageUrl: "https://comparative.builtwithrobot.link/chat",
+      pageUrl: "https://app.comparative.example/chat",
     });
   });
 

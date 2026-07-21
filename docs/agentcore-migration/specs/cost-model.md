@@ -21,7 +21,7 @@
 | Variable | Value | Note |
 |---|---|---|
 | Turns / user / day | **20** | needs real data |
-| Active days / month | **22** (business users) | GP internal tool |
+| Active days / month | **22** (business users) | Internal tool |
 | Input tokens / turn | **4,000** | context pack + history + tools ([chat-context-pack.ts](../../../apps/web/lib/chat-context-pack.ts)) |
 | Output tokens / turn | **600** | |
 | Tool-iteration multiplier | **×1.5** model calls/turn | ~40–50% of turns invoke ≥1 tool ([chat-routing.ts](../../../apps/web/lib/chat-routing.ts)) |

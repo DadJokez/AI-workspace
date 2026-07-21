@@ -209,7 +209,7 @@ Every system of record is one of three tiers based on the ratio of
 
 | Tier | Criteria | What we commit to |
 |---|---|---|
-| **Tier 1 — Core** | Used by >50% of GP knowledge workers; powers >2 flagship use cases; auth pattern is well-understood (delegated OAuth or service-principal we already run). | First-class MCP server, full tool surface, in the recipe catalog from launch. |
+| **Tier 1 — Core** | Used by >50% of the org's knowledge workers; powers >2 flagship use cases; auth pattern is well-understood (delegated OAuth or service-principal we already run). | First-class MCP server, full tool surface, in the recipe catalog from launch. |
 | **Tier 2 — Functional** | Used by a specific function (IT, eng, support); powers 1–2 flagship use cases; auth and API tractable but not yet vetted. | MCP server in the catalog, narrower tool surface, ships once Tier 1 is stable. |
 | **Tier 3 — Strategic** | Long-tail or transformational; auth/API has real friction (SAP) or the architectural pattern is novel (agent-authored notebooks or deployed apps). | Spike-then-decide. RFC + PoC before committing to a server. |
 
@@ -219,7 +219,7 @@ Every system of record is one of three tiers based on the ratio of
 |---|---|---|---|---|
 | **GitHub** | `github` | GitHub OAuth per-user; short-lived Bearer over HTTP MCP at `api.githubcopilot.com/mcp/` | First live integration — proven the auth pattern (OAuth flow → `oauth_tokens` → per-turn Bearer). Powers Developer Workflow; feeds Agent Wire. | ✅ **Live** |
 | **Notion** | `notion` | Notion OAuth per-user; encrypted delegated token in `oauth_tokens`; runtime mount waits for a compatible bearer-token MCP gateway via `NOTION_MCP_ENDPOINT_URL` | Team docs and databases. OAuth connection ships first so users can link accounts from Tools; full read/query execution follows once the gateway endpoint is approved. | OAuth connection |
-| **Office 365** (Mail, Calendar, OneDrive, SharePoint, Teams) | `graph-mail`, `graph-calendar`, `graph-files`, `teams` | Entra delegated OAuth (per-user); short-lived Bearer over HTTP MCP | Universal reach — every employee. Powers Meeting Prep, Weekly Status, Morning Briefing. Auth pattern matches GitHub MCP exactly; needs GP IT Entra app registration approval. | wk 4 (Graph mail+cal) · wk 8 (Files+Teams) |
+| **Office 365** (Mail, Calendar, OneDrive, SharePoint, Teams) | `graph-mail`, `graph-calendar`, `graph-files`, `teams` | Entra delegated OAuth (per-user); short-lived Bearer over HTTP MCP | Universal reach — every employee. Powers Meeting Prep, Weekly Status, Morning Briefing. Auth pattern matches GitHub MCP exactly; needs org IT Entra app registration approval. | wk 4 (Graph mail+cal) · wk 8 (Files+Teams) |
 | **Salesforce** | `salesforce` | Salesforce OAuth 2.0 per-user; HTTP MCP with per-turn token | Account-and-pipeline data is the highest-value non-Microsoft surface. Powers Customer Account Briefing and enriches Weekly Status. | wk 9–10 (after M365 stable) |
 | **Databricks + S3 + Redshift** | `data-lake` (single MCP, three backends) | Databricks service principal (M2M); IAM role for S3/Redshift. Stdio. | Data team's three sources are always queried together. One unified server with backend-aware tools keeps recipe definitions clean. | wk 8 |
 | **Workfront** | `workfront` | Workfront OAuth per-user; HTTP MCP | Project, task, status, capacity. Pairs with Mail/Cal for Weekly Status. Cross-system test for non-Microsoft delegated OAuth. | wk 8 (pick Workfront or Databricks whichever IT clears first) |

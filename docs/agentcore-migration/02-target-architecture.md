@@ -163,8 +163,8 @@ Comparative already has a **skills spine**: DB-row skills at runtime + a portabl
 
 - **`awsSkills` (curated AWS bundle):** turn on for the **AWS-ops agent** only (the "data + analytics"
   pattern) — `"skills":[{ "awsSkills": {} }]`. Not for business-user agents.
-- **GP-owned skills → S3 source:** export the DB `SKILL.md` for a given saved skill to
-  `s3://gp-comparative-skills/skills/gp/{domain}/{skill}/` and reference it as a `HarnessSkill` with
+- **Org-owned skills → S3 source:** export the DB `SKILL.md` for a given saved skill to
+  `s3://acme-comparative-skills/skills/org/{domain}/{skill}/` and reference it as a `HarnessSkill` with
   `s3` source. The DB row remains the system-of-record; S3 is the **deploy artifact** (publish-on-promote).
   Layout + contribution model in [specs/skills-bundle-structure.md](specs/skills-bundle-structure.md).
 - **`git` source:** reserved for engineering-authored skills pinned to a commit (CI-reviewed).

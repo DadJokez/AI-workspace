@@ -148,16 +148,18 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # CDK_DEFAULT_ACCOUNT must match the account baked into the committed
-      # cdk.context.json lookup-cache keys (Vpc/HostedZone.fromLookup); a
-      # dummy account misses the cache and forces a live AWS call, which CI
-      # has no credentials for. The account id is already committed in
-      # cdk.json and cdk.context.json — it is not a secret. --no-lookups
+      # CDK_DEFAULT_ACCOUNT must match the account baked into the lookup-cache
+      # keys (Vpc/HostedZone.fromLookup); a mismatched account misses the cache
+      # and forces a live AWS call, which CI has no credentials for. The real
+      # cdk.context.json is no longer committed, so CI synths against the
+      # synthetic fixture (all-zero account and ids) instead. --no-lookups
       # turns any future uncached lookup into a crisp "missing context"
       # failure instead of a credentials error.
-      - name: CDK synth (offline, cached context)
+      - name: CDK synth (offline, synthetic context)
         env:
-          CDK_DEFAULT_ACCOUNT: "351478076796"
+          CDK_DEFAULT_ACCOUNT: "000000000000"
           CDK_DEFAULT_REGION: us-east-1
           AWS_EC2_METADATA_DISABLED: "true"
-        run: pnpm --filter @ai-workspace/infra exec cdk synth --quiet --no-lookups
+        run: |
+          cp infra/cdk/cdk.context.ci.json infra/cdk/cdk.context.json
+          pnpm --filter @ai-workspace/infra exec cdk synth --quiet --no-lookups

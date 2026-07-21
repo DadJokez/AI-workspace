@@ -28,7 +28,7 @@ The research confirms the two patterns are genuinely different products, not two
 - **One action, no repo, no build.** claude.ai: open artifact → **Publish** → "Anyone with the link can view and interact with it." Claude Code: Claude writes one HTML/Markdown file and publishes it; republishing goes **to the same stable URL**, each publish becomes a version with a viewer-side version picker.
 - **URL-as-access-control on consumer plans; org-audience on enterprise plans.** Artifacts start private to the author. Team/Enterprise: share to specific people or the whole org; viewers sign in to claude.ai; **public sharing is off until an Owner enables it**, and "Artifacts created on Team or Enterprise accounts can only be shared within your organization—they cannot be published publicly" (consumer-side artifacts). No password gate or email-domain gate exists at any tier — third-party wrapper services (Stacktree, VibeDeploy, ShareDuo) exist precisely to add passwords, domain gates, analytics, and custom domains on top.
 - **Hard limits, documented:** Anthropic domain only (viewer loads from a sandboxed `*.claudeusercontent.com` origin), no custom domain, no analytics, "Created with Claude" header, no expiry control; unpublishing is irreversible — "Once you unpublish an artifact, you cannot publish that same artifact again" (republish mints a new URL). Single self-contained page ≤ 16 MiB, no backend, no relative links; a strict CSP "blocks scripts, stylesheets, fonts, and images loaded from any other host, along with fetch, XHR, and WebSocket calls."
-- **The finding that matters most for Comparative:** artifact publishing **requires Anthropic API auth via a claude.ai login and is explicitly "Not available on Amazon Bedrock, Google Cloud's Agent Platform, or Microsoft Foundry."** Comparative runs Bedrock/AgentCore. The native publish mechanism is therefore *not merely limited for Comparative's purposes — it is unavailable in Comparative's runtime*. Comparative's own publish tier (`/apps/{slug}`) isn't a nice-to-have duplicate; it is the only publish path GP can have.
+- **The finding that matters most for Comparative:** artifact publishing **requires Anthropic API auth via a claude.ai login and is explicitly "Not available on Amazon Bedrock, Google Cloud's Agent Platform, or Microsoft Foundry."** Comparative runs Bedrock/AgentCore. The native publish mechanism is therefore *not merely limited for Comparative's purposes — it is unavailable in Comparative's runtime*. Comparative's own publish tier (`/apps/{slug}`) isn't a nice-to-have duplicate; it is the only publish path the org can have.
 
 ### 1b. The deploy end: git-push hosts, now heavily agent-drivable
 
@@ -79,14 +79,14 @@ Every published Comparative app declares one of three explicit data modes, shown
 
 ---
 
-## 3. Recommended default flow for GP users (worked story)
+## 3. Recommended default flow for org users (worked story)
 
-**Priya, an FP&A analyst at GP, builds a spend dashboard in chat against the Databricks connector.**
+**Priya, an FP&A analyst in the org, builds a spend dashboard in chat against the Databricks connector.**
 
 1. **Build:** the artifact renders in-thread (exists today, `workspace_artifacts`).
 2. **Publish:** she clicks **Publish** on the artifact. One dialog, three fields:
    - *Data:* Snapshot (preselected) / Live-via-viewer (offered because the build used MCP data; shows the connector manifest it would declare).
-   - *Audience:* Just me → Named people (the existing `shares` flow) → Everyone at GP (link works for any SSO'd employee).
+   - *Audience:* Just me → Named people (the existing `shares` flow) → Everyone in the org (link works for any SSO'd employee).
    - The no-secrets scan runs (exists today); a connector manifest is recorded if she chose live.
 3. **Send:** she gets `https://…/apps/gp-spend-dashboard` and drops it in a Teams channel. A colleague clicks it, passes SSO, and sees either the timestamped snapshot or — if Priya chose live-via-viewer and the colleague has attested Databricks access — current data under the colleague's own entitlements. No harness, no thread, no Comparative UI beyond the page itself.
 4. **Refresh:** "rebuild with this month's data" back in chat republishes to the same slug as v2; the version pills and revert already exist.
@@ -98,9 +98,9 @@ Every published Comparative app declares one of three explicit data modes, shown
 
 ## 4. Domain / branding recommendation
 
-- **Internal subdomain, yes; public custom domains, no.** GP's need is "droppable into a Teams channel or intranet page," which an SSO-gated internal hostname fully serves. Recommend promoting apps from the `/apps/{slug}` path to a dedicated internal hostname (e.g. `apps.aihub.gp.com/{slug}`) when #133 lands — Route 53 + ACM + ALB are already in place, so this is DNS + cert work, not platform work. A distinct hostname also gives apps a cleaner CSP/cookie boundary than living under the shell's origin.
-- **Do not build public custom-domain support.** Every external host gives custom domains away free at the deploy tier (Cloudflare Pages: 100 custom domains/project on the free plan; Vercel/Netlify similar — *extracted, not adversarially verified*), so if a GP output ever genuinely needs a public domain, the right move under the product-boundary rule is exporting the project to a real host, not rebuilding Vercel. For cost calibration only: paid tiers run ~$5/mo (Cloudflare Workers Paid) to ~$19–20/mo (Netlify Pro flat / Vercel Pro per-seat) *(devtoolreviews.com, blog.vibecoder.me, 2026 comparisons; extracted, not adversarially verified)*.
-- **Branding:** the published page header should carry GP/AI Hub identity and the author's name (Claude Code's artifact header naming the author is the right precedent), plus the data-mode badge from §2c.
+- **Internal subdomain, yes; public custom domains, no.** The org's need is "droppable into a Teams channel or intranet page," which an SSO-gated internal hostname fully serves. Recommend promoting apps from the `/apps/{slug}` path to a dedicated internal hostname (e.g. `apps.aihub.gp.com/{slug}`) when #133 lands — Route 53 + ACM + ALB are already in place, so this is DNS + cert work, not platform work. A distinct hostname also gives apps a cleaner CSP/cookie boundary than living under the shell's origin.
+- **Do not build public custom-domain support.** Every external host gives custom domains away free at the deploy tier (Cloudflare Pages: 100 custom domains/project on the free plan; Vercel/Netlify similar — *extracted, not adversarially verified*), so if an org output ever genuinely needs a public domain, the right move under the product-boundary rule is exporting the project to a real host, not rebuilding Vercel. For cost calibration only: paid tiers run ~$5/mo (Cloudflare Workers Paid) to ~$19–20/mo (Netlify Pro flat / Vercel Pro per-seat) *(devtoolreviews.com, blog.vibecoder.me, 2026 comparisons; extracted, not adversarially verified)*.
+- **Branding:** the published page header should carry org/AI Hub identity and the author's name (Claude Code's artifact header naming the author is the right precedent), plus the data-mode badge from §2c.
 
 ### 4a. Failure modes to design around at the deploy tier (from 1c research)
 

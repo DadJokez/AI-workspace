@@ -66,7 +66,7 @@
       "Resource": "arn:aws:logs:us-east-1:<AWS_ACCOUNT_ID>:log-group:/aws/bedrock-agentcore/*" },
     { "Sid": "SkillsBucketRead", "Effect": "Allow",
       "Action": ["s3:GetObject","s3:ListBucket"],
-      "Resource": ["arn:aws:s3:::gp-comparative-skills-prod","arn:aws:s3:::gp-comparative-skills-prod/*"] }
+      "Resource": ["arn:aws:s3:::acme-comparative-skills-prod","arn:aws:s3:::acme-comparative-skills-prod/*"] }
   ]
 }
 ```
@@ -114,7 +114,7 @@ policy ([ai-workspace-agentcore-spike-stack.ts:115](../../../infra/cdk/lib/ai-wo
 
 ## Network
 
-- **Before any real GP data:** move harness + Gateway egress off PUBLIC into **private subnets +
+- **Before any real enterprise data:** move harness + Gateway egress off PUBLIC into **private subnets +
   NAT/PrivateLink**, closing the current public-subnet landmine
   ([ai-workspace-ecs-stack.ts:212](../../../infra/cdk/lib/ai-workspace-ecs-stack.ts), spike NetworkMode
   PUBLIC at [ai-workspace-agentcore-spike-stack.ts:96](../../../infra/cdk/lib/ai-workspace-agentcore-spike-stack.ts)).

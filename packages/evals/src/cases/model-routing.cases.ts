@@ -80,7 +80,7 @@ const cases: EvalCase[] = [
     description:
       "a natural cross-provider request reads Salesforce before saving an unsent Gmail draft",
     input:
-      "Look up the pipeline in Salesforce and draft an email report to rob@lindmark.co on the opportunities and dollars in the pipeline.",
+      "Look up the pipeline in Salesforce and draft an email report to admin@example.com on the opportunities and dollars in the pipeline.",
     fixtureEvidence: ["Draft draft-fixture-374 was saved and not sent."],
     assertions: [
       calledAny("salesforce__search_records", "salesforce__run_soql"),
@@ -93,7 +93,7 @@ const cases: EvalCase[] = [
     description:
       "a natural GitHub request can finish the work as an unsent Gmail draft",
     input:
-      "Can you pull recent PRs from my GitHub and draft an email to rob@lindmark.co on what shipped?",
+      "Can you pull recent PRs from my GitHub and draft an email to admin@example.com on what shipped?",
     fixtureEvidence: ["Draft draft-fixture-374 was saved and not sent."],
     assertions: [
       called("github__list_pull_requests"),
@@ -110,12 +110,12 @@ const cases: EvalCase[] = [
       {
         role: "user",
         content:
-          "Draft an email to rob@lindmark.co summarizing the recent PRs.",
+          "Draft an email to admin@example.com summarizing the recent PRs.",
       },
       {
         role: "assistant",
         content:
-          "Draft ready. To: rob@lindmark.co. Subject: Recent shipped PRs. Body: PR #42 hardened the audit export.",
+          "Draft ready. To: admin@example.com. Subject: Recent shipped PRs. Body: PR #42 hardened the audit export.",
       },
       { role: "user", content: "Ya, save it to Gmail." },
     ],

@@ -9,10 +9,10 @@
 |---|---|---|---|---|
 | B1 | **Is AgentCore GA in our approved region (`us-east-1`)?** Docs say "all regions where AgentCore is GA" but don't enumerate. | Can't deploy a harness otherwise; residency. | Rob/AWS | [02](02-target-architecture.md), [security](specs/security-and-compliance.md) |
 | B2 | **Bedrock-native vs Claude-Platform-on-AWS** as the model channel. | Sets billing, IAM, model-ARN scoping, day-0 feature access. | Rob | [05-adr/002](05-adr/002-bedrock-vs-claude-platform.md) |
-| B3 | **Does InfoSec need to review the microVM isolation model before any GP data?** | If yes, it's a hard predecessor to Phase B/C. | InfoSec | [security](specs/security-and-compliance.md) |
+| B3 | **Does InfoSec need to review the microVM isolation model before any enterprise data?** | If yes, it's a hard predecessor to Phase B/C. | InfoSec | [security](specs/security-and-compliance.md) |
 | B4 | **Separate AWS account for AgentCore workloads, or stay in `<AWS_ACCOUNT_ID>`?** | Drives cross-account trust, KMS, network design now. | Rob/InfoSec | [iam](specs/iam-and-execution-roles.md) |
 | B5 | **Can we move ECS + AgentCore egress off the default-VPC PUBLIC subnets to private + NAT/PrivateLink without breaking the imported RDS SG (`sg-019e87b5938a295a4`)?** | The standing landmine; pilot blocker. | Rob | [01 §10](01-current-state.md), [iam](specs/iam-and-execution-roles.md) |
-| B6 | **Do Bedrock `us.` cross-region inference profiles stay within GP's residency boundary?** If not, switch to single-region profiles. | Residency; analogous to the prior Cursor-residency issue. | InfoSec | [security](specs/security-and-compliance.md), [models.ts](../../packages/agent/src/models.ts) |
+| B6 | **Do Bedrock `us.` cross-region inference profiles stay within the org's residency boundary?** If not, switch to single-region profiles. | Residency; analogous to the prior Cursor-residency issue. | InfoSec | [security](specs/security-and-compliance.md), [models.ts](../../packages/agent/src/models.ts) |
 
 ## Soon (answer by Phase C)
 

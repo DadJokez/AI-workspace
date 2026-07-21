@@ -1,4 +1,4 @@
-const DEFAULT_BASE_URL = "https://comparative.builtwithrobot.link";
+const DEFAULT_BASE_URL = "https://app.comparative.example";
 const baseUrl = normalizeBaseUrl(process.env.SMOKE_BASE_URL ?? DEFAULT_BASE_URL);
 const timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS ?? 10_000);
 

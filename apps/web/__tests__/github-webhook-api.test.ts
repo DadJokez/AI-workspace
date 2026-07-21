@@ -20,7 +20,7 @@ const payload = {
     title: "Add GitHub event triggers",
     html_url: "https://github.com/DadJokez/AI-workspace/pull/293",
     user: { login: "author-user" },
-    assignees: [{ login: "roblindmark" }],
+    assignees: [{ login: "example-user" }],
   },
   review: {
     state: "approved",

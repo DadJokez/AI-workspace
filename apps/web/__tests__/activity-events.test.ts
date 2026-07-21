@@ -52,7 +52,7 @@ describe("buildToolActivityEvents", () => {
           name: "shell",
           provider: null,
           toolName: "shell",
-          input: { cmd: "rg \"Georgia-Pacific AI\" docs" },
+          input: { cmd: "rg \"Acme AI\" docs" },
           startedAt: "2026-05-15T10:00:00.000Z",
         },
         {

@@ -11,6 +11,8 @@ next-env.d.ts
 dist/
 build/
 cdk.out/
+cdk.context.json
+!infra/cdk/cdk.context.ci.json
 
 # logs
 *.log
@@ -31,6 +33,7 @@ yarn-error.log*
 .DS_Store
 
 # misc
+.claude/worktrees/
 *.tsbuildinfo
 coverage/
 .turbo/

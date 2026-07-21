@@ -1,4 +1,4 @@
-# Spec — Security & Compliance (Koch / GP enterprise)
+# Spec — Security & Compliance (enterprise)
 
 > What changes for trust, data-scoping, residency, audit, and shared-responsibility when the loop moves
 > to managed AgentCore. Anchored to Comparative's existing posture
@@ -6,9 +6,9 @@
 
 ## Assumptions
 
-- Enterprise IdP = **PingOne / PingFederate OIDC**; data must stay in approved AWS region(s); GP
-  InfoSec will review the runtime isolation model.
-- AgentCore runs in **GP's own AWS account** (extends [adr/0003-aws-only-runtime-substrate.md](../../adr/0003-aws-only-runtime-substrate.md):
+- Enterprise IdP = **PingOne / PingFederate OIDC**; data must stay in approved AWS region(s); the org's
+  InfoSec team will review the runtime isolation model.
+- AgentCore runs in **the org's own AWS account** (extends [adr/0003-aws-only-runtime-substrate.md](../../adr/0003-aws-only-runtime-substrate.md):
   "all runtime in AWS, no transcripts to third parties").
 
 ## Data residency
@@ -18,9 +18,9 @@
   — not enumerated in docs; [04-open-questions.md](../04-open-questions.md)).
 - Model inference via **Bedrock cross-region inference profiles** (`us.` prefix,
   [models.ts](../../../packages/agent/src/models.ts)) can route across US regions — confirm this is
-  within GP's residency boundary, or switch to single-region profiles ([models.ts:6](../../../packages/agent/src/models.ts)
+  within the org's residency boundary, or switch to single-region profiles ([models.ts:6](../../../packages/agent/src/models.ts)
   notes the swap). This is a residency landmine analogous to the "Cursor residency" issue already on record.
-- Managed Memory and skills S3 are new at-rest data stores — encrypt with the GP CMK, keep in-region.
+- Managed Memory and skills S3 are new at-rest data stores — encrypt with the org CMK, keep in-region.
 
 ## Audit trail
 
@@ -64,7 +64,7 @@
 - Each harness **session runs in its own microVM** with its own filesystem/shell (doc-sourced) —
   stronger isolation than our shared-process in-Fargate loop today. Prepare an InfoSec brief on the
   microVM model (this is an explicit open question — [04-open-questions.md](../04-open-questions.md)).
-- Network: **move off PUBLIC subnets to private + PrivateLink before any real GP data**
+- Network: **move off PUBLIC subnets to private + PrivateLink before any real enterprise data**
   ([01 §10](../01-current-state.md) landmine). Hard gate.
 
 ## AWS shared-responsibility split
@@ -72,9 +72,9 @@
 | Layer | Owner |
 |---|---|
 | MicroVM isolation, runtime patching, loop infra, scaling, Gateway/Memory service security | **AWS** |
-| IAM least-privilege, KMS keys, region pinning, network (private subnets), Guardrails config | **GP (us)** |
-| PingOne identity, `actorId` scoping, attestation, redaction, honesty preamble, audit ledger | **GP (us — the enterprise shell)** |
-| Skill content, prompts, tool scopes, eval gates | **GP (us)** |
+| IAM least-privilege, KMS keys, region pinning, network (private subnets), Guardrails config | **The org (us)** |
+| PingOne identity, `actorId` scoping, attestation, redaction, honesty preamble, audit ledger | **The org (us — the enterprise shell)** |
+| Skill content, prompts, tool scopes, eval gates | **The org (us)** |
 
 ## Human-owned changes (per [CLAUDE.md] — Rob + InfoSec, not Claude/Codex)
 - New IAM/KMS, Identity vault connector registrations, PingOne provider swap, private-subnet network

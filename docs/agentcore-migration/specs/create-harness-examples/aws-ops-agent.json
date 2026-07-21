@@ -30,8 +30,8 @@
     },
     {
       "s3": {
-        "bucket": "gp-comparative-skills-prod",
-        "prefix": "skills/gp/ops/"
+        "bucket": "acme-comparative-skills-prod",
+        "prefix": "skills/org/ops/"
       }
     }
   ],

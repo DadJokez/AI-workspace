@@ -69,7 +69,7 @@ describe("Google write authorization", () => {
         "explicit_compose_request",
       ],
       [
-        "can you pull some info from my GH and draft an email to rob@lindmark.co on recently shipped PRs",
+        "can you pull some info from my GH and draft an email to admin@example.com on recently shipped PRs",
         "explicit_compose_request",
       ],
       ["ya save it to gmail", "explicit_save_to_gmail"],

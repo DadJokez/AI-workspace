@@ -114,10 +114,10 @@ body, source_link?, last_reviewed_at). Members read; leads curate.
 
 ## Layer 4 — Org context (design — smallest surface, set by admins)
 
-**What it is:** company-wide ground truth — the glossary ("at GP, 'the mill'
+**What it is:** company-wide ground truth — the glossary ("in the org, 'the mill'
 means…"), key policies, the org's own description of itself. Small, slow-moving,
 admin-owned, read-only to everyone. Mostly solves the "the assistant doesn't
-know basic GP facts" cold-start. Lowest governance risk because it's curated by
+know basic org facts" cold-start. Lowest governance risk because it's curated by
 admins and contains nothing user-specific.
 
 ## The flywheel (why this compounds)

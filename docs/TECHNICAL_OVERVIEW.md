@@ -5,7 +5,7 @@
 > architecture, its data model, and where feature work fits. It is a snapshot as
 > of July 2026. Internal repo name: `ai-workspace`. Product name in UI/docs: **AI
 > Hub**; the review/governance docs also call it **Comparative**. First customer:
-> **Georgia-Pacific (GP)**, an internal enterprise deployment.
+> a large enterprise, deployed internally.
 
 ---
 

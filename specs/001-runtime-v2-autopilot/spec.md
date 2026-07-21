@@ -135,7 +135,7 @@ A user should not hit an opaque model-access error when the selected/default mod
 
 - The direct fast-local runtime starts with Bedrock because that path already exists behind the `AgentRuntime` seam.
 - Runtime V2 currently uses Bedrock for direct/tool-local work and AgentCore for durable worker execution.
-- The preview stack at `https://runtime-v2.ai-workspace.builtwithrobot.link` remains available until production rollout is validated.
+- The preview stack at `https://runtime-v2.ai-workspace.comparative.example` remains available until production rollout is validated.
 - Production can scale web tasks after the `rate_limit_buckets` shared limiter
   migration is deployed and the 429 smoke passes across at least two web tasks.
 - The current DB-backed run ledger remains the source of truth; no new run table is required for this feature.

@@ -264,7 +264,7 @@ describe("MCP provider status", () => {
 
     const authorizedPrompts = [
       "look up the pipeline in Salesforce and draft an email report to my boss",
-      "can you pull some info from my GH and draft an email to rob@lindmark.co on recently shipped PRs",
+      "can you pull some info from my GH and draft an email to admin@example.com on recently shipped PRs",
       "ya save it to gmail",
       "put that in drafts",
       "yes, save the draft",

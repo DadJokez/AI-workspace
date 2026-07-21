@@ -11,7 +11,8 @@ on:
       base_url:
         description: "Production-like URL to smoke test"
         required: false
-        default: "https://comparative.builtwithrobot.link"
+        default: ""
+        # Falls back to the SMOKE_BASE_URL repo variable when left blank.
 
 concurrency:
   group: product-smoke-${{ github.ref }}-${{ github.event_name }}
@@ -175,5 +176,5 @@ jobs:
 
       - name: Run production smoke
         env:
-          SMOKE_BASE_URL: ${{ github.event.inputs.base_url || 'https://comparative.builtwithrobot.link' }}
+          SMOKE_BASE_URL: ${{ github.event.inputs.base_url || vars.SMOKE_BASE_URL }}
         run: node scripts/production-smoke.mjs

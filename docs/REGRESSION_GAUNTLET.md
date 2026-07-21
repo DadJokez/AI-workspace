@@ -106,7 +106,7 @@ AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval
 AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm --filter @ai-workspace/evals eval:routing
 ```
 
-Production smoke defaults to `https://comparative.builtwithrobot.link`; override
+Production smoke defaults to `https://app.comparative.example`; override
 it for preview environments:
 
 ```bash

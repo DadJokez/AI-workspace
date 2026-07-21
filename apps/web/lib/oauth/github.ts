@@ -6,7 +6,7 @@ export const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? "";
  * or `Host` headers; those can point at the internal container bind address
  * and leak bad redirects into Location headers we send to browsers.
  */
-const DEFAULT_PUBLIC_BASE_URL = "https://comparative.builtwithrobot.link";
+const DEFAULT_PUBLIC_BASE_URL = "https://app.comparative.example";
 export const PUBLIC_BASE_URL =
   process.env.NEXTAUTH_URL?.replace(/\/$/, "") ?? DEFAULT_PUBLIC_BASE_URL;
 export const GITHUB_REDIRECT_URI = `${PUBLIC_BASE_URL}/api/oauth/github/callback`;

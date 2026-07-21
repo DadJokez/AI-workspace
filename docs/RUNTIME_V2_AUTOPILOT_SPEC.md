@@ -60,7 +60,7 @@ derived from the prompt, request metadata, and run history.
 
 Runtime V2 gets its own ECS preview stack and URL:
 
-- URL: `https://runtime-v2.ai-workspace.builtwithrobot.link`
+- URL: `https://runtime-v2.ai-workspace.comparative.example`
 - Cluster: `ai-workspace-runtime-v2`
 - Services:
   - `ai-workspace-runtime-v2-web`

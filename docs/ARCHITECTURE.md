@@ -7,7 +7,7 @@
 
 ## Vision
 
-GP employees should have one front door for AI — a place to log in once
+Employees should have one front door for AI — a place to log in once
 with their corporate identity and do anything they'd reasonably want to
 do with an LLM against their own work data: chat with mail, calendar
 and Teams; ask questions of Workfront and Salesforce; explore Databricks
@@ -121,7 +121,7 @@ runtime substrate; AI Hub is the enterprise control plane.
 
 **POC (personal environment — current):** GitHub OAuth via NextAuth v4 with JWT strategy.
 
-**Enterprise (required before GP production):** PingOne / PingFederate OIDC via NextAuth v4 (custom provider swap). The `users` table, `getSessionUser()`, all API routes, and the `ping_subject` column name are unchanged — `ping_subject` was always designed to hold the OIDC subject claim. The swap is a single NextAuth provider config change; no DB migration needed.
+**Enterprise (required before enterprise production):** PingOne / PingFederate OIDC via NextAuth v4 (custom provider swap). The `users` table, `getSessionUser()`, all API routes, and the `ping_subject` column name are unchanged — `ping_subject` was always designed to hold the OIDC subject claim. The swap is a single NextAuth provider config change; no DB migration needed.
 
 In both cases:
 - `session.user.id` is the canonical `users.id` UUID (set in JWT callback via `token.userId = dbUser.id`).
@@ -340,7 +340,7 @@ now target the CDK-managed ECS service set.
 |---|---|---|
 | Web runtime | ECS service on Fargate, `ai-workspace-web` | Scale-out after shared rate limiting |
 | Workers | Separate ECS services for chat runs and Vault memory capture | Queue-backed dispatch if DB polling becomes limiting |
-| Ingress | Application Load Balancer, ACM cert, Route 53 record at `comparative.builtwithrobot.link` with `ai-workspace.builtwithrobot.link` retained as a legacy alias | WAF/rate rules |
+| Ingress | Application Load Balancer, ACM cert, Route 53 record at `app.comparative.example` with `ai-workspace.comparative.example` retained as a legacy alias | WAF/rate rules |
 | Database | Existing RDS Postgres for fast cutover | RDS Proxy/Aurora and private DB posture |
 | Secrets | AWS Secrets Manager JSON secret `ai-workspace/production/app` | KMS rotation policy |
 | Networking | Default VPC for current RDS compatibility | Dedicated VPC/private subnets |

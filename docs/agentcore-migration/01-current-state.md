@@ -5,7 +5,7 @@
 
 ## Assumptions
 
-- "Comparative" = "AI Hub" = this `ai-workspace` repo; enterprise deployment target is **GP / Koch**.
+- "Comparative" = "AI Hub" = this `ai-workspace` repo; enterprise deployment target is **the enterprise**.
 - Reference facts about AgentCore Harness are taken from the GA docs fetched 2026-06-18 (see
   [02-target-architecture.md](02-target-architecture.md) for the citations); where the docs
   contradict prior knowledge, the docs win.
@@ -138,7 +138,7 @@ is set ([chat-run-worker.ts:1096](../../apps/web/lib/chat-run-worker.ts)).
 
 - **Sign-in IdP today:** NextAuth v4, **GitHub OAuth only** (POC)
   ([apps/web/lib/auth/nextauth.ts:36](../../apps/web/lib/auth/nextauth.ts)). JWT strategy, no DB adapter.
-- **Enterprise IdP (required before GP production): PingOne / PingFederate OIDC.** The schema is
+- **Enterprise IdP (required before enterprise production): PingOne / PingFederate OIDC.** The schema is
   pre-shaped for it: the external subject lives in `users.ping_subject`
   ([packages/db/src/schema.ts:111](../../packages/db/src/schema.ts), comment at
   [schema.ts:19](../../packages/db/src/schema.ts)). The swap is a **single NextAuth provider config

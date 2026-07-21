@@ -668,7 +668,7 @@ real answer needs private context, reply in-channel with "DM'd you" and take
 it to the DM. This needs its own eval class before channel mode ships.
 
 **Thin slice.** Slack, outbound only: workstream/schedule notifications and
-the daily digest as DMs with deep links. Alpha testers are on Slack; GP means
+the daily digest as DMs with deep links. Alpha testers are on Slack; the org means
 Teams later — build the adapter interface once, ship Slack first.
 
 **Full vision.** Both platforms; DM threads; channel mentions with the scoping

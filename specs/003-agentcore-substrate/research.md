@@ -11,7 +11,7 @@
 | **Identity** | Managed OAuth token vault (2LO/3LO) for agents acting on users' behalf | `oauth_tokens` + AES-256-GCM crypto + refresh logic |
 | **Memory / Observability** | Managed agent memory; OTel-based tracing | Vault memory; run_events/metrics |
 
-The strategic read from the June strategy session stands: **for an IT reviewer, "AWS-managed" beats hand-rolled for every row of that table** — and Bedrock is already an approved pattern at Koch. Runtime is adoptable today behind the seam; Identity and Gateway are incremental follow-ups that *shrink* AI Hub's custom governance code.
+The strategic read from the June strategy session stands: **for an IT reviewer, "AWS-managed" beats hand-rolled for every row of that table** — and Bedrock is already an approved pattern in the enterprise. Runtime is adoptable today behind the seam; Identity and Gateway are incremental follow-ups that *shrink* AI Hub's custom governance code.
 
 ## Verified technical facts
 

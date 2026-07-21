@@ -53,17 +53,17 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     const domainName = contextString(
       this,
       "aiWorkspace:domainName",
-      "comparative.builtwithrobot.link",
+      "app.comparative.example",
     );
     const legacyDomainName = contextString(
       this,
       "aiWorkspace:legacyDomainName",
-      "ai-workspace.builtwithrobot.link",
+      "ai-workspace.comparative.example",
     );
     const hostedZoneName = contextString(
       this,
       "aiWorkspace:hostedZoneName",
-      "builtwithrobot.link",
+      "comparative.example",
     );
     const ecrRepositoryName = contextString(
       this,
@@ -78,7 +78,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     const inviteEmailIdentityName = contextString(
       this,
       "aiWorkspace:inviteEmailIdentityName",
-      "comparative.builtwithrobot.link",
+      "app.comparative.example",
     );
     const inviteEmailProvider = contextString(
       this,
@@ -88,7 +88,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     const inviteEmailFrom = contextString(
       this,
       "aiWorkspace:inviteEmailFrom",
-      "no-reply@comparative.builtwithrobot.link",
+      "no-reply@app.comparative.example",
     );
     const inviteEmailAwsRegion = contextString(
       this,
@@ -100,11 +100,39 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       "aiWorkspace:dbSecurityGroupId",
       "sg-019e87b5938a295a4",
     );
-    const codeBuildRoleArn = contextString(
+    // Role/runtime names come from context; the account is whatever account the
+    // app is synthesised into (CDK_DEFAULT_ACCOUNT), never a hardcoded id.
+    const codeBuildRoleName = contextString(
       this,
-      "aiWorkspace:codeBuildRoleArn",
+      "aiWorkspace:codeBuildRoleName",
       "",
     );
+    const codeBuildRoleArn = codeBuildRoleName
+      ? cdk.Arn.format(
+          {
+            service: "iam",
+            region: "",
+            resource: "role",
+            resourceName: codeBuildRoleName,
+          },
+          this,
+        )
+      : "";
+    const agentcoreRuntimeId = contextString(
+      this,
+      "aiWorkspace:agentcoreRuntimeId",
+      "",
+    );
+    const agentcoreRuntimeArn = agentcoreRuntimeId
+      ? cdk.Arn.format(
+          {
+            service: "bedrock-agentcore",
+            resource: "runtime",
+            resourceName: agentcoreRuntimeId,
+          },
+          this,
+        )
+      : "";
 
     const vpc = ec2.Vpc.fromLookup(this, "DefaultVpc", {
       isDefault: true,
@@ -227,7 +255,10 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     grantBedrockInvoke(webTask);
     grantSesSendEmail(webTask, inviteEmailIdentityName, inviteEmailAwsRegion);
     webTask.addContainer("web", {
-      image: ecs.ContainerImage.fromEcrRepository(repository, imageTag.valueAsString),
+      image: ecs.ContainerImage.fromEcrRepository(
+        repository,
+        imageTag.valueAsString,
+      ),
       containerName: "web",
       portMappings: [{ containerPort: 3000 }],
       logging: ecs.LogDrivers.awsLogs({
@@ -245,28 +276,27 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       secrets: webSecrets,
     });
 
-    const webService =
-      new ecsPatterns.ApplicationLoadBalancedFargateService(
-        this,
-        "WebService",
-        {
-          cluster,
-          serviceName: "ai-workspace-web",
-          taskDefinition: webTask,
-          desiredCount: 1,
-          publicLoadBalancer: true,
-          assignPublicIp: true,
-          securityGroups: [webSecurityGroup],
-          taskSubnets: { subnetType: ec2.SubnetType.PUBLIC },
-          domainName: serviceRecordDomainName,
-          domainZone: hostedZone,
-          certificate,
-          redirectHTTP: true,
-          loadBalancerName: "ai-workspace",
-          circuitBreaker: { rollback: true },
-          minHealthyPercent: 100,
-        },
-      );
+    const webService = new ecsPatterns.ApplicationLoadBalancedFargateService(
+      this,
+      "WebService",
+      {
+        cluster,
+        serviceName: "ai-workspace-web",
+        taskDefinition: webTask,
+        desiredCount: 1,
+        publicLoadBalancer: true,
+        assignPublicIp: true,
+        securityGroups: [webSecurityGroup],
+        taskSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+        domainName: serviceRecordDomainName,
+        domainZone: hostedZone,
+        certificate,
+        redirectHTTP: true,
+        loadBalancerName: "ai-workspace",
+        circuitBreaker: { rollback: true },
+        minHealthyPercent: 100,
+      },
+    );
     webService.targetGroup.configureHealthCheck({
       path: "/api/health",
       healthyHttpCodes: "200",
@@ -310,8 +340,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
         // skills, scheduled — run on Bedrock AgentCore in our account.
         // Fast chat stays direct Bedrock on web.
         RUNTIME: "agentcore",
-        AGENTCORE_RUNTIME_ARN:
-          "arn:aws:bedrock-agentcore:us-east-1:351478076796:runtime/ai_workspace_agent_spike-5n8RLRBVz5",
+        AGENTCORE_RUNTIME_ARN: agentcoreRuntimeArn,
       },
       secrets: commonSecrets,
       grantBedrock: true,

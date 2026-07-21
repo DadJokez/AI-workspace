@@ -4,7 +4,7 @@
 
 ## Why (decision record)
 
-The enterprise runtime answer is AWS (Koch already runs Bedrock; "AWS-managed" reads better than hand-rolled in the coming IT review), while Cursor stays the innovation lane. Two gaps stood between AI Hub and that posture:
+The enterprise runtime answer is AWS (the enterprise already runs Bedrock; "AWS-managed" reads better than hand-rolled in the coming IT review), while Cursor stays the innovation lane. Two gaps stood between AI Hub and that posture:
 
 1. **The Bedrock lane had no MCP client** — `TurnInput.mcpServers` was documented as "Bedrock ignores", violating the repo's own "all tools must be MCP servers" constitution and leaving every tool turn dependent on Anysphere.
 2. **No AWS-managed hosting shape for the loop** — durable/tool work had no substrate story other than Cursor Cloud.
@@ -84,5 +84,5 @@ Local pre-flight without AWS: `pnpm --filter @ai-workspace/agentcore-agent dev` 
 ## Open questions
 
 - AgentCore Runtime cold-start and per-session pricing at pilot volume (measure during smoke; compare against the always-on chat-worker).
-- VPC `NetworkMode` + PrivateLink posture before any GP data classification above public.
+- VPC `NetworkMode` + PrivateLink posture before any enterprise data classification above public.
 - Whether the chat-worker keeps claiming runs and *calling* AgentCore (current design — worker stays the lease/ledger owner) or schedules move into AgentCore's async jobs later. Current answer: worker stays; AgentCore is execution substrate only.

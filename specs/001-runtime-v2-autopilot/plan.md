@@ -18,7 +18,7 @@ Runtime V2 makes AI Workspace local-first and fast by routing ordinary chat to a
 
 **Testing**: Vitest through `pnpm --filter @ai-workspace/web test`, TypeScript checks, Next build, CDK synth, production/preview smoke tests
 
-**Target Platform**: AWS ECS/Fargate web, chat-worker, and memory-worker services behind ALB; preview stack at `runtime-v2.ai-workspace.builtwithrobot.link`
+**Target Platform**: AWS ECS/Fargate web, chat-worker, and memory-worker services behind ALB; preview stack at `runtime-v2.ai-workspace.comparative.example`
 
 **Project Type**: Monorepo web app plus runtime packages and CDK infrastructure
 
@@ -109,7 +109,7 @@ infra/cdk/lib/
 - `pnpm --filter @ai-workspace/web build`
 - `pnpm --filter @ai-workspace/infra typecheck`
 - `pnpm --filter @ai-workspace/infra cdk:synth`
-- Preview smoke through `https://runtime-v2.ai-workspace.builtwithrobot.link`
+- Preview smoke through `https://runtime-v2.ai-workspace.comparative.example`
 - Production smoke after feature flag enablement
 
 ## Open Risks

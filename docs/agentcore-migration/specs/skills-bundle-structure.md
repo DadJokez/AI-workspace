@@ -1,6 +1,6 @@
 # Spec — Skills Bundle Structure (S3) & Contribution Model
 
-> How GP-owned skills get from the `/skills` catalog into AgentCore Harness via S3, without
+> How org-owned skills get from the `/skills` catalog into AgentCore Harness via S3, without
 > abandoning the existing `SKILL.md` format or the RBAC/audit the DB provides.
 
 ## Assumptions
@@ -10,7 +10,7 @@
 - `SKILL.md` (YAML frontmatter + Markdown body) is already the portable format and is Anthropic-Agent-
   Skills-compatible — AgentCore skills consume the same shape.
 - Harness reads skills as `HarnessSkill` objects sourced from `awsSkills | git | s3 | path`. We use
-  **`s3`** for GP skills, **`awsSkills`** only for the AWS-ops agent, **`git`** for eng-authored skills.
+  **`s3`** for org skills, **`awsSkills`** only for the AWS-ops agent, **`git`** for eng-authored skills.
 
 ## Why not make S3 the source of truth?
 
@@ -21,7 +21,7 @@ fork governance. Instead: **author in the UI → publish to S3 on promote → Ha
 ## S3 layout
 
 ```
-s3://gp-comparative-skills/
+s3://acme-comparative-skills/
   skills/
     gp/
       marketing/
@@ -54,8 +54,8 @@ s3://gp-comparative-skills/
 
 ## Naming conventions
 
-- Bucket: `gp-comparative-skills` (one per environment: `-staging`, `-prod`).
-- Path: `skills/gp/{domain}/{skill-slug}/` — `{domain}` ∈ {marketing, finance, analytics, sales,
+- Bucket: `acme-comparative-skills` (one per environment: `-staging`, `-prod`).
+- Path: `skills/org/{domain}/{skill-slug}/` — `{domain}` ∈ {marketing, finance, analytics, sales,
   ops, shared}; `{skill-slug}` = the DB skill slug (kebab-case, already unique per
   [specs/002](../../../specs/002-skills-spine/spec.md)).
 - Versioning: rely on **S3 object versioning** + the `checksum.txt`; the harness `HarnessSkill` s3
@@ -65,7 +65,7 @@ s3://gp-comparative-skills/
 
 ```jsonc
 "skills": [
-  { "s3": { "bucket": "gp-comparative-skills-prod", "prefix": "skills/gp/marketing/" } },
+  { "s3": { "bucket": "acme-comparative-skills-prod", "prefix": "skills/org/marketing/" } },
   { "git": { "repository": "https://github.com/gp/comparative-skills", "revision": "<pinned-sha>" } },
   { "awsSkills": {} }            // AWS-ops agent only
 ]

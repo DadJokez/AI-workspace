@@ -16,11 +16,11 @@ OUT = ROOT / "output/pdf/comparative-alpha-tester-guide.pdf"
 SHOT_DIR = ROOT / "tmp/pdfs/alpha-guide/screenshots"
 
 LINKS = {
-    "home": "https://comparative.builtwithrobot.link",
-    "chat": "https://comparative.builtwithrobot.link/chat",
-    "login": "https://comparative.builtwithrobot.link/login",
-    "skills": "https://comparative.builtwithrobot.link/skills",
-    "apps": "https://comparative.builtwithrobot.link/apps",
+    "home": "https://app.comparative.example",
+    "chat": "https://app.comparative.example/chat",
+    "login": "https://app.comparative.example/login",
+    "skills": "https://app.comparative.example/skills",
+    "apps": "https://app.comparative.example/apps",
 }
 
 PAGE_W, PAGE_H = landscape(letter)

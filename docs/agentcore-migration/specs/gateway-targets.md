@@ -1,6 +1,6 @@
 # Spec — AgentCore Gateway Targets
 
-> One target spec per GP system. Gateway converts OpenAPI / Smithy / Lambda into MCP tools, fronts
+> One target spec per enterprise system. Gateway converts OpenAPI / Smithy / Lambda into MCP tools, fronts
 > HTTP/A2A via passthrough, and provides managed inbound + outbound auth, semantic tool selection,
 > and audit. ARNs/URLs are placeholders pending the IaC pass.
 
@@ -38,7 +38,7 @@
 |---|---|
 | Target name | `sap-erp-fi` |
 | Type | OpenAPI (preferred) or Lambda target (`arn:aws:lambda:us-east-1:<AWS_ACCOUNT_ID>:function:gw-sap-erp-fi`) |
-| OpenAPI spec | `s3://gp-comparative-gateway/specs/sap-erp-fi.yaml` (FI module subset: budget, GL reads) |
+| OpenAPI spec | `s3://acme-comparative-gateway/specs/sap-erp-fi.yaml` (FI module subset: budget, GL reads) |
 | Outbound auth | Identity vault — SAP BTP OAuth (per-user) **or** service-principal via SAP API Gateway (TBD per module, [ROADMAP.md:220](../../ROADMAP.md)) |
 | Allowed scopes | `fi.budget.read`, `fi.gl.read` (read-only to start; **no writes until InfoSec sign-off**) |
 | `allowedTools` glob | `@sap-erp-fi/*` |
@@ -51,7 +51,7 @@
 |---|---|
 | Target name | `m365-graph` |
 | Type | OpenAPI (Microsoft Graph subset) |
-| OpenAPI spec | `s3://gp-comparative-gateway/specs/m365-graph.yaml` (mail, calendar, files read; mail send gated) |
+| OpenAPI spec | `s3://acme-comparative-gateway/specs/m365-graph.yaml` (mail, calendar, files read; mail send gated) |
 | Outbound auth | Identity vault — Entra delegated OAuth (per-user); maps to existing `teams.ts` placeholder ([packages/mcp-servers/src/teams.ts](../../../packages/mcp-servers/src/teams.ts)) |
 | Allowed scopes | `Mail.Read`, `Calendars.Read`, `Files.Read.All`; `Mail.Send`, `Chat.ReadWrite` behind explicit attestation |
 | `allowedTools` glob | `@m365-graph/*` (or narrower per skill) |

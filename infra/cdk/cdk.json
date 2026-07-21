@@ -1,13 +1,14 @@
 {
   "app": "pnpm exec tsx bin/ai-workspace.ts",
   "context": {
-    "aiWorkspace:domainName": "comparative.builtwithrobot.link",
-    "aiWorkspace:legacyDomainName": "ai-workspace.builtwithrobot.link",
-    "aiWorkspace:runtimeV2DomainName": "runtime-v2.ai-workspace.builtwithrobot.link",
-    "aiWorkspace:hostedZoneName": "builtwithrobot.link",
+    "aiWorkspace:domainName": "app.comparative.example",
+    "aiWorkspace:legacyDomainName": "ai-workspace.comparative.example",
+    "aiWorkspace:runtimeV2DomainName": "runtime-v2.ai-workspace.comparative.example",
+    "aiWorkspace:hostedZoneName": "comparative.example",
     "aiWorkspace:ecrRepositoryName": "ai-workspace",
     "aiWorkspace:appSecretName": "ai-workspace/production/app",
     "aiWorkspace:dbSecurityGroupId": "sg-019e87b5938a295a4",
-    "aiWorkspace:codeBuildRoleArn": "arn:aws:iam::351478076796:role/CodeBuildAIWorkspaceRole"
+    "aiWorkspace:codeBuildRoleName": "CodeBuildAIWorkspaceRole",
+    "aiWorkspace:agentcoreRuntimeId": "ai_workspace_agent_spike-5n8RLRBVz5"
   }
 }

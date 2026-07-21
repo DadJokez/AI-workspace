@@ -4,7 +4,7 @@
 
 ## What is this
 
-Internal "AI front door" for Georgia-Pacific. Non-technical employees log in once and can do anything they'd want with AI — chat, run workflows against their work data, schedule recurring jobs — without thinking about which tool, which integration, which API. Rob is solo at ~10–15 focused hrs/week. Architecture must let new integrations (Workfront, Databricks, M365, GitHub, Salesforce, internal APIs) snap in without re-architecting, but must not pre-pay for that flexibility.
+Internal "AI front door" for the enterprise. Non-technical employees log in once and can do anything they'd want with AI — chat, run workflows against their work data, schedule recurring jobs — without thinking about which tool, which integration, which API. Rob is solo at ~10–15 focused hrs/week. Architecture must let new integrations (Workfront, Databricks, M365, GitHub, Salesforce, internal APIs) snap in without re-architecting, but must not pre-pay for that flexibility.
 
 AI Hub is intentionally a **thin enterprise wrapper**: one simple front door
 plus the governance, audit, token, recipe, schedule, quota, and sharing layers
@@ -183,7 +183,7 @@ All code is on `main`. PRs #1–#22 merged. Only `origin/main` on remote.
 - Use the new `recipe_runs` table for the hardcoded "Morning Briefing" execution log.
 - SES integration for outbound mail (briefing delivery).
 
-**Note:** This requires Entra / M365 app registration approval from GP IT. If IT is delayed, swap in another Tier 1 integration (Salesforce OAuth, or Workfront) and come back to Graph.
+**Note:** This requires Entra / M365 app registration approval from org IT. If IT is delayed, swap in another Tier 1 integration (Salesforce OAuth, or Workfront) and come back to Graph.
 
 ### ✅ Week 5 — Schedule it (shipped June 2026 as Schedules)
 
@@ -218,7 +218,7 @@ Original scope notes kept below for traceability:
 
 **Ship:** Cross-system recipe works ("search Workfront tasks and email me a summary").
 
-- Promote `packages/mcp-servers/src/workfront.ts` or `databricks.ts` from stub → real. Picks whichever GP IT / GP data team clears first.
+- Promote `packages/mcp-servers/src/workfront.ts` or `databricks.ts` from stub → real. Picks whichever the org's IT / data team clears first.
 - Expand `audit_log` writes from MCP tool calls to recipe runs and admin changes.
 - Admin pages: catalog CRUD, user list, audit view, MCP-server health.
 - Threat model doc, CSP, rate limits on `/api/chat`.
@@ -261,7 +261,7 @@ Layer 2: Shell → GitHub MCP    (per-user GitHub OAuth tokens in oauth_tokens, 
 
 `session.user.id` is the canonical `users.id` UUID. `users.ping_subject` holds the GitHub numeric user ID. The column name is intentional — it maps to the enterprise subject claim when PingOne replaces GitHub OAuth.
 
-### Enterprise (future — required before GP production)
+### Enterprise (future — required before enterprise production)
 
 ```
 Layer 1: User → Shell          (PingOne / PingFederate OIDC, ~8h session)
