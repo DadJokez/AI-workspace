@@ -86,6 +86,9 @@ test("renders persisted source chips without inventing inline attribution", asyn
   await expect(sources).toBeVisible();
   await expect(sources.locator("img")).toHaveCount(0);
   await expect(sources).toContainText(hostileTitle);
+  await expect(sources).toContainText("Sources consulted");
+  await expect(sources).not.toContainText("[1]");
+  await expect(sources).not.toContainText("[2]");
 
   const repoChip = page.getByTestId("source-chip-1");
   await expect(repoChip).toHaveAttribute("href", pullRequestUrl);

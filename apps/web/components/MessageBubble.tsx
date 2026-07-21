@@ -501,10 +501,10 @@ function SourceStrip({
     <div
       data-testid="message-sources"
       className="mt-2 flex max-w-full flex-wrap items-center gap-1.5"
-      aria-label="Sources"
+      aria-label="Sources consulted"
     >
-      <span className="mr-0.5 text-2xs font-medium uppercase tracking-wide text-muted">
-        Sources
+      <span className="mr-0.5 text-2xs font-medium uppercase text-muted">
+        Sources consulted
       </span>
       {sources.map((source) => {
         const artifact = artifactForSource(source, artifacts);
@@ -557,9 +557,6 @@ function SourceStrip({
 function SourceChipContent({ source }: { source: AssistantSource }) {
   return (
     <>
-      <span className="shrink-0 font-mono text-2xs text-info">
-        [{source.n}]
-      </span>
       <span className="shrink-0 text-2xs font-medium uppercase text-muted/80">
         {sourceKindLabel(source.kind)}
       </span>
