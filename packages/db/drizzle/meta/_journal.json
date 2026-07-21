@@ -260,6 +260,13 @@
       "when": 1784419200000,
       "tag": "0036_memory_capture_queue_bounds",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1784419260000,
+      "tag": "0037_run_events_sequence_unique",
+      "breakpoints": true
     }
   ]
 }

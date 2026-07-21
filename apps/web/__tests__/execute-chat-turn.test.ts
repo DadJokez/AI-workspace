@@ -86,7 +86,6 @@ vi.mock("@/lib/run-events", () => ({
   appendRunEventBestEffort: vi.fn(async () => undefined),
   appendToolCallRunEvent: vi.fn(async () => undefined),
   appendToolResultRunEvent: vi.fn(async () => undefined),
-  nextRunEventSequence: vi.fn(async () => 1),
 }));
 vi.mock("@/lib/tool-events", () => ({
   createToolEventAccumulator: vi.fn(() => ({

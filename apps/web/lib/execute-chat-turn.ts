@@ -56,7 +56,6 @@ import {
   appendRunEventBestEffort,
   appendToolCallRunEvent,
   appendToolResultRunEvent,
-  nextRunEventSequence,
   type AppendRunEventInput,
 } from "@/lib/run-events";
 import {
@@ -731,7 +730,6 @@ export async function executeChatTurn({
           await appendToolCallRunEvent({
             db,
             runId,
-            sequence: await nextRunEventSequence(db, runId),
             call: persistedCall,
           });
         }
@@ -754,7 +752,6 @@ export async function executeChatTurn({
           await appendToolResultRunEvent({
             db,
             runId,
-            sequence: await nextRunEventSequence(db, runId),
             call: persistedCall,
             result: persistedResult,
           });
