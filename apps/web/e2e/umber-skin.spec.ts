@@ -13,20 +13,18 @@ import {
 
 test.skip(
   !!process.env.PLAYWRIGHT_BASE_URL,
-  "skin opt-in is exercised against the local harness only",
+  "skin defaults are exercised against the local harness only",
 );
 
-// The opt-in mechanism is subtle: the pre-paint script applies skin-umber for
-// the first frame, then React 19 hydration replaces <html>'s className and
-// UiSkinSync must re-assert it. This locks the end state down — it fails if
-// either half regresses (it did once: the class silently vanished after
-// hydration before UiSkinSync existed).
-test("the Umber token palette and skin class survive hydration", async ({
+// The default mechanism is subtle: the pre-paint script applies skin-umber
+// for the first frame, then React 19 hydration replaces <html>'s className and
+// UiSkinSync must re-assert it. Classic remains an explicit escape hatch.
+test("Umber defaults on, survives hydration, and retains the Classic escape hatch", async ({
   page,
 }) => {
   await page.goto("/login");
   await page.evaluate(() => {
-    localStorage.setItem("ui-skin", "umber");
+    localStorage.removeItem("ui-skin");
     localStorage.setItem("theme", "light");
   });
   await page.reload();
@@ -44,8 +42,14 @@ test("the Umber token palette and skin class survive hydration", async ({
   });
   await expect(page.locator("body")).toHaveCSS("background-color", canvas);
 
-  // The skin preference remains independent from the shared token palette.
-  await page.evaluate(() => localStorage.removeItem("ui-skin"));
+  await page.evaluate(() => localStorage.setItem("theme", "dark"));
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect(page.locator("html")).toHaveClass(/skin-umber/);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+
+  await page.evaluate(() => localStorage.setItem("ui-skin", "classic"));
   await page.reload();
   await page.waitForLoadState("networkidle");
   await expect(page.locator("html")).not.toHaveClass(/skin-umber/);
@@ -56,7 +60,7 @@ test("the Umber token palette and skin class survive hydration", async ({
 // half-reskin shipped once: dots went forest while cards stayed
 // electric-blue). This pins computed styles: reskinned cards must resolve
 // to the Umber tokens, and the pre-Umber navy must be gone.
-test("chat chrome cards resolve to Umber surfaces under skin-umber", async ({
+test("chat chrome uses Umber surfaces by default in both themes", async ({
   page,
   isMobile,
 }) => {
@@ -132,7 +136,7 @@ test("chat chrome cards resolve to Umber surfaces under skin-umber", async ({
 
   await gotoE2EChat(page);
   await page.evaluate(() => {
-    localStorage.setItem("ui-skin", "umber");
+    localStorage.removeItem("ui-skin");
     localStorage.setItem("theme", "light");
   });
   await page.reload();
@@ -185,9 +189,35 @@ test("chat chrome cards resolve to Umber surfaces under skin-umber", async ({
   await expect(skillPill).toContainText("/umber-check");
   await expect(skillPill).toHaveCSS("background-color", tokens.subtle);
   await expect(skillPill).toHaveCSS("color", tokens.ink);
+
+  await page.evaluate(() => {
+    document.documentElement.classList.add("dark");
+    document.documentElement.dataset.theme = "dark";
+  });
+  const darkTokens = await page.evaluate(() => {
+    const resolveColor = (slot: string) => {
+      const probe = document.createElement("span");
+      probe.style.color = `rgb(from var(${slot}) r g b)`;
+      document.body.appendChild(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    };
+    return {
+      surface: resolveColor("--color-surface"),
+      subtle: resolveColor("--color-subtle"),
+      accent: resolveColor("--color-accent"),
+      ink: resolveColor("--color-ink"),
+    };
+  });
+  await expect(card).toHaveCSS("background-color", darkTokens.surface);
+  await expect(codePreview).toHaveCSS("background-color", darkTokens.subtle);
+  await expect(pill).toHaveCSS("background-color", darkTokens.accent);
+  await expect(skillPill).toHaveCSS("background-color", darkTokens.subtle);
+  await expect(skillPill).toHaveCSS("color", darkTokens.ink);
 });
 
-test("the Settings skin control flips Umber on and off live", async ({
+test("the Settings skin control exposes Classic as an escape hatch", async ({
   page,
   isMobile,
 }) => {
@@ -195,9 +225,14 @@ test("the Settings skin control flips Umber on and off live", async ({
   await gotoE2EChat(page);
   await openNavItem(page, "Settings", isMobile);
 
-  await page.getByRole("radio", { name: "Umber", exact: true }).click();
+  await expect(
+    page.getByRole("radio", { name: "Umber", exact: true }),
+  ).toBeChecked();
   await expect(page.locator("html")).toHaveClass(/skin-umber/);
 
   await page.getByRole("radio", { name: "Classic", exact: true }).click();
   await expect(page.locator("html")).not.toHaveClass(/skin-umber/);
+
+  await page.getByRole("radio", { name: "Umber", exact: true }).click();
+  await expect(page.locator("html")).toHaveClass(/skin-umber/);
 });

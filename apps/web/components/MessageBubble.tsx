@@ -105,9 +105,9 @@ export function MessageBubble({
             <span className="flex flex-wrap items-center gap-1.5">
               <span
                 data-testid="slash-capability-pill"
-                className="inline-flex items-center gap-1.5 rounded-full border border-[#2f6bff]/50 bg-[#06112f]/85 px-2 py-0.5 font-mono text-[12px] text-[#dbe8ff] shadow-[0_0_14px_rgba(0,92,255,0.24)] umber:border-hairline umber:bg-subtle umber:text-ink umber:shadow-none"
+                className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 py-0.5 font-mono text-[12px] text-ink"
               >
-                <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_10px_rgba(40,215,255,0.7)] umber:bg-pop umber:shadow-none" />
+                <span className="h-1.5 w-1.5 rounded-full bg-info" />
                 {slashDisplay.token}
               </span>
               {slashDisplay.body ? (
@@ -273,22 +273,27 @@ function AppDraftStrip({
         // version that was live and has since been superseded. It must not
         // read as a fresh draft.
         const reverted = version.status === "reverted";
+        const statusDot = deployed
+          ? "bg-success"
+          : reverted
+            ? "bg-muted"
+            : "bg-info";
         return (
           <div
             key={version.id}
             data-testid="app-draft-card"
             data-app-version-id={version.id}
-            className="rounded-md border border-[#2f6bff]/40 bg-[#06112f]/60 px-3 py-2.5 text-[12px] text-[#dbe8ff] shadow-[0_0_18px_rgba(0,92,255,0.12)] umber:border-hairline umber:bg-surface umber:text-ink umber:shadow-none"
+            className="rounded-md border border-hairline bg-surface px-3 py-2.5 text-[12px] text-ink"
           >
             <div className="flex flex-wrap items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_10px_rgba(40,215,255,0.7)] umber:bg-pop umber:shadow-none" />
+              <span className={`h-1.5 w-1.5 rounded-full ${statusDot}`} />
               <span className="font-medium">{version.appName}</span>
-              <span className="text-[#9dbdff] umber:text-muted">v{version.versionNumber}</span>
-              <span className="ml-auto rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#b9d2ff] umber:bg-subtle umber:text-muted">
+              <span className="text-muted">v{version.versionNumber}</span>
+              <span className="ml-auto rounded bg-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
                 {deployed ? "Live" : reverted ? "Superseded" : "Draft"}
               </span>
             </div>
-            <p className="mt-1 text-[#9dbdff] umber:text-muted">
+            <p className="mt-1 text-muted">
               {deployed
                 ? "This version is now live."
                 : reverted
@@ -300,14 +305,14 @@ function AppDraftStrip({
                 type="button"
                 disabled={!artifact}
                 onClick={() => artifact && onOpenArtifact?.(artifact)}
-                className="rounded-md border border-[#67a3ff]/35 px-2 py-1 text-[11px] font-medium text-[#dbe8ff] hover:bg-white/[0.08] umber:border-hairline umber:text-ink umber:hover:bg-subtle disabled:opacity-40"
+                className="rounded-md border border-hairline px-2 py-1 text-[11px] font-medium text-ink hover:bg-subtle disabled:opacity-40"
               >
                 Preview
               </button>
               {deployed ? (
                 <a
                   href={version.liveUrl}
-                  className="rounded-md border border-[#67a3ff]/45 bg-[#0b3ed9]/55 px-2 py-1 text-[11px] font-medium text-white hover:bg-[#0b52ff] umber:border-accent umber:bg-accent umber:text-canvas umber:hover:bg-accent/90"
+                  className="rounded-md border border-accent bg-accent px-2 py-1 text-[11px] font-medium text-on-accent hover:bg-accent/90"
                 >
                   Open app
                 </a>
@@ -316,12 +321,12 @@ function AppDraftStrip({
                   type="button"
                   disabled={pending || !onDeploy}
                   onClick={() => onDeploy?.(version)}
-                  className="rounded-md border border-[#67a3ff]/45 bg-[#0b3ed9]/55 px-2 py-1 text-[11px] font-medium text-white hover:bg-[#0b52ff] umber:border-accent umber:bg-accent umber:text-canvas umber:hover:bg-accent/90 disabled:opacity-50"
+                  className="rounded-md border border-accent bg-accent px-2 py-1 text-[11px] font-medium text-on-accent hover:bg-accent/90 disabled:opacity-50"
                 >
                   {pending ? "Deploying..." : "Deploy update"}
                 </button>
               ) : (
-                <span className="text-[11px] text-[#9dbdff] umber:text-muted">
+                <span className="text-[11px] text-muted">
                   Ready for an owner to deploy
                 </span>
               )}
@@ -355,24 +360,24 @@ function RecommendationStrip({
         return (
           <div
             key={recommendation.dbId}
-            className="rounded-md border border-[#2f6bff]/35 bg-[#06112f]/55 px-3 py-2 text-[12px] text-[#dbe8ff] umber:border-hairline umber:bg-surface umber:text-ink"
+            className="rounded-md border border-hairline bg-surface px-3 py-2 text-[12px] text-ink"
             data-testid="recommendation-card"
           >
             <div className="flex items-start gap-2">
-              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#28d7ff] shadow-[0_0_12px_rgba(40,215,255,0.8)] umber:bg-pop umber:shadow-none" />
+              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-info" />
               <div className="min-w-0 flex-1">
                 <div className="font-medium">{recommendation.title}</div>
-                <div className="mt-0.5 text-[#9dbdff] umber:text-muted">
+                <div className="mt-0.5 text-muted">
                   {recommendation.reason}
                 </div>
               </div>
-              <span className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[#b9d2ff] umber:bg-subtle umber:text-muted">
+              <span className="shrink-0 rounded-full bg-subtle px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
                 {recommendationLabel(recommendation.type)}
               </span>
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5 pl-3.5">
               {accepted ? (
-                <span className="rounded-md border border-[#67a3ff]/35 bg-[#0b2b77]/40 px-2 py-1 text-[11px] text-[#dbe8ff] umber:border-hairline umber:bg-subtle umber:text-muted">
+                <span className="rounded-md border border-success/35 bg-success-bg px-2 py-1 text-[11px] text-success">
                   Accepted
                 </span>
               ) : (
@@ -381,7 +386,7 @@ function RecommendationStrip({
                     type="button"
                     disabled={pending}
                     onClick={() => onAction?.(recommendation, "accepted")}
-                    className="rounded-md border border-[#67a3ff]/45 bg-[#0b3ed9]/55 px-2 py-1 text-[11px] font-medium text-white hover:bg-[#0b52ff] umber:border-accent umber:bg-accent umber:text-canvas umber:hover:bg-accent/90 disabled:opacity-50"
+                    className="rounded-md border border-accent bg-accent px-2 py-1 text-[11px] font-medium text-on-accent hover:bg-accent/90 disabled:opacity-50"
                   >
                     {pending ? "Saving..." : acceptLabel(recommendation)}
                   </button>
@@ -389,7 +394,7 @@ function RecommendationStrip({
                     type="button"
                     disabled={pending}
                     onClick={() => onAction?.(recommendation, "dismissed")}
-                    className="rounded-md border border-[#67a3ff]/25 px-2 py-1 text-[11px] font-medium text-[#b9d2ff] hover:bg-white/[0.08] umber:border-hairline umber:text-ink umber:hover:bg-subtle disabled:opacity-50"
+                    className="rounded-md border border-hairline px-2 py-1 text-[11px] font-medium text-ink hover:bg-subtle disabled:opacity-50"
                   >
                     Dismiss
                   </button>
@@ -441,7 +446,7 @@ function ArtifactStrip({
 }
 
 const artifactPillClassName =
-  "group flex max-w-full items-center gap-2 rounded-full border border-[#67a3ff]/60 bg-[linear-gradient(135deg,#0637cf_0%,#095cff_54%,#00a6ff_100%)] px-2.5 py-1.5 text-left text-[12px] text-white shadow-[0_0_22px_rgba(0,92,255,0.34)] transition hover:brightness-110 umber:border-accent umber:bg-none umber:bg-accent umber:text-canvas umber:shadow-none";
+  "group flex max-w-full items-center gap-2 rounded-full border border-accent bg-accent px-2.5 py-1.5 text-left text-[12px] text-on-accent transition hover:bg-accent/90";
 
 function ArtifactPillContent({
   artifact,
@@ -450,14 +455,14 @@ function ArtifactPillContent({
 }) {
   return (
     <>
-      <span className="shrink-0 rounded-full bg-white/[0.16] px-1.5 py-0.5 font-mono text-[10px] uppercase text-white/[0.86] ring-1 ring-white/[0.18] umber:bg-canvas/20 umber:text-canvas umber:ring-canvas/25">
+      <span className="shrink-0 rounded-full bg-canvas/20 px-1.5 py-0.5 font-mono text-[10px] uppercase text-on-accent/85 ring-1 ring-on-accent/25">
         {artifact.kind.slice(0, 4)}
       </span>
       <span className="min-w-0 truncate font-medium">{artifact.filename}</span>
-      <span className="shrink-0 text-white/[0.72] umber:text-canvas/80">
+      <span className="shrink-0 text-on-accent/75">
         {formatBytes(artifact.sizeBytes)}
       </span>
-      <span className="hidden shrink-0 rounded-full bg-white/[0.18] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white/[0.88] group-hover:bg-white/[0.24] umber:bg-canvas/20 umber:text-canvas umber:group-hover:bg-canvas/30 sm:inline">
+      <span className="hidden shrink-0 rounded-full bg-canvas/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-on-accent/90 group-hover:bg-canvas/30 sm:inline">
         Preview
       </span>
     </>
@@ -524,13 +529,13 @@ function ArtifactCodePreview({
   const saveState = artifact ? null : pending ? "Saving" : "Not saved";
 
   return (
-    <details className="group my-2 overflow-hidden rounded-md border border-[#2f6bff]/40 bg-[#050b1f]/70 umber:border-hairline umber:bg-subtle first:mt-0 last:mb-0">
+    <details className="group my-2 overflow-hidden rounded-md border border-hairline bg-subtle first:mt-0 last:mb-0">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[12px] marker:hidden">
-        <span className="h-1.5 w-1.5 rounded-full bg-[#28d7ff] shadow-[0_0_12px_rgba(40,215,255,0.8)] umber:bg-pop umber:shadow-none" />
-        <span className="min-w-0 flex-1 truncate font-medium text-[#dbe8ff] umber:text-ink">
+        <span className="h-1.5 w-1.5 rounded-full bg-info" />
+        <span className="min-w-0 flex-1 truncate font-medium text-ink">
           Document content collapsed
         </span>
-        <span className="hidden shrink-0 font-mono text-[10px] uppercase text-[#8cb7ff] umber:text-muted sm:inline">
+        <span className="hidden shrink-0 font-mono text-[10px] uppercase text-muted sm:inline">
           {kind}
         </span>
         {saveState ? (
@@ -538,21 +543,21 @@ function ArtifactCodePreview({
             {saveState}
           </span>
         ) : null}
-        <span className="shrink-0 text-[11px] text-[#88a8e8] umber:text-muted group-open:hidden">
+        <span className="shrink-0 text-[11px] text-muted group-open:hidden">
           Show code
         </span>
-        <span className="hidden shrink-0 text-[11px] text-[#88a8e8] umber:text-muted group-open:inline">
+        <span className="hidden shrink-0 text-[11px] text-muted group-open:inline">
           Hide code
         </span>
       </summary>
-      <div className="border-t border-[#2f6bff]/25 umber:border-hairline">
-        <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] text-[#8cb7ff] umber:text-muted">
+      <div className="border-t border-hairline">
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] text-muted">
           <span className="min-w-0 truncate">{label}</span>
           <span className="shrink-0">{formatBytes(code.length)}</span>
         </div>
         <pre
           data-testid="artifact-code-preview-scroll"
-          className="max-h-[min(60vh,34rem)] overflow-auto whitespace-pre-wrap border-t border-[#2f6bff]/20 umber:border-hairline px-3 py-2 font-mono text-[11px] leading-relaxed text-[#c9dcff] umber:text-ink [overflow-wrap:anywhere]"
+          className="max-h-[min(60vh,34rem)] overflow-auto whitespace-pre-wrap border-t border-hairline px-3 py-2 font-mono text-[11px] leading-relaxed text-ink [overflow-wrap:anywhere]"
         >
           {code}
         </pre>

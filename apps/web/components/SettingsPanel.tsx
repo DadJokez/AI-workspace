@@ -273,7 +273,7 @@ export function SettingsPanel({
                       instructionsTooLong ||
                       instructionsSaving
                     }
-                    className="rounded-md bg-ink px-3 py-1 text-xs font-medium text-canvas hover:opacity-90 disabled:opacity-40"
+                    className="rounded-md bg-pop px-3 py-1 text-xs font-medium text-on-pop hover:bg-pop/90 disabled:opacity-40"
                   >
                     {instructionsSaving ? "Saving…" : "Save"}
                   </button>
@@ -306,8 +306,8 @@ export function SettingsPanel({
                 ]}
               />
               <p className="text-[11px] text-muted">
-                Umber is the new warm visual identity (preview). Applies
-                immediately, only on this device.
+                Umber is the default visual identity. Classic remains available
+                temporarily as an escape hatch on this device.
               </p>
             </Field>
             <Field label="Density">

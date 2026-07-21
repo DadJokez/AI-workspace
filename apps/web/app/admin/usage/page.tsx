@@ -130,8 +130,15 @@ export default async function AdminUsagePage({ searchParams }: Props) {
       </div>
 
       <div className="grid gap-3 px-6 pb-5 md:grid-cols-4">
-        <Metric label="Total runs" value={totals.total.toLocaleString()} />
-        <Metric label="Active users" value={totals.activeUsers.toLocaleString()} />
+        <Metric
+          label="Total runs"
+          value={totals.total.toLocaleString()}
+          emphasis
+        />
+        <Metric
+          label="Active users"
+          value={totals.activeUsers.toLocaleString()}
+        />
         <Metric
           label="Success rate"
           value={totals.total > 0 ? `${successRate}%` : "—"}
@@ -238,15 +245,21 @@ function Metric({
   label,
   value,
   hint,
+  emphasis = false,
 }: {
   label: string;
   value: string;
   hint?: string;
+  emphasis?: boolean;
 }) {
   return (
     <div className="rounded-lg border border-hairline bg-surface px-4 py-3">
       <div className="text-[11px] uppercase tracking-wider text-muted">{label}</div>
-      <div className="mt-1 text-2xl font-semibold text-ink">{value}</div>
+      <div
+        className={`mt-1 text-2xl font-semibold ${emphasis ? "text-pop" : "text-ink"}`}
+      >
+        {value}
+      </div>
       {hint ? <div className="mt-1 text-[12px] text-muted">{hint}</div> : null}
     </div>
   );
