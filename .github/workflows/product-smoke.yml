@@ -18,11 +18,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  browser-smoke:
-    name: local browser smoke
+  # The full smoke suite runs 73 tests per Playwright project with a single
+  # worker; running the two projects as parallel matrix legs roughly halves
+  # the wall clock. Branch protection does NOT point at these legs — it points
+  # at the `local browser smoke` summary job below, which fans in the results.
+  browser-smoke-shard:
+    name: browser smoke (${{ matrix.project }})
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [desktop-chromium, mobile-chromium]
     steps:
       - uses: actions/checkout@v6
 
@@ -40,19 +48,52 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Resolve Playwright version
+        id: playwright-version
+        run: echo "version=$(pnpm --filter @ai-workspace/web exec node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # Caching the browser binaries removes the Chromium CDN download from
+      # the critical path — historically a flake source of its own.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-
+
       - name: Install Chromium
         run: pnpm --filter @ai-workspace/web exec playwright install --with-deps chromium
 
       - name: Run browser smoke
-        run: pnpm smoke:browser
+        run: pnpm --filter @ai-workspace/web exec playwright test --project=${{ matrix.project }}
 
       - name: Upload Playwright report
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.project }}
           path: apps/web/playwright-report/
           if-no-files-found: ignore
+
+  # Branch protection requires a check literally named `local browser smoke`.
+  # This job preserves that name over the sharded matrix. It must run on
+  # shard failure (not be skipped) and exit non-zero: a skipped required
+  # check would satisfy branch protection, silently failing the gate open.
+  browser-smoke:
+    name: local browser smoke
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    needs: browser-smoke-shard
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check shard results
+        run: |
+          if [ "${{ needs.browser-smoke-shard.result }}" != "success" ]; then
+            echo "browser smoke shards did not all pass: ${{ needs.browser-smoke-shard.result }}"
+            exit 1
+          fi
+          echo "all browser smoke shards passed"
 
   authenticated-browser-smoke:
     name: authenticated browser smoke
@@ -92,6 +133,18 @@ jobs:
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      - name: Resolve Playwright version
+        id: playwright-version
+        run: echo "version=$(pnpm --filter @ai-workspace/web exec node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-
 
       - name: Install Chromium
         run: pnpm --filter @ai-workspace/web exec playwright install --with-deps chromium

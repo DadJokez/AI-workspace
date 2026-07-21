@@ -101,6 +101,7 @@ export class BedrockRuntime implements AgentRuntime {
         ...(input.volatileSystemSuffix
           ? { volatileSystemSuffix: input.volatileSystemSuffix }
           : {}),
+        ...(input.userTimeZone ? { userTimeZone: input.userTimeZone } : {}),
         messages: input.messages,
         registry,
         context: input.context,

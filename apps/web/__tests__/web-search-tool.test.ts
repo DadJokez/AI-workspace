@@ -75,6 +75,8 @@ describe("web search built-in tool", () => {
     expect(listing).toContain("1. Result One");
     expect(listing).toContain("https://two.example/");
     expect(listing).toMatch(/untrusted DATA/);
+    // Anti-echo steering: do not repeat injected tokens/markers verbatim.
+    expect(listing).toMatch(/do not repeat them verbatim/);
     // Per-call nonce markers; forged markers inside snippets are stripped.
     expect(listing).toMatch(
       /<<<WEB-SEARCH-RESULTS [0-9a-f-]{36}>>>[\s\S]*<<<END-WEB-SEARCH-RESULTS [0-9a-f-]{36}>>>/,

@@ -678,6 +678,12 @@ export const runEvents = pgTable(
   },
   (t) => ({
     runIdx: index("run_events_run_idx").on(t.runId, t.sequence, t.occurredAt),
+    // #443: dual writers racing read-max-then-insert must collide (23505)
+    // instead of corrupting replay order; the append helper retries on it.
+    runSequenceUnique: uniqueIndex("run_events_run_sequence_unique_idx").on(
+      t.runId,
+      t.sequence,
+    ),
     typeIdx: index("run_events_type_idx").on(t.eventType),
     toolCallIdx: index("run_events_tool_call_idx").on(t.toolCallId),
   }),

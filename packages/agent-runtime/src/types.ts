@@ -63,6 +63,12 @@ export interface TurnInput {
    * is ever dropped.
    */
   volatileSystemSuffix?: string;
+  /**
+   * Validated IANA timezone of the requesting user's browser (#432). Only
+   * interactive chat turns set it — scheduled/background triggers stay
+   * UTC-only. Both runtimes hand it to the agent loop's clock statement.
+   */
+  userTimeZone?: string;
   /** Bounded chat context. Bedrock and AgentCore consume the supplied context. */
   messages: AgentMessage[];
   /** Per-request context passed to tool handlers (and hooks, when wired). */
