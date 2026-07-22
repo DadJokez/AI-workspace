@@ -95,9 +95,7 @@ export default async function InvitePage({
     );
   }
 
-  const signInHref = `/api/auth/signin/github?callbackUrl=${encodeURIComponent(
-    "/chat",
-  )}`;
+  const signInHref = `/login?callbackUrl=${encodeURIComponent("/chat")}`;
 
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-canvas px-6 text-ink">
@@ -110,7 +108,7 @@ export default async function InvitePage({
         </div>
         <h1 className="text-base font-semibold">You&apos;ve been invited</h1>
         <p className="mt-2 text-sm text-muted">
-          Sign in with GitHub to join the workspace as{" "}
+          Continue to sign in with the invited email address{" "}
           <span className="text-ink">{result.email}</span>.
         </p>
         <p className="mt-1 text-xs text-muted">
@@ -121,7 +119,7 @@ export default async function InvitePage({
           href={signInHref}
           className="mt-6 inline-flex items-center justify-center rounded-md bg-ink px-4 py-2 text-sm font-medium text-canvas hover:opacity-90"
         >
-          Continue with GitHub
+          Continue to sign in
         </Link>
       </div>
     </div>

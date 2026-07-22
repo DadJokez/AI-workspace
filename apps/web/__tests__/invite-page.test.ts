@@ -72,6 +72,19 @@ function collectText(node: unknown): string {
   return parts.join(" ");
 }
 
+function collectHrefs(node: unknown): string[] {
+  if (node === null || node === undefined || typeof node !== "object") {
+    return [];
+  }
+  if (Array.isArray(node)) return node.flatMap(collectHrefs);
+  const el = node as ReactElementLike;
+  if (!el.props) return [];
+  return [
+    ...(typeof el.props.href === "string" ? [el.props.href] : []),
+    ...collectHrefs(el.props.children),
+  ];
+}
+
 afterEach(() => {
   vi.resetModules();
 });
@@ -154,8 +167,10 @@ describe("/invite/[token] page", () => {
     const text = collectText(tree);
     expect(text).toContain("You");
     expect(text).toContain("invited");
-    expect(text).toContain("Continue with GitHub");
+    expect(text).toContain("Continue to sign in");
+    expect(text).not.toContain("GitHub");
     expect(text).toContain("valid@example.com");
     expect(text).toContain("admin");
+    expect(collectHrefs(tree)).toContain("/login?callbackUrl=%2Fchat");
   });
 });
