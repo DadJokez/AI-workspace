@@ -2,6 +2,7 @@ import { feedbackReports, getDb } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { normalizeFeedbackStatus } from "@/lib/feedback-status";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +79,7 @@ export async function PATCH(
   return NextResponse.json({
     report: {
       ...row,
+      status: normalizeFeedbackStatus(row.status),
       resolvedAt: row.resolvedAt?.toISOString() ?? null,
       updatedAt: row.updatedAt.toISOString(),
     },

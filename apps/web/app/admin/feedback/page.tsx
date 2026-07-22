@@ -12,7 +12,7 @@ import {
   normalizeFeedbackStatus,
   parseFeedbackStatusFilter,
   summarizeFeedbackStatusCounts,
-} from "./feedback-status";
+} from "@/lib/feedback-status";
 
 export const dynamic = "force-dynamic";
 

@@ -3,7 +3,7 @@ import {
   normalizeFeedbackStatus,
   parseFeedbackStatusFilter,
   summarizeFeedbackStatusCounts,
-} from "@/app/admin/feedback/feedback-status";
+} from "@/lib/feedback-status";
 
 describe("feedback status helpers", () => {
   it("accepts known filters and defaults unknown input to new", () => {

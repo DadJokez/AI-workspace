@@ -5,7 +5,7 @@ import { useState } from "react";
 import { StatusBadge } from "@/app/admin/ui";
 import { getLinkedIssueTag } from "./issue-tags";
 import { EmptyState } from "@/components/EmptyState";
-import { FEEDBACK_STATUS_OPTIONS } from "./feedback-status";
+import { FEEDBACK_STATUS_OPTIONS } from "@/lib/feedback-status";
 
 export interface AdminFeedbackRow {
   id: string;

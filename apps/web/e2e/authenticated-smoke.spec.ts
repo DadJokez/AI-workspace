@@ -519,6 +519,24 @@ test.describe("authenticated product smoke", () => {
       table.getByText("Auth Smoke Legacy Resolved Feedback"),
     ).toBeVisible();
 
+    const legacyRow = table.getByRole("row").filter({
+      hasText: "Auth Smoke Legacy Resolved Feedback",
+    });
+    await legacyRow.getByText("Triage notes").click();
+    await legacyRow
+      .getByPlaceholder("Admin notes")
+      .fill("Legacy status remains canonical after this notes-only edit.");
+    const [notesResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().includes("/api/admin/feedback/") &&
+          response.request().method() === "PATCH",
+      ),
+      legacyRow.getByRole("button", { name: "Save notes" }).click(),
+    ]);
+    expect(notesResponse.ok()).toBe(true);
+    await expect(legacyRow.locator("select")).toHaveValue("fixed");
+
     await page.getByRole("link", { name: "Fixed (2)" }).click();
     await expect(page).toHaveURL(/\/admin\/feedback\?status=fixed$/);
     await expect(page.getByText("showing 2 reports")).toBeVisible();

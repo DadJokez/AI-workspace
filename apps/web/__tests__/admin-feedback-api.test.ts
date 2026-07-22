@@ -139,6 +139,39 @@ describe("PATCH /api/admin/feedback/[id]", () => {
     });
   });
 
+  it("keeps a legacy resolved report canonical after a notes-only edit", async () => {
+    updateReturning = [
+      {
+        id: REPORT_ID,
+        status: "resolved",
+        adminNotes: "Linked to the follow-up issue.",
+        linkedIssueUrl: "https://github.com/example/repo/issues/84",
+        resolvedAt: fixedDate,
+        updatedAt: fixedDate,
+      },
+    ];
+    installMocks();
+
+    const { PATCH } = await import("@/app/api/admin/feedback/[id]/route");
+    const res = await PATCH(
+      makeReq({
+        adminNotes: "Linked to the follow-up issue.",
+        linkedIssueUrl: "https://github.com/example/repo/issues/84",
+      }),
+      { params: Promise.resolve({ id: REPORT_ID }) },
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      report: {
+        id: REPORT_ID,
+        status: "fixed",
+        adminNotes: "Linked to the follow-up issue.",
+      },
+    });
+    expect(capturedPatch).not.toHaveProperty("status");
+  });
+
   it("allows marking reports as triaged", async () => {
     updateReturning = [
       {
