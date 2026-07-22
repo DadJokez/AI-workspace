@@ -2,6 +2,7 @@ import {
   appEditSessions,
   appVersions,
   apps,
+  feedbackReports,
   getDb,
   rateLimitBuckets,
   shares,
@@ -27,6 +28,9 @@ const liveVersionId = "00000000-0000-4000-8000-000000000241";
 const previousVersionId = "00000000-0000-4000-8000-000000000242";
 const draftVersionId = "00000000-0000-4000-8000-000000000243";
 const discardVersionId = "00000000-0000-4000-8000-000000000244";
+const triagedFeedbackId = "00000000-0000-4000-8000-000000000251";
+const fixedFeedbackId = "00000000-0000-4000-8000-000000000252";
+const resolvedFeedbackId = "00000000-0000-4000-8000-000000000253";
 const fixtureUserIds = [
   smokeUserId,
   starterOwnerId,
@@ -97,6 +101,37 @@ async function main() {
       email: "app-recipient@example.com",
       displayName: "App Recipient",
       role: "user",
+    },
+  ]);
+
+  await db.insert(feedbackReports).values([
+    {
+      id: triagedFeedbackId,
+      userId: smokeUserId,
+      type: "bug",
+      severity: "normal",
+      status: "triaged",
+      title: "Auth Smoke Triaged Feedback",
+      body: "A seeded triaged report for feedback navigation coverage.",
+    },
+    {
+      id: fixedFeedbackId,
+      userId: smokeUserId,
+      type: "enhancement",
+      severity: "low",
+      status: "fixed",
+      title: "Auth Smoke Fixed Feedback",
+      body: "A seeded fixed report for feedback navigation coverage.",
+    },
+    {
+      id: resolvedFeedbackId,
+      userId: smokeUserId,
+      type: "bug",
+      severity: "normal",
+      status: "resolved",
+      title: "Auth Smoke Legacy Resolved Feedback",
+      body: "A legacy resolved report that must remain discoverable as fixed.",
+      resolvedAt: new Date(),
     },
   ]);
 

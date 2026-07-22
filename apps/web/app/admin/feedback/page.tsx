@@ -1,5 +1,5 @@
 import { chatThreads, feedbackReports, getDb, users } from "@ai-workspace/db";
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { FilterPill } from "@/app/admin/ui";
@@ -7,25 +7,17 @@ import {
   FeedbackTable,
   type AdminFeedbackRow,
 } from "./FeedbackTable";
+import {
+  FEEDBACK_STATUS_FILTERS,
+  normalizeFeedbackStatus,
+  parseFeedbackStatusFilter,
+  summarizeFeedbackStatusCounts,
+} from "@/lib/feedback-status";
 
 export const dynamic = "force-dynamic";
 
 interface Props {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
-}
-
-const STATUS_FILTERS = [
-  { value: "all", label: "All" },
-  { value: "new", label: "New" },
-  { value: "reviewing", label: "Reviewing" },
-  { value: "triaged", label: "Triaged" },
-  { value: "fixed", label: "Fixed" },
-  { value: "wontfix", label: "Won't fix" },
-];
-
-function parseStatus(value: string | string[] | undefined): string {
-  const raw = Array.isArray(value) ? value[0] : value;
-  return STATUS_FILTERS.some((item) => item.value === raw) ? raw! : "new";
 }
 
 export default async function AdminFeedbackPage({ searchParams }: Props) {
@@ -35,8 +27,14 @@ export default async function AdminFeedbackPage({ searchParams }: Props) {
   }
 
   const params = (await searchParams) ?? {};
-  const status = parseStatus(params.status);
+  const status = parseFeedbackStatusFilter(params.status);
   const db = getDb();
+  const statusCondition =
+    status === "all"
+      ? undefined
+      : status === "fixed"
+        ? inArray(feedbackReports.status, ["fixed", "resolved"])
+        : eq(feedbackReports.status, status);
 
   const rows = await db
     .select({
@@ -63,7 +61,7 @@ export default async function AdminFeedbackPage({ searchParams }: Props) {
     .from(feedbackReports)
     .leftJoin(users, eq(feedbackReports.userId, users.id))
     .leftJoin(chatThreads, eq(feedbackReports.threadId, chatThreads.id))
-    .where(status === "all" ? undefined : eq(feedbackReports.status, status))
+    .where(statusCondition)
     .orderBy(desc(feedbackReports.createdAt))
     .limit(100);
 
@@ -74,11 +72,11 @@ export default async function AdminFeedbackPage({ searchParams }: Props) {
     })
     .from(feedbackReports)
     .groupBy(feedbackReports.status);
-  const countByStatus = new Map(counts.map((row) => [row.status, row.count]));
-  const total = counts.reduce((sum, row) => sum + row.count, 0);
+  const { countByStatus, total } = summarizeFeedbackStatusCounts(counts);
 
   const out: AdminFeedbackRow[] = rows.map((row) => ({
     ...row,
+    status: normalizeFeedbackStatus(row.status),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     resolvedAt: row.resolvedAt?.toISOString() ?? null,
@@ -94,7 +92,7 @@ export default async function AdminFeedbackPage({ searchParams }: Props) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 px-4 pb-4 sm:px-6">
-        {STATUS_FILTERS.map((item) => {
+        {FEEDBACK_STATUS_FILTERS.map((item) => {
           const count =
             item.value === "all" ? total : (countByStatus.get(item.value) ?? 0);
           const href =
@@ -112,7 +110,7 @@ export default async function AdminFeedbackPage({ searchParams }: Props) {
         </span>
       </div>
 
-      <FeedbackTable rows={out} />
+      <FeedbackTable key={status} rows={out} />
     </section>
   );
 }

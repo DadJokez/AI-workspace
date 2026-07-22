@@ -5,6 +5,7 @@ import { useState } from "react";
 import { StatusBadge } from "@/app/admin/ui";
 import { getLinkedIssueTag } from "./issue-tags";
 import { EmptyState } from "@/components/EmptyState";
+import { FEEDBACK_STATUS_OPTIONS } from "@/lib/feedback-status";
 
 export interface AdminFeedbackRow {
   id: string;
@@ -27,14 +28,6 @@ export interface AdminFeedbackRow {
   updatedAt: string;
   resolvedAt: string | null;
 }
-
-const STATUS_OPTIONS = [
-  { value: "new", label: "New" },
-  { value: "reviewing", label: "Reviewing" },
-  { value: "triaged", label: "Triaged" },
-  { value: "fixed", label: "Fixed" },
-  { value: "wontfix", label: "Won't fix" },
-];
 
 const SAFE_SCREENSHOT_MIME_TYPES = new Set([
   "image/png",
@@ -361,7 +354,7 @@ function StatusSelect({
       onChange={(e) => onChange(e.target.value)}
       className={`rounded-md border border-hairline bg-canvas px-2 py-1 text-xs text-ink focus-visible:border-ink/30 ${className}`}
     >
-      {STATUS_OPTIONS.map((option) => (
+      {FEEDBACK_STATUS_OPTIONS.map((option) => (
         <option key={option.value} value={option.value}>
           {option.label}
         </option>

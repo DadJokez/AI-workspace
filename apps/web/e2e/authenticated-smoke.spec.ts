@@ -1,6 +1,8 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { getDb } from "@ai-workspace/db";
 import { expect, test } from "@playwright/test";
+import { sql } from "drizzle-orm";
 import { authSmokeUser, installAuthSmokeSession } from "./helpers/auth";
 import {
   defaultArtifactDetail,
@@ -499,6 +501,82 @@ test.describe("authenticated product smoke", () => {
     expect(revokeResponse.ok()).toBe(true);
     await expect(row).toContainText("revoked");
     await expect(row.getByRole("button", { name: "Resend" })).toBeDisabled();
+  });
+
+  test("keeps admin feedback rows in sync with URL filters", async ({
+    page,
+  }) => {
+    await page.goto("/admin/feedback");
+    await expect(page.getByText("No feedback in this view")).toBeVisible();
+
+    await page.getByRole("link", { name: "All (3)" }).click();
+    await expect(page).toHaveURL(/\/admin\/feedback\?status=all$/);
+    await expect(page.getByText("showing 3 reports")).toBeVisible();
+    const table = page.getByRole("table");
+    await expect(table.getByText("Auth Smoke Triaged Feedback")).toBeVisible();
+    await expect(table.getByText("Auth Smoke Fixed Feedback")).toBeVisible();
+    await expect(
+      table.getByText("Auth Smoke Legacy Resolved Feedback"),
+    ).toBeVisible();
+
+    const legacyRow = table.getByRole("row").filter({
+      hasText: "Auth Smoke Legacy Resolved Feedback",
+    });
+    await legacyRow.getByText("Triage notes").click();
+    await legacyRow
+      .getByPlaceholder("Admin notes")
+      .fill("Legacy status remains canonical after this notes-only edit.");
+    const [notesResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().includes("/api/admin/feedback/") &&
+          response.request().method() === "PATCH",
+      ),
+      legacyRow.getByRole("button", { name: "Save notes" }).click(),
+    ]);
+    expect(notesResponse.ok()).toBe(true);
+    await expect(legacyRow.locator("select")).toHaveValue("fixed");
+
+    await page.getByRole("link", { name: "Fixed (2)" }).click();
+    await expect(page).toHaveURL(/\/admin\/feedback\?status=fixed$/);
+    await expect(page.getByText("showing 2 reports")).toBeVisible();
+    await expect(table.getByText("Auth Smoke Fixed Feedback")).toBeVisible();
+    await expect(
+      table.getByText("Auth Smoke Legacy Resolved Feedback"),
+    ).toBeVisible();
+    await expect(table.getByText("Auth Smoke Triaged Feedback")).toHaveCount(0);
+
+    await page.goBack();
+    await expect(page.getByText("showing 3 reports")).toBeVisible();
+    await expect(table.getByText("Auth Smoke Triaged Feedback")).toBeVisible();
+    await page.goForward();
+    await expect(page.getByText("showing 2 reports")).toBeVisible();
+
+    await page.goto("/admin/feedback?status=all");
+    await expect(page.getByText("showing 3 reports")).toBeVisible();
+  });
+
+  test("shows a retryable error when feedback loading fails", async ({
+    page,
+  }) => {
+    const db = getDb();
+    await db.execute(
+      sql`alter table feedback_reports rename to feedback_reports_unavailable`,
+    );
+    try {
+      await page.goto("/admin/feedback?status=all");
+      await expect(
+        page.getByRole("heading", { name: "Feedback could not be loaded" }),
+      ).toBeVisible();
+      await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+    } finally {
+      await db.execute(
+        sql`alter table feedback_reports_unavailable rename to feedback_reports`,
+      );
+    }
+
+    await page.getByRole("button", { name: "Try again" }).click();
+    await expect(page.getByText("showing 3 reports")).toBeVisible();
   });
 
   test("opens the global command palette across protected surfaces", async ({
