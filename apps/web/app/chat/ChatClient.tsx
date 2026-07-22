@@ -58,7 +58,6 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     threadsLoading,
     threadsError,
     userDefaultModelId,
-    oauthConnected,
     connectedProviders,
     emptyStateSuggestions,
     slashSkills,
@@ -172,23 +171,15 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     }
   };
 
-  const saveWizardStep = async (patch: {
-    assistantName?: string;
-    onboarding?: { role?: string; tools?: string[]; firstTask?: string };
-  }) => {
-    try {
-      const res = await fetch("/api/user", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(patch),
-      });
-      if (res.ok) {
-        const body = (await res.json()) as UserResponse;
-        setUser(body.user);
-      }
-    } catch {
-      /* non-fatal — the wizard continues */
-    }
+  const saveWizardStep = async (patch: { assistantName: string }) => {
+    const res = await fetch("/api/user", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = (await res.json()) as UserResponse;
+    setUser(body.user);
   };
 
   const { activeHasPendingRun } = useRunPolling({
@@ -467,13 +458,9 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
       <WelcomeWizard
         open={wizardOpen}
         initialAssistantName={user?.assistantName ?? null}
-        connected={oauthConnected}
+        startAtTour={user?.tourCompletedAt != null}
         onSave={saveWizardStep}
         onComplete={completeWizard}
-        onOpenIntegrations={() => {
-          setWizardOpen(false);
-          setSettingsSection("integrations");
-        }}
       />
       <FeedbackReporter
         open={feedbackOpen}

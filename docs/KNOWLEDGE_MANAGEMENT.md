@@ -51,11 +51,13 @@ and `users.tour_completed_at`. The preamble already injects approved Vault
 markdown.
 
 **Sources that feed it:**
-- The **onboarding wizard** (specs/005): role, team, tools, "what would you hand
-  off first" → seeds custom instructions + initial memory items.
+- **Custom instructions** set by the user in Settings.
 - **Automatic capture** during chats (already built) — "I'm in supply chain,"
   "I always want bullet points" → suggested, user-approved.
-- **Manual** entry on a Memory page (parity P1.3 — not yet built).
+- **Manual** entry in Vault.
+
+The first-run flow (specs/005) intentionally collects only an assistant name.
+It does not guess at durable role context before the user has done real work.
 
 **The gap:** no surface to *see and curate* the durable profile. Highest-value
 next step on this layer. Principle: **the user can always read, edit, and delete

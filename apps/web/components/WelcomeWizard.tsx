@@ -1,88 +1,69 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { WelcomeTour } from "@/components/WelcomeTour";
 import {
   migrateLegacyLocalStorage,
   WIZARD_NAME_STORAGE_KEY,
   WIZARD_STEP_STORAGE_KEY,
 } from "@/lib/local-storage-migrations";
+import { resolveWelcomeStep, type WelcomeStep } from "@/lib/tour";
 
 /**
- * First-login setup wizard (specs/005). Four steps: name your assistant →
- * connect tools → about your work → capability walkthrough (the shipped
- * WelcomeTour). The whole flow is gated by `tour_completed_at` (reused from
- * #136); finishing the tour persists completion.
- *
- * OAuth resume: connecting a tool round-trips through the provider and back
- * to /chat. We persist the step in localStorage so the wizard reopens at the
- * tools step with the assistant name (already saved server-side) intact.
+ * First-login setup (specs/005): name the assistant, then show the factual
+ * capability tour. Tool connections and profile intake stay out of the first
+ * session; users can reach them later without blocking their first chat.
  */
-const SUGGESTED_NAMES = ["Hub", "Atlas", "Sage", "Nova", "Pax"];
-const ROLE_OPTIONS = [
-  "Product / Program",
-  "Engineering",
-  "Operations",
-  "Finance",
-  "Sales / Account",
-  "Analyst / Data",
-  "Other",
-];
-const TOOL_OPTIONS = [
-  "GitHub",
-  "Files / Docs",
-  "Outlook / M365",
-  "Salesforce",
-  "Workfront",
-  "Excel",
-  "Slack / Teams",
-];
+const SUGGESTED_NAMES = ["Atlas", "Sage", "Scout", "Nova", "Pax"];
 
 interface WelcomeWizardProps {
   open: boolean;
   initialAssistantName: string | null;
-  /** Provider connection status, e.g. { github: true }. */
-  connected: Record<string, boolean>;
-  /** Persist a partial profile update (assistant name, onboarding answers). */
-  onSave: (patch: {
-    assistantName?: string;
-    onboarding?: { role?: string; tools?: string[]; firstTask?: string };
-  }) => Promise<void>;
-  /** Opens the full Integrations settings section without losing wizard progress. */
-  onOpenIntegrations: () => void;
-  /** Called when the whole flow (including the tour) completes or is skipped. */
+  /** Settings replays the capability tour without repeating first-run setup. */
+  startAtTour?: boolean;
+  /** Persist the assistant name before continuing. */
+  onSave: (patch: { assistantName: string }) => Promise<void>;
+  /** Called when the flow completes or is skipped. */
   onComplete: () => void;
 }
-
-type Step = "name" | "tools" | "about" | "tour";
-const ORDER: Step[] = ["name", "tools", "about", "tour"];
 
 export function WelcomeWizard({
   open,
   initialAssistantName,
-  connected,
+  startAtTour = false,
   onSave,
-  onOpenIntegrations,
   onComplete,
 }: WelcomeWizardProps) {
-  const [step, setStep] = useState<Step>("name");
+  const [step, setStep] = useState<WelcomeStep>("name");
   const [name, setName] = useState(initialAssistantName ?? "");
-  const [role, setRole] = useState("");
-  const [tools, setTools] = useState<string[]>([]);
-  const [firstTask, setFirstTask] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const openedRef = useRef(false);
 
-  // Resume after an OAuth redirect: restore the step + drafted name.
+  // Restore a drafted name and carry users stranded on a retired setup step
+  // directly into the tour. Only initialize once per open/close cycle so the
+  // profile response from saving a name cannot reset the active step.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      openedRef.current = false;
+      return;
+    }
+    if (openedRef.current) return;
+    openedRef.current = true;
+
     migrateLegacyLocalStorage(window.localStorage);
-    const savedStep = window.localStorage.getItem(
-      WIZARD_STEP_STORAGE_KEY,
-    ) as Step | null;
+    const savedStep = window.localStorage.getItem(WIZARD_STEP_STORAGE_KEY);
     const savedName = window.localStorage.getItem(WIZARD_NAME_STORAGE_KEY);
     if (savedName && !initialAssistantName) setName(savedName);
-    if (savedStep && ORDER.includes(savedStep)) setStep(savedStep);
-  }, [open, initialAssistantName]);
+    setStep(
+      resolveWelcomeStep({
+        startAtTour,
+        savedStep,
+        hasAssistantName: Boolean(initialAssistantName),
+      }),
+    );
+    setError(null);
+  }, [open, initialAssistantName, startAtTour]);
 
   useEffect(() => {
     if (open) window.localStorage.setItem(WIZARD_STEP_STORAGE_KEY, step);
@@ -90,7 +71,6 @@ export function WelcomeWizard({
 
   if (!open) return null;
 
-  // The capability walkthrough is the existing tour, re-titled by step 4.
   if (step === "tour") {
     return (
       <WelcomeTour
@@ -103,39 +83,20 @@ export function WelcomeWizard({
     );
   }
 
-  const stepIndex = ORDER.indexOf(step);
-
-  async function goNext() {
+  async function continueToTour() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
     setBusy(true);
+    setError(null);
     try {
-      if (step === "name") {
-        const trimmed = name.trim();
-        await onSave({ assistantName: trimmed || "Hub" });
-        setStep("tools");
-      } else if (step === "tools") {
-        setStep("about");
-      } else if (step === "about") {
-        await onSave({
-          onboarding: {
-            role: role || undefined,
-            tools: tools.length ? tools : undefined,
-            firstTask: firstTask.trim() || undefined,
-          },
-        });
-        setStep("tour");
-      }
+      await onSave({ assistantName: trimmed });
+      setStep("tour");
+    } catch {
+      setError("We couldn't save that name. Try again.");
     } finally {
       setBusy(false);
     }
   }
-
-  function toggleTool(t: string) {
-    setTools((prev) =>
-      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
-    );
-  }
-
-  const assistantLabel = name.trim() || "your assistant";
 
   return (
     <div
@@ -144,141 +105,52 @@ export function WelcomeWizard({
       aria-modal="true"
       aria-label="Welcome setup"
     >
-      <div className="w-[min(94vw,460px)] rounded-xl border border-hairline bg-canvas p-5 text-ink shadow-2xl">
-        <div className="mb-3 flex items-center gap-1.5">
-          {ORDER.slice(0, 3).map((s, i) => (
-            <span
-              key={s}
-              className={`h-1 flex-1 rounded-full ${i <= stepIndex ? "bg-ink" : "bg-hairline"}`}
-            />
-          ))}
-        </div>
-
-        {step === "name" ? (
-          <div>
-            <h2 className="text-md font-semibold">Name your assistant</h2>
-            <p className="mt-1.5 text-sm text-muted">
-              This is your personal AI at work. Give it a name — it&apos;ll
-              show up in your chats.
-            </p>
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
+      <div className="w-[min(94vw,460px)] rounded-md border border-hairline bg-canvas p-5 text-ink shadow-lg">
+        <p className="text-xs font-medium text-muted">
+          First-run setup
+        </p>
+        <h2 className="mt-1.5 text-md font-semibold">Name your assistant</h2>
+        <p className="mt-1.5 text-sm text-muted">
+          Choose the name you want to see in chat. You can change it later in
+          Settings.
+        </p>
+        <input
+          autoFocus
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value);
+            window.localStorage.setItem(
+              WIZARD_NAME_STORAGE_KEY,
+              e.target.value,
+            );
+          }}
+          maxLength={40}
+          placeholder="Atlas"
+          className="mt-3 w-full rounded-md border border-hairline bg-canvas px-3 py-2 text-base text-ink focus-visible:border-ink/40"
+        />
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {SUGGESTED_NAMES.map((suggestedName) => (
+            <button
+              key={suggestedName}
+              type="button"
+              onClick={() => {
+                setName(suggestedName);
                 window.localStorage.setItem(
                   WIZARD_NAME_STORAGE_KEY,
-                  e.target.value,
+                  suggestedName,
                 );
               }}
-              maxLength={40}
-              placeholder="Hub"
-              className="mt-3 w-full rounded-md border border-hairline bg-canvas px-3 py-2 text-base text-ink focus-visible:border-ink/40"
-            />
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {SUGGESTED_NAMES.map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => setName(n)}
-                  className="rounded-full border border-hairline px-2.5 py-1 text-xs text-muted hover:bg-subtle hover:text-ink"
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : step === "tools" ? (
-          <div>
-            <h2 className="text-md font-semibold">
-              Connect your tools
-            </h2>
-            <p className="mt-1.5 text-sm text-muted">
-              Let {assistantLabel} work with your real systems. You approve
-              every connection; everything it does is audited.
-            </p>
-            <div className="mt-3 flex flex-col gap-2">
-              <a
-                href="/api/oauth/github/start"
-                className={`flex items-center justify-between rounded-md border px-3 py-2.5 text-base ${
-                  connected.github
-                    ? "border-success/40 bg-success-bg"
-                    : "border-hairline hover:bg-subtle"
-                }`}
-              >
-                <span className="font-medium text-ink">GitHub</span>
-                <span className="text-xs text-muted">
-                  {connected.github ? "✓ Connected" : "Connect →"}
-                </span>
-              </a>
-              <div className="flex items-center justify-between rounded-md border border-hairline px-3 py-2.5 text-base opacity-60">
-                <span className="text-ink">
-                  Microsoft 365, Salesforce, Workfront…
-                </span>
-                <span className="text-xs text-muted">Coming soon</span>
-              </div>
-              <button
-                type="button"
-                onClick={onOpenIntegrations}
-                className="self-start text-xs font-medium text-ink underline decoration-hairline underline-offset-2 hover:decoration-ink"
-              >
-                Manage all integrations
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div>
-            <h2 className="text-md font-semibold">About your work</h2>
-            <p className="mt-1.5 text-sm text-muted">
-              Three quick questions so {assistantLabel} starts out knowing a
-              little about you.
-            </p>
-            <label className="mt-3 block text-xs text-muted">
-              What&apos;s your role?
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="mt-1 w-full rounded-md border border-hairline bg-canvas px-2 py-2 text-base text-ink"
-              >
-                <option value="">Choose…</option>
-                {ROLE_OPTIONS.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="mt-3 text-xs text-muted">
-              Which tools do you live in?
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {TOOL_OPTIONS.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => toggleTool(t)}
-                    className={`rounded-full border px-2.5 py-1 text-xs ${
-                      tools.includes(t)
-                        ? "border-ink bg-ink text-canvas"
-                        : "border-hairline text-muted hover:bg-subtle hover:text-ink"
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <label className="mt-3 block text-xs text-muted">
-              One thing you&apos;d hand off first?
-              <input
-                value={firstTask}
-                onChange={(e) => setFirstTask(e.target.value)}
-                maxLength={200}
-                placeholder="e.g. summarizing my weekly status"
-                className="mt-1 w-full rounded-md border border-hairline bg-canvas px-2 py-2 text-base text-ink focus-visible:border-ink/40"
-              />
-            </label>
-          </div>
-        )}
+              className="rounded-full border border-hairline px-2.5 py-1 text-xs text-muted hover:bg-subtle hover:text-ink"
+            >
+              {suggestedName}
+            </button>
+          ))}
+        </div>
+        {error ? (
+          <p role="alert" className="mt-3 text-xs text-danger">
+            {error}
+          </p>
+        ) : null}
 
         <div className="mt-5 flex items-center justify-between">
           <button
@@ -291,29 +163,14 @@ export function WelcomeWizard({
           >
             Skip setup
           </button>
-          <div className="flex items-center gap-2">
-            {stepIndex > 0 ? (
-              <button
-                type="button"
-                onClick={() => setStep(ORDER[stepIndex - 1]!)}
-                className="rounded-md border border-hairline px-3 py-1.5 text-sm text-ink hover:bg-subtle"
-              >
-                Back
-              </button>
-            ) : null}
-            <button
-              type="button"
-              disabled={busy || (step === "name" && !name.trim())}
-              onClick={goNext}
-              className="rounded-md bg-ink px-3.5 py-1.5 text-sm font-medium text-canvas hover:opacity-90 disabled:opacity-40"
-            >
-              {step === "tools" && !connected.github
-                ? "Skip for now"
-                : step === "about"
-                  ? "Finish setup"
-                  : "Next"}
-            </button>
-          </div>
+          <button
+            type="button"
+            disabled={busy || !name.trim()}
+            onClick={continueToTour}
+            className="rounded-md bg-ink px-3.5 py-1.5 text-sm font-medium text-canvas hover:opacity-90 disabled:opacity-40"
+          >
+            {busy ? "Saving…" : "Continue"}
+          </button>
         </div>
       </div>
     </div>

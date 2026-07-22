@@ -93,7 +93,7 @@ interface MockUser {
   displayName: string;
   role: string;
   defaultModelId: string | null;
-  assistantName: string;
+  assistantName: string | null;
   customInstructions: string | null;
   tourCompletedAt: string | null;
   [key: string]: unknown;
@@ -281,6 +281,15 @@ export async function installMockComparativeApi(
           body.defaultModelId === null
         ) {
           user.defaultModelId = body.defaultModelId;
+        }
+        if (
+          typeof body.assistantName === "string" ||
+          body.assistantName === null
+        ) {
+          user.assistantName = body.assistantName;
+        }
+        if (body.tourCompleted === true) {
+          user.tourCompletedAt = now;
         }
         return json(route, { user });
       }
