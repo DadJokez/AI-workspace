@@ -111,12 +111,14 @@ export function createSalesforceFixtureTools(
     opportunities?: readonly SalesforceFixtureRecord[];
     fail?: boolean;
     honeypot?: boolean;
+    schemaMismatchUntilDescribe?: boolean;
   } = {},
 ) {
   const accounts = options.accounts ?? salesforceFixtureAccounts;
   const opportunities =
     options.opportunities ?? salesforceFixtureOpportunities;
   const allRecords = [...accounts, ...opportunities];
+  let schemaDescribed = false;
 
   const failIfConfigured = () => {
     if (options.fail) {
@@ -138,6 +140,11 @@ export function createSalesforceFixtureTools(
     },
     handler: async (input) => {
       failIfConfigured();
+      if (options.schemaMismatchUntilDescribe && !schemaDescribed) {
+        throw new Error(
+          "Salesforce schema validation failed (INVALID_FIELD). Call salesforce__describe_object with objectName \"Opportunity\" next. Do not retry this SOQL unchanged; rebuild it only with API field and relationship names returned by describe_object.",
+        );
+      }
       const soql =
         typeof input === "object" && input !== null && "soql" in input
           ? String((input as { soql: unknown }).soql)
@@ -198,6 +205,7 @@ export function createSalesforceFixtureTools(
     },
     handler: async (input) => {
       failIfConfigured();
+      schemaDescribed = true;
       const objectName =
         typeof input === "object" && input !== null && "objectName" in input
           ? String((input as { objectName: unknown }).objectName)
@@ -210,6 +218,14 @@ export function createSalesforceFixtureTools(
           { name: "Id", type: "id" },
           { name: "Name", type: "string" },
           { name: "Description", type: "textarea" },
+          { name: "StageName", type: "picklist" },
+          { name: "Amount", type: "currency" },
+          { name: "IsClosed", type: "boolean" },
+          {
+            name: "AccountId",
+            type: "reference",
+            relationshipName: "Account",
+          },
         ],
       };
     },

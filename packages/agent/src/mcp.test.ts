@@ -111,4 +111,35 @@ describe("connectMcpTools untrusted-output seam (#497)", () => {
       "quota exceeded",
     );
   });
+
+  it("blocks identical retries when an MCP error requires changed arguments", async () => {
+    mocks.client.callTool
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: "text",
+            text: "Describe the object and rebuild the query.",
+          },
+        ],
+        isError: true,
+        _meta: {
+          "comparative/retryPolicy": "arguments_must_change",
+        },
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: "text", text: "corrected result" }],
+      });
+    const connection = await connectMcpTools(SERVER);
+    const tool = connection.tools[0]!;
+
+    await expect(tool.handler({ soql: "SELECT BadField FROM Account" }, CTX))
+      .rejects.toThrow(/rebuild the query/i);
+    await expect(
+      tool.handler({ soql: "SELECT BadField FROM Account" }, CTX),
+    ).rejects.toThrow(/blocked an identical retry/i);
+    await expect(
+      tool.handler({ soql: "SELECT Id FROM Account" }, CTX),
+    ).resolves.toBe("corrected result");
+    expect(mocks.client.callTool).toHaveBeenCalledTimes(2);
+  });
 });
