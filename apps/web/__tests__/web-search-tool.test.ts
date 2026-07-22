@@ -103,6 +103,34 @@ describe("web search built-in tool", () => {
     expect(output.emptyResult).toMatch(/never invent/i);
   });
 
+  it("supports a lazy hosted-runtime credential without reading a local key", async () => {
+    const apiKeyProvider = vi.fn(async () => "identity-managed-key");
+    const seenHeaders: HeadersInit[] = [];
+    const tool = createWebSearchTool({
+      env: { WEB_SEARCH_PROVIDER: "brave" },
+      apiKeyProvider,
+      fetchImpl: (async (_url: URL, init?: RequestInit) => {
+        seenHeaders.push(init?.headers ?? {});
+        return okResponse(
+          braveBody([{ title: "AWS result", url: "https://aws.example/" }]),
+        );
+      }) as unknown as typeof fetch,
+    });
+
+    const output = (await tool.handler(
+      { query: "agentcore identity" },
+      { userId: "u1" },
+    )) as SearchOutput;
+
+    expect(output.resultCount).toBe(1);
+    expect(apiKeyProvider).toHaveBeenCalledTimes(1);
+    expect(seenHeaders).toEqual([
+      expect.objectContaining({
+        "x-subscription-token": "identity-managed-key",
+      }),
+    ]);
+  });
+
   it("retries a 429 once, then fails honestly", async () => {
     let calls = 0;
     const delays: number[] = [];

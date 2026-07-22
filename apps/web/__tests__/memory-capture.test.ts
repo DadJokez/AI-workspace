@@ -38,6 +38,7 @@ vi.mock("@ai-workspace/agent-runtime", () => ({
 }));
 
 import {
+  backfillMissingMemoryCaptures,
   enqueueMemoryCapture,
   processPendingMemoryCaptures,
   sweepSettledMemoryCaptures,
@@ -53,9 +54,11 @@ import {
 function fakeDb(config: {
   selects?: Record<string, Array<Array<Record<string, unknown>>>>;
   updateReturning?: Record<string, Array<Array<Record<string, unknown>>>>;
+  insertReturning?: Record<string, Array<Array<Record<string, unknown>>>>;
 }) {
   const selects = config.selects ?? {};
   const updateReturning = config.updateReturning ?? {};
+  const insertReturning = config.insertReturning ?? {};
   const captured: {
     updates: Array<{ table: string; set: Record<string, unknown>; where: SQL }>;
     inserts: Array<{ table: string; values: unknown }>;
@@ -75,6 +78,7 @@ function fakeDb(config: {
       from: (table: Table) => {
         const pending = () => Promise.resolve(dequeue(selects, getTableName(table)));
         const chain: Record<string, unknown> = {
+          leftJoin: () => chain,
           where: () => chain,
           orderBy: () => chain,
           limit: () => chain,
@@ -99,12 +103,14 @@ function fakeDb(config: {
     }),
     insert: (table: Table) => ({
       values: (values: unknown) => {
-        captured.inserts.push({ table: getTableName(table), values });
+        const tableName = getTableName(table);
+        captured.inserts.push({ table: tableName, values });
         const pending = Promise.resolve(undefined);
-        return Object.assign(pending, {
-          onConflictDoNothing: () => pending,
-          returning: async () => [],
+        const chain = Object.assign(pending, {
+          onConflictDoNothing: () => chain,
+          returning: async () => dequeue(insertReturning, tableName),
         });
+        return chain;
       },
     }),
     // #462's retention sweep runs at the top of every processing pass.
@@ -464,6 +470,35 @@ describe("claim discipline (retry + poison-row)", () => {
     expect(queueUpdates).toHaveLength(1);
   });
 
+  it("reclaims delayed failed rows below the attempt cap without an unbounded retry", async () => {
+    const failed = queueItem({
+      status: "failed",
+      attemptCount: 1,
+      processedAt: new Date("2026-07-19T08:00:00Z"),
+      error: "temporary Bedrock outage",
+    });
+    const { db, captured } = fakeDb({
+      selects: { memory_capture_queue: [[failed]] },
+      updateReturning: { memory_capture_queue: [[]] },
+    });
+
+    await processPendingMemoryCaptures({ db });
+
+    const claim = captured.updates.find(
+      (update) => update.table === "memory_capture_queue",
+    )!;
+    expect(claim.set).toMatchObject({
+      status: "processing",
+      error: null,
+      processedAt: null,
+    });
+    const where = renderCondition(claim.where);
+    expect(where.params).toContain("failed");
+    expect(where.params).toContain(3);
+    expect(where.sql).toContain('"attempt_count" <');
+    expect(where.sql).toContain('"processed_at" <');
+  });
+
   it("scopes the claim to one user when userId is given", async () => {
     const { db, captured } = fakeDb({
       selects: { memory_capture_queue: [[]] },
@@ -507,6 +542,63 @@ describe("enqueueMemoryCapture", () => {
   });
 });
 
+describe("backfillMissingMemoryCaptures", () => {
+  it("queues only successful outage-window runs with both message endpoints", async () => {
+    const { db, captured } = fakeDb({
+      selects: {
+        runs: [[
+          {
+            runId: "run-good",
+            userId: "user-1",
+            threadId: "thread-1",
+            outputs: {
+              userMessageId: "msg-1",
+              assistantMessageId: "msg-2",
+            },
+          },
+          {
+            runId: "run-no-assistant",
+            userId: "user-1",
+            threadId: "thread-1",
+            outputs: { userMessageId: "msg-3" },
+          },
+        ]],
+      },
+      insertReturning: {
+        memory_capture_queue: [[{ id: "capture-restored" }]],
+      },
+    });
+
+    const result = await backfillMissingMemoryCaptures(db, {
+      since: new Date("2026-06-13T00:00:00Z"),
+      until: new Date("2026-07-22T00:00:00Z"),
+    });
+
+    expect(result).toEqual({ candidates: 2, queued: 1 });
+    expect(captured.inserts).toContainEqual({
+      table: "memory_capture_queue",
+      values: [{
+        userId: "user-1",
+        threadId: "thread-1",
+        fromMessageId: "msg-1",
+        toMessageId: "msg-2",
+        runId: "run-good",
+        reason: "outage_backfill",
+      }],
+    });
+  });
+
+  it("requires an explicit, forward-moving outage window", async () => {
+    const { db } = fakeDb({});
+    await expect(
+      backfillMissingMemoryCaptures(db, {
+        since: new Date("2026-07-22T00:00:00Z"),
+        until: new Date("2026-06-13T00:00:00Z"),
+      }),
+    ).rejects.toThrow(/until must be after since/i);
+  });
+});
+
 /**
  * #462's sweep tests, carried over in the union merge with the spine-coverage
  * suite above. Self-contained chainable fake (array-of-select-results shape)
@@ -540,7 +632,7 @@ function sweepFakeDb(selectResults: Array<Array<Record<string, unknown>>> = []) 
 }
 
 describe("sweepSettledMemoryCaptures (#462)", () => {
-  it("deletes only settled rows past the 7-day retention bound", async () => {
+  it("keeps retryable failures and retains exhausted failures for 30 days", async () => {
     const { db, captured } = sweepFakeDb();
     const now = new Date("2026-07-19T12:00:00Z");
 
@@ -553,9 +645,12 @@ describe("sweepSettledMemoryCaptures (#462)", () => {
     expect(query.params).toEqual([
       "processed",
       "skipped",
-      "failed",
       "2026-07-12T12:00:00.000Z",
+      "failed",
+      3,
+      "2026-06-19T12:00:00.000Z",
     ]);
+    expect(query.sql).toContain('"attempt_count" >=');
   });
 
   it("sweeps settled rows on every pass, even an idle one", async () => {

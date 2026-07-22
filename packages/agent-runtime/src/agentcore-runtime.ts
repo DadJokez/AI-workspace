@@ -87,6 +87,10 @@ export class AgentCoreRuntime implements AgentRuntime {
         new InvokeAgentRuntimeCommand({
           agentRuntimeArn: this.opts.runtimeArn,
           runtimeSessionId: sessionId,
+          // Comparative authenticates the caller before this seam. Passing
+          // that trusted id asks Runtime to mint the workload token used by
+          // AgentCore Identity for outbound credentials.
+          runtimeUserId: input.context.userId,
           ...(this.opts.qualifier ? { qualifier: this.opts.qualifier } : {}),
           contentType: "application/json",
           accept: "text/event-stream",

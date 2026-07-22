@@ -4,7 +4,11 @@ import * as http from "node:http";
 import * as https from "node:https";
 import { isIP } from "node:net";
 import type { Tool } from "./types";
-import { WEB_SEARCH_TOOL_NAME, createWebSearchTool } from "./web-search-tool";
+import {
+  WEB_SEARCH_TOOL_NAME,
+  createWebSearchTool,
+  type WebSearchOptions,
+} from "./web-search-tool";
 
 export const WEB_FETCH_TOOL_NAME = "web__fetch_url";
 
@@ -51,11 +55,16 @@ type RequestUrlImpl = (
   options: RequestUrlOptions,
 ) => Promise<WebFetchResponse>;
 
-export function createBuiltinTools(names: readonly string[] = []): Tool[] {
+export function createBuiltinTools(
+  names: readonly string[] = [],
+  options: { webSearch?: WebSearchOptions } = {},
+): Tool[] {
   const tools: Tool[] = [];
   for (const name of names) {
     if (name === WEB_FETCH_TOOL_NAME) tools.push(createWebFetchTool());
-    if (name === WEB_SEARCH_TOOL_NAME) tools.push(createWebSearchTool());
+    if (name === WEB_SEARCH_TOOL_NAME) {
+      tools.push(createWebSearchTool(options.webSearch));
+    }
   }
   return tools;
 }

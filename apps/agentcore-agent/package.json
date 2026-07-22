@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@ai-workspace/agent": "workspace:*",
+    "@aws-sdk/client-bedrock-agentcore": "^3.1067.0",
     "tsx": "^4.19.2"
   },
   "devDependencies": {

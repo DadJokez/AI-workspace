@@ -37,6 +37,13 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
       description:
         "Immutable ECR tag deployed to the AgentCore runtime. CodeBuild updates this parameter after pushing the image.",
     });
+    const appSecretName = new cdk.CfnParameter(this, "AppSecretName", {
+      type: "String",
+      default: "ai-workspace/production/app",
+      description:
+        "Secrets Manager JSON secret containing BRAVE_SEARCH_API_KEY.",
+    });
+    const braveCredentialProviderName = "comparative-brave-search";
 
     const repo = new ecr.Repository(this, "AgentImageRepo", {
       repositoryName: "ai-workspace-agentcore-agent",
@@ -50,6 +57,25 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
       description:
         "Execution role for the AI Hub AgentCore Runtime spike: pull the agent image, call Bedrock models, write logs.",
     });
+    const braveCredentialProvider = new cdk.CfnResource(
+      this,
+      "BraveSearchCredentialProvider",
+      {
+        type: "AWS::BedrockAgentCore::ApiKeyCredentialProvider",
+        properties: {
+          Name: braveCredentialProviderName,
+          ApiKeySecretSource: "EXTERNAL",
+          ApiKeySecretConfig: {
+            SecretId: appSecretName.valueAsString,
+            JsonKey: "BRAVE_SEARCH_API_KEY",
+          },
+          Tags: [
+            { Key: "Application", Value: "Comparative" },
+            { Key: "Purpose", Value: "WebSearch" },
+          ],
+        },
+      },
+    );
     repo.grantPull(role);
     role.addToPolicy(
       new iam.PolicyStatement({
@@ -57,6 +83,32 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
         actions: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
         // Spike scope; tighten to the three Claude model ARNs before pilot.
         resources: ["*"],
+      }),
+    );
+    const workloadIdentityDirectoryArn = this.formatArn({
+      service: "bedrock-agentcore",
+      resource: "workload-identity-directory",
+      resourceName: "default",
+      arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME,
+    });
+    const tokenVaultArn = this.formatArn({
+      service: "bedrock-agentcore",
+      resource: "token-vault",
+      resourceName: "default",
+      arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME,
+    });
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        sid: "ReadBraveSearchCredential",
+        actions: ["bedrock-agentcore:GetResourceApiKey"],
+        resources: [
+          workloadIdentityDirectoryArn,
+          `${workloadIdentityDirectoryArn}/workload-identity/ai_workspace_agent_spike-*`,
+          tokenVaultArn,
+          braveCredentialProvider
+            .getAtt("CredentialProviderArn")
+            .toString(),
+        ],
       }),
     );
     role.addToPolicy(
@@ -104,6 +156,8 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
         RoleArn: role.roleArn,
         EnvironmentVariables: {
           BEDROCK_CLIENT: "real",
+          WEB_SEARCH_PROVIDER: "brave",
+          BRAVE_SEARCH_CREDENTIAL_PROVIDER: braveCredentialProviderName,
           // The in-container Bedrock client resolves AWS_REGION ??
           // AWS_DEFAULT_REGION; set the fallback explicitly in case the
           // runtime does not inject AWS_REGION.
@@ -113,6 +167,7 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
     });
     runtime.cfnOptions.condition = runtimeCondition;
     runtime.node.addDependency(role);
+    runtime.node.addDependency(braveCredentialProvider);
 
     // CloudFormation remains the sole owner of the runtime. CodeBuild updates
     // only AgentImageTag on this stack after pushing an immutable image, so a
@@ -190,7 +245,10 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
         "Allows AI Hub services to invoke the AgentCore spike runtime.",
       statements: [
         new iam.PolicyStatement({
-          actions: ["bedrock-agentcore:InvokeAgentRuntime"],
+          actions: [
+            "bedrock-agentcore:InvokeAgentRuntime",
+            "bedrock-agentcore:InvokeAgentRuntimeForUser",
+          ],
           resources: [
             runtime.getAtt("AgentRuntimeArn").toString(),
             `${runtime.getAtt("AgentRuntimeArn").toString()}/*`,
@@ -217,6 +275,11 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
         "Push the linux/arm64 agent image here, then update AgentImageTag through CloudFormation.",
     });
     new cdk.CfnOutput(this, "AgentRuntimeRoleArn", { value: role.roleArn });
+    new cdk.CfnOutput(this, "BraveSearchCredentialProviderArn", {
+      value: braveCredentialProvider
+        .getAtt("CredentialProviderArn")
+        .toString(),
+    });
     new cdk.CfnOutput(this, "AgentRuntimeArn", {
       value: cdk.Fn.conditionIf(
         runtimeCondition.logicalId,

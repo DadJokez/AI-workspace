@@ -4,6 +4,10 @@ import {
   runInvocation,
   toSseFrame,
 } from "./handler";
+import {
+  createAgentCoreApiKeyProvider,
+  readWorkloadAccessToken,
+} from "./agentcore-api-key";
 
 /**
  * Amazon Bedrock AgentCore Runtime service contract
@@ -72,12 +76,29 @@ const server = createServer(async (req, res) => {
     });
 
     try {
+      const providerName = process.env.BRAVE_SEARCH_CREDENTIAL_PROVIDER;
       await runInvocation(
         payload,
         (event) => {
           res.write(toSseFrame(event));
         },
-        { signal: abort.signal },
+        {
+          signal: abort.signal,
+          ...(providerName
+            ? {
+                webSearch: {
+                  env: { WEB_SEARCH_PROVIDER: "brave" },
+                  apiKeyProvider: createAgentCoreApiKeyProvider({
+                    workloadAccessToken: readWorkloadAccessToken(req.headers),
+                    providerName,
+                    region:
+                      process.env.AWS_REGION ??
+                      process.env.AWS_DEFAULT_REGION,
+                  }),
+                },
+              }
+            : {}),
+        },
       );
     } catch (err) {
       res.write(

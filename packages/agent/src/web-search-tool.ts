@@ -41,12 +41,14 @@ interface WebSearchEnv {
   [key: string]: string | undefined;
 }
 
-interface WebSearchOptions {
+export interface WebSearchOptions {
   fetchImpl?: typeof fetch;
   env?: WebSearchEnv;
   now?: () => Date;
   /** Injectable backoff so tests don't sleep. */
   delayImpl?: (ms: number) => Promise<void>;
+  /** Lazy secret resolver used by hosted runtimes such as AgentCore Identity. */
+  apiKeyProvider?: () => Promise<string | undefined>;
 }
 
 export function isWebSearchConfigured(
@@ -63,6 +65,7 @@ export function createWebSearchTool({
   env = process.env,
   now = () => new Date(),
   delayImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  apiKeyProvider,
 }: WebSearchOptions = {}): Tool {
   return {
     name: WEB_SEARCH_TOOL_NAME,
@@ -90,8 +93,15 @@ export function createWebSearchTool({
       if (typeof query !== "string" || query.trim().length === 0) {
         throw new Error("Web search requires a non-empty query string.");
       }
-      const apiKey = env.BRAVE_SEARCH_API_KEY?.trim();
-      if (!isWebSearchConfigured(env) || !apiKey) {
+      const apiKey = (
+        apiKeyProvider
+          ? await apiKeyProvider()
+          : env.BRAVE_SEARCH_API_KEY
+      )?.trim();
+      if (
+        env.WEB_SEARCH_PROVIDER?.trim().toLowerCase() !== "brave" ||
+        !apiKey
+      ) {
         // Unreachable when mounting is gated on configuration; kept honest
         // in case a stale registration slips through.
         throw new Error(
