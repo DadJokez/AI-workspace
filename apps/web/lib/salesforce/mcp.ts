@@ -1,7 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
 
 import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
-import { callSalesforceTool, salesforceTools } from "./api";
+import {
+  SalesforceApiError,
+  callSalesforceTool,
+  salesforceTools,
+} from "./api";
 import {
   SALESFORCE_MCP_CONTEXT_HEADER,
   SALESFORCE_MCP_RELAY_HEADER,
@@ -158,17 +162,27 @@ async function handleJsonRpcMessage(
             );
     }
   } catch (error) {
-    return jsonRpcResult(id, {
-      content: [
-        {
-          type: "text",
-          text:
-            error instanceof Error ? error.message : "Salesforce tool failed.",
-        },
-      ],
-      isError: true,
-    });
+    return jsonRpcResult(id, salesforceToolErrorResult(error));
   }
+}
+
+function salesforceToolErrorResult(error: unknown) {
+  const text =
+    error instanceof Error ? error.message : "Salesforce tool failed.";
+  if (error instanceof SalesforceApiError && error.recovery) {
+    return {
+      content: [{ type: "text", text }],
+      structuredContent: error.recovery,
+      isError: true,
+      _meta: {
+        "comparative/retryPolicy": error.recovery.retryPolicy,
+      },
+    };
+  }
+  return {
+    content: [{ type: "text", text }],
+    isError: true,
+  };
 }
 
 function initializeResult(params: unknown) {

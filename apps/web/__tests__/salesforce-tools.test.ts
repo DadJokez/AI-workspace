@@ -6,10 +6,14 @@ import {
   validateReadOnlySoql,
 } from "@/lib/salesforce/api";
 import {
+  SALESFORCE_MCP_CONTEXT_HEADER,
+  SALESFORCE_MCP_RELAY_HEADER,
   buildSalesforceTurnContext,
+  salesforceMcpRelayToken,
   signSalesforceTurnContext,
   verifySalesforceTurnContext,
 } from "@/lib/salesforce/authorization";
+import { handleSalesforceMcpRequest } from "@/lib/salesforce/mcp";
 import { isTrustedSalesforceInstanceUrl } from "@/lib/oauth/salesforce";
 
 const toolContext = {
@@ -31,6 +35,20 @@ describe("validateReadOnlySoql", () => {
     expect(validateReadOnlySoql("SELECT Id FROM Account")).toBe(
       "SELECT Id FROM Account LIMIT 50",
     );
+  });
+
+  it.each([
+    "SELECT COUNT(Id) FROM Opportunity",
+    "SELECT COUNT() total, SUM(Amount) pipeline FROM Opportunity WHERE IsClosed = false",
+    "SELECT AVG(Amount) average, MIN(Amount) smallest, MAX(Amount) largest FROM Opportunity",
+  ])("does not add LIMIT to an overall aggregate: %s", (soql) => {
+    expect(validateReadOnlySoql(soql)).toBe(soql);
+  });
+
+  it("still bounds grouped aggregate rows", () => {
+    const soql =
+      "SELECT StageName, SUM(Amount) pipeline FROM Opportunity GROUP BY StageName";
+    expect(validateReadOnlySoql(soql)).toBe(`${soql} LIMIT 50`);
   });
 
   it("strips a trailing semicolon before validating", () => {
@@ -60,6 +78,11 @@ describe("validateReadOnlySoql", () => {
         "SELECT Id, (SELECT Id FROM Contacts LIMIT 5) FROM Account",
       ),
     ).toBe("SELECT Id, (SELECT Id FROM Contacts LIMIT 5) FROM Account LIMIT 50");
+  });
+
+  it("does not mistake an aggregate relationship subquery for an overall aggregate", () => {
+    const soql = "SELECT Id, (SELECT COUNT() FROM Contacts) FROM Account";
+    expect(validateReadOnlySoql(soql)).toBe(`${soql} LIMIT 50`);
   });
 
   it("rejects an over-ceiling OUTER limit even when a subquery LIMIT is in range", () => {
@@ -168,6 +191,7 @@ describe("salesforce turn context", () => {
 describe("callSalesforceTool", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   function stubSalesforceResponse(body: unknown, status = 200) {
@@ -257,6 +281,100 @@ describe("callSalesforceTool", () => {
         toolContext,
       ),
     ).rejects.toThrow(SalesforceApiError);
+  });
+
+  it("turns INVALID_FIELD into schema-grounded recovery guidance", async () => {
+    stubSalesforceResponse(
+      [
+        {
+          message:
+            "SELECT Id, AccountName FROM Opportunity\n           ^ ERROR at Row:1:Column:12 No such column 'AccountName' on entity 'Opportunity'.",
+          errorCode: "INVALID_FIELD",
+        },
+      ],
+      400,
+    );
+    const error = await callSalesforceTool(
+      "run_soql",
+      { soql: "SELECT Id, AccountName FROM Opportunity" },
+      toolContext,
+    ).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(SalesforceApiError);
+    expect(error).toMatchObject({
+      code: "INVALID_FIELD",
+      recovery: {
+        kind: "salesforce_schema_recovery",
+        objectName: "Opportunity",
+        invalidReference: "AccountName",
+        nextTool: {
+          name: "salesforce__describe_object",
+          input: { objectName: "Opportunity" },
+        },
+        retryPolicy: "arguments_must_change",
+      },
+    });
+    expect((error as Error).message).toMatch(/do not retry.*unchanged/i);
+    expect((error as Error).message).toMatch(/describe_object/i);
+  });
+
+  it("marks schema errors so the MCP client blocks an identical retry", async () => {
+    vi.stubEnv("OAUTH_ENCRYPTION_KEY", "test-signing-key");
+    stubSalesforceResponse(
+      [
+        {
+          message: "No such column 'AccountName' on entity 'Opportunity'.",
+          errorCode: "INVALID_FIELD",
+        },
+      ],
+      400,
+    );
+    const signedContext = signSalesforceTurnContext(toolContext.turnContext);
+    const response = await handleSalesforceMcpRequest(
+      new Request(
+        "https://comparative.builtwithrobot.link/api/mcp/salesforce",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: "Bearer fixture-token",
+            [SALESFORCE_MCP_RELAY_HEADER]: salesforceMcpRelayToken(),
+            [SALESFORCE_MCP_CONTEXT_HEADER]: signedContext,
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: {
+              name: "run_soql",
+              arguments: {
+                soql: "SELECT Id, AccountName FROM Opportunity",
+              },
+            },
+          }),
+        },
+      ),
+    );
+    const body = (await response.json()) as {
+      result: {
+        isError: boolean;
+        structuredContent: Record<string, unknown>;
+        _meta: Record<string, unknown>;
+      };
+    };
+
+    expect(body.result.isError).toBe(true);
+    expect(body.result.structuredContent).toMatchObject({
+      kind: "salesforce_schema_recovery",
+      objectName: "Opportunity",
+      retryPolicy: "arguments_must_change",
+    });
+    expect(body.result._meta).toEqual({
+      "comparative/retryPolicy": "arguments_must_change",
+    });
   });
 
   it("refuses unknown tools", async () => {

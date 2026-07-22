@@ -130,6 +130,7 @@ async function connectMcpProvider(
         if (blockedTools?.has(tool.name)) return [];
         if (allowedTools && !allowedTools.has(tool.name)) return [];
         const remoteName = tool.name;
+        const blockedFailedInputs = new Set<string>();
         return [
           {
             name: mcpToolName(provider, remoteName),
@@ -140,12 +141,21 @@ async function connectMcpProvider(
             // at the client seam, so every current and future server inherits it.
             untrustedOutput: true,
             handler: async (input) => {
+              const inputFingerprint = toolInputFingerprint(input);
+              if (blockedFailedInputs.has(inputFingerprint)) {
+                throw new Error(
+                  `MCP tool ${remoteName} blocked an identical retry after a deterministic validation error. Change the arguments using the previous recovery guidance before retrying.`,
+                );
+              }
               const result = await client.callTool({
                 name: remoteName,
                 arguments: (input ?? {}) as Record<string, unknown>,
               });
               const text = flattenMcpContent(result.content);
               if (result.isError) {
+                if (requiresChangedArguments(result._meta)) {
+                  blockedFailedInputs.add(inputFingerprint);
+                }
                 throw new Error(text || `MCP tool ${remoteName} failed.`);
               }
               return result.structuredContent ?? text;
@@ -158,6 +168,31 @@ async function connectMcpProvider(
     await client.close().catch(() => {});
     throw err;
   }
+}
+
+function requiresChangedArguments(meta: unknown): boolean {
+  return (
+    isRecord(meta) &&
+    meta["comparative/retryPolicy"] === "arguments_must_change"
+  );
+}
+
+function toolInputFingerprint(input: unknown): string {
+  return JSON.stringify(canonicalJson(input ?? {}));
+}
+
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonicalJson(value[key])]),
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function flattenMcpContent(content: unknown): string {

@@ -102,3 +102,20 @@ describe("buildAgentPreamble date grounding", () => {
     expect(preamble).not.toContain(new Date().toISOString().slice(0, 10));
   });
 });
+
+describe("buildAgentPreamble Salesforce schema grounding", () => {
+  it("requires describe evidence before correcting an INVALID_FIELD query", () => {
+    const preamble = buildAgentPreamble({
+      user: {
+        displayName: "Rob",
+        assistantName: null,
+        customInstructions: null,
+      },
+      connectedProviders: ["salesforce"],
+    });
+
+    expect(preamble).toContain("Salesforce schema grounding");
+    expect(preamble).toContain("salesforce__describe_object");
+    expect(preamble).toContain("do not retry identical SOQL");
+  });
+});
