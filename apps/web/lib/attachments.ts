@@ -8,8 +8,10 @@ import { findCredentialShapedContent } from "@/lib/secret-scan";
  */
 
 export const MAX_ATTACHMENTS = 5;
-export const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
-export const MAX_TOTAL_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+// Bedrock Converse accepts native image blocks up to 3.75 MB each.
+export const MAX_RUNTIME_IMAGE_BYTES = 3_750_000;
+export const MAX_TOTAL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 export const MAX_ATTACHMENT_CHARS = 200_000;
 export const MAX_TOTAL_ATTACHMENT_CHARS = 400_000;
 
@@ -195,10 +197,18 @@ export async function validateAttachments(raw: unknown): Promise<AttachmentValid
       totalBytes += prepared.sizeBytes;
       totalChars += prepared.content.length;
 
-      if (prepared.sizeBytes > MAX_ATTACHMENT_BYTES) {
+      const isRuntimeImage =
+        prepared.kind === "image" || prepared.runtimeContent?.type === "image";
+      const maxBytes = isRuntimeImage
+        ? MAX_RUNTIME_IMAGE_BYTES
+        : MAX_ATTACHMENT_BYTES;
+      if (prepared.sizeBytes > maxBytes) {
         return {
           ok: false,
-          error: `"${prepared.name}" is too large (max ${formatBytes(MAX_ATTACHMENT_BYTES)}).`,
+          error:
+            isRuntimeImage
+              ? `"${prepared.name}" is too large for image analysis (max 3.75 MB). Compress or resize it and try again.`
+              : `"${prepared.name}" is too large (max ${formatBytes(MAX_ATTACHMENT_BYTES)}).`,
           attachments: [],
         };
       }
@@ -396,7 +406,9 @@ async function prepareAttachment(
 
   if (payload.dataBase64) {
     const buffer = Buffer.from(payload.dataBase64, "base64");
-    const sizeBytes = payload.sizeBytes ?? buffer.byteLength;
+    // The decoded bytes are authoritative at the server trust boundary. A
+    // stale or dishonest client-supplied size must not bypass upload caps.
+    const sizeBytes = buffer.byteLength;
     const extracted = await extractAttachmentText({ name, ext, mimeType, buffer });
     return {
       name,
@@ -422,7 +434,7 @@ async function prepareAttachment(
   }
 
   const content = payload.content ?? "";
-  const sizeBytes = payload.sizeBytes ?? Buffer.byteLength(content, "utf8");
+  const sizeBytes = Buffer.byteLength(content, "utf8");
   return {
     name,
     mimeType,
