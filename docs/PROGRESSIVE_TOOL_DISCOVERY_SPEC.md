@@ -2,8 +2,19 @@
 
 **Issue:** #384 · **Related:** #364 (model-decided routing), #385 (volatile
 context receipts), #367 (benchmark harness), docs/MODEL_DECIDED_ROUTING_SPEC.md
-**Status:** Proposed
+**Status:** Shipped (P1-P4 complete; default enabled 2026-07-18, rollout flag
+removed 2026-07-21)
 **Owner:** Rob (approval) · Codex/Claude (implementation through the PR gate)
+
+## Outcome
+
+The implementation shipped in four measured phases: bundle substrate (#401),
+discovery tools and honesty invariants (#408), provider fast-path and Skill
+scoping (#415), and the benchmarked default flip (#419). The production-shape
+benchmark held tool selection at 12/12 while improving warm TTFT p50 by 15% and
+reducing the cold greeting cache write by 66%. After a stable production soak,
+#499 removed the `TOOL_DISCOVERY=off|parity` escape hatch; progressive discovery
+is now the only runtime path.
 
 ## Problem
 
@@ -77,7 +88,7 @@ activated bundle pays at most one cache write per conversation.
 
 ## What this buys, concretely
 
-| | Today | Core-only turn | Core+GitHub turn |
+| | Full-catalog baseline | Core-only turn | Core+GitHub turn |
 |---|---:|---:|---:|
 | Tools mounted | 72 | ~20 | ~64 |
 | Schema chars | ~59.8K | ~15K | ~55K |
@@ -87,31 +98,31 @@ The dominant win is structural: greetings and non-GitHub work (the vast
 majority of turns) stop paying for 44 GitHub schemas, and the tools cache
 stays warm within every conversation because bundles never flap.
 
-## Delivery plan (each phase one PR through the gate)
+## Delivery record
 
-**P1 — Bundle substrate.** Pure bundle builder (grants + activated set →
-deterministic tool config), thread-level activation state, loop support for
-swapping tool config between iterations. Behind `TOOL_DISCOVERY=off|on`,
-default off; `on` initially behaves identically (all providers pre-activated)
-to prove byte-stability parity. Unit pins: bundle determinism, ordering
-stability, parity-with-today under full activation.
+**P1 — Bundle substrate (#401, shipped).** Pure bundle builder (grants +
+activated set → deterministic tool config), thread-level activation state,
+loop support for swapping tool config between iterations. Behind
+`TOOL_DISCOVERY=off|on`, default off; `on` initially behaves identically (all
+providers pre-activated) to prove byte-stability parity. Unit pins: bundle
+determinism, ordering stability, parity-with-today under full activation.
 
-**P2 — Discovery tools + core default.** `comparative__search_tools` /
-`comparative__activate_tools` (first-party, nonce-framed results, audited),
-core bundle default, preamble/receipt honesty updates. Behavioral evals
-extend the #364 P3 suite: "check my PRs" from a cold conversation must
-activate github and answer in one user-visible turn; "how are you?" must stay
-core with no discovery call; capability questions must acknowledge
-discoverable-but-unmounted providers.
+**P2 — Discovery tools + core default (#408, shipped).**
+`comparative__search_tools` / `comparative__activate_tools` (first-party,
+nonce-framed results, audited), core bundle default, preamble/receipt honesty
+updates. Behavioral evals extend the #364 P3 suite: "check my PRs" from a cold
+conversation must activate github and answer in one user-visible turn; "how
+are you?" must stay core with no discovery call; capability questions must
+acknowledge discoverable-but-unmounted providers.
 
-**P3 — Fast-path + skill scoping.** Provider-name pre-activation; Skills
-mount declared bundles. Evals: explicit mentions skip the discovery
-round-trip (assert single provider iteration).
+**P3 — Fast-path + skill scoping (#415, shipped).** Provider-name
+pre-activation; Skills mount declared bundles. Evals: explicit mentions skip
+the discovery round-trip (assert single provider iteration).
 
-**P4 — Measure and flip.** Rerun the #367 benchmark shape (cold/warm × core
-vs full) plus Run Inspector trace comparison; flip the default when TTFT,
-cache-read ratio, and tool-selection evals all beat the full-catalog
-baseline. Delete the flag after one stable release.
+**P4 — Measure and flip (#419, shipped).** Rerun the #367 benchmark shape
+(cold/warm × core vs full) plus Run Inspector trace comparison; flip the
+default when TTFT, cache-read ratio, and tool-selection evals all beat the
+full-catalog baseline. #499 deleted the flag after the stable-release soak.
 
 ## Acceptance criteria
 
