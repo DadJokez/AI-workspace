@@ -16,7 +16,7 @@ SERVICES=(
 )
 
 echo "Reconciling $ECS_STACK_NAME and pinning images to commit $COMMIT_TAG..."
-# #449: ImageTag pins task definitions to the immutable commit-tagged images
+# #449: ImageTag pins task definitions to the commit-SHA-tagged images
 # the build phase pushed, so what runs is exactly what this build produced —
 # and rollback is redeploying the stack with a prior tag (rollback-ecs.sh).
 CDK_DEFAULT_REGION="$AWS_DEFAULT_REGION" \
