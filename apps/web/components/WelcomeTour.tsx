@@ -131,10 +131,10 @@ export function WelcomeTour({ open, onClose }: WelcomeTourProps) {
 
       <div
         ref={cardRef}
-        className="fixed left-1/2 w-[min(92vw,420px)] -translate-x-1/2 rounded-xl border border-hairline bg-canvas p-5 text-ink shadow-2xl"
+        className="fixed left-1/2 w-[min(92vw,420px)] -translate-x-1/2 rounded-md border border-hairline bg-canvas p-5 text-ink shadow-lg"
         style={cardPosition(spotlight)}
       >
-        <p className="text-2xs font-medium uppercase tracking-wider text-muted">
+        <p className="text-xs font-medium text-muted">
           {stepIndex + 1} of {TOUR_STEPS.length}
         </p>
         <h2 className="mt-1.5 text-md font-semibold">{step.title}</h2>

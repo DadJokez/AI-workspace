@@ -131,7 +131,7 @@ def cover(c: canvas.Canvas, page: int) -> None:
     lines = [
         "Access is invite-only.",
         "Use the invite link from an admin or open the login link.",
-        "Sign in with the GitHub account tied to the invited email.",
+        "Request a sign-in link for the exact email address that was invited.",
         "Use Feedback in the sidebar when something breaks or feels unclear.",
     ]
     text_y = y - 45
@@ -156,9 +156,9 @@ def login_page(c: canvas.Canvas, page: int) -> None:
     y = PAGE_H - 122
     bullets = [
         "Open the alpha URL or your individual invite link.",
-        "Click Sign in with GitHub.",
-        "Approve the GitHub sign-in prompt.",
-        "Use the GitHub account whose email was invited. If you see AccessDenied, ask an admin to invite that exact email.",
+        "Enter the exact email address that was invited.",
+        "Click Email me a sign-in link, then open the link from your inbox.",
+        "If the link does not arrive, confirm the invited address with an admin and request a new link.",
         "After sign-in, Comparative opens the chat workspace at /chat.",
     ]
     y = bullets_block(c, bullets, M, y, 310)
@@ -182,7 +182,7 @@ def login_page(c: canvas.Canvas, page: int) -> None:
         PAGE_H - 92,
         358,
         362,
-        "Invite-only GitHub login",
+        "Invite-only email sign-in",
     )
 
 
@@ -191,9 +191,9 @@ def onboarding_page(c: canvas.Canvas, page: int) -> None:
     y = PAGE_H - 120
     bullets = [
         "Name your assistant. The name appears in chat responses and can be changed later.",
-        "Connect GitHub if you want Comparative to work with repositories, issues, and pull requests.",
-        "You can skip tool connection during setup and return to Tools later.",
-        "The setup asks about your role, common tools, and the first task you would hand off. This helps seed better defaults.",
+        "Continue through a short tour of Chat, Artifacts, Skills, Apps, and Feedback.",
+        "Every tour card points to a capability that is available now.",
+        "Tool connections and profile questions do not block your first chat.",
     ]
     y = bullets_block(c, bullets, M, y, 305)
     y -= 14
@@ -203,7 +203,7 @@ def onboarding_page(c: canvas.Canvas, page: int) -> None:
         y - 66,
         305,
         66,
-        "Every provider connection is approved by the signed-in user. Sharing a Skill or App does not share the owner's credentials.",
+        "You can replay the capability tour from Settings at any time.",
     )
     draw_image_box(
         c,
@@ -216,12 +216,12 @@ def onboarding_page(c: canvas.Canvas, page: int) -> None:
     )
     draw_image_box(
         c,
-        SHOT_DIR / "03-first-run-tools.png",
+        SHOT_DIR / "03-first-run-tour.png",
         382,
         PAGE_H - 338,
         360,
         220,
-        "Connect tools or skip for now",
+        "Walk through live capabilities",
     )
 
 

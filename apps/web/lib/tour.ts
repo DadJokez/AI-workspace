@@ -16,36 +16,53 @@ export interface TourStep {
   body: string;
 }
 
+export type WelcomeStep = "name" | "tour";
+
+export function resolveWelcomeStep(input: {
+  startAtTour: boolean;
+  savedStep: string | null;
+  hasAssistantName: boolean;
+}): WelcomeStep {
+  if (
+    input.startAtTour ||
+    input.hasAssistantName ||
+    input.savedStep === "tour"
+  ) {
+    return "tour";
+  }
+  return "name";
+}
+
 export const TOUR_STEPS: readonly TourStep[] = [
-  {
-    id: "welcome",
-    anchor: null,
-    title: "Welcome to Comparative",
-    body: "One place to chat with AI that can actually act on your work — and to turn the useful things it does into skills, schedules, and apps you can share. Here's the two-minute lay of the land.",
-  },
   {
     id: "chat",
     anchor: "chat-input",
-    title: "Ask anything — bring your files",
-    body: "Drop in PDFs, docs, spreadsheets, decks, screenshots, notes, HTML, or data files. Comparative extracts what it can, keeps the upload in Artifacts, and shows quiet work receipts while it reasons.",
+    title: "Start in chat",
+    body: "Ask a question, draft something, or attach a common work file for analysis. Start with the work in front of you.",
+  },
+  {
+    id: "artifacts",
+    anchor: "nav-workspace",
+    title: "Find created files in Artifacts",
+    body: "Files Comparative creates are saved here. Open, preview, and download them without hunting through old chats.",
   },
   {
     id: "skills",
     anchor: "nav-skills",
-    title: "Skills: save it, run it again",
-    body: "A skill is a saved agent you can run any time, put on a schedule (\"every Monday 8am\"), clone from a starter, and share with a teammate. Comparative will recommend skills when a workflow starts repeating.",
+    title: "Reuse good work with Skills",
+    body: "Save a useful workflow as a Skill when you want to run the same process again.",
   },
   {
     id: "apps",
     anchor: "nav-apps",
-    title: "Apps: from conversation to deployed tool",
-    body: "Ask for a small dashboard or page in chat, then deploy the result behind workspace sign-in with one click. Artifact versions are grouped, reversible, and downloadable — no repos, no pipelines.",
+    title: "Build small apps from chat",
+    body: "Build and preview a small app in a conversation. Apps you publish are collected here.",
   },
   {
     id: "feedback",
     anchor: "nav-feedback",
-    title: "Tell us what broke or felt weird",
-    body: "Feedback sends a structured report with the current chat context, page, browser details, and an optional screenshot. It lands in the admin inbox so alpha issues can become fixes without copy/paste archaeology.",
+    title: "Tell us what broke or felt confusing",
+    body: "Report a bug or confusing moment here. Add a screenshot when it helps explain what happened.",
   },
 ];
 
