@@ -6,7 +6,6 @@ import { MemorySettings } from "@/components/VaultPanel";
 import { useDensity, type Density } from "@/lib/density";
 import { COMPARATIVE_VERSION_LABEL } from "@/lib/product-version";
 import { useTheme, type Theme } from "@/lib/theme";
-import { useUiSkin, type UiSkin } from "@/lib/ui-skin";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 export type SettingsSection =
@@ -123,7 +122,6 @@ export function SettingsModal({
 }: Props) {
   const { theme, setTheme } = useTheme();
   const { density, setDensity } = useDensity();
-  const { skin, setSkin } = useUiSkin();
   const visibleSections = useMemo(
     () =>
       runtimeV2Enabled
@@ -525,20 +523,6 @@ export function SettingsModal({
                         { value: "system", label: "System" },
                       ]}
                     />
-                  </Field>
-                  <Field label="Skin">
-                    <SegmentedControl<UiSkin>
-                      value={skin}
-                      onChange={setSkin}
-                      options={[
-                        { value: "classic", label: "Classic" },
-                        { value: "umber", label: "Umber" },
-                      ]}
-                    />
-                    <p className="text-xs text-muted">
-                      Umber is the default identity. Classic remains available
-                      as a temporary local preference.
-                    </p>
                   </Field>
                   <Field label="Density">
                     <SegmentedControl<Density>

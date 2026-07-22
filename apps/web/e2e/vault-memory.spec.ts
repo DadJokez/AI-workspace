@@ -107,7 +107,9 @@ test.describe("Vault memory", () => {
       .getByRole("button", { name: "Archive" })
       .click();
     await expect(page.getByText("0 approved · 0 suggested")).toBeVisible();
-    await expect(page.getByText("No approved Vault memory yet.")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "No memory yet", exact: true }),
+    ).toBeVisible();
   });
 
   test("derives category labels for non-default manual facts", async ({

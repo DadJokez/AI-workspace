@@ -1,6 +1,7 @@
 import { getDb, invitations } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
+import { AlphaBadge } from "@/components/AlphaBadge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +41,9 @@ function ErrorPanel({ title, message }: { title: string; message: string }) {
         <ThemeToggle />
       </div>
       <div className="w-full max-w-md rounded-lg border border-hairline bg-subtle/30 p-8 text-center">
+        <div className="mb-4 flex justify-center">
+          <AlphaBadge placement="inline" />
+        </div>
         <h1 className="text-base font-semibold">{title}</h1>
         <p className="mt-2 text-sm text-muted">{message}</p>
         <p className="mt-6 text-xs text-muted">
@@ -101,6 +105,9 @@ export default async function InvitePage({
         <ThemeToggle />
       </div>
       <div className="w-full max-w-md rounded-lg border border-hairline bg-subtle/30 p-8 text-center">
+        <div className="mb-4 flex justify-center">
+          <AlphaBadge placement="inline" />
+        </div>
         <h1 className="text-base font-semibold">You&apos;ve been invited</h1>
         <p className="mt-2 text-sm text-muted">
           Sign in with GitHub to join the workspace as{" "}

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AlphaBadge } from "@/components/AlphaBadge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { AdminTabs } from "./AdminTabs";
@@ -20,7 +21,8 @@ export default async function AdminLayout({
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-hairline px-4 py-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <h1 className="text-sm font-semibold text-ink">Admin</h1>
-          <span className="truncate text-2xs uppercase tracking-wider text-muted">
+          <AlphaBadge placement="inline" />
+          <span className="hidden truncate text-2xs uppercase tracking-wider text-muted sm:inline">
             Workspace
           </span>
         </div>

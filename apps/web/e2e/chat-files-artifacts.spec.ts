@@ -9,6 +9,7 @@ import {
   userMessage,
 } from "./helpers/mock-comparative";
 import { gotoE2EChat, openPrimarySidebar } from "./helpers/navigation";
+import { MAX_RUNTIME_IMAGE_BYTES } from "../lib/attachments";
 
 test.skip(
   !!process.env.PLAYWRIGHT_BASE_URL,
@@ -62,7 +63,7 @@ test.describe("chat files and artifacts", () => {
     });
 
     await page.goto("/e2e/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     // #398: same pre-hydration race #372/#377 fixed in authenticated-smoke —
     // setInputFiles before React wires the input's handler silently drops the
@@ -104,6 +105,28 @@ test.describe("chat files and artifacts", () => {
     expect(String(attachments?.[0]?.dataBase64 ?? "").length).toBeGreaterThan(
       0,
     );
+  });
+
+  test("rejects images above the Bedrock native-image limit before send", async ({
+    page,
+  }) => {
+    await installMockComparativeApi(page, { artifacts: [] });
+    await page.goto("/e2e/chat");
+
+    const fileInput = page.getByTestId("chat-file-input");
+    await expect(fileInput).toBeEnabled({ timeout: 15_000 });
+    await fileInput.setInputFiles({
+      name: "oversized.png",
+      mimeType: "image/png",
+      buffer: Buffer.alloc(MAX_RUNTIME_IMAGE_BYTES + 1),
+    });
+
+    await expect(
+      page.getByText(/limit is 3\.75 MB for image analysis/i),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Remove oversized.png" }),
+    ).toHaveCount(0);
   });
 
   test("sends a representative business-file bundle through chat", async ({
@@ -156,7 +179,7 @@ test.describe("chat files and artifacts", () => {
     });
 
     await page.goto("/e2e/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     // #398: hydration barrier — see comment on the first upload above.
     const bundleInput = page.getByTestId("chat-file-input");
@@ -245,7 +268,7 @@ test.describe("chat files and artifacts", () => {
     });
 
     await page.goto("/e2e/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     await page
       .getByPlaceholder(/ask anything/i)
@@ -367,7 +390,7 @@ test.describe("chat files and artifacts", () => {
     });
 
     await page.goto("/e2e/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     await page
       .getByPlaceholder(/ask anything/i)
@@ -485,7 +508,7 @@ test.describe("chat files and artifacts", () => {
     });
 
     await page.goto("/e2e/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     await page
       .getByPlaceholder(/ask anything/i)

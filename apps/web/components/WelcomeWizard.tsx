@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { WelcomeTour } from "@/components/WelcomeTour";
+import {
+  migrateLegacyLocalStorage,
+  WIZARD_NAME_STORAGE_KEY,
+  WIZARD_STEP_STORAGE_KEY,
+} from "@/lib/local-storage-migrations";
 
 /**
  * First-login setup wizard (specs/005). Four steps: name your assistant →
@@ -13,9 +18,6 @@ import { WelcomeTour } from "@/components/WelcomeTour";
  * to /chat. We persist the step in localStorage so the wizard reopens at the
  * tools step with the assistant name (already saved server-side) intact.
  */
-const STEP_KEY = "aihub.wizard.step";
-const NAME_KEY = "aihub.wizard.name";
-
 const SUGGESTED_NAMES = ["Hub", "Atlas", "Sage", "Nova", "Pax"];
 const ROLE_OPTIONS = [
   "Product / Program",
@@ -73,14 +75,17 @@ export function WelcomeWizard({
   // Resume after an OAuth redirect: restore the step + drafted name.
   useEffect(() => {
     if (!open) return;
-    const savedStep = window.localStorage.getItem(STEP_KEY) as Step | null;
-    const savedName = window.localStorage.getItem(NAME_KEY);
+    migrateLegacyLocalStorage(window.localStorage);
+    const savedStep = window.localStorage.getItem(
+      WIZARD_STEP_STORAGE_KEY,
+    ) as Step | null;
+    const savedName = window.localStorage.getItem(WIZARD_NAME_STORAGE_KEY);
     if (savedName && !initialAssistantName) setName(savedName);
     if (savedStep && ORDER.includes(savedStep)) setStep(savedStep);
   }, [open, initialAssistantName]);
 
   useEffect(() => {
-    if (open) window.localStorage.setItem(STEP_KEY, step);
+    if (open) window.localStorage.setItem(WIZARD_STEP_STORAGE_KEY, step);
   }, [open, step]);
 
   if (!open) return null;
@@ -161,7 +166,10 @@ export function WelcomeWizard({
               value={name}
               onChange={(e) => {
                 setName(e.target.value);
-                window.localStorage.setItem(NAME_KEY, e.target.value);
+                window.localStorage.setItem(
+                  WIZARD_NAME_STORAGE_KEY,
+                  e.target.value,
+                );
               }}
               maxLength={40}
               placeholder="Hub"
@@ -313,6 +321,6 @@ export function WelcomeWizard({
 }
 
 function clearWizardState() {
-  window.localStorage.removeItem(STEP_KEY);
-  window.localStorage.removeItem(NAME_KEY);
+  window.localStorage.removeItem(WIZARD_STEP_STORAGE_KEY);
+  window.localStorage.removeItem(WIZARD_NAME_STORAGE_KEY);
 }

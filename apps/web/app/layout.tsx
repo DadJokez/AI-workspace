@@ -1,7 +1,44 @@
 import type { Metadata, Viewport } from "next";
+import localFont from "next/font/local";
+import { AlphaBadge } from "@/components/AlphaBadge";
 import { CommandPaletteProvider } from "@/components/CommandPalette";
-import { UiSkinSync } from "@/components/UiSkinSync";
+import { UiPreferencesSync } from "@/components/UiPreferencesSync";
 import "./globals.css";
+
+const geist = localFont({
+  src: "./fonts/Geist-Variable.woff2",
+  display: "swap",
+  style: "normal",
+  weight: "100 900",
+  variable: "--font-geist-local",
+});
+
+const geistMono = localFont({
+  src: "./fonts/GeistMono-Variable.woff2",
+  display: "swap",
+  style: "normal",
+  weight: "100 900",
+  variable: "--font-geist-mono-local",
+});
+
+const newsreader = localFont({
+  src: [
+    {
+      path: "./fonts/Newsreader-Regular.woff2",
+      style: "normal",
+      weight: "400",
+    },
+    {
+      path: "./fonts/Newsreader-Italic.woff2",
+      style: "italic",
+      weight: "400",
+    },
+  ],
+  display: "swap",
+  variable: "--font-newsreader-local",
+});
+
+const localFontVariables = `${geist.variable} ${geistMono.variable} ${newsreader.variable}`;
 
 export const metadata: Metadata = {
   title: "Comparative",
@@ -29,29 +66,12 @@ const themeInitScript = `
       : (prefersDark ? 'dark' : 'light');
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.setAttribute('data-theme', theme);
-    // Umber is the default; an explicit Classic preference is the temporary
-    // escape hatch. This covers the FIRST paint only: React 19 hydration then
-    // replaces <html>'s className,
-    // stripping script-added classes — the dark class above survives only
-    // because useTheme re-applies it in an effect, and UiSkinSync (mounted in
-    // the body below) is the equivalent required re-assert for this class.
-    if (localStorage.getItem('ui-skin') !== 'classic') {
-      document.documentElement.classList.add('skin-umber');
+    if (localStorage.getItem('ai-workspace-density') === 'compact') {
+      document.documentElement.classList.add('density-compact');
     }
   } catch (e) {}
 })();
 `;
-
-function AlphaBadge() {
-  return (
-    <div
-      aria-label="Alpha version"
-      className="pointer-events-none fixed left-1/2 top-[max(env(safe-area-inset-top),0.5rem)] z-[90] -translate-x-1/2 rounded-full border border-hairline bg-surface px-2.5 py-1 text-2xs font-semibold uppercase leading-none tracking-caps text-muted shadow-sm"
-    >
-      Alpha
-    </div>
-  );
-}
 
 export default function RootLayout({
   children,
@@ -59,9 +79,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      className={localFontVariables}
+      suppressHydrationWarning
+    >
       <head>
-        {/* Comparative ships a real native dark mode (and the Umber skin).
+        {/* Comparative ships a real native dark mode with the Umber identity.
             Dark Reader's forced repaint sits on top of the app's theme
             classes, so the sun/moon toggle and Light/Dark/System controls
             appear dead while working correctly underneath (live tester
@@ -71,7 +95,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="bg-canvas text-ink antialiased">
-        <UiSkinSync />
+        <UiPreferencesSync />
         <AlphaBadge />
         <CommandPaletteProvider>{children}</CommandPaletteProvider>
       </body>

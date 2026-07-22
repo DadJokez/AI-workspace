@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
@@ -144,6 +144,36 @@ describe("umber foundation (packages/umber)", () => {
     ]) {
       expect(tailwind).toContain(`var(${token})`);
     }
+  });
+
+  it("self-hosts the brand fonts within the app payload", () => {
+    const layout = readFileSync(join(__dirname, "../app/layout.tsx"), "utf8");
+    const globals = readFileSync(join(__dirname, "../app/globals.css"), "utf8");
+    const fontsDirectory = join(__dirname, "../app/fonts");
+    const fontFiles = [
+      "Geist-Variable.woff2",
+      "GeistMono-Variable.woff2",
+      "Newsreader-Regular.woff2",
+      "Newsreader-Italic.woff2",
+    ];
+
+    expect(layout).toContain('from "next/font/local"');
+    for (const fontFile of fontFiles) {
+      expect(layout).toContain(`./fonts/${fontFile}`);
+      expect(statSync(join(fontsDirectory, fontFile)).size).toBeGreaterThan(0);
+    }
+    expect(
+      fontFiles.reduce(
+        (bytes, fontFile) => bytes + statSync(join(fontsDirectory, fontFile)).size,
+        0,
+      ),
+    ).toBeLessThan(400_000);
+
+    expect(globals).toContain("var(--font-geist-local)");
+    expect(globals).toContain("var(--font-geist-mono-local)");
+    expect(globals).toContain("var(--font-newsreader-local)");
+    expect(layout).not.toMatch(/fonts\.(?:googleapis|gstatic)\.com/);
+    expect(globals).not.toMatch(/fonts\.(?:googleapis|gstatic)\.com/);
   });
 
   it("keeps app typography on the shared scale", () => {

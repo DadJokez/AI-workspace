@@ -49,9 +49,9 @@ for (const theme of ["light", "dark"] as const) {
     });
     await gotoE2EChat(page);
 
-    const headline = page.getByText("Talk to your work.", { exact: true });
+    const headline = page.getByTestId("empty-state-greeting");
     await expect(headline).toHaveCSS("font-size", "33px");
-    await expect(headline).toHaveCSS("font-family", /Newsreader/);
+    await expect(headline).toHaveCSS("font-family", /newsreader/i);
 
     const sidebar = await openPrimarySidebar(page, isMobile);
     const skills = sidebar.getByRole("link", { name: "Skills", exact: true });
@@ -73,6 +73,6 @@ for (const theme of ["light", "dark"] as const) {
       exact: true,
     });
     await expect(loginTitle).toHaveCSS("font-size", "21px");
-    await expect(loginTitle).toHaveCSS("font-family", /Newsreader/);
+    await expect(loginTitle).toHaveCSS("font-family", /newsreader/i);
   });
 }

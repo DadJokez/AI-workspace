@@ -4,7 +4,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { buildRuntimeV2Report } from "@/lib/admin/run-reporting";
-import { FilterPill } from "@/app/admin/ui";
+import { FilterPill, Metric, StatusBadge, StatusDot } from "@/app/admin/ui";
+import { EmptyState } from "@/components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -286,9 +287,15 @@ export default async function AdminRunsPage({ searchParams }: Props) {
               <tr>
                 <td
                   colSpan={5}
-                  className="border-b border-hairline px-6 py-10 text-center text-xs text-muted"
+                  className="border-b border-hairline"
                 >
-                  No runs match this filter.
+                  <EmptyState
+                    title="No runs match this filter"
+                    description="Choose another status, or start a chat to create a new run."
+                    actionLabel="Start a chat"
+                    actionHref="/chat"
+                    className="min-h-40"
+                  />
                 </td>
               </tr>
             ) : (
@@ -298,7 +305,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
                   <tr key={row.id} className="hover:bg-subtle/40">
                     <td className="border-b border-hairline px-6 py-3 align-top">
                       <div className="flex items-start gap-3">
-                        <StatusDot status={row.status} />
+                        <StatusDot status={row.status} className="mt-1" />
                         <div>
                           <Link
                             href={`/admin/runs/${row.id}`}
@@ -380,47 +387,6 @@ export default async function AdminRunsPage({ searchParams }: Props) {
         </table>
       </div>
     </section>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="rounded-md border border-hairline bg-surface px-3 py-2">
-      <div className="text-2xs uppercase tracking-wider text-muted">
-        {label}
-      </div>
-      <div className="mt-1 text-lg font-semibold text-ink">{value}</div>
-    </div>
-  );
-}
-
-function StatusDot({ status }: { status: string }) {
-  const color =
-    status === "succeeded"
-      ? "bg-success"
-      : status === "failed"
-        ? "bg-danger"
-        : status === "running"
-          ? "animate-pulse bg-info"
-          : "bg-muted";
-  return <span className={`mt-1 h-2.5 w-2.5 rounded-full ${color}`} />;
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const classes =
-    status === "succeeded"
-      ? "bg-success-bg text-success"
-      : status === "failed"
-        ? "bg-danger-bg text-danger"
-        : status === "running"
-          ? "bg-info-bg text-info"
-          : "bg-subtle text-muted";
-  return (
-    <span
-      className={`inline-flex rounded px-2 py-0.5 text-2xs uppercase tracking-wider ${classes}`}
-    >
-      {status}
-    </span>
   );
 }
 

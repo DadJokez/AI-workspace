@@ -6,6 +6,7 @@ import {
   userMessage,
 } from "./helpers/mock-comparative";
 import { gotoE2EChat, openPrimarySidebar } from "./helpers/navigation";
+import { swipe } from "./helpers/swipe";
 import { COMPARATIVE_VERSION_LABEL } from "../lib/product-version";
 
 test.skip(
@@ -37,6 +38,99 @@ test.describe("chat shell guardrails", () => {
     }
   });
 
+  test("personalizes the greeting, connected tools, and role-aware prompts", async ({
+    page,
+  }) => {
+    await installMockComparativeApi(page, {
+      user: {
+        displayName: "Alex Example",
+        customInstructions: "My role: Engineering.",
+      },
+      oauthStatus: { github: true },
+      recommendationPrompts: {
+        connectedProviders: ["github"],
+        suggestions: [
+          "Review my open GitHub work and tell me what to tackle first",
+          "Turn these technical notes into a clear team update",
+          "Draft release notes from this list of changes",
+          "Break this technical problem into the next concrete steps",
+        ],
+      },
+    });
+
+    await gotoE2EChat(page);
+
+    await expect(page.getByTestId("empty-state-greeting")).toHaveText(
+      /Good (morning|afternoon|evening), Alex\./,
+    );
+    await expect(page.getByText("GitHub is connected.")).toBeVisible();
+    await expect(
+      page.getByRole("button", {
+        name: "Review my open GitHub work and tell me what to tackle first",
+      }),
+    ).toBeVisible();
+  });
+
+  test("falls back to useful prompts when recommendations are unavailable", async ({
+    page,
+  }) => {
+    await installMockComparativeApi(page, {
+      recommendationPromptsStatus: 503,
+      oauthStatus: { github: false },
+    });
+
+    await gotoE2EChat(page);
+
+    await expect(
+      page.getByRole("button", {
+        name: "Draft a concise project status update for my team",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("No work tools are connected yet."),
+    ).toBeVisible();
+  });
+
+  test("shows conversation-shaped skeletons while saved messages load", async ({
+    page,
+    isMobile,
+  }) => {
+    await installMockComparativeApi(page, {
+      threads: [
+        {
+          id: "thread-slow-history",
+          title: "Slow history",
+          defaultModelId: "sonnet-4-6",
+          summary: null,
+          summaryUpdatedAt: null,
+          previewSummary: null,
+          previewSummaryUpdatedAt: null,
+          titleSource: "generated",
+          createdAt: "2026-07-21T12:00:00.000Z",
+          updatedAt: "2026-07-21T12:00:00.000Z",
+        },
+      ],
+      threadMessages: {
+        "thread-slow-history": [
+          assistantMessage({
+            id: "assistant-slow-history",
+            content: "The saved conversation is ready.",
+          }),
+        ],
+      },
+      threadMessagesDelayMs: 800,
+    });
+    await gotoE2EChat(page);
+
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: "Slow history" }).click();
+
+    await expect(page.getByTestId("thread-loading-skeleton")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toHaveCount(0);
+    await expect(page.getByText("The saved conversation is ready.")).toBeVisible();
+    await expect(page.getByTestId("thread-loading-skeleton")).toHaveCount(0);
+  });
+
   test("blocks empty and whitespace-only submits", async ({ page }) => {
     let chatCalls = 0;
     await installMockComparativeApi(page, {
@@ -57,7 +151,9 @@ test.describe("chat shell guardrails", () => {
     });
 
     await gotoE2EChat(page);
-    await expect(page.getByText(/GitHub is wired up today/)).toBeVisible();
+    await expect(
+      page.getByText("No work tools are connected yet."),
+    ).toBeVisible();
 
     const input = page.getByPlaceholder(/ask anything/i);
     const send = page.getByRole("button", { name: "Send" });
@@ -136,6 +232,44 @@ test.describe("chat shell guardrails", () => {
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
       .toBe(rawMarkdown);
+  });
+
+  test("renders user code and links through the restricted markdown pipeline", async ({
+    page,
+  }) => {
+    await installMockComparativeApi(page);
+    await gotoE2EChat(page);
+
+    const prompt = [
+      "Please review `inlineValue` and this block:",
+      "```js",
+      "const answer = 42;",
+      "```",
+      "[Reference](https://example.com/reference)",
+      "# This stays compact",
+      "| Unsafe | table |",
+      "| --- | --- |",
+      '<img src="x" onerror="window.__userMarkdownXss = true">',
+    ].join("\n");
+    await page.getByPlaceholder(/ask anything/i).fill(prompt);
+    await page.getByRole("button", { name: "Send" }).click();
+
+    const message = page.getByTestId("user-message").last();
+    await expect(message.getByText("inlineValue", { exact: true })).toBeVisible();
+    await expect(message.locator("pre code")).toContainText(
+      "const answer = 42;",
+    );
+    await expect(
+      message.getByRole("link", { name: "Reference" }),
+    ).toHaveAttribute("href", "https://example.com/reference");
+    await expect(message.locator("h1, table, img")).toHaveCount(0);
+    expect(
+      await page.evaluate(
+        () =>
+          (window as typeof window & { __userMarkdownXss?: boolean })
+            .__userMarkdownXss,
+      ),
+    ).toBeUndefined();
   });
 
   test("edits and resends a prior user message on the same thread", async ({
@@ -599,7 +733,7 @@ test.describe("chat shell guardrails", () => {
     await gotoE2EChat(page);
     await page.evaluate(() => window.localStorage.setItem("theme", "light"));
     await page.reload();
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
 
     const header = page.locator("header").first();
     const isMobile = testInfo.project.name.includes("mobile");
@@ -626,14 +760,18 @@ test.describe("chat shell guardrails", () => {
     await expect(
       header.getByRole("combobox", { name: "Model", exact: true }),
     ).toHaveCount(0);
-    await expect(header.getByTestId("resolved-model-chip")).toBeVisible();
+    if (isMobile) {
+      await expect(header.getByTestId("resolved-model-chip")).toBeHidden();
+    } else {
+      await expect(header.getByTestId("resolved-model-chip")).toBeVisible();
+    }
     await expect(page.locator("html")).not.toHaveClass(/dark/);
 
     await header.getByRole("button", { name: "Switch to dark mode" }).click();
     await expect(page.locator("html")).toHaveClass(/dark/);
     await page.reload();
     await expect(page.locator("html")).toHaveClass(/dark/);
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
     await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
 
     const longTitlePrompt =
@@ -656,17 +794,136 @@ test.describe("chat shell guardrails", () => {
     );
     await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
     await expect(
-      header.getByRole("button", { name: "Regenerate last response" }),
-    ).toBeVisible();
+      header.getByRole("button", { name: "Regenerate response" }),
+    ).toHaveCount(0);
 
-    await header
-      .getByRole("button", { name: "Regenerate last response" })
+    const latestAssistant = page
+      .getByTestId("assistant-message")
+      .filter({ hasText: "Shell response 1." });
+    await latestAssistant.hover();
+    await latestAssistant
+      .getByRole("button", { name: "Regenerate response" })
       .click();
     await expect(page.getByText("Shell response 2.")).toBeVisible();
     expect(calls).toBe(2);
     expect(chatBodies[1]!.replaceMessageId).toBe(
       "33333333-3333-4333-8333-333333333333",
     );
+  });
+
+  test("shows jump to latest only outside the stick zone while a turn runs", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name.includes("mobile"),
+      "desktop coverage exercises the shared scroll behavior",
+    );
+
+    let releaseResponse: (() => void) | undefined;
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    const longMessages = Array.from({ length: 18 }, (_, index) => [
+      userMessage({
+        id: `user-scroll-${index}`,
+        content: `Question ${index + 1}: ${"context ".repeat(18)}`,
+      }),
+      assistantMessage({
+        id: `assistant-scroll-${index}`,
+        content: `Answer ${index + 1}: ${"detail ".repeat(24)}`,
+      }),
+    ]).flat();
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      threads: [
+        {
+          id: "thread-scroll",
+          title: "Long conversation",
+          defaultModelId: "sonnet-4-6",
+          previewSummary: null,
+          previewSummaryUpdatedAt: null,
+          titleSource: "generated",
+          createdAt: "2026-06-14T20:00:00.000Z",
+          updatedAt: "2026-06-14T20:00:00.000Z",
+        },
+      ],
+      threadMessages: { "thread-scroll": longMessages },
+      onChat: async (_body, route) => {
+        await responseGate;
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-scroll",
+            userMessageId: "44444444-4444-4444-8444-444444444444",
+            modelId: "sonnet-4-6",
+          },
+          { type: "text-delta", delta: "Newest answer." },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-scroll-new",
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+
+    await gotoE2EChat(page);
+    await page
+      .getByRole("button", { name: "Long conversation", exact: true })
+      .click();
+    const scrollRegion = page.getByTestId("chat-scroll-region");
+    await expect
+      .poll(() =>
+        scrollRegion.evaluate(
+          (node) => node.scrollHeight - node.clientHeight - node.scrollTop,
+        ),
+      )
+      .toBeLessThan(100);
+
+    await scrollRegion.evaluate((node) => {
+      node.scrollTop = 0;
+      node.dispatchEvent(new Event("scroll"));
+    });
+    await expect(
+      page.getByRole("button", { name: "Jump to latest" }),
+    ).toHaveCount(0);
+
+    await page.getByPlaceholder(/ask anything/i).fill("Give me one more answer");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByPlaceholder("Generating…")).toBeVisible();
+
+    await scrollRegion.evaluate((node) => {
+      node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight - 60);
+      node.dispatchEvent(new Event("scroll"));
+    });
+    await expect(
+      page.getByRole("button", { name: "Jump to latest" }),
+    ).toHaveCount(0);
+
+    await scrollRegion.evaluate((node) => {
+      node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight - 140);
+      node.dispatchEvent(new Event("scroll"));
+    });
+    const jumpButton = page.getByRole("button", { name: "Jump to latest" });
+    await expect(jumpButton).toBeVisible();
+    await expect(page.getByTestId("jump-to-latest-status")).toHaveText(
+      "New content below",
+    );
+
+    await jumpButton.click();
+    await expect
+      .poll(() =>
+        scrollRegion.evaluate(
+          (node) => node.scrollHeight - node.clientHeight - node.scrollTop,
+        ),
+      )
+      .toBeLessThan(100);
+    await expect(jumpButton).toHaveCount(0);
+
+    releaseResponse?.();
+    await expect(page.getByText("Newest answer.")).toBeVisible();
   });
 
   test("does not create page-level horizontal overflow", async ({ page }) => {
@@ -696,6 +953,15 @@ test.describe("chat shell guardrails", () => {
     const openMenu = page.getByRole("button", { name: "Open menu" }).first();
 
     await expect(sidebar).not.toBeInViewport();
+    await swipe(page, { x: 4, y: 260 }, { x: 132, y: 264 });
+    await expect(sidebar).toBeInViewport();
+    await expect
+      .poll(async () => Math.round((await sidebar.boundingBox())?.x ?? -1))
+      .toBe(0);
+
+    await swipe(page, { x: 230, y: 28 }, { x: 90, y: 32 });
+    await expect(sidebar).not.toBeInViewport();
+
     await openMenu.click();
     await expect(sidebar).toBeInViewport();
 
@@ -730,7 +996,7 @@ test.describe("chat shell guardrails", () => {
     await expect(sidebar).toBeInViewport();
     await sidebar.getByRole("button", { name: "New chat" }).click();
     await expect(sidebar).not.toBeInViewport();
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
     await expect(page.getByTestId("active-chat-title")).toContainText(
       "New chat",
     );
@@ -770,4 +1036,83 @@ test.describe("chat shell guardrails", () => {
     );
     expect(pageOverflow).toBeLessThanOrEqual(1);
   });
+
+  test("keeps the mobile alpha badge in flow and compact controls tappable", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      !testInfo.project.name.includes("mobile"),
+      "mobile-only responsive behavior",
+    );
+
+    await page.addInitScript(() => {
+      window.localStorage.setItem("ai-workspace-density", "compact");
+    });
+    await page.setViewportSize({ width: 320, height: 760 });
+    await installMockComparativeApi(page);
+    await gotoE2EChat(page);
+
+    for (const width of [320, 480]) {
+      await page.setViewportSize({ width, height: 760 });
+      const header = page.locator("header").first();
+      const badge = header.locator('[data-alpha-badge="inline"]');
+      await expect(badge).toBeVisible();
+      await expect(page.locator('[data-alpha-badge="global"]')).toBeHidden();
+      if (width < 400) {
+        await expect(page.getByTestId("resolved-model-chip")).toBeHidden();
+      } else {
+        await expect(page.getByTestId("resolved-model-chip")).toBeVisible();
+      }
+      const title = page.getByTestId("active-chat-title");
+      await expect(title).toContainText("New chat");
+      expect(
+        await title.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth + 1,
+        ),
+      ).toBe(true);
+
+      const badgeBox = await badge.boundingBox();
+      const headerBox = await header.boundingBox();
+      expect(badgeBox).toBeTruthy();
+      expect(headerBox).toBeTruthy();
+      expect(badgeBox!.x).toBeGreaterThanOrEqual(headerBox!.x);
+      expect(badgeBox!.x + badgeBox!.width).toBeLessThanOrEqual(
+        headerBox!.x + headerBox!.width,
+      );
+
+      for (const control of await header.locator("button:visible").all()) {
+        const controlBox = await control.boundingBox();
+        expect(controlBox).toBeTruthy();
+        expect(boxesOverlap(badgeBox!, controlBox!)).toBe(false);
+      }
+    }
+
+    await expect(page.locator("html")).toHaveClass(/density-compact/);
+    await swipe(page, { x: 4, y: 260 }, { x: 132, y: 264 });
+    const sidebar = page.locator('aside[aria-label="Primary"]');
+    await expect(sidebar).toBeInViewport();
+
+    for (const button of await sidebar.locator("button:visible").all()) {
+      const box = await button.boundingBox();
+      expect(box).toBeTruthy();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+    for (const name of ["Attach files", "Send"]) {
+      const box = await page.getByRole("button", { name }).boundingBox();
+      expect(box).toBeTruthy();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+  });
 });
+
+function boxesOverlap(
+  first: { x: number; y: number; width: number; height: number },
+  second: { x: number; y: number; width: number; height: number },
+) {
+  return !(
+    first.x + first.width <= second.x ||
+    second.x + second.width <= first.x ||
+    first.y + first.height <= second.y ||
+    second.y + second.height <= first.y
+  );
+}

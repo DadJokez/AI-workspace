@@ -61,7 +61,7 @@ test.describe("authenticated product smoke", () => {
     });
 
     await page.goto("/chat");
-    await expect(page.getByText("Talk to your work.")).toBeVisible();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
     await expect(
       page.getByRole("button", {
         name: "Draft a concise project status update for my team",
@@ -454,7 +454,7 @@ test.describe("authenticated product smoke", () => {
     await page.goto("/admin");
     await expect(page.getByRole("heading", { name: "Users" })).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Invitations" }),
+      page.getByRole("heading", { name: "Invitations", exact: true }),
     ).toBeVisible();
 
     await page.getByLabel("Email").fill(email);

@@ -4,7 +4,7 @@ test.describe("public product smoke", () => {
   test("login page renders the Comparative sign-in shell", async ({ page }) => {
     await page.goto("/login");
 
-    await expect(page.locator('[aria-label="Alpha version"]')).toBeVisible();
+    await expect(page.locator("[data-alpha-badge]:visible")).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Comparative" }),
     ).toBeVisible();
