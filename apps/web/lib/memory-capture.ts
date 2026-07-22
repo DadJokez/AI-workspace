@@ -340,6 +340,7 @@ export async function backfillMissingMemoryCaptures(
         eq(runs.status, "succeeded"),
         gte(runs.completedAt, since),
         lt(runs.completedAt, until),
+        isNotNull(runs.userId),
         isNotNull(runs.threadId),
         isNull(memoryCaptureQueue.id),
       ),

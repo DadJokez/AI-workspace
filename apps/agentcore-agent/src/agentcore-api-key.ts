@@ -7,6 +7,16 @@ interface ApiKeyClient {
   send(command: GetResourceApiKeyCommand): Promise<{ apiKey?: string }>;
 }
 
+/**
+ * AgentCore Runtime delivers this exact payload header when user identity is
+ * present. Node lowercases incoming header keys, so the lookup uses the
+ * normalized form below. Contract:
+ * https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-oauth.html
+ */
+export const AGENTCORE_WORKLOAD_ACCESS_TOKEN_HEADER = "WorkloadAccessToken";
+const NODE_WORKLOAD_ACCESS_TOKEN_HEADER =
+  AGENTCORE_WORKLOAD_ACCESS_TOKEN_HEADER.toLowerCase();
+
 export function createAgentCoreApiKeyProvider({
   workloadAccessToken,
   providerName,
@@ -18,6 +28,7 @@ export function createAgentCoreApiKeyProvider({
   region?: string;
   client?: ApiKeyClient;
 }): () => Promise<string | undefined> {
+  let resolved: string | undefined;
   let pending: Promise<string> | undefined;
   return async () => {
     if (!workloadAccessToken?.trim()) {
@@ -31,12 +42,20 @@ export function createAgentCoreApiKeyProvider({
       );
     }
 
+    if (resolved) return resolved;
     pending ??= loadApiKey({
       workloadAccessToken: workloadAccessToken.trim(),
       providerName: providerName.trim(),
       region,
       client,
-    });
+    })
+      .then((apiKey) => {
+        resolved = apiKey;
+        return apiKey;
+      })
+      .finally(() => {
+        pending = undefined;
+      });
     return pending;
   };
 }
@@ -44,7 +63,7 @@ export function createAgentCoreApiKeyProvider({
 export function readWorkloadAccessToken(
   headers: Record<string, string | string[] | undefined>,
 ): string | undefined {
-  const value = headers.workloadaccesstoken;
+  const value = headers[NODE_WORKLOAD_ACCESS_TOKEN_HEADER];
   return (Array.isArray(value) ? value[0] : value)?.trim() || undefined;
 }
 

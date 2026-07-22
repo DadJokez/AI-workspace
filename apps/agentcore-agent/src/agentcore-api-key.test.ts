@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  AGENTCORE_WORKLOAD_ACCESS_TOKEN_HEADER,
   createAgentCoreApiKeyProvider,
   readWorkloadAccessToken,
 } from "./agentcore-api-key";
 
 describe("AgentCore API-key credential resolution", () => {
   it("reads the Runtime-provided workload token header", () => {
+    expect(AGENTCORE_WORKLOAD_ACCESS_TOKEN_HEADER).toBe("WorkloadAccessToken");
     expect(
       readWorkloadAccessToken({ workloadaccesstoken: "  workload-token  " }),
     ).toBe("workload-token");
@@ -37,6 +39,23 @@ describe("AgentCore API-key credential resolution", () => {
       workloadIdentityToken: "workload-token",
       resourceCredentialProviderName: "comparative-brave-search",
     });
+  });
+
+  it("retries a transient credential lookup, then caches the success", async () => {
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary identity outage"))
+      .mockResolvedValue({ apiKey: "recovered-key" });
+    const provide = createAgentCoreApiKeyProvider({
+      workloadAccessToken: "workload-token",
+      providerName: "comparative-brave-search",
+      client: { send } as never,
+    });
+
+    await expect(provide()).rejects.toThrow(/temporarily unavailable/i);
+    await expect(provide()).resolves.toBe("recovered-key");
+    await expect(provide()).resolves.toBe("recovered-key");
+    expect(send).toHaveBeenCalledTimes(2);
   });
 
   it("fails honestly before calling AWS when Runtime omitted the token", async () => {
