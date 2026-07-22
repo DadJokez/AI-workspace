@@ -130,10 +130,12 @@ describe("AgentCoreRuntime", () => {
     const input = captured! as {
       agentRuntimeArn: string;
       runtimeSessionId: string;
+      runtimeUserId: string;
       payload: Uint8Array;
     };
     expect(input.agentRuntimeArn).toContain("runtime/spike");
     expect(input.runtimeSessionId).toBe(baseInput.threadId);
+    expect(input.runtimeUserId).toBe("u1");
     const payload = JSON.parse(new TextDecoder().decode(input.payload));
     expect(payload.modelId).toBe("sonnet-4-6");
     expect(payload.userId).toBe("u1");

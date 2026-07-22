@@ -22,6 +22,9 @@ importers:
       '@ai-workspace/agent':
         specifier: workspace:*
         version: link:../../packages/agent
+      '@aws-sdk/client-bedrock-agentcore':
+        specifier: ^3.1067.0
+        version: 3.1067.0
       tsx:
         specifier: ^4.19.2
         version: 4.21.0

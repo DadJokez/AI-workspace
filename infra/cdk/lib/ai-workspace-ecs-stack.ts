@@ -312,6 +312,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
         RUNTIME: "agentcore",
         AGENTCORE_RUNTIME_ARN:
           "arn:aws:bedrock-agentcore:us-east-1:351478076796:runtime/ai_workspace_agent_spike-5n8RLRBVz5",
+        MEMORY_CAPTURE_IN_PROCESS_SCHEDULER: "0",
       },
       secrets: commonSecrets,
       grantBedrock: true,
@@ -326,9 +327,40 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       containerName: "memory-worker",
       logGroup: memoryWorkerLogGroup,
       securityGroup: workerSecurityGroup,
-      environment: commonEnvironment,
+      environment: {
+        ...commonEnvironment,
+        MEMORY_CAPTURE_IN_PROCESS_SCHEDULER: "0",
+      },
       secrets: commonSecrets,
-      grantBedrock: false,
+      grantBedrock: true,
+    });
+
+    const memoryCaptureFailureMetric = new logs.MetricFilter(
+      this,
+      "MemoryCaptureFailureMetric",
+      {
+        logGroup: memoryWorkerLogGroup,
+        filterPattern: logs.FilterPattern.anyTerm(
+          "memory-capture-error",
+          "memory-capture-worker-fatal",
+        ),
+        metricNamespace: "Comparative/Workers",
+        metricName: "MemoryCaptureFailures",
+        metricValue: "1",
+        defaultValue: 0,
+      },
+    );
+    new cloudwatch.Alarm(this, "MemoryCaptureFailureAlarm", {
+      alarmName: "ai-workspace-memory-capture-failures",
+      metric: memoryCaptureFailureMetric.metric({
+        statistic: "Sum",
+        period: cdk.Duration.minutes(20),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator:
+        cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
     if (codeBuildRoleArn) {

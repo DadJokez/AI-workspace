@@ -5,10 +5,22 @@ import {
   type Database,
   memoryCaptureQueue,
   type MemoryCaptureQueueItem,
+  runs,
   userMemoryItems,
   type UserMemoryItem,
 } from "@ai-workspace/db";
-import { and, asc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  or,
+  sql,
+} from "drizzle-orm";
 import { resolveModelForPurpose } from "@/lib/model-registry";
 import {
   buildVaultMarkdown,
@@ -21,6 +33,9 @@ const DEFAULT_WORKER_POLL_MS = 20 * 60 * 1000;
 const DEFAULT_IN_PROCESS_DELAY_MS = 20 * 60 * 1000;
 const DEFAULT_PROCESSING_STALE_MS = 30 * 60 * 1000;
 const SETTLED_ROW_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const FAILED_ROW_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const DEFAULT_FAILED_RETRY_MS = 15 * 60 * 1000;
+const DEFAULT_MAX_ATTEMPTS = 3;
 const MAX_REVIEW_DOC_CHARS = 90_000;
 const MAX_MESSAGE_CHARS = 12_000;
 const MAX_MEMORY_BODY_CHARS = 600;
@@ -44,6 +59,12 @@ export interface ProcessMemoryCaptureInput {
 
 export interface MemoryCaptureWorkerLoopInput extends ProcessMemoryCaptureInput {
   pollIntervalMs?: number;
+}
+
+export interface BackfillMemoryCapturesInput {
+  since: Date;
+  until: Date;
+  limit?: number;
 }
 
 type MemoryCaptureWorkerStatus = "idle" | "processed" | "failed";
@@ -188,22 +209,33 @@ export async function processPendingMemoryCaptures({
 
 /**
  * #462: the queue is insert-per-turn and was delete-never, so it grew without
- * bound. Settled rows (processed/skipped/failed) are kept for a retention
- * window — failed rows stay debuggable and the run_id unique index keeps
- * enqueue idempotent across retries — then deleted on the next worker pass.
+ * bound. Processed/skipped rows are kept for a short audit window; exhausted
+ * failures stay longer for debugging. The run_id unique index keeps enqueue
+ * idempotent across retries before settled rows are eventually removed.
  */
 export async function sweepSettledMemoryCaptures(
   db: Database,
   now: Date = new Date(),
 ): Promise<void> {
+  const maxAttempts = memoryCaptureMaxAttempts();
   await db
     .delete(memoryCaptureQueue)
     .where(
-      and(
-        inArray(memoryCaptureQueue.status, ["processed", "skipped", "failed"]),
-        lt(
-          memoryCaptureQueue.processedAt,
-          new Date(now.getTime() - SETTLED_ROW_RETENTION_MS),
+      or(
+        and(
+          inArray(memoryCaptureQueue.status, ["processed", "skipped"]),
+          lt(
+            memoryCaptureQueue.processedAt,
+            new Date(now.getTime() - SETTLED_ROW_RETENTION_MS),
+          ),
+        ),
+        and(
+          eq(memoryCaptureQueue.status, "failed"),
+          gte(memoryCaptureQueue.attemptCount, maxAttempts),
+          lt(
+            memoryCaptureQueue.processedAt,
+            new Date(now.getTime() - FAILED_ROW_RETENTION_MS),
+          ),
         ),
       ),
     );
@@ -224,11 +256,22 @@ async function claimPendingCaptures(
       (numberFromEnv("MEMORY_CAPTURE_PROCESSING_STALE_MS") ??
         DEFAULT_PROCESSING_STALE_MS),
   );
+  const failedRetryBefore = new Date(
+    Date.now() -
+      (numberFromEnv("MEMORY_CAPTURE_FAILED_RETRY_MS") ??
+        DEFAULT_FAILED_RETRY_MS),
+  );
+  const maxAttempts = memoryCaptureMaxAttempts();
   const claimable = or(
     eq(memoryCaptureQueue.status, "pending"),
     and(
       eq(memoryCaptureQueue.status, "processing"),
       lt(memoryCaptureQueue.claimedAt, staleBefore),
+    ),
+    and(
+      eq(memoryCaptureQueue.status, "failed"),
+      lt(memoryCaptureQueue.attemptCount, maxAttempts),
+      lt(memoryCaptureQueue.processedAt, failedRetryBefore),
     ),
   );
   const conditions = [claimable];
@@ -250,7 +293,9 @@ async function claimPendingCaptures(
     .set({
       status: "processing",
       attemptCount: sql`${memoryCaptureQueue.attemptCount} + 1`,
+      error: null,
       claimedAt: now,
+      processedAt: null,
       updatedAt: now,
     })
     .where(
@@ -260,6 +305,79 @@ async function claimPendingCaptures(
       ),
     )
     .returning();
+}
+
+/**
+ * One-shot outage recovery. The explicit time window is intentional: settled
+ * queue rows are eventually removed, so an unbounded scan could re-review old
+ * turns that were already captured successfully.
+ */
+export async function backfillMissingMemoryCaptures(
+  db: Database,
+  { since, until, limit = 5_000 }: BackfillMemoryCapturesInput,
+): Promise<{ candidates: number; queued: number }> {
+  if (!(since instanceof Date) || Number.isNaN(since.getTime())) {
+    throw new Error("Memory capture backfill requires a valid since date.");
+  }
+  if (!(until instanceof Date) || Number.isNaN(until.getTime())) {
+    throw new Error("Memory capture backfill requires a valid until date.");
+  }
+  if (until <= since) {
+    throw new Error("Memory capture backfill until must be after since.");
+  }
+
+  const rows = await db
+    .select({
+      runId: runs.id,
+      userId: runs.userId,
+      threadId: runs.threadId,
+      outputs: runs.outputs,
+    })
+    .from(runs)
+    .leftJoin(memoryCaptureQueue, eq(memoryCaptureQueue.runId, runs.id))
+    .where(
+      and(
+        eq(runs.status, "succeeded"),
+        gte(runs.completedAt, since),
+        lt(runs.completedAt, until),
+        isNotNull(runs.userId),
+        isNotNull(runs.threadId),
+        isNull(memoryCaptureQueue.id),
+      ),
+    )
+    .orderBy(asc(runs.completedAt))
+    .limit(Math.max(1, Math.min(limit, 20_000)));
+
+  const values = rows.flatMap((row) => {
+    const outputs = asRecord(row.outputs);
+    const fromMessageId = outputs?.userMessageId;
+    const toMessageId = outputs?.assistantMessageId;
+    if (
+      !row.threadId ||
+      typeof fromMessageId !== "string" ||
+      typeof toMessageId !== "string"
+    ) {
+      return [];
+    }
+    return [
+      {
+        userId: row.userId,
+        threadId: row.threadId,
+        fromMessageId,
+        toMessageId,
+        runId: row.runId,
+        reason: "outage_backfill",
+      },
+    ];
+  });
+  if (values.length === 0) return { candidates: rows.length, queued: 0 };
+
+  const inserted = await db
+    .insert(memoryCaptureQueue)
+    .values(values)
+    .onConflictDoNothing()
+    .returning({ id: memoryCaptureQueue.id });
+  return { candidates: rows.length, queued: inserted.length };
 }
 
 async function processCaptureGroup(
@@ -644,6 +762,21 @@ function clampInt(value: number, min: number, max: number): number {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function memoryCaptureMaxAttempts(): number {
+  return Math.max(
+    1,
+    Math.floor(
+      numberFromEnv("MEMORY_CAPTURE_MAX_ATTEMPTS") ?? DEFAULT_MAX_ATTEMPTS,
+    ),
+  );
 }
 
 function numberFromEnv(name: string): number | undefined {

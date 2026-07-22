@@ -66,6 +66,8 @@ pnpm dev          # http://localhost:3000
 | `RUNTIME` | `bedrock` (default) or `agentcore` |
 | `AGENTCORE_RUNTIME_ARN` | Required for `RUNTIME=agentcore` — the Bedrock AgentCore runtime to invoke |
 | `AGENTCORE_REGION` / `AGENTCORE_QUALIFIER` | Optional AgentCore region override / endpoint qualifier |
+| `WEB_SEARCH_PROVIDER` / `BRAVE_SEARCH_API_KEY` | Direct Bedrock web-search provider configuration. The AgentCore lane resolves the same key through AgentCore Identity instead of receiving it as plaintext. |
+| `BRAVE_SEARCH_CREDENTIAL_PROVIDER` | AgentCore Identity API-key provider name; set by the AgentCore CDK stack. |
 | `NEXTAUTH_SECRET` | NextAuth JWT signing secret |
 | `AUTH_PROVIDERS` | Sign-in allowlist, comma-separated. Default `github,email` — magic links (SES) are the universal tester path, GitHub the optional secondary. `pingone` joins the known list at the enterprise OIDC cutover. |
 | `GITHUB_AUTH_CLIENT_ID` / `GITHUB_AUTH_CLIENT_SECRET` | GitHub OAuth App for sign-in |
@@ -88,6 +90,8 @@ pnpm dev          # http://localhost:3000
 | `MEMORY_CAPTURE_IN_PROCESS_SCHEDULER` | `1`/unset schedules Vault capture in the web process after successful chats; `0` disables it for dedicated worker deployments |
 | `MEMORY_CAPTURE_DELAY_MS` | Delay before reviewing queued chat transcripts for Vault suggestions; default 20 minutes |
 | `MEMORY_CAPTURE_BATCH_LIMIT` | Max queued transcript windows reviewed per memory-capture batch |
+| `MEMORY_CAPTURE_MAX_ATTEMPTS` | Total attempts before a failed capture is quarantined; default 3 |
+| `MEMORY_CAPTURE_FAILED_RETRY_MS` | Delay before a failed capture can be reclaimed; default 15 minutes |
 
 ## Scripts (run from repo root)
 
@@ -101,6 +105,7 @@ pnpm dev          # http://localhost:3000
 | `pnpm start` | Start the production build |
 | `pnpm --filter @ai-workspace/web worker:chat-runs` | Run the DB-backed chat-run worker loop |
 | `pnpm --filter @ai-workspace/web worker:memory-capture` | Run the DB-backed Vault memory capture worker loop |
+| `pnpm --filter @ai-workspace/web memory:backfill -- --since <ISO> --until <ISO>` | One-shot recovery of successful chat turns missing queue rows in an explicit outage window |
 
 ## CI / Deploy
 

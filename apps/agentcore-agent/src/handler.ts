@@ -14,6 +14,7 @@ import {
   type DiscoveryCatalogEntry,
 } from "@ai-workspace/agent";
 import { createBuiltinTools } from "@ai-workspace/agent/web-fetch-tool";
+import type { WebSearchOptions } from "@ai-workspace/agent/web-search-tool";
 
 /**
  * The invocation contract between `AgentCoreRuntime` (the seam adapter in
@@ -168,10 +169,18 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
 export async function runInvocation(
   payload: InvocationPayload,
   emit: (event: AgentEvent) => void | Promise<void>,
-  opts: { signal?: AbortSignal; client?: BedrockClient } = {},
+  opts: {
+    signal?: AbortSignal;
+    client?: BedrockClient;
+    webSearch?: WebSearchOptions;
+  } = {},
 ): Promise<void> {
   const registry = new ToolRegistry();
-  registry.registerAll(createBuiltinTools(payload.builtinTools));
+  registry.registerAll(
+    createBuiltinTools(payload.builtinTools, {
+      webSearch: opts.webSearch,
+    }),
+  );
   // #384 P2: discovery surface + shared activated set — an activation
   // mid-turn mounts the expansion on the next loop iteration, and the web
   // layer persists it from the streamed tool-call event.
