@@ -209,7 +209,7 @@ export function MemorySettings({ userName }: Props) {
               value={addBody}
               onChange={(e) => setAddBody(e.target.value)}
               rows={3}
-              placeholder="The fact (e.g. I'm a supply-chain analyst on the Crossett team; I prefer concise, bulleted answers.)"
+              placeholder="The fact (e.g. I'm a supply-chain analyst on the logistics team; I prefer concise, bulleted answers.)"
               className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-muted"
             />
             {addError ? (

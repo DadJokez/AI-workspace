@@ -271,7 +271,7 @@ Stateless model (full history re-sent each turn); all state durable in RDS Postg
   1. `AiWorkspaceEcsStack` — cluster `ai-workspace-prod`; 3 Fargate services: **web** (512 CPU / 1024 MiB,
      desired 1), **chat-worker** (256 / 512), **memory-worker** (256 / 512); ALB; Secrets Manager
      `ai-workspace/production/app` (`DATABASE_URL`, `NEXTAUTH_SECRET`, GitHub/Notion OAuth, `OAUTH_ENCRYPTION_KEY`);
-     imports pre-existing RDS via SG `sg-019e87b5938a295a4`. **chat-worker runs `RUNTIME=agentcore`
+     imports pre-existing RDS via the SG named in `aiWorkspace:dbSecurityGroupId`. **chat-worker runs `RUNTIME=agentcore`
      with `AGENTCORE_RUNTIME_ARN=…runtime/ai_workspace_agent_spike-…`** ([ecs-stack.ts:264](../../infra/cdk/lib/ai-workspace-ecs-stack.ts)).
   2. `AiWorkspaceAgentCoreSpikeStack` — ECR repo `ai-workspace-agentcore-agent`, execution role
      (`bedrock-agentcore.amazonaws.com`), and the `AWS::BedrockAgentCore::Runtime` CfnResource
@@ -280,7 +280,8 @@ Stateless model (full history re-sent each turn); all state durable in RDS Postg
   3. `AiWorkspaceRuntimeV2PreviewStack` — a parallel staging cluster, model pinned to `haiku-4-5`.
 - **⚠ Landmines (confirmed):** all tasks run in the **default VPC's PUBLIC subnets** with
   `assignPublicIp=true` ([ecs-stack.ts:212](../../infra/cdk/lib/ai-workspace-ecs-stack.ts);
-  [cdk.context.json](../../infra/cdk/cdk.context.json)). AgentCore spike is **NetworkMode PUBLIC** and
+  [cdk.context.ci.json](../../infra/cdk/cdk.context.ci.json) — synthetic CI placeholders; the real
+  lookup cache is gitignored). AgentCore spike is **NetworkMode PUBLIC** and
   its Bedrock IAM is `resources:["*"]` — both flagged "tighten before pilot" in
   [specs/003-agentcore-substrate/plan.md](../../specs/003-agentcore-substrate/plan.md).
 - **CI/CD:** CodeBuild webhook on `main` → build 4 images (web/migrator/worker/memory-worker) from

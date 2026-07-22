@@ -28,7 +28,7 @@ test.describe("chat tools and skills", () => {
             call: {
               id: "tool-github-prs",
               name: "mcp__github__list_pull_requests",
-              input: { owner: "built-with-robot", repo: "comparative" },
+              input: { owner: "acme-comparative", repo: "comparative" },
             },
           },
           {

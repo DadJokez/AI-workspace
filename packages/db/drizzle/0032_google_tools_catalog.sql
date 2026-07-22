@@ -14,7 +14,7 @@ VALUES (
 	'Governed Gmail and Google Calendar tools backed by each user''s delegated Google grant.',
 	'http'::"mcp_server_transport",
 	'active'::"mcp_server_status",
-	'https://comparative.builtwithrobot.link/api/mcp/google',
+	'https://app.comparative.example/api/mcp/google',
 	'delegated_oauth',
 	jsonb_build_object('provider', 'google', 'seededBy', '0032_google_tools_catalog')
 )

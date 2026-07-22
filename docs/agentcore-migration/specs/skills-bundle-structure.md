@@ -23,7 +23,7 @@ fork governance. Instead: **author in the UI → publish to S3 on promote → Ha
 ```
 s3://acme-comparative-skills/
   skills/
-    gp/
+    org/
       marketing/
         campaign-brief/
           SKILL.md
@@ -38,11 +38,11 @@ s3://acme-comparative-skills/
         qlik-summary/
           SKILL.md
       shared/                    # org-wide, admin-published only
-        gp-style-guide/
+        org-style-guide/
           SKILL.md
   _manifests/
-    gp-marketing.json           # lists skill paths + versions in the marketing bundle
-    gp-finance.json
+    org-marketing.json          # lists skill paths + versions in the marketing bundle
+    org-finance.json
 ```
 
 - **One folder per skill**, named by the skill slug; domain is the parent (`marketing`, `finance`,
@@ -66,7 +66,7 @@ s3://acme-comparative-skills/
 ```jsonc
 "skills": [
   { "s3": { "bucket": "acme-comparative-skills-prod", "prefix": "skills/org/marketing/" } },
-  { "git": { "repository": "https://github.com/gp/comparative-skills", "revision": "<pinned-sha>" } },
+  { "git": { "repository": "https://github.com/acme/comparative-skills", "revision": "<pinned-sha>" } },
   { "awsSkills": {} }            // AWS-ops agent only
 ]
 ```

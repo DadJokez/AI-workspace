@@ -95,10 +95,13 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       "aiWorkspace:inviteEmailAwsRegion",
       cdk.Stack.of(this).region,
     );
+    // Placeholder default: a real deploy must pass the actual RDS security
+    // group via `-c aiWorkspace:dbSecurityGroupId=sg-...` (see the deploy
+    // runbook). The placeholder only exists so `cdk synth` works offline.
     const dbSecurityGroupId = contextString(
       this,
       "aiWorkspace:dbSecurityGroupId",
-      "sg-019e87b5938a295a4",
+      "sg-00000000000000000",
     );
     // Role/runtime names come from context; the account is whatever account the
     // app is synthesised into (CDK_DEFAULT_ACCOUNT), never a hardcoded id.

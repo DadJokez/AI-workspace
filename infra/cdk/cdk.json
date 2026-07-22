@@ -7,7 +7,7 @@
     "aiWorkspace:hostedZoneName": "comparative.example",
     "aiWorkspace:ecrRepositoryName": "ai-workspace",
     "aiWorkspace:appSecretName": "ai-workspace/production/app",
-    "aiWorkspace:dbSecurityGroupId": "sg-019e87b5938a295a4",
+    "aiWorkspace:dbSecurityGroupId": "sg-00000000000000000",
     "aiWorkspace:codeBuildRoleName": "CodeBuildAIWorkspaceRole",
     "aiWorkspace:agentcoreRuntimeId": "ai_workspace_agent_spike-5n8RLRBVz5"
   }

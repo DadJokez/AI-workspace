@@ -10,7 +10,7 @@ After step 7, your local `pnpm dev` with `BEDROCK_CLIENT=real` will call AWS Cla
 
 ## 1. Create the AWS account
 
-If you don't have one, sign up at <https://aws.amazon.com/>. Use a personal email (not your work one) for the **root user** if this is your funded-by-you experiment account. Add a credit card. Pick a name like `dadjokez-personal`.
+If you don't have one, sign up at <https://aws.amazon.com/>. Use a personal email (not your work one) for the **root user** if this is your funded-by-you experiment account. Add a credit card. Pick a name like `comparative-personal`.
 
 The root user is the one who created the account. **Don't use it day-to-day.** You'll create a separate IAM user in step 4.
 

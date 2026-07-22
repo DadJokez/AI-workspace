@@ -14,7 +14,7 @@ VALUES (
 	'Governed read-only Salesforce tools backed by each user''s delegated Salesforce grant.',
 	'http'::"mcp_server_transport",
 	'active'::"mcp_server_status",
-	'https://comparative.builtwithrobot.link/api/mcp/salesforce',
+	'https://app.comparative.example/api/mcp/salesforce',
 	'delegated_oauth',
 	jsonb_build_object('provider', 'salesforce', 'seededBy', '0035_salesforce_tools_catalog')
 )
