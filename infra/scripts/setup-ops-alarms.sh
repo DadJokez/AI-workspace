@@ -10,12 +10,12 @@
 # Creates:
 #   1. SNS topic ai-workspace-ops-alerts + email subscription (confirm via
 #      the email AWS sends).
-#   2. Worker-liveness alarms: RunningTaskCount < 1 for chat-worker and
-#      memory-worker (the "background lane is silently dead" detector).
-#   3. Web 5xx alarm on the ALB (>=5 5xx in 5 minutes).
+#   2. Worker-liveness alarms: LiveTaskCount < 1 for chat-worker and
+#      memory-worker (the "background lane is silently dead" detector,
+#      without requiring Container Insights).
+#   3. Web target 5xx, load-balancer 5xx, and unhealthy-host alarms.
 #   4. A run-failure log metric filter + alarm on the chat-worker log group
-#      (>=3 run_failed events in 15 minutes — the poison-pill detector until
-#      #462's quarantine lands).
+#      (>=3 terminal worker errors in 15 minutes).
 set -euo pipefail
 
 : "${AWS_DEFAULT_REGION:?AWS_DEFAULT_REGION is required}"
@@ -26,56 +26,104 @@ TOPIC_NAME="ai-workspace-ops-alerts"
 
 echo "1/4 SNS topic + subscription..."
 TOPIC_ARN=$(aws sns create-topic --name "$TOPIC_NAME" --query TopicArn --output text)
-aws sns subscribe --topic-arn "$TOPIC_ARN" --protocol email \
-  --notification-endpoint "$OPS_ALERT_EMAIL" --output text >/dev/null || true
-echo "   topic: $TOPIC_ARN (confirm the subscription email if this is the first run)"
+SUBSCRIPTION_ARN=$(aws sns list-subscriptions-by-topic \
+  --topic-arn "$TOPIC_ARN" \
+  --query "Subscriptions[?Protocol=='email' && Endpoint=='${OPS_ALERT_EMAIL}'].SubscriptionArn | [0]" \
+  --output text)
+if [ -z "$SUBSCRIPTION_ARN" ] || [ "$SUBSCRIPTION_ARN" = "None" ]; then
+  aws sns subscribe --topic-arn "$TOPIC_ARN" --protocol email \
+    --notification-endpoint "$OPS_ALERT_EMAIL" --output text >/dev/null
+  echo "   topic: $TOPIC_ARN (confirmation requested for $OPS_ALERT_EMAIL)"
+elif [ "$SUBSCRIPTION_ARN" = "PendingConfirmation" ]; then
+  echo "   topic: $TOPIC_ARN (confirmation is still pending for $OPS_ALERT_EMAIL)"
+else
+  echo "   topic: $TOPIC_ARN ($OPS_ALERT_EMAIL is already subscribed)"
+fi
 
 echo "2/4 Worker-liveness alarms..."
 for svc in ai-workspace-chat-worker ai-workspace-memory-worker; do
+  # LiveTaskCount is the standard AWS/ECS count of ACTIVATING, RUNNING, and
+  # DEACTIVATING tasks. RunningTaskCount is a different, Container
+  # Insights-only metric. See:
+  # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/available-metrics.html
   aws cloudwatch put-metric-alarm \
     --alarm-name "${svc}-no-running-tasks" \
-    --alarm-description "#449: ${svc} has no running tasks — the background lane is dead." \
-    --namespace AWS/ECS --metric-name RunningTaskCount \
+    --alarm-description "#509: ${svc} has had no live ECS tasks for 3 minutes." \
+    --namespace AWS/ECS --metric-name LiveTaskCount \
     --dimensions Name=ClusterName,Value="$CLUSTER" Name=ServiceName,Value="$svc" \
     --statistic Minimum --period 60 --evaluation-periods 3 \
-    --threshold 1 --comparison-operator LessThanThreshold \
+    --datapoints-to-alarm 3 --threshold 1 \
+    --comparison-operator LessThanThreshold \
     --treat-missing-data breaching \
     --alarm-actions "$TOPIC_ARN" --ok-actions "$TOPIC_ARN"
 done
 
-echo "3/4 Web ALB 5xx alarm..."
-ALB_FULL_NAME=$(aws elbv2 describe-load-balancers \
+echo "3/4 Web ALB alarms..."
+ALB_ARN=$(aws elbv2 describe-load-balancers \
   --query "LoadBalancers[?contains(LoadBalancerName, 'AiWork') || contains(LoadBalancerName, 'ai-workspace')].LoadBalancerArn | [0]" \
-  --output text | sed 's|.*loadbalancer/||')
-if [ -n "$ALB_FULL_NAME" ] && [ "$ALB_FULL_NAME" != "None" ]; then
-  aws cloudwatch put-metric-alarm \
-    --alarm-name "ai-workspace-web-5xx" \
-    --alarm-description "#449: web tier returning 5xx." \
-    --namespace AWS/ApplicationELB --metric-name HTTPCode_Target_5XX_Count \
-    --dimensions Name=LoadBalancer,Value="$ALB_FULL_NAME" \
-    --statistic Sum --period 300 --evaluation-periods 1 \
-    --threshold 5 --comparison-operator GreaterThanOrEqualToThreshold \
-    --treat-missing-data notBreaching \
-    --alarm-actions "$TOPIC_ARN"
-else
-  echo "   WARN: could not resolve the ALB name automatically — create ai-workspace-web-5xx manually against the web ALB."
+  --output text)
+if [ -z "$ALB_ARN" ] || [ "$ALB_ARN" = "None" ]; then
+  echo "ERROR: could not resolve the Comparative load balancer." >&2
+  exit 1
 fi
+ALB_FULL_NAME=${ALB_ARN#*loadbalancer/}
+
+TARGET_GROUP_ARN=$(aws elbv2 describe-target-groups \
+  --load-balancer-arn "$ALB_ARN" \
+  --query "TargetGroups[?HealthCheckPath=='/api/health'].TargetGroupArn | [0]" \
+  --output text)
+if [ -z "$TARGET_GROUP_ARN" ] || [ "$TARGET_GROUP_ARN" = "None" ]; then
+  echo "ERROR: could not resolve the web target group for $ALB_ARN." >&2
+  exit 1
+fi
+TARGET_GROUP_FULL_NAME=${TARGET_GROUP_ARN#*targetgroup/}
+
+aws cloudwatch put-metric-alarm \
+  --alarm-name "ai-workspace-web-5xx" \
+  --alarm-description "#509: web targets returned at least 5 HTTP 5xx responses in 5 minutes." \
+  --namespace AWS/ApplicationELB --metric-name HTTPCode_Target_5XX_Count \
+  --dimensions Name=LoadBalancer,Value="$ALB_FULL_NAME" Name=TargetGroup,Value="$TARGET_GROUP_FULL_NAME" \
+  --statistic Sum --period 300 --evaluation-periods 1 \
+  --threshold 5 --comparison-operator GreaterThanOrEqualToThreshold \
+  --treat-missing-data notBreaching \
+  --alarm-actions "$TOPIC_ARN" --ok-actions "$TOPIC_ARN"
+
+aws cloudwatch put-metric-alarm \
+  --alarm-name "ai-workspace-load-balancer-5xx" \
+  --alarm-description "#509: the load balancer returned at least 5 HTTP 5xx responses in 5 minutes." \
+  --namespace AWS/ApplicationELB --metric-name HTTPCode_ELB_5XX_Count \
+  --dimensions Name=LoadBalancer,Value="$ALB_FULL_NAME" \
+  --statistic Sum --period 300 --evaluation-periods 1 \
+  --threshold 5 --comparison-operator GreaterThanOrEqualToThreshold \
+  --treat-missing-data notBreaching \
+  --alarm-actions "$TOPIC_ARN" --ok-actions "$TOPIC_ARN"
+
+aws cloudwatch put-metric-alarm \
+  --alarm-name "ai-workspace-web-unhealthy-hosts" \
+  --alarm-description "#509: the web target group has unhealthy hosts for 3 minutes." \
+  --namespace AWS/ApplicationELB --metric-name UnHealthyHostCount \
+  --dimensions Name=LoadBalancer,Value="$ALB_FULL_NAME" Name=TargetGroup,Value="$TARGET_GROUP_FULL_NAME" \
+  --statistic Maximum --period 60 --evaluation-periods 3 \
+  --datapoints-to-alarm 3 --threshold 1 \
+  --comparison-operator GreaterThanOrEqualToThreshold \
+  --treat-missing-data notBreaching \
+  --alarm-actions "$TOPIC_ARN" --ok-actions "$TOPIC_ARN"
 
 echo "4/4 Run-failure metric filter + alarm..."
 LOG_GROUP="/ecs/ai-workspace/chat-worker"
 aws logs put-metric-filter \
   --log-group-name "$LOG_GROUP" \
   --filter-name "run-failed-events" \
-  --filter-pattern '"run_failed"' \
+  --filter-pattern '"[chat-run-worker-error]"' \
   --metric-transformations \
     metricName=RunFailedCount,metricNamespace=AiWorkspace,metricValue=1,defaultValue=0
 aws cloudwatch put-metric-alarm \
   --alarm-name "ai-workspace-run-failure-burst" \
-  --alarm-description "#449: >=3 failed runs in 15 minutes — investigate before testers notice (poison-pill detector until #462)." \
+  --alarm-description "#509: at least 3 terminal chat-worker errors in 15 minutes." \
   --namespace AiWorkspace --metric-name RunFailedCount \
   --statistic Sum --period 900 --evaluation-periods 1 \
   --threshold 3 --comparison-operator GreaterThanOrEqualToThreshold \
   --treat-missing-data notBreaching \
   --alarm-actions "$TOPIC_ARN"
 
-echo "Done. Confirm the SNS email subscription, then 'aws cloudwatch describe-alarms --alarm-name-prefix ai-workspace' to verify."
+echo "Done. Confirm any pending SNS email subscription, then run 'aws cloudwatch describe-alarms --alarm-name-prefix ai-workspace' to verify."

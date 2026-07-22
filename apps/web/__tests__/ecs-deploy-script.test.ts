@@ -30,7 +30,7 @@ describe("deploy-ecs-stack.sh", () => {
     expect(result.status).toBe(0);
     const commands = readFileSync(result.capturePath, "utf8");
     expect(commands).toContain(
-      // #449: deploys pin the immutable commit tag via the ImageTag parameter.
+      // #449: deploys pin the commit-SHA tag via the ImageTag parameter.
       "pnpm --filter @ai-workspace/infra exec cdk deploy AiWorkspaceEcsStack --require-approval never --parameters ImageTag=commit-sha --exclusively",
     );
     expect(commands.indexOf("cdk deploy")).toBeLessThan(

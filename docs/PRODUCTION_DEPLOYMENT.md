@@ -1,8 +1,8 @@
 # Production deployment
 
 Comparative deploys merged `main` commits through the `ai-workspace-build`
-CodeBuild project. The pipeline is fail-closed and uses the same immutable
-commit SHA for the ECS and AgentCore images.
+CodeBuild project. The pipeline is fail-closed and uses the same commit-SHA
+tag for the ECS and AgentCore images.
 
 ## Ordered deployment path
 
@@ -53,12 +53,36 @@ CodeBuild deployment is considered healthy. Unit tests use fake CDK and AWS
 commands to enforce the ordering and fail-closed behavior without changing
 production.
 
+## Operations alarms
+
+Apply or reconcile the production alarm set with an inbox that operators
+actively monitor:
+
+```bash
+AWS_DEFAULT_REGION=us-east-1 OPS_ALERT_EMAIL=<ops-email> \
+  ./infra/scripts/setup-ops-alarms.sh
+```
+
+The script is idempotent. It creates the SNS topic and requests an email
+subscription only when the exact endpoint is absent; a rejected endpoint or an
+unresolved load balancer stops the run instead of leaving a partially trusted
+setup. Confirm the first subscription email before relying on notifications.
+
+Worker liveness uses the standard `AWS/ECS` `LiveTaskCount` metric with the
+cluster and service dimensions. `RunningTaskCount` belongs to the paid
+Container Insights namespace and must not be substituted into `AWS/ECS`.
+Application Load Balancer coverage includes target-generated 5xx responses,
+load-balancer-generated 5xx responses, and unhealthy web targets. The
+chat-worker log metric matches the emitted `[chat-run-worker-error]` marker.
+
 ## Rollback
 
-Task definitions pin the immutable commit tag (`ImageTag` stack parameter,
-#449) — what runs is exactly what a specific build pushed, and `latest` is
-only the parameter default for manual deploys. For an image-only regression,
-one command rolls all three services to a previously built commit:
+Task definitions pin a commit-SHA tag (`ImageTag` stack parameter, #449), and
+`latest` is only the parameter default for manual deploys. The ECR repositories
+allow mutable tags, so this is traceable by deployment convention rather than
+registry-enforced immutability; digest pinning would be required for that.
+For an image-only regression, one command rolls all three services to a
+previously built commit:
 
 ```bash
 AWS_DEFAULT_REGION=us-east-1 ./infra/scripts/rollback-ecs.sh <good-commit-sha>
