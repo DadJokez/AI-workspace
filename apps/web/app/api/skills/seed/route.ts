@@ -1,7 +1,7 @@
 import { getDb, skills } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import { auditSkillMutation } from "@/lib/skills";
 import { STARTER_SKILLS } from "@/lib/starter-skills";
 
@@ -13,10 +13,9 @@ export const dynamic = "force-dynamic";
  * are left untouched so re-running is always safe.
  */
 export async function POST() {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   if (sessionUser.role !== "admin") {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }

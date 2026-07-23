@@ -5,7 +5,7 @@ import {
   adminDataAccessJustification,
   auditAdminDataAccess,
 } from "@/lib/admin-data-access";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import {
   canAppRoleDeploy,
   canAppRoleEdit,
@@ -20,10 +20,9 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   const { id } = await params;
 
   const db = getDb();

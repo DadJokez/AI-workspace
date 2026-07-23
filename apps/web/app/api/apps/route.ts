@@ -1,7 +1,7 @@
 import { apps, getDb } from "@ai-workspace/db";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import {
   auditAppMutation,
   createAppVersionForArtifact,
@@ -21,10 +21,9 @@ export const dynamic = "force-dynamic";
 
 /** List apps: mine plus shared with me. */
 export async function GET() {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   const db = getDb();
   const mine = await db
@@ -70,10 +69,9 @@ export async function GET() {
  * no-secrets scan (FR-014) before anything is persisted.
  */
 export async function POST(req: Request) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   let body: unknown;
   try {

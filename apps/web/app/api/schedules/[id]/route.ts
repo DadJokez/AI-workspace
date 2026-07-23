@@ -1,7 +1,7 @@
 import { auditLog, getDb, schedules } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import {
   computeNextRunAt,
   isValidCadence,
@@ -14,10 +14,9 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 /** Enable/disable or retune a schedule the caller owns. */
 export async function PATCH(req: Request, { params }: RouteContext) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   const { id } = await params;
 
   let body: unknown;
@@ -94,10 +93,9 @@ export async function PATCH(req: Request, { params }: RouteContext) {
 }
 
 export async function DELETE(_req: Request, { params }: RouteContext) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   const { id } = await params;
 
   const db = getDb();

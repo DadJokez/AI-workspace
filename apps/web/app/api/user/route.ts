@@ -1,8 +1,7 @@
-import { AuthConfigError } from "@ai-workspace/auth";
 import { getDb, userMemoryItems, users } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import { isModelEnabled } from "@/lib/model-registry";
 
 export const dynamic = "force-dynamic";
@@ -51,37 +50,15 @@ function profileFromRow(row: {
   };
 }
 
-async function authOrError() {
-  try {
-    const sessionUser = await getSessionUser();
-    if (!sessionUser) {
-      return {
-        error: NextResponse.json({ error: "unauthorized" }, { status: 401 }),
-      } as const;
-    }
-    return { sessionUser } as const;
-  } catch (err) {
-    if (err instanceof AuthConfigError) {
-      return {
-        error: NextResponse.json(
-          { error: "auth_config_error", message: err.message },
-          { status: 500 },
-        ),
-      } as const;
-    }
-    throw err;
-  }
-}
-
 export async function GET() {
-  const auth = await authOrError();
-  if ("error" in auth) return auth.error;
+  const session = await requireSession();
+  if ("error" in session) return session.error;
 
   const db = getDb();
   const rows = await db
     .select()
     .from(users)
-    .where(eq(users.id, auth.sessionUser.id))
+    .where(eq(users.id, session.user.id))
     .limit(1);
   const row = rows[0];
   if (!row) {
@@ -91,8 +68,8 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
-  const auth = await authOrError();
-  if ("error" in auth) return auth.error;
+  const session = await requireSession();
+  if ("error" in session) return session.error;
 
   let body: PatchBody;
   try {
@@ -239,7 +216,7 @@ export async function PATCH(req: Request) {
     const rows = await db
       .select()
       .from(users)
-      .where(eq(users.id, auth.sessionUser.id))
+      .where(eq(users.id, session.user.id))
       .limit(1);
     const row = rows[0];
     if (!row) {
@@ -258,7 +235,7 @@ export async function PATCH(req: Request) {
     const current = await db
       .select({ customInstructions: users.customInstructions })
       .from(users)
-      .where(eq(users.id, auth.sessionUser.id))
+      .where(eq(users.id, session.user.id))
       .limit(1);
     if (current[0]?.customInstructions) {
       delete patch.customInstructions;
@@ -268,7 +245,7 @@ export async function PATCH(req: Request) {
   const updated = await db
     .update(users)
     .set(patch)
-    .where(eq(users.id, auth.sessionUser.id))
+    .where(eq(users.id, session.user.id))
     .returning();
   const row = updated[0];
   if (!row) {
@@ -289,7 +266,7 @@ export async function PATCH(req: Request) {
     await db
       .insert(userMemoryItems)
       .values({
-        userId: auth.sessionUser.id,
+        userId: session.user.id,
         status: "approved",
         category: "role",
         title: "Role & focus (from setup)",
@@ -297,7 +274,7 @@ export async function PATCH(req: Request) {
         confidence: 100,
         reason: "Captured during first-run setup.",
         suggestedBy: "onboarding",
-        approvedBy: auth.sessionUser.id,
+        approvedBy: session.user.id,
         approvedAt: new Date(),
       })
       .onConflictDoNothing();

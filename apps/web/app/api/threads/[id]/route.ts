@@ -1,4 +1,4 @@
-import { AuthConfigError, UnauthorizedError } from "@ai-workspace/auth";
+import { UnauthorizedError } from "@ai-workspace/auth";
 import { chatThreads, getDb } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
@@ -6,7 +6,7 @@ import {
   adminDataAccessJustification,
   auditAdminDataAccess,
 } from "@/lib/admin-data-access";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import { userScope } from "@/lib/auth/scope";
 import { loadThreadMessagesWithRunActivity } from "@/lib/thread-messages";
 
@@ -18,10 +18,9 @@ export async function GET(
 ) {
   const { id } = await params;
   try {
-    const sessionUser = await getSessionUser();
-    if (!sessionUser) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+    const session = await requireSession();
+    if ("error" in session) return session.error;
+    const sessionUser = session.user;
     const db = getDb();
 
     const owned = await db
@@ -62,12 +61,6 @@ export async function GET(
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
-    if (err instanceof AuthConfigError) {
-      return NextResponse.json(
-        { error: "auth_config_error", message: err.message },
-        { status: 500 },
-      );
-    }
     throw err;
   }
 }
@@ -85,10 +78,9 @@ export async function PATCH(
 ) {
   const { id } = await params;
   try {
-    const sessionUser = await getSessionUser();
-    if (!sessionUser) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+    const session = await requireSession();
+    if ("error" in session) return session.error;
+    const sessionUser = session.user;
 
     const body = (await req.json().catch(() => null)) as
       | { title?: unknown; pinned?: unknown }
@@ -158,12 +150,6 @@ export async function PATCH(
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
-    if (err instanceof AuthConfigError) {
-      return NextResponse.json(
-        { error: "auth_config_error", message: err.message },
-        { status: 500 },
-      );
-    }
     throw err;
   }
 }
@@ -179,10 +165,9 @@ export async function DELETE(
 ) {
   const { id } = await params;
   try {
-    const sessionUser = await getSessionUser();
-    if (!sessionUser) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+    const session = await requireSession();
+    if ("error" in session) return session.error;
+    const sessionUser = session.user;
     const db = getDb();
 
     const deleted = await db
@@ -196,12 +181,6 @@ export async function DELETE(
   } catch (err) {
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-    if (err instanceof AuthConfigError) {
-      return NextResponse.json(
-        { error: "auth_config_error", message: err.message },
-        { status: 500 },
-      );
     }
     throw err;
   }

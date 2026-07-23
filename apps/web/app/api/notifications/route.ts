@@ -1,6 +1,6 @@
 import { getDb } from "@ai-workspace/db";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import {
   listNotifications,
   markNotificationsRead,
@@ -10,10 +10,9 @@ export const dynamic = "force-dynamic";
 
 /** The caller's notifications, newest first, plus the unread count. */
 export async function GET() {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   const result = await listNotifications(getDb(), sessionUser.id);
   return NextResponse.json(result);
@@ -21,10 +20,9 @@ export async function GET() {
 
 /** Mark notifications read: `{ ids: [...] }` for some, `{ all: true }` for all. */
 export async function PATCH(req: Request) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   let body: unknown;
   try {
