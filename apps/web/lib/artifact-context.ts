@@ -223,6 +223,31 @@ export interface ArtifactContextPayload {
 
 export type ArtifactContextMode = "manifest" | "revision" | "separate";
 
+/**
+ * A stored upload is also a workspace artifact. When that upload is already
+ * reconstructed for the active turn, injecting the matched artifact body a
+ * second time duplicates the file in provider context (and, for binary-backed
+ * uploads, can inject a large base64 body). Keep the match itself for artifact
+ * version targeting, but omit its redundant prompt text.
+ */
+export function artifactContextTextForTurn({
+  payload,
+  uploadedFiles,
+}: {
+  payload: ArtifactContextPayload | null;
+  uploadedFiles: readonly { name: string }[];
+}): string | null {
+  if (!payload) return null;
+  const matchedFilename = payload.matchedArtifact?.filename;
+  if (
+    matchedFilename &&
+    uploadedFiles.some((file) => file.name === matchedFilename)
+  ) {
+    return null;
+  }
+  return payload.text;
+}
+
 export function artifactContextModeForMessage({
   message,
   matched,

@@ -64,6 +64,10 @@ vi.mock("@/lib/oauth/mcp-servers", () => ({
 vi.mock("@/lib/artifact-context", () => ({
   buildArtifactContextPayload: vi.fn(async () => null),
   buildArtifactLookupMessage: vi.fn(() => "lookup"),
+  artifactContextTextForTurn: vi.fn(
+    ({ payload }: { payload: { text?: string } | null }) =>
+      payload?.text ?? null,
+  ),
 }));
 vi.mock("@/lib/artifact-revisions", () => ({
   resolveArtifactContextTargets: vi.fn(() => ({

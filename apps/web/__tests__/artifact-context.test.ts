@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  artifactContextTextForTurn,
   artifactContextModeForMessage,
   buildArtifactLookupMessage,
   formatArtifactContext,
@@ -52,6 +53,59 @@ const ARTIFACTS: WorkspaceArtifactSummary[] = [
   artifact({ title: "Plan", filename: "plan.md", kind: "markdown" }),
   artifact({ title: "API Notes", filename: "api-notes.md", kind: "markdown" }),
 ];
+
+describe("artifactContextTextForTurn", () => {
+  const matchedUpload = artifact({
+    title: "Production continuity",
+    filename: "production-continuity.csv",
+    kind: "data",
+    mimeType: "text/csv",
+    source: "user-upload",
+  });
+
+  it("does not inject a stored upload twice when it is active on the turn", () => {
+    const payload = {
+      text: "large stored artifact body",
+      matchedArtifact: matchedUpload,
+      mode: "revision" as const,
+    };
+
+    expect(
+      artifactContextTextForTurn({
+        payload,
+        uploadedFiles: [{ name: "production-continuity.csv" }],
+      }),
+    ).toBeNull();
+    // The payload still retains the match used by artifact version targeting.
+    expect(payload.matchedArtifact.id).toBe(matchedUpload.id);
+  });
+
+  it("keeps artifact context when the active upload is a different file", () => {
+    expect(
+      artifactContextTextForTurn({
+        payload: {
+          text: "revision context",
+          matchedArtifact: matchedUpload,
+          mode: "revision",
+        },
+        uploadedFiles: [{ name: "another-file.csv" }],
+      }),
+    ).toBe("revision context");
+  });
+
+  it("keeps manifest context when no artifact is matched", () => {
+    expect(
+      artifactContextTextForTurn({
+        payload: {
+          text: "artifact manifest",
+          matchedArtifact: null,
+          mode: "manifest",
+        },
+        uploadedFiles: [{ name: "production-continuity.csv" }],
+      }),
+    ).toBe("artifact manifest");
+  });
+});
 
 describe("matchArtifact", () => {
   it("matches the artifact the message names by title tokens", () => {
