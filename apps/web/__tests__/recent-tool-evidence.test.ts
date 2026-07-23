@@ -173,7 +173,14 @@ describe("buildRecentToolEvidence", () => {
     const first = buildRecentToolEvidence(messages, options);
     const second = buildRecentToolEvidence(messages, options);
 
-    expect(first).toEqual(second);
+    expect(first.receipt).toEqual(second.receipt);
+    expect(first.text).not.toBe(second.text);
+    expect(normalizeEvidenceNonce(first.text)).toBe(
+      normalizeEvidenceNonce(second.text),
+    );
+    expect(first.text).toMatch(
+      /<<<RECENT-TOOL-EVIDENCE ([0-9a-f-]{36})>>>[\s\S]*<<<END-RECENT-TOOL-EVIDENCE \1>>>/,
+    );
     expect(first.text).not.toContain("should-never-appear");
     expect(first.text).not.toContain("forged");
     expect(first.text).toContain("[redacted]");
@@ -193,3 +200,10 @@ describe("buildRecentToolEvidence", () => {
     expect(evidence.receipt.included[0]?.toolCallId).toBe("call-undefined");
   });
 });
+
+function normalizeEvidenceNonce(value: string | null): string | null {
+  return value?.replace(
+    /<<<(END-)?RECENT-TOOL-EVIDENCE [0-9a-f-]{36}>>>/g,
+    "<<<$1RECENT-TOOL-EVIDENCE NONCE>>>",
+  ) ?? null;
+}
