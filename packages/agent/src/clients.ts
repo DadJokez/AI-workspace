@@ -303,7 +303,10 @@ export class RealBedrockClient implements BedrockClient {
       },
     });
 
-    const response = await this.client.send(command);
+    const response = await this.client.send(
+      command,
+      params.signal ? { abortSignal: params.signal } : {},
+    );
     if (!response.stream) return;
 
     let pendingToolId: string | undefined;

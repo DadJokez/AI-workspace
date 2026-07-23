@@ -18,17 +18,22 @@ type StreamChunk = Record<string, unknown>;
  * Stubs `BedrockRuntimeClient.send`, capturing each command's input and
  * replaying the given chunks as the response stream.
  */
-function stubSend(chunks: StreamChunk[] = []) {
+function stubSend(
+  chunks: StreamChunk[] = [],
+  sendOptions?: Array<{ abortSignal?: AbortSignal } | undefined>,
+) {
   const inputs: ConverseStreamCommandInput[] = [];
   vi.spyOn(
     BedrockRuntimeClient.prototype as unknown as {
       send: (
         command: ConverseStreamCommand,
+        options?: { abortSignal?: AbortSignal },
       ) => Promise<{ stream: AsyncIterable<StreamChunk> }>;
     },
     "send",
-  ).mockImplementation(async (command) => {
+  ).mockImplementation(async (command, options) => {
     inputs.push(command.input);
+    sendOptions?.push(options);
     return {
       stream: (async function* () {
         yield* chunks;
@@ -126,6 +131,24 @@ describe("RealBedrockClient prompt caching", () => {
       maxTokens: 200,
       temperature: 0,
     });
+  });
+
+  it("passes the turn abort signal to the Bedrock SDK request", async () => {
+    const sendOptions: Array<{ abortSignal?: AbortSignal } | undefined> = [];
+    stubSend([], sendOptions);
+    const client = new RealBedrockClient();
+    const controller = new AbortController();
+
+    await collect(
+      client.converseStream({
+        bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
+        maxTokens: 100,
+        signal: controller.signal,
+      }),
+    );
+
+    expect(sendOptions).toEqual([{ abortSignal: controller.signal }]);
   });
 
   it("renders the volatile suffix after the cache checkpoint", async () => {

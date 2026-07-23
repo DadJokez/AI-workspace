@@ -955,7 +955,7 @@ export async function executeChatTurn({
     if (lane.kind === "worker") {
       if (await isRunCanceled(db, runId)) {
         runtimeAbort.abort();
-      } else {
+      } else if (!runtimeAbort.signal.aborted) {
         await persistProviderTraceCapture({
           db,
           runId,
@@ -1043,6 +1043,11 @@ export async function executeChatTurn({
       eventType: "worker_stopped_after_cancel",
       status: "failed",
       label: "Worker stopped after cancellation",
+      metadata: {
+        cancellationObservedVia: "database_poll",
+        runtimeRequestAbortAttempted: runtimeAbort.signal.aborted,
+        providerSessionStopAttempted: false,
+      },
     });
     return;
   }

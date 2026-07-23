@@ -70,6 +70,18 @@ export async function cancelRun({
 
   const now = new Date();
   const error = "Canceled by user.";
+  const cancellationMetadata =
+    run.status === "running"
+      ? {
+          cancellationPath: "worker_poll_then_runtime_abort",
+          runtimeRequestAbortExpected: true,
+          providerSessionStopAttempted: false,
+        }
+      : {
+          cancellationPath: "queue_state_only",
+          runtimeRequestAbortExpected: false,
+          providerSessionStopAttempted: false,
+        };
   const rows = await db
     .update(runs)
     .set({
@@ -92,7 +104,7 @@ export async function cancelRun({
     error,
     metadata: {
       actorUserId: actor.id,
-      providerCancelAttempted: false,
+      ...cancellationMetadata,
     },
   });
   await db.insert(auditLog).values({
@@ -105,7 +117,7 @@ export async function cancelRun({
     runId: run.id,
     input: { runId: run.id },
     error: null,
-    metadata: { previousStatus: run.status },
+    metadata: { previousStatus: run.status, ...cancellationMetadata },
     startedAt: now,
     completedAt: now,
   });

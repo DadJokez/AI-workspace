@@ -877,10 +877,92 @@ describe("executeChatTurn — persist tail", () => {
     );
     expect(messageInsert).toBeUndefined();
     expect(createProactiveRunNotification).not.toHaveBeenCalled();
-    const eventTypes = vi
-      .mocked(appendRunEventBestEffort)
-      .mock.calls.map(([, event]) => event.eventType);
-    expect(eventTypes).toContain("worker_stopped_after_cancel");
+    expect(input.runtimeAbort.signal.aborted).toBe(true);
+    expect(vi.mocked(appendRunEventBestEffort)).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        eventType: "worker_stopped_after_cancel",
+        metadata: {
+          cancellationObservedVia: "database_poll",
+          runtimeRequestAbortAttempted: true,
+          providerSessionStopAttempted: false,
+        },
+      }),
+    );
+  });
+
+  it("does not report a runtime abort when cancellation is observed after the stream ends", async () => {
+    const { input, state } = workerInput();
+    input.runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        await (
+          turnInput.onRunStarted as
+            | ((metadata: Record<string, unknown>) => Promise<void>)
+            | undefined
+        )?.({ providerRunId: "completed-before-cancel" });
+        yield { type: "text-delta", delta: "Hello" };
+        yield { type: "usage", tokensIn: 11, tokensOut: 7 };
+        yield { type: "done" };
+        state.runStatus = "canceled";
+      },
+    } as unknown as AgentRuntime;
+
+    await executeChatTurn(input);
+
+    expect(input.runtimeAbort.signal.aborted).toBe(false);
+    expect(vi.mocked(appendRunEventBestEffort)).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        eventType: "worker_stopped_after_cancel",
+        metadata: {
+          cancellationObservedVia: "database_poll",
+          runtimeRequestAbortAttempted: false,
+          providerSessionStopAttempted: false,
+        },
+      }),
+    );
+  });
+
+  it("persists the friendly timeout error when an aborted provider stream throws", async () => {
+    const { input, state } = workerInput();
+    let markStreamStarted: (() => void) | undefined;
+    const streamStarted = new Promise<void>((resolve) => {
+      markStreamStarted = resolve;
+    });
+    input.runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        const signal = turnInput.signal as AbortSignal;
+        await new Promise<void>((_resolve, reject) => {
+          const abort = () => {
+            const error = new Error("The operation was aborted.");
+            error.name = "AbortError";
+            reject(error);
+          };
+          signal.addEventListener("abort", abort, { once: true });
+          markStreamStarted?.();
+        });
+      },
+    } as unknown as AgentRuntime;
+
+    const execution = executeChatTurn(input);
+    await streamStarted;
+    input.runtimeAbort.abort();
+    await execution;
+
+    expect(state.runUpdates).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        error: "Chat runtime timed out after 60000ms.",
+      }),
+    );
+    expect(createProactiveRunNotification).toHaveBeenCalledWith(
+      input.db,
+      expect.anything(),
+      "failed",
+      "thread-1",
+    );
   });
 });
 
