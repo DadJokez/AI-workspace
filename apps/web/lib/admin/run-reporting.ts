@@ -172,6 +172,12 @@ function classifyError({
   if (/\b(throttl|rate limit|too many requests)\b/.test(error)) {
     return "rate_limit";
   }
+  if (
+    /\b(?:bedrock-agentcore|agentcore\s*runtime|agentcoreruntime)\b/.test(error) &&
+    /\b(?:accessdenied(?:exception)?|access denied|not authorized)\b/.test(error)
+  ) {
+    return "runtime_authorization_denied";
+  }
   if (/\b(access denied|not authorized|marketplace|subscription)\b/.test(error)) {
     return "model_access";
   }
