@@ -43,6 +43,37 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
       description:
         "Secrets Manager JSON secret containing BRAVE_SEARCH_API_KEY.",
     });
+    const deploymentSequence = new cdk.CfnParameter(
+      this,
+      "DeploymentSequence",
+      {
+        type: "Number",
+        default: 0,
+        minValue: 0,
+        description:
+          "Monotonic CodeBuild build number used to reject superseded deployments.",
+      },
+    );
+    const sourceTemplateSha256 = new cdk.CfnParameter(
+      this,
+      "SourceTemplateSha256",
+      {
+        type: "String",
+        default: "0".repeat(64),
+        allowedPattern: "[a-f0-9]{64}",
+        description:
+          "SHA-256 of the synthesized source template submitted for this deployment.",
+      },
+    );
+    new cdk.CfnOutput(this, "DeployedSequence", {
+      value: deploymentSequence.valueAsString,
+      description: "CodeBuild sequence that last reconciled this stack.",
+    });
+    new cdk.CfnOutput(this, "DeployedSourceTemplateSha256", {
+      value: sourceTemplateSha256.valueAsString,
+      description:
+        "SHA-256 of the source template submitted by the last deployment.",
+    });
     const braveCredentialProviderName = "comparative-brave-search";
 
     const repo = new ecr.Repository(this, "AgentImageRepo", {
@@ -169,9 +200,9 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
     runtime.node.addDependency(role);
     runtime.node.addDependency(braveCredentialProvider);
 
-    // CloudFormation remains the sole owner of the runtime. CodeBuild updates
-    // only AgentImageTag on this stack after pushing an immutable image, so a
-    // later CDK deploy cannot silently restore a stale out-of-band version.
+    // CloudFormation remains the sole owner of the runtime. CodeBuild submits
+    // the current synthesized template and immutable image tag together, so
+    // reviewed infrastructure changes cannot remain source-only.
     const codeBuildRole = iam.Role.fromRoleName(
       this,
       "CodeBuildDeploymentRole",

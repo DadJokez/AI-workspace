@@ -6,18 +6,28 @@ tag for the ECS and AgentCore images.
 
 ## Ordered deployment path
 
-After migrations and image pushes, `infra/scripts/deploy-ecs-stack.sh` performs
-the ECS handoff in this order:
+After migrations and image pushes, CodeBuild performs the production handoff
+in this order:
 
-1. `cdk deploy AiWorkspaceEcsStack --require-approval never --exclusively`
+1. `infra/scripts/update-agentcore-stack.sh` synthesizes the current
+   `AiWorkspaceAgentCoreSpikeStack` template and submits that template together
+   with the commit-SHA image tag. It verifies the immutable ECR digest and
+   records the source-template SHA-256 plus the monotonic CodeBuild sequence in
+   the stack parameters.
+2. A newer deployment sequence supersedes an older build. CloudFormation
+   serializes overlapping stack updates, and the older build stops before the
+   ECS handoff instead of restoring an older AgentCore image.
+3. `cdk deploy AiWorkspaceEcsStack --require-approval never --exclusively`
    reconciles the checked-in stack with CloudFormation.
-2. CodeBuild forces new deployments of `ai-workspace-web`,
+4. CodeBuild forces new deployments of `ai-workspace-web`,
    `ai-workspace-chat-worker`, and `ai-workspace-memory-worker` so every service
    pulls the images that were just pushed.
-3. `aws ecs wait services-stable` blocks until all three services stabilize.
-4. The build log records a JSON receipt containing the commit SHA and each
-   service's live task-definition ARN.
-5. The authenticated production smoke runs against the stable services.
+5. `aws ecs wait services-stable` blocks until all three services stabilize.
+6. The build log records JSON receipts for AgentCore and ECS. The AgentCore
+   receipt contains the commit SHA, image digest and tag, stack status,
+   deployment sequence, and source-template SHA-256. The ECS receipt contains
+   the commit SHA and each service's live task-definition ARN.
+7. The authenticated production smoke runs against the stable services.
 
 CDK is the change detector. For an image-only commit it reports no stack
 changes and immediately continues to the ECS refresh. For a task-definition,
@@ -32,8 +42,12 @@ CloudFormation continues to apply stack changes through the bootstrap execution
 role; CodeBuild does not receive direct broad CloudFormation or IAM
 permissions.
 
-AgentCore remains a separate stack and is updated immediately before this ECS
-handoff by `infra/scripts/update-agentcore-stack.sh`.
+AgentCore remains a separate stack. Its deploy script uses an inline synthesized
+template so the existing stack-scoped `cloudformation:UpdateStack` permission is
+sufficient; it fails explicitly if that template grows beyond CloudFormation's
+51,200-byte inline limit. It never uses `--use-previous-template`, because that
+would allow reviewed IAM, provider, logging, or runtime changes to remain
+source-only while image updates appeared successful.
 
 ## One-time bootstrap
 
