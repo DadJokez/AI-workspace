@@ -524,6 +524,16 @@ function aggregateDataset(
   input: ConversationResourceQueryInput,
   receipt: Record<string, unknown>,
 ): Record<string, unknown> {
+  if (
+    input.filterColumn !== undefined ||
+    input.filterOperator !== undefined ||
+    input.filterValue !== undefined
+  ) {
+    throw new Error(
+      "Filtered aggregation is not supported yet. Use table_filter to inspect matching rows; table_aggregate will not return an unfiltered value for a filtered request.",
+    );
+  }
+
   const aggregate = input.aggregate ?? "count";
   if (aggregate === "count" && !input.column) {
     const value = sheets.reduce(

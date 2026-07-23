@@ -89,7 +89,15 @@ describe("conversation resource MCP authorization (#576)", () => {
       }),
     );
     const json = (await response.json()) as {
-      result: { tools: Array<{ name: string; inputSchema: unknown }> };
+      result: {
+        tools: Array<{
+          name: string;
+          description: string;
+          inputSchema: {
+            properties: Record<string, { description?: string }>;
+          };
+        }>;
+      };
     };
 
     expect(response.status).toBe(200);
@@ -101,6 +109,12 @@ describe("conversation resource MCP authorization (#576)", () => {
         additionalProperties: false,
       },
     });
+    expect(json.result.tools[0]?.description).toContain(
+      "Filtered aggregates are not supported",
+    );
+    expect(
+      json.result.tools[0]?.inputSchema.properties.filterColumn?.description,
+    ).toContain("operation=table_filter");
   });
 
   it("rejects a resource id that was not selected for this user/thread/run", async () => {
