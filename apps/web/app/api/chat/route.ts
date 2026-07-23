@@ -632,6 +632,7 @@ export async function POST(req: Request) {
     name: a.name,
     mimeType: a.mimeType,
     sizeBytes: a.sizeBytes,
+    contentChars: a.content.length,
     extractionStatus: a.extractionStatus,
     ...(a.runtimeContent ? { runtimeContent: a.runtimeContent } : {}),
   }));

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  artifactPromptContent,
+  artifactContextTextForTurn,
   artifactContextModeForMessage,
   buildArtifactLookupMessage,
   formatArtifactContext,
@@ -52,6 +54,206 @@ const ARTIFACTS: WorkspaceArtifactSummary[] = [
   artifact({ title: "Plan", filename: "plan.md", kind: "markdown" }),
   artifact({ title: "API Notes", filename: "api-notes.md", kind: "markdown" }),
 ];
+
+describe("artifactContextTextForTurn", () => {
+  const matchedUpload = artifact({
+    title: "Production continuity",
+    filename: "production-continuity.csv",
+    kind: "data",
+    mimeType: "text/csv",
+    sizeBytes: 3_984_588,
+    source: "user-upload",
+  });
+
+  it("omits only the duplicate body when the same stored upload is active", () => {
+    const text = formatArtifactContext({
+      artifacts: [matchedUpload],
+      matched: {
+        title: matchedUpload.title,
+        filename: matchedUpload.filename,
+        content: "PRIVATE_LARGE_ARTIFACT_BODY",
+      },
+    });
+    const textWithoutMatchedContent = formatArtifactContext({
+      artifacts: [matchedUpload],
+      matched: {
+        title: matchedUpload.title,
+        filename: matchedUpload.filename,
+        content: "PRIVATE_LARGE_ARTIFACT_BODY",
+      },
+      omitMatchedContent: true,
+    });
+    const payload = {
+      text,
+      textWithoutMatchedContent,
+      matchedContentChars: "PRIVATE_LARGE_ARTIFACT_BODY".length,
+      matchedArtifact: matchedUpload,
+      mode: "revision" as const,
+    };
+
+    const result = artifactContextTextForTurn({
+      payload,
+      uploadedFiles: [
+        {
+          name: "production-continuity.csv",
+          sizeBytes: 3_984_588,
+          contentChars: "PRIVATE_LARGE_ARTIFACT_BODY".length,
+        },
+      ],
+    });
+
+    expect(result).toBe(textWithoutMatchedContent);
+    expect(result).toContain("Production continuity");
+    expect(result).toContain("never claim there are no files");
+    expect(result).toContain("same logical filename");
+    expect(result).toContain("NEW complete fenced file block");
+    expect(result).not.toContain("PRIVATE_LARGE_ARTIFACT_BODY");
+    // The payload still retains the match used by artifact version targeting.
+    expect(payload.matchedArtifact.id).toBe(matchedUpload.id);
+  });
+
+  it("does not suppress a non-upload artifact with the same filename", () => {
+    const generatedArtifact = artifact({
+      ...matchedUpload,
+      id: "generated-collision",
+      source: "assistant-code-block",
+    });
+    expect(
+      artifactContextTextForTurn({
+        payload: {
+          text: "generated artifact body",
+          textWithoutMatchedContent: "body omitted",
+          matchedContentChars: "generated artifact body".length,
+          matchedArtifact: generatedArtifact,
+          mode: "revision",
+        },
+        uploadedFiles: [
+          {
+            name: generatedArtifact.filename,
+            sizeBytes: generatedArtifact.sizeBytes,
+            contentChars: "generated artifact body".length,
+          },
+        ],
+      }),
+    ).toBe("generated artifact body");
+  });
+
+  it("does not suppress a different upload with the same filename", () => {
+    expect(
+      artifactContextTextForTurn({
+        payload: {
+          text: "stored artifact body",
+          textWithoutMatchedContent: "body omitted",
+          matchedContentChars: "stored artifact body".length,
+          matchedArtifact: matchedUpload,
+          mode: "revision",
+        },
+        uploadedFiles: [
+          {
+            name: matchedUpload.filename,
+            sizeBytes: matchedUpload.sizeBytes - 1,
+            contentChars: "stored artifact body".length,
+          },
+        ],
+      }),
+    ).toBe("stored artifact body");
+  });
+
+  it("retains a fuller artifact body when the active upload text is truncated", () => {
+    const fullContent = "x".repeat(300_000);
+    expect(
+      artifactContextTextForTurn({
+        payload: {
+          text: fullContent,
+          textWithoutMatchedContent: "body omitted",
+          matchedContentChars: fullContent.length,
+          matchedArtifact: matchedUpload,
+          mode: "revision",
+        },
+        uploadedFiles: [
+          {
+            name: matchedUpload.filename,
+            sizeBytes: matchedUpload.sizeBytes,
+            contentChars: 200_056,
+          },
+        ],
+      }),
+    ).toBe(fullContent);
+  });
+
+  it("keeps artifact context when the active upload is a different file", () => {
+    expect(
+      artifactContextTextForTurn({
+        payload: {
+          text: "revision context",
+          textWithoutMatchedContent: "revision context without body",
+          matchedContentChars: "revision context".length,
+          matchedArtifact: matchedUpload,
+          mode: "revision",
+        },
+        uploadedFiles: [
+          {
+            name: "another-file.csv",
+            sizeBytes: 3_984_588,
+            contentChars: "revision context".length,
+          },
+        ],
+      }),
+    ).toBe("revision context");
+  });
+
+  it("keeps manifest context when no artifact is matched", () => {
+    expect(
+      artifactContextTextForTurn({
+        payload: {
+          text: "artifact manifest",
+          textWithoutMatchedContent: "artifact manifest",
+          matchedContentChars: null,
+          matchedArtifact: null,
+          mode: "manifest",
+        },
+        uploadedFiles: [
+          { name: "production-continuity.csv", sizeBytes: 3_984_588 },
+        ],
+      }),
+    ).toBe("artifact manifest");
+  });
+});
+
+describe("artifactPromptContent", () => {
+  it("uses the model-readable extraction instead of stored base64 bytes", () => {
+    const extractedText =
+      "header,value\nfirst,42\n\n[Truncated after 200,000 characters.]";
+    expect(
+      artifactPromptContent({
+        source: "user-upload",
+        content: "dW5yZWFkYWJsZS1iYXNlNjQtYnl0ZXM=",
+        metadata: {
+          storageEncoding: "base64",
+          extractionStatus: "extracted",
+          extractedText,
+        },
+      }),
+    ).toEqual({ content: extractedText, complete: false });
+  });
+
+  it("retains fuller legacy UTF-8 content between the two prompt caps", () => {
+    const content = "x".repeat(300_000);
+    expect(
+      artifactPromptContent({
+        source: "user-upload",
+        content,
+        metadata: {
+          storageEncoding: "utf8",
+          extractionStatus: "extracted",
+          extractedText:
+            content.slice(0, 200_000) +
+            "\n\n[Truncated after 200,000 characters.]",
+        },
+      }),
+    ).toEqual({ content, complete: true });
+  });
+});
 
 describe("matchArtifact", () => {
   it("matches the artifact the message names by title tokens", () => {
@@ -259,6 +461,23 @@ describe("formatArtifactContext", () => {
     expect(block).toContain("same logical filename");
     expect(block).toContain("update the visible artifact in place");
     expect(block).toContain("Do not invent a -v2");
+  });
+
+  it("does not frame a truncated upload extraction as a complete revision", () => {
+    const block = formatArtifactContext({
+      artifacts: ARTIFACTS,
+      matched: {
+        title: "Large Upload",
+        filename: "large-upload.csv",
+        content: "header,value\nfirst,42\n\n[Truncated after 200,000 characters.]",
+        complete: false,
+      },
+      omitMatchedContent: true,
+    });
+    expect(block).toContain("available model-readable extraction");
+    expect(block).toContain("do NOT emit or save a replacement file");
+    expect(block).not.toContain("current full content");
+    expect(block).not.toContain("Emit the entire file");
   });
 
   it("#276 distinguishes visible-original edits from explicit copies and forks", () => {

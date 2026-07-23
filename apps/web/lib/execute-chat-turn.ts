@@ -40,6 +40,7 @@ import {
   type McpWriteAuthorizationReceipt,
 } from "@/lib/oauth/mcp-servers";
 import {
+  artifactContextTextForTurn,
   buildArtifactContextPayload,
   buildArtifactLookupMessage,
 } from "@/lib/artifact-context";
@@ -273,7 +274,10 @@ export async function executeChatTurn({
           }
         : { payload: artifactContextPayload },
     );
-  const artifactContext = artifactContextPayload?.text ?? null;
+  const artifactContext = artifactContextTextForTurn({
+    payload: artifactContextPayload,
+    uploadedFiles,
+  });
   const appEditContext = appEditContextResult?.context ?? null;
   const appEditSourceOmitted =
     appEditContextResult?.contentOmittedForSize ?? false;

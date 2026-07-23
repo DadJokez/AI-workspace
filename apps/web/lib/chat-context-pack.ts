@@ -31,6 +31,8 @@ export interface ChatContextUser {
 export interface ChatContextUploadedFile {
   name: string;
   sizeBytes?: number;
+  /** Characters in the exact extracted representation folded into the prompt. */
+  contentChars?: number;
   mimeType?: string;
   extractionStatus?: string;
   runtimeContent?: {

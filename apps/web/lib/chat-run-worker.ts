@@ -661,6 +661,10 @@ function sanitizeUploadedFiles(value: unknown): ChatContextUploadedFile[] {
         ...(typeof file.sizeBytes === "number" && Number.isFinite(file.sizeBytes)
           ? { sizeBytes: file.sizeBytes }
           : {}),
+        ...(typeof file.contentChars === "number" &&
+          Number.isFinite(file.contentChars)
+          ? { contentChars: file.contentChars }
+          : {}),
         ...(typeof file.mimeType === "string" ? { mimeType: file.mimeType } : {}),
         ...(typeof file.extractionStatus === "string"
           ? { extractionStatus: file.extractionStatus }
