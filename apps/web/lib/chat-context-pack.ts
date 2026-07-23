@@ -122,6 +122,7 @@ export interface ChatContextReceipt {
     /** Reachable via tool discovery this turn, not yet mounted (#384). */
     discoverable: string[];
     builtinMounted: string[];
+    webAccess: ChatContextWebAccessReceipt;
     pendingApproval: string[];
     executionUnavailable: string[];
     reconnectRequired: string[];
@@ -159,6 +160,13 @@ export interface ChatContextReceipt {
     reasons: string[];
     explanation: string;
   };
+}
+
+export interface ChatContextWebAccessReceipt {
+  state: "granted" | "not_granted";
+  source: "interactive_default" | "skill_declaration" | "not_declared";
+  policy: string;
+  deniedDomainCount: number;
 }
 
 export interface ChatContextPack {
@@ -215,6 +223,7 @@ export interface BuildChatContextPackInput {
   recommendations?: readonly RecommendationCandidate[];
   route?: ChatRuntimeRoute;
   builtinTools?: readonly string[];
+  webAccess?: ChatContextWebAccessReceipt;
   forcePreamble?: boolean;
   now?: Date;
   /**
@@ -243,6 +252,12 @@ export function buildChatContextPack({
   recommendations = [],
   route,
   builtinTools = [],
+  webAccess = {
+    state: builtinTools.length > 0 ? "granted" : "not_granted",
+    source: builtinTools.length > 0 ? "interactive_default" : "not_declared",
+    policy: "admin_domain_denylist",
+    deniedDomainCount: 0,
+  },
   activeSkill,
   forcePreamble = false,
   now = new Date(),
@@ -261,6 +276,7 @@ export function buildChatContextPack({
     Boolean(activeSkill) ||
     Boolean(route?.useMcp) ||
     builtinTools.length > 0 ||
+    webAccess.state === "not_granted" ||
     Boolean(route?.includeVaultContext) ||
     Boolean(user.customInstructions?.trim()) ||
     artifacts.length > 0 ||
@@ -477,6 +493,7 @@ export function buildChatContextPack({
       mounted: uniqueStrings(mountedProviders),
       discoverable: uniqueStrings(discoverableProviders),
       builtinMounted: uniqueStrings(builtinTools),
+      webAccess,
       pendingApproval: blockedProviders,
       executionUnavailable: uniqueStrings(
         providerStatus.executionUnavailableProviders ?? [],
@@ -561,6 +578,7 @@ export function buildChatContextPack({
           ),
           reconnectRequiredProviders: receipt.tools.reconnectRequired,
           builtinTools: receipt.tools.builtinMounted,
+          webAccess: receipt.tools.webAccess,
           modelId,
           artifactContext: artifacts || null,
           vaultContextRequested,
@@ -681,6 +699,11 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
     )}; execution unavailable ${formatList(
       receipt.tools.executionUnavailable,
     )}; reconnect required ${formatList(receipt.tools.reconnectRequired)}.`,
+  );
+  lines.push(
+    `- Web access: ${receipt.tools.webAccess.state.replace("_", " ")}; ` +
+      `source ${receipt.tools.webAccess.source}; policy ${receipt.tools.webAccess.policy}; ` +
+      `${receipt.tools.webAccess.deniedDomainCount} denied domain(s).`,
   );
   lines.push(
       `- Work context: ${receipt.work.recentMessages} recent message(s); ` +

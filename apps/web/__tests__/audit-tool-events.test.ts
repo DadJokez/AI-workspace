@@ -93,6 +93,69 @@ describe("buildToolAuditRows", () => {
     });
   });
 
+  it("stamps domain-policy denials and successful fetched hosts", () => {
+    const denied = buildToolAuditRows({
+      ...base,
+      calls: [
+        {
+          id: "call_denied",
+          name: "web__fetch_url",
+          provider: "web",
+          toolName: "fetch_url",
+          input: { url: "https://blocked.example/" },
+          startedAt: "2026-05-15T12:00:00.000Z",
+        },
+      ],
+      results: [
+        {
+          toolCallId: "call_denied",
+          output: JSON.stringify({
+            error: "web_egress_denied",
+            reason: "denied_domain_policy",
+            policy: "admin_domain_denylist",
+            hostname: "blocked.example",
+            matchedDomain: "blocked.example",
+          }),
+          isError: true,
+          completedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    });
+    expect(denied[0]?.metadata.webEgress).toEqual({
+      outcome: "denied",
+      reason: "denied_domain_policy",
+      policy: "admin_domain_denylist",
+      hostname: "blocked.example",
+      matchedDomain: "blocked.example",
+    });
+
+    const allowed = buildToolAuditRows({
+      ...base,
+      calls: [
+        {
+          id: "call_allowed",
+          name: "web__fetch_url",
+          provider: "web",
+          toolName: "fetch_url",
+          input: { url: "https://one.example/" },
+          startedAt: "2026-05-15T12:00:00.000Z",
+        },
+      ],
+      results: [
+        {
+          toolCallId: "call_allowed",
+          output: { fetchedHosts: ["one.example", "two.example"] },
+          isError: false,
+          completedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    });
+    expect(allowed[0]?.metadata.webEgress).toEqual({
+      outcome: "allowed",
+      fetchedHosts: ["one.example", "two.example"],
+    });
+  });
+
   it("redacts sensitive audit inputs, outputs, and errors", () => {
     const rows = buildToolAuditRows({
       ...base,

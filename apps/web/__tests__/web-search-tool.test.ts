@@ -12,6 +12,7 @@ const noDelay = async () => {};
 
 interface SearchOutput {
   provider: string;
+  searchedHost: string;
   query: string;
   retrievedAt: string;
   resultCount: number;
@@ -65,6 +66,7 @@ describe("web search built-in tool", () => {
 
     expect(output).toMatchObject({
       provider: "brave",
+      searchedHost: "api.search.brave.com",
       query: "comparative ai workspace",
       retrievedAt: "2026-07-07T00:00:00.000Z",
       resultCount: 2,
@@ -267,6 +269,26 @@ describe("web search built-in tool", () => {
     expect(delays).toEqual([1000]);
   });
 
+  it("applies the admin denylist before calling the search provider", async () => {
+    let called = false;
+    const tool = createWebSearchTool({
+      env,
+      egressPolicy: {
+        name: "admin_domain_denylist",
+        deniedDomains: ["search.brave.com"],
+      },
+      fetchImpl: (async () => {
+        called = true;
+        return okResponse(braveBody([]));
+      }) as unknown as typeof fetch,
+    });
+
+    await expect(
+      tool.handler({ query: "blocked search" }, { userId: "u1" }),
+    ).rejects.toThrow(/"reason":"denied_domain_policy"/);
+    expect(called).toBe(false);
+  });
+
   it("recovers when the retry after a 429 succeeds", async () => {
     let calls = 0;
     const tool = createWebSearchTool({
@@ -406,5 +428,27 @@ describe("web search mounting", () => {
     expect(builtinToolsForChatRoute(modelDecidedRoute)).toEqual([
       "web__fetch_url",
     ]);
+  });
+
+  it("keeps web off for unattended runs until the skill declares access", () => {
+    vi.stubEnv("WEB_SEARCH_PROVIDER", "brave");
+    vi.stubEnv("BRAVE_SEARCH_API_KEY", "test-key");
+    const modelDecidedRoute = {
+      routingMode: "model-decided",
+      reasons: ["model_decided_tool_catalog"],
+    } as ChatRuntimeRoute;
+
+    expect(
+      builtinToolsForChatRoute(modelDecidedRoute, {
+        interactive: false,
+        webAccessDeclared: false,
+      }),
+    ).toEqual([]);
+    expect(
+      builtinToolsForChatRoute(modelDecidedRoute, {
+        interactive: false,
+        webAccessDeclared: true,
+      }),
+    ).toEqual(["web__fetch_url", "web__search"]);
   });
 });

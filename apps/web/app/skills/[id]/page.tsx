@@ -5,6 +5,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { SUPPORTED_MCP_PROVIDERS } from "@/lib/oauth/mcp-servers";
+import { SKILL_WEB_ACCESS_DECLARATION } from "@/lib/skill-tool-declarations";
 import { canActorAccessSkill, listSharesForSubject } from "@/lib/shares";
 import { eventTriggerKind } from "@/lib/github-event-triggers";
 import { EventTriggerPanel } from "@/components/skills/EventTriggerPanel";
@@ -115,7 +116,10 @@ export default async function SkillDetailPage({
             mode="edit"
             skillId={skill.id}
             modelOptions={[...MODEL_IDS]}
-            providerOptions={SUPPORTED_MCP_PROVIDERS}
+            providerOptions={[
+              ...SUPPORTED_MCP_PROVIDERS,
+              SKILL_WEB_ACCESS_DECLARATION,
+            ]}
             initial={{
               name: skill.name,
               description: skill.description ?? "",

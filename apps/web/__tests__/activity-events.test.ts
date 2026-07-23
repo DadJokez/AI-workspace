@@ -114,6 +114,33 @@ describe("buildToolActivityEvents", () => {
       label: "Could not check Web details",
     });
   });
+
+  it("shows fetched hosts in the completed work receipt", () => {
+    const events = buildToolActivityEvents(
+      [
+        {
+          id: "call_web",
+          name: "web__fetch_url",
+          provider: "web",
+          toolName: "fetch_url",
+          input: { url: "https://one.example/" },
+          startedAt: "2026-05-15T10:00:00.000Z",
+        },
+      ],
+      [
+        {
+          toolCallId: "call_web",
+          output: { fetchedHosts: ["one.example", "two.example"] },
+          isError: false,
+          completedAt: "2026-05-15T10:00:01.000Z",
+        },
+      ],
+    );
+
+    expect(events[0]?.label).toBe(
+      "Checked Web details · one.example, two.example",
+    );
+  });
 });
 
 describe("summarizeActivity", () => {

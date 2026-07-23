@@ -76,6 +76,7 @@ export class AgentCoreRuntime implements AgentRuntime {
       messages: input.messages,
       mcpServers: pickHttpMcpServers(input.mcpServers),
       builtinTools: input.builtinTools,
+      webEgressPolicy: input.webEgressPolicy,
       requiredToolName: input.requiredToolName,
       toolDiscovery: input.toolDiscovery,
       userId: input.context.userId,

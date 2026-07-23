@@ -166,7 +166,7 @@ export function SkillForm({
                   checked={form.mcpProviders.includes(provider)}
                   onChange={() => toggleProvider(provider)}
                 />
-                {provider}
+                {provider === "web" ? "Web access" : provider}
               </label>
             ))}
             {providerOptions.length === 0 ? (
