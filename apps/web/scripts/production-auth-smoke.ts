@@ -119,6 +119,7 @@ async function conversationResourceMatrixCheck(
       upload.response,
       200,
       `/api/chat resource matrix upload batch ${batchIndex + 1}`,
+      upload.rawBody,
     );
     const uploadMeta = requiredChatMeta(
       upload.events,
@@ -350,6 +351,7 @@ async function verifyLaterTurnReuse({
     followUp.response,
     200,
     `/api/chat resource follow-up ${fixture.filename}`,
+    followUp.rawBody,
   );
   const followUpMeta = requiredChatMeta(
     followUp.events,
@@ -916,6 +918,7 @@ async function postChat(
 ): Promise<{
   response: Response;
   events: Array<Record<string, unknown>>;
+  rawBody: string;
   text: string;
 }> {
   const result = await fetchTextWithTimeout("/api/chat", {
@@ -930,6 +933,7 @@ async function postChat(
   return {
     response: result.response,
     events,
+    rawBody: result.body,
     text: events
       .filter((event) => event.type === "text-delta")
       .map((event) => (typeof event.delta === "string" ? event.delta : ""))
@@ -1092,10 +1096,18 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function assertStatus(response: Response, expected: number, label: string) {
+function assertStatus(
+  response: Response,
+  expected: number,
+  label: string,
+  responseBody?: string,
+) {
+  const bodyDetail = responseBody?.trim()
+    ? `: ${responseBody.trim().replace(/\s+/g, " ").slice(0, 300)}`
+    : "";
   assert(
     response.status === expected,
-    `${label} expected ${expected}, got ${response.status}`,
+    `${label} expected ${expected}, got ${response.status}${bodyDetail}`,
   );
 }
 

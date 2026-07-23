@@ -63,6 +63,22 @@ RUN addgroup -S nextjs && adduser -S nextjs -G nextjs
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/standalone ./
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/public ./apps/web/public
+COPY --from=build /repo/apps/web/scripts/verify-pdf-runtime.mjs ./verify-pdf-runtime.mjs
+
+# pdfjs loads its native canvas adapter through createRequire(), which Next's
+# file tracer cannot follow. Restore pnpm's package link, then parse a real PDF
+# so the image build exercises the lazy canvas and native-binary load path.
+RUN set -eux; \
+    canvas_dir="$(find /app/node_modules/.pnpm -maxdepth 1 -type d -name '@napi-rs+canvas@*' -print -quit)"; \
+    pdfjs_dir="$(find /app/node_modules/.pnpm -maxdepth 1 -type d -name 'pdfjs-dist@*' -print -quit)"; \
+    test -n "$canvas_dir"; \
+    test -n "$pdfjs_dir"; \
+    mkdir -p "$pdfjs_dir/node_modules/@napi-rs"; \
+    if [ ! -e "$pdfjs_dir/node_modules/@napi-rs/canvas" ]; then \
+      ln -s "../../../$(basename "$canvas_dir")/node_modules/@napi-rs/canvas" "$pdfjs_dir/node_modules/@napi-rs/canvas"; \
+    fi; \
+    node ./verify-pdf-runtime.mjs; \
+    rm ./verify-pdf-runtime.mjs
 
 USER nextjs
 EXPOSE 3000
