@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
+import { formatMonthDay } from "@/lib/format-date";
 
 interface NotificationItem {
   id: string;
@@ -369,8 +370,5 @@ function relativeTime(iso: string): string {
   const diffDay = Math.round(diffHr / 24);
   if (diffDay === 1) return "Yesterday";
   if (diffDay < 7) return `${diffDay}d ago`;
-  return new Date(ts).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
+  return formatMonthDay(ts);
 }

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { AdminUserRow } from "@/app/api/admin/users/route";
 import { EmptyState } from "@/components/EmptyState";
+import { formatDate } from "@/lib/format-date";
 
 interface Props {
   initialUsers: AdminUserRow[];
@@ -22,15 +23,7 @@ function relativeTime(iso: string): string {
   if (diff < hour) return `${Math.floor(diff / min)}m ago`;
   if (diff < day) return `${Math.floor(diff / hour)}h ago`;
   if (diff < 30 * day) return `${Math.floor(diff / day)}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return formatDate(iso);
 }
 
 function initials(name: string, email: string): string {

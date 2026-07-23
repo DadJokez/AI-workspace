@@ -6,6 +6,7 @@ import type {
   AdminInvitationStatus,
 } from "@/lib/admin-invitations";
 import { EmptyState } from "@/components/EmptyState";
+import { formatDateTime as shortDate } from "@/lib/format-date";
 
 type Role = "admin" | "user";
 
@@ -387,13 +388,4 @@ function friendlyEmailCode(code: string | null | undefined) {
     default:
       return code ?? "unknown error";
   }
-}
-
-function shortDate(iso: string) {
-  return new Date(iso).toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { formatDateTime } from "@/lib/format-date";
 
 type TriggerKind = "pull_request_review" | "workflow_run_failure";
 
@@ -149,7 +150,7 @@ export function EventTriggerPanel({
               <span className="flex shrink-0 items-center gap-3">
                 <span className="text-muted">
                   {trigger.lastFiredAt
-                    ? `last ran ${new Date(trigger.lastFiredAt).toLocaleString()}`
+                    ? `last ran ${formatDateTime(trigger.lastFiredAt)}`
                     : "not run yet"}
                 </span>
                 <button

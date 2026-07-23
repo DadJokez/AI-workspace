@@ -3,6 +3,7 @@
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import { useEffect, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
+import { formatDateTime as formatDate } from "@/lib/format-date";
 
 interface Props {
   onClose: () => void;
@@ -217,15 +218,6 @@ function groupArtifacts(artifacts: WorkspaceArtifactSummary[]): ArtifactGroup[] 
         new Date(b.latest.createdAt).getTime() -
         new Date(a.latest.createdAt).getTime(),
     );
-}
-
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
 }
 
 function formatBytes(bytes: number): string {

@@ -1,7 +1,7 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { getDb } from "@ai-workspace/db";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { sql } from "drizzle-orm";
 import { authSmokeUser, installAuthSmokeSession } from "./helpers/auth";
 import {
@@ -19,7 +19,9 @@ test.skip(
 );
 
 test.describe("authenticated product smoke", () => {
-  test.describe.configure({ mode: "serial" });
+  // These tests intentionally share seeded database state. Retrying the whole
+  // serial group would replay mutations against that already-advanced state.
+  test.describe.configure({ mode: "serial", retries: 0 });
 
   test.beforeEach(async ({ page }) => {
     await installAuthSmokeSession(page);
@@ -650,21 +652,27 @@ test.describe("authenticated product smoke", () => {
     for (const path of ["/skills", "/apps", "/admin"]) {
       await page.goto(path);
       await expect(page).toHaveURL(new RegExp(`${path.replace("/", "\\/")}$`));
-      await page.keyboard.press("Control+K");
-      const palette = page.getByRole("dialog", { name: "Command palette" });
-      await expect(palette).toBeVisible();
+      const palette = await openCommandPalette(page);
       await expect(palette.getByRole("combobox")).toBeFocused();
       await page.keyboard.press("Escape");
       await expect(palette).toHaveCount(0);
     }
 
-    await page.keyboard.press("Control+K");
-    const palette = page.getByRole("dialog", { name: "Command palette" });
+    const palette = await openCommandPalette(page);
     await palette.getByRole("combobox").fill("Usage");
     await palette.getByRole("option", { name: /Usage/ }).click();
     await expect(page).toHaveURL(/\/admin\/usage$/);
   });
 });
+
+async function openCommandPalette(page: Page) {
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect(async () => {
+    await page.keyboard.press("Control+K");
+    await expect(palette).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
+  return palette;
+}
 
 test.describe("magic-link sign-in request (logged out)", () => {
   // No session cookie installed: these drive the real request-phase pipeline

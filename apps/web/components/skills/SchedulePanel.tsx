@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { formatDateTime } from "@/lib/format-date";
 
 interface ScheduleRow {
   id: string;
@@ -135,7 +136,7 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
               </span>
               <span className="flex items-center gap-3">
                 <span className="text-muted">
-                  next {new Date(schedule.nextRunAt).toLocaleString()}
+                  next {formatDateTime(schedule.nextRunAt)}
                 </span>
                 <button
                   type="button"

@@ -1,4 +1,5 @@
 import { SesEmailError, escapeHtml, sendSesEmail, sesEnvConfig } from "@/lib/aws-ses";
+import { formatDate } from "@/lib/format-date";
 
 /**
  * Invitation email sending. The SigV4/SES core lives in `lib/aws-ses.ts`
@@ -75,11 +76,7 @@ export async function sendInvitationEmail(
 }
 
 export function renderInvitationText(input: SendInvitationEmailInput): string {
-  const expires = input.expiresAt.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  const expires = formatDate(input.expiresAt);
   return [
     `${input.invitedByName} invited you to Comparative.`,
     "",
@@ -91,11 +88,7 @@ export function renderInvitationText(input: SendInvitationEmailInput): string {
 }
 
 export function renderInvitationHtml(input: SendInvitationEmailInput): string {
-  const expires = input.expiresAt.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  const expires = formatDate(input.expiresAt);
   const invitedBy = escapeHtml(input.invitedByName);
   const email = escapeHtml(input.to);
   const role = escapeHtml(input.role);

@@ -6,6 +6,7 @@ import { StatusBadge } from "@/app/admin/ui";
 import { getLinkedIssueTag } from "./issue-tags";
 import { EmptyState } from "@/components/EmptyState";
 import { FEEDBACK_STATUS_OPTIONS } from "@/lib/feedback-status";
+import { formatDateTime } from "@/lib/format-date";
 
 export interface AdminFeedbackRow {
   id: string;
@@ -186,7 +187,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
                 ) : null}
                 <div className="flex flex-wrap gap-x-3 gap-y-1">
                   <span>{formatType(row.type)}</span>
-                  <span>{new Date(row.createdAt).toLocaleString()}</span>
+                  <span>{formatDateTime(row.createdAt)}</span>
                   {pageHref ? (
                     <a
                       href={pageHref}
@@ -296,7 +297,7 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
                       {row.screenshotName ? (
                         <span>Screenshot: {row.screenshotName}</span>
                       ) : null}
-                      <span>{new Date(row.createdAt).toLocaleString()}</span>
+                      <span>{formatDateTime(row.createdAt)}</span>
                     </div>
                     {hasScreenshot ? <ScreenshotPreview row={row} /> : null}
                     <details className="mt-2">

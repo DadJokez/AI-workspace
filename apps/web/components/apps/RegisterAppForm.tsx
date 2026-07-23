@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { formatDate } from "@/lib/format-date";
 
 interface ArtifactOption {
   id: string;
@@ -77,7 +78,7 @@ export function RegisterAppForm({ artifacts }: { artifacts: ArtifactOption[] }) 
           {artifacts.map((artifact) => (
             <option key={artifact.id} value={artifact.id}>
               {artifact.title} · {artifact.filename} ·{" "}
-              {new Date(artifact.createdAt).toLocaleDateString()}
+              {formatDate(artifact.createdAt)}
             </option>
           ))}
         </select>
