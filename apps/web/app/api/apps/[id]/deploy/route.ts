@@ -16,6 +16,7 @@ import {
   loadWorkspaceArtifactById,
   loadWorkspaceArtifactForUser,
 } from "@/lib/workspace-artifacts";
+import { getPostHogClient } from "@/lib/posthog-server";
 
 export const dynamic = "force-dynamic";
 
@@ -154,6 +155,15 @@ export async function POST(
       version,
       actorUserId: sessionUser.id,
     });
+
+    const posthog = getPostHogClient();
+    posthog.capture({
+      distinctId: sessionUser.id,
+      event: "app_version_deployed",
+      properties: { app_id: app.id, version_id: version.id },
+    });
+    await posthog.shutdown();
+
     return NextResponse.json({
       app: updated,
       versionId: version.id,

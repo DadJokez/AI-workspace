@@ -14,6 +14,7 @@ import {
   type UserResponse,
 } from "./chat-client-state";
 import { useEffect, useState } from "react";
+import posthog from "posthog-js";
 
 export function useChatResources() {
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -128,6 +129,7 @@ export function useChatResources() {
         if (data.user.defaultModelId) {
           setUserDefaultModelId(data.user.defaultModelId);
         }
+        posthog.identify(data.user.id, { role: data.user.role });
       })
       .catch((error) => {
         if (!cancelled) console.error("failed to load /api/user", error);

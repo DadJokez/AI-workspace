@@ -15,6 +15,7 @@ import {
   FEEDBACK_SCREENSHOT_TOO_LARGE_MESSAGE,
   MAX_FEEDBACK_SCREENSHOT_DATA_URL_CHARS,
 } from "@/lib/feedback-screenshots";
+import { getPostHogClient } from "@/lib/posthog-server";
 
 export const dynamic = "force-dynamic";
 
@@ -307,6 +308,19 @@ export async function POST(req: Request) {
     });
 
   const row = inserted[0]!;
+
+  const posthog = getPostHogClient();
+  posthog.capture({
+    distinctId: sessionUser.id,
+    event: "feedback_report_submitted",
+    properties: {
+      report_type: reportType,
+      severity,
+      has_screenshot: Boolean(screenshotDataUrl),
+    },
+  });
+  await posthog.shutdown();
+
   return NextResponse.json(
     {
       report: {

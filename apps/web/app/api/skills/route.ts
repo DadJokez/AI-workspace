@@ -11,6 +11,7 @@ import {
 import { evaluateSkillNamingGate } from "@/lib/skills-naming-gate";
 import { listSkillsSharedWith } from "@/lib/shares";
 import { canonicalizeStarterSkill } from "@/lib/starter-skills";
+import { getPostHogClient } from "@/lib/posthog-server";
 
 export const dynamic = "force-dynamic";
 
@@ -122,6 +123,17 @@ export async function POST(req: Request) {
     skillSlug: skill.slug,
     metadata: { modelId: skill.modelId, mcpProviders: skill.mcpProviders },
   });
+
+  const posthog = getPostHogClient();
+  posthog.capture({
+    distinctId: sessionUser.id,
+    event: "skill_created",
+    properties: {
+      model_id: skill.modelId,
+      has_mcp_providers: skill.mcpProviders.length > 0,
+    },
+  });
+  await posthog.shutdown();
 
   return NextResponse.json({ skill }, { status: 201 });
 }

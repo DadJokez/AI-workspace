@@ -13,6 +13,7 @@ import {
   parseAppInput,
 } from "@/lib/apps";
 import { loadWorkspaceArtifactForUser } from "@/lib/workspace-artifacts";
+import { getPostHogClient } from "@/lib/posthog-server";
 
 export const dynamic = "force-dynamic";
 
@@ -161,6 +162,14 @@ export async function POST(req: Request) {
       sourceThreadId: artifact.threadId,
     },
   });
+
+  const posthog = getPostHogClient();
+  posthog.capture({
+    distinctId: sessionUser.id,
+    event: "app_registered",
+    properties: { app_id: app.id },
+  });
+  await posthog.shutdown();
 
   return NextResponse.json(
     { app: updated[0] ?? app, url: `/apps/${app.slug}` },

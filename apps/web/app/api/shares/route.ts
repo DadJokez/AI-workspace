@@ -7,6 +7,7 @@ import {
   parseAppShareRole,
   type ShareSubjectType,
 } from "@/lib/shares";
+import { getPostHogClient } from "@/lib/posthog-server";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +85,17 @@ export async function POST(req: Request) {
       { status: result.status },
     );
   }
+  const posthog = getPostHogClient();
+  posthog.capture({
+    distinctId: sessionUser.id,
+    event: "resource_shared",
+    properties: {
+      subject_type: subjectType,
+      role: subjectType === "app" ? parseAppShareRole(role) : "viewer",
+    },
+  });
+  await posthog.shutdown();
+
   return NextResponse.json({ share: result.share }, { status: 201 });
 }
 
