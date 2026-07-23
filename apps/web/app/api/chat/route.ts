@@ -35,7 +35,10 @@ import {
   type ChatAttachment,
   type PreparedChatAttachment,
 } from "@/lib/attachments";
-import { reconstructStoredAttachments } from "@/lib/attachment-replay";
+import {
+  reconstructStoredAttachments,
+  shouldCarryForwardThreadUploads,
+} from "@/lib/attachment-replay";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
 import {
   checkRateLimit,
@@ -408,12 +411,67 @@ export async function POST(req: Request) {
     ).map((row) => row.content);
   }
 
+  // A fresh upload is stored separately from the visible chat message. When a
+  // later turn clearly asks to keep working with that file, reconstruct the
+  // latest upload batch from its bounded extracted text (and native image
+  // bytes) instead of making the user attach it again. This is contextual
+  // replay only: the rows are not inserted again on the follow-up turn.
+  const requestAttachments = replayedAttachments ?? attachments;
+  let carriedThreadAttachments: PreparedChatAttachment[] = [];
+  if (
+    requestAttachments.length === 0 &&
+    priorUserMessages.length > 0 &&
+    shouldCarryForwardThreadUploads(effectiveUserMessage)
+  ) {
+    const latestUploadRows = await db
+      .select({ chatMessageId: workspaceArtifacts.chatMessageId })
+      .from(workspaceArtifacts)
+      .where(
+        and(
+          eq(workspaceArtifacts.userId, sessionUser.id),
+          eq(workspaceArtifacts.threadId, thread.id),
+          eq(workspaceArtifacts.source, "user-upload"),
+        ),
+      )
+      .orderBy(desc(workspaceArtifacts.createdAt), desc(workspaceArtifacts.id))
+      .limit(1);
+    const uploadMessageId = latestUploadRows[0]?.chatMessageId;
+    if (uploadMessageId) {
+      const storedUploads = await db
+        .select({
+          id: workspaceArtifacts.id,
+          title: workspaceArtifacts.title,
+          filename: workspaceArtifacts.filename,
+          kind: workspaceArtifacts.kind,
+          mimeType: workspaceArtifacts.mimeType,
+          content: workspaceArtifacts.content,
+          sizeBytes: workspaceArtifacts.sizeBytes,
+          metadata: workspaceArtifacts.metadata,
+        })
+        .from(workspaceArtifacts)
+        .where(
+          and(
+            eq(workspaceArtifacts.userId, sessionUser.id),
+            eq(workspaceArtifacts.threadId, thread.id),
+            eq(workspaceArtifacts.chatMessageId, uploadMessageId),
+            eq(workspaceArtifacts.source, "user-upload"),
+          ),
+        );
+      const replay = reconstructStoredAttachments(storedUploads);
+      if (replay.ok) carriedThreadAttachments = replay.attachments;
+    }
+  }
+  const effectiveAttachments =
+    requestAttachments.length > 0
+      ? requestAttachments
+      : carriedThreadAttachments;
+
   const routingCapabilityGraph = await loadUserCapabilityGraph(db, sessionUser, {
     mountedProviders: [],
   });
   const contextSignals = {
     priorUserMessagesCount: priorUserMessages.length,
-    uploadedFilesAvailable: (replayedAttachments ?? attachments).length > 0,
+    uploadedFilesAvailable: effectiveAttachments.length > 0,
   };
   let runtimeRoute = decideChatRuntimeRoute({
     message: effectiveUserMessage,
@@ -566,7 +624,6 @@ export async function POST(req: Request) {
     : effectiveUserMessage;
   // #348: an edited file-bearing turn replays its stored uploads — same
   // fold, same runtime payload, sourced from storage instead of the request.
-  const effectiveAttachments = replayedAttachments ?? attachments;
   const promptForModel = foldAttachmentsIntoPrompt(
     modelVisibleMessage,
     effectiveAttachments,

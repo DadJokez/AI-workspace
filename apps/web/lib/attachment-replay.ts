@@ -47,6 +47,33 @@ const RUNTIME_IMAGE_MIMES = new Set([
   "image/webp",
 ]);
 
+const FILE_REFERENCE_RE =
+  /\b(?:upload(?:ed)?|attach(?:ed|ment)?|files?|documents?|docs?|pdfs?|spreadsheets?|sheets?|workbooks?|csvs?|decks?|slides?|presentations?|images?|photos?|screenshots?|datasets?|data)\b/i;
+const FOLLOW_UP_REFERENCE_RE =
+  /\b(?:it|this|that|these|those|them|same|above|prior|previous|earlier)\b/i;
+const FILE_WORK_INTENT_RE =
+  /\b(?:analy[sz]e|summari[sz]e|inspect|review|read|parse|extract|compare|calculate|chart|graph|visuali[sz]e|clean|transform|convert|edit|update|modify|change|audit|find|identify|show|explain|query|filter|sort|group|look|check)\b/i;
+const DATA_QUESTION_RE =
+  /\b(?:trends?|insights?|patterns?|anomal(?:y|ies)|outliers?|totals?|averages?|rows?|columns?|categories|regions?|revenue|sales|orders?|records?|duplicates?|correlations?|breakdowns?)\b/i;
+
+/**
+ * A stored upload is expensive context, so carry it only when the next turn
+ * clearly asks to keep working with file/data content. The route separately
+ * requires a prior upload in the same owned thread and no new attachment.
+ */
+export function shouldCarryForwardThreadUploads(message: string): boolean {
+  const value = message.trim();
+  if (!value) return false;
+
+  const hasWorkIntent = FILE_WORK_INTENT_RE.test(value);
+  const hasDataQuestion = DATA_QUESTION_RE.test(value);
+  return (
+    (hasWorkIntent &&
+      (FILE_REFERENCE_RE.test(value) || FOLLOW_UP_REFERENCE_RE.test(value))) ||
+    hasDataQuestion
+  );
+}
+
 /**
  * Order comes from `metadata.uploadIndex` — the ordinal the upload path
  * stamps per file, and the ONLY record of request order (bulk insert
