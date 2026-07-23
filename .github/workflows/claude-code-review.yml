@@ -50,16 +50,57 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_REF: ${{ github.event.workflow_run.head_branch }}
           REPO: ${{ github.repository }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           # Commit containment is ambiguous for stacked PRs. Match the one
-          # open PR whose current head is exactly the completed workflow SHA.
-          if ! pr=$(gh api --paginate --slurp \
-              "repos/$REPO/pulls?state=open&per_page=100" \
-              | node .github/scripts/resolve-exact-head-pr.mjs "$SHA"); then
-            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          # open PR whose current branch and head are exactly the completed
+          # workflow run. The helper returns candidates for a visible failure
+          # instead of turning ambiguity into a successful no-op.
+          set +e
+          resolution=$(gh api --paginate --slurp \
+            "repos/$REPO/pulls?state=open&per_page=100" \
+            | node .github/scripts/resolve-exact-head-pr.mjs "$SHA" "$HEAD_REF")
+          resolution_status=$?
+          set -e
+
+          resolution_ok="false"
+          if [ "$resolution_status" -eq 0 ]; then
+            resolution_ok=$(jq -r '.ok // false' <<<"$resolution")
           fi
+
+          if [ "$resolution_ok" != "true" ]; then
+            reason="The pull request lookup failed before producing a diagnostic."
+            candidates="none"
+            if jq -e 'type == "object"' >/dev/null 2>&1 <<<"$resolution"; then
+              reason=$(jq -r '.reason' <<<"$resolution")
+              candidates=$(jq -r '
+                .candidates
+                | if length == 0 then "none"
+                  else map("#\(.number) (\(.headRefName) @ \(.headSha[0:7]))") | join(", ")
+                  end
+              ' <<<"$resolution")
+            fi
+
+            {
+              echo "### Claude review gate could not resolve the pull request"
+              echo
+              echo "- Workflow head: \`$HEAD_REF\` at \`$SHA\`"
+              echo "- Reason: $reason"
+              echo "- Candidate pull requests: $candidates"
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            echo "::error title=Claude review gate resolution failed::See the step summary for the exact head and candidate pull requests."
+            gh api -X POST "repos/$REPO/statuses/$SHA" \
+              -f state="failure" \
+              -f context="Claude verdict" \
+              -f description="Review gate could not resolve the exact PR head" \
+              -f target_url="$TARGET_URL" >/dev/null
+            exit 1
+          fi
+          pr=$(jq -r '.pr' <<<"$resolution")
 
           # Require BOTH gate workflows to have a successful run at this SHA.
           # The later-completing gate triggers this and sees both green.
