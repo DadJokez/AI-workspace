@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  artifactPromptContent,
   artifactContextTextForTurn,
   artifactContextModeForMessage,
   buildArtifactLookupMessage,
@@ -85,6 +86,7 @@ describe("artifactContextTextForTurn", () => {
     const payload = {
       text,
       textWithoutMatchedContent,
+      matchedContentChars: "PRIVATE_LARGE_ARTIFACT_BODY".length,
       matchedArtifact: matchedUpload,
       mode: "revision" as const,
     };
@@ -92,7 +94,11 @@ describe("artifactContextTextForTurn", () => {
     const result = artifactContextTextForTurn({
       payload,
       uploadedFiles: [
-        { name: "production-continuity.csv", sizeBytes: 3_984_588 },
+        {
+          name: "production-continuity.csv",
+          sizeBytes: 3_984_588,
+          contentChars: "PRIVATE_LARGE_ARTIFACT_BODY".length,
+        },
       ],
     });
 
@@ -117,11 +123,16 @@ describe("artifactContextTextForTurn", () => {
         payload: {
           text: "generated artifact body",
           textWithoutMatchedContent: "body omitted",
+          matchedContentChars: "generated artifact body".length,
           matchedArtifact: generatedArtifact,
           mode: "revision",
         },
         uploadedFiles: [
-          { name: generatedArtifact.filename, sizeBytes: generatedArtifact.sizeBytes },
+          {
+            name: generatedArtifact.filename,
+            sizeBytes: generatedArtifact.sizeBytes,
+            contentChars: "generated artifact body".length,
+          },
         ],
       }),
     ).toBe("generated artifact body");
@@ -133,14 +144,41 @@ describe("artifactContextTextForTurn", () => {
         payload: {
           text: "stored artifact body",
           textWithoutMatchedContent: "body omitted",
+          matchedContentChars: "stored artifact body".length,
           matchedArtifact: matchedUpload,
           mode: "revision",
         },
         uploadedFiles: [
-          { name: matchedUpload.filename, sizeBytes: matchedUpload.sizeBytes - 1 },
+          {
+            name: matchedUpload.filename,
+            sizeBytes: matchedUpload.sizeBytes - 1,
+            contentChars: "stored artifact body".length,
+          },
         ],
       }),
     ).toBe("stored artifact body");
+  });
+
+  it("retains a fuller artifact body when the active upload text is truncated", () => {
+    const fullContent = "x".repeat(300_000);
+    expect(
+      artifactContextTextForTurn({
+        payload: {
+          text: fullContent,
+          textWithoutMatchedContent: "body omitted",
+          matchedContentChars: fullContent.length,
+          matchedArtifact: matchedUpload,
+          mode: "revision",
+        },
+        uploadedFiles: [
+          {
+            name: matchedUpload.filename,
+            sizeBytes: matchedUpload.sizeBytes,
+            contentChars: 200_056,
+          },
+        ],
+      }),
+    ).toBe(fullContent);
   });
 
   it("keeps artifact context when the active upload is a different file", () => {
@@ -149,10 +187,17 @@ describe("artifactContextTextForTurn", () => {
         payload: {
           text: "revision context",
           textWithoutMatchedContent: "revision context without body",
+          matchedContentChars: "revision context".length,
           matchedArtifact: matchedUpload,
           mode: "revision",
         },
-        uploadedFiles: [{ name: "another-file.csv", sizeBytes: 3_984_588 }],
+        uploadedFiles: [
+          {
+            name: "another-file.csv",
+            sizeBytes: 3_984_588,
+            contentChars: "revision context".length,
+          },
+        ],
       }),
     ).toBe("revision context");
   });
@@ -163,6 +208,7 @@ describe("artifactContextTextForTurn", () => {
         payload: {
           text: "artifact manifest",
           textWithoutMatchedContent: "artifact manifest",
+          matchedContentChars: null,
           matchedArtifact: null,
           mode: "manifest",
         },
@@ -171,6 +217,41 @@ describe("artifactContextTextForTurn", () => {
         ],
       }),
     ).toBe("artifact manifest");
+  });
+});
+
+describe("artifactPromptContent", () => {
+  it("uses the model-readable extraction instead of stored base64 bytes", () => {
+    const extractedText =
+      "header,value\nfirst,42\n\n[Truncated after 200,000 characters.]";
+    expect(
+      artifactPromptContent({
+        source: "user-upload",
+        content: "dW5yZWFkYWJsZS1iYXNlNjQtYnl0ZXM=",
+        metadata: {
+          storageEncoding: "base64",
+          extractionStatus: "extracted",
+          extractedText,
+        },
+      }),
+    ).toEqual({ content: extractedText, complete: false });
+  });
+
+  it("retains fuller legacy UTF-8 content between the two prompt caps", () => {
+    const content = "x".repeat(300_000);
+    expect(
+      artifactPromptContent({
+        source: "user-upload",
+        content,
+        metadata: {
+          storageEncoding: "utf8",
+          extractionStatus: "extracted",
+          extractedText:
+            content.slice(0, 200_000) +
+            "\n\n[Truncated after 200,000 characters.]",
+        },
+      }),
+    ).toEqual({ content, complete: true });
   });
 });
 
@@ -380,6 +461,23 @@ describe("formatArtifactContext", () => {
     expect(block).toContain("same logical filename");
     expect(block).toContain("update the visible artifact in place");
     expect(block).toContain("Do not invent a -v2");
+  });
+
+  it("does not frame a truncated upload extraction as a complete revision", () => {
+    const block = formatArtifactContext({
+      artifacts: ARTIFACTS,
+      matched: {
+        title: "Large Upload",
+        filename: "large-upload.csv",
+        content: "header,value\nfirst,42\n\n[Truncated after 200,000 characters.]",
+        complete: false,
+      },
+      omitMatchedContent: true,
+    });
+    expect(block).toContain("available model-readable extraction");
+    expect(block).toContain("do NOT emit or save a replacement file");
+    expect(block).not.toContain("current full content");
+    expect(block).not.toContain("Emit the entire file");
   });
 
   it("#276 distinguishes visible-original edits from explicit copies and forks", () => {
