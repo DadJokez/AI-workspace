@@ -38,7 +38,7 @@ export interface ChatContextUploadedFile {
   resourceId?: string;
   name: string;
   sizeBytes?: number;
-  /** Characters in the exact extracted representation folded into the prompt. */
+  /** Characters in the extracted representation available through the resource. */
   contentChars?: number;
   mimeType?: string;
   extractionStatus?: string;
@@ -336,24 +336,30 @@ export function buildChatContextPack({
           }),
         ]
       : [];
-  const uploadedFileItems = uploadedFiles.map((file, index) =>
-    contextItem({
+  const uploadedFileItems = uploadedFiles.map((file, index) => {
+    const injected = file.runtimeContent?.type === "image";
+    return contextItem({
       id: `uploaded-file:${index + 1}:${file.name}`,
       type: "uploaded_file",
       label: file.name,
       source: "uploaded_files",
       owner: "user",
       freshness: "current_turn",
-      visibility: "hidden_prompt",
-      injected: true,
-      charCount: file.sizeBytes,
+      visibility: injected ? "hidden_prompt" : "receipt_only",
+      injected,
+      charCount: injected ? file.sizeBytes : 0,
       metadata: {
         ...(file.resourceId ? { resourceId: file.resourceId } : {}),
         ...(file.mimeType ? { mimeType: file.mimeType } : {}),
         ...(file.extractionStatus ? { extractionStatus: file.extractionStatus } : {}),
+        delivery: injected
+          ? "native_image"
+          : file.resourceId
+            ? "resource_reference"
+            : "metadata_only",
       },
-    }),
-  );
+    });
+  });
   const recentToolEvidenceItem =
     recentToolEvidenceReceipt && recentToolEvidenceReceipt.candidateCount > 0
       ? contextItem({
@@ -507,7 +513,9 @@ export function buildChatContextPack({
       recentMessages: messages.length,
       artifactContextInjected: artifacts.length > 0,
       artifactContextChars: artifacts.length,
-      uploadedFilesInjected: uploadedFiles.length > 0,
+      uploadedFilesInjected: uploadedFiles.some(
+        (file) => file.runtimeContent?.type === "image",
+      ),
       uploadedFiles: uploadedFiles.map((file) => ({
         ...(file.resourceId ? { resourceId: file.resourceId } : {}),
         name: file.name,

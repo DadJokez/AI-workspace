@@ -204,16 +204,22 @@ describe("chat context pack", () => {
     expect(pack.prompt.systemPrompt).toContain("Roadmap");
   });
 
-  it("records uploaded files folded into the current prompt", () => {
+  it("records resource-backed uploads without claiming inline injection", () => {
     const pack = buildChatContextPack({
       ...baseInput(),
-      uploadedFiles: [{ name: "brief.csv", sizeBytes: 42 }],
+      uploadedFiles: [
+        { resourceId: "resource-brief", name: "brief.csv", sizeBytes: 42 },
+      ],
       forcePreamble: true,
     });
 
-    expect(pack.receipts[0]?.work.uploadedFilesInjected).toBe(true);
+    expect(pack.receipts[0]?.work.uploadedFilesInjected).toBe(false);
     expect(pack.receipts[0]?.work.uploadedFiles).toEqual([
-      { name: "brief.csv", sizeBytes: 42 },
+      {
+        resourceId: "resource-brief",
+        name: "brief.csv",
+        sizeBytes: 42,
+      },
     ]);
     expect(pack.work.uploadedFiles[0]).toMatchObject({
       type: "uploaded_file",
@@ -221,13 +227,45 @@ describe("chat context pack", () => {
       source: "uploaded_files",
       owner: "user",
       freshness: "current_turn",
-      visibility: "hidden_prompt",
-      injected: true,
+      visibility: "receipt_only",
+      injected: false,
+      charCount: 0,
+      metadata: {
+        resourceId: "resource-brief",
+        delivery: "resource_reference",
+      },
     });
     expect(pack.prompt.volatileSystemSuffix).toContain(
       "uploaded files 1 current-turn file(s)",
     );
     expect(pack.prompt.volatileSystemSuffix).not.toContain("brief.csv");
+  });
+
+  it("records native image bytes as injected model input", () => {
+    const pack = buildChatContextPack({
+      ...baseInput(),
+      uploadedFiles: [
+        {
+          resourceId: "resource-image",
+          name: "chart.png",
+          sizeBytes: 128,
+          runtimeContent: {
+            type: "image",
+            mimeType: "image/png",
+            dataBase64: "aW1hZ2U=",
+          },
+        },
+      ],
+      forcePreamble: true,
+    });
+
+    expect(pack.receipts[0]?.work.uploadedFilesInjected).toBe(true);
+    expect(pack.work.uploadedFiles[0]).toMatchObject({
+      visibility: "hidden_prompt",
+      injected: true,
+      charCount: 128,
+      metadata: { delivery: "native_image" },
+    });
   });
 
   it("persists recent tool-evidence inclusion and omission receipts", () => {
