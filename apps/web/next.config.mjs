@@ -1,5 +1,6 @@
 const pdfRuntimeTraceIncludes = [
   "../../node_modules/.pnpm/@napi-rs+canvas*/node_modules/@napi-rs/canvas*/**/*",
+  "../../node_modules/.pnpm/pdfjs-dist@*/node_modules/pdfjs-dist/**/*",
 ];
 
 /** @type {import('next').NextConfig} */

@@ -17,15 +17,18 @@ describe("production web runtime packaging", () => {
     expect(nextConfig).toContain(
       "../../node_modules/.pnpm/@napi-rs+canvas*/node_modules/@napi-rs/canvas*/**/*",
     );
+    expect(nextConfig).toContain(
+      "../../node_modules/.pnpm/pdfjs-dist@*/node_modules/pdfjs-dist/**/*",
+    );
     expect(nextConfig).toContain('"/api/chat": pdfRuntimeTraceIncludes');
     expect(nextConfig).toContain(
       '"/api/mcp/resources": pdfRuntimeTraceIncludes',
     );
     expect(dockerfile).toContain("find /app/node_modules/.pnpm");
-    expect(dockerfile).toContain("node ./verify-pdf-runtime.mjs");
-    expect(dockerfile.indexOf("node ./verify-pdf-runtime.mjs")).toBeLessThan(
-      dockerfile.indexOf("USER nextjs"),
-    );
+    expect(dockerfile).toContain("node ./apps/web/verify-pdf-runtime.mjs");
+    expect(
+      dockerfile.indexOf("node ./apps/web/verify-pdf-runtime.mjs"),
+    ).toBeLessThan(dockerfile.indexOf("USER nextjs"));
     expect(verifier).toContain('import { PDFParse } from "pdf-parse"');
     expect(verifier).toContain("await parser.getText()");
     expect(verifier).toContain("PDF runtime smoke");
