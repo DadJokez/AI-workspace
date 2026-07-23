@@ -60,24 +60,87 @@ describe("artifactContextTextForTurn", () => {
     filename: "production-continuity.csv",
     kind: "data",
     mimeType: "text/csv",
+    sizeBytes: 3_984_588,
     source: "user-upload",
   });
 
-  it("does not inject a stored upload twice when it is active on the turn", () => {
+  it("omits only the duplicate body when the same stored upload is active", () => {
+    const text = formatArtifactContext({
+      artifacts: [matchedUpload],
+      matched: {
+        title: matchedUpload.title,
+        filename: matchedUpload.filename,
+        content: "PRIVATE_LARGE_ARTIFACT_BODY",
+      },
+    });
+    const textWithoutMatchedContent = formatArtifactContext({
+      artifacts: [matchedUpload],
+      matched: {
+        title: matchedUpload.title,
+        filename: matchedUpload.filename,
+        content: "PRIVATE_LARGE_ARTIFACT_BODY",
+      },
+      omitMatchedContent: true,
+    });
     const payload = {
-      text: "large stored artifact body",
+      text,
+      textWithoutMatchedContent,
       matchedArtifact: matchedUpload,
       mode: "revision" as const,
     };
 
-    expect(
-      artifactContextTextForTurn({
-        payload,
-        uploadedFiles: [{ name: "production-continuity.csv" }],
-      }),
-    ).toBeNull();
+    const result = artifactContextTextForTurn({
+      payload,
+      uploadedFiles: [
+        { name: "production-continuity.csv", sizeBytes: 3_984_588 },
+      ],
+    });
+
+    expect(result).toBe(textWithoutMatchedContent);
+    expect(result).toContain("Production continuity");
+    expect(result).toContain("never claim there are no files");
+    expect(result).toContain("same logical filename");
+    expect(result).toContain("NEW complete fenced file block");
+    expect(result).not.toContain("PRIVATE_LARGE_ARTIFACT_BODY");
     // The payload still retains the match used by artifact version targeting.
     expect(payload.matchedArtifact.id).toBe(matchedUpload.id);
+  });
+
+  it("does not suppress a non-upload artifact with the same filename", () => {
+    const generatedArtifact = artifact({
+      ...matchedUpload,
+      id: "generated-collision",
+      source: "assistant-code-block",
+    });
+    expect(
+      artifactContextTextForTurn({
+        payload: {
+          text: "generated artifact body",
+          textWithoutMatchedContent: "body omitted",
+          matchedArtifact: generatedArtifact,
+          mode: "revision",
+        },
+        uploadedFiles: [
+          { name: generatedArtifact.filename, sizeBytes: generatedArtifact.sizeBytes },
+        ],
+      }),
+    ).toBe("generated artifact body");
+  });
+
+  it("does not suppress a different upload with the same filename", () => {
+    expect(
+      artifactContextTextForTurn({
+        payload: {
+          text: "stored artifact body",
+          textWithoutMatchedContent: "body omitted",
+          matchedArtifact: matchedUpload,
+          mode: "revision",
+        },
+        uploadedFiles: [
+          { name: matchedUpload.filename, sizeBytes: matchedUpload.sizeBytes - 1 },
+        ],
+      }),
+    ).toBe("stored artifact body");
   });
 
   it("keeps artifact context when the active upload is a different file", () => {
@@ -85,10 +148,11 @@ describe("artifactContextTextForTurn", () => {
       artifactContextTextForTurn({
         payload: {
           text: "revision context",
+          textWithoutMatchedContent: "revision context without body",
           matchedArtifact: matchedUpload,
           mode: "revision",
         },
-        uploadedFiles: [{ name: "another-file.csv" }],
+        uploadedFiles: [{ name: "another-file.csv", sizeBytes: 3_984_588 }],
       }),
     ).toBe("revision context");
   });
@@ -98,10 +162,13 @@ describe("artifactContextTextForTurn", () => {
       artifactContextTextForTurn({
         payload: {
           text: "artifact manifest",
+          textWithoutMatchedContent: "artifact manifest",
           matchedArtifact: null,
           mode: "manifest",
         },
-        uploadedFiles: [{ name: "production-continuity.csv" }],
+        uploadedFiles: [
+          { name: "production-continuity.csv", sizeBytes: 3_984_588 },
+        ],
       }),
     ).toBe("artifact manifest");
   });
