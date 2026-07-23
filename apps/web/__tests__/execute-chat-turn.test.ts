@@ -169,6 +169,8 @@ import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
 
 interface FakeDbState {
   runStatus: string;
+  runWorkerId?: string;
+  runOutputs?: Record<string, unknown> | null;
   inserts: Array<{ table: unknown; values: unknown }>;
   runUpdates: Array<Record<string, unknown>>;
   /** Rows the update chain's .returning() resolves to (fencing tests). */
@@ -176,7 +178,7 @@ interface FakeDbState {
 }
 
 function fakeDb(state: FakeDbState): Database {
-  const db = {
+  const db: Record<string, unknown> = {
     select: () => ({
       from: (table: unknown) => ({
         where: () => {
@@ -192,12 +194,21 @@ function fakeDb(state: FakeDbState): Database {
               ];
             }
             if (table === chatMessages) return [];
-            if (table === runs) return [{ status: state.runStatus }];
+            if (table === runs) {
+              return [
+                {
+                  status: state.runStatus,
+                  workerId: state.runWorkerId ?? "w-test",
+                  outputs: state.runOutputs ?? null,
+                },
+              ];
+            }
             return [];
           };
           return {
             limit: async () => resolve(),
             orderBy: async () => resolve(),
+            for: async () => resolve(),
           };
         },
       }),
@@ -211,10 +222,13 @@ function fakeDb(state: FakeDbState): Database {
         });
       },
     }),
-    update: () => ({
+    update: (table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
         where: () => {
           state.runUpdates.push(values);
+          if (table === runs && "outputs" in values) {
+            state.runOutputs = values.outputs as Record<string, unknown>;
+          }
           const promise = Promise.resolve(undefined);
           return Object.assign(promise, {
             returning: async () => state.updateReturning ?? [{ id: "run-1" }],
@@ -223,6 +237,8 @@ function fakeDb(state: FakeDbState): Database {
       }),
     }),
   };
+  db.transaction = async (callback: (tx: unknown) => Promise<unknown>) =>
+    callback(db);
   return db as unknown as Database;
 }
 
