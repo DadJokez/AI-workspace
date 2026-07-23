@@ -417,7 +417,7 @@ function AppDraftStrip({
               <span className="text-muted">v{version.versionNumber}</span>
               <span className="ml-auto rounded bg-subtle px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-muted">
                 {deployed
-                  ? "Live"
+                  ? "Published"
                   : reverted
                     ? "Superseded"
                     : discarded
@@ -429,9 +429,9 @@ function AppDraftStrip({
             </div>
             <p className="mt-1 text-muted">
               {deployed
-                ? "This version is now live."
+                ? "This version is now published."
                 : reverted
-                  ? "This version is no longer live."
+                  ? "This version is no longer published."
                   : discarded
                     ? "This proposal was discarded. Its history is preserved."
                     : proposed
@@ -467,14 +467,14 @@ function AppDraftStrip({
                   {pending
                     ? proposed
                       ? "Accepting..."
-                      : "Deploying..."
+                      : "Publishing..."
                     : proposed
                       ? "Accept and publish"
-                      : "Deploy update"}
+                      : "Publish update"}
                 </button>
               ) : (
                 <span className="text-2xs text-muted">
-                  Ready for an owner to deploy
+                  Ready for an owner to publish
                 </span>
               )}
               {proposed && onDiscard ? (
@@ -1176,7 +1176,7 @@ function recommendationLabel(type: PersistedRecommendation["type"]): string {
 function acceptLabel(recommendation: PersistedRecommendation): string {
   if (recommendation.action.kind === "run_skill") return "Run skill";
   if (recommendation.action.kind === "open_app") return "Open app";
-  if (recommendation.action.kind === "deploy_app") return "Deploy app";
+  if (recommendation.action.kind === "deploy_app") return "Publish app";
   if (recommendation.action.kind === "create_schedule") return "Approve";
   if (recommendation.action.kind === "create_skill") return "Save as skill";
   return "Use this";

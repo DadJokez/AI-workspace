@@ -17,13 +17,14 @@ interface VersionRow {
   isLive: boolean;
   canDeploy: boolean;
   canDiscard: boolean;
+  hasDataBindings: boolean;
   previewUrl: string;
 }
 
 /**
  * "Previous versions", not git log: every HTML artifact from the app's
- * source conversation is a deployable version. Deploy promotes, Revert
- * repins — same button, plain language.
+ * source conversation is a publishable version. Publish promotes and
+ * republishing an older version rolls the stable URL back.
  */
 export function VersionsPanel({
   appId,
@@ -37,6 +38,9 @@ export function VersionsPanel({
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [modeByVersion, setModeByVersion] = useState<
+    Record<string, "snapshot" | "live_via_viewer">
+  >({});
 
   async function deployVersion(appVersionId: string) {
     setBusyId(appVersionId);
@@ -45,16 +49,19 @@ export function VersionsPanel({
       const res = await fetch(`/api/apps/${appId}/deploy`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ appVersionId }),
+        body: JSON.stringify({
+          appVersionId,
+          dataMode: modeByVersion[appVersionId] ?? "snapshot",
+        }),
       });
       const body = (await res.json()) as { message?: string; error?: string };
       if (res.ok) {
         router.refresh();
         return;
       }
-      setNotice(body.message ?? body.error ?? "Could not deploy this version.");
+      setNotice(body.message ?? body.error ?? "Could not publish this version.");
     } catch {
-      setNotice("Could not deploy this version.");
+      setNotice("Could not publish this version.");
     } finally {
       setBusyId(null);
     }
@@ -112,7 +119,7 @@ export function VersionsPanel({
                 <span className="truncate">{version.title}</span>
                 {version.isLive ? (
                   <span className="rounded bg-ink/10 px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-ink">
-                    Live
+                    Published
                   </span>
                 ) : (
                   <span className="rounded bg-ink/5 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
@@ -142,20 +149,41 @@ export function VersionsPanel({
                 Preview
               </a>
               {canDeploy && version.canDeploy ? (
-                <button
-                  type="button"
-                  disabled={busyId !== null}
-                  onClick={() => deployVersion(version.appVersionId)}
-                  className="rounded-md border border-hairline px-2.5 py-1 text-xs font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
-                >
-                  {busyId === version.appVersionId
-                    ? "Deploying..."
-                    : version.status === "draft"
-                      ? "Deploy"
+                <>
+                  {version.hasDataBindings ? (
+                    <select
+                      aria-label={`Data mode for version ${version.versionNumber}`}
+                      disabled={busyId !== null}
+                      value={
+                        modeByVersion[version.appVersionId] ?? "snapshot"
+                      }
+                      onChange={(event) =>
+                        setModeByVersion((current) => ({
+                          ...current,
+                          [version.appVersionId]: event.target.value as
+                            | "snapshot"
+                            | "live_via_viewer",
+                        }))
+                      }
+                      className="rounded-md border border-hairline bg-canvas px-2 py-1 text-xs text-ink disabled:opacity-50"
+                    >
+                      <option value="snapshot">Snapshot</option>
+                      <option value="live_via_viewer">Live via viewer</option>
+                    </select>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={busyId !== null}
+                    onClick={() => deployVersion(version.appVersionId)}
+                    className="rounded-md border border-hairline px-2.5 py-1 text-xs font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
+                  >
+                    {busyId === version.appVersionId
+                      ? "Publishing..."
                       : version.status === "proposed"
                         ? "Accept and publish"
-                        : "Rollback"}
-                </button>
+                        : "Publish"}
+                  </button>
+                </>
               ) : null}
               {version.canDiscard ? (
                 <button

@@ -120,6 +120,7 @@ export function useChatActions({
             artifactId: recommendation.action.artifactId,
             name: appNameFromRecommendation(recommendation),
             description: recommendation.reason,
+            dataMode: "snapshot",
           }),
         });
         const body = (await response.json().catch(() => ({}))) as {
@@ -128,7 +129,7 @@ export function useChatActions({
           error?: string;
         };
         if (!response.ok || !body.app?.id) {
-          throw new Error(body.message ?? body.error ?? "Could not deploy app.");
+          throw new Error(body.message ?? body.error ?? "Could not publish app.");
         }
         window.location.assign(`/apps/manage/${body.app.id}`);
       } else if (recommendation.action.kind === "create_skill") {
@@ -154,7 +155,10 @@ export function useChatActions({
       const response = await fetch(`/api/apps/${version.appId}/deploy`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appVersionId: version.id }),
+        body: JSON.stringify({
+          appVersionId: version.id,
+          dataMode: "snapshot",
+        }),
       });
       const body = (await response.json().catch(() => ({}))) as {
         url?: string;
@@ -162,7 +166,9 @@ export function useChatActions({
         error?: string;
       };
       if (!response.ok) {
-        throw new Error(body.message ?? body.error ?? "Could not deploy update.");
+        throw new Error(
+          body.message ?? body.error ?? "Could not publish update.",
+        );
       }
       setTabs((previous) =>
         previous.map((tab) => {
@@ -198,7 +204,7 @@ export function useChatActions({
     } catch (error) {
       patchTab(activeTab.id, {
         error:
-          error instanceof Error ? error.message : "Could not deploy update.",
+          error instanceof Error ? error.message : "Could not publish update.",
       });
     } finally {
       setAppDraftPendingId(undefined);

@@ -240,7 +240,7 @@ export function buildRecommendationCandidates({
     candidates.push({
       id: `deploy-app:${appArtifact.id}`,
       type: "deploy_artifact_as_app",
-      title: "Deploy this as an app",
+      title: "Publish this as an app",
       reason: `${appArtifact.title} looks reusable, so it can become an app you can open and update later.`,
       requiresApproval: true,
       action: { kind: "deploy_app", artifactId: appArtifact.id },

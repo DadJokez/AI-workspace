@@ -7,21 +7,23 @@ import {
   canAppRoleDeploy,
   createAppVersionForArtifact,
   deployAppVersion,
-  findCredentialShapedContent,
   loadAppVersion,
   isServableArtifact,
   resolveAppActorRole,
+  scanArtifactForSecrets,
 } from "@/lib/apps";
+import { parseRequestedPublicationMode } from "@/lib/app-publication";
 import {
   loadWorkspaceArtifactById,
   loadWorkspaceArtifactForUser,
 } from "@/lib/workspace-artifacts";
 import { appendRunEventBestEffort } from "@/lib/run-events";
+import { parseDataBindings } from "@/lib/app-data-bindings";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Deploy a version: promote an app_versions row and keep live_artifact_id in
+ * Publish a version: promote an app_versions row and keep live_artifact_id in
  * sync during migration. Promoting a draft and rolling back to an older version
  * are the same endpoint; the helper records the audit event.
  */
@@ -41,7 +43,18 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
-  const { artifactId, appVersionId } = (body ?? {}) as Record<string, unknown>;
+  const { artifactId, appVersionId, dataMode: rawDataMode } = (body ??
+    {}) as Record<string, unknown>;
+  const dataMode = parseRequestedPublicationMode(rawDataMode);
+  if (!dataMode) {
+    return NextResponse.json(
+      {
+        error: "invalid_data_mode",
+        message: "Data mode must be snapshot or live_via_viewer.",
+      },
+      { status: 400 },
+    );
+  }
   if (
     (typeof appVersionId !== "string" || !appVersionId) &&
     (typeof artifactId !== "string" || !artifactId)
@@ -134,7 +147,20 @@ export async function POST(
   if (!artifact) {
     return NextResponse.json({ error: "artifact_not_found" }, { status: 404 });
   }
-  const secretFindings = findCredentialShapedContent(artifact.content);
+  if (
+    dataMode === "live_via_viewer" &&
+    parseDataBindings(artifact.metadata).length === 0
+  ) {
+    return NextResponse.json(
+      {
+        error: "live_data_unavailable",
+        message:
+          "This version has no supported data bindings. Publish it as a snapshot.",
+      },
+      { status: 422 },
+    );
+  }
+  const secretFindings = scanArtifactForSecrets(artifact);
   if (secretFindings.length > 0) {
     if (artifact.runId) {
       await appendRunEventBestEffort("app-deploy-run-event-error", {
@@ -196,6 +222,7 @@ export async function POST(
       app,
       version,
       actorUserId: sessionUser.id,
+      dataMode,
     });
     if (artifact.runId) {
       await appendRunEventBestEffort("app-deploy-run-event-error", {
@@ -223,7 +250,7 @@ export async function POST(
         eventType: "app_version_publish_failed",
         status: "failed",
         label: "App publish failed",
-        error: "Could not deploy this app version.",
+        error: "Could not publish this app version.",
         metadata: {
           appVersionNumber: version.versionNumber,
           filenames: [artifact.filename],
@@ -234,7 +261,7 @@ export async function POST(
     return NextResponse.json(
       {
         error: "deploy_failed",
-        message: "Could not deploy this app version.",
+        message: "Could not publish this app version.",
       },
       { status: 422 },
     );

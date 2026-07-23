@@ -38,7 +38,7 @@ const artifact = {
 const appendRunEventBestEffort = vi.fn(async () => undefined);
 const auditAppMutation = vi.fn(async () => undefined);
 const deployAppVersion = vi.fn(async () => ({ id: "app-1", status: "deployed" }));
-const findCredentialShapedContent = vi.fn((): string[] => []);
+const scanArtifactForSecrets = vi.fn((): string[] => []);
 
 function installMocks() {
   vi.doMock("@/lib/auth/getSessionUser", () => ({
@@ -61,7 +61,7 @@ function installMocks() {
     canAppRoleDeploy: () => true,
     createAppVersionForArtifact: vi.fn(),
     deployAppVersion,
-    findCredentialShapedContent,
+    scanArtifactForSecrets,
     isServableArtifact: () => true,
     loadAppVersion: async () => version,
     resolveAppActorRole: async () => "owner",
@@ -86,8 +86,8 @@ beforeEach(() => {
   appendRunEventBestEffort.mockClear();
   auditAppMutation.mockClear();
   deployAppVersion.mockClear();
-  findCredentialShapedContent.mockReset();
-  findCredentialShapedContent.mockReturnValue([]);
+  scanArtifactForSecrets.mockReset();
+  scanArtifactForSecrets.mockReturnValue([]);
   installMocks();
 });
 
@@ -125,7 +125,7 @@ describe("app deploy work receipts (#359)", () => {
   });
 
   it("records a failed validation without attempting publish", async () => {
-    findCredentialShapedContent.mockReturnValue(["an API secret key"]);
+    scanArtifactForSecrets.mockReturnValue(["an API secret key"]);
     const { POST } = await import("@/app/api/apps/[id]/deploy/route");
     const response = await POST(request(), {
       params: Promise.resolve({ id: "app-1" }),
@@ -159,7 +159,7 @@ describe("app deploy work receipts (#359)", () => {
       expect.objectContaining({
         eventType: "app_version_publish_failed",
         status: "failed",
-        error: "Could not deploy this app version.",
+        error: "Could not publish this app version.",
       }),
     );
   });

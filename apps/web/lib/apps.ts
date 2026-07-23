@@ -23,14 +23,22 @@ import {
 } from "@/lib/shares";
 import { findCredentialShapedContent } from "@/lib/secret-scan";
 export { findCredentialShapedContent };
-import { bindingQueryStrings } from "@/lib/app-data-bindings";
+import {
+  bindingQueryStrings,
+  parseDataBindings,
+} from "@/lib/app-data-bindings";
+import {
+  createAppPublicationMetadata,
+  stampAppPublicationMetadata,
+  type SelectableAppPublicationDataMode,
+} from "@/lib/app-publication";
 
 /**
  * Secret-scan an app artifact's HTML content AND its #407 data-binding
  * queries — a credential smuggled into a pinned SOQL string in metadata
  * would otherwise bypass the content-only scan.
  */
-function scanArtifactForSecrets(artifact: {
+export function scanArtifactForSecrets(artifact: {
   content: string;
   metadata: unknown;
 }): string[] {
@@ -118,6 +126,7 @@ export interface AppVersionRow {
   artifactTitle: string;
   artifactFilename: string;
   artifactSizeBytes: number;
+  hasDataBindings: boolean;
   isLive: boolean;
 }
 
@@ -446,6 +455,7 @@ export async function listAppVersions(
     artifactTitle: artifact.title,
     artifactFilename: artifact.filename,
     artifactSizeBytes: artifact.sizeBytes,
+    hasDataBindings: parseDataBindings(artifact.metadata).length > 0,
     isLive: version.id === liveVersionId,
   }));
 }
@@ -539,11 +549,13 @@ export async function deployAppVersion({
   app,
   version,
   actorUserId,
+  dataMode = "snapshot",
 }: {
   db: Database;
   app: App;
   version: AppVersion;
   actorUserId: string;
+  dataMode?: SelectableAppPublicationDataMode;
 }): Promise<App> {
   const now = new Date();
   const previousLiveVersionId = app.liveVersionId;
@@ -567,10 +579,18 @@ export async function deployAppVersion({
   const previousLiveVersionNumber = previousLiveVersionId
     ? await versionNumberForId(db, previousLiveVersionId)
     : 0;
-  const actionType =
+  const operation =
     previousLiveVersionId && version.versionNumber < previousLiveVersionNumber
+      ? "rollback"
+      : app.status === "unpublished"
+        ? "republish"
+        : "publish";
+  const actionType =
+    operation === "rollback"
       ? "app_rollback"
-      : "app_deploy";
+      : operation === "republish"
+        ? "app_republish"
+        : "app_publish";
   const acceptedProposalMetadata =
     version.status === "proposed"
       ? decideOutputProposalMetadata({
@@ -583,6 +603,28 @@ export async function deployAppVersion({
   if (version.status === "proposed" && !acceptedProposalMetadata) {
     throw new Error("Proposal metadata is missing or no longer pending.");
   }
+  const activeShares = await db
+    .select({ id: shares.id })
+    .from(shares)
+    .where(
+      and(
+        eq(shares.subjectType, "app"),
+        eq(shares.subjectId, app.id),
+        isNull(shares.revokedAt),
+      ),
+    )
+    .limit(1);
+  const publication = createAppPublicationMetadata({
+    artifactMetadata: acceptedProposalMetadata ?? artifact.metadata,
+    dataMode,
+    publishedAt: now,
+    publishedByUserId: actorUserId,
+    audience: activeShares.length > 0 ? "named" : "private",
+  });
+  const publishedArtifactMetadata = stampAppPublicationMetadata(
+    acceptedProposalMetadata ?? artifact.metadata,
+    publication,
+  );
 
   return db.transaction(async (tx) => {
     await tx
@@ -615,12 +657,10 @@ export async function deployAppVersion({
         .set({ status: "deployed", deployedAt: now })
         .where(eq(appVersions.id, version.id));
     }
-    if (acceptedProposalMetadata) {
-      await tx
-        .update(workspaceArtifacts)
-        .set({ metadata: acceptedProposalMetadata, updatedAt: now })
-        .where(eq(workspaceArtifacts.id, artifact.id));
-    }
+    await tx
+      .update(workspaceArtifacts)
+      .set({ metadata: publishedArtifactMetadata, updatedAt: now })
+      .where(eq(workspaceArtifacts.id, artifact.id));
     const updated = await tx
       .update(apps)
       .set({
@@ -678,6 +718,10 @@ export async function deployAppVersion({
         artifactId: version.artifactId,
         previousLiveVersionId,
         previousLiveArtifactId,
+        operation,
+        dataMode: publication.dataMode,
+        audience: publication.audience,
+        connectorManifest: publication.connectorManifest,
       },
       startedAt: now,
       completedAt: now,
@@ -1217,6 +1261,9 @@ export async function auditAppMutation({
     | "app_register"
     | "app_update"
     | "app_deploy"
+    | "app_publish"
+    | "app_unpublish"
+    | "app_republish"
     | "app_revert"
     | "app_rollback"
     | "app_archive"

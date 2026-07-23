@@ -55,7 +55,7 @@ const groups: NavGroup[] = [
         label: "Apps",
         icon: <IconGrid />,
         href: "/apps",
-        tooltip: "Small tools built in chat, deployed behind workspace sign-in",
+        tooltip: "Small tools built in chat, published behind workspace sign-in",
       },
     ],
   },

@@ -519,7 +519,7 @@ test.describe("chat workflow regressions", () => {
     ).toBeVisible();
   });
 
-  test("#322 iterates a deployed app twice, previews the latest draft, and deploys it inline", async ({
+  test("#322 iterates a published app twice, previews the latest draft, and publishes it inline", async ({
     page,
   }) => {
     const appId = "app-revenue-dashboard";
@@ -645,15 +645,20 @@ test.describe("chat workflow regressions", () => {
     await page.getByRole("button", { name: "Close preview" }).click();
 
     await latestDraftCard
-      .getByRole("button", { name: "Deploy update" })
+      .getByRole("button", { name: "Publish update" })
       .click();
-    await expect(latestDraftCard).toContainText("Live");
-    await expect(latestDraftCard).toContainText("This version is now live.");
+    await expect(latestDraftCard).toContainText("Published");
+    await expect(latestDraftCard).toContainText(
+      "This version is now published.",
+    );
     await expect(latestDraftCard.getByRole("link", { name: "Open app" })).toHaveAttribute(
       "href",
       "/apps/revenue-dashboard",
     );
-    expect(deployedBody).toEqual({ appVersionId: "app-version-3" });
+    expect(deployedBody).toEqual({
+      appVersionId: "app-version-3",
+      dataMode: "snapshot",
+    });
   });
 
   test("new chat replaces the active conversation instead of adding a tab", async ({
@@ -1024,10 +1029,10 @@ test.describe("chat workflow regressions", () => {
       .click();
     const liveCard = page.getByTestId("app-draft-card");
     await expect(liveCard).toHaveCount(1);
-    await expect(liveCard).toContainText("Live");
-    await expect(liveCard).toContainText("This version is now live.");
+    await expect(liveCard).toContainText("Published");
+    await expect(liveCard).toContainText("This version is now published.");
     await expect(
-      liveCard.getByRole("button", { name: "Deploy update" }),
+      liveCard.getByRole("button", { name: "Publish update" }),
     ).toHaveCount(0);
     await expect(liveCard.getByRole("link", { name: "Open app" })).toHaveAttribute(
       "href",
@@ -1042,9 +1047,11 @@ test.describe("chat workflow regressions", () => {
 
     const supersededCard = cards.filter({ hasText: "Legacy Dashboard" });
     await expect(supersededCard).toContainText("Superseded");
-    await expect(supersededCard).toContainText("This version is no longer live.");
+    await expect(supersededCard).toContainText(
+      "This version is no longer published.",
+    );
     await expect(
-      supersededCard.getByRole("button", { name: "Deploy update" }),
+      supersededCard.getByRole("button", { name: "Publish update" }),
     ).toHaveCount(0);
     await expect(supersededCard).not.toContainText("Ready for an owner to deploy");
 
@@ -1053,7 +1060,7 @@ test.describe("chat workflow regressions", () => {
     await expect(draftCard).toContainText("v3");
     await expect(draftCard).not.toContainText("v2");
     await expect(
-      draftCard.getByRole("button", { name: "Deploy update" }),
+      draftCard.getByRole("button", { name: "Publish update" }),
     ).toBeVisible();
   });
 });

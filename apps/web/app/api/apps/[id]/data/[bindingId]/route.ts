@@ -13,6 +13,11 @@ import {
 } from "@/lib/apps";
 import { loadWorkspaceArtifactById } from "@/lib/workspace-artifacts";
 import { findDataBinding } from "@/lib/app-data-bindings";
+import {
+  isBindingIncludedInPublication,
+  isPublicationManifestEnabled,
+  resolveAppPublication,
+} from "@/lib/app-publication";
 import { checkRateLimit } from "@/lib/request-limits";
 import { resolveSalesforceConnection } from "@/lib/oauth/salesforce-token";
 import { buildSalesforceTurnContext } from "@/lib/salesforce/authorization";
@@ -120,10 +125,33 @@ export async function GET(
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
   const artifact = await loadWorkspaceArtifactById({ db, artifactId });
+  const publication = artifact
+    ? resolveAppPublication(
+        artifact.metadata,
+        liveVersion?.deployedAt ?? artifact.updatedAt,
+        app.ownerUserId,
+      ).metadata
+    : null;
   const binding = artifact
     ? findDataBinding(artifact.metadata, bindingId)
     : null;
-  if (!binding) {
+  if (
+    !publication ||
+    !binding ||
+    publication.dataMode !== "live_via_viewer" ||
+    !isBindingIncludedInPublication(publication, binding) ||
+    !(await isPublicationManifestEnabled(db, publication))
+  ) {
+    await auditAppMutation({
+      db,
+      actorUserId: sessionUser.id,
+      actionType: "app_data_denied",
+      appId: app.id,
+      appSlug: app.slug,
+      status: "denied",
+      error: "Published app does not have an enabled live-via-viewer manifest.",
+      metadata: { bindingId },
+    });
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
