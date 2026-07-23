@@ -3,7 +3,8 @@ import type { AgentEvent } from "@ai-workspace/agent";
 import type { SessionUser } from "@ai-workspace/auth";
 import { chatMessages, createDb, runs, users } from "@ai-workspace/db";
 import { asc, eq } from "drizzle-orm";
-import { readSseStream } from "@/lib/sse";
+import type { ChatStreamEvent } from "@/lib/chat-stream-contract";
+import { readChatSseStream } from "@/lib/sse";
 
 /**
  * The chat streaming spine, proven end-to-end at the cheapest layer that is
@@ -12,10 +13,10 @@ import { readSseStream } from "@/lib/sse";
  * runtime lanes share). Events come back through `readSseStream` itself, so
  * the server's SSE framing and the client parser are exercised as one pipe.
  *
- * Covered: inline event ordering (meta -> model -> deltas -> usage -> done ->
- * persisted), terminal persistence (assistant message + run status), the
- * runtime-error path (error event, no done/persisted, run failed), and the
- * durable lane's queued terminal event.
+ * Covered: inline event ordering (meta -> model -> deltas -> usage ->
+ * persisted -> done), terminal persistence (assistant message + run status),
+ * provider errors and truncated streams (failed terminal, no persistence),
+ * and the durable lane's explicit queued terminal event.
  */
 
 const DB_URL = process.env.DATABASE_URL;
@@ -64,11 +65,6 @@ vi.mock("@/lib/chat-run-worker", () => ({
   startInProcessChatRunWorker: vi.fn(),
 }));
 
-interface SseEvent {
-  type: string;
-  [key: string]: unknown;
-}
-
 async function postChat(body: Record<string, unknown>): Promise<Response> {
   const { POST } = await import("@/app/api/chat/route");
   return POST(
@@ -80,9 +76,9 @@ async function postChat(body: Record<string, unknown>): Promise<Response> {
   );
 }
 
-async function collectSse(res: Response): Promise<SseEvent[]> {
-  const events: SseEvent[] = [];
-  for await (const event of readSseStream<SseEvent>(res)) events.push(event);
+async function collectSse(res: Response): Promise<ChatStreamEvent[]> {
+  const events: ChatStreamEvent[] = [];
+  for await (const event of readChatSseStream(res)) events.push(event);
   return events;
 }
 
@@ -123,7 +119,7 @@ suite("chat streaming pipeline (real route, real Postgres, stubbed runtime)", ()
     await db.delete(users);
   });
 
-  it("streams an inline turn in order: meta, model, deltas, usage, done, persisted", async () => {
+  it("streams an inline turn in order: meta, model, deltas, usage, persisted, done", async () => {
     scriptedEvents = [
       { type: "text-delta", delta: "Hello" },
       { type: "text-delta", delta: " world" },
@@ -145,11 +141,11 @@ suite("chat streaming pipeline (real route, real Postgres, stubbed runtime)", ()
     const events = await collectSse(res);
     const types = events.map((e) => e.type);
 
-    // The envelope always leads and the persistence receipt always closes.
+    // The envelope always leads and an explicit terminal frame always closes.
     expect(types[0]).toBe("meta");
-    expect(types.at(-1)).toBe("persisted");
+    expect(types.at(-1)).toBe("done");
 
-    const meta = events[0]!;
+    const meta = events[0] as Extract<ChatStreamEvent, { type: "meta" }>;
     expect(meta.runId).toBeTruthy();
     expect(meta.threadId).toBeTruthy();
     expect(meta.userMessageId).toBeTruthy();
@@ -163,8 +159,8 @@ suite("chat streaming pipeline (real route, real Postgres, stubbed runtime)", ()
       "text-delta",
       "text-delta",
       "usage",
-      "done",
       "persisted",
+      "done",
     ]);
 
     const deltas = events
@@ -190,7 +186,14 @@ suite("chat streaming pipeline (real route, real Postgres, stubbed runtime)", ()
     expect(run?.status).toBe("succeeded");
     expect(run?.error).toBeNull();
 
-    const persisted = events.at(-1)!;
+    const persisted = events.find(
+      (event): event is Extract<ChatStreamEvent, { type: "persisted" }> =>
+        event.type === "persisted",
+    )!;
+    expect(events.at(-1)).toMatchObject({
+      type: "done",
+      stopReason: "completed",
+    });
     const stored = await db
       .select({ role: chatMessages.role, content: chatMessages.content })
       .from(chatMessages)
@@ -201,7 +204,7 @@ suite("chat streaming pipeline (real route, real Postgres, stubbed runtime)", ()
     expect(persisted.assistantMessageId).toBeTruthy();
   });
 
-  it("surfaces a runtime error as an error event, with no done/persisted, and fails the run", async () => {
+  it("surfaces a runtime error with a failed terminal, no success receipt, and a failed run", async () => {
     scriptedEvents = [
       { type: "text-delta", delta: "partial" },
       { type: "error", message: "provider exploded mid-turn" },
@@ -217,8 +220,13 @@ suite("chat streaming pipeline (real route, real Postgres, stubbed runtime)", ()
     // A failed turn must not claim success on the stream.
     expect(types).not.toContain("done");
     expect(types).not.toContain("persisted");
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      stopReason: "runtime_error",
+      message: expect.stringContaining("provider exploded mid-turn"),
+    });
 
-    const meta = events[0]!;
+    const meta = events[0] as Extract<ChatStreamEvent, { type: "meta" }>;
     const [run] = await db
       .select()
       .from(runs)
@@ -227,7 +235,7 @@ suite("chat streaming pipeline (real route, real Postgres, stubbed runtime)", ()
     expect(run?.error).toContain("provider exploded mid-turn");
   });
 
-  it("routes durable work to the worker lane: meta then queued as the terminal event", async () => {
+  it("routes durable work to the worker lane with an explicit queued terminal", async () => {
     const { startInProcessChatRunWorker } = await import("@/lib/chat-run-worker");
 
     const res = await postChat({
@@ -235,10 +243,11 @@ suite("chat streaming pipeline (real route, real Postgres, stubbed runtime)", ()
     });
     const events = await collectSse(res);
 
-    expect(events.map((e) => e.type)).toEqual(["meta", "queued"]);
-    const meta = events[0]!;
-    const queued = events[1]!;
+    expect(events.map((e) => e.type)).toEqual(["meta", "queued", "done"]);
+    const meta = events[0] as Extract<ChatStreamEvent, { type: "meta" }>;
+    const queued = events[1] as Extract<ChatStreamEvent, { type: "queued" }>;
     expect(queued.runId).toBe(meta.runId);
+    expect(events.at(-1)).toEqual({ type: "done", stopReason: "queued" });
 
     const [run] = await db
       .select()
@@ -250,6 +259,37 @@ suite("chat streaming pipeline (real route, real Postgres, stubbed runtime)", ()
     );
     // The stubbed provider was never consulted on the request thread.
     expect(lastTurnInput).toBeUndefined();
+  });
+
+  it("fails and discards a partial answer when the provider stream ends without done", async () => {
+    scriptedEvents = [{ type: "text-delta", delta: "partial answer" }];
+
+    const res = await postChat({ message: "do not truncate this" });
+    const events = await collectSse(res);
+    const types = events.map((event) => event.type);
+
+    expect(types).toContain("error");
+    expect(types).not.toContain("persisted");
+    expect(types).not.toContain("done");
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      stopReason: "runtime_error",
+      message: expect.stringContaining("completion event"),
+    });
+
+    const meta = events[0] as Extract<ChatStreamEvent, { type: "meta" }>;
+    const [run] = await db
+      .select()
+      .from(runs)
+      .where(eq(runs.id, meta.runId));
+    expect(run?.status).toBe("failed");
+
+    const stored = await db
+      .select({ role: chatMessages.role })
+      .from(chatMessages)
+      .where(eq(chatMessages.threadId, meta.threadId))
+      .orderBy(asc(chatMessages.createdAt));
+    expect(stored.map((message) => message.role)).toEqual(["user"]);
   });
 
   it("rejects an unauthenticated caller before any streaming starts", async () => {

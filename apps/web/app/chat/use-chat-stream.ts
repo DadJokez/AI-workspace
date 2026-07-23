@@ -2,7 +2,7 @@ import { parseAppDraftVersionSummaries } from "@/lib/app-draft-versions";
 import type { ChatAttachment } from "@/lib/attachments";
 import type { ChatModelOverride } from "@/lib/model-command";
 import type { ActivatedSlashSkill } from "@/lib/skill-commands";
-import { readSseStream } from "@/lib/sse";
+import { readChatSseStream } from "@/lib/sse";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import type { PersistedRecommendation } from "@/lib/recommendations";
 import { useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
@@ -15,7 +15,6 @@ import {
   reduceAssistantStreamMessage,
   streamToolCallToPersisted,
   streamToolResultToPersisted,
-  type ChatStreamEvent,
   type ChatTab,
   type RightPane,
   type UiMessage,
@@ -171,6 +170,7 @@ export function useChatStream({
       let queuedRun = false;
       let queuedRunMessageId: string | undefined;
       let streamRunId: string | undefined;
+      let streamErrorMessage: string | undefined;
       let assistantDraftId = assistantMsgId;
       const isDraftMessage = (message: UiMessage) =>
         message.id === assistantMsgId || message.id === assistantDraftId;
@@ -186,7 +186,7 @@ export function useChatStream({
         );
       };
 
-      for await (const event of readSseStream<ChatStreamEvent>(response)) {
+      for await (const event of readChatSseStream(response)) {
         if (event.type === "meta") {
           if (typeof event.threadId === "string") {
             patchTab(tabId, { threadId: event.threadId });
@@ -338,7 +338,11 @@ export function useChatStream({
           event.type === "error" &&
           typeof event.message === "string"
         ) {
-          throw new Error(event.message);
+          streamErrorMessage = event.message;
+        } else if (event.type === "failed") {
+          throw new Error(event.message || streamErrorMessage);
+        } else if (event.type === "done" && streamErrorMessage) {
+          throw new Error(streamErrorMessage);
         } else if (event.type === "persisted") {
           const persistedAssistantMessageId =
             typeof event.assistantMessageId === "string"

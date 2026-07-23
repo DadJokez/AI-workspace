@@ -165,7 +165,7 @@ test.describe("admin Run Inspector", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -243,7 +243,7 @@ test.describe("admin Run Inspector", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });

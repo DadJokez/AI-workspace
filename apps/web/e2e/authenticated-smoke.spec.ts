@@ -57,7 +57,7 @@ test.describe("authenticated product smoke", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -183,7 +183,7 @@ test.describe("authenticated product smoke", () => {
             artifacts: [defaultArtifactSummary],
             recommendations: [recommendation],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });

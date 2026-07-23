@@ -96,6 +96,10 @@ import {
   CONVERSATION_RESOURCE_QUERY_TOOL,
   loadSelectedResourceImages,
 } from "@/lib/conversation-resource-runtime";
+import type {
+  ChatRunTimingMetrics,
+  ChatStreamSend,
+} from "@/lib/chat-stream-contract";
 
 /**
  * #442 — the single chat-turn pipeline. Both execution lanes (interactive
@@ -108,8 +112,6 @@ import {
  * divergence is a visible, reviewable decision instead of a hand-sync.
  */
 
-export type ChatStreamSend = (event: Record<string, unknown>) => void;
-
 export type ChatTurnTerminalStatus = "succeeded" | "failed";
 
 export interface ChatRunTimingMarks {
@@ -119,21 +121,6 @@ export interface ChatRunTimingMarks {
   providerStartedAt?: Date;
   firstTokenAt?: Date;
   completedAt?: Date;
-}
-
-export interface ChatRunTimingMetrics {
-  requestStartedAt: string;
-  inlineStartedAt: string;
-  contextReadyAt?: string;
-  providerStartedAt?: string;
-  firstTokenAt?: string;
-  completedAt?: string;
-  requestToInlineMs: number;
-  inlineToContextReadyMs?: number;
-  requestToProviderMs?: number;
-  providerToFirstTokenMs?: number;
-  requestToFirstTokenMs?: number;
-  requestToCompletedMs?: number;
 }
 
 export type ChatTurnLane =
@@ -669,6 +656,8 @@ export async function executeChatTurn({
   const workerCanceled = throttleCancellationCheck(() =>
     isRunCanceled(db, runId),
   );
+  let providerTerminalSeen = false;
+  let providerStreamTruncated = false;
 
   try {
     // Tracks persisted activation across same-turn activations so a
@@ -759,7 +748,16 @@ export async function executeChatTurn({
       ...(requiredToolName ? { requiredToolName } : {}),
       ...(toolDiscovery ? { toolDiscovery } : {}),
     })) {
+      if (providerTerminalSeen) {
+        throw new Error(
+          `Chat runtime emitted ${ev.type} after its done event.`,
+        );
+      }
       providerTrace.record(ev);
+      if (ev.type === "done") {
+        providerTerminalSeen = true;
+        continue;
+      }
       // Sticky activation persistence (#384 P2) — the shared trigger for
       // both runtime lanes; see persistActivationFromEvent.
       if (toolDiscovery) {
@@ -843,41 +841,45 @@ export async function executeChatTurn({
         const persistedCall = toolEvents
           .calls()
           .find((call) => call.id === ev.call.id);
-        if (persistedCall) {
-          await appendToolCallRunEvent({
-            db,
-            runId,
-            call: persistedCall,
-          });
+        if (!persistedCall) {
+          throw new Error(`Failed to normalize tool call ${ev.call.id}.`);
         }
+        await appendToolCallRunEvent({
+          db,
+          runId,
+          call: persistedCall,
+        });
         if (lane.kind === "inline") {
           // #359: stream the REDACTED copy — the live SSE previously sent
           // the raw runtime payload while only the persisted copy was
           // redacted, so a viewer's live stream could carry what replay
           // would have scrubbed.
-          lane.send({ type: "tool-call", call: persistedCall ?? ev.call });
+          lane.send({ type: "tool-call", call: persistedCall });
         }
       } else if (ev.type === "tool-result") {
         toolEvents.recordResult(ev.result);
         const persistedResult = toolEvents
           .results()
           .find((result) => result.toolCallId === ev.result.toolCallId);
-        if (persistedResult) {
-          const persistedCall = toolEvents
-            .calls()
-            .find((call) => call.id === ev.result.toolCallId);
-          await appendToolResultRunEvent({
-            db,
-            runId,
-            call: persistedCall,
-            result: persistedResult,
-          });
+        if (!persistedResult) {
+          throw new Error(
+            `Failed to normalize tool result ${ev.result.toolCallId}.`,
+          );
         }
+        const persistedCall = toolEvents
+          .calls()
+          .find((call) => call.id === ev.result.toolCallId);
+        await appendToolResultRunEvent({
+          db,
+          runId,
+          call: persistedCall,
+          result: persistedResult,
+        });
         if (lane.kind === "inline") {
           // #359: redacted copy on the live stream too (see tool-call above).
           lane.send({
             type: "tool-result",
-            result: persistedResult ?? ev.result,
+            result: persistedResult,
           });
         }
       } else if (ev.type === "error") {
@@ -931,6 +933,48 @@ export async function executeChatTurn({
           metrics: buildTimingMetrics(lane.timing),
         },
       });
+    }
+  }
+
+  if (
+    !providerTerminalSeen &&
+    !runtimeAbort.signal.aborted &&
+    runtimeErrors.length === 0
+  ) {
+    providerStreamTruncated = true;
+    const normalized = normalizeRuntimeError(
+      "The model response ended before its completion event. Please try again.",
+      errorContext,
+    );
+    runtimeErrors.push(normalized);
+    if (lane.kind === "inline") {
+      lane.send({ type: "error", message: normalized.userMessage });
+      await appendTurnRunEvent(lane, {
+        db,
+        runId,
+        eventType: "provider_run_failed",
+        status: "failed",
+        label: "Provider stream ended before completion",
+        error: normalized.userMessage,
+        metadata: {
+          errorDetails: normalized,
+          runtimeTarget: route.runtimeTarget,
+          runtime: runtime.name,
+          requestedModelId: lane.requestedModelId,
+          runtimeModelId: modelId,
+          providerModelId: lane.modelSelection.providerModelId,
+          modelSelection: lane.modelSelection,
+          metrics: buildTimingMetrics(lane.timing),
+        },
+      });
+    } else {
+      process.stderr.write(
+        `[chat-run-worker-runtime-error] ${JSON.stringify({
+          runId,
+          threadId: thread.id,
+          message: normalized.rawMessage,
+        })}\n`,
+      );
     }
   }
 
@@ -999,6 +1043,7 @@ export async function executeChatTurn({
     artifactContextTarget,
     separateFromArtifact,
     appEditSourceOmitted,
+    suppressAssistantPersistence: providerStreamTruncated,
     completedAt,
     priorOutputs,
     lane,
@@ -1006,8 +1051,14 @@ export async function executeChatTurn({
 
   if (lane.kind === "inline") {
     lane.send({ type: "metrics", stage: "completed", metrics: finalMetrics });
-    if (runError) return;
-    lane.send({ type: "done" });
+    if (runError) {
+      lane.send({
+        type: "failed",
+        stopReason: abortError ? "request_aborted" : "runtime_error",
+        message: runError,
+      });
+      return;
+    }
     lane.send({
       type: "persisted",
       assistantMessageId: persisted.assistantMessageId,
@@ -1020,6 +1071,7 @@ export async function executeChatTurn({
       runId,
       threadId: thread.id,
     });
+    lane.send({ type: "done", stopReason: "completed" });
   }
 }
 
@@ -1050,6 +1102,7 @@ async function persistChatTurnResult({
   artifactContextTarget,
   separateFromArtifact,
   appEditSourceOmitted,
+  suppressAssistantPersistence,
   completedAt,
   priorOutputs,
   lane,
@@ -1082,6 +1135,7 @@ async function persistChatTurnResult({
   artifactContextTarget?: WorkspaceArtifactVersionTarget | null;
   separateFromArtifact?: WorkspaceArtifactVersionTarget | null;
   appEditSourceOmitted: boolean;
+  suppressAssistantPersistence: boolean;
   completedAt: Date;
   priorOutputs: StoredChatRunOutputs;
   lane: ChatTurnLane;
@@ -1111,12 +1165,14 @@ async function persistChatTurnResult({
     terminalStatus === "succeeded"
       ? extractAssistantSources({ toolCalls, toolResults })
       : [];
-  const shouldPersistAssistant = shouldPersistAssistantMessage({
-    terminalStatus,
-    assistantText,
-    toolCallsCount: toolCalls.length,
-    toolResultsCount: toolResults.length,
-  });
+  const shouldPersistAssistant =
+    !suppressAssistantPersistence &&
+    shouldPersistAssistantMessage({
+      terminalStatus,
+      assistantText,
+      toolCallsCount: toolCalls.length,
+      toolResultsCount: toolResults.length,
+    });
 
   if (!assistantMessageId && shouldPersistAssistant) {
     const persisted = await db

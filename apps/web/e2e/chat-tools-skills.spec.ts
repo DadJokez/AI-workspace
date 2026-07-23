@@ -49,7 +49,7 @@ test.describe("chat tools and skills", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -199,7 +199,7 @@ test.describe("chat tools and skills", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -344,7 +344,7 @@ test.describe("chat tools and skills", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -400,7 +400,7 @@ test.describe("chat tools and skills", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
       onSkillRun: async (_skillId, _body, route) => {
@@ -488,7 +488,7 @@ test.describe("chat tools and skills", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
       onSkillRun: async (_skillId, _body, route) => {
@@ -557,7 +557,7 @@ test.describe("chat tools and skills", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -625,7 +625,7 @@ test.describe("chat tools and skills", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });

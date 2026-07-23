@@ -75,26 +75,6 @@ export interface ChatTab {
   loaded: boolean;
 }
 
-export interface ChatStreamEvent {
-  type:
-    | "meta"
-    | "model"
-    | "text-delta"
-    | "provider-reasoning-delta"
-    | "provider-reasoning-redacted"
-    | "provider-response-metadata"
-    | "tool-call"
-    | "tool-result"
-    | "usage"
-    | "heartbeat"
-    | "metrics"
-    | "queued"
-    | "error"
-    | "done"
-    | "persisted";
-  [key: string]: unknown;
-}
-
 export interface ModelsResponse {
   defaultModelId: string;
   models: ModelOption[];

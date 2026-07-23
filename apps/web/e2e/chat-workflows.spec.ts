@@ -51,7 +51,7 @@ test.describe("chat workflow regressions", () => {
             artifacts: [defaultArtifactSummary],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -139,7 +139,7 @@ test.describe("chat workflow regressions", () => {
             runId,
             status: "Working in background",
           },
-          { type: "done" },
+          { type: "done", stopReason: "queued" },
         ]);
       },
     });
@@ -269,7 +269,7 @@ test.describe("chat workflow regressions", () => {
             artifacts: [],
             recommendations: [recommendation],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -379,7 +379,7 @@ test.describe("chat workflow regressions", () => {
             ],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
       onAppDeploy: async (receivedAppId, body, route) => {
@@ -460,7 +460,7 @@ test.describe("chat workflow regressions", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -573,7 +573,7 @@ test.describe("chat workflow regressions", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
