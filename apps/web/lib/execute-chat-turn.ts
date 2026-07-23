@@ -110,6 +110,12 @@ import type { PersistedRecommendation } from "@/lib/recommendations";
 import { createProactiveRunNotification } from "@/lib/notifications";
 import { outputProposalContext } from "@/lib/output-proposals";
 import {
+  completeProposalIteration,
+  outputProposalContextForIteration,
+  proposalIterationFromRunInputs,
+  releaseProposalIteration,
+} from "@/lib/proposal-iterations";
+import {
   revalidateConversationResourceResolution,
   type ConversationResourceResolution,
 } from "@/lib/conversation-resources";
@@ -1433,17 +1439,23 @@ async function persistChatTurnResult({
   let artifacts: WorkspaceArtifactSummary[] = [];
   let appDraftVersions: AppDraftVersionSummary[] = [];
   let recommendations: PersistedRecommendation[] = [];
-  const sources =
+  let sources =
     terminalStatus === "succeeded"
       ? extractAssistantSources({ toolCalls, toolResults })
       : [];
+  const proposalIteration =
+    lane.kind === "worker"
+      ? proposalIterationFromRunInputs(lane.storedInputs)
+      : null;
   const proposal =
     lane.kind === "worker"
-      ? outputProposalContext({
-          runId,
-          triggerType: lane.run.triggerType,
-          createdAt: completedAt,
-        })
+      ? proposalIteration
+        ? outputProposalContextForIteration(proposalIteration, completedAt)
+        : outputProposalContext({
+            runId,
+            triggerType: lane.run.triggerType,
+            createdAt: completedAt,
+          })
       : null;
   const shouldPersistAssistant =
     !suppressAssistantPersistence &&
@@ -1577,6 +1589,97 @@ async function persistChatTurnResult({
           message: err instanceof Error ? err.message : String(err),
         })}\n`,
       );
+    }
+  }
+
+  if (proposalIteration) {
+    let iterationError =
+      terminalStatus === "failed"
+        ? error ?? "The proposal iteration run failed."
+        : null;
+    if (!iterationError) {
+      const replacementArtifact = artifacts.find(
+        (artifact) =>
+          artifact.artifactGroupId ===
+            proposalIteration.sourceArtifactGroupId &&
+          artifact.supersedesArtifactId ===
+            proposalIteration.sourceArtifactId,
+      );
+      const replacementAppVersion =
+        proposalIteration.kind === "app" && replacementArtifact
+          ? appDraftVersions.find(
+              (version) =>
+                version.appId === proposalIteration.sourceAppId &&
+                version.artifactId === replacementArtifact.id &&
+                version.status === "proposed",
+            )
+          : undefined;
+      if (!replacementArtifact) {
+        iterationError =
+          "The run finished without creating a replacement proposal.";
+      } else if (
+        proposalIteration.kind === "app" &&
+        !replacementAppVersion
+      ) {
+        iterationError =
+          "The run did not create a valid replacement app proposal.";
+      } else {
+        const completed = await completeProposalIteration({
+          db,
+          iteration: proposalIteration,
+          replacementArtifact,
+          replacementAppVersion,
+          completedAt,
+          expectedWorkerId:
+            lane.kind === "worker" ? lane.workerId : undefined,
+        });
+        if (!completed) {
+          iterationError =
+            "The original proposal changed before the replacement could be saved.";
+        }
+      }
+    }
+
+    if (iterationError) {
+      const failedArtifactIds = artifacts.map((artifact) => artifact.id);
+      await releaseProposalIteration({
+        db,
+        iteration: proposalIteration,
+        error: iterationError,
+        completedAt,
+        expectedWorkerId:
+          lane.kind === "worker" ? lane.workerId : undefined,
+        replacementArtifactIds: failedArtifactIds,
+      });
+      artifacts = [];
+      appDraftVersions = [];
+      sources = [];
+      terminalStatus = "failed";
+      error = iterationError;
+      await appendTurnRunEvent(lane, {
+        db,
+        runId,
+        eventType: "proposal_iteration_failed",
+        status: "failed",
+        label: "Proposal iteration failed",
+        error: iterationError,
+        metadata: {
+          sourceArtifactId: proposalIteration.sourceArtifactId,
+          failedArtifactIds,
+        },
+      });
+    } else {
+      await appendTurnRunEvent(lane, {
+        db,
+        runId,
+        eventType: "proposal_iteration_completed",
+        status: "succeeded",
+        label: "Created replacement proposal",
+        metadata: {
+          sourceArtifactId: proposalIteration.sourceArtifactId,
+          replacementArtifactIds: artifacts.map((artifact) => artifact.id),
+        },
+      });
     }
   }
 

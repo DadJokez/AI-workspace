@@ -36,6 +36,10 @@ interface MockChatOptions {
     body: Record<string, unknown>,
     route: Route,
   ) => Promise<void> | void;
+  onProposalIteration?: (
+    body: Record<string, unknown>,
+    route: Route,
+  ) => Promise<void> | void;
   onSkillRun?: (
     skillId: string,
     body: Record<string, unknown>,
@@ -673,6 +677,30 @@ export async function installMockComparativeApi(
           recommendations: [],
         },
         { type: "done", stopReason: "completed" },
+      ]);
+    }
+
+    if (path === "/api/output-proposals/iterate") {
+      const body = await postJson(request);
+      if (options.onProposalIteration) {
+        return options.onProposalIteration(body, route);
+      }
+      return fulfillSse(route, [
+        {
+          type: "meta",
+          threadId: "thread-generated",
+          runId: "run-proposal-iteration",
+          userMessageId: "user-proposal-iteration",
+          modelId: "sonnet-4-6",
+          runtimeRoute: { lane: "durable-local", useWorker: true },
+        },
+        {
+          type: "queued",
+          threadId: "thread-generated",
+          runId: "run-proposal-iteration",
+          status: "Iterating on proposal",
+        },
+        { type: "done", stopReason: "queued" },
       ]);
     }
 

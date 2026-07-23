@@ -40,9 +40,17 @@ interface ChatThreadProps {
   onOpenArtifact: (artifact: WorkspaceArtifactSummary) => void;
   onDeployAppDraft: (version: AppDraftVersionSummary) => void;
   onDiscardAppProposal: (version: AppDraftVersionSummary) => void;
+  onIterateAppProposal: (
+    version: AppDraftVersionSummary,
+    feedback: string,
+  ) => void;
   onArtifactProposalAction: (
     artifact: WorkspaceArtifactSummary,
     decision: OutputProposalDecision,
+  ) => void;
+  onIterateArtifactProposal: (
+    artifact: WorkspaceArtifactSummary,
+    feedback: string,
   ) => void;
   onRecommendationAction: (
     recommendation: PersistedRecommendation,
@@ -76,7 +84,9 @@ export function ChatThread({
   onOpenArtifact,
   onDeployAppDraft,
   onDiscardAppProposal,
+  onIterateAppProposal,
   onArtifactProposalAction,
+  onIterateArtifactProposal,
   onRecommendationAction,
   onRunAction,
   onOpenRunInspector,
@@ -93,7 +103,9 @@ export function ChatThread({
     openArtifact: onOpenArtifact,
     deployAppDraft: onDeployAppDraft,
     discardAppProposal: onDiscardAppProposal,
+    iterateAppProposal: onIterateAppProposal,
     artifactProposalAction: onArtifactProposalAction,
+    iterateArtifactProposal: onIterateArtifactProposal,
     recommendationAction: onRecommendationAction,
     runAction: onRunAction,
     openRunInspector: onOpenRunInspector,
@@ -119,7 +131,9 @@ export function ChatThread({
       openArtifact: onOpenArtifact,
       deployAppDraft: onDeployAppDraft,
       discardAppProposal: onDiscardAppProposal,
+      iterateAppProposal: onIterateAppProposal,
       artifactProposalAction: onArtifactProposalAction,
+      iterateArtifactProposal: onIterateArtifactProposal,
       recommendationAction: onRecommendationAction,
       runAction: onRunAction,
       openRunInspector: onOpenRunInspector,
@@ -129,7 +143,9 @@ export function ChatThread({
   }, [
     onDeployAppDraft,
     onDiscardAppProposal,
+    onIterateAppProposal,
     onArtifactProposalAction,
+    onIterateArtifactProposal,
     onEdit,
     onOpenArtifact,
     onOpenRunInspector,

@@ -223,6 +223,25 @@ describe("reconcileAppDraftVersionSummaries (#344)", () => {
     ]);
   });
 
+  it.each(["iterating", "superseded"] as const)(
+    "keeps %s proposal history visible but non-actionable after reload",
+    (status) => {
+      expect(
+        reconcileAppDraftVersionSummaries(
+          [summary({ status: "proposed" })],
+          truth([
+            {
+              id: "version-2",
+              status,
+              liveVersionId: "version-1",
+              archived: false,
+            },
+          ]),
+        ),
+      ).toEqual([summary({ status, canDeploy: false })]);
+    },
+  );
+
   it("never widens canDeploy for a summary minted non-deployable", () => {
     expect(
       reconcileAppDraftVersionSummaries(

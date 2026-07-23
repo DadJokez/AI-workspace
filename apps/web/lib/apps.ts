@@ -343,7 +343,9 @@ export function canListAppVersionForActor(
   const privateWork =
     version.status === "draft" ||
     version.status === "proposed" ||
-    version.status === "discarded";
+    version.status === "iterating" ||
+    version.status === "discarded" ||
+    version.status === "superseded";
   if (actorRole === "editor") {
     return (
       !privateWork ||

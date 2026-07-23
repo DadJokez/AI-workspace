@@ -26,6 +26,10 @@ import {
   isRunCanceled,
   numberFromEnv,
 } from "@/lib/execute-chat-turn";
+import {
+  proposalIterationFromRunInputs,
+  releaseProposalIteration,
+} from "@/lib/proposal-iterations";
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 const DEFAULT_RUNTIME_TIMEOUT_MS = 60 * 60 * 1000;
@@ -490,7 +494,9 @@ async function executeClaimedChatRun({
       // trusted prompt source either.
       userTimeZone: normalizeUserTimeZone(inputs.userTimeZone),
       suppressedSkillIds: activatedSkillIdsFromInputs(run.inputs),
-      interactive: run.triggerType === "chat",
+      interactive:
+        run.triggerType === "chat" ||
+        run.triggerType === "proposal_iteration",
       lane: {
         kind: "worker",
         run,
@@ -546,6 +552,25 @@ async function markRunFailed(
     .returning({ id: runs.id });
 
   if (updatedRows.length === 0) return;
+
+  const proposalIteration = proposalIterationFromRunInputs(run.inputs);
+  if (proposalIteration) {
+    try {
+      await releaseProposalIteration({
+        db,
+        iteration: proposalIteration,
+        error: message,
+        completedAt,
+      });
+    } catch (error) {
+      process.stderr.write(
+        `[proposal-iteration-release-error] ${JSON.stringify({
+          runId: run.id,
+          message: error instanceof Error ? error.message : String(error),
+        })}\n`,
+      );
+    }
+  }
 
   await createProactiveRunNotification(db, { ...run, error: message }, "failed");
 

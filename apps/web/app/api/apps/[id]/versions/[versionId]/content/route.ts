@@ -50,7 +50,9 @@ export async function GET(
     actorRole === "editor" &&
     (version.status === "draft" ||
       version.status === "proposed" ||
-      version.status === "discarded") &&
+      version.status === "iterating" ||
+      version.status === "discarded" ||
+      version.status === "superseded") &&
     version.createdByUserId !== sessionUser.id
   ) {
     return new NextResponse("Not found", { status: 404 });

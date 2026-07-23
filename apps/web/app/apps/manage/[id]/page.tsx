@@ -164,7 +164,9 @@ export default async function ManageAppPage({
             canDeploy:
               canDeploy &&
               !artifact.isLive &&
-              artifact.status !== "discarded",
+              artifact.status !== "discarded" &&
+              artifact.status !== "iterating" &&
+              artifact.status !== "superseded",
             canDiscard:
               (artifact.status === "draft" ||
                 artifact.status === "proposed") &&

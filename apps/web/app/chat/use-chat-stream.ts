@@ -6,7 +6,13 @@ import type { ActivatedSlashSkill } from "@/lib/skill-commands";
 import { readChatSseStream } from "@/lib/sse";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import type { PersistedRecommendation } from "@/lib/recommendations";
-import { useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import type { ProposalIterationTarget } from "@/lib/output-proposals";
+import {
+  useRef,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+} from "react";
 import {
   deriveSendTitle,
   formatChatError,
@@ -27,6 +33,10 @@ export type SendChatMessage = (
   activatedSkill?: ActivatedSlashSkill,
   modelOverride?: ChatModelOverride,
   replaceMessageId?: string,
+  proposalIteration?: {
+    target: ProposalIterationTarget;
+    feedback: string;
+  },
 ) => Promise<void>;
 
 interface UseChatStreamOptions {
@@ -62,6 +72,10 @@ export function useChatStream({
     activatedSkill?: ActivatedSlashSkill,
     modelOverride?: ChatModelOverride,
     replaceMessageId?: string,
+    proposalIteration?: {
+      target: ProposalIterationTarget;
+      feedback: string;
+    },
   ) {
     if (!activeTab || activeTab.busy) return;
     if (!text.trim() && (!attachments || attachments.length === 0)) return;
@@ -139,22 +153,28 @@ export function useChatStream({
     streamAbortRef.current = abort;
     let responseAccepted = false;
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: abort.signal,
-        body: JSON.stringify({
-          message: text,
-          threadId: activeTab.threadId,
-          modelId: requestedModelId,
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          ...(modelOverride?.mode === "model" ? { modelOverride: true } : {}),
-          attachmentCount: attachments?.length ?? 0,
-          ...(activatedSkill ? { activatedSkills: [activatedSkill] } : {}),
-          ...(attachments && attachments.length > 0 ? { attachments } : {}),
-          ...(replaceMessageId ? { replaceMessageId } : {}),
-        }),
-      });
+      const response = await fetch(
+        proposalIteration ? "/api/output-proposals/iterate" : "/api/chat",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: abort.signal,
+          body: JSON.stringify({
+            message: text,
+            threadId: activeTab.threadId,
+            modelId: requestedModelId,
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            ...(modelOverride?.mode === "model"
+              ? { modelOverride: true }
+              : {}),
+            attachmentCount: attachments?.length ?? 0,
+            ...(activatedSkill ? { activatedSkills: [activatedSkill] } : {}),
+            ...(attachments && attachments.length > 0 ? { attachments } : {}),
+            ...(replaceMessageId ? { replaceMessageId } : {}),
+            ...(proposalIteration ? { proposalIteration } : {}),
+          }),
+        },
+      );
       if (!response.ok) {
         await throwApiError(response, "Could not send the message.");
       }
@@ -413,7 +433,7 @@ export function useChatStream({
         return;
       }
       patchTab(tabId, { error: formatChatError(error) });
-      if (replaceMessageId && !responseAccepted) {
+      if ((replaceMessageId || proposalIteration) && !responseAccepted) {
         patchTabMessages(tabId, () => originalMessages);
         return;
       }

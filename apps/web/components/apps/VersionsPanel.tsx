@@ -130,6 +130,10 @@ export function VersionsPanel({
                       ? "Draft"
                       : version.status === "proposed"
                         ? "Needs review"
+                        : version.status === "iterating"
+                          ? "Iterating"
+                          : version.status === "superseded"
+                            ? "Superseded"
                         : version.status === "discarded"
                           ? "Discarded"
                           : "Previous"}

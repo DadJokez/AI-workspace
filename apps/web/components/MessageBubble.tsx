@@ -27,9 +27,10 @@ import { parseSlashDisplayMessage } from "@/lib/skill-commands";
 import { formatMessageTimestamp } from "@/lib/message-time";
 import {
   outputProposalFromMetadata,
+  PROPOSAL_ITERATION_MAX_FEEDBACK_CHARS,
   type OutputProposalDecision,
 } from "@/lib/output-proposals";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import {
@@ -62,9 +63,17 @@ interface Props {
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
   onDeployAppDraft?: (version: AppDraftVersionSummary) => void;
   onDiscardAppProposal?: (version: AppDraftVersionSummary) => void;
+  onIterateAppProposal?: (
+    version: AppDraftVersionSummary,
+    feedback: string,
+  ) => void;
   onArtifactProposalAction?: (
     artifact: WorkspaceArtifactSummary,
     decision: OutputProposalDecision,
+  ) => void;
+  onIterateArtifactProposal?: (
+    artifact: WorkspaceArtifactSummary,
+    feedback: string,
   ) => void;
   onRecommendationAction?: (
     recommendation: PersistedRecommendation,
@@ -100,7 +109,9 @@ export function MessageBubble({
   onOpenArtifact,
   onDeployAppDraft,
   onDiscardAppProposal,
+  onIterateAppProposal,
   onArtifactProposalAction,
+  onIterateArtifactProposal,
   onRecommendationAction,
   recommendationPendingId,
   appDraftPendingId,
@@ -200,13 +211,20 @@ export function MessageBubble({
     const proposal = outputProposalFromMetadata(artifact.metadata);
     return (
       (proposal?.status === "proposed" ||
-        proposal?.status === "discarded") &&
+        proposal?.status === "iterating" ||
+        proposal?.status === "discarded" ||
+        proposal?.status === "superseded") &&
       !appArtifactIds.has(artifact.id)
     );
   });
   const normalArtifacts = artifacts.filter((artifact) => {
     const proposal = outputProposalFromMetadata(artifact.metadata);
-    return proposal?.status !== "proposed" && proposal?.status !== "discarded";
+    return (
+      proposal?.status !== "proposed" &&
+      proposal?.status !== "iterating" &&
+      proposal?.status !== "discarded" &&
+      proposal?.status !== "superseded"
+    );
   });
 
   // Suppress the "Assistant" label-only stub left behind when a turn errors
@@ -277,6 +295,7 @@ export function MessageBubble({
           pendingId={artifactProposalPendingId}
           onOpenArtifact={onOpenArtifact}
           onAction={onArtifactProposalAction}
+          onIterate={onIterateArtifactProposal}
         />
       ) : null}
       {role === "assistant" && normalArtifacts.length > 0 ? (
@@ -293,6 +312,7 @@ export function MessageBubble({
           onOpenArtifact={onOpenArtifact}
           onDeploy={onDeployAppDraft}
           onDiscard={onDiscardAppProposal}
+          onIterate={onIterateAppProposal}
         />
       ) : null}
       {role === "assistant" && recommendations.length > 0 ? (
@@ -376,6 +396,7 @@ function AppDraftStrip({
   onOpenArtifact,
   onDeploy,
   onDiscard,
+  onIterate,
 }: {
   versions: AppDraftVersionSummary[];
   artifacts: WorkspaceArtifactSummary[];
@@ -383,6 +404,10 @@ function AppDraftStrip({
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
   onDeploy?: (version: AppDraftVersionSummary) => void;
   onDiscard?: (version: AppDraftVersionSummary) => void;
+  onIterate?: (
+    version: AppDraftVersionSummary,
+    feedback: string,
+  ) => void;
 }) {
   return (
     <div className="mt-2 flex flex-col gap-2">
@@ -397,10 +422,12 @@ function AppDraftStrip({
         // read as a fresh draft.
         const reverted = version.status === "reverted";
         const proposed = version.status === "proposed";
+        const iterating = version.status === "iterating";
         const discarded = version.status === "discarded";
+        const superseded = version.status === "superseded";
         const statusDot = deployed
           ? "bg-success"
-          : reverted || discarded
+          : reverted || discarded || superseded
             ? "bg-muted"
             : "bg-info";
         const delta = artifactLineDelta(artifact);
@@ -420,8 +447,12 @@ function AppDraftStrip({
                   ? "Published"
                   : reverted
                     ? "Superseded"
+                    : superseded
+                      ? "Superseded"
                     : discarded
                       ? "Discarded"
+                      : iterating
+                        ? "Iterating"
                       : proposed
                         ? "Needs review"
                         : "Draft"}
@@ -432,8 +463,12 @@ function AppDraftStrip({
                 ? "This version is now published."
                 : reverted
                   ? "This version is no longer published."
+                  : superseded
+                    ? "A newer proposal replaced this one. Its history is preserved; the live app has not changed."
                   : discarded
                     ? "This proposal was discarded. Its history is preserved."
+                    : iterating
+                      ? "Comparative is creating a replacement proposal. The live app has not changed."
                     : proposed
                       ? `${artifact?.versionSummary ?? "A background run proposed this update."} The live app has not changed.`
                       : "Draft saved. The live app has not changed."}
@@ -457,7 +492,7 @@ function AppDraftStrip({
                 >
                   Open app
                 </a>
-              ) : reverted || discarded ? null : version.canDeploy ? (
+              ) : reverted || discarded || superseded || iterating ? null : version.canDeploy ? (
                 <button
                   type="button"
                   disabled={pending || !onDeploy}
@@ -488,6 +523,13 @@ function AppDraftStrip({
                 </button>
               ) : null}
             </div>
+            {proposed && onIterate ? (
+              <ProposalIterationForm
+                label={version.appName}
+                disabled={pending}
+                onSubmit={(feedback) => onIterate(version, feedback)}
+              />
+            ) : null}
           </div>
         );
       })}
@@ -500,6 +542,7 @@ function ArtifactProposalStrip({
   pendingId,
   onOpenArtifact,
   onAction,
+  onIterate,
 }: {
   artifacts: WorkspaceArtifactSummary[];
   pendingId?: string;
@@ -508,6 +551,10 @@ function ArtifactProposalStrip({
     artifact: WorkspaceArtifactSummary,
     decision: OutputProposalDecision,
   ) => void;
+  onIterate?: (
+    artifact: WorkspaceArtifactSummary,
+    feedback: string,
+  ) => void;
 }) {
   return (
     <div className="mt-2 flex flex-col gap-2">
@@ -515,7 +562,9 @@ function ArtifactProposalStrip({
         const proposal = outputProposalFromMetadata(artifact.metadata);
         if (!proposal) return null;
         const pending = pendingId === artifact.id;
+        const iterating = proposal.status === "iterating";
         const discarded = proposal.status === "discarded";
+        const superseded = proposal.status === "superseded";
         const delta = artifactLineDelta(artifact);
         return (
           <div
@@ -526,18 +575,30 @@ function ArtifactProposalStrip({
           >
             <div className="flex flex-wrap items-center gap-2">
               <span
-                className={`h-1.5 w-1.5 rounded-full ${discarded ? "bg-muted" : "bg-info"}`}
+                className={`h-1.5 w-1.5 rounded-full ${
+                  discarded || superseded ? "bg-muted" : "bg-info"
+                }`}
               />
               <span className="min-w-0 truncate font-medium">
                 {artifact.filename}
               </span>
               <span className="ml-auto rounded bg-subtle px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-muted">
-                {discarded ? "Discarded" : "Needs review"}
+                {discarded
+                  ? "Discarded"
+                  : superseded
+                    ? "Superseded"
+                    : iterating
+                      ? "Iterating"
+                      : "Needs review"}
               </span>
             </div>
             <p className="mt-1 text-muted">
               {discarded
                 ? "This proposal was discarded. Its history is preserved."
+                : superseded
+                  ? "A newer proposal replaced this one. Its history is preserved."
+                  : iterating
+                    ? "Comparative is creating a replacement proposal."
                 : (artifact.versionSummary ??
                   "A background run proposed this document update.")}
             </p>
@@ -553,7 +614,7 @@ function ArtifactProposalStrip({
               >
                 Preview
               </button>
-              {!discarded ? (
+              {proposal.status === "proposed" ? (
                 <>
                   <button
                     type="button"
@@ -574,10 +635,96 @@ function ArtifactProposalStrip({
                 </>
               ) : null}
             </div>
+            {proposal.status === "proposed" && onIterate ? (
+              <ProposalIterationForm
+                label={artifact.filename}
+                disabled={pending}
+                onSubmit={(feedback) => onIterate(artifact, feedback)}
+              />
+            ) : null}
           </div>
         );
       })}
     </div>
+  );
+}
+
+function ProposalIterationForm({
+  label,
+  disabled,
+  onSubmit,
+}: {
+  label: string;
+  disabled: boolean;
+  onSubmit: (feedback: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const feedbackId = useId();
+  const normalized = feedback.trim();
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+        className="mt-2 rounded-md border border-hairline px-2 py-1 text-2xs font-medium text-ink hover:bg-subtle disabled:opacity-50"
+      >
+        Iterate
+      </button>
+    );
+  }
+
+  return (
+    <form
+      className="mt-2 border-t border-hairline pt-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!normalized || disabled) return;
+        onSubmit(normalized);
+        setFeedback("");
+        setOpen(false);
+      }}
+    >
+      <label
+        htmlFor={feedbackId}
+        className="text-2xs font-medium text-muted"
+      >
+        Feedback
+      </label>
+      <textarea
+        id={feedbackId}
+        aria-label={`Feedback for ${label}`}
+        rows={2}
+        maxLength={PROPOSAL_ITERATION_MAX_FEEDBACK_CHARS}
+        disabled={disabled}
+        value={feedback}
+        onChange={(event) => setFeedback(event.target.value)}
+        placeholder="Describe the change"
+        className="mt-1 w-full resize-y rounded-md border border-hairline bg-canvas px-2.5 py-2 text-xs text-ink outline-none placeholder:text-muted focus:border-ink/40 disabled:opacity-50"
+      />
+      <div className="mt-1.5 flex items-center justify-end gap-1.5">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => {
+            setFeedback("");
+            setOpen(false);
+          }}
+          className="rounded-md border border-hairline px-2 py-1 text-2xs font-medium text-muted hover:bg-subtle hover:text-ink disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={disabled || !normalized}
+          className="rounded-md border border-accent bg-accent px-2 py-1 text-2xs font-medium text-on-accent hover:bg-accent/90 disabled:opacity-50"
+        >
+          Submit iteration
+        </button>
+      </div>
+    </form>
   );
 }
 
