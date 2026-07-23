@@ -114,6 +114,42 @@ describe("runtime v2 reporting", () => {
       },
     ]);
   });
+
+  it("groups legacy raw AgentCore IAM denials separately from model access", () => {
+    const report = buildRuntimeV2Report([
+      runRow({
+        id: "agentcore-denied",
+        status: "failed",
+        lane: "durable-local",
+        runtimeTarget: "agentcore-worker",
+        provider: "agentcore",
+        modelId: "sonnet-4-6",
+        error:
+          "AgentCoreRuntime: invoke failed — AccessDeniedException: not authorized to perform bedrock-agentcore:InvokeAgentRuntimeForUser",
+      }),
+      runRow({
+        id: "model-denied",
+        status: "failed",
+        lane: "fast-local",
+        modelId: "sonnet-4-6",
+        error:
+          "Model access is denied: not authorized to perform aws-marketplace:Subscribe",
+      }),
+    ]);
+
+    expect(report.failureGroups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          runtimeTarget: "agentcore-worker",
+          errorClass: "runtime_authorization_denied",
+        }),
+        expect.objectContaining({
+          runtimeTarget: "direct-chat",
+          errorClass: "model_access",
+        }),
+      ]),
+    );
+  });
 });
 
 function runRow({

@@ -265,6 +265,51 @@ describe("GET /api/admin/runs/[id]/trace", () => {
     expect(serialized).not.toContain("should-not-leak");
   });
 
+  it("preserves AgentCore authorization diagnostics for admin investigation (#572)", async () => {
+    const deniedAction = "bedrock-agentcore:InvokeAgentRuntimeForUser";
+    const deniedResource =
+      "arn:aws:bedrock-agentcore:us-east-1:351478076796:runtime/comparative";
+    fixtures.runRows[0]!.outputs = {
+      requestedModelId: "sonnet-4-6",
+      modelId: "sonnet-4-6",
+      runtimeTarget: "agentcore-worker",
+      errorDetails: [
+        {
+          code: "agentcore_invoke_access_denied",
+          category: "runtime_authorization_denied",
+          rawMessage: `AccessDeniedException: not authorized to perform ${deniedAction} on resource: ${deniedResource}`,
+          metadata: {
+            runtime: "agentcore",
+            runtimeTarget: "agentcore-worker",
+            requestedModelId: "sonnet-4-6",
+            modelId: "sonnet-4-6",
+            deniedAction,
+            deniedResource,
+          },
+        },
+      ],
+    };
+    setAdminResult("admin");
+    installDbMock();
+    const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
+
+    const response = await GET(
+      new Request("http://localhost/api/admin/runs/run-uuid/trace"),
+      { params: Promise.resolve({ id: "run-uuid" }) },
+    );
+    const body = (await response.json()) as {
+      trace: { run: { outputs: Record<string, unknown> } };
+    };
+    const serialized = JSON.stringify(body.trace.run.outputs);
+
+    expect(response.status).toBe(200);
+    expect(serialized).toContain("runtime_authorization_denied");
+    expect(serialized).toContain(deniedAction);
+    expect(serialized).toContain(deniedResource);
+    expect(serialized).toContain('"runtimeTarget":"agentcore-worker"');
+    expect(serialized).toContain('"requestedModelId":"sonnet-4-6"');
+  });
+
   it("serves v2 snapshots as the reconstructed per-request timeline (#386)", async () => {
     setAdminResult("admin");
     installDbMock();
