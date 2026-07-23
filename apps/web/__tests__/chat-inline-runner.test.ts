@@ -17,6 +17,7 @@ vi.mock("@ai-workspace/agent-runtime", () => ({
 }));
 vi.mock("@/lib/model-registry", () => ({
   enabledModelsForPurpose: vi.fn(async () => ["sonnet-4-6"]),
+  orderModelCandidatesForPurpose: vi.fn(() => ["sonnet-4-6"]),
 }));
 vi.mock("@/lib/runtime-model-policy", () => ({
   resolveRuntimeModelSelection: vi.fn(() => ({
@@ -151,6 +152,7 @@ describe("streamInlineChatRun crash discipline (#443)", () => {
     expect(vi.mocked(executeChatTurn).mock.calls[0]![0]).toMatchObject({
       prompt: "folded preview that is only valid on this turn",
       persistedPrompt: "analyze the attached report",
+      modelCandidates: ["sonnet-4-6"],
       resourceResolution: args.resourceResolution,
     });
   });

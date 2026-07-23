@@ -61,6 +61,7 @@ import {
   modelCommandUsageMessage,
   parseModelCommand,
 } from "@/lib/model-command";
+import { resolveChatModelPreference } from "@/lib/runtime-model-policy";
 import {
   isChatMessageEditId,
   planChatMessageEdit,
@@ -251,8 +252,12 @@ export async function POST(req: Request) {
   // #300: a model disabled for user-facing chat can never be selected — not
   // via /model, the request body, or a stale skill pin. Disabled or unknown
   // ids resolve to the enabled default instead.
-  const requestedOrPinnedModelId =
-    activatedSkill?.skill.modelId ?? requestedModelId;
+  const modelPreference = resolveChatModelPreference({
+    requestedModelId,
+    modelOverride,
+    skillModelId: activatedSkill?.skill.modelId,
+  });
+  const requestedOrPinnedModelId = modelPreference.modelId;
   const modelId = (await isModelEnabled(db, requestedOrPinnedModelId, "chat"))
     ? requestedOrPinnedModelId
     : await resolveModelForPurpose(db, "chat");
@@ -690,6 +695,7 @@ export async function POST(req: Request) {
         requestedByUserId: sessionUser.id,
         executionMode: runtimeRoute.executionMode,
         modelOverride,
+        modelPreferenceSource: modelPreference.source,
         ...(modelCommand ? { modelCommand } : {}),
         runtimeRoute,
         uploadedFiles: storedUploadedFiles,
@@ -744,6 +750,7 @@ export async function POST(req: Request) {
         userMessageId: userMsg[0]!.id,
         executionMode: runtimeRoute.executionMode,
         modelOverride,
+        modelPreferenceSource: modelPreference.source,
         runtimeRoute,
         routeReceipt,
         resourceResolution,
@@ -860,6 +867,7 @@ export async function POST(req: Request) {
           persistedPrompt: modelVisibleMessage,
           modelId,
           modelOverride,
+          forceRequestedModel: modelPreference.source !== "request_default",
           route: runtimeRoute,
           requestStartedAt,
           uploadedFiles,

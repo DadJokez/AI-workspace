@@ -20,7 +20,10 @@ vi.mock("@ai-workspace/agent-runtime", () => ({
   getRuntime: vi.fn(() => ({ name: "bedrock" })),
 }));
 vi.mock("@/lib/model-registry", () => ({
-  resolveModelForPurpose: vi.fn(async () => "haiku-4-5"),
+  resolveModelCandidatesForPurpose: vi.fn(async () => [
+    "haiku-4-5",
+    "sonnet-4-6",
+  ]),
 }));
 vi.mock("@/lib/run-events", () => ({
   appendRunEventBestEffort: vi.fn(async () => undefined),
@@ -36,7 +39,7 @@ import {
   runChatRunWorkerLoop,
 } from "@/lib/chat-run-worker";
 import { executeChatTurn, numberFromEnv } from "@/lib/execute-chat-turn";
-import { resolveModelForPurpose } from "@/lib/model-registry";
+import { resolveModelCandidatesForPurpose } from "@/lib/model-registry";
 import { appendRunEventBestEffort } from "@/lib/run-events";
 import { createProactiveRunNotification } from "@/lib/notifications";
 
@@ -93,12 +96,17 @@ describe("processQueuedChatRun", () => {
 
     expect(result).toEqual({ status: "succeeded", runId: "run-1" });
     // Legacy worker runs without a stored route run on the durable lane.
-    expect(resolveModelForPurpose).toHaveBeenCalledWith(db, "durable-local", {
-      preferred: "sonnet-4-6",
-    });
+    expect(resolveModelCandidatesForPurpose).toHaveBeenCalledWith(
+      db,
+      "durable-local",
+      {
+        preferred: "sonnet-4-6",
+      },
+    );
     expect(executeChatTurn).toHaveBeenCalledTimes(1);
     const turn = vi.mocked(executeChatTurn).mock.calls[0]![0];
     expect(turn.modelId).toBe("haiku-4-5");
+    expect(turn.modelCandidates).toEqual(["haiku-4-5", "sonnet-4-6"]);
   });
 
   it("hands the core the worker lane configuration", async () => {

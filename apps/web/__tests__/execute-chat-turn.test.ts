@@ -755,6 +755,131 @@ describe("executeChatTurn — persist tail", () => {
     expect(eventTypes).toContain("run_completed");
   });
 
+  it("records and persists the actual model after pre-stream failover", async () => {
+    const attempted: string[] = [];
+    const runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        const candidate = String(turnInput.modelId);
+        attempted.push(candidate);
+        await (
+          turnInput.onRunStarted as
+            | ((metadata: Record<string, unknown>) => Promise<void>)
+            | undefined
+        )?.({ providerRunId: `provider-${candidate}` });
+        if (candidate === "sonnet-4-6") {
+          yield {
+            type: "error",
+            message: "ThrottlingException: capacity unavailable",
+          };
+          return;
+        }
+        yield { type: "text-delta", delta: "Fallback answer" };
+        yield { type: "usage", tokensIn: 11, tokensOut: 7 };
+        yield { type: "done" };
+      },
+    } as unknown as AgentRuntime;
+    const { input, sent, state } = inlineInput({
+      runtime,
+      modelCandidates: ["sonnet-4-6", "haiku-4-5"],
+    });
+
+    await executeChatTurn(input);
+
+    expect(attempted).toEqual(["sonnet-4-6", "haiku-4-5"]);
+    expect(
+      state.inserts.find((insert) => insert.table === chatMessages)?.values,
+    ).toMatchObject({
+      content: "Fallback answer",
+      modelId: "haiku-4-5",
+    });
+    expect(
+      state.runUpdates.find((update) => update.modelId === "haiku-4-5"),
+    ).toBeDefined();
+    expect(
+      state.runUpdates.find((update) => update.status === "succeeded")?.outputs,
+    ).toMatchObject({
+      modelId: "haiku-4-5",
+      providerModelId:
+        "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      modelSelection: {
+        modelId: "haiku-4-5",
+        reason: "availability_failover",
+        failover: {
+          fromModelId: "sonnet-4-6",
+          attempt: 1,
+        },
+      },
+    });
+    const modelEvents = sent.filter((event) => event.type === "model");
+    expect(modelEvents.at(-1)).toMatchObject({
+      type: "model",
+      modelId: "haiku-4-5",
+      providerModelId:
+        "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    });
+    expect(
+      vi
+        .mocked(appendRunEventBestEffort)
+        .mock.calls.map(([, event]) => event.eventType),
+    ).toContain("model_failover");
+    expect(
+      state.inserts
+        .filter((insert) => insert.table === auditLog)
+        .flatMap((insert) =>
+          Array.isArray(insert.values) ? insert.values : [insert.values],
+        ),
+    ).toContainEqual(
+      expect.objectContaining({
+        actionType: "model_failover",
+        status: "succeeded",
+        input: expect.objectContaining({ modelId: "sonnet-4-6" }),
+        output: expect.objectContaining({ modelId: "haiku-4-5" }),
+      }),
+    );
+  });
+
+  it("does not start a replacement model after the active-run fence is lost", async () => {
+    const attempted: string[] = [];
+    const runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        attempted.push(String(turnInput.modelId));
+        yield {
+          type: "error",
+          message: "ThrottlingException",
+        };
+      },
+    } as unknown as AgentRuntime;
+    const { input, sent, state } = inlineInput({
+      runtime,
+      modelCandidates: ["sonnet-4-6", "haiku-4-5"],
+    });
+    state.updateReturning = [];
+
+    await executeChatTurn(input);
+
+    expect(attempted).toEqual(["sonnet-4-6"]);
+    expect(
+      sent.filter((event) => event.type === "model").map((event) => event.modelId),
+    ).toEqual(["sonnet-4-6"]);
+    expect(
+      state.inserts
+        .filter((insert) => insert.table === auditLog)
+        .flatMap((insert) =>
+          Array.isArray(insert.values) ? insert.values : [insert.values],
+        )
+        .some(
+          (row) =>
+            (row as Record<string, unknown>).actionType === "model_failover",
+        ),
+    ).toBe(false);
+    expect(sent.at(-1)).toMatchObject({
+      type: "failed",
+      stopReason: "runtime_error",
+    });
+  });
+
   it("fails instead of persisting a partial answer when the provider stream ends without done", async () => {
     const { input, sent, state } = inlineInput({
       runtime: truncatedRuntime(),

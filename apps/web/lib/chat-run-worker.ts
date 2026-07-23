@@ -15,7 +15,7 @@ import {
   type ConversationResourceResolution,
 } from "@/lib/conversation-resources";
 import { appendRunEventBestEffort } from "@/lib/run-events";
-import { resolveModelForPurpose } from "@/lib/model-registry";
+import { resolveModelCandidatesForPurpose } from "@/lib/model-registry";
 import { createProactiveRunNotification } from "@/lib/notifications";
 import {
   executeChatTurn,
@@ -390,9 +390,14 @@ async function executeClaimedChatRun({
   const thread = threadRows[0];
   if (!thread) throw new Error("Chat thread was not found for queued run.");
 
-  const modelId = await resolveModelForPurpose(db, runtimeRoute.lane, {
-    preferred: run.modelId,
-  });
+  const modelCandidates = await resolveModelCandidatesForPurpose(
+    db,
+    runtimeRoute.lane,
+    {
+      preferred: run.modelId,
+    },
+  );
+  const modelId = modelCandidates[0]!;
 
   const runtimeAbort = new AbortController();
   const externalAbort = () => runtimeAbort.abort();
@@ -460,6 +465,7 @@ async function executeClaimedChatRun({
       runtime,
       runtimeAbort,
       modelId,
+      modelCandidates,
       requestedProviders: inputs.requestedProviders,
       activeSkillPrompt: sanitizeActiveSkillPrompt(inputs.activeSkillPrompt),
       uploadedFiles: sanitizeUploadedFiles(inputs.uploadedFiles),

@@ -14,8 +14,10 @@ import type {
 } from "@ai-workspace/agent-runtime";
 import {
   extractAssistantSources,
+  MODELS,
   serializeActivation,
   type AssistantSource,
+  type ModelId,
 } from "@ai-workspace/agent";
 import {
   buildChatContextPack,
@@ -66,7 +68,14 @@ import {
   normalizeRuntimeError,
   type NormalizedRuntimeError,
 } from "@/lib/runtime-errors";
-import type { RuntimeModelSelection } from "@/lib/runtime-model-policy";
+import {
+  applyRuntimeModelFailover,
+  type RuntimeModelSelection,
+} from "@/lib/runtime-model-policy";
+import {
+  runTurnWithModelFailover,
+  type ModelFailoverTransition,
+} from "@/lib/model-failover";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
@@ -174,7 +183,9 @@ export interface ExecuteChatTurnInput {
   /** Aborted by the lane shell (browser disconnect, worker timeout/SIGTERM). */
   runtimeAbort: AbortController;
   /** Turn-time validated model id (#300) — both lanes resolve before calling. */
-  modelId: string;
+  modelId: ModelId;
+  /** Enabled, bounded attempt order; the first entry is `modelId`. */
+  modelCandidates?: readonly ModelId[];
   requestedProviders?: string[];
   activeSkillPrompt?: PinnedActiveSkill | null;
   uploadedFiles?: ChatContextUploadedFile[];
@@ -203,7 +214,8 @@ export async function executeChatTurn({
   route,
   runtime,
   runtimeAbort,
-  modelId,
+  modelId: initialModelId,
+  modelCandidates = [initialModelId],
   requestedProviders,
   activeSkillPrompt,
   uploadedFiles = [],
@@ -213,6 +225,7 @@ export async function executeChatTurn({
   interactive,
   lane,
 }: ExecuteChatTurnInput): Promise<void> {
+  let modelId = initialModelId;
   const userInstruction = persistedPrompt ?? prompt;
   const timing = lane.kind === "inline" ? lane.timing : undefined;
   const priorOutputs =
@@ -673,16 +686,18 @@ export async function executeChatTurn({
   const runtimeErrors: NormalizedRuntimeError[] = [];
   const toolEvents = createToolEventAccumulator(mountedProviders);
   const providerTrace = createProviderTraceAccumulator();
-  const errorContext = {
+  const currentErrorContext = () => ({
     runtime: runtime.name,
     runtimeTarget: route.runtimeTarget,
     requestedModelId:
-      lane.kind === "inline" ? lane.modelSelection.requestedModelId : modelId,
+      lane.kind === "inline"
+        ? lane.modelSelection.requestedModelId
+        : initialModelId,
     modelId,
     ...(lane.kind === "inline" && lane.modelSelection.providerModelId
       ? { providerModelId: lane.modelSelection.providerModelId }
       : {}),
-  };
+  });
   const buildWorkerOutput = (extra: Record<string, unknown> = {}) => ({
     ...priorOutputs,
     assistantText,
@@ -727,6 +742,115 @@ export async function executeChatTurn({
   );
   let providerTerminalSeen = false;
   let providerStreamTruncated = false;
+  const failoverCandidates = [
+    ...new Set<ModelId>([modelId, ...modelCandidates]),
+  ];
+
+  const recordModelFailover = async ({
+    fromModelId,
+    toModelId,
+    error,
+    attempt,
+  }: ModelFailoverTransition) => {
+    const normalized = normalizeRuntimeError(error, {
+      runtime: runtime.name,
+      runtimeTarget: route.runtimeTarget,
+      requestedModelId:
+        lane.kind === "inline"
+          ? lane.modelSelection.requestedModelId
+          : initialModelId,
+      modelId: fromModelId,
+      providerModelId: MODELS[fromModelId].bedrockModelId,
+    });
+    const now = new Date();
+    await db.transaction(async (tx) => {
+      const updatedRows = await tx
+        .update(runs)
+        .set({ modelId: toModelId, updatedAt: now })
+        .where(
+          lane.kind === "worker"
+            ? and(
+                eq(runs.id, runId),
+                eq(runs.status, "running"),
+                eq(runs.workerId, lane.workerId),
+              )
+            : and(eq(runs.id, runId), eq(runs.status, "running")),
+        )
+        .returning({ id: runs.id });
+      if (updatedRows.length === 0) {
+        throw new Error("The run stopped before model failover could start.");
+      }
+      await tx.insert(auditLog).values({
+        actorUserId: userId,
+        actionType: "model_failover",
+        status: "succeeded",
+        provider: MODELS[toModelId].provider,
+        chatThreadId: thread.id,
+        runId,
+        input: {
+          modelId: fromModelId,
+          providerModelId: MODELS[fromModelId].bedrockModelId,
+          errorCode: normalized.code,
+          errorCategory: normalized.category,
+        },
+        output: {
+          modelId: toModelId,
+          providerModelId: MODELS[toModelId].bedrockModelId,
+          attempt,
+        },
+        metadata: {
+          runtime: runtime.name,
+          runtimeTarget: route.runtimeTarget,
+          triggerError: normalized.userMessage,
+        },
+        startedAt: now,
+        completedAt: now,
+      });
+    });
+
+    modelId = toModelId;
+    if (lane.kind === "inline") {
+      lane.modelSelection = applyRuntimeModelFailover(
+        lane.modelSelection,
+        toModelId,
+        fromModelId,
+        attempt,
+      );
+    }
+
+    await appendTurnRunEvent(lane, {
+      db,
+      runId,
+      eventType: "model_failover",
+      status: "succeeded",
+      label: `Failed over from ${fromModelId} to ${toModelId}`,
+      metadata: {
+        fromModelId,
+        fromProviderModelId: MODELS[fromModelId].bedrockModelId,
+        toModelId,
+        toProviderModelId: MODELS[toModelId].bedrockModelId,
+        attempt,
+        errorCode: normalized.code,
+        errorCategory: normalized.category,
+        runtime: runtime.name,
+        runtimeTarget: route.runtimeTarget,
+      },
+      occurredAt: now,
+    });
+
+    if (lane.kind === "inline") {
+      lane.send({
+        type: "model",
+        requestedModelId: lane.requestedModelId,
+        modelOverride: lane.modelOverride,
+        modelId,
+        providerModelId: lane.modelSelection.providerModelId,
+        modelSelection: lane.modelSelection,
+        runtime: runtime.name,
+        runtimeTarget: route.runtimeTarget,
+      });
+    }
+  };
 
   try {
     // Tracks persisted activation across same-turn activations so a
@@ -736,87 +860,92 @@ export async function executeChatTurn({
       toolDiscovery?.activatedProviders ?? [],
     );
 
-    for await (const ev of runtime.runTurn({
-      threadId: thread.id,
-      modelId,
-      messages: contextPack.prompt.messages,
-      context: { userId },
-      signal: runtimeAbort.signal,
-      volatileSystemSuffix: contextPack.prompt.volatileSystemSuffix,
-      ...(userTimeZone ? { userTimeZone } : {}),
-      // Same content, different composition slot: the AgentCore container
-      // composes [systemPrompt, firstTurnPreamble] itself, and the durable
-      // lane has always ridden the preamble slot. Keyed by lane to preserve
-      // each lane's historical prompt assembly byte-for-byte.
-      ...(lane.kind === "inline"
-        ? { systemPrompt: contextPack.prompt.systemPrompt }
-        : { firstTurnPreamble: contextPack.prompt.systemPrompt }),
-      onRunStarted: async (metadata) => {
-        providerRunMetadata = metadata;
-        if (lane.kind === "inline") {
-          lane.timing.providerStartedAt = new Date();
-          const metrics = buildTimingMetrics(lane.timing);
-          lane.send({ type: "metrics", stage: "provider_started", metrics });
-          await db
-            .update(runs)
-            .set({
-              outputs: {
-                assistantText,
-                lifecycle: "provider_started",
+    for await (const ev of runTurnWithModelFailover({
+      runtime,
+      candidates: failoverCandidates,
+      onFailover: recordModelFailover,
+      input: {
+        threadId: thread.id,
+        modelId,
+        messages: contextPack.prompt.messages,
+        context: { userId },
+        signal: runtimeAbort.signal,
+        volatileSystemSuffix: contextPack.prompt.volatileSystemSuffix,
+        ...(userTimeZone ? { userTimeZone } : {}),
+        // Same content, different composition slot: the AgentCore container
+        // composes [systemPrompt, firstTurnPreamble] itself, and the durable
+        // lane has always ridden the preamble slot. Keyed by lane to preserve
+        // each lane's historical prompt assembly byte-for-byte.
+        ...(lane.kind === "inline"
+          ? { systemPrompt: contextPack.prompt.systemPrompt }
+          : { firstTurnPreamble: contextPack.prompt.systemPrompt }),
+        onRunStarted: async (metadata) => {
+          providerRunMetadata = metadata;
+          if (lane.kind === "inline") {
+            lane.timing.providerStartedAt = new Date();
+            const metrics = buildTimingMetrics(lane.timing);
+            lane.send({ type: "metrics", stage: "provider_started", metrics });
+            await db
+              .update(runs)
+              .set({
+                outputs: {
+                  assistantText,
+                  lifecycle: "provider_started",
+                  requestedModelId: lane.requestedModelId,
+                  modelId,
+                  providerModelId: lane.modelSelection.providerModelId,
+                  modelSelection: lane.modelSelection,
+                  runtime: runtime.name,
+                  runtimeTarget: route.runtimeTarget,
+                  providerRun: metadata,
+                  metrics,
+                },
+                updatedAt: new Date(),
+              })
+              .where(eq(runs.id, runId));
+            await appendTurnRunEvent(lane, {
+              db,
+              runId,
+              eventType: "provider_run_started",
+              status: "pending",
+              label: `Started ${runtime.name} run`,
+              metadata: {
+                ...(metadata as unknown as Record<string, unknown>),
+                runtimeTarget: route.runtimeTarget,
                 requestedModelId: lane.requestedModelId,
-                modelId,
+                runtimeModelId: modelId,
                 providerModelId: lane.modelSelection.providerModelId,
                 modelSelection: lane.modelSelection,
-                runtime: runtime.name,
-                runtimeTarget: route.runtimeTarget,
-                providerRun: metadata,
                 metrics,
               },
-              updatedAt: new Date(),
-            })
-            .where(eq(runs.id, runId));
-          await appendTurnRunEvent(lane, {
-            db,
-            runId,
-            eventType: "provider_run_started",
-            status: "pending",
-            label: `Started ${runtime.name} run`,
-            metadata: {
-              ...(metadata as unknown as Record<string, unknown>),
-              runtimeTarget: route.runtimeTarget,
-              requestedModelId: lane.requestedModelId,
-              runtimeModelId: modelId,
-              providerModelId: lane.modelSelection.providerModelId,
-              modelSelection: lane.modelSelection,
-              metrics,
-            },
-          });
-        } else {
-          await db
-            .update(runs)
-            .set({
-              outputs: buildWorkerOutput({
-                lifecycle: "provider_started",
-                providerRun: metadata,
-              }),
-              updatedAt: new Date(),
-            })
-            .where(eq(runs.id, runId));
-          await appendTurnRunEvent(lane, {
-            db,
-            runId,
-            eventType: "provider_run_started",
-            status: "pending",
-            label: `Started ${runtime.name} run`,
-            metadata: metadata as unknown as Record<string, unknown>,
-          });
-        }
+            });
+          } else {
+            await db
+              .update(runs)
+              .set({
+                outputs: buildWorkerOutput({
+                  lifecycle: "provider_started",
+                  providerRun: metadata,
+                }),
+                updatedAt: new Date(),
+              })
+              .where(eq(runs.id, runId));
+            await appendTurnRunEvent(lane, {
+              db,
+              runId,
+              eventType: "provider_run_started",
+              status: "pending",
+              label: `Started ${runtime.name} run`,
+              metadata: metadata as unknown as Record<string, unknown>,
+            });
+          }
+        },
+        ...(mcpServers ? { mcpServers } : {}),
+        ...(builtinTools.length > 0 ? { builtinTools } : {}),
+        webEgressPolicy,
+        ...(requiredToolName ? { requiredToolName } : {}),
+        ...(toolDiscovery ? { toolDiscovery } : {}),
       },
-      ...(mcpServers ? { mcpServers } : {}),
-      ...(builtinTools.length > 0 ? { builtinTools } : {}),
-      webEgressPolicy,
-      ...(requiredToolName ? { requiredToolName } : {}),
-      ...(toolDiscovery ? { toolDiscovery } : {}),
     })) {
       if (providerTerminalSeen) {
         throw new Error(
@@ -970,7 +1099,10 @@ export async function executeChatTurn({
           });
         }
       } else if (ev.type === "error") {
-        const normalized = normalizeRuntimeError(ev.message, errorContext);
+        const normalized = normalizeRuntimeError(
+          ev.message,
+          currentErrorContext(),
+        );
         runtimeErrors.push(normalized);
         if (lane.kind === "inline") {
           lane.send({ type: "error", message: normalized.userMessage });
@@ -999,7 +1131,7 @@ export async function executeChatTurn({
         throw err;
       }
     } else {
-      const normalized = normalizeRuntimeError(err, errorContext);
+      const normalized = normalizeRuntimeError(err, currentErrorContext());
       runtimeErrors.push(normalized);
       lane.send({ type: "error", message: normalized.userMessage });
       await appendTurnRunEvent(lane, {
@@ -1031,7 +1163,7 @@ export async function executeChatTurn({
     providerStreamTruncated = true;
     const normalized = normalizeRuntimeError(
       "The model response ended before its completion event. Please try again.",
-      errorContext,
+      currentErrorContext(),
     );
     runtimeErrors.push(normalized);
     if (lane.kind === "inline") {

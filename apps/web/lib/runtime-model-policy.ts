@@ -10,7 +10,7 @@ import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 
 export interface RuntimeModelSelection {
   requestedModelId: string;
-  modelId: string;
+  modelId: ModelId;
   providerModelId?: string;
   reason:
     | "runtime_v2_direct_model_config"
@@ -18,8 +18,40 @@ export interface RuntimeModelSelection {
     | "model_decided_sonnet"
     | "requested_model_alias"
     | "requested_model_supported"
-    | "default_model_fallback";
+    | "default_model_fallback"
+    | "availability_failover";
   ignoredDirectModelId?: string;
+  failover?: {
+    fromModelId: ModelId;
+    attempt: number;
+  };
+}
+
+export interface ChatModelPreference {
+  modelId: string;
+  source: "user_override" | "skill_pin" | "request_default";
+}
+
+/**
+ * Explicit user intent outranks a skill pin; absent an override, the active
+ * skill outranks the request/thread default.
+ */
+export function resolveChatModelPreference({
+  requestedModelId,
+  modelOverride,
+  skillModelId,
+}: {
+  requestedModelId: string;
+  modelOverride: boolean;
+  skillModelId?: string | null;
+}): ChatModelPreference {
+  if (modelOverride) {
+    return { modelId: requestedModelId, source: "user_override" };
+  }
+  if (skillModelId) {
+    return { modelId: skillModelId, source: "skill_pin" };
+  }
+  return { modelId: requestedModelId, source: "request_default" };
 }
 
 /**
@@ -74,6 +106,13 @@ export function resolveRuntimeModelSelection({
   enabledModelIds?: ReadonlySet<string>;
 }): RuntimeModelSelection {
   void runtimeName;
+
+  if (
+    enabledModelIds &&
+    !MODEL_IDS.some((modelId) => enabledModelIds.has(modelId))
+  ) {
+    throw new Error("No models are enabled for this runtime lane.");
+  }
 
   const allowed = (id: ModelId) =>
     !enabledModelIds || enabledModelIds.has(id);
@@ -165,6 +204,21 @@ export function resolveRuntimeModelSelection({
     reason: "default_model_fallback",
     ignoredDirectModelId: configuredDirectModel,
   });
+}
+
+export function applyRuntimeModelFailover(
+  selection: RuntimeModelSelection,
+  nextModelId: ModelId,
+  fromModelId: ModelId,
+  attempt: number,
+): RuntimeModelSelection {
+  return {
+    ...selection,
+    modelId: nextModelId,
+    providerModelId: MODELS[nextModelId].bedrockModelId,
+    reason: "availability_failover",
+    failover: { fromModelId, attempt },
+  };
 }
 
 function directSelection({
