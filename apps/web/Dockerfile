@@ -63,7 +63,7 @@ RUN addgroup -S nextjs && adduser -S nextjs -G nextjs
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/standalone ./
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/public ./apps/web/public
-COPY --from=build /repo/apps/web/scripts/verify-pdf-runtime.mjs ./verify-pdf-runtime.mjs
+COPY --from=build /repo/apps/web/scripts/verify-pdf-runtime.mjs ./apps/web/verify-pdf-runtime.mjs
 
 # pdfjs loads its native canvas adapter through createRequire(), which Next's
 # file tracer cannot follow. Restore pnpm's package link, then parse a real PDF
@@ -77,8 +77,8 @@ RUN set -eux; \
     if [ ! -e "$pdfjs_dir/node_modules/@napi-rs/canvas" ]; then \
       ln -s "../../../$(basename "$canvas_dir")/node_modules/@napi-rs/canvas" "$pdfjs_dir/node_modules/@napi-rs/canvas"; \
     fi; \
-    node ./verify-pdf-runtime.mjs; \
-    rm ./verify-pdf-runtime.mjs
+    node ./apps/web/verify-pdf-runtime.mjs; \
+    rm ./apps/web/verify-pdf-runtime.mjs
 
 USER nextjs
 EXPOSE 3000
