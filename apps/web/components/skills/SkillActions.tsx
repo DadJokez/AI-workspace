@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fetchJson } from "@/lib/client-api";
 
 interface SkillActionsProps {
   skillId: string;
@@ -23,27 +24,25 @@ export function SkillActions({
   const [busy, setBusy] = useState<"run" | "clone" | "archive" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  async function post(path: string): Promise<Response> {
-    return fetch(path, { method: "POST" });
-  }
-
   async function handleRun() {
     setBusy("run");
     setNotice(null);
     try {
-      const res = await post(`/api/skills/${skillId}/run`);
-      const body = (await res.json()) as {
+      const body = await fetchJson<{
         threadId?: string;
-        message?: string;
-        error?: string;
-      };
-      if (res.ok && body.threadId) {
-        router.push(`/chat?threadId=${body.threadId}`);
-        return;
+      }>(
+        `/api/skills/${skillId}/run`,
+        { method: "POST" },
+        "The skill could not be run.",
+      );
+      if (!body.threadId) {
+        throw new Error("The skill started without a chat ID.");
       }
-      setNotice(body.message ?? body.error ?? "The skill could not be run.");
-    } catch {
-      setNotice("The skill could not be run.");
+      router.push(`/chat?threadId=${body.threadId}`);
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "The skill could not be run.",
+      );
     } finally {
       setBusy(null);
     }
@@ -53,19 +52,22 @@ export function SkillActions({
     setBusy("clone");
     setNotice(null);
     try {
-      const res = await post(`/api/skills/${skillId}/clone`);
-      const body = (await res.json()) as {
+      const body = await fetchJson<{
         skill?: { id: string };
-        error?: string;
-      };
-      if (res.ok && body.skill) {
-        router.push(`/skills/${body.skill.id}`);
-        router.refresh();
-        return;
+      }>(
+        `/api/skills/${skillId}/clone`,
+        { method: "POST" },
+        "The skill could not be cloned.",
+      );
+      if (!body.skill) {
+        throw new Error("The skill was cloned without a skill ID.");
       }
-      setNotice(body.error ?? "The skill could not be cloned.");
-    } catch {
-      setNotice("The skill could not be cloned.");
+      router.push(`/skills/${body.skill.id}`);
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "The skill could not be cloned.",
+      );
     } finally {
       setBusy(null);
     }
@@ -76,16 +78,17 @@ export function SkillActions({
     setBusy("archive");
     setNotice(null);
     try {
-      const res = await fetch(`/api/skills/${skillId}`, { method: "DELETE" });
-      if (res.ok) {
-        router.push("/skills");
-        router.refresh();
-        return;
-      }
-      const body = (await res.json()) as { error?: string };
-      setNotice(body.error ?? "The skill could not be archived.");
-    } catch {
-      setNotice("The skill could not be archived.");
+      await fetchJson(
+        `/api/skills/${skillId}`,
+        { method: "DELETE" },
+        "The skill could not be archived.",
+      );
+      router.push("/skills");
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "The skill could not be archived.",
+      );
     } finally {
       setBusy(null);
     }

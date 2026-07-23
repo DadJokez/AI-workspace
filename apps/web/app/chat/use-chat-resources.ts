@@ -1,6 +1,7 @@
 import type { ModelOption } from "@/components/ModelSelector";
 import type { SlashSkill } from "@/components/ChatInput";
 import type { ThreadSummary } from "@/components/Sidebar";
+import { fetchJson, throwApiError } from "@/lib/client-api";
 import { FALLBACK_EMPTY_STATE_SUGGESTIONS } from "@/lib/empty-state";
 import { sortThreadHistory } from "@/lib/thread-history";
 import {
@@ -40,11 +41,11 @@ export function useChatResources() {
 
   async function refreshThreads() {
     try {
-      const response = await fetch(
+      const data = await fetchJson<ThreadsResponse>(
         `/api/threads?limit=${THREADS_LIMIT}&scope=mine`,
+        undefined,
+        "Could not load chats.",
       );
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = (await response.json()) as ThreadsResponse;
       const nextThreads = sortThreadHistory(data.threads);
       setThreads(nextThreads);
       setThreadsError(undefined);
@@ -83,12 +84,11 @@ export function useChatResources() {
           response.ok ? (response.json() as Promise<ModelsResponse>) : null,
         )
         .catch(() => null),
-      fetch(`/api/threads?limit=${THREADS_LIMIT}&scope=mine`)
-        .then((response) =>
-          response.ok
-            ? (response.json() as Promise<ThreadsResponse>)
-            : Promise.reject(new Error(`HTTP ${response.status}`)),
-        )
+      fetchJson<ThreadsResponse>(
+        `/api/threads?limit=${THREADS_LIMIT}&scope=mine`,
+        undefined,
+        "Could not load chats.",
+      )
         .catch((error) => error as Error),
     ]).then(([modelsData, threadsResult]) => {
       if (cancelled) return;
@@ -119,7 +119,9 @@ export function useChatResources() {
           window.location.assign("/login");
           return null;
         }
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) {
+          await throwApiError(response, "Could not load your profile.");
+        }
         return (await response.json()) as UserResponse;
       })
       .then((data) => {
@@ -157,14 +159,14 @@ export function useChatResources() {
 
     async function loadEmptyState() {
       try {
-        const response = await fetch("/api/recommendations/prompts", {
-          credentials: "include",
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const body = (await response.json()) as {
+        const body = await fetchJson<{
           suggestions?: unknown;
           connectedProviders?: unknown;
-        };
+        }>(
+          "/api/recommendations/prompts",
+          { credentials: "include" },
+          "Could not load chat suggestions.",
+        );
         const suggestions = stringArray(body.suggestions).slice(0, 4);
         const providers = stringArray(body.connectedProviders);
         if (cancelled) return;
@@ -239,14 +241,16 @@ export function useChatResources() {
     );
 
     try {
-      const response = await fetch("/api/user", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ defaultModelId: modelId }),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const body = (await response.json()) as UserResponse;
+      const body = await fetchJson<UserResponse>(
+        "/api/user",
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ defaultModelId: modelId }),
+        },
+        "Could not save the default model.",
+      );
       setUser(body.user);
       setUserDefaultModelId(body.user.defaultModelId ?? modelId);
     } catch (error) {

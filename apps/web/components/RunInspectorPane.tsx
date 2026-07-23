@@ -2,6 +2,7 @@
 
 import { Metric, StatusBadge, StatusDot } from "@/app/admin/ui";
 import { SlideOverPane } from "@/components/SlideOverPane";
+import { fetchJson } from "@/lib/client-api";
 import {
   type LiveReasoningBlock,
   type RunInspectorEvent,
@@ -61,15 +62,14 @@ export function RunInspectorPane({
 
     async function load() {
       try {
-        const response = await fetch(
+        const body = await fetchJson<{ trace?: unknown }>(
           `/api/admin/runs/${encodeURIComponent(runId)}/trace`,
           {
             cache: "no-store",
             signal: controller.signal,
           },
+          "Could not load the run trace.",
         );
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const body = (await response.json()) as { trace?: unknown };
         const parsed = parseRunInspectorTrace(body.trace);
         if (!parsed) throw new Error("Invalid inspector response");
         if (!active) return;

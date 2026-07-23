@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fetchJson } from "@/lib/client-api";
 import { formatDateTime } from "@/lib/format-date";
 
 interface VersionRow {
@@ -47,22 +48,25 @@ export function VersionsPanel({
     setBusyId(appVersionId);
     setNotice(null);
     try {
-      const res = await fetch(`/api/apps/${appId}/deploy`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          appVersionId,
-          dataMode: modeByVersion[appVersionId] ?? "snapshot",
-        }),
-      });
-      const body = (await res.json()) as { message?: string; error?: string };
-      if (res.ok) {
-        router.refresh();
-        return;
-      }
-      setNotice(body.message ?? body.error ?? "Could not publish this version.");
-    } catch {
-      setNotice("Could not publish this version.");
+      await fetchJson(
+        `/api/apps/${appId}/deploy`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            appVersionId,
+            dataMode: modeByVersion[appVersionId] ?? "snapshot",
+          }),
+        },
+        "Could not publish this version.",
+      );
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error
+          ? err.message
+          : "Could not publish this version.",
+      );
     } finally {
       setBusyId(null);
     }
@@ -72,7 +76,7 @@ export function VersionsPanel({
     setBusyId(version.appVersionId);
     setNotice(null);
     try {
-      const res = await fetch(
+      await fetchJson(
         `/api/apps/${appId}/versions/${version.appVersionId}`,
         version.status === "proposed"
           ? {
@@ -84,15 +88,13 @@ export function VersionsPanel({
               }),
             }
           : { method: "DELETE" },
+        "Could not discard this draft.",
       );
-      const body = (await res.json()) as { message?: string; error?: string };
-      if (res.ok) {
-        router.refresh();
-        return;
-      }
-      setNotice(body.message ?? body.error ?? "Could not discard this draft.");
-    } catch {
-      setNotice("Could not discard this draft.");
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Could not discard this draft.",
+      );
     } finally {
       setBusyId(null);
     }

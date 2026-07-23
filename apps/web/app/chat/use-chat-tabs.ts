@@ -1,5 +1,10 @@
 import type { ModelOption } from "@/components/ModelSelector";
 import type { ThreadSummary } from "@/components/Sidebar";
+import {
+  ClientApiError,
+  fetchJson,
+  throwApiError,
+} from "@/lib/client-api";
 import { sortThreadHistory } from "@/lib/thread-history";
 import {
   makeFreshTab,
@@ -133,12 +138,11 @@ export function useChatTabs({
     loadingThreadsRef.current.add(tabId);
     let cancelled = false;
 
-    fetch(`/api/threads/${threadId}/messages`)
-      .then((response) =>
-        response.ok
-          ? (response.json() as Promise<ThreadMessagesResponse>)
-          : Promise.reject(new Error(`HTTP ${response.status}`)),
-      )
+    fetchJson<ThreadMessagesResponse>(
+      `/api/threads/${threadId}/messages`,
+      undefined,
+      "Could not load messages.",
+    )
       .then((data) => {
         if (cancelled) return;
         const messages = data.messages.map(threadMessageToUiMessage);
@@ -158,7 +162,10 @@ export function useChatTabs({
       .catch((error) => {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : String(error);
-        if (/HTTP 404|thread_not_found/i.test(message)) {
+        if (
+          (error instanceof ClientApiError && error.status === 404) ||
+          /thread_not_found/i.test(message)
+        ) {
           setTabs([makeFreshTab(defaultModelId)]);
           return;
         }
@@ -266,12 +273,15 @@ export function useChatTabs({
   }
 
   async function renameThread(threadId: string, title: string) {
-    const response = await fetch(`/api/threads/${threadId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title }),
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    await fetchJson(
+      `/api/threads/${threadId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      },
+      "Could not rename the chat.",
+    );
     setThreads((previous) =>
       previous.map((thread) =>
         thread.id === threadId ? { ...thread, title } : thread,
@@ -284,7 +294,7 @@ export function useChatTabs({
       method: "DELETE",
     });
     if (!response.ok && response.status !== 404) {
-      throw new Error(`HTTP ${response.status}`);
+      await throwApiError(response, "Could not delete the chat.");
     }
     setThreads((previous) =>
       previous.filter((thread) => thread.id !== threadId),
@@ -297,15 +307,17 @@ export function useChatTabs({
   }
 
   async function pinThread(threadId: string, pinned: boolean) {
-    const response = await fetch(`/api/threads/${threadId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pinned }),
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = (await response.json()) as {
+    const data = await fetchJson<{
       thread: { id: string; pinned: boolean; updatedAt: string };
-    };
+    }>(
+      `/api/threads/${threadId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned }),
+      },
+      `Could not ${pinned ? "pin" : "unpin"} the chat.`,
+    );
     setThreads((previous) =>
       sortThreadHistory(
         previous.map((thread) =>

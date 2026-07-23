@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fetchJson } from "@/lib/client-api";
 import { formatDateTime } from "@/lib/format-date";
 
 interface ScheduleRow {
@@ -73,41 +74,70 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
     setBusy(true);
     setNotice(null);
     try {
-      const res = await fetch("/api/schedules", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          skillId,
-          cadence: buildCadence(preset, time, weekday, monthDay),
-          timezone,
-        }),
-      });
-      const body = (await res.json()) as { message?: string; error?: string };
-      if (res.ok) {
-        router.refresh();
-        return;
-      }
-      setNotice(body.message ?? body.error ?? "Could not create the schedule.");
-    } catch {
-      setNotice("Could not create the schedule.");
+      await fetchJson(
+        "/api/schedules",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            skillId,
+            cadence: buildCadence(preset, time, weekday, monthDay),
+            timezone,
+          }),
+        },
+        "Could not create the schedule.",
+      );
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Could not create the schedule.",
+      );
     } finally {
       setBusy(false);
     }
   }
 
   async function handleToggle(schedule: ScheduleRow) {
-    await fetch(`/api/schedules/${schedule.id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ enabled: !schedule.enabled }),
-    });
-    router.refresh();
+    setBusy(true);
+    setNotice(null);
+    try {
+      await fetchJson(
+        `/api/schedules/${schedule.id}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: !schedule.enabled }),
+        },
+        "Could not update the schedule.",
+      );
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Could not update the schedule.",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleDelete(schedule: ScheduleRow) {
     if (!window.confirm("Delete this schedule? Past runs are kept.")) return;
-    await fetch(`/api/schedules/${schedule.id}`, { method: "DELETE" });
-    router.refresh();
+    setBusy(true);
+    setNotice(null);
+    try {
+      await fetchJson(
+        `/api/schedules/${schedule.id}`,
+        { method: "DELETE" },
+        "Could not delete the schedule.",
+      );
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Could not delete the schedule.",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   const inputClass =

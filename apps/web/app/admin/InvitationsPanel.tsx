@@ -6,6 +6,7 @@ import type {
   AdminInvitationStatus,
 } from "@/lib/admin-invitations";
 import { EmptyState } from "@/components/EmptyState";
+import { ClientApiError, fetchJson } from "@/lib/client-api";
 import { formatDateTime as shortDate } from "@/lib/format-date";
 
 type Role = "admin" | "user";
@@ -50,21 +51,18 @@ export function InvitationsPanel({ initialInvitations }: Props) {
     setError(undefined);
     setNotice(undefined);
     try {
-      const res = await fetch("/api/admin/invitations", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, role }),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as {
-          error?: string;
-        };
-        throw new Error(body.error ?? `HTTP ${res.status}`);
-      }
-      const body = (await res.json()) as {
+      const body = await fetchJson<{
         invitation: AdminInvitationRow;
         warning?: string;
-      };
+      }>(
+        "/api/admin/invitations",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email, role }),
+        },
+        "Could not send the invitation.",
+      );
       upsertRow(body.invitation);
       setNotice(invitationNotice(body.invitation, body.warning));
       setEmail("");
@@ -81,17 +79,16 @@ export function InvitationsPanel({ initialInvitations }: Props) {
     setError(undefined);
     setNotice(undefined);
     try {
-      const res = await fetch(
-        `/api/admin/invitations/${encodeURIComponent(invitation.id)}/resend`,
-        { method: "POST" },
-      );
-      const body = (await res.json().catch(() => ({}))) as {
+      const body = await fetchJson<{
         invitation?: AdminInvitationRow;
         warning?: string;
-        error?: string;
-      };
-      if (!res.ok || !body.invitation) {
-        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }>(
+        `/api/admin/invitations/${encodeURIComponent(invitation.id)}/resend`,
+        { method: "POST" },
+        "Could not resend the invitation.",
+      );
+      if (!body.invitation) {
+        throw new Error("The invitation was resent without a result.");
       }
       upsertRow(body.invitation);
       setNotice(invitationNotice(body.invitation, body.warning, true));
@@ -107,16 +104,15 @@ export function InvitationsPanel({ initialInvitations }: Props) {
     setError(undefined);
     setNotice(undefined);
     try {
-      const res = await fetch(
+      const body = await fetchJson<{
+        invitation?: AdminInvitationRow;
+      }>(
         `/api/admin/invitations/${encodeURIComponent(invitation.id)}/revoke`,
         { method: "POST" },
+        "Could not revoke the invitation.",
       );
-      const body = (await res.json().catch(() => ({}))) as {
-        invitation?: AdminInvitationRow;
-        error?: string;
-      };
-      if (!res.ok || !body.invitation) {
-        throw new Error(body.error ?? `HTTP ${res.status}`);
+      if (!body.invitation) {
+        throw new Error("The invitation was revoked without a result.");
       }
       upsertRow(body.invitation);
       setNotice(`Invite revoked for ${body.invitation.email}.`);
@@ -362,7 +358,9 @@ function invitationNotice(
 
 function friendlyError(err: unknown) {
   if (!(err instanceof Error)) return "Request failed.";
-  return friendlyEmailCode(err.message);
+  return friendlyEmailCode(
+    err instanceof ClientApiError ? err.code ?? err.message : err.message,
+  );
 }
 
 function friendlyEmailCode(code: string | null | undefined) {

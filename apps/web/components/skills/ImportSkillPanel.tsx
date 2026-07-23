@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fetchJson } from "@/lib/client-api";
 
 /**
  * Paste a SKILL.md (ADR 0002) and create a skill from it — the direct path
@@ -18,24 +19,26 @@ export function ImportSkillPanel() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/skills/import", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ markdown }),
-      });
-      const body = (await res.json()) as {
+      const body = await fetchJson<{
         skill?: { id: string };
-        message?: string;
-        error?: string;
-      };
-      if (res.ok && body.skill) {
-        router.push(`/skills/${body.skill.id}`);
-        router.refresh();
-        return;
+      }>(
+        "/api/skills/import",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ markdown }),
+        },
+        "Could not import that SKILL.md.",
+      );
+      if (!body.skill) {
+        throw new Error("The skill was imported without a skill ID.");
       }
-      setError(body.message ?? body.error ?? "Could not import that SKILL.md.");
-    } catch {
-      setError("Could not import that SKILL.md.");
+      router.push(`/skills/${body.skill.id}`);
+      router.refresh();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not import that SKILL.md.",
+      );
     } finally {
       setBusy(false);
     }
