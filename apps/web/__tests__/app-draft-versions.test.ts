@@ -39,18 +39,32 @@ describe("app draft version summaries", () => {
       status: "discarded",
       canDeploy: false,
     });
+    const iterating = version({
+      id: "version-5",
+      status: "iterating",
+      canDeploy: false,
+    });
+    const superseded = version({
+      id: "version-6",
+      status: "superseded",
+      canDeploy: false,
+    });
     expect(
       parseAppDraftVersionSummaries([
         deployed,
         reverted,
         proposed,
         discarded,
+        iterating,
+        superseded,
       ]),
     ).toEqual([
       deployed,
       reverted,
       proposed,
       discarded,
+      iterating,
+      superseded,
     ]);
   });
 
@@ -86,6 +100,25 @@ describe("app draft version summaries", () => {
     ]);
 
     expect([...latest]).toEqual(["version-3", "other-version-1"]);
+  });
+
+  it("keeps a superseded source visible beside its latest replacement", () => {
+    const latest = latestAppDraftVersionIds([
+      version({
+        id: "version-2",
+        versionNumber: 2,
+        status: "superseded",
+        canDeploy: false,
+      }),
+      version({
+        id: "version-3",
+        artifactId: "artifact-3",
+        versionNumber: 3,
+        status: "proposed",
+      }),
+    ]);
+
+    expect([...latest]).toEqual(["version-2", "version-3"]);
   });
 
   it("marks the selected draft live without discarding history", () => {

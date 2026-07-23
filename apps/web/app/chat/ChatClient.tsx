@@ -255,7 +255,9 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     handleRecommendationAction,
     handleAppDraftDeploy,
     handleAppProposalDiscard,
+    handleAppProposalIteration,
     handleArtifactProposalAction,
+    handleArtifactProposalIteration,
     runAction,
   } = useChatActions({
     activeTab,
@@ -400,8 +402,14 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
           onDiscardAppProposal={(version) =>
             void handleAppProposalDiscard(version)
           }
+          onIterateAppProposal={(version, feedback) =>
+            void handleAppProposalIteration(version, feedback)
+          }
           onArtifactProposalAction={(artifact, decision) =>
             void handleArtifactProposalAction(artifact, decision)
+          }
+          onIterateArtifactProposal={(artifact, feedback) =>
+            void handleArtifactProposalIteration(artifact, feedback)
           }
           onRecommendationAction={(recommendation, status) =>
             void handleRecommendationAction(recommendation, status)

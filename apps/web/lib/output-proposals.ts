@@ -5,16 +5,41 @@ export const UNATTENDED_OUTPUT_TRIGGER_TYPES = [
 
 export type UnattendedOutputTriggerType =
   (typeof UNATTENDED_OUTPUT_TRIGGER_TYPES)[number];
-export type OutputProposalStatus = "proposed" | "accepted" | "discarded";
-export type OutputProposalDecision = Exclude<
-  OutputProposalStatus,
-  "proposed"
->;
+export type OutputProposalStatus =
+  | "proposed"
+  | "iterating"
+  | "accepted"
+  | "discarded"
+  | "superseded";
+export type OutputProposalDecision = "accepted" | "discarded";
+export const PROPOSAL_ITERATION_MAX_FEEDBACK_CHARS = 500;
+
+export type ProposalIterationTarget =
+  | { kind: "artifact"; artifactId: string }
+  | { kind: "app"; appId: string; appVersionId: string };
+
+export interface OutputProposalIterationLineage {
+  sourceArtifactId: string;
+  sourceRunId: string;
+  feedbackMessageId: string;
+  requestedAt: string;
+  requestedByUserId: string;
+  sourceAppId?: string;
+  sourceAppVersionId?: string;
+}
+
+export interface OutputProposalIterationReservation {
+  runId: string;
+  feedbackMessageId: string;
+  requestedAt: string;
+  requestedByUserId: string;
+}
 
 export interface OutputProposalContext {
   runId: string;
   triggerType: UnattendedOutputTriggerType;
   createdAt: string;
+  iterationOf?: OutputProposalIterationLineage;
 }
 
 export interface OutputProposalMetadata extends OutputProposalContext {
@@ -22,9 +47,51 @@ export interface OutputProposalMetadata extends OutputProposalContext {
   decidedAt?: string;
   decidedByUserId?: string;
   reason?: string;
+  iteration?: OutputProposalIterationReservation;
+  replacedByArtifactId?: string;
 }
 
 const MAX_PROPOSAL_REASON_CHARS = 500;
+
+export function normalizeProposalIterationFeedback(
+  value: unknown,
+): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  return normalized.slice(0, PROPOSAL_ITERATION_MAX_FEEDBACK_CHARS);
+}
+
+export function parseProposalIterationTarget(
+  value: unknown,
+): ProposalIterationTarget | null {
+  if (!isRecord(value)) return null;
+  if (value.kind === "artifact" && isNonEmptyString(value.artifactId)) {
+    return { kind: "artifact", artifactId: value.artifactId };
+  }
+  if (
+    value.kind === "app" &&
+    isNonEmptyString(value.appId) &&
+    isNonEmptyString(value.appVersionId)
+  ) {
+    return {
+      kind: "app",
+      appId: value.appId,
+      appVersionId: value.appVersionId,
+    };
+  }
+  return null;
+}
+
+export function formatProposalIterationMessage({
+  label,
+  feedback,
+}: {
+  label: string;
+  feedback: string;
+}): string {
+  return `Iterate on ${label}: ${feedback}`;
+}
 
 export function unattendedOutputTriggerType(
   value: unknown,
@@ -64,11 +131,15 @@ export function outputProposalFromMetadata(
   ) {
     return null;
   }
+  const iterationOf = parseIterationLineage(proposal.iterationOf);
+  const iteration = parseIterationReservation(proposal.iteration);
   return {
     runId: proposal.runId,
     triggerType,
     createdAt: proposal.createdAt,
     status: proposal.status,
+    ...(iterationOf ? { iterationOf } : {}),
+    ...(iteration ? { iteration } : {}),
     ...(typeof proposal.decidedAt === "string"
       ? { decidedAt: proposal.decidedAt }
       : {}),
@@ -77,6 +148,9 @@ export function outputProposalFromMetadata(
       : {}),
     ...(typeof proposal.reason === "string"
       ? { reason: proposal.reason }
+      : {}),
+    ...(typeof proposal.replacedByArtifactId === "string"
+      ? { replacedByArtifactId: proposal.replacedByArtifactId }
       : {}),
   };
 }
@@ -124,6 +198,87 @@ export function decideOutputProposalMetadata({
   };
 }
 
+export function reserveOutputProposalIterationMetadata({
+  metadata,
+  reservation,
+}: {
+  metadata: unknown;
+  reservation: OutputProposalIterationReservation;
+}): Record<string, unknown> | null {
+  const proposal = outputProposalFromMetadata(metadata);
+  if (!proposal || proposal.status !== "proposed") return null;
+  const normalizedMetadata = isRecord(metadata) ? metadata : {};
+  return {
+    ...normalizedMetadata,
+    outputProposal: {
+      ...proposal,
+      status: "iterating",
+      iteration: reservation,
+    } satisfies OutputProposalMetadata,
+  };
+}
+
+export function releaseOutputProposalIterationMetadata({
+  metadata,
+  runId,
+}: {
+  metadata: unknown;
+  runId: string;
+}): Record<string, unknown> | null {
+  const proposal = outputProposalFromMetadata(metadata);
+  if (
+    !proposal ||
+    proposal.status !== "iterating" ||
+    proposal.iteration?.runId !== runId
+  ) {
+    return null;
+  }
+  const normalizedMetadata = isRecord(metadata) ? metadata : {};
+  const releasedProposal = { ...proposal };
+  delete releasedProposal.iteration;
+  return {
+    ...normalizedMetadata,
+    outputProposal: {
+      ...releasedProposal,
+      status: "proposed",
+    } satisfies OutputProposalMetadata,
+  };
+}
+
+export function supersedeOutputProposalMetadata({
+  metadata,
+  runId,
+  replacementArtifactId,
+  decidedAt,
+  decidedByUserId,
+}: {
+  metadata: unknown;
+  runId: string;
+  replacementArtifactId: string;
+  decidedAt: Date;
+  decidedByUserId: string;
+}): Record<string, unknown> | null {
+  const proposal = outputProposalFromMetadata(metadata);
+  if (
+    !proposal ||
+    proposal.status !== "iterating" ||
+    proposal.iteration?.runId !== runId
+  ) {
+    return null;
+  }
+  const normalizedMetadata = isRecord(metadata) ? metadata : {};
+  return {
+    ...normalizedMetadata,
+    outputProposal: {
+      ...proposal,
+      status: "superseded",
+      decidedAt: decidedAt.toISOString(),
+      decidedByUserId,
+      replacedByArtifactId: replacementArtifactId,
+    } satisfies OutputProposalMetadata,
+  };
+}
+
 export function normalizeProposalReason(
   value: unknown,
 ): string | undefined {
@@ -137,10 +292,66 @@ export function isOutputProposalStatus(
   value: unknown,
 ): value is OutputProposalStatus {
   return (
-    value === "proposed" || value === "accepted" || value === "discarded"
+    value === "proposed" ||
+    value === "iterating" ||
+    value === "accepted" ||
+    value === "discarded" ||
+    value === "superseded"
   );
+}
+
+function parseIterationLineage(
+  value: unknown,
+): OutputProposalIterationLineage | null {
+  if (
+    !isRecord(value) ||
+    typeof value.sourceArtifactId !== "string" ||
+    typeof value.sourceRunId !== "string" ||
+    typeof value.feedbackMessageId !== "string" ||
+    typeof value.requestedAt !== "string" ||
+    typeof value.requestedByUserId !== "string"
+  ) {
+    return null;
+  }
+  return {
+    sourceArtifactId: value.sourceArtifactId,
+    sourceRunId: value.sourceRunId,
+    feedbackMessageId: value.feedbackMessageId,
+    requestedAt: value.requestedAt,
+    requestedByUserId: value.requestedByUserId,
+    ...(typeof value.sourceAppId === "string"
+      ? { sourceAppId: value.sourceAppId }
+      : {}),
+    ...(typeof value.sourceAppVersionId === "string"
+      ? { sourceAppVersionId: value.sourceAppVersionId }
+      : {}),
+  };
+}
+
+function parseIterationReservation(
+  value: unknown,
+): OutputProposalIterationReservation | null {
+  if (
+    !isRecord(value) ||
+    typeof value.runId !== "string" ||
+    typeof value.feedbackMessageId !== "string" ||
+    typeof value.requestedAt !== "string" ||
+    typeof value.requestedByUserId !== "string"
+  ) {
+    return null;
+  }
+  return {
+    runId: value.runId,
+    feedbackMessageId: value.feedbackMessageId,
+    requestedAt: value.requestedAt,
+    requestedByUserId: value.requestedByUserId,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }

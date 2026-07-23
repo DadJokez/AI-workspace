@@ -8,7 +8,10 @@ import type {
   PersistedRecommendation,
   RecommendationStatus,
 } from "@/lib/recommendations";
-import type { OutputProposalDecision } from "@/lib/output-proposals";
+import {
+  formatProposalIterationMessage,
+  type OutputProposalDecision,
+} from "@/lib/output-proposals";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import { useState, type Dispatch, type SetStateAction } from "react";
 import {
@@ -289,6 +292,80 @@ export function useChatActions({
     }
   }
 
+  async function handleArtifactProposalIteration(
+    artifact: WorkspaceArtifactSummary,
+    feedback: string,
+  ) {
+    if (!activeTab?.threadId) return;
+    setArtifactProposalPendingId(artifact.id);
+    patchTab(activeTab.id, { error: undefined });
+    try {
+      await send(
+        formatProposalIterationMessage({
+          label: artifact.filename,
+          feedback,
+        }),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          target: { kind: "artifact", artifactId: artifact.id },
+          feedback,
+        },
+      );
+      await refreshActiveThreadMessages(activeTab.id, activeTab.threadId);
+    } catch (error) {
+      patchTab(activeTab.id, {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not iterate on proposal.",
+      });
+    } finally {
+      setArtifactProposalPendingId(undefined);
+    }
+  }
+
+  async function handleAppProposalIteration(
+    version: AppDraftVersionSummary,
+    feedback: string,
+  ) {
+    if (!activeTab?.threadId) return;
+    setAppDraftPendingId(version.id);
+    patchTab(activeTab.id, { error: undefined });
+    try {
+      await send(
+        formatProposalIterationMessage({
+          label: version.appName,
+          feedback,
+        }),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          target: {
+            kind: "app",
+            appId: version.appId,
+            appVersionId: version.id,
+          },
+          feedback,
+        },
+      );
+      await refreshActiveThreadMessages(activeTab.id, activeTab.threadId);
+    } catch (error) {
+      patchTab(activeTab.id, {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not iterate on proposal.",
+      });
+    } finally {
+      setAppDraftPendingId(undefined);
+    }
+  }
+
   async function refreshActiveThreadMessages(tabId: string, threadId: string) {
     const body = await fetchJson<ThreadMessagesResponse>(
       `/api/threads/${threadId}/messages`,
@@ -341,7 +418,9 @@ export function useChatActions({
     handleRecommendationAction,
     handleAppDraftDeploy,
     handleAppProposalDiscard,
+    handleAppProposalIteration,
     handleArtifactProposalAction,
+    handleArtifactProposalIteration,
     runAction,
   };
 }

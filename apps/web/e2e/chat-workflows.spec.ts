@@ -189,6 +189,364 @@ test.describe("chat workflow regressions", () => {
     );
   });
 
+  test("iterates an artifact proposal in place and preserves its source history", async ({
+    page,
+  }) => {
+    const threadId = "thread-artifact-iteration";
+    const source = {
+      ...defaultArtifactSummary,
+      id: "artifact-iteration-v1",
+      title: "Weekly report",
+      filename: "weekly-report.md",
+      kind: "document",
+      mimeType: "text/markdown",
+      threadId,
+      artifactGroupId: "artifact-iteration-group",
+      versionNumber: 1,
+      supersedesArtifactId: null,
+      versionSummary: "Initial weekly report.",
+      metadata: {
+        outputProposal: {
+          status: "proposed",
+          runId: "source-run",
+          triggerType: "scheduled",
+          createdAt: "2026-07-23T12:00:00.000Z",
+        },
+      },
+    };
+    const replacement = {
+      ...source,
+      id: "artifact-iteration-v2",
+      versionNumber: 2,
+      supersedesArtifactId: source.id,
+      versionSummary: "Added a concise risks section.",
+      metadata: {
+        outputProposal: {
+          status: "proposed",
+          runId: "iteration-run",
+          triggerType: "scheduled",
+          createdAt: "2026-07-23T12:05:00.000Z",
+          iterationOf: {
+            sourceArtifactId: source.id,
+            sourceRunId: "source-run",
+            feedbackMessageId: "iteration-feedback",
+            requestedAt: "2026-07-23T12:04:00.000Z",
+            requestedByUserId: "user-e2e",
+          },
+        },
+      },
+    };
+    const superseded = {
+      ...source,
+      metadata: {
+        outputProposal: {
+          ...source.metadata.outputProposal,
+          status: "superseded",
+          decidedAt: "2026-07-23T12:05:00.000Z",
+          decidedByUserId: "user-e2e",
+          replacedByArtifactId: replacement.id,
+        },
+      },
+    };
+    const threadMessages: Record<string, unknown[]> = { [threadId]: [] };
+    let iterationRequest: Record<string, unknown> | undefined;
+
+    await installMockComparativeApi(page, {
+      threadMessages,
+      artifactDetails: {
+        [source.id]: { ...source, content: "# Weekly report" },
+        [replacement.id]: {
+          ...replacement,
+          content: "# Weekly report\n\n## Risks",
+        },
+      },
+      onChat: async (_body, route) => {
+        await fulfillSse(route, [
+          { type: "meta", threadId, modelId: "sonnet-4-6" },
+          {
+            type: "text-delta",
+            delta: "The weekly report proposal is ready.",
+          },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-source",
+            artifacts: [source],
+            recommendations: [],
+          },
+          { type: "done", stopReason: "completed" },
+        ]);
+      },
+      onProposalIteration: async (body, route) => {
+        iterationRequest = body;
+        threadMessages[threadId] = [
+          userMessage({
+            id: "user-source",
+            content: "Refresh the weekly report.",
+          }),
+          assistantMessage({
+            id: "assistant-source",
+            content: "The weekly report proposal is ready.",
+            artifacts: [superseded],
+          }),
+          userMessage({
+            id: "iteration-feedback",
+            content:
+              "Iterate on weekly-report.md: Add a concise risks section.",
+          }),
+          assistantMessage({
+            id: "assistant-replacement",
+            content: "The revised proposal is ready.",
+            artifacts: [replacement],
+          }),
+        ];
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId,
+            runId: "iteration-run",
+            userMessageId: "iteration-feedback",
+            modelId: "sonnet-4-6",
+            runtimeRoute: { lane: "durable-local", useWorker: true },
+          },
+          {
+            type: "queued",
+            threadId,
+            runId: "iteration-run",
+            status: "Iterating on proposal",
+          },
+          { type: "done", stopReason: "queued" },
+        ]);
+      },
+    });
+
+    await gotoE2EChat(page);
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Refresh the weekly report.");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    const sourceCard = page
+      .getByTestId("output-proposal-card")
+      .filter({ hasText: "weekly-report.md" });
+    await sourceCard.getByRole("button", { name: "Iterate" }).click();
+    await sourceCard
+      .getByLabel("Feedback for weekly-report.md")
+      .fill("Add a concise risks section.");
+    await sourceCard
+      .getByRole("button", { name: "Submit iteration" })
+      .click();
+
+    await expect.poll(() => iterationRequest).toMatchObject({
+      threadId,
+      proposalIteration: {
+        target: { kind: "artifact", artifactId: source.id },
+        feedback: "Add a concise risks section.",
+      },
+    });
+    await expect(
+      page.getByText(
+        "Iterate on weekly-report.md: Add a concise risks section.",
+      ),
+    ).toBeVisible();
+    const cards = page.getByTestId("output-proposal-card");
+    await expect(cards).toHaveCount(2);
+    await expect(cards.filter({ hasText: "Superseded" })).toContainText(
+      "history is preserved",
+    );
+    const replacementCard = cards.filter({
+      hasText: "Added a concise risks section.",
+    });
+    await expect(replacementCard).toContainText("Needs review");
+    await expect(
+      replacementCard.getByRole("button", { name: "Accept" }),
+    ).toBeVisible();
+  });
+
+  test("iterates an app proposal without changing the live app", async ({
+    page,
+  }) => {
+    const threadId = "thread-app-iteration";
+    const appId = "app-iteration";
+    const sourceVersionId = "app-version-v1";
+    const replacementVersionId = "app-version-v2";
+    const sourceArtifact = {
+      ...defaultArtifactSummary,
+      id: "app-artifact-v1",
+      title: "Revenue Dashboard",
+      filename: "revenue-dashboard.html",
+      threadId,
+      artifactGroupId: "app-artifact-group",
+      versionNumber: 1,
+      supersedesArtifactId: null,
+      versionSummary: "Initial dashboard proposal.",
+      metadata: {
+        outputProposal: {
+          status: "proposed",
+          runId: "app-source-run",
+          triggerType: "github_event",
+          createdAt: "2026-07-23T12:00:00.000Z",
+        },
+      },
+    };
+    const replacementArtifact = {
+      ...sourceArtifact,
+      id: "app-artifact-v2",
+      versionNumber: 2,
+      supersedesArtifactId: sourceArtifact.id,
+      versionSummary: "Made forecast variance easier to scan.",
+      metadata: {
+        outputProposal: {
+          status: "proposed",
+          runId: "app-iteration-run",
+          triggerType: "github_event",
+          createdAt: "2026-07-23T12:05:00.000Z",
+        },
+      },
+    };
+    const sourceVersion = {
+      id: sourceVersionId,
+      appId,
+      appName: "Revenue Dashboard",
+      appSlug: "revenue-dashboard",
+      artifactId: sourceArtifact.id,
+      versionNumber: 1,
+      status: "proposed",
+      canDeploy: true,
+      previewUrl: `/api/apps/${appId}/versions/${sourceVersionId}/content`,
+      liveUrl: "/apps/revenue-dashboard",
+    };
+    const replacementVersion = {
+      ...sourceVersion,
+      id: replacementVersionId,
+      artifactId: replacementArtifact.id,
+      versionNumber: 2,
+    };
+    const threadMessages: Record<string, unknown[]> = { [threadId]: [] };
+    let iterationRequest: Record<string, unknown> | undefined;
+
+    await installMockComparativeApi(page, {
+      threadMessages,
+      onChat: async (_body, route) => {
+        await fulfillSse(route, [
+          { type: "meta", threadId, modelId: "sonnet-4-6" },
+          { type: "text-delta", delta: "The app proposal is ready." },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-app-source",
+            artifacts: [sourceArtifact],
+            appDraftVersions: [sourceVersion],
+            recommendations: [],
+          },
+          { type: "done", stopReason: "completed" },
+        ]);
+      },
+      onProposalIteration: async (body, route) => {
+        iterationRequest = body;
+        threadMessages[threadId] = [
+          userMessage({
+            id: "user-app-source",
+            content: "Review the dashboard proposal.",
+          }),
+          assistantMessage({
+            id: "assistant-app-source",
+            content: "The app proposal is ready.",
+            artifacts: [
+              {
+                ...sourceArtifact,
+                metadata: {
+                  outputProposal: {
+                    ...sourceArtifact.metadata.outputProposal,
+                    status: "superseded",
+                    replacedByArtifactId: replacementArtifact.id,
+                  },
+                },
+              },
+            ],
+            appDraftVersions: [
+              {
+                ...sourceVersion,
+                status: "superseded",
+                canDeploy: false,
+              },
+            ],
+          }),
+          userMessage({
+            id: "app-iteration-feedback",
+            content:
+              "Iterate on Revenue Dashboard: Make forecast variance easier to scan.",
+          }),
+          assistantMessage({
+            id: "assistant-app-replacement",
+            content: "The revised app proposal is ready.",
+            artifacts: [replacementArtifact],
+            appDraftVersions: [replacementVersion],
+          }),
+        ];
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId,
+            runId: "app-iteration-run",
+            userMessageId: "app-iteration-feedback",
+            modelId: "sonnet-4-6",
+            runtimeRoute: { lane: "durable-local", useWorker: true },
+          },
+          {
+            type: "queued",
+            threadId,
+            runId: "app-iteration-run",
+            status: "Iterating on proposal",
+          },
+          { type: "done", stopReason: "queued" },
+        ]);
+      },
+    });
+
+    await gotoE2EChat(page);
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Review the dashboard proposal.");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    const sourceCard = page
+      .getByTestId("app-draft-card")
+      .filter({ hasText: "Initial dashboard proposal." });
+    await sourceCard.getByRole("button", { name: "Iterate" }).click();
+    await sourceCard
+      .getByLabel("Feedback for Revenue Dashboard")
+      .fill("Make forecast variance easier to scan.");
+    await sourceCard
+      .getByRole("button", { name: "Submit iteration" })
+      .click();
+
+    await expect.poll(() => iterationRequest).toMatchObject({
+      threadId,
+      proposalIteration: {
+        target: {
+          kind: "app",
+          appId,
+          appVersionId: sourceVersionId,
+        },
+        feedback: "Make forecast variance easier to scan.",
+      },
+    });
+    const cards = page.getByTestId("app-draft-card");
+    await expect(cards).toHaveCount(2);
+    await expect(cards.filter({ hasText: "Superseded" })).toContainText(
+      "live app has not changed",
+    );
+    const replacementCard = cards.filter({
+      hasText: "Made forecast variance easier to scan.",
+    });
+    await expect(replacementCard).toContainText("Needs review");
+    await expect(
+      replacementCard.getByRole("button", { name: "Accept and publish" }),
+    ).toBeVisible();
+    await expect(
+      replacementCard.getByRole("link", { name: "Open app" }),
+    ).toHaveCount(0);
+  });
+
   test("discards an unattended app proposal while preserving its history", async ({
     page,
   }) => {

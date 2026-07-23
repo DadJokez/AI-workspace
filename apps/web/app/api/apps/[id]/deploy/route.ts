@@ -19,6 +19,7 @@ import {
 } from "@/lib/workspace-artifacts";
 import { appendRunEventBestEffort } from "@/lib/run-events";
 import { parseDataBindings } from "@/lib/app-data-bindings";
+import { outputProposalFromMetadata } from "@/lib/output-proposals";
 
 export const dynamic = "force-dynamic";
 
@@ -117,6 +118,16 @@ export async function POST(
         { status: 422 },
       );
     }
+    const artifactProposal = outputProposalFromMetadata(artifact.metadata);
+    if (artifactProposal && artifactProposal.status !== "accepted") {
+      return NextResponse.json(
+        {
+          error: "version_not_deployable",
+          message: "Review this proposal before publishing it as an app.",
+        },
+        { status: 409 },
+      );
+    }
     version = await createAppVersionForArtifact({
       db,
       app,
@@ -129,11 +140,15 @@ export async function POST(
   if (!version) {
     return NextResponse.json({ error: "version_not_found" }, { status: 404 });
   }
-  if (version.status === "discarded") {
+  if (
+    version.status === "discarded" ||
+    version.status === "iterating" ||
+    version.status === "superseded"
+  ) {
     return NextResponse.json(
       {
         error: "version_not_deployable",
-        message: "Discarded proposals cannot be deployed.",
+        message: "This proposal version is not deployable.",
       },
       { status: 409 },
     );

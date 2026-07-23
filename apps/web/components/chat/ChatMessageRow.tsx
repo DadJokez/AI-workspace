@@ -26,9 +26,17 @@ export interface ChatMessageRowActions {
   openArtifact: (artifact: WorkspaceArtifactSummary) => void;
   deployAppDraft: (version: AppDraftVersionSummary) => void;
   discardAppProposal: (version: AppDraftVersionSummary) => void;
+  iterateAppProposal: (
+    version: AppDraftVersionSummary,
+    feedback: string,
+  ) => void;
   artifactProposalAction: (
     artifact: WorkspaceArtifactSummary,
     decision: OutputProposalDecision,
+  ) => void;
+  iterateArtifactProposal: (
+    artifact: WorkspaceArtifactSummary,
+    feedback: string,
   ) => void;
   recommendationAction: (
     recommendation: PersistedRecommendation,
@@ -139,8 +147,14 @@ function ChatMessageRowComponent({
         onDiscardAppProposal={(version) =>
           actionsRef.current.discardAppProposal(version)
         }
+        onIterateAppProposal={(version, feedback) =>
+          actionsRef.current.iterateAppProposal(version, feedback)
+        }
         onArtifactProposalAction={(artifact, decision) =>
           actionsRef.current.artifactProposalAction(artifact, decision)
+        }
+        onIterateArtifactProposal={(artifact, feedback) =>
+          actionsRef.current.iterateArtifactProposal(artifact, feedback)
         }
         onRecommendationAction={(recommendation, status) =>
           actionsRef.current.recommendationAction(recommendation, status)

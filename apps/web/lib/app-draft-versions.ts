@@ -5,7 +5,14 @@ export interface AppDraftVersionSummary {
   appSlug: string;
   artifactId: string;
   versionNumber: number;
-  status: "draft" | "proposed" | "deployed" | "reverted" | "discarded";
+  status:
+    | "draft"
+    | "proposed"
+    | "iterating"
+    | "deployed"
+    | "reverted"
+    | "discarded"
+    | "superseded";
   canDeploy: boolean;
   previewUrl: string;
   liveUrl: string;
@@ -54,13 +61,19 @@ export function latestAppDraftVersionIds(
   versions: readonly AppDraftVersionSummary[],
 ): Set<string> {
   const latestByApp = new Map<string, AppDraftVersionSummary>();
+  const visible = new Set(
+    versions
+      .filter((version) => version.status === "superseded")
+      .map((version) => version.id),
+  );
   for (const version of versions) {
     const current = latestByApp.get(version.appId);
     if (!current || version.versionNumber > current.versionNumber) {
       latestByApp.set(version.appId, version);
     }
   }
-  return new Set([...latestByApp.values()].map((version) => version.id));
+  for (const version of latestByApp.values()) visible.add(version.id);
+  return visible;
 }
 
 export function markAppDraftVersionDeployed(
@@ -96,8 +109,10 @@ export function isAppDraftVersionStatus(
   return (
     value === "draft" ||
     value === "proposed" ||
+    value === "iterating" ||
     value === "deployed" ||
     value === "reverted" ||
-    value === "discarded"
+    value === "discarded" ||
+    value === "superseded"
   );
 }

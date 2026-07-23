@@ -144,6 +144,15 @@ vi.mock("@/lib/recommendation-persistence", () => ({
 vi.mock("@/lib/notifications", () => ({
   createProactiveRunNotification: vi.fn(async () => undefined),
 }));
+vi.mock("@/lib/proposal-iterations", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/proposal-iterations")>();
+  return {
+    ...actual,
+    completeProposalIteration: vi.fn(async () => true),
+    releaseProposalIteration: vi.fn(async () => true),
+  };
+});
 vi.mock("@/lib/conversation-resources", () => ({
   revalidateConversationResourceResolution: vi.fn(
     async ({ resolution }: { resolution: unknown }) => resolution,
@@ -181,6 +190,11 @@ import {
   abortChatWorkerRuntime,
   chatWorkerAbortReason,
 } from "@/lib/chat-worker-abort";
+import {
+  completeProposalIteration,
+  releaseProposalIteration,
+  type StoredProposalIteration,
+} from "@/lib/proposal-iterations";
 
 interface FakeDbState {
   runStatus: string;
@@ -387,6 +401,33 @@ function workerInput(
     ...overrides,
   };
   return { input, state, captured, run };
+}
+
+const proposalIteration: StoredProposalIteration = {
+  kind: "artifact",
+  runId: "run-1",
+  sourceArtifactId: "artifact-v1",
+  sourceArtifactGroupId: "weekly-report",
+  sourceRunId: "source-run",
+  sourceTriggerType: "scheduled",
+  sourceThreadId: "thread-1",
+  feedbackMessageId: "user-msg-1",
+  requestedAt: "2026-07-23T12:00:00.000Z",
+  requestedByUserId: "user-1",
+};
+
+function proposalWorkerInput() {
+  const fixture = workerInput();
+  fixture.run.triggerType = "proposal_iteration";
+  if (fixture.input.lane.kind !== "worker") {
+    throw new Error("Expected worker lane");
+  }
+  fixture.input.lane.storedInputs = {
+    prompt: "Iterate on weekly-report.md: Add a risks section.",
+    threadId: "thread-1",
+    proposalIteration,
+  };
+  return fixture;
 }
 
 function attestationInserts(state: FakeDbState) {
@@ -1048,6 +1089,92 @@ describe("executeChatTurn — persist tail", () => {
       );
     },
   );
+
+  it("supersedes the source only after a replacement artifact is minted", async () => {
+    const replacement = {
+      id: "artifact-v2",
+      title: "Weekly report",
+      filename: "weekly-report.md",
+      kind: "document",
+      mimeType: "text/markdown",
+      sizeBytes: 160,
+      source: "assistant",
+      threadId: "thread-1",
+      chatMessageId: "assistant-msg-1",
+      runId: "run-1",
+      artifactGroupId: "weekly-report",
+      versionNumber: 2,
+      supersedesArtifactId: "artifact-v1",
+      versionSummary: "Added a risks section.",
+      metadata: null,
+      createdAt: "2026-07-23T12:05:00.000Z",
+      previewUrl: "/workspace/artifacts/artifact-v2",
+      downloadUrl: "/api/workspace/artifacts/artifact-v2/download",
+    };
+    vi.mocked(createArtifactsFromAssistantMessage).mockResolvedValueOnce([
+      replacement,
+    ]);
+    const fixture = proposalWorkerInput();
+
+    await executeChatTurn(fixture.input);
+
+    expect(createArtifactsFromAssistantMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposal: expect.objectContaining({
+          runId: "run-1",
+          triggerType: "scheduled",
+          iterationOf: expect.objectContaining({
+            sourceArtifactId: "artifact-v1",
+            feedbackMessageId: "user-msg-1",
+          }),
+        }),
+      }),
+    );
+    expect(completeProposalIteration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        iteration: proposalIteration,
+        replacementArtifact: replacement,
+        expectedWorkerId: "w-test",
+      }),
+    );
+    expect(releaseProposalIteration).not.toHaveBeenCalled();
+    expect(
+      fixture.state.runUpdates.find((update) => update.status === "succeeded"),
+    ).toBeDefined();
+    expect(
+      vi
+        .mocked(appendRunEventBestEffort)
+        .mock.calls.map(([, event]) => event.eventType),
+    ).toContain("proposal_iteration_completed");
+  });
+
+  it("restores the source proposal and fails the run when no replacement is minted", async () => {
+    const fixture = proposalWorkerInput();
+
+    await executeChatTurn(fixture.input);
+
+    expect(completeProposalIteration).not.toHaveBeenCalled();
+    expect(releaseProposalIteration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        iteration: proposalIteration,
+        error: expect.stringContaining("without creating a replacement"),
+        expectedWorkerId: "w-test",
+        replacementArtifactIds: [],
+      }),
+    );
+    expect(
+      fixture.state.runUpdates.find((update) => update.status === "failed"),
+    ).toMatchObject({
+      error: expect.stringContaining("without creating a replacement"),
+    });
+    expect(createProactiveRunNotification).toHaveBeenCalledWith(
+      fixture.input.db,
+      fixture.run,
+      "failed",
+      "thread-1",
+      { hasProposal: false },
+    );
+  });
 
   it("emits separate app validation and draft creation checkpoints", async () => {
     vi.mocked(createArtifactsFromAssistantMessage).mockResolvedValueOnce([

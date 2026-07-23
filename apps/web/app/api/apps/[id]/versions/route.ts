@@ -73,7 +73,9 @@ export async function GET(
       canDeploy:
         canAppRoleDeploy(actorRole) &&
         !version.isLive &&
-        version.status !== "discarded",
+        version.status !== "discarded" &&
+        version.status !== "iterating" &&
+        version.status !== "superseded",
       canDiscard:
         (version.status === "draft" || version.status === "proposed") &&
         (canAppRoleDeploy(actorRole) ||

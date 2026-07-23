@@ -24,6 +24,10 @@ function isWorkerExecutableRun(
 import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
 import { appendRunEventWithNextSequence } from "@/lib/run-events";
+import {
+  proposalIterationFromRunInputs,
+  releaseProposalIteration,
+} from "@/lib/proposal-iterations";
 
 type RunActionResult =
   | { ok: true; run: Pick<Run, "id" | "status"> }
@@ -95,6 +99,28 @@ export async function cancelRun({
     .where(eq(runs.id, run.id))
     .returning({ id: runs.id, status: runs.status });
 
+  const proposalIteration = proposalIterationFromRunInputs(run.inputs);
+  if (proposalIteration) {
+    try {
+      await releaseProposalIteration({
+        db,
+        iteration: proposalIteration,
+        error,
+        completedAt: now,
+      });
+    } catch (releaseError) {
+      process.stderr.write(
+        `[proposal-iteration-release-error] ${JSON.stringify({
+          runId: run.id,
+          message:
+            releaseError instanceof Error
+              ? releaseError.message
+              : String(releaseError),
+        })}\n`,
+      );
+    }
+  }
+
   await appendRunEventWithNextSequence({
     db,
     runId: run.id,
@@ -150,6 +176,15 @@ export async function retryChatRun({
       status: 409,
       error: "run_not_retryable",
       message: "Only failed or canceled chat runs can be retried.",
+    };
+  }
+  if (proposalIterationFromRunInputs(run.inputs)) {
+    return {
+      ok: false,
+      status: 409,
+      error: "proposal_iteration_retry_from_card",
+      message:
+        "The original proposal is pending again. Add feedback from its Iterate action to retry.",
     };
   }
 

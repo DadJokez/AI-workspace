@@ -40,6 +40,7 @@ import {
   resolveAppActorRole,
   type AppActorRole,
 } from "@/lib/apps";
+import { proposalIterationFromRunInputs } from "@/lib/proposal-iterations";
 
 export interface ChatRunOutput {
   assistantMessageId?: string;
@@ -292,7 +293,9 @@ export async function loadThreadMessagesWithRunActivity({
       runStatus: run.status,
       runError: run.error,
       canCancel: run.status === "queued" || run.status === "running",
-      canRetry: run.status === "failed" || run.status === "canceled",
+      canRetry:
+        (run.status === "failed" || run.status === "canceled") &&
+        !proposalIterationFromRunInputs(run.inputs),
       canResume: run.status === "queued" || run.status === "running",
       createdAt: run.startedAt ?? run.createdAt,
     });

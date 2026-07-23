@@ -18,10 +18,19 @@ vi.mock("@/lib/run-events", () => ({
 vi.mock("@/lib/chat-run-worker", () => ({
   startInProcessChatRunWorker: vi.fn(),
 }));
+vi.mock("@/lib/proposal-iterations", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/proposal-iterations")>();
+  return {
+    ...actual,
+    releaseProposalIteration: vi.fn(async () => true),
+  };
+});
 
 import { cancelRun, resumeChatRun, retryChatRun } from "@/lib/run-actions";
 import { appendRunEventWithNextSequence } from "@/lib/run-events";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
+import { releaseProposalIteration } from "@/lib/proposal-iterations";
 
 const owner: SessionUser = {
   id: "user-owner",
@@ -333,5 +342,88 @@ describe("run-type and retry-context guards", () => {
     ]);
     const result = await retryChatRun({ db, actor: owner, runId: "run-1" });
     expect(result).toMatchObject({ ok: false, error: "missing_retry_context" });
+  });
+
+  it("restores a proposal reservation when its queued run is canceled", async () => {
+    const proposalIteration = {
+      kind: "artifact",
+      runId: "run-1",
+      sourceArtifactId: "artifact-1",
+      sourceArtifactGroupId: "artifact-group-1",
+      sourceRunId: "source-run-1",
+      sourceTriggerType: "scheduled",
+      sourceThreadId: "thread-1",
+      feedbackMessageId: "msg-1",
+      requestedAt: "2026-07-23T12:00:00.000Z",
+      requestedByUserId: owner.id,
+    };
+    const { db } = fakeDb([
+      [
+        chatRun({
+          status: "queued",
+          triggerType: "proposal_iteration",
+          inputs: {
+            prompt: "Iterate on report.md: Add risks.",
+            threadId: "thread-1",
+            userMessageId: "msg-1",
+            proposalIteration,
+          },
+        }),
+      ],
+    ]);
+
+    const result = await cancelRun({ db, actor: owner, runId: "run-1" });
+
+    expect(result).toMatchObject({ ok: true, run: { status: "canceled" } });
+    expect(releaseProposalIteration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        db,
+        iteration: proposalIteration,
+        error: "Canceled by user.",
+        completedAt: expect.any(Date),
+      }),
+    );
+  });
+
+  it("requires failed proposal iterations to retry from the restored card", async () => {
+    const { db, captured } = fakeDb([
+      [
+        chatRun({
+          status: "failed",
+          triggerType: "proposal_iteration",
+          inputs: {
+            prompt: "Iterate on report.md: Add risks.",
+            threadId: "thread-1",
+            userMessageId: "msg-1",
+            proposalIteration: {
+              kind: "artifact",
+              runId: "run-1",
+              sourceArtifactId: "artifact-1",
+              sourceArtifactGroupId: "artifact-group-1",
+              sourceRunId: "source-run-1",
+              sourceTriggerType: "scheduled",
+              sourceThreadId: "thread-1",
+              feedbackMessageId: "msg-1",
+              requestedAt: "2026-07-23T12:00:00.000Z",
+              requestedByUserId: owner.id,
+            },
+          },
+        }),
+      ],
+    ]);
+
+    const result = await retryChatRun({
+      db,
+      actor: owner,
+      runId: "run-1",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 409,
+      error: "proposal_iteration_retry_from_card",
+    });
+    expect(captured.inserts).toHaveLength(0);
+    expect(startInProcessChatRunWorker).not.toHaveBeenCalled();
   });
 });
