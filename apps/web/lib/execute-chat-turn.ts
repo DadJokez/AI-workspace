@@ -1045,7 +1045,7 @@ export async function executeChatTurn({
       label: "Worker stopped after cancellation",
       metadata: {
         cancellationObservedVia: "database_poll",
-        runtimeRequestAbortAttempted: true,
+        runtimeRequestAbortAttempted: runtimeAbort.signal.aborted,
         providerSessionStopAttempted: false,
       },
     });

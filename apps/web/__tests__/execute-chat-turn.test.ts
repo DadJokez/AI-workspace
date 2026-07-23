@@ -890,6 +890,39 @@ describe("executeChatTurn — persist tail", () => {
       }),
     );
   });
+
+  it("does not report a runtime abort when cancellation is observed after the stream ends", async () => {
+    const { input, state } = workerInput();
+    input.runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        await (
+          turnInput.onRunStarted as
+            | ((metadata: Record<string, unknown>) => Promise<void>)
+            | undefined
+        )?.({ providerRunId: "completed-before-cancel" });
+        yield { type: "text-delta", delta: "Hello" };
+        yield { type: "usage", tokensIn: 11, tokensOut: 7 };
+        yield { type: "done" };
+        state.runStatus = "canceled";
+      },
+    } as unknown as AgentRuntime;
+
+    await executeChatTurn(input);
+
+    expect(input.runtimeAbort.signal.aborted).toBe(false);
+    expect(vi.mocked(appendRunEventBestEffort)).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        eventType: "worker_stopped_after_cancel",
+        metadata: {
+          cancellationObservedVia: "database_poll",
+          runtimeRequestAbortAttempted: false,
+          providerSessionStopAttempted: false,
+        },
+      }),
+    );
+  });
 });
 
 describe("buildTimingMetrics", () => {
