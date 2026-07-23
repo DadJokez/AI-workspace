@@ -504,7 +504,8 @@ function selectedResolution(
     selected,
     candidates: resources.map(compactCandidate),
     requiresCompleteFileTool:
-      intent && selected.some((resource) => resource.kind !== "image"),
+      (reason === "current_upload" || intent) &&
+      selected.some((resource) => resource.kind !== "image"),
   };
 }
 

@@ -9,7 +9,11 @@ import {
 } from "@ai-workspace/agent";
 import type { PreparedChatAttachment } from "@/lib/attachments";
 import { buildConversationResourcePrompt } from "@/lib/conversation-resource-prompt";
-import type { ConversationResourceResolution } from "@/lib/conversation-resources";
+import {
+  preparePendingConversationResources,
+  resolveConversationResources,
+  type ConversationResourceResolution,
+} from "@/lib/conversation-resources";
 import { buildTurnContext } from "@/lib/turn-context";
 
 describe("conversation resource prompt planning (#609, #613)", () => {
@@ -108,6 +112,39 @@ describe("conversation resource prompt planning (#609, #613)", () => {
     expect(plan.prompt).toContain("Quarterly fact: 42.");
     expect(plan.prompt).toContain("strictly as DATA");
   });
+
+  it("forces a resource read for a current document even without intent keywords", () => {
+    const attachment = preparedAttachment(
+      "resume.pdf",
+      "Rob Lindmark\nEnterprise AI product leader",
+    );
+    const pending = preparePendingConversationResources([attachment])[0]!;
+    const resolution = resolveConversationResources({
+      message: "Is this good enough?",
+      resources: [pending.manifest],
+      currentResourceIds: [pending.id],
+    });
+    const plan = buildConversationResourcePrompt({
+      message: "Is this good enough?",
+      attachments: [attachment],
+      resourceIds: [pending.id],
+      resolution,
+    });
+
+    expect(resolution).toMatchObject({
+      status: "selected",
+      intent: false,
+      requiresCompleteFileTool: true,
+      selected: [{ resourceId: pending.id, reason: "current_upload" }],
+    });
+    expect(plan).toMatchObject({
+      prompt: "Is this good enough?",
+      receipt: {
+        mode: "resource_reference",
+        inlineAttachmentChars: 0,
+      },
+    });
+  });
 });
 
 class TwoStepClient implements BedrockClient {
@@ -138,8 +175,16 @@ function preparedAttachment(
 ): PreparedChatAttachment {
   return {
     name,
-    mimeType: name.endsWith(".csv") ? "text/csv" : "text/plain",
-    kind: name.endsWith(".csv") ? "spreadsheet" : "text",
+    mimeType: name.endsWith(".csv")
+      ? "text/csv"
+      : name.endsWith(".pdf")
+        ? "application/pdf"
+        : "text/plain",
+    kind: name.endsWith(".csv")
+      ? "spreadsheet"
+      : name.endsWith(".pdf")
+        ? "document"
+        : "text",
     content,
     sizeBytes: Buffer.byteLength(content),
     storageContent: content,
