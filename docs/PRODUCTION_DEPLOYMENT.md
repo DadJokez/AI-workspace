@@ -35,6 +35,30 @@ permissions.
 AgentCore remains a separate stack and is updated immediately before this ECS
 handoff by `infra/scripts/update-agentcore-stack.sh`.
 
+## CodeBuild source checkout
+
+The docs-only classifier compares `CODEBUILD_WEBHOOK_PREV_COMMIT` with the
+resolved `main` commit before any install, image build, migration, CDK, ECS, or
+smoke work begins. The CodeBuild project must therefore retain full Git history
+(`gitCloneDepth=0`), including the previous commit from multi-commit pushes.
+Reconcile and verify that setting with:
+
+```bash
+AWS_DEFAULT_REGION=us-east-1 \
+  ./infra/scripts/configure-codebuild-source.sh
+```
+
+The script preserves every other source setting returned by CodeBuild, changes
+only `gitCloneDepth`, and verifies the saved value. The project remains
+console-managed until #467 brings the full pipeline into infrastructure as
+code. Until then, rerun this deterministic reconciler after replacing or
+manually editing the project.
+
+The classifier still fails closed to a full deployment when either SHA is
+missing or invalid, a commit cannot be resolved, or the changed paths are
+ambiguous. An unavailable previous commit can waste a deployment, but can
+never incorrectly skip one.
+
 ## One-time bootstrap
 
 The first rollout of this deployment path must be applied by an operator from

@@ -37,6 +37,8 @@ if [[ "$previous_commit" =~ ^0+$ ]]; then
   require_deploy "push created the branch and has no previous commit"
 fi
 
+echo "Comparing commits: previous=$previous_commit current=$current_commit"
+
 if ! git cat-file -e "${current_commit}^{commit}" 2>/dev/null; then
   require_deploy "resolved source commit is unavailable"
 fi
