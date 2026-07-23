@@ -14,7 +14,9 @@ import {
   resolveAppActorRole,
 } from "@/lib/apps";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { resolveAppPublication } from "@/lib/app-publication";
 import { listSharesForSubject } from "@/lib/shares";
+import { loadWorkspaceArtifactById } from "@/lib/workspace-artifacts";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +59,20 @@ export default async function ManageAppPage({
     }),
     canShare ? listSharesForSubject(db, "app", app.id) : Promise.resolve([]),
   ]);
+  const liveVersion = versions.find((version) => version.isLive) ?? null;
+  const liveArtifact = liveVersion
+    ? await loadWorkspaceArtifactById({
+        db,
+        artifactId: liveVersion.artifactId,
+      })
+    : null;
+  const publication = liveArtifact
+    ? resolveAppPublication(
+        liveArtifact.metadata,
+        liveVersion?.deployedAt ?? liveArtifact.updatedAt,
+        app.ownerUserId,
+      ).metadata
+    : null;
 
   return (
     <section className="flex flex-col gap-6 px-6 py-6">
@@ -70,6 +86,11 @@ export default async function ManageAppPage({
           </p>
           <h2 className="mt-1 text-base font-semibold text-ink">
             {app.name}
+            {app.status === "unpublished" ? (
+              <span className="ml-2 rounded bg-ink/5 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
+                Unpublished
+              </span>
+            ) : null}
             {app.archivedAt ? (
               <span className="ml-2 rounded bg-ink/5 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
                 Archived
@@ -102,7 +123,7 @@ export default async function ManageAppPage({
         </code>{" "}
         behind workspace sign-in, with a restrictive content-security policy:
         inline page only — no external scripts, no network calls, no secrets in
-        content (enforced at every deploy).
+        content (enforced at every publish).
         {app.sourceThreadId ? (
           <>
             {" "}
@@ -122,7 +143,7 @@ export default async function ManageAppPage({
         <h3 className="text-base font-semibold text-ink">Versions</h3>
         <p className="text-xs text-muted">
           Edits create draft versions. Unattended work waits as a proposal. The
-          live URL stays stable until an owner accepts a proposal, deploys a
+          live URL stays stable until an owner accepts a proposal, publishes a
           draft, or rolls back to a prior version.
         </p>
         <VersionsPanel
@@ -148,6 +169,7 @@ export default async function ManageAppPage({
               (artifact.status === "draft" ||
                 artifact.status === "proposed") &&
               (canDeploy || artifact.createdByUserId === sessionUser.id),
+            hasDataBindings: artifact.hasDataBindings,
             previewUrl: `/api/apps/${app.id}/versions/${artifact.id}/content`,
           }))}
         />
@@ -156,6 +178,19 @@ export default async function ManageAppPage({
       {canShare ? (
         <div className="flex flex-col gap-3 border-t border-hairline pt-5">
           <h3 className="text-base font-semibold text-ink">Sharing</h3>
+          {publication?.dataMode === "snapshot" ? (
+            <p className="text-xs text-muted">
+              Snapshot sharing grants recipients access to the baked content
+              shown in this version, even if they cannot access the original
+              data source.
+            </p>
+          ) : publication?.dataMode === "live_via_viewer" ? (
+            <p className="text-xs text-muted">
+              Live data runs under each viewer&apos;s own connected account.
+              This app never uses the author&apos;s connector for another
+              viewer.
+            </p>
+          ) : null}
           <SharePanel
             subjectType="app"
             subjectId={app.id}
@@ -171,7 +206,27 @@ export default async function ManageAppPage({
 
       {!app.archivedAt && canDeploy ? (
         <div className="border-t border-hairline pt-5">
-          <AppActions appId={app.id} />
+          {publication ? (
+            <p className="mb-3 text-xs text-muted">
+              Current data mode:{" "}
+              <span className="font-medium text-ink">
+                {publication.dataMode === "live_via_viewer"
+                  ? "Live via viewer"
+                  : "Snapshot"}
+              </span>
+              . Unpublishing keeps this URL and every version.
+            </p>
+          ) : null}
+          <AppActions
+            appId={app.id}
+            status={app.status}
+            liveVersionId={app.liveVersionId}
+            dataMode={
+              publication?.dataMode === "live_via_viewer"
+                ? "live_via_viewer"
+                : "snapshot"
+            }
+          />
         </div>
       ) : null}
     </section>

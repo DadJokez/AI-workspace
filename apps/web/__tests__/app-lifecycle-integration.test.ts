@@ -227,7 +227,7 @@ afterEach(() => {
 });
 
 describe("app lifecycle stateful paths", () => {
-  it("deploys a rollback by reverting the previous live version and auditing rollback", async () => {
+  it("publishes a rollback with publication metadata and a truthful audit operation", async () => {
     const { db, state } = createDbMock();
     const app = makeApp({ liveVersionId: "version-2" });
     const version = makeVersion({
@@ -263,11 +263,19 @@ describe("app lifecycle stateful paths", () => {
     expect(state.updateSets[0]).toMatchObject({ status: "reverted" });
     expect(state.updateSets[1]).toMatchObject({ status: "deployed" });
     expect(state.updateSets[2]).toMatchObject({
+      metadata: {
+        appPublication: expect.objectContaining({
+          dataMode: "snapshot",
+          publishedByUserId: ownerSession.id,
+        }),
+      },
+    });
+    expect(state.updateSets[3]).toMatchObject({
       liveVersionId: version.id,
       liveArtifactId: version.artifactId,
       status: "deployed",
     });
-    expect(state.updateSets[3]).toMatchObject({
+    expect(state.updateSets[4]).toMatchObject({
       status: "completed",
       completedAt: expect.any(Date),
     });
@@ -281,6 +289,7 @@ describe("app lifecycle stateful paths", () => {
       expect.objectContaining({
         actionType: "app_rollback",
         actorUserId: ownerSession.id,
+        metadata: expect.objectContaining({ operation: "rollback" }),
       }),
     );
   });

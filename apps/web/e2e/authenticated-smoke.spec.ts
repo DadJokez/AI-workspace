@@ -130,7 +130,7 @@ test.describe("authenticated product smoke", () => {
       dbId: "recommendation-auth-deploy",
       id: "deploy-app:artifact-demo-html",
       type: "deploy_artifact_as_app",
-      title: "Deploy this as an app",
+      title: "Publish this as an app",
       reason:
         "The generated artifact looks reusable, so it can become a workspace app.",
       requiresApproval: true,
@@ -198,7 +198,7 @@ test.describe("authenticated product smoke", () => {
     await expect(
       page.getByRole("button", { name: /demo-artifact\.html/i }),
     ).toBeVisible();
-    await expect(page.getByText("Deploy this as an app")).toBeVisible();
+    await expect(page.getByText("Publish this as an app")).toBeVisible();
 
     const previewBefore = page.context().pages().length;
     await page.getByRole("button", { name: /demo-artifact\.html/i }).click();
@@ -236,7 +236,7 @@ test.describe("authenticated product smoke", () => {
     ).toBeVisible();
 
     await page.getByRole("button", { name: "Close workspace" }).click();
-    await expect(page.getByText("Deploy this as an app")).toBeVisible();
+    await expect(page.getByText("Publish this as an app")).toBeVisible();
     const appManagementUrl =
       /\/apps\/manage\/00000000-0000-4000-8000-000000000230$/;
     const deployResponsePromise = page.waitForResponse(
@@ -249,10 +249,10 @@ test.describe("authenticated product smoke", () => {
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(
-          `Deploy navigation did not complete. Current URL: ${page.url()}. ${message}`,
+          `Publish navigation did not complete. Current URL: ${page.url()}. ${message}`,
         );
       });
-    await page.getByRole("button", { name: "Deploy app" }).click();
+    await page.getByRole("button", { name: "Publish app" }).click();
     const deployResponse = await deployResponsePromise;
     expect(deployResponse.ok()).toBe(true);
     await deployNavigationPromise;
@@ -266,20 +266,40 @@ test.describe("authenticated product smoke", () => {
     await expect(
       page.getByRole("heading", { name: "Auth Smoke App" }),
     ).toBeVisible();
+    await expect(page.getByText("Current data mode:")).toContainText(
+      "Snapshot",
+    );
 
     const draftRow = page.locator("li").filter({ hasText: "v3" });
     await expect(draftRow).toContainText("Draft");
-    await draftRow.getByRole("button", { name: "Deploy" }).click();
-    await expect(draftRow).toContainText("Live");
+    await draftRow.getByRole("button", { name: "Publish" }).click();
+    await expect(draftRow).toContainText("Published");
 
     const previousRow = page.locator("li").filter({ hasText: "v1" });
-    await previousRow.getByRole("button", { name: "Rollback" }).click();
-    await expect(previousRow).toContainText("Live");
+    await previousRow.getByRole("button", { name: "Publish" }).click();
+    await expect(previousRow).toContainText("Published");
 
     const throwawayRow = page.locator("li").filter({ hasText: "v4" });
     await expect(throwawayRow).toContainText("Draft");
     await throwawayRow.getByRole("button", { name: "Discard" }).click();
     await expect(throwawayRow).toHaveCount(0);
+
+    const unpublishRequest = page.waitForRequest(
+      (request) =>
+        request.url().endsWith("/publication") &&
+        request.method() === "DELETE",
+    );
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Unpublish" }).click();
+    await unpublishRequest;
+    const republishResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/deploy") &&
+        response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Republish" }).click();
+    expect((await republishResponse).ok()).toBe(true);
+    await expect(page.getByRole("button", { name: "Unpublish" })).toBeVisible();
 
     const shareRow = page
       .locator("li")
@@ -302,6 +322,51 @@ test.describe("authenticated product smoke", () => {
     ]);
     expect(editResponse.ok()).toBe(true);
     await expect(page).toHaveURL(/\/chat\?threadId=/, { timeout: 15_000 });
+  });
+
+  test("defaults app publication to a sealed snapshot", async ({ page }) => {
+    await page.goto("/apps");
+    await expect(
+      page.getByRole("heading", { name: "Publish an app" }),
+    ).toBeVisible();
+    await expect(page.getByRole("radio", { name: "Snapshot" })).toBeChecked();
+    await expect(
+      page.getByRole("radio", { name: "Live via viewer" }),
+    ).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Publish" })).toBeVisible();
+  });
+
+  test("shows publication provenance and kill controls to admins", async ({
+    page,
+  }) => {
+    await page.goto("/admin/apps");
+    await expect(
+      page.getByRole("heading", { name: "Published apps" }),
+    ).toBeVisible();
+    const appRow = page.getByRole("row").filter({ hasText: "Auth Smoke App" });
+    await expect(appRow).toContainText("Snapshot");
+    await expect(
+      appRow.getByRole("button", { name: "Unpublish" }),
+    ).toBeVisible();
+  });
+
+  test("serves a published snapshot with truthful viewer provenance", async ({
+    page,
+  }) => {
+    const response = await page.goto("/apps/auth-smoke-app");
+    expect(response?.status()).toBe(200);
+    expect(response?.headers()["content-security-policy"]).toContain(
+      "connect-src 'none'",
+    );
+    await expect(
+      page.getByRole("heading", { name: "Auth Smoke Previous" }),
+    ).toBeVisible();
+    const badge = page.getByRole("complementary", {
+      name: "Comparative publication details",
+    });
+    await expect(badge).toContainText("Comparative");
+    await expect(badge).toContainText("Snapshot");
+    await expect(badge).toContainText("By Auth Smoke");
   });
 
   test("renders protected skills catalog with owned, shared, and starter skills", async ({

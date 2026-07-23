@@ -385,7 +385,7 @@ describe("chat context pack", () => {
         {
           id: "deploy-app:artifact",
           type: "deploy_artifact_as_app",
-          title: "Deploy this as an app",
+          title: "Publish this as an app",
           reason: "Reusable artifact.",
           requiresApproval: true,
           action: { kind: "deploy_app", artifactId: "artifact-1" },

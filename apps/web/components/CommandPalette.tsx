@@ -259,7 +259,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
         group: "apps" as const,
         label: app.name,
         description: app.description,
-        keywords: ["application", "deployed app"],
+        keywords: ["application", "published app"],
         command: { type: "route" as const, href: `/apps/${app.slug}` },
       })),
     ];

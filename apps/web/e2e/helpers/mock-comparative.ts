@@ -560,6 +560,12 @@ export async function installMockComparativeApi(
       });
     }
 
+    const appPublicationMatch =
+      /^\/api\/apps\/([^/]+)\/publication$/.exec(path);
+    if (appPublicationMatch && request.method() === "DELETE") {
+      return json(route, { ok: true });
+    }
+
     const appVersionMatch =
       /^\/api\/apps\/([^/]+)\/versions\/([^/]+)$/.exec(path);
     if (appVersionMatch && request.method() === "PATCH") {
@@ -624,7 +630,7 @@ export async function installMockComparativeApi(
           dbId: recommendationId,
           id: recommendationId,
           type: "deploy_artifact_as_app",
-          title: "Deploy this as an app",
+          title: "Publish this as an app",
           reason:
             "The generated artifact looks reusable, so it can become a workspace app.",
           requiresApproval: true,

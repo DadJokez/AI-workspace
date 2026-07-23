@@ -3,14 +3,15 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { RegisterAppForm } from "@/components/apps/RegisterAppForm";
+import { parseDataBindings } from "@/lib/app-data-bindings";
 import { isServableArtifact, listAppSharesWithRoles } from "@/lib/apps";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Apps home: deployed thin apps you own or that were shared with you, plus
- * the deploy entry point — pick any HTML artifact a conversation produced
+ * Apps home: published thin apps you own or that were shared with you, plus
+ * the publish entry point — pick any HTML artifact a conversation produced
  * and give it a name.
  */
 export default async function AppsPage() {
@@ -44,14 +45,14 @@ export default async function AppsPage() {
         <h2 className="text-base font-semibold text-ink">Your apps</h2>
         <p className="mt-1 text-xs text-muted">
           Small tools built in conversation, served behind workspace sign-in.
-          No repos, no pipelines — describe, deploy, share.
+          No repos, no pipelines — describe, publish, share.
         </p>
       </div>
 
       {mine.length === 0 && shared.length === 0 ? (
         <p className="rounded-md border border-hairline px-4 py-6 text-center text-sm text-muted">
           No apps yet. Ask the assistant to build a small HTML page in chat,
-          then deploy it below.
+          then publish it below.
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -75,7 +76,9 @@ export default async function AppsPage() {
                     ) : null}
                     {app.status !== "deployed" ? (
                       <span className="ml-2 rounded bg-ink/5 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
-                        Draft
+                        {app.status === "unpublished"
+                          ? "Unpublished"
+                          : "Draft"}
                       </span>
                     ) : null}
                   </p>
@@ -110,9 +113,9 @@ export default async function AppsPage() {
       )}
 
       <div className="border-t border-hairline pt-5">
-        <h3 className="text-base font-semibold text-ink">Deploy an app</h3>
+        <h3 className="text-base font-semibold text-ink">Publish an app</h3>
         <p className="mt-1 text-xs text-muted">
-          Pick an HTML artifact from your conversations. Deploying serves it at
+          Pick an HTML artifact from your conversations. Publishing serves it at
           a workspace URL only signed-in teammates you share it with can open.
         </p>
         <div className="mt-3">
@@ -122,6 +125,8 @@ export default async function AppsPage() {
               title: artifact.title,
               filename: artifact.filename,
               createdAt: artifact.createdAt.toISOString(),
+              hasDataBindings:
+                parseDataBindings(artifact.metadata).length > 0,
             }))}
           />
         </div>
