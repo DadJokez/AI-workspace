@@ -955,7 +955,7 @@ export async function executeChatTurn({
     if (lane.kind === "worker") {
       if (await isRunCanceled(db, runId)) {
         runtimeAbort.abort();
-      } else {
+      } else if (!runtimeAbort.signal.aborted) {
         await persistProviderTraceCapture({
           db,
           runId,

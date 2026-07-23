@@ -923,6 +923,47 @@ describe("executeChatTurn — persist tail", () => {
       }),
     );
   });
+
+  it("persists the friendly timeout error when an aborted provider stream throws", async () => {
+    const { input, state } = workerInput();
+    let markStreamStarted: (() => void) | undefined;
+    const streamStarted = new Promise<void>((resolve) => {
+      markStreamStarted = resolve;
+    });
+    input.runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        const signal = turnInput.signal as AbortSignal;
+        await new Promise<void>((_resolve, reject) => {
+          const abort = () => {
+            const error = new Error("The operation was aborted.");
+            error.name = "AbortError";
+            reject(error);
+          };
+          signal.addEventListener("abort", abort, { once: true });
+          markStreamStarted?.();
+        });
+      },
+    } as unknown as AgentRuntime;
+
+    const execution = executeChatTurn(input);
+    await streamStarted;
+    input.runtimeAbort.abort();
+    await execution;
+
+    expect(state.runUpdates).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        error: "Chat runtime timed out after 60000ms.",
+      }),
+    );
+    expect(createProactiveRunNotification).toHaveBeenCalledWith(
+      input.db,
+      expect.anything(),
+      "failed",
+      "thread-1",
+    );
+  });
 });
 
 describe("buildTimingMetrics", () => {
