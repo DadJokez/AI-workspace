@@ -8,6 +8,7 @@ const getSessionUser = vi.fn();
 const canActorOpenApp = vi.fn();
 const getLiveAppVersion = vi.fn();
 const auditAppMutation = vi.fn();
+const auditAdminDataAccess = vi.fn();
 const loadWorkspaceArtifactById = vi.fn();
 const checkRateLimit = vi.fn();
 const resolveSalesforceConnection = vi.fn();
@@ -18,6 +19,10 @@ vi.mock("@/lib/apps", () => ({
   canActorOpenApp,
   getLiveAppVersion,
   auditAppMutation,
+}));
+vi.mock("@/lib/admin-data-access", () => ({
+  adminDataAccessJustification: () => null,
+  auditAdminDataAccess,
 }));
 vi.mock("@/lib/workspace-artifacts", () => ({ loadWorkspaceArtifactById }));
 vi.mock("@/lib/request-limits", () => ({ checkRateLimit }));
@@ -115,6 +120,7 @@ beforeEach(() => {
     done: true,
     records: [{ Id: "006xxx" }],
   });
+  auditAdminDataAccess.mockResolvedValue("skipped");
 });
 
 afterEach(() => vi.resetModules());
@@ -139,6 +145,31 @@ describe("GET /api/apps/[id]/data/[bindingId]", () => {
     expect(queryReadOnlySoql).toHaveBeenCalledWith(
       binding.query,
       expect.objectContaining({ accessToken: "viewer-token" }),
+    );
+  });
+
+  it("records an admin opening another user's app data surface", async () => {
+    const admin = {
+      id: "admin-1",
+      email: "admin@x.com",
+      displayName: "Admin",
+      role: "admin",
+    };
+    getSessionUser.mockResolvedValue(admin);
+
+    const res = await callRoute();
+
+    expect(res.status).toBe(200);
+    expect(auditAdminDataAccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: admin,
+        access: expect.objectContaining({
+          targetUserId: appRow.ownerUserId,
+          resourceType: "app",
+          resourceId: appRow.id,
+          surface: "app_data",
+        }),
+      }),
     );
   });
 

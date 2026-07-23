@@ -1,6 +1,7 @@
 import { chatThreads, feedbackReports, getDb, users } from "@ai-workspace/db";
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
+import { auditAdminDataAccessBatch } from "@/lib/admin-data-access";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { FilterPill } from "@/app/admin/ui";
 import {
@@ -39,6 +40,7 @@ export default async function AdminFeedbackPage({ searchParams }: Props) {
   const rows = await db
     .select({
       id: feedbackReports.id,
+      userId: feedbackReports.userId,
       userEmail: users.email,
       userName: users.displayName,
       threadTitle: chatThreads.title,
@@ -65,6 +67,18 @@ export default async function AdminFeedbackPage({ searchParams }: Props) {
     .orderBy(desc(feedbackReports.createdAt))
     .limit(100);
 
+  await auditAdminDataAccessBatch({
+    db,
+    actor: sessionUser,
+    accesses: rows.map((report) => ({
+      targetUserId: report.userId,
+      resourceType: "feedback_collection",
+      resourceId: `status:${status}`,
+      surface: "admin_feedback",
+      resourceCount: 1,
+    })),
+  });
+
   const counts = await db
     .select({
       status: feedbackReports.status,
@@ -74,13 +88,16 @@ export default async function AdminFeedbackPage({ searchParams }: Props) {
     .groupBy(feedbackReports.status);
   const { countByStatus, total } = summarizeFeedbackStatusCounts(counts);
 
-  const out: AdminFeedbackRow[] = rows.map((row) => ({
-    ...row,
-    status: normalizeFeedbackStatus(row.status),
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-    resolvedAt: row.resolvedAt?.toISOString() ?? null,
-  }));
+  const out: AdminFeedbackRow[] = rows.map(({ userId, ...row }) => {
+    void userId;
+    return {
+      ...row,
+      status: normalizeFeedbackStatus(row.status),
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+      resolvedAt: row.resolvedAt?.toISOString() ?? null,
+    };
+  });
 
   return (
     <section className="py-2">
