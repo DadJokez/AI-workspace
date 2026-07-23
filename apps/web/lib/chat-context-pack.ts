@@ -25,6 +25,7 @@ import {
   renderConversationResourceContext,
   type ConversationResourceResolution,
 } from "@/lib/conversation-resources";
+import type { RecentToolEvidenceReceipt } from "@/lib/recent-tool-evidence";
 
 export interface ChatContextUser {
   displayName: string;
@@ -68,6 +69,7 @@ export interface ChatContextItem {
     | "recent_message"
     | "artifact_context"
     | "uploaded_file"
+    | "recent_tool_evidence"
     | "conversation_resource"
     | "capability_graph"
     | "recent_recommendation";
@@ -131,6 +133,7 @@ export interface ChatContextReceipt {
     artifactContextChars: number;
     uploadedFilesInjected: boolean;
     uploadedFiles: ChatContextUploadedFile[];
+    recentToolEvidence?: RecentToolEvidenceReceipt;
     resources: ConversationResourceResolution | null;
   };
   capabilities: {
@@ -182,6 +185,7 @@ export interface ChatContextPack {
     recentMessages: ChatContextItem[];
     artifacts: ChatContextItem[];
     uploadedFiles: ChatContextItem[];
+    toolEvidence?: ChatContextItem;
     resources: ChatContextItem[];
   };
   recommendations: ChatContextRecommendationPack;
@@ -206,6 +210,7 @@ export interface BuildChatContextPackInput {
   modelId?: string;
   artifactContext?: string | null;
   uploadedFiles?: readonly ChatContextUploadedFile[];
+  recentToolEvidenceReceipt?: RecentToolEvidenceReceipt;
   resourceResolution?: ConversationResourceResolution;
   recommendations?: readonly RecommendationCandidate[];
   route?: ChatRuntimeRoute;
@@ -233,6 +238,7 @@ export function buildChatContextPack({
   modelId,
   artifactContext,
   uploadedFiles = [],
+  recentToolEvidenceReceipt,
   resourceResolution,
   recommendations = [],
   route,
@@ -332,6 +338,31 @@ export function buildChatContextPack({
       },
     }),
   );
+  const recentToolEvidenceItem =
+    recentToolEvidenceReceipt && recentToolEvidenceReceipt.candidateCount > 0
+      ? contextItem({
+          id: "thread:recent-tool-evidence",
+          type: "recent_tool_evidence",
+          label: `${recentToolEvidenceReceipt.included.length} recent tool result(s) included`,
+          source: "chat_messages.tool_results",
+          owner: "assistant",
+          freshness: "recent_thread",
+          visibility:
+            recentToolEvidenceReceipt.included.length > 0
+              ? "hidden_prompt"
+              : "receipt_only",
+          injected: recentToolEvidenceReceipt.included.length > 0,
+          charCount: recentToolEvidenceReceipt.includedChars,
+          metadata: {
+            candidateCount: recentToolEvidenceReceipt.candidateCount,
+            included: recentToolEvidenceReceipt.included,
+            omittedToolCallIds:
+              recentToolEvidenceReceipt.omittedToolCallIds,
+            maxChars: recentToolEvidenceReceipt.maxChars,
+            maxResultChars: recentToolEvidenceReceipt.maxResultChars,
+          },
+        })
+      : undefined;
   const resourceItems =
     resourceResolution?.status === "selected"
       ? resourceResolution.selected.map((resource) =>
@@ -424,6 +455,7 @@ export function buildChatContextPack({
     ...recentMessageItems,
     ...artifactItems,
     ...uploadedFileItems,
+    ...(recentToolEvidenceItem ? [recentToolEvidenceItem] : []),
     ...resourceItems,
     ...(capabilityItem ? [capabilityItem] : []),
     ...recommendationItems,
@@ -466,6 +498,9 @@ export function buildChatContextPack({
         ...(file.mimeType ? { mimeType: file.mimeType } : {}),
         ...(file.extractionStatus ? { extractionStatus: file.extractionStatus } : {}),
       })),
+      ...(recentToolEvidenceReceipt
+        ? { recentToolEvidence: recentToolEvidenceReceipt }
+        : {}),
       resources: resourceResolution ?? null,
     },
     capabilities: capabilityReceipt,
@@ -589,6 +624,9 @@ export function buildChatContextPack({
       recentMessages: recentMessageItems,
       artifacts: artifactItems,
       uploadedFiles: uploadedFileItems,
+      ...(recentToolEvidenceItem
+        ? { toolEvidence: recentToolEvidenceItem }
+        : {}),
       resources: resourceItems,
     },
     recommendations: recommendationPack,
@@ -652,6 +690,17 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
         receipt.work.resources,
       )}.`,
   );
+  if (receipt.work.recentToolEvidence) {
+    const evidence = receipt.work.recentToolEvidence;
+    const succeeded = evidence.included.filter(
+      (item) => item.status === "succeeded",
+    ).length;
+    const failed = evidence.included.length - succeeded;
+    lines.push(
+      `- Historical tool evidence: ${succeeded} successful and ${failed} failed result(s) included; ` +
+        `${evidence.omittedToolCallIds.length} omitted by the ${evidence.maxChars}-character budget.`,
+    );
+  }
   lines.push(
     `- Capabilities: ${receipt.capabilities.providers} tool provider(s), ` +
       `${receipt.capabilities.skills} skill(s), ${receipt.capabilities.apps} app(s), ` +
