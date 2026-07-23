@@ -33,7 +33,6 @@ import {
 import { isModelEnabled, resolveModelForPurpose } from "@/lib/model-registry";
 import {
   resolveDeclaredAttachmentCount,
-  foldAttachmentsIntoPrompt,
   scanAttachmentsForSecrets,
   validateAttachments,
   type ChatAttachment,
@@ -49,6 +48,7 @@ import {
   preparePendingConversationResources,
   resolveConversationResources,
 } from "@/lib/conversation-resources";
+import { buildConversationResourcePrompt } from "@/lib/conversation-resource-prompt";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
 import {
   checkRateLimit,
@@ -444,9 +444,8 @@ export async function POST(req: Request) {
     currentResourceIds,
     previousResolution: previousResourceResolution,
   });
-  // Only files on THIS request are folded into the prompt. Durable follow-ups
-  // carry compact resource ids and use the complete-file MCP adapter instead
-  // of reinjecting a 200k preview on every turn.
+  // Only files on THIS request need runtime content (for example native image
+  // bytes). Durable and current queryable files use compact resource ids.
   const effectiveAttachments = requestAttachments;
 
   const routingCapabilityGraph = await loadUserCapabilityGraph(db, sessionUser, {
@@ -598,21 +597,22 @@ export async function POST(req: Request) {
     });
   }
 
-  // The bubble shows the typed message; the model sees it plus the folded
-  // attachment text. Each file is also stored as a workspace artifact so it
-  // renders as a chip on the turn (and is downloadable later).
+  // The bubble and model both receive the typed message. Queryable files ride
+  // as compact resource references; only a resolver failure falls back to a
+  // framed inline preview.
   // #416: the skill's operating instructions pin into the stable system
   // prefix (via the context pack's activeSkill input) instead of riding the
   // summarizable user message; only the user's own request stays here.
   const modelVisibleMessage = activatedSkill
     ? buildActivatedSkillUserMessage(activatedSkill.args)
     : effectiveUserMessage;
-  // #348: an edited file-bearing turn replays its stored uploads — same
-  // fold, same runtime payload, sourced from storage instead of the request.
-  const promptForModel = foldAttachmentsIntoPrompt(
-    modelVisibleMessage,
-    effectiveAttachments,
-  );
+  const resourcePromptPlan = buildConversationResourcePrompt({
+    message: modelVisibleMessage,
+    attachments: effectiveAttachments,
+    resourceIds: currentResourceIds,
+    resolution: resourceResolution,
+  });
+  const promptForModel = resourcePromptPlan.prompt;
   const uploadedFiles = effectiveAttachments.map((a, index) => ({
     ...(currentResourceIds[index]
       ? { resourceId: currentResourceIds[index] }
@@ -687,8 +687,7 @@ export async function POST(req: Request) {
       modelId,
       inputs: {
         // Durable runs retain the user's instruction and resource references,
-        // never a copy of uploaded file content. Inline execution receives the
-        // one-turn folded preview separately below.
+        // never a copy of uploaded file content.
         prompt: modelVisibleMessage,
         threadId: thread.id,
         userMessageId: userMsg[0]!.id,
@@ -700,6 +699,7 @@ export async function POST(req: Request) {
         runtimeRoute,
         uploadedFiles: storedUploadedFiles,
         resourceResolution,
+        resourcePrompt: resourcePromptPlan.receipt,
         routeReceipt,
         // #432: preserved so a queued or retried execution of this turn uses
         // the same clock context the user sent it with.
@@ -754,6 +754,7 @@ export async function POST(req: Request) {
         runtimeRoute,
         routeReceipt,
         resourceResolution,
+        resourcePrompt: resourcePromptPlan.receipt,
         ...(replaceMessageId ? { replaceMessageId } : {}),
         ...(modelCommand ? { modelCommand } : {}),
         ...(activatedSkill
@@ -783,6 +784,7 @@ export async function POST(req: Request) {
         metadata: {
           uploadedFiles: storedUploadedFiles,
           resourceResolution,
+          resourcePrompt: resourcePromptPlan.receipt,
         },
         occurredAt: queuedAt,
       });
@@ -800,6 +802,7 @@ export async function POST(req: Request) {
           uploadedFiles: storedUploadedFiles,
           replayedArtifactIds,
           resourceResolution,
+          resourcePrompt: resourcePromptPlan.receipt,
         },
         occurredAt: queuedAt,
       });
