@@ -111,6 +111,43 @@ describe.sequential("complete conversation resource adapters (#576)", () => {
     },
   );
 
+  it("rejects filtered aggregates instead of returning plausible full-table values", async () => {
+    const resource = textResource(
+      "orders.csv",
+      [
+        "order_id,discount_pct,sales_rep,order_date",
+        "1,17,Dana Kim,2024-01-10",
+        "2,18,Dana Kim,2024-01-20",
+        "3,0,Other Rep,2024-02-10",
+        "4,1,Other Rep,2024-02-20",
+      ].join("\n"),
+      "spreadsheet",
+    );
+
+    await expect(
+      queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "table_aggregate",
+        aggregate: "count",
+        filterColumn: "order_date",
+        filterOperator: "contains",
+        filterValue: "2024-01",
+      }),
+    ).rejects.toThrow(/filtered aggregation is not supported yet/i);
+
+    await expect(
+      queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "table_aggregate",
+        column: "discount_pct",
+        aggregate: "average",
+        filterColumn: "sales_rep",
+        filterOperator: "equals",
+        filterValue: "Dana Kim",
+      }),
+    ).rejects.toThrow(/will not return an unfiltered value/i);
+  });
+
   it("reads every XLSX row and every sheet before reporting an aggregate", async () => {
     const workbook = new ExcelJS.Workbook();
     const first = workbook.addWorksheet("First");

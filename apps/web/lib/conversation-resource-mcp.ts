@@ -37,7 +37,7 @@ export const conversationResourceTools = [
   {
     name: "query",
     description:
-      "Read or analyze one authorized file from this conversation. Use this instead of guessing from a preview. For documents and long text, read beginning/middle/end or search addressable sections. For CSV, TSV, and XLSX, table operations scan every row and report sourceCoverage=full. Call repeatedly when the question needs multiple sections or files.",
+      "Read or analyze one authorized file from this conversation. Use this instead of guessing from a preview. For documents and long text, read beginning/middle/end or search addressable sections. For CSV, TSV, and XLSX, table operations scan every row and report sourceCoverage=full. Filtered aggregates are not supported yet and return an error instead of an unfiltered value. Call repeatedly when the question needs multiple sections or files.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -79,8 +79,14 @@ export const conversationResourceTools = [
         aggregate: {
           type: "string",
           enum: ["sum", "average", "min", "max", "count", "distinct_count"],
+          description:
+            "Aggregate for operation=table_aggregate. Do not combine with filter fields.",
         },
-        filterColumn: { type: "string" },
+        filterColumn: {
+          type: "string",
+          description:
+            "Column to filter for operation=table_filter. Filtered table_aggregate requests return an error.",
+        },
         filterOperator: {
           type: "string",
           enum: [
@@ -92,8 +98,14 @@ export const conversationResourceTools = [
             "less_than",
             "less_than_or_equal",
           ],
+          description:
+            "Comparison for operation=table_filter. Filtered table_aggregate requests return an error.",
         },
-        filterValue: { type: ["string", "number"] },
+        filterValue: {
+          type: ["string", "number"],
+          description:
+            "Value to match for operation=table_filter. Filtered table_aggregate requests return an error.",
+        },
         sortColumn: { type: "string" },
         sortDirection: { type: "string", enum: ["asc", "desc"] },
         limit: { type: "number", minimum: 1, maximum: 100 },
