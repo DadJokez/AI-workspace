@@ -41,6 +41,9 @@ verified_json=$(aws codebuild batch-get-projects \
   --region "$region" \
   --names "$project_name" \
   --output json)
+# Live-verified 2026-07-23 against ai-workspace-build: CodeBuild returns the
+# full-history value as numeric 0. Keep an absent field fail-closed because a
+# response-shape change is ambiguous and should not be reported as reconciled.
 verified_depth=$(jq -r '.projects[0].source.gitCloneDepth // empty' \
   <<< "$verified_json")
 

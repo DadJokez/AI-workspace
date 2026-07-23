@@ -58,6 +58,13 @@ describe("configure-codebuild-source.sh", () => {
     expect(result.stderr).toContain("checkout verification failed");
   });
 
+  it("fails closed if CodeBuild stops returning the live-verified zero value", () => {
+    const result = runScript({ omitVerificationDepth: true });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("got missing");
+  });
+
   it("documents the reconciler, full history, fail-closed behavior, and IaC owner", () => {
     const deployment = readFileSync(
       join(ROOT, "docs/PRODUCTION_DEPLOYMENT.md"),
@@ -74,9 +81,11 @@ describe("configure-codebuild-source.sh", () => {
 function runScript({
   updateFailure = false,
   verificationMismatch = false,
+  omitVerificationDepth = false,
 }: {
   updateFailure?: boolean;
   verificationMismatch?: boolean;
+  omitVerificationDepth?: boolean;
 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "codebuild-source-script-"));
   tempDirs.push(dir);
@@ -92,20 +101,36 @@ set -euo pipefail
 
 if [[ "$1 $2" == "codebuild batch-get-projects" ]]; then
   depth=$(cat "$FAKE_STATE_PATH")
-  jq -n --argjson depth "$depth" '{
-    projects: [{
-      name: "ai-workspace-build",
-      source: {
-        type: "GITHUB",
-        location: "https://github.com/DadJokez/AI-workspace.git",
-        gitCloneDepth: $depth,
-        buildspec: "buildspec.yml",
-        reportBuildStatus: true,
-        insecureSsl: false
-      }
-    }],
-    projectsNotFound: []
-  }'
+  if [[ "$FAKE_OMIT_VERIFICATION_DEPTH" == "1" && "$depth" == "0" ]]; then
+    jq -n '{
+      projects: [{
+        name: "ai-workspace-build",
+        source: {
+          type: "GITHUB",
+          location: "https://github.com/DadJokez/AI-workspace.git",
+          buildspec: "buildspec.yml",
+          reportBuildStatus: true,
+          insecureSsl: false
+        }
+      }],
+      projectsNotFound: []
+    }'
+  else
+    jq -n --argjson depth "$depth" '{
+      projects: [{
+        name: "ai-workspace-build",
+        source: {
+          type: "GITHUB",
+          location: "https://github.com/DadJokez/AI-workspace.git",
+          gitCloneDepth: $depth,
+          buildspec: "buildspec.yml",
+          reportBuildStatus: true,
+          insecureSsl: false
+        }
+      }],
+      projectsNotFound: []
+    }'
+  fi
 elif [[ "$1 $2" == "codebuild update-project" ]]; then
   if [[ "$FAKE_UPDATE_FAILURE" == "1" ]]; then
     echo "simulated update failure" >&2
@@ -142,6 +167,7 @@ fi
       FAKE_SOURCE_CAPTURE_PATH: sourceCapturePath,
       FAKE_UPDATE_FAILURE: updateFailure ? "1" : "0",
       FAKE_VERIFICATION_MISMATCH: verificationMismatch ? "1" : "0",
+      FAKE_OMIT_VERIFICATION_DEPTH: omitVerificationDepth ? "1" : "0",
     },
   });
 
