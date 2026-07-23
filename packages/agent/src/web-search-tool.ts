@@ -27,6 +27,10 @@ const MAX_RESULT_COUNT = 10;
 const MAX_QUERY_CHARS = 400;
 const RETRY_DELAY_MS = 1_000;
 const WEB_SEARCH_MARKER_RE = /<<<(?:END-)?WEB-SEARCH-RESULTS [^>\n]{1,128}>>>/g;
+const PROMPT_INJECTION_CUE_RE =
+  /\b(?:ignore\s+(?:(?:all|any)\s+)?(?:(?:previous|prior)\s+)?instructions?|(?:system|developer|assistant|admin)\s+(?:directive|instruction|message|prompt))\b/i;
+const OMITTED_SEARCH_RESULT =
+  "[Search result omitted because it contained instructions directed at the assistant.]";
 
 export interface WebSearchResult {
   title: string;
@@ -247,10 +251,7 @@ function formatSearchResultsData(results: readonly WebSearchResult[]): string {
   const begin = `<<<WEB-SEARCH-RESULTS ${nonce}>>>`;
   const end = `<<<END-WEB-SEARCH-RESULTS ${nonce}>>>`;
   const listing = results
-    .map(
-      (result, index) =>
-        `${index + 1}. ${result.title}\n   ${result.url}\n   ${result.snippet}`,
-    )
+    .map((result, index) => formatSearchResult(result, index))
     .join("\n")
     .split(begin)
     .join("")
@@ -263,6 +264,16 @@ function formatSearchResultsData(results: readonly WebSearchResult[]): string {
     listing,
     end,
   ].join("\n");
+}
+
+function formatSearchResult(
+  result: WebSearchResult,
+  index: number,
+): string {
+  if (PROMPT_INJECTION_CUE_RE.test(`${result.title}\n${result.snippet}`)) {
+    return `${index + 1}. ${OMITTED_SEARCH_RESULT}`;
+  }
+  return `${index + 1}. ${result.title}\n   ${result.url}\n   ${result.snippet}`;
 }
 
 function normalizeCount(value: unknown): number {
