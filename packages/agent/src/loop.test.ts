@@ -5,7 +5,11 @@ import type {
   BedrockStreamEvent,
   ConverseStreamParams,
 } from "./clients";
-import { MAX_TOKENS_TRUNCATION_NOTICE, runAgentLoop } from "./loop";
+import {
+  MAX_TOKENS_TRUNCATION_NOTICE,
+  PLATFORM_EVIDENCE_DISCIPLINE,
+  runAgentLoop,
+} from "./loop";
 import { MODELS } from "./models";
 import { ToolRegistry } from "./registry";
 
@@ -75,12 +79,18 @@ describe("runAgentLoop system prompt caching", () => {
 
   it("stamps identity into the stable prompt and the clock into the suffix", async () => {
     const client = new CaptureClient();
-    await runTurn(client);
+    await runTurn(client, "You are the christmas checker.");
 
     const params = client.captured[0];
-    expect(params?.systemPrompt).toContain("You are Claude Sonnet 4.6");
-    expect(params?.systemPrompt).toContain(
-      "never claim to be an older model",
+    const stablePrompt = params?.systemPrompt ?? "";
+    expect(stablePrompt).toContain("You are Claude Sonnet 4.6");
+    expect(stablePrompt).toContain("never claim to be an older model");
+    expect(stablePrompt).toContain(PLATFORM_EVIDENCE_DISCIPLINE);
+    expect(stablePrompt).toContain(
+      "Do not silently infer dates, owners, status, deadlines, decisions, completion, attendance, or attribution",
+    );
+    expect(stablePrompt.indexOf(PLATFORM_EVIDENCE_DISCIPLINE)).toBeGreaterThan(
+      stablePrompt.indexOf("christmas checker"),
     );
     expect(params?.volatileSystemSuffix).toContain(
       "Treat this as ground truth for any date or time reasoning",
