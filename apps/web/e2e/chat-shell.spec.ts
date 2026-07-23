@@ -359,7 +359,7 @@ test.describe("chat shell guardrails", () => {
   // #348: file-bearing turns edit by replaying stored uploads. The image and
   // the Office-style document exercise both replay channels (native image
   // block + extracted text); the second thread pins the fail-closed side.
-  test("edits and resends a file-bearing user message, replaying stored uploads", async ({
+  test("regenerates and edits a file-bearing user message by replaying stored uploads", async ({
     page,
   }, testInfo) => {
     const isMobile = testInfo.project.name.includes("mobile");
@@ -474,6 +474,7 @@ test.describe("chat shell guardrails", () => {
       },
       onChat: async (body, route) => {
         chatBodies.push(body);
+        const turn = chatBodies.length;
         await fulfillSse(route, [
           {
             type: "meta",
@@ -484,10 +485,16 @@ test.describe("chat shell guardrails", () => {
                 : "55555555-5555-4555-8555-555555555555",
             modelId: "sonnet-4-6",
           },
-          { type: "text-delta", delta: "Revised answer over the files." },
+          {
+            type: "text-delta",
+            delta:
+              turn === 1
+                ? "Regenerated answer over the files."
+                : "Revised answer over the files.",
+          },
           {
             type: "persisted",
-            assistantMessageId: "assistant-files-replay",
+            assistantMessageId: `assistant-files-replay-${turn}`,
             artifacts: [],
             recommendations: [],
           },
@@ -516,6 +523,28 @@ test.describe("chat shell guardrails", () => {
       .getByTestId("user-message")
       .filter({ hasText: "Summarize the attached numbers" });
     await expect(fileMessage).toBeVisible();
+
+    // #451: regenerate replays the persisted uploads server-side. Sending the
+    // old attachment payload too would trip the 409 replay conflict guard.
+    const fileAnswer = page
+      .getByTestId("assistant-message")
+      .filter({ hasText: "The numbers show growth." });
+    await fileAnswer.hover();
+    await fileAnswer
+      .getByRole("button", { name: "Regenerate response" })
+      .click();
+    await expect(
+      page.getByText("Regenerated answer over the files."),
+    ).toBeVisible();
+    expect(chatBodies).toHaveLength(1);
+    expect(chatBodies[0]).toMatchObject({
+      message: "Summarize the attached numbers",
+      threadId: "thread-files",
+      replaceMessageId: fileMessageId,
+      attachmentCount: 0,
+    });
+    expect(chatBodies[0]!.attachments).toBeUndefined();
+
     await fileMessage.hover();
     await fileMessage.getByRole("button", { name: "Edit message" }).click();
 
@@ -532,17 +561,19 @@ test.describe("chat shell guardrails", () => {
     await expect(
       page.getByText("Revised answer over the files."),
     ).toBeVisible();
-    await expect(page.getByText("The numbers show growth.")).toHaveCount(0);
-    expect(chatBodies).toHaveLength(1);
-    expect(chatBodies[0]).toMatchObject({
+    await expect(
+      page.getByText("Regenerated answer over the files."),
+    ).toHaveCount(0);
+    expect(chatBodies).toHaveLength(2);
+    expect(chatBodies[1]).toMatchObject({
       message: "Summarize the attached numbers by quarter",
       threadId: "thread-files",
       replaceMessageId: fileMessageId,
     });
     // The replay sources files from storage — the edit request must not
     // carry a fresh attachments payload.
-    expect(chatBodies[0]!.attachments).toBeUndefined();
-    expect(chatBodies[0]!.attachmentCount).toBe(0);
+    expect(chatBodies[1]!.attachments).toBeUndefined();
+    expect(chatBodies[1]!.attachmentCount).toBe(0);
 
     // Streaming-route regression (#405 review): the edited turn keeps its
     // file indicator and its re-edit affordance without any reload — the
