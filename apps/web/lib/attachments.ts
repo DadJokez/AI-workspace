@@ -195,7 +195,6 @@ export async function validateAttachments(raw: unknown): Promise<AttachmentValid
         continue;
       }
       totalBytes += prepared.sizeBytes;
-      totalChars += prepared.content.length;
 
       const isRuntimeImage =
         prepared.kind === "image" || prepared.runtimeContent?.type === "image";
@@ -224,6 +223,10 @@ export async function validateAttachments(raw: unknown): Promise<AttachmentValid
           prepared.content.slice(0, MAX_ATTACHMENT_CHARS) +
           `\n\n[Truncated after ${MAX_ATTACHMENT_CHARS.toLocaleString()} characters.]`;
       }
+      // The aggregate cap applies to the text that will reach the prompt, not
+      // the pre-truncation extraction. Counting earlier made a single valid
+      // multi-megabyte CSV fail before this bounded representation could run.
+      totalChars += prepared.content.length;
       if (totalChars > MAX_TOTAL_ATTACHMENT_CHARS) {
         return {
           ok: false,

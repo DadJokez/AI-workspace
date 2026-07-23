@@ -5,6 +5,7 @@ import {
   MAX_ATTACHMENT_CHARS,
   MAX_RUNTIME_IMAGE_BYTES,
   MAX_TOTAL_ATTACHMENT_BYTES,
+  MAX_TOTAL_ATTACHMENT_CHARS,
   declaredAttachmentCountFromMessage,
   foldAttachmentsIntoPrompt,
   isSupportedAttachmentName,
@@ -150,6 +151,39 @@ describe("attachments", () => {
       ]);
       expect(r.ok).toBe(true);
       expect(r.attachments[0]?.content).toContain("Truncated after");
+    });
+
+    it.each([3.8, 7.8])(
+      "accepts and truncates a %s MiB CSV below the raw upload limit",
+      async (sizeMiB) => {
+        const bytes = Buffer.alloc(Math.floor(sizeMiB * 1024 * 1024), "x");
+        const r = await validateAttachments([
+          {
+            name: `data-${sizeMiB}.csv`,
+            mimeType: "text/csv",
+            dataBase64: bytes.toString("base64"),
+            sizeBytes: 1,
+          },
+        ]);
+
+        expect(r.ok).toBe(true);
+        expect(r.attachments[0]?.sizeBytes).toBe(bytes.byteLength);
+        expect(r.attachments[0]?.content).toContain(
+          `Truncated after ${MAX_ATTACHMENT_CHARS.toLocaleString()} characters.`,
+        );
+      },
+    );
+
+    it("still rejects aggregate prompt text over the post-truncation cap", async () => {
+      expect(MAX_TOTAL_ATTACHMENT_CHARS).toBe(400_000);
+      const r = await validateAttachments([
+        { name: "first.txt", content: "a".repeat(MAX_ATTACHMENT_CHARS) },
+        { name: "second.txt", content: "b".repeat(MAX_ATTACHMENT_CHARS) },
+        { name: "third.txt", content: "c" },
+      ]);
+
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/too large in total after extraction/i);
     });
 
     it("extracts client base64 text payloads", async () => {
