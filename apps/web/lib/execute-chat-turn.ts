@@ -54,6 +54,7 @@ import {
   createDraftAppVersionsForThreadArtifacts,
 } from "@/lib/apps";
 import { shouldPersistAssistantMessage } from "@/lib/assistant-persistence";
+import { persistAssistantMessageOnce } from "@/lib/assistant-message-persistence";
 import {
   appendRunEventBestEffort,
   appendToolCallRunEvent,
@@ -1175,39 +1176,24 @@ async function persistChatTurnResult({
     });
 
   if (!assistantMessageId && shouldPersistAssistant) {
-    const persisted = await db
-      .insert(chatMessages)
-      .values({
-        threadId,
-        role: "assistant",
-        content: assistantText,
-        modelId,
-        runtime: runtimeName,
-        tokensIn,
-        tokensOut,
-        toolCalls,
-        toolResults,
-      })
-      .returning({ id: chatMessages.id });
-    assistantMessageId = persisted[0]!.id;
-    // #456: content mutations audit by construction — this insert is the one
-    // place either lane persists an assistant message. References only; the
-    // content itself lives in chat_messages, not the audit row.
-    const auditNow = new Date();
-    await db.insert(auditLog).values({
-      actorUserId: userId,
-      actionType: "chat_message_create",
-      status: "succeeded",
-      provider: "ai-hub",
-      toolName: "chat_message_create",
-      chatThreadId: threadId,
-      chatMessageId: assistantMessageId,
+    const persisted = await persistAssistantMessageOnce({
+      db,
       runId,
-      input: { role: "assistant", lane: lane.kind },
-      metadata: { modelId, runtime: runtimeName },
-      startedAt: auditNow,
-      completedAt: auditNow,
+      userId,
+      threadId,
+      lane: lane.kind,
+      ...(lane.kind === "worker"
+        ? { expectedWorkerId: lane.workerId }
+        : {}),
+      content: assistantText,
+      modelId,
+      runtime: runtimeName,
+      tokensIn,
+      tokensOut,
+      toolCalls,
+      toolResults,
     });
+    assistantMessageId = persisted?.assistantMessageId;
   }
 
   if (assistantMessageId) {
