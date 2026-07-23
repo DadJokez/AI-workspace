@@ -92,6 +92,11 @@ import {
   createProviderTraceAccumulator,
   persistProviderTraceCapture,
 } from "@/lib/run-trace";
+import {
+  abortChatWorkerRuntime,
+  chatWorkerAbortReason,
+  type ChatWorkerAbortReason,
+} from "@/lib/chat-worker-abort";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import {
   createArtifactsFromAssistantMessage,
@@ -973,7 +978,11 @@ export async function executeChatTurn({
           ? (lane.signal?.aborted ?? false)
           : await workerCanceled();
       if (canceled) {
-        runtimeAbort.abort();
+        if (lane.kind === "worker") {
+          abortChatWorkerRuntime(runtimeAbort, "canceled");
+        } else {
+          runtimeAbort.abort();
+        }
         break;
       }
       if (ev.type === "text-delta") {
@@ -1120,7 +1129,7 @@ export async function executeChatTurn({
   } catch (err) {
     if (lane.kind === "worker") {
       if (await isRunCanceled(db, runId)) {
-        runtimeAbort.abort();
+        abortChatWorkerRuntime(runtimeAbort, "canceled");
       } else if (!runtimeAbort.signal.aborted) {
         await persistProviderTraceCapture({
           db,
@@ -1197,11 +1206,17 @@ export async function executeChatTurn({
     }
   }
 
+  const workerAbortReason =
+    lane.kind === "worker"
+      ? chatWorkerAbortReason(runtimeAbort.signal)
+      : null;
+
   if (lane.kind === "worker" && (await isRunCanceled(db, runId))) {
     await persistProviderTraceCapture({
       db,
       runId,
       capture: providerTrace.snapshot(),
+      metadata: { abortReason: "canceled" },
     });
     await appendTurnRunEvent(lane, {
       db,
@@ -1210,8 +1225,35 @@ export async function executeChatTurn({
       status: "failed",
       label: "Worker stopped after cancellation",
       metadata: {
+        abortReason: "canceled",
+        ...(workerAbortReason && workerAbortReason !== "canceled"
+          ? { runtimeAbortReason: workerAbortReason }
+          : {}),
         cancellationObservedVia: "database_poll",
         runtimeRequestAbortAttempted: runtimeAbort.signal.aborted,
+        providerSessionStopAttempted: false,
+      },
+    });
+    return;
+  }
+
+  if (lane.kind === "worker" && workerAbortReason === "lease_lost") {
+    await persistProviderTraceCapture({
+      db,
+      runId,
+      capture: providerTrace.snapshot(),
+      metadata: { abortReason: workerAbortReason },
+    });
+    await appendTurnRunEvent(lane, {
+      db,
+      runId,
+      eventType: "worker_stopped_after_lease_loss",
+      status: "info",
+      label: "Prior worker stopped after losing its run lease",
+      metadata: {
+        abortReason: workerAbortReason,
+        workerId: lane.workerId,
+        runtimeRequestAbortAttempted: true,
         providerSessionStopAttempted: false,
       },
     });
@@ -1224,7 +1266,7 @@ export async function executeChatTurn({
         ? "Browser request disconnected before the local chat run completed."
         : null
       : runtimeAbort.signal.aborted
-        ? `Chat runtime timed out after ${lane.timeoutMs}ms.`
+        ? workerAbortMessage(workerAbortReason, lane.timeoutMs)
         : null;
   const runError =
     abortError ??
@@ -1238,6 +1280,9 @@ export async function executeChatTurn({
     db,
     runId,
     capture: providerTrace.snapshot(completedAt),
+    ...(workerAbortReason
+      ? { metadata: { abortReason: workerAbortReason } }
+      : {}),
   });
 
   const persisted = await persistChatTurnResult({
@@ -1271,6 +1316,7 @@ export async function executeChatTurn({
     completedAt,
     priorOutputs,
     lane,
+    abortReason: workerAbortReason ?? undefined,
   });
 
   if (lane.kind === "inline") {
@@ -1330,6 +1376,7 @@ async function persistChatTurnResult({
   completedAt,
   priorOutputs,
   lane,
+  abortReason,
 }: {
   db: Database;
   runId: string;
@@ -1363,6 +1410,7 @@ async function persistChatTurnResult({
   completedAt: Date;
   priorOutputs: StoredChatRunOutputs;
   lane: ChatTurnLane;
+  abortReason?: ChatWorkerAbortReason;
 }): Promise<{
   assistantMessageId: string | undefined;
   artifacts: WorkspaceArtifactSummary[];
@@ -1591,6 +1639,7 @@ async function persistChatTurnResult({
     modelId,
     runtime: runtimeName,
     ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
+    ...(abortReason ? { abortReason } : {}),
     ...(runtimeErrors.length > 0 ? { errorDetails: runtimeErrors } : {}),
     ...(artifacts.length > 0 ? { artifacts } : {}),
     ...(appDraftVersions.length > 0 ? { appDraftVersions } : {}),
@@ -1705,6 +1754,7 @@ async function persistChatTurnResult({
       ...(recommendations.length > 0 ? { recommendations } : {}),
       ...(sources.length > 0 ? { sources } : {}),
       ...(timingMetrics ? { metrics: timingMetrics } : {}),
+      ...(abortReason ? { abortReason } : {}),
     },
   });
 
@@ -1715,6 +1765,22 @@ async function persistChatTurnResult({
     recommendations,
     sources,
   };
+}
+
+function workerAbortMessage(
+  reason: ChatWorkerAbortReason | null,
+  timeoutMs: number,
+): string {
+  if (reason === "timeout") {
+    return `Chat runtime timed out after ${timeoutMs}ms.`;
+  }
+  if (reason === "shutdown") {
+    return "Background worker stopped because the service is shutting down.";
+  }
+  if (reason === "canceled") {
+    return "Chat run was canceled before the provider finished.";
+  }
+  return "Background worker stopped before the chat run completed.";
 }
 
 export async function isRunCanceled(

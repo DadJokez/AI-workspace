@@ -42,6 +42,7 @@ import { executeChatTurn, numberFromEnv } from "@/lib/execute-chat-turn";
 import { resolveModelCandidatesForPurpose } from "@/lib/model-registry";
 import { appendRunEventBestEffort } from "@/lib/run-events";
 import { createProactiveRunNotification } from "@/lib/notifications";
+import { chatWorkerAbortReason } from "@/lib/chat-worker-abort";
 
 function claimedRun(overrides: Partial<Run> = {}): Run {
   return {
@@ -85,6 +86,7 @@ function fakeDb(run: Run): Database {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(numberFromEnv).mockImplementation(() => undefined);
 });
 
 describe("processQueuedChatRun", () => {
@@ -132,6 +134,134 @@ describe("processQueuedChatRun", () => {
       storedSeparateFromArtifact: null,
     });
   });
+
+  it("carries a real timeout reason into a blocked provider turn", async () => {
+    vi.mocked(numberFromEnv).mockImplementation((name: string) =>
+      name === "CHAT_WORKER_RUNTIME_TIMEOUT_MS" ? 5 : undefined,
+    );
+    let observedReason: string | null = null;
+    vi.mocked(executeChatTurn).mockImplementationOnce(
+      async ({ runtimeAbort }: { runtimeAbort: AbortController }) => {
+        await new Promise<void>((resolve) => {
+          runtimeAbort.signal.addEventListener(
+            "abort",
+            () => {
+              observedReason = chatWorkerAbortReason(runtimeAbort.signal);
+              resolve();
+            },
+            { once: true },
+          );
+        });
+      },
+    );
+
+    const run = claimedRun();
+    const result = await processQueuedChatRun({
+      db: fakeDb(run),
+      runId: run.id,
+    });
+
+    expect(result).toEqual({ status: "succeeded", runId: run.id });
+    expect(observedReason).toBe("timeout");
+  });
+
+  it("carries shutdown instead of timeout from the worker signal", async () => {
+    const controller = new AbortController();
+    let observedReason: string | null = null;
+    vi.mocked(executeChatTurn).mockImplementationOnce(
+      async ({ runtimeAbort }: { runtimeAbort: AbortController }) => {
+        await new Promise<void>((resolve) => {
+          runtimeAbort.signal.addEventListener(
+            "abort",
+            () => {
+              observedReason = chatWorkerAbortReason(runtimeAbort.signal);
+              resolve();
+            },
+            { once: true },
+          );
+        });
+      },
+    );
+
+    const run = claimedRun();
+    const execution = processQueuedChatRun({
+      db: fakeDb(run),
+      runId: run.id,
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(executeChatTurn).toHaveBeenCalledTimes(1));
+    controller.abort();
+
+    await expect(execution).resolves.toEqual({
+      status: "succeeded",
+      runId: run.id,
+    });
+    expect(observedReason).toBe("shutdown");
+  });
+
+  it.each([
+    { currentStatus: "running", expectedReason: "lease_lost" },
+    { currentStatus: "canceled", expectedReason: "canceled" },
+  ])(
+    "aborts a blocked turn as $expectedReason when the heartbeat fence fails",
+    async ({ currentStatus, expectedReason }) => {
+      vi.useFakeTimers();
+      try {
+        vi.mocked(numberFromEnv).mockImplementation((name: string) =>
+          name === "CHAT_RUN_WORKER_LEASE_MS" ? 45_000 : undefined,
+        );
+        const run = claimedRun();
+        const db = {
+          update: () => ({
+            set: (values: Record<string, unknown>) => ({
+              where: () => ({
+                returning: async () =>
+                  values.status === "running" ? [run] : [],
+              }),
+            }),
+          }),
+          select: () => ({
+            from: (table: unknown) => ({
+              where: () => ({
+                limit: async () =>
+                  table === chatThreads
+                    ? [{ id: "thread-1", summary: null }]
+                    : [{ status: currentStatus }],
+              }),
+            }),
+          }),
+        } as unknown as Database;
+        let observedReason: string | null = null;
+        vi.mocked(executeChatTurn).mockImplementationOnce(
+          async ({ runtimeAbort }: { runtimeAbort: AbortController }) => {
+            await new Promise<void>((resolve) => {
+              runtimeAbort.signal.addEventListener(
+                "abort",
+                () => {
+                  observedReason = chatWorkerAbortReason(runtimeAbort.signal);
+                  resolve();
+                },
+                { once: true },
+              );
+            });
+          },
+        );
+
+        const execution = processQueuedChatRun({ db, runId: run.id });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(executeChatTurn).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(15_000);
+
+        await expect(execution).resolves.toEqual({
+          status: "succeeded",
+          runId: run.id,
+        });
+        expect(observedReason).toBe(expectedReason);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("treats chat-trigger runs as interactive and skips artifact fallback", async () => {
     const run = claimedRun({ triggerType: "chat" } as Partial<Run>);
@@ -243,9 +373,16 @@ describe("processQueuedChatRun", () => {
           where: () => ({ returning: async () => [] }),
         }),
       }),
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => [{ status: "running" }],
+          }),
+        }),
+      }),
     } as unknown as Database;
     await expect(heartbeatRunLease(emptyDb, "run-1", "w-test")).resolves.toBe(
-      false,
+      "lease_lost",
     );
 
     const heldDb = {
@@ -256,7 +393,27 @@ describe("processQueuedChatRun", () => {
       }),
     } as unknown as Database;
     await expect(heartbeatRunLease(heldDb, "run-1", "w-test")).resolves.toBe(
-      true,
+      "held",
+    );
+
+    const canceledDb = {
+      update: () => ({
+        set: () => ({
+          where: () => ({ returning: async () => [] }),
+        }),
+      }),
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => [{ status: "canceled" }],
+          }),
+        }),
+      }),
+    } as unknown as Database;
+    await expect(
+      heartbeatRunLease(canceledDb, "run-1", "w-test"),
+    ).resolves.toBe(
+      "canceled",
     );
   });
 
