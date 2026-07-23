@@ -1,3 +1,7 @@
+const pdfRuntimeTraceIncludes = [
+  "../../node_modules/.pnpm/@napi-rs+canvas*/node_modules/@napi-rs/canvas*/**/*",
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
@@ -12,9 +16,8 @@ const nextConfig = {
     "@ai-workspace/umber",
   ],
   outputFileTracingIncludes: {
-    "/api/chat": [
-      "../../node_modules/.pnpm/@napi-rs+canvas*/node_modules/@napi-rs/canvas*/**/*",
-    ],
+    "/api/chat": pdfRuntimeTraceIncludes,
+    "/api/mcp/resources": pdfRuntimeTraceIncludes,
   },
   serverExternalPackages: ["pdf-parse", "postgres"],
 };
