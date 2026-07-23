@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { formatDateTime } from "@/lib/format-date";
 
 interface VersionRow {
   appVersionId: string;
@@ -135,7 +136,7 @@ export function VersionsPanel({
               </div>
               <p className="mt-0.5 text-muted">
                 {version.filename} · {version.createdByName} ·{" "}
-                {new Date(version.createdAt).toLocaleString()}
+                {formatDateTime(version.createdAt)}
               </p>
               {version.summary ? (
                 <p className="mt-1 text-muted">{version.summary}</p>

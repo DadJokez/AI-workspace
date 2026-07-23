@@ -8,6 +8,7 @@ import { desc, eq, isNull } from "drizzle-orm";
 import Link from "next/link";
 import { AdminAppPublicationActions } from "@/components/admin/AdminAppPublicationActions";
 import { resolveAppPublication } from "@/lib/app-publication";
+import { formatDateTime } from "@/lib/format-date";
 
 export const dynamic = "force-dynamic";
 
@@ -106,7 +107,7 @@ export default async function AdminAppsPage() {
                         : "None"}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-muted">
-                      {new Date(publication.publishedAt).toLocaleString()}
+                      {formatDateTime(publication.publishedAt)}
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center justify-end gap-2">

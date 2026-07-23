@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   buildRuntimeV2Report,
+  formatDateTime,
+  formatDuration,
+  formatNullableMs,
+  formatSkill,
+  shortId,
   type RuntimeReportRow,
 } from "@/lib/admin/run-reporting";
 
@@ -149,6 +154,27 @@ describe("runtime v2 reporting", () => {
         }),
       ]),
     );
+  });
+});
+
+describe("admin run display formatting", () => {
+  it("shares run labels and identifiers across list and detail views", () => {
+    expect(formatSkill("developer-briefing")).toBe("Developer Briefing");
+    expect(formatSkill("weekly_status")).toBe("Weekly Status");
+    expect(formatSkill(null)).toBe("Workflow run");
+    expect(shortId("12345678-90ab-cdef")).toBe("12345678");
+  });
+
+  it("shares date and duration formatting without nullability drift", () => {
+    const startedAt = new Date(2026, 0, 2, 15, 5);
+
+    expect(formatDateTime(startedAt)).toBe("Jan 2, 2026, 3:05 PM");
+    expect(
+      formatDuration(startedAt, new Date(startedAt.getTime() + 1_250)),
+    ).toBe("1.3s");
+    expect(formatNullableMs(null)).toBe("n/a");
+    expect(formatNullableMs(undefined)).toBe("n/a");
+    expect(formatNullableMs(750)).toBe("750ms");
   });
 });
 

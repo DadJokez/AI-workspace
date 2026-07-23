@@ -9,6 +9,13 @@ import { notFound, redirect } from "next/navigation";
 import { Metric, StatusBadge, StatusDot } from "@/app/admin/ui";
 import { MessageBubble } from "@/components/MessageBubble";
 import { auditAdminDataAccess } from "@/lib/admin-data-access";
+import {
+  formatDateTime,
+  formatDuration,
+  formatNullableMs,
+  formatSkill,
+  shortId,
+} from "@/lib/admin/run-reporting";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { runEventsToActivityEvents } from "@/lib/run-events";
 import type { PersistedRecommendation } from "@/lib/recommendations";
@@ -711,17 +718,6 @@ function DebugJsonBlock({
   );
 }
 
-function formatSkill(value: string | null) {
-  if (value === "developer-briefing") return "Developer Briefing";
-  return value
-    ? value
-        .split(/[-_\s]+/)
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(" ")
-    : "Workflow run";
-}
-
 function formatAction(value: string) {
   return value
     .split(/[_\s]+/)
@@ -730,31 +726,6 @@ function formatAction(value: string) {
     .join(" ");
 }
 
-function shortId(value: string) {
-  return value.slice(0, 8);
-}
-
 function formatNullableDate(value: Date | null) {
   return value ? formatDateTime(value) : "n/a";
-}
-
-function formatDateTime(value: Date) {
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(value);
-}
-
-function formatDuration(startedAt: Date, completedAt: Date) {
-  const ms = Math.max(0, completedAt.getTime() - startedAt.getTime());
-  if (ms < 1_000) return `${ms}ms`;
-  return `${(ms / 1_000).toFixed(ms < 10_000 ? 1 : 0)}s`;
-}
-
-function formatNullableMs(value: number | undefined) {
-  if (typeof value !== "number") return "n/a";
-  if (value < 1_000) return `${value}ms`;
-  return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}s`;
 }

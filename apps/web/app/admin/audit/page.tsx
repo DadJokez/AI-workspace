@@ -4,6 +4,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import {
+  formatDateTime,
+  formatDuration,
+} from "@/lib/admin/run-reporting";
+import {
   auditRetentionCutoff,
   resolveAuditRetentionDays,
 } from "@/lib/audit-retention";
@@ -314,21 +318,6 @@ function formatAction(actionType: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-function formatDateTime(value: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(value);
-}
-
-function formatDuration(startedAt: Date, completedAt: Date): string {
-  const ms = Math.max(0, completedAt.getTime() - startedAt.getTime());
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
 }
 
 function shortId(id: string): string {

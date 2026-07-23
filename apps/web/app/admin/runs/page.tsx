@@ -4,7 +4,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auditAdminDataAccessBatch } from "@/lib/admin-data-access";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
-import { buildRuntimeV2Report } from "@/lib/admin/run-reporting";
+import {
+  buildRuntimeV2Report,
+  formatDateTime,
+  formatDuration,
+  formatNullableMs,
+  formatSkill,
+  shortId,
+} from "@/lib/admin/run-reporting";
 import { FilterPill, Metric, StatusBadge, StatusDot } from "@/app/admin/ui";
 import { EmptyState } from "@/components/EmptyState";
 
@@ -444,40 +451,4 @@ function parseFilter<T extends readonly string[]>(
 ): T[number] {
   const single = Array.isArray(value) ? value[0] : value;
   return single && allowed.includes(single) ? single : fallback;
-}
-
-function formatSkill(value: string | null) {
-  if (value === "developer-briefing") return "Developer Briefing";
-  return value
-    ? value
-        .split(/[-_\s]+/)
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(" ")
-    : "Workflow run";
-}
-
-function shortId(value: string) {
-  return value.slice(0, 8);
-}
-
-function formatDateTime(value: Date) {
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(value);
-}
-
-function formatDuration(startedAt: Date, completedAt: Date) {
-  const ms = Math.max(0, completedAt.getTime() - startedAt.getTime());
-  if (ms < 1_000) return `${ms}ms`;
-  return `${(ms / 1_000).toFixed(ms < 10_000 ? 1 : 0)}s`;
-}
-
-function formatNullableMs(value: number | null | undefined) {
-  if (typeof value !== "number") return "n/a";
-  if (value < 1_000) return `${value}ms`;
-  return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}s`;
 }
