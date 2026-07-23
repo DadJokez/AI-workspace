@@ -137,6 +137,21 @@ vi.mock("@/lib/recommendation-persistence", () => ({
 vi.mock("@/lib/notifications", () => ({
   createProactiveRunNotification: vi.fn(async () => undefined),
 }));
+vi.mock("@/lib/conversation-resources", () => ({
+  revalidateConversationResourceResolution: vi.fn(
+    async ({ resolution }: { resolution: unknown }) => resolution,
+  ),
+}));
+vi.mock("@/lib/conversation-resource-runtime", () => ({
+  buildConversationResourceMcpServer: vi.fn(() => ({
+    type: "http",
+    url: "https://example.test/api/mcp/resources",
+    allowedTools: ["query"],
+  })),
+  CONVERSATION_RESOURCE_PROVIDER: "resources",
+  CONVERSATION_RESOURCE_QUERY_TOOL: "resources__query",
+  loadSelectedResourceImages: vi.fn(async () => []),
+}));
 
 import {
   buildTimingMetrics,
@@ -148,6 +163,8 @@ import {
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { appendRunEventBestEffort } from "@/lib/run-events";
 import { createProactiveRunNotification } from "@/lib/notifications";
+import { buildChatContextPack } from "@/lib/chat-context-pack";
+import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
 
 interface FakeDbState {
   runStatus: string;
@@ -455,6 +472,72 @@ describe("executeChatTurn — tool-event provider hints (#442 drift fix)", () =>
     const worker = workerInput();
     await executeChatTurn(worker.input);
     expect(createToolEventAccumulator).toHaveBeenLastCalledWith(["github"]);
+  });
+});
+
+describe("executeChatTurn — durable conversation resources (#576)", () => {
+  it("mounts the same complete-file tool on the shared inline pipeline and persists only the clean prompt", async () => {
+    const resourceResolution = {
+      version: 1 as const,
+      status: "selected" as const,
+      intent: true,
+      selected: [
+        {
+          resourceId: "resource-report",
+          filename: "report.csv",
+          mimeType: "text/csv",
+          kind: "spreadsheet" as const,
+          sizeBytes: 7_800_000,
+          representation: "tabular_dataset" as const,
+          coverage: "full" as const,
+          reason: "previous_run_receipt" as const,
+        },
+      ],
+      candidates: [
+        {
+          resourceId: "resource-report",
+          filename: "report.csv",
+          kind: "spreadsheet" as const,
+        },
+      ],
+      requiresCompleteFileTool: true,
+    };
+    const { input, captured, state } = inlineInput({
+      prompt: "folded preview with source bytes",
+      persistedPrompt: "continue analyzing the report",
+      resourceResolution,
+    });
+
+    await executeChatTurn(input);
+
+    expect(captured.turnInput?.mcpServers).toMatchObject({
+      github: {},
+      resources: {
+        url: "https://example.test/api/mcp/resources",
+        allowedTools: ["query"],
+      },
+    });
+    expect(captured.turnInput?.requiredToolName).toBe("resources__query");
+    expect(buildTurnToolDiscovery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        grantedProviders: ["github"],
+      }),
+    );
+    expect(createToolEventAccumulator).toHaveBeenLastCalledWith([
+      "github",
+      "resources",
+    ]);
+    expect(buildChatContextPack).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceResolution }),
+    );
+    const inputsRewrite = state.runUpdates.find((update) => "inputs" in update);
+    expect(inputsRewrite?.inputs).toMatchObject({
+      prompt: "continue analyzing the report",
+      resourceResolution,
+    });
+    expect(JSON.stringify(inputsRewrite?.inputs)).not.toContain(
+      "folded preview with source bytes",
+    );
   });
 });
 

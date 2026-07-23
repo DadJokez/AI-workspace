@@ -10,6 +10,10 @@ import {
 import type { ChatRoutingMode, ChatRuntimeRoute } from "@/lib/chat-routing";
 import { parseWorkspaceArtifactVersionTarget } from "@/lib/artifact-revisions";
 import type { PinnedActiveSkill } from "@/lib/pinned-context";
+import {
+  parseConversationResourceResolution,
+  type ConversationResourceResolution,
+} from "@/lib/conversation-resources";
 import { appendRunEventBestEffort } from "@/lib/run-events";
 import { resolveModelForPurpose } from "@/lib/model-registry";
 import { createProactiveRunNotification } from "@/lib/notifications";
@@ -39,6 +43,7 @@ interface ChatRunInputs {
   requestedProviders?: string[];
   activeSkillPrompt?: PinnedActiveSkill;
   uploadedFiles?: ChatContextUploadedFile[];
+  resourceResolution?: ConversationResourceResolution;
   artifactContextTarget?: unknown;
   separateFromArtifact?: unknown;
   [key: string]: unknown;
@@ -458,6 +463,9 @@ async function executeClaimedChatRun({
       requestedProviders: inputs.requestedProviders,
       activeSkillPrompt: sanitizeActiveSkillPrompt(inputs.activeSkillPrompt),
       uploadedFiles: sanitizeUploadedFiles(inputs.uploadedFiles),
+      resourceResolution:
+        parseConversationResourceResolution(inputs.resourceResolution) ??
+        undefined,
       // #432: only chat turns ever store a zone; scheduled/skill runs have
       // none and stay UTC-only. Re-validated because stored JSON is not a
       // trusted prompt source either.
@@ -657,6 +665,9 @@ function sanitizeUploadedFiles(value: unknown): ChatContextUploadedFile[] {
     if (!name) return [];
     return [
       {
+        ...(typeof file.resourceId === "string"
+          ? { resourceId: file.resourceId }
+          : {}),
         name,
         ...(typeof file.sizeBytes === "number" && Number.isFinite(file.sizeBytes)
           ? { sizeBytes: file.sizeBytes }

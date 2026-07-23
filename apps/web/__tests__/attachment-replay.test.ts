@@ -86,6 +86,7 @@ describe("reconstructStoredAttachments", () => {
       "notes.pdf",
       "chart.png",
     ]);
+    expect(result.resourceIds).toEqual(["artifact-doc", "artifact-img"]);
   });
 
   it("fails closed on multi-file turns whose upload order is unrecorded", () => {

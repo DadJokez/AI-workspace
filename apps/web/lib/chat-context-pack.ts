@@ -21,6 +21,10 @@ import type {
   RecommendationCandidate,
   RecommendationType,
 } from "@/lib/recommendations";
+import {
+  renderConversationResourceContext,
+  type ConversationResourceResolution,
+} from "@/lib/conversation-resources";
 
 export interface ChatContextUser {
   displayName: string;
@@ -29,6 +33,8 @@ export interface ChatContextUser {
 }
 
 export interface ChatContextUploadedFile {
+  /** Stable thread resource id when this file is persisted. */
+  resourceId?: string;
   name: string;
   sizeBytes?: number;
   /** Characters in the exact extracted representation folded into the prompt. */
@@ -62,6 +68,7 @@ export interface ChatContextItem {
     | "recent_message"
     | "artifact_context"
     | "uploaded_file"
+    | "conversation_resource"
     | "capability_graph"
     | "recent_recommendation";
   label: string;
@@ -124,6 +131,7 @@ export interface ChatContextReceipt {
     artifactContextChars: number;
     uploadedFilesInjected: boolean;
     uploadedFiles: ChatContextUploadedFile[];
+    resources: ConversationResourceResolution | null;
   };
   capabilities: {
     providers: number;
@@ -174,6 +182,7 @@ export interface ChatContextPack {
     recentMessages: ChatContextItem[];
     artifacts: ChatContextItem[];
     uploadedFiles: ChatContextItem[];
+    resources: ChatContextItem[];
   };
   recommendations: ChatContextRecommendationPack;
   receipts: ChatContextReceipt[];
@@ -197,6 +206,7 @@ export interface BuildChatContextPackInput {
   modelId?: string;
   artifactContext?: string | null;
   uploadedFiles?: readonly ChatContextUploadedFile[];
+  resourceResolution?: ConversationResourceResolution;
   recommendations?: readonly RecommendationCandidate[];
   route?: ChatRuntimeRoute;
   builtinTools?: readonly string[];
@@ -223,6 +233,7 @@ export function buildChatContextPack({
   modelId,
   artifactContext,
   uploadedFiles = [],
+  resourceResolution,
   recommendations = [],
   route,
   builtinTools = [],
@@ -248,6 +259,7 @@ export function buildChatContextPack({
     Boolean(user.customInstructions?.trim()) ||
     artifacts.length > 0 ||
     recommendations.length > 0 ||
+    Boolean(resourceResolution && resourceResolution.status !== "none") ||
     hasCapabilityState ||
     hasConnectedToolState;
   const visibility: ChatContextItemVisibility = shouldRenderPreamble
@@ -314,11 +326,55 @@ export function buildChatContextPack({
       injected: true,
       charCount: file.sizeBytes,
       metadata: {
+        ...(file.resourceId ? { resourceId: file.resourceId } : {}),
         ...(file.mimeType ? { mimeType: file.mimeType } : {}),
         ...(file.extractionStatus ? { extractionStatus: file.extractionStatus } : {}),
       },
     }),
   );
+  const resourceItems =
+    resourceResolution?.status === "selected"
+      ? resourceResolution.selected.map((resource) =>
+          contextItem({
+            id: `conversation-resource:${resource.resourceId}`,
+            type: "conversation_resource",
+            label: resource.filename,
+            source: "workspace_artifacts.user-upload",
+            owner: "user",
+            freshness: "durable",
+            visibility: "hidden_prompt",
+            injected: true,
+            metadata: {
+              resourceId: resource.resourceId,
+              mimeType: resource.mimeType,
+              kind: resource.kind,
+              sizeBytes: resource.sizeBytes,
+              representation: resource.representation,
+              coverage: resource.coverage,
+              resolverReason: resource.reason,
+            },
+          }),
+        )
+      : resourceResolution?.status === "ambiguous" ||
+          resourceResolution?.status === "unavailable"
+        ? resourceResolution.candidates.map((resource) =>
+            contextItem({
+              id: `conversation-resource-candidate:${resource.resourceId}`,
+              type: "conversation_resource",
+              label: resource.filename,
+              source: "workspace_artifacts.user-upload",
+              owner: "user",
+              freshness: "durable",
+              visibility: "hidden_prompt",
+              injected: false,
+              metadata: {
+                resourceId: resource.resourceId,
+                kind: resource.kind,
+                resolverStatus: resourceResolution.status,
+              },
+            }),
+          )
+        : [];
   const providerItems = buildProviderItems({
     connectedProviders: providerStatus.connectedProviders,
     approvedProviders: providerStatus.allowedProviders,
@@ -368,6 +424,7 @@ export function buildChatContextPack({
     ...recentMessageItems,
     ...artifactItems,
     ...uploadedFileItems,
+    ...resourceItems,
     ...(capabilityItem ? [capabilityItem] : []),
     ...recommendationItems,
   ];
@@ -403,11 +460,13 @@ export function buildChatContextPack({
       artifactContextChars: artifacts.length,
       uploadedFilesInjected: uploadedFiles.length > 0,
       uploadedFiles: uploadedFiles.map((file) => ({
+        ...(file.resourceId ? { resourceId: file.resourceId } : {}),
         name: file.name,
         ...(typeof file.sizeBytes === "number" ? { sizeBytes: file.sizeBytes } : {}),
         ...(file.mimeType ? { mimeType: file.mimeType } : {}),
         ...(file.extractionStatus ? { extractionStatus: file.extractionStatus } : {}),
       })),
+      resources: resourceResolution ?? null,
     },
     capabilities: capabilityReceipt,
     contextItems: contextItems.map(compactContextItem),
@@ -492,6 +551,9 @@ export function buildChatContextPack({
   }
   const volatileSystemSuffix = shouldRenderPreamble
     ? [
+        ...(resourceResolution
+          ? [renderConversationResourceContext(resourceResolution), ""]
+          : []),
         ...(recommendations.length > 0
           ? [renderRecentRecommendationsForPrompt(recommendations), ""]
           : []),
@@ -527,6 +589,7 @@ export function buildChatContextPack({
       recentMessages: recentMessageItems,
       artifacts: artifactItems,
       uploadedFiles: uploadedFileItems,
+      resources: resourceItems,
     },
     recommendations: recommendationPack,
     receipts: [receipt],
@@ -582,9 +645,12 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
     )}; reconnect required ${formatList(receipt.tools.reconnectRequired)}.`,
   );
   lines.push(
-    `- Work context: ${receipt.work.recentMessages} recent message(s); ` +
+      `- Work context: ${receipt.work.recentMessages} recent message(s); ` +
       `artifacts ${receipt.work.artifactContextInjected ? "included" : "not included"}; ` +
-      `uploaded files ${formatList(receipt.work.uploadedFiles.map((file) => file.name))}.`,
+      `uploaded files ${formatUploadedFileReceipt(receipt.work.uploadedFiles)}; ` +
+      `conversation resources ${formatConversationResourceReceipt(
+        receipt.work.resources,
+      )}.`,
   );
   lines.push(
     `- Capabilities: ${receipt.capabilities.providers} tool provider(s), ` +
@@ -616,6 +682,40 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
 
 function formatList(values: readonly string[]): string {
   return values.length > 0 ? values.join(", ") : "none";
+}
+
+function formatUploadedFileReceipt(
+  files: readonly ChatContextUploadedFile[],
+): string {
+  if (files.length === 0) return "none";
+  const resourceIds = files.flatMap((file) =>
+    file.resourceId ? [file.resourceId] : [],
+  );
+  return `${files.length} current-turn file(s)${
+    resourceIds.length > 0 ? ` (${resourceIds.join(", ")})` : ""
+  }`;
+}
+
+function formatConversationResourceReceipt(
+  resolution: ConversationResourceResolution | null,
+): string {
+  if (!resolution || resolution.status === "none") return "none";
+  if (resolution.status === "ambiguous") {
+    return `ambiguous (${resolution.candidates
+      .map((candidate) => candidate.resourceId)
+      .join(", ")})`;
+  }
+  if (resolution.status === "unavailable") {
+    return `unavailable (${resolution.candidates
+      .map((candidate) => candidate.resourceId)
+      .join(", ")})`;
+  }
+  return resolution.selected
+    .map(
+      (resource) =>
+        `${resource.resourceId} [${resource.representation}; ${resource.coverage}; ${resource.reason}]`,
+    )
+    .join(", ");
 }
 
 function uniqueStrings(values: readonly string[]): string[] {

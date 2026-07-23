@@ -199,7 +199,61 @@ describe("chat context pack", () => {
       visibility: "hidden_prompt",
       injected: true,
     });
-    expect(pack.prompt.volatileSystemSuffix).toContain("uploaded files brief.csv");
+    expect(pack.prompt.volatileSystemSuffix).toContain(
+      "uploaded files 1 current-turn file(s)",
+    );
+    expect(pack.prompt.volatileSystemSuffix).not.toContain("brief.csv");
+  });
+
+  it("records durable resource receipts without copying file content into context", () => {
+    const pack = buildChatContextPack({
+      ...baseInput(),
+      resourceResolution: {
+        version: 1,
+        status: "selected",
+        intent: true,
+        selected: [
+          {
+            resourceId: "resource-brief",
+            filename: "brief.csv",
+            mimeType: "text/csv",
+            kind: "spreadsheet",
+            sizeBytes: 7_800_000,
+            representation: "tabular_dataset",
+            coverage: "full",
+            reason: "previous_run_receipt",
+          },
+        ],
+        candidates: [
+          {
+            resourceId: "resource-brief",
+            filename: "brief.csv",
+            kind: "spreadsheet",
+          },
+        ],
+        requiresCompleteFileTool: true,
+      },
+    });
+
+    expect(pack.receipts[0]?.work.resources).toMatchObject({
+      status: "selected",
+      selected: [
+        {
+          resourceId: "resource-brief",
+          representation: "tabular_dataset",
+          coverage: "full",
+          reason: "previous_run_receipt",
+        },
+      ],
+    });
+    expect(pack.work.resources[0]).toMatchObject({
+      type: "conversation_resource",
+      source: "workspace_artifacts.user-upload",
+      freshness: "durable",
+      visibility: "hidden_prompt",
+    });
+    expect(pack.prompt.volatileSystemSuffix).toContain("resources__query");
+    expect(JSON.stringify(pack)).not.toContain("confidential file body");
   });
 
   it("exposes profile and message context as auditable items", () => {
@@ -364,7 +418,10 @@ describe("chat context pack", () => {
     expect(turnTwo.prompt.volatileSystemSuffix).toContain(
       "Context receipt for this turn",
     );
-    expect(turnTwo.prompt.volatileSystemSuffix).toContain("notes.txt");
+    expect(turnTwo.prompt.volatileSystemSuffix).toContain(
+      "uploaded files 1 current-turn file(s)",
+    );
+    expect(turnTwo.prompt.volatileSystemSuffix).not.toContain("notes.txt");
     expect(turnOne.prompt.systemPrompt).not.toContain(
       "Context receipt for this turn",
     );

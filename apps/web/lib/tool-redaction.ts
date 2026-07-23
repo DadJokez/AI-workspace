@@ -90,6 +90,9 @@ export function redactProviderToolError(
   if (provider === "salesforce") {
     return "Salesforce tool failed; provider content was redacted from this log.";
   }
+  if (provider === "resources") {
+    return "Conversation resource tool failed; file content was redacted from this log.";
+  }
   return redactErrorText(value);
 }
 
@@ -104,13 +107,47 @@ export function redactProviderToolPayload({
   direction: "input" | "output";
   value: unknown;
 }): unknown {
-  if (provider !== "google" && provider !== "salesforce") {
+  if (
+    provider !== "google" &&
+    provider !== "salesforce" &&
+    provider !== "resources"
+  ) {
     return redactToolPayload(value);
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return { redacted: true };
   }
   const payload = value as Record<string, unknown>;
+  if (provider === "resources") {
+    if (direction === "input") {
+      return {
+        redacted: true,
+        resourceId:
+          typeof payload.resourceId === "string"
+            ? payload.resourceId
+            : undefined,
+        operation:
+          typeof payload.operation === "string" ? payload.operation : undefined,
+        fields: Object.keys(payload).sort(),
+      };
+    }
+    const receipt =
+      payload.receipt &&
+      typeof payload.receipt === "object" &&
+      !Array.isArray(payload.receipt)
+        ? redactToolPayload(payload.receipt)
+        : undefined;
+    return {
+      redacted: true,
+      kind: typeof payload.kind === "string" ? payload.kind : undefined,
+      receipt,
+      rowCount:
+        typeof payload.rowCount === "number" ? payload.rowCount : undefined,
+      value:
+        typeof payload.value === "number" ? payload.value : undefined,
+      resultKeys: Object.keys(payload).sort(),
+    };
+  }
   if (direction === "input") {
     return {
       redacted: true,

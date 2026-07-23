@@ -86,6 +86,16 @@ import {
 } from "@/lib/recommendation-persistence";
 import type { PersistedRecommendation } from "@/lib/recommendations";
 import { createProactiveRunNotification } from "@/lib/notifications";
+import {
+  revalidateConversationResourceResolution,
+  type ConversationResourceResolution,
+} from "@/lib/conversation-resources";
+import {
+  buildConversationResourceMcpServer,
+  CONVERSATION_RESOURCE_PROVIDER,
+  CONVERSATION_RESOURCE_QUERY_TOOL,
+  loadSelectedResourceImages,
+} from "@/lib/conversation-resource-runtime";
 
 /**
  * #442 — the single chat-turn pipeline. Both execution lanes (interactive
@@ -160,6 +170,8 @@ export interface ExecuteChatTurnInput {
   userId: string;
   thread: ChatThread;
   prompt: string;
+  /** Clean user instruction; `prompt` may carry current-turn attachment data. */
+  persistedPrompt?: string;
   userMessageId: string;
   route: ChatRuntimeRoute;
   runtime: AgentRuntime;
@@ -170,6 +182,7 @@ export interface ExecuteChatTurnInput {
   requestedProviders?: string[];
   activeSkillPrompt?: PinnedActiveSkill | null;
   uploadedFiles?: ChatContextUploadedFile[];
+  resourceResolution?: ConversationResourceResolution;
   /**
    * Validated IANA timezone of the user's browser (#432). Interactive chat
    * turns carry it (the worker lane re-validates it out of stored inputs);
@@ -189,6 +202,7 @@ export async function executeChatTurn({
   userId,
   thread,
   prompt,
+  persistedPrompt,
   userMessageId,
   route,
   runtime,
@@ -197,11 +211,13 @@ export async function executeChatTurn({
   requestedProviders,
   activeSkillPrompt,
   uploadedFiles = [],
+  resourceResolution,
   userTimeZone,
   suppressedSkillIds = [],
   interactive,
   lane,
 }: ExecuteChatTurnInput): Promise<void> {
+  const userInstruction = persistedPrompt ?? prompt;
   const timing = lane.kind === "inline" ? lane.timing : undefined;
   const priorOutputs =
     lane.kind === "worker" ? parseStoredOutputs(lane.run.outputs) : {};
@@ -246,6 +262,14 @@ export async function executeChatTurn({
         threadId: thread.id,
       }),
     ]);
+  const effectiveResourceResolution = resourceResolution
+    ? await revalidateConversationResourceResolution({
+        db,
+        userId,
+        threadId: thread.id,
+        resolution: resourceResolution,
+      })
+    : undefined;
 
   // Match artifacts against recent RAW user messages, not the
   // attachment-folded prompt — so uploaded file bytes can't pull in an
@@ -257,10 +281,10 @@ export async function executeChatTurn({
       threadId: thread.id,
       message:
         lane.kind === "worker"
-          ? buildArtifactLookupMessage(history, prompt, {
+          ? buildArtifactLookupMessage(history, userInstruction, {
               preferFallback: lane.preferArtifactFallback,
             })
-          : buildArtifactLookupMessage(history, prompt),
+          : buildArtifactLookupMessage(history, userInstruction),
     }),
     buildAppEditContext({ db, userId, threadId: thread.id }),
   ]);
@@ -291,6 +315,18 @@ export async function executeChatTurn({
     customInstructions: null,
     role: "user" as const,
   };
+  const selectedResourceImages = effectiveResourceResolution
+    ? await loadSelectedResourceImages({
+        db,
+        userId,
+        threadId: thread.id,
+        resolution: effectiveResourceResolution,
+      })
+    : [];
+  const runtimeUploadedFiles = dedupeUploadedFiles([
+    ...uploadedFiles,
+    ...selectedResourceImages,
+  ]);
   const agentMessages = attachUploadedFilesToLatestUserMessage(
     buildTurnContext({
       messages: history,
@@ -309,7 +345,7 @@ export async function executeChatTurn({
         );
       },
     }),
-    uploadedFiles,
+    runtimeUploadedFiles,
   );
 
   let mcpServers;
@@ -323,7 +359,7 @@ export async function executeChatTurn({
         turnContext: {
           runId,
           threadId: thread.id,
-          prompt,
+          prompt: userInstruction,
           history,
           interactive,
         },
@@ -342,22 +378,67 @@ export async function executeChatTurn({
       );
     }
   }
+  const accountMcpProviders = mcpServers ? Object.keys(mcpServers) : [];
+  if (effectiveResourceResolution?.status === "selected") {
+    try {
+      const resourceServer = buildConversationResourceMcpServer({
+        userId,
+        threadId: thread.id,
+        runId,
+        resolution: effectiveResourceResolution,
+      });
+      if (resourceServer) {
+        mcpServers = {
+          ...(mcpServers ?? {}),
+          [CONVERSATION_RESOURCE_PROVIDER]: resourceServer,
+        };
+        if (
+          effectiveResourceResolution.requiresCompleteFileTool &&
+          !requiredToolName
+        ) {
+          requiredToolName = CONVERSATION_RESOURCE_QUERY_TOOL;
+        }
+      }
+    } catch (err) {
+      process.stderr.write(
+        `[conversation-resource-mcp-build-error] ${JSON.stringify({
+          runId,
+          threadId: thread.id,
+          resourceIds: effectiveResourceResolution.selected.map(
+            (resource) => resource.resourceId,
+          ),
+          message: err instanceof Error ? err.message : String(err),
+        })}\n`,
+      );
+    }
+  }
 
   const mountedProviders = mcpServers ? Object.keys(mcpServers) : [];
   // #384: sticky per-thread activation, resolved BEFORE the context pack
   // so the preamble/receipt tell the truth about what this turn mounts.
   // Conversations start at the core bundle + discovery tools; providers
   // activate stickily via comparative__activate_tools.
-  const toolDiscovery =
+  const baseToolDiscovery =
     mountedProviders.length > 0
       ? await buildTurnToolDiscovery({
           db,
           thread,
-          grantedProviders: mountedProviders,
-          userMessage: prompt,
+          grantedProviders: accountMcpProviders,
+          userMessage: userInstruction,
           skillProviders: requestedProviders,
         })
       : undefined;
+  const toolDiscovery = baseToolDiscovery
+    ? {
+        ...baseToolDiscovery,
+        activatedProviders: uniqueStrings([
+          ...baseToolDiscovery.activatedProviders,
+          ...(mountedProviders.includes(CONVERSATION_RESOURCE_PROVIDER)
+            ? [CONVERSATION_RESOURCE_PROVIDER]
+            : []),
+        ]),
+      }
+    : undefined;
   const discoverableProviders = toolDiscovery?.discoverableProviders ?? [];
   const blockedProviders = uniqueStrings([
     ...providerStatus.deniedProviders,
@@ -405,7 +486,8 @@ export async function executeChatTurn({
     capabilityGraph,
     modelId,
     artifactContext: combinedArtifactContext,
-    uploadedFiles,
+    uploadedFiles: runtimeUploadedFiles,
+    resourceResolution: effectiveResourceResolution,
     recommendations: recentRecommendations,
     route,
     builtinTools,
@@ -417,8 +499,23 @@ export async function executeChatTurn({
 
   const mountInputs = {
     mcpProviders: mountedProviders,
+    uploadedFiles: runtimeUploadedFiles.map((file) => ({
+      ...(file.resourceId ? { resourceId: file.resourceId } : {}),
+      name: file.name,
+      ...(file.mimeType ? { mimeType: file.mimeType } : {}),
+      ...(file.sizeBytes !== undefined ? { sizeBytes: file.sizeBytes } : {}),
+      ...(file.contentChars !== undefined
+        ? { contentChars: file.contentChars }
+        : {}),
+      ...(file.extractionStatus
+        ? { extractionStatus: file.extractionStatus }
+        : {}),
+    })),
     ...(requiredToolName ? { requiredToolName } : {}),
     writeAuthorizationReceipts,
+    ...(effectiveResourceResolution
+      ? { resourceResolution: effectiveResourceResolution }
+      : {}),
     accountConnectedMcpProviders: providerStatus.connectedProviders,
     approvedMcpProviders: providerStatus.allowedProviders,
     deniedMcpProviders: blockedProviders,
@@ -434,7 +531,7 @@ export async function executeChatTurn({
       inputs:
         lane.kind === "inline"
           ? {
-              prompt,
+              prompt: userInstruction,
               threadId: thread.id,
               userMessageId,
               requestedByUserId: userId,
@@ -576,7 +673,7 @@ export async function executeChatTurn({
   try {
     // Tracks persisted activation across same-turn activations so a
     // second activate never unions against a stale snapshot.
-    const grantedProviders = mountedProviders;
+    const grantedProviders = accountMcpProviders;
     let activationSignature = serializeActivation(
       toolDiscovery?.activatedProviders ?? [],
     );
@@ -1450,4 +1547,18 @@ export function numberFromEnv(name: string): number | undefined {
 
 function uniqueStrings(values: readonly string[]): string[] {
   return Array.from(new Set(values));
+}
+
+function dedupeUploadedFiles(
+  files: readonly ChatContextUploadedFile[],
+): ChatContextUploadedFile[] {
+  const seen = new Set<string>();
+  return files.filter((file) => {
+    const key = file.resourceId
+      ? `resource:${file.resourceId}`
+      : `${file.name}\u0000${file.mimeType ?? ""}\u0000${file.sizeBytes ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }

@@ -111,6 +111,52 @@ describe("createToolEventAccumulator", () => {
     });
   });
 
+  it("persists resource calls as compact receipts without file content", () => {
+    const acc = createToolEventAccumulator(["resources"], () =>
+      new Date("2026-05-15T10:00:00.000Z"),
+    );
+
+    acc.recordCall({
+      id: "resource_call",
+      name: "resources__query",
+      input: {
+        resourceId: "resource-1",
+        operation: "search",
+        query: "confidential phrase",
+      },
+    });
+    acc.recordResult({
+      toolCallId: "resource_call",
+      output: {
+        kind: "conversation_resource_result",
+        receipt: {
+          resourceId: "resource-1",
+          operation: "search",
+          sourceCoverage: "full",
+        },
+        matches: [{ text: "confidential phrase from the source file" }],
+      },
+    });
+
+    expect(acc.calls()[0]?.input).toEqual({
+      redacted: true,
+      resourceId: "resource-1",
+      operation: "search",
+      fields: ["operation", "query", "resourceId"],
+    });
+    expect(acc.results()[0]?.output).toMatchObject({
+      redacted: true,
+      kind: "conversation_resource_result",
+      receipt: {
+        resourceId: "resource-1",
+        operation: "search",
+        sourceCoverage: "full",
+      },
+      resultKeys: ["kind", "matches", "receipt"],
+    });
+    expect(JSON.stringify(acc.results())).not.toContain("confidential");
+  });
+
   it("preserves error results even when the matching call was not seen", () => {
     const acc = createToolEventAccumulator([], () =>
       new Date("2026-05-15T10:00:02.000Z"),

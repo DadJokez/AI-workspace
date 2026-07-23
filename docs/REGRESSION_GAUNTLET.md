@@ -13,7 +13,8 @@ checks the deployed public surface.
 | Browser smoke + feature suite | `pnpm smoke:browser` | Every PR and `main` push via `Product Smoke` | The app boots in a real browser, login renders, auth redirect works, theme toggle persists, public model metadata works, anonymous chat is guarded, and local mocked chat flows cover uploads, artifacts, tools, skills, chat download, conversation navigation, retry, Tools, Settings, Vault memory, and persona gating |
 | Authenticated browser smoke | `pnpm smoke:browser:auth` | Every PR and `main` push via `Product Smoke` | Real protected-route access with a test-only NextAuth JWT, disposable Postgres fixtures for the signed-in user and skills catalog, signed-in chat, uploads, generated artifact preview, recommendations, artifacts menu, and transcript download |
 | Production public smoke | `pnpm smoke:prod` | Scheduled every 6 hours and manual dispatch via `Product Smoke` | Public deployment health, DB/runtime health, login page, protected redirect, model metadata, anonymous chat guard |
-| Production authenticated smoke | `pnpm smoke:prod:auth` | CodeBuild after ECS services stabilize | Signed-in DB/runtime health, locked-down smoke identity, scoped thread access, live signed-in chat, persisted markdown artifact, artifact listing, server-side transcript export, and failed/stale smoke-run backlog checks |
+| Production authenticated smoke | `pnpm smoke:prod:auth` | CodeBuild after ECS services stabilize | Signed-in DB/runtime health, locked-down smoke identity, scoped thread access, live signed-in chat, persisted markdown artifact, durable large-upload follow-up, artifact listing, server-side transcript export, AgentCore execution, and failed/stale smoke-run backlog checks |
+| Production resource matrix | `pnpm smoke:prod:auth -- --resource-matrix` | Explicit release gate for file-runtime changes | Authenticated upload and later-turn recovery for TXT, CSV, TSV, XLSX, PDF, DOCX, PPTX, PNG, JPG, JPEG, and WebP; stable registry metadata; deterministic complete-source results; full-coverage run receipts; no duplicate artifacts or persisted file excerpts |
 | Real-model evals | `pnpm eval` | Nightly and manual via `Nightly Evals` | Model/prompt/harness regressions: Sonnet 4.6 semantic tool routing and no-tool cases, date grounding, Vault truthfulness, fixture-backed GitHub tool routing, tool honesty, skill faithfulness, recommendation faithfulness, artifact content treated as inert data, memory-capture secret redaction, provider-missing skill honesty, Gmail/Calendar faithfulness (email-body injection resistance, attestation/empty-result/disconnected/scope/tool-error honesty), and flagship Meeting Prep/Weekly Status artifact grounding across GitHub, Gmail, and Calendar |
 | Golden transcript replay | `pnpm transcripts:replay` | Manual today; CI candidate after fixture count grows | Downloaded chat regressions: denied Vault/tool/artifact access, model label mismatch, competitor-identity claims, missing artifact evidence, missing attachment evidence, manual save instructions after artifact creation, in-place artifact revision (same filename), and cross-thread artifact reference by name |
 | Manual visual QA | `docs/QA_CHECKLIST.md` | Before large UX releases | Visual polish, mobile ergonomics, artifact preview feel, activity receipts, edge cases that still need judgment |
@@ -27,7 +28,7 @@ checks the deployed public surface.
 | Chat API guardrails | Yes | Anonymous guard + signed-in browser smoke | Anonymous guard + signed-in post-deploy smoke | No | Need broader authenticated SSE contract cases in CI |
 | Fast chat routing | Yes | No | Signed-in inline artifact smoke | Partial | Need additional production lanes for tool and worker routes |
 | Tool/Vault/context honesty | Yes | Vault mocked locally | No | Yes | Fixture-backed GitHub tool evals cover required calls, pending approval, tool errors, and connected-but-not-mounted honesty; live third-party fixture accounts remain future hardening |
-| File upload parsing | Yes | Mocked local feature flow + signed-in smoke payloads | No | No | Need model vision evals for screenshots |
+| Durable conversation resources | Yes: all accepted extensions at three large sizes, complete adapters, resolver, authorization, receipts | Upload → follow-up → refresh → follow-up | Large CSV continuity on every deploy; full format matrix on file-runtime releases | No | Add a recurring model-vision eval after the production image fixtures prove stable |
 | Artifact creation + preview | Yes | Mocked local feature flow + signed-in smoke | Persisted artifact API listing | Partial | Browser preview remains local smoke only |
 | Chat download | Yes | Mocked local feature flow + signed-in smoke | Server-side transcript export | No | Browser download button remains local smoke only |
 | Tool activity receipts | Yes | Mocked local feature flow | No | Yes | Need live tool fixture evals with test data |
@@ -94,6 +95,7 @@ pnpm smoke:browser
 pnpm smoke:browser:auth
 pnpm smoke:prod
 pnpm smoke:prod:auth
+pnpm smoke:prod:auth -- --resource-matrix
 pnpm eval --mock
 pnpm --filter @ai-workspace/evals eval:routing --mock
 pnpm transcripts:replay
@@ -123,6 +125,14 @@ queues a durable AgentCore worker turn with a built-in tool schema mounted,
 checks smoke-run backlog health, and then removes the smoke user data on
 success. The durable turn verifies that the deployed runtime version is ready,
 the chat worker can invoke it, and Bedrock accepts its tool configuration.
+For changes to uploaded-file behavior, run the explicit
+`pnpm smoke:prod:auth -- --resource-matrix` gate from the deployed worker image.
+It creates valid fixtures for every supported format family, stores them
+through the authenticated chat API, verifies the backing resource metadata and
+complete adapters, asks later turns to recover beginning/middle/end facts,
+checks full-coverage resolver/tool receipts, and proves that neither follow-up
+turns nor persisted tool output duplicate file content. This mode is
+intentionally not charged on every routine deploy.
 Before deployment, the x86 parent job must also observe a successful native ARM
 child build for the same source commit; a failed or timed-out child blocks the
 stack update and production smoke.
