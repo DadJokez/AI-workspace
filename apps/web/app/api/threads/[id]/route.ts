@@ -54,6 +54,7 @@ export async function GET(
     const messages = await loadThreadMessagesWithRunActivity({
       db,
       threadId: id,
+      actor: sessionUser,
     });
 
     return NextResponse.json({ thread: owned[0], messages });

@@ -740,7 +740,7 @@ describe("app lifecycle stateful paths", () => {
       }),
     );
   });
-  it("returns contentOmittedForSize when the app source exceeds the injection cap (#344)", async () => {
+  it("returns sourceContentOmitted when the app source exceeds the injection cap (#344)", async () => {
     const { db, state } = createDbMock();
     state.selectQueue = [
       [
@@ -765,11 +765,14 @@ describe("app lifecycle stateful paths", () => {
       threadId: "edit-thread-1",
     });
 
-    expect(result?.contentOmittedForSize).toBe(true);
+    expect(result?.sourceContentOmitted).toBe(true);
     expect(result?.context).not.toContain("x".repeat(1_000));
+    expect(result?.context).toContain(
+      "Do not claim that you inspected, edited, or saved an updated app version.",
+    );
   });
 
-  it("reports contentOmittedForSize false when the app source fits (#344)", async () => {
+  it("reports sourceContentOmitted false when the app source fits (#344)", async () => {
     const { db, state } = createDbMock();
     state.selectQueue = [
       [
@@ -792,8 +795,52 @@ describe("app lifecycle stateful paths", () => {
       threadId: "edit-thread-1",
     });
 
-    expect(result?.contentOmittedForSize).toBe(false);
+    expect(result?.sourceContentOmitted).toBe(false);
     expect(result?.context).toContain("<!doctype html>");
+  });
+
+  it("invalidates an edit session when its source artifact is missing", async () => {
+    const { db, state } = createDbMock();
+    state.selectQueue = [
+      [
+        {
+          session: makeSession(),
+          app: makeApp(),
+          baseVersion: makeVersion({ status: "deployed" }),
+        },
+      ],
+      [{ role: "user" }],
+      [{ role: "editor" }],
+    ];
+    installMocks(db, editorSession);
+    loadWorkspaceArtifactById.mockResolvedValue(null);
+
+    const { buildAppEditContext } = await import("@/lib/apps");
+    const result = await buildAppEditContext({
+      db: db as never,
+      userId: editorSession.id,
+      threadId: "edit-thread-1",
+    });
+
+    expect(result).toMatchObject({
+      sourceContentOmitted: true,
+    });
+    expect(result?.context).toContain("source file is unavailable");
+    expect(state.updateSets).toContainEqual(
+      expect.objectContaining({ status: "revoked" }),
+    );
+    expect(state.insertValues).toContainEqual(
+      expect.objectContaining({
+        actionType: "app_edit_session_invalidated",
+        status: "failed",
+        metadata: expect.objectContaining({
+          appEditSessionId: "session-1",
+          appVersionId: "version-1",
+          artifactId: "artifact-1",
+          threadId: "edit-thread-1",
+        }),
+      }),
+    );
   });
 
   it("structurally refuses draft minting when source content was omitted (#344)", async () => {
@@ -830,12 +877,15 @@ describe("app lifecycle stateful paths", () => {
       expect.objectContaining({
         actionType: "app_draft_blocked_source_omitted",
         actorUserId: editorSession.id,
+        status: "failed",
         metadata: expect.objectContaining({
           artifactIds: ["artifact-1"],
+          appEditSessionId: "session-1",
           threadId: "edit-thread-1",
         }),
       }),
     );
+    expect(loadWorkspaceArtifactById).not.toHaveBeenCalled();
   });
   it("stamps a re-minted existing deployed version truthfully — never an actionable draft (#344)", async () => {
     const { db, state } = createDbMock();
@@ -870,9 +920,13 @@ describe("app lifecycle stateful paths", () => {
         canDeploy: false,
       }),
     ]);
+    expect(result.created).toEqual([]);
     // No new version row inserted — the existing one was reused.
     expect(state.insertValues).not.toContainEqual(
       expect.objectContaining({ status: "draft", artifactId: "artifact-1" }),
+    );
+    expect(state.insertValues).not.toContainEqual(
+      expect.objectContaining({ actionType: "app_draft_created" }),
     );
   });
 });

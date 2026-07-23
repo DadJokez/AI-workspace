@@ -72,7 +72,11 @@ export async function GET(
     },
   });
 
-  const rows = await loadThreadMessagesWithRunActivity({ db, threadId });
+  const rows = await loadThreadMessagesWithRunActivity({
+    db,
+    threadId,
+    actor: sessionUser,
+  });
 
   return NextResponse.json({ messages: rows });
 }

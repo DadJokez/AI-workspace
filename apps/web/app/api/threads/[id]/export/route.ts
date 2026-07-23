@@ -74,7 +74,11 @@ export async function GET(req: Request, { params }: RouteContext) {
     },
   });
 
-  const messages = await loadThreadMessagesWithRunActivity({ db, threadId });
+  const messages = await loadThreadMessagesWithRunActivity({
+    db,
+    threadId,
+    actor: sessionUser,
+  });
   const title = thread.title ?? "Chat transcript";
   const markdown = buildChatTranscriptMarkdown({
     title,

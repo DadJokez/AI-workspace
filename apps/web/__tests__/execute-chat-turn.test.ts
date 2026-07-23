@@ -985,6 +985,60 @@ describe("executeChatTurn — persist tail", () => {
     );
   });
 
+  it("does not claim an app version was created when the artifact already had one", async () => {
+    vi.mocked(createArtifactsFromAssistantMessage).mockResolvedValueOnce([
+      {
+        id: "artifact-app",
+        title: "Dashboard",
+        filename: "dashboard.html",
+        kind: "file",
+        mimeType: "text/html",
+        sizeBytes: 128,
+        source: "assistant",
+        threadId: "thread-1",
+        chatMessageId: "assistant-msg-1",
+        runId: "run-1",
+        artifactGroupId: "dashboard",
+        versionNumber: 1,
+        supersedesArtifactId: null,
+        versionSummary: null,
+        metadata: null,
+        createdAt: "2026-07-23T12:00:00.000Z",
+        previewUrl: "/workspace/artifacts/artifact-app",
+        downloadUrl: "/api/workspace/artifacts/artifact-app/download",
+      },
+    ]);
+    vi.mocked(
+      createDraftAppVersionsForThreadArtifacts,
+    ).mockResolvedValueOnce({
+      created: [],
+      rejected: [],
+      summaries: [
+        {
+          id: "version-4",
+          appId: "app-1",
+          appName: "Dashboard",
+          appSlug: "dashboard",
+          artifactId: "artifact-app",
+          versionNumber: 4,
+          status: "deployed",
+          canDeploy: false,
+          previewUrl: "/api/apps/app-1/versions/version-4/content",
+          liveUrl: "/apps/dashboard",
+        },
+      ],
+    });
+    const { input } = inlineInput();
+
+    await executeChatTurn(input);
+
+    const eventTypes = vi
+      .mocked(appendRunEventBestEffort)
+      .mock.calls.map(([, event]) => event.eventType);
+    expect(eventTypes).not.toContain("app_draft_validation_completed");
+    expect(eventTypes).not.toContain("app_draft_versions_created");
+  });
+
   it("does not notify or report completion when the worker terminal write is fenced out (#443)", async () => {
     const { input, state } = workerInput();
     // Another worker owns the run: the fenced terminal update matches 0 rows.

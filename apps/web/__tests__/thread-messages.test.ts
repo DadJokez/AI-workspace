@@ -232,6 +232,23 @@ describe("reconcileAppDraftVersionSummaries (#344)", () => {
     ).toEqual([summary({ canDeploy: false })]);
   });
 
+  it("removes a stale deploy affordance when the caller no longer has deploy rights", () => {
+    expect(
+      reconcileAppDraftVersionSummaries(
+        [summary()],
+        truth([
+          {
+            id: "version-2",
+            status: "draft",
+            liveVersionId: "version-1",
+            archived: false,
+            canDeploy: false,
+          },
+        ]),
+      ),
+    ).toEqual([summary({ canDeploy: false })]);
+  });
+
   it("never offers deploy for drafts on archived apps", () => {
     expect(
       reconcileAppDraftVersionSummaries(
@@ -425,5 +442,68 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
     await loadThreadMessagesWithRunActivity({ db, threadId: "thread-1" });
     // messages, runs, artifacts — no runEvents (no runs) and no truth join.
     expect(selectCalls()).toBe(3);
+  });
+
+  it("drops app-version telemetry after the caller's share is revoked", async () => {
+    const { loadThreadMessagesWithRunActivity } = await import(
+      "@/lib/thread-messages"
+    );
+    const { db } = fluentDb([
+      [
+        {
+          id: "m1",
+          role: "assistant",
+          content: "Saved a draft.",
+          modelId: null,
+          runtime: null,
+          toolCalls: null,
+          toolResults: null,
+          tokensIn: null,
+          tokensOut: null,
+          createdAt: new Date(1),
+        },
+      ],
+      [
+        {
+          id: "r1",
+          skillSlug: "chat-turn",
+          status: "succeeded",
+          modelId: null,
+          runtime: null,
+          error: null,
+          inputs: {},
+          outputs: {
+            assistantMessageId: "m1",
+            appDraftVersions: [summary("vA", 2)],
+          },
+          startedAt: null,
+          createdAt: new Date(2),
+        },
+      ],
+      [],
+      [],
+      [
+        {
+          id: "vA",
+          status: "draft",
+          appId: "app-1",
+          ownerUserId: "owner-1",
+          liveVersionId: null,
+          archivedAt: null,
+        },
+      ],
+      // resolveAppActorRole: no current share for the caller.
+      [],
+    ]);
+
+    const messages = await loadThreadMessagesWithRunActivity({
+      db,
+      threadId: "thread-1",
+      actor: { id: "former-editor-1", role: "user" },
+    });
+
+    expect(
+      messages.find((message) => message.id === "m1")?.appDraftVersions,
+    ).toEqual([]);
   });
 });

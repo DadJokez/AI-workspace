@@ -329,7 +329,7 @@ export async function executeChatTurn({
   });
   const appEditContext = appEditContextResult?.context ?? null;
   const appEditSourceOmitted =
-    appEditContextResult?.contentOmittedForSize ?? false;
+    appEditContextResult?.sourceContentOmitted ?? false;
   const combinedArtifactContext = [appEditContext, artifactContext]
     .filter(Boolean)
     .join("\n\n");
