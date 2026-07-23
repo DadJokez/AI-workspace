@@ -166,6 +166,7 @@ import { appendRunEventBestEffort } from "@/lib/run-events";
 import { createProactiveRunNotification } from "@/lib/notifications";
 import { buildChatContextPack } from "@/lib/chat-context-pack";
 import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
+import { buildTurnContext } from "@/lib/turn-context";
 
 interface FakeDbState {
   runStatus: string;
@@ -504,6 +505,62 @@ describe("executeChatTurn — tool-event provider hints (#442 drift fix)", () =>
     const worker = workerInput();
     await executeChatTurn(worker.input);
     expect(createToolEventAccumulator).toHaveBeenLastCalledWith(["github"]);
+  });
+});
+
+describe("executeChatTurn — historical tool-evidence parity (#434)", () => {
+  const evidenceReceipt = {
+    candidateCount: 1,
+    includedChars: 640,
+    maxChars: 8_000,
+    maxResultChars: 2_000,
+    included: [
+      {
+        sourceAssistantMessageId: "assistant-score",
+        toolCallId: "call-score",
+        provider: "web",
+        toolName: "search",
+        completedAt: "2026-07-23T12:00:00.000Z",
+        status: "succeeded" as const,
+        stale: false,
+        chars: 640,
+        truncated: false,
+      },
+    ],
+    omittedToolCallIds: [],
+  };
+
+  function emitEvidenceReceipt() {
+    vi.mocked(buildTurnContext).mockImplementationOnce(
+      ({ messages, onToolEvidenceReceipt }) => {
+        onToolEvidenceReceipt?.(evidenceReceipt);
+        return messages.map(({ role, content }) => ({ role, content }));
+      },
+    );
+  }
+
+  it("forwards the same receipt through the interactive lane", async () => {
+    emitEvidenceReceipt();
+    const { input } = inlineInput();
+    await executeChatTurn(input);
+
+    expect(buildChatContextPack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recentToolEvidenceReceipt: evidenceReceipt,
+      }),
+    );
+  });
+
+  it("forwards the same receipt through the worker lane", async () => {
+    emitEvidenceReceipt();
+    const { input } = workerInput();
+    await executeChatTurn(input);
+
+    expect(buildChatContextPack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recentToolEvidenceReceipt: evidenceReceipt,
+      }),
+    );
   });
 });
 

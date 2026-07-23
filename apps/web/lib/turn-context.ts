@@ -1,12 +1,20 @@
 import type { AgentMessage } from "@ai-workspace/agent";
 import type { ChatMessage } from "@ai-workspace/db";
+import {
+  buildRecentToolEvidence,
+  DEFAULT_TOOL_EVIDENCE_CHAR_LIMIT,
+  type RecentToolEvidenceReceipt,
+} from "@/lib/recent-tool-evidence";
 
 export const DEFAULT_RECENT_MESSAGE_LIMIT = 12;
 export const DEFAULT_CONTEXT_CHAR_LIMIT = 120_000;
 export const DEFAULT_MESSAGE_CHAR_LIMIT = 24_000;
 
 type TurnContextMessage = Pick<ChatMessage, "role" | "content"> & {
+  id?: string;
   modelId?: string | null;
+  toolCalls?: unknown;
+  toolResults?: unknown;
 };
 
 interface BuildTurnContextInput {
@@ -21,6 +29,7 @@ interface BuildTurnContextInput {
   maxContextChars?: number;
   maxMessageChars?: number;
   onGuardrailEvent?: (event: TurnContextGuardrailEvent) => void;
+  onToolEvidenceReceipt?: (receipt: RecentToolEvidenceReceipt) => void;
 }
 
 export interface TurnContextGuardrailEvent {
@@ -50,6 +59,7 @@ export function buildTurnContext({
   maxContextChars = DEFAULT_CONTEXT_CHAR_LIMIT,
   maxMessageChars = DEFAULT_MESSAGE_CHAR_LIMIT,
   onGuardrailEvent,
+  onToolEvidenceReceipt,
 }: BuildTurnContextInput): AgentMessage[] {
   if (messages.length === 0) return [];
 
@@ -60,6 +70,7 @@ export function buildTurnContext({
   const messageBudget = Math.max(0, Math.floor(maxMessageChars));
   const usableHistory = history.filter((message) => message.content.trim());
   const recent = limit > 0 ? usableHistory.slice(-limit) : [];
+  const recentEvidenceMessages = limit > 0 ? history.slice(-limit) : [];
 
   const currentMessage: AgentMessage = {
     role: current.role,
@@ -77,8 +88,27 @@ export function buildTurnContext({
     });
   }
 
-  const retainedHistory: AgentMessage[] = [];
-  let retainedChars = currentChars;
+  const evidenceLimit =
+    contextBudget > 0
+      ? Math.min(
+          DEFAULT_TOOL_EVIDENCE_CHAR_LIMIT,
+          Math.max(0, contextBudget - currentChars),
+        )
+      : DEFAULT_TOOL_EVIDENCE_CHAR_LIMIT;
+  const recentToolEvidence = buildRecentToolEvidence(recentEvidenceMessages, {
+    maxChars: evidenceLimit,
+  });
+  if (recentToolEvidence.receipt.candidateCount > 0) {
+    onToolEvidenceReceipt?.(recentToolEvidence.receipt);
+  }
+  const evidenceMessage: AgentMessage | null = recentToolEvidence.text
+    ? { role: "user", content: recentToolEvidence.text }
+    : null;
+  const retainedHistory: Array<{
+    source: TurnContextMessage;
+    message: AgentMessage;
+  }> = [];
+  let retainedChars = currentChars + (evidenceMessage?.content.length ?? 0);
   let droppedMessages = usableHistory.length - recent.length;
 
   for (let i = recent.length - 1; i >= 0; i--) {
@@ -99,7 +129,7 @@ export function buildTurnContext({
       droppedMessages += i + 1;
       break;
     }
-    retainedHistory.unshift(message);
+    retainedHistory.unshift({ source, message });
     retainedChars += chars;
   }
 
@@ -114,10 +144,34 @@ export function buildTurnContext({
   }
 
   const modelProvenanceMessage = buildModelProvenanceMessage(recent);
+  const evidenceSourceIds = new Set(
+    recentToolEvidence.receipt.included.map(
+      (item) => item.sourceAssistantMessageId,
+    ),
+  );
+  const firstReferencedAssistantIndex = retainedHistory.findIndex(
+    ({ source }) =>
+      source.role === "assistant" &&
+      typeof source.id === "string" &&
+      evidenceSourceIds.has(source.id),
+  );
+  const evidenceInsertIndex =
+    firstReferencedAssistantIndex >= 0
+      ? firstReferencedAssistantIndex
+      : retainedHistory.length;
+  const historyWithEvidence = [
+    ...retainedHistory
+      .slice(0, evidenceInsertIndex)
+      .map(({ message }) => message),
+    ...(evidenceMessage ? [evidenceMessage] : []),
+    ...retainedHistory
+      .slice(evidenceInsertIndex)
+      .map(({ message }) => message),
+  ];
 
   return coalesceAdjacentMessages([
     ...(modelProvenanceMessage ? [modelProvenanceMessage] : []),
-    ...retainedHistory,
+    ...historyWithEvidence,
     currentMessage,
   ]);
 }

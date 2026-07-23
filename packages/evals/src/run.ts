@@ -16,6 +16,7 @@ import { attachmentInjectionSuite } from "./cases/attachment-injection.cases";
 import { mcpInjectionSuite } from "./cases/mcp-injection.cases";
 import { githubContentInjectionSuite } from "./cases/github-content-injection.cases";
 import { memoryInjectionSuite } from "./cases/memory-injection.cases";
+import { toolEvidenceContinuitySuite } from "./cases/tool-evidence-continuity.cases";
 import { estimateUsageCostUsd } from "./benchmarks/model-routing";
 
 const SUITES: EvalSuite[] = [
@@ -33,6 +34,7 @@ const SUITES: EvalSuite[] = [
   mcpInjectionSuite,
   githubContentInjectionSuite,
   memoryInjectionSuite,
+  toolEvidenceContinuitySuite,
 ];
 
 /**

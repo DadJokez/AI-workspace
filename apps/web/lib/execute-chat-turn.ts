@@ -69,6 +69,7 @@ import type { RuntimeModelSelection } from "@/lib/runtime-model-policy";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
+import type { RecentToolEvidenceReceipt } from "@/lib/recent-tool-evidence";
 import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
 import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 import { normalizeRuntimeUsage } from "@/lib/runtime-usage";
@@ -303,6 +304,7 @@ export async function executeChatTurn({
     customInstructions: null,
     role: "user" as const,
   };
+  let recentToolEvidenceReceipt: RecentToolEvidenceReceipt | undefined;
   const selectedResourceImages = effectiveResourceResolution
     ? await loadSelectedResourceImages({
         db,
@@ -331,6 +333,9 @@ export async function executeChatTurn({
             ...event,
           })}\n`,
         );
+      },
+      onToolEvidenceReceipt: (receipt) => {
+        recentToolEvidenceReceipt = receipt;
       },
     }),
     runtimeUploadedFiles,
@@ -475,6 +480,7 @@ export async function executeChatTurn({
     modelId,
     artifactContext: combinedArtifactContext,
     uploadedFiles: runtimeUploadedFiles,
+    recentToolEvidenceReceipt,
     resourceResolution: effectiveResourceResolution,
     recommendations: recentRecommendations,
     route,

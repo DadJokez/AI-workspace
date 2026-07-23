@@ -205,6 +205,57 @@ describe("chat context pack", () => {
     expect(pack.prompt.volatileSystemSuffix).not.toContain("brief.csv");
   });
 
+  it("persists recent tool-evidence inclusion and omission receipts", () => {
+    const pack = buildChatContextPack({
+      ...baseInput(),
+      recentToolEvidenceReceipt: {
+        candidateCount: 2,
+        includedChars: 640,
+        maxChars: 8_000,
+        maxResultChars: 2_000,
+        included: [
+          {
+            sourceAssistantMessageId: "assistant-score",
+            toolCallId: "call-score",
+            provider: "web",
+            toolName: "search",
+            completedAt: "2026-07-23T12:00:00.000Z",
+            status: "succeeded",
+            stale: false,
+            chars: 640,
+            truncated: false,
+          },
+        ],
+        omittedToolCallIds: ["call-old"],
+      },
+    });
+
+    expect(pack.receipts[0]?.work.recentToolEvidence).toMatchObject({
+      candidateCount: 2,
+      includedChars: 640,
+      omittedToolCallIds: ["call-old"],
+    });
+    expect(pack.work.toolEvidence).toMatchObject({
+      id: "thread:recent-tool-evidence",
+      type: "recent_tool_evidence",
+      source: "chat_messages.tool_results",
+      visibility: "hidden_prompt",
+      injected: true,
+      charCount: 640,
+    });
+    expect(pack.receipts[0]?.contextItems).toContainEqual(
+      expect.objectContaining({
+        id: "thread:recent-tool-evidence",
+        metadata: expect.objectContaining({
+          omittedToolCallIds: ["call-old"],
+        }),
+      }),
+    );
+    expect(pack.prompt.volatileSystemSuffix).toContain(
+      "Historical tool evidence: 1 successful and 0 failed result(s) included",
+    );
+  });
+
   it("records durable resource receipts without copying file content into context", () => {
     const pack = buildChatContextPack({
       ...baseInput(),
