@@ -624,29 +624,65 @@ function filterDataset(
     1,
     MAX_RESULT_LIMIT,
   );
+  const selectedSheets = sheets.map((sheet) => ({
+    sheet,
+    headers: headerForSheet(sheet),
+    filterColumnIndex: columnIndex(sheet, input.filterColumn!),
+  }));
+  const dateExpected = resolveDateFilterExpected(
+    selectedSheets,
+    input.filterOperator,
+    input.filterValue,
+  );
   const rows: Array<Record<string, string>> = [];
   let matchedRows = 0;
-  for (const sheet of sheets) {
-    const headers = headerForSheet(sheet);
-    const index = columnIndex(sheet, input.filterColumn);
+  let unparseableRows = 0;
+  for (const { sheet, headers, filterColumnIndex } of selectedSheets) {
     for (const row of sheet.rows.slice(1)) {
-      if (
-        compareFilter(
-          row[index] ?? "",
+      const actual = row[filterColumnIndex] ?? "";
+      let matched: boolean;
+      if (dateExpected === null) {
+        matched = compareFilter(
+          actual,
           input.filterOperator,
           input.filterValue,
-        )
-      ) {
+        );
+      } else {
+        const parsedActual = parseDateCell(actual);
+        if (parsedActual === null) {
+          unparseableRows += 1;
+          continue;
+        }
+        matched = compareOrderedValues(
+          parsedActual,
+          input.filterOperator,
+          dateExpected,
+        );
+      }
+      if (matched) {
         matchedRows += 1;
         if (rows.length < limit) {
           rows.push({
             _sheet: sheet.name,
-            ...rowAsRecord(headers, row, [index]),
+            ...rowAsRecord(headers, row, [filterColumnIndex]),
           });
         }
       }
     }
   }
+  const dateDiagnostics =
+    dateExpected === null
+      ? {}
+      : {
+          unparseableRows,
+          ...(unparseableRows > 0
+            ? {
+                warnings: [
+                  `${unparseableRows} row${unparseableRows === 1 ? "" : "s"} could not be parsed as dates and were excluded.`,
+                ],
+              }
+            : {}),
+        };
   return {
     kind: "conversation_resource_result",
     receipt: {
@@ -654,6 +690,13 @@ function filterDataset(
       resultCoverage: matchedRows > rows.length ? "partial" : "full",
       matchedRows,
       returnedRows: rows.length,
+      ...dateDiagnostics,
+      filter: {
+        column: input.filterColumn,
+        operator: input.filterOperator,
+        value: input.filterValue,
+        comparison: dateExpected === null ? "scalar" : "date",
+      },
     },
     rows,
   };
@@ -920,10 +963,75 @@ function compareFilter(
   if (operator === "contains") {
     return String(left).includes(String(right));
   }
+  return compareOrderedValues(left, operator, right);
+}
+
+function compareOrderedValues(
+  left: number | string,
+  operator: NonNullable<ConversationResourceQueryInput["filterOperator"]>,
+  right: number | string,
+): boolean {
+  if (operator === "equals") return left === right;
+  if (operator === "not_equals") return left !== right;
+  if (operator === "contains") {
+    return String(left).includes(String(right));
+  }
   if (operator === "greater_than") return left > right;
   if (operator === "greater_than_or_equal") return left >= right;
   if (operator === "less_than") return left < right;
   return left <= right;
+}
+
+function resolveDateFilterExpected(
+  selectedSheets: readonly {
+    sheet: TabularSheet;
+    filterColumnIndex: number;
+  }[],
+  operator: NonNullable<ConversationResourceQueryInput["filterOperator"]>,
+  expected: string | number | boolean,
+): number | null {
+  if (operator === "contains" || typeof expected !== "string") return null;
+  const parsedExpected = parseDateCell(expected);
+  if (parsedExpected === null) return null;
+  const hasDateValue = selectedSheets.some(({ sheet, filterColumnIndex }) =>
+    sheet.rows
+      .slice(1)
+      .some((row) => parseDateCell(row[filterColumnIndex] ?? "") !== null),
+  );
+  return hasDateValue ? parsedExpected : null;
+}
+
+function parseDateCell(value: string): number | null {
+  const normalized = value.trim();
+  const isoMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const usMatch = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  const match = isoMatch ?? usMatch;
+  if (!match) return null;
+  const year = Number(isoMatch ? match[1] : match[3]);
+  const month = Number(isoMatch ? match[2] : match[1]);
+  const day = Number(isoMatch ? match[3] : match[2]);
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
+  const date = new Date(0);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(year, month - 1, day);
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return Math.floor(date.getTime() / 86_400_000);
 }
 
 function compareCells(left: string, right: string): number {

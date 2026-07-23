@@ -211,6 +211,92 @@ describe.sequential("complete conversation resource adapters (#576)", () => {
     ).rejects.toThrow(/boolean filter values support only equals or not_equals/i);
   });
 
+  it("normalizes mixed-format dates and reports unparseable rows", async () => {
+    const resource = textResource(
+      "orders.csv",
+      [
+        "order_id,order_date",
+        "1,2026-01-15",
+        "2,3/25/2024",
+        "3,1/5/2026",
+        "4,2025-12-31",
+        "5,2026-02-30",
+        "6,not-a-date",
+        "7,",
+      ].join("\n"),
+      "spreadsheet",
+    );
+
+    const result = await queryConversationResource(resource, {
+      resourceId: resource.id,
+      operation: "table_filter",
+      filterColumn: "order_date",
+      filterOperator: "greater_than_or_equal",
+      filterValue: "2026-01-01",
+    });
+
+    expect(result).toMatchObject({
+      receipt: {
+        scannedRows: 7,
+        matchedRows: 2,
+        returnedRows: 2,
+        resultCoverage: "full",
+        unparseableRows: 3,
+        warnings: [
+          "3 rows could not be parsed as dates and were excluded.",
+        ],
+        filter: {
+          column: "order_date",
+          operator: "greater_than_or_equal",
+          value: "2026-01-01",
+          comparison: "date",
+        },
+      },
+      rows: [
+        expect.objectContaining({ order_id: "1", order_date: "2026-01-15" }),
+        expect.objectContaining({ order_id: "3", order_date: "1/5/2026" }),
+      ],
+    });
+    expect(JSON.stringify(result)).not.toContain("3/25/2024");
+
+    await expect(
+      queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "table_filter",
+        filterColumn: "order_date",
+        filterOperator: "equals",
+        filterValue: "2026-01-05",
+      }),
+    ).resolves.toMatchObject({
+      receipt: { matchedRows: 1, unparseableRows: 3 },
+      rows: [expect.objectContaining({ order_id: "3", order_date: "1/5/2026" })],
+    });
+  });
+
+  it("preserves scalar comparison when the target column has no date values", async () => {
+    const resource = textResource(
+      "labels.csv",
+      ["id,label", "1,before", "2,release-2026-01-01"].join("\n"),
+      "spreadsheet",
+    );
+
+    await expect(
+      queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "table_filter",
+        filterColumn: "label",
+        filterOperator: "equals",
+        filterValue: "2026-01-01",
+      }),
+    ).resolves.toMatchObject({
+      receipt: {
+        matchedRows: 0,
+        filter: { comparison: "scalar" },
+      },
+      rows: [],
+    });
+  });
+
   it("reads every XLSX row and every sheet before reporting an aggregate", async () => {
     const workbook = new ExcelJS.Workbook();
     const first = workbook.addWorksheet("First");
