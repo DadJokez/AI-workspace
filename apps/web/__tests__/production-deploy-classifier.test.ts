@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -43,6 +44,9 @@ describe("classify-production-deploy.sh", () => {
     expect(result.status).toBe(0);
     expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=1\n");
     expect(result.stdout).toContain("docs-only: deployment skipped");
+    expect(result.stdout).toContain(
+      `Comparing commits: previous=${previous} current=${current}`,
+    );
     expect(result.stdout).toContain("README.md");
     expect(result.stdout).toContain("docs/guide.md");
   });
@@ -97,15 +101,35 @@ describe("classify-production-deploy.sh", () => {
     expect(result.stdout).toContain("has no previous commit");
   });
 
-  it("requires a deploy when the previous commit cannot be resolved", () => {
+  it("requires a deploy when the previous SHA is absent and its remote fetch is unauthenticated", () => {
     const repo = createRepo();
     commitFiles(repo, { "docs/guide.md": "before\n" });
     const current = commitFiles(repo, { "docs/guide.md": "after\n" });
+    const pathPrefix = createUnauthenticatedGitWrapper(repo);
 
-    const result = classify(repo, "f".repeat(40), current);
+    const result = classify(repo, "f".repeat(40), current, { pathPrefix });
 
     expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=0\n");
     expect(result.stdout).toContain("previous commit could not be fetched");
+    expect(result.stderr).toContain("Authentication failed");
+  });
+
+  it.each([
+    ["missing previous SHA", "", "previous commit SHA is missing or invalid"],
+    ["invalid current SHA", "current", "resolved source SHA is missing or invalid"],
+  ])("requires a deploy for an %s", (_name, invalidField, reason) => {
+    const repo = createRepo();
+    const previous = commitFiles(repo, { "docs/guide.md": "before\n" });
+    const current = commitFiles(repo, { "docs/guide.md": "after\n" });
+
+    const result = classify(
+      repo,
+      invalidField === "current" ? previous : "",
+      invalidField === "current" ? "not-a-sha" : current,
+    );
+
+    expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=0\n");
+    expect(result.stdout).toContain(reason);
   });
 
   it("guards every expensive build phase before deployment work", () => {
@@ -154,7 +178,10 @@ function classify(
   repo: string,
   previous: string,
   current: string,
-  { webhookEvent = "PUSH" }: { webhookEvent?: string } = {},
+  {
+    webhookEvent = "PUSH",
+    pathPrefix,
+  }: { webhookEvent?: string; pathPrefix?: string } = {},
 ) {
   const decisionPath = join(repo, "decision.env");
   const result = spawnSync("bash", [SCRIPT_PATH, decisionPath], {
@@ -162,6 +189,10 @@ function classify(
     encoding: "utf8",
     env: {
       ...process.env,
+      PATH: pathPrefix
+        ? `${pathPrefix}:${process.env.PATH ?? ""}`
+        : process.env.PATH,
+      GIT_TERMINAL_PROMPT: "0",
       CODEBUILD_WEBHOOK_EVENT: webhookEvent,
       CODEBUILD_WEBHOOK_TRIGGER: "branch/main",
       CODEBUILD_WEBHOOK_PREV_COMMIT: previous,
@@ -175,6 +206,25 @@ function classify(
     stderr: result.stderr,
     decision: readFileSync(decisionPath, "utf8"),
   };
+}
+
+function createUnauthenticatedGitWrapper(repo: string) {
+  const binDir = join(repo, "fake-bin");
+  mkdirSync(binDir);
+  const gitPath = join(binDir, "git");
+  const realGit = spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim();
+  writeFileSync(
+    gitPath,
+    `#!/usr/bin/env bash
+if [[ "$1" == "fetch" ]]; then
+  echo "fatal: Authentication failed for remote." >&2
+  exit 128
+fi
+exec ${JSON.stringify(realGit)} "$@"
+`,
+  );
+  chmodSync(gitPath, 0o755);
+  return binDir;
 }
 
 function runGit(cwd: string, args: string[]) {
