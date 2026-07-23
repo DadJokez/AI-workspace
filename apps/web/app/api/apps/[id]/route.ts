@@ -1,6 +1,10 @@
 import { type App, apps, getDb } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import {
   auditAppMutation,
@@ -23,17 +27,29 @@ function notFound() {
   return NextResponse.json({ error: "app_not_found" }, { status: 404 });
 }
 
-export async function GET(_req: Request, context: RouteContext) {
+export async function GET(req: Request, context: RouteContext) {
   const sessionUser = await getSessionUser();
   if (!sessionUser) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const { id } = await context.params;
+  const db = getDb();
   const app = await loadApp(id);
-  if (!app || !(await canActorAccessApp(getDb(), app, sessionUser))) {
+  if (!app || !(await canActorAccessApp(db, app, sessionUser))) {
     return notFound();
   }
-  const actorRole = await resolveAppActorRole(getDb(), app, sessionUser);
+  await auditAdminDataAccess({
+    db,
+    actor: sessionUser,
+    access: {
+      targetUserId: app.ownerUserId,
+      resourceType: "app",
+      resourceId: app.id,
+      surface: "app_api",
+      justification: adminDataAccessJustification(req),
+    },
+  });
+  const actorRole = await resolveAppActorRole(db, app, sessionUser);
   return NextResponse.json({
     app: {
       ...app,

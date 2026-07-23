@@ -1,16 +1,18 @@
 import { auditLog, getDb, runs, runEvents, users } from "@ai-workspace/db";
-import { and, asc, desc, eq, gte } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { redactTracePayload } from "@/lib/tool-redaction";
 import { expandProviderContextSnapshotOutput } from "@/lib/run-trace";
 
 export const dynamic = "force-dynamic";
 
-const TRACE_ACCESS_WINDOW_MS = 5 * 60 * 1_000;
-
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const auth = await requireAdmin();
@@ -49,10 +51,17 @@ export async function GET(
   }
 
   const now = new Date();
-  await auditTraceAccess({
+  await auditAdminDataAccess({
     db,
-    actorUserId: auth.user.id,
-    runId: run.id,
+    actor: auth.user,
+    access: {
+      targetUserId: run.userId,
+      resourceType: "run",
+      resourceId: run.id,
+      surface: "run_inspector",
+      justification: adminDataAccessJustification(request),
+      runId: run.id,
+    },
     now,
   });
 
@@ -132,47 +141,4 @@ export async function GET(
   };
 
   return NextResponse.json({ trace });
-}
-
-async function auditTraceAccess({
-  db,
-  actorUserId,
-  runId,
-  now,
-}: {
-  db: ReturnType<typeof getDb>;
-  actorUserId: string;
-  runId: string;
-  now: Date;
-}) {
-  const recent = await db
-    .select({ id: auditLog.id })
-    .from(auditLog)
-    .where(
-      and(
-        eq(auditLog.actorUserId, actorUserId),
-        eq(auditLog.runId, runId),
-        eq(auditLog.actionType, "run_trace_viewed"),
-        gte(
-          auditLog.createdAt,
-          new Date(now.getTime() - TRACE_ACCESS_WINDOW_MS),
-        ),
-      ),
-    )
-    .limit(1);
-  if (recent.length > 0) return;
-
-  await db.insert(auditLog).values({
-    actorUserId,
-    runId,
-    actionType: "run_trace_viewed",
-    status: "succeeded",
-    metadata: {
-      surface: "run_inspector",
-      schema: "run-inspector.v1",
-    },
-    startedAt: now,
-    completedAt: now,
-    createdAt: now,
-  });
 }

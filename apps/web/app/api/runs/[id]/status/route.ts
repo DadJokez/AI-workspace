@@ -2,6 +2,10 @@ import { AuthConfigError } from "@ai-workspace/auth";
 import { getDb, runEvents, runs } from "@ai-workspace/db";
 import { and, eq, max } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
 
@@ -19,7 +23,7 @@ export const dynamic = "force-dynamic";
  * `role = 'admin'` → any run (read-side parity with the thread routes).
  */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   let sessionUser;
@@ -46,7 +50,12 @@ export async function GET(
   const db = getDb();
 
   const runRows = await db
-    .select({ id: runs.id, status: runs.status, updatedAt: runs.updatedAt })
+    .select({
+      id: runs.id,
+      userId: runs.userId,
+      status: runs.status,
+      updatedAt: runs.updatedAt,
+    })
     .from(runs)
     .where(and(eq(runs.id, runId), userScope(sessionUser, runs.userId)))
     .limit(1);
@@ -54,6 +63,19 @@ export async function GET(
   if (!run) {
     return NextResponse.json({ error: "run_not_found" }, { status: 404 });
   }
+
+  await auditAdminDataAccess({
+    db,
+    actor: sessionUser,
+    access: {
+      targetUserId: run.userId,
+      resourceType: "run",
+      resourceId: run.id,
+      surface: "run_status",
+      justification: adminDataAccessJustification(req),
+      runId: run.id,
+    },
+  });
 
   // (run_id, sequence) is index-covered — this is the cheap cursor read.
   const eventRows = await db

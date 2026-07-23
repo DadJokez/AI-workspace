@@ -8,6 +8,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Metric, StatusBadge, StatusDot } from "@/app/admin/ui";
 import { MessageBubble } from "@/components/MessageBubble";
+import { auditAdminDataAccess } from "@/lib/admin-data-access";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { runEventsToActivityEvents } from "@/lib/run-events";
 import type { PersistedRecommendation } from "@/lib/recommendations";
@@ -81,6 +82,7 @@ export default async function AdminRunDetailPage({ params }: Props) {
   const rows = await db
     .select({
       id: runs.id,
+      userId: runs.userId,
       skillSlug: runs.skillSlug,
       status: runs.status,
       triggerType: runs.triggerType,
@@ -105,6 +107,18 @@ export default async function AdminRunDetailPage({ params }: Props) {
 
   const run = rows[0];
   if (!run) notFound();
+
+  await auditAdminDataAccess({
+    db,
+    actor: sessionUser,
+    access: {
+      targetUserId: run.userId,
+      resourceType: "run",
+      resourceId: run.id,
+      surface: "admin_run_detail",
+      runId: run.id,
+    },
+  });
 
   const auditRows = await db
     .select({

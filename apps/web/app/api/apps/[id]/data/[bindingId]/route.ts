@@ -1,6 +1,10 @@
 import { apps, getDb } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import {
   auditAppMutation,
@@ -43,7 +47,7 @@ const DATA_JSON_HEADERS = {
  * server foundation and is exercised directly by tests.
  */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string; bindingId: string }> },
 ) {
   const sessionUser = await getSessionUser();
@@ -72,6 +76,18 @@ export async function GET(
     });
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
+
+  await auditAdminDataAccess({
+    db,
+    actor: sessionUser,
+    access: {
+      targetUserId: app.ownerUserId,
+      resourceType: "app",
+      resourceId: app.id,
+      surface: "app_data",
+      justification: adminDataAccessJustification(req),
+    },
+  });
 
   // Per-viewer + per-app rate limit (Postgres-backed, holds across instances).
   const limit = await checkRateLimit(

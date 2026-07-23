@@ -2,6 +2,7 @@ import { getDb, runs, users } from "@ai-workspace/db";
 import { and, desc, eq, type SQL } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { auditAdminDataAccessBatch } from "@/lib/admin-data-access";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { buildRuntimeV2Report } from "@/lib/admin/run-reporting";
 import { FilterPill, Metric, StatusBadge, StatusDot } from "@/app/admin/ui";
@@ -51,6 +52,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
   const rows = await db
     .select({
       id: runs.id,
+      userId: runs.userId,
       skillSlug: runs.skillSlug,
       status: runs.status,
       triggerType: runs.triggerType,
@@ -70,6 +72,18 @@ export default async function AdminRunsPage({ searchParams }: Props) {
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(runs.createdAt))
     .limit(REPORT_RUN_LIMIT);
+
+  await auditAdminDataAccessBatch({
+    db,
+    actor: sessionUser,
+    accesses: rows.map((run) => ({
+      targetUserId: run.userId,
+      resourceType: "run_collection",
+      resourceId: `status:${status}`,
+      surface: "admin_runs",
+      resourceCount: 1,
+    })),
+  });
 
   const running = rows.filter((row) => row.status === "running").length;
   const failed = rows.filter((row) => row.status === "failed").length;

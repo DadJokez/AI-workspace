@@ -17,12 +17,23 @@ const session: SessionUser = {
 const fixedDate = new Date("2026-07-19T12:00:00.000Z");
 
 let currentSession: SessionUser | null = session;
-let runRows: Array<{ id: string; status: string; updatedAt: Date }> = [];
+let runRows: Array<{
+  id: string;
+  userId: string;
+  status: string;
+  updatedAt: Date;
+}> = [];
 let eventRows: Array<{ latestEventSequence: number | null }> = [];
+const auditAdminDataAccess = vi.fn();
 
 function installMocks() {
   vi.doMock("@/lib/auth/getSessionUser", () => ({
     getSessionUser: async () => currentSession,
+  }));
+  vi.doMock("@/lib/admin-data-access", () => ({
+    adminDataAccessJustification: (request: Request) =>
+      request.headers.get("x-admin-access-justification"),
+    auditAdminDataAccess,
   }));
   vi.doMock("@ai-workspace/db", async () => {
     const actual =
@@ -62,8 +73,17 @@ function installMocks() {
 
 beforeEach(() => {
   currentSession = session;
-  runRows = [{ id: "run-1", status: "running", updatedAt: fixedDate }];
+  runRows = [
+    {
+      id: "run-1",
+      userId: session.id,
+      status: "running",
+      updatedAt: fixedDate,
+    },
+  ];
   eventRows = [{ latestEventSequence: 7 }];
+  auditAdminDataAccess.mockReset();
+  auditAdminDataAccess.mockResolvedValue("skipped");
 });
 
 afterEach(() => {
@@ -129,5 +149,41 @@ describe("GET /api/runs/[id]/status", () => {
       run: { latestEventSequence: number | null };
     };
     expect(body.run.latestEventSequence).toBeNull();
+  });
+
+  it("audits an admin status poll against the run owner", async () => {
+    currentSession = { ...session, id: "admin-uuid", role: "admin" };
+    runRows = [
+      {
+        id: "run-1",
+        userId: "target-user-uuid",
+        status: "running",
+        updatedAt: fixedDate,
+      },
+    ];
+    installMocks();
+
+    const { GET } = await import("@/app/api/runs/[id]/status/route");
+    const request = new Request("http://localhost/api/runs/run-1/status", {
+      headers: { "x-admin-access-justification": "Support case 42" },
+    });
+    const res = await GET(request, {
+      params: Promise.resolve({ id: "run-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(auditAdminDataAccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: currentSession,
+        access: {
+          targetUserId: "target-user-uuid",
+          resourceType: "run",
+          resourceId: "run-1",
+          surface: "run_status",
+          justification: "Support case 42",
+          runId: "run-1",
+        },
+      }),
+    );
   });
 });

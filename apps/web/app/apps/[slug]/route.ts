@@ -1,6 +1,10 @@
 import { apps, getDb } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { auditAppMutation, canActorOpenApp, getLiveAppVersion } from "@/lib/apps";
 import { parseDataBindings } from "@/lib/app-data-bindings";
@@ -93,6 +97,18 @@ export async function GET(
       status: 404,
     });
   }
+
+  await auditAdminDataAccess({
+    db,
+    actor: sessionUser,
+    access: {
+      targetUserId: app.ownerUserId,
+      resourceType: "workspace_artifact",
+      resourceId: artifact.id,
+      surface: "deployed_app",
+      justification: adminDataAccessJustification(req),
+    },
+  });
 
   const bindings = parseDataBindings(artifact.metadata);
   const body =

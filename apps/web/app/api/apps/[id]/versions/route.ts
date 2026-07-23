@@ -1,6 +1,10 @@
 import { apps, getDb } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import {
   canAppRoleDeploy,
@@ -13,7 +17,7 @@ export const dynamic = "force-dynamic";
 
 /** Owner-only: the app's deployable version candidates, newest first. */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const sessionUser = await getSessionUser();
@@ -32,6 +36,18 @@ export async function GET(
   if (!canAppRoleEdit(actorRole)) {
     return NextResponse.json({ error: "app_not_found" }, { status: 404 });
   }
+
+  await auditAdminDataAccess({
+    db,
+    actor: sessionUser,
+    access: {
+      targetUserId: app.ownerUserId,
+      resourceType: "app",
+      resourceId: app.id,
+      surface: "app_versions",
+      justification: adminDataAccessJustification(req),
+    },
+  });
 
   const versions = await listAppVersions(db, {
     appId: app.id,

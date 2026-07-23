@@ -2,6 +2,7 @@ import { AuthConfigError } from "@ai-workspace/auth";
 import { chatThreads, getDb } from "@ai-workspace/db";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { auditAdminDataAccessBatch } from "@/lib/admin-data-access";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
 
@@ -41,8 +42,9 @@ export async function GET(req: Request) {
     Number.isFinite(parsed) && parsed > 0
       ? Math.min(parsed, MAX_LIMIT)
       : DEFAULT_LIMIT;
+  const personalScope = url.searchParams.get("scope") === "mine";
   const scope =
-    url.searchParams.get("scope") === "mine"
+    personalScope
       ? eq(chatThreads.userId, sessionUser.id)
       : userScope(sessionUser, chatThreads.userId);
 
@@ -69,6 +71,18 @@ export async function GET(req: Request) {
       asc(chatThreads.id),
     )
     .limit(limit);
+
+  await auditAdminDataAccessBatch({
+    db,
+    actor: sessionUser,
+    accesses: rows.map((thread) => ({
+      targetUserId: thread.userId,
+      resourceType: "chat_thread_collection",
+      resourceId: personalScope ? "mine" : "workspace",
+      surface: "thread_list",
+      resourceCount: 1,
+    })),
+  });
 
   return NextResponse.json({ threads: rows });
 }

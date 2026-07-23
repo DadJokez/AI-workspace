@@ -1,6 +1,10 @@
 import { feedbackReports, getDb } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 
 export const dynamic = "force-dynamic";
@@ -30,15 +34,17 @@ function safeScreenshotMimeType(
 }
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
 
   const { id } = await params;
-  const rows = await getDb()
+  const db = getDb();
+  const rows = await db
     .select({
+      userId: feedbackReports.userId,
       screenshotDataUrl: feedbackReports.screenshotDataUrl,
       screenshotMimeType: feedbackReports.screenshotMimeType,
       screenshotName: feedbackReports.screenshotName,
@@ -59,6 +65,18 @@ export async function GET(
   if (!mimeType) {
     return NextResponse.json({ error: "invalid_screenshot" }, { status: 422 });
   }
+
+  await auditAdminDataAccess({
+    db,
+    actor: auth.user,
+    access: {
+      targetUserId: row.userId,
+      resourceType: "feedback_report",
+      resourceId: id,
+      surface: "feedback_screenshot",
+      justification: adminDataAccessJustification(req),
+    },
+  });
 
   return NextResponse.json({
     screenshot: {

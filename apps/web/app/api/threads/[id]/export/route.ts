@@ -2,6 +2,10 @@ import { AuthConfigError } from "@ai-workspace/auth";
 import { chatThreads, getDb } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
 import {
@@ -14,7 +18,7 @@ export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-export async function GET(_req: Request, { params }: RouteContext) {
+export async function GET(req: Request, { params }: RouteContext) {
   let sessionUser;
   try {
     sessionUser = await getSessionUser();
@@ -56,6 +60,19 @@ export async function GET(_req: Request, { params }: RouteContext) {
   if (!thread) {
     return NextResponse.json({ error: "thread_not_found" }, { status: 404 });
   }
+
+  await auditAdminDataAccess({
+    db,
+    actor: sessionUser,
+    access: {
+      targetUserId: thread.userId,
+      resourceType: "chat_thread",
+      resourceId: thread.id,
+      surface: "thread_export",
+      justification: adminDataAccessJustification(req),
+      chatThreadId: thread.id,
+    },
+  });
 
   const messages = await loadThreadMessagesWithRunActivity({ db, threadId });
   const title = thread.title ?? "Chat transcript";

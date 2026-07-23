@@ -6,6 +6,7 @@ import { AppActions } from "@/components/apps/AppActions";
 import { EditAppButton } from "@/components/apps/EditAppButton";
 import { VersionsPanel } from "@/components/apps/VersionsPanel";
 import { SharePanel } from "@/components/skills/SharePanel";
+import { auditAdminDataAccess } from "@/lib/admin-data-access";
 import {
   canAppRoleDeploy,
   canAppRoleEdit,
@@ -35,6 +36,16 @@ export default async function ManageAppPage({
   }
   const actorRole = await resolveAppActorRole(db, app, sessionUser);
   if (!canAppRoleEdit(actorRole)) notFound();
+  await auditAdminDataAccess({
+    db,
+    actor: sessionUser,
+    access: {
+      targetUserId: app.ownerUserId,
+      resourceType: "app",
+      resourceId: app.id,
+      surface: "manage_app",
+    },
+  });
   const canDeploy = canAppRoleDeploy(actorRole);
   const canShare = actorRole === "owner" || actorRole === "admin";
 
