@@ -11,7 +11,12 @@ const nextConfig = {
     "@ai-workspace/db",
     "@ai-workspace/umber",
   ],
-  serverExternalPackages: ["postgres"],
+  outputFileTracingIncludes: {
+    "/api/chat": [
+      "../../node_modules/.pnpm/@napi-rs+canvas*/node_modules/@napi-rs/canvas*/**/*",
+    ],
+  },
+  serverExternalPackages: ["pdf-parse", "postgres"],
 };
 
 export default nextConfig;

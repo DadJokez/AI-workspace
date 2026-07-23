@@ -64,6 +64,21 @@ COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/standalone ./
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/public ./apps/web/public
 
+# pdfjs loads its native canvas adapter through createRequire(), which Next's
+# file tracer cannot follow. Restore pnpm's package link, then fail the image
+# build if the production runtime still cannot load the PDF parser.
+RUN set -eux; \
+    canvas_dir="$(find /app/node_modules/.pnpm -maxdepth 1 -type d -name '@napi-rs+canvas@*' -print -quit)"; \
+    pdfjs_dir="$(find /app/node_modules/.pnpm -maxdepth 1 -type d -name 'pdfjs-dist@*' -print -quit)"; \
+    test -n "$canvas_dir"; \
+    test -n "$pdfjs_dir"; \
+    mkdir -p "$pdfjs_dir/node_modules/@napi-rs"; \
+    if [ ! -e "$pdfjs_dir/node_modules/@napi-rs/canvas" ]; then \
+      ln -s "../../../$(basename "$canvas_dir")/node_modules/@napi-rs/canvas" "$pdfjs_dir/node_modules/@napi-rs/canvas"; \
+    fi; \
+    cd /app/apps/web; \
+    node --input-type=module -e "const parser = await import('pdf-parse'); if (typeof parser.PDFParse !== 'function') process.exit(1)"
+
 USER nextjs
 EXPOSE 3000
 
