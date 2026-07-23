@@ -8,6 +8,7 @@ import {
 } from "@/lib/admin-data-access";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { userScope } from "@/lib/auth/scope";
+import { liveTokenTotalFromRunOutput } from "@/lib/run-poll";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,7 @@ export async function GET(
       id: runs.id,
       userId: runs.userId,
       status: runs.status,
+      outputs: runs.outputs,
       updatedAt: runs.updatedAt,
     })
     .from(runs)
@@ -89,6 +91,7 @@ export async function GET(
       status: run.status,
       updatedAt: run.updatedAt.toISOString(),
       latestEventSequence: eventRows[0]?.latestEventSequence ?? null,
+      liveTokens: liveTokenTotalFromRunOutput(run.outputs),
     },
   });
 }

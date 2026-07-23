@@ -1,9 +1,12 @@
 import { expect, test } from "@playwright/test";
 import {
+  assistantMessage,
   fulfillSse,
   installMockComparativeApi,
   json,
+  userMessage,
 } from "./helpers/mock-comparative";
+import { gotoE2EChat, openPrimarySidebar } from "./helpers/navigation";
 
 test.skip(
   !!process.env.PLAYWRIGHT_BASE_URL,
@@ -66,14 +69,107 @@ test.describe("chat tools and skills", () => {
       page.getByText("I found the last three pull requests and summarized them."),
     ).toBeVisible();
     await expect(page.getByText(/Worked for/)).toBeVisible();
-    await expect(page.getByText("Finished checking")).toBeVisible();
-    await page
+    const githubReceipt = page
       .locator("details")
-      .filter({ hasText: /Worked for/ })
-      .locator("summary")
-      .first()
-      .click();
-    await expect(page.getByText("Searched GitHub")).toBeVisible();
+      .filter({ hasText: /Worked for/ });
+    await expect(githubReceipt.locator("summary").first()).toContainText(
+      "Searched GitHub",
+    );
+    await githubReceipt.locator("summary").first().click();
+    await expect(
+      githubReceipt.getByText("Searched GitHub").last(),
+    ).toBeVisible();
+  });
+
+  test("#359 reconstructs long-running worker telemetry after refresh", async ({
+    page,
+  }, testInfo) => {
+    const isMobile = testInfo.project.name.includes("mobile");
+    const threadId = "thread-worker-receipts";
+    const runId = "run-worker-receipts";
+    const startedAt = new Date(Date.now() - 4 * 60_000 - 12_000).toISOString();
+    const thread = {
+      id: threadId,
+      title: "Build the quarterly dashboard",
+      defaultModelId: "sonnet-4-6",
+      summary: null,
+      summaryUpdatedAt: null,
+      previewSummary: null,
+      previewSummaryUpdatedAt: null,
+      titleSource: "generated",
+      createdAt: startedAt,
+      updatedAt: startedAt,
+    };
+    const pendingMessage = assistantMessage({
+      id: `run:${runId}`,
+      content: "",
+      pending: true,
+      status: "Validating the app",
+      runId,
+      runStatus: "running",
+      canCancel: true,
+      runPhase: "validating",
+      liveTokens: 8_400,
+      createdAt: startedAt,
+      activityEvents: [
+        {
+          id: "worker-started",
+          state: "succeeded",
+          label: "Background worker started the agent run",
+          category: "progress",
+          at: startedAt,
+        },
+        {
+          id: "validation",
+          state: "pending",
+          label: "Validating app version",
+          category: "workspace",
+          at: new Date(Date.now() - 15_000).toISOString(),
+        },
+      ],
+    });
+    await installMockComparativeApi(page, {
+      threads: [thread],
+      threadMessages: {
+        [threadId]: [
+          userMessage({
+            id: "user-worker-receipts",
+            content: "Build the quarterly dashboard",
+            createdAt: startedAt,
+          }),
+          pendingMessage,
+        ],
+      },
+      runStatuses: {
+        [runId]: {
+          id: runId,
+          status: "running",
+          updatedAt: new Date().toISOString(),
+          latestEventSequence: 2,
+          liveTokens: 9_100,
+        },
+      },
+    });
+
+    async function openThread() {
+      const sidebar = await openPrimarySidebar(page, isMobile);
+      await sidebar
+        .getByRole("button", { name: /build the quarterly dashboard/i })
+        .click();
+    }
+
+    await gotoE2EChat(page);
+    await openThread();
+    await expect(page.getByText(/Working for 4m/)).toBeVisible();
+    await expect(page.getByText(/9\.1k tokens/)).toBeVisible();
+    await expect(page.getByText(/validating/).first()).toBeVisible();
+    await expect(page.getByText("Validating app version").last()).toBeVisible();
+
+    await page.reload();
+    await openThread();
+    await expect(page.getByText(/Working for 4m/)).toBeVisible();
+    await expect(page.getByText(/9\.1k tokens/)).toBeVisible();
+    await expect(page.getByText("Validating app version").last()).toBeVisible();
   });
 
   test("keeps natural Gmail draft follow-ups and confirmed calendar writes in the current chat", async ({
@@ -641,13 +737,15 @@ test.describe("chat tools and skills", () => {
         .getByTestId("assistant-message-content")
         .getByText(/content-type "image\/png"/),
     ).toBeVisible();
-    await expect(page.getByText("1 step needs attention")).toBeVisible();
-    await page
+    const failedReceipt = page
       .locator("details")
-      .filter({ hasText: /Worked for/ })
-      .locator("summary")
-      .first()
-      .click();
-    await expect(page.getByText("Could not check Web details")).toBeVisible();
+      .filter({ hasText: /Worked for/ });
+    await expect(failedReceipt.locator("summary").first()).toContainText(
+      "Could not check Web details",
+    );
+    await failedReceipt.locator("summary").first().click();
+    await expect(
+      failedReceipt.getByText("Could not check Web details").last(),
+    ).toBeVisible();
   });
 });

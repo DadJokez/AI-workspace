@@ -33,6 +33,7 @@ import {
 import { loadRecommendationsForMessages } from "@/lib/recommendation-persistence";
 import type { PersistedRecommendation } from "@/lib/recommendations";
 import type { ChatRuntimeLane } from "@/lib/chat-routing";
+import { liveTokenTotalFromRunOutput } from "@/lib/run-poll";
 
 export interface ChatRunOutput {
   assistantMessageId?: string;
@@ -42,6 +43,8 @@ export interface ChatRunOutput {
   artifacts?: WorkspaceArtifactSummary[];
   appDraftVersions?: AppDraftVersionSummary[];
   sources?: AssistantSource[];
+  /** Aggregate only, derived from the persisted usage object. */
+  liveTokens?: number;
 }
 
 export interface ThreadMessageWithActivity {
@@ -65,6 +68,8 @@ export interface ThreadMessageWithActivity {
   status?: string;
   /** #359: deterministic phase for in-flight runs, derived server-side. */
   runPhase?: string;
+  /** #359: refresh-safe aggregate for the in-flight worker footer. */
+  liveTokens?: number;
   runId?: string;
   runStatus?: string;
   runError?: string | null;
@@ -263,6 +268,9 @@ export async function loadThreadMessagesWithRunActivity({
       ...(run.status === "queued" || run.status === "running"
         ? {
             runPhase: derivePhaseFromRunEvents(eventsByRunId.get(run.id) ?? []),
+            ...(output.liveTokens !== undefined
+              ? { liveTokens: output.liveTokens }
+              : {}),
           }
         : {}),
       status:
@@ -485,6 +493,7 @@ function parseChatRunOutput(value: unknown): ChatRunOutput {
       : undefined,
     appDraftVersions: parseAppDraftVersionSummaries(value.appDraftVersions),
     sources: parseAssistantSources(value.sources),
+    liveTokens: liveTokenTotalFromRunOutput(value) ?? undefined,
   };
 }
 

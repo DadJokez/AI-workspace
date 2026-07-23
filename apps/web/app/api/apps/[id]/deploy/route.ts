@@ -16,6 +16,7 @@ import {
   loadWorkspaceArtifactById,
   loadWorkspaceArtifactForUser,
 } from "@/lib/workspace-artifacts";
+import { appendRunEventBestEffort } from "@/lib/run-events";
 
 export const dynamic = "force-dynamic";
 
@@ -126,6 +127,22 @@ export async function POST(
   }
   const secretFindings = findCredentialShapedContent(artifact.content);
   if (secretFindings.length > 0) {
+    if (artifact.runId) {
+      await appendRunEventBestEffort("app-deploy-run-event-error", {
+        db,
+        runId: artifact.runId,
+        eventType: "app_version_validation_failed",
+        status: "failed",
+        label: "App validation failed",
+        error: "Credential scan blocked deployment.",
+        metadata: {
+          check: "credential scan",
+          appVersionNumber: version.versionNumber,
+          filenames: [artifact.filename],
+          failed: 1,
+        },
+      });
+    }
     await auditAppMutation({
       db,
       actorUserId: sessionUser.id,
@@ -147,6 +164,23 @@ export async function POST(
     );
   }
 
+  if (artifact.runId) {
+    await appendRunEventBestEffort("app-deploy-run-event-error", {
+      db,
+      runId: artifact.runId,
+      eventType: "app_version_validation_completed",
+      status: "succeeded",
+      label: "Validated app version",
+      metadata: {
+        check: "credential scan",
+        appVersionNumber: version.versionNumber,
+        filenames: [artifact.filename],
+        passed: 1,
+        failed: 0,
+      },
+    });
+  }
+
   try {
     const updated = await deployAppVersion({
       db,
@@ -154,16 +188,44 @@ export async function POST(
       version,
       actorUserId: sessionUser.id,
     });
+    if (artifact.runId) {
+      await appendRunEventBestEffort("app-deploy-run-event-error", {
+        db,
+        runId: artifact.runId,
+        eventType: "app_version_published",
+        status: "succeeded",
+        label: `Published ${app.name} · version ${version.versionNumber}`,
+        metadata: {
+          appVersionNumber: version.versionNumber,
+          filenames: [artifact.filename],
+        },
+      });
+    }
     return NextResponse.json({
       app: updated,
       versionId: version.id,
       url: `/apps/${app.slug}`,
     });
-  } catch (err) {
+  } catch {
+    if (artifact.runId) {
+      await appendRunEventBestEffort("app-deploy-run-event-error", {
+        db,
+        runId: artifact.runId,
+        eventType: "app_version_publish_failed",
+        status: "failed",
+        label: "App publish failed",
+        error: "Could not deploy this app version.",
+        metadata: {
+          appVersionNumber: version.versionNumber,
+          filenames: [artifact.filename],
+          failed: 1,
+        },
+      });
+    }
     return NextResponse.json(
       {
         error: "deploy_failed",
-        message: err instanceof Error ? err.message : "Could not deploy this app version.",
+        message: "Could not deploy this app version.",
       },
       { status: 422 },
     );

@@ -117,6 +117,7 @@ export interface ThreadMessage {
   pending?: boolean;
   status?: string;
   runPhase?: string;
+  liveTokens?: number;
   runId?: string;
   runStatus?: string;
   runError?: string | null;
@@ -143,6 +144,7 @@ export function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
     pending: message.pending,
     status: message.status,
     livePhase: message.runPhase,
+    liveTokens: message.liveTokens,
     toolCalls: message.toolCalls ?? undefined,
     toolResults: message.toolResults ?? undefined,
     artifacts: message.artifacts,

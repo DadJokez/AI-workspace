@@ -184,6 +184,13 @@ export function useChatActions({
           };
         }),
       );
+      if (activeTab.threadId) {
+        try {
+          await refreshActiveThreadMessages(activeTab.id, activeTab.threadId);
+        } catch (error) {
+          console.error("failed to refresh app publish receipt", error);
+        }
+      }
     } catch (error) {
       patchTab(activeTab.id, {
         error:

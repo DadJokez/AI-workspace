@@ -10,6 +10,7 @@ interface MockChatOptions {
   artifacts?: unknown[];
   artifactDetails?: Record<string, unknown>;
   runTraces?: Record<string, unknown>;
+  runStatuses?: Record<string, Record<string, unknown>>;
   skills?: unknown[];
   apps?: unknown[];
   user?: Record<string, unknown>;
@@ -506,6 +507,15 @@ export async function installMockComparativeApi(
         thread.id === threadId ? next : thread,
       );
       return json(route, { thread: next });
+    }
+
+    const runStatusMatch = /^\/api\/runs\/([^/]+)\/status$/.exec(path);
+    if (runStatusMatch) {
+      const runId = decodeURIComponent(runStatusMatch[1]!);
+      const run = options.runStatuses?.[runId];
+      return run
+        ? json(route, { run })
+        : json(route, { error: "run_not_found" }, 404);
     }
 
     if (path === "/api/skills") {
