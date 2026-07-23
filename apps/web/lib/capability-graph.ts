@@ -18,6 +18,7 @@ import type {
   RecommendationApp,
   RecommendationSkill,
 } from "@/lib/recommendations";
+import { skillMcpProviders } from "@/lib/skill-tool-declarations";
 import { listSkillsSharedWith } from "@/lib/shares";
 import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
@@ -307,7 +308,7 @@ function buildSkillCapability(
   unavailableProviders: readonly string[],
   comingSoonProviders: ReadonlySet<string>,
 ): CapabilityEntry {
-  const required = unique(skill.mcpProviders);
+  const required = unique(skillMcpProviders(skill.mcpProviders));
   const readyProviders = required.filter((provider) =>
     approvedProviders.includes(provider),
   );

@@ -160,6 +160,31 @@ describe("chat context pack", () => {
     expect(pack.prompt.volatileSystemSuffix).toContain("Routing: Mounted local tools");
   });
 
+  it("states that unattended web access was not granted in prompt and receipt", () => {
+    const pack = buildChatContextPack({
+      ...baseInput(),
+      forcePreamble: true,
+      webAccess: {
+        state: "not_granted",
+        source: "not_declared",
+        policy: "admin_domain_denylist",
+        deniedDomainCount: 3,
+      },
+    });
+
+    expect(pack.receipts[0]?.tools.webAccess).toEqual({
+      state: "not_granted",
+      source: "not_declared",
+      policy: "admin_domain_denylist",
+      deniedDomainCount: 3,
+    });
+    expect(pack.prompt.systemPrompt).toContain("Web access: not granted");
+    expect(pack.prompt.systemPrompt).toContain("web_access: true");
+    expect(pack.prompt.volatileSystemSuffix).toContain(
+      "Web access: not granted; source not_declared; policy admin_domain_denylist; 3 denied domain(s).",
+    );
+  });
+
   it("records artifact context availability", () => {
     const pack = buildChatContextPack({
       ...baseInput(),

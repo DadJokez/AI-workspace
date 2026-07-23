@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { Tool } from "./types";
+import {
+  assertWebEgressAllowed,
+  type WebEgressPolicy,
+} from "./web-egress-policy";
 
 /**
  * Built-in web search (#313), beside the SSRF-hardened URL fetch. Query in →
@@ -53,6 +57,8 @@ export interface WebSearchOptions {
   delayImpl?: (ms: number) => Promise<void>;
   /** Lazy secret resolver used by hosted runtimes such as AgentCore Identity. */
   apiKeyProvider?: () => Promise<string | undefined>;
+  /** Admin-global deny-wins policy applied before the provider request. */
+  egressPolicy?: WebEgressPolicy;
 }
 
 export function isWebSearchConfigured(
@@ -70,6 +76,7 @@ export function createWebSearchTool({
   now = () => new Date(),
   delayImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   apiKeyProvider,
+  egressPolicy,
 }: WebSearchOptions = {}): Tool {
   return {
     name: WEB_SEARCH_TOOL_NAME,
@@ -120,6 +127,8 @@ export function createWebSearchTool({
         : trimmed;
       const resultCount = normalizeCount(count);
       const retrievedAt = now().toISOString();
+      const searchHost = new URL(BRAVE_ENDPOINT).hostname;
+      assertWebEgressAllowed(searchHost, egressPolicy);
 
       const results = await braveSearch({
         query: effectiveQuery,
@@ -131,6 +140,7 @@ export function createWebSearchTool({
 
       return {
         provider: "brave",
+        searchedHost: searchHost,
         query: effectiveQuery,
         ...(truncatedQuery
           ? {

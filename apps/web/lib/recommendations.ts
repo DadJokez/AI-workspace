@@ -180,7 +180,7 @@ export function buildRecommendationCandidates({
     !suppressedSkills.has(matchingSkill.id)
   ) {
     const providers = unique(
-      (matchingSkill.mcpProviders ?? []).map((p) => p.toLowerCase()),
+      mcpProvidersOnly(matchingSkill.mcpProviders).map((p) => p.toLowerCase()),
     );
     candidates.push({
       id: `run-skill:${matchingSkill.id}`,
@@ -306,7 +306,7 @@ function bestMatchingSkill({
   for (const skill of skills) {
     if (skill.runnableNow === false) continue;
     const providers = unique(
-      (skill.mcpProviders ?? []).map((p) => p.toLowerCase()),
+      mcpProvidersOnly(skill.mcpProviders).map((p) => p.toLowerCase()),
     );
     if (providers.some((provider) => !approvedProviders.has(provider))) continue;
 
@@ -321,6 +321,10 @@ function bestMatchingSkill({
   }
 
   return best?.skill ?? null;
+}
+
+function mcpProvidersOnly(providers: readonly string[] | undefined): string[] {
+  return (providers ?? []).filter((provider) => provider !== "web");
 }
 
 function bestMatchingApp({

@@ -16,6 +16,10 @@ import {
   SUPPORTED_MCP_PROVIDERS,
 } from "@/lib/oauth/mcp-servers";
 import { appendRunEventWithNextSequence } from "@/lib/run-events";
+import {
+  SKILL_WEB_ACCESS_DECLARATION,
+  skillMcpProviders,
+} from "@/lib/skill-tool-declarations";
 import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
 export interface SkillInput {
@@ -115,7 +119,9 @@ export function parseSkillInput(
     ),
   ];
   const unsupported = mcpProviders.filter(
-    (p) => !SUPPORTED_MCP_PROVIDERS.includes(p),
+    (p) =>
+      p !== SKILL_WEB_ACCESS_DECLARATION &&
+      !SUPPORTED_MCP_PROVIDERS.includes(p),
   );
   if (unsupported.length > 0) {
     return {
@@ -243,7 +249,8 @@ export async function checkSkillProviderAccess(
   userId: string,
   declaredProviders: string[],
 ): Promise<SkillProviderAccess> {
-  if (declaredProviders.length === 0) {
+  const mcpProviders = skillMcpProviders(declaredProviders);
+  if (mcpProviders.length === 0) {
     return {
       ready: [],
       missingConnections: [],
@@ -255,25 +262,25 @@ export async function checkSkillProviderAccess(
   }
 
   const providerStatus = await loadUserMcpProviderStatus(db, userId, {
-    onlyProviders: declaredProviders,
+    onlyProviders: mcpProviders,
   });
   const connected = new Set(providerStatus.connectedProviders);
-  const missingConnections = declaredProviders.filter(
+  const missingConnections = mcpProviders.filter(
     (p) => !connected.has(p),
   );
-  const ready = declaredProviders.filter((p) =>
+  const ready = mcpProviders.filter((p) =>
     providerStatus.allowedProviders.includes(p),
   );
-  const deniedAttestations = declaredProviders.filter((p) =>
+  const deniedAttestations = mcpProviders.filter((p) =>
     providerStatus.deniedProviders.includes(p),
   );
-  const executionUnavailable = declaredProviders.filter((p) =>
+  const executionUnavailable = mcpProviders.filter((p) =>
     (providerStatus.executionUnavailableProviders ?? []).includes(p),
   );
-  const reconnectRequired = declaredProviders.filter((p) =>
+  const reconnectRequired = mcpProviders.filter((p) =>
     (providerStatus.reconnectRequiredProviders ?? []).includes(p),
   );
-  const temporarilyUnavailable = declaredProviders.filter(
+  const temporarilyUnavailable = mcpProviders.filter(
     (p) =>
       providerStatus.providerAvailability?.[p]?.status ===
       "temporarily_unavailable",

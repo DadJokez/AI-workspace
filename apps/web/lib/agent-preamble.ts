@@ -44,6 +44,12 @@ interface PreambleInput {
   reconnectRequiredProviders?: readonly string[];
   /** Built-in non-account tools mounted for this turn, such as public URL fetch. */
   builtinTools?: readonly string[];
+  webAccess?: {
+    state: "granted" | "not_granted";
+    source: "interactive_default" | "skill_declaration" | "not_declared";
+    policy: string;
+    deniedDomainCount: number;
+  };
   /** The model running this turn, so the assistant can self-identify correctly. */
   modelId?: string;
   /**
@@ -89,6 +95,7 @@ export function buildAgentPreamble({
   comingSoonProviders = [],
   reconnectRequiredProviders = [],
   builtinTools = [],
+  webAccess,
   modelId,
   artifactContext,
   vaultContextRequested = false,
@@ -149,6 +156,11 @@ export function buildAgentPreamble({
       "When the user provides a public URL and asks what is on it, call the URL fetch tool before answering. If the tool returns an error, surface that exact error instead of guessing page contents.",
     );
     lines.push("");
+  } else if (webAccess?.state === "not_granted") {
+    lines.push(
+      `Web access: not granted for this unattended run. No public web tool is mounted because the skill did not declare \`web_access: true\`. The active admin policy is "${webAccess.policy}". Do not claim to have searched or fetched the web.`,
+      "",
+    );
   }
 
   const accountProviders = (

@@ -109,6 +109,12 @@ vi.mock("@/lib/runtime-attachments", () => ({
 vi.mock("@/lib/runtime-builtin-tools", () => ({
   builtinToolsForChatRoute: vi.fn(() => []),
 }));
+vi.mock("@/lib/web-egress-policy", () => ({
+  loadWebEgressPolicy: vi.fn(async () => ({
+    name: "admin_domain_denylist",
+    deniedDomains: ["blocked.example"],
+  })),
+}));
 vi.mock("@/lib/runtime-usage", () => ({
   normalizeRuntimeUsage: vi.fn(() => ({
     tokensIn: 11,
@@ -167,6 +173,7 @@ import { createProactiveRunNotification } from "@/lib/notifications";
 import { buildChatContextPack } from "@/lib/chat-context-pack";
 import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
 import { buildTurnContext } from "@/lib/turn-context";
+import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 
 interface FakeDbState {
   runStatus: string;
@@ -561,6 +568,38 @@ describe("executeChatTurn — historical tool-evidence parity (#434)", () => {
         recentToolEvidenceReceipt: evidenceReceipt,
       }),
     );
+  });
+});
+
+describe("executeChatTurn — unattended web egress governance (#439)", () => {
+  it("keeps web unmounted for unattended runs without a declaration", async () => {
+    const { input, captured } = workerInput();
+    await executeChatTurn(input);
+
+    expect(builtinToolsForChatRoute).toHaveBeenCalledWith(route, {
+      interactive: false,
+      webAccessDeclared: false,
+    });
+    expect(captured.turnInput?.webEgressPolicy).toEqual({
+      name: "admin_domain_denylist",
+      deniedDomains: ["blocked.example"],
+    });
+  });
+
+  it("passes an explicit skill declaration through the shared worker pipeline", async () => {
+    const { input, captured } = workerInput({
+      requestedProviders: ["web", "github"],
+    });
+    await executeChatTurn(input);
+
+    expect(builtinToolsForChatRoute).toHaveBeenCalledWith(route, {
+      interactive: false,
+      webAccessDeclared: true,
+    });
+    expect(captured.turnInput?.webEgressPolicy).toEqual({
+      name: "admin_domain_denylist",
+      deniedDomains: ["blocked.example"],
+    });
   });
 });
 

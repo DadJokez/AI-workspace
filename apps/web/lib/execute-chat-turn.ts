@@ -20,6 +20,7 @@ import {
 import {
   buildChatContextPack,
   type ChatContextUploadedFile,
+  type ChatContextWebAccessReceipt,
 } from "@/lib/chat-context-pack";
 import { loadUserCapabilityGraph } from "@/lib/capability-graph";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
@@ -72,6 +73,11 @@ import { buildTurnContext } from "@/lib/turn-context";
 import type { RecentToolEvidenceReceipt } from "@/lib/recent-tool-evidence";
 import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
 import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
+import {
+  skillDeclaresWebAccess,
+  skillMcpProviders,
+} from "@/lib/skill-tool-declarations";
+import { loadWebEgressPolicy } from "@/lib/web-egress-policy";
 import { normalizeRuntimeUsage } from "@/lib/runtime-usage";
 import {
   createProviderTraceAccumulator,
@@ -210,9 +216,31 @@ export async function executeChatTurn({
   const timing = lane.kind === "inline" ? lane.timing : undefined;
   const priorOutputs =
     lane.kind === "worker" ? parseStoredOutputs(lane.run.outputs) : {};
-  const builtinTools = builtinToolsForChatRoute(route);
+  const webAccessDeclared = skillDeclaresWebAccess(requestedProviders);
+  const webAccessState = interactive || webAccessDeclared
+    ? "granted"
+    : "not_granted";
+  const webAccessSource = interactive
+    ? "interactive_default"
+    : webAccessDeclared
+      ? "skill_declaration"
+      : "not_declared";
+  const webAccess: Pick<
+    ChatContextWebAccessReceipt,
+    "state" | "source"
+  > = {
+    state: webAccessState,
+    source: webAccessSource,
+  };
+  const builtinTools = builtinToolsForChatRoute(route, {
+    interactive,
+    webAccessDeclared,
+  });
+  const requestedMcpProviders = requestedProviders
+    ? skillMcpProviders(requestedProviders)
+    : undefined;
   const mcpProviderScope = resolveChatMcpProviderScope(
-    requestedProviders,
+    requestedMcpProviders,
     route.routingMode,
   );
   // The worker lane has always mounted Vault context regardless of the
@@ -220,8 +248,14 @@ export async function executeChatTurn({
   const includeVaultContext =
     lane.kind === "worker" || route.includeVaultContext;
 
-  const [userRows, history, vaultMarkdown, providerStatus, recentRecommendations] =
-    await Promise.all([
+  const [
+    userRows,
+    history,
+    vaultMarkdown,
+    providerStatus,
+    recentRecommendations,
+    webEgressPolicy,
+  ] = await Promise.all([
       db
         .select({
           displayName: users.displayName,
@@ -250,6 +284,7 @@ export async function executeChatTurn({
         userId,
         threadId: thread.id,
       }),
+      loadWebEgressPolicy(db),
     ]);
   const effectiveResourceResolution = resourceResolution
     ? await revalidateConversationResourceResolution({
@@ -418,7 +453,7 @@ export async function executeChatTurn({
           thread,
           grantedProviders: accountMcpProviders,
           userMessage: userInstruction,
-          skillProviders: requestedProviders,
+          skillProviders: requestedMcpProviders,
         })
       : undefined;
   const toolDiscovery = baseToolDiscovery
@@ -485,6 +520,11 @@ export async function executeChatTurn({
     recommendations: recentRecommendations,
     route,
     builtinTools,
+    webAccess: {
+      ...webAccess,
+      policy: webEgressPolicy.name,
+      deniedDomainCount: webEgressPolicy.deniedDomains.length,
+    },
     ...(lane.kind === "worker" ? { forcePreamble: true } : {}),
     activeSkill: activeSkillPrompt ?? null,
   });
@@ -507,6 +547,11 @@ export async function executeChatTurn({
     })),
     ...(requiredToolName ? { requiredToolName } : {}),
     writeAuthorizationReceipts,
+    webAccess: {
+      ...webAccess,
+      policy: webEgressPolicy.name,
+      deniedDomainCount: webEgressPolicy.deniedDomains.length,
+    },
     ...(effectiveResourceResolution
       ? { resourceResolution: effectiveResourceResolution }
       : {}),
@@ -752,6 +797,7 @@ export async function executeChatTurn({
       },
       ...(mcpServers ? { mcpServers } : {}),
       ...(builtinTools.length > 0 ? { builtinTools } : {}),
+      webEgressPolicy,
       ...(requiredToolName ? { requiredToolName } : {}),
       ...(toolDiscovery ? { toolDiscovery } : {}),
     })) {

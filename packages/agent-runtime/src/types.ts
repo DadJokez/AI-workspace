@@ -4,6 +4,7 @@ import type {
   DiscoveryCatalogEntry,
   ToolContext,
 } from "@ai-workspace/agent";
+import type { WebEgressPolicy } from "@ai-workspace/agent/web-egress-policy";
 
 /**
  * Per-turn MCP server config. The AWS runtime lanes forward HTTP/SSE servers
@@ -85,6 +86,8 @@ export interface TurnInput {
    * fast chat so simple turns do not pay tool-selection overhead.
    */
   builtinTools?: readonly string[];
+  /** Admin-global deny-wins policy enforced by every built-in web executor. */
+  webEgressPolicy?: WebEgressPolicy;
   /**
    * Force the first model step to call this mounted tool. Runtimes fail closed
    * when it is unavailable, then resume automatic selection after the result.

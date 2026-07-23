@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ImportSkillPanel } from "@/components/skills/ImportSkillPanel";
 import { SkillForm } from "@/components/skills/SkillForm";
 import { SUPPORTED_MCP_PROVIDERS } from "@/lib/oauth/mcp-servers";
+import { SKILL_WEB_ACCESS_DECLARATION } from "@/lib/skill-tool-declarations";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,10 @@ export default function NewSkillPage() {
       <SkillForm
         mode="create"
         modelOptions={[...MODEL_IDS]}
-        providerOptions={SUPPORTED_MCP_PROVIDERS}
+        providerOptions={[
+          ...SUPPORTED_MCP_PROVIDERS,
+          SKILL_WEB_ACCESS_DECLARATION,
+        ]}
       />
       <div className="mt-4 border-t border-hairline pt-4">
         <ImportSkillPanel />

@@ -14,6 +14,10 @@ import {
   type DiscoveryCatalogEntry,
 } from "@ai-workspace/agent";
 import { createBuiltinTools } from "@ai-workspace/agent/web-fetch-tool";
+import {
+  WEB_EGRESS_POLICY_NAME,
+  type WebEgressPolicy,
+} from "@ai-workspace/agent/web-egress-policy";
 import type { WebSearchOptions } from "@ai-workspace/agent/web-search-tool";
 
 /**
@@ -33,6 +37,7 @@ export interface InvocationPayload {
   messages: AgentMessage[];
   mcpServers?: Record<string, McpHttpServerSpec>;
   builtinTools?: string[];
+  webEgressPolicy?: WebEgressPolicy;
   requiredToolName?: string;
   toolDiscovery?: {
     activatedProviders: string[];
@@ -72,6 +77,25 @@ function parseToolDiscovery(
       (provider): provider is string => typeof provider === "string",
     ),
     ...(catalog?.length ? { catalog } : {}),
+  };
+}
+
+function parseWebEgressPolicy(raw: unknown): WebEgressPolicy | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const policy = raw as Record<string, unknown>;
+  if (
+    policy.name !== WEB_EGRESS_POLICY_NAME ||
+    !Array.isArray(policy.deniedDomains)
+  ) {
+    return undefined;
+  }
+  return {
+    name: WEB_EGRESS_POLICY_NAME,
+    deniedDomains: policy.deniedDomains.filter(
+      (domain): domain is string => typeof domain === "string",
+    ),
   };
 }
 
@@ -146,6 +170,7 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
     builtinTools: Array.isArray(body.builtinTools)
       ? body.builtinTools.filter((tool): tool is string => typeof tool === "string")
       : undefined,
+    webEgressPolicy: parseWebEgressPolicy(body.webEgressPolicy),
     requiredToolName:
       typeof body.requiredToolName === "string"
         ? body.requiredToolName
@@ -179,6 +204,7 @@ export async function runInvocation(
   registry.registerAll(
     createBuiltinTools(payload.builtinTools, {
       webSearch: opts.webSearch,
+      webEgressPolicy: payload.webEgressPolicy,
     }),
   );
   // #384 P2: discovery surface + shared activated set — an activation

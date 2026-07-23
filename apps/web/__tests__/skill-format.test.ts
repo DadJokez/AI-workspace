@@ -124,6 +124,23 @@ describe("serializeSkillToMarkdown round-trip", () => {
     expect(reparsed.skill.systemPrompt).toContain("one-page brief");
   });
 
+  it("round-trips web access as an explicit portable declaration", () => {
+    const markdown = serializeSkillToMarkdown({
+      slug: "nightly-research",
+      description: "Research overnight.",
+      systemPrompt: "Research the requested topic.",
+      modelId: "sonnet-4-6",
+      mcpProviders: ["github", "web"],
+    });
+
+    expect(markdown).toContain("mcp_providers: [github]");
+    expect(markdown).toContain("web_access: true");
+    const reparsed = parseSkillMarkdown(markdown);
+    expect(reparsed.ok).toBe(true);
+    if (!reparsed.ok) return;
+    expect(reparsed.skill.mcpProviders).toEqual(["github", "web"]);
+  });
+
   it.each(["meeting-prep", "weekly-status"])(
     "round-trips the %s starter without losing providers or instructions",
     (slug) => {

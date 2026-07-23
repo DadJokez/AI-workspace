@@ -25,6 +25,7 @@ import {
   type ActivatedSkillRequest,
 } from "@/lib/chat-activated-skills";
 import { buildActivatedSkillUserMessage } from "@/lib/skills";
+import { skillMcpProviders } from "@/lib/skill-tool-declarations";
 import { streamInlineChatRun } from "@/lib/chat-inline-runner";
 import {
   createChatStreamWriter,
@@ -473,7 +474,7 @@ export async function POST(req: Request) {
   });
   if (activatedSkill) {
     runtimeRoute = applyActivatedSkillRoute(runtimeRoute, {
-      requiredProviders: activatedSkill.skill.mcpProviders,
+      requiredProviders: skillMcpProviders(activatedSkill.skill.mcpProviders),
     });
   }
   const routeReceipt = buildChatRouteReceipt({

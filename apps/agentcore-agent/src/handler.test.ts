@@ -157,3 +157,41 @@ describe("parseInvocationPayload userTimeZone (#432)", () => {
     expect(parseInvocationPayload(BASE_PAYLOAD).userTimeZone).toBeUndefined();
   });
 });
+
+describe("parseInvocationPayload web egress policy", () => {
+  it("keeps the named denylist policy", () => {
+    expect(
+      parseInvocationPayload({
+        ...BASE_PAYLOAD,
+        webEgressPolicy: {
+          name: "admin_domain_denylist",
+          deniedDomains: ["blocked.example"],
+        },
+      }).webEgressPolicy,
+    ).toEqual({
+      name: "admin_domain_denylist",
+      deniedDomains: ["blocked.example"],
+    });
+  });
+
+  it("drops malformed or unknown policies at the runtime boundary", () => {
+    expect(
+      parseInvocationPayload({
+        ...BASE_PAYLOAD,
+        webEgressPolicy: {
+          name: "unknown_policy",
+          deniedDomains: ["blocked.example"],
+        },
+      }).webEgressPolicy,
+    ).toBeUndefined();
+    expect(
+      parseInvocationPayload({
+        ...BASE_PAYLOAD,
+        webEgressPolicy: {
+          name: "admin_domain_denylist",
+          deniedDomains: "blocked.example",
+        },
+      }).webEgressPolicy,
+    ).toBeUndefined();
+  });
+});
