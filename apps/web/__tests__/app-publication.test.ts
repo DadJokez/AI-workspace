@@ -127,8 +127,9 @@ describe("published app badge", () => {
     );
 
     expect(html).toContain('id="comparative-publication-badge"');
-    expect(html).toContain("Snapshot · Data as of");
-    expect(html).toContain("republish to refresh");
+    expect(html).toContain("Snapshot · Published");
+    expect(html).toContain("publish a new version to refresh");
+    expect(html).not.toContain("Data as of");
     expect(html).toContain(
       "By &lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;",
     );

@@ -254,7 +254,7 @@ export function injectAppPublicationBadge(
       }) + " UTC";
   const modeLabel =
     publication.dataMode === "snapshot"
-      ? `Snapshot · Data as of ${timestamp} · republish to refresh`
+      ? `Snapshot · Published ${timestamp} · publish a new version to refresh`
       : publication.dataMode === "live_via_viewer"
         ? "Live via your connections"
         : "Service-backed";
