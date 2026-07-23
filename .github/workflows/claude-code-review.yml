@@ -72,6 +72,16 @@ jobs:
           fi
 
           if [ "$resolution_ok" != "true" ]; then
+            # Both CI and Product Smoke trigger this workflow. The second run
+            # can leave the concurrency queue after the first review already
+            # passed and the PR merged. No open PR is then expected; do not
+            # overwrite the authenticated success on that merged head.
+            if jq -e '.code == "no_open_pull_request"' >/dev/null 2>&1 <<<"$resolution"; then
+              echo "No open pull request remains for $HEAD_REF at $SHA — it was likely closed or merged."
+              echo "go=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
             reason="The pull request lookup failed before producing a diagnostic."
             candidates="none"
             if jq -e 'type == "object"' >/dev/null 2>&1 <<<"$resolution"; then
@@ -93,11 +103,19 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
 
             echo "::error title=Claude review gate resolution failed::See the step summary for the exact head and candidate pull requests."
-            gh api -X POST "repos/$REPO/statuses/$SHA" \
-              -f state="failure" \
-              -f context="Claude verdict" \
-              -f description="Review gate could not resolve the exact PR head" \
-              -f target_url="$TARGET_URL" >/dev/null
+            existing_completed=$(gh api "repos/$REPO/commits/$SHA/status" \
+              --jq '[.statuses[] | select(.context=="Claude review completed")][0].state // ""')
+            existing_verdict=$(gh api "repos/$REPO/commits/$SHA/status" \
+              --jq '[.statuses[] | select(.context=="Claude verdict")][0].state // ""')
+            if [ "$existing_completed" = "success" ] && [ "$existing_verdict" = "success" ]; then
+              echo "Preserving the existing authenticated Claude success for $SHA."
+            else
+              gh api -X POST "repos/$REPO/statuses/$SHA" \
+                -f state="failure" \
+                -f context="Claude verdict" \
+                -f description="Review gate could not resolve the exact PR head" \
+                -f target_url="$TARGET_URL" >/dev/null
+            fi
             exit 1
           fi
           pr=$(jq -r '.pr' <<<"$resolution")

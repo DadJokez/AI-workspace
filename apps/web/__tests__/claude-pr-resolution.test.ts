@@ -1,9 +1,13 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const SCRIPT_PATH = fileURLToPath(
   new URL("../../../.github/scripts/resolve-exact-head-pr.mjs", import.meta.url),
+);
+const WORKFLOW_PATH = fileURLToPath(
+  new URL("../../../.github/workflows/claude-code-review.yml", import.meta.url),
 );
 
 function pull(
@@ -11,10 +15,11 @@ function pull(
   headRefName: string,
   headSha: string,
   containedShas = [headSha],
+  state = "open",
 ) {
   return {
     number,
-    state: "open",
+    state,
     head: { ref: headRefName, sha: headSha },
     containedShas,
   };
@@ -33,6 +38,7 @@ function resolution(result: ReturnType<typeof resolve>) {
   return JSON.parse(result.stdout) as {
     ok: boolean;
     pr?: number;
+    code?: string;
     reason?: string;
     candidates?: Array<{
       number: number;
@@ -129,6 +135,7 @@ describe("Claude review exact-head PR resolution", () => {
     expect(result.status).toBe(2);
     expect(resolution(result)).toMatchObject({
       ok: false,
+      code: "stale_head_sha",
       reason: "Branch codex/updated no longer points at workflow SHA old-sha.",
       candidates: [
         {
@@ -155,6 +162,7 @@ describe("Claude review exact-head PR resolution", () => {
     expect(result.status).toBe(2);
     expect(resolution(result)).toMatchObject({
       ok: false,
+      code: "ambiguous_exact_head",
       candidates: [{ number: 401 }, { number: 402 }],
     });
   });
@@ -169,7 +177,38 @@ describe("Claude review exact-head PR resolution", () => {
     expect(result.status).toBe(2);
     expect(resolution(result)).toMatchObject({
       ok: false,
+      code: "head_branch_mismatch",
       candidates: [{ number: 501 }],
     });
+  });
+
+  it("classifies a closed or merged PR as a benign no-open-PR outcome", () => {
+    const result = resolve(
+      [[pull(601, "codex/merged", "merged-sha", undefined, "closed")]],
+      "merged-sha",
+      "codex/merged",
+    );
+
+    expect(result.status).toBe(2);
+    expect(resolution(result)).toEqual({
+      ok: false,
+      code: "no_open_pull_request",
+      reason:
+        "No open pull request matches codex/merged at merged-sha.",
+      candidates: [],
+    });
+  });
+
+  it("skips the closed or merged case before the workflow can write a failure verdict", () => {
+    const workflow = readFileSync(WORKFLOW_PATH, "utf8");
+    const noOpenGuard = workflow.indexOf(
+      "if jq -e '.code == \"no_open_pull_request\"'",
+    );
+    const skipExit = workflow.indexOf("exit 0", noOpenGuard);
+    const failureStatus = workflow.indexOf('-f state="failure"', noOpenGuard);
+
+    expect(noOpenGuard).toBeGreaterThan(-1);
+    expect(skipExit).toBeGreaterThan(noOpenGuard);
+    expect(failureStatus).toBeGreaterThan(skipExit);
   });
 });

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 
 function candidate(pull) {
   return {
@@ -25,7 +24,7 @@ function openPulls(payload) {
     );
 }
 
-export function resolveExactHeadPullRequest(
+function resolveExactHeadPullRequest(
   payload,
   { headSha, headRefName },
 ) {
@@ -34,6 +33,7 @@ export function resolveExactHeadPullRequest(
   if (!sha) {
     return {
       ok: false,
+      code: "missing_head_sha",
       reason: "The workflow run did not provide a head SHA.",
       candidates: [],
     };
@@ -60,6 +60,7 @@ export function resolveExactHeadPullRequest(
   if (exactMatches.length > 1) {
     return {
       ok: false,
+      code: "ambiguous_exact_head",
       reason: `Multiple open pull requests match ${ref ? `${ref} at ` : ""}${sha}.`,
       candidates: exactMatches.map(candidate),
     };
@@ -68,6 +69,7 @@ export function resolveExactHeadPullRequest(
   if (ref && shaMatches.length > 0) {
     return {
       ok: false,
+      code: "head_branch_mismatch",
       reason: `Open pull request heads match SHA ${sha}, but none use branch ${ref}.`,
       candidates: shaMatches.map(candidate),
     };
@@ -76,6 +78,7 @@ export function resolveExactHeadPullRequest(
   if (ref && refMatches.length > 0) {
     return {
       ok: false,
+      code: "stale_head_sha",
       reason: `Branch ${ref} no longer points at workflow SHA ${sha}.`,
       candidates: refMatches.map(candidate),
     };
@@ -83,6 +86,7 @@ export function resolveExactHeadPullRequest(
 
   return {
     ok: false,
+    code: "no_open_pull_request",
     reason: `No open pull request matches ${ref ? `${ref} at ` : ""}${sha}.`,
     candidates: [],
   };
@@ -102,6 +106,7 @@ function main() {
   } catch (error) {
     writeResult({
       ok: false,
+      code: "invalid_pull_response",
       reason: `Could not parse the open pull request response: ${
         error instanceof Error ? error.message : String(error)
       }`,
@@ -119,9 +124,4 @@ function main() {
   process.exitCode = result.ok ? 0 : 2;
 }
 
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  main();
-}
+main();
