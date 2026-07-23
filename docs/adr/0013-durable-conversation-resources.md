@@ -52,6 +52,31 @@ storage backing for a typed, thread-scoped conversation resource.
 - Deleting the backing artifact revokes the resource immediately. No separate
   registry table or content copy is introduced in this phase.
 
+### Authorization threat model
+
+The resource MCP route is intentionally server-to-server rather than
+browser-session authenticated: Bedrock inline execution and AgentCore workers
+must be able to invoke the same capability without forwarding a user's session
+cookie. Access requires both:
+
+1. a service relay token derived from the server secret; and
+2. a separately signed, two-hour turn capability containing the exact user,
+   thread, and at most five selected resource ids.
+
+The endpoint accepts neither credential by itself. It validates the request
+origin, both signatures, expiry, and the selected-id allowlist, then re-queries
+the database for the same user, thread, resource id, and
+`source=user-upload`. Deletion therefore revokes access even while a signed
+turn capability remains unexpired. Capability headers and file content are
+excluded from persisted run/tool state and explicitly covered by generic trace
+redaction.
+
+For this alpha phase, both signatures are purpose-derived from the existing
+`OAUTH_ENCRYPTION_KEY`; no new secret or deployment setting is introduced.
+This is deliberate operational key reuse, not interchangeability between
+OAuth ciphertext and resource capabilities. Before general availability,
+create a dedicated resource-capability signing secret and support key rotation.
+
 ## Consequences
 
 **Positive**
@@ -73,9 +98,11 @@ storage backing for a typed, thread-scoped conversation resource.
   repeated queries.
 - Addressable document search is lexical and in-process. It is not a general
   corpus search system and does not replace project-level retrieval.
-- The first-party MCP route depends on the existing OAuth encryption key for
-  request signing. A missing key makes resource tooling unavailable rather
-  than falling back to an unsafe unsigned path.
+- The first-party MCP route depends on a purpose-derived use of the existing
+  OAuth encryption key for request signing during alpha. A missing key makes
+  resource tooling unavailable rather than falling back to an unsafe unsigned
+  path. A dedicated rotatable signing key is required before general
+  availability.
 - Model behavior still needs a deployed authenticated probe in addition to
   deterministic adapter tests; the release gate therefore has an explicit
   resource-matrix mode.

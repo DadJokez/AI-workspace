@@ -32,7 +32,7 @@ const TRACE_LIMITS: RedactionLimits = {
 };
 
 const SENSITIVE_KEY_PATTERN =
-  /(^|[_-])(access|api|auth|bearer|client|cookie|encryption|jwt|key|oauth|password|private|refresh|secret|session|signature|token)([_-]|$)|authorization|set-cookie/i;
+  /(^|[_-])(access|api|auth|bearer|client|cookie|encryption|jwt|key|oauth|password|private|refresh|secret|session|signature|token)([_-]|$)|authorization|set-cookie|x[-_]comparative[-_]resource[-_](relay|context)/i;
 
 /**
  * Observability keys where "token" means model tokens, not credentials

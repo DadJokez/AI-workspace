@@ -313,6 +313,76 @@ describe.sequential("complete conversation resource adapters (#576)", () => {
     }
   });
 
+  it("reports an honest limitation when a PDF has no extractable text layer", async () => {
+    const resource = binaryResource(
+      "scanned.pdf",
+      buildPdf([""]),
+      "document",
+    );
+
+    const result = await queryConversationResource(resource, {
+      resourceId: resource.id,
+      operation: "read",
+    });
+
+    expect(result).toMatchObject({
+      content: "",
+      receipt: {
+        lifecycleState: "available",
+        sourceCoverage: "partial",
+        resultCoverage: "unavailable",
+        extractable: false,
+        sourceChars: 0,
+        sourceUnits: 0,
+        provenance: "page",
+        limitation: expect.stringContaining("No extractable text"),
+      },
+    });
+  });
+
+  it.each(["partial", "extraction_failed"] as const)(
+    "does not claim full source coverage for a %s resource lifecycle",
+    async (lifecycleState) => {
+      const resource = textResource("limited.txt", "AVAILABLE_PREVIEW_ONLY");
+      resource.metadata = {
+        storageEncoding: "utf8",
+        conversationResource: { lifecycleState },
+      };
+
+      const result = await queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "read",
+      });
+
+      expect(result).toMatchObject({
+        content: expect.stringContaining("AVAILABLE_PREVIEW_ONLY"),
+        receipt: {
+          lifecycleState,
+          sourceCoverage: "partial",
+          resultCoverage: "full",
+          extractable: true,
+          limitation: expect.stringContaining(lifecycleState),
+        },
+      });
+    },
+  );
+
+  it("reports manifest metadata without claiming the file was analyzed", async () => {
+    const resource = textResource("manifest.txt", "hidden source text");
+
+    const result = await queryConversationResource(resource, {
+      resourceId: resource.id,
+      operation: "manifest",
+    });
+
+    expect(result.receipt).toMatchObject({
+      lifecycleState: "available",
+      sourceCoverage: "metadata_only",
+      resultCoverage: "metadata_only",
+    });
+    expect(JSON.stringify(result)).not.toContain("hidden source text");
+  });
+
   it("searches complete DOCX paragraphs with provenance", async () => {
     const resource = binaryResource(
       "facts.docx",

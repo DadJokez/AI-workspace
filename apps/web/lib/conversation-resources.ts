@@ -455,7 +455,7 @@ export function renderConversationResourceContext(
   return [
     "Conversation resources selected for this turn:",
     frameConversationResourceMetadata(resolution.selected),
-    "These references are durable and thread-scoped. Use the resources__query tool for file content. A preview is never proof of complete-file analysis. Say an answer is comprehensive only when a tool result reports sourceCoverage=full; otherwise state the exact limitation.",
+    "These references are durable and thread-scoped. Use the resources__query tool for file content. A manifest is metadata only; a preview is never proof of complete-file analysis. Say an answer is comprehensive only when a content operation reports sourceCoverage=full and extractable is not false; otherwise state the exact limitation.",
   ].join("\n");
 }
 

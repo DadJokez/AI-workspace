@@ -39,6 +39,8 @@ describe("tool redaction", () => {
         headers: {
           Authorization: "Bearer super-secret-token-value",
           cookie: "session=secret",
+          "x-comparative-resource-relay": "relay-capability",
+          "x-comparative-resource-context": "signed-turn-context",
         },
         nested: {
           refresh_token: "abc123",
@@ -50,6 +52,8 @@ describe("tool redaction", () => {
       headers: {
         Authorization: "[redacted]",
         cookie: "[redacted]",
+        "x-comparative-resource-relay": "[redacted]",
+        "x-comparative-resource-context": "[redacted]",
       },
       nested: {
         refresh_token: "[redacted]",

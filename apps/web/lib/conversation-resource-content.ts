@@ -72,6 +72,8 @@ interface TabularDataset {
   sheets: TabularSheet[];
 }
 
+type ResourceLifecycleState = "available" | "partial" | "extraction_failed";
+
 const DEFAULT_TEXT_LENGTH = 8_000;
 const MAX_TEXT_LENGTH = 16_000;
 const DEFAULT_RESULT_LIMIT = 20;
@@ -87,19 +89,26 @@ export async function queryConversationResource(
     throw new Error("The requested resource does not match the authorized row.");
   }
 
+  const lifecycleState = resourceLifecycleState(resource);
   const receipt = {
     resourceId: resource.id,
     filename: resource.filename,
     representation: representationForKind(resource.kind),
     operation: input.operation,
-    sourceCoverage: "full" as const,
+    lifecycleState,
+    sourceCoverage:
+      lifecycleState === "available" ? ("full" as const) : ("partial" as const),
     sourceBytes: resource.sizeBytes,
   };
 
   if (input.operation === "manifest") {
     return {
       kind: "conversation_resource_result",
-      receipt,
+      receipt: {
+        ...receipt,
+        sourceCoverage: "metadata_only",
+        resultCoverage: "metadata_only",
+      },
       resource: {
         id: resource.id,
         filename: resource.filename,
@@ -137,13 +146,31 @@ export async function queryConversationResource(
   }
 
   const document = await extractAddressableText(resource);
+  const extractable =
+    resource.kind === "text" || document.sourceUnits > 0;
+  const documentReceipt = {
+    ...receipt,
+    sourceCoverage:
+      lifecycleState === "available" && extractable ? "full" : "partial",
+    extractable,
+    ...(!extractable
+      ? {
+          limitation:
+            "No extractable text was recovered from the stored file. Visual or scanned content may require OCR or native document vision.",
+        }
+      : lifecycleState !== "available"
+        ? {
+            limitation: `The resource lifecycle state is ${lifecycleState}; extracted results may be incomplete.`,
+          }
+        : {}),
+  };
   if (input.operation === "search") {
-    return searchAddressableText(document, input, receipt);
+    return searchAddressableText(document, input, documentReceipt);
   }
   if (input.operation !== "read") {
     throw new Error(`Operation "${input.operation}" is not valid for this file.`);
   }
-  return readAddressableText(document, input, receipt);
+  return readAddressableText(document, input, documentReceipt);
 }
 
 export function parseConversationResourceQueryInput(
@@ -348,7 +375,11 @@ function readAddressableText(
     receipt: {
       ...receipt,
       resultCoverage:
-        start === 0 && end >= joined.length ? "full" : "partial",
+        receipt.extractable === false
+          ? "unavailable"
+          : start === 0 && end >= joined.length
+            ? "full"
+            : "partial",
       sourceChars: document.sourceChars,
       sourceUnits: document.sourceUnits,
       provenance: document.provenance,
@@ -386,7 +417,8 @@ function searchAddressableText(
     kind: "conversation_resource_result",
     receipt: {
       ...receipt,
-      resultCoverage: "search_results",
+      resultCoverage:
+        receipt.extractable === false ? "unavailable" : "search_results",
       sourceChars: document.sourceChars,
       sourceUnits: document.sourceUnits,
       provenance: document.provenance,
@@ -410,7 +442,6 @@ function queryTabularDataset(
   const baseReceipt = {
     ...receipt,
     representation: "tabular_dataset",
-    sourceCoverage: "full",
     scannedRows,
     scannedSheets: sheets.map((sheet) => sheet.name),
   };
@@ -723,11 +754,12 @@ function textDocument(
 function splitPdfPages(text: string, totalPages: number): string[] {
   const formFeed = text.split("\f").map((page) => page.trim()).filter(Boolean);
   if (formFeed.length > 1) return formFeed;
+  const pageMarker = /-{2,}\s*\d+\s+of\s+\d+\s*-{2,}/i;
   const marked = text
-    .split(/-{2,}\s*\d+\s+of\s+\d+\s*-{2,}/i)
+    .split(pageMarker)
     .map((page) => page.trim())
     .filter(Boolean);
-  if (marked.length > 1) return marked;
+  if (pageMarker.test(text)) return marked;
   if (totalPages > 1 && text.length > 0) {
     const pageSize = Math.ceil(text.length / totalPages);
     return Array.from({ length: totalPages }, (_, index) =>
@@ -938,6 +970,27 @@ function storageEncoding(
 ): "base64" | "utf8" {
   const metadata = isRecord(resource.metadata) ? resource.metadata : null;
   return metadata?.storageEncoding === "base64" ? "base64" : "utf8";
+}
+
+function resourceLifecycleState(
+  resource: ConversationResourceArtifact,
+): ResourceLifecycleState {
+  const metadata = isRecord(resource.metadata) ? resource.metadata : null;
+  const resourceMetadata = isRecord(metadata?.conversationResource)
+    ? metadata.conversationResource
+    : null;
+  const lifecycleState = resourceMetadata?.lifecycleState;
+  if (
+    lifecycleState === "available" ||
+    lifecycleState === "partial" ||
+    lifecycleState === "extraction_failed"
+  ) {
+    return lifecycleState;
+  }
+  return metadata?.extractionStatus === "metadata_only" &&
+    resource.kind !== "image"
+    ? "partial"
+    : "available";
 }
 
 function imageMetadata(
