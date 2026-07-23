@@ -25,6 +25,8 @@ export type McpServerSpec =
       headers?: Record<string, string>;
       allowedTools?: string[];
       blockedTools?: string[];
+      /** Provider-native tool name -> trusted first-result usage guidance. */
+      usageNotesByTool?: Record<string, string>;
     };
 
 export interface RuntimeRunMetadata {

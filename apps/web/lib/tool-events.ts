@@ -21,6 +21,7 @@ export interface PersistedToolResult {
   toolName?: string;
   output: unknown;
   isError: boolean;
+  usageNotesDelivered?: boolean;
   completedAt: string;
 }
 
@@ -82,9 +83,12 @@ export function createToolEventAccumulator(
                   toolName: call.toolName,
                   direction: "output",
                   value: result.output,
-                })
+              })
               : result.output,
           isError: result.isError === true,
+          ...(result.usageNotesDelivered
+            ? { usageNotesDelivered: true }
+            : {}),
           completedAt: now().toISOString(),
         }),
       );

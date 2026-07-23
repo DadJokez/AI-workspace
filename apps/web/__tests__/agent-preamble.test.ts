@@ -103,6 +103,21 @@ describe("buildAgentPreamble date grounding", () => {
   });
 });
 
+describe("buildAgentPreamble just-in-time tool guidance", () => {
+  it("keeps provider post-call rules out of the cached system prefix", () => {
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: ["google", "salesforce"],
+      modelId: "sonnet-4-6",
+    });
+
+    expect(preamble).not.toContain("Google write boundary");
+    expect(preamble).not.toContain("Live-data pages:");
+    // Selection and pre-call schema grounding still belong before a call.
+    expect(preamble).toContain("Salesforce schema grounding");
+  });
+});
+
 describe("buildAgentPreamble Salesforce schema grounding", () => {
   it("requires describe evidence before correcting an INVALID_FIELD query", () => {
     const preamble = buildAgentPreamble({

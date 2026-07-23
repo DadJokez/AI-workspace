@@ -129,6 +129,28 @@ describe("parseInvocationPayload toolDiscovery", () => {
   });
 });
 
+describe("parseInvocationPayload just-in-time tool guidance", () => {
+  it("keeps valid per-tool usage notes", () => {
+    const payload = parseInvocationPayload({
+      ...BASE_PAYLOAD,
+      mcpServers: {
+        github: {
+          url: "https://mcp.example.test",
+          usageNotesByTool: {
+            create_issue: "Report the exact issue URL.",
+            blank: "   ",
+            invalid: 42,
+          },
+        },
+      },
+    });
+
+    expect(payload.mcpServers?.github?.usageNotesByTool).toEqual({
+      create_issue: "Report the exact issue URL.",
+    });
+  });
+});
+
 describe("parseInvocationPayload userTimeZone (#432)", () => {
   it("keeps a valid IANA zone from the payload", () => {
     expect(
