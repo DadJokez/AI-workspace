@@ -102,7 +102,7 @@ export const conversationResourceTools = [
             "Comparison for operation=table_filter. Filtered table_aggregate requests return an error.",
         },
         filterValue: {
-          type: ["string", "number"],
+          type: ["string", "number", "boolean"],
           description:
             "Value to match for operation=table_filter. Filtered table_aggregate requests return an error.",
         },

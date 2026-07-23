@@ -45,7 +45,7 @@ export interface ConversationResourceQueryInput {
     | "greater_than_or_equal"
     | "less_than"
     | "less_than_or_equal";
-  filterValue?: string | number;
+  filterValue?: string | number | boolean;
   sortColumn?: string;
   sortDirection?: "asc" | "desc";
   limit?: number;
@@ -228,7 +228,8 @@ export function parseConversationResourceQueryInput(
       ? { filterOperator: value.filterOperator }
       : {}),
     ...(typeof value.filterValue === "string" ||
-    typeof value.filterValue === "number"
+    typeof value.filterValue === "number" ||
+    typeof value.filterValue === "boolean"
       ? { filterValue: value.filterValue }
       : {}),
     ...(typeof value.sortColumn === "string"
@@ -891,11 +892,25 @@ function rowAsRecord(
 function compareFilter(
   actual: string,
   operator: NonNullable<ConversationResourceQueryInput["filterOperator"]>,
-  expected: string | number,
+  expected: string | number | boolean,
 ): boolean {
+  if (
+    typeof expected === "boolean" &&
+    operator !== "equals" &&
+    operator !== "not_equals"
+  ) {
+    throw new Error(
+      "Boolean filter values support only equals or not_equals.",
+    );
+  }
+
   const numericActual = parseNumericCell(actual);
   const numericExpected =
-    typeof expected === "number" ? expected : parseNumericCell(expected);
+    typeof expected === "number"
+      ? expected
+      : typeof expected === "string"
+        ? parseNumericCell(expected)
+        : Number.NaN;
   const numeric =
     Number.isFinite(numericActual) && Number.isFinite(numericExpected);
   const left = numeric ? numericActual : actual.toLowerCase();

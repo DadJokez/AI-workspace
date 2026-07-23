@@ -94,7 +94,10 @@ describe("conversation resource MCP authorization (#576)", () => {
           name: string;
           description: string;
           inputSchema: {
-            properties: Record<string, { description?: string }>;
+            properties: Record<
+              string,
+              { description?: string; type?: string | string[] }
+            >;
           };
         }>;
       };
@@ -115,6 +118,9 @@ describe("conversation resource MCP authorization (#576)", () => {
     expect(
       json.result.tools[0]?.inputSchema.properties.filterColumn?.description,
     ).toContain("operation=table_filter");
+    expect(
+      json.result.tools[0]?.inputSchema.properties.filterValue?.type,
+    ).toEqual(["string", "number", "boolean"]);
   });
 
   it("rejects a resource id that was not selected for this user/thread/run", async () => {
