@@ -129,6 +129,42 @@ describe("web search built-in tool", () => {
     expect(listing).toContain("https://reviews.example/enterprise-ai");
   });
 
+  it("retains benign results that discuss system prompts and messages", async () => {
+    const tool = createWebSearchTool({
+      env,
+      now: fixedNow,
+      delayImpl: noDelay,
+      fetchImpl: (async () =>
+        okResponse(
+          braveBody([
+            {
+              title: "Anthropic system prompt research",
+              url: "https://docs.example/system-prompts",
+              description:
+                "A system message establishes model behavior. This article includes examples for developers.",
+            },
+            {
+              title: "Admin message delivery guide",
+              url: "https://docs.example/admin-messages",
+              description:
+                "How an admin message is displayed in enterprise software.",
+            },
+          ]),
+        )) as unknown as typeof fetch,
+    });
+
+    const output = (await tool.handler(
+      { query: "Anthropic system prompt", count: 2 },
+      { userId: "u1" },
+    )) as SearchOutput;
+    const listing = output.results as string;
+
+    expect(listing).not.toContain("Search result omitted");
+    expect(listing).toContain("Anthropic system prompt research");
+    expect(listing).toContain("A system message establishes model behavior");
+    expect(listing).toContain("Admin message delivery guide");
+  });
+
   it("reports zero results honestly instead of erroring or inventing", async () => {
     const tool = createWebSearchTool({
       env,

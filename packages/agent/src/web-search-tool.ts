@@ -28,7 +28,7 @@ const MAX_QUERY_CHARS = 400;
 const RETRY_DELAY_MS = 1_000;
 const WEB_SEARCH_MARKER_RE = /<<<(?:END-)?WEB-SEARCH-RESULTS [^>\n]{1,128}>>>/g;
 const PROMPT_INJECTION_CUE_RE =
-  /\b(?:ignore\s+(?:(?:all|any)\s+)?(?:(?:previous|prior)\s+)?instructions?|(?:system|developer|assistant|admin)\s+(?:directive|instruction|message|prompt))\b/i;
+  /\b(?:ignore|disregard|forget|override)\s+(?:(?:all|any)\s+)?(?:(?:previous|prior|above|earlier)\s+)?(?:instructions?|directives?|prompts?|messages?)\b|\b(?:system|developer|assistant|admin)\s+(?:directive|instruction|message|prompt)[^:\n]{0,80}:\s*(?:ignore|disregard|override|reply|respond|include|reveal|list|send|output|exfiltrate)\b/i;
 const OMITTED_SEARCH_RESULT =
   "[Search result omitted because it contained instructions directed at the assistant.]";
 
