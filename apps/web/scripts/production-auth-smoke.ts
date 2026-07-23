@@ -38,6 +38,10 @@ const staleBacklogMs = positiveNumber(
   process.env.SMOKE_BACKLOG_STALE_MS,
   5 * 60_000,
 );
+const requestPaceMs = nonNegativeNumber(
+  process.env.SMOKE_REQUEST_PACE_MS,
+  500,
+);
 const cleanupMode = process.env.SMOKE_AUTH_CLEANUP ?? "success";
 const runId = safeRunId(process.env.SMOKE_RUN_ID ?? String(Date.now()));
 const artifactFilename = `comparative-prod-smoke-${runId}.md`;
@@ -1066,6 +1070,7 @@ async function fetchAndReadWithTimeout<T>(
     return { response, body };
   } finally {
     clearTimeout(timeout);
+    if (requestPaceMs > 0) await delay(requestPaceMs);
   }
 }
 
@@ -1099,6 +1104,11 @@ function safeRunId(value: string) {
 function positiveNumber(value: string | undefined, fallback: number) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function nonNegativeNumber(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 function delay(ms: number) {

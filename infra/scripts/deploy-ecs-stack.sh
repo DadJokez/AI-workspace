@@ -25,15 +25,6 @@ CDK_DEFAULT_REGION="$AWS_DEFAULT_REGION" \
   --parameters "ImageTag=$COMMIT_TAG" \
   --exclusively
 
-echo "Forcing ECS service deployments for commit $COMMIT_TAG..."
-for service in "${SERVICES[@]}"; do
-  aws ecs update-service \
-    --region "$AWS_DEFAULT_REGION" \
-    --cluster "$ECS_CLUSTER_NAME" \
-    --service "$service" \
-    --force-new-deployment >/dev/null
-done
-
 echo "Waiting for ECS services to stabilize..."
 aws ecs wait services-stable \
   --region "$AWS_DEFAULT_REGION" \

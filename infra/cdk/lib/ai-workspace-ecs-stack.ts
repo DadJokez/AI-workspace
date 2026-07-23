@@ -105,6 +105,11 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       "aiWorkspace:codeBuildRoleArn",
       "",
     );
+    const albAccessLogBucketName = contextString(
+      this,
+      "aiWorkspace:albAccessLogBucketName",
+      `ai-workspace-alb-logs-${this.account}-${this.region}`,
+    );
 
     const vpc = ec2.Vpc.fromLookup(this, "DefaultVpc", {
       isDefault: true,
@@ -253,7 +258,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
           cluster,
           serviceName: "ai-workspace-web",
           taskDefinition: webTask,
-          desiredCount: 1,
+          desiredCount: 2,
           publicLoadBalancer: true,
           assignPublicIp: true,
           securityGroups: [webSecurityGroup],
@@ -267,6 +272,12 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
           minHealthyPercent: 100,
         },
       );
+    webService.loadBalancer.setAttribute("access_logs.s3.enabled", "true");
+    webService.loadBalancer.setAttribute(
+      "access_logs.s3.bucket",
+      albAccessLogBucketName,
+    );
+    webService.loadBalancer.setAttribute("access_logs.s3.prefix", "alb");
     webService.targetGroup.configureHealthCheck({
       path: "/api/health",
       healthyHttpCodes: "200",
@@ -284,6 +295,16 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       ec2.Port.tcp(3000),
     );
     webService.service.node.addDependency(certificate);
+
+    const webScaling = webService.service.autoScaleTaskCount({
+      minCapacity: 2,
+      maxCapacity: 4,
+    });
+    webScaling.scaleOnCpuUtilization("WebCpuScaling", {
+      targetUtilizationPercent: 60,
+      scaleOutCooldown: cdk.Duration.seconds(60),
+      scaleInCooldown: cdk.Duration.minutes(5),
+    });
 
     if (legacyDomainName !== domainName) {
       new route53.ARecord(this, "CanonicalDomainAliasRecord", {

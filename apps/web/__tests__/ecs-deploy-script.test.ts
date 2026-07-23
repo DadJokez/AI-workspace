@@ -24,7 +24,7 @@ afterEach(() => {
 });
 
 describe("deploy-ecs-stack.sh", () => {
-  it("applies CDK before refreshing and recording all three services", () => {
+  it("applies CDK before waiting for and recording all three services", () => {
     const result = runScript();
 
     expect(result.status).toBe(0);
@@ -33,15 +33,14 @@ describe("deploy-ecs-stack.sh", () => {
       // #449: deploys pin the commit-SHA tag via the ImageTag parameter.
       "pnpm --filter @ai-workspace/infra exec cdk deploy AiWorkspaceEcsStack --require-approval never --parameters ImageTag=commit-sha --exclusively",
     );
-    expect(commands.indexOf("cdk deploy")).toBeLessThan(
-      commands.indexOf("ecs update-service"),
-    );
-    for (const service of [
+    expect(commands).not.toContain("ecs update-service");
+    const services = [
       "ai-workspace-web",
       "ai-workspace-chat-worker",
       "ai-workspace-memory-worker",
-    ]) {
-      expect(commands).toContain(`--service ${service}`);
+    ];
+    expect(commands).toContain(`--services ${services.join(" ")}`);
+    for (const service of services) {
       expect(result.stdout).toContain(service);
     }
     expect(commands.indexOf("ecs wait services-stable")).toBeLessThan(
@@ -51,22 +50,22 @@ describe("deploy-ecs-stack.sh", () => {
     expect(result.stdout).toContain('"taskDefinition"');
   });
 
-  it("keeps the image-only path moving when CDK reports no changes", () => {
+  it("does not recycle services when CDK reports no changes", () => {
     const result = runScript({ cdkNoChanges: true });
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("no changes");
-    expect(readFileSync(result.capturePath, "utf8")).toContain(
-      "ecs update-service",
-    );
+    const commands = readFileSync(result.capturePath, "utf8");
+    expect(commands).not.toContain("ecs update-service");
+    expect(commands).toContain("ecs wait services-stable");
   });
 
-  it("fails closed before ECS refresh when CDK deployment fails", () => {
+  it("fails closed before ECS wait when CDK deployment fails", () => {
     const result = runScript({ cdkFailure: true });
 
     expect(result.status).not.toBe(0);
     expect(readFileSync(result.capturePath, "utf8")).not.toContain(
-      "ecs update-service",
+      "ecs wait services-stable",
     );
   });
 
