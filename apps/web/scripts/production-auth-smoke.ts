@@ -7,6 +7,7 @@ import {
   memoryCaptureQueue,
   runs,
   users,
+  workspaceArtifacts,
 } from "@ai-workspace/db";
 import { and, eq, inArray, lt, or } from "drizzle-orm";
 
@@ -34,6 +35,7 @@ const state: {
   threadId?: string;
   runId?: string;
   artifactId?: string;
+  uploadThreadId?: string;
   agentCoreThreadId?: string;
   agentCoreRunId?: string;
 } = {};
@@ -52,6 +54,7 @@ async function main() {
     await meCheck(cookie);
     await isolationCheck(cookie, "before chat");
     await chatArtifactCheck(cookie);
+    await uploadContinuityCheck(db, cookie);
     await artifactListCheck(cookie);
     await transcriptExportCheck(cookie);
     await agentCoreDurableLaneCheck(db);
@@ -70,6 +73,115 @@ async function main() {
       );
     }
   }
+}
+
+async function uploadContinuityCheck(db: ReturnType<typeof getDb>, cookie: string) {
+  const marker = `UPLOAD-CONTINUITY-${runId}`;
+  const targetBytes = Math.floor(3.8 * 1024 * 1024);
+  const prefix = `marker,region,revenue\n${marker},North America,4200000\n`;
+  const row = "filler,EMEA,100\n";
+  const csv = (prefix + row.repeat(Math.ceil(targetBytes / row.length))).slice(
+    0,
+    targetBytes,
+  );
+  const bytes = Buffer.from(csv, "utf8");
+
+  const first = await fetchTextWithTimeout("/api/chat", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      cookie,
+    },
+    body: JSON.stringify({
+      message: "A CSV is attached. Reply with only: file received",
+      attachmentCount: 1,
+      attachments: [
+        {
+          name: `production-continuity-${runId}.csv`,
+          mimeType: "text/csv",
+          sizeBytes: bytes.byteLength,
+          dataBase64: bytes.toString("base64"),
+        },
+      ],
+    }),
+  });
+  assertStatus(first.response, 200, "/api/chat large upload");
+  const firstEvents = parseSseEvents(first.body);
+  const firstMeta = firstEvents.find((event) => event.type === "meta");
+  assert(
+    isRecord(firstMeta) && typeof firstMeta.threadId === "string",
+    "large upload response missing thread id",
+  );
+  assert(
+    firstEvents.some((event) => event.type === "persisted"),
+    "large upload response was not persisted",
+  );
+  state.uploadThreadId = firstMeta.threadId;
+
+  const storedBeforeFollowUp = await db
+    .select({ id: workspaceArtifacts.id })
+    .from(workspaceArtifacts)
+    .where(
+      and(
+        eq(workspaceArtifacts.userId, SMOKE_USER_ID),
+        eq(workspaceArtifacts.threadId, state.uploadThreadId),
+        eq(workspaceArtifacts.source, "user-upload"),
+      ),
+    );
+  assert(
+    storedBeforeFollowUp.length === 1,
+    `large upload stored ${storedBeforeFollowUp.length} artifacts instead of one`,
+  );
+
+  const followUp = await fetchTextWithTimeout("/api/chat", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      cookie,
+    },
+    body: JSON.stringify({
+      threadId: state.uploadThreadId,
+      message:
+        "Analyze the uploaded CSV. Reply with only the unique UPLOAD-CONTINUITY marker from its first data row.",
+    }),
+  });
+  assertStatus(followUp.response, 200, "/api/chat upload follow-up");
+  const followUpEvents = parseSseEvents(followUp.body);
+  const followUpMeta = followUpEvents.find((event) => event.type === "meta");
+  assert(isRecord(followUpMeta), "upload follow-up missing meta event");
+  assert(
+    isRecord(followUpMeta.routeReceipt) &&
+      isRecord(followUpMeta.routeReceipt.contextAvailability) &&
+      followUpMeta.routeReceipt.contextAvailability.uploadedFilesAvailable === true,
+    "upload follow-up route receipt did not report stored file context",
+  );
+  const assistantText = followUpEvents
+    .filter((event) => event.type === "text-delta")
+    .map((event) => (typeof event.delta === "string" ? event.delta : ""))
+    .join("");
+  assert(
+    assistantText.includes(marker),
+    `upload follow-up did not recover marker ${marker}: ${assistantText.slice(0, 240)}`,
+  );
+  assert(
+    followUpEvents.some((event) => event.type === "persisted"),
+    "upload follow-up response was not persisted",
+  );
+  const storedAfterFollowUp = await db
+    .select({ id: workspaceArtifacts.id })
+    .from(workspaceArtifacts)
+    .where(
+      and(
+        eq(workspaceArtifacts.userId, SMOKE_USER_ID),
+        eq(workspaceArtifacts.threadId, state.uploadThreadId),
+        eq(workspaceArtifacts.source, "user-upload"),
+      ),
+    );
+  assert(
+    storedAfterFollowUp.length === storedBeforeFollowUp.length,
+    `upload follow-up duplicated stored artifacts (${storedBeforeFollowUp.length} -> ${storedAfterFollowUp.length})`,
+  );
+  console.log("ok uploadContinuityCheck");
 }
 
 async function healthCheck() {
