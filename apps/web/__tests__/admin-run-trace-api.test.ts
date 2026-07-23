@@ -12,6 +12,7 @@ interface DbFixtures {
   runRows: Array<Record<string, unknown>>;
   eventRows: Array<Record<string, unknown>>;
   auditRows: Array<Record<string, unknown>>;
+  recentTraceRows: Array<Record<string, unknown>>;
   recentAccessRows: Array<Record<string, unknown>>;
   insertedAudit: Array<Record<string, unknown>>;
 }
@@ -42,9 +43,11 @@ function installDbMock() {
         "@ai-workspace/db",
       );
 
-    function select() {
+    function select(selection?: Record<string, unknown>) {
       let table: unknown;
       let ordered = false;
+      const recentKind =
+        selection && "metadata" in selection ? "admin" : "trace";
       const query = {
         from(nextTable: unknown) {
           table = nextTable;
@@ -66,8 +69,11 @@ function installDbMock() {
             return Promise.resolve(fixtures.eventRows);
           }
           if (table === actual.auditLog) {
+            if (ordered) return Promise.resolve(fixtures.auditRows);
             return Promise.resolve(
-              ordered ? fixtures.auditRows : fixtures.recentAccessRows,
+              recentKind === "admin"
+                ? fixtures.recentAccessRows
+                : fixtures.recentTraceRows,
             );
           }
           return Promise.resolve([]);
@@ -197,6 +203,7 @@ beforeEach(() => {
       },
     ],
     auditRows: [],
+    recentTraceRows: [],
     recentAccessRows: [],
     insertedAudit: [],
   };
@@ -240,6 +247,12 @@ describe("GET /api/admin/runs/[id]/trace", () => {
     expect(serialized).not.toContain("should-not-leak");
     expect(serialized).toContain("[redacted]");
     expect(fixtures.insertedAudit).toEqual([
+      expect.objectContaining({
+        actorUserId: adminSession.id,
+        runId: "run-uuid",
+        actionType: "run_trace_viewed",
+        status: "succeeded",
+      }),
       expect.objectContaining({
         actorUserId: adminSession.id,
         runId: "run-uuid",
@@ -362,6 +375,7 @@ describe("GET /api/admin/runs/[id]/trace", () => {
   });
 
   it("deduplicates polling access within the audit window", async () => {
+    fixtures.recentTraceRows = [{ id: "existing-trace-access" }];
     fixtures.recentAccessRows = [
       {
         metadata: {
@@ -398,7 +412,14 @@ describe("GET /api/admin/runs/[id]/trace", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(fixtures.insertedAudit).toHaveLength(0);
+    expect(fixtures.insertedAudit).toEqual([
+      expect.objectContaining({
+        actorUserId: adminSession.id,
+        runId: "run-uuid",
+        actionType: "run_trace_viewed",
+        status: "succeeded",
+      }),
+    ]);
   });
 
   it("preserves the endpoint event and audit limits after read-time redaction", async () => {

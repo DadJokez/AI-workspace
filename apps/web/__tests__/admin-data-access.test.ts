@@ -27,6 +27,7 @@ const now = new Date("2026-07-23T12:00:00.000Z");
 
 function mockDb(recentMetadata: unknown[] = []) {
   const inserted: Array<Record<string, unknown>> = [];
+  const limits: number[] = [];
   let selectCalls = 0;
   const query = {
     from() {
@@ -35,7 +36,8 @@ function mockDb(recentMetadata: unknown[] = []) {
     where() {
       return query;
     },
-    limit() {
+    limit(value: number) {
+      limits.push(value);
       return Promise.resolve(
         recentMetadata.map((metadata) => ({ metadata })),
       );
@@ -61,6 +63,7 @@ function mockDb(recentMetadata: unknown[] = []) {
   return {
     db,
     inserted,
+    limits,
     selectCalls: () => selectCalls,
   };
 }
@@ -135,6 +138,7 @@ describe("admin data access audit", () => {
         createdAt: now,
       }),
     ]);
+    expect(mocked.limits).toEqual([1]);
   });
 
   it("still audits orphaned private resources whose user was deleted", async () => {

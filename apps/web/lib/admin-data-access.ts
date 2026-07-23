@@ -1,6 +1,6 @@
 import type { SessionUser } from "@ai-workspace/auth";
 import { auditLog, type Database } from "@ai-workspace/db";
-import { and, eq, gte } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 
 export const ADMIN_DATA_ACCESS_ACTION = "admin_data_access";
 export const ADMIN_DATA_ACCESS_SCHEMA = "admin-data-access.v1";
@@ -48,9 +48,9 @@ export interface AdminDataAccessAuditResult {
 }
 
 /**
- * Record one privileged read. Cross-user admin reads fail closed if the
+ * Record one cross-user admin read. Cross-user admin reads fail closed if the
  * append-only ledger is unavailable; owner reads and non-admin reads do not
- * create privileged-access noise.
+ * create admin-access noise.
  */
 export async function auditAdminDataAccess({
   db,
@@ -118,6 +118,9 @@ export async function auditAdminDataAccessBatch({
     return { inserted: 0, deduplicated: 0, skipped };
   }
 
+  const candidates = [...normalized.values()];
+  const windowStart = new Date(now.getTime() - ACCESS_DEDUPE_WINDOW_MS);
+  const only = candidates.length === 1 ? candidates[0] : null;
   const recent = await db
     .select({ metadata: auditLog.metadata })
     .from(auditLog)
@@ -125,13 +128,18 @@ export async function auditAdminDataAccessBatch({
       and(
         eq(auditLog.actorUserId, actor.id),
         eq(auditLog.actionType, ADMIN_DATA_ACCESS_ACTION),
-        gte(
-          auditLog.createdAt,
-          new Date(now.getTime() - ACCESS_DEDUPE_WINDOW_MS),
-        ),
+        gte(auditLog.createdAt, windowStart),
+        ...(only
+          ? [
+              sql`${auditLog.metadata} ->> 'targetUserId' = ${only.targetUserId}`,
+              sql`${auditLog.metadata} ->> 'resourceType' = ${only.resourceType}`,
+              sql`${auditLog.metadata} ->> 'resourceId' = ${only.resourceId}`,
+              sql`${auditLog.metadata} ->> 'surface' = ${only.surface}`,
+            ]
+          : []),
       ),
     )
-    .limit(MAX_RECENT_ACCESS_ROWS);
+    .limit(only ? 1 : MAX_RECENT_ACCESS_ROWS);
   const recentKeys = new Set(
     recent
       .map((row) => parseAdminDataAccessMetadata(row.metadata))
@@ -139,7 +147,7 @@ export async function auditAdminDataAccessBatch({
       .map(accessKey),
   );
 
-  const pending = [...normalized.values()].filter(
+  const pending = candidates.filter(
     (access) => !recentKeys.has(accessKey(access)),
   );
   if (pending.length > 0) {
