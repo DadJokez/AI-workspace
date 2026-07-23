@@ -308,7 +308,10 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
           runtime: null,
           error: null,
           inputs: {},
-          outputs: { appDraftVersions: [summary("vD", 5)] },
+          outputs: {
+            appDraftVersions: [summary("vD", 5)],
+            usage: { tokensIn: 8_000, tokensOut: 400 },
+          },
           startedAt: new Date(3),
           createdAt: new Date(3),
         },
@@ -351,6 +354,7 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
     expect(active?.appDraftVersions).toEqual([
       expect.objectContaining({ id: "vD", status: "draft", canDeploy: false }),
     ]);
+    expect(active?.liveTokens).toBe(8_400);
   });
 
   it("skips the truth query when no summaries rehydrated", async () => {

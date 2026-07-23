@@ -8,7 +8,10 @@ import {
   summarizeActivity,
   type AgentActivityEvent,
 } from "@/lib/activity-events";
-import { groupActivityEvents } from "@/lib/activity-receipts";
+import {
+  groupActivityEvents,
+  summarizeActivityReceipts,
+} from "@/lib/activity-receipts";
 import type {
   PersistedToolCall,
   PersistedToolResult,
@@ -168,7 +171,9 @@ export function MessageBubble({
     role === "assistant"
       ? persistedActivityEvents ?? buildToolActivityEvents(toolCalls, toolResults)
       : [];
-  const activitySummary = summarizeActivity(activityEvents, pending, status);
+  const activitySummary =
+    (!pending ? summarizeActivityReceipts(activityEvents) : undefined) ??
+    summarizeActivity(activityEvents, pending, status);
   const showActivity =
     role === "assistant" && (activityEvents.length > 0 || showThinking);
   const assistantParts =

@@ -174,6 +174,8 @@ import { buildChatContextPack } from "@/lib/chat-context-pack";
 import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
 import { buildTurnContext } from "@/lib/turn-context";
 import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
+import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
+import { createDraftAppVersionsForThreadArtifacts } from "@/lib/apps";
 
 interface FakeDbState {
   runStatus: string;
@@ -834,6 +836,89 @@ describe("executeChatTurn — persist tail", () => {
     expect(eventTypes).toContain("worker_started");
     expect(eventTypes).toContain("run_completed");
     expect(eventTypes).not.toContain("inline_runtime_started");
+  });
+
+  it("persists worker usage behind the active lease for slim polling", async () => {
+    const { input, state } = workerInput();
+    await executeChatTurn(input);
+
+    expect(state.runUpdates).toContainEqual(
+      expect.objectContaining({
+        outputs: expect.objectContaining({
+          lifecycle: "provider_running",
+          usage: expect.objectContaining({
+            tokensIn: 11,
+            tokensOut: 7,
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("emits separate app validation and draft creation checkpoints", async () => {
+    vi.mocked(createArtifactsFromAssistantMessage).mockResolvedValueOnce([
+      {
+        id: "artifact-app",
+        title: "Dashboard",
+        filename: "dashboard.html",
+        kind: "file",
+        mimeType: "text/html",
+        sizeBytes: 128,
+        source: "assistant",
+        threadId: "thread-1",
+        chatMessageId: "assistant-msg-1",
+        runId: "run-1",
+        artifactGroupId: "dashboard",
+        versionNumber: 1,
+        supersedesArtifactId: null,
+        versionSummary: null,
+        metadata: null,
+        createdAt: "2026-07-23T12:00:00.000Z",
+        previewUrl: "/workspace/artifacts/artifact-app",
+        downloadUrl: "/api/workspace/artifacts/artifact-app/download",
+      },
+    ]);
+    vi.mocked(
+      createDraftAppVersionsForThreadArtifacts,
+    ).mockResolvedValueOnce({
+      created: [{ id: "version-4" }] as never,
+      rejected: [],
+      summaries: [
+        {
+          id: "version-4",
+          appId: "app-1",
+          appName: "Dashboard",
+          appSlug: "dashboard",
+          artifactId: "artifact-app",
+          versionNumber: 4,
+          status: "draft",
+          canDeploy: true,
+          previewUrl: "/api/apps/app-1/versions/version-4/content",
+          liveUrl: "/apps/dashboard",
+        },
+      ],
+    });
+    const { input } = inlineInput();
+
+    await executeChatTurn(input);
+
+    const events = vi.mocked(appendRunEventBestEffort).mock.calls.map(
+      ([, event]) => event,
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: "app_draft_validation_completed",
+        status: "succeeded",
+        label: "Validated 1 app draft",
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: "app_draft_versions_created",
+        status: "succeeded",
+        label: "Created 1 draft app version",
+      }),
+    );
   });
 
   it("does not notify or report completion when the worker terminal write is fenced out (#443)", async () => {

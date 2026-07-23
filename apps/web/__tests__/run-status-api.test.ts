@@ -21,6 +21,7 @@ let runRows: Array<{
   id: string;
   userId: string;
   status: string;
+  outputs?: unknown;
   updatedAt: Date;
 }> = [];
 let eventRows: Array<{ latestEventSequence: number | null }> = [];
@@ -78,6 +79,7 @@ beforeEach(() => {
       id: "run-1",
       userId: session.id,
       status: "running",
+      outputs: { usage: { tokensIn: 8_000, tokensOut: 400 } },
       updatedAt: fixedDate,
     },
   ];
@@ -131,7 +133,25 @@ describe("GET /api/runs/[id]/status", () => {
         status: "running",
         updatedAt: fixedDate.toISOString(),
         latestEventSequence: 7,
+        liveTokens: 8_400,
       },
+    });
+  });
+
+  it("returns null telemetry for malformed run output", async () => {
+    runRows[0]!.outputs = {
+      usage: { tokensIn: "not-a-number", tokensOut: -1 },
+    };
+    installMocks();
+
+    const { GET } = await import("@/app/api/runs/[id]/status/route");
+    const res = await GET(new Request("http://localhost/api/runs/run-1/status"), {
+      params: Promise.resolve({ id: "run-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      run: { liveTokens: null },
     });
   });
 
@@ -158,6 +178,7 @@ describe("GET /api/runs/[id]/status", () => {
         id: "run-1",
         userId: "target-user-uuid",
         status: "running",
+        outputs: null,
         updatedAt: fixedDate,
       },
     ];

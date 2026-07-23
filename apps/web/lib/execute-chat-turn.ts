@@ -888,6 +888,23 @@ export async function executeChatTurn({
           // #359: live token counts for the run footer — totals only, the
           // full breakdown ships with `persisted` as before.
           lane.send({ type: "usage", tokensIn, tokensOut });
+        } else {
+          // Worker runs have no SSE connection. Persist the same aggregate
+          // behind the active lease so the slim status poll can update the
+          // footer without reloading messages, artifacts, or event details.
+          await db
+            .update(runs)
+            .set({
+              outputs: buildWorkerOutput({ lifecycle: "provider_running" }),
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(runs.id, runId),
+                eq(runs.status, "running"),
+                eq(runs.workerId, lane.workerId),
+              ),
+            );
         }
       } else if (ev.type === "tool-call") {
         toolEvents.recordCall(ev.call);
@@ -1306,17 +1323,32 @@ async function persistChatTurnResult({
             await appendTurnRunEvent(lane, {
               db,
               runId,
-              eventType: "app_draft_versions_created",
+              eventType: "app_draft_validation_completed",
               status: appDrafts.rejected.length > 0 ? "failed" : "succeeded",
               label:
-                appDrafts.created.length > 0
-                  ? `Created ${appDrafts.created.length} draft app version${appDrafts.created.length === 1 ? "" : "s"}`
-                  : "Rejected draft app versions",
+                appDrafts.rejected.length > 0
+                  ? "App draft validation failed"
+                  : `Validated ${appDrafts.created.length} app draft${appDrafts.created.length === 1 ? "" : "s"}`,
               metadata: {
-                draftVersions: appDraftVersions,
-                rejected: appDrafts.rejected,
+                check: "app source and ownership",
+                passed: appDrafts.created.length,
+                failed: appDrafts.rejected.length,
+                filenames: artifacts.map((artifact) => artifact.filename),
+                failureReasons: appDrafts.rejected.map(
+                  (rejected) => rejected.reason,
+                ),
               },
             });
+            if (appDrafts.created.length > 0) {
+              await appendTurnRunEvent(lane, {
+                db,
+                runId,
+                eventType: "app_draft_versions_created",
+                status: "succeeded",
+                label: `Created ${appDrafts.created.length} draft app version${appDrafts.created.length === 1 ? "" : "s"}`,
+                metadata: { draftVersions: appDraftVersions },
+              });
+            }
           }
         } catch (err) {
           process.stderr.write(

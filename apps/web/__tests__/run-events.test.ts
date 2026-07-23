@@ -523,3 +523,53 @@ describe("workspace_artifacts_created labels (#359)", () => {
     expect(event!.label).toBe("Edited big.html · ~+100 −90");
   });
 });
+
+describe("app validation and publish checkpoints (#359)", () => {
+  it("renders safe labels, details, categories, and phases", async () => {
+    const { derivePhaseFromRunEvents, runEventsToActivityEvents } = await import(
+      "@/lib/run-events"
+    );
+    const events = [
+      {
+        id: "validation",
+        sequence: 1,
+        eventType: "app_version_validation_completed",
+        status: "succeeded" as const,
+        label: "Validated app version",
+        toolCallId: null,
+        error: null,
+        metadata: {
+          check: "credential scan",
+          appVersionNumber: 4,
+          filenames: ["dashboard.html"],
+          passed: 1,
+          failed: 0,
+        },
+        occurredAt: new Date("2026-07-18T00:00:00Z"),
+      },
+      {
+        id: "published",
+        sequence: 2,
+        eventType: "app_version_published",
+        status: "succeeded" as const,
+        label: "Published Dashboard · version 4",
+        toolCallId: null,
+        error: null,
+        occurredAt: new Date("2026-07-18T00:00:01Z"),
+      },
+    ];
+
+    expect(runEventsToActivityEvents(events)).toEqual([
+      expect.objectContaining({
+        label: "Validated app version",
+        category: "workspace",
+        detail: expect.stringContaining("Check: credential scan"),
+      }),
+      expect.objectContaining({
+        label: "Published Dashboard · version 4",
+        category: "workspace",
+      }),
+    ]);
+    expect(derivePhaseFromRunEvents(events)).toBe("publishing");
+  });
+});
