@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { fetchJson } from "@/lib/client-api";
 
 export function WebEgressPolicyForm({
   initialDeniedDomains,
@@ -19,24 +20,29 @@ export function WebEgressPolicyForm({
         .split(/\r?\n|,/)
         .map((domain) => domain.trim())
         .filter(Boolean);
-      const response = await fetch("/api/admin/web-egress-policy", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ deniedDomains }),
-      });
-      const body = (await response.json()) as {
+      const body = await fetchJson<{
         policy?: { deniedDomains?: string[] };
-        message?: string;
-      };
-      if (!response.ok || !body.policy) {
-        setStatus(body.message ?? "The policy could not be saved.");
-        return;
+      }>(
+        "/api/admin/web-egress-policy",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ deniedDomains }),
+        },
+        "The policy could not be saved.",
+      );
+      if (!body.policy) {
+        throw new Error("The policy was saved without a result.");
       }
       const normalized = body.policy.deniedDomains ?? [];
       setValue(normalized.join("\n"));
       setStatus("Saved.");
-    } catch {
-      setStatus("The policy could not be saved.");
+    } catch (error) {
+      setStatus(
+        error instanceof Error
+          ? error.message
+          : "The policy could not be saved.",
+      );
     } finally {
       setSaving(false);
     }

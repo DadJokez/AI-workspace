@@ -5,6 +5,7 @@ import { useState } from "react";
 import { StatusBadge } from "@/app/admin/ui";
 import { getLinkedIssueTag } from "./issue-tags";
 import { EmptyState } from "@/components/EmptyState";
+import { fetchJson } from "@/lib/client-api";
 import { FEEDBACK_STATUS_OPTIONS } from "@/lib/feedback-status";
 import { formatDateTime } from "@/lib/format-date";
 
@@ -79,17 +80,19 @@ export function FeedbackTable({ rows }: { rows: AdminFeedbackRow[] }) {
     setSavingId(id);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/feedback/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      });
-      const body = (await res.json().catch(() => ({}))) as {
+      const body = await fetchJson<{
         report?: Partial<AdminFeedbackRow>;
-        error?: string;
-      };
-      if (!res.ok || !body.report) {
-        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }>(
+        `/api/admin/feedback/${id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        },
+        "Could not update feedback.",
+      );
+      if (!body.report) {
+        throw new Error("The feedback was updated without a report.");
       }
       setItems((prev) =>
         prev.map((item) =>
@@ -378,19 +381,20 @@ function ScreenshotPreview({ row }: { row: AdminFeedbackRow }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/feedback/${row.id}/screenshot`);
-      const body = (await res.json().catch(() => ({}))) as {
+      const body = await fetchJson<{
         screenshot?: { dataUrl?: string; mimeType?: string; name?: string | null };
-        error?: string;
-      };
+      }>(
+        `/api/admin/feedback/${row.id}/screenshot`,
+        undefined,
+        "Could not load screenshot.",
+      );
       const next = body.screenshot;
       if (
-        !res.ok ||
         !next?.dataUrl ||
         !next.mimeType ||
         !isSafeScreenshotDataUrl(next.dataUrl, next.mimeType)
       ) {
-        throw new Error(body.error ?? "Could not load screenshot.");
+        throw new Error("Could not load screenshot.");
       }
       setScreenshot({
         dataUrl: next.dataUrl,

@@ -1,3 +1,4 @@
+import { fetchJson } from "@/lib/client-api";
 import {
   shouldReloadThread,
   type RunStatusResponse,
@@ -158,9 +159,11 @@ export function useRunPolling({
 
     async function refreshPendingRun(): Promise<boolean> {
       try {
-        const response = await fetch(`/api/threads/${threadId}/messages`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = (await response.json()) as ThreadMessagesResponse;
+        const data = await fetchJson<ThreadMessagesResponse>(
+          `/api/threads/${threadId}/messages`,
+          undefined,
+          "Could not refresh the running chat.",
+        );
         if (cancelled) return false;
         const messages = data.messages.map(threadMessageToUiMessage);
         const hasLoadedPending = messages.some((message) => message.pending);

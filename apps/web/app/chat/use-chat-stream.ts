@@ -1,5 +1,6 @@
 import { parseAppDraftVersionSummaries } from "@/lib/app-draft-versions";
 import type { ChatAttachment } from "@/lib/attachments";
+import { throwApiError } from "@/lib/client-api";
 import type { ChatModelOverride } from "@/lib/model-command";
 import type { ActivatedSlashSkill } from "@/lib/skill-commands";
 import { readChatSseStream } from "@/lib/sse";
@@ -155,13 +156,7 @@ export function useChatStream({
         }),
       });
       if (!response.ok) {
-        const body = (await response.json().catch(() => ({}))) as {
-          error?: string;
-          message?: string;
-        };
-        throw new Error(
-          body.message ?? body.error ?? `HTTP ${response.status}`,
-        );
+        await throwApiError(response, "Could not send the message.");
       }
       responseAccepted = true;
 

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fetchJson } from "@/lib/client-api";
 
 type Action = "cancel" | "retry" | "resume";
 
@@ -24,16 +25,15 @@ export function ChatRunActionButtons({
     setPending(action);
     setError(null);
     try {
-      const res = await fetch(`/api/runs/${runId}/${action}`, {
-        method: "POST",
-      });
-      const data = (await res.json().catch(() => ({}))) as {
+      const data = await fetchJson<{
         run?: { id?: string };
-        message?: string;
-        error?: string;
-      };
-      if (!res.ok || !data.run?.id) {
-        throw new Error(data.message ?? data.error ?? `${action} failed.`);
+      }>(
+        `/api/runs/${runId}/${action}`,
+        { method: "POST" },
+        `${action} failed.`,
+      );
+      if (!data.run?.id) {
+        throw new Error(`${action} started without a run ID.`);
       }
       if (action === "retry") {
         router.push(`/admin/runs/${data.run.id}`);

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
+import { fetchJson } from "@/lib/client-api";
 import { formatMonthDay } from "@/lib/format-date";
 
 interface NotificationItem {
@@ -62,15 +63,17 @@ export function NotificationsPanel({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [listRes, digestRes] = await Promise.all([
-        fetch("/api/notifications"),
+      const [listBody, digestRes] = await Promise.all([
+        fetchJson<{
+          notifications: NotificationItem[];
+          unreadCount: number;
+        }>(
+          "/api/notifications",
+          undefined,
+          "Could not load notifications.",
+        ),
         fetch("/api/notifications/digest"),
       ]);
-      if (!listRes.ok) throw new Error(`HTTP ${listRes.status}`);
-      const listBody = (await listRes.json()) as {
-        notifications: NotificationItem[];
-        unreadCount: number;
-      };
       setItems(listBody.notifications ?? []);
       onUnreadChange?.(listBody.unreadCount ?? 0);
       if (digestRes.ok) {

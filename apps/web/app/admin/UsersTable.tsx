@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { AdminUserRow } from "@/app/api/admin/users/route";
 import { EmptyState } from "@/components/EmptyState";
+import { fetchJson } from "@/lib/client-api";
 import { formatDate } from "@/lib/format-date";
 
 interface Props {
@@ -47,12 +48,15 @@ export function UsersTable({ initialUsers, currentUserId }: Props) {
     setErrorId(undefined);
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, role: nextRole } : r)));
     try {
-      const res = await fetch(`/api/admin/users/${id}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ role: nextRole }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await fetchJson(
+        `/api/admin/users/${id}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ role: nextRole }),
+        },
+        "Could not update this role.",
+      );
     } catch {
       setRows(prev);
       setErrorId(id);

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fetchJson } from "@/lib/client-api";
 import { formatDate } from "@/lib/format-date";
 
 interface ArtifactOption {
@@ -37,24 +38,26 @@ export function RegisterAppForm({ artifacts }: { artifacts: ArtifactOption[] }) 
     setBusy(true);
     setNotice(null);
     try {
-      const res = await fetch("/api/apps", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ artifactId, name, dataMode }),
-      });
-      const body = (await res.json()) as {
+      const body = await fetchJson<{
         app?: { id: string };
-        message?: string;
-        error?: string;
-      };
-      if (res.ok && body.app) {
-        router.push(`/apps/manage/${body.app.id}`);
-        router.refresh();
-        return;
+      }>(
+        "/api/apps",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ artifactId, name, dataMode }),
+        },
+        "Could not publish the app.",
+      );
+      if (!body.app) {
+        throw new Error("The app was published without an app ID.");
       }
-      setNotice(body.message ?? body.error ?? "Could not publish the app.");
-    } catch {
-      setNotice("Could not publish the app.");
+      router.push(`/apps/manage/${body.app.id}`);
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Could not publish the app.",
+      );
     } finally {
       setBusy(false);
     }

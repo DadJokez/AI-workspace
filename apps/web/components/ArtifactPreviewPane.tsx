@@ -1,6 +1,7 @@
 "use client";
 
 import { SlideOverPane } from "@/components/SlideOverPane";
+import { fetchJson } from "@/lib/client-api";
 import type {
   WorkspaceArtifactDetail,
   WorkspaceArtifactSummary,
@@ -32,12 +33,11 @@ export function ArtifactPreviewPane({ artifact, onClose }: Props) {
     setError(undefined);
     setDetail(null);
 
-    fetch(`/api/workspace/artifacts/${artifact.id}`)
-      .then((r) =>
-        r.ok
-          ? (r.json() as Promise<ArtifactDetailResponse>)
-          : Promise.reject(new Error(`HTTP ${r.status}`)),
-      )
+    fetchJson<ArtifactDetailResponse>(
+      `/api/workspace/artifacts/${artifact.id}`,
+      undefined,
+      "Could not load the artifact preview.",
+    )
       .then((data) => {
         if (!cancelled) setDetail(data.artifact);
       })

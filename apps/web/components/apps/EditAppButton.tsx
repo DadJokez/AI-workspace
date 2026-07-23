@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fetchJson } from "@/lib/client-api";
 
 export function EditAppButton({ appId }: { appId: string }) {
   const router = useRouter();
@@ -12,21 +13,21 @@ export function EditAppButton({ appId }: { appId: string }) {
     setBusy(true);
     setNotice(null);
     try {
-      const res = await fetch(`/api/apps/${appId}/edit-sessions`, {
-        method: "POST",
-      });
-      const body = (await res.json()) as {
+      const body = await fetchJson<{
         url?: string;
-        message?: string;
-        error?: string;
-      };
-      if (res.ok && body.url) {
-        router.push(body.url);
-        return;
+      }>(
+        `/api/apps/${appId}/edit-sessions`,
+        { method: "POST" },
+        "Could not start editing.",
+      );
+      if (!body.url) {
+        throw new Error("The edit session was created without a URL.");
       }
-      setNotice(body.message ?? body.error ?? "Could not start editing.");
-    } catch {
-      setNotice("Could not start editing.");
+      router.push(body.url);
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Could not start editing.",
+      );
     } finally {
       setBusy(false);
     }

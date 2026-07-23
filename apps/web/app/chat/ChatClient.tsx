@@ -14,6 +14,7 @@ import {
   type SettingsSection,
 } from "@/components/SettingsModal";
 import { WelcomeWizard } from "@/components/WelcomeWizard";
+import { fetchJson } from "@/lib/client-api";
 import { shouldShowTour } from "@/lib/tour";
 import { Sidebar } from "@/components/Sidebar";
 import { useHorizontalSwipe } from "@/components/useHorizontalSwipe";
@@ -172,13 +173,15 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   };
 
   const saveWizardStep = async (patch: { assistantName: string }) => {
-    const res = await fetch("/api/user", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = (await res.json()) as UserResponse;
+    const body = await fetchJson<UserResponse>(
+      "/api/user",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      },
+      "Could not save your assistant name.",
+    );
     setUser(body.user);
   };
 

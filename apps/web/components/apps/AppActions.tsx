@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fetchJson } from "@/lib/client-api";
 
 /** Publication and archive controls. Both retain the app's URL and history. */
 export function AppActions({
@@ -32,17 +33,16 @@ export function AppActions({
     setBusyAction("unpublish");
     setNotice(null);
     try {
-      const res = await fetch(`/api/apps/${appId}/publication`, {
-        method: "DELETE",
-      });
-      const body = (await res.json()) as { message?: string; error?: string };
-      if (res.ok) {
-        router.refresh();
-      } else {
-        setNotice(body.message ?? body.error ?? "Could not unpublish the app.");
-      }
-    } catch {
-      setNotice("Could not unpublish the app.");
+      await fetchJson(
+        `/api/apps/${appId}/publication`,
+        { method: "DELETE" },
+        "Could not unpublish the app.",
+      );
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Could not unpublish the app.",
+      );
     } finally {
       setBusyAction(null);
     }
@@ -53,19 +53,20 @@ export function AppActions({
     setBusyAction("republish");
     setNotice(null);
     try {
-      const res = await fetch(`/api/apps/${appId}/deploy`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ appVersionId: liveVersionId, dataMode }),
-      });
-      const body = (await res.json()) as { message?: string; error?: string };
-      if (res.ok) {
-        router.refresh();
-      } else {
-        setNotice(body.message ?? body.error ?? "Could not republish the app.");
-      }
-    } catch {
-      setNotice("Could not republish the app.");
+      await fetchJson(
+        `/api/apps/${appId}/deploy`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ appVersionId: liveVersionId, dataMode }),
+        },
+        "Could not republish the app.",
+      );
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Could not republish the app.",
+      );
     } finally {
       setBusyAction(null);
     }
@@ -82,11 +83,17 @@ export function AppActions({
     setBusyAction("archive");
     setNotice(null);
     try {
-      const res = await fetch(`/api/apps/${appId}`, { method: "DELETE" });
-      if (res.ok) {
-        router.push("/apps");
-        router.refresh();
-      }
+      await fetchJson(
+        `/api/apps/${appId}`,
+        { method: "DELETE" },
+        "Could not archive the app.",
+      );
+      router.push("/apps");
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Could not archive the app.",
+      );
     } finally {
       setBusyAction(null);
     }

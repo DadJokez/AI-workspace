@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fetchJson } from "@/lib/client-api";
 
 interface ShareRow {
   id: string;
@@ -29,35 +30,27 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
   const [notice, setNotice] = useState<string | null>(null);
   const noun = subjectType === "app" ? "app" : "skill";
 
-  async function readFailureMessage(res: Response, fallback: string) {
-    try {
-      const body = (await res.json()) as { message?: string; error?: string };
-      return body.message ?? body.error ?? fallback;
-    } catch {
-      return fallback;
-    }
-  }
-
   async function handleShare(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setNotice(null);
     try {
-      const res = await fetch("/api/shares", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ subjectType, subjectId, email, role }),
-      });
-      const body = (await res.json()) as { message?: string; error?: string };
-      if (res.ok) {
-        setEmail("");
-        setRole("viewer");
-        router.refresh();
-        return;
-      }
-      setNotice(body.message ?? body.error ?? `Could not share the ${noun}.`);
-    } catch {
-      setNotice(`Could not share the ${noun}.`);
+      await fetchJson(
+        "/api/shares",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ subjectType, subjectId, email, role }),
+        },
+        `Could not share the ${noun}.`,
+      );
+      setEmail("");
+      setRole("viewer");
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : `Could not share the ${noun}.`,
+      );
     } finally {
       setBusy(false);
     }
@@ -67,14 +60,18 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
     setBusy(true);
     setNotice(null);
     try {
-      const res = await fetch(`/api/shares/${shareId}`, { method: "DELETE" });
-      if (res.ok) {
-        router.refresh();
-        return;
-      }
-      setNotice(await readFailureMessage(res, `Could not revoke the ${noun} share.`));
-    } catch {
-      setNotice(`Could not revoke the ${noun} share.`);
+      await fetchJson(
+        `/api/shares/${shareId}`,
+        { method: "DELETE" },
+        `Could not revoke the ${noun} share.`,
+      );
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error
+          ? err.message
+          : `Could not revoke the ${noun} share.`,
+      );
     } finally {
       setBusy(false);
     }
@@ -87,18 +84,20 @@ export function SharePanel({ subjectType, subjectId, shares }: SharePanelProps) 
     setBusy(true);
     setNotice(null);
     try {
-      const res = await fetch(`/api/shares/${shareId}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ role: nextRole }),
-      });
-      if (res.ok) {
-        router.refresh();
-        return;
-      }
-      setNotice(await readFailureMessage(res, "Could not update this share role."));
-    } catch {
-      setNotice("Could not update this share role.");
+      await fetchJson(
+        `/api/shares/${shareId}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ role: nextRole }),
+        },
+        "Could not update this share role.",
+      );
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Could not update this share role.",
+      );
     } finally {
       setBusy(false);
     }
