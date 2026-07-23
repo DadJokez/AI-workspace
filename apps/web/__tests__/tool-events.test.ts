@@ -55,6 +55,7 @@ describe("createToolEventAccumulator", () => {
     acc.recordResult({
       toolCallId: "call_1",
       output: [{ number: 50 }],
+      usageNotesDelivered: true,
     });
 
     expect(acc.calls()).toEqual([
@@ -75,6 +76,7 @@ describe("createToolEventAccumulator", () => {
         toolName: "list_pull_requests",
         output: [{ number: 50 }],
         isError: false,
+        usageNotesDelivered: true,
         completedAt: "2026-05-15T10:00:01.000Z",
       },
     ]);

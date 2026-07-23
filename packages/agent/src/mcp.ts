@@ -28,6 +28,8 @@ export interface McpHttpServerSpec {
   allowedTools?: string[];
   /** Provider-native MCP tool names that must not be exposed. */
   blockedTools?: string[];
+  /** Provider-native tool name -> trusted first-result usage guidance. */
+  usageNotesByTool?: Record<string, string>;
 }
 
 export interface McpToolConnection {
@@ -136,6 +138,7 @@ async function connectMcpProvider(
             name: mcpToolName(provider, remoteName),
             description: tool.description ?? `${provider} tool ${remoteName}`,
             inputSchema: (tool.inputSchema ?? { type: "object" }) as JSONSchema7,
+            usageNotes: spec.usageNotesByTool?.[remoteName]?.trim() || undefined,
             // #497: MCP results are third-party content — the loop nonce-frames
             // the serialized output as DATA before the model sees it. Set here,
             // at the client seam, so every current and future server inherits it.

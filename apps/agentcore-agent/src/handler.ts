@@ -133,6 +133,7 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
           headers?: Record<string, string>;
           allowedTools?: unknown;
           blockedTools?: unknown;
+          usageNotesByTool?: unknown;
         };
         mcpServers[name] = {
           url: s.url,
@@ -147,6 +148,7 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
                 (tool): tool is string => typeof tool === "string",
               )
             : undefined,
+          usageNotesByTool: parseUsageNotesByTool(s.usageNotesByTool),
         };
       }
     }
@@ -286,6 +288,19 @@ export async function runInvocation(
   } finally {
     await mcp?.close().catch(() => {});
   }
+}
+
+function parseUsageNotesByTool(
+  raw: unknown,
+): Record<string, string> | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const entries = Object.entries(raw).filter(
+    (entry): entry is [string, string] =>
+      typeof entry[1] === "string" && entry[1].trim().length > 0,
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 /** Serialize one AgentEvent as an SSE frame. */

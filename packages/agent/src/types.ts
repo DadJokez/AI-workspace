@@ -24,6 +24,13 @@ export interface Tool<TInput = unknown, TOutput = unknown> {
   inputSchema: JSONSchema7;
   handler: ToolHandler<TInput, TOutput>;
   /**
+   * Trusted application guidance delivered with this tool's first completed
+   * result in an agent turn. It is intentionally omitted from the mounted
+   * tool schema and raw `tool-result` event so unused guidance costs no prompt
+   * tokens and persistence keeps the provider's output unchanged.
+   */
+  usageNotes?: string;
+  /**
    * #497: marks output a third party can influence. `connectMcpTools` sets
    * this on every wrapped MCP tool; the agent loop then nonce-frames the
    * serialized output as DATA at the model-visible boundary
@@ -62,6 +69,8 @@ export interface ToolResult {
   toolCallId: string;
   output: unknown;
   isError?: boolean;
+  /** True only when this result carried the tool's JIT usage guidance. */
+  usageNotesDelivered?: boolean;
 }
 
 export interface TokenUsage {

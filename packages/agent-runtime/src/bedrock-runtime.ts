@@ -154,6 +154,7 @@ export function pickHttpMcpServers(
         headers: spec.headers,
         allowedTools: spec.allowedTools,
         blockedTools: spec.blockedTools,
+        usageNotesByTool: spec.usageNotesByTool,
       };
     }
   }

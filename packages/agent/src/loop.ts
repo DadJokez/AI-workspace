@@ -6,7 +6,10 @@ import {
 } from "./clients";
 import { MODELS, type ModelId } from "./models";
 import type { ToolRegistry } from "./registry";
-import { frameUntrustedToolResult } from "./tool-result-framing";
+import {
+  appendToolUsageNotes,
+  frameUntrustedToolResult,
+} from "./tool-result-framing";
 import { renderClockStatement } from "./timezone";
 import type {
   AgentEvent,
@@ -172,6 +175,7 @@ export async function* runAgentLoop(
   const bedrockMessages: BedrockMessage[] = params.messages.map(
     agentMessageToBedrock,
   );
+  const toolsWithDeliveredUsageNotes = new Set<string>();
 
   let totalTokensIn = 0;
   let totalTokensOut = 0;
@@ -387,31 +391,58 @@ export async function* runAgentLoop(
       try {
         const output = await tool.handler(call.input, params.context);
         const text = typeof output === "string" ? output : JSON.stringify(output);
+        const modelVisibleResult = tool.untrustedOutput
+          ? frameUntrustedToolResult(tool.name, text)
+          : text;
+        const usageNotes = tool.usageNotes?.trim();
+        const deliverUsageNotes = Boolean(
+          usageNotes && !toolsWithDeliveredUsageNotes.has(tool.name),
+        );
         yield {
           type: "tool-result",
-          result: { toolCallId: call.id, output },
+          result: {
+            toolCallId: call.id,
+            output,
+            ...(deliverUsageNotes ? { usageNotesDelivered: true } : {}),
+          },
         };
         resultBlocks.push({
           kind: "tool-result",
           toolUseId: call.id,
-          content: tool.untrustedOutput
-            ? frameUntrustedToolResult(tool.name, text)
-            : text,
+          content:
+            usageNotes && deliverUsageNotes
+              ? appendToolUsageNotes(tool.name, modelVisibleResult, usageNotes)
+              : modelVisibleResult,
         });
+        if (deliverUsageNotes) toolsWithDeliveredUsageNotes.add(tool.name);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        const modelVisibleResult = tool.untrustedOutput
+          ? frameUntrustedToolResult(tool.name, msg)
+          : msg;
+        const usageNotes = tool.usageNotes?.trim();
+        const deliverUsageNotes = Boolean(
+          usageNotes && !toolsWithDeliveredUsageNotes.has(tool.name),
+        );
         yield {
           type: "tool-result",
-          result: { toolCallId: call.id, output: msg, isError: true },
+          result: {
+            toolCallId: call.id,
+            output: msg,
+            isError: true,
+            ...(deliverUsageNotes ? { usageNotesDelivered: true } : {}),
+          },
         };
         resultBlocks.push({
           kind: "tool-result",
           toolUseId: call.id,
-          content: tool.untrustedOutput
-            ? frameUntrustedToolResult(tool.name, msg)
-            : msg,
+          content:
+            usageNotes && deliverUsageNotes
+              ? appendToolUsageNotes(tool.name, modelVisibleResult, usageNotes)
+              : modelVisibleResult,
           isError: true,
         });
+        if (deliverUsageNotes) toolsWithDeliveredUsageNotes.add(tool.name);
       }
     }
     bedrockMessages.push({ role: "user", content: resultBlocks });
