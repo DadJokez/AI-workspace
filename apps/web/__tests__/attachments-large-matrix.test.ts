@@ -61,6 +61,141 @@ describe.sequential("large attachment acceptance matrix (#575)", () => {
     );
   });
 
+  it(
+    "processes a near-limit CSV with 285k short rows without argument-spread failures",
+    async () => {
+      const rowCount = 285_000;
+      const targetRow = Math.floor(rowCount / 2);
+      const rows = ["id,amount,marker"];
+      for (let index = 0; index < rowCount; index += 1) {
+        rows.push(
+          `${index},${index % 1_000},${
+            index === targetRow
+              ? "DURABLE_MATRIX_HIGH_ROW_MATCH"
+              : "ordinary-production-row"
+          }`,
+        );
+      }
+      const buffer = Buffer.from(rows.join("\n"), "utf8");
+      expect(buffer.byteLength).toBeGreaterThan(9 * 1024 * 1024);
+      expect(buffer.byteLength).toBeLessThan(10 * 1024 * 1024);
+
+      const validated = await validateAttachments([
+        {
+          name: "high-row-count.csv",
+          mimeType: "text/csv",
+          dataBase64: buffer.toString("base64"),
+          sizeBytes: buffer.byteLength,
+        },
+      ]);
+      expect(validated.ok, validated.error).toBe(true);
+      const resource = resourceFromAttachment(
+        "high-row-count.csv",
+        validated.attachments[0]!,
+      );
+
+      const schema = await queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "table_schema",
+      });
+      expect(schema).toMatchObject({
+        receipt: { sourceCoverage: "full" },
+        sheets: [
+          {
+            rowCount,
+            totalColumns: 3,
+            columns: ["id", "amount", "marker"],
+          },
+        ],
+      });
+
+      const filtered = await queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "table_filter",
+        filterColumn: "marker",
+        filterOperator: "contains",
+        filterValue: "HIGH_ROW_MATCH",
+      });
+      expect(filtered).toMatchObject({
+        receipt: {
+          sourceCoverage: "full",
+          resultCoverage: "full",
+          scannedRows: rowCount,
+          matchedRows: 1,
+        },
+        rows: [
+          {
+            id: String(targetRow),
+            amount: String(targetRow % 1_000),
+            marker: "DURABLE_MATRIX_HIGH_ROW_MATCH",
+          },
+        ],
+      });
+
+      const sorted = await queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "table_sort",
+        sortColumn: "amount",
+        sortDirection: "desc",
+        limit: 1,
+      });
+      expect(sorted).toMatchObject({
+        receipt: {
+          sourceCoverage: "full",
+          resultCoverage: "partial",
+          sortedRows: rowCount,
+          returnedRows: 1,
+        },
+        rows: [{ amount: "999" }],
+      });
+
+      const sampled = await queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "table_sample",
+        position: "end",
+        limit: 2,
+      });
+      expect(sampled).toMatchObject({
+        receipt: {
+          sourceCoverage: "full",
+          resultCoverage: "partial",
+          scannedRows: rowCount,
+        },
+        samples: [
+          {
+            position: "end",
+            rows: [
+              { id: String(rowCount - 2) },
+              { id: String(rowCount - 1) },
+            ],
+          },
+        ],
+      });
+
+      for (const [aggregate, expected] of [
+        ["min", 0],
+        ["max", 999],
+      ] as const) {
+        const result = await queryConversationResource(resource, {
+          resourceId: resource.id,
+          operation: "table_aggregate",
+          column: "amount",
+          aggregate,
+        });
+        expect(result).toMatchObject({
+          value: expected,
+          numericValues: rowCount,
+          receipt: {
+            sourceCoverage: "full",
+            resultCoverage: "full",
+            scannedRows: rowCount,
+          },
+        });
+      }
+    },
+    120_000,
+  );
+
   it.each(NON_IMAGE_CASES)(
     "accepts $label .$extension through its real extractor",
     async ({ extension, bytes }) => {

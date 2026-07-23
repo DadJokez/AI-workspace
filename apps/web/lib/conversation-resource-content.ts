@@ -544,9 +544,13 @@ function aggregateDataset(
       ? numbers.reduce((sum, number) => sum + number, 0)
       : aggregate === "average"
         ? numbers.reduce((sum, number) => sum + number, 0) / numbers.length
-        : aggregate === "min"
-          ? Math.min(...numbers)
-          : Math.max(...numbers);
+        : numbers.reduce(
+            (current, number) =>
+              aggregate === "min"
+                ? Math.min(current, number)
+                : Math.max(current, number),
+            numbers[0]!,
+          );
   return {
     kind: "conversation_resource_result",
     receipt: { ...receipt, resultCoverage: "full" },
@@ -791,7 +795,10 @@ function selectSheets(
 
 function headerForSheet(sheet: TabularSheet): string[] {
   const first = sheet.rows[0] ?? [];
-  const width = Math.max(first.length, ...sheet.rows.map((row) => row.length), 0);
+  const width = sheet.rows.reduce(
+    (current, row) => Math.max(current, row.length),
+    first.length,
+  );
   return Array.from({ length: width }, (_, index) => {
     const value = first[index]?.trim();
     return value || `column_${index + 1}`;
