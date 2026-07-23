@@ -148,6 +148,69 @@ describe.sequential("complete conversation resource adapters (#576)", () => {
     ).rejects.toThrow(/will not return an unfiltered value/i);
   });
 
+  it("preserves boolean filter literals without widening them to the full table", async () => {
+    const resource = textResource(
+      "refunds.csv",
+      [
+        "order_id,refunded",
+        "1,TRUE",
+        "2,FALSE",
+        "3,true",
+        "4,false",
+      ].join("\n"),
+      "spreadsheet",
+    );
+    const input = parseConversationResourceQueryInput({
+      resourceId: resource.id,
+      operation: "table_filter",
+      filterColumn: "refunded",
+      filterOperator: "equals",
+      filterValue: true,
+    });
+
+    expect(input.filterValue).toBe(true);
+    await expect(
+      queryConversationResource(resource, input),
+    ).resolves.toMatchObject({
+      receipt: {
+        scannedRows: 4,
+        matchedRows: 2,
+        returnedRows: 2,
+        resultCoverage: "full",
+      },
+      rows: [
+        expect.objectContaining({ order_id: "1", refunded: "TRUE" }),
+        expect.objectContaining({ order_id: "3", refunded: "true" }),
+      ],
+    });
+
+    await expect(
+      queryConversationResource(resource, {
+        ...input,
+        operation: "table_aggregate",
+        aggregate: "count",
+      }),
+    ).rejects.toThrow(/filtered aggregation is not supported yet/i);
+
+    const falseInput = parseConversationResourceQueryInput({
+      ...input,
+      filterValue: false,
+    });
+    expect(falseInput.filterValue).toBe(false);
+    await expect(
+      queryConversationResource(resource, falseInput),
+    ).resolves.toMatchObject({
+      receipt: { scannedRows: 4, matchedRows: 2, returnedRows: 2 },
+    });
+
+    await expect(
+      queryConversationResource(resource, {
+        ...input,
+        filterOperator: "greater_than",
+      }),
+    ).rejects.toThrow(/boolean filter values support only equals or not_equals/i);
+  });
+
   it("reads every XLSX row and every sheet before reporting an aggregate", async () => {
     const workbook = new ExcelJS.Workbook();
     const first = workbook.addWorksheet("First");
