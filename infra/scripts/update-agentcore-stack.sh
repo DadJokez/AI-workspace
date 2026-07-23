@@ -52,14 +52,19 @@ print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())
 PY
 )"
 
-image_digest="$(
+image_lookup=""
+if ! image_lookup="$(
   aws ecr describe-images \
     --region "$AWS_DEPLOY_REGION" \
     --repository-name "$AGENTCORE_IMAGE_REPO_NAME" \
     --image-ids "imageTag=$AGENTCORE_IMAGE_TAG" \
     --query 'imageDetails[0].imageDigest' \
-    --output text
-)"
+    --output text 2>&1
+)"; then
+  echo "Could not resolve an immutable digest for AgentCore image tag $AGENTCORE_IMAGE_TAG: $image_lookup" >&2
+  exit 1
+fi
+image_digest="$image_lookup"
 if [[ ! "$image_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
   echo "AgentCore image tag $AGENTCORE_IMAGE_TAG has no immutable ECR digest." >&2
   exit 1
@@ -121,6 +126,8 @@ wait_for_concurrent_update() {
 }
 
 updated=0
+# DeploymentSequence is a receipt and defense-in-depth check, not an atomic
+# lock. The parent ai-workspace-build project must keep concurrentBuildLimit=1.
 for ((attempt = 1; attempt <= MAX_UPDATE_ATTEMPTS; attempt += 1)); do
   read_stack
 

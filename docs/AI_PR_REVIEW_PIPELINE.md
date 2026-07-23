@@ -99,10 +99,12 @@ The AgentCore runtime remains owned by `AiWorkspaceAgentCoreSpikeStack`.
 The main x86 CodeBuild job launches a native ARM child build for the AgentCore
 image while it builds the ECS images, then waits for that child before updating
 the stack from the current synthesized template with the same immutable
-`AgentImageTag`. The stack records the synthesized template hash and monotonic
-CodeBuild sequence; a superseded parent build stops rather than racing a newer
-stack/image handoff. This avoids QEMU and public Docker Hub pulls while keeping
-source infrastructure and the image on one auditable deployment receipt.
+`AgentImageTag`. The parent project has `concurrentBuildLimit=1`; that
+single-flight setting prevents out-of-order production handoffs. The stack
+records the synthesized template hash and monotonic CodeBuild sequence as an
+auditable receipt and rejects a build that is already superseded. This avoids
+QEMU and public Docker Hub pulls while keeping source infrastructure and the
+image on one auditable deployment receipt.
 CodeBuild never mutates the runtime directly. The stack attaches a narrowly
 scoped deployment policy to `CodeBuildAIWorkspaceRole` so the build can launch
 only its own project, update only this stack/runtime, and pass only its execution

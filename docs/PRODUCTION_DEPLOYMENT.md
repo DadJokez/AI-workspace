@@ -14,9 +14,11 @@ in this order:
    with the commit-SHA image tag. It verifies the immutable ECR digest and
    records the source-template SHA-256 plus the monotonic CodeBuild sequence in
    the stack parameters.
-2. A newer deployment sequence supersedes an older build. CloudFormation
-   serializes overlapping stack updates, and the older build stops before the
-   ECS handoff instead of restoring an older AgentCore image.
+2. The parent `ai-workspace-build` project is single-flight
+   (`concurrentBuildLimit=1`), so an older build cannot deploy after a newer
+   build. The recorded deployment sequence is a receipt and defense-in-depth
+   check: it rejects an already-superseded build, but it is not itself an
+   atomic lock.
 3. `cdk deploy AiWorkspaceEcsStack --require-approval never --exclusively`
    reconciles the checked-in stack with CloudFormation.
 4. CodeBuild forces new deployments of `ai-workspace-web`,
@@ -66,6 +68,21 @@ that served a commit. The final authenticated smoke must pass before the
 CodeBuild deployment is considered healthy. Unit tests use fake CDK and AWS
 commands to enforce the ordering and fail-closed behavior without changing
 production.
+
+The console-managed parent project must retain its single-flight setting.
+Verify it after any CodeBuild project change:
+
+```bash
+aws codebuild batch-get-projects \
+  --region us-east-1 \
+  --names ai-workspace-build \
+  --query 'projects[0].concurrentBuildLimit' \
+  --output text
+```
+
+The expected value is `1`. The project is tracked for full infrastructure-as-code
+ownership separately; until then, this setting is part of the production
+deployment contract.
 
 ## Operations alarms
 

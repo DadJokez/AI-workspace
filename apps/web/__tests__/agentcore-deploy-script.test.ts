@@ -101,7 +101,10 @@ describe("update-agentcore-stack.sh", () => {
     const result = runScript({ missingImage: true });
 
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("has no immutable ECR digest");
+    expect(result.stderr).toContain(
+      "Could not resolve an immutable digest for AgentCore image tag commit-sha",
+    );
+    expect(result.stderr).toContain("ImageNotFoundException");
     expect(readFileSync(result.capturePath, "utf8")).not.toContain(
       "cloudformation update-stack",
     );
@@ -200,7 +203,8 @@ printf 'aws %s\n' "$*" >> "$FAKE_CAPTURE_PATH"
 
 if [[ "$1 $2" == "ecr describe-images" ]]; then
   if [[ "$FAKE_MISSING_IMAGE" == "1" ]]; then
-    printf 'None'
+    printf 'ImageNotFoundException: image tag does not exist' >&2
+    exit 254
   else
     printf 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
   fi
