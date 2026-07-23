@@ -1,7 +1,7 @@
 import { getDb, schedules, skills } from "@ai-workspace/db";
 import { desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import {
   computeNextRunAt,
   isValidCadence,
@@ -13,10 +13,9 @@ export const dynamic = "force-dynamic";
 
 /** List the caller's schedules with their skill names. */
 export async function GET() {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   const db = getDb();
   const rows = await db
@@ -43,10 +42,9 @@ export async function GET() {
 
 /** Create a schedule for a skill the caller can run. */
 export async function POST(req: Request) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   let body: unknown;
   try {

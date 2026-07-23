@@ -2,7 +2,7 @@ import { getDb, skills, type Skill } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import type { SessionUser } from "@ai-workspace/auth";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import { enabledModelsForPurpose } from "@/lib/model-registry";
 import { auditSkillMutation, parseSkillInput } from "@/lib/skills";
 import { evaluateSkillNamingGate } from "@/lib/skills-naming-gate";
@@ -41,10 +41,9 @@ function forbiddenUnlessOwner(skill: Skill, sessionUser: SessionUser) {
 }
 
 export async function GET(_req: Request, context: RouteContext) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   const { id } = await context.params;
   const skill = await loadSkill(id);
   if (!skill || !(await canActorAccessSkill(getDb(), skill, sessionUser))) {
@@ -60,10 +59,9 @@ export async function GET(_req: Request, context: RouteContext) {
 }
 
 export async function PATCH(req: Request, context: RouteContext) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   const { id } = await context.params;
   const skill = await loadSkill(id);
   if (!skill || !(await canActorAccessSkill(getDb(), skill, sessionUser))) {
@@ -134,10 +132,9 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 /** Archive (soft delete): the skill disappears from catalogs; history persists. */
 export async function DELETE(_req: Request, context: RouteContext) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   const { id } = await context.params;
   const skill = await loadSkill(id);
   if (!skill || !(await canActorAccessSkill(getDb(), skill, sessionUser))) {

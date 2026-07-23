@@ -1,4 +1,4 @@
-import { AuthConfigError, UnauthorizedError } from "@ai-workspace/auth";
+import { UnauthorizedError } from "@ai-workspace/auth";
 import {
   appVersions,
   auditLog,
@@ -7,7 +7,7 @@ import {
 } from "@ai-workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import {
   decideOutputProposalMetadata,
   normalizeProposalReason,
@@ -26,10 +26,9 @@ export async function GET(
 ) {
   const { id } = await params;
   try {
-    const sessionUser = await getSessionUser();
-    if (!sessionUser) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+    const session = await requireSession();
+    if ("error" in session) return session.error;
+    const sessionUser = session.user;
 
     const artifact = await loadWorkspaceArtifactForUser({
       db: getDb(),
@@ -47,12 +46,6 @@ export async function GET(
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
-    if (err instanceof AuthConfigError) {
-      return NextResponse.json(
-        { error: "auth_config_error", message: err.message },
-        { status: 500 },
-      );
-    }
     throw err;
   }
 }
@@ -61,10 +54,9 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   const { id } = await params;
   let body: unknown;
   try {

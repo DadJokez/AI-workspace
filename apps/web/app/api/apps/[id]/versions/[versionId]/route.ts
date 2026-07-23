@@ -7,7 +7,7 @@ import {
 } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import {
   auditAppMutation,
   canAppRoleDeploy,
@@ -26,10 +26,9 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string; versionId: string }> },
 ) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   const { id, versionId } = await params;
   let body: unknown;
   try {
@@ -142,10 +141,9 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string; versionId: string }> },
 ) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   const { id, versionId } = await params;
   const db = getDb();
   const appRows = await db.select().from(apps).where(eq(apps.id, id)).limit(1);

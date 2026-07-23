@@ -1,7 +1,6 @@
-import { AuthConfigError } from "@ai-workspace/auth";
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import { PUBLIC_BASE_URL, STATE_TTL_SECONDS } from "@/lib/oauth/github";
 import {
   NOTION_AUTHORIZE_URL,
@@ -20,22 +19,8 @@ function chatRedirect(params: Record<string, string>) {
 }
 
 export async function GET() {
-  let sessionUser;
-  try {
-    sessionUser = await getSessionUser();
-  } catch (err) {
-    if (err instanceof AuthConfigError) {
-      return NextResponse.json(
-        { error: "auth_config_error", message: err.message },
-        { status: 500 },
-      );
-    }
-    throw err;
-  }
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-
+  const session = await requireSession();
+  if ("error" in session) return session.error;
   if (!NOTION_CLIENT_ID) {
     return chatRedirect({ connected: NOTION_PROVIDER, error: "config_error" });
   }
