@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   redactErrorText,
+  redactProviderToolError,
   redactProviderToolPayload,
   redactTracePayload,
   redactToolCall,
@@ -182,5 +183,35 @@ describe("tool redaction", () => {
     });
     expect(JSON.stringify(redacted)).not.toContain("confidential");
     expect(JSON.stringify(redacted)).not.toContain("Secret Customer");
+  });
+
+  it("keeps known resource validation semantics without file content", () => {
+    expect(
+      redactProviderToolError(
+        "resources",
+        'Operation "search" is not valid for a tabular resource.',
+      ),
+    ).toBe(
+      'Resource validation error: Operation "search" is not valid for a tabular resource.',
+    );
+    expect(
+      redactProviderToolError(
+        "resources",
+        'Column "Social Security Number" was not found in sheet "Payroll". Available: Social Security Number, Salary.',
+      ),
+    ).toBe(
+      "Resource validation error: The requested column was not found in the selected sheet.",
+    );
+  });
+
+  it("keeps arbitrary resource errors redacted", () => {
+    expect(
+      redactProviderToolError(
+        "resources",
+        "Parser failed near private-customer@example.com.",
+      ),
+    ).toBe(
+      "Conversation resource tool failed; file content was redacted from this log.",
+    );
   });
 });

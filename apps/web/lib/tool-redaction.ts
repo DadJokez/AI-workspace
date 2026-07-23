@@ -31,6 +31,26 @@ const TRACE_LIMITS: RedactionLimits = {
   maxDepth: 10,
 };
 
+const RESOURCE_TOOL_ERROR_REDACTED =
+  "Conversation resource tool failed; file content was redacted from this log.";
+const RESOURCE_VALIDATION_ERROR_PREFIX = "Resource validation error: ";
+const RESOURCE_AUTHORIZATION_ERROR_PREFIX = "Resource authorization error: ";
+const RESOURCE_AVAILABILITY_ERROR_PREFIX = "Resource availability error: ";
+const RESOURCE_OPERATION_PATTERN =
+  "(?:manifest|read|search|table_schema|table_count|table_aggregate|table_filter|table_sort|table_sample)";
+const SAFE_RESOURCE_VALIDATION_ERRORS = new Set([
+  "Conversation resource MCP tool name must be query.",
+  "Resource query arguments must be an object.",
+  "resourceId is required.",
+  "operation must be one of: manifest, read, search, table_schema, table_count, table_aggregate, table_filter, table_sort, table_sample.",
+  "query is required for search.",
+  "Filtered aggregation is not supported yet. Use table_filter to inspect matching rows; table_aggregate will not return an unfiltered value for a filtered request.",
+  "column is required for this aggregate.",
+  "filterColumn, filterOperator, and filterValue are required.",
+  "sortColumn is required.",
+  "Boolean filter values support only equals or not_equals.",
+]);
+
 const SENSITIVE_KEY_PATTERN =
   /(^|[_-])(access|api|auth|bearer|client|cookie|encryption|jwt|key|oauth|password|private|refresh|secret|session|signature|token)([_-]|$)|authorization|set-cookie|x[-_]comparative[-_]resource[-_](relay|context)/i;
 
@@ -91,7 +111,7 @@ export function redactProviderToolError(
     return "Salesforce tool failed; provider content was redacted from this log.";
   }
   if (provider === "resources") {
-    return "Conversation resource tool failed; file content was redacted from this log.";
+    return redactResourceToolError(value);
   }
   return redactErrorText(value);
 }
@@ -223,6 +243,61 @@ function redactValue(
   }
 
   return String(value);
+}
+
+function redactResourceToolError(value: unknown): string {
+  const candidate = resourceErrorCandidate(value);
+  if (!candidate) return RESOURCE_TOOL_ERROR_REDACTED;
+
+  const message = candidate
+    .replace(RESOURCE_VALIDATION_ERROR_PREFIX, "")
+    .replace(RESOURCE_AUTHORIZATION_ERROR_PREFIX, "")
+    .replace(RESOURCE_AVAILABILITY_ERROR_PREFIX, "")
+    .trim();
+
+  if (SAFE_RESOURCE_VALIDATION_ERRORS.has(message)) {
+    return `${RESOURCE_VALIDATION_ERROR_PREFIX}${message}`;
+  }
+  if (
+    new RegExp(
+      `^Operation "${RESOURCE_OPERATION_PATTERN}" is not valid for (?:this file|a tabular resource)\\.$`,
+    ).test(message)
+  ) {
+    return `${RESOURCE_VALIDATION_ERROR_PREFIX}${message}`;
+  }
+  if (/^".+" is not tabular\. Use read or search instead\.$/.test(message)) {
+    return `${RESOURCE_VALIDATION_ERROR_PREFIX}The requested file is not tabular. Use read or search instead.`;
+  }
+  if (/^Column ".+" has no numeric values\.$/.test(message)) {
+    return `${RESOURCE_VALIDATION_ERROR_PREFIX}The requested column has no numeric values.`;
+  }
+  if (/^Column ".+" was not found in sheet ".+"\. Available: .+\.$/.test(message)) {
+    return `${RESOURCE_VALIDATION_ERROR_PREFIX}The requested column was not found in the selected sheet.`;
+  }
+  if (/^Sheet ".+" was not found\. Available: .+\.$/.test(message)) {
+    return `${RESOURCE_VALIDATION_ERROR_PREFIX}The requested sheet was not found.`;
+  }
+  if (
+    message === "That resource is not authorized for this conversation turn." ||
+    message === "The requested resource does not match the authorized row."
+  ) {
+    return `${RESOURCE_AUTHORIZATION_ERROR_PREFIX}${message}`;
+  }
+  if (
+    message === "The conversation resource is unavailable or has been deleted."
+  ) {
+    return `${RESOURCE_AVAILABILITY_ERROR_PREFIX}${message}`;
+  }
+  return RESOURCE_TOOL_ERROR_REDACTED;
+}
+
+function resourceErrorCandidate(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const payload = value as Record<string, unknown>;
+  if (typeof payload.error === "string") return payload.error;
+  if (typeof payload.message === "string") return payload.message;
+  return null;
 }
 
 function isSensitiveKey(key: string): boolean {

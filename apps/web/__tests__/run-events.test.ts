@@ -3,6 +3,7 @@ import type { Database } from "@ai-workspace/db";
 import {
   appendRunEventWithNextSequence,
   appendToolCallRunEvent,
+  appendToolResultRunEvent,
   runEventsToActivityEvents,
 } from "@/lib/run-events";
 
@@ -372,6 +373,44 @@ describe("sequence allocation retry (#443)", () => {
 
     expect(counts()).toEqual({ reads: 0, inserts: 1 });
     expect(inserted[0]).toMatchObject({ sequence: 3 });
+  });
+
+  it("keeps safe resource validation semantics in run events", async () => {
+    const { db, inserted } = sequenceDb({ maxes: [99] });
+
+    await appendToolResultRunEvent({
+      db,
+      runId: "run-1",
+      sequence: 4,
+      call: {
+        id: "tool-1",
+        name: "resources__query",
+        provider: "resources",
+        toolName: "query",
+        input: {
+          redacted: true,
+          resourceId: "resource-1",
+          operation: "search",
+        },
+        startedAt: "2026-07-19T00:00:00.000Z",
+      },
+      result: {
+        toolCallId: "tool-1",
+        provider: "resources",
+        toolName: "query",
+        output:
+          'Resource validation error: Operation "search" is not valid for a tabular resource.',
+        isError: true,
+        completedAt: "2026-07-19T00:00:01.000Z",
+      },
+    });
+
+    expect(inserted[0]).toMatchObject({
+      eventType: "tool_result",
+      status: "failed",
+      error:
+        'Resource validation error: Operation "search" is not valid for a tabular resource.',
+    });
   });
 });
 
