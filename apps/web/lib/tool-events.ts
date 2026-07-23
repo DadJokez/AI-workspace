@@ -83,7 +83,7 @@ export function createToolEventAccumulator(
                   toolName: call.toolName,
                   direction: "output",
                   value: result.output,
-              })
+                })
               : result.output,
           isError: result.isError === true,
           ...(result.usageNotesDelivered
