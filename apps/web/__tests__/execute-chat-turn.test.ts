@@ -176,6 +176,11 @@ import { buildTurnContext } from "@/lib/turn-context";
 import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
 import { createDraftAppVersionsForThreadArtifacts } from "@/lib/apps";
+import { persistProviderTraceCapture } from "@/lib/run-trace";
+import {
+  abortChatWorkerRuntime,
+  chatWorkerAbortReason,
+} from "@/lib/chat-worker-abort";
 
 interface FakeDbState {
   runStatus: string;
@@ -1211,6 +1216,7 @@ describe("executeChatTurn — persist tail", () => {
       expect.objectContaining({
         eventType: "worker_stopped_after_cancel",
         metadata: {
+          abortReason: "canceled",
           cancellationObservedVia: "database_poll",
           runtimeRequestAbortAttempted: true,
           providerSessionStopAttempted: false,
@@ -1244,6 +1250,7 @@ describe("executeChatTurn — persist tail", () => {
       expect.objectContaining({
         eventType: "worker_stopped_after_cancel",
         metadata: {
+          abortReason: "canceled",
           cancellationObservedVia: "database_poll",
           runtimeRequestAbortAttempted: false,
           providerSessionStopAttempted: false,
@@ -1276,9 +1283,10 @@ describe("executeChatTurn — persist tail", () => {
 
     const execution = executeChatTurn(input);
     await streamStarted;
-    input.runtimeAbort.abort();
+    abortChatWorkerRuntime(input.runtimeAbort, "timeout");
     await execution;
 
+    expect(chatWorkerAbortReason(input.runtimeAbort.signal)).toBe("timeout");
     expect(state.runUpdates).toContainEqual(
       expect.objectContaining({
         status: "failed",
@@ -1291,6 +1299,125 @@ describe("executeChatTurn — persist tail", () => {
       "failed",
       "thread-1",
       { hasProposal: false },
+    );
+    expect(vi.mocked(persistProviderTraceCapture)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run-1",
+        metadata: { abortReason: "timeout" },
+      }),
+    );
+    expect(vi.mocked(appendRunEventBestEffort)).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        eventType: "run_failed",
+        metadata: expect.objectContaining({ abortReason: "timeout" }),
+      }),
+    );
+  });
+
+  it("persists an honest shutdown error when the service aborts a blocked stream", async () => {
+    const { input, state } = workerInput();
+    let markStreamStarted: (() => void) | undefined;
+    const streamStarted = new Promise<void>((resolve) => {
+      markStreamStarted = resolve;
+    });
+    input.runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        const signal = turnInput.signal as AbortSignal;
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              const error = new Error("The operation was aborted.");
+              error.name = "AbortError";
+              reject(error);
+            },
+            { once: true },
+          );
+          markStreamStarted?.();
+        });
+      },
+    } as unknown as AgentRuntime;
+
+    const execution = executeChatTurn(input);
+    await streamStarted;
+    abortChatWorkerRuntime(input.runtimeAbort, "shutdown");
+    await execution;
+
+    expect(state.runUpdates).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        error:
+          "Background worker stopped because the service is shutting down.",
+      }),
+    );
+    expect(createProactiveRunNotification).toHaveBeenCalledWith(
+      input.db,
+      expect.anything(),
+      "failed",
+      "thread-1",
+      { hasProposal: false },
+    );
+    expect(vi.mocked(appendRunEventBestEffort)).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        eventType: "run_failed",
+        metadata: expect.objectContaining({ abortReason: "shutdown" }),
+      }),
+    );
+  });
+
+  it("records lease loss without letting the stale worker write a terminal state", async () => {
+    const { input, state } = workerInput();
+    let markStreamStarted: (() => void) | undefined;
+    const streamStarted = new Promise<void>((resolve) => {
+      markStreamStarted = resolve;
+    });
+    input.runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        const signal = turnInput.signal as AbortSignal;
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              const error = new Error("The operation was aborted.");
+              error.name = "AbortError";
+              reject(error);
+            },
+            { once: true },
+          );
+          markStreamStarted?.();
+        });
+      },
+    } as unknown as AgentRuntime;
+
+    const execution = executeChatTurn(input);
+    await streamStarted;
+    abortChatWorkerRuntime(input.runtimeAbort, "lease_lost");
+    await execution;
+
+    expect(state.runUpdates).not.toContainEqual(
+      expect.objectContaining({ status: "failed" }),
+    );
+    expect(createProactiveRunNotification).not.toHaveBeenCalled();
+    expect(vi.mocked(persistProviderTraceCapture)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run-1",
+        metadata: { abortReason: "lease_lost" },
+      }),
+    );
+    expect(vi.mocked(appendRunEventBestEffort)).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        eventType: "worker_stopped_after_lease_loss",
+        status: "info",
+        metadata: expect.objectContaining({
+          abortReason: "lease_lost",
+          workerId: "w-test",
+        }),
+      }),
     );
   });
 });

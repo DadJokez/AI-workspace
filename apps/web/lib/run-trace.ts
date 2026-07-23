@@ -233,9 +233,11 @@ export function createProviderTraceAccumulator() {
 
 export function buildPersistedTraceEvents(
   capture: ProviderTraceCapture,
+  metadata: Record<string, unknown> = {},
 ): PersistedTraceEvent[] {
   const providerModelId = capture.requests[0]?.providerModelId;
   const sharedMetadata = {
+    ...metadata,
     schema: capture.schema,
     schemaVersion: capture.schemaVersion,
     redactionPolicy: capture.redactionPolicy,
@@ -283,10 +285,12 @@ export async function persistProviderTraceCapture({
   db,
   runId,
   capture,
+  metadata,
 }: {
   db: Database;
   runId: string;
   capture: ProviderTraceCapture;
+  metadata?: Record<string, unknown>;
 }): Promise<void> {
   if (
     capture.requests.length === 0 &&
@@ -297,7 +301,7 @@ export async function persistProviderTraceCapture({
   }
 
   try {
-    for (const event of buildPersistedTraceEvents(capture)) {
+    for (const event of buildPersistedTraceEvents(capture, metadata)) {
       await appendRunEventWithNextSequence({
         db,
         runId,
