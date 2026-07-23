@@ -291,6 +291,82 @@ describe("processPendingMemoryCaptures", () => {
     expect(queueUpdates.at(-1)?.set.processedAt).toBeInstanceOf(Date);
   });
 
+  it("skips captures with no loadable messages without consulting the model", async () => {
+    const pending = queueItem();
+    const { db, captured } = fakeDb({
+      selects: {
+        memory_capture_queue: [[pending]],
+        user_memory_items: [[]],
+        chat_threads: [[{ id: "thread-1", title: "Missing chat" }]],
+        chat_messages: [[]],
+      },
+      updateReturning: {
+        memory_capture_queue: [
+          [{ ...pending, status: "processing", attemptCount: 1 }],
+        ],
+      },
+    });
+
+    const result = await processPendingMemoryCaptures({ db });
+
+    expect(result).toEqual({ status: "processed", captures: 1, suggestions: 0 });
+    expect(lastTurnInput).toBeUndefined();
+    expect(
+      captured.updates
+        .filter((update) => update.table === "memory_capture_queue")
+        .map((update) => update.set.status),
+    ).toEqual(["processing", "skipped"]);
+  });
+
+  it("keeps empty captures skipped when another capture in the group fails", async () => {
+    const empty = queueItem({ id: "cap-empty", threadId: "thread-empty" });
+    const material = queueItem({
+      id: "cap-material",
+      threadId: "thread-material",
+    });
+    const { db, captured } = fakeDb({
+      selects: {
+        memory_capture_queue: [[empty, material]],
+        user_memory_items: [[]],
+        chat_threads: [
+          [
+            { id: "thread-empty", title: "Missing chat" },
+            { id: "thread-material", title: "Deploy chat" },
+          ],
+        ],
+        chat_messages: [[], messageRows],
+        model_enablement: [enablementRows],
+      },
+      updateReturning: {
+        memory_capture_queue: [
+          [
+            { ...empty, status: "processing", attemptCount: 1 },
+            { ...material, status: "processing", attemptCount: 1 },
+          ],
+        ],
+      },
+    });
+    scriptedTurnEvents = [
+      { type: "error", message: "bedrock throttled the request" },
+    ];
+
+    const result = await processPendingMemoryCaptures({ db });
+
+    expect(result).toEqual({ status: "failed", captures: 2, suggestions: 0 });
+    const queueUpdates = captured.updates.filter(
+      (update) => update.table === "memory_capture_queue",
+    );
+    expect(queueUpdates.map((update) => update.set.status)).toEqual([
+      "processing",
+      "skipped",
+      "failed",
+    ]);
+    expect(renderCondition(queueUpdates[1]!.where).params).toEqual(["cap-empty"]);
+    expect(renderCondition(queueUpdates[2]!.where).params).toEqual([
+      "cap-material",
+    ]);
+  });
+
   it("re-scopes out-of-range provenance to the capture's own thread and endpoints", async () => {
     const { db, captured } = happyPathDb();
     scriptSuggestions([

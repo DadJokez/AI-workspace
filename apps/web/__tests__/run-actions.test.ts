@@ -176,11 +176,33 @@ describe("legal-transition matrix", () => {
         leaseExpiresAt: null,
       });
       expect(vi.mocked(appendRunEventWithNextSequence)).toHaveBeenCalledWith(
-        expect.objectContaining({ eventType: "run_canceled" }),
+        expect.objectContaining({
+          eventType: "run_canceled",
+          metadata: expect.objectContaining(
+            status === "running"
+              ? {
+                  cancellationPath: "worker_poll_then_runtime_abort",
+                  runtimeRequestAbortExpected: true,
+                  providerSessionStopAttempted: false,
+                }
+              : {
+                  cancellationPath: "queue_state_only",
+                  runtimeRequestAbortExpected: false,
+                  providerSessionStopAttempted: false,
+                },
+          ),
+        }),
       );
       expect(captured.inserts[0]?.values).toMatchObject({
         actionType: "run_cancel",
         actorUserId: owner.id,
+        metadata: expect.objectContaining({
+          previousStatus: status,
+          cancellationPath:
+            status === "running"
+              ? "worker_poll_then_runtime_abort"
+              : "queue_state_only",
+        }),
       });
     } else {
       expect(result).toMatchObject({

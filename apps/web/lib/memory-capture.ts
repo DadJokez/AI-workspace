@@ -89,6 +89,21 @@ interface ExtractedSuggestion {
   sourceMessageIds: string[];
 }
 
+interface MemoryReviewDocument {
+  text: string;
+  includedCaptures: MemoryCaptureQueueItem[];
+}
+
+class MemoryCaptureGroupError extends Error {
+  constructor(
+    message: string,
+    readonly captureIds: string[],
+  ) {
+    super(message);
+    this.name = "MemoryCaptureGroupError";
+  }
+}
+
 export async function enqueueMemoryCapture(
   db: Database,
   input: EnqueueMemoryCaptureInput,
@@ -189,11 +204,15 @@ export async function processPendingMemoryCaptures({
     } catch (err) {
       failed = true;
       const message = err instanceof Error ? err.message : String(err);
-      await markCaptures(db, group.map((row) => row.id), "failed", message);
+      const failedCaptureIds =
+        err instanceof MemoryCaptureGroupError
+          ? err.captureIds
+          : group.map((row) => row.id);
+      await markCaptures(db, failedCaptureIds, "failed", message);
       process.stderr.write(
         `[memory-capture-error] ${JSON.stringify({
           userId: group[0]?.userId,
-          captures: group.length,
+          captures: failedCaptureIds.length,
           message,
         })}\n`,
       );
@@ -392,34 +411,52 @@ async function processCaptureGroup(
     "approved",
     "suggested",
   ]);
-  const reviewDoc = await buildMemoryReviewDocument(db, captures, activeMemory);
-  if (!reviewDoc.trim()) {
-    await markCaptures(db, captures.map((row) => row.id), "skipped");
+  const review = await buildMemoryReviewDocument(db, captures, activeMemory);
+  const includedCaptureIds = new Set(
+    review.includedCaptures.map((capture) => capture.id),
+  );
+  const skippedCaptureIds = captures
+    .filter((capture) => !includedCaptureIds.has(capture.id))
+    .map((capture) => capture.id);
+  await markCaptures(db, skippedCaptureIds, "skipped");
+
+  if (review.includedCaptures.length === 0) {
     return 0;
   }
 
-  const suggestions = await extractMemorySuggestions({
-    db,
-    userId,
-    reviewDoc,
-    signal,
-  });
-  const inserted = await insertNewSuggestions({
-    db,
-    userId,
-    captures,
-    activeMemory,
-    suggestions,
-  });
-  await markCaptures(db, captures.map((row) => row.id), "processed");
-  return inserted;
+  try {
+    const suggestions = await extractMemorySuggestions({
+      db,
+      userId,
+      reviewDoc: review.text,
+      signal,
+    });
+    const inserted = await insertNewSuggestions({
+      db,
+      userId,
+      captures: review.includedCaptures,
+      activeMemory,
+      suggestions,
+    });
+    await markCaptures(
+      db,
+      review.includedCaptures.map((row) => row.id),
+      "processed",
+    );
+    return inserted;
+  } catch (err) {
+    throw new MemoryCaptureGroupError(
+      err instanceof Error ? err.message : String(err),
+      review.includedCaptures.map((capture) => capture.id),
+    );
+  }
 }
 
 async function buildMemoryReviewDocument(
   db: Database,
   captures: MemoryCaptureQueueItem[],
   activeMemory: UserMemoryItem[],
-): Promise<string> {
+): Promise<MemoryReviewDocument> {
   const approvedMarkdown = buildVaultMarkdown(
     activeMemory.filter((item) => item.status === "approved"),
   );
@@ -457,10 +494,12 @@ async function buildMemoryReviewDocument(
     "",
     "# Queued Conversation Material",
   ];
+  const includedCaptures: MemoryCaptureQueueItem[] = [];
 
   for (const capture of captures) {
     const messages = await loadCaptureMessages(db, capture);
     if (messages.length === 0) continue;
+    includedCaptures.push(capture);
     lines.push(
       "",
       `## Capture ${capture.id}`,
@@ -482,7 +521,10 @@ async function buildMemoryReviewDocument(
     }
   }
 
-  return truncate(lines.join("\n"), MAX_REVIEW_DOC_CHARS);
+  return {
+    text: truncate(lines.join("\n"), MAX_REVIEW_DOC_CHARS),
+    includedCaptures,
+  };
 }
 
 async function loadCaptureMessages(

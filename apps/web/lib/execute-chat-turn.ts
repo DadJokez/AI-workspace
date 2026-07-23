@@ -1043,6 +1043,11 @@ export async function executeChatTurn({
       eventType: "worker_stopped_after_cancel",
       status: "failed",
       label: "Worker stopped after cancellation",
+      metadata: {
+        cancellationObservedVia: "database_poll",
+        runtimeRequestAbortAttempted: true,
+        providerSessionStopAttempted: false,
+      },
     });
     return;
   }

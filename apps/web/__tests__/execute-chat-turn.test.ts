@@ -877,10 +877,18 @@ describe("executeChatTurn — persist tail", () => {
     );
     expect(messageInsert).toBeUndefined();
     expect(createProactiveRunNotification).not.toHaveBeenCalled();
-    const eventTypes = vi
-      .mocked(appendRunEventBestEffort)
-      .mock.calls.map(([, event]) => event.eventType);
-    expect(eventTypes).toContain("worker_stopped_after_cancel");
+    expect(input.runtimeAbort.signal.aborted).toBe(true);
+    expect(vi.mocked(appendRunEventBestEffort)).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        eventType: "worker_stopped_after_cancel",
+        metadata: {
+          cancellationObservedVia: "database_poll",
+          runtimeRequestAbortAttempted: true,
+          providerSessionStopAttempted: false,
+        },
+      }),
+    );
   });
 });
 
