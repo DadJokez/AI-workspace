@@ -26,6 +26,10 @@ import {
 } from "@/lib/chat-activated-skills";
 import { buildActivatedSkillUserMessage } from "@/lib/skills";
 import { streamInlineChatRun } from "@/lib/chat-inline-runner";
+import {
+  createChatStreamWriter,
+  startChatStreamHeartbeat,
+} from "@/lib/chat-stream-contract";
 import { isModelEnabled, resolveModelForPurpose } from "@/lib/model-registry";
 import {
   resolveDeclaredAttachmentCount,
@@ -823,9 +827,12 @@ export async function POST(req: Request) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (obj: unknown) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
-      };
+      const writer = createChatStreamWriter((event) => {
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+        );
+      });
+      const send = writer.send;
       send({
         type: "meta",
         threadId: thread.id,
@@ -846,10 +853,14 @@ export async function POST(req: Request) {
           runId: chatRunId,
           status: "Queued for AgentCore worker",
         });
+        send({ type: "done", stopReason: "queued" });
         controller.close();
         return;
       }
 
+      let failureMessage =
+        "Chat stream ended unexpectedly before a terminal event.";
+      const stopHeartbeat = startChatStreamHeartbeat(send);
       try {
         await streamInlineChatRun({
           db,
@@ -891,11 +902,22 @@ export async function POST(req: Request) {
           diagnosticStreamEnabled: sessionUser.role === "admin",
         });
       } catch (err) {
-        send({
-          type: "error",
-          message: err instanceof Error ? err.message : String(err),
-        });
+        failureMessage = err instanceof Error ? err.message : String(err);
+        if (!writer.hasTerminal()) {
+          send({
+            type: "error",
+            message: failureMessage,
+          });
+        }
       } finally {
+        stopHeartbeat();
+        if (!writer.hasTerminal()) {
+          send({
+            type: "failed",
+            stopReason: "stream_error",
+            message: failureMessage,
+          });
+        }
         controller.close();
       }
     },

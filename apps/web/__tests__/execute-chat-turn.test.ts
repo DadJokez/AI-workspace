@@ -3,6 +3,7 @@ import type { ChatThread, Database, Run } from "@ai-workspace/db";
 import { auditLog, chatMessages, runs, users } from "@ai-workspace/db";
 import type { AgentRuntime } from "@ai-workspace/agent-runtime";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
+import type { ChatStreamEvent } from "@/lib/chat-stream-contract";
 import type { RuntimeModelSelection } from "@/lib/runtime-model-policy";
 
 /**
@@ -235,6 +236,21 @@ function fakeRuntime(captured: { turnInput?: Record<string, unknown> }): AgentRu
       )?.({ providerRunId: "pr-1" });
       yield { type: "text-delta", delta: "Hello" };
       yield { type: "usage", tokensIn: 11, tokensOut: 7 };
+      yield { type: "done" };
+    },
+  } as unknown as AgentRuntime;
+}
+
+function truncatedRuntime(): AgentRuntime {
+  return {
+    name: "bedrock",
+    runTurn: async function* (turnInput: Record<string, unknown>) {
+      await (
+        turnInput.onRunStarted as
+          | ((metadata: Record<string, unknown>) => Promise<void>)
+          | undefined
+      )?.({ providerRunId: "truncated-run" });
+      yield { type: "text-delta", delta: "partial answer" };
     },
   } as unknown as AgentRuntime;
 }
@@ -262,8 +278,8 @@ const modelSelection: RuntimeModelSelection = {
 
 function inlineInput(
   overrides: Partial<ExecuteChatTurnInput> = {},
-  sent: Array<Record<string, unknown>> = [],
-): { input: ExecuteChatTurnInput; sent: Array<Record<string, unknown>>; state: FakeDbState; captured: { turnInput?: Record<string, unknown> } } {
+  sent: ChatStreamEvent[] = [],
+): { input: ExecuteChatTurnInput; sent: ChatStreamEvent[]; state: FakeDbState; captured: { turnInput?: Record<string, unknown> } } {
   const state: FakeDbState = { runStatus: "running", inserts: [], runUpdates: [] };
   const captured: { turnInput?: Record<string, unknown> } = {};
   const timing: ChatRunTimingMarks = {
@@ -623,6 +639,57 @@ describe("executeChatTurn — persist tail", () => {
     expect(eventTypes).toContain("context_pack_assembled");
     expect(eventTypes).toContain("inline_runtime_started");
     expect(eventTypes).toContain("run_completed");
+  });
+
+  it("fails instead of persisting a partial answer when the provider stream ends without done", async () => {
+    const { input, sent, state } = inlineInput({
+      runtime: truncatedRuntime(),
+    });
+
+    await executeChatTurn(input);
+
+    expect(sent.at(-1)).toMatchObject({
+      type: "failed",
+      stopReason: "runtime_error",
+    });
+    expect(sent.map((event) => event.type)).not.toContain("done");
+    expect(sent.map((event) => event.type)).not.toContain("persisted");
+    expect(
+      state.inserts.find((insert) => insert.table === chatMessages),
+    ).toBeUndefined();
+    expect(
+      state.runUpdates.find((update) => update.status === "failed"),
+    ).toMatchObject({
+      error: expect.stringContaining("completion event"),
+    });
+  });
+
+  it("fails the worker run without persisting or notifying success when the provider stream ends without done", async () => {
+    const { input, state, run } = workerInput({
+      runtime: truncatedRuntime(),
+    });
+
+    await executeChatTurn(input);
+
+    expect(
+      state.inserts.find((insert) => insert.table === chatMessages),
+    ).toBeUndefined();
+    expect(
+      state.runUpdates.find((update) => update.status === "failed"),
+    ).toMatchObject({
+      error: expect.stringContaining("completion event"),
+    });
+    expect(createProactiveRunNotification).toHaveBeenCalledWith(
+      input.db,
+      run,
+      "failed",
+      "thread-1",
+    );
+    const eventTypes = vi
+      .mocked(appendRunEventBestEffort)
+      .mock.calls.map(([, event]) => event.eventType);
+    expect(eventTypes).toContain("run_failed");
+    expect(eventTypes).not.toContain("run_completed");
   });
 
   it("stores the assistant answer and notifies on the worker lane", async () => {

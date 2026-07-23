@@ -11,8 +11,8 @@ import { resolveRuntimeModelSelection } from "@/lib/runtime-model-policy";
 import {
   executeChatTurn,
   type ChatRunTimingMarks,
-  type ChatStreamSend,
 } from "@/lib/execute-chat-turn";
+import type { ChatStreamSend } from "@/lib/chat-stream-contract";
 
 /** Cadence for the inline lane's liveness heartbeat (#443). */
 const INLINE_HEARTBEAT_INTERVAL_MS = 60_000;

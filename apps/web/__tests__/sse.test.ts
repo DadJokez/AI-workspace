@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { readSseStream } from "@/lib/sse";
+import type { ChatStreamEvent } from "@/lib/chat-stream-contract";
+import { readChatSseStream, readSseStream } from "@/lib/sse";
 
 /**
  * The client-side half of the chat streaming spine: every SSE consumer in the
@@ -25,6 +26,12 @@ function sseResponse(chunks: string[]): Response {
 async function collect<T>(res: Response): Promise<T[]> {
   const events: T[] = [];
   for await (const event of readSseStream<T>(res)) events.push(event);
+  return events;
+}
+
+async function collectChat(res: Response): Promise<ChatStreamEvent[]> {
+  const events: ChatStreamEvent[] = [];
+  for await (const event of readChatSseStream(res)) events.push(event);
   return events;
 }
 
@@ -111,5 +118,72 @@ describe("readSseStream", () => {
         // unreachable
       }
     }).rejects.toThrow("Response has no body");
+  });
+});
+
+describe("readChatSseStream", () => {
+  it("accepts a final terminal event with its stop reason", async () => {
+    const events = await collectChat(
+      sseResponse([
+        'data: {"type":"text-delta","delta":"complete"}\n\n',
+        'data: {"type":"done","stopReason":"completed"}\n\n',
+      ]),
+    );
+
+    expect(events).toEqual([
+      { type: "text-delta", delta: "complete" },
+      { type: "done", stopReason: "completed" },
+    ]);
+  });
+
+  it("fails a clean EOF that arrives without a terminal event", async () => {
+    await expect(
+      collectChat(
+        sseResponse(['data: {"type":"text-delta","delta":"partial"}\n\n']),
+      ),
+    ).rejects.toThrow(/before a terminal event/);
+  });
+
+  it("rejects a terminal event without its required stop reason", async () => {
+    await expect(
+      collectChat(sseResponse(['data: {"type":"done"}\n\n'])),
+    ).rejects.toThrow(/invalid done terminal event/);
+  });
+
+  it("rejects an event outside the shared chat protocol", async () => {
+    await expect(
+      collectChat(
+        sseResponse([
+          'data: {"type":"mystery"}\n\n',
+          'data: {"type":"done","stopReason":"completed"}\n\n',
+        ]),
+      ),
+    ).rejects.toThrow(/unknown mystery event/);
+  });
+
+  it("rejects payloads emitted after the terminal event", async () => {
+    await expect(
+      collectChat(
+        sseResponse([
+          'data: {"type":"done","stopReason":"completed"}\n\n',
+          'data: {"type":"persisted","runId":"late"}\n\n',
+        ]),
+      ),
+    ).rejects.toThrow(/after its terminal event/);
+  });
+
+  it("accepts a failed terminal frame as complete transport", async () => {
+    const events = await collectChat(
+      sseResponse([
+        'data: {"type":"error","message":"provider failed"}\n\n',
+        'data: {"type":"failed","stopReason":"runtime_error","message":"provider failed"}\n\n',
+      ]),
+    );
+
+    expect(events.at(-1)).toEqual({
+      type: "failed",
+      stopReason: "runtime_error",
+      message: "provider failed",
+    });
   });
 });

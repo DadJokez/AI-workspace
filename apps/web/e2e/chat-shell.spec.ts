@@ -145,7 +145,7 @@ test.describe("chat shell guardrails", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -212,7 +212,7 @@ test.describe("chat shell guardrails", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -302,7 +302,7 @@ test.describe("chat shell guardrails", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -491,7 +491,7 @@ test.describe("chat shell guardrails", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -582,7 +582,7 @@ test.describe("chat shell guardrails", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -657,7 +657,7 @@ test.describe("chat shell guardrails", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -725,7 +725,7 @@ test.describe("chat shell guardrails", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -864,7 +864,7 @@ test.describe("chat shell guardrails", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });

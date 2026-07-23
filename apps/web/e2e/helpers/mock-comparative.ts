@@ -625,7 +625,7 @@ export async function installMockComparativeApi(
           artifacts: [],
           recommendations: [],
         },
-        { type: "done" },
+        { type: "done", stopReason: "completed" },
       ]);
     }
 
