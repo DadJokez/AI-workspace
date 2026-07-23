@@ -214,6 +214,104 @@ test.describe("chat files and artifacts", () => {
     );
   });
 
+  test("keeps one uploaded file active through follow-up, refresh, and another follow-up (#576)", async ({
+    page,
+    isMobile,
+  }) => {
+    const threadId = "thread-durable-resource";
+    const chatBodies: Array<Record<string, unknown>> = [];
+    const threadMessages: Record<string, unknown[]> = { [threadId]: [] };
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      threads: [threadSummary(threadId, "Durable resource analysis")],
+      threadMessages,
+      onChat: async (body, route) => {
+        chatBodies.push(body);
+        const ordinal = chatBodies.length;
+        const prompt = String(body.message ?? "");
+        const answer =
+          ordinal === 1
+            ? "I received the report."
+            : ordinal === 2
+              ? "The middle fact is still available."
+              : "The end fact is still available after refresh.";
+        threadMessages[threadId] = [
+          ...(threadMessages[threadId] ?? []),
+          userMessage({
+            id: `resource-user-${ordinal}`,
+            content: prompt,
+          }),
+          assistantMessage({
+            id: `resource-assistant-${ordinal}`,
+            content: answer,
+          }),
+        ];
+        await fulfillSse(route, [
+          { type: "meta", threadId, modelId: "sonnet-4-6" },
+          { type: "text-delta", delta: answer },
+          {
+            type: "persisted",
+            assistantMessageId: `resource-assistant-${ordinal}`,
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done" },
+        ]);
+      },
+    });
+
+    await page.goto(`/e2e/chat?threadId=${threadId}`);
+    const fileInput = page.getByTestId("chat-file-input");
+    await expect(fileInput).toBeEnabled({ timeout: 15_000 });
+    await fileInput.setInputFiles({
+      name: "durable-report.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(
+        "position,fact\nbeginning,alpha\nmiddle,bravo\nend,charlie",
+      ),
+    });
+    const composer = page.getByPlaceholder(/ask anything/i);
+    await composer.fill("Analyze durable-report.csv.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("I received the report.")).toBeVisible();
+
+    await composer.fill("What is the middle fact?");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(
+      page.getByText("The middle fact is still available."),
+    ).toBeVisible();
+
+    await page.reload();
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar
+      .getByRole("button", { name: "Durable resource analysis" })
+      .click();
+    await expect(
+      page.getByText("The middle fact is still available."),
+    ).toBeVisible();
+    await composer.fill("Now give me the end fact.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(
+      page.getByText("The end fact is still available after refresh."),
+    ).toBeVisible();
+
+    expect(chatBodies).toHaveLength(3);
+    expect(chatBodies[0]).toMatchObject({
+      attachmentCount: 1,
+    });
+    expect(chatBodies[0]?.threadId).toBeUndefined();
+    expect(chatBodies[1]).toMatchObject({
+      threadId,
+      attachmentCount: 0,
+    });
+    expect(chatBodies[2]).toMatchObject({
+      threadId,
+      attachmentCount: 0,
+    });
+    expect(chatBodies[1]?.attachments).toBeUndefined();
+    expect(chatBodies[2]?.attachments).toBeUndefined();
+  });
+
   test("collapses generated documents and opens the artifact preview in-tab", async ({
     page,
     isMobile,

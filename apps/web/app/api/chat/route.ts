@@ -37,8 +37,14 @@ import {
 } from "@/lib/attachments";
 import {
   reconstructStoredAttachments,
-  shouldCarryForwardThreadUploads,
 } from "@/lib/attachment-replay";
+import {
+  conversationResourceMetadata,
+  loadPreviousConversationResourceResolution,
+  loadThreadConversationResources,
+  preparePendingConversationResources,
+  resolveConversationResources,
+} from "@/lib/conversation-resources";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
 import {
   checkRateLimit,
@@ -375,7 +381,7 @@ export async function POST(req: Request) {
         );
       }
       replayedAttachments = replay.attachments;
-      replayedArtifactIds = uploads.map((row) => row.id);
+      replayedArtifactIds = replay.resourceIds;
     }
   }
 
@@ -411,67 +417,49 @@ export async function POST(req: Request) {
     ).map((row) => row.content);
   }
 
-  // A fresh upload is stored separately from the visible chat message. When a
-  // later turn clearly asks to keep working with that file, reconstruct the
-  // latest upload batch from its bounded extracted text (and native image
-  // bytes) instead of making the user attach it again. This is contextual
-  // replay only: the rows are not inserted again on the follow-up turn.
   const requestAttachments = replayedAttachments ?? attachments;
-  let carriedThreadAttachments: PreparedChatAttachment[] = [];
-  if (
-    requestAttachments.length === 0 &&
-    priorUserMessages.length > 0 &&
-    shouldCarryForwardThreadUploads(effectiveUserMessage)
-  ) {
-    const latestUploadRows = await db
-      .select({ chatMessageId: workspaceArtifacts.chatMessageId })
-      .from(workspaceArtifacts)
-      .where(
-        and(
-          eq(workspaceArtifacts.userId, sessionUser.id),
-          eq(workspaceArtifacts.threadId, thread.id),
-          eq(workspaceArtifacts.source, "user-upload"),
-        ),
-      )
-      .orderBy(desc(workspaceArtifacts.createdAt), desc(workspaceArtifacts.id))
-      .limit(1);
-    const uploadMessageId = latestUploadRows[0]?.chatMessageId;
-    if (uploadMessageId) {
-      const storedUploads = await db
-        .select({
-          id: workspaceArtifacts.id,
-          title: workspaceArtifacts.title,
-          filename: workspaceArtifacts.filename,
-          kind: workspaceArtifacts.kind,
-          mimeType: workspaceArtifacts.mimeType,
-          content: workspaceArtifacts.content,
-          sizeBytes: workspaceArtifacts.sizeBytes,
-          metadata: workspaceArtifacts.metadata,
-        })
-        .from(workspaceArtifacts)
-        .where(
-          and(
-            eq(workspaceArtifacts.userId, sessionUser.id),
-            eq(workspaceArtifacts.threadId, thread.id),
-            eq(workspaceArtifacts.chatMessageId, uploadMessageId),
-            eq(workspaceArtifacts.source, "user-upload"),
-          ),
-        );
-      const replay = reconstructStoredAttachments(storedUploads);
-      if (replay.ok) carriedThreadAttachments = replay.attachments;
-    }
-  }
-  const effectiveAttachments =
-    requestAttachments.length > 0
-      ? requestAttachments
-      : carriedThreadAttachments;
+  const pendingResources =
+    attachments.length > 0
+      ? preparePendingConversationResources(attachments)
+      : [];
+  const [storedResources, previousResourceResolution] = await Promise.all([
+    loadThreadConversationResources({
+      db,
+      userId: sessionUser.id,
+      threadId: thread.id,
+    }),
+    loadPreviousConversationResourceResolution({
+      db,
+      userId: sessionUser.id,
+      threadId: thread.id,
+    }),
+  ]);
+  const currentResourceIds =
+    pendingResources.length > 0
+      ? pendingResources.map((resource) => resource.id)
+      : replayedArtifactIds ?? [];
+  const resourceResolution = resolveConversationResources({
+    message: effectiveUserMessage,
+    resources: [
+      ...pendingResources.map((resource) => resource.manifest),
+      ...storedResources,
+    ],
+    currentResourceIds,
+    previousResolution: previousResourceResolution,
+  });
+  // Only files on THIS request are folded into the prompt. Durable follow-ups
+  // carry compact resource ids and use the complete-file MCP adapter instead
+  // of reinjecting a 200k preview on every turn.
+  const effectiveAttachments = requestAttachments;
 
   const routingCapabilityGraph = await loadUserCapabilityGraph(db, sessionUser, {
     mountedProviders: [],
   });
   const contextSignals = {
     priorUserMessagesCount: priorUserMessages.length,
-    uploadedFilesAvailable: effectiveAttachments.length > 0,
+    uploadedFilesAvailable:
+      effectiveAttachments.length > 0 ||
+      resourceResolution.selected.length > 0,
   };
   let runtimeRoute = decideChatRuntimeRoute({
     message: effectiveUserMessage,
@@ -628,7 +616,10 @@ export async function POST(req: Request) {
     modelVisibleMessage,
     effectiveAttachments,
   );
-  const uploadedFiles = effectiveAttachments.map((a) => ({
+  const uploadedFiles = effectiveAttachments.map((a, index) => ({
+    ...(currentResourceIds[index]
+      ? { resourceId: currentResourceIds[index] }
+      : {}),
     name: a.name,
     mimeType: a.mimeType,
     sizeBytes: a.sizeBytes,
@@ -636,30 +627,44 @@ export async function POST(req: Request) {
     extractionStatus: a.extractionStatus,
     ...(a.runtimeContent ? { runtimeContent: a.runtimeContent } : {}),
   }));
+  const storedUploadedFiles = uploadedFiles.map((file) => ({
+    ...(file.resourceId ? { resourceId: file.resourceId } : {}),
+    name: file.name,
+    mimeType: file.mimeType,
+    sizeBytes: file.sizeBytes,
+    contentChars: file.contentChars,
+    extractionStatus: file.extractionStatus,
+  }));
   if (attachments.length > 0) {
     const secretFindings = scanAttachmentsForSecrets(attachments);
     await db.insert(workspaceArtifacts).values(
-      attachments.map((a, uploadIndex) => ({
+      pendingResources.map((pending, uploadIndex) => ({
+        id: pending.id,
         userId: sessionUser.id,
         threadId: thread.id,
         chatMessageId: userMsg[0]!.id,
-        title: a.name,
-        filename: a.name,
-        kind: a.kind,
-        mimeType: a.mimeType,
-        content: a.storageContent,
-        sizeBytes: a.sizeBytes,
+        title: pending.attachment.name,
+        filename: pending.attachment.name,
+        kind: pending.attachment.kind,
+        mimeType: pending.attachment.mimeType,
+        content: pending.attachment.storageContent,
+        sizeBytes: pending.attachment.sizeBytes,
         source: "user-upload",
         metadata: {
           // Bulk insert shares one createdAt, so this ordinal is the ONLY
           // record of request order — replay (#348) sorts by it to keep
           // the re-folded prompt byte-identical to the original turn.
           uploadIndex,
-          storageEncoding: a.storageEncoding,
-          extractionStatus: a.extractionStatus,
-          extractedText: a.content,
-          ...(a.extractionNotes?.length ? { extractionNotes: a.extractionNotes } : {}),
-          ...(a.image ? { image: a.image } : {}),
+          storageEncoding: pending.attachment.storageEncoding,
+          extractionStatus: pending.attachment.extractionStatus,
+          extractedText: pending.attachment.content,
+          conversationResource: conversationResourceMetadata(pending),
+          ...(pending.attachment.extractionNotes?.length
+            ? { extractionNotes: pending.attachment.extractionNotes }
+            : {}),
+          ...(pending.attachment.image
+            ? { image: pending.attachment.image }
+            : {}),
           ...(secretFindings.length > 0 ? { secretWarning: secretFindings } : {}),
         },
       })),
@@ -684,7 +689,10 @@ export async function POST(req: Request) {
       status: runtimeRoute.useWorker ? "queued" : "running",
       modelId,
       inputs: {
-        prompt: promptForModel,
+        // Durable runs retain the user's instruction and resource references,
+        // never a copy of uploaded file content. Inline execution receives the
+        // one-turn folded preview separately below.
+        prompt: modelVisibleMessage,
         threadId: thread.id,
         userMessageId: userMsg[0]!.id,
         requestedByUserId: sessionUser.id,
@@ -692,7 +700,8 @@ export async function POST(req: Request) {
         modelOverride,
         ...(modelCommand ? { modelCommand } : {}),
         runtimeRoute,
-        uploadedFiles,
+        uploadedFiles: storedUploadedFiles,
+        resourceResolution,
         routeReceipt,
         // #432: preserved so a queued or retried execution of this turn uses
         // the same clock context the user sent it with.
@@ -745,6 +754,7 @@ export async function POST(req: Request) {
         modelOverride,
         runtimeRoute,
         routeReceipt,
+        resourceResolution,
         ...(replaceMessageId ? { replaceMessageId } : {}),
         ...(modelCommand ? { modelCommand } : {}),
         ...(activatedSkill
@@ -771,7 +781,10 @@ export async function POST(req: Request) {
         eventType: "uploaded_files_stored",
         status: "succeeded",
         label: `Stored ${attachments.length} uploaded file${attachments.length === 1 ? "" : "s"}`,
-        metadata: { uploadedFiles },
+        metadata: {
+          uploadedFiles: storedUploadedFiles,
+          resourceResolution,
+        },
         occurredAt: queuedAt,
       });
     } else if (replayedAttachments) {
@@ -785,10 +798,9 @@ export async function POST(req: Request) {
         status: "succeeded",
         label: `Replayed ${replayedAttachments.length} stored file${replayedAttachments.length === 1 ? "" : "s"} from the edited message`,
         metadata: {
-          uploadedFiles: uploadedFiles.map(
-            ({ runtimeContent: _runtimeContent, ...rest }) => rest,
-          ),
+          uploadedFiles: storedUploadedFiles,
           replayedArtifactIds,
+          resourceResolution,
         },
         occurredAt: queuedAt,
       });
@@ -824,6 +836,7 @@ export async function POST(req: Request) {
         executionMode: runtimeRoute.executionMode,
         runtimeRoute,
         routeReceipt,
+        resourceResolution,
         ...(replaceMessageId ? { replaceMessageId } : {}),
       });
       if (runtimeRoute.useWorker) {
@@ -845,11 +858,13 @@ export async function POST(req: Request) {
           userId: sessionUser.id,
           userMessageId: userMsg[0]!.id,
           prompt: promptForModel,
+          persistedPrompt: modelVisibleMessage,
           modelId,
           modelOverride,
           route: runtimeRoute,
           requestStartedAt,
           uploadedFiles,
+          resourceResolution,
           userTimeZone,
           activatedSkills: activatedSkill
             ? [

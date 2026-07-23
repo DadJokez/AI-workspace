@@ -4,6 +4,7 @@ import { getRuntime, type RuntimeName } from "@ai-workspace/agent-runtime";
 import type { ChatContextUploadedFile } from "@/lib/chat-context-pack";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 import type { PinnedActiveSkill } from "@/lib/pinned-context";
+import type { ConversationResourceResolution } from "@/lib/conversation-resources";
 import { enabledModelsForPurpose } from "@/lib/model-registry";
 import { appendRunEventBestEffort } from "@/lib/run-events";
 import { resolveRuntimeModelSelection } from "@/lib/runtime-model-policy";
@@ -23,6 +24,8 @@ export interface StreamInlineChatRunInput {
   userId: string;
   userMessageId: string;
   prompt: string;
+  /** Clean instruction persisted for retry; `prompt` may include one-turn data. */
+  persistedPrompt?: string;
   modelId: string;
   modelOverride?: boolean;
   route: ChatRuntimeRoute;
@@ -30,6 +33,7 @@ export interface StreamInlineChatRunInput {
   activeSkillPrompt?: PinnedActiveSkill;
   requestedProviders?: string[];
   uploadedFiles?: ChatContextUploadedFile[];
+  resourceResolution?: ConversationResourceResolution;
   /** Validated browser timezone for this interactive turn (#432). */
   userTimeZone?: string;
   requestStartedAt?: Date;
@@ -56,6 +60,7 @@ export async function streamInlineChatRun({
   userId,
   userMessageId,
   prompt,
+  persistedPrompt,
   modelId,
   modelOverride = false,
   route,
@@ -63,6 +68,7 @@ export async function streamInlineChatRun({
   activeSkillPrompt,
   requestedProviders,
   uploadedFiles = [],
+  resourceResolution,
   userTimeZone,
   requestStartedAt,
   signal,
@@ -106,6 +112,7 @@ export async function streamInlineChatRun({
       userId,
       thread,
       prompt,
+      persistedPrompt,
       userMessageId,
       route,
       runtime,
@@ -114,6 +121,7 @@ export async function streamInlineChatRun({
       requestedProviders,
       activeSkillPrompt,
       uploadedFiles,
+      resourceResolution,
       userTimeZone,
       suppressedSkillIds:
         activatedSkills?.flatMap((skill) =>

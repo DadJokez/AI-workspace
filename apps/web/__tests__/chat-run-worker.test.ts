@@ -157,6 +157,50 @@ describe("processQueuedChatRun", () => {
     expect(turn.userTimeZone).toBe("America/New_York");
   });
 
+  it("preserves the durable resource receipt across worker retries and resumes (#576)", async () => {
+    const resourceResolution = {
+      version: 1,
+      status: "selected",
+      intent: true,
+      selected: [
+        {
+          resourceId: "resource-report",
+          filename: "report.csv",
+          mimeType: "text/csv",
+          kind: "spreadsheet",
+          sizeBytes: 7_800_000,
+          representation: "tabular_dataset",
+          coverage: "full",
+          reason: "previous_run_receipt",
+        },
+      ],
+      candidates: [
+        {
+          resourceId: "resource-report",
+          filename: "report.csv",
+          kind: "spreadsheet",
+        },
+      ],
+      requiresCompleteFileTool: true,
+    };
+    const run = claimedRun({
+      triggerType: "chat",
+      inputs: {
+        prompt: "continue analyzing it",
+        threadId: "thread-1",
+        userMessageId: "user-msg-1",
+        executionMode: "local",
+        resourceResolution,
+      },
+    } as Partial<Run>);
+
+    await processQueuedChatRun({ db: fakeDb(run), runId: "run-1" });
+
+    expect(vi.mocked(executeChatTurn).mock.calls[0]![0]).toMatchObject({
+      resourceResolution,
+    });
+  });
+
   it("re-validates the stored timezone and drops anything that is not an IANA zone (#432)", async () => {
     const run = claimedRun({
       triggerType: "chat",

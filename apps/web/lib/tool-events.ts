@@ -1,5 +1,9 @@
 import type { ToolCall, ToolResult } from "@ai-workspace/agent";
-import { redactToolCall, redactToolResult } from "@/lib/tool-redaction";
+import {
+  redactProviderToolPayload,
+  redactToolCall,
+  redactToolResult,
+} from "@/lib/tool-redaction";
 
 export interface PersistedToolCall {
   id: string;
@@ -45,7 +49,15 @@ export function createToolEventAccumulator(
           name: call.name,
           provider: parsed.provider,
           toolName: parsed.toolName,
-          input: call.input,
+          input:
+            parsed.provider === "resources"
+              ? (redactProviderToolPayload({
+                  provider: parsed.provider,
+                  toolName: parsed.toolName,
+                  direction: "input",
+                  value: call.input,
+                }) as Record<string, unknown>)
+              : call.input,
           startedAt: existing?.startedAt ?? now().toISOString(),
         }),
       );
@@ -63,7 +75,15 @@ export function createToolEventAccumulator(
                 toolName: call.toolName,
               }
             : {}),
-          output: result.output,
+          output:
+            call?.provider === "resources"
+              ? redactProviderToolPayload({
+                  provider: call.provider,
+                  toolName: call.toolName,
+                  direction: "output",
+                  value: result.output,
+                })
+              : result.output,
           isError: result.isError === true,
           completedAt: now().toISOString(),
         }),

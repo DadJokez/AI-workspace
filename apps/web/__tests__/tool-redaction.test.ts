@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   redactErrorText,
+  redactProviderToolPayload,
   redactTracePayload,
   redactToolCall,
   redactToolPayload,
@@ -38,6 +39,8 @@ describe("tool redaction", () => {
         headers: {
           Authorization: "Bearer super-secret-token-value",
           cookie: "session=secret",
+          "x-comparative-resource-relay": "relay-capability",
+          "x-comparative-resource-context": "signed-turn-context",
         },
         nested: {
           refresh_token: "abc123",
@@ -49,6 +52,8 @@ describe("tool redaction", () => {
       headers: {
         Authorization: "[redacted]",
         cookie: "[redacted]",
+        "x-comparative-resource-relay": "[redacted]",
+        "x-comparative-resource-context": "[redacted]",
       },
       nested: {
         refresh_token: "[redacted]",
@@ -144,5 +149,38 @@ describe("tool redaction", () => {
     expect(redactErrorText({ message: "failed", api_key: "secret" })).toBe(
       '{"message":"failed","api_key":"[redacted]"}',
     );
+  });
+
+  it("keeps resource coverage receipts but never file excerpts or rows", () => {
+    const redacted = redactProviderToolPayload({
+      provider: "resources",
+      toolName: "query",
+      direction: "output",
+      value: {
+        kind: "conversation_resource_result",
+        receipt: {
+          resourceId: "resource-1",
+          operation: "search",
+          sourceCoverage: "full",
+          sourceChars: 9_000_000,
+        },
+        content: "confidential file text",
+        rows: [{ customer: "Secret Customer", revenue: 42 }],
+      },
+    });
+
+    expect(redacted).toMatchObject({
+      redacted: true,
+      kind: "conversation_resource_result",
+      receipt: {
+        resourceId: "resource-1",
+        operation: "search",
+        sourceCoverage: "full",
+        sourceChars: 9_000_000,
+      },
+      resultKeys: ["content", "kind", "receipt", "rows"],
+    });
+    expect(JSON.stringify(redacted)).not.toContain("confidential");
+    expect(JSON.stringify(redacted)).not.toContain("Secret Customer");
   });
 });

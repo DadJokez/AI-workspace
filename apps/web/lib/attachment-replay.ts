@@ -30,7 +30,11 @@ export interface StoredUploadArtifact {
 }
 
 export type AttachmentReplayResult =
-  | { ok: true; attachments: PreparedChatAttachment[] }
+  | {
+      ok: true;
+      attachments: PreparedChatAttachment[];
+      resourceIds: string[];
+    }
   | { ok: false; reason: string };
 
 const ATTACHMENT_KINDS = new Set([
@@ -174,7 +178,11 @@ export function reconstructStoredAttachments(
     });
   }
 
-  return { ok: true, attachments };
+  return {
+    ok: true,
+    attachments,
+    resourceIds: ordered.map((row) => row.id),
+  };
 }
 
 /**
