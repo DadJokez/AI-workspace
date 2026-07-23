@@ -701,6 +701,22 @@ export async function executeChatTurn({
     ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
     ...extra,
   });
+  const buildWorkerTelemetryOutput = () => ({
+    ...priorOutputs,
+    tokensIn,
+    tokensOut,
+    usage: {
+      tokensIn,
+      tokensOut,
+      inputTokens,
+      cacheReadInputTokens,
+      cacheWriteInputTokens,
+    },
+    modelId,
+    runtime: runtime.name,
+    ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
+    lifecycle: "provider_running",
+  });
 
   // #452: the worker lane used to SELECT the run row once per streamed
   // event — including every text-delta. Throttled to a cheap cadence; the
@@ -895,7 +911,7 @@ export async function executeChatTurn({
           await db
             .update(runs)
             .set({
-              outputs: buildWorkerOutput({ lifecycle: "provider_running" }),
+              outputs: buildWorkerTelemetryOutput(),
               updatedAt: new Date(),
             })
             .where(

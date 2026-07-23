@@ -25,6 +25,15 @@ describe("chatRunLane", () => {
 });
 
 describe("activeRunMessageContent", () => {
+  it("keeps a usage-only running checkpoint visually empty after refresh", () => {
+    expect(
+      activeRunMessageContent({
+        status: "running",
+        output: { liveTokens: 8_400 },
+      }),
+    ).toBe("");
+  });
+
   it("#244 hides interrupted artifact snippets behind a clear retry message", () => {
     const content = activeRunMessageContent({
       status: "canceled",

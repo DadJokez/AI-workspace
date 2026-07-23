@@ -842,17 +842,22 @@ describe("executeChatTurn — persist tail", () => {
     const { input, state } = workerInput();
     await executeChatTurn(input);
 
-    expect(state.runUpdates).toContainEqual(
+    const telemetryUpdate = state.runUpdates.find(
+      (update) =>
+        (update.outputs as { lifecycle?: string } | undefined)?.lifecycle ===
+        "provider_running",
+    );
+    expect(telemetryUpdate).toEqual(
       expect.objectContaining({
         outputs: expect.objectContaining({
           lifecycle: "provider_running",
-          usage: expect.objectContaining({
-            tokensIn: 11,
-            tokensOut: 7,
-          }),
+          usage: expect.objectContaining({ tokensIn: 11, tokensOut: 7 }),
         }),
       }),
     );
+    expect(telemetryUpdate?.outputs).not.toHaveProperty("assistantText");
+    expect(telemetryUpdate?.outputs).not.toHaveProperty("toolCalls");
+    expect(telemetryUpdate?.outputs).not.toHaveProperty("toolResults");
   });
 
   it("emits separate app validation and draft creation checkpoints", async () => {
