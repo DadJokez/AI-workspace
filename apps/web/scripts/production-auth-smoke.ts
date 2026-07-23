@@ -15,6 +15,7 @@ import {
   buildProductionResourceFixtures,
   type ProductionResourceFixture,
 } from "./conversation-resource-smoke-fixtures";
+import { partitionResourceToolResults } from "./production-resource-smoke-results";
 import { queryConversationResource } from "@/lib/conversation-resource-content";
 
 const DEFAULT_BASE_URL = "https://comparative.builtwithrobot.link";
@@ -425,29 +426,34 @@ async function verifyLaterTurnReuse({
     ? run.outputs.toolResults
     : [];
   if (fixture.kind !== "image") {
-    const resourceResults = toolResults.filter(
-      (result) =>
-        isRecord(result) &&
-        (result.provider === "resources" ||
-          (typeof result.name === "string" &&
-            result.name.includes("resources"))),
-    );
+    const resourceResults = partitionResourceToolResults(toolResults);
     assert(
-      resourceResults.length > 0,
+      resourceResults.all.length > 0,
       `${fixture.filename} later turn did not persist a resource tool receipt`,
     );
-    for (const result of resourceResults) {
+    assert(
+      resourceResults.successful.length > 0,
+      `${fixture.filename} later turn did not complete a resource tool call`,
+    );
+    for (const result of resourceResults.all) {
       const output = recordField(
         result,
         "output",
         `${fixture.filename} resource tool output receipt missing`,
       );
-      assertFullSourceReceipt(output, fixture.filename);
       const persisted = JSON.stringify(output);
       assert(
         fixture.expectedFacts.every((fact) => !persisted.includes(fact)),
         `${fixture.filename} persisted file content instead of a compact receipt`,
       );
+    }
+    for (const result of resourceResults.successful) {
+      const output = recordField(
+        result,
+        "output",
+        `${fixture.filename} successful resource tool output receipt missing`,
+      );
+      assertFullSourceReceipt(output, fixture.filename);
     }
   }
 }
