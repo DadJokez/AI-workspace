@@ -117,6 +117,15 @@ export async function POST(
   if (!version) {
     return NextResponse.json({ error: "version_not_found" }, { status: 404 });
   }
+  if (version.status === "discarded") {
+    return NextResponse.json(
+      {
+        error: "version_not_deployable",
+        message: "Discarded proposals cannot be deployed.",
+      },
+      { status: 409 },
+    );
+  }
 
   const artifact = await loadWorkspaceArtifactById({
     db,

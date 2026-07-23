@@ -71,9 +71,12 @@ export async function GET(
       createdAt: version.createdAt,
       deployedAt: version.deployedAt,
       isLive: version.isLive,
-      canDeploy: canAppRoleDeploy(actorRole) && !version.isLive,
+      canDeploy:
+        canAppRoleDeploy(actorRole) &&
+        !version.isLive &&
+        version.status !== "discarded",
       canDiscard:
-        version.status === "draft" &&
+        (version.status === "draft" || version.status === "proposed") &&
         (canAppRoleDeploy(actorRole) ||
           version.createdByUserId === sessionUser.id),
       previewUrl: `/api/apps/${app.id}/versions/${version.id}/content`,

@@ -49,7 +49,9 @@ export async function GET(
   if (!version) return new NextResponse("Not found", { status: 404 });
   if (
     actorRole === "editor" &&
-    version.status === "draft" &&
+    (version.status === "draft" ||
+      version.status === "proposed" ||
+      version.status === "discarded") &&
     version.createdByUserId !== sessionUser.id
   ) {
     return new NextResponse("Not found", { status: 404 });

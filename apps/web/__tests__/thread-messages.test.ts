@@ -189,6 +189,40 @@ describe("reconcileAppDraftVersionSummaries (#344)", () => {
     ).toEqual([summary()]);
   });
 
+  it("keeps a pending proposal reviewable after reload", () => {
+    expect(
+      reconcileAppDraftVersionSummaries(
+        [summary({ status: "proposed" })],
+        truth([
+          {
+            id: "version-2",
+            status: "proposed",
+            liveVersionId: "version-1",
+            archived: false,
+          },
+        ]),
+      ),
+    ).toEqual([summary({ status: "proposed" })]);
+  });
+
+  it("keeps discarded proposal history visible but non-actionable", () => {
+    expect(
+      reconcileAppDraftVersionSummaries(
+        [summary({ status: "proposed" })],
+        truth([
+          {
+            id: "version-2",
+            status: "discarded",
+            liveVersionId: "version-1",
+            archived: false,
+          },
+        ]),
+      ),
+    ).toEqual([
+      summary({ status: "discarded", canDeploy: false }),
+    ]);
+  });
+
   it("never widens canDeploy for a summary minted non-deployable", () => {
     expect(
       reconcileAppDraftVersionSummaries(

@@ -798,6 +798,7 @@ describe("executeChatTurn — persist tail", () => {
       run,
       "failed",
       "thread-1",
+      { hasProposal: false },
     );
     const eventTypes = vi
       .mocked(appendRunEventBestEffort)
@@ -828,6 +829,7 @@ describe("executeChatTurn — persist tail", () => {
       run,
       "succeeded",
       "thread-1",
+      { hasProposal: false },
     );
 
     const eventTypes = vi
@@ -859,6 +861,63 @@ describe("executeChatTurn — persist tail", () => {
     expect(telemetryUpdate?.outputs).not.toHaveProperty("toolCalls");
     expect(telemetryUpdate?.outputs).not.toHaveProperty("toolResults");
   });
+
+  it.each(["scheduled", "github_event"])(
+    "marks %s artifacts and app versions as review proposals",
+    async (triggerType) => {
+      vi.mocked(createArtifactsFromAssistantMessage).mockResolvedValueOnce([
+        {
+          id: "artifact-proposal",
+          title: "Weekly report",
+          filename: "weekly-report.md",
+          kind: "document",
+          mimeType: "text/markdown",
+          sizeBytes: 128,
+          source: "assistant",
+          threadId: "thread-1",
+          chatMessageId: "assistant-msg-1",
+          runId: "run-1",
+          artifactGroupId: "weekly-report",
+          versionNumber: 2,
+          supersedesArtifactId: "artifact-v1",
+          versionSummary: "Updated weekly report.",
+          metadata: null,
+          createdAt: "2026-07-23T12:00:00.000Z",
+          previewUrl: "/workspace/artifacts/artifact-proposal",
+          downloadUrl:
+            "/api/workspace/artifacts/artifact-proposal/download",
+        },
+      ]);
+      const fixture = workerInput();
+      fixture.run.triggerType = triggerType;
+
+      await executeChatTurn(fixture.input);
+
+      expect(createArtifactsFromAssistantMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          proposal: expect.objectContaining({
+            runId: "run-1",
+            triggerType,
+          }),
+        }),
+      );
+      expect(createDraftAppVersionsForThreadArtifacts).toHaveBeenCalledWith(
+        expect.objectContaining({
+          proposal: expect.objectContaining({
+            runId: "run-1",
+            triggerType,
+          }),
+        }),
+      );
+      expect(createProactiveRunNotification).toHaveBeenCalledWith(
+        fixture.input.db,
+        fixture.run,
+        "succeeded",
+        "thread-1",
+        { hasProposal: true },
+      );
+    },
+  );
 
   it("emits separate app validation and draft creation checkpoints", async () => {
     vi.mocked(createArtifactsFromAssistantMessage).mockResolvedValueOnce([
@@ -1052,6 +1111,7 @@ describe("executeChatTurn — persist tail", () => {
       expect.anything(),
       "failed",
       "thread-1",
+      { hasProposal: false },
     );
   });
 });

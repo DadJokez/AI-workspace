@@ -60,13 +60,23 @@ export function VersionsPanel({
     }
   }
 
-  async function discardVersion(appVersionId: string) {
-    setBusyId(appVersionId);
+  async function discardVersion(version: VersionRow) {
+    setBusyId(version.appVersionId);
     setNotice(null);
     try {
-      const res = await fetch(`/api/apps/${appId}/versions/${appVersionId}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        `/api/apps/${appId}/versions/${version.appVersionId}`,
+        version.status === "proposed"
+          ? {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                decision: "discarded",
+                reason: "Discarded from app version review.",
+              }),
+            }
+          : { method: "DELETE" },
+      );
       const body = (await res.json()) as { message?: string; error?: string };
       if (res.ok) {
         router.refresh();
@@ -106,7 +116,13 @@ export function VersionsPanel({
                   </span>
                 ) : (
                   <span className="rounded bg-ink/5 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
-                    {version.status === "draft" ? "Draft" : "Previous"}
+                    {version.status === "draft"
+                      ? "Draft"
+                      : version.status === "proposed"
+                        ? "Needs review"
+                        : version.status === "discarded"
+                          ? "Discarded"
+                          : "Previous"}
                   </span>
                 )}
               </div>
@@ -136,14 +152,16 @@ export function VersionsPanel({
                     ? "Deploying..."
                     : version.status === "draft"
                       ? "Deploy"
-                      : "Rollback"}
+                      : version.status === "proposed"
+                        ? "Accept and publish"
+                        : "Rollback"}
                 </button>
               ) : null}
               {version.canDiscard ? (
                 <button
                   type="button"
                   disabled={busyId !== null}
-                  onClick={() => discardVersion(version.appVersionId)}
+                  onClick={() => discardVersion(version)}
                   className="rounded-md border border-hairline px-2.5 py-1 text-xs text-muted hover:text-ink disabled:opacity-50"
                 >
                   Discard

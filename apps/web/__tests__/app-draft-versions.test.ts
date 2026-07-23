@@ -25,7 +25,7 @@ function version(
 }
 
 describe("app draft version summaries", () => {
-  it("passes deployed and reverted statuses through transport (#344)", () => {
+  it("passes lifecycle and proposal statuses through transport", () => {
     const deployed = version({ status: "deployed", canDeploy: false });
     const reverted = version({
       id: "version-1",
@@ -33,9 +33,24 @@ describe("app draft version summaries", () => {
       status: "reverted",
       canDeploy: false,
     });
-    expect(parseAppDraftVersionSummaries([deployed, reverted])).toEqual([
+    const proposed = version({ id: "version-3", status: "proposed" });
+    const discarded = version({
+      id: "version-4",
+      status: "discarded",
+      canDeploy: false,
+    });
+    expect(
+      parseAppDraftVersionSummaries([
+        deployed,
+        reverted,
+        proposed,
+        discarded,
+      ]),
+    ).toEqual([
       deployed,
       reverted,
+      proposed,
+      discarded,
     ]);
   });
 

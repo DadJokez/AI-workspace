@@ -5,7 +5,7 @@ export interface AppDraftVersionSummary {
   appSlug: string;
   artifactId: string;
   versionNumber: number;
-  status: "draft" | "deployed" | "reverted";
+  status: "draft" | "proposed" | "deployed" | "reverted" | "discarded";
   canDeploy: boolean;
   previewUrl: string;
   liveUrl: string;
@@ -93,5 +93,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function isAppDraftVersionStatus(
   value: unknown,
 ): value is AppDraftVersionSummary["status"] {
-  return value === "draft" || value === "deployed" || value === "reverted";
+  return (
+    value === "draft" ||
+    value === "proposed" ||
+    value === "deployed" ||
+    value === "reverted" ||
+    value === "discarded"
+  );
 }
