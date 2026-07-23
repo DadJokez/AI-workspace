@@ -7,6 +7,8 @@ import type {
   PersistedRecommendation,
   RecommendationStatus,
 } from "@/lib/recommendations";
+import type { OutputProposalDecision } from "@/lib/output-proposals";
+import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import { useState, type Dispatch, type SetStateAction } from "react";
 import {
   appNameFromRecommendation,
@@ -37,6 +39,8 @@ export function useChatActions({
   const [recommendationPendingId, setRecommendationPendingId] =
     useState<string>();
   const [appDraftPendingId, setAppDraftPendingId] = useState<string>();
+  const [artifactProposalPendingId, setArtifactProposalPendingId] =
+    useState<string>();
   const [runActionPendingId, setRunActionPendingId] = useState<string>();
 
   function patchRecommendation(
@@ -201,6 +205,99 @@ export function useChatActions({
     }
   }
 
+  async function handleAppProposalDiscard(version: AppDraftVersionSummary) {
+    if (!activeTab) return;
+    setAppDraftPendingId(version.id);
+    patchTab(activeTab.id, { error: undefined });
+    try {
+      const response = await fetch(
+        `/api/apps/${version.appId}/versions/${version.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            decision: "discarded",
+            reason: "Discarded during proposal review.",
+          }),
+        },
+      );
+      const body = (await response.json().catch(() => ({}))) as {
+        message?: string;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(
+          body.message ?? body.error ?? "Could not discard proposal.",
+        );
+      }
+      if (activeTab.threadId) {
+        await refreshActiveThreadMessages(activeTab.id, activeTab.threadId);
+      }
+    } catch (error) {
+      patchTab(activeTab.id, {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not discard proposal.",
+      });
+    } finally {
+      setAppDraftPendingId(undefined);
+    }
+  }
+
+  async function handleArtifactProposalAction(
+    artifact: WorkspaceArtifactSummary,
+    decision: OutputProposalDecision,
+  ) {
+    if (!activeTab) return;
+    setArtifactProposalPendingId(artifact.id);
+    patchTab(activeTab.id, { error: undefined });
+    try {
+      const response = await fetch(`/api/workspace/artifacts/${artifact.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          decision,
+          ...(decision === "discarded"
+            ? { reason: "Discarded during proposal review." }
+            : {}),
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        artifact?: WorkspaceArtifactSummary;
+        message?: string;
+        error?: string;
+      };
+      if (!response.ok || !body.artifact) {
+        throw new Error(
+          body.message ?? body.error ?? "Could not update proposal.",
+        );
+      }
+      setTabs((previous) =>
+        previous.map((tab) => ({
+          ...tab,
+          messages: tab.messages.map((message) => ({
+            ...message,
+            artifacts: message.artifacts?.map((candidate) =>
+              candidate.id === body.artifact?.id
+                ? body.artifact
+                : candidate,
+            ),
+          })),
+        })),
+      );
+    } catch (error) {
+      patchTab(activeTab.id, {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not update proposal.",
+      });
+    } finally {
+      setArtifactProposalPendingId(undefined);
+    }
+  }
+
   async function refreshActiveThreadMessages(tabId: string, threadId: string) {
     const response = await fetch(`/api/threads/${threadId}/messages`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -251,9 +348,12 @@ export function useChatActions({
   return {
     recommendationPendingId,
     appDraftPendingId,
+    artifactProposalPendingId,
     runActionPendingId,
     handleRecommendationAction,
     handleAppDraftDeploy,
+    handleAppProposalDiscard,
+    handleArtifactProposalAction,
     runAction,
   };
 }

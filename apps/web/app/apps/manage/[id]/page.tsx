@@ -121,8 +121,9 @@ export default async function ManageAppPage({
       <div className="flex flex-col gap-3">
         <h3 className="text-base font-semibold text-ink">Versions</h3>
         <p className="text-xs text-muted">
-          Edits create draft versions. The live URL stays stable until an owner
-          deploys a draft or rolls back to a prior version.
+          Edits create draft versions. Unattended work waits as a proposal. The
+          live URL stays stable until an owner accepts a proposal, deploys a
+          draft, or rolls back to a prior version.
         </p>
         <VersionsPanel
           appId={app.id}
@@ -139,9 +140,13 @@ export default async function ManageAppPage({
             deployedAt: artifact.deployedAt?.toISOString() ?? null,
             createdByName: artifact.createdByName,
             isLive: artifact.isLive,
-            canDeploy: canDeploy && !artifact.isLive,
+            canDeploy:
+              canDeploy &&
+              !artifact.isLive &&
+              artifact.status !== "discarded",
             canDiscard:
-              artifact.status === "draft" &&
+              (artifact.status === "draft" ||
+                artifact.status === "proposed") &&
               (canDeploy || artifact.createdByUserId === sessionUser.id),
             previewUrl: `/api/apps/${app.id}/versions/${artifact.id}/content`,
           }))}

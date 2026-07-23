@@ -14,6 +14,10 @@ import {
 import { scrubBindingsForClient } from "@/lib/app-data-bindings";
 import { deriveBindingsFromTurnTools } from "@/lib/app-data-bootstrap";
 import { computeLineDelta } from "@/lib/artifact-diff";
+import {
+  type OutputProposalContext,
+  withOutputProposal,
+} from "@/lib/output-proposals";
 import type { ToolCall, ToolResult } from "@ai-workspace/agent";
 
 const MAX_ARTIFACTS_PER_MESSAGE = 5;
@@ -64,6 +68,7 @@ interface CreateArtifactsInput {
    */
   turnToolCalls?: readonly ToolCall[];
   turnToolResults?: readonly ToolResult[];
+  proposal?: OutputProposalContext | null;
 }
 
 export interface ParsedArtifact {
@@ -93,6 +98,7 @@ export async function createArtifactsFromAssistantMessage({
   separateFromArtifact,
   turnToolCalls,
   turnToolResults,
+  proposal,
 }: CreateArtifactsInput): Promise<WorkspaceArtifactSummary[]> {
   const parsed = parseAssistantArtifacts(assistantText);
   if (parsed.length === 0) return [];
@@ -136,7 +142,7 @@ export async function createArtifactsFromAssistantMessage({
             content: artifact.content,
             sizeBytes: Buffer.byteLength(artifact.content, "utf8"),
             source: "assistant-code-block",
-            metadata: {
+            metadata: withOutputProposal({
               ...artifact.metadata,
               artifactKey: version.artifactKey,
               originalFilename: artifact.filename,
@@ -155,7 +161,7 @@ export async function createArtifactsFromAssistantMessage({
                 const delta = computeLineDelta(priorContent, artifact.content);
                 return delta ? { lineDelta: delta } : {};
               })(),
-            },
+            }, proposal),
           })),
         )
         .onConflictDoNothing({
@@ -193,7 +199,19 @@ export async function createArtifactsFromAssistantMessage({
           filename: row.filename,
           versionNumber: row.versionNumber,
         },
-        metadata: { kind: row.kind, mimeType: row.mimeType, sizeBytes: row.sizeBytes },
+        metadata: {
+          kind: row.kind,
+          mimeType: row.mimeType,
+          sizeBytes: row.sizeBytes,
+          ...(proposal
+            ? {
+                outputProposal: {
+                  status: "proposed",
+                  triggerType: proposal.triggerType,
+                },
+              }
+            : {}),
+        },
         startedAt: auditNow,
         completedAt: auditNow,
       })),

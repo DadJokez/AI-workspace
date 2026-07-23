@@ -87,6 +87,230 @@ test.describe("chat workflow regressions", () => {
     expect(transcript).toContain("demo-artifact.html (html, 1.3 KB)");
   });
 
+  test("reviews and accepts an unattended artifact proposal in the current chat", async ({
+    page,
+  }) => {
+    const proposal = {
+      ...defaultArtifactSummary,
+      id: "artifact-proposal-report",
+      title: "Weekly report",
+      filename: "weekly-report.md",
+      kind: "document",
+      mimeType: "text/markdown",
+      artifactGroupId: "weekly-report",
+      versionNumber: 2,
+      supersedesArtifactId: "artifact-report-v1",
+      versionSummary: "Updated the launch risks and next steps.",
+      metadata: {
+        lineDelta: { added: 3, removed: 1, approximate: false },
+        outputProposal: {
+          status: "proposed",
+          runId: "run-proposal-report",
+          triggerType: "scheduled",
+          createdAt: "2026-07-23T12:00:00.000Z",
+        },
+      },
+    };
+    const accepted = {
+      ...proposal,
+      metadata: {
+        ...proposal.metadata,
+        outputProposal: {
+          ...proposal.metadata.outputProposal,
+          status: "accepted",
+          decidedAt: "2026-07-23T12:05:00.000Z",
+          decidedByUserId: "user-e2e",
+        },
+      },
+    };
+    let receivedDecision: Record<string, unknown> | undefined;
+
+    await installMockComparativeApi(page, {
+      artifactDetails: {
+        [proposal.id]: {
+          ...proposal,
+          content: "# Weekly report\n\nLaunch risks and next steps.",
+        },
+      },
+      onChat: async (_body, route) => {
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-proposal-report",
+            modelId: "sonnet-4-6",
+          },
+          {
+            type: "text-delta",
+            delta: "The scheduled report update is ready for review.",
+          },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-proposal-report",
+            artifacts: [proposal],
+            recommendations: [],
+          },
+          { type: "done", stopReason: "completed" },
+        ]);
+      },
+      onArtifactProposal: async (artifactId, body, route) => {
+        expect(artifactId).toBe(proposal.id);
+        receivedDecision = body;
+        await json(route, { artifact: accepted });
+      },
+    });
+
+    await gotoE2EChat(page);
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Refresh the weekly report.");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    const card = page.getByTestId("output-proposal-card");
+    await expect(card).toContainText("Needs review");
+    await expect(card).toContainText(
+      "Updated the launch risks and next steps.",
+    );
+    await expect(card).toContainText("+3 -1 lines");
+    await expect(page.getByTestId("artifact-pill")).toHaveCount(0);
+
+    await card.getByRole("button", { name: "Preview" }).click();
+    await expect(
+      page.getByRole("complementary", { name: "Artifact preview" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Close preview" }).click();
+
+    await card.getByRole("button", { name: "Accept" }).click();
+    await expect.poll(() => receivedDecision).toEqual({
+      decision: "accepted",
+    });
+    await expect(card).toHaveCount(0);
+    await expect(page.getByTestId("artifact-pill")).toContainText(
+      "weekly-report.md",
+    );
+  });
+
+  test("discards an unattended app proposal while preserving its history", async ({
+    page,
+  }) => {
+    const threadId = "thread-app-proposal";
+    const appId = "app-proposal";
+    const versionId = "version-proposal-4";
+    const proposal = {
+      ...defaultArtifactSummary,
+      id: "artifact-app-proposal",
+      title: "Revenue Dashboard",
+      filename: "revenue-dashboard.html",
+      artifactGroupId: "revenue-dashboard",
+      versionNumber: 4,
+      supersedesArtifactId: "artifact-app-v3",
+      versionSummary: "Added the forecast variance panel.",
+      metadata: {
+        lineDelta: { added: 12, removed: 2, approximate: false },
+        outputProposal: {
+          status: "proposed",
+          runId: "run-app-proposal",
+          triggerType: "github_event",
+          createdAt: "2026-07-23T12:00:00.000Z",
+        },
+      },
+    };
+    const version = {
+      id: versionId,
+      appId,
+      appName: "Revenue Dashboard",
+      appSlug: "revenue-dashboard",
+      artifactId: proposal.id,
+      versionNumber: 4,
+      status: "proposed",
+      canDeploy: true,
+      previewUrl: `/api/apps/${appId}/versions/${versionId}/content`,
+      liveUrl: "/apps/revenue-dashboard",
+    };
+    const threadMessages: Record<string, unknown[]> = { [threadId]: [] };
+    let receivedDiscard: Record<string, unknown> | undefined;
+
+    await installMockComparativeApi(page, {
+      threadMessages,
+      onChat: async (_body, route) => {
+        await fulfillSse(route, [
+          { type: "meta", threadId, modelId: "sonnet-4-6" },
+          {
+            type: "text-delta",
+            delta: "The event-triggered app update is ready for review.",
+          },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-app-proposal",
+            artifacts: [proposal],
+            appDraftVersions: [version],
+            recommendations: [],
+          },
+          { type: "done", stopReason: "completed" },
+        ]);
+      },
+      onAppVersionPatch: async (
+        receivedAppId,
+        receivedVersionId,
+        body,
+        route,
+      ) => {
+        expect(receivedAppId).toBe(appId);
+        expect(receivedVersionId).toBe(versionId);
+        receivedDiscard = body;
+        threadMessages[threadId] = [
+          userMessage({
+            id: "user-app-proposal",
+            content: "Review the app proposal.",
+          }),
+          assistantMessage({
+            id: "assistant-app-proposal",
+            content: "The event-triggered app update is ready for review.",
+            artifacts: [
+              {
+                ...proposal,
+                metadata: {
+                  ...proposal.metadata,
+                  outputProposal: {
+                    ...proposal.metadata.outputProposal,
+                    status: "discarded",
+                    reason: "Discarded during proposal review.",
+                  },
+                },
+              },
+            ],
+            appDraftVersions: [
+              { ...version, status: "discarded", canDeploy: false },
+            ],
+          }),
+        ];
+        await json(route, {
+          version: { id: versionId, status: "discarded" },
+        });
+      },
+    });
+
+    await gotoE2EChat(page);
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Review the app proposal.");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    const card = page.getByTestId("app-draft-card");
+    await expect(card).toContainText("Needs review");
+    await expect(card).toContainText("live app has not changed");
+    await expect(card).toContainText("+12 -2 lines");
+    await card.getByRole("button", { name: "Discard" }).click();
+
+    await expect.poll(() => receivedDiscard).toMatchObject({
+      decision: "discarded",
+    });
+    await expect(card).toContainText("Discarded");
+    await expect(card).toContainText("history is preserved");
+    await expect(
+      card.getByRole("button", { name: "Accept and publish" }),
+    ).toHaveCount(0);
+  });
+
   test("shows a completion title when a hidden-tab background run finishes", async ({
     page,
   }) => {

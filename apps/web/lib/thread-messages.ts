@@ -377,8 +377,8 @@ export interface AppVersionTruthRow {
  * dead card can't render (and the next-highest version's card resurfaces via
  * latestAppDraftVersionIds, which is correct). canDeploy narrows only: a
  * summary minted non-deployable can never become deployable here, and
- * anything not currently a plain draft (deployed, reverted, or the live
- * version) is non-actionable.
+ * anything not currently a reviewable draft/proposal (deployed, reverted,
+ * discarded, or the live version) is non-actionable.
  */
 export function reconcileAppDraftVersionSummaries(
   summaries: readonly AppDraftVersionSummary[],
@@ -394,7 +394,7 @@ export function reconcileAppDraftVersionSummaries(
         canDeploy:
           summary.canDeploy &&
           !truth.archived &&
-          truth.status === "draft" &&
+          (truth.status === "draft" || truth.status === "proposed") &&
           truth.id !== truth.liveVersionId,
       },
     ];

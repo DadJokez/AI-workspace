@@ -94,6 +94,7 @@ import {
 } from "@/lib/recommendation-persistence";
 import type { PersistedRecommendation } from "@/lib/recommendations";
 import { createProactiveRunNotification } from "@/lib/notifications";
+import { outputProposalContext } from "@/lib/output-proposals";
 import {
   revalidateConversationResourceResolution,
   type ConversationResourceResolution,
@@ -1256,6 +1257,14 @@ async function persistChatTurnResult({
     terminalStatus === "succeeded"
       ? extractAssistantSources({ toolCalls, toolResults })
       : [];
+  const proposal =
+    lane.kind === "worker"
+      ? outputProposalContext({
+          runId,
+          triggerType: lane.run.triggerType,
+          createdAt: completedAt,
+        })
+      : null;
   const shouldPersistAssistant =
     !suppressAssistantPersistence &&
     shouldPersistAssistantMessage({
@@ -1316,6 +1325,7 @@ async function persistChatTurnResult({
         separateFromArtifact,
         turnToolCalls: toolCalls,
         turnToolResults: toolResults,
+        proposal,
       });
       if (artifacts.length > 0) {
         await appendTurnRunEvent(lane, {
@@ -1333,6 +1343,7 @@ async function persistChatTurnResult({
             threadId,
             artifacts,
             sourceContentOmitted: appEditSourceOmitted,
+            proposal,
           });
           appDraftVersions = appDrafts.summaries;
           if (appDrafts.created.length > 0 || appDrafts.rejected.length > 0) {
@@ -1501,7 +1512,13 @@ async function persistChatTurnResult({
         sources,
       };
     }
-    await createProactiveRunNotification(db, lane.run, terminalStatus, threadId);
+    await createProactiveRunNotification(
+      db,
+      lane.run,
+      terminalStatus,
+      threadId,
+      { hasProposal: proposal !== null && artifacts.length > 0 },
+    );
   }
 
   if (terminalStatus === "succeeded" && assistantMessageId) {

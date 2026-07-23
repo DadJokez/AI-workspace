@@ -247,9 +247,12 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   const {
     recommendationPendingId,
     appDraftPendingId,
+    artifactProposalPendingId,
     runActionPendingId,
     handleRecommendationAction,
     handleAppDraftDeploy,
+    handleAppProposalDiscard,
+    handleArtifactProposalAction,
     runAction,
   } = useChatActions({
     activeTab,
@@ -384,12 +387,19 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
           suggestions={emptyStateSuggestions}
           recommendationPendingId={recommendationPendingId}
           appDraftPendingId={appDraftPendingId}
+          artifactProposalPendingId={artifactProposalPendingId}
           runActionPendingId={runActionPendingId}
           stickToBottomRef={stickToBottomRef}
           onPickSuggestion={(suggestion) => void send(suggestion)}
           onOpenIntegrations={() => setSettingsSection("integrations")}
           onOpenArtifact={openArtifactPreview}
           onDeployAppDraft={(version) => void handleAppDraftDeploy(version)}
+          onDiscardAppProposal={(version) =>
+            void handleAppProposalDiscard(version)
+          }
+          onArtifactProposalAction={(artifact, decision) =>
+            void handleArtifactProposalAction(artifact, decision)
+          }
           onRecommendationAction={(recommendation, status) =>
             void handleRecommendationAction(recommendation, status)
           }

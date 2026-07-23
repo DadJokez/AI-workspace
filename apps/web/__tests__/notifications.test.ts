@@ -144,6 +144,23 @@ describe("createProactiveRunNotification", () => {
     });
   });
 
+  it("asks the owner to review unattended output before it changes live state", async () => {
+    const { db, captured } = fakeDb([[{ name: "Weekly Status" }]]);
+
+    await createProactiveRunNotification(
+      db,
+      scheduledRun(),
+      "succeeded",
+      THREAD_ID,
+      { hasProposal: true },
+    );
+
+    expect(captured.inserts[0]).toMatchObject({
+      body:
+        "New work is ready for review. Open the thread to preview the proposal and accept or discard it.",
+    });
+  });
+
   it("notifies the owner when a durable chat run finishes", async () => {
     for (const triggerType of ["chat", "chat_retry"]) {
       const { db, captured } = fakeDb();

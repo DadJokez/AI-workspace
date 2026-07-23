@@ -16,6 +16,7 @@ import type {
   RecommendationStatus,
 } from "@/lib/recommendations";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import type { OutputProposalDecision } from "@/lib/output-proposals";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 
 const STICK_BOTTOM_THRESHOLD = 100;
@@ -31,12 +32,18 @@ interface ChatThreadProps {
   suggestions: string[] | null;
   recommendationPendingId?: string;
   appDraftPendingId?: string;
+  artifactProposalPendingId?: string;
   runActionPendingId?: string;
   stickToBottomRef: MutableRefObject<boolean>;
   onPickSuggestion: (suggestion: string) => void;
   onOpenIntegrations: () => void;
   onOpenArtifact: (artifact: WorkspaceArtifactSummary) => void;
   onDeployAppDraft: (version: AppDraftVersionSummary) => void;
+  onDiscardAppProposal: (version: AppDraftVersionSummary) => void;
+  onArtifactProposalAction: (
+    artifact: WorkspaceArtifactSummary,
+    decision: OutputProposalDecision,
+  ) => void;
   onRecommendationAction: (
     recommendation: PersistedRecommendation,
     status: RecommendationStatus,
@@ -61,12 +68,15 @@ export function ChatThread({
   suggestions,
   recommendationPendingId,
   appDraftPendingId,
+  artifactProposalPendingId,
   runActionPendingId,
   stickToBottomRef,
   onPickSuggestion,
   onOpenIntegrations,
   onOpenArtifact,
   onDeployAppDraft,
+  onDiscardAppProposal,
+  onArtifactProposalAction,
   onRecommendationAction,
   onRunAction,
   onOpenRunInspector,
@@ -82,6 +92,8 @@ export function ChatThread({
   const messageActionsRef = useRef<ChatMessageRowActions>({
     openArtifact: onOpenArtifact,
     deployAppDraft: onDeployAppDraft,
+    discardAppProposal: onDiscardAppProposal,
+    artifactProposalAction: onArtifactProposalAction,
     recommendationAction: onRecommendationAction,
     runAction: onRunAction,
     openRunInspector: onOpenRunInspector,
@@ -106,6 +118,8 @@ export function ChatThread({
     messageActionsRef.current = {
       openArtifact: onOpenArtifact,
       deployAppDraft: onDeployAppDraft,
+      discardAppProposal: onDiscardAppProposal,
+      artifactProposalAction: onArtifactProposalAction,
       recommendationAction: onRecommendationAction,
       runAction: onRunAction,
       openRunInspector: onOpenRunInspector,
@@ -114,6 +128,8 @@ export function ChatThread({
     };
   }, [
     onDeployAppDraft,
+    onDiscardAppProposal,
+    onArtifactProposalAction,
     onEdit,
     onOpenArtifact,
     onOpenRunInspector,
@@ -252,6 +268,7 @@ export function ChatThread({
                 }
                 recommendationPendingId={recommendationPendingId}
                 appDraftPendingId={appDraftPendingId}
+                artifactProposalPendingId={artifactProposalPendingId}
                 runActionPendingId={runActionPendingId}
                 deferOffscreenRendering={deferOffscreenRendering}
                 actionsRef={messageActionsRef}

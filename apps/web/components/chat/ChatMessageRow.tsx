@@ -10,6 +10,7 @@ import type {
   RecommendationStatus,
 } from "@/lib/recommendations";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import type { OutputProposalDecision } from "@/lib/output-proposals";
 import {
   memo,
   type CSSProperties,
@@ -24,6 +25,11 @@ const OFFSCREEN_MESSAGE_STYLE = {
 export interface ChatMessageRowActions {
   openArtifact: (artifact: WorkspaceArtifactSummary) => void;
   deployAppDraft: (version: AppDraftVersionSummary) => void;
+  discardAppProposal: (version: AppDraftVersionSummary) => void;
+  artifactProposalAction: (
+    artifact: WorkspaceArtifactSummary,
+    decision: OutputProposalDecision,
+  ) => void;
   recommendationAction: (
     recommendation: PersistedRecommendation,
     status: RecommendationStatus,
@@ -47,6 +53,7 @@ export interface ChatMessageRowProps {
   editable: boolean;
   recommendationPendingId?: string;
   appDraftPendingId?: string;
+  artifactProposalPendingId?: string;
   runActionPendingId?: string;
   deferOffscreenRendering: boolean;
   actionsRef: MutableRefObject<ChatMessageRowActions>;
@@ -66,6 +73,7 @@ export function areChatMessageRowPropsEqual(
     previous.editable === next.editable &&
     previous.recommendationPendingId === next.recommendationPendingId &&
     previous.appDraftPendingId === next.appDraftPendingId &&
+    previous.artifactProposalPendingId === next.artifactProposalPendingId &&
     previous.runActionPendingId === next.runActionPendingId &&
     previous.deferOffscreenRendering === next.deferOffscreenRendering &&
     previous.actionsRef === next.actionsRef
@@ -82,6 +90,7 @@ function ChatMessageRowComponent({
   editable,
   recommendationPendingId,
   appDraftPendingId,
+  artifactProposalPendingId,
   runActionPendingId,
   deferOffscreenRendering,
   actionsRef,
@@ -127,11 +136,18 @@ function ChatMessageRowComponent({
         onDeployAppDraft={(version) =>
           actionsRef.current.deployAppDraft(version)
         }
+        onDiscardAppProposal={(version) =>
+          actionsRef.current.discardAppProposal(version)
+        }
+        onArtifactProposalAction={(artifact, decision) =>
+          actionsRef.current.artifactProposalAction(artifact, decision)
+        }
         onRecommendationAction={(recommendation, status) =>
           actionsRef.current.recommendationAction(recommendation, status)
         }
         recommendationPendingId={recommendationPendingId}
         appDraftPendingId={appDraftPendingId}
+        artifactProposalPendingId={artifactProposalPendingId}
         onRegenerate={
           showRegenerate
             ? () => actionsRef.current.regenerate()

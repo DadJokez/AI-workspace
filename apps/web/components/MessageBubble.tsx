@@ -25,6 +25,10 @@ import type { AppDraftVersionSummary } from "@/lib/app-draft-versions";
 import { escapeBareOrderedListMarkers } from "@/lib/chat-markdown";
 import { parseSlashDisplayMessage } from "@/lib/skill-commands";
 import { formatMessageTimestamp } from "@/lib/message-time";
+import {
+  outputProposalFromMetadata,
+  type OutputProposalDecision,
+} from "@/lib/output-proposals";
 import { useEffect, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -57,12 +61,18 @@ interface Props {
   assistantName?: string | null;
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
   onDeployAppDraft?: (version: AppDraftVersionSummary) => void;
+  onDiscardAppProposal?: (version: AppDraftVersionSummary) => void;
+  onArtifactProposalAction?: (
+    artifact: WorkspaceArtifactSummary,
+    decision: OutputProposalDecision,
+  ) => void;
   onRecommendationAction?: (
     recommendation: PersistedRecommendation,
     status: RecommendationStatus,
   ) => void;
   recommendationPendingId?: string;
   appDraftPendingId?: string;
+  artifactProposalPendingId?: string;
   onEdit?: () => void;
   onRegenerate?: () => void;
 }
@@ -89,9 +99,12 @@ export function MessageBubble({
   assistantName,
   onOpenArtifact,
   onDeployAppDraft,
+  onDiscardAppProposal,
+  onArtifactProposalAction,
   onRecommendationAction,
   recommendationPendingId,
   appDraftPendingId,
+  artifactProposalPendingId,
   onEdit,
   onRegenerate,
 }: Props) {
@@ -180,6 +193,21 @@ export function MessageBubble({
     role === "assistant" && !showThinking
       ? splitAssistantContent(content, artifacts, Boolean(pending))
       : [];
+  const appArtifactIds = new Set(
+    appDraftVersions.map((version) => version.artifactId),
+  );
+  const standaloneProposalArtifacts = artifacts.filter((artifact) => {
+    const proposal = outputProposalFromMetadata(artifact.metadata);
+    return (
+      (proposal?.status === "proposed" ||
+        proposal?.status === "discarded") &&
+      !appArtifactIds.has(artifact.id)
+    );
+  });
+  const normalArtifacts = artifacts.filter((artifact) => {
+    const proposal = outputProposalFromMetadata(artifact.metadata);
+    return proposal?.status !== "proposed" && proposal?.status !== "discarded";
+  });
 
   // Suppress the "Assistant" label-only stub left behind when a turn errors
   // out before any text streamed. The error bar carries the message instead.
@@ -243,8 +271,19 @@ export function MessageBubble({
           onOpenArtifact={onOpenArtifact}
         />
       ) : null}
-      {role === "assistant" && artifacts.length > 0 ? (
-        <ArtifactStrip artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
+      {role === "assistant" && standaloneProposalArtifacts.length > 0 ? (
+        <ArtifactProposalStrip
+          artifacts={standaloneProposalArtifacts}
+          pendingId={artifactProposalPendingId}
+          onOpenArtifact={onOpenArtifact}
+          onAction={onArtifactProposalAction}
+        />
+      ) : null}
+      {role === "assistant" && normalArtifacts.length > 0 ? (
+        <ArtifactStrip
+          artifacts={normalArtifacts}
+          onOpenArtifact={onOpenArtifact}
+        />
       ) : null}
       {role === "assistant" && appDraftVersions.length > 0 ? (
         <AppDraftStrip
@@ -253,6 +292,7 @@ export function MessageBubble({
           pendingId={appDraftPendingId}
           onOpenArtifact={onOpenArtifact}
           onDeploy={onDeployAppDraft}
+          onDiscard={onDiscardAppProposal}
         />
       ) : null}
       {role === "assistant" && recommendations.length > 0 ? (
@@ -335,12 +375,14 @@ function AppDraftStrip({
   pendingId,
   onOpenArtifact,
   onDeploy,
+  onDiscard,
 }: {
   versions: AppDraftVersionSummary[];
   artifacts: WorkspaceArtifactSummary[];
   pendingId?: string;
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
   onDeploy?: (version: AppDraftVersionSummary) => void;
+  onDiscard?: (version: AppDraftVersionSummary) => void;
 }) {
   return (
     <div className="mt-2 flex flex-col gap-2">
@@ -354,11 +396,14 @@ function AppDraftStrip({
         // version that was live and has since been superseded. It must not
         // read as a fresh draft.
         const reverted = version.status === "reverted";
+        const proposed = version.status === "proposed";
+        const discarded = version.status === "discarded";
         const statusDot = deployed
           ? "bg-success"
-          : reverted
+          : reverted || discarded
             ? "bg-muted"
             : "bg-info";
+        const delta = artifactLineDelta(artifact);
         return (
           <div
             key={version.id}
@@ -371,7 +416,15 @@ function AppDraftStrip({
               <span className="font-medium">{version.appName}</span>
               <span className="text-muted">v{version.versionNumber}</span>
               <span className="ml-auto rounded bg-subtle px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-muted">
-                {deployed ? "Live" : reverted ? "Superseded" : "Draft"}
+                {deployed
+                  ? "Live"
+                  : reverted
+                    ? "Superseded"
+                    : discarded
+                      ? "Discarded"
+                      : proposed
+                        ? "Needs review"
+                        : "Draft"}
               </span>
             </div>
             <p className="mt-1 text-muted">
@@ -379,8 +432,15 @@ function AppDraftStrip({
                 ? "This version is now live."
                 : reverted
                   ? "This version is no longer live."
-                  : "Draft saved. The live app has not changed."}
+                  : discarded
+                    ? "This proposal was discarded. Its history is preserved."
+                    : proposed
+                      ? `${artifact?.versionSummary ?? "A background run proposed this update."} The live app has not changed.`
+                      : "Draft saved. The live app has not changed."}
             </p>
+            {delta ? (
+              <p className="mt-1 font-mono text-2xs text-muted">{delta}</p>
+            ) : null}
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
@@ -397,26 +457,144 @@ function AppDraftStrip({
                 >
                   Open app
                 </a>
-              ) : reverted ? null : version.canDeploy ? (
+              ) : reverted || discarded ? null : version.canDeploy ? (
                 <button
                   type="button"
                   disabled={pending || !onDeploy}
                   onClick={() => onDeploy?.(version)}
                   className="rounded-md border border-accent bg-accent px-2 py-1 text-2xs font-medium text-on-accent hover:bg-accent/90 disabled:opacity-50"
                 >
-                  {pending ? "Deploying..." : "Deploy update"}
+                  {pending
+                    ? proposed
+                      ? "Accepting..."
+                      : "Deploying..."
+                    : proposed
+                      ? "Accept and publish"
+                      : "Deploy update"}
                 </button>
               ) : (
                 <span className="text-2xs text-muted">
                   Ready for an owner to deploy
                 </span>
               )}
+              {proposed && onDiscard ? (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => onDiscard(version)}
+                  className="rounded-md border border-hairline px-2 py-1 text-2xs font-medium text-ink hover:bg-subtle disabled:opacity-50"
+                >
+                  Discard
+                </button>
+              ) : null}
             </div>
           </div>
         );
       })}
     </div>
   );
+}
+
+function ArtifactProposalStrip({
+  artifacts,
+  pendingId,
+  onOpenArtifact,
+  onAction,
+}: {
+  artifacts: WorkspaceArtifactSummary[];
+  pendingId?: string;
+  onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+  onAction?: (
+    artifact: WorkspaceArtifactSummary,
+    decision: OutputProposalDecision,
+  ) => void;
+}) {
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      {artifacts.map((artifact) => {
+        const proposal = outputProposalFromMetadata(artifact.metadata);
+        if (!proposal) return null;
+        const pending = pendingId === artifact.id;
+        const discarded = proposal.status === "discarded";
+        const delta = artifactLineDelta(artifact);
+        return (
+          <div
+            key={artifact.id}
+            data-testid="output-proposal-card"
+            data-artifact-id={artifact.id}
+            className="rounded-md border border-hairline bg-surface px-3 py-2.5 text-xs text-ink"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${discarded ? "bg-muted" : "bg-info"}`}
+              />
+              <span className="min-w-0 truncate font-medium">
+                {artifact.filename}
+              </span>
+              <span className="ml-auto rounded bg-subtle px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-muted">
+                {discarded ? "Discarded" : "Needs review"}
+              </span>
+            </div>
+            <p className="mt-1 text-muted">
+              {discarded
+                ? "This proposal was discarded. Its history is preserved."
+                : (artifact.versionSummary ??
+                  "A background run proposed this document update.")}
+            </p>
+            {delta ? (
+              <p className="mt-1 font-mono text-2xs text-muted">{delta}</p>
+            ) : null}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                disabled={!onOpenArtifact}
+                onClick={() => onOpenArtifact?.(artifact)}
+                className="rounded-md border border-hairline px-2 py-1 text-2xs font-medium text-ink hover:bg-subtle disabled:opacity-40"
+              >
+                Preview
+              </button>
+              {!discarded ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={pending || !onAction}
+                    onClick={() => onAction?.(artifact, "accepted")}
+                    className="rounded-md border border-accent bg-accent px-2 py-1 text-2xs font-medium text-on-accent hover:bg-accent/90 disabled:opacity-50"
+                  >
+                    {pending ? "Saving..." : "Accept"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pending || !onAction}
+                    onClick={() => onAction?.(artifact, "discarded")}
+                    className="rounded-md border border-hairline px-2 py-1 text-2xs font-medium text-ink hover:bg-subtle disabled:opacity-50"
+                  >
+                    Discard
+                  </button>
+                </>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function artifactLineDelta(
+  artifact: WorkspaceArtifactSummary | undefined,
+): string | null {
+  const value = artifact?.metadata?.lineDelta;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const delta = value as Record<string, unknown>;
+  if (
+    typeof delta.added !== "number" ||
+    typeof delta.removed !== "number"
+  ) {
+    return null;
+  }
+  const approximate = delta.approximate === true ? "~" : "";
+  return `${approximate}+${delta.added} -${delta.removed} lines`;
 }
 
 function RecommendationStrip({

@@ -54,6 +54,17 @@ interface MockChatOptions {
     body: Record<string, unknown>,
     route: Route,
   ) => Promise<void> | void;
+  onAppVersionPatch?: (
+    appId: string,
+    versionId: string,
+    body: Record<string, unknown>,
+    route: Route,
+  ) => Promise<void> | void;
+  onArtifactProposal?: (
+    artifactId: string,
+    body: Record<string, unknown>,
+    route: Route,
+  ) => Promise<void> | void;
 }
 
 export interface MockNotification {
@@ -549,6 +560,20 @@ export async function installMockComparativeApi(
       });
     }
 
+    const appVersionMatch =
+      /^\/api\/apps\/([^/]+)\/versions\/([^/]+)$/.exec(path);
+    if (appVersionMatch && request.method() === "PATCH") {
+      const appId = decodeURIComponent(appVersionMatch[1]!);
+      const versionId = decodeURIComponent(appVersionMatch[2]!);
+      const body = await postJson(request);
+      if (options.onAppVersionPatch) {
+        return options.onAppVersionPatch(appId, versionId, body, route);
+      }
+      return json(route, {
+        version: { id: versionId, status: "discarded" },
+      });
+    }
+
     const skillRunMatch = /^\/api\/skills\/([^/]+)\/run$/.exec(path);
     if (skillRunMatch) {
       const body = await postJson(request);
@@ -565,6 +590,12 @@ export async function installMockComparativeApi(
     const artifactMatch = /^\/api\/workspace\/artifacts\/([^/]+)$/.exec(path);
     if (artifactMatch) {
       const artifactId = decodeURIComponent(artifactMatch[1]!);
+      if (request.method() === "PATCH") {
+        const body = await postJson(request);
+        if (options.onArtifactProposal) {
+          return options.onArtifactProposal(artifactId, body, route);
+        }
+      }
       return json(route, { artifact: artifactDetails[artifactId] });
     }
 

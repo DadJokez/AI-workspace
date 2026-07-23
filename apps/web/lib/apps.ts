@@ -50,6 +50,10 @@ import {
   isAppDraftVersionStatus,
   type AppDraftVersionSummary,
 } from "@/lib/app-draft-versions";
+import {
+  decideOutputProposalMetadata,
+  type OutputProposalContext,
+} from "@/lib/output-proposals";
 
 /**
  * Thin apps (J4 slice, specs/002-skills-spine US5): an app is a registry row
@@ -327,13 +331,17 @@ export function canListAppVersionForActor(
   }: { actorRole: AppActorRole; visibleToUserId?: string },
 ): boolean {
   if (actorRole === "owner" || actorRole === "admin") return true;
+  const privateWork =
+    version.status === "draft" ||
+    version.status === "proposed" ||
+    version.status === "discarded";
   if (actorRole === "editor") {
     return (
-      version.status !== "draft" ||
+      !privateWork ||
       (!!visibleToUserId && version.createdByUserId === visibleToUserId)
     );
   }
-  return version.status !== "draft";
+  return !privateWork;
 }
 
 export function chooseAppEditContextVersion<T>({
@@ -482,7 +490,7 @@ export async function createAppVersionForArtifact({
   app: Pick<App, "id" | "ownerUserId" | "sourceThreadId">;
   artifactId: string;
   createdByUserId: string;
-  status?: "draft" | "deployed" | "reverted";
+  status?: AppDraftVersionSummary["status"];
   summary?: string | null;
   deployedAt?: Date | null;
   sourceThreadId?: string | null;
@@ -563,16 +571,56 @@ export async function deployAppVersion({
     previousLiveVersionId && version.versionNumber < previousLiveVersionNumber
       ? "app_rollback"
       : "app_deploy";
+  const acceptedProposalMetadata =
+    version.status === "proposed"
+      ? decideOutputProposalMetadata({
+          metadata: artifact.metadata,
+          decision: "accepted",
+          decidedAt: now,
+          decidedByUserId: actorUserId,
+        })
+      : null;
+  if (version.status === "proposed" && !acceptedProposalMetadata) {
+    throw new Error("Proposal metadata is missing or no longer pending.");
+  }
 
   return db.transaction(async (tx) => {
     await tx
       .update(appVersions)
       .set({ status: "reverted" })
-      .where(and(eq(appVersions.appId, app.id), eq(appVersions.status, "deployed")));
-    await tx
-      .update(appVersions)
-      .set({ status: "deployed", deployedAt: now })
-      .where(eq(appVersions.id, version.id));
+      .where(
+        and(
+          eq(appVersions.appId, app.id),
+          eq(appVersions.status, "deployed"),
+          ne(appVersions.id, version.id),
+        ),
+      );
+    if (version.status === "proposed") {
+      const promoted = await tx
+        .update(appVersions)
+        .set({ status: "deployed", deployedAt: now })
+        .where(
+          and(
+            eq(appVersions.id, version.id),
+            eq(appVersions.status, "proposed"),
+          ),
+        )
+        .returning({ id: appVersions.id });
+      if (!promoted[0]) {
+        throw new Error("Proposal is no longer pending.");
+      }
+    } else {
+      await tx
+        .update(appVersions)
+        .set({ status: "deployed", deployedAt: now })
+        .where(eq(appVersions.id, version.id));
+    }
+    if (acceptedProposalMetadata) {
+      await tx
+        .update(workspaceArtifacts)
+        .set({ metadata: acceptedProposalMetadata, updatedAt: now })
+        .where(eq(workspaceArtifacts.id, artifact.id));
+    }
     const updated = await tx
       .update(apps)
       .set({
@@ -634,6 +682,28 @@ export async function deployAppVersion({
       startedAt: now,
       completedAt: now,
     });
+    if (version.status === "proposed") {
+      await tx.insert(auditLog).values({
+        actorUserId,
+        actionType: "proposal_accepted",
+        status: "succeeded",
+        provider: "ai-hub",
+        toolName: app.slug,
+        chatThreadId: version.sourceThreadId,
+        runId: artifact.runId,
+        input: {
+          appId: app.id,
+          appVersionId: version.id,
+          artifactId: artifact.id,
+        },
+        metadata: {
+          subjectType: "app_version",
+          versionNumber: version.versionNumber,
+        },
+        startedAt: now,
+        completedAt: now,
+      });
+    }
     return updated[0]!;
   });
 }
@@ -932,6 +1002,7 @@ export async function createDraftAppVersionsForThreadArtifacts({
   threadId,
   artifacts,
   sourceContentOmitted,
+  proposal,
 }: {
   db: Database;
   userId: string;
@@ -945,6 +1016,7 @@ export async function createDraftAppVersionsForThreadArtifacts({
    * the chain must fail compilation, never silently mint.
    */
   sourceContentOmitted: boolean;
+  proposal?: OutputProposalContext | null;
 }): Promise<{
   created: AppVersion[];
   summaries: AppDraftVersionSummary[];
@@ -1055,16 +1127,16 @@ export async function createDraftAppVersionsForThreadArtifacts({
       app: active.app,
       artifactId: artifact.id,
       createdByUserId: userId,
-      status: "draft",
+      status: proposal ? "proposed" : "draft",
       summary:
         artifact.versionSummary ??
-        `Draft created from ${artifact.filename}.`,
+        `${proposal ? "Proposal" : "Draft"} created from ${artifact.filename}.`,
       sourceThreadId: threadId,
     });
     await auditAppMutation({
       db,
       actorUserId: userId,
-      actionType: "app_draft_created",
+      actionType: proposal ? "app_proposal_created" : "app_draft_created",
       appId: active.app.id,
       appSlug: active.app.slug,
       metadata: {
@@ -1073,6 +1145,9 @@ export async function createDraftAppVersionsForThreadArtifacts({
         artifactId: artifact.id,
         threadId,
         versionNumber: version.versionNumber,
+        ...(proposal
+          ? { triggerType: proposal.triggerType, runId: proposal.runId }
+          : {}),
       },
     });
     created.push(version);
@@ -1094,7 +1169,9 @@ export async function createDraftAppVersionsForThreadArtifacts({
       status: isAppDraftVersionStatus(version.status)
         ? version.status
         : "reverted",
-      canDeploy: canAppRoleDeploy(actorRole) && version.status === "draft",
+      canDeploy:
+        canAppRoleDeploy(actorRole) &&
+        (version.status === "draft" || version.status === "proposed"),
       previewUrl: `/api/apps/${active.app.id}/versions/${version.id}/content`,
       liveUrl: `/apps/${active.app.slug}`,
     })),
@@ -1146,6 +1223,7 @@ export async function auditAppMutation({
     | "app_edit_session_start"
     | "app_edit_session_complete"
     | "app_draft_created"
+    | "app_proposal_created"
     | "app_draft_blocked_source_omitted"
     | "app_draft_failed_secret_scan"
     | "app_deploy_denied"

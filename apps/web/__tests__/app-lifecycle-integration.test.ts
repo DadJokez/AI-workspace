@@ -285,6 +285,107 @@ describe("app lifecycle stateful paths", () => {
     );
   });
 
+  it("accepts a proposed app version by deploying it and closing its artifact proposal", async () => {
+    const { db, state } = createDbMock();
+    const app = makeApp({ liveVersionId: "version-2" });
+    const version = makeVersion({
+      id: "version-3",
+      artifactId: "artifact-1",
+      versionNumber: 3,
+      status: "proposed",
+      sourceThreadId: "edit-thread-1",
+    });
+    const updated = makeApp({
+      liveVersionId: version.id,
+      liveArtifactId: version.artifactId,
+    });
+    const artifact = makeArtifact({
+      userId: ownerSession.id,
+      metadata: {
+        outputProposal: {
+          status: "proposed",
+          runId: "run-1",
+          triggerType: "scheduled",
+          createdAt: "2026-07-23T12:00:00.000Z",
+        },
+      },
+    });
+
+    state.selectQueue = [[{ versionNumber: 2 }]];
+    state.returningQueue = [
+      [{ id: version.id }],
+      [updated],
+      [{ id: "session-1", threadId: "edit-thread-1" }],
+    ];
+    installMocks(db, ownerSession);
+    loadWorkspaceArtifactById.mockResolvedValue(artifact);
+
+    const { deployAppVersion } = await import("@/lib/apps");
+    const result = await deployAppVersion({
+      db: db as never,
+      app,
+      version,
+      actorUserId: ownerSession.id,
+    });
+
+    expect(result.liveVersionId).toBe(version.id);
+    expect(state.updateSets).toContainEqual(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          outputProposal: expect.objectContaining({
+            status: "accepted",
+            decidedByUserId: ownerSession.id,
+          }),
+        }),
+      }),
+    );
+    expect(state.insertValues).toContainEqual(
+      expect.objectContaining({
+        actionType: "proposal_accepted",
+        actorUserId: ownerSession.id,
+        runId: "run-1",
+      }),
+    );
+  });
+
+  it("refuses proposal promotion when a concurrent decision already won", async () => {
+    const { db, state } = createDbMock();
+    const app = makeApp({ liveVersionId: "version-2" });
+    const version = makeVersion({
+      id: "version-3",
+      status: "proposed",
+      versionNumber: 3,
+    });
+    state.selectQueue = [[{ versionNumber: 2 }]];
+    state.returningQueue = [[]];
+    installMocks(db, ownerSession);
+    loadWorkspaceArtifactById.mockResolvedValue(
+      makeArtifact({
+        metadata: {
+          outputProposal: {
+            status: "proposed",
+            runId: "run-1",
+            triggerType: "scheduled",
+            createdAt: "2026-07-23T12:00:00.000Z",
+          },
+        },
+      }),
+    );
+
+    const { deployAppVersion } = await import("@/lib/apps");
+    await expect(
+      deployAppVersion({
+        db: db as never,
+        app,
+        version,
+        actorUserId: ownerSession.id,
+      }),
+    ).rejects.toThrow("Proposal is no longer pending");
+    expect(state.insertValues).not.toContainEqual(
+      expect.objectContaining({ actionType: "proposal_accepted" }),
+    );
+  });
+
   it.each([
     ["version id", { appVersionId: "version-1" }],
     ["artifact fallback", { artifactId: "artifact-1" }],
@@ -318,6 +419,29 @@ describe("app lifecycle stateful paths", () => {
 
     expect(res.status).toBe(404);
     await expect(res.json()).resolves.toMatchObject({ error: "app_not_found" });
+  });
+
+  it("does not allow a discarded proposal to be deployed later", async () => {
+    const { db, state } = createDbMock();
+    state.selectQueue = [
+      [makeApp()],
+      [makeVersion({ status: "discarded" })],
+    ];
+    installMocks(db, ownerSession);
+
+    const { POST } = await import("@/app/api/apps/[id]/deploy/route");
+    const res = await POST(
+      makeJsonRequest({ appVersionId: "version-1" }),
+      {
+        params: Promise.resolve({ id: "app-1" }),
+      },
+    );
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "version_not_deployable",
+    });
+    expect(loadWorkspaceArtifactById).not.toHaveBeenCalled();
   });
 
   it("hides another editor's draft when discarding a version", async () => {
@@ -474,6 +598,136 @@ describe("app lifecycle stateful paths", () => {
           threadId: "edit-thread-1",
           versionNumber: 4,
         }),
+      }),
+    );
+  });
+
+  it("creates a proposed version for unattended app output without changing the live version", async () => {
+    const { db, state } = createDbMock();
+    const createdVersion = makeVersion({
+      id: "version-4",
+      versionNumber: 4,
+      status: "proposed",
+      createdByUserId: editorSession.id,
+      sourceThreadId: "edit-thread-1",
+    });
+    state.selectQueue = [
+      [{ session: makeSession(), app: makeApp() }],
+      [{ role: "user" }],
+      [{ role: "editor" }],
+      [],
+      [{ versionNumber: 3 }],
+    ];
+    state.returningQueue = [[createdVersion]];
+    installMocks(db, editorSession);
+    loadWorkspaceArtifactById.mockResolvedValue(
+      makeArtifact({
+        metadata: {
+          outputProposal: {
+            status: "proposed",
+            runId: "run-1",
+            triggerType: "scheduled",
+            createdAt: "2026-07-23T12:00:00.000Z",
+          },
+        },
+      }),
+    );
+
+    const { createDraftAppVersionsForThreadArtifacts } = await import("@/lib/apps");
+    const result = await createDraftAppVersionsForThreadArtifacts({
+      db: db as never,
+      userId: editorSession.id,
+      threadId: "edit-thread-1",
+      artifacts: [makeArtifactSummary()],
+      sourceContentOmitted: false,
+      proposal: {
+        runId: "run-1",
+        triggerType: "scheduled",
+        createdAt: "2026-07-23T12:00:00.000Z",
+      },
+    });
+
+    expect(result.summaries[0]).toMatchObject({
+      id: "version-4",
+      status: "proposed",
+      canDeploy: false,
+    });
+    expect(state.insertValues).toContainEqual(
+      expect.objectContaining({
+        appId: "app-1",
+        artifactId: "artifact-1",
+        status: "proposed",
+      }),
+    );
+    expect(state.updateSets).toHaveLength(0);
+    expect(state.insertValues).toContainEqual(
+      expect.objectContaining({
+        actionType: "app_proposal_created",
+      }),
+    );
+  });
+
+  it("discards a proposed app version without deleting its history", async () => {
+    const { db, state } = createDbMock();
+    const app = makeApp();
+    const version = makeVersion({
+      id: "version-proposed",
+      status: "proposed",
+      createdByUserId: ownerSession.id,
+    });
+    const artifact = makeArtifact({
+      userId: ownerSession.id,
+      metadata: {
+        outputProposal: {
+          status: "proposed",
+          runId: "run-1",
+          triggerType: "github_event",
+          createdAt: "2026-07-23T12:00:00.000Z",
+        },
+      },
+    });
+    state.selectQueue = [[app], [version], [artifact]];
+    state.returningQueue = [[{ id: version.id }]];
+    installMocks(db, ownerSession);
+
+    const { PATCH } = await import(
+      "@/app/api/apps/[id]/versions/[versionId]/route"
+    );
+    const res = await PATCH(
+      new Request(
+        "http://localhost/api/apps/app-1/versions/version-proposed",
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            decision: "discarded",
+            reason: "No longer needed",
+          }),
+        },
+      ),
+      {
+        params: Promise.resolve({
+          id: "app-1",
+          versionId: "version-proposed",
+        }),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    expect(state.updateSets).toContainEqual({ status: "discarded" });
+    expect(state.updateSets).toContainEqual(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          outputProposal: expect.objectContaining({
+            status: "discarded",
+            reason: "No longer needed",
+          }),
+        }),
+      }),
+    );
+    expect(state.insertValues).toContainEqual(
+      expect.objectContaining({
+        actionType: "proposal_discarded",
       }),
     );
   });
