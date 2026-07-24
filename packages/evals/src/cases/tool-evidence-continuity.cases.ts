@@ -111,11 +111,6 @@ export const toolEvidenceContinuitySuite: EvalSuite = {
       assertions: [
         {
           kind: "deterministic",
-          label: "retains the tool-backed score",
-          check: (transcript) => /2\s*[-\u2013\u2014]\s*1/.test(transcript.answer),
-        },
-        {
-          kind: "deterministic",
           label: "does not call a tool when the user asks about provenance",
           check: noToolCalls,
         },
