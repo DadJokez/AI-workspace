@@ -441,6 +441,77 @@ describe("processPendingMemoryCaptures", () => {
     ).toEqual([]);
   });
 
+  it("keeps a grounded memory when may is a modal verb", async () => {
+    const { db, captured } = happyPathDb({
+      messages: [
+        {
+          id: "msg-1",
+          role: "user" as const,
+          content: "I sometimes deploy on weekends.",
+          createdAt: new Date("2026-07-24T09:00:00Z"),
+        },
+      ],
+    });
+    scriptSuggestions([
+      {
+        category: "preferences",
+        title: "Weekend deploys",
+        bodyMd: "The user may deploy on weekends.",
+        confidence: 82,
+        reason: "This is a recurring working preference.",
+        sourceThreadId: "thread-1",
+        sourceMessageIds: ["msg-1"],
+      },
+    ]);
+
+    const result = await processPendingMemoryCaptures({ db });
+
+    expect(result).toEqual({ status: "processed", captures: 1, suggestions: 1 });
+    expect(
+      captured.inserts.find(
+        (insert) => insert.table === "user_memory_items",
+      )?.values,
+    ).toEqual([
+      expect.objectContaining({
+        title: "Weekend deploys",
+        bodyMd: "The user may deploy on weekends.",
+      }),
+    ]);
+  });
+
+  it("still rejects an invented May date when its day number appears elsewhere", async () => {
+    const { db, captured } = happyPathDb({
+      messages: [
+        {
+          id: "msg-1",
+          role: "user" as const,
+          content: "I sometimes deploy on weekends and maintain 28 services.",
+          createdAt: new Date("2026-07-24T09:00:00Z"),
+        },
+      ],
+    });
+    scriptSuggestions([
+      {
+        category: "preferences",
+        title: "Weekend deploys",
+        bodyMd: "The user may deploy on May 28.",
+        confidence: 82,
+        reason: "This is a recurring working preference.",
+        sourceThreadId: "thread-1",
+        sourceMessageIds: ["msg-1"],
+      },
+    ]);
+
+    const result = await processPendingMemoryCaptures({ db });
+
+    expect(result).toEqual({ status: "processed", captures: 1, suggestions: 0 });
+    expect(
+      captured.inserts.filter(
+        (insert) => insert.table === "user_memory_items",
+      ),
+    ).toEqual([]);
+  });
+
   it("keeps user-stated relative dates and collapses equivalent proposals", async () => {
     const pilotMessages = [
       {

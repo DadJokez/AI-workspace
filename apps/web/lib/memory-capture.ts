@@ -886,7 +886,7 @@ function tokenSimilarity(left: string, right: string): number {
   return intersection / new Set([...leftTokens, ...rightTokens]).size;
 }
 
-const TEMPORAL_FACT_WORDS = new Map([
+const MONTH_FACT_WORDS = new Map([
   ["january", "january"],
   ["jan", "january"],
   ["february", "february"],
@@ -911,6 +911,9 @@ const TEMPORAL_FACT_WORDS = new Map([
   ["nov", "november"],
   ["december", "december"],
   ["dec", "december"],
+]);
+
+const WEEKDAY_FACT_WORDS = new Map([
   ["monday", "monday"],
   ["mondays", "monday"],
   ["tuesday", "tuesday"],
@@ -927,6 +930,21 @@ const TEMPORAL_FACT_WORDS = new Map([
   ["sundays", "sunday"],
 ]);
 
+const MONTH_CONTEXT_WORDS = new Set([
+  "after",
+  "around",
+  "before",
+  "by",
+  "during",
+  "from",
+  "in",
+  "mid",
+  "on",
+  "since",
+  "through",
+  "until",
+]);
+
 function unsupportedGroundingFacts(
   proposalText: string,
   sourceText: string,
@@ -938,12 +956,28 @@ function unsupportedGroundingFacts(
 
 function groundingFacts(value: string): Set<string> {
   const facts = new Set<string>();
+  // This is a lexical warning screen, not semantic entailment. Reused numeric
+  // tokens can have different meanings, so every captured item still requires
+  // user approval.
   for (const match of value.matchAll(/\d+/g)) {
     facts.add(`number:${match[0]}`);
   }
-  for (const match of value.toLowerCase().matchAll(/[a-z]+/g)) {
-    const temporal = TEMPORAL_FACT_WORDS.get(match[0]);
-    if (temporal) facts.add(`calendar:${temporal}`);
+  const tokens = [...value.toLowerCase().matchAll(/[a-z]+|\d+/g)].map(
+    (match) => match[0],
+  );
+  for (const [index, token] of tokens.entries()) {
+    const weekday = WEEKDAY_FACT_WORDS.get(token);
+    if (weekday) facts.add(`calendar:${weekday}`);
+
+    const month = MONTH_FACT_WORDS.get(token);
+    if (!month) continue;
+    const previous = tokens[index - 1] ?? "";
+    const next = tokens[index + 1] ?? "";
+    const hasDateContext =
+      /^\d+$/.test(previous) ||
+      /^\d+$/.test(next) ||
+      MONTH_CONTEXT_WORDS.has(previous);
+    if (hasDateContext) facts.add(`calendar:${month}`);
   }
   for (const match of value.toLowerCase().matchAll(/°\s*([cf])\b/g)) {
     facts.add(`temperature:${match[1]}`);
