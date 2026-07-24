@@ -293,6 +293,72 @@ describe("runAgentLoop required tools", () => {
   });
 });
 
+class ToolLimitClient implements BedrockClient {
+  readonly captured: ConverseStreamParams[] = [];
+
+  async *converseStream(
+    params: ConverseStreamParams,
+  ): AsyncIterable<BedrockStreamEvent> {
+    this.captured.push(params);
+    if (this.captured.length <= 2) {
+      yield {
+        type: "tool-use",
+        id: `lookup-${this.captured.length}`,
+        name: "lookup",
+        input: { page: this.captured.length },
+      };
+      yield { type: "stop", reason: "tool_use" };
+      return;
+    }
+    yield { type: "text-delta", text: "Final answer from saved results." };
+    yield { type: "stop", reason: "end_turn" };
+  }
+}
+
+describe("runAgentLoop tool iteration limit", () => {
+  it("adds one tool-free synthesis step after the final allowed tool round", async () => {
+    const client = new ToolLimitClient();
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "lookup",
+      description: "Look up one page.",
+      inputSchema: {
+        type: "object",
+        properties: { page: { type: "number" } },
+      },
+      handler: async () => ({ value: "result" }),
+    });
+
+    const events = [];
+    for await (const event of runAgentLoop({
+      modelId: "haiku-4-5",
+      messages: [{ role: "user", content: "Analyze all pages." }],
+      registry,
+      maxToolIterations: 2,
+      context: { userId: "u1" },
+      client,
+    })) {
+      events.push(event);
+    }
+
+    expect(client.captured).toHaveLength(3);
+    expect(client.captured[0]?.toolConfig).toBeDefined();
+    expect(client.captured[1]?.toolConfig).toBeDefined();
+    expect(client.captured[2]?.toolConfig).toBeUndefined();
+    expect(client.captured[2]?.volatileSystemSuffix).toContain(
+      "reached this turn's tool-step limit",
+    );
+    expect(events).toContainEqual({
+      type: "text-delta",
+      delta: "Final answer from saved results.",
+    });
+    expect(events.filter((event) => event.type === "tool-result")).toHaveLength(
+      2,
+    );
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+});
+
 class ReasoningToolClient implements BedrockClient {
   readonly captured: ConverseStreamParams[] = [];
 

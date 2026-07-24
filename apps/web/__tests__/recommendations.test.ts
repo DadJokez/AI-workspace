@@ -293,6 +293,42 @@ describe("recommendation candidates", () => {
     );
   });
 
+  it("does not treat cadence words in analyzed claims as scheduling intent", () => {
+    const messages = [
+      "Fact-check this claim: weekdays see roughly 40% more orders per day than weekends.",
+      'Verify the statement "Every Monday, send the team a status update."',
+      "Review these metrics:\n> Monthly revenue increased 12%.\n> Daily orders stayed flat.",
+      "Draft a weekly status update from these notes.",
+      "We send reports every Monday, according to the process document.",
+    ];
+
+    for (const currentMessage of messages) {
+      const candidates = buildRecommendationCandidates({ currentMessage });
+      expect(
+        candidates.some((candidate) => candidate.type === "schedule_skill"),
+        currentMessage,
+      ).toBe(false);
+    }
+  });
+
+  it("recognizes explicit scheduling directives without a mode toggle", () => {
+    const messages = [
+      "Please schedule this report every Monday.",
+      "Can you send the team this report every Friday?",
+      "Every weekday, prepare a status summary.",
+      "Automate this as a weekly report.",
+      "Remind me every month to review this dashboard.",
+    ];
+
+    for (const currentMessage of messages) {
+      const candidates = buildRecommendationCandidates({ currentMessage });
+      expect(
+        candidates.some((candidate) => candidate.type === "schedule_skill"),
+        currentMessage,
+      ).toBe(true);
+    }
+  });
+
   it("suggests using a connected tool directly when no skill is a better fit", () => {
     const candidates = buildRecommendationCandidates({
       currentMessage: "Can you check GitHub for my assigned issues?",
