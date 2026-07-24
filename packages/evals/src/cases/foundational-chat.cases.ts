@@ -142,7 +142,7 @@ export const foundationalChatSuite: EvalSuite = {
           kind: "deterministic",
           label: "states that the requested price is unavailable",
           check: (transcript) =>
-            /(not provided|isn'?t provided|not included|not established|unavailable|unknown|don'?t know|do not know|need the price|missing|no pric(?:e|ing)(?: information)?|(?:does not|doesn'?t) (?:include|provide|state|establish) (?:the )?(?:renewal )?price|don'?t have (?:any )?(?:information|details?) (?:about|on) (?:the )?(?:renewal )?price|do not have (?:any )?(?:information|details?) (?:about|on) (?:the )?(?:renewal )?price)/i.test(
+            /(not provided|isn'?t provided|not included|not established|not specified|unavailable|unknown|don'?t know|do not know|need the price|missing|no pric(?:e|ing)(?: information)?|(?:does not|doesn'?t) (?:include|provide|state|establish) (?:the )?(?:renewal )?price|don'?t have (?:any )?(?:information|details?) (?:about|on) (?:the )?(?:renewal )?price|do not have (?:any )?(?:information|details?) (?:about|on) (?:the )?(?:renewal )?price)/i.test(
               transcript.answer,
             ),
         },
