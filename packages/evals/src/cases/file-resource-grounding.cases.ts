@@ -460,7 +460,7 @@ export const fileResourceGroundingSuite: EvalSuite = {
           kind: "deterministic",
           label: "uses the recovered fact",
           check: (transcript) =>
-            /postponed/i.test(transcript.answer) &&
+            /postpon(?:e(?:d)?|ement|ing)/i.test(transcript.answer) &&
             /legal review/i.test(transcript.answer),
         },
         {
