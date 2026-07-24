@@ -104,10 +104,17 @@ function hasGitHubToolError(t: TurnTranscript) {
 }
 
 function doesNotDenyConnectedTool(t: TurnTranscript) {
+  const denialPatterns = [
+    /\bno tools are connected\b/i,
+    /\b(?:your\s+)?github\s+(?:is\s+not|isn't)\s+connected\b/i,
+    /\b(?:your\s+)?github\s+is\s+(?:disconnected|unavailable|not wired up)\b/i,
+    /\b(?:don'?t|do not|cannot|can'?t)\s+(?:have\s+)?access\s+to\s+(?:your\s+)?github\b/i,
+    /\b(?:cannot|can'?t)\s+access\s+(?:your\s+)?github\b/i,
+  ];
   const denial =
-    t.answer.match(
-      /\b(not connected|no tools are connected|don't have access|do not have access|cannot access|can't access)\b/i,
-    )?.[0] ?? "";
+    denialPatterns
+      .map((pattern) => t.answer.match(pattern)?.[0])
+      .find((match): match is string => Boolean(match)) ?? "";
   return {
     ok: !denial,
     detail: denial ? `denied connected GitHub with "${denial}"` : undefined,
