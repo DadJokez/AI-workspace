@@ -73,6 +73,18 @@ describe("buildChatTranscriptMarkdown", () => {
     expect(transcript).toContain("[succeeded] Stored assistant answer");
     expect(transcript).toContain("- Error: Artifact extraction failed");
   });
+
+  it("preserves literal angle-bracket placeholders in user prompts", () => {
+    const content =
+      "Reply exactly: C4V07A|<customer>|<revenue> and keep Array<string>.";
+    const transcript = buildChatTranscriptMarkdown({
+      title: "Literal placeholders",
+      messages: [{ role: "user", content }],
+      exportedAt: new Date("2026-07-24T12:00:00.000Z"),
+    });
+
+    expect(transcript).toContain(content);
+  });
 });
 
 describe("chatTranscriptFilename", () => {

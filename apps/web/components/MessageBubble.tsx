@@ -355,7 +355,6 @@ function UserMarkdown({ content }: { content: string }) {
       components={USER_MARKDOWN_COMPONENTS}
       allowedElements={USER_MARKDOWN_ELEMENTS}
       unwrapDisallowed
-      skipHtml
     >
       {content}
     </ReactMarkdown>

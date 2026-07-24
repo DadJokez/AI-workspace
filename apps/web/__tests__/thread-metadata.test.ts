@@ -42,6 +42,82 @@ describe("buildThreadPresentationMetadata", () => {
     expect(metadata.previewSummary).toContain("artifact preview pane");
   });
 
+  it.each([
+    "When does Northstar start?",
+    "List the phases in order.",
+    "What day does the pilot start and how many testers did I specify?",
+  ])("keeps the conversation subject across follow-up: %s", (followUp) => {
+    const metadata = buildThreadPresentationMetadata({
+      currentTitle: "Plan the Northstar pilot for twelve testers",
+      titleSource: "auto",
+      messages: [
+        {
+          role: "user",
+          content:
+            "Plan the Northstar pilot for twelve testers. It starts Tuesday and has three phases.",
+        },
+        {
+          role: "assistant",
+          content:
+            "I outlined the Northstar pilot, Tuesday start, and three phases.",
+        },
+        { role: "user", content: followUp },
+        { role: "assistant", content: "Tuesday, with twelve testers." },
+      ],
+    });
+
+    expect(metadata.title).toBeUndefined();
+    expect(metadata.previewSummary).toContain("Started:");
+    expect(metadata.previewSummary).toContain("Northstar pilot");
+  });
+
+  it("repairs an auto title that mirrors only the latest follow-up", () => {
+    const metadata = buildThreadPresentationMetadata({
+      currentTitle: "When does Northstar start",
+      titleSource: "auto",
+      messages: [
+        {
+          role: "user",
+          content:
+            "Plan the Northstar pilot for twelve testers. It starts Tuesday.",
+        },
+        {
+          role: "assistant",
+          content: "I drafted the Northstar pilot plan.",
+        },
+        { role: "user", content: "When does Northstar start?" },
+        { role: "assistant", content: "It starts Tuesday." },
+      ],
+    });
+
+    expect(metadata.title).toBe(
+      "Plan the Northstar pilot for twelve testers",
+    );
+  });
+
+  it("upgrades a generic opener when the real subject arrives", () => {
+    const metadata = buildThreadPresentationMetadata({
+      currentTitle: "Can you help me with this",
+      titleSource: "auto",
+      messages: [
+        { role: "user", content: "Can you help me with this?" },
+        { role: "assistant", content: "Absolutely. What are we working on?" },
+        {
+          role: "user",
+          content: "Review the Beacon launch plan and identify its risks.",
+        },
+        {
+          role: "assistant",
+          content: "I reviewed the Beacon launch plan and found three risks.",
+        },
+      ],
+    });
+
+    expect(metadata.title).toBe(
+      "Review the Beacon launch plan and identify its risks",
+    );
+  });
+
   it("strips code blocks out of preview summaries", () => {
     const metadata = buildThreadPresentationMetadata({
       currentTitle: "HTML",

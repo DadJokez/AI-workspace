@@ -234,24 +234,54 @@ test.describe("chat shell guardrails", () => {
       .toBe(rawMarkdown);
   });
 
-  test("renders user code and links through the restricted markdown pipeline", async ({
+  test("renders user code, links, and literal brackets through the restricted markdown pipeline", async ({
     page,
-  }) => {
-    await installMockComparativeApi(page);
-    await gotoE2EChat(page);
-
+  }, testInfo) => {
     const prompt = [
       "Please review `inlineValue` and this block:",
       "```js",
       "const answer = 42;",
       "```",
       "[Reference](https://example.com/reference)",
+      "C4V07A|<customer>|<revenue>",
+      "Array<string>",
+      "<order><id>42</id></order>",
+      "3 < 5 and 8 > 2",
       "# This stays compact",
       "| Unsafe | table |",
       "| --- | --- |",
       '<img src="x" onerror="window.__userMarkdownXss = true">',
     ].join("\n");
-    await page.getByPlaceholder(/ask anything/i).fill(prompt);
+    await installMockComparativeApi(page, {
+      threads: [
+        {
+          id: "thread-literal-brackets",
+          title: "Literal bracket prompt",
+          defaultModelId: "sonnet-4-6",
+          summary: null,
+          summaryUpdatedAt: null,
+          previewSummary: null,
+          previewSummaryUpdatedAt: null,
+          titleSource: "auto",
+          createdAt: "2026-06-14T20:00:00.000Z",
+          updatedAt: "2026-06-14T20:00:00.000Z",
+        },
+      ],
+      threadMessages: {
+        "thread-literal-brackets": [
+          userMessage({ id: "user-literal-brackets", content: prompt }),
+          assistantMessage({
+            id: "assistant-literal-brackets",
+            content: "Literal placeholders preserved.",
+          }),
+        ],
+      },
+    });
+    await gotoE2EChat(page);
+
+    const composer = page.getByPlaceholder(/ask anything/i);
+    await composer.fill(prompt);
+    await expect(composer).toHaveValue(prompt);
     await page.getByRole("button", { name: "Send" }).click();
 
     const message = page.getByTestId("user-message").last();
@@ -262,6 +292,13 @@ test.describe("chat shell guardrails", () => {
     await expect(
       message.getByRole("link", { name: "Reference" }),
     ).toHaveAttribute("href", "https://example.com/reference");
+    await expect(message).toContainText("C4V07A|<customer>|<revenue>");
+    await expect(message).toContainText("Array<string>");
+    await expect(message).toContainText("<order><id>42</id></order>");
+    await expect(message).toContainText("3 < 5 and 8 > 2");
+    await expect(message).toContainText(
+      '<img src="x" onerror="window.__userMarkdownXss = true">',
+    );
     await expect(message.locator("h1, table, img")).toHaveCount(0);
     expect(
       await page.evaluate(
@@ -270,6 +307,21 @@ test.describe("chat shell guardrails", () => {
             .__userMarkdownXss,
       ),
     ).toBeUndefined();
+
+    await page.reload();
+    const sidebar = await openPrimarySidebar(
+      page,
+      testInfo.project.name.includes("mobile"),
+    );
+    await sidebar
+      .getByRole("button", { name: /literal bracket prompt/i })
+      .click();
+    const persisted = page
+      .getByTestId("user-message")
+      .filter({ hasText: "C4V07A|<customer>|<revenue>" });
+    await expect(persisted).toContainText("C4V07A|<customer>|<revenue>");
+    await expect(persisted).toContainText("Array<string>");
+    await expect(persisted).toContainText("<order><id>42</id></order>");
   });
 
   test("edits and resends a prior user message on the same thread", async ({

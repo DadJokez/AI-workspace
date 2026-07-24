@@ -53,13 +53,51 @@ export function buildThreadPresentationMetadata({
   }
 
   if (titleSource !== "manual") {
-    const nextTitle = makeThreadTitle(latestUser);
+    const nextTitle = nextAutomaticThreadTitle({
+      currentTitle,
+      firstUser,
+      latestUser,
+    });
     if (nextTitle && nextTitle !== currentTitle?.trim()) {
       metadata.title = nextTitle;
     }
   }
 
   return metadata;
+}
+
+function nextAutomaticThreadTitle({
+  currentTitle,
+  firstUser,
+  latestUser,
+}: {
+  currentTitle?: string | null;
+  firstUser: string;
+  latestUser: string;
+}): string | undefined {
+  const firstTitle = makeThreadTitle(firstUser);
+  const latestTitle = makeThreadTitle(latestUser);
+  const current = currentTitle?.trim();
+  if (!current || isLowSignalTurn(current)) return firstTitle;
+
+  const currentCanonical = makeThreadTitle(current);
+  const currentKey = normalizeForCompare(currentCanonical);
+  const firstKey = normalizeForCompare(firstTitle);
+  const latestKey = normalizeForCompare(latestTitle);
+
+  // Normalize the initial route title once (for example, drop "Can you"),
+  // then keep that subject stable as terse follow-ups arrive.
+  if (currentKey === firstKey) {
+    return current === firstTitle ? undefined : firstTitle;
+  }
+
+  // Repair titles written by the former latest-message policy without
+  // replacing an independently useful auto title.
+  if (firstKey !== latestKey && currentKey === latestKey) {
+    return firstTitle;
+  }
+
+  return undefined;
 }
 
 export async function refreshThreadPresentationMetadata({
@@ -169,8 +207,13 @@ function latestSubstantive(values: string[]): string | undefined {
 function isLowSignalTurn(value: string): boolean {
   const normalized = value.toLowerCase().replace(/[.!?]+$/g, "").trim();
   if (normalized.length < 8) return true;
-  return /^(hey|hi|hello|yo|ok|okay|cool|thanks|thank you|sounds good|go ahead|do it|merge it|yes|no|nice|great|perfect)$/.test(
-    normalized,
+  return (
+    /^(hey|hi|hello|yo|ok|okay|cool|thanks|thank you|sounds good|go ahead|do it|merge it|yes|no|nice|great|perfect)$/.test(
+      normalized,
+    ) ||
+    /^(?:(?:quick|one|a)\s+)?question(?:\s+(?:about|on)\s+(?:this|something))?$|^(?:can|could|would)\s+you\s+help(?:\s+me)?(?:\s+with\s+(?:this|something))?$|^i\s+need\s+(?:some\s+)?help$/.test(
+      normalized,
+    )
   );
 }
 
