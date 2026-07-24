@@ -1,5 +1,6 @@
 import type { ToolCall, ToolResult } from "@ai-workspace/agent";
 import {
+  redactProviderToolError,
   redactProviderToolPayload,
   redactToolCall,
   redactToolResult,
@@ -78,12 +79,14 @@ export function createToolEventAccumulator(
             : {}),
           output:
             call?.provider === "resources"
-              ? redactProviderToolPayload({
-                  provider: call.provider,
-                  toolName: call.toolName,
-                  direction: "output",
-                  value: result.output,
-                })
+              ? result.isError === true
+                ? redactProviderToolError(call.provider, result.output)
+                : redactProviderToolPayload({
+                    provider: call.provider,
+                    toolName: call.toolName,
+                    direction: "output",
+                    value: result.output,
+                  })
               : result.output,
           isError: result.isError === true,
           ...(result.usageNotesDelivered

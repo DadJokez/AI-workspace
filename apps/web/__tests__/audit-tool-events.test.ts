@@ -302,6 +302,41 @@ describe("buildToolAuditRows", () => {
     expect(JSON.stringify(rows[0])).not.toContain("private-recipient@example.com");
   });
 
+  it("keeps safe resource validation semantics in audit rows", () => {
+    const rows = buildToolAuditRows({
+      ...base,
+      calls: [
+        {
+          id: "call_resource_failed",
+          name: "resources__query",
+          provider: "resources",
+          toolName: "query",
+          input: {
+            redacted: true,
+            resourceId: "resource-1",
+            operation: "search",
+          },
+          startedAt: "2026-05-15T12:00:00.000Z",
+        },
+      ],
+      results: [
+        {
+          toolCallId: "call_resource_failed",
+          provider: "resources",
+          toolName: "query",
+          output:
+            'Resource validation error: Operation "search" is not valid for a tabular resource.',
+          isError: true,
+          completedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    });
+
+    expect(rows[0]?.error).toBe(
+      'Resource validation error: Operation "search" is not valid for a tabular resource.',
+    );
+  });
+
   it("keeps unmatched results auditable", () => {
     const rows = buildToolAuditRows({
       ...base,
