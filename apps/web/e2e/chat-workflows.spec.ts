@@ -287,7 +287,12 @@ test.describe("chat workflow regressions", () => {
           }),
         ],
       },
-      threadExports: { [threadId]: transcript },
+      threadExports: {
+        [threadId]: {
+          title,
+          markdown: transcript,
+        },
+      },
     });
 
     await gotoE2EChat(page);
@@ -310,7 +315,9 @@ test.describe("chat workflow regressions", () => {
       page.getByRole("button", { name: "Download chat transcript" }).click(),
       exportRequest,
     ]);
-    expect(download.suggestedFilename()).toBe(`${threadId}.md`);
+    expect(download.suggestedFilename()).toMatch(
+      /^\d{4}-\d{2}-\d{2}-reloaded-transcript\.md$/,
+    );
     const downloadPath = await download.path();
     expect(downloadPath).toBeTruthy();
     const downloaded = await readFile(downloadPath!, "utf8");
@@ -320,31 +327,11 @@ test.describe("chat workflow regressions", () => {
   });
 
   test("downloads the active chat as markdown", async ({ page }) => {
-    const transcript = [
-      "# Please make this exportable.",
-      "",
-      "- Thread ID: thread-export",
-      "",
-      "## 1. User",
-      "",
-      "Please make this exportable.",
-      "",
-      "## 2. Assistant",
-      "",
-      "Exportable answer with enough detail for a transcript and artifact.",
-      "",
-      "### Artifacts",
-      "",
-      "- demo-artifact.html (html, 1.3 KB)",
-      "",
-    ].join("\n");
     await installMockComparativeApi(page, {
-      threadExports: { "thread-export": transcript },
       onChat: async (_body, route) => {
         await fulfillSse(route, [
           {
             type: "meta",
-            threadId: "thread-export",
             modelId: "sonnet-4-6",
           },
           {
@@ -378,8 +365,9 @@ test.describe("chat workflow regressions", () => {
       page.waitForEvent("download"),
       page.getByRole("button", { name: "Download chat transcript" }).click(),
     ]);
-    expect(download.suggestedFilename()).toBe("thread-export.md");
-    expect(download.suggestedFilename()).toMatch(/\.md$/);
+    expect(download.suggestedFilename()).toMatch(
+      /^\d{4}-\d{2}-\d{2}-please-make-this-exportable\.md$/,
+    );
 
     const downloadPath = await download.path();
     expect(downloadPath).toBeTruthy();
@@ -389,7 +377,7 @@ test.describe("chat workflow regressions", () => {
     expect(downloaded).toContain(
       "Exportable answer with enough detail for a transcript and artifact.",
     );
-    expect(downloaded).toContain("- Thread ID: thread-export");
+    expect(downloaded).not.toContain("- Thread ID:");
     expect(downloaded).toContain("### Artifacts");
     expect(downloaded).toContain("demo-artifact.html (html, 1.3 KB)");
   });

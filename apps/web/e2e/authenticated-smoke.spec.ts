@@ -149,24 +149,27 @@ test.describe("authenticated product smoke", () => {
     await installMockComparativeApi(page, {
       artifacts: [defaultArtifactSummary],
       threadExports: {
-        "thread-generated": [
-          "# Build a signed-in auth smoke HTML artifact.",
-          "",
-          "- Thread ID: thread-generated",
-          "",
-          "## 1. User",
-          "",
-          "Build a signed-in auth smoke HTML artifact.",
-          "",
-          "## 2. Assistant",
-          "",
-          "Here is the generated app.",
-          "",
-          "### Artifacts",
-          "",
-          "- demo-artifact.html (html, 1.3 KB)",
-          "",
-        ].join("\n"),
+        "thread-generated": {
+          title: "Build a signed-in auth smoke HTML artifact.",
+          markdown: [
+            "# Build a signed-in auth smoke HTML artifact.",
+            "",
+            "- Thread ID: thread-generated",
+            "",
+            "## 1. User",
+            "",
+            "Build a signed-in auth smoke HTML artifact.",
+            "",
+            "## 2. Assistant",
+            "",
+            "Here is the generated app.",
+            "",
+            "### Artifacts",
+            "",
+            "- demo-artifact.html (html, 1.3 KB)",
+            "",
+          ].join("\n"),
+        },
       },
       artifactDetails: {
         [defaultArtifactSummary.id]: {
@@ -239,7 +242,9 @@ test.describe("authenticated product smoke", () => {
       page.waitForEvent("download"),
       page.getByRole("button", { name: "Download chat transcript" }).click(),
     ]);
-    expect(download.suggestedFilename()).toBe("thread-generated.md");
+    expect(download.suggestedFilename()).toMatch(
+      /^\d{4}-\d{2}-\d{2}-build-a-signed-in-auth-smoke-html-artifact\.md$/,
+    );
     const downloadPath = await download.path();
     expect(downloadPath).toBeTruthy();
     const transcript = await readFile(downloadPath!, "utf8");
