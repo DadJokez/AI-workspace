@@ -13,6 +13,7 @@ GitHub receives the narrowly scoped AWS identity needed for real-model checks.
 | Required real core pipeline | Every pull request, every `main` push, every six-hour schedule, and manual dispatch | `pnpm smoke:browser:core` inside `Product Smoke` | On PRs/pushes, fails the existing required `local browser smoke` summary |
 | Foundational real-model PR evals | Every ready, same-repository pull request | `BEDROCK_CLIENT=real pnpm eval --core` inside `Product Smoke` | Fans into and fails the existing required `local browser smoke` result; superseded commits are cancelled |
 | Comprehensive nightly evals | Every day at 07:00 UTC and manual dispatch on `main` | Independent `BEDROCK_CLIENT=real pnpm eval` and app-backed real-Bedrock CSV lanes | Either lane fails the workflow without suppressing the other, retains available reports/screenshots/traces, and independently opens or refreshes the `Nightly evals failing` issue |
+| Advisory Codex browser-user evals | Local Codex scheduled task after canary-profile provisioning, plus manual pre-release runs | `$comparative-browser-evals` through the Codex in-app Browser | Reports exact `PASS`/`FAIL`/`BLOCKED` scorecards in Scheduled; never fans into branch protection |
 
 The real core pipeline canary uses Chromium, a disposable Postgres service, and
 a deterministic test model. It sends a canary CSV through the actual `/api/chat`
@@ -28,6 +29,39 @@ token.
 
 Both real-model lanes fail closed when `AWS_EVAL_ROLE_ARN` is absent. Neither
 can silently produce a green no-op run.
+
+## Codex Browser-User Lane
+
+This lane is separate because GitHub's Linux runners can execute headless
+Playwright but cannot control the desktop app's in-app Browser or its dedicated
+browser profile. Its versioned contract lives in
+`.agents/skills/comparative-browser-evals`.
+
+The two initial canaries cover:
+
+1. a synthetic CSV attached through visible UI, exact grounded facts before
+   and after reload, and a same-file follow-up; and
+2. a uniquely named HTML artifact created and previewed through visible UI,
+   reloaded, revised in place, and verified again after reload.
+
+The scheduled prompt must name the expected visible canary-account label and
+explicitly authorize upload of only the committed synthetic CSV to the
+Comparative target. The browser profile must be signed into that dedicated
+account and the site must be allowed before activation. A login redirect,
+identity mismatch, missing site permission, unavailable target, or unsupported
+browser capability is reported as `BLOCKED` rather than a pass.
+
+The computer and desktop app must be running for local scheduled tasks. The
+canary account is intentionally separate from alpha-tester data, and unattended
+runs do not delete created chats or artifacts because browser deletion requires
+action-time confirmation. Obvious `CBX-…` run ids make canary records
+identifiable for later TTL cleanup.
+
+Do not activate the schedule until the exact prompt passes once manually in the
+in-app Browser. Keep the lane advisory until 30 consecutive stable runs
+establish its infrastructure-failure rate. Any product failure it discovers
+must be reduced to the cheapest deterministic regression before the fix
+merges.
 
 ## Cost And Concurrency Bounds
 

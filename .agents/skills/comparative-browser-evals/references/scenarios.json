@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "comparative-codex-browser-core",
+  "lane": "agentic-browser-advisory",
+  "scenarios": [
+    {
+      "id": "CBX-CORE-CSV-001",
+      "name": "CSV upload, grounding, reload, and follow-up continuity",
+      "priority": "critical",
+      "startPath": "/chat",
+      "fixture": "../assets/codex-browser-canary.csv",
+      "task": [
+        "Start a new chat.",
+        "Attach codex-browser-canary.csv with the visible attachment control.",
+        "Before sending, verify the filename is visible in the composer.",
+        "Send: \"Browser eval {RUN_ID}. Read the attached CSV and find customer CODEX_BROWSER_CANARY_7391. Return one JSON object with exactly these keys: customer, revenue, region. Use the file; do not guess.\"",
+        "Verify the sent user message still shows codex-browser-canary.csv.",
+        "Verify the assistant answer contains CODEX_BROWSER_CANARY_7391, 48217, and East.",
+        "Reload the resulting thread URL.",
+        "Verify the original prompt, filename, and grounded answer remain visible.",
+        "Send: \"Using that same CSV, repeat the customer, revenue, and region as one JSON object. Do not guess.\"",
+        "Verify the second answer contains CODEX_BROWSER_CANARY_7391, 48217, and East."
+      ],
+      "screenshots": [
+        "csv-visible-before-send",
+        "csv-grounded-first-answer",
+        "csv-visible-after-reload",
+        "csv-grounded-follow-up"
+      ],
+      "assertions": [
+        {
+          "id": "csv-visible-before-send",
+          "weight": 15,
+          "critical": true,
+          "expected": "The exact filename codex-browser-canary.csv is visibly attached before send."
+        },
+        {
+          "id": "csv-visible-after-send",
+          "weight": 10,
+          "critical": true,
+          "expected": "The sent user message visibly retains the exact filename."
+        },
+        {
+          "id": "csv-first-answer-grounded",
+          "weight": 25,
+          "critical": true,
+          "expected": "The first assistant answer visibly contains CODEX_BROWSER_CANARY_7391, 48217, and East."
+        },
+        {
+          "id": "csv-survives-reload",
+          "weight": 20,
+          "critical": true,
+          "expected": "After reloading the exact thread URL, the original prompt, attachment filename, and grounded answer are visible."
+        },
+        {
+          "id": "csv-follow-up-grounded",
+          "weight": 20,
+          "critical": true,
+          "expected": "The follow-up answer visibly contains CODEX_BROWSER_CANARY_7391, 48217, and East."
+        },
+        {
+          "id": "csv-no-visible-errors",
+          "weight": 10,
+          "critical": true,
+          "expected": "No send failure, missing-evidence warning, duplicate user turn, framework overlay, or page error appears."
+        }
+      ],
+      "passThreshold": 100,
+      "criticalFailures": [
+        "The filename disappears at any checkpoint.",
+        "The app accepts the turn but the answer omits or contradicts a canary fact.",
+        "Reload loses the prompt, attachment, or answer.",
+        "The follow-up cannot use the same file.",
+        "A visible success state coexists with a send or evidence error."
+      ]
+    },
+    {
+      "id": "CBX-CORE-ARTIFACT-001",
+      "name": "Artifact creation, preview, reload, and in-place revision",
+      "priority": "high",
+      "startPath": "/chat",
+      "task": [
+        "Start a new chat.",
+        "Send: \"Browser eval {RUN_ID}. Create and save an HTML artifact named codex-browser-{RUN_ID}.html. It must contain an h1 with ALPHA_{RUN_ID} and a three-row table containing Cedar, Mica, and Sable. Do not give manual copy/save instructions.\"",
+        "Verify a visible artifact control shows the exact filename codex-browser-{RUN_ID}.html.",
+        "Open the artifact preview through the visible UI and verify ALPHA_{RUN_ID}, Cedar, Mica, and Sable are rendered.",
+        "Return to the same thread, reload it, and reopen the artifact through the visible UI.",
+        "Send: \"Revise the existing codex-browser-{RUN_ID}.html in place. Replace Sable with Umber and add a footer containing REV_{RUN_ID}. Keep the same filename and do not make a copy.\"",
+        "Open the latest preview and verify ALPHA_{RUN_ID}, Cedar, Mica, Umber, and REV_{RUN_ID} are rendered, while Sable is absent.",
+        "Reload once more and verify the same visible filename opens the revised content."
+      ],
+      "screenshots": [
+        "artifact-created",
+        "artifact-initial-preview",
+        "artifact-revised-preview",
+        "artifact-revised-after-reload"
+      ],
+      "assertions": [
+        {
+          "id": "artifact-created",
+          "weight": 15,
+          "critical": true,
+          "expected": "A visible artifact control shows codex-browser-{RUN_ID}.html without manual copy/save instructions."
+        },
+        {
+          "id": "artifact-initial-preview",
+          "weight": 20,
+          "critical": true,
+          "expected": "The preview visibly renders ALPHA_{RUN_ID}, Cedar, Mica, and Sable."
+        },
+        {
+          "id": "artifact-initial-reload",
+          "weight": 15,
+          "critical": true,
+          "expected": "After reload, the same filename remains available and reopens the initial content."
+        },
+        {
+          "id": "artifact-revised-in-place",
+          "weight": 25,
+          "critical": true,
+          "expected": "The revised preview uses the same filename, renders Umber and REV_{RUN_ID}, and no longer renders Sable."
+        },
+        {
+          "id": "artifact-revision-survives-reload",
+          "weight": 15,
+          "critical": true,
+          "expected": "After a second reload, the same visible artifact opens the revised content."
+        },
+        {
+          "id": "artifact-no-visible-errors",
+          "weight": 10,
+          "critical": true,
+          "expected": "No duplicate-copy filename, manual-save claim, framework overlay, send failure, or page error appears."
+        }
+      ],
+      "passThreshold": 100,
+      "criticalFailures": [
+        "The assistant claims creation without a visible artifact.",
+        "Preview content omits or contradicts a sentinel.",
+        "Revision creates a user-visible copy instead of updating the same artifact.",
+        "Sable remains after the revision or REV_{RUN_ID} is absent.",
+        "Reload loses the artifact or reopens stale content."
+      ]
+    }
+  ]
+}

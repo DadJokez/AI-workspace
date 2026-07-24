@@ -57,12 +57,17 @@ lowest-cost layers that can catch its failure modes.
 | Core behavioral eval | Real Bedrock, production-shaped deterministic fixtures | Model instruction following, grounding, tool decisions and qualitative output | Every ready same-repo PR |
 | Full behavioral eval | Real Bedrock, deterministic fixtures | All maintained behavioral and adversarial regressions | Nightly |
 | Browser + real model | Real Bedrock, real API/DB/runtime | Production preamble and resource serialization work through the actual UI and persistence path | Nightly |
+| Codex agent-as-user browser | Codex in-app Browser, deployed app | A browser-operating agent can discover and complete core workflows through visible UI without API or database shortcuts | Nightly advisory / pre-release |
 | Production smoke | Deployed runtime | Deployment configuration, real services, persistence and post-deploy health | After deploy / scheduled |
 | Human calibration | Blinded labelled samples | Automated graders still measure what users consider correct and useful | Weekly during alpha |
 
 Passing a mocked browser test does not substitute for a real-pipeline test.
 Passing a component behavioral eval does not substitute for the app route,
 database, worker, or browser. The layers are intentionally complementary.
+The Codex browser-user lane is also intentionally separate: GitHub-hosted
+Playwright proves deterministic product behavior, while the local Codex
+browser canary measures whether an agent can discover and operate the rendered
+experience.
 
 ## Core coverage matrix
 
@@ -273,6 +278,24 @@ Forked pull requests never receive AWS credentials. No workflow uses
 - a separate timeout-safe GitHub issue job opened or refreshed when either lane
   regresses;
 - retained per-case model, tool trace, evidence, usage, severity, and debug ids.
+
+### Agent-as-user browser
+
+- the repo-local `$comparative-browser-evals` skill defines two visible-UI
+  canaries: CSV upload/grounding/reload/follow-up and artifact
+  creation/preview/in-place revision/reload;
+- once a dedicated browser profile is provisioned and manually verified, a
+  local Codex scheduled task can use the in-app Browser; it never runs as a
+  GitHub-hosted check;
+- each scenario returns `PASS`, `FAIL`, or `BLOCKED`, exact weighted assertions,
+  thread URLs, screenshots, visible errors, and qualitative UX notes;
+- authentication, site permission, target availability, and missing browser
+  capabilities are `BLOCKED`, never green;
+- activation follows one successful manual dry run; the lane then remains
+  advisory until at least 30 consecutive stable runs separate product failures
+  from browser/runtime failures;
+- every product defect it finds becomes a deterministic Playwright,
+  integration, or behavioral regression with the fix.
 
 ### Deployment and production
 
