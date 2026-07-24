@@ -248,7 +248,7 @@ export function buildRecommendationCandidates({
     });
   }
 
-  const cadenceHint = cadenceFromMessage(normalized);
+  const cadenceHint = cadenceFromSchedulingInstruction(currentMessage);
   if (cadenceHint) {
     candidates.push({
       id: matchingSkill
@@ -463,6 +463,51 @@ function cadenceFromMessage(normalized: string): string | null {
   if (/\bevery\s+day\b|\bdaily\b/.test(normalized)) return "daily";
   if (/\bevery\s+month\b|\bmonthly\b/.test(normalized)) return "monthly";
   return null;
+}
+
+function cadenceFromSchedulingInstruction(message: string): string | null {
+  const normalized = normalize(stripQuotedSchedulingData(message));
+  const cadence = cadenceFromMessage(normalized);
+  if (!cadence) return null;
+
+  const explicitSchedulingDirective =
+    /\b(schedule|automate)\b/.test(normalized) ||
+    /\bremind\s+(?:me|us|the team)\b/.test(normalized) ||
+    /\bset\s+(?:this|it|up)\b.{0,80}\b(?:recurring|every|daily|weekly|monthly|weekdays?)\b/.test(
+      normalized,
+    );
+  if (explicitSchedulingDirective) return cadence;
+
+  // Cadence words in reports and claims are data, not action intent. Without
+  // an explicit scheduling verb, accept only an imperative paired with an
+  // "every ..." recurrence phrase (for example, "Every Friday, send...").
+  if (
+    !/\bevery\s+(?:weekday|day|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(
+      normalized,
+    )
+  ) {
+    return null;
+  }
+  const action =
+    "(?:send|run|email|post|create|generate|prepare|check|summarize|publish|notify|draft|review|triage|update)";
+  const directivePrefix =
+    "(?:(?:please|can you|could you|would you|i (?:want|need) you to)\\s+)?";
+  const cadencePattern =
+    "(?:every\\s+(?:weekday|day|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))";
+  return new RegExp(
+    `^(?:${directivePrefix}${action}\\b.{0,120}\\b${cadencePattern}\\b|${cadencePattern}\\b.{0,120}\\b${action}\\b)`,
+  ).test(normalized)
+    ? cadenceFromMessage(normalized)
+    : null;
+}
+
+function stripQuotedSchedulingData(value: string): string {
+  return value
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`\n]*`/g, " ")
+    .replace(/"[^"\n]*"/g, " ")
+    .replace(/“[^”\n]*”/g, " ")
+    .replace(/^\s*>.*$/gm, " ");
 }
 
 function providerMention(normalized: string): string | null {

@@ -174,7 +174,7 @@ describe("summarizeActivity", () => {
         false,
         undefined,
       ),
-    ).toBe("1 step needs attention");
+    ).toBe("Finished with 1 failed step");
   });
 
   it("does not count historical lifecycle events as still running", () => {

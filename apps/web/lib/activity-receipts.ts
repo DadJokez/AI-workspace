@@ -122,7 +122,7 @@ function receiptLabel(
   const failed = events.filter((e) => e.state === "failed").length;
   const base = labels.many(events.length);
   return failed > 0
-    ? `${base} · ${failed} ${failed === 1 ? "needs" : "need"} attention`
+    ? `${base} · ${failed} failed`
     : base;
 }
 

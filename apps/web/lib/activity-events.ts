@@ -86,7 +86,11 @@ export function summarizeActivity(
   if (pending && status) return status;
   if (events.length === 0) return pending ? "Thinking..." : undefined;
   const failed = events.filter((event) => event.state === "failed").length;
-  if (failed > 0) return `${failed} step ${failed === 1 ? "needs" : "need"} attention`;
+  if (failed > 0) {
+    return pending
+      ? `${failed} step ${failed === 1 ? "needs" : "need"} attention`
+      : `Finished with ${failed} failed ${failed === 1 ? "step" : "steps"}`;
+  }
   const pendingCount = events.filter((event) => event.state === "pending").length;
   if (pending && pendingCount > 0) {
     return `${pendingCount} ${pendingCount === 1 ? "step" : "steps"} running`;

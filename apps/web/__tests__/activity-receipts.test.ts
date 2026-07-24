@@ -52,7 +52,7 @@ describe("groupActivityEvents", () => {
     ]);
     expect(receipts[0]).toMatchObject({
       state: "failed",
-      label: "Checked GitHub · 2 steps · 1 needs attention",
+      label: "Checked GitHub · 2 steps · 1 failed",
     });
   });
 
@@ -118,5 +118,19 @@ describe("summarizeActivityReceipts", () => {
         ev({ id: "2", label: "Stored assistant answer", category: "progress" }),
       ]),
     ).toBe("Finished response");
+  });
+
+  it("describes completed grouped failures without implying a blocked run", () => {
+    const receipts = groupActivityEvents([
+      ev({ id: "1", label: "Searched Resources", category: "tools" }),
+      ev({
+        id: "2",
+        label: "Could not search Resources",
+        state: "failed",
+        category: "tools",
+      }),
+    ]);
+
+    expect(receipts[0]?.label).toBe("Used connected tools · 2 steps · 1 failed");
   });
 });
