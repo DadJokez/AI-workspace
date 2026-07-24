@@ -78,7 +78,7 @@ export function ImportSkillPanel() {
         value={markdown}
         onChange={(e) => setMarkdown(e.target.value)}
         rows={10}
-        placeholder={"---\nname: my-skill\ndescription: what it does and when to use it\nmodel: sonnet-4-6\nmcp_providers: []\n---\nYou ..."}
+        placeholder={"---\nname: my-skill\ndescription: what it does and when to use it\nmodel: sonnet-4-5\nmcp_providers: []\n---\nYou ..."}
         className="w-full resize-y rounded-md border border-hairline bg-canvas px-3 py-2 font-mono text-xs text-ink placeholder:text-muted"
       />
       {error ? <p className="text-xs text-danger">{error}</p> : null}

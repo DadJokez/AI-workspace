@@ -66,7 +66,7 @@ function avoidsManualSaveInstructions(transcript: TurnTranscript) {
 
 export const artifactOutputHonestySuite: EvalSuite = {
   capability: "artifact-output-honesty",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "critical",
   tags: ["artifacts", "core", "output-honesty"],
   cases: [

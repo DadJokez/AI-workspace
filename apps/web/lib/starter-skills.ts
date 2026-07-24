@@ -39,7 +39,7 @@ export const STARTER_SKILLS: readonly StarterSkill[] = [
       "---",
       "name: short-kebab-case-slug",
       "description: One sentence — what it does AND when to use it.",
-      "model: sonnet-4-6",
+      "model: sonnet-4-5",
       "mcp_providers: []",
       "---",
       "<clear, specific instructions for the assistant — written in the second person, e.g. 'You produce…'. Tell it to ask for any needed input if the user hasn't provided it. Never instruct it to invent data.>",
@@ -47,13 +47,13 @@ export const STARTER_SKILLS: readonly StarterSkill[] = [
       "",
       "Rules for a good skill:",
       "- `name` is a short kebab-case slug; `description` states what it does and when to use it.",
-      "- Choose `model`: **haiku-4-5** for short/simple/fast tasks, **sonnet-4-6** for writing, reasoning, or analysis (default to sonnet-4-6 when unsure).",
+      "- Use `model: sonnet-4-5` while Comparative's platform-wide model override is active.",
       "- Set `mcp_providers` to `[github]`, `[google]`, or `[github, google]` only when the task genuinely needs those connected accounts; otherwise use `[]`.",
       "- The instructions must be specific and self-contained, and must tell the assistant to request any missing input rather than fabricate it.",
       "",
       "After the code block, tell the user: copy the block, then create a new skill at /skills/new and paste the instructions — or that an Import-from-SKILL.md option can ingest it directly. Offer to refine if they want changes.",
     ].join("\n"),
-    modelId: "sonnet-4-6",
+    modelId: "sonnet-4-5",
     mcpProviders: [],
   },
   {
@@ -71,7 +71,7 @@ export const STARTER_SKILLS: readonly StarterSkill[] = [
       "",
       "Keep it compact and skimmable. Use the GitHub tools to read real data — never invent repositories, pull requests, or statuses.",
     ].join("\n"),
-    modelId: "sonnet-4-6",
+    modelId: "sonnet-4-5",
     mcpProviders: ["github"],
   },
   {
@@ -102,7 +102,7 @@ export const STARTER_SKILLS: readonly StarterSkill[] = [
       "",
       "Return the finished deliverable as exactly one complete fenced Markdown file block. Its opening line must be exactly ```markdown filename=\"weekly-status-YYYY-MM-DD.md\" (with YYYY-MM-DD replaced by today's date); never put `filename=` on a separate line. Do not put the status in prose outside the file block and do not tell the user to copy or save it manually.",
     ].join("\n"),
-    modelId: "sonnet-4-6",
+    modelId: "sonnet-4-5",
     mcpProviders: ["github", "google"],
   },
   {
@@ -123,7 +123,7 @@ export const STARTER_SKILLS: readonly StarterSkill[] = [
       "",
       "Keep names exactly as written. Never invent attendees, decisions, or commitments that are not in the notes.",
     ].join("\n"),
-    modelId: "haiku-4-5",
+    modelId: "sonnet-4-5",
     mcpProviders: [],
   },
   {
@@ -144,7 +144,7 @@ export const STARTER_SKILLS: readonly StarterSkill[] = [
       "",
       "Be faithful to the source: no new claims, no softening of bad news. If the material is ambiguous on something important, say so explicitly.",
     ].join("\n"),
-    modelId: "sonnet-4-6",
+    modelId: "sonnet-4-5",
     mcpProviders: [],
   },
   {
@@ -164,7 +164,7 @@ export const STARTER_SKILLS: readonly StarterSkill[] = [
       "- No corporate filler ('I hope this finds you well', 'per my last email').",
       "- Offer one alternative phrasing only when tone is a judgment call.",
     ].join("\n"),
-    modelId: "haiku-4-5",
+    modelId: "sonnet-4-5",
     mcpProviders: [],
   },
   {
@@ -191,7 +191,7 @@ export const STARTER_SKILLS: readonly StarterSkill[] = [
       "",
       "Return the finished deliverable as exactly one complete fenced Markdown file block, even when no matching meeting is found. Its opening line must be exactly ```markdown filename=\"meeting-prep-YYYY-MM-DD.md\" (with YYYY-MM-DD replaced by today's date); never put `filename=` on a separate line. Do not put the brief in prose outside the file block and do not tell the user to copy or save it manually.",
     ].join("\n"),
-    modelId: "sonnet-4-6",
+    modelId: "sonnet-4-5",
     mcpProviders: ["google"],
   },
   {
@@ -212,7 +212,7 @@ export const STARTER_SKILLS: readonly StarterSkill[] = [
       "",
       "Take a position. A memo that doesn't recommend is a status report.",
     ].join("\n"),
-    modelId: "sonnet-4-6",
+    modelId: "sonnet-4-5",
     mcpProviders: [],
   },
 ];

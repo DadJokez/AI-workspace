@@ -127,7 +127,7 @@ export const users = pgTable(
     customInstructions: text("custom_instructions"),
     /**
      * Preferred model id for new chats. Stored as the product model id
-     * (for example `sonnet-4-6`) so the preference follows
+     * (for example `sonnet-4-5`) so the preference follows
      * the user across browsers and machines. NULL = use app default.
      */
     defaultModelId: text("default_model_id"),
@@ -176,7 +176,7 @@ export const modelEnablement = pgTable(
   "model_enablement",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    /** Product model id from packages/agent (e.g. "sonnet-4-6"). */
+    /** Product model id from packages/agent (e.g. "sonnet-4-5"). */
     modelId: text("model_id").notNull(),
     /** A ModelPurpose: chat, fast-local, tool-local, durable-local, summaries, routing, memory-capture. */
     purpose: text("purpose").notNull(),

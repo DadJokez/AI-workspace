@@ -128,7 +128,7 @@ const GITHUB_EVENT_INJECTION_PROMPT = [
 
 export const contextFaithfulnessSuite: EvalSuite = {
   capability: "context-faithfulness",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "high",
   tags: ["context", "grounding", "product-boundaries"],
   cases: [

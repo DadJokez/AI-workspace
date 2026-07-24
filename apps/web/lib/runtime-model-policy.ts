@@ -2,6 +2,7 @@ import {
   DEFAULT_MODEL_ID,
   MODEL_IDS,
   MODELS,
+  PLATFORM_MODEL_OVERRIDE_ID,
   isValidModelId,
   type ModelId,
 } from "@ai-workspace/agent";
@@ -19,7 +20,8 @@ export interface RuntimeModelSelection {
     | "requested_model_alias"
     | "requested_model_supported"
     | "default_model_fallback"
-    | "availability_failover";
+    | "availability_failover"
+    | "platform_model_override";
   ignoredDirectModelId?: string;
   failover?: {
     fromModelId: ModelId;
@@ -55,18 +57,17 @@ export function resolveChatModelPreference({
 }
 
 /**
- * #110 server-side model autopilot. When `RUNTIME_V2_DIRECT_MODEL_ID=auto`,
- * the backend picks the model per ask instead of pinning Haiku for
- * everything: Haiku for short/simple turns (fast, cheap), Sonnet for
- * writing-grade and reasoning-heavy work (drafts, summaries, analysis, code).
- * Deterministic heuristic — no extra model call, so it adds zero latency to
- * the fast lane. Biases to Sonnet when unsure, because the complaint was
- * Haiku being too weak for user-facing writing.
+ * #110 server-side model autopilot. When no platform override is active and
+ * `RUNTIME_V2_DIRECT_MODEL_ID=auto`, the backend picks the model per ask:
+ * Haiku for short/simple turns and Sonnet for writing-grade or reasoning-heavy
+ * work. The deterministic heuristic adds no model call or latency.
  */
 const WRITING_OR_REASONING_SIGNAL =
   /\b(write|draft|compose|rewrite|reword|polish|proofread|edit|summar(?:y|ise|ize)|summari[sz]e|essay|memo|report|blog|article|post|letter|paragraph|explain|analy[sz]e|analysis|compare|evaluate|assess|plan|outline|strateg|brainstorm|translate|critique|review|recommend|pros and cons|step by step)\b/i;
 
 export function selectAutopilotModel(message: string): ModelId {
+  if (PLATFORM_MODEL_OVERRIDE_ID) return PLATFORM_MODEL_OVERRIDE_ID;
+
   const trimmed = message.trim();
   const words = trimmed.split(/\s+/).filter(Boolean).length;
   const hasCode = /```|\bfunction\b|\bclass\b|=>|;\s*$/m.test(message);
@@ -106,6 +107,17 @@ export function resolveRuntimeModelSelection({
   enabledModelIds?: ReadonlySet<string>;
 }): RuntimeModelSelection {
   void runtimeName;
+
+  // A temporary account-wide pin must supersede stale thread, user, skill,
+  // runtime, and explicit-turn preferences without mutating their records.
+  if (PLATFORM_MODEL_OVERRIDE_ID) {
+    return directSelection({
+      requestedModelId,
+      modelId: PLATFORM_MODEL_OVERRIDE_ID,
+      reason: "platform_model_override",
+      ignoredDirectModelId: directModelId?.trim().toLowerCase(),
+    });
+  }
 
   if (
     enabledModelIds &&
@@ -245,6 +257,9 @@ const DIRECT_MODEL_ALIASES: Record<string, ModelId> = {
   "claude-haiku-4-5": "haiku-4-5",
   "claude-haiku-4-5-20251001": "haiku-4-5",
   "us.anthropic.claude-haiku-4-5-20251001-v1:0": "haiku-4-5",
+  "claude-sonnet-4-5": "sonnet-4-5",
+  "claude-sonnet-4-5-20250929": "sonnet-4-5",
+  "us.anthropic.claude-sonnet-4-5-20250929-v1:0": "sonnet-4-5",
   "claude-sonnet-4-6": "sonnet-4-6",
   "us.anthropic.claude-sonnet-4-6": "sonnet-4-6",
   "claude-opus-4-7": "opus-4-7",

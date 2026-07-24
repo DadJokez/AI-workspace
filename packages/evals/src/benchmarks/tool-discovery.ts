@@ -28,7 +28,7 @@ import {
  * never seen either catalog.
  */
 
-export const DISCOVERY_BENCHMARK_MODEL: ModelId = "sonnet-4-6";
+export const DISCOVERY_BENCHMARK_MODEL: ModelId = "sonnet-4-5";
 export const DISCOVERY_BENCHMARK_MAX_TOKENS = 256;
 export const DISCOVERY_BENCHMARK_COST_CAP_USD = 5;
 export const DISCOVERY_BENCHMARK_MAX_CALLS = 16;

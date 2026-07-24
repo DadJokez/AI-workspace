@@ -666,9 +666,12 @@ async function chatArtifactCheck(cookie: string) {
   assert(meta.runtimeRoute.routingMode === "model-decided", "runtime route did not preserve model-decided mode");
   assert(meta.runtimeRoute.useMcp === true, "model-decided runtime did not mount account tools");
   assert(isRecord(model), "missing runtime model event");
-  assert(model.modelId === "sonnet-4-6", "production chat did not run on Sonnet 4.6");
+  assert(model.modelId === "sonnet-4-5", "production chat did not run on Sonnet 4.5");
   assert(isRecord(model.modelSelection), "runtime model event missing selection receipt");
-  assert(model.modelSelection.reason === "model_decided_sonnet", "runtime model selection was not model-decided Sonnet");
+  assert(
+    model.modelSelection.reason === "platform_model_override",
+    "runtime model selection did not apply the Sonnet 4.5 platform override",
+  );
   state.threadId = meta.threadId;
   state.runId = meta.runId;
 
@@ -724,7 +727,7 @@ async function agentCoreDurableLaneCheck(db: ReturnType<typeof getDb>) {
     .values({
       userId: SMOKE_USER_ID,
       title: `AgentCore smoke ${runId}`,
-      defaultModelId: "sonnet-4-6",
+      defaultModelId: "sonnet-4-5",
     })
     .returning({ id: chatThreads.id });
   const threadId = threadRows[0]!.id;
@@ -748,7 +751,7 @@ async function agentCoreDurableLaneCheck(db: ReturnType<typeof getDb>) {
       skillSlug: "chat-turn",
       triggerType: "chat",
       status: "queued",
-      modelId: "sonnet-4-6",
+      modelId: "sonnet-4-5",
       inputs: {
         prompt,
         threadId,
@@ -883,7 +886,7 @@ async function seedSmokeUser(db: ReturnType<typeof getDb>) {
     email: SMOKE_EMAIL,
     displayName: SMOKE_NAME,
     role: "user",
-    defaultModelId: "sonnet-4-6",
+    defaultModelId: "sonnet-4-5",
     assistantName: "Thomas",
     tourCompletedAt: new Date(),
   });

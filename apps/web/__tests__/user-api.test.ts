@@ -56,7 +56,7 @@ function installMocks() {
   // #300: the route rejects defaults that aren't chat-enabled in the registry.
   vi.doMock("@/lib/model-registry", () => ({
     isModelEnabled: async (_db: unknown, id: string) =>
-      ["haiku-4-5", "sonnet-4-6", "opus-4-7"].includes(id),
+      ["haiku-4-5", "sonnet-4-5", "sonnet-4-6", "opus-4-7"].includes(id),
   }));
 
   vi.doMock("@ai-workspace/db", async () => {

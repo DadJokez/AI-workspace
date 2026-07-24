@@ -2,6 +2,7 @@ import {
   DEFAULT_MODEL_ID,
   MODEL_IDS,
   MODELS,
+  PLATFORM_MODEL_OVERRIDE_ID,
   type ModelId,
 } from "@ai-workspace/agent";
 import { getDb } from "@ai-workspace/db";
@@ -34,8 +35,11 @@ export async function GET() {
   // #300: the picker only offers models enabled for user-facing chat, so a
   // disabled model cannot be selected from the UI either. This route is
   // public and must stay available with no database configured at all
-  // (public smoke checks it), so it fails open to the full registry.
-  let enabledIds: ModelId[] = [...MODEL_IDS];
+  // (public smoke checks it), so it falls back to the platform override when
+  // active and otherwise fails open to the full registry.
+  let enabledIds: ModelId[] = PLATFORM_MODEL_OVERRIDE_ID
+    ? [PLATFORM_MODEL_OVERRIDE_ID]
+    : [...MODEL_IDS];
   let defaultModelId: string = DEFAULT_MODEL_ID;
   try {
     const db = getDb();

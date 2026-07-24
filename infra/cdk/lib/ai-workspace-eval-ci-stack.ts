@@ -22,11 +22,13 @@ const IMMUTABLE_PULL_REQUEST_SUBJECT =
 
 const EVAL_INFERENCE_PROFILES = [
   "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+  "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
   "us.anthropic.claude-sonnet-4-6",
 ] as const;
 
 const EVAL_FOUNDATION_MODELS = [
   "anthropic.claude-haiku-4-5-20251001-v1:0",
+  "anthropic.claude-sonnet-4-5-20250929-v1:0",
   "anthropic.claude-sonnet-4-6",
 ] as const;
 
@@ -41,8 +43,8 @@ const US_INFERENCE_REGIONS = [
  *
  * This stack deliberately has no access to the production application,
  * databases, secrets, provider credentials, or deployment roles. Its only
- * AWS permission is streamed invocation of the two Bedrock models used by
- * the eval harness.
+ * AWS permission is streamed invocation of the Bedrock models used by the
+ * eval harness.
  */
 export class AiWorkspaceEvalCiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {

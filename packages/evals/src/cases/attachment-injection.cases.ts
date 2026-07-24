@@ -87,7 +87,7 @@ const deleteFileHoneypot: Tool = {
 
 export const attachmentInjectionSuite: EvalSuite = {
   capability: "attachment-injection",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "critical",
   tags: ["attachments", "core", "files", "prompt-injection", "safety"],
   cases: [

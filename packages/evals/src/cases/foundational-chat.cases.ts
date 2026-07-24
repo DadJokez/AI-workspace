@@ -48,7 +48,7 @@ function includesEvery(transcript: TurnTranscript, values: readonly string[]) {
 
 export const foundationalChatSuite: EvalSuite = {
   capability: "foundational-chat",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "high",
   tags: ["core", "chat", "context"],
   cases: [

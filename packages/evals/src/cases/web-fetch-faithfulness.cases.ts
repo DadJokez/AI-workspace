@@ -122,7 +122,7 @@ const CLEAN_ARTICLE = [
 
 export const webFetchFaithfulnessSuite: EvalSuite = {
   capability: "web-fetch-faithfulness",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "critical",
   tags: ["core", "grounding", "prompt-injection", "web-fetch"],
   cases: [

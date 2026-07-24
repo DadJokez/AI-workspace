@@ -259,7 +259,7 @@ describe("processPendingMemoryCaptures", () => {
     expect(result).toEqual({ status: "processed", captures: 1, suggestions: 1 });
 
     // The model saw the queued conversation, framed as a review document.
-    expect(lastTurnInput?.modelId).toBe("sonnet-4-6");
+    expect(lastTurnInput?.modelId).toBe("sonnet-4-5");
     expect(lastTurnInput?.systemPrompt).toContain("Never store secrets");
     const doc = lastTurnInput?.messages[0]?.content ?? "";
     expect(doc).toContain("Deploy chat");

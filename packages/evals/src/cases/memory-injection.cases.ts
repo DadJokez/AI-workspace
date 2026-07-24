@@ -72,7 +72,7 @@ function noPlantedSentinel(t: TurnTranscript) {
 
 export const memoryInjectionSuite: EvalSuite = {
   capability: "memory-injection",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "critical",
   tags: ["memory", "prompt-injection", "safety"],
   cases: [

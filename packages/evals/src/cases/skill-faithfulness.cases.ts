@@ -161,7 +161,7 @@ function createdMarkdownArtifact(filename: string) {
 
 export const skillFaithfulnessSuite: EvalSuite = {
   capability: "skill-faithfulness",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "high",
   tags: ["grounding", "skills"],
   cases: [

@@ -116,7 +116,7 @@ function doesNotDenyConnectedTool(t: TurnTranscript) {
 
 export const toolGroundingSuite: EvalSuite = {
   capability: "tool-grounding",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "critical",
   tags: ["connected-tools", "core", "github", "grounding"],
   cases: [

@@ -21,7 +21,12 @@
  * new dated revisions.
  */
 
-export const MODEL_IDS = ["haiku-4-5", "sonnet-4-6", "opus-4-7"] as const;
+export const MODEL_IDS = [
+  "haiku-4-5",
+  "sonnet-4-5",
+  "sonnet-4-6",
+  "opus-4-7",
+] as const;
 export type ModelId = (typeof MODEL_IDS)[number];
 
 /**
@@ -65,8 +70,8 @@ export interface ModelMetadata {
    * Per-turn output cap passed to Converse. Must leave room for a complete
    * artifact — a full HTML app runs 20–30K output tokens, and 8192 truncated
    * every app build mid-file (issue #320). Every lane streams, so large caps
-   * don't risk request timeouts; the models' own output ceilings are 64K
-   * (Haiku 4.5) and 128K (Sonnet/Opus 4.x).
+   * don't risk request timeouts. Keep each registry value at or below the
+   * selected Bedrock model's documented output ceiling.
    */
   defaultMaxTokens: number;
   /** Suggested use cases — surfaced in the model selector tooltip. */
@@ -99,6 +104,26 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
       "quick lookups",
       "classification / routing",
       "tight loops where latency matters",
+    ],
+  },
+  "sonnet-4-5": {
+    id: "sonnet-4-5",
+    bedrockModelId: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    provider: "anthropic",
+    family: "claude",
+    displayName: "Sonnet 4.5",
+    blurb: "Balanced agent model for chat, writing, analysis, and tool use.",
+    costPer1MInput: 3.3,
+    costPer1MOutput: 16.5,
+    supportsToolUse: true,
+    supportsStreaming: true,
+    supportsVision: true,
+    contextWindow: 200_000,
+    defaultMaxTokens: 32_000,
+    recommendedFor: [
+      "general chat",
+      "writing and analysis",
+      "everyday tool use",
     ],
   },
   "sonnet-4-6": {
@@ -143,7 +168,15 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
   },
 };
 
-export const DEFAULT_MODEL_ID: ModelId = "sonnet-4-6";
+/**
+ * Temporary account-wide model pin while the Sonnet 4.6 daily-token quota
+ * increase is pending. Keeping this separate from the default lets us remove
+ * the pin later without rewriting stored thread, user, or skill preferences.
+ */
+export const PLATFORM_MODEL_OVERRIDE_ID: ModelId | null = "sonnet-4-5";
+
+export const DEFAULT_MODEL_ID: ModelId =
+  PLATFORM_MODEL_OVERRIDE_ID ?? "sonnet-4-6";
 
 export function getModel(id: ModelId): ModelMetadata {
   return MODELS[id];

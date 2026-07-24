@@ -123,7 +123,7 @@ function neverDeniesGitHub(t: TurnTranscript) {
 
 export const toolDiscoverySuite: EvalSuite = {
   capability: "tool-discovery",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "high",
   tags: ["connected-tools", "tool-discovery", "tool-selection"],
   cases: [
