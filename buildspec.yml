@@ -4,7 +4,7 @@ env:
   variables:
     IMAGE_REPO_NAME: ai-workspace
     AGENTCORE_IMAGE_REPO_NAME: ai-workspace-agentcore-agent
-    AGENTCORE_BUILD_PROJECT_NAME: ai-workspace-build
+    AGENTCORE_BUILD_PROJECT_NAME: ai-workspace-agentcore-build
     AGENTCORE_STACK_NAME: AiWorkspaceAgentCoreSpikeStack
     APP_SECRET_NAME: ai-workspace/production/app
     ECS_CLUSTER_NAME: ai-workspace-prod

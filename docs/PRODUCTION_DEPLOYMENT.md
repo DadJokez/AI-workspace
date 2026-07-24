@@ -6,30 +6,37 @@ tag for the ECS and AgentCore images.
 
 ## Ordered deployment path
 
-After migrations and image pushes, CodeBuild performs the production handoff
-in this order:
+For every non-docs-only build, CodeBuild performs the production handoff in
+this order:
 
-1. `infra/scripts/update-agentcore-stack.sh` synthesizes the current
+1. The x86 `ai-workspace-build` parent starts the dedicated
+   `ai-workspace-agentcore-build` project at the exact resolved source commit.
+   The CDK-owned child uses the native ARM64 CodeBuild image,
+   `buildspec.agentcore.yml`, and no webhook or GitHub build status.
+2. The parent builds the ECS images in parallel, then waits for the ARM child
+   to finish successfully.
+3. `infra/scripts/update-agentcore-stack.sh` synthesizes the current
    `AiWorkspaceAgentCoreSpikeStack` template and submits that template together
    with the commit-SHA image tag. It verifies the immutable ECR digest and
    records the source-template SHA-256 plus the monotonic CodeBuild sequence in
    the stack parameters.
-2. The parent `ai-workspace-build` project is single-flight
+4. The parent `ai-workspace-build` project is single-flight
    (`concurrentBuildLimit=1`), so an older build cannot deploy after a newer
-   build. The recorded deployment sequence is a receipt and defense-in-depth
-   check: it rejects an already-superseded build, but it is not itself an
-   atomic lock.
-3. `cdk deploy AiWorkspaceEcsStack --require-approval never --exclusively`
+   build. The dedicated child is independently single-flight, so the parent
+   never consumes the only slot needed by its child. The recorded deployment
+   sequence is a receipt and defense-in-depth check: it rejects an
+   already-superseded build, but it is not itself an atomic lock.
+5. `cdk deploy AiWorkspaceEcsStack --require-approval never --exclusively`
    reconciles the checked-in stack with CloudFormation.
-4. CodeBuild forces new deployments of `ai-workspace-web`,
+6. CodeBuild forces new deployments of `ai-workspace-web`,
    `ai-workspace-chat-worker`, and `ai-workspace-memory-worker` so every service
    pulls the images that were just pushed.
-5. `aws ecs wait services-stable` blocks until all three services stabilize.
-6. The build log records JSON receipts for AgentCore and ECS. The AgentCore
+7. `aws ecs wait services-stable` blocks until all three services stabilize.
+8. The build log records JSON receipts for AgentCore and ECS. The AgentCore
    receipt contains the commit SHA, image digest and tag, stack status,
    deployment sequence, and source-template SHA-256. The ECS receipt contains
    the commit SHA and each service's live task-definition ARN.
-7. The authenticated production smoke runs against the stable services.
+9. The authenticated production smoke runs against the stable services.
 
 CDK is the change detector. For an image-only commit it reports no stack
 changes and immediately continues to the ECS refresh. For a task-definition,
@@ -64,11 +71,19 @@ AWS_DEFAULT_REGION=us-east-1 \
   ./infra/scripts/configure-codebuild-source.sh
 ```
 
-The script preserves every other source setting returned by CodeBuild, changes
-only `gitCloneDepth`, and verifies the saved value. The project remains
-console-managed until #467 brings the full pipeline into infrastructure as
-code. Until then, rerun this deterministic reconciler after replacing or
-manually editing the project.
+Before changing the parent, the script verifies that
+`ai-workspace-agentcore-build` exists and is the expected privileged ARM64
+project with `buildspec.agentcore.yml`, no GitHub status reporting, no
+artifacts, and `concurrentBuildLimit=1`. It then preserves every other parent
+source setting returned by CodeBuild, sets `gitCloneDepth=0` and
+`concurrentBuildLimit=1` together, and verifies both saved values. Any missing
+or mismatched child or parent setting fails closed before the script reports
+success.
+
+The AgentCore child is owned by `AiWorkspaceAgentCoreSpikeStack`. The parent
+project remains console-managed until #467 brings the full pipeline into
+infrastructure as code. Until then, rerun this deterministic reconciler after
+replacing or manually editing the parent.
 
 The classifier still fails closed to a full deployment when either SHA is
 missing or invalid, a commit cannot be resolved, or the changed paths are
@@ -77,13 +92,28 @@ never incorrectly skip one.
 
 ## One-time bootstrap
 
-The first rollout of this deployment path must be applied by an operator from
-the reviewed commit because the previous CodeBuild role cannot grant itself
-permission to assume the CDK bootstrap roles. Run a scoped `cdk diff` and deploy
-`AiWorkspaceEcsStack` once. That deployment adds the two exact
-`sts:AssumeRole` resources managed by this stack. All subsequent merged commits
-use the normal CodeBuild path; do not leave a separate hand-written IAM policy
-behind.
+The AgentCore child and parent concurrency change must be rolled out in this
+order:
+
+1. From the reviewed commit, deploy `AiWorkspaceAgentCoreSpikeStack` with the
+   live stack's current parameters. This creates
+   `ai-workspace-agentcore-build` and grants the parent narrowly scoped
+   `StartBuild`, `BatchGetBuilds`, and AgentCore ECR describe access.
+2. Start the new child for that exact commit and wait for it to succeed.
+3. Run `infra/scripts/configure-codebuild-source.sh`. Only now may the
+   console-managed parent be changed to `concurrentBuildLimit=1`.
+4. Verify both projects and then allow the normal merged-`main` deployment to
+   exercise the complete handoff.
+
+Never lower the parent concurrency before the child exists and succeeds: a
+single-flight parent that targets itself cannot start its queued child build.
+The reconciler checks this contract, and `agentcore-image-build.sh` also refuses
+to target the project in which it is currently running.
+
+The earlier ECS CDK-role bootstrap remains the same: when the parent role lacks
+permission to assume the account-and-region-specific CDK bootstrap roles, an
+operator must run the scoped `AiWorkspaceEcsStack` deployment once from the
+reviewed commit. Do not leave a separate hand-written IAM policy behind.
 
 ## Verification
 

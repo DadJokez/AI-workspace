@@ -1,4 +1,5 @@
 import * as cdk from "aws-cdk-lib";
+import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as iam from "aws-cdk-lib/aws-iam";
 import type { Construct } from "constructs";
@@ -208,6 +209,41 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
       "CodeBuildDeploymentRole",
       "CodeBuildAIWorkspaceRole",
     );
+    const agentCoreImageBuild = new codebuild.CfnProject(
+      this,
+      "AgentCoreImageBuild",
+      {
+        name: "ai-workspace-agentcore-build",
+        description:
+          "Dedicated native ARM64 image builder for the Comparative AgentCore runtime.",
+        serviceRole: codeBuildRole.roleArn,
+        artifacts: { type: "NO_ARTIFACTS" },
+        source: {
+          type: "GITHUB",
+          location: "https://github.com/DadJokez/AI-workspace.git",
+          gitCloneDepth: 1,
+          buildSpec: "buildspec.agentcore.yml",
+          reportBuildStatus: false,
+          insecureSsl: false,
+        },
+        environment: {
+          type: "ARM_CONTAINER",
+          image: "aws/codebuild/amazonlinux-aarch64-standard:3.0",
+          computeType: "BUILD_GENERAL1_MEDIUM",
+          privilegedMode: true,
+          imagePullCredentialsType: "CODEBUILD",
+        },
+        cache: { type: "NO_CACHE" },
+        timeoutInMinutes: 30,
+        queuedTimeoutInMinutes: 30,
+        concurrentBuildLimit: 1,
+        badgeEnabled: false,
+        tags: [
+          { key: "Application", value: "Comparative" },
+          { key: "Purpose", value: "AgentCoreImageBuild" },
+        ],
+      },
+    );
     const codeBuildDeployPolicy = new iam.Policy(
       this,
       "CodeBuildAgentCoreDeployment",
@@ -232,14 +268,12 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
           new iam.PolicyStatement({
             sid: "RunNativeArmAgentCoreImageBuild",
             actions: ["codebuild:StartBuild", "codebuild:BatchGetBuilds"],
-            resources: [
-              this.formatArn({
-                service: "codebuild",
-                resource: "project",
-                resourceName: "ai-workspace-build",
-                arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME,
-              }),
-            ],
+            resources: [agentCoreImageBuild.attrArn],
+          }),
+          new iam.PolicyStatement({
+            sid: "DescribeAgentCoreImage",
+            actions: ["ecr:DescribeImages"],
+            resources: [repo.repositoryArn],
           }),
           new iam.PolicyStatement({
             sid: "UpdateComparativeAgentCoreRuntime",
@@ -304,6 +338,11 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
       value: repo.repositoryUri,
       description:
         "Push the linux/arm64 agent image here, then update AgentImageTag through CloudFormation.",
+    });
+    new cdk.CfnOutput(this, "AgentCoreImageBuildProjectName", {
+      value: agentCoreImageBuild.ref,
+      description:
+        "Dedicated native ARM64 CodeBuild child used by the production deployment.",
     });
     new cdk.CfnOutput(this, "AgentRuntimeRoleArn", { value: role.roleArn });
     new cdk.CfnOutput(this, "BraveSearchCredentialProviderArn", {
