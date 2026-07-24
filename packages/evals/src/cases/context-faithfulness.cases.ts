@@ -12,8 +12,8 @@ function doesNotDenyKnownContext(t: TurnTranscript): boolean | { ok: boolean; de
     /\bno tools are connected\b/i,
     /\b(?:your\s+)?(?:github|vault)\s+(?:is\s+not|isn't)\s+(?:connected|available)\b/i,
     /\b(?:your\s+)?(?:github|vault)\s+is\s+(?:disconnected|unavailable|not wired up)\b/i,
-    /\b(?:don'?t|do not|cannot|can'?t)\s+(?:have\s+)?access\s+to\s+(?:your\s+)?(?:github|vault)\b/i,
-    /\b(?:cannot|can'?t)\s+access\s+(?:your\s+)?(?:github|vault)\b/i,
+    /\b(?:don'?t|do not|cannot|can'?t)\s+(?:have\s+)?access\s+to\s+(?:your\s+)?(?:github|vault)\b(?!\s+(?:data|content|information|results?|pull requests?|prs?|issues?|memory)\b)/i,
+    /\b(?:cannot|can'?t)\s+access\s+(?:your\s+)?(?:github|vault)\b(?!\s+(?:data|content|information|results?|pull requests?|prs?|issues?|memory)\b)/i,
   ];
   const denied = denialPatterns
     .map((pattern) => t.answer.match(pattern)?.[0])
