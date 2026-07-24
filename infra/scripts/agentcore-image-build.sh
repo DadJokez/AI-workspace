@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ACTION="${1:-}"
-PROJECT_NAME="${AGENTCORE_BUILD_PROJECT_NAME:-ai-workspace-build}"
+PROJECT_NAME="${AGENTCORE_BUILD_PROJECT_NAME:-ai-workspace-agentcore-build}"
 ARM_IMAGE="${AGENTCORE_BUILD_IMAGE:-aws/codebuild/amazonlinux-aarch64-standard:3.0}"
 ARM_COMPUTE_TYPE="${AGENTCORE_BUILD_COMPUTE_TYPE:-BUILD_GENERAL1_MEDIUM}"
 
@@ -11,6 +11,12 @@ case "$ACTION" in
     : "${CODEBUILD_RESOLVED_SOURCE_VERSION:?CODEBUILD_RESOLVED_SOURCE_VERSION is required}"
     : "${AGENTCORE_IMAGE_REPO_NAME:?AGENTCORE_IMAGE_REPO_NAME is required}"
     IMAGE_TAG="${COMMIT_TAG:-$CODEBUILD_RESOLVED_SOURCE_VERSION}"
+
+    if [[ -n "${CODEBUILD_BUILD_ID:-}" ]] &&
+      [[ "${CODEBUILD_BUILD_ID%%:*}" == "$PROJECT_NAME" ]]; then
+      echo "Refusing to start the AgentCore image build on the current CodeBuild project ($PROJECT_NAME). Configure a dedicated ARM child project to avoid a single-flight deadlock." >&2
+      exit 1
+    fi
 
     aws codebuild start-build \
       --region "${AWS_DEFAULT_REGION:-us-east-1}" \

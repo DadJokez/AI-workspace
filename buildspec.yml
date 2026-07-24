@@ -4,7 +4,7 @@ env:
   variables:
     IMAGE_REPO_NAME: ai-workspace
     AGENTCORE_IMAGE_REPO_NAME: ai-workspace-agentcore-agent
-    AGENTCORE_BUILD_PROJECT_NAME: ai-workspace-build
+    AGENTCORE_BUILD_PROJECT_NAME: ai-workspace-agentcore-build
     AGENTCORE_STACK_NAME: AiWorkspaceAgentCoreSpikeStack
     APP_SECRET_NAME: ai-workspace/production/app
     ECS_CLUSTER_NAME: ai-workspace-prod
@@ -107,7 +107,9 @@ phases:
         # stack's immutable image-tag parameter so CloudFormation remains the
         # single owner of the runtime and cuts the new version.
         echo Cutting a new AgentCore runtime version...
-        AGENTCORE_IMAGE_TAG="$COMMIT_TAG" ./infra/scripts/update-agentcore-stack.sh
+        AGENTCORE_IMAGE_TAG="$COMMIT_TAG" \
+          AGENTCORE_DEPLOY_SEQUENCE="$CODEBUILD_BUILD_NUMBER" \
+          ./infra/scripts/update-agentcore-stack.sh
         echo Reconciling the ECS stack and deploying images...
         ./infra/scripts/deploy-ecs-stack.sh
         echo Running authenticated production smoke...

@@ -22,8 +22,9 @@ describe("agentcore-image-build.sh", () => {
     const result = runScript(["start"]);
 
     expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe("ai-workspace-build:child-id");
+    expect(result.stdout.trim()).toBe("ai-workspace-agentcore-build:child-id");
     const command = readFileSync(result.capturePath, "utf8");
+    expect(command).toContain("--project-name ai-workspace-agentcore-build");
     expect(command).toContain("--source-version commit-sha");
     expect(command).toContain("--buildspec-override buildspec.agentcore.yml");
     expect(command).toContain("--environment-type-override ARM_CONTAINER");
@@ -36,19 +37,37 @@ describe("agentcore-image-build.sh", () => {
     );
   });
 
-  it("waits through an in-progress build until it succeeds", () => {
-    const result = runScript(["wait", "ai-workspace-build:child-id"], {
-      statuses: "IN_PROGRESS,SUCCEEDED",
+  it("refuses to launch a child build on the current parent project", () => {
+    const result = runScript(["start"], {
+      codeBuildBuildId: "ai-workspace-build:parent-id",
+      projectName: "ai-workspace-build",
     });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "Configure a dedicated ARM child project to avoid a single-flight deadlock",
+    );
+  });
+
+  it("waits through an in-progress build until it succeeds", () => {
+    const result = runScript(
+      ["wait", "ai-workspace-agentcore-build:child-id"],
+      {
+        statuses: "IN_PROGRESS,SUCCEEDED",
+      },
+    );
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("succeeded");
   });
 
   it("retries transient status lookup failures", () => {
-    const result = runScript(["wait", "ai-workspace-build:child-id"], {
-      statuses: "AWS_ERROR,IN_PROGRESS,SUCCEEDED",
-    });
+    const result = runScript(
+      ["wait", "ai-workspace-agentcore-build:child-id"],
+      {
+        statuses: "AWS_ERROR,IN_PROGRESS,SUCCEEDED",
+      },
+    );
 
     expect(result.status).toBe(0);
     expect(result.stderr).toContain("status; retrying (1/2)");
@@ -56,18 +75,24 @@ describe("agentcore-image-build.sh", () => {
   });
 
   it("fails closed after repeated status lookup failures", () => {
-    const result = runScript(["wait", "ai-workspace-build:child-id"], {
-      statuses: "AWS_ERROR,AWS_ERROR",
-    });
+    const result = runScript(
+      ["wait", "ai-workspace-agentcore-build:child-id"],
+      {
+        statuses: "AWS_ERROR,AWS_ERROR",
+      },
+    );
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("after 2 consecutive attempts");
   });
 
   it("fails the parent deploy when the ARM child build fails", () => {
-    const result = runScript(["wait", "ai-workspace-build:child-id"], {
-      statuses: "FAILED",
-    });
+    const result = runScript(
+      ["wait", "ai-workspace-agentcore-build:child-id"],
+      {
+        statuses: "FAILED",
+      },
+    );
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("ended with FAILED");
@@ -75,18 +100,24 @@ describe("agentcore-image-build.sh", () => {
   });
 
   it("times out instead of allowing a stuck ARM build to continue", () => {
-    const result = runScript(["wait", "ai-workspace-build:child-id"], {
-      statuses: "IN_PROGRESS",
-    });
+    const result = runScript(
+      ["wait", "ai-workspace-agentcore-build:child-id"],
+      {
+        statuses: "IN_PROGRESS",
+      },
+    );
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Timed out waiting");
   });
 
   it("fails closed on an unexpected CodeBuild status", () => {
-    const result = runScript(["wait", "ai-workspace-build:child-id"], {
-      statuses: "UNKNOWN",
-    });
+    const result = runScript(
+      ["wait", "ai-workspace-agentcore-build:child-id"],
+      {
+        statuses: "UNKNOWN",
+      },
+    );
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("unexpected status: UNKNOWN");
@@ -123,7 +154,15 @@ describe("agentcore-image-build.sh", () => {
 
 function runScript(
   args: string[],
-  { statuses = "SUCCEEDED" }: { statuses?: string } = {},
+  {
+    codeBuildBuildId,
+    projectName,
+    statuses = "SUCCEEDED",
+  }: {
+    codeBuildBuildId?: string;
+    projectName?: string;
+    statuses?: string;
+  } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "agentcore-image-build-"));
   tempDirs.push(dir);
@@ -139,7 +178,7 @@ set -euo pipefail
 
 if [[ "$1 $2" == "codebuild start-build" ]]; then
   printf '%s\n' "$*" > "$FAKE_CAPTURE_PATH"
-  printf 'ai-workspace-build:child-id\n'
+  printf 'ai-workspace-agentcore-build:child-id\n'
   exit 0
 fi
 
@@ -176,11 +215,14 @@ exit 1
       ...process.env,
       PATH: `${dir}:${process.env.PATH ?? ""}`,
       AWS_DEFAULT_REGION: "us-east-1",
-      AGENTCORE_BUILD_PROJECT_NAME: "ai-workspace-build",
+      ...(projectName
+        ? { AGENTCORE_BUILD_PROJECT_NAME: projectName }
+        : {}),
       AGENTCORE_IMAGE_REPO_NAME: "ai-workspace-agentcore-agent",
       AGENTCORE_BUILD_POLL_SECONDS: "0",
       AGENTCORE_BUILD_MAX_POLLS: "3",
       AGENTCORE_BUILD_MAX_STATUS_ERRORS: "2",
+      ...(codeBuildBuildId ? { CODEBUILD_BUILD_ID: codeBuildBuildId } : {}),
       CODEBUILD_RESOLVED_SOURCE_VERSION: "commit-sha",
       FAKE_CAPTURE_PATH: capturePath,
       FAKE_COUNTER_PATH: counterPath,
