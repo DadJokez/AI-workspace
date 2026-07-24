@@ -3,6 +3,7 @@ import type { EvalCase, TurnTranscript } from "../types";
 import { artifactOutputHonestySuite } from "./artifact-output-honesty.cases";
 import { contextFaithfulnessSuite } from "./context-faithfulness.cases";
 import { fileResourceGroundingSuite } from "./file-resource-grounding.cases";
+import { foundationalChatSuite } from "./foundational-chat.cases";
 import { toolGroundingSuite } from "./tool-grounding.cases";
 
 function evalCase(suiteCases: EvalCase[], id: string) {
@@ -61,6 +62,10 @@ describe("model wording regression guards", () => {
     fileResourceGroundingSuite.cases,
     "partial-extraction-is-disclosed",
   );
+  const missingPriceCase = evalCase(
+    foundationalChatSuite.cases,
+    "missing-fact-stays-unknown",
+  );
 
   it.each(["wasn't", "wasn’t", "was not", "was not available and was not"])(
     "accepts truthful '%s provided' wording when complete artifact source was omitted",
@@ -81,6 +86,26 @@ describe("model wording regression guards", () => {
         unavailableArtifactCase,
         "states that the complete source is unavailable",
         "I can make that update later.",
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts the model's truthful 'not specified' wording for a missing price", () => {
+    expect(
+      deterministicResult(
+        missingPriceCase,
+        "states that the requested price is unavailable",
+        "The renewal price for Nimbus hosting is not specified in the supplied context.",
+      ),
+    ).toBe(true);
+  });
+
+  it("still rejects a missing-price answer that never discloses the gap", () => {
+    expect(
+      deterministicResult(
+        missingPriceCase,
+        "states that the requested price is unavailable",
+        "The Nimbus hosting renewal is due 2026-10-02.",
       ),
     ).toBe(false);
   });
