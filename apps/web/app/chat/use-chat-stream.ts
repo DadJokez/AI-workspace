@@ -544,7 +544,9 @@ export function useChatStream({
         }
         activeStream.abort.abort();
       } catch (error) {
-        patchTab(activeStream.tabId, { error: formatChatError(error) });
+        if (streamAbortRef.current === activeStream) {
+          patchTab(activeStream.tabId, { error: formatChatError(error) });
+        }
       }
     })();
 
