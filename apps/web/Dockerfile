@@ -24,6 +24,12 @@ COPY --from=deps /repo/node_modules ./node_modules
 COPY --from=deps /repo/apps/web/node_modules ./apps/web/node_modules
 COPY --from=deps /repo/packages/agent-runtime/node_modules ./packages/agent-runtime/node_modules
 COPY . .
+# PostHog analytics config. NEXT_PUBLIC_* vars are inlined by `next build` into
+# both the client bundle (instrumentation-client.ts) and the server bundle
+# (lib/posthog-server.ts), so they must be present at build time. The project
+# token is a public client-side write key, safe to ship in the browser bundle.
+ENV NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=phc_kCEPkLvyRmDumM57vjp9BLhQvLA5ExQHV4EsFpNogWeb
+ENV NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 RUN pnpm --filter @ai-workspace/web build
 
 FROM base AS migrator
@@ -57,6 +63,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
+# PostHog analytics config for server-side runtime reads (lib/posthog-server.ts).
+ENV NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=phc_kCEPkLvyRmDumM57vjp9BLhQvLA5ExQHV4EsFpNogWeb
+ENV NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 
 RUN addgroup -S nextjs && adduser -S nextjs -G nextjs
 

@@ -66,6 +66,7 @@ import {
   isChatMessageEditId,
   planChatMessageEdit,
 } from "@/lib/chat-message-edit";
+import { capturePostHogEvent } from "@/lib/posthog-server";
 
 export const dynamic = "force-dynamic";
 
@@ -821,6 +822,19 @@ export async function POST(req: Request) {
   if (runtimeRoute.useWorker) {
     startInProcessChatRunWorker({ db, runId: chatRunId });
   }
+
+  capturePostHogEvent({
+    distinctId: sessionUser.id,
+    event: "chat_turn_submitted",
+    properties: {
+      model_id: modelId,
+      has_attachments: attachments.length > 0,
+      is_edit: Boolean(replaceMessageId),
+      has_activated_skill: Boolean(activatedSkill),
+      runtime_lane: runtimeRoute.executionMode,
+      uses_worker: runtimeRoute.useWorker,
+    },
+  });
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({

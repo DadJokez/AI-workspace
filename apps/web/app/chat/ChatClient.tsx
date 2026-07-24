@@ -19,6 +19,7 @@ import { shouldShowTour } from "@/lib/tour";
 import { Sidebar } from "@/components/Sidebar";
 import { useHorizontalSwipe } from "@/components/useHorizontalSwipe";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import posthog from "posthog-js";
 import { signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -224,6 +225,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     } else if (id === "workspace") {
       setRightPane({ kind: "workspace" });
     } else if (id === "feedback") {
+      posthog.capture("feedback_opened");
       setFeedbackOpen(true);
     } else if (id === "admin") {
       router.push("/admin");
@@ -236,6 +238,12 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
 
   function openRunInspector(runId: string) {
     setRightPane({ kind: "inspector", runId });
+  }
+
+  function handleDownloadTranscript() {
+    if (!activeTab) return;
+    posthog.capture("chat_transcript_downloaded");
+    downloadChatTranscript(activeTab);
   }
 
   const { send, stopStreaming } = useChatStream({
@@ -352,7 +360,10 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
         activeNavId={rightPane?.kind === "workspace" ? "workspace" : "chat"}
         onNavSelect={handleNavSelect}
         isAdmin={user?.role === "admin"}
-        onSignOut={() => signOut({ callbackUrl: "/login" })}
+        onSignOut={() => {
+          posthog.reset();
+          void signOut({ callbackUrl: "/login" });
+        }}
         onRenameThread={handleRenameThread}
         onDeleteThread={handleDeleteThread}
         onPinThread={handlePinThread}
@@ -378,7 +389,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                   : { kind: "notifications" },
               )
             }
-            onDownload={() => downloadChatTranscript(activeTab)}
+            onDownload={handleDownloadTranscript}
             onStop={stopStreaming}
           />
 

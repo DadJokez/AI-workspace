@@ -20,6 +20,7 @@ import {
 import { appendRunEventBestEffort } from "@/lib/run-events";
 import { parseDataBindings } from "@/lib/app-data-bindings";
 import { outputProposalFromMetadata } from "@/lib/output-proposals";
+import { capturePostHogEvent } from "@/lib/posthog-server";
 
 export const dynamic = "force-dynamic";
 
@@ -237,6 +238,11 @@ export async function POST(
       version,
       actorUserId: sessionUser.id,
       dataMode,
+    });
+    capturePostHogEvent({
+      distinctId: sessionUser.id,
+      event: "app_version_deployed",
+      properties: { app_id: app.id, version_id: version.id },
     });
     if (artifact.runId) {
       await appendRunEventBestEffort("app-deploy-run-event-error", {

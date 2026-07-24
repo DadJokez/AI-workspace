@@ -1,3 +1,4 @@
+import posthog from "posthog-js";
 import type { SlashSkill } from "@/components/ChatInput";
 import {
   markAppDraftVersionDeployed,
@@ -89,6 +90,10 @@ export function useChatActions({
         throw new Error("The recommendation was updated without a result.");
       }
       patchRecommendation(body.recommendation, status);
+      posthog.capture("recommendation_acted_on", {
+        status,
+        action_kind: recommendation.action.kind,
+      });
 
       if (status !== "accepted") return;
       if (recommendation.action.kind === "run_skill") {
@@ -167,6 +172,7 @@ export function useChatActions({
         },
         "Could not publish update.",
       );
+      posthog.capture("app_draft_deployed", { app_id: version.appId });
       setTabs((previous) =>
         previous.map((tab) => {
           const current = tab.messages.flatMap(

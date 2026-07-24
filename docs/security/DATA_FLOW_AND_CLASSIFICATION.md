@@ -37,6 +37,8 @@ flowchart LR
     WORKERS -->|"HTTPS, delegated user token"| PROVIDERS
     WEB -->|"HTTPS query or public URL fetch"| WEBEG["Brave Search / public web"]
     WEB -->|"HTTPS transactional email"| SES["Amazon SES"]
+    U -->|"Sanitized pageviews and product events via /ingest"| PH["PostHog"]
+    WEB -->|"Bounded product events"| PH
     WEB -->|"SSE / JSON / file response"| U
 ```
 
@@ -78,6 +80,7 @@ flowchart LR
 | Feedback text, context, and screenshots | Confidential | Postgres `feedback_reports` | HTTPS; DB TLS | RDS storage encryption disabled | Admin triage state; policy pending #460 | Reporter and authorized admins |
 | Audit ledger | Internal metadata plus redacted Confidential payloads | Postgres `audit_log` | DB TLS | RDS storage encryption disabled; append-only by application convention | Window pending #460; DB enforcement pending #457 | Authorized admins; no SIEM export yet |
 | Application logs | Internal; may contain redacted Confidential metadata | CloudWatch log groups | AWS logging API/TLS | AWS-managed CloudWatch encryption | 30 days in CDK log groups | AWS CloudWatch; SNS receives alarm state, not transcripts |
+| Product analytics | Confidential identity metadata plus Internal product metadata | PostHog Cloud | HTTPS through the first-party `/ingest` proxy or server SDK | PostHog-managed | PostHog project policy | Stable user ID and role, sanitized route template, event name, model ID, resource IDs, and bounded status/boolean properties; no chat, upload, artifact, feedback, or provider content |
 | Model prompts and completions | Confidential | Transient Bedrock/AgentCore request/response path; durable source/answer remains in Postgres | AWS API/TLS | Governed by AWS service configuration and contract, not a Comparative product table | Confirm AWS service retention terms during enterprise review | AWS Bedrock/AgentCore; `us.*` profiles may route across US regions |
 | Provider requests and responses | Confidential; tokens Restricted | GitHub, Google, Notion, Salesforce APIs | HTTPS | Provider-controlled | Provider policy plus Comparative product/audit copies | Named provider selected by user/tool gate |
 | Search query and fetched public page | Internal or Confidential depending on query | Brave Search or requested public host; selected result may enter model context | HTTPS where target supports it; fetch also permits public HTTP | Remote-site controlled; redacted product copies may persist | Product copies follow chat/run policy | Brave Search; arbitrary public host passing SSRF and denylist checks |
@@ -95,6 +98,7 @@ flowchart LR
 | Salesforce | Read-only CRM queries in the current tool surface | SOQL/search arguments and returned records | Per-user OAuth; instance URL validated | User connects/disconnects and attests |
 | Brave Search | Public web search | Search query and result pagination | Server API key | Model invokes only when web capability is granted |
 | Public web host | Read a user-requested public URL | URL, normal HTTP headers; response body enters bounded context | No credentials; credentialed URLs rejected | Admin denylist; private/link-local/metadata addresses blocked |
+| PostHog Cloud | Product usage analytics | Stable user ID and role, sanitized route template, event name, model/resource IDs, and bounded status/boolean properties | Public project token; no provider or application credentials | Browser tracking disables autocapture, session replay, and exception capture; custom events contain no user content |
 
 No provider connection grants access to another user's credentials. Shared
 skills and apps are re-authorized using the executing/viewing user's own
