@@ -5,6 +5,8 @@ import {
   enabledModelsForPurpose,
   invalidateModelEnablementCache,
   isModelEnabled,
+  orderModelCandidatesForPurpose,
+  resolveModelCandidatesForPurpose,
   resolveModelForPurpose,
 } from "@/lib/model-registry";
 
@@ -110,10 +112,66 @@ describe("resolveModelForPurpose", () => {
     expect(await resolveModelForPurpose(db, "summaries")).toBe("haiku-4-5");
   });
 
-  it("falls back to the app default when nothing is enabled (misconfig)", async () => {
+  it("uses the cheapest enabled model for internal work", async () => {
+    const db = fakeDb([
+      { modelId: "haiku-4-5", purpose: "memory-capture" },
+      { modelId: "sonnet-4-6", purpose: "memory-capture" },
+      { modelId: "opus-4-7", purpose: "memory-capture" },
+    ]);
+
+    expect(await resolveModelForPurpose(db, "memory-capture")).toBe(
+      "haiku-4-5",
+    );
+  });
+
+  it("fails closed when nothing is enabled", async () => {
     const db = fakeDb([]);
 
-    expect(await resolveModelForPurpose(db, "routing")).toBe("sonnet-4-6");
+    await expect(resolveModelForPurpose(db, "routing")).rejects.toThrow(
+      'No models are enabled for purpose "routing".',
+    );
+  });
+});
+
+describe("model candidate ordering", () => {
+  it("orders user-facing fallback by policy after the selected primary", () => {
+    expect(
+      orderModelCandidatesForPurpose(
+        "chat",
+        ["haiku-4-5", "sonnet-4-6", "opus-4-7"],
+        "sonnet-4-6",
+      ),
+    ).toEqual(["sonnet-4-6", "opus-4-7", "haiku-4-5"]);
+  });
+
+  it("keeps an explicit enabled primary first without introducing disabled models", () => {
+    expect(
+      orderModelCandidatesForPurpose(
+        "chat",
+        ["haiku-4-5", "sonnet-4-6"],
+        "haiku-4-5",
+      ),
+    ).toEqual(["haiku-4-5", "sonnet-4-6"]);
+  });
+
+  it("never manufactures a fallback when the enablement set is empty", () => {
+    expect(() =>
+      orderModelCandidatesForPurpose("chat", [], "sonnet-4-6"),
+    ).toThrow('No models are enabled for purpose "chat".');
+  });
+
+  it("resolves cheap internal candidates in increasing cost order", async () => {
+    const db = fakeDb([
+      { modelId: "haiku-4-5", purpose: "routing" },
+      { modelId: "sonnet-4-6", purpose: "routing" },
+      { modelId: "opus-4-7", purpose: "routing" },
+    ]);
+
+    expect(await resolveModelCandidatesForPurpose(db, "routing")).toEqual([
+      "haiku-4-5",
+      "sonnet-4-6",
+      "opus-4-7",
+    ]);
   });
 });
 

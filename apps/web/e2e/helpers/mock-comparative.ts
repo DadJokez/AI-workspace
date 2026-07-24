@@ -10,6 +10,7 @@ interface MockChatOptions {
   artifacts?: unknown[];
   artifactDetails?: Record<string, unknown>;
   runTraces?: Record<string, unknown>;
+  runStatuses?: Record<string, Record<string, unknown>>;
   skills?: unknown[];
   apps?: unknown[];
   user?: Record<string, unknown>;
@@ -35,6 +36,10 @@ interface MockChatOptions {
     body: Record<string, unknown>,
     route: Route,
   ) => Promise<void> | void;
+  onProposalIteration?: (
+    body: Record<string, unknown>,
+    route: Route,
+  ) => Promise<void> | void;
   onSkillRun?: (
     skillId: string,
     body: Record<string, unknown>,
@@ -50,6 +55,17 @@ interface MockChatOptions {
   ) => Promise<void> | void;
   onAppDeploy?: (
     appId: string,
+    body: Record<string, unknown>,
+    route: Route,
+  ) => Promise<void> | void;
+  onAppVersionPatch?: (
+    appId: string,
+    versionId: string,
+    body: Record<string, unknown>,
+    route: Route,
+  ) => Promise<void> | void;
+  onArtifactProposal?: (
+    artifactId: string,
     body: Record<string, unknown>,
     route: Route,
   ) => Promise<void> | void;
@@ -508,6 +524,15 @@ export async function installMockComparativeApi(
       return json(route, { thread: next });
     }
 
+    const runStatusMatch = /^\/api\/runs\/([^/]+)\/status$/.exec(path);
+    if (runStatusMatch) {
+      const runId = decodeURIComponent(runStatusMatch[1]!);
+      const run = options.runStatuses?.[runId];
+      return run
+        ? json(route, { run })
+        : json(route, { error: "run_not_found" }, 404);
+    }
+
     if (path === "/api/skills") {
       return json(route, { skills });
     }
@@ -539,6 +564,26 @@ export async function installMockComparativeApi(
       });
     }
 
+    const appPublicationMatch =
+      /^\/api\/apps\/([^/]+)\/publication$/.exec(path);
+    if (appPublicationMatch && request.method() === "DELETE") {
+      return json(route, { ok: true });
+    }
+
+    const appVersionMatch =
+      /^\/api\/apps\/([^/]+)\/versions\/([^/]+)$/.exec(path);
+    if (appVersionMatch && request.method() === "PATCH") {
+      const appId = decodeURIComponent(appVersionMatch[1]!);
+      const versionId = decodeURIComponent(appVersionMatch[2]!);
+      const body = await postJson(request);
+      if (options.onAppVersionPatch) {
+        return options.onAppVersionPatch(appId, versionId, body, route);
+      }
+      return json(route, {
+        version: { id: versionId, status: "discarded" },
+      });
+    }
+
     const skillRunMatch = /^\/api\/skills\/([^/]+)\/run$/.exec(path);
     if (skillRunMatch) {
       const body = await postJson(request);
@@ -555,6 +600,12 @@ export async function installMockComparativeApi(
     const artifactMatch = /^\/api\/workspace\/artifacts\/([^/]+)$/.exec(path);
     if (artifactMatch) {
       const artifactId = decodeURIComponent(artifactMatch[1]!);
+      if (request.method() === "PATCH") {
+        const body = await postJson(request);
+        if (options.onArtifactProposal) {
+          return options.onArtifactProposal(artifactId, body, route);
+        }
+      }
       return json(route, { artifact: artifactDetails[artifactId] });
     }
 
@@ -583,7 +634,7 @@ export async function installMockComparativeApi(
           dbId: recommendationId,
           id: recommendationId,
           type: "deploy_artifact_as_app",
-          title: "Deploy this as an app",
+          title: "Publish this as an app",
           reason:
             "The generated artifact looks reusable, so it can become a workspace app.",
           requiresApproval: true,
@@ -625,7 +676,31 @@ export async function installMockComparativeApi(
           artifacts: [],
           recommendations: [],
         },
-        { type: "done" },
+        { type: "done", stopReason: "completed" },
+      ]);
+    }
+
+    if (path === "/api/output-proposals/iterate") {
+      const body = await postJson(request);
+      if (options.onProposalIteration) {
+        return options.onProposalIteration(body, route);
+      }
+      return fulfillSse(route, [
+        {
+          type: "meta",
+          threadId: "thread-generated",
+          runId: "run-proposal-iteration",
+          userMessageId: "user-proposal-iteration",
+          modelId: "sonnet-4-6",
+          runtimeRoute: { lane: "durable-local", useWorker: true },
+        },
+        {
+          type: "queued",
+          threadId: "thread-generated",
+          runId: "run-proposal-iteration",
+          status: "Iterating on proposal",
+        },
+        { type: "done", stopReason: "queued" },
       ]);
     }
 

@@ -1,7 +1,11 @@
 import { apps, getDb } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
+import { requireSession } from "@/lib/auth/requireSession";
 import {
   canAppRoleDeploy,
   canAppRoleEdit,
@@ -13,13 +17,12 @@ export const dynamic = "force-dynamic";
 
 /** Owner-only: the app's deployable version candidates, newest first. */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   const { id } = await params;
 
   const db = getDb();
@@ -32,6 +35,18 @@ export async function GET(
   if (!canAppRoleEdit(actorRole)) {
     return NextResponse.json({ error: "app_not_found" }, { status: 404 });
   }
+
+  await auditAdminDataAccess({
+    db,
+    actor: sessionUser,
+    access: {
+      targetUserId: app.ownerUserId,
+      resourceType: "app",
+      resourceId: app.id,
+      surface: "app_versions",
+      justification: adminDataAccessJustification(req),
+    },
+  });
 
   const versions = await listAppVersions(db, {
     appId: app.id,
@@ -55,9 +70,14 @@ export async function GET(
       createdAt: version.createdAt,
       deployedAt: version.deployedAt,
       isLive: version.isLive,
-      canDeploy: canAppRoleDeploy(actorRole) && !version.isLive,
+      canDeploy:
+        canAppRoleDeploy(actorRole) &&
+        !version.isLive &&
+        version.status !== "discarded" &&
+        version.status !== "iterating" &&
+        version.status !== "superseded",
       canDiscard:
-        version.status === "draft" &&
+        (version.status === "draft" || version.status === "proposed") &&
         (canAppRoleDeploy(actorRole) ||
           version.createdByUserId === sessionUser.id),
       previewUrl: `/api/apps/${app.id}/versions/${version.id}/content`,

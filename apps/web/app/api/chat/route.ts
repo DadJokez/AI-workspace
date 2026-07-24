@@ -1,5 +1,4 @@
 import { DEFAULT_MODEL_ID, normalizeUserTimeZone } from "@ai-workspace/agent";
-import { AuthConfigError } from "@ai-workspace/auth";
 import {
   auditLog,
   type ChatThread,
@@ -11,7 +10,7 @@ import {
 } from "@ai-workspace/db";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
 import {
   applyActivatedSkillRoute,
@@ -25,17 +24,31 @@ import {
   type ActivatedSkillRequest,
 } from "@/lib/chat-activated-skills";
 import { buildActivatedSkillUserMessage } from "@/lib/skills";
+import { skillMcpProviders } from "@/lib/skill-tool-declarations";
 import { streamInlineChatRun } from "@/lib/chat-inline-runner";
+import {
+  createChatStreamWriter,
+  startChatStreamHeartbeat,
+} from "@/lib/chat-stream-contract";
 import { isModelEnabled, resolveModelForPurpose } from "@/lib/model-registry";
 import {
   resolveDeclaredAttachmentCount,
-  foldAttachmentsIntoPrompt,
   scanAttachmentsForSecrets,
   validateAttachments,
   type ChatAttachment,
   type PreparedChatAttachment,
 } from "@/lib/attachments";
-import { reconstructStoredAttachments } from "@/lib/attachment-replay";
+import {
+  reconstructStoredAttachments,
+} from "@/lib/attachment-replay";
+import {
+  conversationResourceMetadata,
+  loadPreviousConversationResourceResolution,
+  loadThreadConversationResources,
+  preparePendingConversationResources,
+  resolveConversationResources,
+} from "@/lib/conversation-resources";
+import { buildConversationResourcePrompt } from "@/lib/conversation-resource-prompt";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
 import {
   checkRateLimit,
@@ -48,11 +61,12 @@ import {
   modelCommandUsageMessage,
   parseModelCommand,
 } from "@/lib/model-command";
+import { resolveChatModelPreference } from "@/lib/runtime-model-policy";
 import {
   isChatMessageEditId,
   planChatMessageEdit,
 } from "@/lib/chat-message-edit";
-import { getPostHogClient } from "@/lib/posthog-server";
+import { capturePostHogEvent } from "@/lib/posthog-server";
 
 export const dynamic = "force-dynamic";
 
@@ -77,21 +91,9 @@ interface ChatRequestBody {
  */
 export async function POST(req: Request) {
   const requestStartedAt = new Date();
-  let sessionUser;
-  try {
-    sessionUser = await getSessionUser();
-  } catch (err) {
-    if (err instanceof AuthConfigError) {
-      return NextResponse.json(
-        { error: "auth_config_error", message: err.message },
-        { status: 500 },
-      );
-    }
-    throw err;
-  }
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   const limits = requestLimitConfig();
   if (contentLengthTooLarge(req.headers, limits.maxRequestBytes)) {
@@ -251,8 +253,12 @@ export async function POST(req: Request) {
   // #300: a model disabled for user-facing chat can never be selected — not
   // via /model, the request body, or a stale skill pin. Disabled or unknown
   // ids resolve to the enabled default instead.
-  const requestedOrPinnedModelId =
-    activatedSkill?.skill.modelId ?? requestedModelId;
+  const modelPreference = resolveChatModelPreference({
+    requestedModelId,
+    modelOverride,
+    skillModelId: activatedSkill?.skill.modelId,
+  });
+  const requestedOrPinnedModelId = modelPreference.modelId;
   const modelId = (await isModelEnabled(db, requestedOrPinnedModelId, "chat"))
     ? requestedOrPinnedModelId
     : await resolveModelForPurpose(db, "chat");
@@ -373,7 +379,7 @@ export async function POST(req: Request) {
         );
       }
       replayedAttachments = replay.attachments;
-      replayedArtifactIds = uploads.map((row) => row.id);
+      replayedArtifactIds = replay.resourceIds;
     }
   }
 
@@ -409,12 +415,48 @@ export async function POST(req: Request) {
     ).map((row) => row.content);
   }
 
+  const requestAttachments = replayedAttachments ?? attachments;
+  const pendingResources =
+    attachments.length > 0
+      ? preparePendingConversationResources(attachments)
+      : [];
+  const [storedResources, previousResourceResolution] = await Promise.all([
+    loadThreadConversationResources({
+      db,
+      userId: sessionUser.id,
+      threadId: thread.id,
+    }),
+    loadPreviousConversationResourceResolution({
+      db,
+      userId: sessionUser.id,
+      threadId: thread.id,
+    }),
+  ]);
+  const currentResourceIds =
+    pendingResources.length > 0
+      ? pendingResources.map((resource) => resource.id)
+      : replayedArtifactIds ?? [];
+  const resourceResolution = resolveConversationResources({
+    message: effectiveUserMessage,
+    resources: [
+      ...pendingResources.map((resource) => resource.manifest),
+      ...storedResources,
+    ],
+    currentResourceIds,
+    previousResolution: previousResourceResolution,
+  });
+  // Only files on THIS request need runtime content (for example native image
+  // bytes). Durable and current queryable files use compact resource ids.
+  const effectiveAttachments = requestAttachments;
+
   const routingCapabilityGraph = await loadUserCapabilityGraph(db, sessionUser, {
     mountedProviders: [],
   });
   const contextSignals = {
     priorUserMessagesCount: priorUserMessages.length,
-    uploadedFilesAvailable: (replayedAttachments ?? attachments).length > 0,
+    uploadedFilesAvailable:
+      effectiveAttachments.length > 0 ||
+      resourceResolution.selected.length > 0,
   };
   let runtimeRoute = decideChatRuntimeRoute({
     message: effectiveUserMessage,
@@ -424,7 +466,7 @@ export async function POST(req: Request) {
   });
   if (activatedSkill) {
     runtimeRoute = applyActivatedSkillRoute(runtimeRoute, {
-      requiredProviders: activatedSkill.skill.mcpProviders,
+      requiredProviders: skillMcpProviders(activatedSkill.skill.mcpProviders),
     });
   }
   const routeReceipt = buildChatRouteReceipt({
@@ -556,53 +598,71 @@ export async function POST(req: Request) {
     });
   }
 
-  // The bubble shows the typed message; the model sees it plus the folded
-  // attachment text. Each file is also stored as a workspace artifact so it
-  // renders as a chip on the turn (and is downloadable later).
+  // The bubble and model both receive the typed message. Queryable files ride
+  // as compact resource references; only a resolver failure falls back to a
+  // framed inline preview.
   // #416: the skill's operating instructions pin into the stable system
   // prefix (via the context pack's activeSkill input) instead of riding the
   // summarizable user message; only the user's own request stays here.
   const modelVisibleMessage = activatedSkill
     ? buildActivatedSkillUserMessage(activatedSkill.args)
     : effectiveUserMessage;
-  // #348: an edited file-bearing turn replays its stored uploads — same
-  // fold, same runtime payload, sourced from storage instead of the request.
-  const effectiveAttachments = replayedAttachments ?? attachments;
-  const promptForModel = foldAttachmentsIntoPrompt(
-    modelVisibleMessage,
-    effectiveAttachments,
-  );
-  const uploadedFiles = effectiveAttachments.map((a) => ({
+  const resourcePromptPlan = buildConversationResourcePrompt({
+    message: modelVisibleMessage,
+    attachments: effectiveAttachments,
+    resourceIds: currentResourceIds,
+    resolution: resourceResolution,
+  });
+  const promptForModel = resourcePromptPlan.prompt;
+  const uploadedFiles = effectiveAttachments.map((a, index) => ({
+    ...(currentResourceIds[index]
+      ? { resourceId: currentResourceIds[index] }
+      : {}),
     name: a.name,
     mimeType: a.mimeType,
     sizeBytes: a.sizeBytes,
+    contentChars: a.content.length,
     extractionStatus: a.extractionStatus,
     ...(a.runtimeContent ? { runtimeContent: a.runtimeContent } : {}),
+  }));
+  const storedUploadedFiles = uploadedFiles.map((file) => ({
+    ...(file.resourceId ? { resourceId: file.resourceId } : {}),
+    name: file.name,
+    mimeType: file.mimeType,
+    sizeBytes: file.sizeBytes,
+    contentChars: file.contentChars,
+    extractionStatus: file.extractionStatus,
   }));
   if (attachments.length > 0) {
     const secretFindings = scanAttachmentsForSecrets(attachments);
     await db.insert(workspaceArtifacts).values(
-      attachments.map((a, uploadIndex) => ({
+      pendingResources.map((pending, uploadIndex) => ({
+        id: pending.id,
         userId: sessionUser.id,
         threadId: thread.id,
         chatMessageId: userMsg[0]!.id,
-        title: a.name,
-        filename: a.name,
-        kind: a.kind,
-        mimeType: a.mimeType,
-        content: a.storageContent,
-        sizeBytes: a.sizeBytes,
+        title: pending.attachment.name,
+        filename: pending.attachment.name,
+        kind: pending.attachment.kind,
+        mimeType: pending.attachment.mimeType,
+        content: pending.attachment.storageContent,
+        sizeBytes: pending.attachment.sizeBytes,
         source: "user-upload",
         metadata: {
           // Bulk insert shares one createdAt, so this ordinal is the ONLY
           // record of request order — replay (#348) sorts by it to keep
           // the re-folded prompt byte-identical to the original turn.
           uploadIndex,
-          storageEncoding: a.storageEncoding,
-          extractionStatus: a.extractionStatus,
-          extractedText: a.content,
-          ...(a.extractionNotes?.length ? { extractionNotes: a.extractionNotes } : {}),
-          ...(a.image ? { image: a.image } : {}),
+          storageEncoding: pending.attachment.storageEncoding,
+          extractionStatus: pending.attachment.extractionStatus,
+          extractedText: pending.attachment.content,
+          conversationResource: conversationResourceMetadata(pending),
+          ...(pending.attachment.extractionNotes?.length
+            ? { extractionNotes: pending.attachment.extractionNotes }
+            : {}),
+          ...(pending.attachment.image
+            ? { image: pending.attachment.image }
+            : {}),
           ...(secretFindings.length > 0 ? { secretWarning: secretFindings } : {}),
         },
       })),
@@ -627,15 +687,20 @@ export async function POST(req: Request) {
       status: runtimeRoute.useWorker ? "queued" : "running",
       modelId,
       inputs: {
-        prompt: promptForModel,
+        // Durable runs retain the user's instruction and resource references,
+        // never a copy of uploaded file content.
+        prompt: modelVisibleMessage,
         threadId: thread.id,
         userMessageId: userMsg[0]!.id,
         requestedByUserId: sessionUser.id,
         executionMode: runtimeRoute.executionMode,
         modelOverride,
+        modelPreferenceSource: modelPreference.source,
         ...(modelCommand ? { modelCommand } : {}),
         runtimeRoute,
-        uploadedFiles,
+        uploadedFiles: storedUploadedFiles,
+        resourceResolution,
+        resourcePrompt: resourcePromptPlan.receipt,
         routeReceipt,
         // #432: preserved so a queued or retried execution of this turn uses
         // the same clock context the user sent it with.
@@ -686,8 +751,11 @@ export async function POST(req: Request) {
         userMessageId: userMsg[0]!.id,
         executionMode: runtimeRoute.executionMode,
         modelOverride,
+        modelPreferenceSource: modelPreference.source,
         runtimeRoute,
         routeReceipt,
+        resourceResolution,
+        resourcePrompt: resourcePromptPlan.receipt,
         ...(replaceMessageId ? { replaceMessageId } : {}),
         ...(modelCommand ? { modelCommand } : {}),
         ...(activatedSkill
@@ -714,7 +782,11 @@ export async function POST(req: Request) {
         eventType: "uploaded_files_stored",
         status: "succeeded",
         label: `Stored ${attachments.length} uploaded file${attachments.length === 1 ? "" : "s"}`,
-        metadata: { uploadedFiles },
+        metadata: {
+          uploadedFiles: storedUploadedFiles,
+          resourceResolution,
+          resourcePrompt: resourcePromptPlan.receipt,
+        },
         occurredAt: queuedAt,
       });
     } else if (replayedAttachments) {
@@ -728,10 +800,10 @@ export async function POST(req: Request) {
         status: "succeeded",
         label: `Replayed ${replayedAttachments.length} stored file${replayedAttachments.length === 1 ? "" : "s"} from the edited message`,
         metadata: {
-          uploadedFiles: uploadedFiles.map(
-            ({ runtimeContent: _runtimeContent, ...rest }) => rest,
-          ),
+          uploadedFiles: storedUploadedFiles,
           replayedArtifactIds,
+          resourceResolution,
+          resourcePrompt: resourcePromptPlan.receipt,
         },
         occurredAt: queuedAt,
       });
@@ -751,8 +823,7 @@ export async function POST(req: Request) {
     startInProcessChatRunWorker({ db, runId: chatRunId });
   }
 
-  const posthog = getPostHogClient();
-  posthog.capture({
+  capturePostHogEvent({
     distinctId: sessionUser.id,
     event: "chat_turn_submitted",
     properties: {
@@ -764,14 +835,16 @@ export async function POST(req: Request) {
       uses_worker: runtimeRoute.useWorker,
     },
   });
-  await posthog.shutdown();
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (obj: unknown) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
-      };
+      const writer = createChatStreamWriter((event) => {
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+        );
+      });
+      const send = writer.send;
       send({
         type: "meta",
         threadId: thread.id,
@@ -782,6 +855,7 @@ export async function POST(req: Request) {
         executionMode: runtimeRoute.executionMode,
         runtimeRoute,
         routeReceipt,
+        resourceResolution,
         ...(replaceMessageId ? { replaceMessageId } : {}),
       });
       if (runtimeRoute.useWorker) {
@@ -791,10 +865,14 @@ export async function POST(req: Request) {
           runId: chatRunId,
           status: "Queued for AgentCore worker",
         });
+        send({ type: "done", stopReason: "queued" });
         controller.close();
         return;
       }
 
+      let failureMessage =
+        "Chat stream ended unexpectedly before a terminal event.";
+      const stopHeartbeat = startChatStreamHeartbeat(send);
       try {
         await streamInlineChatRun({
           db,
@@ -803,11 +881,14 @@ export async function POST(req: Request) {
           userId: sessionUser.id,
           userMessageId: userMsg[0]!.id,
           prompt: promptForModel,
+          persistedPrompt: modelVisibleMessage,
           modelId,
           modelOverride,
+          forceRequestedModel: modelPreference.source !== "request_default",
           route: runtimeRoute,
           requestStartedAt,
           uploadedFiles,
+          resourceResolution,
           userTimeZone,
           activatedSkills: activatedSkill
             ? [
@@ -834,11 +915,22 @@ export async function POST(req: Request) {
           diagnosticStreamEnabled: sessionUser.role === "admin",
         });
       } catch (err) {
-        send({
-          type: "error",
-          message: err instanceof Error ? err.message : String(err),
-        });
+        failureMessage = err instanceof Error ? err.message : String(err);
+        if (!writer.hasTerminal()) {
+          send({
+            type: "error",
+            message: failureMessage,
+          });
+        }
       } finally {
+        stopHeartbeat();
+        if (!writer.hasTerminal()) {
+          send({
+            type: "failed",
+            stopReason: "stream_error",
+            message: failureMessage,
+          });
+        }
         controller.close();
       }
     },

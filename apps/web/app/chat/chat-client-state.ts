@@ -75,26 +75,6 @@ export interface ChatTab {
   loaded: boolean;
 }
 
-export interface ChatStreamEvent {
-  type:
-    | "meta"
-    | "model"
-    | "text-delta"
-    | "provider-reasoning-delta"
-    | "provider-reasoning-redacted"
-    | "provider-response-metadata"
-    | "tool-call"
-    | "tool-result"
-    | "usage"
-    | "heartbeat"
-    | "metrics"
-    | "queued"
-    | "error"
-    | "done"
-    | "persisted";
-  [key: string]: unknown;
-}
-
 export interface ModelsResponse {
   defaultModelId: string;
   models: ModelOption[];
@@ -137,6 +117,7 @@ export interface ThreadMessage {
   pending?: boolean;
   status?: string;
   runPhase?: string;
+  liveTokens?: number;
   runId?: string;
   runStatus?: string;
   runError?: string | null;
@@ -163,6 +144,7 @@ export function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
     pending: message.pending,
     status: message.status,
     livePhase: message.runPhase,
+    liveTokens: message.liveTokens,
     toolCalls: message.toolCalls ?? undefined,
     toolResults: message.toolResults ?? undefined,
     artifacts: message.artifacts,

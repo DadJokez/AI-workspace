@@ -63,6 +63,9 @@ test.describe("right slide-over panes", () => {
 
     const scrollRegion = page.getByTestId("chat-scroll-region");
     await expect(page.getByText("Assistant answer 36")).toBeVisible();
+    const messageRows = page.getByTestId("chat-message-row");
+    await expect(messageRows).toHaveCount(36);
+    await expect(messageRows.first()).toHaveCSS("content-visibility", "auto");
     await scrollRegion.evaluate((element) => {
       element.scrollTop = Math.floor(
         (element.scrollHeight - element.clientHeight) / 2,

@@ -4,7 +4,7 @@ import {
   workspaceArtifacts,
   type WorkspaceArtifact,
 } from "@ai-workspace/db";
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import {
   planArtifactVersionsForExistingArtifacts,
   sanitizeArtifactFilename as sanitizeFilename,
@@ -14,12 +14,18 @@ import {
 import { scrubBindingsForClient } from "@/lib/app-data-bindings";
 import { deriveBindingsFromTurnTools } from "@/lib/app-data-bootstrap";
 import { computeLineDelta } from "@/lib/artifact-diff";
+import {
+  type OutputProposalContext,
+  withOutputProposal,
+} from "@/lib/output-proposals";
 import type { ToolCall, ToolResult } from "@ai-workspace/agent";
 
 const MAX_ARTIFACTS_PER_MESSAGE = 5;
 const MAX_ARTIFACT_CHARS = 500_000;
 const MIN_IMPLICIT_ARTIFACT_CHARS = 240;
 const MIN_DECLARED_TEXT_ARTIFACT_CHARS = 80;
+const ARTIFACT_VERSION_CONSTRAINT = "workspace_artifacts_group_version_idx";
+const MAX_ARTIFACT_VERSION_ATTEMPTS = 8;
 
 export interface WorkspaceArtifactSummary {
   id: string;
@@ -62,6 +68,7 @@ interface CreateArtifactsInput {
    */
   turnToolCalls?: readonly ToolCall[];
   turnToolResults?: readonly ToolResult[];
+  proposal?: OutputProposalContext | null;
 }
 
 export interface ParsedArtifact {
@@ -91,6 +98,7 @@ export async function createArtifactsFromAssistantMessage({
   separateFromArtifact,
   turnToolCalls,
   turnToolResults,
+  proposal,
 }: CreateArtifactsInput): Promise<WorkspaceArtifactSummary[]> {
   const parsed = parseAssistantArtifacts(assistantText);
   if (parsed.length === 0) return [];
@@ -98,60 +106,78 @@ export async function createArtifactsFromAssistantMessage({
     turnToolCalls,
     turnToolResults,
   );
-  const { planned, priorContentById } = await planArtifactVersions({
-    db,
-    userId,
-    threadId,
-    artifacts: parsed,
-    targetArtifact,
-    separateFromArtifact,
-  });
+  let planned: Array<{
+    artifact: ParsedArtifact;
+    version: PlannedArtifactVersion;
+  }> = [];
+  let rows: WorkspaceArtifact[] = [];
 
-  const rows = await db
-    .insert(workspaceArtifacts)
-    .values(
-      planned.map(({ artifact, version }) => ({
-        userId,
-        threadId,
-        chatMessageId,
-        runId: runId ?? null,
-        title: version.title ?? artifact.title,
-        filename: version.filename,
-        artifactGroupId: version.artifactGroupId,
-        versionNumber: version.versionNumber,
-        supersedesArtifactId: version.supersedesArtifactId,
-        versionSummary: version.versionSummary,
-        kind: artifact.kind,
-        mimeType: artifact.mimeType,
-        content: artifact.content,
-        sizeBytes: Buffer.byteLength(artifact.content, "utf8"),
-        source: "assistant-code-block",
-        metadata: {
-          ...artifact.metadata,
-          artifactKey: version.artifactKey,
-          originalFilename: artifact.filename,
-          versionNumber: version.versionNumber,
-          // #407: pin the turn's live-data bindings on servable HTML only.
-          ...(derivedBindings.length > 0 &&
-          artifact.mimeType === "text/html"
-            ? { dataBindings: derivedBindings }
-            : {}),
-          // #359: revision line-delta for the work receipt (+N −N).
-          ...(() => {
-            const priorContent = version.supersedesArtifactId
-              ? priorContentById.get(version.supersedesArtifactId)
-              : undefined;
-            if (priorContent === undefined) return {};
-            const delta = computeLineDelta(priorContent, artifact.content);
-            return delta ? { lineDelta: delta } : {};
-          })(),
-        },
-      })),
-    )
-    .onConflictDoNothing({
-      target: [workspaceArtifacts.chatMessageId, workspaceArtifacts.filename],
-    })
-    .returning();
+  for (let attempt = 1; attempt <= MAX_ARTIFACT_VERSION_ATTEMPTS; attempt += 1) {
+    const plan = await planArtifactVersions({
+      db,
+      userId,
+      threadId,
+      artifacts: parsed,
+      targetArtifact,
+      separateFromArtifact,
+    });
+    planned = plan.planned;
+    try {
+      rows = await db
+        .insert(workspaceArtifacts)
+        .values(
+          planned.map(({ artifact, version }) => ({
+            userId,
+            threadId,
+            chatMessageId,
+            runId: runId ?? null,
+            title: version.title ?? artifact.title,
+            filename: version.filename,
+            artifactGroupId: version.artifactGroupId,
+            versionNumber: version.versionNumber,
+            supersedesArtifactId: version.supersedesArtifactId,
+            versionSummary: version.versionSummary,
+            kind: artifact.kind,
+            mimeType: artifact.mimeType,
+            content: artifact.content,
+            sizeBytes: Buffer.byteLength(artifact.content, "utf8"),
+            source: "assistant-code-block",
+            metadata: withOutputProposal({
+              ...artifact.metadata,
+              artifactKey: version.artifactKey,
+              originalFilename: artifact.filename,
+              versionNumber: version.versionNumber,
+              // #407: pin the turn's live-data bindings on servable HTML only.
+              ...(derivedBindings.length > 0 &&
+              artifact.mimeType === "text/html"
+                ? { dataBindings: derivedBindings }
+                : {}),
+              // #359: revision line-delta for the work receipt (+N −N).
+              ...(() => {
+                const priorContent = version.supersedesArtifactId
+                  ? plan.priorContentById.get(version.supersedesArtifactId)
+                  : undefined;
+                if (priorContent === undefined) return {};
+                const delta = computeLineDelta(priorContent, artifact.content);
+                return delta ? { lineDelta: delta } : {};
+              })(),
+            }, proposal),
+          })),
+        )
+        .onConflictDoNothing({
+          target: [workspaceArtifacts.chatMessageId, workspaceArtifacts.filename],
+        })
+        .returning();
+      break;
+    } catch (error) {
+      if (
+        attempt === MAX_ARTIFACT_VERSION_ATTEMPTS ||
+        !isArtifactVersionConflict(error)
+      ) {
+        throw error;
+      }
+    }
+  }
 
   // #456: artifact creation audits by construction — every lane (inline,
   // worker, and any future caller) creates artifacts through this one
@@ -173,14 +199,52 @@ export async function createArtifactsFromAssistantMessage({
           filename: row.filename,
           versionNumber: row.versionNumber,
         },
-        metadata: { kind: row.kind, mimeType: row.mimeType, sizeBytes: row.sizeBytes },
+        metadata: {
+          kind: row.kind,
+          mimeType: row.mimeType,
+          sizeBytes: row.sizeBytes,
+          ...(proposal
+            ? {
+                outputProposal: {
+                  status: "proposed",
+                  triggerType: proposal.triggerType,
+                },
+              }
+            : {}),
+        },
         startedAt: auditNow,
         completedAt: auditNow,
       })),
     );
   }
 
-  return rows.map(serializeWorkspaceArtifact);
+  if (rows.length === planned.length) {
+    return rows.map(serializeWorkspaceArtifact);
+  }
+
+  // A replay of the same run/message is expected to hit the message+filename
+  // idempotency constraint. Return the rows that already won instead of
+  // reporting an empty artifact batch to the caller.
+  const persistedRows = await db
+    .select()
+    .from(workspaceArtifacts)
+    .where(
+      and(
+        eq(workspaceArtifacts.userId, userId),
+        eq(workspaceArtifacts.chatMessageId, chatMessageId),
+        inArray(
+          workspaceArtifacts.filename,
+          planned.map(({ version }) => version.filename),
+        ),
+      ),
+    );
+  const rowByFilename = new Map(
+    [...persistedRows, ...rows].map((row) => [row.filename, row]),
+  );
+  return planned
+    .map(({ version }) => rowByFilename.get(version.filename))
+    .filter((row): row is WorkspaceArtifact => Boolean(row))
+    .map(serializeWorkspaceArtifact);
 }
 
 export async function loadWorkspaceArtifacts({
@@ -400,6 +464,25 @@ async function planArtifactVersions({
     }),
     priorContentById: new Map(priorRows.map((row) => [row.id, row.content])),
   };
+}
+
+function isArtifactVersionConflict(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current; depth += 1) {
+    if (typeof current !== "object") return false;
+    const record = current as Record<string, unknown>;
+    if (
+      record.code === "23505" &&
+      (record.constraint_name === ARTIFACT_VERSION_CONSTRAINT ||
+        record.constraint === ARTIFACT_VERSION_CONSTRAINT ||
+        (typeof record.message === "string" &&
+          record.message.includes(ARTIFACT_VERSION_CONSTRAINT)))
+    ) {
+      return true;
+    }
+    current = record.cause;
+  }
+  return false;
 }
 
 function extractFencedCodeBlocks(text: string): FencedCodeBlock[] {

@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { EmptyState } from "@/components/EmptyState";
+import { fetchJson } from "@/lib/client-api";
+import { formatDateTime as formatDate } from "@/lib/format-date";
 
 interface Props {
   userName?: string;
@@ -76,26 +78,27 @@ export function MemorySettings({ userName }: Props) {
     setAddBusy(true);
     setAddError(null);
     try {
-      const res = await fetch("/api/vault/memory", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          title: addTitle,
-          bodyMd: addBody,
-          category: "personal_context",
-        }),
-      });
-      const body = (await res.json()) as { message?: string; error?: string };
-      if (res.ok) {
-        setAddTitle("");
-        setAddBody("");
-        setAddOpen(false);
-        await loadVault();
-        return;
-      }
-      setAddError(body.message ?? body.error ?? "Could not add the fact.");
-    } catch {
-      setAddError("Could not add the fact.");
+      await fetchJson(
+        "/api/vault/memory",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            title: addTitle,
+            bodyMd: addBody,
+            category: "personal_context",
+          }),
+        },
+        "Could not add the fact.",
+      );
+      setAddTitle("");
+      setAddBody("");
+      setAddOpen(false);
+      await loadVault();
+    } catch (err) {
+      setAddError(
+        err instanceof Error ? err.message : "Could not add the fact.",
+      );
     } finally {
       setAddBusy(false);
     }
@@ -104,9 +107,11 @@ export function MemorySettings({ userName }: Props) {
   async function loadVault() {
     setLoading(true);
     try {
-      const res = await fetch("/api/vault/memory");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as VaultMemoryResponse;
+      const data = await fetchJson<VaultMemoryResponse>(
+        "/api/vault/memory",
+        undefined,
+        "Could not load memory.",
+      );
       setApprovedMarkdown(data.approvedMarkdown ?? "");
       setApprovedItems(data.approvedItems ?? []);
       setSuggestions(data.suggestions ?? []);
@@ -138,13 +143,16 @@ export function MemorySettings({ userName }: Props) {
   ) {
     setActionPendingId(id);
     try {
-      const res = await fetch(`/api/vault/memory/${id}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, ...edits }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await fetchJson(
+        `/api/vault/memory/${id}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, ...edits }),
+        },
+        "Could not update memory.",
+      );
       setEditingId(undefined);
       await loadVault();
     } catch (err) {
@@ -633,15 +641,4 @@ function MemoryEvidence({
       ) : null}
     </div>
   );
-}
-
-function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
 }

@@ -1,7 +1,7 @@
 import { getDb, skills } from "@ai-workspace/db";
 import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import { enabledModelsForPurpose } from "@/lib/model-registry";
 import {
   auditSkillMutation,
@@ -11,16 +11,15 @@ import {
 import { evaluateSkillNamingGate } from "@/lib/skills-naming-gate";
 import { listSkillsSharedWith } from "@/lib/shares";
 import { canonicalizeStarterSkill } from "@/lib/starter-skills";
-import { getPostHogClient } from "@/lib/posthog-server";
+import { capturePostHogEvent } from "@/lib/posthog-server";
 
 export const dynamic = "force-dynamic";
 
 /** List the catalog: my skills plus starters (visible to everyone). */
 export async function GET() {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   const db = getDb();
   const rows = await db
@@ -69,10 +68,9 @@ export async function GET() {
 
 /** Create a skill owned by the caller. */
 export async function POST(req: Request) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   let body: unknown;
   try {
@@ -124,8 +122,7 @@ export async function POST(req: Request) {
     metadata: { modelId: skill.modelId, mcpProviders: skill.mcpProviders },
   });
 
-  const posthog = getPostHogClient();
-  posthog.capture({
+  capturePostHogEvent({
     distinctId: sessionUser.id,
     event: "skill_created",
     properties: {
@@ -133,7 +130,6 @@ export async function POST(req: Request) {
       has_mcp_providers: skill.mcpProviders.length > 0,
     },
   });
-  await posthog.shutdown();
 
   return NextResponse.json({ skill }, { status: 201 });
 }

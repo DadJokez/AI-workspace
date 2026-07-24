@@ -8,10 +8,14 @@ const getSessionUser = vi.fn();
 const canActorOpenApp = vi.fn();
 const getLiveAppVersion = vi.fn();
 const auditAppMutation = vi.fn();
+const auditAdminDataAccess = vi.fn();
 const loadWorkspaceArtifactById = vi.fn();
 const checkRateLimit = vi.fn();
 const resolveSalesforceConnection = vi.fn();
 const queryReadOnlySoql = vi.fn();
+const resolveAppPublication = vi.fn();
+const isBindingIncludedInPublication = vi.fn();
+const isPublicationManifestEnabled = vi.fn();
 
 vi.mock("@/lib/auth/getSessionUser", () => ({ getSessionUser }));
 vi.mock("@/lib/apps", () => ({
@@ -19,9 +23,18 @@ vi.mock("@/lib/apps", () => ({
   getLiveAppVersion,
   auditAppMutation,
 }));
+vi.mock("@/lib/admin-data-access", () => ({
+  adminDataAccessJustification: () => null,
+  auditAdminDataAccess,
+}));
 vi.mock("@/lib/workspace-artifacts", () => ({ loadWorkspaceArtifactById }));
 vi.mock("@/lib/request-limits", () => ({ checkRateLimit }));
 vi.mock("@/lib/oauth/salesforce-token", () => ({ resolveSalesforceConnection }));
+vi.mock("@/lib/app-publication", () => ({
+  resolveAppPublication,
+  isBindingIncludedInPublication,
+  isPublicationManifestEnabled,
+}));
 vi.mock("@/lib/salesforce/authorization", () => ({
   buildSalesforceTurnContext: ({
     userId,
@@ -115,11 +128,49 @@ beforeEach(() => {
     done: true,
     records: [{ Id: "006xxx" }],
   });
+  resolveAppPublication.mockReturnValue({
+    metadata: {
+      dataMode: "live_via_viewer",
+      connectorManifest: [
+        {
+          provider: "salesforce",
+          toolName: "run_soql",
+          catalogKey: "salesforce:run_soql",
+          bindingIds: ["pipeline"],
+        },
+      ],
+    },
+  });
+  isBindingIncludedInPublication.mockReturnValue(true);
+  isPublicationManifestEnabled.mockResolvedValue(true);
+  auditAdminDataAccess.mockResolvedValue("skipped");
 });
 
 afterEach(() => vi.resetModules());
 
 describe("GET /api/apps/[id]/data/[bindingId]", () => {
+  it("does not expose a binding endpoint for a snapshot publication", async () => {
+    resolveAppPublication.mockReturnValueOnce({
+      metadata: { dataMode: "snapshot", connectorManifest: [] },
+    });
+
+    const res = await callRoute();
+
+    expect(res.status).toBe(404);
+    expect(resolveSalesforceConnection).not.toHaveBeenCalled();
+    expect(queryReadOnlySoql).not.toHaveBeenCalled();
+  });
+
+  it("does not expose a binding omitted from the published manifest", async () => {
+    isBindingIncludedInPublication.mockReturnValueOnce(false);
+
+    const res = await callRoute();
+
+    expect(res.status).toBe(404);
+    expect(resolveSalesforceConnection).not.toHaveBeenCalled();
+    expect(queryReadOnlySoql).not.toHaveBeenCalled();
+  });
+
   it("runs the pinned query under the VIEWER's own connection and returns rows", async () => {
     const res = await callRoute();
     expect(res.status).toBe(200);
@@ -139,6 +190,31 @@ describe("GET /api/apps/[id]/data/[bindingId]", () => {
     expect(queryReadOnlySoql).toHaveBeenCalledWith(
       binding.query,
       expect.objectContaining({ accessToken: "viewer-token" }),
+    );
+  });
+
+  it("records an admin opening another user's app data surface", async () => {
+    const admin = {
+      id: "admin-1",
+      email: "admin@x.com",
+      displayName: "Admin",
+      role: "admin",
+    };
+    getSessionUser.mockResolvedValue(admin);
+
+    const res = await callRoute();
+
+    expect(res.status).toBe(200);
+    expect(auditAdminDataAccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: admin,
+        access: expect.objectContaining({
+          targetUserId: appRow.ownerUserId,
+          resourceType: "app",
+          resourceId: appRow.id,
+          surface: "app_data",
+        }),
+      }),
     );
   });
 

@@ -1,6 +1,6 @@
 import { getDb } from "@ai-workspace/db";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import { isModelEnabled } from "@/lib/model-registry";
 import { parseSkillMarkdown } from "@/lib/skill-format";
 import { auditSkillMutation, insertSkillWithUniqueSlug } from "@/lib/skills";
@@ -13,10 +13,9 @@ export const dynamic = "force-dynamic";
  * This is what makes the seeded Skill Creator's output directly usable.
  */
 export async function POST(req: Request) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   let body: unknown;
   try {

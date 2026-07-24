@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { Tool } from "./types";
+import {
+  assertWebEgressAllowed,
+  type WebEgressPolicy,
+} from "./web-egress-policy";
 
 /**
  * Built-in web search (#313), beside the SSRF-hardened URL fetch. Query in →
@@ -27,6 +31,10 @@ const MAX_RESULT_COUNT = 10;
 const MAX_QUERY_CHARS = 400;
 const RETRY_DELAY_MS = 1_000;
 const WEB_SEARCH_MARKER_RE = /<<<(?:END-)?WEB-SEARCH-RESULTS [^>\n]{1,128}>>>/g;
+const PROMPT_INJECTION_CUE_RE =
+  /\b(?:ignore|disregard|forget|override)\s+(?:(?:all|any)\s+)?(?:(?:previous|prior|above|earlier)\s+)?(?:instructions?|directives?|prompts?|messages?)\b|\b(?:system|developer|assistant|admin)\s+(?:directive|instruction|message|prompt)[^:\n]{0,80}:\s*(?:ignore|disregard|override|reply|respond|include|reveal|list|send|output|exfiltrate)\b/i;
+const OMITTED_SEARCH_SNIPPET =
+  "[Snippet omitted because it contained instructions directed at the assistant.]";
 
 export interface WebSearchResult {
   title: string;
@@ -49,6 +57,8 @@ export interface WebSearchOptions {
   delayImpl?: (ms: number) => Promise<void>;
   /** Lazy secret resolver used by hosted runtimes such as AgentCore Identity. */
   apiKeyProvider?: () => Promise<string | undefined>;
+  /** Admin-global deny-wins policy applied before the provider request. */
+  egressPolicy?: WebEgressPolicy;
 }
 
 export function isWebSearchConfigured(
@@ -66,6 +76,7 @@ export function createWebSearchTool({
   now = () => new Date(),
   delayImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   apiKeyProvider,
+  egressPolicy,
 }: WebSearchOptions = {}): Tool {
   return {
     name: WEB_SEARCH_TOOL_NAME,
@@ -116,6 +127,8 @@ export function createWebSearchTool({
         : trimmed;
       const resultCount = normalizeCount(count);
       const retrievedAt = now().toISOString();
+      const searchHost = new URL(BRAVE_ENDPOINT).hostname;
+      assertWebEgressAllowed(searchHost, egressPolicy);
 
       const results = await braveSearch({
         query: effectiveQuery,
@@ -127,6 +140,7 @@ export function createWebSearchTool({
 
       return {
         provider: "brave",
+        searchedHost: searchHost,
         query: effectiveQuery,
         ...(truncatedQuery
           ? {
@@ -247,10 +261,7 @@ function formatSearchResultsData(results: readonly WebSearchResult[]): string {
   const begin = `<<<WEB-SEARCH-RESULTS ${nonce}>>>`;
   const end = `<<<END-WEB-SEARCH-RESULTS ${nonce}>>>`;
   const listing = results
-    .map(
-      (result, index) =>
-        `${index + 1}. ${result.title}\n   ${result.url}\n   ${result.snippet}`,
-    )
+    .map((result, index) => formatSearchResult(result, index))
     .join("\n")
     .split(begin)
     .join("")
@@ -263,6 +274,16 @@ function formatSearchResultsData(results: readonly WebSearchResult[]): string {
     listing,
     end,
   ].join("\n");
+}
+
+function formatSearchResult(
+  result: WebSearchResult,
+  index: number,
+): string {
+  if (PROMPT_INJECTION_CUE_RE.test(`${result.title}\n${result.snippet}`)) {
+    return `${index + 1}. ${result.title}\n   ${result.url}\n   ${OMITTED_SEARCH_SNIPPET}`;
+  }
+  return `${index + 1}. ${result.title}\n   ${result.url}\n   ${result.snippet}`;
 }
 
 function normalizeCount(value: unknown): number {

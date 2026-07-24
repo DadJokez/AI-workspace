@@ -1,3 +1,4 @@
+import type { SessionUser } from "@ai-workspace/auth";
 import {
   apps,
   appVersions,
@@ -33,6 +34,13 @@ import {
 import { loadRecommendationsForMessages } from "@/lib/recommendation-persistence";
 import type { PersistedRecommendation } from "@/lib/recommendations";
 import type { ChatRuntimeLane } from "@/lib/chat-routing";
+import { liveTokenTotalFromRunOutput } from "@/lib/run-poll";
+import {
+  canAppRoleDeploy,
+  resolveAppActorRole,
+  type AppActorRole,
+} from "@/lib/apps";
+import { proposalIterationFromRunInputs } from "@/lib/proposal-iterations";
 
 export interface ChatRunOutput {
   assistantMessageId?: string;
@@ -42,6 +50,8 @@ export interface ChatRunOutput {
   artifacts?: WorkspaceArtifactSummary[];
   appDraftVersions?: AppDraftVersionSummary[];
   sources?: AssistantSource[];
+  /** Aggregate only, derived from the persisted usage object. */
+  liveTokens?: number;
 }
 
 export interface ThreadMessageWithActivity {
@@ -65,6 +75,8 @@ export interface ThreadMessageWithActivity {
   status?: string;
   /** #359: deterministic phase for in-flight runs, derived server-side. */
   runPhase?: string;
+  /** #359: refresh-safe aggregate for the in-flight worker footer. */
+  liveTokens?: number;
   runId?: string;
   runStatus?: string;
   runError?: string | null;
@@ -77,9 +89,11 @@ export interface ThreadMessageWithActivity {
 export async function loadThreadMessagesWithRunActivity({
   db,
   threadId,
+  actor,
 }: {
   db: Database;
   threadId: string;
+  actor?: Pick<SessionUser, "id" | "role">;
 }): Promise<ThreadMessageWithActivity[]> {
   const [messageRows, runRows] = await Promise.all([
     db
@@ -263,6 +277,9 @@ export async function loadThreadMessagesWithRunActivity({
       ...(run.status === "queued" || run.status === "running"
         ? {
             runPhase: derivePhaseFromRunEvents(eventsByRunId.get(run.id) ?? []),
+            ...(output.liveTokens !== undefined
+              ? { liveTokens: output.liveTokens }
+              : {}),
           }
         : {}),
       status:
@@ -276,7 +293,9 @@ export async function loadThreadMessagesWithRunActivity({
       runStatus: run.status,
       runError: run.error,
       canCancel: run.status === "queued" || run.status === "running",
-      canRetry: run.status === "failed" || run.status === "canceled",
+      canRetry:
+        (run.status === "failed" || run.status === "canceled") &&
+        !proposalIterationFromRunInputs(run.inputs),
       canResume: run.status === "queued" || run.status === "running",
       createdAt: run.startedAt ?? run.createdAt,
     });
@@ -302,26 +321,50 @@ export async function loadThreadMessagesWithRunActivity({
       .select({
         id: appVersions.id,
         status: appVersions.status,
+        appId: apps.id,
+        ownerUserId: apps.ownerUserId,
         liveVersionId: apps.liveVersionId,
         archivedAt: apps.archivedAt,
       })
       .from(appVersions)
       .innerJoin(apps, eq(appVersions.appId, apps.id))
       .where(inArray(appVersions.id, [...draftSummaryIds]));
-    const truthById = new Map<string, AppVersionTruthRow>(
-      truthRows.map((row) => [
-        row.id,
-        {
-          id: row.id,
-          liveVersionId: row.liveVersionId,
-          archived: row.archivedAt !== null,
-          // Unknown statuses fail safe to "reverted" (non-actionable).
-          status: isAppDraftVersionStatus(row.status)
-            ? row.status
-            : "reverted",
-        },
-      ]),
-    );
+    const roleByAppId = new Map<string, AppActorRole>();
+    if (actor) {
+      const appRows = new Map(
+        truthRows.map((row) => [
+          row.appId,
+          {
+            id: row.appId,
+            ownerUserId: row.ownerUserId,
+            archivedAt: row.archivedAt,
+          },
+        ]),
+      );
+      await Promise.all(
+        [...appRows.values()].map(async (app) => {
+          roleByAppId.set(
+            app.id,
+            await resolveAppActorRole(db, app, actor),
+          );
+        }),
+      );
+    }
+    const truthById = new Map<string, AppVersionTruthRow>();
+    for (const row of truthRows) {
+      const actorRole = actor ? roleByAppId.get(row.appId) : undefined;
+      if (actor && (!actorRole || actorRole === "none")) continue;
+      truthById.set(row.id, {
+        id: row.id,
+        liveVersionId: row.liveVersionId,
+        archived: row.archivedAt !== null,
+        ...(actorRole ? { canDeploy: canAppRoleDeploy(actorRole) } : {}),
+        // Unknown statuses fail safe to "reverted" (non-actionable).
+        status: isAppDraftVersionStatus(row.status)
+          ? row.status
+          : "reverted",
+      });
+    }
     for (const [messageId, summaries] of appDraftVersionsByAssistantMessageId) {
       appDraftVersionsByAssistantMessageId.set(
         messageId,
@@ -361,6 +404,8 @@ export interface AppVersionTruthRow {
   liveVersionId: string | null;
   /** Archived apps keep their history visible but never a deploy affordance. */
   archived: boolean;
+  /** Current caller capability; omitted by pure callers that only reconcile status. */
+  canDeploy?: boolean;
 }
 
 /**
@@ -369,8 +414,8 @@ export interface AppVersionTruthRow {
  * dead card can't render (and the next-highest version's card resurfaces via
  * latestAppDraftVersionIds, which is correct). canDeploy narrows only: a
  * summary minted non-deployable can never become deployable here, and
- * anything not currently a plain draft (deployed, reverted, or the live
- * version) is non-actionable.
+ * anything not currently a reviewable draft/proposal (deployed, reverted,
+ * discarded, or the live version) is non-actionable.
  */
 export function reconcileAppDraftVersionSummaries(
   summaries: readonly AppDraftVersionSummary[],
@@ -385,8 +430,9 @@ export function reconcileAppDraftVersionSummaries(
         status: truth.status,
         canDeploy:
           summary.canDeploy &&
+          truth.canDeploy !== false &&
           !truth.archived &&
-          truth.status === "draft" &&
+          (truth.status === "draft" || truth.status === "proposed") &&
           truth.id !== truth.liveVersionId,
       },
     ];
@@ -485,6 +531,7 @@ function parseChatRunOutput(value: unknown): ChatRunOutput {
       : undefined,
     appDraftVersions: parseAppDraftVersionSummaries(value.appDraftVersions),
     sources: parseAssistantSources(value.sources),
+    liveTokens: liveTokenTotalFromRunOutput(value) ?? undefined,
   };
 }
 

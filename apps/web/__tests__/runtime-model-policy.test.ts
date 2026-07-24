@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveRuntimeModelSelection } from "@/lib/runtime-model-policy";
+import {
+  applyRuntimeModelFailover,
+  resolveChatModelPreference,
+  resolveRuntimeModelSelection,
+} from "@/lib/runtime-model-policy";
 
 const directRoute = { runtimeTarget: "direct-chat" as const };
 const agentRoute = { runtimeTarget: "agentcore-worker" as const };
@@ -166,6 +170,74 @@ describe("resolveRuntimeModelSelection", () => {
     ).toMatchObject({
       modelId: "opus-4-7",
       reason: "requested_model_supported",
+    });
+  });
+
+  it("fails closed when a runtime lane has no enabled model", () => {
+    expect(() =>
+      resolveRuntimeModelSelection({
+        requestedModelId: "sonnet-4-6",
+        route: directRoute,
+        runtimeName: "bedrock",
+        enabledModelIds: new Set(),
+      }),
+    ).toThrow("No models are enabled for this runtime lane.");
+  });
+
+  it("does not treat unknown enablement ids as an allowed fallback", () => {
+    expect(() =>
+      resolveRuntimeModelSelection({
+        requestedModelId: "sonnet-4-6",
+        route: directRoute,
+        runtimeName: "bedrock",
+        enabledModelIds: new Set(["unknown-model"]),
+      }),
+    ).toThrow("No models are enabled for this runtime lane.");
+  });
+});
+
+describe("resolveChatModelPreference", () => {
+  it("gives an explicit user override priority over a skill pin", () => {
+    expect(
+      resolveChatModelPreference({
+        requestedModelId: "opus-4-7",
+        modelOverride: true,
+        skillModelId: "haiku-4-5",
+      }),
+    ).toEqual({ modelId: "opus-4-7", source: "user_override" });
+  });
+
+  it("uses a skill pin ahead of the request default", () => {
+    expect(
+      resolveChatModelPreference({
+        requestedModelId: "sonnet-4-6",
+        modelOverride: false,
+        skillModelId: "haiku-4-5",
+      }),
+    ).toEqual({ modelId: "haiku-4-5", source: "skill_pin" });
+  });
+});
+
+describe("applyRuntimeModelFailover", () => {
+  it("records the actual replacement model and provider", () => {
+    const initial = resolveRuntimeModelSelection({
+      requestedModelId: "sonnet-4-6",
+      route: directRoute,
+      runtimeName: "bedrock",
+      directModelId: undefined,
+    });
+
+    expect(
+      applyRuntimeModelFailover(initial, "haiku-4-5", "sonnet-4-6", 1),
+    ).toMatchObject({
+      requestedModelId: "sonnet-4-6",
+      modelId: "haiku-4-5",
+      providerModelId: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      reason: "availability_failover",
+      failover: {
+        fromModelId: "sonnet-4-6",
+        attempt: 1,
+      },
     });
   });
 });

@@ -8,6 +8,12 @@ import { asc, count, eq, isNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { Metric, StatusBadge, titleize } from "@/app/admin/ui";
+import { WebEgressPolicyForm } from "@/app/admin/tools/WebEgressPolicyForm";
+import {
+  loadWebEgressPolicy,
+  WEB_EGRESS_SETTINGS_PROVIDER,
+  WEB_EGRESS_SETTINGS_TOOL,
+} from "@/lib/web-egress-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +39,7 @@ export default async function AdminToolsPage() {
     .from(mcpServers)
     .orderBy(asc(mcpServers.displayName));
 
-  const tools = await db
+  const catalogRows = await db
     .select({
       id: toolsCatalog.id,
       provider: toolsCatalog.provider,
@@ -55,6 +61,14 @@ export default async function AdminToolsPage() {
       asc(toolsCatalog.category),
       asc(toolsCatalog.displayName),
     );
+  const tools = catalogRows.filter(
+    (tool) =>
+      !(
+        tool.provider === WEB_EGRESS_SETTINGS_PROVIDER &&
+        tool.toolName === WEB_EGRESS_SETTINGS_TOOL
+      ),
+  );
+  const webEgressPolicy = await loadWebEgressPolicy(db);
 
   const attestationRows = await db
     .select({
@@ -100,6 +114,10 @@ export default async function AdminToolsPage() {
           variant="prominent"
         />
       </div>
+
+      <WebEgressPolicyForm
+        initialDeniedDomains={webEgressPolicy.deniedDomains}
+      />
 
       <section className="pb-6">
         <div className="px-6 pb-2">

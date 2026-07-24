@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   redactErrorText,
+  redactProviderToolError,
+  redactProviderToolPayload,
   redactTracePayload,
   redactToolCall,
   redactToolPayload,
@@ -38,6 +40,8 @@ describe("tool redaction", () => {
         headers: {
           Authorization: "Bearer super-secret-token-value",
           cookie: "session=secret",
+          "x-comparative-resource-relay": "relay-capability",
+          "x-comparative-resource-context": "signed-turn-context",
         },
         nested: {
           refresh_token: "abc123",
@@ -49,6 +53,8 @@ describe("tool redaction", () => {
       headers: {
         Authorization: "[redacted]",
         cookie: "[redacted]",
+        "x-comparative-resource-relay": "[redacted]",
+        "x-comparative-resource-context": "[redacted]",
       },
       nested: {
         refresh_token: "[redacted]",
@@ -143,6 +149,85 @@ describe("tool redaction", () => {
   it("redacts error text before audit persistence", () => {
     expect(redactErrorText({ message: "failed", api_key: "secret" })).toBe(
       '{"message":"failed","api_key":"[redacted]"}',
+    );
+  });
+
+  it("keeps resource coverage receipts but never file excerpts or rows", () => {
+    const redacted = redactProviderToolPayload({
+      provider: "resources",
+      toolName: "query",
+      direction: "output",
+      value: {
+        kind: "conversation_resource_result",
+        receipt: {
+          resourceId: "resource-1",
+          operation: "search",
+          sourceCoverage: "full",
+          sourceChars: 9_000_000,
+        },
+        content: "confidential file text",
+        rows: [{ customer: "Secret Customer", revenue: 42 }],
+      },
+    });
+
+    expect(redacted).toMatchObject({
+      redacted: true,
+      kind: "conversation_resource_result",
+      receipt: {
+        resourceId: "resource-1",
+        operation: "search",
+        sourceCoverage: "full",
+        sourceChars: 9_000_000,
+      },
+      resultKeys: ["content", "kind", "receipt", "rows"],
+    });
+    expect(JSON.stringify(redacted)).not.toContain("confidential");
+    expect(JSON.stringify(redacted)).not.toContain("Secret Customer");
+  });
+
+  it("keeps known resource validation semantics without file content", () => {
+    expect(
+      redactProviderToolError(
+        "resources",
+        'Operation "search" is not valid for a tabular resource.',
+      ),
+    ).toBe(
+      'Resource validation error: Operation "search" is not valid for a tabular resource.',
+    );
+    expect(
+      redactProviderToolError(
+        "resources",
+        'Column "Social Security Number" was not found in sheet "Payroll". Available: Social Security Number, Salary.',
+      ),
+    ).toBe(
+      "Resource validation error: The requested column was not found in the selected sheet.",
+    );
+    expect(
+      redactProviderToolError(
+        "resources",
+        "filters must contain between 1 and 3 predicates.",
+      ),
+    ).toBe(
+      "Resource validation error: filters must contain between 1 and 3 predicates.",
+    );
+    expect(
+      redactProviderToolError(
+        "resources",
+        "groupByColumn is required when groupByDatePart is set.",
+      ),
+    ).toBe(
+      "Resource validation error: groupByColumn is required when groupByDatePart is set.",
+    );
+  });
+
+  it("keeps arbitrary resource errors redacted", () => {
+    expect(
+      redactProviderToolError(
+        "resources",
+        "Parser failed near private-customer@example.com.",
+      ),
+    ).toBe(
+      "Conversation resource tool failed; file content was redacted from this log.",
     );
   });
 });

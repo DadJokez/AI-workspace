@@ -24,6 +24,10 @@ function isWorkerExecutableRun(
 import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
 import { startInProcessChatRunWorker } from "@/lib/chat-run-worker";
 import { appendRunEventWithNextSequence } from "@/lib/run-events";
+import {
+  proposalIterationFromRunInputs,
+  releaseProposalIteration,
+} from "@/lib/proposal-iterations";
 
 type RunActionResult =
   | { ok: true; run: Pick<Run, "id" | "status"> }
@@ -70,6 +74,18 @@ export async function cancelRun({
 
   const now = new Date();
   const error = "Canceled by user.";
+  const cancellationMetadata =
+    run.status === "running"
+      ? {
+          cancellationPath: "worker_poll_then_runtime_abort",
+          runtimeRequestAbortExpected: true,
+          providerSessionStopAttempted: false,
+        }
+      : {
+          cancellationPath: "queue_state_only",
+          runtimeRequestAbortExpected: false,
+          providerSessionStopAttempted: false,
+        };
   const rows = await db
     .update(runs)
     .set({
@@ -83,6 +99,28 @@ export async function cancelRun({
     .where(eq(runs.id, run.id))
     .returning({ id: runs.id, status: runs.status });
 
+  const proposalIteration = proposalIterationFromRunInputs(run.inputs);
+  if (proposalIteration) {
+    try {
+      await releaseProposalIteration({
+        db,
+        iteration: proposalIteration,
+        error,
+        completedAt: now,
+      });
+    } catch (releaseError) {
+      process.stderr.write(
+        `[proposal-iteration-release-error] ${JSON.stringify({
+          runId: run.id,
+          message:
+            releaseError instanceof Error
+              ? releaseError.message
+              : String(releaseError),
+        })}\n`,
+      );
+    }
+  }
+
   await appendRunEventWithNextSequence({
     db,
     runId: run.id,
@@ -92,7 +130,7 @@ export async function cancelRun({
     error,
     metadata: {
       actorUserId: actor.id,
-      providerCancelAttempted: false,
+      ...cancellationMetadata,
     },
   });
   await db.insert(auditLog).values({
@@ -105,7 +143,7 @@ export async function cancelRun({
     runId: run.id,
     input: { runId: run.id },
     error: null,
-    metadata: { previousStatus: run.status },
+    metadata: { previousStatus: run.status, ...cancellationMetadata },
     startedAt: now,
     completedAt: now,
   });
@@ -138,6 +176,15 @@ export async function retryChatRun({
       status: 409,
       error: "run_not_retryable",
       message: "Only failed or canceled chat runs can be retried.",
+    };
+  }
+  if (proposalIterationFromRunInputs(run.inputs)) {
+    return {
+      ok: false,
+      status: 409,
+      error: "proposal_iteration_retry_from_card",
+      message:
+        "The original proposal is pending again. Add feedback from its Iterate action to retry.",
     };
   }
 

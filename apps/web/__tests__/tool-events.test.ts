@@ -55,6 +55,7 @@ describe("createToolEventAccumulator", () => {
     acc.recordResult({
       toolCallId: "call_1",
       output: [{ number: 50 }],
+      usageNotesDelivered: true,
     });
 
     expect(acc.calls()).toEqual([
@@ -75,6 +76,7 @@ describe("createToolEventAccumulator", () => {
         toolName: "list_pull_requests",
         output: [{ number: 50 }],
         isError: false,
+        usageNotesDelivered: true,
         completedAt: "2026-05-15T10:00:01.000Z",
       },
     ]);
@@ -109,6 +111,76 @@ describe("createToolEventAccumulator", () => {
       id: 123,
       refresh_token: "[redacted]",
     });
+  });
+
+  it("persists resource calls as compact receipts without file content", () => {
+    const acc = createToolEventAccumulator(["resources"], () =>
+      new Date("2026-05-15T10:00:00.000Z"),
+    );
+
+    acc.recordCall({
+      id: "resource_call",
+      name: "resources__query",
+      input: {
+        resourceId: "resource-1",
+        operation: "search",
+        query: "confidential phrase",
+      },
+    });
+    acc.recordResult({
+      toolCallId: "resource_call",
+      output: {
+        kind: "conversation_resource_result",
+        receipt: {
+          resourceId: "resource-1",
+          operation: "search",
+          sourceCoverage: "full",
+        },
+        matches: [{ text: "confidential phrase from the source file" }],
+      },
+    });
+
+    expect(acc.calls()[0]?.input).toEqual({
+      redacted: true,
+      resourceId: "resource-1",
+      operation: "search",
+      fields: ["operation", "query", "resourceId"],
+    });
+    expect(acc.results()[0]?.output).toMatchObject({
+      redacted: true,
+      kind: "conversation_resource_result",
+      receipt: {
+        resourceId: "resource-1",
+        operation: "search",
+        sourceCoverage: "full",
+      },
+      resultKeys: ["kind", "matches", "receipt"],
+    });
+    expect(JSON.stringify(acc.results())).not.toContain("confidential");
+  });
+
+  it("persists safe resource validation semantics for human diagnostics", () => {
+    const acc = createToolEventAccumulator(["resources"], () =>
+      new Date("2026-05-15T10:00:00.000Z"),
+    );
+
+    acc.recordCall({
+      id: "resource_error",
+      name: "resources__query",
+      input: {
+        resourceId: "resource-1",
+        operation: "search",
+      },
+    });
+    acc.recordResult({
+      toolCallId: "resource_error",
+      output: 'Operation "search" is not valid for a tabular resource.',
+      isError: true,
+    });
+
+    expect(acc.results()[0]?.output).toBe(
+      'Resource validation error: Operation "search" is not valid for a tabular resource.',
+    );
   });
 
   it("preserves error results even when the matching call was not seen", () => {

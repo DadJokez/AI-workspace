@@ -1,17 +1,22 @@
 import posthog from "posthog-js";
 
 if (!process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN) {
-  if (process.env.NODE_ENV !== "production") {
-    console.error(
-      "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN variable required by PostHog is missing or un-configured, this causes events to be silently missed. This error stops appearing once NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN is configured",
+  if (process.env.NODE_ENV === "development") {
+    console.warn(
+      "[posthog] analytics disabled: NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN is not configured",
     );
   }
 } else {
   posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN, {
     api_host: "/ingest",
     ui_host: "https://us.posthog.com",
-    defaults: "2026-01-30",
-    capture_exceptions: true,
+    defaults: "2026-05-30",
+    autocapture: false,
+    capture_pageview: false,
+    capture_pageleave: false,
+    capture_exceptions: false,
+    disable_session_recording: true,
+    person_profiles: "identified_only",
     debug: process.env.NODE_ENV === "development",
   });
 }

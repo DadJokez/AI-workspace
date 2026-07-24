@@ -54,7 +54,11 @@ export class BedrockRuntime implements AgentRuntime {
     // expose. Never mutate the shared base registry.
     const registry = new ToolRegistry();
     registry.registerAll(this.registry.list());
-    registry.registerAll(createBuiltinTools(input.builtinTools));
+    registry.registerAll(
+      createBuiltinTools(input.builtinTools, {
+        webEgressPolicy: input.webEgressPolicy,
+      }),
+    );
 
     // #384 P2: the discovery surface is part of the core bundle. The
     // activated set is SHARED between these handlers and the resolver
@@ -150,6 +154,7 @@ export function pickHttpMcpServers(
         headers: spec.headers,
         allowedTools: spec.allowedTools,
         blockedTools: spec.blockedTools,
+        usageNotesByTool: spec.usageNotesByTool,
       };
     }
   }

@@ -245,6 +245,53 @@ suite("audit completeness (real Postgres, real handlers)", () => {
     expect(JSON.stringify(rows[0])).not.toContain("super-secret-token");
   });
 
+  it("audits and deduplicates an admin reading another user's thread", async () => {
+    currentUser = admin;
+    const { GET } = await import("@/app/api/threads/[id]/route");
+    const request = new Request(
+      `http://test.local/api/threads/${aliceThreadId}`,
+      {
+        headers: {
+          "x-admin-access-justification": "Support investigation",
+        },
+      },
+    );
+
+    const first = await GET(request, {
+      params: Promise.resolve({ id: aliceThreadId }),
+    });
+    const second = await GET(request, {
+      params: Promise.resolve({ id: aliceThreadId }),
+    });
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+
+    const rows = await auditRows("admin_data_access", admin.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actorUserId: admin.id,
+      chatThreadId: aliceThreadId,
+      status: "succeeded",
+      provider: "ai-hub",
+      metadata: {
+        schema: "admin-data-access.v1",
+        targetUserId: alice.id,
+        resourceType: "chat_thread",
+        resourceId: aliceThreadId,
+        surface: "thread_detail",
+        justification: "Support investigation",
+      },
+    });
+
+    currentUser = alice;
+    const ownerResponse = await GET(
+      new Request(`http://test.local/api/threads/${aliceThreadId}`),
+      { params: Promise.resolve({ id: aliceThreadId }) },
+    );
+    expect(ownerResponse.status).toBe(200);
+    expect(await auditRows("admin_data_access", alice.id)).toHaveLength(0);
+  });
+
   it("audits the user message on a chat send (real route, denied before model)", async () => {
     // Send into Alice's own thread but with an invalid body later — simplest
     // deterministic path: a normal send drives the full inline turn against

@@ -1,8 +1,23 @@
 # Deployment & Publishing Architecture for Comparative (AI Hub)
 
-**Status:** Research spec — no implementation. Produced from prompt `06-deployment-publishing-research-prompt.md`, grounded against `TECHNICAL_OVERVIEW.md` (July 2026 snapshot of `ai-workspace`).
+**Status:** Research spec with the Comparative publish tier implemented in #411. Service-backed publication and independent application deployment remain deferred to #133; org-wide audiences remain deferred to the organization/identity substrate (#491/#78).
 **Research method:** deep-research harness — 5 search angles, 16 sources fetched, 80 claims extracted. The automated adversarial-verification phase failed on session rate limits (all 25 panels errored, 0 votes cast), so the **load-bearing claims were hand-re-verified against their primary sources on 2026-07-17** (marked *verified against primary source*); remaining claims are cited as *extracted, not adversarially verified*, each carrying a verbatim quote from its source. All URLs live as of 2026-07-14 (workflow fetch) / 2026-07-17 (manual verification).
 **Date:** 2026-07-17
+
+---
+
+## Implementation checkpoint (2026-07-23)
+
+Comparative's in-shell publish tier now provides:
+
+- Snapshot-by-default publication and explicit live-via-viewer publication for artifacts with supported data bindings.
+- Per-version `app-publication.v1` metadata: data mode, publish timestamp, publisher, named/private audience at publish time, and connector manifest keyed to `tools_catalog`.
+- Truthful viewer chrome naming Comparative, the author, and either the snapshot timestamp or viewer-scoped live mode.
+- Runtime enforcement of the selected mode. Snapshot pages cannot invoke retained artifact bindings; live pages execute only through the viewer's connection and stop serving live data when an administrator disables a manifest tool.
+- URL-stable unpublish and republish, publication lifecycle audit entries, baked-data sharing warnings, and an admin publication registry with an immediate unpublish control.
+- Compatibility inference for pages published before the metadata contract: binding-bearing pages remain live-via-viewer; other pages remain snapshots.
+
+The internal API and database status still use the historical `deploy`/`deployed` vocabulary for compatibility. Product surfaces use **Publish**. No public-link audience, org-wide audience, service-principal credentials, independent hosting, or custom domains are introduced by this slice.
 
 ---
 
@@ -71,7 +86,7 @@ The decisive observation: **workaround 2 is exactly Comparative's existing `shar
 
 Every published Comparative app declares one of three explicit data modes, shown to viewers as a badge:
 
-- **Snapshot (default).** Data inlined at publish time; banner reads "Data as of {timestamp} — rebuild to refresh." No claim of liveness, ever. Republishing = new snapshot version in the existing version-group machinery.
+- **Snapshot (default).** Serves the artifact's already-baked bytes. The banner records when that immutable version was published and tells viewers that refreshing data requires publishing a new version; it never treats publish time as the source-data timestamp or claims liveness.
 - **Live-via-viewer.** The app carries a **connector-dependency manifest** (which MCP servers/tools it may call — the analog of Claude's publish-time connector declaration). At view time, data calls route through the shell using the *viewer's* `oauth_tokens`, gated by the *viewer's* attestations and the admin tools catalog, with one `audit_log` row per call — the same spine as a chat turn. Viewer lacks a connection → that section renders a "connect X to see this" fallback, mirroring Cowork's behavior. Apps in this mode are **never shareable outside the SSO boundary**, mirroring Anthropic's "connector-backed artifacts can't have a public link" rule.
 - **Service-backed (deploy tier only, #133).** A maintained app with its own backend and admin-approved service-principal credentials. This is the only mode that can show one canonical dataset to viewers who individually lack source access — and precisely because of that, it requires explicit admin sign-off (a human-owned change per §11 of the overview: new credentials, new standing access).
 

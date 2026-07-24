@@ -37,6 +37,7 @@ export async function createProactiveRunNotification(
   run: Run,
   terminalStatus: "succeeded" | "failed",
   threadId?: string | null,
+  options: { hasProposal?: boolean } = {},
 ): Promise<void> {
   const chatRun =
     run.triggerType === "chat" || run.triggerType === "chat_retry";
@@ -77,7 +78,9 @@ export async function createProactiveRunNotification(
           terminalStatus === "succeeded"
             ? chatRun
               ? "Your background chat run finished. Open the thread to see the answer."
-              : eventTriggered
+              : options.hasProposal
+                ? "New work is ready for review. Open the thread to preview the proposal and accept or discard it."
+                : eventTriggered
                 ? "A GitHub event triggered this run while you were away. Open it to see the result."
                 : "A scheduled run completed while you were away. Open it to see the result."
             : (run.error ??

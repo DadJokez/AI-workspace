@@ -1,7 +1,11 @@
 import { type App, apps, getDb } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
+import { requireSession } from "@/lib/auth/requireSession";
 import {
   auditAppMutation,
   canActorAccessApp,
@@ -23,17 +27,28 @@ function notFound() {
   return NextResponse.json({ error: "app_not_found" }, { status: 404 });
 }
 
-export async function GET(_req: Request, context: RouteContext) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+export async function GET(req: Request, context: RouteContext) {
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   const { id } = await context.params;
+  const db = getDb();
   const app = await loadApp(id);
-  if (!app || !(await canActorAccessApp(getDb(), app, sessionUser))) {
+  if (!app || !(await canActorAccessApp(db, app, sessionUser))) {
     return notFound();
   }
-  const actorRole = await resolveAppActorRole(getDb(), app, sessionUser);
+  await auditAdminDataAccess({
+    db,
+    actor: sessionUser,
+    access: {
+      targetUserId: app.ownerUserId,
+      resourceType: "app",
+      resourceId: app.id,
+      surface: "app_api",
+      justification: adminDataAccessJustification(req),
+    },
+  });
+  const actorRole = await resolveAppActorRole(db, app, sessionUser);
   return NextResponse.json({
     app: {
       ...app,
@@ -47,10 +62,9 @@ export async function GET(_req: Request, context: RouteContext) {
 }
 
 export async function PATCH(req: Request, context: RouteContext) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   const { id } = await context.params;
   const app = await loadApp(id);
   if (!app || !(await canActorAccessApp(getDb(), app, sessionUser))) {
@@ -108,10 +122,9 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 /** Archive: the app stops serving and disappears from catalogs. */
 export async function DELETE(_req: Request, context: RouteContext) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   const { id } = await context.params;
   const app = await loadApp(id);
   if (!app || !(await canActorAccessApp(getDb(), app, sessionUser))) {

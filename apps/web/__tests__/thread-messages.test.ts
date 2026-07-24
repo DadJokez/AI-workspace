@@ -25,6 +25,15 @@ describe("chatRunLane", () => {
 });
 
 describe("activeRunMessageContent", () => {
+  it("keeps a usage-only running checkpoint visually empty after refresh", () => {
+    expect(
+      activeRunMessageContent({
+        status: "running",
+        output: { liveTokens: 8_400 },
+      }),
+    ).toBe("");
+  });
+
   it("#244 hides interrupted artifact snippets behind a clear retry message", () => {
     const content = activeRunMessageContent({
       status: "canceled",
@@ -180,11 +189,81 @@ describe("reconcileAppDraftVersionSummaries (#344)", () => {
     ).toEqual([summary()]);
   });
 
+  it("keeps a pending proposal reviewable after reload", () => {
+    expect(
+      reconcileAppDraftVersionSummaries(
+        [summary({ status: "proposed" })],
+        truth([
+          {
+            id: "version-2",
+            status: "proposed",
+            liveVersionId: "version-1",
+            archived: false,
+          },
+        ]),
+      ),
+    ).toEqual([summary({ status: "proposed" })]);
+  });
+
+  it("keeps discarded proposal history visible but non-actionable", () => {
+    expect(
+      reconcileAppDraftVersionSummaries(
+        [summary({ status: "proposed" })],
+        truth([
+          {
+            id: "version-2",
+            status: "discarded",
+            liveVersionId: "version-1",
+            archived: false,
+          },
+        ]),
+      ),
+    ).toEqual([
+      summary({ status: "discarded", canDeploy: false }),
+    ]);
+  });
+
+  it.each(["iterating", "superseded"] as const)(
+    "keeps %s proposal history visible but non-actionable after reload",
+    (status) => {
+      expect(
+        reconcileAppDraftVersionSummaries(
+          [summary({ status: "proposed" })],
+          truth([
+            {
+              id: "version-2",
+              status,
+              liveVersionId: "version-1",
+              archived: false,
+            },
+          ]),
+        ),
+      ).toEqual([summary({ status, canDeploy: false })]);
+    },
+  );
+
   it("never widens canDeploy for a summary minted non-deployable", () => {
     expect(
       reconcileAppDraftVersionSummaries(
         [summary({ canDeploy: false })],
         truth([{ id: "version-2", status: "draft", liveVersionId: "version-1", archived: false }]),
+      ),
+    ).toEqual([summary({ canDeploy: false })]);
+  });
+
+  it("removes a stale deploy affordance when the caller no longer has deploy rights", () => {
+    expect(
+      reconcileAppDraftVersionSummaries(
+        [summary()],
+        truth([
+          {
+            id: "version-2",
+            status: "draft",
+            liveVersionId: "version-1",
+            archived: false,
+            canDeploy: false,
+          },
+        ]),
       ),
     ).toEqual([summary({ canDeploy: false })]);
   });
@@ -308,7 +387,10 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
           runtime: null,
           error: null,
           inputs: {},
-          outputs: { appDraftVersions: [summary("vD", 5)] },
+          outputs: {
+            appDraftVersions: [summary("vD", 5)],
+            usage: { tokensIn: 8_000, tokensOut: 400 },
+          },
           startedAt: new Date(3),
           createdAt: new Date(3),
         },
@@ -351,6 +433,7 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
     expect(active?.appDraftVersions).toEqual([
       expect.objectContaining({ id: "vD", status: "draft", canDeploy: false }),
     ]);
+    expect(active?.liveTokens).toBe(8_400);
   });
 
   it("skips the truth query when no summaries rehydrated", async () => {
@@ -378,5 +461,68 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
     await loadThreadMessagesWithRunActivity({ db, threadId: "thread-1" });
     // messages, runs, artifacts — no runEvents (no runs) and no truth join.
     expect(selectCalls()).toBe(3);
+  });
+
+  it("drops app-version telemetry after the caller's share is revoked", async () => {
+    const { loadThreadMessagesWithRunActivity } = await import(
+      "@/lib/thread-messages"
+    );
+    const { db } = fluentDb([
+      [
+        {
+          id: "m1",
+          role: "assistant",
+          content: "Saved a draft.",
+          modelId: null,
+          runtime: null,
+          toolCalls: null,
+          toolResults: null,
+          tokensIn: null,
+          tokensOut: null,
+          createdAt: new Date(1),
+        },
+      ],
+      [
+        {
+          id: "r1",
+          skillSlug: "chat-turn",
+          status: "succeeded",
+          modelId: null,
+          runtime: null,
+          error: null,
+          inputs: {},
+          outputs: {
+            assistantMessageId: "m1",
+            appDraftVersions: [summary("vA", 2)],
+          },
+          startedAt: null,
+          createdAt: new Date(2),
+        },
+      ],
+      [],
+      [],
+      [
+        {
+          id: "vA",
+          status: "draft",
+          appId: "app-1",
+          ownerUserId: "owner-1",
+          liveVersionId: null,
+          archivedAt: null,
+        },
+      ],
+      // resolveAppActorRole: no current share for the caller.
+      [],
+    ]);
+
+    const messages = await loadThreadMessagesWithRunActivity({
+      db,
+      threadId: "thread-1",
+      actor: { id: "former-editor-1", role: "user" },
+    });
+
+    expect(
+      messages.find((message) => message.id === "m1")?.appDraftVersions,
+    ).toEqual([]);
   });
 });

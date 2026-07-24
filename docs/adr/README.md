@@ -18,6 +18,7 @@ an IT reviewer) understands the reasoning without archaeology.
 | [0010](./0010-prompt-cache-discipline.md) | Prompt-cache discipline: stable prefix / volatile suffix / pinned layer | Accepted |
 | [0011](./0011-tool-policy-observe-before-enforce.md) | Tri-state tool policy, observe before enforce | Accepted |
 | [0012](./0012-two-execution-lanes.md) | Two execution lanes (inline + durable worker) | Accepted — mechanism under revision ([#442](https://github.com/DadJokez/AI-workspace/issues/442)) |
+| [0013](./0013-durable-conversation-resources.md) | Uploaded files are durable, thread-scoped conversation resources | Accepted |
 
 0007–0012 were added 2026-07-19, promoting shipped decisions that had lived
 only in specs/memory (prompted by the [self-review](../reviews/REPO-SELF-REVIEW-2026-07-19.md)

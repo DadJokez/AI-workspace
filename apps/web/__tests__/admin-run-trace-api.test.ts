@@ -12,7 +12,8 @@ interface DbFixtures {
   runRows: Array<Record<string, unknown>>;
   eventRows: Array<Record<string, unknown>>;
   auditRows: Array<Record<string, unknown>>;
-  recentAccessRows: Array<{ id: string }>;
+  recentTraceRows: Array<Record<string, unknown>>;
+  recentAccessRows: Array<Record<string, unknown>>;
   insertedAudit: Array<Record<string, unknown>>;
 }
 
@@ -42,9 +43,11 @@ function installDbMock() {
         "@ai-workspace/db",
       );
 
-    function select() {
+    function select(selection?: Record<string, unknown>) {
       let table: unknown;
       let ordered = false;
+      const recentKind =
+        selection && "metadata" in selection ? "admin" : "trace";
       const query = {
         from(nextTable: unknown) {
           table = nextTable;
@@ -66,8 +69,11 @@ function installDbMock() {
             return Promise.resolve(fixtures.eventRows);
           }
           if (table === actual.auditLog) {
+            if (ordered) return Promise.resolve(fixtures.auditRows);
             return Promise.resolve(
-              ordered ? fixtures.auditRows : fixtures.recentAccessRows,
+              recentKind === "admin"
+                ? fixtures.recentAccessRows
+                : fixtures.recentTraceRows,
             );
           }
           return Promise.resolve([]);
@@ -81,8 +87,14 @@ function installDbMock() {
       getDb: () => ({
         select,
         insert: () => ({
-          values: async (value: Record<string, unknown>) => {
-            fixtures.insertedAudit.push(value);
+          values: async (
+            value:
+              | Record<string, unknown>
+              | Array<Record<string, unknown>>,
+          ) => {
+            fixtures.insertedAudit.push(
+              ...(Array.isArray(value) ? value : [value]),
+            );
           },
         }),
       }),
@@ -191,6 +203,7 @@ beforeEach(() => {
       },
     ],
     auditRows: [],
+    recentTraceRows: [],
     recentAccessRows: [],
     insertedAudit: [],
   };
@@ -240,6 +253,19 @@ describe("GET /api/admin/runs/[id]/trace", () => {
         actionType: "run_trace_viewed",
         status: "succeeded",
       }),
+      expect.objectContaining({
+        actorUserId: adminSession.id,
+        runId: "run-uuid",
+        actionType: "admin_data_access",
+        status: "succeeded",
+        metadata: {
+          schema: "admin-data-access.v1",
+          targetUserId: "user-uuid",
+          resourceType: "run",
+          resourceId: "run-uuid",
+          surface: "run_inspector",
+        },
+      }),
     ]);
   });
 
@@ -263,6 +289,51 @@ describe("GET /api/admin/runs/[id]/trace", () => {
     expect(serialized).toContain('"providerToFirstTokenMs":900');
     // …while credential material in the same trace does not.
     expect(serialized).not.toContain("should-not-leak");
+  });
+
+  it("preserves AgentCore authorization diagnostics for admin investigation (#572)", async () => {
+    const deniedAction = "bedrock-agentcore:InvokeAgentRuntimeForUser";
+    const deniedResource =
+      "arn:aws:bedrock-agentcore:us-east-1:351478076796:runtime/comparative";
+    fixtures.runRows[0]!.outputs = {
+      requestedModelId: "sonnet-4-6",
+      modelId: "sonnet-4-6",
+      runtimeTarget: "agentcore-worker",
+      errorDetails: [
+        {
+          code: "agentcore_invoke_access_denied",
+          category: "runtime_authorization_denied",
+          rawMessage: `AccessDeniedException: not authorized to perform ${deniedAction} on resource: ${deniedResource}`,
+          metadata: {
+            runtime: "agentcore",
+            runtimeTarget: "agentcore-worker",
+            requestedModelId: "sonnet-4-6",
+            modelId: "sonnet-4-6",
+            deniedAction,
+            deniedResource,
+          },
+        },
+      ],
+    };
+    setAdminResult("admin");
+    installDbMock();
+    const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
+
+    const response = await GET(
+      new Request("http://localhost/api/admin/runs/run-uuid/trace"),
+      { params: Promise.resolve({ id: "run-uuid" }) },
+    );
+    const body = (await response.json()) as {
+      trace: { run: { outputs: Record<string, unknown> } };
+    };
+    const serialized = JSON.stringify(body.trace.run.outputs);
+
+    expect(response.status).toBe(200);
+    expect(serialized).toContain("runtime_authorization_denied");
+    expect(serialized).toContain(deniedAction);
+    expect(serialized).toContain(deniedResource);
+    expect(serialized).toContain('"runtimeTarget":"agentcore-worker"');
+    expect(serialized).toContain('"requestedModelId":"sonnet-4-6"');
   });
 
   it("serves v2 snapshots as the reconstructed per-request timeline (#386)", async () => {
@@ -304,7 +375,18 @@ describe("GET /api/admin/runs/[id]/trace", () => {
   });
 
   it("deduplicates polling access within the audit window", async () => {
-    fixtures.recentAccessRows = [{ id: "existing-access" }];
+    fixtures.recentTraceRows = [{ id: "existing-trace-access" }];
+    fixtures.recentAccessRows = [
+      {
+        metadata: {
+          schema: "admin-data-access.v1",
+          targetUserId: "user-uuid",
+          resourceType: "run",
+          resourceId: "run-uuid",
+          surface: "run_inspector",
+        },
+      },
+    ];
     setAdminResult("admin");
     installDbMock();
     const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
@@ -316,6 +398,28 @@ describe("GET /api/admin/runs/[id]/trace", () => {
 
     expect(response.status).toBe(200);
     expect(fixtures.insertedAudit).toHaveLength(0);
+  });
+
+  it("does not label an admin's own run as privileged cross-user access", async () => {
+    fixtures.runRows[0]!.userId = adminSession.id;
+    setAdminResult("admin");
+    installDbMock();
+    const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
+
+    const response = await GET(
+      new Request("http://localhost/api/admin/runs/run-uuid/trace"),
+      { params: Promise.resolve({ id: "run-uuid" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(fixtures.insertedAudit).toEqual([
+      expect.objectContaining({
+        actorUserId: adminSession.id,
+        runId: "run-uuid",
+        actionType: "run_trace_viewed",
+        status: "succeeded",
+      }),
+    ]);
   });
 
   it("preserves the endpoint event and audit limits after read-time redaction", async () => {

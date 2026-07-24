@@ -3,6 +3,7 @@ import {
   areUploadsReplayable,
   isReplayableUploadMetadata,
   reconstructStoredAttachments,
+  shouldCarryForwardThreadUploads,
   type StoredUploadArtifact,
 } from "@/lib/attachment-replay";
 import { foldAttachmentsIntoPrompt } from "@/lib/attachments";
@@ -85,6 +86,7 @@ describe("reconstructStoredAttachments", () => {
       "notes.pdf",
       "chart.png",
     ]);
+    expect(result.resourceIds).toEqual(["artifact-doc", "artifact-img"]);
   });
 
   it("fails closed on multi-file turns whose upload order is unrecorded", () => {
@@ -158,6 +160,29 @@ describe("reconstructStoredAttachments", () => {
         docRow({ kind: "mystery" as StoredUploadArtifact["kind"] }),
       ]).ok,
     ).toBe(false);
+  });
+});
+
+describe("shouldCarryForwardThreadUploads", () => {
+  it.each([
+    "Analyze it. Look for trends, insights, patterns, anything interesting.",
+    "Summarize the uploaded file",
+    "Review this spreadsheet for anomalies",
+    "What are the top regions by revenue?",
+    "Chart the sales breakdown",
+    "Compare these documents",
+  ])("carries prior uploads for file-work follow-up: %s", (message) => {
+    expect(shouldCarryForwardThreadUploads(message)).toBe(true);
+  });
+
+  it.each([
+    "Thanks!",
+    "What should we work on next?",
+    "Tell me a joke",
+    "How are you?",
+    "Open my GitHub issues",
+  ])("does not mount large uploads for unrelated chat: %s", (message) => {
+    expect(shouldCarryForwardThreadUploads(message)).toBe(false);
   });
 });
 

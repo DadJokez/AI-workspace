@@ -3,6 +3,8 @@
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import { useEffect, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
+import { fetchJson } from "@/lib/client-api";
+import { formatDateTime as formatDate } from "@/lib/format-date";
 
 interface Props {
   onClose: () => void;
@@ -24,9 +26,11 @@ export function WorkspacePanel({
   async function loadArtifacts() {
     setLoading(true);
     try {
-      const res = await fetch("/api/workspace/artifacts");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as WorkspaceArtifactsResponse;
+      const data = await fetchJson<WorkspaceArtifactsResponse>(
+        "/api/workspace/artifacts",
+        undefined,
+        "Could not load artifacts.",
+      );
       setArtifacts(data.artifacts ?? []);
       setError(undefined);
     } catch (err) {
@@ -217,15 +221,6 @@ function groupArtifacts(artifacts: WorkspaceArtifactSummary[]): ArtifactGroup[] 
         new Date(b.latest.createdAt).getTime() -
         new Date(a.latest.createdAt).getTime(),
     );
-}
-
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
 }
 
 function formatBytes(bytes: number): string {

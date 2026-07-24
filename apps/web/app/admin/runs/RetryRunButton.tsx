@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fetchJson } from "@/lib/client-api";
 
 export function RetryRunButton({
   runId,
@@ -18,21 +19,22 @@ export function RetryRunButton({
     setPending(true);
     setError(null);
     try {
-      const res = await fetch("/api/workflows/developer-briefing/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          retryRunId: runId,
-          ...(modelId ? { modelId } : {}),
-        }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
+      const data = await fetchJson<{
         run?: { id?: string };
-        message?: string;
-        error?: string;
-      };
-      if (!res.ok || !data.run?.id) {
-        throw new Error(data.message ?? data.error ?? "Retry failed.");
+      }>(
+        "/api/workflows/developer-briefing/run",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            retryRunId: runId,
+            ...(modelId ? { modelId } : {}),
+          }),
+        },
+        "Retry failed.",
+      );
+      if (!data.run?.id) {
+        throw new Error("The retry started without a run ID.");
       }
       router.push(`/admin/runs/${data.run.id}`);
       router.refresh();

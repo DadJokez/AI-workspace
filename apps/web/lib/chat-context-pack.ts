@@ -21,6 +21,11 @@ import type {
   RecommendationCandidate,
   RecommendationType,
 } from "@/lib/recommendations";
+import {
+  renderConversationResourceContext,
+  type ConversationResourceResolution,
+} from "@/lib/conversation-resources";
+import type { RecentToolEvidenceReceipt } from "@/lib/recent-tool-evidence";
 
 export interface ChatContextUser {
   displayName: string;
@@ -29,8 +34,12 @@ export interface ChatContextUser {
 }
 
 export interface ChatContextUploadedFile {
+  /** Stable thread resource id when this file is persisted. */
+  resourceId?: string;
   name: string;
   sizeBytes?: number;
+  /** Characters in the extracted representation available through the resource. */
+  contentChars?: number;
   mimeType?: string;
   extractionStatus?: string;
   runtimeContent?: {
@@ -60,6 +69,8 @@ export interface ChatContextItem {
     | "recent_message"
     | "artifact_context"
     | "uploaded_file"
+    | "recent_tool_evidence"
+    | "conversation_resource"
     | "capability_graph"
     | "recent_recommendation";
   label: string;
@@ -111,6 +122,7 @@ export interface ChatContextReceipt {
     /** Reachable via tool discovery this turn, not yet mounted (#384). */
     discoverable: string[];
     builtinMounted: string[];
+    webAccess: ChatContextWebAccessReceipt;
     pendingApproval: string[];
     executionUnavailable: string[];
     reconnectRequired: string[];
@@ -122,6 +134,8 @@ export interface ChatContextReceipt {
     artifactContextChars: number;
     uploadedFilesInjected: boolean;
     uploadedFiles: ChatContextUploadedFile[];
+    recentToolEvidence?: RecentToolEvidenceReceipt;
+    resources: ConversationResourceResolution | null;
   };
   capabilities: {
     providers: number;
@@ -148,6 +162,13 @@ export interface ChatContextReceipt {
   };
 }
 
+export interface ChatContextWebAccessReceipt {
+  state: "granted" | "not_granted";
+  source: "interactive_default" | "skill_declaration" | "not_declared";
+  policy: string;
+  deniedDomainCount: number;
+}
+
 export interface ChatContextPack {
   prompt: {
     systemPrompt?: string;
@@ -172,6 +193,8 @@ export interface ChatContextPack {
     recentMessages: ChatContextItem[];
     artifacts: ChatContextItem[];
     uploadedFiles: ChatContextItem[];
+    toolEvidence?: ChatContextItem;
+    resources: ChatContextItem[];
   };
   recommendations: ChatContextRecommendationPack;
   receipts: ChatContextReceipt[];
@@ -195,9 +218,12 @@ export interface BuildChatContextPackInput {
   modelId?: string;
   artifactContext?: string | null;
   uploadedFiles?: readonly ChatContextUploadedFile[];
+  recentToolEvidenceReceipt?: RecentToolEvidenceReceipt;
+  resourceResolution?: ConversationResourceResolution;
   recommendations?: readonly RecommendationCandidate[];
   route?: ChatRuntimeRoute;
   builtinTools?: readonly string[];
+  webAccess?: ChatContextWebAccessReceipt;
   forcePreamble?: boolean;
   now?: Date;
   /**
@@ -221,9 +247,17 @@ export function buildChatContextPack({
   modelId,
   artifactContext,
   uploadedFiles = [],
+  recentToolEvidenceReceipt,
+  resourceResolution,
   recommendations = [],
   route,
   builtinTools = [],
+  webAccess = {
+    state: builtinTools.length > 0 ? "granted" : "not_granted",
+    source: builtinTools.length > 0 ? "interactive_default" : "not_declared",
+    policy: "admin_domain_denylist",
+    deniedDomainCount: 0,
+  },
   activeSkill,
   forcePreamble = false,
   now = new Date(),
@@ -242,10 +276,12 @@ export function buildChatContextPack({
     Boolean(activeSkill) ||
     Boolean(route?.useMcp) ||
     builtinTools.length > 0 ||
+    webAccess.state === "not_granted" ||
     Boolean(route?.includeVaultContext) ||
     Boolean(user.customInstructions?.trim()) ||
     artifacts.length > 0 ||
     recommendations.length > 0 ||
+    Boolean(resourceResolution && resourceResolution.status !== "none") ||
     hasCapabilityState ||
     hasConnectedToolState;
   const visibility: ChatContextItemVisibility = shouldRenderPreamble
@@ -300,23 +336,98 @@ export function buildChatContextPack({
           }),
         ]
       : [];
-  const uploadedFileItems = uploadedFiles.map((file, index) =>
-    contextItem({
+  const uploadedFileItems = uploadedFiles.map((file, index) => {
+    const injected = file.runtimeContent?.type === "image";
+    return contextItem({
       id: `uploaded-file:${index + 1}:${file.name}`,
       type: "uploaded_file",
       label: file.name,
       source: "uploaded_files",
       owner: "user",
       freshness: "current_turn",
-      visibility: "hidden_prompt",
-      injected: true,
-      charCount: file.sizeBytes,
+      visibility: injected ? "hidden_prompt" : "receipt_only",
+      injected,
+      charCount: injected ? file.sizeBytes : 0,
       metadata: {
+        ...(file.resourceId ? { resourceId: file.resourceId } : {}),
         ...(file.mimeType ? { mimeType: file.mimeType } : {}),
         ...(file.extractionStatus ? { extractionStatus: file.extractionStatus } : {}),
+        delivery: injected
+          ? "native_image"
+          : file.resourceId
+            ? "resource_reference"
+            : "metadata_only",
       },
-    }),
-  );
+    });
+  });
+  const recentToolEvidenceItem =
+    recentToolEvidenceReceipt && recentToolEvidenceReceipt.candidateCount > 0
+      ? contextItem({
+          id: "thread:recent-tool-evidence",
+          type: "recent_tool_evidence",
+          label: `${recentToolEvidenceReceipt.included.length} recent tool result(s) included`,
+          source: "chat_messages.tool_results",
+          owner: "assistant",
+          freshness: "recent_thread",
+          visibility:
+            recentToolEvidenceReceipt.included.length > 0
+              ? "hidden_prompt"
+              : "receipt_only",
+          injected: recentToolEvidenceReceipt.included.length > 0,
+          charCount: recentToolEvidenceReceipt.includedChars,
+          metadata: {
+            candidateCount: recentToolEvidenceReceipt.candidateCount,
+            included: recentToolEvidenceReceipt.included,
+            omittedToolCallIds:
+              recentToolEvidenceReceipt.omittedToolCallIds,
+            maxChars: recentToolEvidenceReceipt.maxChars,
+            maxResultChars: recentToolEvidenceReceipt.maxResultChars,
+          },
+        })
+      : undefined;
+  const resourceItems =
+    resourceResolution?.status === "selected"
+      ? resourceResolution.selected.map((resource) =>
+          contextItem({
+            id: `conversation-resource:${resource.resourceId}`,
+            type: "conversation_resource",
+            label: resource.filename,
+            source: "workspace_artifacts.user-upload",
+            owner: "user",
+            freshness: "durable",
+            visibility: "hidden_prompt",
+            injected: true,
+            metadata: {
+              resourceId: resource.resourceId,
+              mimeType: resource.mimeType,
+              kind: resource.kind,
+              sizeBytes: resource.sizeBytes,
+              representation: resource.representation,
+              coverage: resource.coverage,
+              resolverReason: resource.reason,
+            },
+          }),
+        )
+      : resourceResolution?.status === "ambiguous" ||
+          resourceResolution?.status === "unavailable"
+        ? resourceResolution.candidates.map((resource) =>
+            contextItem({
+              id: `conversation-resource-candidate:${resource.resourceId}`,
+              type: "conversation_resource",
+              label: resource.filename,
+              source: "workspace_artifacts.user-upload",
+              owner: "user",
+              freshness: "durable",
+              visibility: "hidden_prompt",
+              injected: false,
+              metadata: {
+                resourceId: resource.resourceId,
+                kind: resource.kind,
+                resolverStatus: resourceResolution.status,
+              },
+            }),
+          )
+        : [];
   const providerItems = buildProviderItems({
     connectedProviders: providerStatus.connectedProviders,
     approvedProviders: providerStatus.allowedProviders,
@@ -366,6 +477,8 @@ export function buildChatContextPack({
     ...recentMessageItems,
     ...artifactItems,
     ...uploadedFileItems,
+    ...(recentToolEvidenceItem ? [recentToolEvidenceItem] : []),
+    ...resourceItems,
     ...(capabilityItem ? [capabilityItem] : []),
     ...recommendationItems,
   ];
@@ -386,6 +499,7 @@ export function buildChatContextPack({
       mounted: uniqueStrings(mountedProviders),
       discoverable: uniqueStrings(discoverableProviders),
       builtinMounted: uniqueStrings(builtinTools),
+      webAccess,
       pendingApproval: blockedProviders,
       executionUnavailable: uniqueStrings(
         providerStatus.executionUnavailableProviders ?? [],
@@ -399,13 +513,20 @@ export function buildChatContextPack({
       recentMessages: messages.length,
       artifactContextInjected: artifacts.length > 0,
       artifactContextChars: artifacts.length,
-      uploadedFilesInjected: uploadedFiles.length > 0,
+      uploadedFilesInjected: uploadedFiles.some(
+        (file) => file.runtimeContent?.type === "image",
+      ),
       uploadedFiles: uploadedFiles.map((file) => ({
+        ...(file.resourceId ? { resourceId: file.resourceId } : {}),
         name: file.name,
         ...(typeof file.sizeBytes === "number" ? { sizeBytes: file.sizeBytes } : {}),
         ...(file.mimeType ? { mimeType: file.mimeType } : {}),
         ...(file.extractionStatus ? { extractionStatus: file.extractionStatus } : {}),
       })),
+      ...(recentToolEvidenceReceipt
+        ? { recentToolEvidence: recentToolEvidenceReceipt }
+        : {}),
+      resources: resourceResolution ?? null,
     },
     capabilities: capabilityReceipt,
     contextItems: contextItems.map(compactContextItem),
@@ -465,6 +586,7 @@ export function buildChatContextPack({
           ),
           reconnectRequiredProviders: receipt.tools.reconnectRequired,
           builtinTools: receipt.tools.builtinMounted,
+          webAccess: receipt.tools.webAccess,
           modelId,
           artifactContext: artifacts || null,
           vaultContextRequested,
@@ -490,6 +612,9 @@ export function buildChatContextPack({
   }
   const volatileSystemSuffix = shouldRenderPreamble
     ? [
+        ...(resourceResolution
+          ? [renderConversationResourceContext(resourceResolution), ""]
+          : []),
         ...(recommendations.length > 0
           ? [renderRecentRecommendationsForPrompt(recommendations), ""]
           : []),
@@ -525,6 +650,10 @@ export function buildChatContextPack({
       recentMessages: recentMessageItems,
       artifacts: artifactItems,
       uploadedFiles: uploadedFileItems,
+      ...(recentToolEvidenceItem
+        ? { toolEvidence: recentToolEvidenceItem }
+        : {}),
+      resources: resourceItems,
     },
     recommendations: recommendationPack,
     receipts: [receipt],
@@ -580,10 +709,29 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
     )}; reconnect required ${formatList(receipt.tools.reconnectRequired)}.`,
   );
   lines.push(
-    `- Work context: ${receipt.work.recentMessages} recent message(s); ` +
-      `artifacts ${receipt.work.artifactContextInjected ? "included" : "not included"}; ` +
-      `uploaded files ${formatList(receipt.work.uploadedFiles.map((file) => file.name))}.`,
+    `- Web access: ${receipt.tools.webAccess.state.replace("_", " ")}; ` +
+      `source ${receipt.tools.webAccess.source}; policy ${receipt.tools.webAccess.policy}; ` +
+      `${receipt.tools.webAccess.deniedDomainCount} denied domain(s).`,
   );
+  lines.push(
+      `- Work context: ${receipt.work.recentMessages} recent message(s); ` +
+      `artifacts ${receipt.work.artifactContextInjected ? "included" : "not included"}; ` +
+      `uploaded files ${formatUploadedFileReceipt(receipt.work.uploadedFiles)}; ` +
+      `conversation resources ${formatConversationResourceReceipt(
+        receipt.work.resources,
+      )}.`,
+  );
+  if (receipt.work.recentToolEvidence) {
+    const evidence = receipt.work.recentToolEvidence;
+    const succeeded = evidence.included.filter(
+      (item) => item.status === "succeeded",
+    ).length;
+    const failed = evidence.included.length - succeeded;
+    lines.push(
+      `- Historical tool evidence: ${succeeded} successful and ${failed} failed result(s) included; ` +
+        `${evidence.omittedToolCallIds.length} omitted by the ${evidence.maxChars}-character budget.`,
+    );
+  }
   lines.push(
     `- Capabilities: ${receipt.capabilities.providers} tool provider(s), ` +
       `${receipt.capabilities.skills} skill(s), ${receipt.capabilities.apps} app(s), ` +
@@ -614,6 +762,40 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
 
 function formatList(values: readonly string[]): string {
   return values.length > 0 ? values.join(", ") : "none";
+}
+
+function formatUploadedFileReceipt(
+  files: readonly ChatContextUploadedFile[],
+): string {
+  if (files.length === 0) return "none";
+  const resourceIds = files.flatMap((file) =>
+    file.resourceId ? [file.resourceId] : [],
+  );
+  return `${files.length} current-turn file(s)${
+    resourceIds.length > 0 ? ` (${resourceIds.join(", ")})` : ""
+  }`;
+}
+
+function formatConversationResourceReceipt(
+  resolution: ConversationResourceResolution | null,
+): string {
+  if (!resolution || resolution.status === "none") return "none";
+  if (resolution.status === "ambiguous") {
+    return `ambiguous (${resolution.candidates
+      .map((candidate) => candidate.resourceId)
+      .join(", ")})`;
+  }
+  if (resolution.status === "unavailable") {
+    return `unavailable (${resolution.candidates
+      .map((candidate) => candidate.resourceId)
+      .join(", ")})`;
+  }
+  return resolution.selected
+    .map(
+      (resource) =>
+        `${resource.resourceId} [${resource.representation}; ${resource.coverage}; ${resource.reason}]`,
+    )
+    .join(", ");
 }
 
 function uniqueStrings(values: readonly string[]): string[] {

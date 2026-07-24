@@ -25,7 +25,7 @@ function version(
 }
 
 describe("app draft version summaries", () => {
-  it("passes deployed and reverted statuses through transport (#344)", () => {
+  it("passes lifecycle and proposal statuses through transport", () => {
     const deployed = version({ status: "deployed", canDeploy: false });
     const reverted = version({
       id: "version-1",
@@ -33,9 +33,38 @@ describe("app draft version summaries", () => {
       status: "reverted",
       canDeploy: false,
     });
-    expect(parseAppDraftVersionSummaries([deployed, reverted])).toEqual([
+    const proposed = version({ id: "version-3", status: "proposed" });
+    const discarded = version({
+      id: "version-4",
+      status: "discarded",
+      canDeploy: false,
+    });
+    const iterating = version({
+      id: "version-5",
+      status: "iterating",
+      canDeploy: false,
+    });
+    const superseded = version({
+      id: "version-6",
+      status: "superseded",
+      canDeploy: false,
+    });
+    expect(
+      parseAppDraftVersionSummaries([
+        deployed,
+        reverted,
+        proposed,
+        discarded,
+        iterating,
+        superseded,
+      ]),
+    ).toEqual([
       deployed,
       reverted,
+      proposed,
+      discarded,
+      iterating,
+      superseded,
     ]);
   });
 
@@ -71,6 +100,25 @@ describe("app draft version summaries", () => {
     ]);
 
     expect([...latest]).toEqual(["version-3", "other-version-1"]);
+  });
+
+  it("keeps a superseded source visible beside its latest replacement", () => {
+    const latest = latestAppDraftVersionIds([
+      version({
+        id: "version-2",
+        versionNumber: 2,
+        status: "superseded",
+        canDeploy: false,
+      }),
+      version({
+        id: "version-3",
+        artifactId: "artifact-3",
+        versionNumber: 3,
+        status: "proposed",
+      }),
+    ]);
+
+    expect([...latest]).toEqual(["version-2", "version-3"]);
   });
 
   it("marks the selected draft live without discarding history", () => {

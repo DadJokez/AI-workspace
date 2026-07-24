@@ -231,6 +231,16 @@ describe("skills helpers", () => {
       expect(notion.input.mcpProviders).toEqual(["notion"]);
     }
 
+    const web = parseSkillInput({
+      name: "Research Briefing",
+      systemPrompt: "Research the topic.",
+      mcpProviders: ["web"],
+    });
+    expect(web.ok).toBe(true);
+    if (web.ok) {
+      expect(web.input.mcpProviders).toEqual(["web"]);
+    }
+
     const badProvider = parseSkillInput({
       name: "X",
       systemPrompt: "Y",

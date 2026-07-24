@@ -7,8 +7,16 @@ import {
   memoryCaptureQueue,
   runs,
   users,
+  workspaceArtifacts,
 } from "@ai-workspace/db";
 import { and, eq, inArray, lt, or } from "drizzle-orm";
+
+import {
+  buildProductionResourceFixtures,
+  type ProductionResourceFixture,
+} from "./conversation-resource-smoke-fixtures";
+import { partitionResourceToolResults } from "./production-resource-smoke-results";
+import { queryConversationResource } from "@/lib/conversation-resource-content";
 
 const DEFAULT_BASE_URL = "https://comparative.builtwithrobot.link";
 const SMOKE_USER_ID = "00000000-0000-4000-8000-000000000206";
@@ -16,8 +24,12 @@ const SMOKE_GH_SUB = "comparative-production-smoke";
 const SMOKE_EMAIL = "comparative-smoke@example.com";
 const SMOKE_NAME = "Comparative Smoke";
 
+const resourceMatrixEnabled = process.argv.includes("--resource-matrix");
 const baseUrl = normalizeBaseUrl(process.env.SMOKE_BASE_URL ?? DEFAULT_BASE_URL);
-const timeoutMs = Number(process.env.SMOKE_AUTH_TIMEOUT_MS ?? 90_000);
+const timeoutMs = Number(
+  process.env.SMOKE_AUTH_TIMEOUT_MS ??
+    (resourceMatrixEnabled ? 180_000 : 90_000),
+);
 const agentCoreTimeoutMs = positiveNumber(
   process.env.SMOKE_AGENTCORE_TIMEOUT_MS,
   180_000,
@@ -34,9 +46,11 @@ const state: {
   threadId?: string;
   runId?: string;
   artifactId?: string;
+  uploadThreadId?: string;
+  resourceMatrixThreadIds: string[];
   agentCoreThreadId?: string;
   agentCoreRunId?: string;
-} = {};
+} = { resourceMatrixThreadIds: [] };
 
 let passed = false;
 
@@ -52,6 +66,10 @@ async function main() {
     await meCheck(cookie);
     await isolationCheck(cookie, "before chat");
     await chatArtifactCheck(cookie);
+    await uploadContinuityCheck(db, cookie);
+    if (resourceMatrixEnabled) {
+      await conversationResourceMatrixCheck(db, cookie);
+    }
     await artifactListCheck(cookie);
     await transcriptExportCheck(cookie);
     await agentCoreDurableLaneCheck(db);
@@ -70,6 +88,510 @@ async function main() {
       );
     }
   }
+}
+
+async function conversationResourceMatrixCheck(
+  db: ReturnType<typeof getDb>,
+  cookie: string,
+) {
+  const fixtures = await buildProductionResourceFixtures(runId);
+  const batches = chunk(fixtures, 5);
+  let agentCoreProbe:
+    | {
+        threadId: string;
+        fixture: ProductionResourceFixture;
+        resourceId: string;
+      }
+    | undefined;
+
+  for (const [batchIndex, batch] of batches.entries()) {
+    const upload = await postChat(cookie, {
+      message:
+        "Store the attached production resource validation files in this conversation. Reply only with STORED.",
+      attachmentCount: batch.length,
+      attachments: batch.map((fixture) => ({
+        name: fixture.filename,
+        mimeType: fixture.mimeType,
+        sizeBytes: fixture.bytes.byteLength,
+        dataBase64: fixture.bytes.toString("base64"),
+      })),
+    });
+    assertStatus(
+      upload.response,
+      200,
+      `/api/chat resource matrix upload batch ${batchIndex + 1}`,
+      upload.rawBody,
+    );
+    const uploadMeta = requiredChatMeta(
+      upload.events,
+      `resource matrix upload batch ${batchIndex + 1}`,
+    );
+    const threadId = uploadMeta.threadId;
+    state.resourceMatrixThreadIds.push(threadId);
+    await completedRun(db, uploadMeta.runId);
+
+    const uploadResolution = recordField(
+      uploadMeta,
+      "resourceResolution",
+      "resource matrix upload missing resolution",
+    );
+    const uploadedSelections = arrayField(
+      uploadResolution,
+      "selected",
+      "resource matrix upload resolution missing selected resources",
+    );
+    assert(
+      uploadResolution.status === "selected" &&
+        uploadedSelections.length === batch.length,
+      `resource matrix upload selected ${uploadedSelections.length}/${batch.length} resources`,
+    );
+    assert(
+      uploadedSelections.every(
+        (selection) =>
+          isRecord(selection) && selection.reason === "current_upload",
+      ),
+      "resource matrix upload did not use current_upload resolver precedence",
+    );
+
+    const artifacts = await db
+      .select()
+      .from(workspaceArtifacts)
+      .where(
+        and(
+          eq(workspaceArtifacts.userId, SMOKE_USER_ID),
+          eq(workspaceArtifacts.threadId, threadId),
+          eq(workspaceArtifacts.source, "user-upload"),
+        ),
+      );
+    assert(
+      artifacts.length === batch.length,
+      `resource matrix stored ${artifacts.length}/${batch.length} artifacts in batch ${batchIndex + 1}`,
+    );
+
+    const uploadBatchIds = new Set<string>();
+    for (const fixture of batch) {
+      const artifact = artifacts.find(
+        (candidate) => candidate.filename === fixture.filename,
+      );
+      assert(artifact, `missing stored resource ${fixture.filename}`);
+      const metadata = recordField(
+        artifact,
+        "metadata",
+        `${fixture.filename} metadata missing`,
+      );
+      const resourceMetadata = recordField(
+        metadata,
+        "conversationResource",
+        `${fixture.filename} resource metadata missing`,
+      );
+      assert(
+        resourceMetadata.resourceId === artifact.id,
+        `${fixture.filename} resource id does not match its durable artifact id`,
+      );
+      assert(
+        typeof resourceMetadata.uploadBatchId === "string",
+        `${fixture.filename} upload batch id missing`,
+      );
+      uploadBatchIds.add(resourceMetadata.uploadBatchId);
+      assert(
+        typeof resourceMetadata.checksumSha256 === "string" &&
+          /^[a-f0-9]{64}$/.test(resourceMetadata.checksumSha256),
+        `${fixture.filename} checksum is missing or malformed`,
+      );
+      assert(
+        resourceMetadata.lifecycleState === "available",
+        `${fixture.filename} lifecycle is not available`,
+      );
+      assert(
+        artifact.chatMessageId !== null,
+        `${fixture.filename} is not associated with its source message`,
+      );
+
+      await verifyCompleteAdapter(fixture, artifact);
+      await verifyLaterTurnReuse({
+        db,
+        cookie,
+        threadId,
+        fixture,
+        resourceId: artifact.id,
+      });
+      if (fixture.extension === "csv") {
+        agentCoreProbe = {
+          threadId,
+          fixture,
+          resourceId: artifact.id,
+        };
+      }
+    }
+    assert(
+      uploadBatchIds.size === 1,
+      `resource matrix batch ${batchIndex + 1} did not retain one stable upload batch id`,
+    );
+
+    const storedAfterFollowUps = await db
+      .select({ id: workspaceArtifacts.id })
+      .from(workspaceArtifacts)
+      .where(
+        and(
+          eq(workspaceArtifacts.userId, SMOKE_USER_ID),
+          eq(workspaceArtifacts.threadId, threadId),
+          eq(workspaceArtifacts.source, "user-upload"),
+        ),
+      );
+    assert(
+      storedAfterFollowUps.length === artifacts.length,
+      `resource matrix follow-ups duplicated artifacts (${artifacts.length} -> ${storedAfterFollowUps.length})`,
+    );
+  }
+  assert(agentCoreProbe, "resource matrix did not create an AgentCore CSV probe");
+  await verifyLaterTurnReuse({
+    db,
+    cookie,
+    ...agentCoreProbe,
+    durable: true,
+  });
+
+  console.log(
+    `ok conversationResourceMatrixCheck (${fixtures.length} formats, ${batches.length} upload batches)`,
+  );
+}
+
+async function verifyCompleteAdapter(
+  fixture: ProductionResourceFixture,
+  artifact: typeof workspaceArtifacts.$inferSelect,
+) {
+  const resource = {
+    id: artifact.id,
+    filename: artifact.filename,
+    mimeType: artifact.mimeType,
+    kind: artifact.kind,
+    content: artifact.content,
+    sizeBytes: artifact.sizeBytes,
+    metadata: artifact.metadata,
+  };
+
+  if (fixture.kind === "table") {
+    const aggregate = await queryConversationResource(resource, {
+      resourceId: resource.id,
+      operation: "table_aggregate",
+      column: "amount",
+      aggregate: "sum",
+    });
+    const facts = await queryConversationResource(resource, {
+      resourceId: resource.id,
+      operation: "table_filter",
+      filterColumn: "marker",
+      filterOperator: "contains",
+      filterValue: "FACT",
+      limit: 3,
+    });
+    assert(
+      aggregate.value === fixture.expectedAggregate,
+      `${fixture.filename} complete aggregate expected ${fixture.expectedAggregate}, got ${String(aggregate.value)}`,
+    );
+    assertFullSourceReceipt(aggregate, fixture.filename);
+    assertFullSourceReceipt(facts, fixture.filename);
+    assertFactsPresent(JSON.stringify(facts), fixture);
+    return;
+  }
+
+  if (fixture.kind === "image") {
+    const image = await queryConversationResource(resource, {
+      resourceId: resource.id,
+      operation: "read",
+    });
+    assertFullSourceReceipt(image, fixture.filename);
+    const imageMetadata = recordField(
+      image,
+      "image",
+      `${fixture.filename} image metadata missing`,
+    );
+    assert(
+      Number(imageMetadata.width) > 0 && Number(imageMetadata.height) > 0,
+      `${fixture.filename} native dimensions missing`,
+    );
+    return;
+  }
+
+  const search = await queryConversationResource(resource, {
+    resourceId: resource.id,
+    operation: "search",
+    query: "DURABLE_",
+    limit: 10,
+  });
+  assertFullSourceReceipt(search, fixture.filename);
+  assertFactsPresent(JSON.stringify(search), fixture);
+}
+
+async function verifyLaterTurnReuse({
+  db,
+  cookie,
+  threadId,
+  fixture,
+  resourceId,
+  durable = false,
+}: {
+  db: ReturnType<typeof getDb>;
+  cookie: string;
+  threadId: string;
+  fixture: ProductionResourceFixture;
+  resourceId: string;
+  durable?: boolean;
+}) {
+  const aggregateInstruction =
+    fixture.expectedAggregate === undefined
+      ? ""
+      : " Then report the exact sum of the complete amount column.";
+  const followUp = await postChat(cookie, {
+    threadId,
+    message: `${
+      durable ? "Keep working in the background. " : ""
+    }Read ${fixture.filename} from this conversation. Return the three all-caps fact lines from its beginning, middle, and end in that order.${aggregateInstruction}`,
+  });
+  assertStatus(
+    followUp.response,
+    200,
+    `/api/chat resource follow-up ${fixture.filename}`,
+    followUp.rawBody,
+  );
+  const followUpMeta = requiredChatMeta(
+    followUp.events,
+    `resource follow-up ${fixture.filename}`,
+  );
+  if (durable) {
+    const runtimeRoute = recordField(
+      followUpMeta,
+      "runtimeRoute",
+      `${fixture.filename} AgentCore follow-up missing runtime route`,
+    );
+    assert(
+      runtimeRoute.useWorker === true &&
+        runtimeRoute.runtimeTarget === "agentcore-worker",
+      `${fixture.filename} did not route the background resource turn to AgentCore`,
+    );
+  }
+  const run = await completedRun(db, followUpMeta.runId);
+  const assistantText =
+    followUp.text ||
+    (typeof run.outputs?.assistantText === "string"
+      ? run.outputs.assistantText
+      : "");
+  assertFactsPresent(assistantText, fixture);
+  if (fixture.expectedAggregate !== undefined) {
+    assert(
+      new RegExp(`\\b${fixture.expectedAggregate}\\b`).test(assistantText),
+      `${fixture.filename} later turn omitted aggregate ${fixture.expectedAggregate}: ${assistantText.slice(0, 300)}`,
+    );
+  }
+  if (durable) {
+    assert(
+      run.outputs.runtime === "agentcore",
+      `${fixture.filename} durable resource run did not report AgentCore`,
+    );
+    const providerRun = recordField(
+      run.outputs,
+      "providerRun",
+      `${fixture.filename} durable resource run missing provider metadata`,
+    );
+    assert(
+      providerRun.runtime === "agentcore",
+      `${fixture.filename} durable provider metadata did not report AgentCore`,
+    );
+  }
+
+  const resolution = recordField(
+    run.inputs,
+    "resourceResolution",
+    `${fixture.filename} run receipt missing resource resolution`,
+  );
+  const selected = arrayField(
+    resolution,
+    "selected",
+    `${fixture.filename} run receipt missing selected resources`,
+  );
+  assert(
+    resolution.status === "selected" && selected.length === 1,
+    `${fixture.filename} later turn did not select exactly one resource`,
+  );
+  const selection = selected[0];
+  assert(
+    isRecord(selection) &&
+      selection.resourceId === resourceId &&
+      selection.reason === "explicit_filename" &&
+      selection.coverage === "full",
+    `${fixture.filename} later turn receipt selected the wrong resource or coverage`,
+  );
+
+  const toolResults = Array.isArray(run.outputs?.toolResults)
+    ? run.outputs.toolResults
+    : [];
+  if (fixture.kind !== "image") {
+    const resourceResults = partitionResourceToolResults(toolResults);
+    assert(
+      resourceResults.all.length > 0,
+      `${fixture.filename} later turn did not persist a resource tool receipt`,
+    );
+    assert(
+      resourceResults.successful.length > 0,
+      `${fixture.filename} later turn did not complete a resource tool call`,
+    );
+    for (const result of resourceResults.all) {
+      const output = recordField(
+        result,
+        "output",
+        `${fixture.filename} resource tool output receipt missing`,
+      );
+      const persisted = JSON.stringify(output);
+      assert(
+        fixture.expectedFacts.every((fact) => !persisted.includes(fact)),
+        `${fixture.filename} persisted file content instead of a compact receipt`,
+      );
+    }
+    for (const result of resourceResults.successful) {
+      const output = recordField(
+        result,
+        "output",
+        `${fixture.filename} successful resource tool output receipt missing`,
+      );
+      assertFullSourceReceipt(output, fixture.filename);
+    }
+  }
+}
+
+function assertFullSourceReceipt(
+  value: Record<string, unknown>,
+  filename: string,
+) {
+  const receipt = recordField(
+    value,
+    "receipt",
+    `${filename} complete-file receipt missing`,
+  );
+  assert(
+    receipt.sourceCoverage === "full",
+    `${filename} expected full source coverage, got ${String(receipt.sourceCoverage)}`,
+  );
+}
+
+function assertFactsPresent(
+  text: string,
+  fixture: ProductionResourceFixture,
+) {
+  for (const fact of fixture.expectedFacts) {
+    assert(
+      text.includes(fact),
+      `${fixture.filename} did not recover ${fact}: ${text.slice(0, 300)}`,
+    );
+  }
+}
+
+async function uploadContinuityCheck(db: ReturnType<typeof getDb>, cookie: string) {
+  const marker = `UPLOAD-CONTINUITY-${runId}`;
+  const targetBytes = Math.floor(3.8 * 1024 * 1024);
+  const prefix = `marker,region,revenue\n${marker},North America,4200000\n`;
+  const row = "filler,EMEA,100\n";
+  const csv = (prefix + row.repeat(Math.ceil(targetBytes / row.length))).slice(
+    0,
+    targetBytes,
+  );
+  const bytes = Buffer.from(csv, "utf8");
+
+  const first = await fetchTextWithTimeout("/api/chat", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      cookie,
+    },
+    body: JSON.stringify({
+      message: "A CSV is attached. Reply with only: file received",
+      attachmentCount: 1,
+      attachments: [
+        {
+          name: `production-continuity-${runId}.csv`,
+          mimeType: "text/csv",
+          sizeBytes: bytes.byteLength,
+          dataBase64: bytes.toString("base64"),
+        },
+      ],
+    }),
+  });
+  assertStatus(first.response, 200, "/api/chat large upload");
+  const firstEvents = parseSseEvents(first.body);
+  const firstMeta = firstEvents.find((event) => event.type === "meta");
+  assert(
+    isRecord(firstMeta) && typeof firstMeta.threadId === "string",
+    "large upload response missing thread id",
+  );
+  assert(
+    firstEvents.some((event) => event.type === "persisted"),
+    "large upload response was not persisted",
+  );
+  state.uploadThreadId = firstMeta.threadId;
+
+  const storedBeforeFollowUp = await db
+    .select({ id: workspaceArtifacts.id })
+    .from(workspaceArtifacts)
+    .where(
+      and(
+        eq(workspaceArtifacts.userId, SMOKE_USER_ID),
+        eq(workspaceArtifacts.threadId, state.uploadThreadId),
+        eq(workspaceArtifacts.source, "user-upload"),
+      ),
+    );
+  assert(
+    storedBeforeFollowUp.length === 1,
+    `large upload stored ${storedBeforeFollowUp.length} artifacts instead of one`,
+  );
+
+  const followUp = await fetchTextWithTimeout("/api/chat", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      cookie,
+    },
+    body: JSON.stringify({
+      threadId: state.uploadThreadId,
+      message:
+        "Analyze the uploaded CSV. Reply with only the unique UPLOAD-CONTINUITY marker from its first data row.",
+    }),
+  });
+  assertStatus(followUp.response, 200, "/api/chat upload follow-up");
+  const followUpEvents = parseSseEvents(followUp.body);
+  const followUpMeta = followUpEvents.find((event) => event.type === "meta");
+  assert(isRecord(followUpMeta), "upload follow-up missing meta event");
+  assert(
+    isRecord(followUpMeta.routeReceipt) &&
+      isRecord(followUpMeta.routeReceipt.contextAvailability) &&
+      followUpMeta.routeReceipt.contextAvailability.uploadedFilesAvailable === true,
+    "upload follow-up route receipt did not report stored file context",
+  );
+  const assistantText = followUpEvents
+    .filter((event) => event.type === "text-delta")
+    .map((event) => (typeof event.delta === "string" ? event.delta : ""))
+    .join("");
+  assert(
+    assistantText.includes(marker),
+    `upload follow-up did not recover marker ${marker}: ${assistantText.slice(0, 240)}`,
+  );
+  assert(
+    followUpEvents.some((event) => event.type === "persisted"),
+    "upload follow-up response was not persisted",
+  );
+  const storedAfterFollowUp = await db
+    .select({ id: workspaceArtifacts.id })
+    .from(workspaceArtifacts)
+    .where(
+      and(
+        eq(workspaceArtifacts.userId, SMOKE_USER_ID),
+        eq(workspaceArtifacts.threadId, state.uploadThreadId),
+        eq(workspaceArtifacts.source, "user-upload"),
+      ),
+    );
+  assert(
+    storedAfterFollowUp.length === storedBeforeFollowUp.length,
+    `upload follow-up duplicated stored artifacts (${storedBeforeFollowUp.length} -> ${storedAfterFollowUp.length})`,
+  );
+  console.log("ok uploadContinuityCheck");
 }
 
 async function healthCheck() {
@@ -374,7 +896,7 @@ async function resetSmokeUser(db: ReturnType<typeof getDb>) {
 async function smokeSessionCookie() {
   const secret = process.env.NEXTAUTH_SECRET;
   assert(secret && secret.length >= 32, "NEXTAUTH_SECRET is required for authenticated smoke");
-  const maxAge = 20 * 60;
+  const maxAge = (resourceMatrixEnabled ? 60 : 20) * 60;
   const expires = Math.floor(Date.now() / 1000) + maxAge;
   const token = await encode({
     secret,
@@ -394,6 +916,119 @@ async function smokeSessionCookie() {
     ? "__Secure-next-auth.session-token"
     : "next-auth.session-token";
   return `${cookieName}=${token}`;
+}
+
+async function postChat(
+  cookie: string,
+  body: Record<string, unknown>,
+): Promise<{
+  response: Response;
+  events: Array<Record<string, unknown>>;
+  rawBody: string;
+  text: string;
+}> {
+  const result = await fetchTextWithTimeout("/api/chat", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      cookie,
+    },
+    body: JSON.stringify(body),
+  });
+  const events = parseSseEvents(result.body);
+  return {
+    response: result.response,
+    events,
+    rawBody: result.body,
+    text: events
+      .filter((event) => event.type === "text-delta")
+      .map((event) => (typeof event.delta === "string" ? event.delta : ""))
+      .join(""),
+  };
+}
+
+function requiredChatMeta(
+  events: readonly Record<string, unknown>[],
+  label: string,
+): Record<string, unknown> & { threadId: string; runId: string } {
+  const meta = events.find((event) => event.type === "meta");
+  assert(
+    isRecord(meta) &&
+      typeof meta.threadId === "string" &&
+      typeof meta.runId === "string",
+    `${label} missing chat meta thread/run ids`,
+  );
+  return meta as Record<string, unknown> & {
+    threadId: string;
+    runId: string;
+  };
+}
+
+async function completedRun(
+  db: ReturnType<typeof getDb>,
+  requestedRunId: string,
+): Promise<{
+  inputs: Record<string, unknown>;
+  outputs: Record<string, unknown>;
+}> {
+  const deadline = Date.now() + Math.max(timeoutMs, agentCoreTimeoutMs);
+  while (Date.now() < deadline) {
+    const rows = await db
+      .select({
+        status: runs.status,
+        inputs: runs.inputs,
+        outputs: runs.outputs,
+        error: runs.error,
+      })
+      .from(runs)
+      .where(eq(runs.id, requestedRunId))
+      .limit(1);
+    const current = rows[0];
+    assert(current, `run ${requestedRunId} disappeared`);
+    if (current.status === "failed" || current.status === "canceled") {
+      throw new Error(
+        `run ${requestedRunId} ${current.status}: ${current.error ?? "unknown error"}`,
+      );
+    }
+    if (current.status === "succeeded") {
+      return {
+        inputs: isRecord(current.inputs) ? current.inputs : {},
+        outputs: isRecord(current.outputs) ? current.outputs : {},
+      };
+    }
+    await delay(1_000);
+  }
+  throw new Error(`run ${requestedRunId} did not complete before timeout`);
+}
+
+function recordField(
+  value: unknown,
+  key: string,
+  message: string,
+): Record<string, unknown> {
+  assert(isRecord(value), message);
+  const field = value[key];
+  assert(isRecord(field), message);
+  return field;
+}
+
+function arrayField(
+  value: unknown,
+  key: string,
+  message: string,
+): unknown[] {
+  assert(isRecord(value), message);
+  const field = value[key];
+  assert(Array.isArray(field), message);
+  return field;
+}
+
+function chunk<T>(values: readonly T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
 }
 
 async function fetchJsonWithTimeout<T>(
@@ -467,10 +1102,18 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function assertStatus(response: Response, expected: number, label: string) {
+function assertStatus(
+  response: Response,
+  expected: number,
+  label: string,
+  responseBody?: string,
+) {
+  const bodyDetail = responseBody?.trim()
+    ? `: ${responseBody.trim().replace(/\s+/g, " ").slice(0, 300)}`
+    : "";
   assert(
     response.status === expected,
-    `${label} expected ${expected}, got ${response.status}`,
+    `${label} expected ${expected}, got ${response.status}${bodyDetail}`,
   );
 }
 

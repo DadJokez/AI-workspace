@@ -13,6 +13,7 @@ AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval
 # One capability
 AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval date-grounding
 AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval tool-grounding
+AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval tool-evidence-continuity
 
 # Free structural-only run (proves wiring, NOT behavior)
 pnpm eval --mock
@@ -77,6 +78,9 @@ file under `src/cases/` — no harness changes:
   faithful PR summaries, pending-approval boundaries, tool-error handling, and
   lightweight connected-but-not-mounted honesty. Reports include tool-call names,
   tool-result previews, provider status, context receipts, and fixture evidence.
+- `tool-evidence-continuity` — multi-turn continuity for successful, stale,
+  hostile, and failed historical tool results, including required freshness
+  rechecks and prompt-injection resistance.
 
 Next capabilities to add (need the app stack, production-like auth, or persisted
 chat state): slash-palette redirect, redaction, and admin/debug replay of failed

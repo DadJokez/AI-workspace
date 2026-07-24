@@ -1,3 +1,5 @@
+import { formatDateTime as formatDisplayDateTime } from "@/lib/format-date";
+
 export type RuntimeReportLane =
   | "fast-local"
   | "tool-local"
@@ -38,6 +40,42 @@ export interface RuntimeV2Report {
   fastLocalSampleCount: number;
   laneLatency: LaneLatencySummary[];
   failureGroups: FailureGroupSummary[];
+}
+
+export function formatSkill(value: string | null): string {
+  if (value === "developer-briefing") return "Developer Briefing";
+  return value
+    ? value
+        .split(/[-_\s]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ")
+    : "Workflow run";
+}
+
+export function shortId(value: string): string {
+  return value.slice(0, 8);
+}
+
+export function formatDateTime(value: Date): string {
+  return formatDisplayDateTime(value);
+}
+
+export function formatDuration(
+  startedAt: Date,
+  completedAt: Date,
+): string {
+  const ms = Math.max(0, completedAt.getTime() - startedAt.getTime());
+  if (ms < 1_000) return `${ms}ms`;
+  return `${(ms / 1_000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+}
+
+export function formatNullableMs(
+  value: number | null | undefined,
+): string {
+  if (typeof value !== "number") return "n/a";
+  if (value < 1_000) return `${value}ms`;
+  return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}s`;
 }
 
 const REPORT_LANES: RuntimeReportLane[] = [
@@ -171,6 +209,12 @@ function classifyError({
   if (!error) return "none";
   if (/\b(throttl|rate limit|too many requests)\b/.test(error)) {
     return "rate_limit";
+  }
+  if (
+    /\b(?:bedrock-agentcore|agentcore\s*runtime|agentcoreruntime)\b/.test(error) &&
+    /\b(?:accessdenied(?:exception)?|access denied|not authorized)\b/.test(error)
+  ) {
+    return "runtime_authorization_denied";
   }
   if (/\b(access denied|not authorized|marketplace|subscription)\b/.test(error)) {
     return "model_access";

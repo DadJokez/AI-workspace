@@ -8,7 +8,10 @@ import {
   summarizeActivity,
   type AgentActivityEvent,
 } from "@/lib/activity-events";
-import { groupActivityEvents } from "@/lib/activity-receipts";
+import {
+  groupActivityEvents,
+  summarizeActivityReceipts,
+} from "@/lib/activity-receipts";
 import type {
   PersistedToolCall,
   PersistedToolResult,
@@ -22,7 +25,12 @@ import type { AppDraftVersionSummary } from "@/lib/app-draft-versions";
 import { escapeBareOrderedListMarkers } from "@/lib/chat-markdown";
 import { parseSlashDisplayMessage } from "@/lib/skill-commands";
 import { formatMessageTimestamp } from "@/lib/message-time";
-import { useEffect, useState } from "react";
+import {
+  outputProposalFromMetadata,
+  PROPOSAL_ITERATION_MAX_FEEDBACK_CHARS,
+  type OutputProposalDecision,
+} from "@/lib/output-proposals";
+import { useEffect, useId, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import {
@@ -54,12 +62,26 @@ interface Props {
   assistantName?: string | null;
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
   onDeployAppDraft?: (version: AppDraftVersionSummary) => void;
+  onDiscardAppProposal?: (version: AppDraftVersionSummary) => void;
+  onIterateAppProposal?: (
+    version: AppDraftVersionSummary,
+    feedback: string,
+  ) => void;
+  onArtifactProposalAction?: (
+    artifact: WorkspaceArtifactSummary,
+    decision: OutputProposalDecision,
+  ) => void;
+  onIterateArtifactProposal?: (
+    artifact: WorkspaceArtifactSummary,
+    feedback: string,
+  ) => void;
   onRecommendationAction?: (
     recommendation: PersistedRecommendation,
     status: RecommendationStatus,
   ) => void;
   recommendationPendingId?: string;
   appDraftPendingId?: string;
+  artifactProposalPendingId?: string;
   onEdit?: () => void;
   onRegenerate?: () => void;
 }
@@ -86,9 +108,14 @@ export function MessageBubble({
   assistantName,
   onOpenArtifact,
   onDeployAppDraft,
+  onDiscardAppProposal,
+  onIterateAppProposal,
+  onArtifactProposalAction,
+  onIterateArtifactProposal,
   onRecommendationAction,
   recommendationPendingId,
   appDraftPendingId,
+  artifactProposalPendingId,
   onEdit,
   onRegenerate,
 }: Props) {
@@ -168,13 +195,37 @@ export function MessageBubble({
     role === "assistant"
       ? persistedActivityEvents ?? buildToolActivityEvents(toolCalls, toolResults)
       : [];
-  const activitySummary = summarizeActivity(activityEvents, pending, status);
+  const activitySummary =
+    (!pending ? summarizeActivityReceipts(activityEvents) : undefined) ??
+    summarizeActivity(activityEvents, pending, status);
   const showActivity =
     role === "assistant" && (activityEvents.length > 0 || showThinking);
   const assistantParts =
     role === "assistant" && !showThinking
       ? splitAssistantContent(content, artifacts, Boolean(pending))
       : [];
+  const appArtifactIds = new Set(
+    appDraftVersions.map((version) => version.artifactId),
+  );
+  const standaloneProposalArtifacts = artifacts.filter((artifact) => {
+    const proposal = outputProposalFromMetadata(artifact.metadata);
+    return (
+      (proposal?.status === "proposed" ||
+        proposal?.status === "iterating" ||
+        proposal?.status === "discarded" ||
+        proposal?.status === "superseded") &&
+      !appArtifactIds.has(artifact.id)
+    );
+  });
+  const normalArtifacts = artifacts.filter((artifact) => {
+    const proposal = outputProposalFromMetadata(artifact.metadata);
+    return (
+      proposal?.status !== "proposed" &&
+      proposal?.status !== "iterating" &&
+      proposal?.status !== "discarded" &&
+      proposal?.status !== "superseded"
+    );
+  });
 
   // Suppress the "Assistant" label-only stub left behind when a turn errors
   // out before any text streamed. The error bar carries the message instead.
@@ -238,8 +289,20 @@ export function MessageBubble({
           onOpenArtifact={onOpenArtifact}
         />
       ) : null}
-      {role === "assistant" && artifacts.length > 0 ? (
-        <ArtifactStrip artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
+      {role === "assistant" && standaloneProposalArtifacts.length > 0 ? (
+        <ArtifactProposalStrip
+          artifacts={standaloneProposalArtifacts}
+          pendingId={artifactProposalPendingId}
+          onOpenArtifact={onOpenArtifact}
+          onAction={onArtifactProposalAction}
+          onIterate={onIterateArtifactProposal}
+        />
+      ) : null}
+      {role === "assistant" && normalArtifacts.length > 0 ? (
+        <ArtifactStrip
+          artifacts={normalArtifacts}
+          onOpenArtifact={onOpenArtifact}
+        />
       ) : null}
       {role === "assistant" && appDraftVersions.length > 0 ? (
         <AppDraftStrip
@@ -248,6 +311,8 @@ export function MessageBubble({
           pendingId={appDraftPendingId}
           onOpenArtifact={onOpenArtifact}
           onDeploy={onDeployAppDraft}
+          onDiscard={onDiscardAppProposal}
+          onIterate={onIterateAppProposal}
         />
       ) : null}
       {role === "assistant" && recommendations.length > 0 ? (
@@ -330,12 +395,19 @@ function AppDraftStrip({
   pendingId,
   onOpenArtifact,
   onDeploy,
+  onDiscard,
+  onIterate,
 }: {
   versions: AppDraftVersionSummary[];
   artifacts: WorkspaceArtifactSummary[];
   pendingId?: string;
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
   onDeploy?: (version: AppDraftVersionSummary) => void;
+  onDiscard?: (version: AppDraftVersionSummary) => void;
+  onIterate?: (
+    version: AppDraftVersionSummary,
+    feedback: string,
+  ) => void;
 }) {
   return (
     <div className="mt-2 flex flex-col gap-2">
@@ -349,11 +421,16 @@ function AppDraftStrip({
         // version that was live and has since been superseded. It must not
         // read as a fresh draft.
         const reverted = version.status === "reverted";
+        const proposed = version.status === "proposed";
+        const iterating = version.status === "iterating";
+        const discarded = version.status === "discarded";
+        const superseded = version.status === "superseded";
         const statusDot = deployed
           ? "bg-success"
-          : reverted
+          : reverted || discarded || superseded
             ? "bg-muted"
             : "bg-info";
+        const delta = artifactLineDelta(artifact);
         return (
           <div
             key={version.id}
@@ -366,16 +443,39 @@ function AppDraftStrip({
               <span className="font-medium">{version.appName}</span>
               <span className="text-muted">v{version.versionNumber}</span>
               <span className="ml-auto rounded bg-subtle px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-muted">
-                {deployed ? "Live" : reverted ? "Superseded" : "Draft"}
+                {deployed
+                  ? "Published"
+                  : reverted
+                    ? "Superseded"
+                    : superseded
+                      ? "Superseded"
+                    : discarded
+                      ? "Discarded"
+                      : iterating
+                        ? "Iterating"
+                      : proposed
+                        ? "Needs review"
+                        : "Draft"}
               </span>
             </div>
             <p className="mt-1 text-muted">
               {deployed
-                ? "This version is now live."
+                ? "This version is now published."
                 : reverted
-                  ? "This version is no longer live."
-                  : "Draft saved. The live app has not changed."}
+                  ? "This version is no longer published."
+                  : superseded
+                    ? "A newer proposal replaced this one. Its history is preserved; the live app has not changed."
+                  : discarded
+                    ? "This proposal was discarded. Its history is preserved."
+                    : iterating
+                      ? "Comparative is creating a replacement proposal. The live app has not changed."
+                    : proposed
+                      ? `${artifact?.versionSummary ?? "A background run proposed this update."} The live app has not changed.`
+                      : "Draft saved. The live app has not changed."}
             </p>
+            {delta ? (
+              <p className="mt-1 font-mono text-2xs text-muted">{delta}</p>
+            ) : null}
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
@@ -392,26 +492,256 @@ function AppDraftStrip({
                 >
                   Open app
                 </a>
-              ) : reverted ? null : version.canDeploy ? (
+              ) : reverted || discarded || superseded || iterating ? null : version.canDeploy ? (
                 <button
                   type="button"
                   disabled={pending || !onDeploy}
                   onClick={() => onDeploy?.(version)}
                   className="rounded-md border border-accent bg-accent px-2 py-1 text-2xs font-medium text-on-accent hover:bg-accent/90 disabled:opacity-50"
                 >
-                  {pending ? "Deploying..." : "Deploy update"}
+                  {pending
+                    ? proposed
+                      ? "Accepting..."
+                      : "Publishing..."
+                    : proposed
+                      ? "Accept and publish"
+                      : "Publish update"}
                 </button>
               ) : (
                 <span className="text-2xs text-muted">
-                  Ready for an owner to deploy
+                  Ready for an owner to publish
                 </span>
               )}
+              {proposed && onDiscard ? (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => onDiscard(version)}
+                  className="rounded-md border border-hairline px-2 py-1 text-2xs font-medium text-ink hover:bg-subtle disabled:opacity-50"
+                >
+                  Discard
+                </button>
+              ) : null}
             </div>
+            {proposed && onIterate ? (
+              <ProposalIterationForm
+                label={version.appName}
+                disabled={pending}
+                onSubmit={(feedback) => onIterate(version, feedback)}
+              />
+            ) : null}
           </div>
         );
       })}
     </div>
   );
+}
+
+function ArtifactProposalStrip({
+  artifacts,
+  pendingId,
+  onOpenArtifact,
+  onAction,
+  onIterate,
+}: {
+  artifacts: WorkspaceArtifactSummary[];
+  pendingId?: string;
+  onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+  onAction?: (
+    artifact: WorkspaceArtifactSummary,
+    decision: OutputProposalDecision,
+  ) => void;
+  onIterate?: (
+    artifact: WorkspaceArtifactSummary,
+    feedback: string,
+  ) => void;
+}) {
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      {artifacts.map((artifact) => {
+        const proposal = outputProposalFromMetadata(artifact.metadata);
+        if (!proposal) return null;
+        const pending = pendingId === artifact.id;
+        const iterating = proposal.status === "iterating";
+        const discarded = proposal.status === "discarded";
+        const superseded = proposal.status === "superseded";
+        const delta = artifactLineDelta(artifact);
+        return (
+          <div
+            key={artifact.id}
+            data-testid="output-proposal-card"
+            data-artifact-id={artifact.id}
+            className="rounded-md border border-hairline bg-surface px-3 py-2.5 text-xs text-ink"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  discarded || superseded ? "bg-muted" : "bg-info"
+                }`}
+              />
+              <span className="min-w-0 truncate font-medium">
+                {artifact.filename}
+              </span>
+              <span className="ml-auto rounded bg-subtle px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-muted">
+                {discarded
+                  ? "Discarded"
+                  : superseded
+                    ? "Superseded"
+                    : iterating
+                      ? "Iterating"
+                      : "Needs review"}
+              </span>
+            </div>
+            <p className="mt-1 text-muted">
+              {discarded
+                ? "This proposal was discarded. Its history is preserved."
+                : superseded
+                  ? "A newer proposal replaced this one. Its history is preserved."
+                  : iterating
+                    ? "Comparative is creating a replacement proposal."
+                : (artifact.versionSummary ??
+                  "A background run proposed this document update.")}
+            </p>
+            {delta ? (
+              <p className="mt-1 font-mono text-2xs text-muted">{delta}</p>
+            ) : null}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                disabled={!onOpenArtifact}
+                onClick={() => onOpenArtifact?.(artifact)}
+                className="rounded-md border border-hairline px-2 py-1 text-2xs font-medium text-ink hover:bg-subtle disabled:opacity-40"
+              >
+                Preview
+              </button>
+              {proposal.status === "proposed" ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={pending || !onAction}
+                    onClick={() => onAction?.(artifact, "accepted")}
+                    className="rounded-md border border-accent bg-accent px-2 py-1 text-2xs font-medium text-on-accent hover:bg-accent/90 disabled:opacity-50"
+                  >
+                    {pending ? "Saving..." : "Accept"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pending || !onAction}
+                    onClick={() => onAction?.(artifact, "discarded")}
+                    className="rounded-md border border-hairline px-2 py-1 text-2xs font-medium text-ink hover:bg-subtle disabled:opacity-50"
+                  >
+                    Discard
+                  </button>
+                </>
+              ) : null}
+            </div>
+            {proposal.status === "proposed" && onIterate ? (
+              <ProposalIterationForm
+                label={artifact.filename}
+                disabled={pending}
+                onSubmit={(feedback) => onIterate(artifact, feedback)}
+              />
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ProposalIterationForm({
+  label,
+  disabled,
+  onSubmit,
+}: {
+  label: string;
+  disabled: boolean;
+  onSubmit: (feedback: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const feedbackId = useId();
+  const normalized = feedback.trim();
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+        className="mt-2 rounded-md border border-hairline px-2 py-1 text-2xs font-medium text-ink hover:bg-subtle disabled:opacity-50"
+      >
+        Iterate
+      </button>
+    );
+  }
+
+  return (
+    <form
+      className="mt-2 border-t border-hairline pt-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!normalized || disabled) return;
+        onSubmit(normalized);
+        setFeedback("");
+        setOpen(false);
+      }}
+    >
+      <label
+        htmlFor={feedbackId}
+        className="text-2xs font-medium text-muted"
+      >
+        Feedback
+      </label>
+      <textarea
+        id={feedbackId}
+        aria-label={`Feedback for ${label}`}
+        rows={2}
+        maxLength={PROPOSAL_ITERATION_MAX_FEEDBACK_CHARS}
+        disabled={disabled}
+        value={feedback}
+        onChange={(event) => setFeedback(event.target.value)}
+        placeholder="Describe the change"
+        className="mt-1 w-full resize-y rounded-md border border-hairline bg-canvas px-2.5 py-2 text-xs text-ink outline-none placeholder:text-muted focus:border-ink/40 disabled:opacity-50"
+      />
+      <div className="mt-1.5 flex items-center justify-end gap-1.5">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => {
+            setFeedback("");
+            setOpen(false);
+          }}
+          className="rounded-md border border-hairline px-2 py-1 text-2xs font-medium text-muted hover:bg-subtle hover:text-ink disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={disabled || !normalized}
+          className="rounded-md border border-accent bg-accent px-2 py-1 text-2xs font-medium text-on-accent hover:bg-accent/90 disabled:opacity-50"
+        >
+          Submit iteration
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function artifactLineDelta(
+  artifact: WorkspaceArtifactSummary | undefined,
+): string | null {
+  const value = artifact?.metadata?.lineDelta;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const delta = value as Record<string, unknown>;
+  if (
+    typeof delta.added !== "number" ||
+    typeof delta.removed !== "number"
+  ) {
+    return null;
+  }
+  const approximate = delta.approximate === true ? "~" : "";
+  return `${approximate}+${delta.added} -${delta.removed} lines`;
 }
 
 function RecommendationStrip({
@@ -993,7 +1323,7 @@ function recommendationLabel(type: PersistedRecommendation["type"]): string {
 function acceptLabel(recommendation: PersistedRecommendation): string {
   if (recommendation.action.kind === "run_skill") return "Run skill";
   if (recommendation.action.kind === "open_app") return "Open app";
-  if (recommendation.action.kind === "deploy_app") return "Deploy app";
+  if (recommendation.action.kind === "deploy_app") return "Publish app";
   if (recommendation.action.kind === "create_schedule") return "Approve";
   if (recommendation.action.kind === "create_skill") return "Save as skill";
   return "Use this";

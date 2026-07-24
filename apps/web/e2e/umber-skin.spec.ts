@@ -130,7 +130,7 @@ test("chat chrome uses Umber surfaces by default in both themes", async ({
               dbId: "recommendation-umber-chrome",
               id: "deploy-app:umber-check",
               type: "deploy_artifact_as_app",
-              title: "Deploy this as an app",
+              title: "Publish this as an app",
               reason: "Looks reusable.",
               requiresApproval: true,
               action: { kind: "deploy_app", artifactId: "artifact-umber" },

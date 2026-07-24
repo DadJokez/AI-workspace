@@ -15,6 +15,7 @@ interface WebFetchOutput {
   ok: boolean;
   contentType: string | null;
   title: string | null;
+  fetchedHosts: string[];
   truncated: boolean;
   fetchedAt: string;
 }
@@ -50,6 +51,7 @@ describe("web fetch built-in tool", () => {
       title: "Example Domain",
       truncated: false,
       fetchedAt: "2026-06-18T00:00:00.000Z",
+      fetchedHosts: ["example.com"],
     });
     expect(output.text).toContain("<h1>Example Domain</h1>");
     expect(output.text).toMatch(
@@ -77,6 +79,91 @@ describe("web fetch built-in tool", () => {
     await expect(
       tool.handler({ url: "https://internal.example/" }, { userId: "u1" }),
     ).rejects.toThrow(/blocked private or reserved address/);
+  });
+
+  it("blocks denylisted domains before DNS lookup or request", async () => {
+    let lookupCalled = false;
+    let requestCalled = false;
+    const tool = createWebFetchTool({
+      egressPolicy: {
+        name: "admin_domain_denylist",
+        deniedDomains: ["example.com"],
+      },
+      lookupImpl: (async () => {
+        lookupCalled = true;
+        return [{ address: "93.184.216.34", family: 4 }];
+      }) as unknown as LookupImpl,
+      requestImpl: async () => {
+        requestCalled = true;
+        throw new Error("should not fetch");
+      },
+    });
+
+    await expect(
+      tool.handler(
+        { url: "https://private.example.com/report" },
+        { userId: "u1" },
+      ),
+    ).rejects.toThrow(
+      /"reason":"denied_domain_policy".*"policy":"admin_domain_denylist".*"hostname":"private\.example\.com"/,
+    );
+    expect(lookupCalled).toBe(false);
+    expect(requestCalled).toBe(false);
+  });
+
+  it("checks every redirect hop and receipts only hosts actually requested", async () => {
+    const requested: string[] = [];
+    const tool = createWebFetchTool({
+      egressPolicy: {
+        name: "admin_domain_denylist",
+        deniedDomains: ["blocked.example"],
+      },
+      lookupImpl: publicLookup,
+      requestImpl: async (url) => {
+        requested.push(url.hostname);
+        return {
+          status: 302,
+          headers: { location: "https://blocked.example/final" },
+          bytesRead: 0,
+          truncated: false,
+          text: "",
+        };
+      },
+    });
+
+    await expect(
+      tool.handler({ url: "https://allowed.example/" }, { userId: "u1" }),
+    ).rejects.toThrow(/"hostname":"blocked\.example"/);
+    expect(requested).toEqual(["allowed.example"]);
+  });
+
+  it("records all public hosts fetched through an allowed redirect chain", async () => {
+    const tool = createWebFetchTool({
+      lookupImpl: publicLookup,
+      requestImpl: async (url) =>
+        url.hostname === "one.example"
+          ? {
+              status: 302,
+              headers: { location: "https://two.example/final" },
+              bytesRead: 0,
+              truncated: false,
+              text: "",
+            }
+          : {
+              status: 200,
+              headers: { "content-type": "text/plain" },
+              bytesRead: 2,
+              truncated: false,
+              text: "ok",
+            },
+    });
+
+    const output = (await tool.handler(
+      { url: "https://one.example/" },
+      { userId: "u1" },
+    )) as WebFetchOutput;
+
+    expect(output.fetchedHosts).toEqual(["one.example", "two.example"]);
   });
 
   it("blocks DNS rebinding at connect-time lookup", async () => {

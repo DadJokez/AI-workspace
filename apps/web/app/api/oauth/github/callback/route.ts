@@ -1,6 +1,5 @@
-import { AuthConfigError } from "@ai-workspace/auth";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import { storeOAuthConnection } from "@/lib/oauth/connection";
 import {
   GITHUB_CLIENT_ID,
@@ -32,21 +31,9 @@ function settingsRedirect(_req: Request, params: Record<string, string>) {
 }
 
 export async function GET(req: Request) {
-  let sessionUser;
-  try {
-    sessionUser = await getSessionUser();
-  } catch (err) {
-    if (err instanceof AuthConfigError) {
-      return NextResponse.json(
-        { error: "auth_config_error", message: err.message },
-        { status: 500 },
-      );
-    }
-    throw err;
-  }
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   const url = new URL(req.url);
   const code = url.searchParams.get("code");

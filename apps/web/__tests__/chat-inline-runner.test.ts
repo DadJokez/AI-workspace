@@ -17,6 +17,7 @@ vi.mock("@ai-workspace/agent-runtime", () => ({
 }));
 vi.mock("@/lib/model-registry", () => ({
   enabledModelsForPurpose: vi.fn(async () => ["sonnet-4-6"]),
+  orderModelCandidatesForPurpose: vi.fn(() => ["sonnet-4-6"]),
 }));
 vi.mock("@/lib/runtime-model-policy", () => ({
   resolveRuntimeModelSelection: vi.fn(() => ({
@@ -111,5 +112,48 @@ describe("streamInlineChatRun crash discipline (#443)", () => {
 
     expect(updates.find((update) => update.status === "failed")).toBeUndefined();
     expect(appendRunEventBestEffort).not.toHaveBeenCalled();
+  });
+
+  it("passes the clean prompt and durable resource receipt into the shared lane (#576)", async () => {
+    const updates: Array<Record<string, unknown>> = [];
+    const args = {
+      ...inlineArgs(fakeDb(updates)),
+      prompt: "folded preview that is only valid on this turn",
+      persistedPrompt: "analyze the attached report",
+      resourceResolution: {
+        version: 1 as const,
+        status: "selected" as const,
+        intent: true,
+        selected: [
+          {
+            resourceId: "resource-report",
+            filename: "report.csv",
+            mimeType: "text/csv",
+            kind: "spreadsheet" as const,
+            sizeBytes: 7_800_000,
+            representation: "tabular_dataset" as const,
+            coverage: "full" as const,
+            reason: "current_upload" as const,
+          },
+        ],
+        candidates: [
+          {
+            resourceId: "resource-report",
+            filename: "report.csv",
+            kind: "spreadsheet" as const,
+          },
+        ],
+        requiresCompleteFileTool: true,
+      },
+    };
+
+    await streamInlineChatRun(args);
+
+    expect(vi.mocked(executeChatTurn).mock.calls[0]![0]).toMatchObject({
+      prompt: "folded preview that is only valid on this turn",
+      persistedPrompt: "analyze the attached report",
+      modelCandidates: ["sonnet-4-6"],
+      resourceResolution: args.resourceResolution,
+    });
   });
 });

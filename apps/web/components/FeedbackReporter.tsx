@@ -6,6 +6,7 @@ import {
   FEEDBACK_SCREENSHOT_TOO_LARGE_MESSAGE,
   MAX_FEEDBACK_SCREENSHOT_BYTES,
 } from "@/lib/feedback-screenshots";
+import { fetchJson } from "@/lib/client-api";
 
 export interface FeedbackContext {
   threadId?: string;
@@ -76,34 +77,41 @@ export function FeedbackReporter({ open, context, onClose }: Props) {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch("/api/feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type,
-          severity,
-          body: trimmed,
-          expected: expected.trim() || undefined,
-          includeContext,
-          context: includeContext ? context : undefined,
-          pageUrl: typeof window !== "undefined" ? window.location.href : undefined,
-          userAgent:
-            typeof window !== "undefined" ? window.navigator.userAgent : undefined,
-          viewport:
-            typeof window !== "undefined"
-              ? { width: window.innerWidth, height: window.innerHeight }
-              : undefined,
-          screenshotDataUrl: screenshot?.dataUrl,
-          screenshotName: screenshot?.name,
-          screenshotMimeType: screenshot?.mimeType,
-        }),
-      });
-      const payload = (await res.json().catch(() => ({}))) as {
+      const payload = await fetchJson<{
         report?: { id: string };
-        error?: string;
-      };
-      if (!res.ok || !payload.report?.id) {
-        throw new Error(payload.error ?? `HTTP ${res.status}`);
+      }>(
+        "/api/feedback",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type,
+            severity,
+            body: trimmed,
+            expected: expected.trim() || undefined,
+            includeContext,
+            context: includeContext ? context : undefined,
+            pageUrl:
+              typeof window !== "undefined"
+                ? window.location.href
+                : undefined,
+            userAgent:
+              typeof window !== "undefined"
+                ? window.navigator.userAgent
+                : undefined,
+            viewport:
+              typeof window !== "undefined"
+                ? { width: window.innerWidth, height: window.innerHeight }
+                : undefined,
+            screenshotDataUrl: screenshot?.dataUrl,
+            screenshotName: screenshot?.name,
+            screenshotMimeType: screenshot?.mimeType,
+          }),
+        },
+        "Could not send feedback.",
+      );
+      if (!payload.report?.id) {
+        throw new Error("Feedback was accepted without a report ID.");
       }
       setSentId(payload.report.id);
       setBody("");

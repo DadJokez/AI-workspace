@@ -1,12 +1,19 @@
 import posthog from "posthog-js";
 import { parseAppDraftVersionSummaries } from "@/lib/app-draft-versions";
 import type { ChatAttachment } from "@/lib/attachments";
+import { throwApiError } from "@/lib/client-api";
 import type { ChatModelOverride } from "@/lib/model-command";
 import type { ActivatedSlashSkill } from "@/lib/skill-commands";
-import { readSseStream } from "@/lib/sse";
+import { readChatSseStream } from "@/lib/sse";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import type { PersistedRecommendation } from "@/lib/recommendations";
-import { useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import type { ProposalIterationTarget } from "@/lib/output-proposals";
+import {
+  useRef,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+} from "react";
 import {
   deriveSendTitle,
   formatChatError,
@@ -16,7 +23,6 @@ import {
   reduceAssistantStreamMessage,
   streamToolCallToPersisted,
   streamToolResultToPersisted,
-  type ChatStreamEvent,
   type ChatTab,
   type RightPane,
   type UiMessage,
@@ -28,6 +34,10 @@ export type SendChatMessage = (
   activatedSkill?: ActivatedSlashSkill,
   modelOverride?: ChatModelOverride,
   replaceMessageId?: string,
+  proposalIteration?: {
+    target: ProposalIterationTarget;
+    feedback: string;
+  },
 ) => Promise<void>;
 
 interface UseChatStreamOptions {
@@ -63,6 +73,10 @@ export function useChatStream({
     activatedSkill?: ActivatedSlashSkill,
     modelOverride?: ChatModelOverride,
     replaceMessageId?: string,
+    proposalIteration?: {
+      target: ProposalIterationTarget;
+      feedback: string;
+    },
   ) {
     if (!activeTab || activeTab.busy) return;
     if (!text.trim() && (!attachments || attachments.length === 0)) return;
@@ -147,30 +161,30 @@ export function useChatStream({
     streamAbortRef.current = abort;
     let responseAccepted = false;
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: abort.signal,
-        body: JSON.stringify({
-          message: text,
-          threadId: activeTab.threadId,
-          modelId: requestedModelId,
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          ...(modelOverride?.mode === "model" ? { modelOverride: true } : {}),
-          attachmentCount: attachments?.length ?? 0,
-          ...(activatedSkill ? { activatedSkills: [activatedSkill] } : {}),
-          ...(attachments && attachments.length > 0 ? { attachments } : {}),
-          ...(replaceMessageId ? { replaceMessageId } : {}),
-        }),
-      });
+      const response = await fetch(
+        proposalIteration ? "/api/output-proposals/iterate" : "/api/chat",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: abort.signal,
+          body: JSON.stringify({
+            message: text,
+            threadId: activeTab.threadId,
+            modelId: requestedModelId,
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            ...(modelOverride?.mode === "model"
+              ? { modelOverride: true }
+              : {}),
+            attachmentCount: attachments?.length ?? 0,
+            ...(activatedSkill ? { activatedSkills: [activatedSkill] } : {}),
+            ...(attachments && attachments.length > 0 ? { attachments } : {}),
+            ...(replaceMessageId ? { replaceMessageId } : {}),
+            ...(proposalIteration ? { proposalIteration } : {}),
+          }),
+        },
+      );
       if (!response.ok) {
-        const body = (await response.json().catch(() => ({}))) as {
-          error?: string;
-          message?: string;
-        };
-        throw new Error(
-          body.message ?? body.error ?? `HTTP ${response.status}`,
-        );
+        await throwApiError(response, "Could not send the message.");
       }
       responseAccepted = true;
 
@@ -179,6 +193,7 @@ export function useChatStream({
       let queuedRun = false;
       let queuedRunMessageId: string | undefined;
       let streamRunId: string | undefined;
+      let streamErrorMessage: string | undefined;
       let assistantDraftId = assistantMsgId;
       const isDraftMessage = (message: UiMessage) =>
         message.id === assistantMsgId || message.id === assistantDraftId;
@@ -194,7 +209,7 @@ export function useChatStream({
         );
       };
 
-      for await (const event of readSseStream<ChatStreamEvent>(response)) {
+      for await (const event of readChatSseStream(response)) {
         if (event.type === "meta") {
           if (typeof event.threadId === "string") {
             patchTab(tabId, { threadId: event.threadId });
@@ -346,7 +361,11 @@ export function useChatStream({
           event.type === "error" &&
           typeof event.message === "string"
         ) {
-          throw new Error(event.message);
+          streamErrorMessage = event.message;
+        } else if (event.type === "failed") {
+          throw new Error(event.message || streamErrorMessage);
+        } else if (event.type === "done" && streamErrorMessage) {
+          throw new Error(streamErrorMessage);
         } else if (event.type === "persisted") {
           const persistedAssistantMessageId =
             typeof event.assistantMessageId === "string"
@@ -422,7 +441,7 @@ export function useChatStream({
         return;
       }
       patchTab(tabId, { error: formatChatError(error) });
-      if (replaceMessageId && !responseAccepted) {
+      if ((replaceMessageId || proposalIteration) && !responseAccepted) {
         patchTabMessages(tabId, () => originalMessages);
         return;
       }

@@ -1,8 +1,11 @@
-import { AuthConfigError } from "@ai-workspace/auth";
 import { chatThreads, getDb } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
+import { requireSession } from "@/lib/auth/requireSession";
 import { userScope } from "@/lib/auth/scope";
 import { loadThreadMessagesWithRunActivity } from "@/lib/thread-messages";
 
@@ -15,24 +18,12 @@ export const dynamic = "force-dynamic";
  * `role = 'admin'` → messages on any thread.
  */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  let sessionUser;
-  try {
-    sessionUser = await getSessionUser();
-  } catch (err) {
-    if (err instanceof AuthConfigError) {
-      return NextResponse.json(
-        { error: "auth_config_error", message: err.message },
-        { status: 500 },
-      );
-    }
-    throw err;
-  }
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   const { id: threadId } = await params;
   if (!threadId) {
@@ -42,7 +33,7 @@ export async function GET(
   const db = getDb();
 
   const owned = await db
-    .select({ id: chatThreads.id })
+    .select({ id: chatThreads.id, userId: chatThreads.userId })
     .from(chatThreads)
     .where(
       and(
@@ -55,7 +46,24 @@ export async function GET(
     return NextResponse.json({ error: "thread_not_found" }, { status: 404 });
   }
 
-  const rows = await loadThreadMessagesWithRunActivity({ db, threadId });
+  await auditAdminDataAccess({
+    db,
+    actor: sessionUser,
+    access: {
+      targetUserId: owned[0].userId,
+      resourceType: "chat_thread",
+      resourceId: owned[0].id,
+      surface: "thread_messages",
+      justification: adminDataAccessJustification(req),
+      chatThreadId: owned[0].id,
+    },
+  });
+
+  const rows = await loadThreadMessagesWithRunActivity({
+    db,
+    threadId,
+    actor: sessionUser,
+  });
 
   return NextResponse.json({ messages: rows });
 }

@@ -196,7 +196,7 @@ describe("app lifecycle roles", () => {
     expect(canAppRoleDeploy("none")).toBe(false);
   });
 
-  it("keeps other editors' draft versions private", () => {
+  it("keeps other editors' unpublished versions private", () => {
     expect(
       canListAppVersionForActor(
         { status: "draft", createdByUserId: "other-editor" },
@@ -209,6 +209,30 @@ describe("app lifecycle roles", () => {
         { actorRole: "editor", visibleToUserId: "editor-1" },
       ),
     ).toBe(true);
+    expect(
+      canListAppVersionForActor(
+        { status: "proposed", createdByUserId: "other-editor" },
+        { actorRole: "editor", visibleToUserId: "editor-1" },
+      ),
+    ).toBe(false);
+    expect(
+      canListAppVersionForActor(
+        { status: "proposed", createdByUserId: "editor-1" },
+        { actorRole: "editor", visibleToUserId: "editor-1" },
+      ),
+    ).toBe(true);
+    expect(
+      canListAppVersionForActor(
+        { status: "proposed", createdByUserId: "owner-1" },
+        { actorRole: "viewer", visibleToUserId: "viewer-1" },
+      ),
+    ).toBe(false);
+    expect(
+      canListAppVersionForActor(
+        { status: "discarded", createdByUserId: "other-editor" },
+        { actorRole: "editor", visibleToUserId: "editor-1" },
+      ),
+    ).toBe(false);
     expect(
       canListAppVersionForActor(
         { status: "deployed", createdByUserId: "other-editor" },

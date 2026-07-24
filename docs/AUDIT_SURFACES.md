@@ -1,9 +1,10 @@
-# Audit surfaces (#456)
+# Audit surfaces (#456, #458)
 
-The enumeration behind "every mutation audited, lane-independent". Source of
-truth for which state mutations write an `audit_log` row, where that write
-lives, and which are deliberately deferred. Update this file in the same PR as
-any change to an audit write.
+The enumeration behind "every mutation audited, lane-independent" and
+"cross-user admin reads are attributable." Source of truth for which state
+mutations and sensitive reads write an `audit_log` row, where that write lives,
+and which are deliberately deferred. Update this file in the same PR as any
+change to an audit write.
 
 ## Lane-independent by construction (shared core / shared loaders)
 
@@ -38,7 +39,49 @@ unit suites.
 | Admin invitations create/send/revoke/resend/accept | `invite.*` | admin routes + `lib/admin-invitations.ts`, `lib/users.ts` |
 | Admin user role change ⚙ | `admin_user_role_update` | `app/api/admin/users/[id]/route.ts` |
 | Provider (OAuth) connection ⚙ | `mcp_connection_create` | `lib/oauth/connection.ts` (every callback flows through it) |
-| Admin trace access (read) | `run_trace_viewed` | admin trace route |
+| Admin trace access (all inspector reads) | `run_trace_viewed` | admin trace route |
+
+## Cross-user admin data access
+
+Every read below writes `admin_data_access` through
+`lib/admin-data-access.ts` when the actor is an admin and the target owner is a
+different user. Owner reads and non-admin reads skip the ledger. The receipt
+includes the target user, resource type/id, UI or API surface, record count for
+collections, and an optional `x-admin-access-justification` header.
+
+`admin_data_access` intentionally means "an admin read another user's data,"
+not "the admin role was the only possible authorization path." An admin who
+also holds an active app share is still recorded. This conservative definition
+keeps the admin-activity trail complete without requiring auditors to
+reconstruct historical share state.
+
+Repeated reads by the same actor of the same target/resource/surface are
+deduplicated for five minutes. Collection pages collapse rows per target user.
+Audit lookup or insert failures fail closed before private data is returned.
+
+| Read surface | Resource receipt | Written in |
+| --- | --- | --- |
+| Workspace thread list | `chat_thread_collection` / `thread_list` | `app/api/threads/route.ts` |
+| Thread detail | `chat_thread` / `thread_detail` | `app/api/threads/[id]/route.ts` |
+| Thread messages | `chat_thread` / `thread_messages` | `app/api/threads/[id]/messages/route.ts` |
+| Thread export | `chat_thread` / `thread_export` | `app/api/threads/[id]/export/route.ts` |
+| Admin run list | `run_collection` / `admin_runs` | `app/admin/runs/page.tsx` |
+| Admin run detail | `run` / `admin_run_detail` | `app/admin/runs/[id]/page.tsx` |
+| Admin run inspector | `run` / `run_inspector` | `app/api/admin/runs/[id]/trace/route.ts` |
+| Background-run status poll | `run` / `run_status` | `app/api/runs/[id]/status/route.ts` |
+| Admin feedback list | `feedback_collection` / `admin_feedback` | `app/admin/feedback/page.tsx` |
+| Feedback screenshot | `feedback_report` / `feedback_screenshot` | `app/api/admin/feedback/[id]/screenshot/route.ts` |
+| App detail API | `app` / `app_api` | `app/api/apps/[id]/route.ts` |
+| App data binding | `app` / `app_data` | `app/api/apps/[id]/data/[bindingId]/route.ts` |
+| App version list | `app` / `app_versions` | `app/api/apps/[id]/versions/route.ts` |
+| App version artifact preview | `workspace_artifact` / `app_version_preview` | `app/api/apps/[id]/versions/[versionId]/content/route.ts` |
+| Deployed app artifact | `workspace_artifact` / `deployed_app` | `app/apps/[slug]/route.ts` |
+| App management page | `app` / `manage_app` | `app/apps/manage/[id]/page.tsx` |
+
+Run-inspector reads retain the existing `run_trace_viewed` receipt for every
+view. Cross-user admin views additionally write `admin_data_access`, so
+existing retention/reporting queries remain compatible while the target user
+is now attributable.
 
 ## Deliberately deferred (documented, not yet audited)
 
@@ -62,5 +105,5 @@ discovered by an auditor:
 - Audit rows carry references (ids), never content bodies or token material.
 - `audit_log` rows survive subject/user deletion (actor nulls out) — the
   trail outlives the account.
-- New mutation surfaces must add their row + a test in the same PR, and a
-  line here.
+- New mutation or sensitive-read surfaces must add their row + a test in the
+  same PR, and a line here.
