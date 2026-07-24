@@ -6,6 +6,7 @@ import {
   buildArtifactLookupMessage,
   formatArtifactContext,
   hasConvertToNewArtifactIntent,
+  hasNewArtifactCreationIntent,
   mergeArtifactContextManifests,
   matchArtifact,
   shouldIncludeArtifactManifestForMessage,
@@ -386,7 +387,7 @@ describe("matchArtifact", () => {
     ).toBeNull();
   });
 
-  it("still matches an implicit cross-thread revision when exactly one artifact fits", () => {
+  it("does not silently mount the sole cross-thread artifact for an implicit revision", () => {
     const library = [
       artifact({ title: "Franz Ferdinand", filename: "franz-ferdinand.html", threadId: "t1" }),
       artifact({
@@ -398,9 +399,91 @@ describe("matchArtifact", () => {
       }),
     ];
     expect(
-      matchArtifact("update the html app", library, { threadId: "thread-current" })
-        ?.filename,
+      matchArtifact("update the html app", library, {
+        threadId: "thread-current",
+      }),
+    ).toBeNull();
+  });
+
+  it("matches a cross-thread artifact only when its exact title or filename is named", () => {
+    const library = [
+      artifact({
+        title: "Franz Ferdinand",
+        filename: "franz-ferdinand.html",
+        threadId: "thread-other",
+      }),
+    ];
+
+    expect(
+      matchArtifact("update franz-ferdinand.html", library, {
+        threadId: "thread-current",
+      })?.filename,
     ).toBe("franz-ferdinand.html");
+  });
+
+  it("#643 ignores shared run tokens that are not an explicit artifact reference", () => {
+    const library = [
+      artifact({
+        title: "codex-browser-canary.csv",
+        filename: "codex-browser-canary.csv",
+        kind: "data",
+        mimeType: "text/csv",
+        threadId: "thread-upload",
+      }),
+    ];
+
+    expect(
+      matchArtifact(
+        "Browser eval CBX-20260724-091510. Review my open GitHub pull requests and list repo, number, title, and status.",
+        library,
+        { threadId: "thread-github" },
+      ),
+    ).toBeNull();
+  });
+
+  it("#643 scores artifact tokens from the current turn only", () => {
+    const report = artifact({
+      title: "Quarterly Enterprise Pipeline",
+      filename: "quarterly-enterprise-pipeline.csv",
+      kind: "data",
+      mimeType: "text/csv",
+      threadId: "thread-current",
+    });
+    const lookup = buildArtifactLookupMessage(
+      [
+        {
+          role: "user",
+          content: "Review the quarterly enterprise pipeline artifact.",
+        },
+        {
+          role: "user",
+          content: "Review my open GitHub pull requests.",
+        },
+      ],
+      "Review my open GitHub pull requests.",
+    );
+
+    expect(
+      matchArtifact(lookup, [report], { threadId: "thread-current" }),
+    ).toBeNull();
+  });
+
+  it("#643 treats an explicitly named new artifact as new despite overlapping tokens", () => {
+    const library = [
+      artifact({
+        title: "Codex Browser CBX 20260724 091510",
+        filename: "codex-browser-CBX-20260724-091510-copy.html",
+        threadId: "thread-old",
+      }),
+    ];
+
+    expect(
+      matchArtifact(
+        "Create a single HTML artifact named cbx6-v01-CBX-20260724-103637.html containing a table.",
+        library,
+        { threadId: "thread-new" },
+      ),
+    ).toBeNull();
   });
 
   it("#284 keeps reopened-thread artifacts outside the global recent window", () => {
@@ -570,6 +653,23 @@ describe("formatArtifactContext", () => {
     );
   });
 
+  it("recognizes from-scratch artifact creation without classifying revisions as new", () => {
+    expect(
+      hasNewArtifactCreationIntent(
+        "Create a single HTML artifact named launch-status.html.",
+      ),
+    ).toBe(true);
+    expect(hasNewArtifactCreationIntent("make me a brand new html page")).toBe(
+      true,
+    );
+    expect(hasNewArtifactCreationIntent("update the existing html page")).toBe(
+      false,
+    );
+    expect(hasNewArtifactCreationIntent("create a copy of this html page")).toBe(
+      false,
+    );
+  });
+
   it("frames a conversion of an explicitly named source as a separate new file", () => {
     expect(
       artifactContextModeForMessage({
@@ -684,6 +784,21 @@ describe("buildArtifactLookupMessage", () => {
         { preferFallback: true },
       ),
     ).toBe("Update the Magna Carta Jeopardy artifact.");
+  });
+
+  it("lets a new creation turn override artifact language from prior turns", () => {
+    const lookup = buildArtifactLookupMessage(
+      [
+        { role: "user", content: "update the prior html artifact" },
+        {
+          role: "user",
+          content: "Create a single HTML artifact named clean-room.html.",
+        },
+      ],
+      "fallback prompt",
+    );
+
+    expect(shouldIncludeArtifactManifestForMessage(lookup)).toBe(false);
   });
 });
 

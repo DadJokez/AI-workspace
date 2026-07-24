@@ -185,7 +185,7 @@ describe("conversation resource registry and resolver (#576)", () => {
     }
   });
 
-  it("keeps selected resources mounted through turns with no detected file intent", () => {
+  it("does not mount selected resources on a turn with no file intent", () => {
     const first = resource("north.csv", "resource-north", "spreadsheet");
     const second = resource("south.csv", "resource-south", "spreadsheet");
     const previous = resolveConversationResources({
@@ -200,24 +200,50 @@ describe("conversation resource registry and resolver (#576)", () => {
     });
 
     expect(quietTurn).toMatchObject({
-      status: "selected",
+      status: "none",
       intent: false,
       requiresCompleteFileTool: false,
-      selected: [
-        { resourceId: "resource-north", reason: "previous_run_receipt" },
-        { resourceId: "resource-south", reason: "previous_run_receipt" },
-      ],
+      selected: [],
     });
 
-    const ambiguousFollowUp = resolveConversationResources({
-      message: "What do you make of that?",
+    const resourceFollowUp = resolveConversationResources({
+      message: "Compare those files again",
       resources: [first, second],
-      previousResolution: quietTurn,
+      previousResolution: previous,
     });
-    expect(ambiguousFollowUp.selected.map((item) => item.resourceId)).toEqual([
+    expect(resourceFollowUp.selected.map((item) => item.resourceId)).toEqual([
       "resource-north",
       "resource-south",
     ]);
+  });
+
+  it("keeps a prior selection for natural scoped follow-up questions", () => {
+    const report = resource(
+      "pipeline-report.csv",
+      "resource-pipeline",
+      "spreadsheet",
+    );
+    const previous = resolveConversationResources({
+      message: "Analyze pipeline-report.csv by segment",
+      resources: [report],
+    });
+
+    for (const message of [
+      "What about the enterprise segment?",
+      "And by month?",
+    ]) {
+      const result = resolveConversationResources({
+        message,
+        resources: [report],
+        previousResolution: previous,
+      });
+      expect(result.selected, message).toEqual([
+        expect.objectContaining({
+          resourceId: "resource-pipeline",
+          reason: "previous_run_receipt",
+        }),
+      ]);
+    }
   });
 
   it("reports a pinned selection as unavailable when any resource was deleted", () => {
@@ -283,7 +309,7 @@ describe("conversation resource registry and resolver (#576)", () => {
     expect(result.selected[0]?.reason).toBe("plural_thread_reference");
   });
 
-  it("keeps a resource mounted but does not force it on an unrelated casual turn", () => {
+  it("#643 leaves an unrelated casual turn resource-free", () => {
     const result = resolveConversationResources({
       message: "Hey, how are you?",
       resources: [resource("report.csv", "resource-report", "spreadsheet")],
@@ -293,14 +319,9 @@ describe("conversation resource registry and resolver (#576)", () => {
     });
 
     expect(result).toMatchObject({
-      status: "selected",
+      status: "none",
       intent: false,
-      selected: [
-        {
-          resourceId: "resource-report",
-          reason: "previous_run_receipt",
-        },
-      ],
+      selected: [],
       requiresCompleteFileTool: false,
     });
   });

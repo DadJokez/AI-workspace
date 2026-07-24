@@ -14,6 +14,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_RUNTIME_IMAGE_BYTES,
   attachmentKindForName,
+  dedupeChatAttachments,
   isSupportedAttachmentName,
   mimeTypeForAttachmentName,
   unsupportedAttachmentMessage,
@@ -88,6 +89,8 @@ interface Props {
   skills?: SlashSkill[];
   /** Stable, user-scoped conversation key used for local draft recovery. */
   draftKey?: string;
+  /** Explicitly starting a new chat clears the shared unsent-chat draft. */
+  restoreDraft?: boolean;
   editRequest?: ChatEditRequest;
   onEditComplete?: () => void;
 }
@@ -104,6 +107,7 @@ export function ChatInput({
   placeholder = "Ask anything — or type / for capabilities…",
   skills = [],
   draftKey,
+  restoreDraft = true,
   editRequest,
   onEditComplete,
 }: Props) {
@@ -167,13 +171,19 @@ export function ChatInput({
     }
     if (!draftStorageKey) return;
     try {
+      if (!restoreDraft) {
+        window.localStorage.removeItem(draftStorageKey);
+        latestDraftRef.current = { storageKey: draftStorageKey, text: "" };
+        setText("");
+        return;
+      }
       const restored = window.localStorage.getItem(draftStorageKey) ?? "";
       latestDraftRef.current = { storageKey: draftStorageKey, text: restored };
       setText(restored);
     } catch {
       // Storage may be unavailable in private or locked-down browsers.
     }
-  }, [draftStorageKey]);
+  }, [draftStorageKey, restoreDraft]);
 
   useEffect(() => {
     if (
@@ -307,13 +317,15 @@ export function ChatInput({
       }
     }
     if (next.length > 0) {
-      setAttachments((prev) => [...prev, ...next]);
+      setAttachments((prev) =>
+        dedupeChatAttachments([...prev, ...next]).slice(0, MAX_ATTACHMENTS),
+      );
       setNotice(null);
     }
   }
 
-  function removeAttachment(name: string) {
-    setAttachments((prev) => prev.filter((a) => a.name !== name));
+  function removeAttachment(index: number) {
+    setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   }
 
   function clearPersistedDraft() {
@@ -573,9 +585,9 @@ export function ChatInput({
 
       {attachments.length > 0 ? (
         <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
-          {attachments.map((a) => (
+          {attachments.map((a, index) => (
             <span
-              key={a.name}
+              key={`${a.name}:${a.sizeBytes ?? "unknown"}:${index}`}
               className="flex items-center gap-1.5 rounded-md border border-hairline bg-subtle px-2 py-1 text-xs text-ink"
             >
               <PaperclipIcon />
@@ -586,7 +598,7 @@ export function ChatInput({
               <button
                 type="button"
                 aria-label={`Remove ${a.name}`}
-                onClick={() => removeAttachment(a.name)}
+                onClick={() => removeAttachment(index)}
                 className="text-muted hover:text-ink"
               >
                 ×

@@ -107,6 +107,85 @@ test.describe("chat files and artifacts", () => {
     );
   });
 
+  test("#650 keeps uploads stable, clears them on New chat, and ignores exact duplicates", async ({
+    page,
+  }, testInfo) => {
+    let capturedBody: Record<string, unknown> | undefined;
+    await installMockComparativeApi(page, {
+      artifacts: [],
+      onChat: async (body, route) => {
+        capturedBody = body;
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-deduped-upload",
+            modelId: "sonnet-4-6",
+          },
+          { type: "text-delta", delta: "CSV received once." },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-deduped-upload",
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done", stopReason: "completed" },
+        ]);
+      },
+    });
+    await page.goto("/e2e/chat");
+
+    const file = {
+      name: "codex-browser-canary.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from("customer,revenue\nAcme,42"),
+    };
+    const fileInput = page.getByTestId("chat-file-input");
+    const composer = page.getByPlaceholder(/ask anything/i);
+    await expect(fileInput).toBeEnabled({ timeout: 15_000 });
+    await composer.fill("Analyze this CSV later.");
+    await fileInput.setInputFiles(file);
+    await expect(
+      page.getByRole("button", {
+        name: "Remove codex-browser-canary.csv",
+      }),
+    ).toBeVisible();
+
+    const sidebar = page.locator('aside[aria-label="Primary"]');
+    if (testInfo.project.name.includes("mobile")) {
+      await page.getByRole("button", { name: "Open menu" }).first().click();
+      await expect(sidebar).toBeInViewport();
+    }
+    await sidebar.getByRole("button", { name: "New chat" }).click();
+    await expect(
+      page.getByRole("button", {
+        name: "Remove codex-browser-canary.csv",
+      }),
+    ).toHaveCount(0);
+    await expect(composer).toHaveValue("");
+
+    await fileInput.setInputFiles(file);
+    await fileInput.setInputFiles(file);
+    await expect(
+      page.getByRole("button", {
+        name: "Remove codex-browser-canary.csv",
+      }),
+    ).toHaveCount(1);
+    await page.waitForTimeout(300);
+    await expect(
+      page.getByRole("button", {
+        name: "Remove codex-browser-canary.csv",
+      }),
+    ).toHaveCount(1);
+
+    await composer.fill("Read the CSV.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("CSV received once.")).toBeVisible();
+    expect(capturedBody?.attachmentCount).toBe(1);
+    expect(capturedBody?.attachments).toEqual([
+      expect.objectContaining({ name: "codex-browser-canary.csv" }),
+    ]);
+  });
+
   test("rejects images above the Bedrock native-image limit before send", async ({
     page,
   }) => {

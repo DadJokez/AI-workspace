@@ -7,6 +7,7 @@ import {
   MAX_TOTAL_ATTACHMENT_BYTES,
   MAX_TOTAL_ATTACHMENT_CHARS,
   declaredAttachmentCountFromMessage,
+  dedupeChatAttachments,
   foldAttachmentsIntoPrompt,
   isSupportedAttachmentName,
   scanAttachmentsForSecrets,
@@ -49,6 +50,20 @@ describe("attachments", () => {
       ]);
       expect(r.ok).toBe(true);
       expect(r.attachments.map((a) => a.name)).toEqual(["a.txt"]);
+    });
+
+    it("#650 collapses exact duplicate payloads without losing receipt count", async () => {
+      const duplicate = {
+        name: "codex-browser-canary.csv",
+        mimeType: "text/csv",
+        dataBase64: Buffer.from("customer,revenue\nAcme,42").toString("base64"),
+        sizeBytes: 24,
+      };
+      const r = await validateAttachments([duplicate, duplicate]);
+
+      expect(r.ok).toBe(true);
+      expect(r.attachments).toHaveLength(1);
+      expect(r.receivedAttachmentCount).toBe(2);
     });
 
     it("rejects too many files", async () => {
@@ -229,6 +244,25 @@ describe("attachments", () => {
     it("rejects a malformed shape", async () => {
       expect((await validateAttachments([{ name: "a.txt" }])).ok).toBe(false);
       expect((await validateAttachments("nope")).ok).toBe(false);
+    });
+  });
+
+  describe("dedupeChatAttachments", () => {
+    it("drops only byte-identical client selections", () => {
+      const original = {
+        name: "report.csv",
+        mimeType: "text/csv",
+        sizeBytes: 5,
+        dataBase64: "YWxwaGE=",
+      };
+
+      expect(dedupeChatAttachments([original, original])).toEqual([original]);
+      expect(
+        dedupeChatAttachments([
+          original,
+          { ...original, dataBase64: "YnJhdm8=" },
+        ]),
+      ).toHaveLength(2);
     });
   });
 

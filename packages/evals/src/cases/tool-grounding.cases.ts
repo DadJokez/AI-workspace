@@ -248,7 +248,7 @@ export const toolGroundingSuite: EvalSuite = {
           kind: "deterministic",
           label: "states that no matching issue was found",
           check: (t) =>
-            /(no (matching )?(issues?|results?|matches)|didn'?t find|did not find|zero)/i.test(
+            /(no(?:\s+(?:matching|open|closed|relevant|such))*\s+(?:issues?|results?|matches)|didn'?t find|did not find|zero)/i.test(
               t.answer,
             ),
         },

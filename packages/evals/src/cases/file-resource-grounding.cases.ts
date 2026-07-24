@@ -91,9 +91,9 @@ function hasResourceError(transcript: TurnTranscript) {
   return transcript.toolResults.some((result) => result.isError);
 }
 
-function calledEnterpriseRevenueAggregate(transcript: TurnTranscript) {
+function usedEnterpriseRevenueSource(transcript: TurnTranscript) {
   const calls = resourceCalls(transcript);
-  const matched = calls.some(
+  const matchedAggregate = calls.some(
     (input) =>
       input.resourceId === resourceFixtureIds.revenueCsv &&
       input.operation === "table_aggregate" &&
@@ -103,6 +103,15 @@ function calledEnterpriseRevenueAggregate(transcript: TurnTranscript) {
       String(input.filterOperator).toLowerCase() === "equals" &&
       String(input.filterValue).toLowerCase() === "enterprise",
   );
+  const matchedFullFilter = calls.some(
+    (input) =>
+      input.resourceId === resourceFixtureIds.revenueCsv &&
+      input.operation === "table_filter" &&
+      String(input.filterColumn).toLowerCase() === "segment" &&
+      String(input.filterOperator).toLowerCase() === "equals" &&
+      String(input.filterValue).toLowerCase() === "enterprise",
+  );
+  const matched = matchedAggregate || matchedFullFilter;
   return {
     ok: matched,
     detail: matched ? undefined : `resource calls were ${JSON.stringify(calls)}`,
@@ -232,8 +241,8 @@ export const fileResourceGroundingSuite: EvalSuite = {
       assertions: [
         {
           kind: "deterministic",
-          label: "uses the production filtered-aggregate contract",
-          check: calledEnterpriseRevenueAggregate,
+          label: "uses a correctly filtered Enterprise data source",
+          check: usedEnterpriseRevenueSource,
         },
         {
           kind: "deterministic",

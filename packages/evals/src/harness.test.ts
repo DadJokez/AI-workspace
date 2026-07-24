@@ -117,6 +117,26 @@ class PassingJudgeClient implements BedrockClient {
   }
 }
 
+class TokenBudgetClient implements BedrockClient {
+  maxTokens: number[] = [];
+
+  async *converseStream(
+    params: ConverseStreamParams,
+  ): AsyncIterable<BedrockStreamEvent> {
+    this.maxTokens.push(params.maxTokens);
+    yield { type: "text-delta", text: "ok" };
+    yield {
+      type: "usage",
+      tokensIn: 1,
+      tokensOut: 1,
+      inputTokens: 1,
+      cacheReadInputTokens: 0,
+      cacheWriteInputTokens: 0,
+    };
+    yield { type: "stop", reason: "end_turn" };
+  }
+}
+
 const fixtureTool: Tool = {
   name: "fixture__list_records",
   description: "Return stable eval records.",
@@ -163,6 +183,17 @@ describe("eval harness wiring", () => {
     expect(first.cacheReadInputTokens).toBe(0);
     expect(first.cacheWriteInputTokens).toBe(0);
     expect(first.tokensOut).toBeGreaterThan(0);
+  });
+
+  it("caps model output tokens for quota-efficient eval runs", async () => {
+    const client = new TokenBudgetClient();
+    await runSuite(wiringSuite, {
+      client,
+      judgeClient: client,
+      structuralOnly: true,
+    });
+
+    expect(client.maxTokens).toEqual([4_096, 4_096]);
   });
 
   it("can run a structural-only mock pass without behavior assertions", async () => {

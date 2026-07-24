@@ -438,11 +438,12 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
         >
           <div className="mx-auto max-w-3xl">
             <ChatInput
-              key={composerDraftKey ?? "composer-loading"}
+              key={activeTab.id}
               onSubmit={send}
               disabled={inputDisabled}
               skills={slashSkills}
               draftKey={composerDraftKey}
+              restoreDraft={activeTab.restoreDraft !== false}
               editRequest={editRequest}
               onEditComplete={() => setEditRequest(undefined)}
               placeholder={

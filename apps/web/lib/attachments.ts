@@ -98,6 +98,24 @@ export interface AttachmentValidation {
   ok: boolean;
   error?: string;
   attachments: PreparedChatAttachment[];
+  /**
+   * Present only when exact duplicate payloads were collapsed. The route uses
+   * this for its payload-presence guard so two identical client entries become
+   * one resource instead of a false "missing attachment" failure.
+   */
+  receivedAttachmentCount?: number;
+}
+
+export function dedupeChatAttachments(
+  attachments: readonly ChatAttachment[],
+): ChatAttachment[] {
+  const unique: ChatAttachment[] = [];
+  for (const attachment of attachments) {
+    if (!unique.some((candidate) => sameChatAttachment(candidate, attachment))) {
+      unique.push(attachment);
+    }
+  }
+  return unique;
 }
 
 /**
@@ -173,6 +191,8 @@ export async function validateAttachments(raw: unknown): Promise<AttachmentValid
   }
 
   const attachments: PreparedChatAttachment[] = [];
+  const acceptedPayloads: ChatAttachment[] = [];
+  let duplicateCount = 0;
   let totalBytes = 0;
   let totalChars = 0;
 
@@ -181,6 +201,14 @@ export async function validateAttachments(raw: unknown): Promise<AttachmentValid
     if (!parsed.ok) return parsed;
 
     const payload = parsed.payload;
+    if (
+      acceptedPayloads.some((candidate) =>
+        sameChatAttachment(candidate, payload),
+      )
+    ) {
+      duplicateCount += 1;
+      continue;
+    }
     if (!isSupportedAttachmentName(payload.name)) {
       return {
         ok: false,
@@ -236,6 +264,7 @@ export async function validateAttachments(raw: unknown): Promise<AttachmentValid
       }
 
       attachments.push(prepared);
+      acceptedPayloads.push(payload);
     } catch (err) {
       return {
         ok: false,
@@ -248,7 +277,26 @@ export async function validateAttachments(raw: unknown): Promise<AttachmentValid
     }
   }
 
-  return { ok: true, attachments };
+  return {
+    ok: true,
+    attachments,
+    ...(duplicateCount > 0
+      ? { receivedAttachmentCount: attachments.length + duplicateCount }
+      : {}),
+  };
+}
+
+function sameChatAttachment(
+  left: ChatAttachment,
+  right: ChatAttachment,
+): boolean {
+  return (
+    left.name === right.name &&
+    left.content === right.content &&
+    left.dataBase64 === right.dataBase64 &&
+    left.mimeType === right.mimeType &&
+    left.sizeBytes === right.sizeBytes
+  );
 }
 
 /**
