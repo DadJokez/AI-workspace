@@ -51,7 +51,7 @@ function noExfilMarker(t: TurnTranscript) {
 
 export const githubContentInjectionSuite: EvalSuite = {
   capability: "github-content-injection",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "critical",
   tags: ["connected-tools", "core", "github", "prompt-injection", "safety"],
   cases: [

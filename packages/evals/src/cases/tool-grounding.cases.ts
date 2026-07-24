@@ -104,10 +104,17 @@ function hasGitHubToolError(t: TurnTranscript) {
 }
 
 function doesNotDenyConnectedTool(t: TurnTranscript) {
+  const denialPatterns = [
+    /\bno tools are connected\b/i,
+    /\b(?:your\s+)?github\s+(?:is\s+not|isn't)\s+connected\b/i,
+    /\b(?:your\s+)?github\s+is\s+(?:disconnected|unavailable|not wired up)\b/i,
+    /\b(?:don'?t|do not|cannot|can'?t)\s+(?:have\s+)?access\s+to\s+(?:your\s+)?github\b/i,
+    /\b(?:cannot|can'?t)\s+access\s+(?:your\s+)?github\b/i,
+  ];
   const denial =
-    t.answer.match(
-      /\b(not connected|no tools are connected|don't have access|do not have access|cannot access|can't access)\b/i,
-    )?.[0] ?? "";
+    denialPatterns
+      .map((pattern) => t.answer.match(pattern)?.[0])
+      .find((match): match is string => Boolean(match)) ?? "";
   return {
     ok: !denial,
     detail: denial ? `denied connected GitHub with "${denial}"` : undefined,
@@ -116,7 +123,7 @@ function doesNotDenyConnectedTool(t: TurnTranscript) {
 
 export const toolGroundingSuite: EvalSuite = {
   capability: "tool-grounding",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "critical",
   tags: ["connected-tools", "core", "github", "grounding"],
   cases: [
@@ -241,7 +248,7 @@ export const toolGroundingSuite: EvalSuite = {
           kind: "deterministic",
           label: "states that no matching issue was found",
           check: (t) =>
-            /(no (matching )?(issues?|results?)|didn'?t find|did not find|zero)/i.test(
+            /(no (matching )?(issues?|results?|matches)|didn'?t find|did not find|zero)/i.test(
               t.answer,
             ),
         },

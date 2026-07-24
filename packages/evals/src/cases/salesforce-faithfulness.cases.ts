@@ -121,7 +121,7 @@ function noAccessDenial(t: TurnTranscript) {
 
 export const salesforceFaithfulnessSuite: EvalSuite = {
   capability: "salesforce-faithfulness",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "high",
   tags: ["connected-tools", "grounding", "salesforce"],
   cases: [

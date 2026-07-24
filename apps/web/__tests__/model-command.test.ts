@@ -16,7 +16,7 @@ describe("model slash command", () => {
 
   it("parses one-turn concrete model overrides", () => {
     expect(parseModelCommand("/model sonnet draft this")).toEqual({
-      override: { mode: "model", modelId: "sonnet-4-6", label: "sonnet" },
+      override: { mode: "model", modelId: "sonnet-4-5", label: "sonnet" },
       body: "draft this",
     });
     expect(parseModelCommand("/model haiku quick ping")).toEqual({
@@ -45,7 +45,7 @@ describe("model slash command", () => {
   it("formats visible model command messages for chat history", () => {
     expect(
       buildModelCommandDisplayMessage(
-        { mode: "model", modelId: "sonnet-4-6", label: "sonnet" },
+        { mode: "model", modelId: "sonnet-4-5", label: "sonnet" },
         "draft this",
       ),
     ).toBe("/model sonnet draft this");

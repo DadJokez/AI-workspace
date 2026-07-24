@@ -19,6 +19,7 @@ export {
   MODEL_IDS,
   MODEL_PURPOSES,
   MODELS,
+  PLATFORM_MODEL_OVERRIDE_ID,
   estimateCostUsd,
   getModel,
   isValidModelId,

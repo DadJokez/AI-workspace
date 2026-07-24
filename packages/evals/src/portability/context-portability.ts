@@ -10,7 +10,7 @@
  * - the runtime injecting the ACTUAL current model identity at turn time
  *   (identity honesty — checked by building the preamble with a neutral
  *   test model id, where no vendor branding may survive);
- * - registry model ids (`sonnet-4-6`, `haiku-4-5`) as config vocabulary,
+ * - registry model ids (`sonnet-4-5`, `haiku-4-5`) as config vocabulary,
  *   e.g. a skill's `model:` field or the Skill Creator's guidance — those
  *   are product registry keys, not vendor claims.
  *

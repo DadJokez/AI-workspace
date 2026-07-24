@@ -20,7 +20,7 @@ import type { ModelOption } from "@/components/ModelSelector";
 import type { ThreadSummary } from "@/components/Sidebar";
 import type { ActivatedSlashSkill } from "@/lib/skill-commands";
 
-export const FALLBACK_DEFAULT_MODEL_ID = "sonnet-4-6";
+export const FALLBACK_DEFAULT_MODEL_ID = "sonnet-4-5";
 export const DEFAULT_MODEL_PREFIX = "ai-workspace-default-model:";
 export const THREADS_LIMIT = 50;
 export const RUN_POLL_INTERVAL_MS = 500;

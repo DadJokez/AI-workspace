@@ -2,6 +2,7 @@ import {
   DEFAULT_MODEL_ID,
   MODEL_IDS,
   MODELS,
+  PLATFORM_MODEL_OVERRIDE_ID,
   isValidModelId,
   type ModelId,
   type ModelPurpose,
@@ -15,7 +16,9 @@ import { eq } from "drizzle-orm";
  * purpose Y?" from the `model_enablement` table.
  *
  * Absence of a row = disabled: a newly registered model is disabled
- * everywhere until qualified (#301) and explicitly enabled (#302).
+ * everywhere until qualified (#301) and explicitly enabled (#302). The
+ * temporary platform model override is the one exception: while active it
+ * supersedes persisted enablement without rewriting those records.
  *
  * Fail-open on infrastructure errors: if the table is unreachable (fresh dev
  * db, mocked test db, transient outage) every registry model counts as
@@ -73,13 +76,16 @@ async function loadEnablement(
 }
 
 /**
- * Registry model ids enabled for a purpose, in registry order. Fail-open:
- * all registry models when the table is unreachable.
+ * Registry model ids enabled for a purpose, in registry order. The temporary
+ * platform override wins for every purpose. Otherwise, fail open to all
+ * registry models when the table is unreachable.
  */
 export async function enabledModelsForPurpose(
   db: Database,
   purpose: ModelPurpose,
 ): Promise<ModelId[]> {
+  if (PLATFORM_MODEL_OVERRIDE_ID) return [PLATFORM_MODEL_OVERRIDE_ID];
+
   const byPurpose = await loadEnablement(db);
   if (byPurpose === null) return [...MODEL_IDS];
   const enabled = byPurpose.get(purpose) ?? new Set<string>();

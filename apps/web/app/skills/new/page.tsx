@@ -1,4 +1,7 @@
-import { MODEL_IDS } from "@ai-workspace/agent";
+import {
+  MODEL_IDS,
+  PLATFORM_MODEL_OVERRIDE_ID,
+} from "@ai-workspace/agent";
 import Link from "next/link";
 import { ImportSkillPanel } from "@/components/skills/ImportSkillPanel";
 import { SkillForm } from "@/components/skills/SkillForm";
@@ -22,7 +25,11 @@ export default function NewSkillPage() {
       </div>
       <SkillForm
         mode="create"
-        modelOptions={[...MODEL_IDS]}
+        modelOptions={
+          PLATFORM_MODEL_OVERRIDE_ID
+            ? [PLATFORM_MODEL_OVERRIDE_ID]
+            : [...MODEL_IDS]
+        }
         providerOptions={[
           ...SUPPORTED_MCP_PROVIDERS,
           SKILL_WEB_ACCESS_DECLARATION,

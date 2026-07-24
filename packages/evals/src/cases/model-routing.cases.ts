@@ -21,7 +21,7 @@ const MOUNTED_PROVIDER_STATUS = {
 
 const FULL_TOOL_CONTEXT = [
   "routing mode: model-decided",
-  "model: sonnet-4-6",
+  "model: sonnet-4-5",
   "stable authorized tool catalog mounted",
 ];
 
@@ -187,7 +187,7 @@ const cases: EvalCase[] = [
     severity: "critical",
     tags: ["authorization", "provider-state"],
     input: "What's on my calendar today?",
-    modelId: "sonnet-4-6",
+    modelId: "sonnet-4-5",
     systemPrompt: [
       "You are Comparative. Google Calendar is not connected for this user, and no external tools are mounted.",
       "Do not invent calendar events or claim a lookup occurred. Explain the connection requirement briefly.",
@@ -209,7 +209,7 @@ const cases: EvalCase[] = [
 
 export const modelRoutingSuite: EvalSuite = {
   capability: "model-routing",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "high",
   tags: ["connected-tools", "model-routing", "tool-selection"],
   cases,
@@ -220,7 +220,7 @@ function modelDecidedCase(
 ): EvalCase {
   return {
     ...input,
-    modelId: "sonnet-4-6",
+    modelId: "sonnet-4-5",
     systemPrompt: ROUTING_SYSTEM_PROMPT,
     tools: MODEL_ROUTING_FIXTURE_TOOLS,
     providerStatus: MOUNTED_PROVIDER_STATUS,

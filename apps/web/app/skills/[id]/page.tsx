@@ -1,4 +1,7 @@
-import { MODEL_IDS } from "@ai-workspace/agent";
+import {
+  MODEL_IDS,
+  PLATFORM_MODEL_OVERRIDE_ID,
+} from "@ai-workspace/agent";
 import { eventTriggers, getDb, runs, schedules, skills } from "@ai-workspace/db";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import Link from "next/link";
@@ -32,6 +35,7 @@ export default async function SkillDetailPage({
   }
 
   const isOwner = skill.ownerUserId === sessionUser.id;
+  const effectiveModelId = PLATFORM_MODEL_OVERRIDE_ID ?? skill.modelId;
   const skillShares = isOwner
     ? await listSharesForSubject(db, "skill", skill.id)
     : [];
@@ -84,7 +88,7 @@ export default async function SkillDetailPage({
               {skill.description ?? "No description."}
             </p>
             <p className="mt-1 text-2xs text-muted">
-              {skill.modelId}
+              {effectiveModelId}
               {skill.mcpProviders.length > 0
                 ? ` · tools: ${skill.mcpProviders.join(", ")}`
                 : " · no tools"}
@@ -115,7 +119,11 @@ export default async function SkillDetailPage({
           <SkillForm
             mode="edit"
             skillId={skill.id}
-            modelOptions={[...MODEL_IDS]}
+            modelOptions={
+              PLATFORM_MODEL_OVERRIDE_ID
+                ? [PLATFORM_MODEL_OVERRIDE_ID]
+                : [...MODEL_IDS]
+            }
             providerOptions={[
               ...SUPPORTED_MCP_PROVIDERS,
               SKILL_WEB_ACCESS_DECLARATION,
@@ -124,7 +132,7 @@ export default async function SkillDetailPage({
               name: skill.name,
               description: skill.description ?? "",
               systemPrompt: skill.systemPrompt,
-              modelId: skill.modelId,
+              modelId: effectiveModelId,
               mcpProviders: skill.mcpProviders,
             }}
           />

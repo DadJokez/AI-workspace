@@ -110,7 +110,7 @@ export interface AssertionResult {
 
 /**
  * Two kinds, per FR-002: deterministic predicates run in-process (free,
- * exact); `judge` assertions defer to a Haiku rubric for qualitative calls.
+ * exact); `judge` assertions defer to the configured judge model for qualitative calls.
  * Both share this shape so a case lists them uniformly.
  */
 export type Assertion =

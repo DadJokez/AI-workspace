@@ -23,6 +23,7 @@ import { foundationalChatSuite } from "./cases/foundational-chat.cases";
 import { fileResourceGroundingSuite } from "./cases/file-resource-grounding.cases";
 import { artifactOutputHonestySuite } from "./cases/artifact-output-honesty.cases";
 import { estimateUsageCostUsd } from "./benchmarks/model-routing";
+import { JUDGE_MODEL_ID } from "./judge";
 
 export const SUITES: EvalSuite[] = [
   foundationalChatSuite,
@@ -174,7 +175,7 @@ async function main() {
       result.results.reduce(
         (caseTotal, testCase) =>
           caseTotal +
-          estimateUsageCostUsd("haiku-4-5", testCase.judgeUsage),
+          estimateUsageCostUsd(JUDGE_MODEL_ID, testCase.judgeUsage),
         0,
       ),
     0,
@@ -272,7 +273,7 @@ function writeReport(
       );
       if (c.judgeUsage.tokensIn > 0 || c.judgeUsage.tokensOut > 0) {
         md.push(
-          `  - Judge/usage: haiku-4-5; input=${c.judgeUsage.inputTokens}; cache-read=${c.judgeUsage.cacheReadInputTokens}; cache-write=${c.judgeUsage.cacheWriteInputTokens}; output=${c.judgeUsage.tokensOut}; cost=~$${estimateUsageCostUsd("haiku-4-5", c.judgeUsage).toFixed(6)}`,
+          `  - Judge/usage: ${JUDGE_MODEL_ID}; input=${c.judgeUsage.inputTokens}; cache-read=${c.judgeUsage.cacheReadInputTokens}; cache-write=${c.judgeUsage.cacheWriteInputTokens}; output=${c.judgeUsage.tokensOut}; cost=~$${estimateUsageCostUsd(JUDGE_MODEL_ID, c.judgeUsage).toFixed(6)}`,
         );
       }
       if (c.providerStatus && Object.keys(c.providerStatus).length > 0) {

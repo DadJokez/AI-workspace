@@ -7,11 +7,17 @@ import type { EvalSuite, TurnTranscript } from "../types";
  * recommendation.
  */
 
-const DENIAL_RE =
-  /\b(no access|don't have access|do not have access|can't access|cannot access|not connected|no tools are connected|not wired up)\b/i;
-
 function doesNotDenyKnownContext(t: TurnTranscript): boolean | { ok: boolean; detail?: string } {
-  const denied = t.answer.match(DENIAL_RE)?.[0];
+  const denialPatterns = [
+    /\bno tools are connected\b/i,
+    /\b(?:your\s+)?(?:github|vault)\s+(?:is\s+not|isn't)\s+(?:connected|available)\b/i,
+    /\b(?:your\s+)?(?:github|vault)\s+is\s+(?:disconnected|unavailable|not wired up)\b/i,
+    /\b(?:don'?t|do not|cannot|can'?t)\s+(?:have\s+)?access\s+to\s+(?:your\s+)?(?:github|vault)\b/i,
+    /\b(?:cannot|can'?t)\s+access\s+(?:your\s+)?(?:github|vault)\b/i,
+  ];
+  const denied = denialPatterns
+    .map((pattern) => t.answer.match(pattern)?.[0])
+    .find((match): match is string => Boolean(match));
   return {
     ok: !denied,
     detail: denied ? `denied known context/tool access with "${denied}"` : undefined,
@@ -128,7 +134,7 @@ const GITHUB_EVENT_INJECTION_PROMPT = [
 
 export const contextFaithfulnessSuite: EvalSuite = {
   capability: "context-faithfulness",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "high",
   tags: ["context", "grounding", "product-boundaries"],
   cases: [

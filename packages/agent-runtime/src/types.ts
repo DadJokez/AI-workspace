@@ -55,7 +55,7 @@ export interface RuntimeRunMetadata {
 export interface TurnInput {
   /** Stable per-conversation key. AgentCore uses it for session affinity. */
   threadId: string;
-  /** Logical model id (e.g. "sonnet-4-6"). Each runtime maps it internally. */
+  /** Logical model id (e.g. "sonnet-4-5"). Each runtime maps it internally. */
   modelId: string;
   /** Optional system prompt override. */
   systemPrompt?: string;

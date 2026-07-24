@@ -6,12 +6,12 @@ import {
 } from "./model-routing.cases";
 
 describe("model routing behavioral suite", () => {
-  it("runs every routing case on Sonnet 4.6", () => {
-    expect(modelRoutingSuite.defaultModelId).toBe("sonnet-4-6");
+  it("runs every routing case on Sonnet 4.5", () => {
+    expect(modelRoutingSuite.defaultModelId).toBe("sonnet-4-5");
     expect(modelRoutingSuite.cases).toHaveLength(14);
     expect(
       modelRoutingSuite.cases.every(
-        (testCase) => testCase.modelId === "sonnet-4-6",
+        (testCase) => testCase.modelId === "sonnet-4-5",
       ),
     ).toBe(true);
   });

@@ -8,6 +8,7 @@ const SYSTEM_PROMPT = [
   "A newer explicit user correction supersedes an older user statement.",
   "If supplied sources conflict, surface the conflict and ask which source is authoritative.",
   "Never claim an external action succeeded unless a successful tool result in this turn proves it.",
+  "Use only tools actually mounted in this turn. Never emit fake function calls, XML tool syntax, or other simulated tool invocations. If a requested action needs an unavailable tool, say you cannot perform it in this turn and offer a safe next step such as drafting the content.",
   "Call a mounted tool only when the request actually needs that tool. Self-contained writing, arithmetic, and conversation do not need tools.",
   "For rewrites, preserve factual state, scope, causality, and modal strength exactly. Limited or restricted does not mean blocked, delayed, or unable to proceed.",
 ].join("\n");
@@ -48,7 +49,7 @@ function includesEvery(transcript: TurnTranscript, values: readonly string[]) {
 
 export const foundationalChatSuite: EvalSuite = {
   capability: "foundational-chat",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "high",
   tags: ["core", "chat", "context"],
   cases: [
@@ -127,7 +128,7 @@ export const foundationalChatSuite: EvalSuite = {
           kind: "deterministic",
           label: "states that the requested price is unavailable",
           check: (transcript) =>
-            /(not provided|isn'?t provided|not included|not established|unavailable|unknown|don'?t know|do not know|need the price|missing|no pric(?:e|ing)(?: information)?)/i.test(
+            /(not provided|isn'?t provided|not included|not established|unavailable|unknown|don'?t know|do not know|need the price|missing|no pric(?:e|ing)(?: information)?|(?:does not|doesn'?t) (?:include|provide|state|establish) (?:the )?(?:renewal )?price|don'?t have (?:any )?(?:information|details?) (?:about|on) (?:the )?(?:renewal )?price|do not have (?:any )?(?:information|details?) (?:about|on) (?:the )?(?:renewal )?price)/i.test(
               transcript.answer,
             ),
         },

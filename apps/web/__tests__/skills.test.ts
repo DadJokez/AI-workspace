@@ -34,6 +34,7 @@ interface DbHooks {
   /** When set, each select terminal (limit/orderBy) consumes the next entry. */
   selectQueue?: Array<Array<Record<string, unknown>>>;
   onInsertValues?: (values: Record<string, unknown>) => void;
+  onUpdateSet?: (values: Record<string, unknown>) => void;
 }
 
 let dbHooks: DbHooks = {};
@@ -49,12 +50,13 @@ function installDbMock() {
   // registry keeps all three tiers enabled like the seeded production state.
   vi.doMock("@/lib/model-registry", () => ({
     enabledModelsForPurpose: async () => [
+      "sonnet-4-5",
       "haiku-4-5",
       "sonnet-4-6",
       "opus-4-7",
     ],
     isModelEnabled: async (_db: unknown, id: string) =>
-      ["haiku-4-5", "sonnet-4-6", "opus-4-7"].includes(id),
+      ["sonnet-4-5", "haiku-4-5", "sonnet-4-6", "opus-4-7"].includes(id),
     resolveModelForPurpose: async () => "sonnet-4-6",
   }));
 
@@ -72,6 +74,12 @@ function installDbMock() {
           if (prop === "values") {
             return (v: Record<string, unknown>) => {
               dbHooks.onInsertValues?.(v);
+              return proxy;
+            };
+          }
+          if (prop === "set") {
+            return (v: Record<string, unknown>) => {
+              dbHooks.onUpdateSet?.(v);
               return proxy;
             };
           }
@@ -101,6 +109,7 @@ function installDbMock() {
 afterEach(() => {
   dbHooks = {};
   vi.doUnmock("@/lib/oauth/mcp-servers");
+  vi.doUnmock("@/lib/skills-naming-gate");
   vi.resetModules();
   vi.unstubAllGlobals();
 });
@@ -413,5 +422,61 @@ describe("POST /api/skills/[id]/clone", () => {
     expect(cloneInsert).toBeDefined();
     expect(cloneInsert!.ownerUserId).toBe(stranger.id);
     expect(cloneInsert!.isStarter).toBe(false);
+  });
+});
+
+describe("PATCH /api/skills/[id]", () => {
+  it("preserves the stored model while the platform override is active", async () => {
+    setSession(owner);
+    const updates: Array<Record<string, unknown>> = [];
+    dbHooks.selectRows = [
+      {
+        id: "skill-1",
+        slug: "briefing",
+        name: "Briefing",
+        description: "Original",
+        ownerUserId: owner.id,
+        isStarter: false,
+        archivedAt: null,
+        systemPrompt: "Brief me.",
+        modelId: "haiku-4-5",
+        mcpProviders: [],
+      },
+    ];
+    dbHooks.onUpdateSet = (values) => updates.push(values);
+    dbHooks.insertReturning = [
+      {
+        id: "skill-1",
+        slug: "briefing",
+        modelId: "haiku-4-5",
+      },
+    ];
+    vi.doMock("@/lib/skills-naming-gate", () => ({
+      evaluateSkillNamingGate: async () => null,
+    }));
+    installDbMock();
+
+    const { PATCH } = await import("@/app/api/skills/[id]/route");
+    const res = await PATCH(
+      new Request("http://localhost/api/skills/skill-1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Briefing",
+          description: "Updated",
+          systemPrompt: "Brief me with more detail.",
+          modelId: "sonnet-4-5",
+          mcpProviders: [],
+        }),
+      }),
+      { params: Promise.resolve({ id: "skill-1" }) },
+    );
+
+    expect(res.status).toBe(200);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({
+      description: "Updated",
+      modelId: "haiku-4-5",
+    });
   });
 });

@@ -111,7 +111,7 @@ function calledEnterpriseRevenueAggregate(transcript: TurnTranscript) {
 
 export const fileResourceGroundingSuite: EvalSuite = {
   capability: "file-resource-grounding",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "critical",
   tags: ["core", "files", "grounding", "resources"],
   cases: [

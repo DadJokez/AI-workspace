@@ -65,7 +65,7 @@ function noToolCalls(transcript: TurnTranscript) {
 
 export const toolEvidenceContinuitySuite: EvalSuite = {
   capability: "tool-evidence-continuity",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "critical",
   tags: ["context", "core", "grounding", "tool-evidence"],
   cases: [

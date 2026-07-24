@@ -10,10 +10,7 @@ import {
   resolveModelForPurpose,
 } from "@/lib/model-registry";
 
-/**
- * Enablement resolution (#300). Absence of a row = disabled, so a newly
- * registered model is disabled everywhere until explicitly enabled.
- */
+/** Temporary platform override while the Sonnet 4.6 quota is unavailable. */
 
 function fakeDb(
   rows: Array<{ modelId: string; purpose: string }> | Error,
@@ -33,57 +30,36 @@ afterEach(() => {
 });
 
 describe("enabledModelsForPurpose", () => {
-  it("returns only the models with an enabled row for the purpose", async () => {
+  it("returns only Sonnet 4.5 for every purpose", async () => {
     const db = fakeDb([
       { modelId: "haiku-4-5", purpose: "chat" },
       { modelId: "sonnet-4-6", purpose: "chat" },
       { modelId: "sonnet-4-6", purpose: "memory-capture" },
     ]);
 
-    expect(await enabledModelsForPurpose(db, "chat")).toEqual([
-      "haiku-4-5",
-      "sonnet-4-6",
-    ]);
+    expect(await enabledModelsForPurpose(db, "chat")).toEqual(["sonnet-4-5"]);
     expect(await enabledModelsForPurpose(db, "memory-capture")).toEqual([
-      "sonnet-4-6",
+      "sonnet-4-5",
     ]);
-  });
-
-  it("a purpose with no rows has nothing enabled (disabled-everywhere default)", async () => {
-    const db = fakeDb([{ modelId: "sonnet-4-6", purpose: "chat" }]);
-
-    expect(await enabledModelsForPurpose(db, "durable-local")).toEqual([]);
-  });
-
-  it("ignores enablement rows for ids the registry does not know", async () => {
-    const db = fakeDb([{ modelId: "nova-micro-1", purpose: "chat" }]);
-
-    expect(await enabledModelsForPurpose(db, "chat")).toEqual([]);
-  });
-
-  it("fails open to the full registry when the table is unreachable", async () => {
-    const db = fakeDb(new Error("relation model_enablement does not exist"));
-
-    expect(await enabledModelsForPurpose(db, "chat")).toEqual([
-      "haiku-4-5",
-      "sonnet-4-6",
-      "opus-4-7",
+    expect(await enabledModelsForPurpose(db, "durable-local")).toEqual([
+      "sonnet-4-5",
     ]);
   });
 });
 
 describe("isModelEnabled", () => {
-  it("is false for a registered model without a row and for unknown ids", async () => {
+  it("only reports the platform override as enabled", async () => {
     const db = fakeDb([{ modelId: "sonnet-4-6", purpose: "chat" }]);
 
-    expect(await isModelEnabled(db, "sonnet-4-6", "chat")).toBe(true);
+    expect(await isModelEnabled(db, "sonnet-4-5", "chat")).toBe(true);
+    expect(await isModelEnabled(db, "sonnet-4-6", "chat")).toBe(false);
     expect(await isModelEnabled(db, "opus-4-7", "chat")).toBe(false);
     expect(await isModelEnabled(db, "gpt-troll", "chat")).toBe(false);
   });
 });
 
 describe("resolveModelForPurpose", () => {
-  it("honors an enabled preferred model", async () => {
+  it("supersedes persisted preferences for every internal purpose", async () => {
     const db = fakeDb([
       { modelId: "haiku-4-5", purpose: "memory-capture" },
       { modelId: "sonnet-4-6", purpose: "memory-capture" },
@@ -93,43 +69,13 @@ describe("resolveModelForPurpose", () => {
       await resolveModelForPurpose(db, "memory-capture", {
         preferred: "haiku-4-5",
       }),
-    ).toBe("haiku-4-5");
-  });
-
-  it("never returns a disabled preferred model", async () => {
-    const db = fakeDb([{ modelId: "sonnet-4-6", purpose: "memory-capture" }]);
-
+    ).toBe("sonnet-4-5");
     expect(
-      await resolveModelForPurpose(db, "memory-capture", {
+      await resolveModelForPurpose(db, "summaries", {
         preferred: "opus-4-7",
       }),
-    ).toBe("sonnet-4-6");
-  });
-
-  it("falls to the first enabled model when the default is disabled", async () => {
-    const db = fakeDb([{ modelId: "haiku-4-5", purpose: "summaries" }]);
-
-    expect(await resolveModelForPurpose(db, "summaries")).toBe("haiku-4-5");
-  });
-
-  it("uses the cheapest enabled model for internal work", async () => {
-    const db = fakeDb([
-      { modelId: "haiku-4-5", purpose: "memory-capture" },
-      { modelId: "sonnet-4-6", purpose: "memory-capture" },
-      { modelId: "opus-4-7", purpose: "memory-capture" },
-    ]);
-
-    expect(await resolveModelForPurpose(db, "memory-capture")).toBe(
-      "haiku-4-5",
-    );
-  });
-
-  it("fails closed when nothing is enabled", async () => {
-    const db = fakeDb([]);
-
-    await expect(resolveModelForPurpose(db, "routing")).rejects.toThrow(
-      'No models are enabled for purpose "routing".',
-    );
+    ).toBe("sonnet-4-5");
+    expect(await resolveModelForPurpose(db, "routing")).toBe("sonnet-4-5");
   });
 });
 
@@ -160,7 +106,7 @@ describe("model candidate ordering", () => {
     ).toThrow('No models are enabled for purpose "chat".');
   });
 
-  it("resolves cheap internal candidates in increasing cost order", async () => {
+  it("pins internal candidate lists to Sonnet 4.5", async () => {
     const db = fakeDb([
       { modelId: "haiku-4-5", purpose: "routing" },
       { modelId: "sonnet-4-6", purpose: "routing" },
@@ -168,15 +114,13 @@ describe("model candidate ordering", () => {
     ]);
 
     expect(await resolveModelCandidatesForPurpose(db, "routing")).toEqual([
-      "haiku-4-5",
-      "sonnet-4-6",
-      "opus-4-7",
+      "sonnet-4-5",
     ]);
   });
 });
 
 describe("cache", () => {
-  it("caches between calls and refreshes after invalidation", async () => {
+  it("bypasses the enablement table while the platform pin is active", async () => {
     let calls = 0;
     const chain = {
       from: () => chain,
@@ -189,11 +133,11 @@ describe("cache", () => {
 
     await enabledModelsForPurpose(db, "chat");
     await enabledModelsForPurpose(db, "chat");
-    expect(calls).toBe(1);
+    expect(calls).toBe(0);
 
     invalidateModelEnablementCache();
     await enabledModelsForPurpose(db, "chat");
-    expect(calls).toBe(2);
+    expect(calls).toBe(0);
   });
 });
 
@@ -204,6 +148,8 @@ describe("cost metadata", () => {
     // don't "fix" them back to list.
     expect(MODELS["haiku-4-5"].costPer1MInput).toBe(1.1);
     expect(MODELS["haiku-4-5"].costPer1MOutput).toBe(5.5);
+    expect(MODELS["sonnet-4-5"].costPer1MInput).toBe(3.3);
+    expect(MODELS["sonnet-4-5"].costPer1MOutput).toBe(16.5);
     expect(MODELS["sonnet-4-6"].costPer1MInput).toBe(3.3);
     expect(MODELS["sonnet-4-6"].costPer1MOutput).toBe(16.5);
     expect(MODELS["opus-4-7"].costPer1MInput).toBe(5.5);
@@ -212,6 +158,7 @@ describe("cost metadata", () => {
 
   it("estimateCostUsd combines input and output rates", () => {
     expect(estimateCostUsd("haiku-4-5", 1_000_000, 1_000_000)).toBeCloseTo(6.6);
+    expect(estimateCostUsd("sonnet-4-5", 500_000, 100_000)).toBeCloseTo(3.3);
     expect(estimateCostUsd("sonnet-4-6", 500_000, 100_000)).toBeCloseTo(3.3);
   });
 });

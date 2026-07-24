@@ -98,7 +98,7 @@ function payloadReachedModelFramed(
 
 export const mcpInjectionSuite: EvalSuite = {
   capability: "mcp-injection",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "critical",
   tags: ["connected-tools", "core", "mcp", "prompt-injection", "safety"],
   cases: [

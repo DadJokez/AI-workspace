@@ -4,59 +4,39 @@ import {
   selectAutopilotModel,
 } from "@/lib/runtime-model-policy";
 
-/** #110 — server-side model autopilot. */
+/** Temporary platform pin while the Sonnet 4.6 quota increase is pending. */
 describe("selectAutopilotModel", () => {
-  it("routes short/simple turns to Haiku", () => {
-    expect(selectAutopilotModel("hey")).toBe("haiku-4-5");
-    expect(selectAutopilotModel("what time is it?")).toBe("haiku-4-5");
-    expect(selectAutopilotModel("thanks!")).toBe("haiku-4-5");
-  });
+  it("pins simple, writing, code, and long turns to Sonnet 4.5", () => {
+    const messages = [
+      "hey",
+      "what time is it?",
+      "draft an email to the facilities team",
+      "```js\nfunction add(a,b){return a+b}\n```",
+      "please " + "consider this carefully ".repeat(10),
+    ];
 
-  it("routes writing-grade asks to Sonnet", () => {
-    expect(selectAutopilotModel("draft an email to the facilities team")).toBe(
-      "sonnet-4-6",
-    );
-    expect(selectAutopilotModel("summarize this report for me")).toBe(
-      "sonnet-4-6",
-    );
-    expect(
-      selectAutopilotModel("write a polished status update for leadership"),
-    ).toBe("sonnet-4-6");
-    expect(selectAutopilotModel("analyze the pros and cons of option A")).toBe(
-      "sonnet-4-6",
-    );
-  });
-
-  it("routes code and long asks to Sonnet", () => {
-    expect(
-      selectAutopilotModel("```js\nfunction add(a,b){return a+b}\n```"),
-    ).toBe("sonnet-4-6");
-    const long = "please " + "consider this carefully ".repeat(10);
-    expect(selectAutopilotModel(long)).toBe("sonnet-4-6");
-  });
-
-  it("biases to Sonnet for medium-length unsure turns", () => {
-    expect(
-      selectAutopilotModel("can you help me figure out the budget numbers here"),
-    ).toBe("sonnet-4-6");
+    for (const message of messages) {
+      expect(selectAutopilotModel(message)).toBe("sonnet-4-5");
+    }
   });
 });
 
-describe("resolveRuntimeModelSelection with autopilot", () => {
+describe("resolveRuntimeModelSelection with platform override", () => {
   const base = {
     route: { runtimeTarget: "direct-chat" as const },
     runtimeName: "bedrock" as const,
   };
 
-  it("picks per-ask when directModelId is 'auto'", () => {
+  it("pins every autopilot ask and records the override reason", () => {
     const simple = resolveRuntimeModelSelection({
       ...base,
       requestedModelId: "default",
       directModelId: "auto",
       message: "hi",
     });
-    expect(simple.modelId).toBe("haiku-4-5");
-    expect(simple.reason).toBe("runtime_v2_autopilot");
+    expect(simple.modelId).toBe("sonnet-4-5");
+    expect(simple.reason).toBe("platform_model_override");
+    expect(simple.ignoredDirectModelId).toBe("auto");
 
     const writing = resolveRuntimeModelSelection({
       ...base,
@@ -64,22 +44,23 @@ describe("resolveRuntimeModelSelection with autopilot", () => {
       directModelId: "auto",
       message: "draft a memo summarizing the Q2 results",
     });
-    expect(writing.modelId).toBe("sonnet-4-6");
-    expect(writing.reason).toBe("runtime_v2_autopilot");
+    expect(writing.modelId).toBe("sonnet-4-5");
+    expect(writing.reason).toBe("platform_model_override");
   });
 
-  it("still pins a concrete configured model (no behavior change when not 'auto')", () => {
+  it("supersedes a concrete configured model without rewriting it", () => {
     const pinned = resolveRuntimeModelSelection({
       ...base,
       requestedModelId: "default",
       directModelId: "haiku-4-5",
       message: "draft a long essay",
     });
-    expect(pinned.modelId).toBe("haiku-4-5");
-    expect(pinned.reason).toBe("runtime_v2_direct_model_config");
+    expect(pinned.modelId).toBe("sonnet-4-5");
+    expect(pinned.reason).toBe("platform_model_override");
+    expect(pinned.ignoredDirectModelId).toBe("haiku-4-5");
   });
 
-  it("honors an explicit one-turn model override before autopilot", () => {
+  it("supersedes an explicit one-turn model override", () => {
     const pinned = resolveRuntimeModelSelection({
       ...base,
       requestedModelId: "haiku-4-5",
@@ -87,8 +68,8 @@ describe("resolveRuntimeModelSelection with autopilot", () => {
       message: "draft a long leadership memo",
       forceRequestedModel: true,
     });
-    expect(pinned.modelId).toBe("haiku-4-5");
-    expect(pinned.reason).toBe("requested_model_supported");
+    expect(pinned.modelId).toBe("sonnet-4-5");
+    expect(pinned.reason).toBe("platform_model_override");
     expect(pinned.ignoredDirectModelId).toBe("auto");
   });
 });

@@ -153,9 +153,9 @@ export const ROUTING_BENCHMARK_SCENARIOS: RoutingBenchmarkScenario[] = [
     fullToolSet: false,
   },
   {
-    id: "sonnet-4-6-full-tools",
-    label: "Sonnet 4.6, stable full tool set",
-    modelId: "sonnet-4-6",
+    id: "sonnet-4-5-full-tools",
+    label: "Sonnet 4.5, stable full tool set",
+    modelId: "sonnet-4-5",
     fullToolSet: true,
   },
   {

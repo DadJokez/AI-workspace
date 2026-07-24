@@ -1,3 +1,4 @@
+import { PLATFORM_MODEL_OVERRIDE_ID } from "@ai-workspace/agent";
 import { getDb, skills } from "@ai-workspace/db";
 import { and, desc, eq, isNull, or } from "drizzle-orm";
 import Link from "next/link";
@@ -110,7 +111,7 @@ function SkillGroup({
               <p className="text-xs text-muted">{skill.description}</p>
             ) : null}
             <p className="text-2xs text-muted">
-              {skill.modelId}
+              {PLATFORM_MODEL_OVERRIDE_ID ?? skill.modelId}
               {skill.mcpProviders.length > 0
                 ? ` · tools: ${skill.mcpProviders.join(", ")}`
                 : " · no tools"}

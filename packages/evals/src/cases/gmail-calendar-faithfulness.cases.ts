@@ -151,7 +151,7 @@ function noAccessDenial(t: TurnTranscript) {
 
 export const gmailCalendarFaithfulnessSuite: EvalSuite = {
   capability: "gmail-calendar-faithfulness",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: "sonnet-4-5",
   defaultSeverity: "high",
   tags: ["calendar", "connected-tools", "gmail", "grounding"],
   cases: [
@@ -226,7 +226,7 @@ export const gmailCalendarFaithfulnessSuite: EvalSuite = {
         "Sonnet maps a natural follow-up to the saved Gmail cursor and inbox scope",
       systemPrompt: PRIOR_GMAIL_SEARCH_PROMPT,
       input: "Anything land in my inbox since you checked it for me?",
-      modelId: "sonnet-4-6",
+      modelId: "sonnet-4-5",
       tools: createGoogleFixtureTools({ emails: [] }),
       providerStatus: { google: "mounted_fixture_with_prior_search" },
       contextReceipts: ["prior successful Gmail search cursor retained"],
