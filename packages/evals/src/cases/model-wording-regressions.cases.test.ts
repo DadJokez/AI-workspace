@@ -44,6 +44,10 @@ describe("model wording regression guards", () => {
     toolGroundingSuite.cases,
     "github-lightweight-connected-not-mounted",
   );
+  const emptyGitHubCase = evalCase(
+    toolGroundingSuite.cases,
+    "github-empty-issue-search",
+  );
   const contextGitHubCase = evalCase(
     contextFaithfulnessSuite.cases,
     "tool-truthfulness",
@@ -72,6 +76,43 @@ describe("model wording regression guards", () => {
         unavailableArtifactCase,
         "states that the complete source is unavailable",
         "I can make that update later.",
+      ),
+    ).toBe(false);
+  });
+
+  it.each(["isn't", "isn’t"])(
+    "accepts truthful '%s available' wording when complete artifact source was omitted",
+    (wording) => {
+      expect(
+        deterministicResult(
+          unavailableArtifactCase,
+          "states that the complete source is unavailable",
+          `The file exceeds the safe edit-context limit, so its complete source ${wording} available in this conversation.`,
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it.each([
+    'There are no open issues labeled "billing" in the repository.',
+    "I found no matching issues.",
+    "The search returned zero results.",
+  ])("accepts truthful empty GitHub search wording: %s", (answer) => {
+    expect(
+      deterministicResult(
+        emptyGitHubCase,
+        "states that no matching issue was found",
+        answer,
+      ),
+    ).toBe(true);
+  });
+
+  it("still rejects a GitHub answer that never discloses an empty result", () => {
+    expect(
+      deterministicResult(
+        emptyGitHubCase,
+        "states that no matching issue was found",
+        "I searched the billing label in the repository.",
       ),
     ).toBe(false);
   });
