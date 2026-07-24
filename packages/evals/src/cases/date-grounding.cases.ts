@@ -14,6 +14,8 @@ const STALE_TRAINING_YEARS = ["2023", "2024", "2025"];
 export const dateGroundingSuite: EvalSuite = {
   capability: "date-grounding",
   defaultModelId: "sonnet-4-6",
+  defaultSeverity: "high",
+  tags: ["core", "dates", "grounding"],
   cases: [
     {
       id: "is-it-christmas",

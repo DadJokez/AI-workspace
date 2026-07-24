@@ -29,9 +29,11 @@
     "audit:retention": "pnpm --filter @ai-workspace/web audit:retention",
     "start": "pnpm --filter @ai-workspace/web start",
     "eval": "pnpm --filter @ai-workspace/evals eval",
+    "eval:core": "pnpm --filter @ai-workspace/evals eval:core",
     "transcripts:replay": "pnpm --filter @ai-workspace/evals transcripts:replay",
     "smoke:browser": "pnpm --filter @ai-workspace/web smoke:browser",
     "smoke:browser:auth": "pnpm --filter @ai-workspace/web smoke:browser:auth",
+    "smoke:browser:core": "pnpm --filter @ai-workspace/web smoke:browser:core",
     "smoke:browser:ui": "pnpm --filter @ai-workspace/web smoke:browser:ui",
     "smoke:prod": "node scripts/production-smoke.mjs",
     "smoke:prod:auth": "pnpm --filter @ai-workspace/web smoke:prod:auth"

@@ -13,6 +13,7 @@ import type {
   CapabilityResult,
   CaseResult,
   EvalCase,
+  EvalSeverity,
   EvalSuite,
   TurnTranscript,
 } from "./types";
@@ -121,6 +122,7 @@ interface SingleRunResult {
   transcript?: TurnTranscript & TokenUsage;
   assertions: AssertionResult[];
   passed: boolean;
+  judgeUsage: TokenUsage;
   errored?: string;
 }
 
@@ -145,11 +147,13 @@ async function runOnce(
     return {
       assertions: [],
       passed: false,
+      judgeUsage: { ...EMPTY_USAGE },
       errored: err instanceof Error ? err.message : String(err),
     };
   }
 
   const assertions: AssertionResult[] = [];
+  let judgeUsage = { ...EMPTY_USAGE };
   for (const assertion of testCase.assertions) {
     if (assertion.kind === "deterministic") {
       const raw = assertion.check(transcript);
@@ -163,7 +167,12 @@ async function runOnce(
       const verdict = await runJudge(judgeClient, {
         rubric: assertion.rubric,
         answer: transcript.answer,
+        referenceEvidence: [
+          ...(testCase.fixtureEvidence ?? []),
+          ...(assertion.referenceEvidence ?? []),
+        ],
       });
+      judgeUsage = addUsage(judgeUsage, verdict);
       assertions.push({
         ok: verdict.pass,
         label: assertion.label,
@@ -176,22 +185,34 @@ async function runOnce(
     transcript,
     assertions,
     passed: assertions.every((a) => a.ok),
+    judgeUsage,
+  };
+}
+
+function addUsage(left: TokenUsage, right: TokenUsage): TokenUsage {
+  return {
+    tokensIn: left.tokensIn + right.tokensIn,
+    tokensOut: left.tokensOut + right.tokensOut,
+    inputTokens: left.inputTokens + right.inputTokens,
+    cacheReadInputTokens:
+      left.cacheReadInputTokens + right.cacheReadInputTokens,
+    cacheWriteInputTokens:
+      left.cacheWriteInputTokens + right.cacheWriteInputTokens,
   };
 }
 
 function sumUsage(runs: readonly SingleRunResult[]): TokenUsage {
   return runs.reduce<TokenUsage>((acc, run) => {
     const usage = run.transcript ?? EMPTY_USAGE;
-    return {
-      tokensIn: acc.tokensIn + usage.tokensIn,
-      tokensOut: acc.tokensOut + usage.tokensOut,
-      inputTokens: acc.inputTokens + usage.inputTokens,
-      cacheReadInputTokens:
-        acc.cacheReadInputTokens + usage.cacheReadInputTokens,
-      cacheWriteInputTokens:
-        acc.cacheWriteInputTokens + usage.cacheWriteInputTokens,
-    };
+    return addUsage(acc, usage);
   }, { ...EMPTY_USAGE });
+}
+
+function sumJudgeUsage(runs: readonly SingleRunResult[]): TokenUsage {
+  return runs.reduce<TokenUsage>(
+    (acc, run) => addUsage(acc, run.judgeUsage),
+    { ...EMPTY_USAGE },
+  );
 }
 
 async function evaluateCase(
@@ -200,10 +221,16 @@ async function evaluateCase(
   testCase: EvalCase,
   defaultModelId: EvalSuite["defaultModelId"],
   capability: string,
+  defaultSeverity: EvalSeverity,
+  suiteTags: readonly string[],
   structuralOnly = false,
 ): Promise<CaseResult> {
   const debugIds = evalDebugIds(testCase, capability);
   const modelId = testCase.modelId ?? defaultModelId;
+  const metadata = {
+    severity: testCase.severity ?? defaultSeverity,
+    tags: Array.from(new Set([...suiteTags, ...(testCase.tags ?? [])])).sort(),
+  };
 
   if (structuralOnly) {
     // Mock mode proves harness wiring only; the fake client is deterministic,
@@ -215,10 +242,12 @@ async function evaluateCase(
       return {
         caseId: testCase.id,
         description: testCase.description,
+        ...metadata,
         modelId,
         ...debugIds,
         passed: false,
         assertions: [],
+        answer: "",
         answerPreview: "",
         ...EMPTY_USAGE,
         toolCalls: [],
@@ -226,12 +255,14 @@ async function evaluateCase(
         providerStatus: testCase.providerStatus,
         contextReceipts: testCase.contextReceipts ?? [],
         fixtureEvidence: testCase.fixtureEvidence ?? [],
+        judgeUsage: { ...EMPTY_USAGE },
         errored: err instanceof Error ? err.message : String(err),
       };
     }
     return {
       caseId: testCase.id,
       description: testCase.description,
+      ...metadata,
       modelId,
       ...debugIds,
       passed: true,
@@ -242,6 +273,7 @@ async function evaluateCase(
           detail: `${testCase.assertions.length} assertion(s) skipped`,
         },
       ],
+      answer: transcript.answer,
       answerPreview: transcript.answer.slice(0, 280),
       tokensIn: transcript.tokensIn,
       tokensOut: transcript.tokensOut,
@@ -253,6 +285,7 @@ async function evaluateCase(
       providerStatus: transcript.providerStatus,
       contextReceipts: transcript.contextReceipts,
       fixtureEvidence: transcript.fixtureEvidence,
+      judgeUsage: { ...EMPTY_USAGE },
     };
   }
 
@@ -275,6 +308,7 @@ async function evaluateCase(
     (!passed && runs.find((run) => !run.passed)) ||
     runs[0]!;
   const usage = sumUsage(runs);
+  const judgeUsage = sumJudgeUsage(runs);
   const transcript = representative.transcript;
   const firstErrored = runs.find((run) => run.errored)?.errored;
 
@@ -286,10 +320,12 @@ async function evaluateCase(
   return {
     caseId: testCase.id,
     description: testCase.description,
+    ...metadata,
     modelId,
     ...debugIds,
     passed,
     assertions: representative.assertions,
+    answer: transcript?.answer ?? "",
     answerPreview: transcript?.answer.slice(0, 280) ?? "",
     ...usage,
     toolCalls: transcript?.toolCallNames ?? [],
@@ -297,6 +333,7 @@ async function evaluateCase(
     providerStatus: testCase.providerStatus,
     contextReceipts: transcript?.contextReceipts ?? testCase.contextReceipts ?? [],
     fixtureEvidence: transcript?.fixtureEvidence ?? testCase.fixtureEvidence ?? [],
+    judgeUsage,
     ...(representative.errored || (!passed && firstErrored)
       ? { errored: representative.errored ?? firstErrored }
       : {}),
@@ -334,16 +371,33 @@ export async function runSuite(
         testCase,
         suite.defaultModelId,
         suite.capability,
+        suite.defaultSeverity ?? "medium",
+        suite.tags ?? [],
         options.structuralOnly,
       ),
     );
   }
+
+  const severities: EvalSeverity[] = ["critical", "high", "medium", "low"];
+  const bySeverity = Object.fromEntries(
+    severities.map((severity) => {
+      const matching = results.filter((result) => result.severity === severity);
+      return [
+        severity,
+        {
+          passed: matching.filter((result) => result.passed).length,
+          failed: matching.filter((result) => !result.passed).length,
+        },
+      ];
+    }),
+  ) as CapabilityResult["bySeverity"];
 
   return {
     capability: suite.capability,
     results,
     passed: results.filter((r) => r.passed).length,
     failed: results.filter((r) => !r.passed).length,
+    bySeverity,
   };
 }
 

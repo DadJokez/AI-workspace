@@ -103,6 +103,16 @@ describe("buildAgentPreamble date grounding", () => {
   });
 });
 
+describe("buildAgentPreamble fact fidelity", () => {
+  it("preserves factual state and modal strength during rewrites", () => {
+    const preamble = minimalPreamble({ modelId: "sonnet-4-6" });
+    expect(preamble).toContain("Fact fidelity:");
+    expect(preamble).toContain(
+      "do not turn limited or restricted work into blocked, delayed, completed, approved, or unable-to-proceed work",
+    );
+  });
+});
+
 describe("buildAgentPreamble just-in-time tool guidance", () => {
   it("keeps provider post-call rules out of the cached system prefix", () => {
     const preamble = buildAgentPreamble({

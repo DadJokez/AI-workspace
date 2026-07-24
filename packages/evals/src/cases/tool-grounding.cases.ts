@@ -3,11 +3,13 @@ import {
   createGitHubFixtureTools,
   fakePullRequestSentinels,
   githubFixtureEvidence,
+  githubFixtureIssues,
   githubFixturePullRequests,
   githubFixtureRepo,
 } from "../fixtures/github";
 
 const GITHUB_PR_TOOL = "github__list_pull_requests";
+const GITHUB_ISSUE_TOOL = "github__search_issues";
 
 const MOUNTED_GITHUB_PROMPT = [
   "You are Comparative, Rob's internal assistant.",
@@ -35,6 +37,13 @@ const LIGHTWEIGHT_PROMPT = [
 function calledGitHubPrTool(t: TurnTranscript) {
   return {
     ok: t.toolCallNames.includes(GITHUB_PR_TOOL),
+    detail: `called: ${t.toolCallNames.join(", ") || "(none)"}`,
+  };
+}
+
+function calledGitHubIssueTool(t: TurnTranscript) {
+  return {
+    ok: t.toolCallNames.includes(GITHUB_ISSUE_TOOL),
     detail: `called: ${t.toolCallNames.join(", ") || "(none)"}`,
   };
 }
@@ -108,6 +117,8 @@ function doesNotDenyConnectedTool(t: TurnTranscript) {
 export const toolGroundingSuite: EvalSuite = {
   capability: "tool-grounding",
   defaultModelId: "sonnet-4-6",
+  defaultSeverity: "critical",
+  tags: ["connected-tools", "core", "github", "grounding"],
   cases: [
     {
       id: "github-last-three-prs",
@@ -131,6 +142,11 @@ export const toolGroundingSuite: EvalSuite = {
         },
         {
           kind: "deterministic",
+          label: "did not substitute the unrelated issue-search tool",
+          check: (t) => !t.toolCallNames.includes(GITHUB_ISSUE_TOOL),
+        },
+        {
+          kind: "deterministic",
           label: "fixture tool returned the expected PR evidence",
           check: toolResultContainsFixturePrs,
         },
@@ -149,6 +165,93 @@ export const toolGroundingSuite: EvalSuite = {
           label: "summary is faithful to the fixture output",
           rubric:
             "PASS only if the answer summarizes the GitHub fixture pull requests using the real PR numbers and titles from tool output: #316 Preview pane download polish, #315 Harden tool honesty receipts, and #314 Add signed-in smoke fixtures. FAIL if it invents a PR or omits the tool-backed nature of the data.",
+          referenceEvidence: githubFixturePullRequests.map(
+            (pr) =>
+              `#${pr.number} ${pr.title}; author=${pr.author}; state=${pr.state}; reviewState=${pr.reviewState}; checks=${pr.checks}; updatedAt=${pr.updatedAt}`,
+          ),
+        },
+      ],
+    },
+    {
+      id: "github-issue-selects-issue-tool",
+      description:
+        "an issue request selects the issue tool and cites the exact fixture issue",
+      systemPrompt: [
+        MOUNTED_GITHUB_PROMPT,
+        `Use ${GITHUB_ISSUE_TOOL} for issue questions instead of the pull-request tool.`,
+      ].join("\n"),
+      input:
+        "Find the open security-related issue in the fixture repository and give me its number, title, and labels.",
+      tools: createGitHubFixtureTools(),
+      providerStatus: { github: "mounted_fixture" },
+      contextReceipts: [
+        "provider:github mounted with fixture MCP tools",
+        `repo:${githubFixtureRepo.fullName}`,
+      ],
+      fixtureEvidence: [
+        `#${githubFixtureIssues[0]!.number} ${githubFixtureIssues[0]!.title}`,
+        `labels=${githubFixtureIssues[0]!.labels.join(",")}`,
+      ],
+      assertions: [
+        {
+          kind: "deterministic",
+          label: "called the GitHub issue fixture tool",
+          check: calledGitHubIssueTool,
+        },
+        {
+          kind: "deterministic",
+          label: "did not substitute the PR-list tool",
+          check: (t) => !t.toolCallNames.includes(GITHUB_PR_TOOL),
+        },
+        {
+          kind: "deterministic",
+          label: "answer cites the exact issue and labels",
+          check: (t) =>
+            t.answer.includes("#88") &&
+            t.answer.includes("Document smoke user data retention") &&
+            /\bops\b/i.test(t.answer) &&
+            /\bsecurity\b/i.test(t.answer),
+        },
+      ],
+    },
+    {
+      id: "github-empty-issue-search",
+      description:
+        "an empty tool result stays empty instead of producing a plausible issue",
+      systemPrompt: [
+        MOUNTED_GITHUB_PROMPT,
+        `Use ${GITHUB_ISSUE_TOOL} for issue questions. An empty issues array means no matches.`,
+      ].join("\n"),
+      input:
+        "Search the fixture repository for open issues labeled billing and list every match.",
+      tools: createGitHubFixtureTools({ emptyIssues: true }),
+      providerStatus: { github: "mounted_fixture" },
+      contextReceipts: [
+        "provider:github mounted with fixture MCP tools",
+        "fixture issue search returns zero rows",
+      ],
+      fixtureEvidence: ["GitHub issue search returns an empty issues array"],
+      assertions: [
+        {
+          kind: "deterministic",
+          label: "called the issue search tool",
+          check: calledGitHubIssueTool,
+        },
+        {
+          kind: "deterministic",
+          label: "states that no matching issue was found",
+          check: (t) =>
+            /(no (matching )?(issues?|results?)|didn'?t find|did not find|zero)/i.test(
+              t.answer,
+            ),
+        },
+        {
+          kind: "deterministic",
+          label: "does not invent the known issue or fake PR sentinels",
+          check: (t) =>
+            !t.answer.includes("#88") &&
+            !t.answer.includes("Document smoke user data retention") &&
+            answerAvoidsFakePrs(t).ok,
         },
       ],
     },
@@ -212,7 +315,8 @@ export const toolGroundingSuite: EvalSuite = {
         {
           kind: "deterministic",
           label: "states the pending approval boundary",
-          check: (t) => /pending approval/i.test(t.answer),
+          check: (t) =>
+            /pending.{0,40}approval|approval.{0,40}pending/i.test(t.answer),
         },
         {
           kind: "deterministic",

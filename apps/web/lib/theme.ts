@@ -31,13 +31,28 @@ function applyClass(dark: boolean) {
 }
 
 export function useTheme() {
-  const [theme, setThemeState] = useState<Theme>(readStoredTheme);
-  const [isDark, setIsDark] = useState<boolean>(() =>
-    effectivelyDark(readStoredTheme()),
-  );
+  // Keep the server render and the browser's first render identical. The
+  // inline script in app/layout.tsx applies the saved theme before paint; this
+  // hook adopts that preference after hydration. Reading localStorage or
+  // matchMedia in the state initializer makes dark-mode clients render
+  // different SVG/attributes than the server and triggers a React hydration
+  // recovery.
+  const [theme, setThemeState] = useState<Theme>("system");
+  const [isDark, setIsDark] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    const storedTheme = readStoredTheme();
+    const dark = effectivelyDark(storedTheme);
+    setThemeState(storedTheme);
+    setIsDark(dark);
+    applyClass(dark);
+    setHydrated(true);
+  }, []);
 
   // Apply theme + persist whenever it changes.
   useEffect(() => {
+    if (!hydrated) return;
     const dark = effectivelyDark(theme);
     setIsDark(dark);
     applyClass(dark);
@@ -46,10 +61,11 @@ export function useTheme() {
     } catch {
       /* quota / disabled */
     }
-  }, [theme]);
+  }, [hydrated, theme]);
 
   // While in "system" mode, react to OS-level theme changes.
   useEffect(() => {
+    if (!hydrated) return;
     if (theme !== "system") return;
     if (typeof window === "undefined") return;
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -60,7 +76,7 @@ export function useTheme() {
     };
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
-  }, [theme]);
+  }, [hydrated, theme]);
 
   const setTheme = useCallback((t: Theme) => {
     setThemeState(t);

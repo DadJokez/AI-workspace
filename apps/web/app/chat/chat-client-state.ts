@@ -60,6 +60,8 @@ export interface UiMessage {
   canResume?: boolean;
   hasAttachments?: boolean;
   attachmentsReplayable?: boolean;
+  /** Browser-local filenames shown while the persisted artifact row is loading. */
+  attachmentPreviews?: Array<{ name: string; sizeBytes?: number }>;
   persisted?: boolean;
   providerReasoning?: LiveReasoningBlock[];
 }

@@ -17,6 +17,17 @@ export interface EvalCase {
   /** Short human description shown in the report. */
   description: string;
   /**
+   * Product impact if this behavior regresses. Reports and automation use this
+   * to put silent data loss/fabricated success ahead of cosmetic misses.
+   * Defaults to the suite's severity, then "medium".
+   */
+  severity?: EvalSeverity;
+  /**
+   * Stable selection/report labels. The `core` tag opts a case into
+   * `pnpm eval --core`; additional tags describe the user surface or invariant.
+   */
+  tags?: readonly string[];
+  /**
    * Optional debug IDs for app-backed evals. Pure harness cases get stable
    * synthetic IDs so failure reports can still be correlated.
    */
@@ -113,16 +124,25 @@ export type Assertion =
       label: string;
       /** Rubric question the judge answers yes/no about the answer. */
       rubric: string;
+      /**
+       * Assertion-specific authoritative facts. These are combined with the
+       * case's fixtureEvidence and passed explicitly to the judge.
+       */
+      referenceEvidence?: readonly string[];
     };
 
 export interface CaseResult extends TokenUsage {
   caseId: string;
   description: string;
+  severity: EvalSeverity;
+  tags: string[];
   modelId: ModelId;
   threadId: string;
   runId: string;
   passed: boolean;
   assertions: AssertionResult[];
+  /** Full representative answer for debugging; repeated failures prefer a losing run. */
+  answer: string;
   answerPreview: string;
   toolCalls: string[];
   toolResults: Array<{
@@ -133,6 +153,8 @@ export interface CaseResult extends TokenUsage {
   providerStatus?: Record<string, string>;
   contextReceipts: string[];
   fixtureEvidence: string[];
+  /** Judge-model usage, kept separate from the candidate-model usage above. */
+  judgeUsage: TokenUsage;
   errored?: string;
   /**
    * Repeat aggregation (only populated when the case set `repeat > 1`). For
@@ -151,11 +173,17 @@ export interface CapabilityResult {
   results: CaseResult[];
   passed: number;
   failed: number;
+  bySeverity: Record<EvalSeverity, { passed: number; failed: number }>;
 }
 
 export interface EvalSuite {
   capability: string;
   /** Default model for cases that don't override. */
   defaultModelId: ModelId;
+  /** Default metadata inherited by every case in this suite. */
+  defaultSeverity?: EvalSeverity;
+  tags?: readonly string[];
   cases: EvalCase[];
 }
+
+export type EvalSeverity = "critical" | "high" | "medium" | "low";

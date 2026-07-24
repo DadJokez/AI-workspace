@@ -126,6 +126,7 @@ function ChatMessageRowComponent({
         tokensOut={message.tokensOut}
         pending={message.pending}
         status={message.status}
+        attachmentPreviews={message.attachmentPreviews}
         livePhase={message.livePhase}
         liveTokens={message.liveTokens}
         toolCalls={message.toolCalls}

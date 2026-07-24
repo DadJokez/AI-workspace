@@ -131,6 +131,14 @@ export function useChatStream({
           attachmentsReplayable: replaced
             ? replaced.attachmentsReplayable
             : Boolean(attachments?.length),
+          attachmentPreviews:
+            attachments?.map((attachment) => ({
+              name: attachment.name,
+              ...(typeof attachment.sizeBytes === "number"
+                ? { sizeBytes: attachment.sizeBytes }
+                : {}),
+            })) ??
+            replaced?.attachmentPreviews,
           ...(replaced?.artifacts ? { artifacts: replaced.artifacts } : {}),
           persisted: Boolean(replaceMessageId),
         },

@@ -46,6 +46,25 @@ test.describe("public product smoke", () => {
     await expect(page.locator("html")).toHaveClass(/dark/);
   });
 
+  test("system dark mode hydrates without a client render error", async ({
+    page,
+  }) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.addInitScript(() => {
+      window.localStorage.setItem("theme", "system");
+    });
+
+    await page.goto("/login");
+
+    await expect(page.locator("html")).toHaveClass(/dark/);
+    await expect(
+      page.getByRole("button", { name: "Switch to light mode" }),
+    ).toBeVisible();
+    expect(pageErrors).toEqual([]);
+  });
+
   test("public model metadata stays available", async ({ request }) => {
     const response = await request.get("/api/models");
     expect(response.ok()).toBe(true);
