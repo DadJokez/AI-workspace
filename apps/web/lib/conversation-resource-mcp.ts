@@ -37,7 +37,7 @@ export const conversationResourceTools = [
   {
     name: "query",
     description:
-      "Read or analyze one authorized file from this conversation. Use this instead of guessing from a preview. For documents and long text, read beginning/middle/end or search addressable sections. For CSV, TSV, and XLSX, table operations scan every row and report sourceCoverage=full. Filtered aggregates are not supported yet and return an error instead of an unfiltered value. Call repeatedly when the question needs multiple sections or files.",
+      "Read or analyze one authorized file from this conversation. Use this instead of guessing from a preview. For documents and long text, read beginning/middle/end or search addressable sections. For CSV, TSV, and XLSX, table operations scan every row and report sourceCoverage=full. table_aggregate supports up to three AND/OR filters plus one group-by column, including calendar-derived date groups. Call repeatedly when the question needs multiple sections or files.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -80,12 +80,45 @@ export const conversationResourceTools = [
           type: "string",
           enum: ["sum", "average", "min", "max", "count", "distinct_count"],
           description:
-            "Aggregate for operation=table_aggregate. Do not combine with filter fields.",
+            "Aggregate for operation=table_aggregate. count may omit column; other aggregates require column.",
+        },
+        filters: {
+          type: "array",
+          minItems: 1,
+          maxItems: 3,
+          description:
+            "Up to three predicates for table_filter or table_aggregate. Do not combine with the legacy single-filter fields.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["column", "operator", "value"],
+            properties: {
+              column: { type: "string" },
+              operator: {
+                type: "string",
+                enum: [
+                  "equals",
+                  "not_equals",
+                  "contains",
+                  "greater_than",
+                  "greater_than_or_equal",
+                  "less_than",
+                  "less_than_or_equal",
+                ],
+              },
+              value: { type: ["string", "number", "boolean"] },
+            },
+          },
+        },
+        filterLogic: {
+          type: "string",
+          enum: ["and", "or"],
+          description: "How multiple filters combine. Defaults to and.",
         },
         filterColumn: {
           type: "string",
           description:
-            "Column to filter for operation=table_filter. Filtered table_aggregate requests return an error.",
+            "Legacy single-predicate column for table_filter or table_aggregate.",
         },
         filterOperator: {
           type: "string",
@@ -99,12 +132,29 @@ export const conversationResourceTools = [
             "less_than_or_equal",
           ],
           description:
-            "Comparison for operation=table_filter. Filtered table_aggregate requests return an error.",
+            "Legacy single-predicate comparison.",
         },
         filterValue: {
           type: ["string", "number", "boolean"],
+          description: "Legacy single-predicate value.",
+        },
+        groupByColumn: {
+          type: "string",
           description:
-            "Value to match for operation=table_filter. Filtered table_aggregate requests return an error.",
+            "One column to group for operation=table_aggregate.",
+        },
+        groupByDatePart: {
+          type: "string",
+          enum: [
+            "year",
+            "quarter",
+            "month",
+            "week",
+            "day_of_week",
+            "is_weekend",
+          ],
+          description:
+            "Optional calendar derivation for groupByColumn. Month, quarter, and week keys include their year.",
         },
         sortColumn: { type: "string" },
         sortDirection: { type: "string", enum: ["asc", "desc"] },

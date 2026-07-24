@@ -113,14 +113,32 @@ describe("conversation resource MCP authorization (#576)", () => {
       },
     });
     expect(json.result.tools[0]?.description).toContain(
-      "Filtered aggregates are not supported",
+      "up to three AND/OR filters",
     );
     expect(
       json.result.tools[0]?.inputSchema.properties.filterColumn?.description,
-    ).toContain("operation=table_filter");
+    ).toContain("Legacy single-predicate");
     expect(
       json.result.tools[0]?.inputSchema.properties.filterValue?.type,
     ).toEqual(["string", "number", "boolean"]);
+    expect(json.result.tools[0]?.inputSchema.properties.filters).toMatchObject({
+      type: "array",
+      minItems: 1,
+      maxItems: 3,
+    });
+    expect(
+      json.result.tools[0]?.inputSchema.properties.groupByDatePart,
+    ).toMatchObject({
+      type: "string",
+      enum: expect.arrayContaining([
+        "year",
+        "quarter",
+        "month",
+        "week",
+        "day_of_week",
+        "is_weekend",
+      ]),
+    });
   });
 
   it("rejects a resource id that was not selected for this user/thread/run", async () => {
