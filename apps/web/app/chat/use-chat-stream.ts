@@ -1,3 +1,4 @@
+import posthog from "posthog-js";
 import { parseAppDraftVersionSummaries } from "@/lib/app-draft-versions";
 import type { ChatAttachment } from "@/lib/attachments";
 import { throwApiError } from "@/lib/client-api";
@@ -145,6 +146,13 @@ export function useChatStream({
             : "Thinking…",
         },
       ];
+    });
+
+    posthog.capture("chat_message_sent", {
+      model_id: requestedModelId,
+      has_attachments: (attachments?.length ?? 0) > 0,
+      is_edit: Boolean(replaceMessageId),
+      has_activated_skill: Boolean(activatedSkill),
     });
 
     stickToBottomRef.current = true;

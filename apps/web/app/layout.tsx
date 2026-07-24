@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { AlphaBadge } from "@/components/AlphaBadge";
 import { CommandPaletteProvider } from "@/components/CommandPalette";
+import { PostHogPageView } from "@/components/PostHogPageView";
 import { UiPreferencesSync } from "@/components/UiPreferencesSync";
 import "./globals.css";
 
@@ -124,6 +125,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="bg-canvas text-ink antialiased">
+        <PostHogPageView />
         <UiPreferencesSync />
         <AlphaBadge />
         <CommandPaletteProvider>{children}</CommandPaletteProvider>

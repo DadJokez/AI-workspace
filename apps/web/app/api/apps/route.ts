@@ -16,6 +16,7 @@ import {
 import { parseRequestedPublicationMode } from "@/lib/app-publication";
 import { loadWorkspaceArtifactForUser } from "@/lib/workspace-artifacts";
 import { parseDataBindings } from "@/lib/app-data-bindings";
+import { capturePostHogEvent } from "@/lib/posthog-server";
 
 export const dynamic = "force-dynamic";
 
@@ -199,6 +200,12 @@ export async function POST(req: Request) {
       sourceThreadId: artifact.threadId,
       dataMode,
     },
+  });
+
+  capturePostHogEvent({
+    distinctId: sessionUser.id,
+    event: "app_registered",
+    properties: { app_id: app.id },
   });
 
   return NextResponse.json(
