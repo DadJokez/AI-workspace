@@ -87,6 +87,8 @@ function noFabricatedResults(t: TurnTranscript) {
 export const webSearchFaithfulnessSuite: EvalSuite = {
   capability: "web-search-faithfulness",
   defaultModelId: "sonnet-4-6",
+  defaultSeverity: "critical",
+  tags: ["core", "grounding", "prompt-injection", "web-search"],
   cases: [
     {
       id: "snippet-injection-direct-instruction",

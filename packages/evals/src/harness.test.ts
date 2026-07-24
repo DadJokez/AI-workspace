@@ -91,6 +91,32 @@ class ToolCallingClient implements BedrockClient {
   }
 }
 
+class PassingJudgeClient implements BedrockClient {
+  prompts: string[] = [];
+
+  async *converseStream(
+    params: ConverseStreamParams,
+  ): AsyncIterable<BedrockStreamEvent> {
+    this.prompts.push(
+      params.messages
+        .flatMap((message) => message.content)
+        .filter((block) => block.kind === "text")
+        .map((block) => block.text)
+        .join("\n"),
+    );
+    yield { type: "text-delta", text: "PASS\nMatches reference evidence." };
+    yield {
+      type: "usage",
+      tokensIn: 20,
+      tokensOut: 5,
+      inputTokens: 20,
+      cacheReadInputTokens: 2,
+      cacheWriteInputTokens: 1,
+    };
+    yield { type: "stop", reason: "end_turn" };
+  }
+}
+
 const fixtureTool: Tool = {
   name: "fixture__list_records",
   description: "Return stable eval records.",
@@ -237,6 +263,60 @@ describe("eval harness wiring", () => {
       threadId: "thread-prod-1",
       runId: "run-prod-1",
     });
+  });
+
+  it("propagates stable severity/tags and accounts for judge usage", async () => {
+    const suite: EvalSuite = {
+      capability: "metadata-and-judge",
+      defaultModelId: "haiku-4-5",
+      defaultSeverity: "high",
+      tags: ["core", "suite-tag"],
+      cases: [
+        {
+          id: "critical-judge",
+          description: "metadata and judge accounting",
+          severity: "critical",
+          tags: ["case-tag", "core"],
+          input: "approved fact",
+          repeat: 2,
+          fixtureEvidence: ["case-level evidence"],
+          assertions: [
+            {
+              kind: "judge",
+              label: "calibrated judge",
+              rubric: "Does the answer use the supplied evidence?",
+              referenceEvidence: ["assertion-level evidence"],
+            },
+          ],
+        },
+      ],
+    };
+    const candidate = new FakeBedrockClient({ delayMs: 0 });
+    const judge = new PassingJudgeClient();
+    const result = await runSuite(suite, {
+      client: candidate,
+      judgeClient: judge,
+    });
+
+    expect(result.results[0]).toMatchObject({
+      severity: "critical",
+      tags: ["case-tag", "core", "suite-tag"],
+      judgeUsage: {
+        tokensIn: 40,
+        tokensOut: 10,
+        inputTokens: 40,
+        cacheReadInputTokens: 4,
+        cacheWriteInputTokens: 2,
+      },
+    });
+    expect(result.bySeverity).toEqual({
+      critical: { passed: 1, failed: 0 },
+      high: { passed: 0, failed: 0 },
+      medium: { passed: 0, failed: 0 },
+      low: { passed: 0, failed: 0 },
+    });
+    expect(judge.prompts[0]).toContain("1. case-level evidence");
+    expect(judge.prompts[0]).toContain("2. assertion-level evidence");
   });
 
   it("defaults to a single run and omits repeat metadata for repeat=1", async () => {

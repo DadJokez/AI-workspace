@@ -1,11 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { createElement } from "react";
 import type { MutableRefObject } from "react";
+import { renderToString } from "react-dom/server";
+import { describe, expect, it } from "vitest";
 import type { UiMessage } from "@/app/chat/chat-client-state";
+import { MessageBubble } from "@/components/MessageBubble";
 import {
   areChatMessageRowPropsEqual,
   type ChatMessageRowActions,
   type ChatMessageRowProps,
 } from "@/components/chat/ChatMessageRow";
+import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 
 const message: UiMessage = {
   id: "assistant-1",
@@ -105,5 +109,74 @@ describe("chat message row memoization", () => {
     };
 
     expect(areChatMessageRowPropsEqual(previous, next)).toBe(false);
+  });
+});
+
+describe("user message attachments", () => {
+  it("keeps the filename visible in the optimistic sent bubble", () => {
+    const html = renderToString(
+      createElement(MessageBubble, {
+        role: "user",
+        content: "Analyze this.\n\n📎 1 file attached",
+        attachmentPreviews: [
+          { name: "core-eval-canary.csv", sizeBytes: 42 },
+        ],
+      }),
+    );
+
+    expect(html).toContain('data-testid="message-attachment-pill"');
+    expect(html).toContain("core-eval-canary.csv");
+  });
+
+  it("keeps distinct same-named uploads visible", () => {
+    const html = renderToString(
+      createElement(MessageBubble, {
+        role: "user",
+        content: "Compare these.",
+        attachmentPreviews: [
+          { name: "report.csv", sizeBytes: 42 },
+          { name: "report.csv", sizeBytes: 84 },
+        ],
+      }),
+    );
+
+    expect(html.match(/data-testid="message-attachment-pill"/g)).toHaveLength(2);
+    expect(html).toContain("42 B");
+    expect(html).toContain("84 B");
+  });
+
+  it("rehydrates the filename from the persisted user-upload artifact", () => {
+    const artifact: WorkspaceArtifactSummary = {
+      id: "artifact-upload",
+      title: "core-eval-canary.csv",
+      filename: "core-eval-canary.csv",
+      kind: "spreadsheet",
+      mimeType: "text/csv",
+      sizeBytes: 42,
+      source: "user-upload",
+      threadId: "thread-1",
+      chatMessageId: "message-1",
+      runId: null,
+      artifactGroupId: "artifact-upload",
+      versionNumber: 1,
+      supersedesArtifactId: null,
+      versionSummary: null,
+      createdAt: "2026-07-23T12:00:00.000Z",
+      previewUrl: "/workspace/artifacts/artifact-upload",
+      downloadUrl: "/api/workspace/artifacts/artifact-upload/download",
+    };
+    const html = renderToString(
+      createElement(MessageBubble, {
+        role: "user",
+        content: "Analyze this.",
+        artifacts: [artifact],
+        onOpenArtifact: () => undefined,
+      }),
+    );
+
+    expect(html).toContain("core-eval-canary.csv");
+    expect(html).toContain(
+      'aria-label="Open attached file core-eval-canary.csv"',
+    );
   });
 });

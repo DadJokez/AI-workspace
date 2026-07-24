@@ -51,6 +51,15 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # Free, deterministic eval lane: exercise every suite/case definition
+      # and replay every scrubbed alpha failure transcript on every required
+      # CI run. Real model behavior is handled by the bounded PR/nightly jobs.
+      - name: Structural full eval smoke
+        run: pnpm eval --mock
+
+      - name: Golden transcript replay
+        run: pnpm transcripts:replay
+
       - name: Build
         run: pnpm build
 

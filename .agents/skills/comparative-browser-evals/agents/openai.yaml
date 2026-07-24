@@ -1,0 +1,4 @@
+interface:
+  display_name: "Comparative Browser Evals"
+  short_description: "Run agent-as-user browser canaries"
+  default_prompt: "Use $comparative-browser-evals to run the Comparative agent-as-user browser canaries and return a structured scorecard."

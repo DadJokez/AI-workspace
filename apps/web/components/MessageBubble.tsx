@@ -52,6 +52,7 @@ interface Props {
   liveTokens?: number;
   pending?: boolean;
   status?: string;
+  attachmentPreviews?: Array<{ name: string; sizeBytes?: number }>;
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
   artifacts?: WorkspaceArtifactSummary[];
@@ -98,6 +99,7 @@ export function MessageBubble({
   liveTokens,
   pending,
   status,
+  attachmentPreviews = [],
   toolCalls = [],
   toolResults = [],
   artifacts = [],
@@ -126,53 +128,64 @@ export function MessageBubble({
 
   if (role === "user") {
     const slashDisplay = parseSlashDisplayMessage(content);
+    const attachedFiles = userAttachmentItems(artifacts, attachmentPreviews);
     return (
       <div
         data-testid="user-message"
-        className="group flex w-full min-w-0 max-w-full items-center justify-end overflow-hidden"
+        className="group flex w-full min-w-0 max-w-full flex-col items-end gap-1.5 overflow-hidden"
       >
-        {timestamp ? (
-          <time
-            dateTime={timestamp.iso}
-            title={timestamp.iso}
-            data-testid="user-message-time"
-            className="mr-1 shrink-0 text-2xs text-muted opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
+        <div className="flex w-full min-w-0 items-center justify-end">
+          {timestamp ? (
+            <time
+              dateTime={timestamp.iso}
+              title={timestamp.iso}
+              data-testid="user-message-time"
+              className="mr-1 shrink-0 text-2xs text-muted opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
+            >
+              {timestamp.label}
+            </time>
+          ) : null}
+          {onEdit ? (
+            <button
+              type="button"
+              onClick={onEdit}
+              aria-label="Edit message"
+              title="Edit message"
+              className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted opacity-70 transition-[color,opacity,background-color] hover:bg-subtle hover:text-ink focus-visible:bg-subtle focus-visible:text-ink focus-visible:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
+            >
+              <PencilIcon />
+            </button>
+          ) : null}
+          <div
+            data-testid="user-message-content"
+            className="max-w-[80%] overflow-hidden rounded-lg bg-subtle px-3.5 py-2 text-base leading-relaxed text-ink [overflow-wrap:anywhere]"
           >
-            {timestamp.label}
-          </time>
-        ) : null}
-        {onEdit ? (
-          <button
-            type="button"
-            onClick={onEdit}
-            aria-label="Edit message"
-            title="Edit message"
-            className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted opacity-70 transition-[color,opacity,background-color] hover:bg-subtle hover:text-ink focus-visible:bg-subtle focus-visible:text-ink focus-visible:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
-          >
-            <PencilIcon />
-          </button>
-        ) : null}
-        <div
-          data-testid="user-message-content"
-          className="max-w-[80%] overflow-hidden rounded-lg bg-subtle px-3.5 py-2 text-base leading-relaxed text-ink [overflow-wrap:anywhere]"
-        >
-          {slashDisplay ? (
-            <span className="flex flex-wrap items-center gap-1.5">
-              <span
-                data-testid="slash-capability-pill"
-                className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 py-0.5 font-mono text-xs text-ink"
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-info" />
-                {slashDisplay.token}
+            {slashDisplay ? (
+              <span className="flex flex-wrap items-center gap-1.5">
+                <span
+                  data-testid="slash-capability-pill"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 py-0.5 font-mono text-xs text-ink"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-info" />
+                  {slashDisplay.token}
+                </span>
+                {slashDisplay.body ? (
+                  <span className="whitespace-pre-wrap">
+                    {slashDisplay.body}
+                  </span>
+                ) : null}
               </span>
-              {slashDisplay.body ? (
-                <span className="whitespace-pre-wrap">{slashDisplay.body}</span>
-              ) : null}
-            </span>
-          ) : (
-            <UserMarkdown content={content} />
-          )}
+            ) : (
+              <UserMarkdown content={content} />
+            )}
+          </div>
         </div>
+        {attachedFiles.length > 0 ? (
+          <UserAttachmentStrip
+            files={attachedFiles}
+            onOpenArtifact={onOpenArtifact}
+          />
+        ) : null}
       </div>
     );
   }
@@ -346,6 +359,95 @@ function UserMarkdown({ content }: { content: string }) {
     >
       {content}
     </ReactMarkdown>
+  );
+}
+
+interface UserAttachmentItem {
+  key: string;
+  name: string;
+  sizeBytes?: number;
+  artifact?: WorkspaceArtifactSummary;
+}
+
+function userAttachmentItems(
+  artifacts: readonly WorkspaceArtifactSummary[],
+  previews: readonly { name: string; sizeBytes?: number }[],
+): UserAttachmentItem[] {
+  const items: UserAttachmentItem[] = previews.map((preview, index) => ({
+    key: `preview:${index}:${preview.name}`,
+    ...preview,
+  }));
+  for (const artifact of artifacts) {
+    if (artifact.source !== "user-upload") continue;
+    const persisted: UserAttachmentItem = {
+      key: `artifact:${artifact.id}`,
+      name: artifact.filename,
+      sizeBytes: artifact.sizeBytes,
+      artifact,
+    };
+    const previewIndex = items.findIndex(
+      (item) => !item.artifact && item.name === artifact.filename,
+    );
+    if (previewIndex >= 0) {
+      items[previewIndex] = persisted;
+    } else {
+      items.push(persisted);
+    }
+  }
+  return items;
+}
+
+function UserAttachmentStrip({
+  files,
+  onOpenArtifact,
+}: {
+  files: readonly UserAttachmentItem[];
+  onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+}) {
+  return (
+    <div
+      data-testid="message-attachments"
+      aria-label="Attached files"
+      className="flex max-w-[80%] flex-wrap justify-end gap-1.5"
+    >
+      {files.map((file) => {
+        const content = (
+          <>
+            <span className="shrink-0 font-mono text-2xs uppercase text-muted">
+              File
+            </span>
+            <span className="min-w-0 truncate font-medium">{file.name}</span>
+            {typeof file.sizeBytes === "number" ? (
+              <span className="shrink-0 text-muted">
+                {formatBytes(file.sizeBytes)}
+              </span>
+            ) : null}
+          </>
+        );
+        const className =
+          "flex max-w-full items-center gap-1.5 rounded-md border border-hairline bg-canvas px-2 py-1 text-left text-xs text-ink";
+        return file.artifact && onOpenArtifact ? (
+          <button
+            key={file.key}
+            type="button"
+            data-testid="message-attachment-pill"
+            aria-label={`Open attached file ${file.name}`}
+            className={`${className} transition hover:bg-subtle`}
+            onClick={() => onOpenArtifact(file.artifact!)}
+          >
+            {content}
+          </button>
+        ) : (
+          <span
+            key={file.key}
+            data-testid="message-attachment-pill"
+            className={className}
+          >
+            {content}
+          </span>
+        );
+      })}
+    </div>
   );
 }
 

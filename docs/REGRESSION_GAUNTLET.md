@@ -9,14 +9,17 @@ checks the deployed public surface.
 
 | Layer | Command / workflow | Runs | Catches |
 | --- | --- | --- | --- |
-| Unit + contract tests | `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` | Every PR and `main` push via `CI` | Type errors, route contracts, auth checks, DB helper behavior, artifact parsing, routing policy, tool honesty helpers |
+| Unit + contract tests | `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm eval --mock`, `pnpm transcripts:replay`, `pnpm build` | Every PR and `main` push via `CI` | Type errors, route contracts, auth checks, DB helper behavior, artifact parsing, routing policy, tool honesty helpers, all 126 eval definitions, and scrubbed alpha-failure transcript regressions |
 | Browser smoke + feature suite | `pnpm smoke:browser` | Every PR and `main` push via `Product Smoke` | The app boots in a real browser, login renders, auth redirect works, theme toggle persists, public model metadata works, anonymous chat is guarded, and local mocked chat flows cover uploads, artifacts, tools, skills, chat download, conversation navigation, retry, Tools, Settings, Vault memory, and persona gating |
+| Real core chat/file pipeline | `pnpm smoke:browser:core` | Every PR and `main` push inside the required `local browser smoke` fan-in, plus every six-hour schedule/manual dispatch | A canary CSV survives the real browser → `/api/chat` → Postgres → agent/resource tool → SSE UI path, thread reload, and a later follow-up without any `/api/chat` interception |
 | Authenticated browser smoke | `pnpm smoke:browser:auth` | Every PR and `main` push via `Product Smoke` | Real protected-route access with a test-only NextAuth JWT, disposable Postgres fixtures for the signed-in user and skills catalog, signed-in chat, uploads, generated artifact preview, recommendations, artifacts menu, and transcript download |
 | Production public smoke | `pnpm smoke:prod` | Scheduled every 6 hours and manual dispatch via `Product Smoke` | Public deployment health, DB/runtime health, login page, protected redirect, model metadata, anonymous chat guard |
 | Production authenticated smoke | `pnpm smoke:prod:auth` | CodeBuild after ECS services stabilize | Signed-in DB/runtime health, locked-down smoke identity, scoped thread access, live signed-in chat, persisted markdown artifact, durable large-upload follow-up, artifact listing, server-side transcript export, AgentCore execution, and failed/stale smoke-run backlog checks |
 | Production resource matrix | `pnpm smoke:prod:auth -- --resource-matrix` | Explicit release gate for file-runtime changes | Authenticated upload and later-turn recovery for TXT, CSV, TSV, XLSX, PDF, DOCX, PPTX, PNG, JPG, JPEG, and WebP; stable registry metadata; deterministic complete-source results; full-coverage run receipts; no duplicate artifacts or persisted file excerpts |
-| Real-model evals | `pnpm eval` | Nightly and manual via `Nightly Evals` | Model/prompt/harness regressions: Sonnet 4.6 semantic tool routing and no-tool cases, date grounding, Vault truthfulness, fixture-backed GitHub tool routing, tool honesty, skill faithfulness, recommendation faithfulness, artifact content treated as inert data, memory-capture secret redaction, provider-missing skill honesty, Gmail/Calendar faithfulness (email-body injection resistance, attestation/empty-result/disconnected/scope/tool-error honesty), and flagship Meeting Prep/Weekly Status artifact grounding across GitHub, Gmail, and Calendar |
-| Golden transcript replay | `pnpm transcripts:replay` | Manual today; CI candidate after fixture count grows | Downloaded chat regressions: denied Vault/tool/artifact access, model label mismatch, competitor-identity claims, missing artifact evidence, missing attachment evidence, manual save instructions after artifact creation, in-place artifact revision (same filename), and cross-thread artifact reference by name |
+| Foundational real-model evals | `pnpm eval --core` | Every ready same-repository PR inside `Product Smoke` and its required `local browser smoke` fan-in | Core model, prompt, grounding, context, tool, file, and artifact regressions before merge; forked code never receives AWS credentials |
+| Comprehensive real-model evals | Independent `pnpm eval` and real-model CSV browser lanes | Nightly at 07:00 UTC and manual via `Nightly Evals` | Full model/prompt/harness regressions plus a separately isolated lane combining real Bedrock with the production preamble, browser, chat API, Postgres, resource serialization, SSE, reload, and follow-up |
+| Codex agent-as-user browser canaries | `$comparative-browser-evals` in the Codex in-app Browser | Local nightly advisory task and manual pre-release runs | Whether an agent can discover and complete CSV continuity and artifact lifecycle workflows through visible deployed UI; emits exact `PASS`/`FAIL`/`BLOCKED` scorecards and screenshots |
+| Golden transcript replay | `pnpm transcripts:replay` | Every PR and `main` push inside required `CI` | Downloaded chat regressions: denied Vault/tool/artifact access, model label mismatch, competitor-identity claims, missing artifact evidence, missing attachment evidence, manual save instructions after artifact creation, in-place artifact revision (same filename), and cross-thread artifact reference by name |
 | Manual visual QA | `docs/QA_CHECKLIST.md` | Before large UX releases | Visual polish, mobile ergonomics, artifact preview feel, activity receipts, edge cases that still need judgment |
 
 ## Current Automated Coverage
@@ -28,11 +31,11 @@ checks the deployed public surface.
 | Chat API guardrails | Yes | Anonymous guard + signed-in browser smoke | Anonymous guard + signed-in post-deploy smoke | No | Need broader authenticated SSE contract cases in CI |
 | Fast chat routing | Yes | No | Signed-in inline artifact smoke | Partial | Need additional production lanes for tool and worker routes |
 | Tool/Vault/context honesty | Yes | Vault mocked locally | No | Yes | Fixture-backed GitHub tool evals cover required calls, pending approval, tool errors, and connected-but-not-mounted honesty; live third-party fixture accounts remain future hardening |
-| Durable conversation resources | Yes: all accepted extensions at three large sizes, complete adapters, resolver, authorization, receipts | Upload → follow-up → refresh → follow-up | Large CSV continuity on every deploy; full format matrix on file-runtime releases | No | Add a recurring model-vision eval after the production image fixtures prove stable |
+| Durable conversation resources | Yes: all accepted extensions at three large sizes, complete adapters, resolver, authorization, receipts | Upload → follow-up → refresh → follow-up | Large CSV continuity on every deploy; full format matrix on file-runtime releases | Yes: 12 production-shaped fixture cases plus nightly real-app/real-Bedrock CSV | Add a recurring model-vision eval after the production image fixtures prove stable |
 | Artifact creation + preview | Yes | Mocked local feature flow + signed-in smoke | Persisted artifact API listing | Partial | Browser preview remains local smoke only |
 | Chat download | Yes | Mocked local feature flow + signed-in smoke | Server-side transcript export | No | Browser download button remains local smoke only |
 | Tool activity receipts | Yes | Mocked local feature flow | No | Yes | Need live tool fixture evals with test data |
-| Downloaded chat failure replay | Yes | No | No | No | Golden transcript replay now covers exported-chat bug classes; wire into CI after more fixtures accumulate |
+| Downloaded chat failure replay | Yes | No | No | No | Golden transcript replay is required in CI; add fixtures whenever an exported-chat bug is found |
 | Skills and recommendations | Yes | Mocked local chat + signed-in skills fixture + recommendation action smoke | No | Yes | Meeting Prep and Weekly Status use deterministic provider fixtures; live connected-account smoke remains manual |
 | Apps/deploy/update/invite | Partial | No | No | No | Still roadmap work; add E2E as features land |
 | Mobile layout | Manual checklist | Login + mocked feature flows | No | No | Need authenticated mobile smoke once test session exists |
@@ -93,6 +96,7 @@ pnpm test
 pnpm build
 pnpm smoke:browser
 pnpm smoke:browser:auth
+pnpm smoke:browser:core
 pnpm smoke:prod
 pnpm smoke:prod:auth
 pnpm smoke:prod:auth -- --resource-matrix
@@ -104,9 +108,14 @@ pnpm transcripts:replay
 Real-model evals need Bedrock access:
 
 ```bash
+AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval --core
 AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval
 AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm --filter @ai-workspace/evals eval:routing
 ```
+
+The GitHub OIDC role, fail-closed workflow behavior, cost tripwires, and
+activation commands are documented in
+[`EVAL_AUTOMATION_SETUP.md`](./EVAL_AUTOMATION_SETUP.md).
 
 Production smoke defaults to `https://comparative.builtwithrobot.link`; override
 it for preview environments:
