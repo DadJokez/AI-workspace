@@ -72,6 +72,7 @@ export function useChatStream({
   stickToBottomRef,
 }: UseChatStreamOptions): {
   send: SendChatMessage;
+  detachStreaming: () => void;
   stopStreaming: () => Promise<void>;
 } {
   const streamAbortRef = useRef<ActiveChatStream | null>(null);
@@ -519,6 +520,7 @@ export function useChatStream({
         activeStream.runId ??
         (await waitForRunId(activeStream.runIdReady, 5_000));
       if (!runId) {
+        if (streamAbortRef.current !== activeStream) return;
         patchTab(activeStream.tabId, {
           error:
             "Comparative could not identify the active run, so it was not stopped. Try Stop again.",
@@ -558,7 +560,16 @@ export function useChatStream({
     }
   }
 
-  return { send, stopStreaming };
+  function detachStreaming() {
+    const activeStream = streamAbortRef.current;
+    if (!activeStream) return;
+    activeStream.abort.abort();
+    if (streamAbortRef.current === activeStream) {
+      streamAbortRef.current = null;
+    }
+  }
+
+  return { detachStreaming, send, stopStreaming };
 }
 
 async function waitForRunId(

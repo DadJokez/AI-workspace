@@ -241,6 +241,199 @@ test.describe("chat workflow regressions", () => {
     ).toBeVisible();
   });
 
+  test("switching chats detaches a worker stream without canceling its run", async ({
+    page,
+  }, testInfo) => {
+    const activeThreadId = "thread-worker-active";
+    const otherThreadId = "thread-worker-other";
+    const runId = "run-worker-active";
+    const threadMessages: Record<string, unknown[]> = {
+      [otherThreadId]: [
+        userMessage({ id: "user-other", content: "Other chat question" }),
+        assistantMessage({
+          id: "assistant-other",
+          content: "Other chat answer.",
+        }),
+      ],
+    };
+    await installMockComparativeApi(page, {
+      threads: [
+        threadSummary(activeThreadId, "Background worker chat"),
+        threadSummary(otherThreadId, "Other chat"),
+      ],
+      threadMessages,
+    });
+    await page.addInitScript(
+      ({ activeThreadId, runId }) => {
+        type DetachHarness = { events: string[] };
+        const browser = window as typeof window & {
+          __detachHarness?: DetachHarness;
+        };
+        const originalFetch = window.fetch.bind(window);
+        const harness: DetachHarness = { events: [] };
+        browser.__detachHarness = harness;
+
+        window.fetch = async (input, init) => {
+          const requestUrl =
+            typeof input === "string"
+              ? input
+              : input instanceof Request
+                ? input.url
+                : input.toString();
+          const path = new URL(requestUrl, window.location.origin).pathname;
+          const method = (
+            init?.method ??
+            (input instanceof Request ? input.method : "GET")
+          ).toUpperCase();
+
+          if (path === "/api/chat" && method === "POST") {
+            const encoder = new TextEncoder();
+            const event = (value: unknown) =>
+              encoder.encode(`data: ${JSON.stringify(value)}\n\n`);
+            const signal =
+              init?.signal ?? (input instanceof Request ? input.signal : null);
+            return new Response(
+              new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(
+                    event({
+                      type: "meta",
+                      threadId: activeThreadId,
+                      runId,
+                      userMessageId: "user-worker-active",
+                      modelId: "sonnet-4-6",
+                      runtimeRoute: {
+                        useWorker: true,
+                        lane: "durable-local",
+                      },
+                    }),
+                  );
+                  controller.enqueue(
+                    event({
+                      type: "queued",
+                      runId,
+                      status: "Working in background",
+                    }),
+                  );
+                  harness.events.push("stream-open");
+                  signal?.addEventListener(
+                    "abort",
+                    () => {
+                      harness.events.push("detached");
+                      controller.error(
+                        new DOMException(
+                          "The operation was aborted.",
+                          "AbortError",
+                        ),
+                      );
+                    },
+                    { once: true },
+                  );
+                },
+              }),
+              {
+                headers: {
+                  "content-type": "text/event-stream; charset=utf-8",
+                },
+              },
+            );
+          }
+
+          if (
+            path === `/api/runs/${runId}/cancel` &&
+            method === "POST"
+          ) {
+            harness.events.push("cancel");
+            return new Response(
+              JSON.stringify({ run: { id: runId, status: "canceled" } }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              },
+            );
+          }
+
+          return originalFetch(input, init);
+        };
+      },
+      { activeThreadId, runId },
+    );
+
+    await gotoE2EChat(page);
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Finish this report in the background.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(
+      page.getByRole("button", { name: "Stop generating" }),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              window as typeof window & {
+                __detachHarness?: { events: string[] };
+              }
+            ).__detachHarness?.events ?? [],
+        ),
+      )
+      .toEqual(["stream-open"]);
+
+    let sidebar = await openPrimarySidebar(
+      page,
+      testInfo.project.name.includes("mobile"),
+    );
+    await sidebar.getByRole("button", { name: "Other chat" }).click();
+    await expect(page.getByText("Other chat answer.")).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              window as typeof window & {
+                __detachHarness?: { events: string[] };
+              }
+            ).__detachHarness?.events ?? [],
+        ),
+      )
+      .toEqual(["stream-open", "detached"]);
+
+    threadMessages[activeThreadId] = [
+      userMessage({
+        id: "user-worker-active",
+        content: "Finish this report in the background.",
+      }),
+      assistantMessage({
+        id: "assistant-worker-active",
+        content: "Background worker result survived the chat switch.",
+        runId,
+        runStatus: "succeeded",
+      }),
+    ];
+
+    sidebar = await openPrimarySidebar(
+      page,
+      testInfo.project.name.includes("mobile"),
+    );
+    await sidebar
+      .getByRole("button", { name: "Background worker chat" })
+      .click();
+    await expect(
+      page.getByText("Background worker result survived the chat switch."),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () =>
+          (
+            window as typeof window & {
+              __detachHarness?: { events: string[] };
+            }
+          ).__detachHarness?.events.includes("cancel") ?? false,
+      ),
+    ).toBe(false);
+  });
+
   test("downloads a reloaded thread through the protected export endpoint", async ({
     page,
     isMobile,

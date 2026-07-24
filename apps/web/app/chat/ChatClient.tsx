@@ -193,7 +193,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   });
 
   function newTab() {
-    void stopStreaming();
+    detachStreaming();
     resetTab();
     setRightPane(null);
   }
@@ -204,7 +204,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     initialMessages: UiMessage[] = [],
   ) {
     setRightPane(null);
-    if (activeTab?.threadId !== threadId) void stopStreaming();
+    if (activeTab?.threadId !== threadId) detachStreaming();
     selectThread(threadId, title, initialMessages);
   }
 
@@ -246,7 +246,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     if (!activeTab.threadId) downloadChatTranscript(activeTab);
   }
 
-  const { send, stopStreaming } = useChatStream({
+  const { detachStreaming, send, stopStreaming } = useChatStream({
     activeTab,
     defaultModelId,
     patchTab,
