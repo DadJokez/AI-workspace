@@ -202,6 +202,22 @@ describe("tool redaction", () => {
     ).toBe(
       "Resource validation error: The requested column was not found in the selected sheet.",
     );
+    expect(
+      redactProviderToolError(
+        "resources",
+        "filters must contain between 1 and 3 predicates.",
+      ),
+    ).toBe(
+      "Resource validation error: filters must contain between 1 and 3 predicates.",
+    );
+    expect(
+      redactProviderToolError(
+        "resources",
+        "groupByColumn is required when groupByDatePart is set.",
+      ),
+    ).toBe(
+      "Resource validation error: groupByColumn is required when groupByDatePart is set.",
+    );
   });
 
   it("keeps arbitrary resource errors redacted", () => {
