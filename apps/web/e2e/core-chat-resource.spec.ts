@@ -20,6 +20,7 @@ const CSV_CUSTOMER = "CSV_CANARY_7391";
 const CSV_REVENUE = "48217";
 const REAL_MODEL = process.env.PLAYWRIGHT_CORE_REAL_MODEL === "1";
 const ANSWER_TIMEOUT_MS = REAL_MODEL ? 90_000 : 30_000;
+const STARTUP_TIMEOUT_MS = REAL_MODEL ? 120_000 : 90_000;
 const FIRST_PROMPT =
   "Find CSV_CANARY_7391 in core-eval-canary.csv and report its revenue. Use the file itself.";
 const FOLLOW_UP =
@@ -35,7 +36,7 @@ test.describe("core chat resource pipeline", () => {
   test("keeps a CSV visible and grounded through real chat, MCP, persistence, reload, and follow-up", async ({
     page,
   }, testInfo) => {
-    test.setTimeout(REAL_MODEL ? 180_000 : 90_000);
+    test.setTimeout(REAL_MODEL ? 300_000 : 240_000);
     let realChatRequestCount = 0;
     page.on("request", (request) => {
       if (
@@ -46,8 +47,33 @@ test.describe("core chat resource pipeline", () => {
       }
     });
 
+    // A clean Next.js dev server compiles the chat page and initial API routes
+    // on demand. On a two-core CI runner that cold start can exceed 15 seconds,
+    // so wait for the real resource responses instead of treating compilation
+    // time as a disabled-composer regression.
+    const modelsReady = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === "/api/models",
+      { timeout: STARTUP_TIMEOUT_MS },
+    );
+    const threadsReady = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === "/api/threads",
+      { timeout: STARTUP_TIMEOUT_MS },
+    );
     await page.goto("/chat");
     await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+    const [modelsResponse, threadsResponse] = await Promise.all([
+      modelsReady,
+      threadsReady,
+    ]);
+    expect(modelsResponse.status()).toBe(200);
+    expect(threadsResponse.status()).toBe(200);
+    expect(
+      ((await modelsResponse.json()) as { models?: unknown[] }).models?.length,
+    ).toBeGreaterThan(0);
 
     const fileInput = page.getByTestId("chat-file-input");
     await expect(fileInput).toBeEnabled({ timeout: 15_000 });
