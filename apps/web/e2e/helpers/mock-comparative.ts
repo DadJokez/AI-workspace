@@ -94,6 +94,7 @@ interface MockMemoryItem {
   reason: string | null;
   sourceThreadId: string | null;
   sourceMessageIds: string[];
+  provenance: "user_stated" | "user_cited" | "unverified";
   suggestedBy: string;
   approvedAt: string | null;
   dismissedAt: string | null;
@@ -176,6 +177,7 @@ export const defaultVaultSuggestion = memoryItem({
   reason: "Mentioned while planning the QA workflow.",
   sourceThreadId: "thread-qa-plan",
   sourceMessageIds: ["message-qa-1", "message-qa-2"],
+  provenance: "user_cited",
 });
 
 export const defaultVaultApproved = memoryItem({
@@ -727,6 +729,7 @@ export function memoryItem(
     reason: null,
     sourceThreadId: null,
     sourceMessageIds: [],
+    provenance: "user_stated",
     suggestedBy: "memory_capture",
     approvedAt: null,
     dismissedAt: null,

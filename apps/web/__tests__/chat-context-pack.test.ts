@@ -541,6 +541,46 @@ describe("chat context pack", () => {
     );
   });
 
+  it("mounts exact-output constraints only in the volatile current-turn layer", () => {
+    const ordinary = buildChatContextPack({
+      ...baseInput(),
+      messages: [{ role: "user", content: "What exactly happened?" }],
+    });
+    const exact = buildChatContextPack({
+      ...baseInput(),
+      messages: [
+        {
+          role: "user",
+          content:
+            "Return exactly two Markdown bullets and add nothing else.",
+        },
+      ],
+      vaultContextRequested: true,
+      vaultMarkdown:
+        "# Personal Context\n\n## Current Priorities\n- API is ready\n- Mobile QA is blocked",
+    });
+
+    expect(ordinary.prompt.volatileSystemSuffix).not.toContain(
+      "Exact-output contract",
+    );
+    expect(exact.prompt.systemPrompt).not.toContain("Exact-output contract");
+    expect(exact.prompt.volatileSystemSuffix).toContain(
+      "Exact-output contract for this turn",
+    );
+    expect(exact.prompt.volatileSystemSuffix).toContain(
+      "Approved memory and other context may supply facts",
+    );
+    expect(exact.receipts[0]?.contextItems).toContainEqual(
+      expect.objectContaining({
+        id: "turn:exact-output-contract",
+        source: "current_user_message",
+        freshness: "current_turn",
+        visibility: "hidden_prompt",
+        injected: true,
+      }),
+    );
+  });
+
   it("injects a compact capability graph summary into the prompt", () => {
     const capabilityGraph = buildCapabilityGraph({
       userId: "user-1",

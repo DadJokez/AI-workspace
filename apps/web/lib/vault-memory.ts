@@ -42,6 +42,7 @@ export interface SerializedMemoryItem {
   reason: string | null;
   sourceThreadId: string | null;
   sourceMessageIds: string[];
+  provenance: "user_stated" | "user_cited" | "unverified";
   suggestedBy: string;
   approvedAt: string | null;
   dismissedAt: string | null;
@@ -105,6 +106,7 @@ export function serializeMemoryItem(
     sourceMessageIds: Array.isArray(item.sourceMessageIds)
       ? item.sourceMessageIds
       : [],
+    provenance: memoryProvenance(item),
     suggestedBy: item.suggestedBy,
     approvedAt: item.approvedAt?.toISOString() ?? null,
     dismissedAt: item.dismissedAt?.toISOString() ?? null,
@@ -112,6 +114,28 @@ export function serializeMemoryItem(
     createdAt: item.createdAt.toISOString(),
     updatedAt: item.updatedAt.toISOString(),
   };
+}
+
+function memoryProvenance(
+  item: UserMemoryItem,
+): SerializedMemoryItem["provenance"] {
+  if (item.suggestedBy === "user" || item.suggestedBy === "onboarding") {
+    return "user_stated";
+  }
+  const metadata =
+    item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+      ? (item.metadata as Record<string, unknown>)
+      : null;
+  const provenance =
+    metadata?.provenance &&
+    typeof metadata.provenance === "object" &&
+    !Array.isArray(metadata.provenance)
+      ? (metadata.provenance as Record<string, unknown>)
+      : null;
+  return item.suggestedBy === "memory-capture:user-cited" &&
+    provenance?.sourceRole === "user"
+    ? "user_cited"
+    : "unverified";
 }
 
 export function normalizeMemoryCategory(value: string): string {

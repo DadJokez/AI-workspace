@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { AgentMessage } from "@ai-workspace/agent";
+import {
+  buildExactOutputContract,
+  type AgentMessage,
+} from "@ai-workspace/agent";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
 import {
   PINNED_PRECEDENCE_NOTE,
@@ -72,7 +75,8 @@ export interface ChatContextItem {
     | "recent_tool_evidence"
     | "conversation_resource"
     | "capability_graph"
-    | "recent_recommendation";
+    | "recent_recommendation"
+    | "output_contract";
   label: string;
   source: string;
   owner: ChatContextItemOwner;
@@ -271,6 +275,9 @@ export function buildChatContextPack({
   const hasConnectedToolState =
     providerStatus.connectedProviders.length > 0 || blockedProviders.length > 0;
   const hasCapabilityState = capabilityGraphHasEntries(capabilityGraph);
+  const exactOutputContract = buildExactOutputContract(
+    latestUserMessage(messages),
+  );
   const shouldRenderPreamble =
     forcePreamble ||
     Boolean(activeSkill) ||
@@ -470,6 +477,19 @@ export function buildChatContextPack({
       },
     }),
   );
+  const outputContractItem = exactOutputContract
+    ? contextItem({
+        id: "turn:exact-output-contract",
+        type: "output_contract",
+        label: "Exact output contract",
+        source: "current_user_message",
+        owner: "user",
+        freshness: "current_turn",
+        visibility: "hidden_prompt",
+        injected: true,
+        charCount: exactOutputContract.length,
+      })
+    : undefined;
   const contextItems = [
     ...profileFacts,
     ...(customInstructions ? [customInstructions] : []),
@@ -481,6 +501,7 @@ export function buildChatContextPack({
     ...resourceItems,
     ...(capabilityItem ? [capabilityItem] : []),
     ...recommendationItems,
+    ...(outputContractItem ? [outputContractItem] : []),
   ];
   const capabilityReceipt = buildCapabilityReceipt(capabilityGraph);
   const receipt: ChatContextReceipt = {
@@ -610,7 +631,7 @@ export function buildChatContextPack({
       activeSkill,
     );
   }
-  const volatileSystemSuffix = shouldRenderPreamble
+  const volatileSystemSuffix = shouldRenderPreamble || exactOutputContract
     ? [
         ...(resourceResolution
           ? [renderConversationResourceContext(resourceResolution), ""]
@@ -619,6 +640,7 @@ export function buildChatContextPack({
           ? [renderRecentRecommendationsForPrompt(recommendations), ""]
           : []),
         renderContextReceiptForPrompt(receipt),
+        ...(exactOutputContract ? ["", exactOutputContract] : []),
       ].join("\n")
     : undefined;
 
@@ -986,6 +1008,14 @@ function textLength(value: unknown): number {
   } catch {
     return 0;
   }
+}
+
+function latestUserMessage(messages: readonly AgentMessage[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "user") return message.content;
+  }
+  return "";
 }
 
 function countVaultMemoryItems(vault: string): number {

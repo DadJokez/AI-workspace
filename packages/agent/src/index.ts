@@ -75,5 +75,10 @@ export type { McpHttpServerSpec, McpToolConnection } from "./mcp";
 
 export { normalizeUserTimeZone, renderClockStatement } from "./timezone";
 
+export {
+  buildExactOutputContract,
+  EXACT_OUTPUT_CONTRACT,
+} from "./exact-output";
+
 export { extractAssistantSources, parseAssistantSources } from "./sources";
 export type { AssistantSource, AssistantSourceKind } from "./sources";

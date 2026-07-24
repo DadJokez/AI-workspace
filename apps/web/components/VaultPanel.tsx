@@ -22,6 +22,7 @@ interface MemoryItem {
   reason: string | null;
   sourceThreadId: string | null;
   sourceMessageIds: string[];
+  provenance: "user_stated" | "user_cited" | "unverified";
   suggestedBy: string;
   approvedAt: string | null;
   dismissedAt: string | null;
@@ -491,7 +492,10 @@ function MemorySuggestionCard({
   onDismiss: () => void;
 }) {
   return (
-    <div className="rounded-lg border border-hairline bg-canvas p-4">
+    <div
+      data-testid="vault-suggested-memory-card"
+      className="rounded-lg border border-hairline bg-canvas p-4"
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -629,10 +633,19 @@ function MemoryEvidence({
         <span>Manual or imported memory</span>
       )}
       {item.sourceMessageIds.length > 0 ? (
-        <span>
-          {item.sourceMessageIds.length} source{" "}
-          {item.sourceMessageIds.length === 1 ? "message" : "messages"}
-        </span>
+        <>
+          <span>
+            {item.provenance === "user_stated"
+              ? "User-stated"
+              : item.provenance === "user_cited"
+                ? "Cites user message"
+                : "Source role not verified"}
+          </span>
+          <span>
+            {item.sourceMessageIds.length} source{" "}
+            {item.sourceMessageIds.length === 1 ? "message" : "messages"}
+          </span>
+        </>
       ) : null}
       {item.reason ? (
         <span className="basis-full [overflow-wrap:anywhere]">

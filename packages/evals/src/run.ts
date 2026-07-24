@@ -22,6 +22,7 @@ import { toolEvidenceContinuitySuite } from "./cases/tool-evidence-continuity.ca
 import { foundationalChatSuite } from "./cases/foundational-chat.cases";
 import { fileResourceGroundingSuite } from "./cases/file-resource-grounding.cases";
 import { artifactOutputHonestySuite } from "./cases/artifact-output-honesty.cases";
+import { exactOutputSuite } from "./cases/exact-output.cases";
 import { estimateUsageCostUsd } from "./benchmarks/model-routing";
 import { JUDGE_MODEL_ID } from "./judge";
 
@@ -29,6 +30,7 @@ export const SUITES: EvalSuite[] = [
   foundationalChatSuite,
   fileResourceGroundingSuite,
   artifactOutputHonestySuite,
+  exactOutputSuite,
   dateGroundingSuite,
   skillFaithfulnessSuite,
   contextFaithfulnessSuite,
