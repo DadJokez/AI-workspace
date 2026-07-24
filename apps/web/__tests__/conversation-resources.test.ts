@@ -217,6 +217,35 @@ describe("conversation resource registry and resolver (#576)", () => {
     ]);
   });
 
+  it("keeps a prior selection for natural scoped follow-up questions", () => {
+    const report = resource(
+      "pipeline-report.csv",
+      "resource-pipeline",
+      "spreadsheet",
+    );
+    const previous = resolveConversationResources({
+      message: "Analyze pipeline-report.csv by segment",
+      resources: [report],
+    });
+
+    for (const message of [
+      "What about the enterprise segment?",
+      "And by month?",
+    ]) {
+      const result = resolveConversationResources({
+        message,
+        resources: [report],
+        previousResolution: previous,
+      });
+      expect(result.selected, message).toEqual([
+        expect.objectContaining({
+          resourceId: "resource-pipeline",
+          reason: "previous_run_receipt",
+        }),
+      ]);
+    }
+  });
+
   it("reports a pinned selection as unavailable when any resource was deleted", () => {
     const first = resource("north.csv", "resource-north", "spreadsheet");
     const second = resource("south.csv", "resource-south", "spreadsheet");

@@ -441,6 +441,33 @@ describe("matchArtifact", () => {
     ).toBeNull();
   });
 
+  it("#643 scores artifact tokens from the current turn only", () => {
+    const report = artifact({
+      title: "Quarterly Enterprise Pipeline",
+      filename: "quarterly-enterprise-pipeline.csv",
+      kind: "data",
+      mimeType: "text/csv",
+      threadId: "thread-current",
+    });
+    const lookup = buildArtifactLookupMessage(
+      [
+        {
+          role: "user",
+          content: "Review the quarterly enterprise pipeline artifact.",
+        },
+        {
+          role: "user",
+          content: "Review my open GitHub pull requests.",
+        },
+      ],
+      "Review my open GitHub pull requests.",
+    );
+
+    expect(
+      matchArtifact(lookup, [report], { threadId: "thread-current" }),
+    ).toBeNull();
+  });
+
   it("#643 treats an explicitly named new artifact as new despite overlapping tokens", () => {
     const library = [
       artifact({

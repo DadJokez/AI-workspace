@@ -137,12 +137,12 @@ export function matchArtifact(
       : null;
   if (exactCrossThreadMatch) return exactCrossThreadMatch;
 
-  const normalized = ` ${message.toLowerCase()} `;
+  const normalized = ` ${currentTurn.toLowerCase()} `;
   // Word-boundary tokens of the message (set membership), so the token "api"
   // matches the word "api" but NOT "therapist", and "plan" doesn't match
   // "planning". Raw substring matching pulled in unrelated artifacts.
   const messageTokens = new Set(
-    message
+    currentTurn
       .toLowerCase()
       .split(/[^a-z0-9]+/)
       .filter(Boolean),
@@ -164,7 +164,7 @@ export function matchArtifact(
       bestScore = hits;
     }
   }
-  return best ?? matchImplicitRevisionArtifact(message, artifacts, options);
+  return best ?? matchImplicitRevisionArtifact(currentTurn, artifacts, options);
 }
 
 export function matchImplicitRevisionArtifact(

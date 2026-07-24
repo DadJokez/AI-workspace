@@ -438,7 +438,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
         >
           <div className="mx-auto max-w-3xl">
             <ChatInput
-              key={activeTab?.id ?? "composer-loading"}
+              key={activeTab.id}
               onSubmit={send}
               disabled={inputDisabled}
               skills={slashSkills}

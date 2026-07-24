@@ -86,7 +86,7 @@ const DATA_QUESTION_RE =
 const PLURAL_REFERENCE_RE =
   /\b(?:compare|contrast|both|those|these|them|two|all)\b/i;
 const RESOURCE_CONTINUATION_RE =
-  /(?:^\s*(?:continue|resume|keep going|go on)[.!?]?\s*$|\b(?:continue|resume|keep going|go on)\s+(?:the\s+|this\s+|that\s+|our\s+|my\s+)?(?:file|document|spreadsheet|dataset|analysis|review)\b)/i;
+  /(?:^\s*(?:(?:continue|resume|keep going|go on)[.!?]?\s*$|(?:what|how) about\b|(?:and|also)\s+(?:what|how|which|where|when|why|by|for|the|any|show|compare|include|exclude|break|group|filter|sort)\b|(?:drill down|break (?:it|that|this) down|slice|segment|group|filter|sort)\b)|\b(?:continue|resume|keep going|go on)\s+(?:the\s+|this\s+|that\s+|our\s+|my\s+)?(?:file|document|spreadsheet|dataset|analysis|review)\b)/i;
 
 export function hasConversationResourceIntent(message: string): boolean {
   const value = message.trim();
@@ -345,9 +345,8 @@ export function resolveConversationResources({
     };
   }
 
-  // A prior receipt is a continuity hint, not permission to mount a file on
-  // every later turn. Unrelated chat, tool, and Skill requests must remain
-  // resource-free until the user refers to the file again.
+  // A prior receipt keeps short analytical follow-ups attached to the selected
+  // file, but does not mount it on unrelated chat, tool, or Skill requests.
   if (!intent) return emptyResolution(false);
 
   if (previousResolution?.status === "selected") {
