@@ -31,6 +31,216 @@ function threadSummary(id: string, title: string) {
 }
 
 test.describe("chat workflow regressions", () => {
+  test("durably cancels the active run before releasing the composer", async ({
+    page,
+  }) => {
+    await installMockComparativeApi(page);
+    await page.addInitScript(() => {
+      type CancelHarness = {
+        chatCount: number;
+        events: string[];
+        emitLateCompletion: () => boolean;
+      };
+      const browser = window as typeof window & {
+        __cancelHarness?: CancelHarness;
+      };
+      const originalFetch = window.fetch.bind(window);
+      const harness: CancelHarness = {
+        chatCount: 0,
+        events: [],
+        emitLateCompletion: () => false,
+      };
+      browser.__cancelHarness = harness;
+
+      window.fetch = async (input, init) => {
+        const requestUrl =
+          typeof input === "string"
+            ? input
+            : input instanceof Request
+              ? input.url
+              : input.toString();
+        const path = new URL(requestUrl, window.location.origin).pathname;
+        const method = (
+          init?.method ??
+          (input instanceof Request ? input.method : "GET")
+        ).toUpperCase();
+
+        if (path === "/api/chat" && method === "POST") {
+          harness.chatCount += 1;
+          const encoder = new TextEncoder();
+          const event = (value: unknown) =>
+            encoder.encode(`data: ${JSON.stringify(value)}\n\n`);
+
+          if (harness.chatCount > 1) {
+            return new Response(
+              [
+                {
+                  type: "meta",
+                  threadId: "thread-durable-cancel",
+                  runId: "run-recovery",
+                  userMessageId: "user-recovery",
+                  modelId: "sonnet-4-6",
+                  runtimeRoute: {
+                    useWorker: false,
+                    lane: "fast-local",
+                  },
+                },
+                {
+                  type: "text-delta",
+                  delta: "RECOVERY_RESPONSE_AFTER_CANCEL",
+                },
+                {
+                  type: "persisted",
+                  assistantMessageId: "assistant-recovery",
+                  artifacts: [],
+                  recommendations: [],
+                },
+                { type: "done", stopReason: "completed" },
+              ]
+                .map(
+                  (value) => `data: ${JSON.stringify(value)}\n\n`,
+                )
+                .join(""),
+              {
+                headers: {
+                  "content-type": "text/event-stream; charset=utf-8",
+                },
+              },
+            );
+          }
+
+          const signal =
+            init?.signal ?? (input instanceof Request ? input.signal : null);
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(
+                  event({
+                    type: "meta",
+                    threadId: "thread-durable-cancel",
+                    runId: "run-durable-cancel",
+                    userMessageId: "user-durable-cancel",
+                    modelId: "sonnet-4-6",
+                    runtimeRoute: {
+                      useWorker: false,
+                      lane: "durable-local",
+                    },
+                  }),
+                );
+                controller.enqueue(
+                  event({
+                    type: "text-delta",
+                    delta: "CANCEL_BARRIER_REACHED",
+                  }),
+                );
+                harness.emitLateCompletion = () => {
+                  try {
+                    controller.enqueue(
+                      event({
+                        type: "text-delta",
+                        delta: "LATE_COMPLETION_MUST_NOT_RENDER",
+                      }),
+                    );
+                    controller.enqueue(
+                      event({
+                        type: "persisted",
+                        assistantMessageId: "assistant-too-late",
+                        artifacts: [],
+                        recommendations: [],
+                      }),
+                    );
+                    controller.close();
+                    harness.events.push("late-enqueued");
+                    return true;
+                  } catch {
+                    harness.events.push("late-blocked");
+                    return false;
+                  }
+                };
+                signal?.addEventListener(
+                  "abort",
+                  () => {
+                    harness.events.push("abort");
+                    controller.error(
+                      new DOMException("The operation was aborted.", "AbortError"),
+                    );
+                  },
+                  { once: true },
+                );
+              },
+            }),
+            {
+              headers: {
+                "content-type": "text/event-stream; charset=utf-8",
+              },
+            },
+          );
+        }
+
+        if (
+          path === "/api/runs/run-durable-cancel/cancel" &&
+          method === "POST"
+        ) {
+          harness.events.push("cancel");
+          return new Response(
+            JSON.stringify({
+              run: { id: "run-durable-cancel", status: "canceled" },
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+
+        return originalFetch(input, init);
+      };
+    });
+
+    await gotoE2EChat(page);
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Generate a long report that I will stop.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("CANCEL_BARRIER_REACHED")).toBeVisible();
+
+    await page.getByRole("button", { name: "Stop generating" }).click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              window as typeof window & {
+                __cancelHarness?: { events: string[] };
+              }
+            ).__cancelHarness?.events ?? [],
+        ),
+      )
+      .toEqual(["cancel", "abort"]);
+    await expect(page.getByPlaceholder(/ask anything/i)).toBeEnabled();
+
+    const lateCompletionAccepted = await page.evaluate(
+      () =>
+        (
+          window as typeof window & {
+            __cancelHarness?: { emitLateCompletion: () => boolean };
+          }
+        ).__cancelHarness?.emitLateCompletion() ?? false,
+    );
+    expect(lateCompletionAccepted).toBe(false);
+    await expect(page.getByText("LATE_COMPLETION_MUST_NOT_RENDER")).toHaveCount(
+      0,
+    );
+
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Confirm that the recovery turn is independent.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(
+      page.getByText("RECOVERY_RESPONSE_AFTER_CANCEL"),
+    ).toBeVisible();
+  });
+
   test("downloads a reloaded thread through the protected export endpoint", async ({
     page,
     isMobile,

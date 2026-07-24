@@ -193,7 +193,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   });
 
   function newTab() {
-    stopStreaming();
+    void stopStreaming();
     resetTab();
     setRightPane(null);
   }
@@ -204,7 +204,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     initialMessages: UiMessage[] = [],
   ) {
     setRightPane(null);
-    if (activeTab?.threadId !== threadId) stopStreaming();
+    if (activeTab?.threadId !== threadId) void stopStreaming();
     selectThread(threadId, title, initialMessages);
   }
 
