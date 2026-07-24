@@ -19,6 +19,8 @@ import type {
 } from "./types";
 import { runJudge } from "./judge";
 
+const EVAL_MAX_TOKENS = 4_096;
+
 /**
  * Run one turn through the real agent loop and capture everything assertions
  * need. This is deliberately the *same* `runAgentLoop` production uses — the
@@ -71,6 +73,7 @@ async function runTurn(
     registry,
     ...(resolveAllowedTools ? { resolveAllowedTools } : {}),
     context: { userId: "eval" },
+    maxTokens: EVAL_MAX_TOKENS,
     client,
   })) {
     events.push(ev);
