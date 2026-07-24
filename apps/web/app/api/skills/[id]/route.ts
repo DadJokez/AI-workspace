@@ -1,4 +1,5 @@
 import { getDb, skills, type Skill } from "@ai-workspace/db";
+import { PLATFORM_MODEL_OVERRIDE_ID } from "@ai-workspace/agent";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import type { SessionUser } from "@ai-workspace/auth";
@@ -105,13 +106,19 @@ export async function PATCH(req: Request, context: RouteContext) {
     );
   }
 
+  // A platform override changes execution without destroying the skill's
+  // persisted preference, so removing the override restores prior behavior.
+  const storedModelId = PLATFORM_MODEL_OVERRIDE_ID
+    ? skill.modelId
+    : parsed.input.modelId;
+
   const rows = await db
     .update(skills)
     .set({
       name: parsed.input.name,
       description: parsed.input.description,
       systemPrompt: parsed.input.systemPrompt,
-      modelId: parsed.input.modelId,
+      modelId: storedModelId,
       mcpProviders: parsed.input.mcpProviders,
       updatedAt: new Date(),
     })
@@ -124,7 +131,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     actionType: "skill_update",
     skillId: skill.id,
     skillSlug: skill.slug,
-    metadata: { modelId: parsed.input.modelId },
+    metadata: { modelId: storedModelId },
   });
 
   return NextResponse.json({ skill: rows[0] });
