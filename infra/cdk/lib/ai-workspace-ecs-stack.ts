@@ -258,7 +258,6 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
           cluster,
           serviceName: "ai-workspace-web",
           taskDefinition: webTask,
-          desiredCount: 2,
           publicLoadBalancer: true,
           assignPublicIp: true,
           securityGroups: [webSecurityGroup],
@@ -305,6 +304,10 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       scaleOutCooldown: cdk.Duration.seconds(60),
       scaleInCooldown: cdk.Duration.minutes(5),
     });
+    // Application Auto Scaling owns live capacity. Omitting DesiredCount keeps
+    // a routine stack deployment from scaling a busy service back to the floor.
+    const cfnWebService = webService.service.node.defaultChild as ecs.CfnService;
+    cfnWebService.addPropertyDeletionOverride("DesiredCount");
 
     if (legacyDomainName !== domainName) {
       new route53.ARecord(this, "CanonicalDomainAliasRecord", {
