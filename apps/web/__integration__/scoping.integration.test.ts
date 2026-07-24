@@ -9,6 +9,7 @@ import {
   workspaceArtifacts,
 } from "@ai-workspace/db";
 import type { SessionUser } from "@ai-workspace/auth";
+import { asc, eq, sql } from "drizzle-orm";
 
 /**
  * #444: per-user scoping, proven against real Postgres through the REAL
@@ -216,6 +217,81 @@ suite("cross-user scoping (real Postgres, real handlers)", () => {
       .select({ id: chatMessages.id })
       .from(chatMessages);
     expect(rows).toHaveLength(1);
+  });
+
+  it("keeps the conversation tail when an edit target disappears at update time", async () => {
+    const [target, tail] = await db
+      .insert(chatMessages)
+      .values([
+        {
+          threadId: seeded.aliceThreadId,
+          role: "user",
+          content: "edit this question",
+        },
+        {
+          threadId: seeded.aliceThreadId,
+          role: "assistant",
+          content: "keep this answer if the edit cannot be applied",
+        },
+      ])
+      .returning();
+
+    await db.execute(sql`
+      CREATE OR REPLACE FUNCTION test_skip_chat_message_update()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        RETURN NULL;
+      END;
+      $$
+    `);
+    await db.execute(sql`
+      CREATE TRIGGER test_skip_chat_message_update
+      BEFORE UPDATE ON chat_messages
+      FOR EACH ROW
+      EXECUTE FUNCTION test_skip_chat_message_update()
+    `);
+
+    try {
+      const { POST } = await import("@/app/api/chat/route");
+      currentUser = seeded.alice;
+      const res = await POST(
+        new Request("http://test.local/api/chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "edited question",
+            threadId: seeded.aliceThreadId,
+            replaceMessageId: target!.id,
+          }),
+        }),
+      );
+
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: "message_not_found" });
+      const remaining = await db
+        .select({ id: chatMessages.id, content: chatMessages.content })
+        .from(chatMessages)
+        .where(eq(chatMessages.threadId, seeded.aliceThreadId))
+        .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
+      expect(remaining).toEqual(
+        expect.arrayContaining([
+          { id: target!.id, content: "edit this question" },
+          {
+            id: tail!.id,
+            content: "keep this answer if the edit cannot be applied",
+          },
+        ]),
+      );
+    } finally {
+      await db.execute(
+        sql`DROP TRIGGER IF EXISTS test_skip_chat_message_update ON chat_messages`,
+      );
+      await db.execute(
+        sql`DROP FUNCTION IF EXISTS test_skip_chat_message_update()`,
+      );
+    }
   });
 
   it("admin READ visibility on threads remains (intentional product behavior)", async () => {

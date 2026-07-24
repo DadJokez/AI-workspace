@@ -408,6 +408,113 @@ test.describe("chat shell guardrails", () => {
     );
   });
 
+  test("edits a hydrated message and keeps the replacement after reload", async ({
+    page,
+    isMobile,
+  }) => {
+    const threadId = "thread-hydrated-edit";
+    const title = "Hydrated edit";
+    const userMessageId = "44444444-4444-4444-8444-444444444444";
+    const originalPrompt = "The deployment region is North.";
+    const replacementPrompt = "The deployment region is South.";
+    const threadMessages: Record<string, unknown[]> = {
+      [threadId]: [
+        userMessage({ id: userMessageId, content: originalPrompt }),
+        assistantMessage({
+          id: "assistant-hydrated-north",
+          content: "The deployment region is North.",
+        }),
+      ],
+    };
+    const chatBodies: Array<Record<string, unknown>> = [];
+    await installMockComparativeApi(page, {
+      threads: [
+        {
+          id: threadId,
+          title,
+          defaultModelId: "sonnet-4-6",
+          summary: null,
+          summaryUpdatedAt: null,
+          previewSummary: null,
+          previewSummaryUpdatedAt: null,
+          titleSource: "generated",
+          createdAt: "2026-07-24T12:00:00.000Z",
+          updatedAt: "2026-07-24T12:00:00.000Z",
+        },
+      ],
+      threadMessages,
+      onChat: async (body, route) => {
+        chatBodies.push(body);
+        threadMessages[threadId] = [
+          userMessage({ id: userMessageId, content: replacementPrompt }),
+          assistantMessage({
+            id: "assistant-hydrated-south",
+            content: "The deployment region is South.",
+          }),
+        ];
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId,
+            userMessageId,
+            modelId: "sonnet-4-6",
+          },
+          { type: "text-delta", delta: "The deployment region is South." },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-hydrated-south",
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done", stopReason: "completed" },
+        ]);
+      },
+    });
+
+    await gotoE2EChat(page);
+    let sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: title }).click();
+    await expect(page.getByTestId("user-message")).toContainText(originalPrompt);
+
+    await page.reload();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+    sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: title }).click();
+    const originalMessage = page
+      .getByTestId("user-message")
+      .filter({ hasText: originalPrompt });
+    await expect(originalMessage).toBeVisible();
+    await originalMessage.hover();
+    await originalMessage.getByRole("button", { name: "Edit message" }).click();
+
+    const input = page.getByPlaceholder(/ask anything/i);
+    await expect(input).toHaveValue(originalPrompt);
+    await input.fill(replacementPrompt);
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("The deployment region is South.").last()).toBeVisible();
+    expect(chatBodies).toEqual([
+      expect.objectContaining({
+        message: replacementPrompt,
+        threadId,
+        replaceMessageId: userMessageId,
+      }),
+    ]);
+
+    await page.reload();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+    sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: title }).click();
+    await expect(
+      page.getByTestId("user-message").filter({ hasText: replacementPrompt }),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("user-message").filter({ hasText: originalPrompt }),
+    ).toHaveCount(0);
+    await expect(page.getByText("The deployment region is North.")).toHaveCount(
+      0,
+    );
+  });
+
   // #348: file-bearing turns edit by replaying stored uploads. The image and
   // the Office-style document exercise both replay channels (native image
   // block + extracted text); the second thread pins the fail-closed side.

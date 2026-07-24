@@ -40,6 +40,15 @@ export type SendChatMessage = (
   },
 ) => Promise<void>;
 
+interface ActiveChatStream {
+  abort: AbortController;
+  tabId: string;
+  runId?: string;
+  runIdReady: Promise<string | undefined>;
+  resolveRunId: (runId: string | undefined) => void;
+  canceling?: Promise<void>;
+}
+
 interface UseChatStreamOptions {
   activeTab: ChatTab | undefined;
   defaultModelId: string;
@@ -63,9 +72,10 @@ export function useChatStream({
   stickToBottomRef,
 }: UseChatStreamOptions): {
   send: SendChatMessage;
-  stopStreaming: () => void;
+  detachStreaming: () => void;
+  stopStreaming: () => Promise<void>;
 } {
-  const streamAbortRef = useRef<AbortController | null>(null);
+  const streamAbortRef = useRef<ActiveChatStream | null>(null);
 
   async function send(
     text: string,
@@ -87,7 +97,13 @@ export function useChatStream({
             message.id === replaceMessageId && message.role === "user",
         )
       : -1;
-    if (replaceMessageId && replaceIndex === -1) return;
+    if (replaceMessageId && replaceIndex === -1) {
+      patchTab(activeTab.id, {
+        error:
+          "That message changed before the edit could be sent. Reload the conversation and try again.",
+      });
+      return;
+    }
     const originalMessages = activeTab.messages;
     const userMsgId = replaceMessageId ?? crypto.randomUUID();
     const assistantMsgId = crypto.randomUUID();
@@ -166,7 +182,17 @@ export function useChatStream({
     stickToBottomRef.current = true;
 
     const abort = new AbortController();
-    streamAbortRef.current = abort;
+    let resolveRunId: (runId: string | undefined) => void = () => undefined;
+    const runIdReady = new Promise<string | undefined>((resolve) => {
+      resolveRunId = resolve;
+    });
+    const activeStream: ActiveChatStream = {
+      abort,
+      tabId,
+      runIdReady,
+      resolveRunId,
+    };
+    streamAbortRef.current = activeStream;
     let responseAccepted = false;
     try {
       const response = await fetch(
@@ -244,6 +270,8 @@ export function useChatStream({
           assistantLane = parseRuntimeLane(route?.lane);
           if (typeof event.runId === "string") {
             streamRunId = event.runId;
+            activeStream.runId = streamRunId;
+            activeStream.resolveRunId(streamRunId);
             patchDraft({
               type: "runtime",
               modelId: assistantModel,
@@ -461,7 +489,10 @@ export function useChatStream({
         ),
       );
     } finally {
-      if (streamAbortRef.current === abort) streamAbortRef.current = null;
+      activeStream.resolveRunId(undefined);
+      if (streamAbortRef.current === activeStream) {
+        streamAbortRef.current = null;
+      }
       patchTab(tabId, { busy: false });
       patchTabMessages(tabId, (previous) =>
         previous.filter(
@@ -476,10 +507,86 @@ export function useChatStream({
     }
   }
 
-  function stopStreaming() {
-    streamAbortRef.current?.abort();
-    streamAbortRef.current = null;
+  async function stopStreaming() {
+    const activeStream = streamAbortRef.current;
+    if (!activeStream) return;
+    if (activeStream.canceling) {
+      await activeStream.canceling;
+      return;
+    }
+
+    activeStream.canceling = (async () => {
+      const runId =
+        activeStream.runId ??
+        (await waitForRunId(activeStream.runIdReady, 5_000));
+      if (!runId) {
+        if (streamAbortRef.current !== activeStream) return;
+        patchTab(activeStream.tabId, {
+          error:
+            "Comparative could not identify the active run, so it was not stopped. Try Stop again.",
+        });
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `/api/runs/${encodeURIComponent(runId)}/cancel`,
+          {
+            method: "POST",
+            keepalive: true,
+          },
+        );
+        if (!response.ok) {
+          await throwApiError(
+            response,
+            "Comparative could not confirm that the run stopped.",
+          );
+        }
+        activeStream.abort.abort();
+      } catch (error) {
+        if (streamAbortRef.current === activeStream) {
+          patchTab(activeStream.tabId, { error: formatChatError(error) });
+        }
+      }
+    })();
+
+    try {
+      await activeStream.canceling;
+    } finally {
+      if (
+        !activeStream.abort.signal.aborted &&
+        streamAbortRef.current === activeStream
+      ) {
+        activeStream.canceling = undefined;
+      }
+    }
   }
 
-  return { send, stopStreaming };
+  function detachStreaming() {
+    const activeStream = streamAbortRef.current;
+    if (!activeStream) return;
+    activeStream.abort.abort();
+    if (streamAbortRef.current === activeStream) {
+      streamAbortRef.current = null;
+    }
+  }
+
+  return { detachStreaming, send, stopStreaming };
+}
+
+async function waitForRunId(
+  runIdReady: Promise<string | undefined>,
+  timeoutMs: number,
+): Promise<string | undefined> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      runIdReady,
+      new Promise<undefined>((resolve) => {
+        timeout = setTimeout(() => resolve(undefined), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }

@@ -193,7 +193,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   });
 
   function newTab() {
-    stopStreaming();
+    detachStreaming();
     resetTab();
     setRightPane(null);
   }
@@ -204,7 +204,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     initialMessages: UiMessage[] = [],
   ) {
     setRightPane(null);
-    if (activeTab?.threadId !== threadId) stopStreaming();
+    if (activeTab?.threadId !== threadId) detachStreaming();
     selectThread(threadId, title, initialMessages);
   }
 
@@ -243,10 +243,10 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   function handleDownloadTranscript() {
     if (!activeTab) return;
     posthog.capture("chat_transcript_downloaded");
-    downloadChatTranscript(activeTab);
+    if (!activeTab.threadId) downloadChatTranscript(activeTab);
   }
 
-  const { send, stopStreaming } = useChatStream({
+  const { detachStreaming, send, stopStreaming } = useChatStream({
     activeTab,
     defaultModelId,
     patchTab,
@@ -388,6 +388,11 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                   ? null
                   : { kind: "notifications" },
               )
+            }
+            downloadHref={
+              activeTab.threadId
+                ? `/api/threads/${encodeURIComponent(activeTab.threadId)}/export`
+                : undefined
             }
             onDownload={handleDownloadTranscript}
             onStop={stopStreaming}

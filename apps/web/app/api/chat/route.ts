@@ -503,6 +503,20 @@ export async function POST(req: Request) {
         return { ok: false as const, error: "message_has_attachments" as const };
       }
 
+      const updatedMessages = await tx
+        .update(chatMessages)
+        .set({ content: body.message })
+        .where(
+          and(
+            eq(chatMessages.id, plan.targetId),
+            eq(chatMessages.threadId, thread.id),
+            eq(chatMessages.role, "user"),
+          ),
+        )
+        .returning({ id: chatMessages.id });
+      if (updatedMessages.length !== 1) {
+        return { ok: false as const, error: "message_not_found" as const };
+      }
       if (plan.deleteIds.length > 0) {
         await tx
           .delete(chatMessages)
@@ -513,16 +527,6 @@ export async function POST(req: Request) {
             ),
           );
       }
-      await tx
-        .update(chatMessages)
-        .set({ content: body.message })
-        .where(
-          and(
-            eq(chatMessages.id, plan.targetId),
-            eq(chatMessages.threadId, thread.id),
-            eq(chatMessages.role, "user"),
-          ),
-        );
       await tx
         .update(chatThreads)
         .set({

@@ -31,13 +31,500 @@ function threadSummary(id: string, title: string) {
 }
 
 test.describe("chat workflow regressions", () => {
+  test("durably cancels the active run before releasing the composer", async ({
+    page,
+  }) => {
+    await installMockComparativeApi(page);
+    await page.addInitScript(() => {
+      type CancelHarness = {
+        chatCount: number;
+        events: string[];
+        emitLateCompletion: () => boolean;
+      };
+      const browser = window as typeof window & {
+        __cancelHarness?: CancelHarness;
+      };
+      const originalFetch = window.fetch.bind(window);
+      const harness: CancelHarness = {
+        chatCount: 0,
+        events: [],
+        emitLateCompletion: () => false,
+      };
+      browser.__cancelHarness = harness;
+
+      window.fetch = async (input, init) => {
+        const requestUrl =
+          typeof input === "string"
+            ? input
+            : input instanceof Request
+              ? input.url
+              : input.toString();
+        const path = new URL(requestUrl, window.location.origin).pathname;
+        const method = (
+          init?.method ??
+          (input instanceof Request ? input.method : "GET")
+        ).toUpperCase();
+
+        if (path === "/api/chat" && method === "POST") {
+          harness.chatCount += 1;
+          const encoder = new TextEncoder();
+          const event = (value: unknown) =>
+            encoder.encode(`data: ${JSON.stringify(value)}\n\n`);
+
+          if (harness.chatCount > 1) {
+            return new Response(
+              [
+                {
+                  type: "meta",
+                  threadId: "thread-durable-cancel",
+                  runId: "run-recovery",
+                  userMessageId: "user-recovery",
+                  modelId: "sonnet-4-6",
+                  runtimeRoute: {
+                    useWorker: false,
+                    lane: "fast-local",
+                  },
+                },
+                {
+                  type: "text-delta",
+                  delta: "RECOVERY_RESPONSE_AFTER_CANCEL",
+                },
+                {
+                  type: "persisted",
+                  assistantMessageId: "assistant-recovery",
+                  artifacts: [],
+                  recommendations: [],
+                },
+                { type: "done", stopReason: "completed" },
+              ]
+                .map(
+                  (value) => `data: ${JSON.stringify(value)}\n\n`,
+                )
+                .join(""),
+              {
+                headers: {
+                  "content-type": "text/event-stream; charset=utf-8",
+                },
+              },
+            );
+          }
+
+          const signal =
+            init?.signal ?? (input instanceof Request ? input.signal : null);
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(
+                  event({
+                    type: "meta",
+                    threadId: "thread-durable-cancel",
+                    runId: "run-durable-cancel",
+                    userMessageId: "user-durable-cancel",
+                    modelId: "sonnet-4-6",
+                    runtimeRoute: {
+                      useWorker: false,
+                      lane: "durable-local",
+                    },
+                  }),
+                );
+                controller.enqueue(
+                  event({
+                    type: "text-delta",
+                    delta: "CANCEL_BARRIER_REACHED",
+                  }),
+                );
+                harness.emitLateCompletion = () => {
+                  try {
+                    controller.enqueue(
+                      event({
+                        type: "text-delta",
+                        delta: "LATE_COMPLETION_MUST_NOT_RENDER",
+                      }),
+                    );
+                    controller.enqueue(
+                      event({
+                        type: "persisted",
+                        assistantMessageId: "assistant-too-late",
+                        artifacts: [],
+                        recommendations: [],
+                      }),
+                    );
+                    controller.close();
+                    harness.events.push("late-enqueued");
+                    return true;
+                  } catch {
+                    harness.events.push("late-blocked");
+                    return false;
+                  }
+                };
+                signal?.addEventListener(
+                  "abort",
+                  () => {
+                    harness.events.push("abort");
+                    controller.error(
+                      new DOMException("The operation was aborted.", "AbortError"),
+                    );
+                  },
+                  { once: true },
+                );
+              },
+            }),
+            {
+              headers: {
+                "content-type": "text/event-stream; charset=utf-8",
+              },
+            },
+          );
+        }
+
+        if (
+          path === "/api/runs/run-durable-cancel/cancel" &&
+          method === "POST"
+        ) {
+          harness.events.push("cancel");
+          return new Response(
+            JSON.stringify({
+              run: { id: "run-durable-cancel", status: "canceled" },
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+
+        return originalFetch(input, init);
+      };
+    });
+
+    await gotoE2EChat(page);
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Generate a long report that I will stop.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("CANCEL_BARRIER_REACHED")).toBeVisible();
+
+    await page.getByRole("button", { name: "Stop generating" }).click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              window as typeof window & {
+                __cancelHarness?: { events: string[] };
+              }
+            ).__cancelHarness?.events ?? [],
+        ),
+      )
+      .toEqual(["cancel", "abort"]);
+    await expect(page.getByPlaceholder(/ask anything/i)).toBeEnabled();
+
+    const lateCompletionAccepted = await page.evaluate(
+      () =>
+        (
+          window as typeof window & {
+            __cancelHarness?: { emitLateCompletion: () => boolean };
+          }
+        ).__cancelHarness?.emitLateCompletion() ?? false,
+    );
+    expect(lateCompletionAccepted).toBe(false);
+    await expect(page.getByText("LATE_COMPLETION_MUST_NOT_RENDER")).toHaveCount(
+      0,
+    );
+
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Confirm that the recovery turn is independent.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(
+      page.getByText("RECOVERY_RESPONSE_AFTER_CANCEL"),
+    ).toBeVisible();
+  });
+
+  test("switching chats detaches a worker stream without canceling its run", async ({
+    page,
+  }, testInfo) => {
+    const activeThreadId = "thread-worker-active";
+    const otherThreadId = "thread-worker-other";
+    const runId = "run-worker-active";
+    const threadMessages: Record<string, unknown[]> = {
+      [otherThreadId]: [
+        userMessage({ id: "user-other", content: "Other chat question" }),
+        assistantMessage({
+          id: "assistant-other",
+          content: "Other chat answer.",
+        }),
+      ],
+    };
+    await installMockComparativeApi(page, {
+      threads: [
+        threadSummary(activeThreadId, "Background worker chat"),
+        threadSummary(otherThreadId, "Other chat"),
+      ],
+      threadMessages,
+    });
+    await page.addInitScript(
+      ({ activeThreadId, runId }) => {
+        type DetachHarness = { events: string[] };
+        const browser = window as typeof window & {
+          __detachHarness?: DetachHarness;
+        };
+        const originalFetch = window.fetch.bind(window);
+        const harness: DetachHarness = { events: [] };
+        browser.__detachHarness = harness;
+
+        window.fetch = async (input, init) => {
+          const requestUrl =
+            typeof input === "string"
+              ? input
+              : input instanceof Request
+                ? input.url
+                : input.toString();
+          const path = new URL(requestUrl, window.location.origin).pathname;
+          const method = (
+            init?.method ??
+            (input instanceof Request ? input.method : "GET")
+          ).toUpperCase();
+
+          if (path === "/api/chat" && method === "POST") {
+            const encoder = new TextEncoder();
+            const event = (value: unknown) =>
+              encoder.encode(`data: ${JSON.stringify(value)}\n\n`);
+            const signal =
+              init?.signal ?? (input instanceof Request ? input.signal : null);
+            return new Response(
+              new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(
+                    event({
+                      type: "meta",
+                      threadId: activeThreadId,
+                      runId,
+                      userMessageId: "user-worker-active",
+                      modelId: "sonnet-4-6",
+                      runtimeRoute: {
+                        useWorker: true,
+                        lane: "durable-local",
+                      },
+                    }),
+                  );
+                  controller.enqueue(
+                    event({
+                      type: "queued",
+                      runId,
+                      status: "Working in background",
+                    }),
+                  );
+                  harness.events.push("stream-open");
+                  signal?.addEventListener(
+                    "abort",
+                    () => {
+                      harness.events.push("detached");
+                      controller.error(
+                        new DOMException(
+                          "The operation was aborted.",
+                          "AbortError",
+                        ),
+                      );
+                    },
+                    { once: true },
+                  );
+                },
+              }),
+              {
+                headers: {
+                  "content-type": "text/event-stream; charset=utf-8",
+                },
+              },
+            );
+          }
+
+          if (
+            path === `/api/runs/${runId}/cancel` &&
+            method === "POST"
+          ) {
+            harness.events.push("cancel");
+            return new Response(
+              JSON.stringify({ run: { id: runId, status: "canceled" } }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              },
+            );
+          }
+
+          return originalFetch(input, init);
+        };
+      },
+      { activeThreadId, runId },
+    );
+
+    await gotoE2EChat(page);
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Finish this report in the background.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(
+      page.getByRole("button", { name: "Stop generating" }),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              window as typeof window & {
+                __detachHarness?: { events: string[] };
+              }
+            ).__detachHarness?.events ?? [],
+        ),
+      )
+      .toEqual(["stream-open"]);
+
+    let sidebar = await openPrimarySidebar(
+      page,
+      testInfo.project.name.includes("mobile"),
+    );
+    await sidebar.getByRole("button", { name: "Other chat" }).click();
+    await expect(page.getByText("Other chat answer.")).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              window as typeof window & {
+                __detachHarness?: { events: string[] };
+              }
+            ).__detachHarness?.events ?? [],
+        ),
+      )
+      .toEqual(["stream-open", "detached"]);
+
+    threadMessages[activeThreadId] = [
+      userMessage({
+        id: "user-worker-active",
+        content: "Finish this report in the background.",
+      }),
+      assistantMessage({
+        id: "assistant-worker-active",
+        content: "Background worker result survived the chat switch.",
+        runId,
+        runStatus: "succeeded",
+      }),
+    ];
+
+    sidebar = await openPrimarySidebar(
+      page,
+      testInfo.project.name.includes("mobile"),
+    );
+    await sidebar
+      .getByRole("button", { name: "Background worker chat" })
+      .click();
+    await expect(
+      page.getByText("Background worker result survived the chat switch."),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () =>
+          (
+            window as typeof window & {
+              __detachHarness?: { events: string[] };
+            }
+          ).__detachHarness?.events.includes("cancel") ?? false,
+      ),
+    ).toBe(false);
+  });
+
+  test("downloads a reloaded thread through the protected export endpoint", async ({
+    page,
+    isMobile,
+  }) => {
+    const threadId = "thread-reloaded-export";
+    const title = "Reloaded transcript";
+    const firstMarker = "TX1_RELOADED_EXPORT";
+    const secondMarker = "TX2_RELOADED_EXPORT";
+    const transcript = [
+      `# ${title}`,
+      "",
+      `- Thread ID: ${threadId}`,
+      "",
+      "## 1. User",
+      "",
+      firstMarker,
+      "",
+      "## 2. Assistant",
+      "",
+      "Recorded review owner Priya.",
+      "",
+      "## 3. User",
+      "",
+      secondMarker,
+      "",
+      "## 4. Assistant",
+      "",
+      "Recorded review date 15 August 2026.",
+      "",
+    ].join("\n");
+    await installMockComparativeApi(page, {
+      threads: [threadSummary(threadId, title)],
+      threadMessages: {
+        [threadId]: [
+          userMessage({ id: "user-export-1", content: firstMarker }),
+          assistantMessage({
+            id: "assistant-export-1",
+            content: "Recorded review owner Priya.",
+          }),
+          userMessage({ id: "user-export-2", content: secondMarker }),
+          assistantMessage({
+            id: "assistant-export-2",
+            content: "Recorded review date 15 August 2026.",
+          }),
+        ],
+      },
+      threadExports: {
+        [threadId]: {
+          title,
+          markdown: transcript,
+        },
+      },
+    });
+
+    await gotoE2EChat(page);
+    let sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: title }).click();
+    await expect(page.getByText(firstMarker)).toBeVisible();
+    await expect(page.getByText(secondMarker)).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+    sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: title }).click();
+    await expect(page.getByText(secondMarker)).toBeVisible();
+
+    const exportRequest = page.waitForRequest(
+      `**/api/threads/${threadId}/export`,
+    );
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("button", { name: "Download chat transcript" }).click(),
+      exportRequest,
+    ]);
+    expect(download.suggestedFilename()).toMatch(
+      /^\d{4}-\d{2}-\d{2}-reloaded-transcript\.md$/,
+    );
+    const downloadPath = await download.path();
+    expect(downloadPath).toBeTruthy();
+    const downloaded = await readFile(downloadPath!, "utf8");
+    expect(downloaded).toContain(firstMarker);
+    expect(downloaded).toContain(secondMarker);
+    expect(downloaded).not.toContain("UNRELATED_THREAD_MARKER");
+  });
+
   test("downloads the active chat as markdown", async ({ page }) => {
     await installMockComparativeApi(page, {
       onChat: async (_body, route) => {
         await fulfillSse(route, [
           {
             type: "meta",
-            threadId: "thread-export",
             modelId: "sonnet-4-6",
           },
           {
@@ -71,20 +558,21 @@ test.describe("chat workflow regressions", () => {
       page.waitForEvent("download"),
       page.getByRole("button", { name: "Download chat transcript" }).click(),
     ]);
-    expect(download.suggestedFilename()).toMatch(/please-make-this-exportable/i);
-    expect(download.suggestedFilename()).toMatch(/\.md$/);
+    expect(download.suggestedFilename()).toMatch(
+      /^\d{4}-\d{2}-\d{2}-please-make-this-exportable\.md$/,
+    );
 
     const downloadPath = await download.path();
     expect(downloadPath).toBeTruthy();
-    const transcript = await readFile(downloadPath!, "utf8");
-    expect(transcript).toContain("# Please make this exportable.");
-    expect(transcript).toContain("Please make this exportable.");
-    expect(transcript).toContain(
+    const downloaded = await readFile(downloadPath!, "utf8");
+    expect(downloaded).toContain("# Please make this exportable.");
+    expect(downloaded).toContain("Please make this exportable.");
+    expect(downloaded).toContain(
       "Exportable answer with enough detail for a transcript and artifact.",
     );
-    expect(transcript).toContain("- Thread ID: thread-export");
-    expect(transcript).toContain("### Artifacts");
-    expect(transcript).toContain("demo-artifact.html (html, 1.3 KB)");
+    expect(downloaded).not.toContain("- Thread ID:");
+    expect(downloaded).toContain("### Artifacts");
+    expect(downloaded).toContain("demo-artifact.html (html, 1.3 KB)");
   });
 
   test("reviews and accepts an unattended artifact proposal in the current chat", async ({

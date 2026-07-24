@@ -1,4 +1,5 @@
 import type { Page, Request, Route } from "@playwright/test";
+import { chatTranscriptFilename } from "../../lib/chat-export";
 import { FALLBACK_EMPTY_STATE_SUGGESTIONS } from "../../lib/empty-state";
 
 export const now = "2026-06-14T20:00:00.000Z";
@@ -6,6 +7,13 @@ export const now = "2026-06-14T20:00:00.000Z";
 interface MockChatOptions {
   threads?: unknown[];
   threadMessages?: Record<string, unknown[]>;
+  threadExports?: Record<
+    string,
+    {
+      markdown: string;
+      title: string;
+    }
+  >;
   threadMessagesDelayMs?: number;
   artifacts?: unknown[];
   artifactDetails?: Record<string, unknown>;
@@ -507,6 +515,28 @@ export async function installMockComparativeApi(
         );
       }
       return json(route, { messages: threadMessages[threadId] ?? [] });
+    }
+
+    const threadExportMatch = /^\/api\/threads\/([^/]+)\/export$/.exec(path);
+    if (threadExportMatch && request.method() === "GET") {
+      const threadId = decodeURIComponent(threadExportMatch[1]!);
+      const threadExport = options.threadExports?.[threadId];
+      if (threadExport === undefined) {
+        return json(route, { error: "thread_not_found" }, 404);
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "text/markdown; charset=utf-8",
+        headers: {
+          "content-disposition": `attachment; filename="${chatTranscriptFilename({
+            title: threadExport.title,
+            exportedAt: new Date(now),
+          })}"`,
+          "cache-control": "no-store",
+        },
+        body: threadExport.markdown,
+      });
+      return;
     }
 
     const threadMetadataMatch = /^\/api\/threads\/([^/]+)$/.exec(path);
