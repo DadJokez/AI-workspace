@@ -87,7 +87,13 @@ export function useChatStream({
             message.id === replaceMessageId && message.role === "user",
         )
       : -1;
-    if (replaceMessageId && replaceIndex === -1) return;
+    if (replaceMessageId && replaceIndex === -1) {
+      patchTab(activeTab.id, {
+        error:
+          "That message changed before the edit could be sent. Reload the conversation and try again.",
+      });
+      return;
+    }
     const originalMessages = activeTab.messages;
     const userMsgId = replaceMessageId ?? crypto.randomUUID();
     const assistantMsgId = crypto.randomUUID();

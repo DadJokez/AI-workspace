@@ -513,7 +513,7 @@ export async function POST(req: Request) {
             ),
           );
       }
-      await tx
+      const updatedMessages = await tx
         .update(chatMessages)
         .set({ content: body.message })
         .where(
@@ -522,7 +522,11 @@ export async function POST(req: Request) {
             eq(chatMessages.threadId, thread.id),
             eq(chatMessages.role, "user"),
           ),
-        );
+        )
+        .returning({ id: chatMessages.id });
+      if (updatedMessages.length !== 1) {
+        return { ok: false as const, error: "message_not_found" as const };
+      }
       await tx
         .update(chatThreads)
         .set({

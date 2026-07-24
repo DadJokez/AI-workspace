@@ -243,7 +243,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   function handleDownloadTranscript() {
     if (!activeTab) return;
     posthog.capture("chat_transcript_downloaded");
-    downloadChatTranscript(activeTab);
+    if (!activeTab.threadId) downloadChatTranscript(activeTab);
   }
 
   const { send, stopStreaming } = useChatStream({
@@ -388,6 +388,11 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                   ? null
                   : { kind: "notifications" },
               )
+            }
+            downloadHref={
+              activeTab.threadId
+                ? `/api/threads/${encodeURIComponent(activeTab.threadId)}/export`
+                : undefined
             }
             onDownload={handleDownloadTranscript}
             onStop={stopStreaming}

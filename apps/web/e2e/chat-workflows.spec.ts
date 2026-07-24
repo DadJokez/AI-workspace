@@ -31,8 +31,105 @@ function threadSummary(id: string, title: string) {
 }
 
 test.describe("chat workflow regressions", () => {
-  test("downloads the active chat as markdown", async ({ page }) => {
+  test("downloads a reloaded thread through the protected export endpoint", async ({
+    page,
+    isMobile,
+  }) => {
+    const threadId = "thread-reloaded-export";
+    const title = "Reloaded transcript";
+    const firstMarker = "TX1_RELOADED_EXPORT";
+    const secondMarker = "TX2_RELOADED_EXPORT";
+    const transcript = [
+      `# ${title}`,
+      "",
+      `- Thread ID: ${threadId}`,
+      "",
+      "## 1. User",
+      "",
+      firstMarker,
+      "",
+      "## 2. Assistant",
+      "",
+      "Recorded review owner Priya.",
+      "",
+      "## 3. User",
+      "",
+      secondMarker,
+      "",
+      "## 4. Assistant",
+      "",
+      "Recorded review date 15 August 2026.",
+      "",
+    ].join("\n");
     await installMockComparativeApi(page, {
+      threads: [threadSummary(threadId, title)],
+      threadMessages: {
+        [threadId]: [
+          userMessage({ id: "user-export-1", content: firstMarker }),
+          assistantMessage({
+            id: "assistant-export-1",
+            content: "Recorded review owner Priya.",
+          }),
+          userMessage({ id: "user-export-2", content: secondMarker }),
+          assistantMessage({
+            id: "assistant-export-2",
+            content: "Recorded review date 15 August 2026.",
+          }),
+        ],
+      },
+      threadExports: { [threadId]: transcript },
+    });
+
+    await gotoE2EChat(page);
+    let sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: title }).click();
+    await expect(page.getByText(firstMarker)).toBeVisible();
+    await expect(page.getByText(secondMarker)).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+    sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: title }).click();
+    await expect(page.getByText(secondMarker)).toBeVisible();
+
+    const exportRequest = page.waitForRequest(
+      `**/api/threads/${threadId}/export`,
+    );
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("button", { name: "Download chat transcript" }).click(),
+      exportRequest,
+    ]);
+    expect(download.suggestedFilename()).toBe(`${threadId}.md`);
+    const downloadPath = await download.path();
+    expect(downloadPath).toBeTruthy();
+    const downloaded = await readFile(downloadPath!, "utf8");
+    expect(downloaded).toContain(firstMarker);
+    expect(downloaded).toContain(secondMarker);
+    expect(downloaded).not.toContain("UNRELATED_THREAD_MARKER");
+  });
+
+  test("downloads the active chat as markdown", async ({ page }) => {
+    const transcript = [
+      "# Please make this exportable.",
+      "",
+      "- Thread ID: thread-export",
+      "",
+      "## 1. User",
+      "",
+      "Please make this exportable.",
+      "",
+      "## 2. Assistant",
+      "",
+      "Exportable answer with enough detail for a transcript and artifact.",
+      "",
+      "### Artifacts",
+      "",
+      "- demo-artifact.html (html, 1.3 KB)",
+      "",
+    ].join("\n");
+    await installMockComparativeApi(page, {
+      threadExports: { "thread-export": transcript },
       onChat: async (_body, route) => {
         await fulfillSse(route, [
           {
@@ -71,20 +168,20 @@ test.describe("chat workflow regressions", () => {
       page.waitForEvent("download"),
       page.getByRole("button", { name: "Download chat transcript" }).click(),
     ]);
-    expect(download.suggestedFilename()).toMatch(/please-make-this-exportable/i);
+    expect(download.suggestedFilename()).toBe("thread-export.md");
     expect(download.suggestedFilename()).toMatch(/\.md$/);
 
     const downloadPath = await download.path();
     expect(downloadPath).toBeTruthy();
-    const transcript = await readFile(downloadPath!, "utf8");
-    expect(transcript).toContain("# Please make this exportable.");
-    expect(transcript).toContain("Please make this exportable.");
-    expect(transcript).toContain(
+    const downloaded = await readFile(downloadPath!, "utf8");
+    expect(downloaded).toContain("# Please make this exportable.");
+    expect(downloaded).toContain("Please make this exportable.");
+    expect(downloaded).toContain(
       "Exportable answer with enough detail for a transcript and artifact.",
     );
-    expect(transcript).toContain("- Thread ID: thread-export");
-    expect(transcript).toContain("### Artifacts");
-    expect(transcript).toContain("demo-artifact.html (html, 1.3 KB)");
+    expect(downloaded).toContain("- Thread ID: thread-export");
+    expect(downloaded).toContain("### Artifacts");
+    expect(downloaded).toContain("demo-artifact.html (html, 1.3 KB)");
   });
 
   test("reviews and accepts an unattended artifact proposal in the current chat", async ({

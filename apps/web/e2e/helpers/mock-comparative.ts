@@ -6,6 +6,7 @@ export const now = "2026-06-14T20:00:00.000Z";
 interface MockChatOptions {
   threads?: unknown[];
   threadMessages?: Record<string, unknown[]>;
+  threadExports?: Record<string, string>;
   threadMessagesDelayMs?: number;
   artifacts?: unknown[];
   artifactDetails?: Record<string, unknown>;
@@ -507,6 +508,25 @@ export async function installMockComparativeApi(
         );
       }
       return json(route, { messages: threadMessages[threadId] ?? [] });
+    }
+
+    const threadExportMatch = /^\/api\/threads\/([^/]+)\/export$/.exec(path);
+    if (threadExportMatch && request.method() === "GET") {
+      const threadId = decodeURIComponent(threadExportMatch[1]!);
+      const markdown = options.threadExports?.[threadId];
+      if (markdown === undefined) {
+        return json(route, { error: "thread_not_found" }, 404);
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "text/markdown; charset=utf-8",
+        headers: {
+          "content-disposition": `attachment; filename="${threadId}.md"`,
+          "cache-control": "no-store",
+        },
+        body: markdown,
+      });
+      return;
     }
 
     const threadMetadataMatch = /^\/api\/threads\/([^/]+)$/.exec(path);
