@@ -68,6 +68,7 @@ describe("PostHog browser instrumentation", () => {
         $prev_pageview_pathname: `/invite/${token}`,
         $referrer: `https://comparative.example/invite/${token}`,
         $referring_domain: "comparative.example",
+        $initial_referring_domain: "comparative.example",
         $session_entry_url: `https://comparative.example/invite/${token}`,
         $session_entry_pathname: `/invite/${token}`,
       },
@@ -95,7 +96,7 @@ describe("PostHog browser instrumentation", () => {
       },
     });
     expect(JSON.stringify(capture)).not.toContain(token);
-    expect(JSON.stringify(capture)).not.toContain("referrer");
+    expect(JSON.stringify(capture)).not.toContain("referr");
   });
 
   it("does not initialize without a project token", async () => {

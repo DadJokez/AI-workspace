@@ -25,7 +25,7 @@ function sanitizeAnalyticsProperties(
   for (const [key, value] of Object.entries(sanitized)) {
     const normalizedKey = key.toLowerCase();
 
-    if (normalizedKey.includes("referrer")) {
+    if (normalizedKey.includes("referr")) {
       delete sanitized[key];
       continue;
     }
