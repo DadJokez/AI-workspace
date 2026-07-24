@@ -94,6 +94,7 @@ interface MockMemoryItem {
   reason: string | null;
   sourceThreadId: string | null;
   sourceMessageIds: string[];
+  provenance: "user_stated" | "unverified";
   suggestedBy: string;
   approvedAt: string | null;
   dismissedAt: string | null;
@@ -727,6 +728,7 @@ export function memoryItem(
     reason: null,
     sourceThreadId: null,
     sourceMessageIds: [],
+    provenance: "user_stated",
     suggestedBy: "memory_capture",
     approvedAt: null,
     dismissedAt: null,

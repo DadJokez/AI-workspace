@@ -22,6 +22,7 @@ interface MemoryItem {
   reason: string | null;
   sourceThreadId: string | null;
   sourceMessageIds: string[];
+  provenance: "user_stated" | "unverified";
   suggestedBy: string;
   approvedAt: string | null;
   dismissedAt: string | null;
@@ -629,10 +630,17 @@ function MemoryEvidence({
         <span>Manual or imported memory</span>
       )}
       {item.sourceMessageIds.length > 0 ? (
-        <span>
-          {item.sourceMessageIds.length} source{" "}
-          {item.sourceMessageIds.length === 1 ? "message" : "messages"}
-        </span>
+        <>
+          <span>
+            {item.provenance === "user_stated"
+              ? "User-stated"
+              : "Source role not verified"}
+          </span>
+          <span>
+            {item.sourceMessageIds.length} source{" "}
+            {item.sourceMessageIds.length === 1 ? "message" : "messages"}
+          </span>
+        </>
       ) : null}
       {item.reason ? (
         <span className="basis-full [overflow-wrap:anywhere]">

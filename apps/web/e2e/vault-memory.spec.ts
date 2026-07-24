@@ -36,6 +36,7 @@ test.describe("Vault memory", () => {
       .getByTestId("vault-approved-memory-card")
       .first();
     await expect(approvedCard.getByText("Confidence 82%")).toBeVisible();
+    await expect(approvedCard.getByText("User-stated")).toBeVisible();
     await expect(approvedCard.getByText("1 source message")).toBeVisible();
     await expect(
       approvedCard.getByRole("link", { name: "Source thread" }),

@@ -1,3 +1,4 @@
+import { EXACT_OUTPUT_CONTRACT } from "@ai-workspace/agent";
 import type { EvalSuite } from "../types";
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -134,6 +135,55 @@ export const dateGroundingSuite: EvalSuite = {
                 : `expected ${[...new Set(candidates)].join(" or ")} in: ${t.answer}`,
             };
           },
+        },
+      ],
+    },
+    {
+      id: "relative-weekday-does-not-invent-wrong-date",
+      description:
+        "a relative pilot plan preserves Friday or resolves it to the correct July 31 date, never Saturday August 1 (#646)",
+      systemPrompt: EXACT_OUTPUT_CONTRACT,
+      input: [
+        "For this planning exercise, today is Friday, July 24, 2026.",
+        "I am launching a pilot next Tuesday with 5 testers.",
+        "Give me a heading “Pilot plan” and exactly three Markdown bullets:",
+        "invite testers, collect daily feedback, review results Friday.",
+      ].join("\n"),
+      fixtureEvidence: [
+        "Next Tuesday is July 28, 2026",
+        "The following Friday is July 31, 2026",
+        "August 1, 2026 is Saturday and was never supplied by the user",
+      ],
+      assertions: [
+        {
+          kind: "deterministic",
+          label: "returns exactly three real Markdown bullets",
+          check: (t) => {
+            const bullets = t.answer
+              .replace(/\r\n/g, "\n")
+              .split("\n")
+              .filter((line) => /^- \S/.test(line));
+            return {
+              ok: bullets.length === 3,
+              detail: `found ${bullets.length} Markdown bullets`,
+            };
+          },
+        },
+        {
+          kind: "deterministic",
+          label: "never turns Friday into August 1 or Saturday",
+          check: (t) => ({
+            ok:
+              !/August\s+1(?:st)?(?:,\s*2026)?/i.test(t.answer) &&
+              !/Saturday/i.test(t.answer),
+            detail: t.answer,
+          }),
+        },
+        {
+          kind: "judge",
+          label: "keeps relative dates faithful if it chooses not to resolve them",
+          rubric:
+            "The planning date is Friday July 24, 2026. Next Tuesday is July 28 and the following Friday is July 31. PASS if the answer either preserves the user's relative wording ('next Tuesday' and 'Friday') or resolves those dates correctly. FAIL if it invents another date, especially August 1, or changes the requested actions.",
         },
       ],
     },

@@ -192,6 +192,7 @@ const enablementRows = [{ modelId: "sonnet-4-6", purpose: "memory-capture" }];
 function happyPathDb(options: {
   pending?: MemoryCaptureQueueItem[];
   activeMemory?: UserMemoryItem[];
+  messages?: typeof messageRows;
 } = {}) {
   const pending = options.pending ?? [queueItem()];
   return fakeDb({
@@ -199,7 +200,7 @@ function happyPathDb(options: {
       memory_capture_queue: [pending.map((row) => ({ ...row }))],
       user_memory_items: [options.activeMemory ?? []],
       chat_threads: [[{ id: "thread-1", title: "Deploy chat" }]],
-      chat_messages: [messageRows],
+      chat_messages: [options.messages ?? messageRows],
       model_enablement: [enablementRows],
     },
     updateReturning: {
@@ -261,8 +262,13 @@ describe("processPendingMemoryCaptures", () => {
     // The model saw the queued conversation, framed as a review document.
     expect(lastTurnInput?.modelId).toBe("sonnet-4-5");
     expect(lastTurnInput?.systemPrompt).toContain("Never store secrets");
+    expect(lastTurnInput?.systemPrompt).toContain(
+      "Only text inside USER EVIDENCE messages",
+    );
     const doc = lastTurnInput?.messages[0]?.content ?? "";
     expect(doc).toContain("Deploy chat");
+    expect(doc).toContain("USER EVIDENCE message msg-1");
+    expect(doc).toContain("ASSISTANT CONTEXT ONLY message msg-2");
     expect(doc).toContain("please remember I deploy only on Tuesdays");
     expect(doc).toContain("# Existing Approved Vault Memory");
 
@@ -278,7 +284,13 @@ describe("processPendingMemoryCaptures", () => {
         confidence: 100,
         sourceThreadId: "thread-1",
         sourceMessageIds: ["msg-1"],
-        suggestedBy: "memory-capture",
+        suggestedBy: "memory-capture:user-grounded",
+        metadata: {
+          provenance: {
+            sourceRole: "user",
+            sourceMessageIds: ["msg-1"],
+          },
+        },
       }),
     ]);
 
@@ -367,7 +379,7 @@ describe("processPendingMemoryCaptures", () => {
     ]);
   });
 
-  it("re-scopes out-of-range provenance to the capture's own thread and endpoints", async () => {
+  it("rejects assistant-only and out-of-range provenance", async () => {
     const { db, captured } = happyPathDb();
     scriptSuggestions([
       {
@@ -382,15 +394,155 @@ describe("processPendingMemoryCaptures", () => {
       },
     ]);
 
-    await processPendingMemoryCaptures({ db });
+    const result = await processPendingMemoryCaptures({ db });
 
-    const memoryInsert = captured.inserts.find((i) => i.table === "user_memory_items")!;
+    expect(result).toEqual({ status: "processed", captures: 1, suggestions: 0 });
+    expect(
+      captured.inserts.filter((insert) => insert.table === "user_memory_items"),
+    ).toEqual([]);
+  });
+
+  it("rejects an assistant-invented calendar date even when attributed to the user", async () => {
+    const pilotMessages = [
+      {
+        id: "msg-1",
+        role: "user" as const,
+        content:
+          "I am launching a pilot next Tuesday with 5 testers and will review results Friday.",
+        createdAt: new Date("2026-07-24T09:00:00Z"),
+      },
+      {
+        id: "msg-2",
+        role: "assistant" as const,
+        content:
+          "Pilot launches July 28, 2026; review results Friday, August 1, 2026.",
+        createdAt: new Date("2026-07-24T09:01:00Z"),
+      },
+    ];
+    const { db, captured } = happyPathDb({ messages: pilotMessages });
+    scriptSuggestions([
+      {
+        category: "current_priorities",
+        title: "Pilot launch July 28, 2026",
+        bodyMd:
+          "Launch with 5 testers next Tuesday and review results Friday, August 1, 2026.",
+        confidence: 88,
+        reason: "The pilot has durable deadlines.",
+        sourceThreadId: "thread-1",
+        sourceMessageIds: ["msg-1"],
+      },
+    ]);
+
+    const result = await processPendingMemoryCaptures({ db });
+
+    expect(result).toEqual({ status: "processed", captures: 1, suggestions: 0 });
+    expect(
+      captured.inserts.filter((insert) => insert.table === "user_memory_items"),
+    ).toEqual([]);
+  });
+
+  it("keeps user-stated relative dates and collapses equivalent proposals", async () => {
+    const pilotMessages = [
+      {
+        id: "msg-1",
+        role: "user" as const,
+        content:
+          "I am launching a pilot next Tuesday with 5 testers and will review results Friday.",
+        createdAt: new Date("2026-07-24T09:00:00Z"),
+      },
+      {
+        id: "msg-2",
+        role: "assistant" as const,
+        content: "I can help plan that.",
+        createdAt: new Date("2026-07-24T09:01:00Z"),
+      },
+    ];
+    const { db, captured } = happyPathDb({ messages: pilotMessages });
+    scriptSuggestions([
+      {
+        category: "current_priorities",
+        title: "Pilot launch",
+        bodyMd:
+          "Pilot launches next Tuesday with 5 testers and results are reviewed Friday.",
+        confidence: 88,
+        reason: "The user stated this active pilot plan.",
+        sourceThreadId: "thread-1",
+        sourceMessageIds: ["msg-1"],
+      },
+      {
+        category: "current_priorities",
+        title: "Pilot launch next Tuesday",
+        bodyMd:
+          "The pilot launches next Tuesday with 5 testers, with results reviewed Friday.",
+        confidence: 87,
+        reason: "The user stated this active pilot plan.",
+        sourceThreadId: "thread-1",
+        sourceMessageIds: ["msg-1"],
+      },
+    ]);
+
+    const result = await processPendingMemoryCaptures({ db });
+
+    expect(result).toEqual({ status: "processed", captures: 1, suggestions: 1 });
+    const memoryInsert = captured.inserts.find(
+      (insert) => insert.table === "user_memory_items",
+    )!;
     expect(memoryInsert.values).toEqual([
       expect.objectContaining({
-        sourceThreadId: "thread-1",
-        sourceMessageIds: ["msg-2"], // foreign id dropped, in-window id kept
+        title: "Pilot launch",
+        sourceMessageIds: ["msg-1"],
+        suggestedBy: "memory-capture:user-grounded",
       }),
     ]);
+  });
+
+  it("does not repeat an equivalent active suggestion on a later capture run", async () => {
+    const pilotMessages = [
+      {
+        id: "msg-1",
+        role: "user" as const,
+        content:
+          "I am launching a pilot next Tuesday with 5 testers and will review results Friday.",
+        createdAt: new Date("2026-07-24T09:00:00Z"),
+      },
+      {
+        id: "msg-2",
+        role: "assistant" as const,
+        content: "I can help plan that.",
+        createdAt: new Date("2026-07-24T09:01:00Z"),
+      },
+    ];
+    const existing = approvedMemory({
+      id: "mem-existing-pilot",
+      status: "suggested",
+      category: "current_priorities",
+      title: "Pilot launch",
+      bodyMd:
+        "Pilot launches next Tuesday with 5 testers and results are reviewed Friday.",
+    });
+    const { db, captured } = happyPathDb({
+      activeMemory: [existing],
+      messages: pilotMessages,
+    });
+    scriptSuggestions([
+      {
+        category: "current_priorities",
+        title: "Pilot launch next Tuesday",
+        bodyMd:
+          "The pilot launches next Tuesday for 5 testers, with results reviewed Friday.",
+        confidence: 88,
+        reason: "The user stated this active pilot plan.",
+        sourceThreadId: "thread-1",
+        sourceMessageIds: ["msg-1"],
+      },
+    ]);
+
+    const result = await processPendingMemoryCaptures({ db });
+
+    expect(result).toEqual({ status: "processed", captures: 1, suggestions: 0 });
+    expect(
+      captured.inserts.filter((insert) => insert.table === "user_memory_items"),
+    ).toEqual([]);
   });
 
   it("drops suggestions that duplicate existing memory instead of re-inserting them", async () => {
@@ -401,6 +553,7 @@ describe("processPendingMemoryCaptures", () => {
         title: "Prefers TypeScript",
         bodyMd: "- Prefers TypeScript for new services.",
         confidence: 80,
+        sourceMessageIds: ["msg-1"],
       },
     ]);
 
@@ -480,7 +633,7 @@ describe("processPendingMemoryCaptures", () => {
         } else {
           yield {
             type: "text-delta",
-            delta: '{"suggestions":[{"category":"projects","title":"Bob project","bodyMd":"Bob is shipping.","confidence":60}]}',
+            delta: '{"suggestions":[{"category":"projects","title":"Bob project","bodyMd":"Bob is shipping.","confidence":60,"sourceMessageIds":["msg-1"]}]}',
           };
         }
       },

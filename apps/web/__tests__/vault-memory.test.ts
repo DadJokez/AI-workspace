@@ -3,6 +3,7 @@ import { buildAgentPreamble } from "@/lib/agent-preamble";
 import {
   buildVaultMarkdown,
   normalizeMemoryCategory,
+  serializeMemoryItem,
 } from "@/lib/vault-memory";
 
 describe("vault memory", () => {
@@ -38,6 +39,32 @@ describe("vault memory", () => {
   it("normalizes loose category labels", () => {
     expect(normalizeMemoryCategory("Working Style")).toBe("working_style");
     expect(normalizeMemoryCategory("")).toBe("personal_context");
+  });
+
+  it("surfaces user-grounded provenance without relabeling legacy suggestions", () => {
+    const grounded = serializeMemoryItem(
+      memoryItem({
+        status: "suggested",
+        sourceMessageIds: ["message-1"],
+        suggestedBy: "memory-capture:user-grounded",
+        metadata: {
+          provenance: {
+            sourceRole: "user",
+            sourceMessageIds: ["message-1"],
+          },
+        },
+      }),
+    );
+    const legacy = serializeMemoryItem(
+      memoryItem({
+        status: "suggested",
+        sourceMessageIds: ["message-2"],
+        suggestedBy: "memory-capture",
+      }),
+    );
+
+    expect(grounded.provenance).toBe("user_stated");
+    expect(legacy.provenance).toBe("unverified");
   });
 
   it("injects approved vault markdown into the agent preamble", () => {
