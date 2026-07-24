@@ -284,7 +284,7 @@ describe("processPendingMemoryCaptures", () => {
         confidence: 100,
         sourceThreadId: "thread-1",
         sourceMessageIds: ["msg-1"],
-        suggestedBy: "memory-capture:user-grounded",
+        suggestedBy: "memory-capture:user-cited",
         metadata: {
           provenance: {
             sourceRole: "user",
@@ -491,7 +491,46 @@ describe("processPendingMemoryCaptures", () => {
       expect.objectContaining({
         title: "Pilot launch",
         sourceMessageIds: ["msg-1"],
-        suggestedBy: "memory-capture:user-grounded",
+        suggestedBy: "memory-capture:user-cited",
+      }),
+    ]);
+  });
+
+  it("does not reject a grounded memory because reviewer rationale adds facts", async () => {
+    const { db, captured } = happyPathDb({
+      messages: [
+        {
+          id: "msg-1",
+          role: "user" as const,
+          content: "I deploy production changes only on Tuesdays.",
+          createdAt: new Date("2026-07-24T09:00:00Z"),
+        },
+      ],
+    });
+    scriptSuggestions([
+      {
+        category: "constraints",
+        title: "Production deploy day",
+        bodyMd: "Production changes are deployed only on Tuesdays.",
+        confidence: 91,
+        reason: "The reviewer checked this Monday and recommends revisiting in 7 days.",
+        sourceThreadId: "thread-1",
+        sourceMessageIds: ["msg-1"],
+      },
+    ]);
+
+    const result = await processPendingMemoryCaptures({ db });
+
+    expect(result).toEqual({ status: "processed", captures: 1, suggestions: 1 });
+    const memoryInsert = captured.inserts.find(
+      (insert) => insert.table === "user_memory_items",
+    )!;
+    expect(memoryInsert.values).toEqual([
+      expect.objectContaining({
+        title: "Production deploy day",
+        reason:
+          "The reviewer checked this Monday and recommends revisiting in 7 days.",
+        suggestedBy: "memory-capture:user-cited",
       }),
     ]);
   });

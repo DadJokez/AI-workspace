@@ -41,12 +41,12 @@ describe("vault memory", () => {
     expect(normalizeMemoryCategory("")).toBe("personal_context");
   });
 
-  it("surfaces user-grounded provenance without relabeling legacy suggestions", () => {
+  it("distinguishes direct user memory from model suggestions that cite users", () => {
     const grounded = serializeMemoryItem(
       memoryItem({
         status: "suggested",
         sourceMessageIds: ["message-1"],
-        suggestedBy: "memory-capture:user-grounded",
+        suggestedBy: "memory-capture:user-cited",
         metadata: {
           provenance: {
             sourceRole: "user",
@@ -63,7 +63,7 @@ describe("vault memory", () => {
       }),
     );
 
-    expect(grounded.provenance).toBe("user_stated");
+    expect(grounded.provenance).toBe("user_cited");
     expect(legacy.provenance).toBe("unverified");
   });
 

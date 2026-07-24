@@ -719,7 +719,9 @@ function normalizeSuggestion({
   const sourceText = sourceMessageIds
     .map((id) => userSourceMessages.get(id)?.content ?? "")
     .join("\n");
-  const proposalText = [title, bodyMd, suggestion.reason ?? ""].join("\n");
+  // Only the persisted memory claim needs grounding. The reviewer rationale is
+  // explanatory metadata and may contain incidental dates or quantities.
+  const proposalText = [title, bodyMd].join("\n");
   if (unsupportedGroundingFacts(proposalText, sourceText).length > 0) {
     return null;
   }
@@ -734,7 +736,7 @@ function normalizeSuggestion({
     reason: suggestion.reason?.trim() || null,
     sourceThreadId,
     sourceMessageIds,
-    suggestedBy: "memory-capture:user-grounded",
+    suggestedBy: "memory-capture:user-cited",
     metadata: {
       provenance: {
         sourceRole: "user",

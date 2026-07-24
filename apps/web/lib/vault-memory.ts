@@ -42,7 +42,7 @@ export interface SerializedMemoryItem {
   reason: string | null;
   sourceThreadId: string | null;
   sourceMessageIds: string[];
-  provenance: "user_stated" | "unverified";
+  provenance: "user_stated" | "user_cited" | "unverified";
   suggestedBy: string;
   approvedAt: string | null;
   dismissedAt: string | null;
@@ -132,9 +132,9 @@ function memoryProvenance(
     !Array.isArray(metadata.provenance)
       ? (metadata.provenance as Record<string, unknown>)
       : null;
-  return item.suggestedBy === "memory-capture:user-grounded" &&
+  return item.suggestedBy === "memory-capture:user-cited" &&
     provenance?.sourceRole === "user"
-    ? "user_stated"
+    ? "user_cited"
     : "unverified";
 }
 

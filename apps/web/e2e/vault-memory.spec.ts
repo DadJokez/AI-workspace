@@ -32,6 +32,10 @@ test.describe("Vault memory", () => {
     await expect(
       page.getByRole("heading", { name: "PR review automation", exact: true }),
     ).toBeVisible();
+    const suggestedCard = page
+      .getByTestId("vault-suggested-memory-card")
+      .first();
+    await expect(suggestedCard).toContainText("Cites user message");
     const approvedCard = page
       .getByTestId("vault-approved-memory-card")
       .first();
