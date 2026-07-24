@@ -89,7 +89,18 @@ describe("conversation resource MCP authorization (#576)", () => {
       }),
     );
     const json = (await response.json()) as {
-      result: { tools: Array<{ name: string; inputSchema: unknown }> };
+      result: {
+        tools: Array<{
+          name: string;
+          description: string;
+          inputSchema: {
+            properties: Record<
+              string,
+              { description?: string; type?: string | string[] }
+            >;
+          };
+        }>;
+      };
     };
 
     expect(response.status).toBe(200);
@@ -100,6 +111,33 @@ describe("conversation resource MCP authorization (#576)", () => {
         required: ["resourceId", "operation"],
         additionalProperties: false,
       },
+    });
+    expect(json.result.tools[0]?.description).toContain(
+      "up to three AND/OR filters",
+    );
+    expect(
+      json.result.tools[0]?.inputSchema.properties.filterColumn?.description,
+    ).toContain("Legacy single-predicate");
+    expect(
+      json.result.tools[0]?.inputSchema.properties.filterValue?.type,
+    ).toEqual(["string", "number", "boolean"]);
+    expect(json.result.tools[0]?.inputSchema.properties.filters).toMatchObject({
+      type: "array",
+      minItems: 1,
+      maxItems: 3,
+    });
+    expect(
+      json.result.tools[0]?.inputSchema.properties.groupByDatePart,
+    ).toMatchObject({
+      type: "string",
+      enum: expect.arrayContaining([
+        "year",
+        "quarter",
+        "month",
+        "week",
+        "day_of_week",
+        "is_weekend",
+      ]),
     });
   });
 

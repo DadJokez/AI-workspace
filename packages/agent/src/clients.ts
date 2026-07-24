@@ -206,6 +206,171 @@ export class FakeBedrockClient implements BedrockClient {
   }
 }
 
+/**
+ * Deterministic model double for the real browser-to-runtime resource canary.
+ *
+ * Unlike FakeBedrockClient, this exercises an actual two-step agent loop:
+ * first it calls the mounted `resources__query` MCP tool using the resource id
+ * from the signed turn context; then it derives its answer only from the tool
+ * result returned on the next model iteration. Selection is guarded by
+ * E2E_TEST_MODE in getBedrockClient(), so production cannot opt into it by
+ * setting BEDROCK_CLIENT alone.
+ */
+export class E2EResourceCanaryBedrockClient implements BedrockClient {
+  async *converseStream(
+    params: ConverseStreamParams,
+  ): AsyncIterable<BedrockStreamEvent> {
+    const toolResult = latestToolResult(params.messages);
+    if (toolResult) {
+      const answer = answerFromResourceToolResult(toolResult);
+      for (const text of chunkText(answer, 24)) {
+        if (params.signal?.aborted) return;
+        yield { type: "text-delta", text };
+      }
+      yield e2eUsageEvent(params, answer);
+      yield { type: "stop", reason: "end_turn" };
+      return;
+    }
+
+    const resourceId = selectedResourceId(params.volatileSystemSuffix);
+    const resourceToolMounted = params.toolConfig?.tools.some(
+      (tool) => tool.toolSpec.name === "resources__query",
+    );
+    if (!resourceId || !resourceToolMounted) {
+      const message =
+        "The E2E resource canary could not find a mounted, selected conversation resource.";
+      yield { type: "text-delta", text: message };
+      yield e2eUsageEvent(params, message);
+      yield { type: "stop", reason: "end_turn" };
+      return;
+    }
+
+    yield {
+      type: "tool-use",
+      id: "e2e-resource-canary-query",
+      name: "resources__query",
+      input: {
+        resourceId,
+        operation: "table_filter",
+        filterColumn: "customer",
+        filterOperator: "equals",
+        filterValue: "CSV_CANARY_7391",
+        limit: 1,
+      },
+    };
+    yield e2eUsageEvent(params, "");
+    yield { type: "stop", reason: "tool_use" };
+  }
+}
+
+function latestToolResult(messages: readonly BedrockMessage[]): string | null {
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const message = messages[messageIndex]!;
+    for (
+      let blockIndex = message.content.length - 1;
+      blockIndex >= 0;
+      blockIndex -= 1
+    ) {
+      const block = message.content[blockIndex]!;
+      if (
+        block.kind === "tool-result" &&
+        block.toolUseId === "e2e-resource-canary-query"
+      ) {
+        return block.content;
+      }
+    }
+  }
+  return null;
+}
+
+function selectedResourceId(volatileSystemSuffix?: string): string | null {
+  const match = volatileSystemSuffix?.match(
+    /"resourceId":"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"/i,
+  );
+  return match?.[1] ?? null;
+}
+
+function answerFromResourceToolResult(result: string): string {
+  const parsed = parseResourceToolResult(result);
+  if (parsed === null) {
+    return "The E2E resource canary did not receive verified full-coverage tool evidence.";
+  }
+  if (!isJsonRecord(parsed) || !isJsonRecord(parsed.receipt)) {
+    return "The E2E resource canary did not receive verified full-coverage tool evidence.";
+  }
+  const fullCoverage =
+    parsed.receipt.sourceCoverage === "full" &&
+    parsed.receipt.resultCoverage === "full";
+  const row = Array.isArray(parsed.rows)
+    ? parsed.rows.find(
+        (candidate) =>
+          isJsonRecord(candidate) &&
+          candidate.customer === "CSV_CANARY_7391" &&
+          typeof candidate.revenue === "string",
+      )
+    : undefined;
+  if (!fullCoverage || !isJsonRecord(row)) {
+    return "The E2E resource canary did not receive verified full-coverage tool evidence.";
+  }
+  return `The revenue for ${row.customer} is ${row.revenue}. Verified from the persisted CSV through resources__query with full source coverage.`;
+}
+
+function parseResourceToolResult(result: string): unknown | null {
+  const framed = result.match(
+    /<<<TOOL-RESULT ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>>>\n([\s\S]*?)\n<<<END-TOOL-RESULT \1>>>/i,
+  );
+  const payload = framed?.[2];
+  if (payload === undefined) return null;
+  try {
+    return JSON.parse(payload);
+  } catch {
+    return null;
+  }
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function chunkText(value: string, size: number): string[] {
+  const chunks: string[] = [];
+  for (let index = 0; index < value.length; index += size) {
+    chunks.push(value.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function e2eUsageEvent(
+  params: ConverseStreamParams,
+  output: string,
+): BedrockStreamEvent {
+  const inputChars = params.messages.reduce(
+    (total, message) =>
+      total +
+      message.content.reduce(
+        (subtotal, block) =>
+          subtotal +
+          (block.kind === "text"
+            ? block.text.length
+            : block.kind === "tool-result"
+              ? block.content.length
+              : 0),
+        0,
+      ),
+    0,
+  );
+  const tokensIn = Math.max(1, Math.ceil(inputChars / 4));
+  const tokensOut = Math.max(1, Math.ceil(output.length / 4));
+  return {
+    type: "usage",
+    tokensIn,
+    tokensOut,
+    inputTokens: tokensIn,
+    cacheReadInputTokens: 0,
+    cacheWriteInputTokens: 0,
+  };
+}
+
 export class RealBedrockClient implements BedrockClient {
   private readonly client: BedrockRuntimeClient;
 
@@ -303,7 +468,10 @@ export class RealBedrockClient implements BedrockClient {
       },
     });
 
-    const response = await this.client.send(command);
+    const response = await this.client.send(
+      command,
+      params.signal ? { abortSignal: params.signal } : {},
+    );
     if (!response.stream) return;
 
     let pendingToolId: string | undefined;
@@ -449,5 +617,15 @@ export function getBedrockClient(): BedrockClient {
   const which = (process.env.BEDROCK_CLIENT ?? "fake").toLowerCase();
   if (which === "fake") return new FakeBedrockClient();
   if (which === "real") return new RealBedrockClient();
-  throw new Error(`Unknown BEDROCK_CLIENT=${which}; expected 'fake' or 'real'`);
+  if (which === "e2e-resource-canary") {
+    if (process.env.E2E_TEST_MODE !== "1") {
+      throw new Error(
+        "BEDROCK_CLIENT=e2e-resource-canary is restricted to E2E_TEST_MODE=1.",
+      );
+    }
+    return new E2EResourceCanaryBedrockClient();
+  }
+  throw new Error(
+    `Unknown BEDROCK_CLIENT=${which}; expected 'fake', 'real', or 'e2e-resource-canary'`,
+  );
 }

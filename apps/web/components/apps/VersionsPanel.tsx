@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fetchJson } from "@/lib/client-api";
+import { formatDateTime } from "@/lib/format-date";
 
 interface VersionRow {
   appVersionId: string;
@@ -17,13 +19,14 @@ interface VersionRow {
   isLive: boolean;
   canDeploy: boolean;
   canDiscard: boolean;
+  hasDataBindings: boolean;
   previewUrl: string;
 }
 
 /**
  * "Previous versions", not git log: every HTML artifact from the app's
- * source conversation is a deployable version. Deploy promotes, Revert
- * repins — same button, plain language.
+ * source conversation is a publishable version. Publish promotes and
+ * republishing an older version rolls the stable URL back.
  */
 export function VersionsPanel({
   appId,
@@ -37,44 +40,61 @@ export function VersionsPanel({
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [modeByVersion, setModeByVersion] = useState<
+    Record<string, "snapshot" | "live_via_viewer">
+  >({});
 
   async function deployVersion(appVersionId: string) {
     setBusyId(appVersionId);
     setNotice(null);
     try {
-      const res = await fetch(`/api/apps/${appId}/deploy`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ appVersionId }),
-      });
-      const body = (await res.json()) as { message?: string; error?: string };
-      if (res.ok) {
-        router.refresh();
-        return;
-      }
-      setNotice(body.message ?? body.error ?? "Could not deploy this version.");
-    } catch {
-      setNotice("Could not deploy this version.");
+      await fetchJson(
+        `/api/apps/${appId}/deploy`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            appVersionId,
+            dataMode: modeByVersion[appVersionId] ?? "snapshot",
+          }),
+        },
+        "Could not publish this version.",
+      );
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error
+          ? err.message
+          : "Could not publish this version.",
+      );
     } finally {
       setBusyId(null);
     }
   }
 
-  async function discardVersion(appVersionId: string) {
-    setBusyId(appVersionId);
+  async function discardVersion(version: VersionRow) {
+    setBusyId(version.appVersionId);
     setNotice(null);
     try {
-      const res = await fetch(`/api/apps/${appId}/versions/${appVersionId}`, {
-        method: "DELETE",
-      });
-      const body = (await res.json()) as { message?: string; error?: string };
-      if (res.ok) {
-        router.refresh();
-        return;
-      }
-      setNotice(body.message ?? body.error ?? "Could not discard this draft.");
-    } catch {
-      setNotice("Could not discard this draft.");
+      await fetchJson(
+        `/api/apps/${appId}/versions/${version.appVersionId}`,
+        version.status === "proposed"
+          ? {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                decision: "discarded",
+                reason: "Discarded from app version review.",
+              }),
+            }
+          : { method: "DELETE" },
+        "Could not discard this draft.",
+      );
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Could not discard this draft.",
+      );
     } finally {
       setBusyId(null);
     }
@@ -102,17 +122,27 @@ export function VersionsPanel({
                 <span className="truncate">{version.title}</span>
                 {version.isLive ? (
                   <span className="rounded bg-ink/10 px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-ink">
-                    Live
+                    Published
                   </span>
                 ) : (
                   <span className="rounded bg-ink/5 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
-                    {version.status === "draft" ? "Draft" : "Previous"}
+                    {version.status === "draft"
+                      ? "Draft"
+                      : version.status === "proposed"
+                        ? "Needs review"
+                        : version.status === "iterating"
+                          ? "Iterating"
+                          : version.status === "superseded"
+                            ? "Superseded"
+                        : version.status === "discarded"
+                          ? "Discarded"
+                          : "Previous"}
                   </span>
                 )}
               </div>
               <p className="mt-0.5 text-muted">
                 {version.filename} · {version.createdByName} ·{" "}
-                {new Date(version.createdAt).toLocaleString()}
+                {formatDateTime(version.createdAt)}
               </p>
               {version.summary ? (
                 <p className="mt-1 text-muted">{version.summary}</p>
@@ -126,24 +156,47 @@ export function VersionsPanel({
                 Preview
               </a>
               {canDeploy && version.canDeploy ? (
-                <button
-                  type="button"
-                  disabled={busyId !== null}
-                  onClick={() => deployVersion(version.appVersionId)}
-                  className="rounded-md border border-hairline px-2.5 py-1 text-xs font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
-                >
-                  {busyId === version.appVersionId
-                    ? "Deploying..."
-                    : version.status === "draft"
-                      ? "Deploy"
-                      : "Rollback"}
-                </button>
+                <>
+                  {version.hasDataBindings ? (
+                    <select
+                      aria-label={`Data mode for version ${version.versionNumber}`}
+                      disabled={busyId !== null}
+                      value={
+                        modeByVersion[version.appVersionId] ?? "snapshot"
+                      }
+                      onChange={(event) =>
+                        setModeByVersion((current) => ({
+                          ...current,
+                          [version.appVersionId]: event.target.value as
+                            | "snapshot"
+                            | "live_via_viewer",
+                        }))
+                      }
+                      className="rounded-md border border-hairline bg-canvas px-2 py-1 text-xs text-ink disabled:opacity-50"
+                    >
+                      <option value="snapshot">Snapshot</option>
+                      <option value="live_via_viewer">Live via viewer</option>
+                    </select>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={busyId !== null}
+                    onClick={() => deployVersion(version.appVersionId)}
+                    className="rounded-md border border-hairline px-2.5 py-1 text-xs font-medium text-ink hover:bg-ink/5 disabled:opacity-50"
+                  >
+                    {busyId === version.appVersionId
+                      ? "Publishing..."
+                      : version.status === "proposed"
+                        ? "Accept and publish"
+                        : "Publish"}
+                  </button>
+                </>
               ) : null}
               {version.canDiscard ? (
                 <button
                   type="button"
                   disabled={busyId !== null}
-                  onClick={() => discardVersion(version.appVersionId)}
+                  onClick={() => discardVersion(version)}
                   className="rounded-md border border-hairline px-2.5 py-1 text-xs text-muted hover:text-ink disabled:opacity-50"
                 >
                   Discard

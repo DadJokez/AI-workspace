@@ -5,6 +5,10 @@ import * as https from "node:https";
 import { isIP } from "node:net";
 import type { Tool } from "./types";
 import {
+  assertWebEgressAllowed,
+  type WebEgressPolicy,
+} from "./web-egress-policy";
+import {
   WEB_SEARCH_TOOL_NAME,
   createWebSearchTool,
   type WebSearchOptions,
@@ -33,6 +37,7 @@ interface WebFetchOptions {
   requestImpl?: RequestUrlImpl;
   lookupImpl?: typeof dnsLookup;
   now?: () => Date;
+  egressPolicy?: WebEgressPolicy;
 }
 
 type GuardedLookup = NonNullable<http.RequestOptions["lookup"]>;
@@ -57,13 +62,25 @@ type RequestUrlImpl = (
 
 export function createBuiltinTools(
   names: readonly string[] = [],
-  options: { webSearch?: WebSearchOptions } = {},
+  options: {
+    webSearch?: WebSearchOptions;
+    webEgressPolicy?: WebEgressPolicy;
+  } = {},
 ): Tool[] {
   const tools: Tool[] = [];
   for (const name of names) {
-    if (name === WEB_FETCH_TOOL_NAME) tools.push(createWebFetchTool());
+    if (name === WEB_FETCH_TOOL_NAME) {
+      tools.push(
+        createWebFetchTool({ egressPolicy: options.webEgressPolicy }),
+      );
+    }
     if (name === WEB_SEARCH_TOOL_NAME) {
-      tools.push(createWebSearchTool(options.webSearch));
+      tools.push(
+        createWebSearchTool({
+          ...options.webSearch,
+          egressPolicy: options.webEgressPolicy,
+        }),
+      );
     }
   }
   return tools;
@@ -73,6 +90,7 @@ export function createWebFetchTool({
   requestImpl = requestUrl,
   lookupImpl = dnsLookup,
   now = () => new Date(),
+  egressPolicy,
 }: WebFetchOptions = {}): Tool {
   return {
     name: WEB_FETCH_TOOL_NAME,
@@ -105,6 +123,7 @@ export function createWebFetchTool({
         maxBytes,
         requestImpl,
         lookupImpl,
+        egressPolicy,
       });
       return { ...result, fetchedAt: startedAt };
     },
@@ -116,15 +135,21 @@ async function fetchPublicUrl({
   maxBytes,
   requestImpl,
   lookupImpl,
+  egressPolicy,
 }: {
   rawUrl: string;
   maxBytes: number;
   requestImpl: RequestUrlImpl;
   lookupImpl: typeof dnsLookup;
+  egressPolicy?: WebEgressPolicy;
 }) {
   let current = parseAndValidateUrl(rawUrl);
+  const fetchedHosts: string[] = [];
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
+    assertWebEgressAllowed(current.hostname, egressPolicy);
     await assertPublicHostname(current.hostname, lookupImpl);
+    const normalizedHost = current.hostname.toLowerCase().replace(/\.$/, "");
+    if (!fetchedHosts.includes(normalizedHost)) fetchedHosts.push(normalizedHost);
 
     let response: WebFetchResponse;
     try {
@@ -167,6 +192,7 @@ async function fetchPublicUrl({
       ok: response.status >= 200 && response.status < 300,
       contentType: contentType || null,
       title: extractHtmlTitle(response.text),
+      fetchedHosts,
       bytesRead: response.bytesRead,
       truncated: response.truncated,
       text: formatWebContentData(response.text),

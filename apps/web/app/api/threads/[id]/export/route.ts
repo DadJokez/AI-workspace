@@ -1,8 +1,11 @@
-import { AuthConfigError } from "@ai-workspace/auth";
 import { chatThreads, getDb } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
+import { requireSession } from "@/lib/auth/requireSession";
 import { userScope } from "@/lib/auth/scope";
 import {
   buildChatTranscriptMarkdown,
@@ -14,22 +17,10 @@ export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-export async function GET(_req: Request, { params }: RouteContext) {
-  let sessionUser;
-  try {
-    sessionUser = await getSessionUser();
-  } catch (err) {
-    if (err instanceof AuthConfigError) {
-      return NextResponse.json(
-        { error: "auth_config_error", message: err.message },
-        { status: 500 },
-      );
-    }
-    throw err;
-  }
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+export async function GET(req: Request, { params }: RouteContext) {
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   const { id: threadId } = await params;
   if (!threadId) {
@@ -57,7 +48,24 @@ export async function GET(_req: Request, { params }: RouteContext) {
     return NextResponse.json({ error: "thread_not_found" }, { status: 404 });
   }
 
-  const messages = await loadThreadMessagesWithRunActivity({ db, threadId });
+  await auditAdminDataAccess({
+    db,
+    actor: sessionUser,
+    access: {
+      targetUserId: thread.userId,
+      resourceType: "chat_thread",
+      resourceId: thread.id,
+      surface: "thread_export",
+      justification: adminDataAccessJustification(req),
+      chatThreadId: thread.id,
+    },
+  });
+
+  const messages = await loadThreadMessagesWithRunActivity({
+    db,
+    threadId,
+    actor: sessionUser,
+  });
   const title = thread.title ?? "Chat transcript";
   const markdown = buildChatTranscriptMarkdown({
     title,

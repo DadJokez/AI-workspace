@@ -15,6 +15,7 @@ import {
   buildProductionResourceFixtures,
   type ProductionResourceFixture,
 } from "./conversation-resource-smoke-fixtures";
+import { partitionResourceToolResults } from "./production-resource-smoke-results";
 import { queryConversationResource } from "@/lib/conversation-resource-content";
 
 const DEFAULT_BASE_URL = "https://comparative.builtwithrobot.link";
@@ -119,6 +120,7 @@ async function conversationResourceMatrixCheck(
       upload.response,
       200,
       `/api/chat resource matrix upload batch ${batchIndex + 1}`,
+      upload.rawBody,
     );
     const uploadMeta = requiredChatMeta(
       upload.events,
@@ -350,6 +352,7 @@ async function verifyLaterTurnReuse({
     followUp.response,
     200,
     `/api/chat resource follow-up ${fixture.filename}`,
+    followUp.rawBody,
   );
   const followUpMeta = requiredChatMeta(
     followUp.events,
@@ -423,29 +426,34 @@ async function verifyLaterTurnReuse({
     ? run.outputs.toolResults
     : [];
   if (fixture.kind !== "image") {
-    const resourceResults = toolResults.filter(
-      (result) =>
-        isRecord(result) &&
-        (result.provider === "resources" ||
-          (typeof result.name === "string" &&
-            result.name.includes("resources"))),
-    );
+    const resourceResults = partitionResourceToolResults(toolResults);
     assert(
-      resourceResults.length > 0,
+      resourceResults.all.length > 0,
       `${fixture.filename} later turn did not persist a resource tool receipt`,
     );
-    for (const result of resourceResults) {
+    assert(
+      resourceResults.successful.length > 0,
+      `${fixture.filename} later turn did not complete a resource tool call`,
+    );
+    for (const result of resourceResults.all) {
       const output = recordField(
         result,
         "output",
         `${fixture.filename} resource tool output receipt missing`,
       );
-      assertFullSourceReceipt(output, fixture.filename);
       const persisted = JSON.stringify(output);
       assert(
         fixture.expectedFacts.every((fact) => !persisted.includes(fact)),
         `${fixture.filename} persisted file content instead of a compact receipt`,
       );
+    }
+    for (const result of resourceResults.successful) {
+      const output = recordField(
+        result,
+        "output",
+        `${fixture.filename} successful resource tool output receipt missing`,
+      );
+      assertFullSourceReceipt(output, fixture.filename);
     }
   }
 }
@@ -916,6 +924,7 @@ async function postChat(
 ): Promise<{
   response: Response;
   events: Array<Record<string, unknown>>;
+  rawBody: string;
   text: string;
 }> {
   const result = await fetchTextWithTimeout("/api/chat", {
@@ -930,6 +939,7 @@ async function postChat(
   return {
     response: result.response,
     events,
+    rawBody: result.body,
     text: events
       .filter((event) => event.type === "text-delta")
       .map((event) => (typeof event.delta === "string" ? event.delta : ""))
@@ -1092,10 +1102,18 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function assertStatus(response: Response, expected: number, label: string) {
+function assertStatus(
+  response: Response,
+  expected: number,
+  label: string,
+  responseBody?: string,
+) {
+  const bodyDetail = responseBody?.trim()
+    ? `: ${responseBody.trim().replace(/\s+/g, " ").slice(0, 300)}`
+    : "";
   assert(
     response.status === expected,
-    `${label} expected ${expected}, got ${response.status}`,
+    `${label} expected ${expected}, got ${response.status}${bodyDetail}`,
   );
 }
 

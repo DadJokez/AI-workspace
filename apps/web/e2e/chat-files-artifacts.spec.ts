@@ -57,7 +57,7 @@ test.describe("chat files and artifacts", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -173,7 +173,7 @@ test.describe("chat files and artifacts", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -255,7 +255,7 @@ test.describe("chat files and artifacts", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -360,7 +360,7 @@ test.describe("chat files and artifacts", () => {
             artifacts: [defaultArtifactSummary],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -482,7 +482,7 @@ test.describe("chat files and artifacts", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -572,7 +572,7 @@ test.describe("chat files and artifacts", () => {
               artifacts: [defaultArtifactSummary],
               recommendations: [],
             },
-            { type: "done" },
+            { type: "done", stopReason: "completed" },
           ]);
           return;
         }
@@ -600,7 +600,7 @@ test.describe("chat files and artifacts", () => {
             artifacts: [revisedArtifactSummary],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -752,7 +752,7 @@ test.describe("chat files and artifacts", () => {
             artifacts: [revisedArtifact],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -857,7 +857,7 @@ test.describe("chat files and artifacts", () => {
             artifacts: [markdownArtifact],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });
@@ -912,7 +912,7 @@ test.describe("chat files and artifacts", () => {
             artifacts: [],
             recommendations: [],
           },
-          { type: "done" },
+          { type: "done", stopReason: "completed" },
         ]);
       },
     });

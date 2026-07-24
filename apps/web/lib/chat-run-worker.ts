@@ -15,13 +15,21 @@ import {
   type ConversationResourceResolution,
 } from "@/lib/conversation-resources";
 import { appendRunEventBestEffort } from "@/lib/run-events";
-import { resolveModelForPurpose } from "@/lib/model-registry";
+import { resolveModelCandidatesForPurpose } from "@/lib/model-registry";
 import { createProactiveRunNotification } from "@/lib/notifications";
+import {
+  abortChatWorkerRuntime,
+  type ChatWorkerAbortReason,
+} from "@/lib/chat-worker-abort";
 import {
   executeChatTurn,
   isRunCanceled,
   numberFromEnv,
 } from "@/lib/execute-chat-turn";
+import {
+  proposalIterationFromRunInputs,
+  releaseProposalIteration,
+} from "@/lib/proposal-iterations";
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 const DEFAULT_RUNTIME_TIMEOUT_MS = 60 * 60 * 1000;
@@ -390,19 +398,29 @@ async function executeClaimedChatRun({
   const thread = threadRows[0];
   if (!thread) throw new Error("Chat thread was not found for queued run.");
 
-  const modelId = await resolveModelForPurpose(db, runtimeRoute.lane, {
-    preferred: run.modelId,
-  });
+  const modelCandidates = await resolveModelCandidatesForPurpose(
+    db,
+    runtimeRoute.lane,
+    {
+      preferred: run.modelId,
+    },
+  );
+  const modelId = modelCandidates[0]!;
 
   const runtimeAbort = new AbortController();
-  const externalAbort = () => runtimeAbort.abort();
-  signal?.addEventListener("abort", externalAbort, { once: true });
+  const externalAbort = () =>
+    abortChatWorkerRuntime(runtimeAbort, "shutdown");
+  if (signal?.aborted) {
+    externalAbort();
+  } else {
+    signal?.addEventListener("abort", externalAbort, { once: true });
+  }
 
   const timeoutMs =
     numberFromEnv("CHAT_WORKER_RUNTIME_TIMEOUT_MS") ??
     DEFAULT_RUNTIME_TIMEOUT_MS;
   const timeout = setTimeout(() => {
-    runtimeAbort.abort();
+    if (!abortChatWorkerRuntime(runtimeAbort, "timeout")) return;
     process.stderr.write(
       `[chat-run-worker-timeout] ${JSON.stringify({
         runId: run.id,
@@ -416,18 +434,22 @@ async function executeClaimedChatRun({
   const heartbeat = setInterval(
     () => {
       void heartbeatRunLease(db, run.id, workerId)
-        .then((held) => {
+        .then((status) => {
           // #443: another worker owns the run now (expired-lease reclaim or
           // admin resume). Stop executing instead of double-running the turn.
-          if (!held) {
-            process.stderr.write(
-              `[chat-run-lease-lost] ${JSON.stringify({
-                runId: run.id,
-                workerId,
-              })}\n`,
-            );
+          if (status !== "held") {
+            const abortReason: ChatWorkerAbortReason =
+              status === "canceled" ? "canceled" : "lease_lost";
             clearInterval(heartbeat);
-            runtimeAbort.abort();
+            if (abortChatWorkerRuntime(runtimeAbort, abortReason)) {
+              process.stderr.write(
+                `[chat-run-${status === "canceled" ? "cancel-observed" : "lease-lost"}] ${JSON.stringify({
+                  runId: run.id,
+                  workerId,
+                  abortReason,
+                })}\n`,
+              );
+            }
           }
         })
         .catch((err) => {
@@ -460,6 +482,7 @@ async function executeClaimedChatRun({
       runtime,
       runtimeAbort,
       modelId,
+      modelCandidates,
       requestedProviders: inputs.requestedProviders,
       activeSkillPrompt: sanitizeActiveSkillPrompt(inputs.activeSkillPrompt),
       uploadedFiles: sanitizeUploadedFiles(inputs.uploadedFiles),
@@ -471,7 +494,9 @@ async function executeClaimedChatRun({
       // trusted prompt source either.
       userTimeZone: normalizeUserTimeZone(inputs.userTimeZone),
       suppressedSkillIds: activatedSkillIdsFromInputs(run.inputs),
-      interactive: run.triggerType === "chat",
+      interactive:
+        run.triggerType === "chat" ||
+        run.triggerType === "proposal_iteration",
       lane: {
         kind: "worker",
         run,
@@ -528,6 +553,25 @@ async function markRunFailed(
 
   if (updatedRows.length === 0) return;
 
+  const proposalIteration = proposalIterationFromRunInputs(run.inputs);
+  if (proposalIteration) {
+    try {
+      await releaseProposalIteration({
+        db,
+        iteration: proposalIteration,
+        error: message,
+        completedAt,
+      });
+    } catch (error) {
+      process.stderr.write(
+        `[proposal-iteration-release-error] ${JSON.stringify({
+          runId: run.id,
+          message: error instanceof Error ? error.message : String(error),
+        })}\n`,
+      );
+    }
+  }
+
   await createProactiveRunNotification(db, { ...run, error: message }, "failed");
 
   await appendRunEventBestEffort("chat-run-event-error", {
@@ -541,15 +585,14 @@ async function markRunFailed(
 }
 
 /**
- * Renew this worker's lease. Returns false when the run is no longer ours —
- * canceled, finished, or claimed by another worker (#443 fencing) — so the
- * caller can abort instead of double-executing.
+ * Renew this worker's lease. When the run is no longer ours, distinguish user
+ * cancellation from lease loss so the caller can stop with an honest reason.
  */
 export async function heartbeatRunLease(
   db: Database,
   runId: string,
   workerId: string,
-): Promise<boolean> {
+): Promise<"held" | "canceled" | "lease_lost"> {
   const now = new Date();
   const leaseMs = numberFromEnv("CHAT_RUN_WORKER_LEASE_MS") ?? DEFAULT_LEASE_MS;
   const rows = await db
@@ -567,7 +610,14 @@ export async function heartbeatRunLease(
       ),
     )
     .returning({ id: runs.id });
-  return rows.length > 0;
+  if (rows.length > 0) return "held";
+
+  const current = await db
+    .select({ status: runs.status })
+    .from(runs)
+    .where(eq(runs.id, runId))
+    .limit(1);
+  return current[0]?.status === "canceled" ? "canceled" : "lease_lost";
 }
 
 function parseChatRunInputs(value: unknown): ChatRunInputs {

@@ -1,6 +1,10 @@
 import { auditLog, getDb, runs, runEvents, users } from "@ai-workspace/db";
 import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { redactTracePayload } from "@/lib/tool-redaction";
 import { expandProviderContextSnapshotOutput } from "@/lib/run-trace";
@@ -10,7 +14,7 @@ export const dynamic = "force-dynamic";
 const TRACE_ACCESS_WINDOW_MS = 5 * 60 * 1_000;
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const auth = await requireAdmin();
@@ -53,6 +57,19 @@ export async function GET(
     db,
     actorUserId: auth.user.id,
     runId: run.id,
+    now,
+  });
+  await auditAdminDataAccess({
+    db,
+    actor: auth.user,
+    access: {
+      targetUserId: run.userId,
+      resourceType: "run",
+      resourceId: run.id,
+      surface: "run_inspector",
+      justification: adminDataAccessJustification(request),
+      runId: run.id,
+    },
     now,
   });
 

@@ -166,7 +166,7 @@ describe("tool-use honesty grounding", () => {
     expect(preamble).not.toContain("No external tools are connected yet");
   });
 
-  it("states the Google no-send and two-turn event boundary when mounted", () => {
+  it("keeps post-call Google guidance out of the cached preamble", () => {
     const preamble = buildAgentPreamble({
       user: { displayName: "Rob", customInstructions: null },
       connectedProviders: ["google"],
@@ -174,8 +174,12 @@ describe("tool-use honesty grounding", () => {
       availableProviders: ["google"],
     });
 
-    expect(preamble).toContain("create_draft saves a Gmail draft and never sends it");
-    expect(preamble).toContain("created only after a later explicit confirmation turn");
+    expect(preamble).not.toContain(
+      "create_draft saves a Gmail draft and never sends it",
+    );
+    expect(preamble).not.toContain(
+      "created only after a later explicit confirmation turn",
+    );
   });
 
   it("grounds semantic tool selection without keyword routing", () => {

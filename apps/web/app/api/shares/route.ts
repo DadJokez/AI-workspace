@@ -1,12 +1,13 @@
 import { apps, getDb, skills } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import {
   createShare,
   parseAppShareRole,
   type ShareSubjectType,
 } from "@/lib/shares";
+import { capturePostHogEvent } from "@/lib/posthog-server";
 
 export const dynamic = "force-dynamic";
 
@@ -16,10 +17,9 @@ export const dynamic = "force-dynamic";
  * A share grants visibility + run/open + clone — never the owner's credentials.
  */
 export async function POST(req: Request) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   let body: unknown;
   try {
@@ -84,6 +84,15 @@ export async function POST(req: Request) {
       { status: result.status },
     );
   }
+  capturePostHogEvent({
+    distinctId: sessionUser.id,
+    event: "resource_shared",
+    properties: {
+      subject_type: subjectType,
+      role: subjectType === "app" ? parseAppShareRole(role) : "viewer",
+    },
+  });
+
   return NextResponse.json({ share: result.share }, { status: 201 });
 }
 

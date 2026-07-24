@@ -1,7 +1,11 @@
 import { apps, getDb } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
+import { requireSession } from "@/lib/auth/requireSession";
 import {
   canAppRoleEdit,
   loadAppVersion,
@@ -25,13 +29,12 @@ const PREVIEW_CSP = [
 ].join("; ");
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string; versionId: string }> },
 ) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   const { id, versionId } = await params;
   const db = getDb();
   const appRows = await db.select().from(apps).where(eq(apps.id, id)).limit(1);
@@ -45,7 +48,11 @@ export async function GET(
   if (!version) return new NextResponse("Not found", { status: 404 });
   if (
     actorRole === "editor" &&
-    version.status === "draft" &&
+    (version.status === "draft" ||
+      version.status === "proposed" ||
+      version.status === "iterating" ||
+      version.status === "discarded" ||
+      version.status === "superseded") &&
     version.createdByUserId !== sessionUser.id
   ) {
     return new NextResponse("Not found", { status: 404 });
@@ -55,6 +62,18 @@ export async function GET(
     artifactId: version.artifactId,
   });
   if (!artifact) return new NextResponse("Not found", { status: 404 });
+
+  await auditAdminDataAccess({
+    db,
+    actor: sessionUser,
+    access: {
+      targetUserId: app.ownerUserId,
+      resourceType: "workspace_artifact",
+      resourceId: artifact.id,
+      surface: "app_version_preview",
+      justification: adminDataAccessJustification(req),
+    },
+  });
 
   return new NextResponse(artifact.content, {
     status: 200,

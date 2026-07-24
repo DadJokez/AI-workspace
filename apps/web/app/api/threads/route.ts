@@ -1,8 +1,8 @@
-import { AuthConfigError } from "@ai-workspace/auth";
 import { chatThreads, getDb } from "@ai-workspace/db";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { auditAdminDataAccessBatch } from "@/lib/admin-data-access";
+import { requireSession } from "@/lib/auth/requireSession";
 import { userScope } from "@/lib/auth/scope";
 
 export const dynamic = "force-dynamic";
@@ -18,21 +18,9 @@ const MAX_LIMIT = 50;
  * unless `scope=mine` is requested by a personal navigation surface.
  */
 export async function GET(req: Request) {
-  let sessionUser;
-  try {
-    sessionUser = await getSessionUser();
-  } catch (err) {
-    if (err instanceof AuthConfigError) {
-      return NextResponse.json(
-        { error: "auth_config_error", message: err.message },
-        { status: 500 },
-      );
-    }
-    throw err;
-  }
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   const url = new URL(req.url);
   const limitParam = url.searchParams.get("limit");
@@ -41,8 +29,9 @@ export async function GET(req: Request) {
     Number.isFinite(parsed) && parsed > 0
       ? Math.min(parsed, MAX_LIMIT)
       : DEFAULT_LIMIT;
+  const personalScope = url.searchParams.get("scope") === "mine";
   const scope =
-    url.searchParams.get("scope") === "mine"
+    personalScope
       ? eq(chatThreads.userId, sessionUser.id)
       : userScope(sessionUser, chatThreads.userId);
 
@@ -69,6 +58,18 @@ export async function GET(req: Request) {
       asc(chatThreads.id),
     )
     .limit(limit);
+
+  await auditAdminDataAccessBatch({
+    db,
+    actor: sessionUser,
+    accesses: rows.map((thread) => ({
+      targetUserId: thread.userId,
+      resourceType: "chat_thread_collection",
+      resourceId: personalScope ? "mine" : "workspace",
+      surface: "thread_list",
+      resourceCount: 1,
+    })),
+  });
 
   return NextResponse.json({ threads: rows });
 }

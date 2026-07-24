@@ -5,7 +5,7 @@ import {
   runs,
   workspaceArtifacts,
 } from "@ai-workspace/db";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 
 import type { PreparedChatAttachment } from "@/lib/attachments";
 
@@ -229,7 +229,13 @@ export async function loadPreviousConversationResourceResolution({
   const rows = await db
     .select({ inputs: runs.inputs })
     .from(runs)
-    .where(and(eq(runs.userId, userId), eq(runs.threadId, threadId)))
+    .where(
+      and(
+        eq(runs.userId, userId),
+        eq(runs.threadId, threadId),
+        sql`${runs.inputs} -> 'resourceResolution' ->> 'status' = 'selected'`,
+      ),
+    )
     .orderBy(desc(runs.createdAt), desc(runs.id))
     .limit(1);
   const inputs = asRecord(rows[0]?.inputs);
@@ -334,25 +340,26 @@ export function resolveConversationResources({
     };
   }
 
-  const previousIds = new Set(
-    previousResolution?.selected.map((resource) => resource.resourceId) ?? [],
-  );
-  const previous = active.filter((resource) =>
-    previousIds.has(resource.resourceId),
-  );
-  if (
-    previous.length > 0 &&
-    (intent ||
-      FILE_PRONOUN_RE.test(message) ||
-      DATA_QUESTION_RE.test(message) ||
-      (FILE_ACTION_RE.test(message) && !FILE_NOUN_RE.test(message)))
-  ) {
-    if (previous.length === 1 || PLURAL_REFERENCE_RE.test(message)) {
-      return selectedResolution(
-        previous,
-        "previous_run_receipt",
-        true,
-      );
+  if (previousResolution?.status === "selected") {
+    const activeById = new Map(
+      active.map((resource) => [resource.resourceId, resource]),
+    );
+    const previous = previousResolution.selected.flatMap((resource) => {
+      const available = activeById.get(resource.resourceId);
+      return available ? [available] : [];
+    });
+    if (previous.length !== previousResolution.selected.length) {
+      return {
+        version: 1,
+        status: "unavailable",
+        intent,
+        selected: [],
+        candidates: previousResolution.selected.map(compactCandidate),
+        requiresCompleteFileTool: false,
+      };
+    }
+    if (previous.length > 0) {
+      return selectedResolution(previous, "previous_run_receipt", intent);
     }
   }
   if (!intent) return emptyResolution(false);
@@ -497,7 +504,8 @@ function selectedResolution(
     selected,
     candidates: resources.map(compactCandidate),
     requiresCompleteFileTool:
-      intent && selected.some((resource) => resource.kind !== "image"),
+      (reason === "current_upload" || intent) &&
+      selected.some((resource) => resource.kind !== "image"),
   };
 }
 
@@ -692,7 +700,12 @@ function parseResourceKind(
     : null;
 }
 
-function compactCandidate(resource: ConversationResourceManifest) {
+function compactCandidate(
+  resource: Pick<
+    ConversationResourceManifest,
+    "resourceId" | "filename" | "kind"
+  >,
+) {
   return {
     resourceId: resource.resourceId,
     filename: resource.filename,

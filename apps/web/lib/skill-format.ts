@@ -1,5 +1,10 @@
 import { DEFAULT_MODEL_ID, isValidModelId } from "@ai-workspace/agent";
 import { SUPPORTED_MCP_PROVIDERS } from "@/lib/oauth/mcp-servers";
+import {
+  SKILL_WEB_ACCESS_DECLARATION,
+  skillDeclaresWebAccess,
+  skillMcpProviders,
+} from "@/lib/skill-tool-declarations";
 
 /**
  * SKILL.md ↔ skill row converter (ADR 0002). The database row is the runtime
@@ -123,7 +128,9 @@ export function parseSkillMarkdown(
   let mcpProviders: string[] = [];
   if (fields.mcp_providers) {
     const requested = parseList(fields.mcp_providers).map((p) => p.toLowerCase());
-    mcpProviders = requested.filter((p) => SUPPORTED_MCP_PROVIDERS.includes(p));
+    mcpProviders = requested.filter((p) =>
+      SUPPORTED_MCP_PROVIDERS.includes(p),
+    );
     const unsupported = requested.filter(
       (p) => !SUPPORTED_MCP_PROVIDERS.includes(p),
     );
@@ -131,8 +138,17 @@ export function parseSkillMarkdown(
       warnings.push(`Dropped unsupported provider(s): ${unsupported.join(", ")}.`);
     }
   }
+  if (fields.web_access?.trim().toLowerCase() === "true") {
+    mcpProviders = [...new Set([...mcpProviders, SKILL_WEB_ACCESS_DECLARATION])];
+  }
 
-  const known = new Set(["name", "description", "model", "mcp_providers"]);
+  const known = new Set([
+    "name",
+    "description",
+    "model",
+    "mcp_providers",
+    "web_access",
+  ]);
   for (const key of Object.keys(fields)) {
     if (!known.has(key)) warnings.push(`Ignored unknown frontmatter key "${key}".`);
   }
@@ -155,7 +171,13 @@ export function serializeSkillToMarkdown(skill: {
   if (skill.description) lines.push(`description: ${skill.description}`);
   lines.push(`model: ${skill.modelId}`);
   if (skill.mcpProviders.length > 0) {
-    lines.push(`mcp_providers: [${skill.mcpProviders.join(", ")}]`);
+    const providers = skillMcpProviders(skill.mcpProviders);
+    if (providers.length > 0) {
+      lines.push(`mcp_providers: [${providers.join(", ")}]`);
+    }
+  }
+  if (skillDeclaresWebAccess(skill.mcpProviders)) {
+    lines.push("web_access: true");
   }
   lines.push("---", "", skill.systemPrompt, "");
   return lines.join("\n");

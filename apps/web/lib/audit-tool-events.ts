@@ -2,6 +2,7 @@ import type {
   PersistedToolCall,
   PersistedToolResult,
 } from "@/lib/tool-events";
+import { parseWebEgressDenial } from "@ai-workspace/agent/web-egress-policy";
 import {
   redactProviderToolError,
   redactProviderToolPayload,
@@ -49,6 +50,14 @@ export interface ToolAuditRow {
     modelId: string;
     runtime: string;
     policyDecision?: ObservedPolicyDecision;
+    webEgress?: {
+      outcome: "allowed" | "denied";
+      reason?: "denied_domain_policy";
+      policy?: string;
+      hostname?: string;
+      matchedDomain?: string;
+      fetchedHosts?: string[];
+    };
   };
   startedAt: Date | null;
   completedAt: Date | null;
@@ -134,6 +143,7 @@ function buildRow({
   const provider = call?.provider ?? result?.provider ?? null;
   const toolName = call?.toolName ?? result?.toolName ?? "unknown";
   const rawToolName = call?.name ?? result?.name;
+  const webEgress = buildWebEgressAuditMetadata(provider, toolName, result);
 
   return {
     actorUserId,
@@ -176,8 +186,46 @@ function buildRow({
             ),
           }
         : {}),
+      ...(webEgress ? { webEgress } : {}),
     },
     startedAt: call ? new Date(call.startedAt) : null,
     completedAt: result ? new Date(result.completedAt) : null,
+  };
+}
+
+function buildWebEgressAuditMetadata(
+  provider: string | null,
+  toolName: string,
+  result?: PersistedToolResult,
+): ToolAuditRow["metadata"]["webEgress"] | undefined {
+  if (provider !== "web" || !result) return undefined;
+
+  if (result.isError) {
+    const denial = parseWebEgressDenial(result.output);
+    return denial
+      ? {
+          outcome: "denied",
+          reason: denial.reason,
+          policy: denial.policy,
+          hostname: denial.hostname,
+          matchedDomain: denial.matchedDomain,
+        }
+      : undefined;
+  }
+  if (toolName !== "fetch_url") return undefined;
+  if (
+    typeof result.output !== "object" ||
+    result.output === null ||
+    Array.isArray(result.output)
+  ) {
+    return undefined;
+  }
+  const hosts = (result.output as { fetchedHosts?: unknown }).fetchedHosts;
+  if (!Array.isArray(hosts)) return undefined;
+  return {
+    outcome: "allowed",
+    fetchedHosts: hosts
+      .filter((host): host is string => typeof host === "string")
+      .slice(0, 10),
   };
 }

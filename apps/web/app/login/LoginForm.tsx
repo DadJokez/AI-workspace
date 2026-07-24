@@ -1,5 +1,6 @@
 "use client";
 
+import posthog from "posthog-js";
 import { signIn } from "next-auth/react";
 import { useState } from "react";
 
@@ -49,6 +50,7 @@ export function LoginForm({ callbackUrl, providers }: Props) {
       // AccessDenied (not invited) intentionally shows the neutral sent
       // state — no account-existence oracle.
       if (res?.ok || res?.error === "AccessDenied") {
+        posthog.capture("magic_link_requested", { provider: "email" });
         setLinkState("sent");
       } else if (res?.error === "RateLimited") {
         setError(

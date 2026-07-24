@@ -1,6 +1,7 @@
 import {
   DEFAULT_MODEL_ID,
   MODEL_IDS,
+  MODELS,
   isValidModelId,
   type ModelId,
   type ModelPurpose,
@@ -24,6 +25,12 @@ import { eq } from "drizzle-orm";
  */
 
 const CACHE_TTL_MS = 30_000;
+const COST_OPTIMIZED_PURPOSES = new Set<ModelPurpose>([
+  "fast-local",
+  "summaries",
+  "routing",
+  "memory-capture",
+]);
 
 let cache: { byPurpose: Map<string, Set<string>>; loadedAt: number } | null =
   null;
@@ -90,32 +97,85 @@ export async function isModelEnabled(
 }
 
 /**
+ * Order an already-enabled set for one turn. The selected primary stays
+ * first; fallback order then follows lane policy without ever introducing a
+ * model outside the enablement gate.
+ */
+export function orderModelCandidatesForPurpose(
+  purpose: ModelPurpose,
+  enabledModelIds: readonly ModelId[],
+  primaryModelId: ModelId,
+): ModelId[] {
+  const enabled = MODEL_IDS.filter((id) => enabledModelIds.includes(id));
+  if (enabled.length === 0) {
+    throw new Error(`No models are enabled for purpose "${purpose}".`);
+  }
+  const policyOrder = COST_OPTIMIZED_PURPOSES.has(purpose)
+    ? [...enabled].sort(compareModelCost)
+    : [
+        ...(enabled.includes(DEFAULT_MODEL_ID) ? [DEFAULT_MODEL_ID] : []),
+        ...enabled
+          .filter((id) => id !== DEFAULT_MODEL_ID)
+          .sort(compareModelCapability),
+      ];
+  const primary = enabled.includes(primaryModelId)
+    ? primaryModelId
+    : policyOrder[0]!;
+  return [primary, ...policyOrder.filter((id) => id !== primary)];
+}
+
+/**
+ * Resolve every enabled candidate in bounded attempt order. A caller
+ * preference wins when allowed; otherwise cheap internal purposes select the
+ * lowest-cost qualified model and user-facing purposes keep the app default.
+ */
+export async function resolveModelCandidatesForPurpose(
+  db: Database,
+  purpose: ModelPurpose,
+  options: { preferred?: string | null } = {},
+): Promise<ModelId[]> {
+  const enabled = await enabledModelsForPurpose(db, purpose);
+  const preferred = options.preferred?.trim().toLowerCase();
+  const preferredModel =
+    preferred && isValidModelId(preferred) && enabled.includes(preferred)
+      ? preferred
+      : null;
+  const policyPrimary = COST_OPTIMIZED_PURPOSES.has(purpose)
+    ? [...enabled].sort(compareModelCost)[0]
+    : enabled.includes(DEFAULT_MODEL_ID)
+      ? DEFAULT_MODEL_ID
+      : enabled[0];
+  const primary = preferredModel ?? policyPrimary;
+
+  if (!primary) {
+    throw new Error(`No models are enabled for purpose "${purpose}".`);
+  }
+
+  return orderModelCandidatesForPurpose(purpose, enabled, primary);
+}
+
+/**
  * Resolve the model to use for a purpose. `preferred` (an env override or a
- * pinned id) wins when it is registered and enabled; otherwise the app
- * default when enabled; otherwise the first enabled model in registry order.
- * If nothing is enabled for the purpose (misconfiguration — the seed enables
- * every current purpose), falls back to the app default and logs, because a
- * config mistake must not take chat down.
+ * pinned id) wins when it is registered and enabled; otherwise internal
+ * purposes use the cheapest enabled model and user-facing purposes use the
+ * app default when enabled.
+ * A reachable registry with no enabled model fails closed: selecting a
+ * disabled fallback would violate the enablement hard gate.
  */
 export async function resolveModelForPurpose(
   db: Database,
   purpose: ModelPurpose,
   options: { preferred?: string | null } = {},
 ): Promise<ModelId> {
-  const enabled = await enabledModelsForPurpose(db, purpose);
-  const preferred = options.preferred?.trim().toLowerCase();
+  return (await resolveModelCandidatesForPurpose(db, purpose, options))[0]!;
+}
 
-  if (preferred && isValidModelId(preferred) && enabled.includes(preferred)) {
-    return preferred;
-  }
-  if (enabled.includes(DEFAULT_MODEL_ID)) return DEFAULT_MODEL_ID;
-  if (enabled.length > 0) return enabled[0]!;
+function compareModelCost(a: ModelId, b: ModelId): number {
+  const aCost = MODELS[a].costPer1MInput + MODELS[a].costPer1MOutput;
+  const bCost = MODELS[b].costPer1MInput + MODELS[b].costPer1MOutput;
+  return aCost - bCost;
+}
 
-  process.stderr.write(
-    `[model-enablement-empty] ${JSON.stringify({
-      purpose,
-      fallback: DEFAULT_MODEL_ID,
-    })}\n`,
-  );
-  return DEFAULT_MODEL_ID;
+function compareModelCapability(a: ModelId, b: ModelId): number {
+  return MODELS[b].costPer1MOutput - MODELS[a].costPer1MOutput;
 }

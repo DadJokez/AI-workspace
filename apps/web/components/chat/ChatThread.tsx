@@ -1,5 +1,8 @@
 import { ChatEmptyState } from "@/components/chat/ChatEmptyState";
-import { MessageBubble } from "@/components/MessageBubble";
+import {
+  ChatMessageRow,
+  type ChatMessageRowActions,
+} from "@/components/chat/ChatMessageRow";
 import { ThinkingOrb } from "@/components/ThinkingOrb";
 import { ThreadLoadingSkeleton } from "@/components/ThreadLoadingSkeleton";
 import type { ChatEditRequest } from "@/components/ChatInput";
@@ -8,20 +11,16 @@ import {
   latestAppDraftVersionIds,
   type AppDraftVersionSummary,
 } from "@/lib/app-draft-versions";
-import { stripAttachmentNoteFromMessage } from "@/lib/attachments";
 import type {
   PersistedRecommendation,
   RecommendationStatus,
 } from "@/lib/recommendations";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
-import {
-  useEffect,
-  useRef,
-  useState,
-  type MutableRefObject,
-} from "react";
+import type { OutputProposalDecision } from "@/lib/output-proposals";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
 
 const STICK_BOTTOM_THRESHOLD = 100;
+const OFFSCREEN_VIRTUALIZATION_THRESHOLD = 24;
 
 interface ChatThreadProps {
   activeTab: ChatTab;
@@ -33,12 +32,26 @@ interface ChatThreadProps {
   suggestions: string[] | null;
   recommendationPendingId?: string;
   appDraftPendingId?: string;
+  artifactProposalPendingId?: string;
   runActionPendingId?: string;
   stickToBottomRef: MutableRefObject<boolean>;
   onPickSuggestion: (suggestion: string) => void;
   onOpenIntegrations: () => void;
   onOpenArtifact: (artifact: WorkspaceArtifactSummary) => void;
   onDeployAppDraft: (version: AppDraftVersionSummary) => void;
+  onDiscardAppProposal: (version: AppDraftVersionSummary) => void;
+  onIterateAppProposal: (
+    version: AppDraftVersionSummary,
+    feedback: string,
+  ) => void;
+  onArtifactProposalAction: (
+    artifact: WorkspaceArtifactSummary,
+    decision: OutputProposalDecision,
+  ) => void;
+  onIterateArtifactProposal: (
+    artifact: WorkspaceArtifactSummary,
+    feedback: string,
+  ) => void;
   onRecommendationAction: (
     recommendation: PersistedRecommendation,
     status: RecommendationStatus,
@@ -63,12 +76,17 @@ export function ChatThread({
   suggestions,
   recommendationPendingId,
   appDraftPendingId,
+  artifactProposalPendingId,
   runActionPendingId,
   stickToBottomRef,
   onPickSuggestion,
   onOpenIntegrations,
   onOpenArtifact,
   onDeployAppDraft,
+  onDiscardAppProposal,
+  onIterateAppProposal,
+  onArtifactProposalAction,
+  onIterateArtifactProposal,
   onRecommendationAction,
   onRunAction,
   onOpenRunInspector,
@@ -81,6 +99,19 @@ export function ChatThread({
   const scrollRef = useRef<HTMLDivElement>(null);
   const jumpScrollInProgressRef = useRef(false);
   const jumpScrollResetRef = useRef<number | undefined>(undefined);
+  const messageActionsRef = useRef<ChatMessageRowActions>({
+    openArtifact: onOpenArtifact,
+    deployAppDraft: onDeployAppDraft,
+    discardAppProposal: onDiscardAppProposal,
+    iterateAppProposal: onIterateAppProposal,
+    artifactProposalAction: onArtifactProposalAction,
+    iterateArtifactProposal: onIterateArtifactProposal,
+    recommendationAction: onRecommendationAction,
+    runAction: onRunAction,
+    openRunInspector: onOpenRunInspector,
+    regenerate: onRegenerate,
+    edit: onEdit,
+  });
   const { busy, error, messages } = activeTab;
   const latestAppDraftIds = latestAppDraftVersionIds(
     messages.flatMap((message) => message.appDraftVersions ?? []),
@@ -92,6 +123,36 @@ export function ChatThread({
     !busy &&
     !activeHasPendingRun &&
     messages.some((message) => message.role === "assistant" && !message.pending);
+  const deferOffscreenRendering =
+    messages.length >= OFFSCREEN_VIRTUALIZATION_THRESHOLD;
+
+  useEffect(() => {
+    messageActionsRef.current = {
+      openArtifact: onOpenArtifact,
+      deployAppDraft: onDeployAppDraft,
+      discardAppProposal: onDiscardAppProposal,
+      iterateAppProposal: onIterateAppProposal,
+      artifactProposalAction: onArtifactProposalAction,
+      iterateArtifactProposal: onIterateArtifactProposal,
+      recommendationAction: onRecommendationAction,
+      runAction: onRunAction,
+      openRunInspector: onOpenRunInspector,
+      regenerate: onRegenerate,
+      edit: onEdit,
+    };
+  }, [
+    onDeployAppDraft,
+    onDiscardAppProposal,
+    onIterateAppProposal,
+    onArtifactProposalAction,
+    onIterateArtifactProposal,
+    onEdit,
+    onOpenArtifact,
+    onOpenRunInspector,
+    onRecommendationAction,
+    onRegenerate,
+    onRunAction,
+  ]);
 
   useEffect(() => {
     const intervalId = window.setInterval(
@@ -200,85 +261,34 @@ export function ChatThread({
             />
           ) : (
             messages.map((message) => (
-              <div key={message.id} className="flex flex-col gap-2">
-                <MessageBubble
-                  role={message.role}
-                  content={message.content}
-                  createdAt={message.createdAt}
-                  nowMs={messageClock}
-                  modelId={message.modelId}
-                  tokensIn={message.tokensIn}
-                  tokensOut={message.tokensOut}
-                  pending={message.pending}
-                  status={message.status}
-                  livePhase={message.livePhase}
-                  liveTokens={message.liveTokens}
-                  toolCalls={message.toolCalls}
-                  toolResults={message.toolResults}
-                  artifacts={message.artifacts}
-                  appDraftVersions={message.appDraftVersions?.filter((version) =>
-                    latestAppDraftIds.has(version.id),
-                  )}
-                  recommendations={message.recommendations}
-                  activityEvents={message.activityEvents}
-                  sources={message.sources}
-                  assistantName={assistantName}
-                  onOpenArtifact={onOpenArtifact}
-                  onDeployAppDraft={onDeployAppDraft}
-                  onRecommendationAction={onRecommendationAction}
-                  recommendationPendingId={recommendationPendingId}
-                  appDraftPendingId={appDraftPendingId}
-                  onRegenerate={
-                    message.id === lastAssistantMessage?.id && canRegenerate
-                      ? onRegenerate
-                      : undefined
-                  }
-                  onEdit={
-                    message.role === "user" &&
-                    !busy &&
-                    !activeHasPendingRun &&
-                    (!message.hasAttachments ||
-                      message.attachmentsReplayable === true) &&
-                    message.persisted
-                      ? () =>
-                          onEdit({
-                            requestId: crypto.randomUUID(),
-                            messageId: message.id,
-                            content: stripAttachmentNoteFromMessage(
-                              message.content,
-                            ),
-                            attachmentCount:
-                              message.artifacts?.filter(
-                                (artifact) =>
-                                  artifact.source === "user-upload",
-                              ).length ?? 0,
-                          })
-                      : undefined
-                  }
-                />
-                {message.runId &&
-                (message.canCancel || message.canRetry || message.canResume) ? (
-                  <RunControls
-                    runId={message.runId}
-                    canCancel={message.canCancel}
-                    canRetry={message.canRetry}
-                    canResume={message.canResume && isAdmin}
-                    pendingAction={runActionPendingId}
-                    onAction={onRunAction}
-                  />
-                ) : null}
-                {isAdmin && message.role === "assistant" && message.runId ? (
-                  <button
-                    type="button"
-                    aria-label="Inspect run"
-                    title="Inspect run"
-                    onClick={() => onOpenRunInspector(message.runId!)}
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink"
-                  >
-                    <RunInspectorIcon />
-                  </button>
-                ) : null}
-              </div>
+              <ChatMessageRow
+                key={message.id}
+                message={message}
+                messageClock={messageClock}
+                assistantName={assistantName}
+                isAdmin={isAdmin}
+                visibleAppDraftVersionIds={(message.appDraftVersions ?? [])
+                  .filter((version) => latestAppDraftIds.has(version.id))
+                  .map((version) => version.id)
+                  .join("\u0000")}
+                showRegenerate={
+                  message.id === lastAssistantMessage?.id && canRegenerate
+                }
+                editable={
+                  message.role === "user" &&
+                  !busy &&
+                  !activeHasPendingRun &&
+                  (!message.hasAttachments ||
+                    message.attachmentsReplayable === true) &&
+                  Boolean(message.persisted)
+                }
+                recommendationPendingId={recommendationPendingId}
+                appDraftPendingId={appDraftPendingId}
+                artifactProposalPendingId={artifactProposalPendingId}
+                runActionPendingId={runActionPendingId}
+                deferOffscreenRendering={deferOffscreenRendering}
+                actionsRef={messageActionsRef}
+              />
             ))
           )}
           {messages.length > 0 ? (
@@ -355,81 +365,5 @@ function ThreadOrb({ messages }: { messages: ChatTab["messages"] }) {
         className={working ? "text-ink" : "text-muted"}
       />
     </div>
-  );
-}
-
-function RunControls({
-  runId,
-  canCancel,
-  canRetry,
-  canResume,
-  pendingAction,
-  onAction,
-}: {
-  runId: string;
-  canCancel?: boolean;
-  canRetry?: boolean;
-  canResume?: boolean;
-  pendingAction?: string;
-  onAction: (
-    runId: string,
-    action: "cancel" | "retry" | "resume",
-  ) => void;
-}) {
-  const pending = pendingAction?.endsWith(`:${runId}`) ?? false;
-  return (
-    <div className="flex flex-wrap gap-2 text-xs">
-      {canCancel ? (
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => onAction(runId, "cancel")}
-          className="rounded-md border border-hairline bg-canvas px-2.5 py-1 font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {pendingAction === `cancel:${runId}` ? "Canceling..." : "Cancel"}
-        </button>
-      ) : null}
-      {canRetry ? (
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => onAction(runId, "retry")}
-          className="rounded-md border border-hairline bg-canvas px-2.5 py-1 font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {pendingAction === `retry:${runId}` ? "Retrying..." : "Retry"}
-        </button>
-      ) : null}
-      {canResume ? (
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => onAction(runId, "resume")}
-          className="rounded-md border border-hairline bg-canvas px-2.5 py-1 font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {pendingAction === `resume:${runId}` ? "Resuming..." : "Resume"}
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-function RunInspectorIcon() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M2.5 4.5h4M8.5 4.5h5M2.5 8h7M11.5 8h2M2.5 11.5h2M6.5 11.5h7" />
-      <circle cx="7.5" cy="4.5" r="1" />
-      <circle cx="10.5" cy="8" r="1" />
-      <circle cx="5.5" cy="11.5" r="1" />
-    </svg>
   );
 }

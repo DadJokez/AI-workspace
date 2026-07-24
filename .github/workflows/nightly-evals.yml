@@ -1,23 +1,42 @@
 name: Nightly Evals
 
-# Real-model behavior evals (specs/004). Separate from the per-PR CI (which
-# stays mock-only and free) because this spends real Bedrock tokens (~$0.01).
+# Full real-model behavior suite plus one app-backed real-Bedrock CSV journey.
+# Ready same-repository PRs run the foundational subset inside Product Smoke.
 on:
   schedule:
     - cron: "0 7 * * *" # 07:00 UTC daily
   workflow_dispatch: {} # and on demand
 
+concurrency:
+  group: nightly-evals
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: "351478076796"
+  NIGHTLY_EVAL_MAX_COST_USD: "5.00"
+
 jobs:
-  evals:
-    name: real-model evals
+  behavior_evals:
+    name: real-model behavior evals
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # Skipped automatically on forks / when AWS creds aren't configured.
+    timeout-minutes: 35
     permissions:
       id-token: write
       contents: read
-      issues: write
     steps:
+      # Fail before checkout/install instead of producing a green run that did
+      # no evaluation. The independent notification job also reports this
+      # configuration failure.
+      - name: Validate AWS eval configuration
+        env:
+          AWS_EVAL_ROLE_ARN: ${{ vars.AWS_EVAL_ROLE_ARN }}
+        run: |
+          if [ -z "$AWS_EVAL_ROLE_ARN" ]; then
+            echo "::error title=Nightly evals are disabled::AWS_EVAL_ROLE_ARN is not configured. Deploy AiWorkspaceEvalCiStack and set the repository Actions variable."
+            exit 1
+          fi
+
       - uses: actions/checkout@v6
 
       - name: Setup pnpm
@@ -34,50 +53,216 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # AWS creds via OIDC role assumption (no long-lived keys). Configure
-      # AWS_EVAL_ROLE_ARN as a repo secret/variable; the role needs
-      # bedrock:InvokeModelWithResponseStream on the Claude models.
+      # OIDC only: no long-lived AWS keys or production application secrets.
       - name: Configure AWS credentials
-        if: ${{ vars.AWS_EVAL_ROLE_ARN != '' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_EVAL_ROLE_ARN }}
           aws-region: us-east-1
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+          role-duration-seconds: 3600
+          role-session-name: nightly-evals-${{ github.run_id }}
+          mask-aws-account-id: true
+          unset-current-credentials: true
 
       - name: Run evals
-        if: ${{ vars.AWS_EVAL_ROLE_ARN != '' }}
         id: evals
         env:
-          AWS_REGION: us-east-1
           BEDROCK_CLIENT: real
         run: pnpm eval
 
+      # This is a post-run spend-regression tripwire, not a pre-spend cap. The
+      # job timeout and non-overlapping concurrency are the active runtime
+      # bounds; the tripwire forces explicit review when suite cost grows.
+      - name: Enforce nightly eval cost tripwire
+        if: ${{ always() && steps.evals.outcome != 'skipped' }}
+        env:
+          MAX_COST_USD: ${{ env.NIGHTLY_EVAL_MAX_COST_USD }}
+        run: |
+          report_path="$(find packages/evals/eval-reports -type f -name '*.json' -print 2>/dev/null | sort | tail -n 1)"
+          if [ -z "$report_path" ]; then
+            echo "::error title=Eval report missing::The real-model eval command did not produce a JSON report."
+            exit 1
+          fi
+          REPORT_PATH="$report_path" node <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(process.env.REPORT_PATH, "utf8"));
+          const actual = report?.meta?.approxCostUsd;
+          const maximumRaw = process.env.MAX_COST_USD;
+          const maximum = Number(maximumRaw);
+          if (
+            typeof actual !== "number" ||
+            !Number.isFinite(actual) ||
+            actual < 0 ||
+            !maximumRaw?.trim() ||
+            !Number.isFinite(maximum) ||
+            maximum < 0
+          ) {
+            console.error("::error title=Invalid eval cost::The report or configured tripwire does not contain a finite non-negative cost.");
+            process.exit(1);
+          }
+          console.log(`Estimated eval cost: $${actual.toFixed(4)} (limit $${maximum.toFixed(2)})`);
+          if (actual > maximum) {
+            console.error(`::error title=Nightly eval budget exceeded::Estimated cost $${actual.toFixed(4)} exceeds $${maximum.toFixed(2)}.`);
+            process.exit(1);
+          }
+          NODE
+
       - name: Upload report
-        if: ${{ always() && vars.AWS_EVAL_ROLE_ARN != '' }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: eval-report
           path: packages/evals/eval-reports/
+          if-no-files-found: warn
 
-      - name: Open/refresh regression issue on failure
-        if: ${{ failure() && vars.AWS_EVAL_ROLE_ARN != '' }}
+  # This lane is independent of the behavior pack so a model-regression
+  # failure or hard timeout cannot suppress the most important UI/UX evidence.
+  browser_canary:
+    name: app-backed real-model CSV canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aihub
+          POSTGRES_PASSWORD: aihub_dev
+          POSTGRES_DB: aihub_nightly_eval
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aihub -d aihub_nightly_eval"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://aihub:aihub_dev@127.0.0.1:5432/aihub_nightly_eval
+    steps:
+      - name: Validate AWS eval configuration
+        env:
+          AWS_EVAL_ROLE_ARN: ${{ vars.AWS_EVAL_ROLE_ARN }}
+        run: |
+          if [ -z "$AWS_EVAL_ROLE_ARN" ]; then
+            echo "::error title=Nightly browser eval is disabled::AWS_EVAL_ROLE_ARN is not configured. Deploy AiWorkspaceEvalCiStack and set the repository Actions variable."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.12.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_EVAL_ROLE_ARN }}
+          aws-region: us-east-1
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+          role-duration-seconds: 1800
+          role-session-name: nightly-browser-${{ github.run_id }}
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Install Chromium
+        run: pnpm --filter @ai-workspace/web exec playwright install --with-deps chromium
+
+      # Combines real Bedrock with the real browser, production preamble,
+      # /api/chat, Postgres, resource MCP, SSE, persisted messages/artifacts,
+      # reload, and a later-turn file query.
+      - name: Run app-backed real-model CSV canary
+        env:
+          BEDROCK_CLIENT: real
+          PLAYWRIGHT_CORE_REAL_MODEL: "1"
+        run: pnpm smoke:browser:core
+
+      - name: Upload app-backed canary report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-real-model-csv-playwright-report
+          path: apps/web/playwright-report/
+          if-no-files-found: ignore
+
+  # A job-level timeout prevents later steps in that lane from starting.
+  # Keeping notification independent of both lanes ensures timeout and
+  # configuration failures cannot disappear as a red run with no issue.
+  notify:
+    name: report nightly eval failure
+    needs: [behavior_evals, browser_canary]
+    if: ${{ always() && (needs.behavior_evals.result != 'success' || needs.browser_canary.result != 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or refresh regression issue
         uses: actions/github-script@v7
+        env:
+          BEHAVIOR_JOB_RESULT: ${{ needs.behavior_evals.result }}
+          BROWSER_JOB_RESULT: ${{ needs.browser_canary.result }}
         with:
           script: |
             const title = "Nightly evals failing";
-            const body = `The nightly real-model eval suite failed on ${context.sha.slice(0,7)}. Download the \`eval-report\` artifact from the run for the failing cases and their thread/run debug IDs. If a failing case uses a real Comparative run id, inspect it at \`/admin/runs/{runId}\` for the stored context receipt, route receipt, and recommendation candidates:\n${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const existing = await github.rest.issues.listForRepo({
-              owner: context.repo.owner, repo: context.repo.repo,
-              state: "open", labels: "eval-regression",
+            const body = `The nightly lanes ended with behavior evals **${process.env.BEHAVIOR_JOB_RESULT}** and browser/CSV canary **${process.env.BROWSER_JOB_RESULT}** on ${context.sha.slice(0,7)}. This includes fail-closed AWS/OIDC checks, real-model behavior regressions, the app-backed browser/CSV journey, and the $${process.env.NIGHTLY_EVAL_MAX_COST_USD} post-run cost tripwire. The lanes run independently so either still produces evidence when the other fails. If artifacts exist, download them for failing cases, screenshots, traces, and thread/run debug IDs. A hard timeout may stop that lane's report upload; the notification is intentionally independent so timeout still alerts:\n${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            let labels = [];
+            try {
+              await github.rest.issues.getLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: "eval-regression",
+              });
+              labels = ["eval-regression"];
+            } catch (error) {
+              if (error.status === 404) {
+                try {
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: "eval-regression",
+                    color: "b60205",
+                    description: "Automated behavior-eval regression",
+                  });
+                  labels = ["eval-regression"];
+                } catch (labelError) {
+                  core.warning(`Could not create eval-regression label: ${labelError.message}`);
+                }
+              } else {
+                core.warning(`Could not inspect eval-regression label: ${error.message}`);
+              }
+            }
+            const openIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              per_page: 100,
             });
-            if (existing.data.length > 0) {
+            const existing = openIssues.find(
+              issue => !issue.pull_request && issue.title === title,
+            );
+            if (existing) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: existing.data[0].number, body,
+                issue_number: existing.number, body,
               });
             } else {
               await github.rest.issues.create({
                 owner: context.repo.owner, repo: context.repo.repo,
-                title, body, labels: ["eval-regression"],
+                title, body, labels,
               });
             }

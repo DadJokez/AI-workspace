@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AgentActivityEvent } from "@/lib/activity-events";
-import { groupActivityEvents, inferCategory } from "@/lib/activity-receipts";
+import {
+  groupActivityEvents,
+  inferCategory,
+  summarizeActivityReceipts,
+} from "@/lib/activity-receipts";
 
 /** #119 — aggregation helper for collapsible work receipts. */
 describe("groupActivityEvents", () => {
@@ -48,7 +52,7 @@ describe("groupActivityEvents", () => {
     ]);
     expect(receipts[0]).toMatchObject({
       state: "failed",
-      label: "Checked GitHub · 2 steps · 1 needs attention",
+      label: "Checked GitHub · 2 steps · 1 failed",
     });
   });
 
@@ -75,5 +79,58 @@ describe("groupActivityEvents", () => {
       "github",
       "progress",
     ]);
+  });
+});
+
+describe("summarizeActivityReceipts", () => {
+  const ev = (
+    overrides: Partial<AgentActivityEvent> & { id: string; label: string },
+  ): AgentActivityEvent => ({
+    state: "succeeded",
+    ...overrides,
+  });
+
+  it("favors concrete mutations and grouped tool work over lifecycle noise", () => {
+    expect(
+      summarizeActivityReceipts([
+        ev({ id: "1", label: "Background worker started the agent run", category: "progress" }),
+        ev({ id: "2", label: "Searched GitHub", category: "github" }),
+        ev({ id: "3", label: "Checked GitHub details", category: "github" }),
+        ev({ id: "4", label: "Edited report.html · +14 −3", category: "workspace" }),
+        ev({ id: "5", label: "Stored assistant answer", category: "progress" }),
+      ]),
+    ).toBe("Checked GitHub · 2 steps · Edited report.html · +14 −3");
+  });
+
+  it("surfaces failures and has a stable missing-metadata fallback", () => {
+    expect(
+      summarizeActivityReceipts([
+        ev({
+          id: "1",
+          label: "App publish failed",
+          state: "failed",
+          category: "workspace",
+        }),
+      ]),
+    ).toBe("App publish failed");
+    expect(
+      summarizeActivityReceipts([
+        ev({ id: "2", label: "Stored assistant answer", category: "progress" }),
+      ]),
+    ).toBe("Finished response");
+  });
+
+  it("describes completed grouped failures without implying a blocked run", () => {
+    const receipts = groupActivityEvents([
+      ev({ id: "1", label: "Searched Resources", category: "tools" }),
+      ev({
+        id: "2",
+        label: "Could not search Resources",
+        state: "failed",
+        category: "tools",
+      }),
+    ]);
+
+    expect(receipts[0]?.label).toBe("Used connected tools · 2 steps · 1 failed");
   });
 });

@@ -434,7 +434,12 @@ const PHASE_BY_EVENT: Record<string, RunPhase> = {
   tool_call: "using tools",
   tool_result: "using tools",
   workspace_artifacts_created: "editing",
+  app_draft_validation_completed: "validating",
   app_draft_versions_created: "publishing",
+  app_version_validation_completed: "validating",
+  app_version_validation_failed: "validating",
+  app_version_published: "publishing",
+  app_version_publish_failed: "publishing",
   run_completed: "done",
   run_failed: "done",
   run_canceled: "done",
@@ -464,7 +469,9 @@ function categoryForRunEvent(event: {
 }): AgentActivityEvent["category"] {
   const value = `${event.eventType ?? ""} ${event.label}`.toLowerCase();
   if (/context_pack_assembled|vault|context pack/.test(value)) return "context";
-  if (/upload|artifact|workspace/.test(value)) return "workspace";
+  if (/upload|artifact|workspace|app_draft|app_version/.test(value)) {
+    return "workspace";
+  }
   return "progress";
 }
 
@@ -531,6 +538,29 @@ function runEventDetail(event: {
         ? `mounted tools: ${tools.mounted.join(", ")}`
         : null,
       summarizeContextSources(contextItems),
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join("\n") : undefined;
+  }
+
+  if (event.eventType?.startsWith("app_") && metadata) {
+    const check =
+      typeof metadata.check === "string" ? metadata.check : undefined;
+    const filenames = Array.isArray(metadata.filenames)
+      ? metadata.filenames.filter(
+          (filename): filename is string => typeof filename === "string",
+        )
+      : [];
+    const versionNumber = numberValue(metadata.appVersionNumber);
+    const parts = [
+      check ? `Check: ${check}` : null,
+      versionNumber !== null ? `Version: ${versionNumber}` : null,
+      filenames.length > 0 ? `Files: ${filenames.join(", ")}` : null,
+      numberValue(metadata.passed) !== null
+        ? `Passed: ${numberValue(metadata.passed)}`
+        : null,
+      numberValue(metadata.failed) !== null
+        ? `Failed: ${numberValue(metadata.failed)}`
+        : null,
     ].filter(Boolean);
     return parts.length > 0 ? parts.join("\n") : undefined;
   }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isTerminalRunStatus,
+  liveTokenTotalFromRunOutput,
   shouldReloadThread,
   type RunStatusSnapshot,
 } from "@/lib/run-poll";
@@ -25,6 +26,34 @@ describe("isTerminalRunStatus", () => {
     expect(isTerminalRunStatus("succeeded")).toBe(true);
     expect(isTerminalRunStatus("failed")).toBe(true);
     expect(isTerminalRunStatus("canceled")).toBe(true);
+  });
+});
+
+describe("liveTokenTotalFromRunOutput", () => {
+  it("reads canonical usage and legacy top-level counters", () => {
+    expect(
+      liveTokenTotalFromRunOutput({
+        usage: { tokensIn: 8_000, tokensOut: 400 },
+      }),
+    ).toBe(8_400);
+    expect(
+      liveTokenTotalFromRunOutput({ tokensIn: 12, tokensOut: 3 }),
+    ).toBe(15);
+  });
+
+  it("fails closed for malformed or negative counters", () => {
+    expect(liveTokenTotalFromRunOutput(null)).toBeNull();
+    expect(
+      liveTokenTotalFromRunOutput({
+        usage: { tokensIn: "8000", tokensOut: -2 },
+      }),
+    ).toBeNull();
+    expect(
+      liveTokenTotalFromRunOutput({
+        usage: { tokensIn: 11 },
+        tokensOut: 7,
+      }),
+    ).toBe(18);
   });
 });
 

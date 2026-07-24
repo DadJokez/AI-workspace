@@ -93,6 +93,69 @@ describe("buildToolAuditRows", () => {
     });
   });
 
+  it("stamps domain-policy denials and successful fetched hosts", () => {
+    const denied = buildToolAuditRows({
+      ...base,
+      calls: [
+        {
+          id: "call_denied",
+          name: "web__fetch_url",
+          provider: "web",
+          toolName: "fetch_url",
+          input: { url: "https://blocked.example/" },
+          startedAt: "2026-05-15T12:00:00.000Z",
+        },
+      ],
+      results: [
+        {
+          toolCallId: "call_denied",
+          output: JSON.stringify({
+            error: "web_egress_denied",
+            reason: "denied_domain_policy",
+            policy: "admin_domain_denylist",
+            hostname: "blocked.example",
+            matchedDomain: "blocked.example",
+          }),
+          isError: true,
+          completedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    });
+    expect(denied[0]?.metadata.webEgress).toEqual({
+      outcome: "denied",
+      reason: "denied_domain_policy",
+      policy: "admin_domain_denylist",
+      hostname: "blocked.example",
+      matchedDomain: "blocked.example",
+    });
+
+    const allowed = buildToolAuditRows({
+      ...base,
+      calls: [
+        {
+          id: "call_allowed",
+          name: "web__fetch_url",
+          provider: "web",
+          toolName: "fetch_url",
+          input: { url: "https://one.example/" },
+          startedAt: "2026-05-15T12:00:00.000Z",
+        },
+      ],
+      results: [
+        {
+          toolCallId: "call_allowed",
+          output: { fetchedHosts: ["one.example", "two.example"] },
+          isError: false,
+          completedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    });
+    expect(allowed[0]?.metadata.webEgress).toEqual({
+      outcome: "allowed",
+      fetchedHosts: ["one.example", "two.example"],
+    });
+  });
+
   it("redacts sensitive audit inputs, outputs, and errors", () => {
     const rows = buildToolAuditRows({
       ...base,
@@ -237,6 +300,41 @@ describe("buildToolAuditRows", () => {
       "Google tool failed; provider content was redacted from this log.",
     );
     expect(JSON.stringify(rows[0])).not.toContain("private-recipient@example.com");
+  });
+
+  it("keeps safe resource validation semantics in audit rows", () => {
+    const rows = buildToolAuditRows({
+      ...base,
+      calls: [
+        {
+          id: "call_resource_failed",
+          name: "resources__query",
+          provider: "resources",
+          toolName: "query",
+          input: {
+            redacted: true,
+            resourceId: "resource-1",
+            operation: "search",
+          },
+          startedAt: "2026-05-15T12:00:00.000Z",
+        },
+      ],
+      results: [
+        {
+          toolCallId: "call_resource_failed",
+          provider: "resources",
+          toolName: "query",
+          output:
+            'Resource validation error: Operation "search" is not valid for a tabular resource.',
+          isError: true,
+          completedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    });
+
+    expect(rows[0]?.error).toBe(
+      'Resource validation error: Operation "search" is not valid for a tabular resource.',
+    );
   });
 
   it("keeps unmatched results auditable", () => {

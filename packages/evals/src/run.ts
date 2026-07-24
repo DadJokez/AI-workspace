@@ -1,4 +1,6 @@
 import { writeFileSync, mkdirSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { FakeBedrockClient } from "@ai-workspace/agent";
 import { runSuite } from "./harness";
 import type { CapabilityResult, EvalSuite } from "./types";
@@ -16,9 +18,16 @@ import { attachmentInjectionSuite } from "./cases/attachment-injection.cases";
 import { mcpInjectionSuite } from "./cases/mcp-injection.cases";
 import { githubContentInjectionSuite } from "./cases/github-content-injection.cases";
 import { memoryInjectionSuite } from "./cases/memory-injection.cases";
+import { toolEvidenceContinuitySuite } from "./cases/tool-evidence-continuity.cases";
+import { foundationalChatSuite } from "./cases/foundational-chat.cases";
+import { fileResourceGroundingSuite } from "./cases/file-resource-grounding.cases";
+import { artifactOutputHonestySuite } from "./cases/artifact-output-honesty.cases";
 import { estimateUsageCostUsd } from "./benchmarks/model-routing";
 
-const SUITES: EvalSuite[] = [
+export const SUITES: EvalSuite[] = [
+  foundationalChatSuite,
+  fileResourceGroundingSuite,
+  artifactOutputHonestySuite,
   dateGroundingSuite,
   skillFaithfulnessSuite,
   contextFaithfulnessSuite,
@@ -33,7 +42,31 @@ const SUITES: EvalSuite[] = [
   mcpInjectionSuite,
   githubContentInjectionSuite,
   memoryInjectionSuite,
+  toolEvidenceContinuitySuite,
 ];
+
+/** Select a capability and/or the stable foundational `core` case tag. */
+export function selectSuites(
+  args: readonly string[],
+  availableSuites: readonly EvalSuite[] = SUITES,
+): EvalSuite[] {
+  const core = args.includes("--core");
+  const filter = args.find((arg) => !arg.startsWith("--"));
+  return availableSuites
+    .filter((suite) => !filter || suite.capability === filter)
+    .map((suite) => {
+      if (!core) return suite;
+      const suiteIsCore = suite.tags?.includes("core") ?? false;
+      return {
+        ...suite,
+        cases: suite.cases.filter(
+          (testCase) =>
+            suiteIsCore || (testCase.tags?.includes("core") ?? false),
+        ),
+      };
+    })
+    .filter((suite) => suite.cases.length > 0);
+}
 
 /**
  * CLI entry (FR-005): `pnpm eval [capability]` runs all or one capability
@@ -45,14 +78,15 @@ const SUITES: EvalSuite[] = [
 async function main() {
   const args = process.argv.slice(2);
   const mock = args.includes("--mock");
+  const core = args.includes("--core");
   const filter = args.find((a) => !a.startsWith("--"));
-  const suites = filter
-    ? SUITES.filter((s) => s.capability === filter)
-    : SUITES;
+  const suites = selectSuites(args);
 
   if (suites.length === 0) {
     console.error(
-      `No suite matches "${filter}". Available: ${SUITES.map((s) => s.capability).join(", ")}`,
+      filter
+        ? `No ${core ? "core-tagged " : ""}suite matches "${filter}". Available: ${SUITES.map((s) => s.capability).join(", ")}`
+        : "No core-tagged eval cases are configured.",
     );
     process.exit(2);
   }
@@ -72,6 +106,12 @@ async function main() {
     );
     process.exit(2);
   }
+  if (core) {
+    const count = suites.reduce((total, suite) => total + suite.cases.length, 0);
+    console.log(
+      `🎯 --core: ${count} foundational cases across ${suites.length} suites.\n`,
+    );
+  }
 
   const options = mock
     ? { client: new FakeBedrockClient({ delayMs: 0 }), structuralOnly: true }
@@ -79,6 +119,8 @@ async function main() {
   const results: CapabilityResult[] = [];
   let totalIn = 0;
   let totalOut = 0;
+  let totalJudgeIn = 0;
+  let totalJudgeOut = 0;
 
   for (const suite of suites) {
     process.stdout.write(`\n▶ ${suite.capability}\n`);
@@ -87,12 +129,16 @@ async function main() {
     for (const c of result.results) {
       totalIn += c.tokensIn;
       totalOut += c.tokensOut;
+      totalJudgeIn += c.judgeUsage.tokensIn;
+      totalJudgeOut += c.judgeUsage.tokensOut;
       const icon = c.errored ? "💥" : c.passed ? "✅" : "❌";
       const repeatNote =
         c.runs && c.runs > 1
           ? ` [${c.passCount ?? 0}/${c.runs} passed, ${c.passPolicy ?? "all"}]`
           : "";
-      process.stdout.write(`  ${icon} ${c.caseId}${repeatNote} — ${c.description}\n`);
+      process.stdout.write(
+        `  ${icon} [${c.severity.toUpperCase()}] ${c.caseId}${repeatNote} — ${c.description}\n`,
+      );
       if (c.errored) {
         process.stdout.write(`       error: ${c.errored}\n`);
       } else if (!c.passed) {
@@ -112,7 +158,7 @@ async function main() {
 
   const totalPassed = results.reduce((n, r) => n + r.passed, 0);
   const totalFailed = results.reduce((n, r) => n + r.failed, 0);
-  const approxCostUsd = results.reduce(
+  const generationCostUsd = results.reduce(
     (suiteTotal, result) =>
       suiteTotal +
       result.results.reduce(
@@ -122,19 +168,56 @@ async function main() {
       ),
     0,
   );
+  const judgeCostUsd = results.reduce(
+    (suiteTotal, result) =>
+      suiteTotal +
+      result.results.reduce(
+        (caseTotal, testCase) =>
+          caseTotal +
+          estimateUsageCostUsd("haiku-4-5", testCase.judgeUsage),
+        0,
+      ),
+    0,
+  );
+  const approxCostUsd = generationCostUsd + judgeCostUsd;
 
   process.stdout.write(
     `\n${totalFailed === 0 ? "✅" : "❌"} ${totalPassed} passed, ${totalFailed} failed · ` +
       `${totalIn}+${totalOut} tokens · ~$${approxCostUsd.toFixed(4)}${mock ? " (mock)" : ""}\n`,
   );
+  if (totalJudgeIn > 0 || totalJudgeOut > 0) {
+    process.stdout.write(
+      `   judge: ${totalJudgeIn}+${totalJudgeOut} tokens · ~$${judgeCostUsd.toFixed(4)}\n`,
+    );
+  }
 
-  writeReport(results, { mock, totalIn, totalOut, approxCostUsd });
+  writeReport(results, {
+    mock,
+    core,
+    totalIn,
+    totalOut,
+    totalJudgeIn,
+    totalJudgeOut,
+    generationCostUsd,
+    judgeCostUsd,
+    approxCostUsd,
+  });
   process.exit(totalFailed === 0 ? 0 : 1);
 }
 
 function writeReport(
   results: CapabilityResult[],
-  meta: { mock: boolean; totalIn: number; totalOut: number; approxCostUsd: number },
+  meta: {
+    mock: boolean;
+    core: boolean;
+    totalIn: number;
+    totalOut: number;
+    totalJudgeIn: number;
+    totalJudgeOut: number;
+    generationCostUsd: number;
+    judgeCostUsd: number;
+    approxCostUsd: number;
+  },
 ) {
   try {
     mkdirSync("eval-reports", { recursive: true });
@@ -149,13 +232,32 @@ function writeReport(
   const md: string[] = [
     `# Eval report ${stamp}${meta.mock ? " (mock)" : ""}`,
     "",
-    `~$${meta.approxCostUsd.toFixed(4)} · ${meta.totalIn}+${meta.totalOut} tokens`,
+    `~$${meta.approxCostUsd.toFixed(4)} total (${meta.generationCostUsd.toFixed(4)} candidate + ${meta.judgeCostUsd.toFixed(4)} judge)`,
+    "",
+    `Candidate tokens: ${meta.totalIn}+${meta.totalOut} · judge tokens: ${meta.totalJudgeIn}+${meta.totalJudgeOut}`,
+    "",
+    `Selection: ${meta.core ? "core-tagged foundational cases" : "full suite"}`,
     "",
   ];
   for (const r of results) {
-    md.push(`## ${r.capability} — ${r.passed}/${r.passed + r.failed} passed`, "");
+    const severitySummary = Object.entries(r.bySeverity)
+      .filter(([, counts]) => counts.passed + counts.failed > 0)
+      .map(
+        ([severity, counts]) =>
+          `${severity} ${counts.passed}/${counts.passed + counts.failed}`,
+      )
+      .join(" · ");
+    md.push(
+      `## ${r.capability} — ${r.passed}/${r.passed + r.failed} passed`,
+      "",
+      `Severity: ${severitySummary || "none"}`,
+      "",
+    );
     for (const c of r.results) {
-      md.push(`- ${c.passed ? "✅" : c.errored ? "💥" : "❌"} **${c.caseId}** — ${c.description}`);
+      md.push(
+        `- ${c.passed ? "✅" : c.errored ? "💥" : "❌"} **[${c.severity.toUpperCase()}] ${c.caseId}** — ${c.description}`,
+      );
+      md.push(`  - Tags: ${c.tags.join(", ") || "(none)"}`);
       if (c.runs && c.runs > 1) {
         md.push(
           `  - Repeats: ${c.passCount ?? 0}/${c.runs} runs passed (policy: ${c.passPolicy ?? "all"})`,
@@ -168,6 +270,11 @@ function writeReport(
       md.push(
         `  - Model/usage: ${c.modelId}; input=${c.inputTokens}; cache-read=${c.cacheReadInputTokens}; cache-write=${c.cacheWriteInputTokens}; output=${c.tokensOut}`,
       );
+      if (c.judgeUsage.tokensIn > 0 || c.judgeUsage.tokensOut > 0) {
+        md.push(
+          `  - Judge/usage: haiku-4-5; input=${c.judgeUsage.inputTokens}; cache-read=${c.judgeUsage.cacheReadInputTokens}; cache-write=${c.judgeUsage.cacheWriteInputTokens}; output=${c.judgeUsage.tokensOut}; cost=~$${estimateUsageCostUsd("haiku-4-5", c.judgeUsage).toFixed(6)}`,
+        );
+      }
       if (c.providerStatus && Object.keys(c.providerStatus).length > 0) {
         md.push(
           `  - Provider status: ${Object.entries(c.providerStatus)
@@ -190,6 +297,9 @@ function writeReport(
         for (const a of c.assertions.filter((x) => !x.ok)) {
           md.push(`  - ✗ ${a.label}${a.detail ? ` — ${a.detail}` : ""}`);
         }
+        md.push(
+          `  - Answer preview: ${c.answerPreview.replace(/\s+/g, " ").trim() || "(empty)"}`,
+        );
       }
     }
     md.push("");
@@ -198,4 +308,9 @@ function writeReport(
   process.stdout.write(`\n📄 report: ${base}.md\n`);
 }
 
-void main();
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  void main();
+}

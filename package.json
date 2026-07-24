@@ -10,7 +10,7 @@
     "overrides": {
       "brace-expansion@1": "^1.1.16",
       "fast-uri": "^3.1.3",
-      "postcss": "8.5.10",
+      "postcss": "8.5.12",
       "prismjs": "1.30.0",
       "sharp": "0.35.3",
       "sqlite3": "-",
@@ -29,9 +29,11 @@
     "audit:retention": "pnpm --filter @ai-workspace/web audit:retention",
     "start": "pnpm --filter @ai-workspace/web start",
     "eval": "pnpm --filter @ai-workspace/evals eval",
+    "eval:core": "pnpm --filter @ai-workspace/evals eval:core",
     "transcripts:replay": "pnpm --filter @ai-workspace/evals transcripts:replay",
     "smoke:browser": "pnpm --filter @ai-workspace/web smoke:browser",
     "smoke:browser:auth": "pnpm --filter @ai-workspace/web smoke:browser:auth",
+    "smoke:browser:core": "pnpm --filter @ai-workspace/web smoke:browser:core",
     "smoke:browser:ui": "pnpm --filter @ai-workspace/web smoke:browser:ui",
     "smoke:prod": "node scripts/production-smoke.mjs",
     "smoke:prod:auth": "pnpm --filter @ai-workspace/web smoke:prod:auth"

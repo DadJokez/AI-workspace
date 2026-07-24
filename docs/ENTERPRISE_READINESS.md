@@ -4,15 +4,27 @@ This document turns epic #42 into operating decisions. It is deliberately
 plain-spoken: some controls are shipped, some are pilot-grade, and some need
 IT-owned infrastructure before broad rollout.
 
+## Security Review Packet
+
+The current engineering evidence package is in [`docs/security`](./security/README.md):
+
+- [threat model](./security/THREAT_MODEL.md);
+- [incident response runbook](./security/INCIDENT_RESPONSE.md);
+- [data flow and classification sheet](./security/DATA_FLOW_AND_CLASSIFICATION.md).
+
+That packet is the source of truth for the deployed security posture and
+explicitly separates live controls from enterprise targets. It is engineering
+evidence, not a compliance certification or legal DPA.
+
 ## Current Status
 
 | Area | Status | Notes |
 |---|---|---|
 | Dependency audit | Partial | Next.js, Bedrock SDK, Drizzle, PostCSS, and PrismJS patches/overrides applied. Remaining audit findings are transitive and tracked below. |
 | Health checks | Pilot shipped | `/api/health` checks DB connectivity/latency and runtime configuration. |
-| Rate limits and quotas | Pilot shipped | `/api/chat`, skill runs, and Developer Briefing enforce shared Postgres fixed-window request limits plus body/message caps. ECS web scale-out requires the shared limiter migration and a multi-task 429 smoke. |
+| Rate limits and quotas | Pilot shipped | `/api/chat`, skill runs, authentication, and event triggers use shared Postgres fixed-window request limits plus body/message caps. Per-team/token/cost quotas are not live. |
 | Logging/redaction/retention | Pilot shipped | Shared tool payload redaction is applied before chat/tool/run/audit persistence; audit retention has a configurable cleanup script and admin visibility. |
-| KMS/Secrets/IaC | Plan defined | Current App Runner env vars are acceptable for POC only. ECS/Fargate target requires Secrets Manager/KMS and IaC. |
+| KMS/Secrets/IaC | Partial | ECS/Fargate, ALB, task IAM, log groups, alarms, and secret injection are CDK-managed. Secrets Manager uses its AWS-managed key without automatic rotation; RDS storage encryption/private networking are not live. |
 | Load-test model | Model defined | Synthetic scenarios and thresholds are ready for a follow-up test harness. |
 
 ## Dependency Audit
@@ -79,14 +91,13 @@ The same limiter protects `/api/chat` and the manual Developer Briefing route.
 Developer Briefing gets one third of the chat request allowance because it can
 perform tool work.
 
-Important limitation: this limiter is process-local. It is enough for pilot
-protection on App Runner, but ECS/Fargate scale-out needs a shared limiter,
-preferably Redis/Valkey or another central store. Enterprise quota work should
-add:
+The limiter is shared through Postgres, so all current ECS tasks see the same
+logical buckets. Enterprise quota work should add:
 - per-user daily token budgets;
 - per-team/provider quotas;
 - model-specific output-token caps;
-- tool iteration caps per run;
+- configurable tool/action budgets beyond the runtime's fixed eight-iteration
+  cap;
 - admin-visible quota/audit events;
 - CloudWatch alarms for cost and error-rate spikes.
 
@@ -105,16 +116,16 @@ Redaction requirements:
 - Error logs may include error class/name and short message. Stack traces are
   allowed in pilot logs but should be disabled or sampled for enterprise.
 
-Retention targets:
+Current behavior is not an approved retention policy:
 
-| Data | Pilot retention | Enterprise target |
+| Data | Pilot behavior | Policy status |
 |---|---|---|
-| Chat messages | Until user/admin delete | 1 year default, configurable by policy |
-| Audit log | 1 year default dry-run window; destructive cleanup requires explicit `AUDIT_LOG_RETENTION_DAYS` | 7 years or IT/compliance requirement |
-| Recipe runs | Until manual cleanup | 1 year outputs, 7 years metadata/audit |
-| Runtime debug logs | CloudWatch default | 30-90 days |
-| OAuth tokens | Until disconnect/revocation | Until disconnect/revocation; rotate where provider supports it |
-| Future S3/Athena Agent Wire | Not live | Lifecycle policy by data classification |
+| Chat messages and artifacts | Persist until an existing user/admin lifecycle action | Window and hard-delete path pending #460 |
+| Audit log | Persists; destructive cleanup requires an explicit `AUDIT_LOG_RETENTION_DAYS` | Window, legal hold, and DB enforcement pending #460/#457 |
+| Runs, events, and traces | Persist until manual cleanup | Output/metadata windows pending #460/#381 |
+| Runtime debug logs | CDK log groups retain 30 days | Confirm with security/privacy before enterprise rollout |
+| OAuth tokens | Until disconnect/revocation | Deprovisioning and provider rotation policy pending #460 |
+| Future S3/Athena Agent Wire | Not live | Classification and lifecycle policy required before launch |
 
 Current code applies a shared tool payload redaction helper before persisting
 tool inputs/results to chat messages, recipe runs, and `audit_log`. Audit
@@ -127,30 +138,37 @@ tool providers.
 
 ## Secrets, KMS, And IaC
 
-POC state:
-- App Runner environment variables hold app/runtime secrets.
+Current pilot state:
+- ECS/Fargate task definitions read app/runtime secrets from AWS Secrets
+  Manager.
 - OAuth tokens are encrypted in Postgres with AES-256-GCM using
   `OAUTH_ENCRYPTION_KEY`.
-- Infrastructure was created manually plus CodeBuild/App Runner automation.
+- CDK owns ECS services, ALB, task IAM, log groups, alarms, and secret
+  references. The pre-existing RDS instance, complete CodeBuild project, and
+  network are not fully owned by this stack.
+- Secrets Manager uses its AWS-managed key and automatic rotation is not
+  enabled.
+- The production database connection requires TLS, but the pilot RDS storage
+  volume is not encrypted and remains publicly addressable.
 
 Enterprise target:
-- ECS/Fargate task definitions read secrets from AWS Secrets Manager.
-- KMS customer-managed keys protect Secrets Manager values and any future
-  application-level envelope encryption.
-- IaC owns ECS service, ALB, IAM roles, Secrets Manager/KMS, RDS, alarms, and
-  networking.
-- CI/CD assumes a deploy role rather than using broad long-lived credentials.
+- KMS customer-managed keys protect Secrets Manager values and storage that
+  contains user content.
+- IaC owns RDS, backups, deletion protection, private networking, and the
+  complete deploy pipeline.
+- CI/CD continues to assume scoped deploy roles rather than broad long-lived
+  credentials.
 
 Secrets inventory:
 
 | Secret | Current | Enterprise target |
 |---|---|---|
-| `NEXTAUTH_SECRET` | App Runner env | Secrets Manager, rotate on incident |
-| `DATABASE_URL` | App Runner env / CodeBuild | Secrets Manager dynamic reference |
-| `OAUTH_ENCRYPTION_KEY` | App Runner env | KMS-backed secret, rotation plan required |
-| `GITHUB_AUTH_CLIENT_SECRET` | App Runner env | Secrets Manager |
-| `GITHUB_CLIENT_SECRET` | App Runner env | Secrets Manager |
-| `INVITE_EMAIL_PROVIDER`, `INVITE_EMAIL_FROM`, `INVITE_EMAIL_AWS_REGION` | Disabled unless configured | Secrets Manager / task env for SES invite delivery |
+| `NEXTAUTH_SECRET` | Secrets Manager task injection | Customer-managed KMS key; tested rotation invalidates sessions |
+| `DATABASE_URL` | Secrets Manager task injection / CodeBuild migration access | Rotated database credential, private encrypted RDS, scoped migration role |
+| `OAUTH_ENCRYPTION_KEY` | Secrets Manager task injection | Customer-managed KMS key, key separation, and re-encryption/rotation plan |
+| `GITHUB_AUTH_CLIENT_SECRET` | Secrets Manager task injection | Customer-managed KMS key and provider rotation runbook |
+| `GITHUB_CLIENT_SECRET` | Secrets Manager task injection | Customer-managed KMS key and provider rotation runbook |
+| `INVITE_EMAIL_PROVIDER`, `INVITE_EMAIL_FROM`, `INVITE_EMAIL_AWS_REGION` | CDK task environment for SES delivery | Reviewed environment configuration; these fields contain no credential |
 | AWS deploy credentials | CodeBuild role | Least-privilege deploy role in IaC |
 
 ## Invitation Email Rollout

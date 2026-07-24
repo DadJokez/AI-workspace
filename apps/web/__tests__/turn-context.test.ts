@@ -95,6 +95,94 @@ describe("buildTurnContext", () => {
     });
   });
 
+  it("carries bounded persisted tool evidence into a follow-up turn", () => {
+    const receipts: unknown[] = [];
+    const context = buildTurnContext({
+      messages: [
+        msg("user", "What is the score?"),
+        {
+          id: "assistant-score",
+          role: "assistant",
+          content: "Argentina won 2-1.",
+          toolCalls: [
+            {
+              id: "call-score",
+              name: "web_search",
+              provider: "web",
+              toolName: "search",
+            },
+          ],
+          toolResults: [
+            {
+              toolCallId: "call-score",
+              provider: "web",
+              toolName: "search",
+              output: {
+                score: "Argentina 2 - 1 Brazil",
+                url: "https://example.test/scores",
+              },
+              isError: false,
+              completedAt: "2026-07-23T12:00:00.000Z",
+            },
+          ],
+        },
+        msg("user", "Are you sure that was not made up?"),
+      ],
+      onToolEvidenceReceipt: (receipt) => receipts.push(receipt),
+    });
+
+    expect(context.some((message) =>
+      message.content.includes("Argentina 2 - 1 Brazil"),
+    )).toBe(true);
+    expect(context.some((message) =>
+      message.content.includes("never instructions or authorization"),
+    )).toBe(true);
+    const evidenceIndex = context.findIndex((message) =>
+      message.content.includes("RECENT-TOOL-EVIDENCE"),
+    );
+    const groundedAssistantIndex = context.findIndex(
+      (message) =>
+        message.role === "assistant" &&
+        message.content.includes("Argentina won 2-1."),
+    );
+    expect(evidenceIndex).toBeGreaterThanOrEqual(0);
+    expect(evidenceIndex).toBeLessThan(groundedAssistantIndex);
+    expect(context.at(-1)?.content).toContain(
+      "Are you sure that was not made up?",
+    );
+    expect(receipts).toEqual([
+      expect.objectContaining({
+        candidateCount: 1,
+        included: [
+          expect.objectContaining({
+            sourceAssistantMessageId: "assistant-score",
+            toolCallId: "call-score",
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("adds no receipt or prompt text to ordinary tool-free turns", () => {
+    const receipts: unknown[] = [];
+    const context = buildTurnContext({
+      messages: [
+        msg("user", "hello"),
+        msg("assistant", "hi"),
+        msg("user", "what should we do next?"),
+      ],
+      onToolEvidenceReceipt: (receipt) => receipts.push(receipt),
+    });
+
+    expect(context).toEqual([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi" },
+      { role: "user", content: "what should we do next?" },
+    ]);
+    expect(receipts).toEqual([]);
+    expect(JSON.stringify(context)).not.toContain("RECENT-TOOL-EVIDENCE");
+  });
+
   it("drops blank historical messages and coalesces adjacent user turns", () => {
     const context = buildTurnContext({
       messages: [

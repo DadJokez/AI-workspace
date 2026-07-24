@@ -160,6 +160,31 @@ describe("chat context pack", () => {
     expect(pack.prompt.volatileSystemSuffix).toContain("Routing: Mounted local tools");
   });
 
+  it("states that unattended web access was not granted in prompt and receipt", () => {
+    const pack = buildChatContextPack({
+      ...baseInput(),
+      forcePreamble: true,
+      webAccess: {
+        state: "not_granted",
+        source: "not_declared",
+        policy: "admin_domain_denylist",
+        deniedDomainCount: 3,
+      },
+    });
+
+    expect(pack.receipts[0]?.tools.webAccess).toEqual({
+      state: "not_granted",
+      source: "not_declared",
+      policy: "admin_domain_denylist",
+      deniedDomainCount: 3,
+    });
+    expect(pack.prompt.systemPrompt).toContain("Web access: not granted");
+    expect(pack.prompt.systemPrompt).toContain("web_access: true");
+    expect(pack.prompt.volatileSystemSuffix).toContain(
+      "Web access: not granted; source not_declared; policy admin_domain_denylist; 3 denied domain(s).",
+    );
+  });
+
   it("records artifact context availability", () => {
     const pack = buildChatContextPack({
       ...baseInput(),
@@ -179,16 +204,22 @@ describe("chat context pack", () => {
     expect(pack.prompt.systemPrompt).toContain("Roadmap");
   });
 
-  it("records uploaded files folded into the current prompt", () => {
+  it("records resource-backed uploads without claiming inline injection", () => {
     const pack = buildChatContextPack({
       ...baseInput(),
-      uploadedFiles: [{ name: "brief.csv", sizeBytes: 42 }],
+      uploadedFiles: [
+        { resourceId: "resource-brief", name: "brief.csv", sizeBytes: 42 },
+      ],
       forcePreamble: true,
     });
 
-    expect(pack.receipts[0]?.work.uploadedFilesInjected).toBe(true);
+    expect(pack.receipts[0]?.work.uploadedFilesInjected).toBe(false);
     expect(pack.receipts[0]?.work.uploadedFiles).toEqual([
-      { name: "brief.csv", sizeBytes: 42 },
+      {
+        resourceId: "resource-brief",
+        name: "brief.csv",
+        sizeBytes: 42,
+      },
     ]);
     expect(pack.work.uploadedFiles[0]).toMatchObject({
       type: "uploaded_file",
@@ -196,13 +227,96 @@ describe("chat context pack", () => {
       source: "uploaded_files",
       owner: "user",
       freshness: "current_turn",
-      visibility: "hidden_prompt",
-      injected: true,
+      visibility: "receipt_only",
+      injected: false,
+      charCount: 0,
+      metadata: {
+        resourceId: "resource-brief",
+        delivery: "resource_reference",
+      },
     });
     expect(pack.prompt.volatileSystemSuffix).toContain(
       "uploaded files 1 current-turn file(s)",
     );
     expect(pack.prompt.volatileSystemSuffix).not.toContain("brief.csv");
+  });
+
+  it("records native image bytes as injected model input", () => {
+    const pack = buildChatContextPack({
+      ...baseInput(),
+      uploadedFiles: [
+        {
+          resourceId: "resource-image",
+          name: "chart.png",
+          sizeBytes: 128,
+          runtimeContent: {
+            type: "image",
+            mimeType: "image/png",
+            dataBase64: "aW1hZ2U=",
+          },
+        },
+      ],
+      forcePreamble: true,
+    });
+
+    expect(pack.receipts[0]?.work.uploadedFilesInjected).toBe(true);
+    expect(pack.work.uploadedFiles[0]).toMatchObject({
+      visibility: "hidden_prompt",
+      injected: true,
+      charCount: 128,
+      metadata: { delivery: "native_image" },
+    });
+  });
+
+  it("persists recent tool-evidence inclusion and omission receipts", () => {
+    const pack = buildChatContextPack({
+      ...baseInput(),
+      recentToolEvidenceReceipt: {
+        candidateCount: 2,
+        includedChars: 640,
+        maxChars: 8_000,
+        maxResultChars: 2_000,
+        included: [
+          {
+            sourceAssistantMessageId: "assistant-score",
+            toolCallId: "call-score",
+            provider: "web",
+            toolName: "search",
+            completedAt: "2026-07-23T12:00:00.000Z",
+            status: "succeeded",
+            stale: false,
+            chars: 640,
+            truncated: false,
+          },
+        ],
+        omittedToolCallIds: ["call-old"],
+      },
+    });
+
+    expect(pack.receipts[0]?.work.recentToolEvidence).toMatchObject({
+      candidateCount: 2,
+      includedChars: 640,
+      omittedToolCallIds: ["call-old"],
+    });
+    expect(pack.work.toolEvidence).toMatchObject({
+      id: "thread:recent-tool-evidence",
+      type: "recent_tool_evidence",
+      source: "chat_messages.tool_results",
+      visibility: "hidden_prompt",
+      injected: true,
+      charCount: 640,
+    });
+    expect(pack.receipts[0]?.contextItems).toContainEqual(
+      expect.objectContaining({
+        id: "thread:recent-tool-evidence",
+        metadata: expect.objectContaining({
+          omittedToolCallIds: ["call-old"],
+        }),
+      }),
+    );
+    expect(pack.prompt.volatileSystemSuffix).toContain(
+      "Historical tool evidence: 1 successful and 0 failed result(s) included",
+    );
   });
 
   it("records durable resource receipts without copying file content into context", () => {
@@ -309,7 +423,7 @@ describe("chat context pack", () => {
         {
           id: "deploy-app:artifact",
           type: "deploy_artifact_as_app",
-          title: "Deploy this as an app",
+          title: "Publish this as an app",
           reason: "Reusable artifact.",
           requiresApproval: true,
           action: { kind: "deploy_app", artifactId: "artifact-1" },

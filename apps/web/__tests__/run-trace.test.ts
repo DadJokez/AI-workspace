@@ -107,6 +107,24 @@ describe("provider run trace capture", () => {
     });
   });
 
+  it("adds a typed abort reason to every provider trace event", () => {
+    const trace = createProviderTraceAccumulator();
+    trace.record({
+      type: "provider-response-metadata",
+      iteration: 0,
+      stopReason: "error",
+    });
+
+    const events = buildPersistedTraceEvents(trace.snapshot(), {
+      abortReason: "shutdown",
+    });
+
+    expect(events).toHaveLength(3);
+    for (const event of events) {
+      expect(event.metadata).toMatchObject({ abortReason: "shutdown" });
+    }
+  });
+
   it("does not retain provider reasoning signatures or image bytes", () => {
     const trace = createProviderTraceAccumulator();
     trace.record({

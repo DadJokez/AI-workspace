@@ -5,11 +5,16 @@ import {
   type ConverseStreamCommandInput,
 } from "@aws-sdk/client-bedrock-runtime";
 import {
+  E2EResourceCanaryBedrockClient,
   RealBedrockClient,
+  getBedrockClient,
   toAwsToolConfiguration,
+  type BedrockMessage,
   type BedrockStreamEvent,
+  type ConverseStreamParams,
 } from "./clients";
 import type { BedrockToolConfig } from "./registry";
+import { frameUntrustedToolResult } from "./tool-result-framing";
 
 /** Loose chunk shape so tests can feed exactly the fields the client reads. */
 type StreamChunk = Record<string, unknown>;
@@ -18,17 +23,22 @@ type StreamChunk = Record<string, unknown>;
  * Stubs `BedrockRuntimeClient.send`, capturing each command's input and
  * replaying the given chunks as the response stream.
  */
-function stubSend(chunks: StreamChunk[] = []) {
+function stubSend(
+  chunks: StreamChunk[] = [],
+  sendOptions?: Array<{ abortSignal?: AbortSignal } | undefined>,
+) {
   const inputs: ConverseStreamCommandInput[] = [];
   vi.spyOn(
     BedrockRuntimeClient.prototype as unknown as {
       send: (
         command: ConverseStreamCommand,
+        options?: { abortSignal?: AbortSignal },
       ) => Promise<{ stream: AsyncIterable<StreamChunk> }>;
     },
     "send",
-  ).mockImplementation(async (command) => {
+  ).mockImplementation(async (command, options) => {
     inputs.push(command.input);
+    sendOptions?.push(options);
     return {
       stream: (async function* () {
         yield* chunks;
@@ -57,6 +67,193 @@ const TOOL_CONFIG: BedrockToolConfig = {
     },
   ],
 };
+
+const RESOURCE_TOOL_CONFIG: BedrockToolConfig = {
+  tools: [
+    {
+      toolSpec: {
+        name: "resources__query",
+        description: "Query a selected conversation resource.",
+        inputSchema: { json: { type: "object", properties: {} } },
+      },
+    },
+  ],
+};
+
+describe("E2EResourceCanaryBedrockClient", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("is impossible to select outside explicit E2E test mode", () => {
+    vi.stubEnv("BEDROCK_CLIENT", "e2e-resource-canary");
+    vi.stubEnv("E2E_TEST_MODE", "0");
+
+    expect(() => getBedrockClient()).toThrow(
+      "restricted to E2E_TEST_MODE=1",
+    );
+  });
+
+  it("calls the real resource tool with the id selected by turn context", async () => {
+    const client = new E2EResourceCanaryBedrockClient();
+    const resourceId = "123e4567-e89b-42d3-a456-426614174000";
+    const events = await collect(
+      client.converseStream(
+        resourceCanaryParams({
+          volatileSystemSuffix: `<<<CONVERSATION-RESOURCES nonce>>>[{"resourceId":"${resourceId}","filename":"core.csv"}]<<<END-CONVERSATION-RESOURCES nonce>>>`,
+        }),
+      ),
+    );
+
+    expect(events).toContainEqual({
+      type: "tool-use",
+      id: "e2e-resource-canary-query",
+      name: "resources__query",
+      input: {
+        resourceId,
+        operation: "table_filter",
+        filterColumn: "customer",
+        filterOperator: "equals",
+        filterValue: "CSV_CANARY_7391",
+        limit: 1,
+      },
+    });
+    expect(events.at(-1)).toEqual({ type: "stop", reason: "tool_use" });
+  });
+
+  it("derives the answer from full-coverage tool evidence instead of a canned value", async () => {
+    const client = new E2EResourceCanaryBedrockClient();
+    const messages: BedrockMessage[] = [
+      {
+        role: "user",
+        content: [
+          {
+            kind: "tool-result",
+            toolUseId: "e2e-resource-canary-query",
+            content: frameUntrustedToolResult(
+              "resources__query",
+              JSON.stringify({
+                receipt: {
+                  sourceCoverage: "full",
+                  resultCoverage: "full",
+                },
+                rows: [
+                  {
+                    _sheet: "Data",
+                    revenue: "73155",
+                    customer: "CSV_CANARY_7391",
+                  },
+                ],
+              }),
+            ),
+          },
+        ],
+      },
+    ];
+    const events = await collect(
+      client.converseStream(resourceCanaryParams({ messages })),
+    );
+    const answer = events
+      .filter(
+        (
+          event,
+        ): event is Extract<BedrockStreamEvent, { type: "text-delta" }> =>
+          event.type === "text-delta",
+      )
+      .map((event) => event.text)
+      .join("");
+
+    expect(answer).toContain("CSV_CANARY_7391 is 73155");
+    expect(answer).toContain("resources__query");
+    expect(events.at(-1)).toEqual({ type: "stop", reason: "end_turn" });
+  });
+
+  it("does not claim a value when the tool result lacks full evidence", async () => {
+    const client = new E2EResourceCanaryBedrockClient();
+    const messages: BedrockMessage[] = [
+      {
+        role: "user",
+        content: [
+          {
+            kind: "tool-result",
+            toolUseId: "e2e-resource-canary-query",
+            content: frameUntrustedToolResult(
+              "resources__query",
+              '{"receipt":{"sourceCoverage":"partial"},"rows":[{"customer":"CSV_CANARY_7391","revenue":"99999"}]}',
+            ),
+          },
+        ],
+      },
+    ];
+    const events = await collect(
+      client.converseStream(resourceCanaryParams({ messages })),
+    );
+    const answer = events
+      .filter(
+        (
+          event,
+        ): event is Extract<BedrockStreamEvent, { type: "text-delta" }> =>
+          event.type === "text-delta",
+      )
+      .map((event) => event.text)
+      .join("");
+
+    expect(answer).toContain("did not receive verified");
+    expect(answer).not.toContain("99999");
+  });
+
+  it("rejects an unframed result even when its data would otherwise pass", async () => {
+    const client = new E2EResourceCanaryBedrockClient();
+    const events = await collect(
+      client.converseStream(
+        resourceCanaryParams({
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  kind: "tool-result",
+                  toolUseId: "e2e-resource-canary-query",
+                  content:
+                    '{"receipt":{"sourceCoverage":"full","resultCoverage":"full"},"rows":[{"customer":"CSV_CANARY_7391","revenue":"73155"}]}',
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    const answer = events
+      .filter(
+        (
+          event,
+        ): event is Extract<BedrockStreamEvent, { type: "text-delta" }> =>
+          event.type === "text-delta",
+      )
+      .map((event) => event.text)
+      .join("");
+
+    expect(answer).toContain("did not receive verified");
+    expect(answer).not.toContain("73155");
+  });
+});
+
+function resourceCanaryParams(
+  overrides: Partial<ConverseStreamParams> = {},
+): ConverseStreamParams {
+  return {
+    bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+    messages: [
+      {
+        role: "user",
+        content: [{ kind: "text", text: "Read the attached CSV." }],
+      },
+    ],
+    toolConfig: RESOURCE_TOOL_CONFIG,
+    maxTokens: 100,
+    ...overrides,
+  };
+}
 
 describe("toAwsToolConfiguration", () => {
   it("returns undefined when no tool config is given", () => {
@@ -126,6 +323,24 @@ describe("RealBedrockClient prompt caching", () => {
       maxTokens: 200,
       temperature: 0,
     });
+  });
+
+  it("passes the turn abort signal to the Bedrock SDK request", async () => {
+    const sendOptions: Array<{ abortSignal?: AbortSignal } | undefined> = [];
+    stubSend([], sendOptions);
+    const client = new RealBedrockClient();
+    const controller = new AbortController();
+
+    await collect(
+      client.converseStream({
+        bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
+        maxTokens: 100,
+        signal: controller.signal,
+      }),
+    );
+
+    expect(sendOptions).toEqual([{ abortSignal: controller.signal }]);
   });
 
   it("renders the volatile suffix after the cache checkpoint", async () => {

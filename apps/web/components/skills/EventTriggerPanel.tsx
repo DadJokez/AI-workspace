@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fetchJson } from "@/lib/client-api";
+import { formatDateTime } from "@/lib/format-date";
 
 type TriggerKind = "pull_request_review" | "workflow_run_failure";
 
@@ -52,33 +54,32 @@ export function EventTriggerPanel({
     setBusyId("create");
     setNotice(null);
     try {
-      const response = await fetch("/api/event-triggers", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          skillId,
-          repository,
-          kind,
-          authorLogin: kind === "pull_request_review" ? authorLogin : undefined,
-          assigneeLogin:
-            kind === "pull_request_review" ? assigneeLogin : undefined,
-          threadMode,
-        }),
-      });
-      const body = (await response.json()) as {
-        error?: string;
-        message?: string;
-      };
-      if (!response.ok) {
-        setNotice(body.message ?? body.error ?? "Could not add the trigger.");
-        return;
-      }
+      await fetchJson(
+        "/api/event-triggers",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            skillId,
+            repository,
+            kind,
+            authorLogin:
+              kind === "pull_request_review" ? authorLogin : undefined,
+            assigneeLogin:
+              kind === "pull_request_review" ? assigneeLogin : undefined,
+            threadMode,
+          }),
+        },
+        "Could not add the trigger.",
+      );
       setRepository("");
       setAuthorLogin("");
       setAssigneeLogin("");
       router.refresh();
-    } catch {
-      setNotice("Could not add the trigger.");
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Could not add the trigger.",
+      );
     } finally {
       setBusyId(null);
     }
@@ -88,15 +89,20 @@ export function EventTriggerPanel({
     setBusyId(trigger.id);
     setNotice(null);
     try {
-      const response = await fetch(`/api/event-triggers/${trigger.id}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ enabled: !trigger.enabled }),
-      });
-      if (!response.ok) setNotice("Could not update the trigger.");
+      await fetchJson(
+        `/api/event-triggers/${trigger.id}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: !trigger.enabled }),
+        },
+        "Could not update the trigger.",
+      );
       router.refresh();
-    } catch {
-      setNotice("Could not update the trigger.");
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Could not update the trigger.",
+      );
     } finally {
       setBusyId(null);
     }
@@ -107,13 +113,16 @@ export function EventTriggerPanel({
     setBusyId(trigger.id);
     setNotice(null);
     try {
-      const response = await fetch(`/api/event-triggers/${trigger.id}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) setNotice("Could not delete the trigger.");
+      await fetchJson(
+        `/api/event-triggers/${trigger.id}`,
+        { method: "DELETE" },
+        "Could not delete the trigger.",
+      );
       router.refresh();
-    } catch {
-      setNotice("Could not delete the trigger.");
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Could not delete the trigger.",
+      );
     } finally {
       setBusyId(null);
     }
@@ -149,7 +158,7 @@ export function EventTriggerPanel({
               <span className="flex shrink-0 items-center gap-3">
                 <span className="text-muted">
                   {trigger.lastFiredAt
-                    ? `last ran ${new Date(trigger.lastFiredAt).toLocaleString()}`
+                    ? `last ran ${formatDateTime(trigger.lastFiredAt)}`
                     : "not run yet"}
                 </span>
                 <button

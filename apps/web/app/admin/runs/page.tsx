@@ -2,8 +2,16 @@ import { getDb, runs, users } from "@ai-workspace/db";
 import { and, desc, eq, type SQL } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { auditAdminDataAccessBatch } from "@/lib/admin-data-access";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
-import { buildRuntimeV2Report } from "@/lib/admin/run-reporting";
+import {
+  buildRuntimeV2Report,
+  formatDateTime,
+  formatDuration,
+  formatNullableMs,
+  formatSkill,
+  shortId,
+} from "@/lib/admin/run-reporting";
 import { FilterPill, Metric, StatusBadge, StatusDot } from "@/app/admin/ui";
 import { EmptyState } from "@/components/EmptyState";
 
@@ -51,6 +59,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
   const rows = await db
     .select({
       id: runs.id,
+      userId: runs.userId,
       skillSlug: runs.skillSlug,
       status: runs.status,
       triggerType: runs.triggerType,
@@ -70,6 +79,18 @@ export default async function AdminRunsPage({ searchParams }: Props) {
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(runs.createdAt))
     .limit(REPORT_RUN_LIMIT);
+
+  await auditAdminDataAccessBatch({
+    db,
+    actor: sessionUser,
+    accesses: rows.map((run) => ({
+      targetUserId: run.userId,
+      resourceType: "run_collection",
+      resourceId: `status:${status}`,
+      surface: "admin_runs",
+      resourceCount: 1,
+    })),
+  });
 
   const running = rows.filter((row) => row.status === "running").length;
   const failed = rows.filter((row) => row.status === "failed").length;
@@ -430,40 +451,4 @@ function parseFilter<T extends readonly string[]>(
 ): T[number] {
   const single = Array.isArray(value) ? value[0] : value;
   return single && allowed.includes(single) ? single : fallback;
-}
-
-function formatSkill(value: string | null) {
-  if (value === "developer-briefing") return "Developer Briefing";
-  return value
-    ? value
-        .split(/[-_\s]+/)
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(" ")
-    : "Workflow run";
-}
-
-function shortId(value: string) {
-  return value.slice(0, 8);
-}
-
-function formatDateTime(value: Date) {
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(value);
-}
-
-function formatDuration(startedAt: Date, completedAt: Date) {
-  const ms = Math.max(0, completedAt.getTime() - startedAt.getTime());
-  if (ms < 1_000) return `${ms}ms`;
-  return `${(ms / 1_000).toFixed(ms < 10_000 ? 1 : 0)}s`;
-}
-
-function formatNullableMs(value: number | null | undefined) {
-  if (typeof value !== "number") return "n/a";
-  if (value < 1_000) return `${value}ms`;
-  return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}s`;
 }

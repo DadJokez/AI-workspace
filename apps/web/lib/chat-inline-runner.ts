@@ -5,14 +5,17 @@ import type { ChatContextUploadedFile } from "@/lib/chat-context-pack";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 import type { PinnedActiveSkill } from "@/lib/pinned-context";
 import type { ConversationResourceResolution } from "@/lib/conversation-resources";
-import { enabledModelsForPurpose } from "@/lib/model-registry";
+import {
+  enabledModelsForPurpose,
+  orderModelCandidatesForPurpose,
+} from "@/lib/model-registry";
 import { appendRunEventBestEffort } from "@/lib/run-events";
 import { resolveRuntimeModelSelection } from "@/lib/runtime-model-policy";
 import {
   executeChatTurn,
   type ChatRunTimingMarks,
-  type ChatStreamSend,
 } from "@/lib/execute-chat-turn";
+import type { ChatStreamSend } from "@/lib/chat-stream-contract";
 
 /** Cadence for the inline lane's liveness heartbeat (#443). */
 const INLINE_HEARTBEAT_INTERVAL_MS = 60_000;
@@ -28,6 +31,8 @@ export interface StreamInlineChatRunInput {
   persistedPrompt?: string;
   modelId: string;
   modelOverride?: boolean;
+  /** User override or skill pin; both outrank automatic model policy. */
+  forceRequestedModel?: boolean;
   route: ChatRuntimeRoute;
   activatedSkills?: Array<Record<string, unknown>>;
   activeSkillPrompt?: PinnedActiveSkill;
@@ -63,6 +68,7 @@ export async function streamInlineChatRun({
   persistedPrompt,
   modelId,
   modelOverride = false,
+  forceRequestedModel = modelOverride,
   route,
   activatedSkills,
   activeSkillPrompt,
@@ -81,14 +87,20 @@ export async function streamInlineChatRun({
   };
   const runtimeName = resolveRuntimeName(route);
   // #300: this turn may only use models enabled for its lane's purpose.
+  const enabledModelIds = await enabledModelsForPurpose(db, route.lane);
   const modelSelection = resolveRuntimeModelSelection({
     requestedModelId: modelId,
     route,
     runtimeName,
     message: prompt,
-    forceRequestedModel: modelOverride,
-    enabledModelIds: new Set(await enabledModelsForPurpose(db, route.lane)),
+    forceRequestedModel,
+    enabledModelIds: new Set(enabledModelIds),
   });
+  const modelCandidates = orderModelCandidatesForPurpose(
+    route.lane,
+    enabledModelIds,
+    modelSelection.modelId,
+  );
   const runtime = getRuntime({ runtime: runtimeName });
   const runtimeAbort = new AbortController();
   const externalAbort = () => runtimeAbort.abort();
@@ -118,6 +130,7 @@ export async function streamInlineChatRun({
       runtime,
       runtimeAbort,
       modelId: modelSelection.modelId,
+      modelCandidates,
       requestedProviders,
       activeSkillPrompt,
       uploadedFiles,

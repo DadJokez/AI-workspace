@@ -237,6 +237,15 @@ describe("MCP provider status", () => {
         : undefined;
     expect(allowedTools).not.toContain("create_draft");
     expect(allowedTools).not.toContain("create_event");
+    expect(
+      googleServer && "url" in googleServer
+        ? googleServer.usageNotesByTool
+        : undefined,
+    ).toMatchObject({
+      create_draft: expect.stringContaining("did not send mail"),
+      prepare_event: expect.stringContaining("ask for explicit confirmation"),
+      create_event: expect.stringContaining("exact created event details"),
+    });
     expect(mounted.requiredToolName).toBeUndefined();
   });
 

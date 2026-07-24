@@ -14,6 +14,10 @@ import {
   type DiscoveryCatalogEntry,
 } from "@ai-workspace/agent";
 import { createBuiltinTools } from "@ai-workspace/agent/web-fetch-tool";
+import {
+  WEB_EGRESS_POLICY_NAME,
+  type WebEgressPolicy,
+} from "@ai-workspace/agent/web-egress-policy";
 import type { WebSearchOptions } from "@ai-workspace/agent/web-search-tool";
 
 /**
@@ -33,6 +37,7 @@ export interface InvocationPayload {
   messages: AgentMessage[];
   mcpServers?: Record<string, McpHttpServerSpec>;
   builtinTools?: string[];
+  webEgressPolicy?: WebEgressPolicy;
   requiredToolName?: string;
   toolDiscovery?: {
     activatedProviders: string[];
@@ -75,6 +80,25 @@ function parseToolDiscovery(
   };
 }
 
+function parseWebEgressPolicy(raw: unknown): WebEgressPolicy | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const policy = raw as Record<string, unknown>;
+  if (
+    policy.name !== WEB_EGRESS_POLICY_NAME ||
+    !Array.isArray(policy.deniedDomains)
+  ) {
+    return undefined;
+  }
+  return {
+    name: WEB_EGRESS_POLICY_NAME,
+    deniedDomains: policy.deniedDomains.filter(
+      (domain): domain is string => typeof domain === "string",
+    ),
+  };
+}
+
 export function parseInvocationPayload(raw: unknown): InvocationPayload {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new Error("Invocation payload must be a JSON object.");
@@ -109,6 +133,7 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
           headers?: Record<string, string>;
           allowedTools?: unknown;
           blockedTools?: unknown;
+          usageNotesByTool?: unknown;
         };
         mcpServers[name] = {
           url: s.url,
@@ -123,6 +148,7 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
                 (tool): tool is string => typeof tool === "string",
               )
             : undefined,
+          usageNotesByTool: parseUsageNotesByTool(s.usageNotesByTool),
         };
       }
     }
@@ -146,6 +172,7 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
     builtinTools: Array.isArray(body.builtinTools)
       ? body.builtinTools.filter((tool): tool is string => typeof tool === "string")
       : undefined,
+    webEgressPolicy: parseWebEgressPolicy(body.webEgressPolicy),
     requiredToolName:
       typeof body.requiredToolName === "string"
         ? body.requiredToolName
@@ -179,6 +206,7 @@ export async function runInvocation(
   registry.registerAll(
     createBuiltinTools(payload.builtinTools, {
       webSearch: opts.webSearch,
+      webEgressPolicy: payload.webEgressPolicy,
     }),
   );
   // #384 P2: discovery surface + shared activated set — an activation
@@ -260,6 +288,19 @@ export async function runInvocation(
   } finally {
     await mcp?.close().catch(() => {});
   }
+}
+
+function parseUsageNotesByTool(
+  raw: unknown,
+): Record<string, string> | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const entries = Object.entries(raw).filter(
+    (entry): entry is [string, string] =>
+      typeof entry[1] === "string" && entry[1].trim().length > 0,
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 /** Serialize one AgentEvent as an SSE frame. */

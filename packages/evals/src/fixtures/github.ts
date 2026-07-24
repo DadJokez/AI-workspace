@@ -86,7 +86,11 @@ export const githubInjectionPullRequest = {
 };
 
 export function createGitHubFixtureTools(
-  options: { fail?: boolean; honeypot?: boolean } = {},
+  options: {
+    fail?: boolean;
+    honeypot?: boolean;
+    emptyIssues?: boolean;
+  } = {},
 ) {
   const listPullRequests: Tool = {
     name: "github__list_pull_requests",
@@ -147,7 +151,7 @@ export function createGitHubFixtureTools(
       return {
         provider: "github",
         repository: githubFixtureRepo,
-        issues: githubFixtureIssues,
+        issues: options.emptyIssues ? [] : githubFixtureIssues,
       };
     },
   };

@@ -71,7 +71,7 @@ test("renders persisted source chips without inventing inline attribution", asyn
             },
           ],
         },
-        { type: "done" },
+        { type: "done", stopReason: "completed" },
       ]);
     },
   });

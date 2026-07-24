@@ -1,3 +1,8 @@
+const pdfRuntimeTraceIncludes = [
+  "../../node_modules/.pnpm/@napi-rs+canvas*/node_modules/@napi-rs/canvas*/**/*",
+  "../../node_modules/.pnpm/pdfjs-dist@*/node_modules/pdfjs-dist/**/*",
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
@@ -11,7 +16,28 @@ const nextConfig = {
     "@ai-workspace/db",
     "@ai-workspace/umber",
   ],
-  serverExternalPackages: ["postgres"],
+  outputFileTracingIncludes: {
+    "/api/chat": pdfRuntimeTraceIncludes,
+    "/api/mcp/resources": pdfRuntimeTraceIncludes,
+  },
+  serverExternalPackages: ["pdf-parse", "postgres"],
+  async rewrites() {
+    return [
+      {
+        source: "/ingest/static/:path*",
+        destination: "https://us-assets.i.posthog.com/static/:path*",
+      },
+      {
+        source: "/ingest/array/:path*",
+        destination: "https://us-assets.i.posthog.com/array/:path*",
+      },
+      {
+        source: "/ingest/:path*",
+        destination: "https://us.i.posthog.com/:path*",
+      },
+    ];
+  },
+  skipTrailingSlashRedirect: true,
 };
 
 export default nextConfig;

@@ -1,12 +1,19 @@
+import posthog from "posthog-js";
 import type { SlashSkill } from "@/components/ChatInput";
 import {
   markAppDraftVersionDeployed,
   type AppDraftVersionSummary,
 } from "@/lib/app-draft-versions";
+import { fetchJson } from "@/lib/client-api";
 import type {
   PersistedRecommendation,
   RecommendationStatus,
 } from "@/lib/recommendations";
+import {
+  formatProposalIterationMessage,
+  type OutputProposalDecision,
+} from "@/lib/output-proposals";
+import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import { useState, type Dispatch, type SetStateAction } from "react";
 import {
   appNameFromRecommendation,
@@ -37,6 +44,8 @@ export function useChatActions({
   const [recommendationPendingId, setRecommendationPendingId] =
     useState<string>();
   const [appDraftPendingId, setAppDraftPendingId] = useState<string>();
+  const [artifactProposalPendingId, setArtifactProposalPendingId] =
+    useState<string>();
   const [runActionPendingId, setRunActionPendingId] = useState<string>();
 
   function patchRecommendation(
@@ -66,25 +75,25 @@ export function useChatActions({
     setRecommendationPendingId(recommendation.dbId);
     patchTab(activeTab.id, { error: undefined });
     try {
-      const response = await fetch(
+      const body = await fetchJson<{
+        recommendation?: PersistedRecommendation;
+      }>(
         `/api/recommendations/${recommendation.dbId}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status }),
         },
+        "Recommendation update failed.",
       );
-      const body = (await response.json().catch(() => ({}))) as {
-        recommendation?: PersistedRecommendation;
-        message?: string;
-        error?: string;
-      };
-      if (!response.ok || !body.recommendation) {
-        throw new Error(
-          body.message ?? body.error ?? "Recommendation update failed",
-        );
+      if (!body.recommendation) {
+        throw new Error("The recommendation was updated without a result.");
       }
       patchRecommendation(body.recommendation, status);
+      posthog.capture("recommendation_acted_on", {
+        status,
+        action_kind: recommendation.action.kind,
+      });
 
       if (status !== "accepted") return;
       if (recommendation.action.kind === "run_skill") {
@@ -109,22 +118,24 @@ export function useChatActions({
             : `/apps/manage/${recommendation.action.appId}`,
         );
       } else if (recommendation.action.kind === "deploy_app") {
-        const response = await fetch("/api/apps", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            artifactId: recommendation.action.artifactId,
-            name: appNameFromRecommendation(recommendation),
-            description: recommendation.reason,
-          }),
-        });
-        const body = (await response.json().catch(() => ({}))) as {
+        const body = await fetchJson<{
           app?: { id?: string };
-          message?: string;
-          error?: string;
-        };
-        if (!response.ok || !body.app?.id) {
-          throw new Error(body.message ?? body.error ?? "Could not deploy app.");
+        }>(
+          "/api/apps",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              artifactId: recommendation.action.artifactId,
+              name: appNameFromRecommendation(recommendation),
+              description: recommendation.reason,
+              dataMode: "snapshot",
+            }),
+          },
+          "Could not publish app.",
+        );
+        if (!body.app?.id) {
+          throw new Error("The app was published without an app ID.");
         }
         window.location.assign(`/apps/manage/${body.app.id}`);
       } else if (recommendation.action.kind === "create_skill") {
@@ -147,19 +158,21 @@ export function useChatActions({
     setAppDraftPendingId(version.id);
     patchTab(activeTab.id, { error: undefined });
     try {
-      const response = await fetch(`/api/apps/${version.appId}/deploy`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appVersionId: version.id }),
-      });
-      const body = (await response.json().catch(() => ({}))) as {
+      const body = await fetchJson<{
         url?: string;
-        message?: string;
-        error?: string;
-      };
-      if (!response.ok) {
-        throw new Error(body.message ?? body.error ?? "Could not deploy update.");
-      }
+      }>(
+        `/api/apps/${version.appId}/deploy`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            appVersionId: version.id,
+            dataMode: "snapshot",
+          }),
+        },
+        "Could not publish update.",
+      );
+      posthog.capture("app_draft_deployed", { app_id: version.appId });
       setTabs((previous) =>
         previous.map((tab) => {
           const current = tab.messages.flatMap(
@@ -184,10 +197,175 @@ export function useChatActions({
           };
         }),
       );
+      if (activeTab.threadId) {
+        try {
+          await refreshActiveThreadMessages(activeTab.id, activeTab.threadId);
+        } catch (error) {
+          console.error("failed to refresh app publish receipt", error);
+        }
+      }
     } catch (error) {
       patchTab(activeTab.id, {
         error:
-          error instanceof Error ? error.message : "Could not deploy update.",
+          error instanceof Error ? error.message : "Could not publish update.",
+      });
+    } finally {
+      setAppDraftPendingId(undefined);
+    }
+  }
+
+  async function handleAppProposalDiscard(version: AppDraftVersionSummary) {
+    if (!activeTab) return;
+    setAppDraftPendingId(version.id);
+    patchTab(activeTab.id, { error: undefined });
+    try {
+      await fetchJson(
+        `/api/apps/${version.appId}/versions/${version.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            decision: "discarded",
+            reason: "Discarded during proposal review.",
+          }),
+        },
+        "Could not discard proposal.",
+      );
+      if (activeTab.threadId) {
+        await refreshActiveThreadMessages(activeTab.id, activeTab.threadId);
+      }
+    } catch (error) {
+      patchTab(activeTab.id, {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not discard proposal.",
+      });
+    } finally {
+      setAppDraftPendingId(undefined);
+    }
+  }
+
+  async function handleArtifactProposalAction(
+    artifact: WorkspaceArtifactSummary,
+    decision: OutputProposalDecision,
+  ) {
+    if (!activeTab) return;
+    setArtifactProposalPendingId(artifact.id);
+    patchTab(activeTab.id, { error: undefined });
+    try {
+      const body = await fetchJson<{
+        artifact?: WorkspaceArtifactSummary;
+      }>(
+        `/api/workspace/artifacts/${artifact.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            decision,
+            ...(decision === "discarded"
+              ? { reason: "Discarded during proposal review." }
+              : {}),
+          }),
+        },
+        "Could not update proposal.",
+      );
+      if (!body.artifact) {
+        throw new Error("The proposal was updated without an artifact.");
+      }
+      setTabs((previous) =>
+        previous.map((tab) => ({
+          ...tab,
+          messages: tab.messages.map((message) => ({
+            ...message,
+            artifacts: message.artifacts?.map((candidate) =>
+              candidate.id === body.artifact?.id
+                ? body.artifact
+                : candidate,
+            ),
+          })),
+        })),
+      );
+    } catch (error) {
+      patchTab(activeTab.id, {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not update proposal.",
+      });
+    } finally {
+      setArtifactProposalPendingId(undefined);
+    }
+  }
+
+  async function handleArtifactProposalIteration(
+    artifact: WorkspaceArtifactSummary,
+    feedback: string,
+  ) {
+    if (!activeTab?.threadId) return;
+    setArtifactProposalPendingId(artifact.id);
+    patchTab(activeTab.id, { error: undefined });
+    try {
+      await send(
+        formatProposalIterationMessage({
+          label: artifact.filename,
+          feedback,
+        }),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          target: { kind: "artifact", artifactId: artifact.id },
+          feedback,
+        },
+      );
+      await refreshActiveThreadMessages(activeTab.id, activeTab.threadId);
+    } catch (error) {
+      patchTab(activeTab.id, {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not iterate on proposal.",
+      });
+    } finally {
+      setArtifactProposalPendingId(undefined);
+    }
+  }
+
+  async function handleAppProposalIteration(
+    version: AppDraftVersionSummary,
+    feedback: string,
+  ) {
+    if (!activeTab?.threadId) return;
+    setAppDraftPendingId(version.id);
+    patchTab(activeTab.id, { error: undefined });
+    try {
+      await send(
+        formatProposalIterationMessage({
+          label: version.appName,
+          feedback,
+        }),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          target: {
+            kind: "app",
+            appId: version.appId,
+            appVersionId: version.id,
+          },
+          feedback,
+        },
+      );
+      await refreshActiveThreadMessages(activeTab.id, activeTab.threadId);
+    } catch (error) {
+      patchTab(activeTab.id, {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not iterate on proposal.",
       });
     } finally {
       setAppDraftPendingId(undefined);
@@ -195,9 +373,11 @@ export function useChatActions({
   }
 
   async function refreshActiveThreadMessages(tabId: string, threadId: string) {
-    const response = await fetch(`/api/threads/${threadId}/messages`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const body = (await response.json()) as ThreadMessagesResponse;
+    const body = await fetchJson<ThreadMessagesResponse>(
+      `/api/threads/${threadId}/messages`,
+      undefined,
+      "Could not refresh messages.",
+    );
     const messages = body.messages.map(threadMessageToUiMessage);
     setTabs((previous) =>
       previous.map((tab) =>
@@ -220,16 +400,11 @@ export function useChatActions({
     setRunActionPendingId(`${action}:${runId}`);
     patchTab(activeTab.id, { error: undefined });
     try {
-      const response = await fetch(`/api/runs/${runId}/${action}`, {
-        method: "POST",
-      });
-      const body = (await response.json().catch(() => ({}))) as {
-        message?: string;
-        error?: string;
-      };
-      if (!response.ok) {
-        throw new Error(body.message ?? body.error ?? `${action} failed`);
-      }
+      await fetchJson(
+        `/api/runs/${runId}/${action}`,
+        { method: "POST" },
+        `${action} failed.`,
+      );
       await refreshActiveThreadMessages(activeTab.id, activeTab.threadId);
       void refreshThreads();
     } catch (error) {
@@ -244,9 +419,14 @@ export function useChatActions({
   return {
     recommendationPendingId,
     appDraftPendingId,
+    artifactProposalPendingId,
     runActionPendingId,
     handleRecommendationAction,
     handleAppDraftDeploy,
+    handleAppProposalDiscard,
+    handleAppProposalIteration,
+    handleArtifactProposalAction,
+    handleArtifactProposalIteration,
     runAction,
   };
 }

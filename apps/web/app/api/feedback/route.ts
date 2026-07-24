@@ -8,13 +8,14 @@ import {
 } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import { userScope } from "@/lib/auth/scope";
 import {
   ALLOWED_FEEDBACK_SCREENSHOT_MIME_TYPES,
   FEEDBACK_SCREENSHOT_TOO_LARGE_MESSAGE,
   MAX_FEEDBACK_SCREENSHOT_DATA_URL_CHARS,
 } from "@/lib/feedback-screenshots";
+import { capturePostHogEvent } from "@/lib/posthog-server";
 
 export const dynamic = "force-dynamic";
 
@@ -186,10 +187,9 @@ async function visibleArtifactId({
 }
 
 export async function POST(req: Request) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   let body: PostBody;
   try {
@@ -307,6 +307,17 @@ export async function POST(req: Request) {
     });
 
   const row = inserted[0]!;
+
+  capturePostHogEvent({
+    distinctId: sessionUser.id,
+    event: "feedback_report_submitted",
+    properties: {
+      report_type: reportType,
+      severity,
+      has_screenshot: Boolean(screenshotDataUrl),
+    },
+  });
+
   return NextResponse.json(
     {
       report: {

@@ -7,6 +7,9 @@ const nextAuthSecret =
   process.env.NEXTAUTH_SECRET ?? "playwright-local-secret-with-enough-length";
 const localDatabaseUrl =
   process.env.DATABASE_URL ?? "postgres://aihub:aihub_dev@localhost:5432/aihub";
+const coreEval = process.env.PLAYWRIGHT_CORE_EVAL === "1";
+const coreRealModel =
+  coreEval && process.env.PLAYWRIGHT_CORE_REAL_MODEL === "1";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -26,23 +29,31 @@ export default defineConfig({
     : [["list"]],
   use: {
     baseURL,
-    trace: "on-first-retry",
+    trace: coreEval ? "retain-on-failure" : "on-first-retry",
+    screenshot: coreEval ? "only-on-failure" : "off",
   },
   webServer: externalBaseUrl
     ? undefined
     : {
         command: `pnpm exec next dev --hostname 127.0.0.1 --port ${port}`,
         url: `${baseURL}/login`,
-        reuseExistingServer: !process.env.CI,
+        reuseExistingServer: !process.env.CI && !coreEval,
         timeout: 120_000,
         env: {
           E2E_TEST_MODE: "1",
           NEXTAUTH_SECRET: nextAuthSecret,
           NEXTAUTH_URL: baseURL,
           DATABASE_URL: localDatabaseUrl,
-          BEDROCK_CLIENT: "fake",
+          BEDROCK_CLIENT: coreRealModel
+            ? "real"
+            : coreEval
+              ? "e2e-resource-canary"
+              : "fake",
+          OAUTH_ENCRYPTION_KEY:
+            process.env.OAUTH_ENCRYPTION_KEY ??
+            "playwright-oauth-encryption-key-at-least-32-characters",
           CHAT_RUN_IN_PROCESS_WORKER:
-            process.env.PLAYWRIGHT_AUTH_SMOKE === "1" ? "1" : "0",
+            process.env.PLAYWRIGHT_AUTH_SMOKE === "1" || coreEval ? "1" : "0",
           MEMORY_CAPTURE_IN_PROCESS_SCHEDULER: "0",
           GITHUB_WEBHOOK_SECRET: "playwright-github-webhook-secret",
           GITHUB_AUTH_CLIENT_ID: "playwright-local-client",

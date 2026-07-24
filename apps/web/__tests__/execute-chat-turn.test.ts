@@ -3,6 +3,7 @@ import type { ChatThread, Database, Run } from "@ai-workspace/db";
 import { auditLog, chatMessages, runs, users } from "@ai-workspace/db";
 import type { AgentRuntime } from "@ai-workspace/agent-runtime";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
+import type { ChatStreamEvent } from "@/lib/chat-stream-contract";
 import type { RuntimeModelSelection } from "@/lib/runtime-model-policy";
 
 /**
@@ -108,6 +109,12 @@ vi.mock("@/lib/runtime-attachments", () => ({
 vi.mock("@/lib/runtime-builtin-tools", () => ({
   builtinToolsForChatRoute: vi.fn(() => []),
 }));
+vi.mock("@/lib/web-egress-policy", () => ({
+  loadWebEgressPolicy: vi.fn(async () => ({
+    name: "admin_domain_denylist",
+    deniedDomains: ["blocked.example"],
+  })),
+}));
 vi.mock("@/lib/runtime-usage", () => ({
   normalizeRuntimeUsage: vi.fn(() => ({
     tokensIn: 11,
@@ -137,6 +144,15 @@ vi.mock("@/lib/recommendation-persistence", () => ({
 vi.mock("@/lib/notifications", () => ({
   createProactiveRunNotification: vi.fn(async () => undefined),
 }));
+vi.mock("@/lib/proposal-iterations", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/proposal-iterations")>();
+  return {
+    ...actual,
+    completeProposalIteration: vi.fn(async () => true),
+    releaseProposalIteration: vi.fn(async () => true),
+  };
+});
 vi.mock("@/lib/conversation-resources", () => ({
   revalidateConversationResourceResolution: vi.fn(
     async ({ resolution }: { resolution: unknown }) => resolution,
@@ -165,9 +181,25 @@ import { appendRunEventBestEffort } from "@/lib/run-events";
 import { createProactiveRunNotification } from "@/lib/notifications";
 import { buildChatContextPack } from "@/lib/chat-context-pack";
 import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
+import { buildTurnContext } from "@/lib/turn-context";
+import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
+import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
+import { createDraftAppVersionsForThreadArtifacts } from "@/lib/apps";
+import { persistProviderTraceCapture } from "@/lib/run-trace";
+import {
+  abortChatWorkerRuntime,
+  chatWorkerAbortReason,
+} from "@/lib/chat-worker-abort";
+import {
+  completeProposalIteration,
+  releaseProposalIteration,
+  type StoredProposalIteration,
+} from "@/lib/proposal-iterations";
 
 interface FakeDbState {
   runStatus: string;
+  runWorkerId?: string;
+  runOutputs?: Record<string, unknown> | null;
   inserts: Array<{ table: unknown; values: unknown }>;
   runUpdates: Array<Record<string, unknown>>;
   /** Rows the update chain's .returning() resolves to (fencing tests). */
@@ -175,7 +207,7 @@ interface FakeDbState {
 }
 
 function fakeDb(state: FakeDbState): Database {
-  const db = {
+  const db: Record<string, unknown> = {
     select: () => ({
       from: (table: unknown) => ({
         where: () => {
@@ -191,12 +223,21 @@ function fakeDb(state: FakeDbState): Database {
               ];
             }
             if (table === chatMessages) return [];
-            if (table === runs) return [{ status: state.runStatus }];
+            if (table === runs) {
+              return [
+                {
+                  status: state.runStatus,
+                  workerId: state.runWorkerId ?? "w-test",
+                  outputs: state.runOutputs ?? null,
+                },
+              ];
+            }
             return [];
           };
           return {
             limit: async () => resolve(),
             orderBy: async () => resolve(),
+            for: async () => resolve(),
           };
         },
       }),
@@ -210,10 +251,13 @@ function fakeDb(state: FakeDbState): Database {
         });
       },
     }),
-    update: () => ({
+    update: (table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
         where: () => {
           state.runUpdates.push(values);
+          if (table === runs && "outputs" in values) {
+            state.runOutputs = values.outputs as Record<string, unknown>;
+          }
           const promise = Promise.resolve(undefined);
           return Object.assign(promise, {
             returning: async () => state.updateReturning ?? [{ id: "run-1" }],
@@ -222,6 +266,8 @@ function fakeDb(state: FakeDbState): Database {
       }),
     }),
   };
+  db.transaction = async (callback: (tx: unknown) => Promise<unknown>) =>
+    callback(db);
   return db as unknown as Database;
 }
 
@@ -235,6 +281,21 @@ function fakeRuntime(captured: { turnInput?: Record<string, unknown> }): AgentRu
       )?.({ providerRunId: "pr-1" });
       yield { type: "text-delta", delta: "Hello" };
       yield { type: "usage", tokensIn: 11, tokensOut: 7 };
+      yield { type: "done" };
+    },
+  } as unknown as AgentRuntime;
+}
+
+function truncatedRuntime(): AgentRuntime {
+  return {
+    name: "bedrock",
+    runTurn: async function* (turnInput: Record<string, unknown>) {
+      await (
+        turnInput.onRunStarted as
+          | ((metadata: Record<string, unknown>) => Promise<void>)
+          | undefined
+      )?.({ providerRunId: "truncated-run" });
+      yield { type: "text-delta", delta: "partial answer" };
     },
   } as unknown as AgentRuntime;
 }
@@ -262,8 +323,8 @@ const modelSelection: RuntimeModelSelection = {
 
 function inlineInput(
   overrides: Partial<ExecuteChatTurnInput> = {},
-  sent: Array<Record<string, unknown>> = [],
-): { input: ExecuteChatTurnInput; sent: Array<Record<string, unknown>>; state: FakeDbState; captured: { turnInput?: Record<string, unknown> } } {
+  sent: ChatStreamEvent[] = [],
+): { input: ExecuteChatTurnInput; sent: ChatStreamEvent[]; state: FakeDbState; captured: { turnInput?: Record<string, unknown> } } {
   const state: FakeDbState = { runStatus: "running", inserts: [], runUpdates: [] };
   const captured: { turnInput?: Record<string, unknown> } = {};
   const timing: ChatRunTimingMarks = {
@@ -340,6 +401,33 @@ function workerInput(
     ...overrides,
   };
   return { input, state, captured, run };
+}
+
+const proposalIteration: StoredProposalIteration = {
+  kind: "artifact",
+  runId: "run-1",
+  sourceArtifactId: "artifact-v1",
+  sourceArtifactGroupId: "weekly-report",
+  sourceRunId: "source-run",
+  sourceTriggerType: "scheduled",
+  sourceThreadId: "thread-1",
+  feedbackMessageId: "user-msg-1",
+  requestedAt: "2026-07-23T12:00:00.000Z",
+  requestedByUserId: "user-1",
+};
+
+function proposalWorkerInput() {
+  const fixture = workerInput();
+  fixture.run.triggerType = "proposal_iteration";
+  if (fixture.input.lane.kind !== "worker") {
+    throw new Error("Expected worker lane");
+  }
+  fixture.input.lane.storedInputs = {
+    prompt: "Iterate on weekly-report.md: Add a risks section.",
+    threadId: "thread-1",
+    proposalIteration,
+  };
+  return fixture;
 }
 
 function attestationInserts(state: FakeDbState) {
@@ -472,6 +560,94 @@ describe("executeChatTurn — tool-event provider hints (#442 drift fix)", () =>
     const worker = workerInput();
     await executeChatTurn(worker.input);
     expect(createToolEventAccumulator).toHaveBeenLastCalledWith(["github"]);
+  });
+});
+
+describe("executeChatTurn — historical tool-evidence parity (#434)", () => {
+  const evidenceReceipt = {
+    candidateCount: 1,
+    includedChars: 640,
+    maxChars: 8_000,
+    maxResultChars: 2_000,
+    included: [
+      {
+        sourceAssistantMessageId: "assistant-score",
+        toolCallId: "call-score",
+        provider: "web",
+        toolName: "search",
+        completedAt: "2026-07-23T12:00:00.000Z",
+        status: "succeeded" as const,
+        stale: false,
+        chars: 640,
+        truncated: false,
+      },
+    ],
+    omittedToolCallIds: [],
+  };
+
+  function emitEvidenceReceipt() {
+    vi.mocked(buildTurnContext).mockImplementationOnce(
+      ({ messages, onToolEvidenceReceipt }) => {
+        onToolEvidenceReceipt?.(evidenceReceipt);
+        return messages.map(({ role, content }) => ({ role, content }));
+      },
+    );
+  }
+
+  it("forwards the same receipt through the interactive lane", async () => {
+    emitEvidenceReceipt();
+    const { input } = inlineInput();
+    await executeChatTurn(input);
+
+    expect(buildChatContextPack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recentToolEvidenceReceipt: evidenceReceipt,
+      }),
+    );
+  });
+
+  it("forwards the same receipt through the worker lane", async () => {
+    emitEvidenceReceipt();
+    const { input } = workerInput();
+    await executeChatTurn(input);
+
+    expect(buildChatContextPack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recentToolEvidenceReceipt: evidenceReceipt,
+      }),
+    );
+  });
+});
+
+describe("executeChatTurn — unattended web egress governance (#439)", () => {
+  it("keeps web unmounted for unattended runs without a declaration", async () => {
+    const { input, captured } = workerInput();
+    await executeChatTurn(input);
+
+    expect(builtinToolsForChatRoute).toHaveBeenCalledWith(route, {
+      interactive: false,
+      webAccessDeclared: false,
+    });
+    expect(captured.turnInput?.webEgressPolicy).toEqual({
+      name: "admin_domain_denylist",
+      deniedDomains: ["blocked.example"],
+    });
+  });
+
+  it("passes an explicit skill declaration through the shared worker pipeline", async () => {
+    const { input, captured } = workerInput({
+      requestedProviders: ["web", "github"],
+    });
+    await executeChatTurn(input);
+
+    expect(builtinToolsForChatRoute).toHaveBeenCalledWith(route, {
+      interactive: false,
+      webAccessDeclared: true,
+    });
+    expect(captured.turnInput?.webEgressPolicy).toEqual({
+      name: "admin_domain_denylist",
+      deniedDomains: ["blocked.example"],
+    });
   });
 });
 
@@ -625,6 +801,183 @@ describe("executeChatTurn — persist tail", () => {
     expect(eventTypes).toContain("run_completed");
   });
 
+  it("records and persists the actual model after pre-stream failover", async () => {
+    const attempted: string[] = [];
+    const runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        const candidate = String(turnInput.modelId);
+        attempted.push(candidate);
+        await (
+          turnInput.onRunStarted as
+            | ((metadata: Record<string, unknown>) => Promise<void>)
+            | undefined
+        )?.({ providerRunId: `provider-${candidate}` });
+        if (candidate === "sonnet-4-6") {
+          yield {
+            type: "error",
+            message: "ThrottlingException: capacity unavailable",
+          };
+          return;
+        }
+        yield { type: "text-delta", delta: "Fallback answer" };
+        yield { type: "usage", tokensIn: 11, tokensOut: 7 };
+        yield { type: "done" };
+      },
+    } as unknown as AgentRuntime;
+    const { input, sent, state } = inlineInput({
+      runtime,
+      modelCandidates: ["sonnet-4-6", "haiku-4-5"],
+    });
+
+    await executeChatTurn(input);
+
+    expect(attempted).toEqual(["sonnet-4-6", "haiku-4-5"]);
+    expect(
+      state.inserts.find((insert) => insert.table === chatMessages)?.values,
+    ).toMatchObject({
+      content: "Fallback answer",
+      modelId: "haiku-4-5",
+    });
+    expect(
+      state.runUpdates.find((update) => update.modelId === "haiku-4-5"),
+    ).toBeDefined();
+    expect(
+      state.runUpdates.find((update) => update.status === "succeeded")?.outputs,
+    ).toMatchObject({
+      modelId: "haiku-4-5",
+      providerModelId:
+        "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      modelSelection: {
+        modelId: "haiku-4-5",
+        reason: "availability_failover",
+        failover: {
+          fromModelId: "sonnet-4-6",
+          attempt: 1,
+        },
+      },
+    });
+    const modelEvents = sent.filter((event) => event.type === "model");
+    expect(modelEvents.at(-1)).toMatchObject({
+      type: "model",
+      modelId: "haiku-4-5",
+      providerModelId:
+        "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    });
+    expect(
+      vi
+        .mocked(appendRunEventBestEffort)
+        .mock.calls.map(([, event]) => event.eventType),
+    ).toContain("model_failover");
+    expect(
+      state.inserts
+        .filter((insert) => insert.table === auditLog)
+        .flatMap((insert) =>
+          Array.isArray(insert.values) ? insert.values : [insert.values],
+        ),
+    ).toContainEqual(
+      expect.objectContaining({
+        actionType: "model_failover",
+        status: "succeeded",
+        input: expect.objectContaining({ modelId: "sonnet-4-6" }),
+        output: expect.objectContaining({ modelId: "haiku-4-5" }),
+      }),
+    );
+  });
+
+  it("does not start a replacement model after the active-run fence is lost", async () => {
+    const attempted: string[] = [];
+    const runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        attempted.push(String(turnInput.modelId));
+        yield {
+          type: "error",
+          message: "ThrottlingException",
+        };
+      },
+    } as unknown as AgentRuntime;
+    const { input, sent, state } = inlineInput({
+      runtime,
+      modelCandidates: ["sonnet-4-6", "haiku-4-5"],
+    });
+    state.updateReturning = [];
+
+    await executeChatTurn(input);
+
+    expect(attempted).toEqual(["sonnet-4-6"]);
+    expect(
+      sent.filter((event) => event.type === "model").map((event) => event.modelId),
+    ).toEqual(["sonnet-4-6"]);
+    expect(
+      state.inserts
+        .filter((insert) => insert.table === auditLog)
+        .flatMap((insert) =>
+          Array.isArray(insert.values) ? insert.values : [insert.values],
+        )
+        .some(
+          (row) =>
+            (row as Record<string, unknown>).actionType === "model_failover",
+        ),
+    ).toBe(false);
+    expect(sent.at(-1)).toMatchObject({
+      type: "failed",
+      stopReason: "runtime_error",
+    });
+  });
+
+  it("fails instead of persisting a partial answer when the provider stream ends without done", async () => {
+    const { input, sent, state } = inlineInput({
+      runtime: truncatedRuntime(),
+    });
+
+    await executeChatTurn(input);
+
+    expect(sent.at(-1)).toMatchObject({
+      type: "failed",
+      stopReason: "runtime_error",
+    });
+    expect(sent.map((event) => event.type)).not.toContain("done");
+    expect(sent.map((event) => event.type)).not.toContain("persisted");
+    expect(
+      state.inserts.find((insert) => insert.table === chatMessages),
+    ).toBeUndefined();
+    expect(
+      state.runUpdates.find((update) => update.status === "failed"),
+    ).toMatchObject({
+      error: expect.stringContaining("completion event"),
+    });
+  });
+
+  it("fails the worker run without persisting or notifying success when the provider stream ends without done", async () => {
+    const { input, state, run } = workerInput({
+      runtime: truncatedRuntime(),
+    });
+
+    await executeChatTurn(input);
+
+    expect(
+      state.inserts.find((insert) => insert.table === chatMessages),
+    ).toBeUndefined();
+    expect(
+      state.runUpdates.find((update) => update.status === "failed"),
+    ).toMatchObject({
+      error: expect.stringContaining("completion event"),
+    });
+    expect(createProactiveRunNotification).toHaveBeenCalledWith(
+      input.db,
+      run,
+      "failed",
+      "thread-1",
+      { hasProposal: false },
+    );
+    const eventTypes = vi
+      .mocked(appendRunEventBestEffort)
+      .mock.calls.map(([, event]) => event.eventType);
+    expect(eventTypes).toContain("run_failed");
+    expect(eventTypes).not.toContain("run_completed");
+  });
+
   it("stores the assistant answer and notifies on the worker lane", async () => {
     const { input, state, run } = workerInput();
     await executeChatTurn(input);
@@ -647,6 +1000,7 @@ describe("executeChatTurn — persist tail", () => {
       run,
       "succeeded",
       "thread-1",
+      { hasProposal: false },
     );
 
     const eventTypes = vi
@@ -655,6 +1009,291 @@ describe("executeChatTurn — persist tail", () => {
     expect(eventTypes).toContain("worker_started");
     expect(eventTypes).toContain("run_completed");
     expect(eventTypes).not.toContain("inline_runtime_started");
+  });
+
+  it("persists worker usage behind the active lease for slim polling", async () => {
+    const { input, state } = workerInput();
+    await executeChatTurn(input);
+
+    const telemetryUpdate = state.runUpdates.find(
+      (update) =>
+        (update.outputs as { lifecycle?: string } | undefined)?.lifecycle ===
+        "provider_running",
+    );
+    expect(telemetryUpdate).toEqual(
+      expect.objectContaining({
+        outputs: expect.objectContaining({
+          lifecycle: "provider_running",
+          usage: expect.objectContaining({ tokensIn: 11, tokensOut: 7 }),
+        }),
+      }),
+    );
+    expect(telemetryUpdate?.outputs).not.toHaveProperty("assistantText");
+    expect(telemetryUpdate?.outputs).not.toHaveProperty("toolCalls");
+    expect(telemetryUpdate?.outputs).not.toHaveProperty("toolResults");
+  });
+
+  it.each(["scheduled", "github_event"])(
+    "marks %s artifacts and app versions as review proposals",
+    async (triggerType) => {
+      vi.mocked(createArtifactsFromAssistantMessage).mockResolvedValueOnce([
+        {
+          id: "artifact-proposal",
+          title: "Weekly report",
+          filename: "weekly-report.md",
+          kind: "document",
+          mimeType: "text/markdown",
+          sizeBytes: 128,
+          source: "assistant",
+          threadId: "thread-1",
+          chatMessageId: "assistant-msg-1",
+          runId: "run-1",
+          artifactGroupId: "weekly-report",
+          versionNumber: 2,
+          supersedesArtifactId: "artifact-v1",
+          versionSummary: "Updated weekly report.",
+          metadata: null,
+          createdAt: "2026-07-23T12:00:00.000Z",
+          previewUrl: "/workspace/artifacts/artifact-proposal",
+          downloadUrl:
+            "/api/workspace/artifacts/artifact-proposal/download",
+        },
+      ]);
+      const fixture = workerInput();
+      fixture.run.triggerType = triggerType;
+
+      await executeChatTurn(fixture.input);
+
+      expect(createArtifactsFromAssistantMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          proposal: expect.objectContaining({
+            runId: "run-1",
+            triggerType,
+          }),
+        }),
+      );
+      expect(createDraftAppVersionsForThreadArtifacts).toHaveBeenCalledWith(
+        expect.objectContaining({
+          proposal: expect.objectContaining({
+            runId: "run-1",
+            triggerType,
+          }),
+        }),
+      );
+      expect(createProactiveRunNotification).toHaveBeenCalledWith(
+        fixture.input.db,
+        fixture.run,
+        "succeeded",
+        "thread-1",
+        { hasProposal: true },
+      );
+    },
+  );
+
+  it("supersedes the source only after a replacement artifact is minted", async () => {
+    const replacement = {
+      id: "artifact-v2",
+      title: "Weekly report",
+      filename: "weekly-report.md",
+      kind: "document",
+      mimeType: "text/markdown",
+      sizeBytes: 160,
+      source: "assistant",
+      threadId: "thread-1",
+      chatMessageId: "assistant-msg-1",
+      runId: "run-1",
+      artifactGroupId: "weekly-report",
+      versionNumber: 2,
+      supersedesArtifactId: "artifact-v1",
+      versionSummary: "Added a risks section.",
+      metadata: null,
+      createdAt: "2026-07-23T12:05:00.000Z",
+      previewUrl: "/workspace/artifacts/artifact-v2",
+      downloadUrl: "/api/workspace/artifacts/artifact-v2/download",
+    };
+    vi.mocked(createArtifactsFromAssistantMessage).mockResolvedValueOnce([
+      replacement,
+    ]);
+    const fixture = proposalWorkerInput();
+
+    await executeChatTurn(fixture.input);
+
+    expect(createArtifactsFromAssistantMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposal: expect.objectContaining({
+          runId: "run-1",
+          triggerType: "scheduled",
+          iterationOf: expect.objectContaining({
+            sourceArtifactId: "artifact-v1",
+            feedbackMessageId: "user-msg-1",
+          }),
+        }),
+      }),
+    );
+    expect(completeProposalIteration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        iteration: proposalIteration,
+        replacementArtifact: replacement,
+        expectedWorkerId: "w-test",
+      }),
+    );
+    expect(releaseProposalIteration).not.toHaveBeenCalled();
+    expect(
+      fixture.state.runUpdates.find((update) => update.status === "succeeded"),
+    ).toBeDefined();
+    expect(
+      vi
+        .mocked(appendRunEventBestEffort)
+        .mock.calls.map(([, event]) => event.eventType),
+    ).toContain("proposal_iteration_completed");
+  });
+
+  it("restores the source proposal and fails the run when no replacement is minted", async () => {
+    const fixture = proposalWorkerInput();
+
+    await executeChatTurn(fixture.input);
+
+    expect(completeProposalIteration).not.toHaveBeenCalled();
+    expect(releaseProposalIteration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        iteration: proposalIteration,
+        error: expect.stringContaining("without creating a replacement"),
+        expectedWorkerId: "w-test",
+        replacementArtifactIds: [],
+      }),
+    );
+    expect(
+      fixture.state.runUpdates.find((update) => update.status === "failed"),
+    ).toMatchObject({
+      error: expect.stringContaining("without creating a replacement"),
+    });
+    expect(createProactiveRunNotification).toHaveBeenCalledWith(
+      fixture.input.db,
+      fixture.run,
+      "failed",
+      "thread-1",
+      { hasProposal: false },
+    );
+  });
+
+  it("emits separate app validation and draft creation checkpoints", async () => {
+    vi.mocked(createArtifactsFromAssistantMessage).mockResolvedValueOnce([
+      {
+        id: "artifact-app",
+        title: "Dashboard",
+        filename: "dashboard.html",
+        kind: "file",
+        mimeType: "text/html",
+        sizeBytes: 128,
+        source: "assistant",
+        threadId: "thread-1",
+        chatMessageId: "assistant-msg-1",
+        runId: "run-1",
+        artifactGroupId: "dashboard",
+        versionNumber: 1,
+        supersedesArtifactId: null,
+        versionSummary: null,
+        metadata: null,
+        createdAt: "2026-07-23T12:00:00.000Z",
+        previewUrl: "/workspace/artifacts/artifact-app",
+        downloadUrl: "/api/workspace/artifacts/artifact-app/download",
+      },
+    ]);
+    vi.mocked(
+      createDraftAppVersionsForThreadArtifacts,
+    ).mockResolvedValueOnce({
+      created: [{ id: "version-4" }] as never,
+      rejected: [],
+      summaries: [
+        {
+          id: "version-4",
+          appId: "app-1",
+          appName: "Dashboard",
+          appSlug: "dashboard",
+          artifactId: "artifact-app",
+          versionNumber: 4,
+          status: "draft",
+          canDeploy: true,
+          previewUrl: "/api/apps/app-1/versions/version-4/content",
+          liveUrl: "/apps/dashboard",
+        },
+      ],
+    });
+    const { input } = inlineInput();
+
+    await executeChatTurn(input);
+
+    const events = vi.mocked(appendRunEventBestEffort).mock.calls.map(
+      ([, event]) => event,
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: "app_draft_validation_completed",
+        status: "succeeded",
+        label: "Validated 1 app draft",
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: "app_draft_versions_created",
+        status: "succeeded",
+        label: "Created 1 draft app version",
+      }),
+    );
+  });
+
+  it("does not claim an app version was created when the artifact already had one", async () => {
+    vi.mocked(createArtifactsFromAssistantMessage).mockResolvedValueOnce([
+      {
+        id: "artifact-app",
+        title: "Dashboard",
+        filename: "dashboard.html",
+        kind: "file",
+        mimeType: "text/html",
+        sizeBytes: 128,
+        source: "assistant",
+        threadId: "thread-1",
+        chatMessageId: "assistant-msg-1",
+        runId: "run-1",
+        artifactGroupId: "dashboard",
+        versionNumber: 1,
+        supersedesArtifactId: null,
+        versionSummary: null,
+        metadata: null,
+        createdAt: "2026-07-23T12:00:00.000Z",
+        previewUrl: "/workspace/artifacts/artifact-app",
+        downloadUrl: "/api/workspace/artifacts/artifact-app/download",
+      },
+    ]);
+    vi.mocked(
+      createDraftAppVersionsForThreadArtifacts,
+    ).mockResolvedValueOnce({
+      created: [],
+      rejected: [],
+      summaries: [
+        {
+          id: "version-4",
+          appId: "app-1",
+          appName: "Dashboard",
+          appSlug: "dashboard",
+          artifactId: "artifact-app",
+          versionNumber: 4,
+          status: "deployed",
+          canDeploy: false,
+          previewUrl: "/api/apps/app-1/versions/version-4/content",
+          liveUrl: "/apps/dashboard",
+        },
+      ],
+    });
+    const { input } = inlineInput();
+
+    await executeChatTurn(input);
+
+    const eventTypes = vi
+      .mocked(appendRunEventBestEffort)
+      .mock.calls.map(([, event]) => event.eventType);
+    expect(eventTypes).not.toContain("app_draft_validation_completed");
+    expect(eventTypes).not.toContain("app_draft_versions_created");
   });
 
   it("does not notify or report completion when the worker terminal write is fenced out (#443)", async () => {
@@ -698,10 +1337,215 @@ describe("executeChatTurn — persist tail", () => {
     );
     expect(messageInsert).toBeUndefined();
     expect(createProactiveRunNotification).not.toHaveBeenCalled();
-    const eventTypes = vi
-      .mocked(appendRunEventBestEffort)
-      .mock.calls.map(([, event]) => event.eventType);
-    expect(eventTypes).toContain("worker_stopped_after_cancel");
+    expect(input.runtimeAbort.signal.aborted).toBe(true);
+    expect(vi.mocked(appendRunEventBestEffort)).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        eventType: "worker_stopped_after_cancel",
+        metadata: {
+          abortReason: "canceled",
+          cancellationObservedVia: "database_poll",
+          runtimeRequestAbortAttempted: true,
+          providerSessionStopAttempted: false,
+        },
+      }),
+    );
+  });
+
+  it("does not report a runtime abort when cancellation is observed after the stream ends", async () => {
+    const { input, state } = workerInput();
+    input.runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        await (
+          turnInput.onRunStarted as
+            | ((metadata: Record<string, unknown>) => Promise<void>)
+            | undefined
+        )?.({ providerRunId: "completed-before-cancel" });
+        yield { type: "text-delta", delta: "Hello" };
+        yield { type: "usage", tokensIn: 11, tokensOut: 7 };
+        yield { type: "done" };
+        state.runStatus = "canceled";
+      },
+    } as unknown as AgentRuntime;
+
+    await executeChatTurn(input);
+
+    expect(input.runtimeAbort.signal.aborted).toBe(false);
+    expect(vi.mocked(appendRunEventBestEffort)).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        eventType: "worker_stopped_after_cancel",
+        metadata: {
+          abortReason: "canceled",
+          cancellationObservedVia: "database_poll",
+          runtimeRequestAbortAttempted: false,
+          providerSessionStopAttempted: false,
+        },
+      }),
+    );
+  });
+
+  it("persists the friendly timeout error when an aborted provider stream throws", async () => {
+    const { input, state } = workerInput();
+    let markStreamStarted: (() => void) | undefined;
+    const streamStarted = new Promise<void>((resolve) => {
+      markStreamStarted = resolve;
+    });
+    input.runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        const signal = turnInput.signal as AbortSignal;
+        await new Promise<void>((_resolve, reject) => {
+          const abort = () => {
+            const error = new Error("The operation was aborted.");
+            error.name = "AbortError";
+            reject(error);
+          };
+          signal.addEventListener("abort", abort, { once: true });
+          markStreamStarted?.();
+        });
+      },
+    } as unknown as AgentRuntime;
+
+    const execution = executeChatTurn(input);
+    await streamStarted;
+    abortChatWorkerRuntime(input.runtimeAbort, "timeout");
+    await execution;
+
+    expect(chatWorkerAbortReason(input.runtimeAbort.signal)).toBe("timeout");
+    expect(state.runUpdates).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        error: "Chat runtime timed out after 60000ms.",
+      }),
+    );
+    expect(createProactiveRunNotification).toHaveBeenCalledWith(
+      input.db,
+      expect.anything(),
+      "failed",
+      "thread-1",
+      { hasProposal: false },
+    );
+    expect(vi.mocked(persistProviderTraceCapture)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run-1",
+        metadata: { abortReason: "timeout" },
+      }),
+    );
+    expect(vi.mocked(appendRunEventBestEffort)).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        eventType: "run_failed",
+        metadata: expect.objectContaining({ abortReason: "timeout" }),
+      }),
+    );
+  });
+
+  it("persists an honest shutdown error when the service aborts a blocked stream", async () => {
+    const { input, state } = workerInput();
+    let markStreamStarted: (() => void) | undefined;
+    const streamStarted = new Promise<void>((resolve) => {
+      markStreamStarted = resolve;
+    });
+    input.runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        const signal = turnInput.signal as AbortSignal;
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              const error = new Error("The operation was aborted.");
+              error.name = "AbortError";
+              reject(error);
+            },
+            { once: true },
+          );
+          markStreamStarted?.();
+        });
+      },
+    } as unknown as AgentRuntime;
+
+    const execution = executeChatTurn(input);
+    await streamStarted;
+    abortChatWorkerRuntime(input.runtimeAbort, "shutdown");
+    await execution;
+
+    expect(state.runUpdates).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        error:
+          "Background worker stopped because the service is shutting down.",
+      }),
+    );
+    expect(createProactiveRunNotification).toHaveBeenCalledWith(
+      input.db,
+      expect.anything(),
+      "failed",
+      "thread-1",
+      { hasProposal: false },
+    );
+    expect(vi.mocked(appendRunEventBestEffort)).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        eventType: "run_failed",
+        metadata: expect.objectContaining({ abortReason: "shutdown" }),
+      }),
+    );
+  });
+
+  it("records lease loss without letting the stale worker write a terminal state", async () => {
+    const { input, state } = workerInput();
+    let markStreamStarted: (() => void) | undefined;
+    const streamStarted = new Promise<void>((resolve) => {
+      markStreamStarted = resolve;
+    });
+    input.runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        const signal = turnInput.signal as AbortSignal;
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              const error = new Error("The operation was aborted.");
+              error.name = "AbortError";
+              reject(error);
+            },
+            { once: true },
+          );
+          markStreamStarted?.();
+        });
+      },
+    } as unknown as AgentRuntime;
+
+    const execution = executeChatTurn(input);
+    await streamStarted;
+    abortChatWorkerRuntime(input.runtimeAbort, "lease_lost");
+    await execution;
+
+    expect(state.runUpdates).not.toContainEqual(
+      expect.objectContaining({ status: "failed" }),
+    );
+    expect(createProactiveRunNotification).not.toHaveBeenCalled();
+    expect(vi.mocked(persistProviderTraceCapture)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run-1",
+        metadata: { abortReason: "lease_lost" },
+      }),
+    );
+    expect(vi.mocked(appendRunEventBestEffort)).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        eventType: "worker_stopped_after_lease_loss",
+        status: "info",
+        metadata: expect.objectContaining({
+          abortReason: "lease_lost",
+          workerId: "w-test",
+        }),
+      }),
+    );
   });
 });
 

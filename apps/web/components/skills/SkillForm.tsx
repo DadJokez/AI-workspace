@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fetchJson } from "@/lib/client-api";
 
 interface SkillFormProps {
   mode: "create" | "edit";
@@ -53,7 +54,9 @@ export function SkillForm({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(
+      const body = await fetchJson<{
+        skill?: { id: string };
+      }>(
         mode === "create" ? "/api/skills" : `/api/skills/${skillId}`,
         {
           method: mode === "create" ? "POST" : "PATCH",
@@ -66,20 +69,17 @@ export function SkillForm({
             mcpProviders: form.mcpProviders,
           }),
         },
+        "The skill could not be saved.",
       );
-      const body = (await res.json()) as {
-        skill?: { id: string };
-        message?: string;
-        error?: string;
-      };
-      if (res.ok && body.skill) {
-        router.push(`/skills/${body.skill.id}`);
-        router.refresh();
-        return;
+      if (!body.skill) {
+        throw new Error("The skill was saved without a skill ID.");
       }
-      setError(body.message ?? body.error ?? "The skill could not be saved.");
-    } catch {
-      setError("The skill could not be saved.");
+      router.push(`/skills/${body.skill.id}`);
+      router.refresh();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "The skill could not be saved.",
+      );
     } finally {
       setBusy(false);
     }
@@ -166,7 +166,7 @@ export function SkillForm({
                   checked={form.mcpProviders.includes(provider)}
                   onChange={() => toggleProvider(provider)}
                 />
-                {provider}
+                {provider === "web" ? "Web access" : provider}
               </label>
             ))}
             {providerOptions.length === 0 ? (

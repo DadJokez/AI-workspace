@@ -14,10 +14,12 @@ import {
   type SettingsSection,
 } from "@/components/SettingsModal";
 import { WelcomeWizard } from "@/components/WelcomeWizard";
+import { fetchJson } from "@/lib/client-api";
 import { shouldShowTour } from "@/lib/tour";
 import { Sidebar } from "@/components/Sidebar";
 import { useHorizontalSwipe } from "@/components/useHorizontalSwipe";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import posthog from "posthog-js";
 import { signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -172,13 +174,15 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   };
 
   const saveWizardStep = async (patch: { assistantName: string }) => {
-    const res = await fetch("/api/user", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = (await res.json()) as UserResponse;
+    const body = await fetchJson<UserResponse>(
+      "/api/user",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      },
+      "Could not save your assistant name.",
+    );
     setUser(body.user);
   };
 
@@ -221,6 +225,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     } else if (id === "workspace") {
       setRightPane({ kind: "workspace" });
     } else if (id === "feedback") {
+      posthog.capture("feedback_opened");
       setFeedbackOpen(true);
     } else if (id === "admin") {
       router.push("/admin");
@@ -235,6 +240,12 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     setRightPane({ kind: "inspector", runId });
   }
 
+  function handleDownloadTranscript() {
+    if (!activeTab) return;
+    posthog.capture("chat_transcript_downloaded");
+    downloadChatTranscript(activeTab);
+  }
+
   const { send, stopStreaming } = useChatStream({
     activeTab,
     defaultModelId,
@@ -247,9 +258,14 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   const {
     recommendationPendingId,
     appDraftPendingId,
+    artifactProposalPendingId,
     runActionPendingId,
     handleRecommendationAction,
     handleAppDraftDeploy,
+    handleAppProposalDiscard,
+    handleAppProposalIteration,
+    handleArtifactProposalAction,
+    handleArtifactProposalIteration,
     runAction,
   } = useChatActions({
     activeTab,
@@ -344,7 +360,10 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
         activeNavId={rightPane?.kind === "workspace" ? "workspace" : "chat"}
         onNavSelect={handleNavSelect}
         isAdmin={user?.role === "admin"}
-        onSignOut={() => signOut({ callbackUrl: "/login" })}
+        onSignOut={() => {
+          posthog.reset();
+          void signOut({ callbackUrl: "/login" });
+        }}
         onRenameThread={handleRenameThread}
         onDeleteThread={handleDeleteThread}
         onPinThread={handlePinThread}
@@ -370,7 +389,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                   : { kind: "notifications" },
               )
             }
-            onDownload={() => downloadChatTranscript(activeTab)}
+            onDownload={handleDownloadTranscript}
             onStop={stopStreaming}
           />
 
@@ -384,12 +403,25 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
           suggestions={emptyStateSuggestions}
           recommendationPendingId={recommendationPendingId}
           appDraftPendingId={appDraftPendingId}
+          artifactProposalPendingId={artifactProposalPendingId}
           runActionPendingId={runActionPendingId}
           stickToBottomRef={stickToBottomRef}
           onPickSuggestion={(suggestion) => void send(suggestion)}
           onOpenIntegrations={() => setSettingsSection("integrations")}
           onOpenArtifact={openArtifactPreview}
           onDeployAppDraft={(version) => void handleAppDraftDeploy(version)}
+          onDiscardAppProposal={(version) =>
+            void handleAppProposalDiscard(version)
+          }
+          onIterateAppProposal={(version, feedback) =>
+            void handleAppProposalIteration(version, feedback)
+          }
+          onArtifactProposalAction={(artifact, decision) =>
+            void handleArtifactProposalAction(artifact, decision)
+          }
+          onIterateArtifactProposal={(artifact, feedback) =>
+            void handleArtifactProposalIteration(artifact, feedback)
+          }
           onRecommendationAction={(recommendation, status) =>
             void handleRecommendationAction(recommendation, status)
           }

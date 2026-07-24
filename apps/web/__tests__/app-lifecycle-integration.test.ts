@@ -227,7 +227,7 @@ afterEach(() => {
 });
 
 describe("app lifecycle stateful paths", () => {
-  it("deploys a rollback by reverting the previous live version and auditing rollback", async () => {
+  it("publishes a rollback with publication metadata and a truthful audit operation", async () => {
     const { db, state } = createDbMock();
     const app = makeApp({ liveVersionId: "version-2" });
     const version = makeVersion({
@@ -263,11 +263,19 @@ describe("app lifecycle stateful paths", () => {
     expect(state.updateSets[0]).toMatchObject({ status: "reverted" });
     expect(state.updateSets[1]).toMatchObject({ status: "deployed" });
     expect(state.updateSets[2]).toMatchObject({
+      metadata: {
+        appPublication: expect.objectContaining({
+          dataMode: "snapshot",
+          publishedByUserId: ownerSession.id,
+        }),
+      },
+    });
+    expect(state.updateSets[3]).toMatchObject({
       liveVersionId: version.id,
       liveArtifactId: version.artifactId,
       status: "deployed",
     });
-    expect(state.updateSets[3]).toMatchObject({
+    expect(state.updateSets[4]).toMatchObject({
       status: "completed",
       completedAt: expect.any(Date),
     });
@@ -281,7 +289,109 @@ describe("app lifecycle stateful paths", () => {
       expect.objectContaining({
         actionType: "app_rollback",
         actorUserId: ownerSession.id,
+        metadata: expect.objectContaining({ operation: "rollback" }),
       }),
+    );
+  });
+
+  it("accepts a proposed app version by deploying it and closing its artifact proposal", async () => {
+    const { db, state } = createDbMock();
+    const app = makeApp({ liveVersionId: "version-2" });
+    const version = makeVersion({
+      id: "version-3",
+      artifactId: "artifact-1",
+      versionNumber: 3,
+      status: "proposed",
+      sourceThreadId: "edit-thread-1",
+    });
+    const updated = makeApp({
+      liveVersionId: version.id,
+      liveArtifactId: version.artifactId,
+    });
+    const artifact = makeArtifact({
+      userId: ownerSession.id,
+      metadata: {
+        outputProposal: {
+          status: "proposed",
+          runId: "run-1",
+          triggerType: "scheduled",
+          createdAt: "2026-07-23T12:00:00.000Z",
+        },
+      },
+    });
+
+    state.selectQueue = [[{ versionNumber: 2 }]];
+    state.returningQueue = [
+      [{ id: version.id }],
+      [updated],
+      [{ id: "session-1", threadId: "edit-thread-1" }],
+    ];
+    installMocks(db, ownerSession);
+    loadWorkspaceArtifactById.mockResolvedValue(artifact);
+
+    const { deployAppVersion } = await import("@/lib/apps");
+    const result = await deployAppVersion({
+      db: db as never,
+      app,
+      version,
+      actorUserId: ownerSession.id,
+    });
+
+    expect(result.liveVersionId).toBe(version.id);
+    expect(state.updateSets).toContainEqual(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          outputProposal: expect.objectContaining({
+            status: "accepted",
+            decidedByUserId: ownerSession.id,
+          }),
+        }),
+      }),
+    );
+    expect(state.insertValues).toContainEqual(
+      expect.objectContaining({
+        actionType: "proposal_accepted",
+        actorUserId: ownerSession.id,
+        runId: "run-1",
+      }),
+    );
+  });
+
+  it("refuses proposal promotion when a concurrent decision already won", async () => {
+    const { db, state } = createDbMock();
+    const app = makeApp({ liveVersionId: "version-2" });
+    const version = makeVersion({
+      id: "version-3",
+      status: "proposed",
+      versionNumber: 3,
+    });
+    state.selectQueue = [[{ versionNumber: 2 }]];
+    state.returningQueue = [[]];
+    installMocks(db, ownerSession);
+    loadWorkspaceArtifactById.mockResolvedValue(
+      makeArtifact({
+        metadata: {
+          outputProposal: {
+            status: "proposed",
+            runId: "run-1",
+            triggerType: "scheduled",
+            createdAt: "2026-07-23T12:00:00.000Z",
+          },
+        },
+      }),
+    );
+
+    const { deployAppVersion } = await import("@/lib/apps");
+    await expect(
+      deployAppVersion({
+        db: db as never,
+        app,
+        version,
+        actorUserId: ownerSession.id,
+      }),
+    ).rejects.toThrow("Proposal is no longer pending");
+    expect(state.insertValues).not.toContainEqual(
+      expect.objectContaining({ actionType: "proposal_accepted" }),
     );
   });
 
@@ -318,6 +428,29 @@ describe("app lifecycle stateful paths", () => {
 
     expect(res.status).toBe(404);
     await expect(res.json()).resolves.toMatchObject({ error: "app_not_found" });
+  });
+
+  it("does not allow a discarded proposal to be deployed later", async () => {
+    const { db, state } = createDbMock();
+    state.selectQueue = [
+      [makeApp()],
+      [makeVersion({ status: "discarded" })],
+    ];
+    installMocks(db, ownerSession);
+
+    const { POST } = await import("@/app/api/apps/[id]/deploy/route");
+    const res = await POST(
+      makeJsonRequest({ appVersionId: "version-1" }),
+      {
+        params: Promise.resolve({ id: "app-1" }),
+      },
+    );
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "version_not_deployable",
+    });
+    expect(loadWorkspaceArtifactById).not.toHaveBeenCalled();
   });
 
   it("hides another editor's draft when discarding a version", async () => {
@@ -477,7 +610,137 @@ describe("app lifecycle stateful paths", () => {
       }),
     );
   });
-  it("returns contentOmittedForSize when the app source exceeds the injection cap (#344)", async () => {
+
+  it("creates a proposed version for unattended app output without changing the live version", async () => {
+    const { db, state } = createDbMock();
+    const createdVersion = makeVersion({
+      id: "version-4",
+      versionNumber: 4,
+      status: "proposed",
+      createdByUserId: editorSession.id,
+      sourceThreadId: "edit-thread-1",
+    });
+    state.selectQueue = [
+      [{ session: makeSession(), app: makeApp() }],
+      [{ role: "user" }],
+      [{ role: "editor" }],
+      [],
+      [{ versionNumber: 3 }],
+    ];
+    state.returningQueue = [[createdVersion]];
+    installMocks(db, editorSession);
+    loadWorkspaceArtifactById.mockResolvedValue(
+      makeArtifact({
+        metadata: {
+          outputProposal: {
+            status: "proposed",
+            runId: "run-1",
+            triggerType: "scheduled",
+            createdAt: "2026-07-23T12:00:00.000Z",
+          },
+        },
+      }),
+    );
+
+    const { createDraftAppVersionsForThreadArtifacts } = await import("@/lib/apps");
+    const result = await createDraftAppVersionsForThreadArtifacts({
+      db: db as never,
+      userId: editorSession.id,
+      threadId: "edit-thread-1",
+      artifacts: [makeArtifactSummary()],
+      sourceContentOmitted: false,
+      proposal: {
+        runId: "run-1",
+        triggerType: "scheduled",
+        createdAt: "2026-07-23T12:00:00.000Z",
+      },
+    });
+
+    expect(result.summaries[0]).toMatchObject({
+      id: "version-4",
+      status: "proposed",
+      canDeploy: false,
+    });
+    expect(state.insertValues).toContainEqual(
+      expect.objectContaining({
+        appId: "app-1",
+        artifactId: "artifact-1",
+        status: "proposed",
+      }),
+    );
+    expect(state.updateSets).toHaveLength(0);
+    expect(state.insertValues).toContainEqual(
+      expect.objectContaining({
+        actionType: "app_proposal_created",
+      }),
+    );
+  });
+
+  it("discards a proposed app version without deleting its history", async () => {
+    const { db, state } = createDbMock();
+    const app = makeApp();
+    const version = makeVersion({
+      id: "version-proposed",
+      status: "proposed",
+      createdByUserId: ownerSession.id,
+    });
+    const artifact = makeArtifact({
+      userId: ownerSession.id,
+      metadata: {
+        outputProposal: {
+          status: "proposed",
+          runId: "run-1",
+          triggerType: "github_event",
+          createdAt: "2026-07-23T12:00:00.000Z",
+        },
+      },
+    });
+    state.selectQueue = [[app], [version], [artifact]];
+    state.returningQueue = [[{ id: version.id }]];
+    installMocks(db, ownerSession);
+
+    const { PATCH } = await import(
+      "@/app/api/apps/[id]/versions/[versionId]/route"
+    );
+    const res = await PATCH(
+      new Request(
+        "http://localhost/api/apps/app-1/versions/version-proposed",
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            decision: "discarded",
+            reason: "No longer needed",
+          }),
+        },
+      ),
+      {
+        params: Promise.resolve({
+          id: "app-1",
+          versionId: "version-proposed",
+        }),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    expect(state.updateSets).toContainEqual({ status: "discarded" });
+    expect(state.updateSets).toContainEqual(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          outputProposal: expect.objectContaining({
+            status: "discarded",
+            reason: "No longer needed",
+          }),
+        }),
+      }),
+    );
+    expect(state.insertValues).toContainEqual(
+      expect.objectContaining({
+        actionType: "proposal_discarded",
+      }),
+    );
+  });
+  it("returns sourceContentOmitted when the app source exceeds the injection cap (#344)", async () => {
     const { db, state } = createDbMock();
     state.selectQueue = [
       [
@@ -502,11 +765,14 @@ describe("app lifecycle stateful paths", () => {
       threadId: "edit-thread-1",
     });
 
-    expect(result?.contentOmittedForSize).toBe(true);
+    expect(result?.sourceContentOmitted).toBe(true);
     expect(result?.context).not.toContain("x".repeat(1_000));
+    expect(result?.context).toContain(
+      "Do not claim that you inspected, edited, or saved an updated app version.",
+    );
   });
 
-  it("reports contentOmittedForSize false when the app source fits (#344)", async () => {
+  it("reports sourceContentOmitted false when the app source fits (#344)", async () => {
     const { db, state } = createDbMock();
     state.selectQueue = [
       [
@@ -529,8 +795,52 @@ describe("app lifecycle stateful paths", () => {
       threadId: "edit-thread-1",
     });
 
-    expect(result?.contentOmittedForSize).toBe(false);
+    expect(result?.sourceContentOmitted).toBe(false);
     expect(result?.context).toContain("<!doctype html>");
+  });
+
+  it("invalidates an edit session when its source artifact is missing", async () => {
+    const { db, state } = createDbMock();
+    state.selectQueue = [
+      [
+        {
+          session: makeSession(),
+          app: makeApp(),
+          baseVersion: makeVersion({ status: "deployed" }),
+        },
+      ],
+      [{ role: "user" }],
+      [{ role: "editor" }],
+    ];
+    installMocks(db, editorSession);
+    loadWorkspaceArtifactById.mockResolvedValue(null);
+
+    const { buildAppEditContext } = await import("@/lib/apps");
+    const result = await buildAppEditContext({
+      db: db as never,
+      userId: editorSession.id,
+      threadId: "edit-thread-1",
+    });
+
+    expect(result).toMatchObject({
+      sourceContentOmitted: true,
+    });
+    expect(result?.context).toContain("source file is unavailable");
+    expect(state.updateSets).toContainEqual(
+      expect.objectContaining({ status: "revoked" }),
+    );
+    expect(state.insertValues).toContainEqual(
+      expect.objectContaining({
+        actionType: "app_edit_session_invalidated",
+        status: "failed",
+        metadata: expect.objectContaining({
+          appEditSessionId: "session-1",
+          appVersionId: "version-1",
+          artifactId: "artifact-1",
+          threadId: "edit-thread-1",
+        }),
+      }),
+    );
   });
 
   it("structurally refuses draft minting when source content was omitted (#344)", async () => {
@@ -567,12 +877,15 @@ describe("app lifecycle stateful paths", () => {
       expect.objectContaining({
         actionType: "app_draft_blocked_source_omitted",
         actorUserId: editorSession.id,
+        status: "failed",
         metadata: expect.objectContaining({
           artifactIds: ["artifact-1"],
+          appEditSessionId: "session-1",
           threadId: "edit-thread-1",
         }),
       }),
     );
+    expect(loadWorkspaceArtifactById).not.toHaveBeenCalled();
   });
   it("stamps a re-minted existing deployed version truthfully — never an actionable draft (#344)", async () => {
     const { db, state } = createDbMock();
@@ -607,9 +920,13 @@ describe("app lifecycle stateful paths", () => {
         canDeploy: false,
       }),
     ]);
+    expect(result.created).toEqual([]);
     // No new version row inserted — the existing one was reused.
     expect(state.insertValues).not.toContainEqual(
       expect.objectContaining({ status: "draft", artifactId: "artifact-1" }),
+    );
+    expect(state.insertValues).not.toContainEqual(
+      expect.objectContaining({ actionType: "app_draft_created" }),
     );
   });
 });

@@ -15,6 +15,8 @@ export interface RunStatusResponse {
     updatedAt: string;
     /** Highest run_events.sequence for the run; null before the first event. */
     latestEventSequence: number | null;
+    /** Safe aggregate only; the full usage breakdown remains server-side. */
+    liveTokens?: number | null;
   };
 }
 
@@ -22,6 +24,23 @@ export interface RunStatusResponse {
 export interface RunStatusSnapshot {
   status: string;
   latestEventSequence: number | null;
+}
+
+/**
+ * Extract the aggregate token count from a persisted run output without
+ * trusting arbitrary JSON. Worker outputs carry both the canonical usage
+ * object and legacy top-level counters; either shape can reconstruct the
+ * live footer after a refresh.
+ */
+export function liveTokenTotalFromRunOutput(value: unknown): number | null {
+  if (!isRecord(value)) return null;
+  const usage = isRecord(value.usage) ? value.usage : null;
+  const tokensIn =
+    tokenCount(usage?.tokensIn) ?? tokenCount(value.tokensIn);
+  const tokensOut =
+    tokenCount(usage?.tokensOut) ?? tokenCount(value.tokensOut);
+  if (tokensIn === null && tokensOut === null) return null;
+  return (tokensIn ?? 0) + (tokensOut ?? 0);
 }
 
 /**
@@ -51,4 +70,16 @@ export function shouldReloadThread(
     (current.latestEventSequence ?? -1) !==
       (previous.latestEventSequence ?? -1)
   );
+}
+
+function tokenCount(value: unknown): number | null {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0
+    ? value
+    : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

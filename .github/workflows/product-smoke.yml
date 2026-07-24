@@ -2,6 +2,7 @@ name: Product Smoke
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   schedule:
@@ -16,6 +17,11 @@ on:
 concurrency:
   group: product-smoke-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: "351478076796"
+  PR_EVAL_MAX_COST_USD: "1.50"
 
 jobs:
   # The full smoke suite runs 73 tests per Playwright project with a single
@@ -76,24 +82,213 @@ jobs:
           path: apps/web/playwright-report/
           if-no-files-found: ignore
 
+  # The mocked feature suite proves UI behavior, but this canary deliberately
+  # does not intercept /api/chat. It drives a CSV through the real browser,
+  # route, Postgres persistence, deterministic agent/resource-tool loop, SSE
+  # rendering, reload, and later-turn retrieval. It runs on every code change
+  # plus the six-hour scheduled/manual production-smoke cadence.
+  core-pipeline-smoke:
+    name: core chat + CSV pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aihub
+          POSTGRES_PASSWORD: aihub_dev
+          POSTGRES_DB: aihub_core_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aihub -d aihub_core_smoke"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://aihub:aihub_dev@127.0.0.1:5432/aihub_core_smoke
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.12.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve Playwright version
+        id: playwright-version
+        run: echo "version=$(pnpm --filter @ai-workspace/web exec node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-
+
+      - name: Install Chromium
+        run: pnpm --filter @ai-workspace/web exec playwright install --with-deps chromium
+
+      - name: Run real core pipeline canary
+        run: pnpm smoke:browser:core
+
+      - name: Upload core pipeline report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-core-pipeline-report
+          path: apps/web/playwright-report/
+          if-no-files-found: ignore
+
+  # This job is always present on pull requests so the required fan-in below
+  # has a stable result. Forks and drafts cannot receive AWS credentials;
+  # same-repository PRs run once ready (including the ready_for_review event).
+  foundational_evals:
+    name: foundational real-model evals
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      RUN_REAL_EVAL: ${{ github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft }}
+    steps:
+      - name: Explain ineligible PR
+        if: ${{ env.RUN_REAL_EVAL != 'true' }}
+        run: echo "Real-model evals are deferred for draft or forked pull requests."
+
+      - name: Validate AWS eval configuration
+        if: ${{ env.RUN_REAL_EVAL == 'true' }}
+        env:
+          AWS_EVAL_ROLE_ARN: ${{ vars.AWS_EVAL_ROLE_ARN }}
+        run: |
+          if [ -z "$AWS_EVAL_ROLE_ARN" ]; then
+            echo "::error title=PR evals are disabled::AWS_EVAL_ROLE_ARN is not configured. Deploy AiWorkspaceEvalCiStack and set the repository Actions variable."
+            exit 1
+          fi
+
+      - if: ${{ env.RUN_REAL_EVAL == 'true' }}
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        if: ${{ env.RUN_REAL_EVAL == 'true' }}
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.12.3
+
+      - name: Setup Node
+        if: ${{ env.RUN_REAL_EVAL == 'true' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        if: ${{ env.RUN_REAL_EVAL == 'true' }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure AWS credentials
+        if: ${{ env.RUN_REAL_EVAL == 'true' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_EVAL_ROLE_ARN }}
+          aws-region: us-east-1
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+          role-duration-seconds: 1800
+          role-session-name: pr-evals-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Run foundational real-model evals
+        if: ${{ env.RUN_REAL_EVAL == 'true' }}
+        id: evals
+        env:
+          BEDROCK_CLIENT: real
+        run: pnpm eval --core
+
+      # Post-run spend-regression tripwire. Superseded runs are actively
+      # canceled by workflow concurrency; this check forces review if the
+      # stable core pack grows beyond its calibrated envelope.
+      - name: Enforce PR eval cost tripwire
+        if: ${{ always() && env.RUN_REAL_EVAL == 'true' && steps.evals.outcome != 'skipped' }}
+        env:
+          MAX_COST_USD: ${{ env.PR_EVAL_MAX_COST_USD }}
+        run: |
+          report_path="$(find packages/evals/eval-reports -type f -name '*.json' -print 2>/dev/null | sort | tail -n 1)"
+          if [ -z "$report_path" ]; then
+            echo "::error title=Eval report missing::The foundational real-model eval command did not produce a JSON report."
+            exit 1
+          fi
+          REPORT_PATH="$report_path" node <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(process.env.REPORT_PATH, "utf8"));
+          const actual = report?.meta?.approxCostUsd;
+          const maximumRaw = process.env.MAX_COST_USD;
+          const maximum = Number(maximumRaw);
+          if (
+            typeof actual !== "number" ||
+            !Number.isFinite(actual) ||
+            actual < 0 ||
+            !maximumRaw?.trim() ||
+            !Number.isFinite(maximum) ||
+            maximum < 0
+          ) {
+            console.error("::error title=Invalid eval cost::The report or configured tripwire does not contain a finite non-negative cost.");
+            process.exit(1);
+          }
+          console.log(`Estimated eval cost: $${actual.toFixed(4)} (tripwire $${maximum.toFixed(2)})`);
+          if (actual > maximum) {
+            console.error(`::error title=PR eval cost regression::Estimated cost $${actual.toFixed(4)} exceeds the $${maximum.toFixed(2)} tripwire.`);
+            process.exit(1);
+          }
+          NODE
+
+      - name: Upload eval report
+        if: ${{ always() && env.RUN_REAL_EVAL == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-core-eval-report-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          path: packages/evals/eval-reports/
+          if-no-files-found: warn
+
   # Branch protection requires a check literally named `local browser smoke`.
-  # This job preserves that name over the sharded matrix. It must run on
-  # shard failure (not be skipped) and exit non-zero: a skipped required
-  # check would satisfy branch protection, silently failing the gate open.
+  # This job preserves that name over the sharded matrix and the real pipeline
+  # canary. It must run on failure (not be skipped) and exit non-zero: a
+  # skipped required check would satisfy branch protection, silently failing
+  # the gate open.
   browser-smoke:
     name: local browser smoke
-    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
-    needs: browser-smoke-shard
+    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    needs: [browser-smoke-shard, core-pipeline-smoke, foundational_evals]
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Check shard results
+      - name: Check browser and pipeline results
         run: |
           if [ "${{ needs.browser-smoke-shard.result }}" != "success" ]; then
             echo "browser smoke shards did not all pass: ${{ needs.browser-smoke-shard.result }}"
             exit 1
           fi
-          echo "all browser smoke shards passed"
+          if [ "${{ needs.core-pipeline-smoke.result }}" != "success" ]; then
+            echo "core chat + CSV pipeline did not pass: ${{ needs.core-pipeline-smoke.result }}"
+            exit 1
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ needs.foundational_evals.result }}" != "success" ]; then
+            echo "foundational real-model evals did not pass: ${{ needs.foundational_evals.result }}"
+            exit 1
+          fi
+          echo "all browser smoke shards, core pipeline, and applicable real-model evals passed"
 
   authenticated-browser-smoke:
     name: authenticated browser smoke

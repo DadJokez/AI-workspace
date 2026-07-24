@@ -24,6 +24,12 @@ COPY --from=deps /repo/node_modules ./node_modules
 COPY --from=deps /repo/apps/web/node_modules ./apps/web/node_modules
 COPY --from=deps /repo/packages/agent-runtime/node_modules ./packages/agent-runtime/node_modules
 COPY . .
+# PostHog analytics config. NEXT_PUBLIC_* vars are inlined by `next build` into
+# both the client bundle (instrumentation-client.ts) and the server bundle
+# (lib/posthog-server.ts), so they must be present at build time. The project
+# token is a public client-side write key, safe to ship in the browser bundle.
+ENV NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=phc_kCEPkLvyRmDumM57vjp9BLhQvLA5ExQHV4EsFpNogWeb
+ENV NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 RUN pnpm --filter @ai-workspace/web build
 
 FROM base AS migrator
@@ -57,12 +63,31 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
+# PostHog analytics config for server-side runtime reads (lib/posthog-server.ts).
+ENV NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=phc_kCEPkLvyRmDumM57vjp9BLhQvLA5ExQHV4EsFpNogWeb
+ENV NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 
 RUN addgroup -S nextjs && adduser -S nextjs -G nextjs
 
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/standalone ./
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build --chown=nextjs:nextjs /repo/apps/web/public ./apps/web/public
+COPY --from=build /repo/apps/web/scripts/verify-pdf-runtime.mjs ./apps/web/verify-pdf-runtime.mjs
+
+# pdfjs loads its native canvas adapter through createRequire(), which Next's
+# file tracer cannot follow. Restore pnpm's package link, then parse a real PDF
+# so the image build exercises the lazy canvas and native-binary load path.
+RUN set -eux; \
+    canvas_dir="$(find /app/node_modules/.pnpm -maxdepth 1 -type d -name '@napi-rs+canvas@*' -print -quit)"; \
+    pdfjs_dir="$(find /app/node_modules/.pnpm -maxdepth 1 -type d -name 'pdfjs-dist@*' -print -quit)"; \
+    test -n "$canvas_dir"; \
+    test -n "$pdfjs_dir"; \
+    mkdir -p "$pdfjs_dir/node_modules/@napi-rs"; \
+    if [ ! -e "$pdfjs_dir/node_modules/@napi-rs/canvas" ]; then \
+      ln -s "../../../$(basename "$canvas_dir")/node_modules/@napi-rs/canvas" "$pdfjs_dir/node_modules/@napi-rs/canvas"; \
+    fi; \
+    node ./apps/web/verify-pdf-runtime.mjs; \
+    rm ./apps/web/verify-pdf-runtime.mjs
 
 USER nextjs
 EXPOSE 3000

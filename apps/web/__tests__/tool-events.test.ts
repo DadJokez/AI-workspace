@@ -55,6 +55,7 @@ describe("createToolEventAccumulator", () => {
     acc.recordResult({
       toolCallId: "call_1",
       output: [{ number: 50 }],
+      usageNotesDelivered: true,
     });
 
     expect(acc.calls()).toEqual([
@@ -75,6 +76,7 @@ describe("createToolEventAccumulator", () => {
         toolName: "list_pull_requests",
         output: [{ number: 50 }],
         isError: false,
+        usageNotesDelivered: true,
         completedAt: "2026-05-15T10:00:01.000Z",
       },
     ]);
@@ -155,6 +157,30 @@ describe("createToolEventAccumulator", () => {
       resultKeys: ["kind", "matches", "receipt"],
     });
     expect(JSON.stringify(acc.results())).not.toContain("confidential");
+  });
+
+  it("persists safe resource validation semantics for human diagnostics", () => {
+    const acc = createToolEventAccumulator(["resources"], () =>
+      new Date("2026-05-15T10:00:00.000Z"),
+    );
+
+    acc.recordCall({
+      id: "resource_error",
+      name: "resources__query",
+      input: {
+        resourceId: "resource-1",
+        operation: "search",
+      },
+    });
+    acc.recordResult({
+      toolCallId: "resource_error",
+      output: 'Operation "search" is not valid for a tabular resource.',
+      isError: true,
+    });
+
+    expect(acc.results()[0]?.output).toBe(
+      'Resource validation error: Operation "search" is not valid for a tabular resource.',
+    );
   });
 
   it("preserves error results even when the matching call was not seen", () => {

@@ -111,6 +111,493 @@ describe.sequential("complete conversation resource adapters (#576)", () => {
     },
   );
 
+  it("computes filtered aggregates over only the matching rows", async () => {
+    const resource = textResource(
+      "orders.csv",
+      [
+        "order_id,discount_pct,sales_rep,order_date",
+        "1,17,Dana Kim,2024-01-10",
+        "2,18,Dana Kim,2024-01-20",
+        "3,0,Other Rep,2024-02-10",
+        "4,1,Other Rep,2024-02-20",
+      ].join("\n"),
+      "spreadsheet",
+    );
+
+    await expect(
+      queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "table_aggregate",
+        aggregate: "count",
+        filterColumn: "order_date",
+        filterOperator: "contains",
+        filterValue: "2024-01",
+      }),
+    ).resolves.toMatchObject({
+      aggregate: "count",
+      value: 2,
+      receipt: {
+        scannedRows: 4,
+        matchedRows: 2,
+        resultCoverage: "full",
+      },
+    });
+
+    await expect(
+      queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "table_aggregate",
+        column: "discount_pct",
+        aggregate: "average",
+        filterColumn: "sales_rep",
+        filterOperator: "equals",
+        filterValue: "Dana Kim",
+      }),
+    ).resolves.toMatchObject({
+      aggregate: "average",
+      column: "discount_pct",
+      value: 17.5,
+      numericValues: 2,
+      inspectedValues: 2,
+      receipt: {
+        scannedRows: 4,
+        matchedRows: 2,
+        filters: {
+          logic: "and",
+          predicates: [
+            {
+              column: "sales_rep",
+              operator: "equals",
+              value: "Dana Kim",
+              comparison: "scalar",
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  it("supports up to three compound AND/OR predicates", async () => {
+    const resource = textResource(
+      "orders.csv",
+      [
+        "id,sales_rep,discount_pct,refunded,region",
+        "1,Dana,20,TRUE,East",
+        "2,Dana,10,TRUE,West",
+        "3,Dana,25,FALSE,West",
+        "4,Lee,30,TRUE,East",
+        "5,Lee,5,FALSE,West",
+      ].join("\n"),
+      "spreadsheet",
+    );
+
+    const andResult = await queryConversationResource(resource, {
+      resourceId: resource.id,
+      operation: "table_aggregate",
+      aggregate: "count",
+      filters: [
+        { column: "sales_rep", operator: "equals", value: "Dana" },
+        {
+          column: "discount_pct",
+          operator: "greater_than",
+          value: 15,
+        },
+        { column: "refunded", operator: "equals", value: true },
+      ],
+    });
+    const orResult = await queryConversationResource(resource, {
+      resourceId: resource.id,
+      operation: "table_filter",
+      filterLogic: "or",
+      filters: [
+        { column: "region", operator: "equals", value: "East" },
+        { column: "refunded", operator: "equals", value: true },
+      ],
+    });
+
+    expect(andResult).toMatchObject({
+      value: 1,
+      receipt: {
+        scannedRows: 5,
+        matchedRows: 1,
+        filters: { logic: "and" },
+      },
+    });
+    expect(orResult).toMatchObject({
+      receipt: {
+        scannedRows: 5,
+        matchedRows: 3,
+        returnedRows: 3,
+        filters: { logic: "or" },
+      },
+    });
+    expect(orResult.rows).toEqual([
+      expect.objectContaining({ id: "1" }),
+      expect.objectContaining({ id: "2" }),
+      expect.objectContaining({ id: "4" }),
+    ]);
+  });
+
+  it("returns truthful empty filtered aggregates and rejects filters on table_count", async () => {
+    const resource = textResource(
+      "orders.csv",
+      ["id,status,amount", "1,open,10", "2,closed,20"].join("\n"),
+      "spreadsheet",
+    );
+    const filters = [
+      { column: "status", operator: "equals" as const, value: "missing" },
+    ];
+
+    await expect(
+      queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "table_aggregate",
+        aggregate: "average",
+        column: "amount",
+        filters,
+      }),
+    ).resolves.toMatchObject({
+      value: null,
+      numericValues: 0,
+      inspectedValues: 0,
+      receipt: { scannedRows: 2, matchedRows: 0, resultCoverage: "full" },
+    });
+    await expect(
+      queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "table_count",
+        filters,
+      }),
+    ).rejects.toThrow(/only for table_filter or table_aggregate/i);
+  });
+
+  it("groups filtered aggregates by a single column", async () => {
+    const resource = textResource(
+      "orders.csv",
+      [
+        "id,category,amount,order_date",
+        "1,A,10,2024-01-01",
+        "2,A,20,2024-01-06",
+        "3,B,30,2024-02-01",
+        "4,A,40,2024-04-01",
+        "5,B,50,2025-01-01",
+      ].join("\n"),
+      "spreadsheet",
+    );
+
+    const result = await queryConversationResource(resource, {
+      resourceId: resource.id,
+      operation: "table_aggregate",
+      column: "amount",
+      aggregate: "sum",
+      groupByColumn: "category",
+      filters: [
+        {
+          column: "order_date",
+          operator: "greater_than_or_equal",
+          value: "2024-01-01",
+        },
+        {
+          column: "order_date",
+          operator: "less_than",
+          value: "2025-01-01",
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      aggregate: "sum",
+      column: "amount",
+      groupBy: { column: "category" },
+      receipt: {
+        scannedRows: 5,
+        matchedRows: 4,
+        groupedRows: 4,
+        totalGroups: 2,
+        returnedGroups: 2,
+        resultCoverage: "full",
+      },
+      groups: [
+        {
+          key: "A",
+          rowCount: 3,
+          value: 70,
+          numericValues: 3,
+          inspectedValues: 3,
+        },
+        {
+          key: "B",
+          rowCount: 1,
+          value: 30,
+          numericValues: 1,
+          inspectedValues: 1,
+        },
+      ],
+    });
+  });
+
+  it("bounds high-cardinality grouped output while retaining full scan counts", async () => {
+    const resource = textResource(
+      "groups.csv",
+      [
+        "id,segment",
+        ...Array.from({ length: 105 }, (_, index) =>
+          `${index + 1},segment-${String(index + 1).padStart(3, "0")}`,
+        ),
+      ].join("\n"),
+      "spreadsheet",
+    );
+
+    const result = await queryConversationResource(resource, {
+      resourceId: resource.id,
+      operation: "table_aggregate",
+      aggregate: "count",
+      groupByColumn: "segment",
+      limit: 3,
+    });
+
+    expect(result).toMatchObject({
+      receipt: {
+        scannedRows: 105,
+        groupedRows: 105,
+        totalGroups: 105,
+        returnedGroups: 3,
+        resultCoverage: "partial",
+      },
+      groups: [
+        { key: "segment-001", value: 1 },
+        { key: "segment-002", value: 1 },
+        { key: "segment-003", value: 1 },
+      ],
+    });
+  });
+
+  it("derives complete calendar groups from mixed-format dates", async () => {
+    const resource = textResource(
+      "orders.csv",
+      [
+        "id,order_date",
+        "1,2024-01-01",
+        "2,1/6/2024",
+        "3,2024-02-01",
+        "4,4/1/2024",
+        "5,2025-01-01",
+        "6,not-a-date",
+      ].join("\n"),
+      "spreadsheet",
+    );
+    const expected = {
+      year: [
+        { key: "2024", value: 4 },
+        { key: "2025", value: 1 },
+      ],
+      quarter: [
+        { key: "2024-Q1", value: 3 },
+        { key: "2024-Q2", value: 1 },
+        { key: "2025-Q1", value: 1 },
+      ],
+      month: [
+        { key: "2024-01", value: 2 },
+        { key: "2024-02", value: 1 },
+        { key: "2024-04", value: 1 },
+        { key: "2025-01", value: 1 },
+      ],
+      week: [
+        { key: "2024-W01", value: 2 },
+        { key: "2024-W05", value: 1 },
+        { key: "2024-W14", value: 1 },
+        { key: "2025-W01", value: 1 },
+      ],
+      day_of_week: [
+        { key: "Monday", value: 2 },
+        { key: "Wednesday", value: 1 },
+        { key: "Thursday", value: 1 },
+        { key: "Saturday", value: 1 },
+      ],
+      is_weekend: [
+        { key: false, value: 4 },
+        { key: true, value: 1 },
+      ],
+    } as const;
+
+    for (const [datePart, groups] of Object.entries(expected)) {
+      const result = await queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "table_aggregate",
+        aggregate: "count",
+        groupByColumn: "order_date",
+        groupByDatePart: datePart as keyof typeof expected,
+      });
+      expect(result).toMatchObject({
+        groupBy: { column: "order_date", datePart },
+        receipt: {
+          scannedRows: 6,
+          groupedRows: 5,
+          unparseableGroupRows: 1,
+          resultCoverage: "full",
+        },
+      });
+      expect(result.groups).toEqual(
+        groups.map((group) => ({
+          ...group,
+          rowCount: group.value,
+        })),
+      );
+    }
+  });
+
+  it("preserves boolean filter literals without widening them to the full table", async () => {
+    const resource = textResource(
+      "refunds.csv",
+      [
+        "order_id,refunded",
+        "1,TRUE",
+        "2,FALSE",
+        "3,true",
+        "4,false",
+      ].join("\n"),
+      "spreadsheet",
+    );
+    const input = parseConversationResourceQueryInput({
+      resourceId: resource.id,
+      operation: "table_filter",
+      filterColumn: "refunded",
+      filterOperator: "equals",
+      filterValue: true,
+    });
+
+    expect(input.filterValue).toBe(true);
+    await expect(
+      queryConversationResource(resource, input),
+    ).resolves.toMatchObject({
+      receipt: {
+        scannedRows: 4,
+        matchedRows: 2,
+        returnedRows: 2,
+        resultCoverage: "full",
+      },
+      rows: [
+        expect.objectContaining({ order_id: "1", refunded: "TRUE" }),
+        expect.objectContaining({ order_id: "3", refunded: "true" }),
+      ],
+    });
+
+    await expect(
+      queryConversationResource(resource, {
+        ...input,
+        operation: "table_aggregate",
+        aggregate: "count",
+      }),
+    ).resolves.toMatchObject({
+      value: 2,
+      receipt: { scannedRows: 4, matchedRows: 2 },
+    });
+
+    const falseInput = parseConversationResourceQueryInput({
+      ...input,
+      filterValue: false,
+    });
+    expect(falseInput.filterValue).toBe(false);
+    await expect(
+      queryConversationResource(resource, falseInput),
+    ).resolves.toMatchObject({
+      receipt: { scannedRows: 4, matchedRows: 2, returnedRows: 2 },
+    });
+
+    await expect(
+      queryConversationResource(resource, {
+        ...input,
+        filterOperator: "greater_than",
+      }),
+    ).rejects.toThrow(/boolean filter values support only equals or not_equals/i);
+  });
+
+  it("normalizes mixed-format dates and reports unparseable rows", async () => {
+    const resource = textResource(
+      "orders.csv",
+      [
+        "order_id,order_date",
+        "1,2026-01-15",
+        "2,3/25/2024",
+        "3,1/5/2026",
+        "4,2025-12-31",
+        "5,2026-02-30",
+        "6,not-a-date",
+        "7,",
+      ].join("\n"),
+      "spreadsheet",
+    );
+
+    const result = await queryConversationResource(resource, {
+      resourceId: resource.id,
+      operation: "table_filter",
+      filterColumn: "order_date",
+      filterOperator: "greater_than_or_equal",
+      filterValue: "2026-01-01",
+    });
+
+    expect(result).toMatchObject({
+      receipt: {
+        scannedRows: 7,
+        matchedRows: 2,
+        returnedRows: 2,
+        resultCoverage: "full",
+        unparseableRows: 3,
+        warnings: [
+          "3 rows could not be parsed as dates and were excluded.",
+        ],
+        filter: {
+          column: "order_date",
+          operator: "greater_than_or_equal",
+          value: "2026-01-01",
+          comparison: "date",
+        },
+      },
+      rows: [
+        expect.objectContaining({ order_id: "1", order_date: "2026-01-15" }),
+        expect.objectContaining({ order_id: "3", order_date: "1/5/2026" }),
+      ],
+    });
+    expect(JSON.stringify(result)).not.toContain("3/25/2024");
+
+    await expect(
+      queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "table_filter",
+        filterColumn: "order_date",
+        filterOperator: "equals",
+        filterValue: "2026-01-05",
+      }),
+    ).resolves.toMatchObject({
+      receipt: { matchedRows: 1, unparseableRows: 3 },
+      rows: [expect.objectContaining({ order_id: "3", order_date: "1/5/2026" })],
+    });
+  });
+
+  it("preserves scalar comparison when the target column has no date values", async () => {
+    const resource = textResource(
+      "labels.csv",
+      ["id,label", "1,before", "2,release-2026-01-01"].join("\n"),
+      "spreadsheet",
+    );
+
+    await expect(
+      queryConversationResource(resource, {
+        resourceId: resource.id,
+        operation: "table_filter",
+        filterColumn: "label",
+        filterOperator: "equals",
+        filterValue: "2026-01-01",
+      }),
+    ).resolves.toMatchObject({
+      receipt: {
+        matchedRows: 0,
+        filter: { comparison: "scalar" },
+      },
+      rows: [],
+    });
+  });
+
   it("reads every XLSX row and every sheet before reporting an aggregate", async () => {
     const workbook = new ExcelJS.Workbook();
     const first = workbook.addWorksheet("First");
@@ -496,6 +983,65 @@ describe.sequential("complete conversation resource adapters (#576)", () => {
       column: "revenue",
       aggregate: "sum",
     });
+    expect(
+      parseConversationResourceQueryInput({
+        resourceId: "resource-1",
+        operation: "table_aggregate",
+        aggregate: "count",
+        filterLogic: "or",
+        filters: [
+          { column: "region", operator: "equals", value: "East" },
+          { column: "refunded", operator: "equals", value: true },
+        ],
+        groupByColumn: "order_date",
+        groupByDatePart: "month",
+      }),
+    ).toMatchObject({
+      filterLogic: "or",
+      filters: [
+        { column: "region", operator: "equals", value: "East" },
+        { column: "refunded", operator: "equals", value: true },
+      ],
+      groupByColumn: "order_date",
+      groupByDatePart: "month",
+    });
+    expect(() =>
+      parseConversationResourceQueryInput({
+        resourceId: "resource-1",
+        operation: "table_filter",
+        filters: Array.from({ length: 4 }, () => ({
+          column: "region",
+          operator: "equals",
+          value: "East",
+        })),
+      }),
+    ).toThrow(/between 1 and 3 predicates/i);
+    expect(() =>
+      parseConversationResourceQueryInput({
+        resourceId: "resource-1",
+        operation: "table_filter",
+        filterColumn: "region",
+        filterOperator: "equals",
+        filterValue: "East",
+        filters: [{ column: "region", operator: "equals", value: "West" }],
+      }),
+    ).toThrow(/either filters or filterColumn/i);
+    expect(() =>
+      parseConversationResourceQueryInput({
+        resourceId: "resource-1",
+        operation: "table_aggregate",
+        aggregate: "count",
+        filterLogic: "or",
+      }),
+    ).toThrow(/filterLogic requires at least one filter/i);
+    expect(() =>
+      parseConversationResourceQueryInput({
+        resourceId: "resource-1",
+        operation: "table_aggregate",
+        aggregate: "count",
+        groupByColumn: "   ",
+      }),
+    ).toThrow(/groupByColumn must be a non-empty string/i);
   });
 });
 

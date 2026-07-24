@@ -1,27 +1,30 @@
 import { apps, getDb } from "@ai-workspace/db";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import {
   auditAppMutation,
   createAppVersionForArtifact,
-  findCredentialShapedContent,
+  deployAppVersion,
   insertAppWithUniqueSlug,
   isCompleteHtmlArtifact,
   isServableArtifact,
   listAppSharesWithRoles,
   parseAppInput,
+  scanArtifactForSecrets,
 } from "@/lib/apps";
+import { parseRequestedPublicationMode } from "@/lib/app-publication";
 import { loadWorkspaceArtifactForUser } from "@/lib/workspace-artifacts";
+import { parseDataBindings } from "@/lib/app-data-bindings";
+import { capturePostHogEvent } from "@/lib/posthog-server";
 
 export const dynamic = "force-dynamic";
 
 /** List apps: mine plus shared with me. */
 export async function GET() {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   const db = getDb();
   const mine = await db
@@ -62,15 +65,14 @@ export async function GET() {
 }
 
 /**
- * Register an app from a chat-generated artifact and deploy it in one step.
+ * Register an app from a chat-generated artifact and publish it in one step.
  * The artifact must be the caller's own, servable HTML, and pass the
  * no-secrets scan (FR-014) before anything is persisted.
  */
 export async function POST(req: Request) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   let body: unknown;
   try {
@@ -93,6 +95,18 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+  const dataMode = parseRequestedPublicationMode(
+    (body as Record<string, unknown>).dataMode,
+  );
+  if (!dataMode) {
+    return NextResponse.json(
+      {
+        error: "invalid_data_mode",
+        message: "Data mode must be snapshot or live_via_viewer.",
+      },
+      { status: 400 },
+    );
+  }
 
   const db = getDb();
   const artifact = await loadWorkspaceArtifactForUser({
@@ -108,17 +122,30 @@ export async function POST(req: Request) {
       {
         error: "artifact_not_servable",
         message:
-          "Only complete self-contained HTML documents can be deployed as apps.",
+          "Only complete self-contained HTML documents can be published as apps.",
       },
       { status: 422 },
     );
   }
-  const secretFindings = findCredentialShapedContent(artifact.content);
+  if (
+    dataMode === "live_via_viewer" &&
+    parseDataBindings(artifact.metadata).length === 0
+  ) {
+    return NextResponse.json(
+      {
+        error: "live_data_unavailable",
+        message:
+          "This artifact has no supported data bindings. Publish it as a snapshot.",
+      },
+      { status: 422 },
+    );
+  }
+  const secretFindings = scanArtifactForSecrets(artifact);
   if (secretFindings.length > 0) {
     return NextResponse.json(
       {
         error: "credential_shaped_content",
-        message: `Deploy blocked: the document appears to contain ${secretFindings.join(
+        message: `Publish blocked: the document appears to contain ${secretFindings.join(
           " and ",
         )}. Remove credentials and try again — secrets belong in Secrets Manager, never in app content.`,
       },
@@ -130,8 +157,8 @@ export async function POST(req: Request) {
     name: parsed.input.name,
     description: parsed.input.description,
     ownerUserId: sessionUser.id,
-    liveArtifactId: artifact.id,
-    status: "deployed",
+    liveArtifactId: null,
+    status: "draft",
     sourceThreadId: artifact.threadId,
   });
   const initialVersion = await createAppVersionForArtifact({
@@ -139,15 +166,27 @@ export async function POST(req: Request) {
     app,
     artifactId: artifact.id,
     createdByUserId: sessionUser.id,
-    status: "deployed",
-    summary: artifact.versionSummary ?? "Initial deployed app version.",
-    deployedAt: new Date(),
+    status: "draft",
+    summary: artifact.versionSummary ?? "Initial published app version.",
+    deployedAt: null,
   });
-  const updated = await db
-    .update(apps)
-    .set({ liveVersionId: initialVersion.id, updatedAt: new Date() })
-    .where(eq(apps.id, app.id))
-    .returning();
+  let published;
+  try {
+    published = await deployAppVersion({
+      db,
+      app,
+      version: initialVersion,
+      actorUserId: sessionUser.id,
+      dataMode,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Could not publish the app.";
+    return NextResponse.json(
+      { error: "publish_failed", message },
+      { status: 422 },
+    );
+  }
 
   await auditAppMutation({
     db,
@@ -159,11 +198,18 @@ export async function POST(req: Request) {
       artifactId: artifact.id,
       appVersionId: initialVersion.id,
       sourceThreadId: artifact.threadId,
+      dataMode,
     },
   });
 
+  capturePostHogEvent({
+    distinctId: sessionUser.id,
+    event: "app_registered",
+    properties: { app_id: app.id },
+  });
+
   return NextResponse.json(
-    { app: updated[0] ?? app, url: `/apps/${app.slug}` },
+    { app: published, url: `/apps/${app.slug}` },
     { status: 201 },
   );
 }

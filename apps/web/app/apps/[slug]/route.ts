@@ -1,6 +1,10 @@
-import { apps, getDb } from "@ai-workspace/db";
+import { apps, getDb, users } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { auditAppMutation, canActorOpenApp, getLiveAppVersion } from "@/lib/apps";
 import { parseDataBindings } from "@/lib/app-data-bindings";
@@ -8,6 +12,12 @@ import {
   buildAppDataBootstrap,
   injectAppDataBootstrap,
 } from "@/lib/app-data-bootstrap";
+import {
+  injectAppPublicationBadge,
+  isBindingIncludedInPublication,
+  isPublicationManifestEnabled,
+  resolveAppPublication,
+} from "@/lib/app-publication";
 import { loadWorkspaceArtifactById } from "@/lib/workspace-artifacts";
 
 export const dynamic = "force-dynamic";
@@ -53,11 +63,12 @@ export async function GET(
 
   const db = getDb();
   const rows = await db
-    .select()
+    .select({ app: apps, ownerName: users.displayName })
     .from(apps)
+    .innerJoin(users, eq(apps.ownerUserId, users.id))
     .where(eq(apps.slug, slug))
     .limit(1);
-  const app = rows[0];
+  const app = rows[0]?.app;
   if (!app) {
     return new NextResponse("Not found", { status: 404 });
   }
@@ -94,31 +105,73 @@ export async function GET(
     });
   }
 
+  await auditAdminDataAccess({
+    db,
+    actor: sessionUser,
+    access: {
+      targetUserId: app.ownerUserId,
+      resourceType: "workspace_artifact",
+      resourceId: artifact.id,
+      surface: "deployed_app",
+      justification: adminDataAccessJustification(req),
+    },
+  });
+
   const bindings = parseDataBindings(artifact.metadata);
-  const body =
-    bindings.length > 0
+  const publication = resolveAppPublication(
+    artifact.metadata,
+    liveVersion?.deployedAt ?? artifact.updatedAt,
+    app.ownerUserId,
+  ).metadata;
+  if (publication.dataMode === "service_backed") {
+    return new NextResponse(
+      "This app uses a publication mode that is not available yet.",
+      { status: 503 },
+    );
+  }
+  if (
+    publication.dataMode === "live_via_viewer" &&
+    !(await isPublicationManifestEnabled(db, publication))
+  ) {
+    return new NextResponse(
+      "This app's live data connector is unavailable. Contact a workspace administrator.",
+      { status: 503 },
+    );
+  }
+  const withRuntime =
+    publication.dataMode === "live_via_viewer"
       ? injectAppDataBootstrap(
           artifact.content,
           buildAppDataBootstrap(
             app.id,
             // Allowlist, never omit-the-secret: fields added to DataBinding
             // later stay server-side unless deliberately exposed here.
-            bindings.map((binding) => ({
-              id: binding.id,
-              provider: binding.provider,
-              kind: binding.kind,
-              ...(binding.label ? { label: binding.label } : {}),
-            })),
+            bindings
+              .filter((binding) =>
+                isBindingIncludedInPublication(publication, binding),
+              )
+              .map((binding) => ({
+                id: binding.id,
+                provider: binding.provider,
+                kind: binding.kind,
+                ...(binding.label ? { label: binding.label } : {}),
+              })),
           ),
         )
       : artifact.content;
+  const body = injectAppPublicationBadge(withRuntime, {
+    publication,
+    authorName: rows[0]?.ownerName ?? "Comparative user",
+  });
 
   return new NextResponse(body, {
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",
       "content-security-policy":
-        bindings.length > 0 ? APP_CSP_WITH_DATA : APP_CSP,
+        publication.dataMode === "live_via_viewer"
+          ? APP_CSP_WITH_DATA
+          : APP_CSP,
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
       "cache-control": "private, no-store",

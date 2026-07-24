@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fetchJson } from "@/lib/client-api";
 
 /** Admin-only one-click idempotent starter seeding (T207). */
 export function SeedStartersButton() {
@@ -13,18 +14,14 @@ export function SeedStartersButton() {
     setBusy(true);
     setNotice(null);
     try {
-      const res = await fetch("/api/skills/seed", { method: "POST" });
-      const body = (await res.json()) as {
-        created?: string[];
-        error?: string;
-      };
-      if (res.ok) {
-        router.refresh();
-        return;
-      }
-      setNotice(body.error ?? "Seeding failed.");
-    } catch {
-      setNotice("Seeding failed.");
+      await fetchJson(
+        "/api/skills/seed",
+        { method: "POST" },
+        "Seeding failed.",
+      );
+      router.refresh();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Seeding failed.");
     } finally {
       setBusy(false);
     }

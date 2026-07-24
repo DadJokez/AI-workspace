@@ -1,7 +1,11 @@
 import { apps, getDb } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import {
+  adminDataAccessJustification,
+  auditAdminDataAccess,
+} from "@/lib/admin-data-access";
+import { requireSession } from "@/lib/auth/requireSession";
 import {
   auditAppMutation,
   canActorOpenApp,
@@ -9,6 +13,11 @@ import {
 } from "@/lib/apps";
 import { loadWorkspaceArtifactById } from "@/lib/workspace-artifacts";
 import { findDataBinding } from "@/lib/app-data-bindings";
+import {
+  isBindingIncludedInPublication,
+  isPublicationManifestEnabled,
+  resolveAppPublication,
+} from "@/lib/app-publication";
 import { checkRateLimit } from "@/lib/request-limits";
 import { resolveSalesforceConnection } from "@/lib/oauth/salesforce-token";
 import { buildSalesforceTurnContext } from "@/lib/salesforce/authorization";
@@ -43,13 +52,12 @@ const DATA_JSON_HEADERS = {
  * server foundation and is exercised directly by tests.
  */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string; bindingId: string }> },
 ) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
   const { id, bindingId } = await params;
   const db = getDb();
 
@@ -72,6 +80,18 @@ export async function GET(
     });
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
+
+  await auditAdminDataAccess({
+    db,
+    actor: sessionUser,
+    access: {
+      targetUserId: app.ownerUserId,
+      resourceType: "app",
+      resourceId: app.id,
+      surface: "app_data",
+      justification: adminDataAccessJustification(req),
+    },
+  });
 
   // Per-viewer + per-app rate limit (Postgres-backed, holds across instances).
   const limit = await checkRateLimit(
@@ -104,10 +124,33 @@ export async function GET(
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
   const artifact = await loadWorkspaceArtifactById({ db, artifactId });
+  const publication = artifact
+    ? resolveAppPublication(
+        artifact.metadata,
+        liveVersion?.deployedAt ?? artifact.updatedAt,
+        app.ownerUserId,
+      ).metadata
+    : null;
   const binding = artifact
     ? findDataBinding(artifact.metadata, bindingId)
     : null;
-  if (!binding) {
+  if (
+    !publication ||
+    !binding ||
+    publication.dataMode !== "live_via_viewer" ||
+    !isBindingIncludedInPublication(publication, binding) ||
+    !(await isPublicationManifestEnabled(db, publication))
+  ) {
+    await auditAppMutation({
+      db,
+      actorUserId: sessionUser.id,
+      actionType: "app_data_denied",
+      appId: app.id,
+      appSlug: app.slug,
+      status: "denied",
+      error: "Published app does not have an enabled live-via-viewer manifest.",
+      metadata: { bindingId },
+    });
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 

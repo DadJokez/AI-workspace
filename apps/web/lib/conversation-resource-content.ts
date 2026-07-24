@@ -26,6 +26,36 @@ export const RESOURCE_QUERY_OPERATIONS = [
 export type ResourceQueryOperation =
   (typeof RESOURCE_QUERY_OPERATIONS)[number];
 
+export type TableAggregate =
+  | "sum"
+  | "average"
+  | "min"
+  | "max"
+  | "count"
+  | "distinct_count";
+export type TableFilterOperator =
+  | "equals"
+  | "not_equals"
+  | "contains"
+  | "greater_than"
+  | "greater_than_or_equal"
+  | "less_than"
+  | "less_than_or_equal";
+export type TableFilterLogic = "and" | "or";
+export type TableDatePart =
+  | "year"
+  | "quarter"
+  | "month"
+  | "week"
+  | "day_of_week"
+  | "is_weekend";
+
+export interface TableFilterPredicate {
+  column: string;
+  operator: TableFilterOperator;
+  value: string | number | boolean;
+}
+
 export interface ConversationResourceQueryInput {
   resourceId: string;
   operation: ResourceQueryOperation;
@@ -35,17 +65,14 @@ export interface ConversationResourceQueryInput {
   length?: number;
   sheet?: string;
   column?: string;
-  aggregate?: "sum" | "average" | "min" | "max" | "count" | "distinct_count";
+  aggregate?: TableAggregate;
+  filters?: TableFilterPredicate[];
+  filterLogic?: TableFilterLogic;
   filterColumn?: string;
-  filterOperator?:
-    | "equals"
-    | "not_equals"
-    | "contains"
-    | "greater_than"
-    | "greater_than_or_equal"
-    | "less_than"
-    | "less_than_or_equal";
-  filterValue?: string | number;
+  filterOperator?: TableFilterOperator;
+  filterValue?: string | number | boolean;
+  groupByColumn?: string;
+  groupByDatePart?: TableDatePart;
   sortColumn?: string;
   sortDirection?: "asc" | "desc";
   limit?: number;
@@ -78,6 +105,8 @@ const DEFAULT_TEXT_LENGTH = 8_000;
 const MAX_TEXT_LENGTH = 16_000;
 const DEFAULT_RESULT_LIMIT = 20;
 const MAX_RESULT_LIMIT = 25;
+const MAX_FILTER_PREDICATES = 3;
+const MAX_GROUP_RESULTS = 100;
 const MAX_OUTPUT_COLUMNS = 25;
 const MAX_CELL_CHARS = 250;
 
@@ -190,6 +219,40 @@ export function parseConversationResourceQueryInput(
       `operation must be one of: ${RESOURCE_QUERY_OPERATIONS.join(", ")}.`,
     );
   }
+  const filters = parseFilterPredicates(value.filters);
+  const hasLegacyFilter =
+    value.filterColumn !== undefined ||
+    value.filterOperator !== undefined ||
+    value.filterValue !== undefined;
+  if (filters && hasLegacyFilter) {
+    throw new Error(
+      "Use either filters or filterColumn/filterOperator/filterValue, not both.",
+    );
+  }
+  if (
+    value.filterLogic !== undefined &&
+    value.filterLogic !== "and" &&
+    value.filterLogic !== "or"
+  ) {
+    throw new Error('filterLogic must be "and" or "or".');
+  }
+  if (value.filterLogic !== undefined && !filters && !hasLegacyFilter) {
+    throw new Error("filterLogic requires at least one filter predicate.");
+  }
+  if (
+    value.groupByColumn !== undefined &&
+    (typeof value.groupByColumn !== "string" || !value.groupByColumn.trim())
+  ) {
+    throw new Error("groupByColumn must be a non-empty string.");
+  }
+  if (
+    value.groupByDatePart !== undefined &&
+    !isTableDatePart(value.groupByDatePart)
+  ) {
+    throw new Error(
+      "groupByDatePart must be year, quarter, month, week, day_of_week, or is_weekend.",
+    );
+  }
   return {
     resourceId: value.resourceId,
     operation: value.operation as ResourceQueryOperation,
@@ -215,6 +278,10 @@ export function parseConversationResourceQueryInput(
     value.aggregate === "distinct_count"
       ? { aggregate: value.aggregate }
       : {}),
+    ...(filters ? { filters } : {}),
+    ...(value.filterLogic === "and" || value.filterLogic === "or"
+      ? { filterLogic: value.filterLogic }
+      : {}),
     ...(typeof value.filterColumn === "string"
       ? { filterColumn: value.filterColumn }
       : {}),
@@ -228,8 +295,15 @@ export function parseConversationResourceQueryInput(
       ? { filterOperator: value.filterOperator }
       : {}),
     ...(typeof value.filterValue === "string" ||
-    typeof value.filterValue === "number"
+    typeof value.filterValue === "number" ||
+    typeof value.filterValue === "boolean"
       ? { filterValue: value.filterValue }
+      : {}),
+    ...(typeof value.groupByColumn === "string"
+      ? { groupByColumn: value.groupByColumn }
+      : {}),
+    ...(isTableDatePart(value.groupByDatePart)
+      ? { groupByDatePart: value.groupByDatePart }
       : {}),
     ...(typeof value.sortColumn === "string"
       ? { sortColumn: value.sortColumn }
@@ -241,6 +315,71 @@ export function parseConversationResourceQueryInput(
       ? { limit: finiteNumber(value.limit)! }
       : {}),
   };
+}
+
+function parseFilterPredicates(
+  value: unknown,
+): TableFilterPredicate[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error("filters must be an array.");
+  }
+  if (value.length === 0 || value.length > MAX_FILTER_PREDICATES) {
+    throw new Error(
+      `filters must contain between 1 and ${MAX_FILTER_PREDICATES} predicates.`,
+    );
+  }
+  return value.map((item) => {
+    if (
+      !isRecord(item) ||
+      typeof item.column !== "string" ||
+      !item.column.trim() ||
+      !isTableFilterOperator(item.operator) ||
+      !isFilterValue(item.value)
+    ) {
+      throw new Error(
+        "Each filter requires column, operator, and a string, number, or boolean value.",
+      );
+    }
+    return {
+      column: item.column,
+      operator: item.operator,
+      value: item.value,
+    };
+  });
+}
+
+function isTableFilterOperator(value: unknown): value is TableFilterOperator {
+  return (
+    value === "equals" ||
+    value === "not_equals" ||
+    value === "contains" ||
+    value === "greater_than" ||
+    value === "greater_than_or_equal" ||
+    value === "less_than" ||
+    value === "less_than_or_equal"
+  );
+}
+
+function isFilterValue(
+  value: unknown,
+): value is string | number | boolean {
+  return (
+    typeof value === "string" ||
+    (typeof value === "number" && Number.isFinite(value)) ||
+    typeof value === "boolean"
+  );
+}
+
+function isTableDatePart(value: unknown): value is TableDatePart {
+  return (
+    value === "year" ||
+    value === "quarter" ||
+    value === "month" ||
+    value === "week" ||
+    value === "day_of_week" ||
+    value === "is_weekend"
+  );
 }
 
 async function extractAddressableText(
@@ -435,6 +574,7 @@ function queryTabularDataset(
   receipt: Record<string, unknown>,
 ): Record<string, unknown> {
   const sheets = selectSheets(dataset, input.sheet);
+  validateTabularOperationInput(input);
   const scannedRows = sheets.reduce(
     (total, sheet) => total + Math.max(0, sheet.rows.length - 1),
     0,
@@ -525,50 +665,268 @@ function aggregateDataset(
   receipt: Record<string, unknown>,
 ): Record<string, unknown> {
   const aggregate = input.aggregate ?? "count";
-  if (aggregate === "count" && !input.column) {
-    const value = sheets.reduce(
-      (total, sheet) => total + Math.max(0, sheet.rows.length - 1),
-      0,
-    );
-    return {
-      kind: "conversation_resource_result",
-      receipt: { ...receipt, resultCoverage: "full" },
-      aggregate,
-      value,
-    };
-  }
-  if (!input.column) {
+  if (aggregate !== "count" && !input.column) {
     throw new Error("column is required for this aggregate.");
   }
-
-  const values: string[] = [];
-  for (const sheet of sheets) {
-    const index = columnIndex(sheet, input.column);
-    for (const row of sheet.rows.slice(1)) values.push(row[index] ?? "");
+  if (input.column) {
+    for (const sheet of sheets) columnIndex(sheet, input.column);
   }
+  if (input.groupByColumn !== undefined && !input.groupByColumn.trim()) {
+    throw new Error("groupByColumn must be a non-empty string.");
+  }
+  if (input.groupByDatePart && !input.groupByColumn) {
+    throw new Error("groupByColumn is required when groupByDatePart is set.");
+  }
+  const selection = selectRowsByFilters(sheets, input);
+  if (input.groupByColumn) {
+    return aggregateGroupedRows(
+      sheets,
+      selection,
+      input,
+      aggregate,
+      receipt,
+    );
+  }
+
+  const summary = summarizeAggregate(
+    selection.rows,
+    aggregate,
+    input.column,
+    false,
+  );
+  return {
+    kind: "conversation_resource_result",
+    receipt: {
+      ...receipt,
+      resultCoverage: "full",
+      ...filterReceipt(selection),
+    },
+    aggregate,
+    ...(input.column ? { column: input.column } : {}),
+    ...summary,
+  };
+}
+
+interface SelectedTableRow {
+  sheet: TabularSheet;
+  headers: string[];
+  row: string[];
+  filterColumnIndexes: number[];
+}
+
+interface FilterSelection {
+  rows: SelectedTableRow[];
+  predicates: TableFilterPredicate[];
+  comparisons: Array<"scalar" | "date">;
+  logic: TableFilterLogic;
+  unparseableRows: number;
+}
+
+interface AggregateSummary {
+  value: number | null;
+  numericValues?: number;
+  inspectedValues?: number;
+}
+
+function selectRowsByFilters(
+  sheets: readonly TabularSheet[],
+  input: ConversationResourceQueryInput,
+  requireFilter = false,
+): FilterSelection {
+  const predicates = normalizedFilterPredicates(input, requireFilter);
+  const logic = input.filterLogic ?? "and";
+  const preparedSheets = sheets.map((sheet) => ({
+    sheet,
+    headers: headerForSheet(sheet),
+    filterColumnIndexes: predicates.map((predicate) =>
+      columnIndex(sheet, predicate.column),
+    ),
+  }));
+  const dateExpected = predicates.map((predicate, predicateIndex) =>
+    resolveDateFilterExpected(
+      preparedSheets.map(({ sheet, filterColumnIndexes }) => ({
+        sheet,
+        filterColumnIndex: filterColumnIndexes[predicateIndex]!,
+      })),
+      predicate.operator,
+      predicate.value,
+    ),
+  );
+  const rows: SelectedTableRow[] = [];
+  let unparseableRows = 0;
+
+  for (const prepared of preparedSheets) {
+    for (const row of prepared.sheet.rows.slice(1)) {
+      let rowHadUnparseableDate = false;
+      const matches = predicates.map((predicate, predicateIndex) => {
+        const actual = row[prepared.filterColumnIndexes[predicateIndex]!] ?? "";
+        const expectedDate = dateExpected[predicateIndex] ?? null;
+        if (expectedDate === null) {
+          return compareFilter(actual, predicate.operator, predicate.value);
+        }
+        const actualDate = parseDateCell(actual);
+        if (actualDate === null) {
+          rowHadUnparseableDate = true;
+          return false;
+        }
+        return compareOrderedValues(
+          actualDate,
+          predicate.operator,
+          expectedDate,
+        );
+      });
+      if (rowHadUnparseableDate) unparseableRows += 1;
+      if (
+        predicates.length === 0 ||
+        (logic === "and" ? matches.every(Boolean) : matches.some(Boolean))
+      ) {
+        rows.push({
+          sheet: prepared.sheet,
+          headers: prepared.headers,
+          row,
+          filterColumnIndexes: prepared.filterColumnIndexes,
+        });
+      }
+    }
+  }
+
+  return {
+    rows,
+    predicates,
+    comparisons: dateExpected.map((value) =>
+      value === null ? "scalar" : "date",
+    ),
+    logic,
+    unparseableRows,
+  };
+}
+
+function normalizedFilterPredicates(
+  input: ConversationResourceQueryInput,
+  required: boolean,
+): TableFilterPredicate[] {
+  const hasLegacyFilter =
+    input.filterColumn !== undefined ||
+    input.filterOperator !== undefined ||
+    input.filterValue !== undefined;
+  if (input.filters && hasLegacyFilter) {
+    throw new Error(
+      "Use either filters or filterColumn/filterOperator/filterValue, not both.",
+    );
+  }
+  if (input.filterLogic !== undefined && !input.filters && !hasLegacyFilter) {
+    throw new Error("filterLogic requires at least one filter predicate.");
+  }
+  if (input.filters) {
+    if (
+      input.filters.length === 0 ||
+      input.filters.length > MAX_FILTER_PREDICATES
+    ) {
+      throw new Error(
+        `filters must contain between 1 and ${MAX_FILTER_PREDICATES} predicates.`,
+      );
+    }
+    return input.filters;
+  }
+  if (hasLegacyFilter) {
+    if (
+      !input.filterColumn ||
+      !input.filterOperator ||
+      input.filterValue === undefined
+    ) {
+      throw new Error(
+        "filterColumn, filterOperator, and filterValue are required.",
+      );
+    }
+    return [
+      {
+        column: input.filterColumn,
+        operator: input.filterOperator,
+        value: input.filterValue,
+      },
+    ];
+  }
+  if (required) {
+    throw new Error(
+      "filters or filterColumn/filterOperator/filterValue are required.",
+    );
+  }
+  return [];
+}
+
+function filterReceipt(selection: FilterSelection): Record<string, unknown> {
+  if (selection.predicates.length === 0) return {};
+  const predicates = selection.predicates.map((predicate, index) => ({
+    ...predicate,
+    comparison: selection.comparisons[index],
+  }));
+  return {
+    matchedRows: selection.rows.length,
+    ...(selection.unparseableRows > 0
+      ? {
+          unparseableRows: selection.unparseableRows,
+          warnings: [
+            selection.predicates.length === 1 && selection.logic === "and"
+              ? `${selection.unparseableRows} row${selection.unparseableRows === 1 ? "" : "s"} could not be parsed as dates and were excluded.`
+              : `${selection.unparseableRows} row${selection.unparseableRows === 1 ? "" : "s"} contained an unparseable date value; that predicate evaluated false.`,
+          ],
+        }
+      : {}),
+    filters: {
+      logic: selection.logic,
+      predicates,
+    },
+    ...(predicates.length === 1 ? { filter: predicates[0] } : {}),
+  };
+}
+
+function summarizeAggregate(
+  rows: readonly SelectedTableRow[],
+  aggregate: TableAggregate,
+  column: string | undefined,
+  allowNoNumericValues: boolean,
+): AggregateSummary {
+  if (!column) {
+    return { value: rows.length };
+  }
+  const indexes = new Map(
+    Array.from(new Set(rows.map((item) => item.sheet))).map((sheet) => [
+      sheet,
+      columnIndex(sheet, column),
+    ]),
+  );
+  const values = rows.map(
+    (item) => item.row[indexes.get(item.sheet)!] ?? "",
+  );
   if (aggregate === "distinct_count") {
     return {
-      kind: "conversation_resource_result",
-      receipt: { ...receipt, resultCoverage: "full" },
-      aggregate,
-      column: input.column,
       value: new Set(values).size,
       inspectedValues: values.length,
     };
   }
   if (aggregate === "count") {
     return {
-      kind: "conversation_resource_result",
-      receipt: { ...receipt, resultCoverage: "full" },
-      aggregate,
-      column: input.column,
       value: values.filter((value) => value !== "").length,
       inspectedValues: values.length,
     };
   }
   const numbers = values.map(parseNumericCell).filter(isFiniteNumber);
   if (numbers.length === 0) {
-    throw new Error(`Column "${input.column}" has no numeric values.`);
+    if (rows.length === 0) {
+      return {
+        value: aggregate === "sum" ? 0 : null,
+        numericValues: 0,
+        inspectedValues: 0,
+      };
+    }
+    if (allowNoNumericValues) {
+      return {
+        value: null,
+        numericValues: 0,
+        inspectedValues: values.length,
+      };
+    }
+    throw new Error(`Column "${column}" has no numeric values.`);
   }
   const value =
     aggregate === "sum"
@@ -583,14 +941,218 @@ function aggregateDataset(
             numbers[0]!,
           );
   return {
-    kind: "conversation_resource_result",
-    receipt: { ...receipt, resultCoverage: "full" },
-    aggregate,
-    column: input.column,
     value,
     numericValues: numbers.length,
     inspectedValues: values.length,
   };
+}
+
+function aggregateGroupedRows(
+  sheets: readonly TabularSheet[],
+  selection: FilterSelection,
+  input: ConversationResourceQueryInput,
+  aggregate: TableAggregate,
+  receipt: Record<string, unknown>,
+): Record<string, unknown> {
+  const groupColumn = input.groupByColumn!;
+  const groupIndexes = new Map(
+    sheets.map((sheet) => [sheet, columnIndex(sheet, groupColumn)]),
+  );
+  const groups = new Map<
+    string,
+    {
+      key: string | boolean;
+      sortKey: string | number;
+      rows: SelectedTableRow[];
+    }
+  >();
+  let unparseableGroupRows = 0;
+  for (const row of selection.rows) {
+    const rawKey = row.row[groupIndexes.get(row.sheet)!] ?? "";
+    const derived = input.groupByDatePart
+      ? deriveDateGroup(rawKey, input.groupByDatePart)
+      : { key: rawKey, sortKey: rawKey.toLowerCase() };
+    if (!derived) {
+      unparseableGroupRows += 1;
+      continue;
+    }
+    const id = `${typeof derived.key}:${String(derived.key)}`;
+    const group = groups.get(id) ?? {
+      key: derived.key,
+      sortKey: derived.sortKey,
+      rows: [],
+    };
+    group.rows.push(row);
+    groups.set(id, group);
+  }
+
+  const allGroups = Array.from(groups.values())
+    .sort((left, right) =>
+      typeof left.sortKey === "number" && typeof right.sortKey === "number"
+        ? left.sortKey - right.sortKey
+        : String(left.sortKey).localeCompare(String(right.sortKey), undefined, {
+            numeric: true,
+            sensitivity: "base",
+          }),
+    )
+    .map((group) => ({
+      key: group.key,
+      rowCount: group.rows.length,
+      ...summarizeAggregate(group.rows, aggregate, input.column, true),
+    }));
+  const limit = clampInteger(
+    input.limit,
+    MAX_GROUP_RESULTS,
+    1,
+    MAX_GROUP_RESULTS,
+  );
+  const returnedGroups = allGroups.slice(0, limit);
+  const groupsWithoutNumericValues = allGroups.filter(
+    (group) => group.value === null,
+  ).length;
+  const filterMetadata = filterReceipt(selection);
+  const filterWarnings = Array.isArray(filterMetadata.warnings)
+    ? (filterMetadata.warnings as string[])
+    : [];
+  const warnings = [
+    ...filterWarnings,
+    ...(unparseableGroupRows > 0
+      ? [
+          `${unparseableGroupRows} row${unparseableGroupRows === 1 ? "" : "s"} could not be parsed for ${input.groupByDatePart} grouping and were excluded.`,
+        ]
+      : []),
+    ...(groupsWithoutNumericValues > 0
+      ? [
+          `${groupsWithoutNumericValues} group${groupsWithoutNumericValues === 1 ? "" : "s"} had no numeric values for ${input.column}.`,
+        ]
+      : []),
+  ];
+
+  return {
+    kind: "conversation_resource_result",
+    receipt: {
+      ...receipt,
+      ...filterMetadata,
+      resultCoverage:
+        allGroups.length > returnedGroups.length ? "partial" : "full",
+      groupedRows: selection.rows.length - unparseableGroupRows,
+      totalGroups: allGroups.length,
+      returnedGroups: returnedGroups.length,
+      unparseableGroupRows,
+      groupsWithoutNumericValues,
+      groupBy: {
+        column: groupColumn,
+        ...(input.groupByDatePart
+          ? { datePart: input.groupByDatePart }
+          : {}),
+      },
+      ...(warnings.length > 0 ? { warnings } : {}),
+    },
+    aggregate,
+    ...(input.column ? { column: input.column } : {}),
+    groupBy: {
+      column: groupColumn,
+      ...(input.groupByDatePart ? { datePart: input.groupByDatePart } : {}),
+    },
+    groups: returnedGroups,
+  };
+}
+
+function deriveDateGroup(
+  value: string,
+  datePart: TableDatePart,
+): { key: string | boolean; sortKey: number } | null {
+  const epochDay = parseDateCell(value);
+  if (epochDay === null) return null;
+  const date = new Date(epochDay * 86_400_000);
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + 1;
+  if (datePart === "year") {
+    return { key: String(year), sortKey: year };
+  }
+  if (datePart === "quarter") {
+    const quarter = Math.floor((month - 1) / 3) + 1;
+    return { key: `${year}-Q${quarter}`, sortKey: year * 4 + quarter };
+  }
+  if (datePart === "month") {
+    return {
+      key: `${year}-${String(month).padStart(2, "0")}`,
+      sortKey: year * 12 + month,
+    };
+  }
+  if (datePart === "week") {
+    const week = isoWeek(date);
+    return {
+      key: `${week.year}-W${String(week.week).padStart(2, "0")}`,
+      sortKey: week.year * 100 + week.week,
+    };
+  }
+  const day = date.getUTCDay();
+  if (datePart === "day_of_week") {
+    const names = [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ];
+    return {
+      key: names[day]!,
+      sortKey: day === 0 ? 7 : day,
+    };
+  }
+  const weekend = day === 0 || day === 6;
+  return { key: weekend, sortKey: weekend ? 1 : 0 };
+}
+
+function isoWeek(date: Date): { year: number; week: number } {
+  const target = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+  );
+  const day = (target.getUTCDay() + 6) % 7;
+  target.setUTCDate(target.getUTCDate() - day + 3);
+  const year = target.getUTCFullYear();
+  const firstThursday = new Date(Date.UTC(year, 0, 4));
+  const firstDay = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDay + 3);
+  return {
+    year,
+    week:
+      1 +
+      Math.round(
+        (target.getTime() - firstThursday.getTime()) /
+          (7 * 86_400_000),
+      ),
+  };
+}
+
+function validateTabularOperationInput(
+  input: ConversationResourceQueryInput,
+): void {
+  const hasFilters =
+    input.filters !== undefined ||
+    input.filterColumn !== undefined ||
+    input.filterOperator !== undefined ||
+    input.filterValue !== undefined ||
+    input.filterLogic !== undefined;
+  if (
+    hasFilters &&
+    input.operation !== "table_filter" &&
+    input.operation !== "table_aggregate"
+  ) {
+    throw new Error(
+      "Filters are supported only for table_filter or table_aggregate.",
+    );
+  }
+  if (
+    (input.groupByColumn !== undefined ||
+      input.groupByDatePart !== undefined) &&
+    input.operation !== "table_aggregate"
+  ) {
+    throw new Error("Grouping is supported only for table_aggregate.");
+  }
 }
 
 function filterDataset(
@@ -598,50 +1160,23 @@ function filterDataset(
   input: ConversationResourceQueryInput,
   receipt: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (
-    !input.filterColumn ||
-    !input.filterOperator ||
-    input.filterValue === undefined
-  ) {
-    throw new Error(
-      "filterColumn, filterOperator, and filterValue are required.",
-    );
-  }
+  const selection = selectRowsByFilters(sheets, input, true);
   const limit = clampInteger(
     input.limit,
     DEFAULT_RESULT_LIMIT,
     1,
     MAX_RESULT_LIMIT,
   );
-  const rows: Array<Record<string, string>> = [];
-  let matchedRows = 0;
-  for (const sheet of sheets) {
-    const headers = headerForSheet(sheet);
-    const index = columnIndex(sheet, input.filterColumn);
-    for (const row of sheet.rows.slice(1)) {
-      if (
-        compareFilter(
-          row[index] ?? "",
-          input.filterOperator,
-          input.filterValue,
-        )
-      ) {
-        matchedRows += 1;
-        if (rows.length < limit) {
-          rows.push({
-            _sheet: sheet.name,
-            ...rowAsRecord(headers, row, [index]),
-          });
-        }
-      }
-    }
-  }
+  const rows = selection.rows.slice(0, limit).map((item) => ({
+    _sheet: item.sheet.name,
+    ...rowAsRecord(item.headers, item.row, item.filterColumnIndexes),
+  }));
   return {
     kind: "conversation_resource_result",
     receipt: {
       ...receipt,
-      resultCoverage: matchedRows > rows.length ? "partial" : "full",
-      matchedRows,
+      resultCoverage: selection.rows.length > rows.length ? "partial" : "full",
+      ...filterReceipt(selection),
       returnedRows: rows.length,
     },
     rows,
@@ -881,11 +1416,25 @@ function rowAsRecord(
 function compareFilter(
   actual: string,
   operator: NonNullable<ConversationResourceQueryInput["filterOperator"]>,
-  expected: string | number,
+  expected: string | number | boolean,
 ): boolean {
+  if (
+    typeof expected === "boolean" &&
+    operator !== "equals" &&
+    operator !== "not_equals"
+  ) {
+    throw new Error(
+      "Boolean filter values support only equals or not_equals.",
+    );
+  }
+
   const numericActual = parseNumericCell(actual);
   const numericExpected =
-    typeof expected === "number" ? expected : parseNumericCell(expected);
+    typeof expected === "number"
+      ? expected
+      : typeof expected === "string"
+        ? parseNumericCell(expected)
+        : Number.NaN;
   const numeric =
     Number.isFinite(numericActual) && Number.isFinite(numericExpected);
   const left = numeric ? numericActual : actual.toLowerCase();
@@ -895,10 +1444,75 @@ function compareFilter(
   if (operator === "contains") {
     return String(left).includes(String(right));
   }
+  return compareOrderedValues(left, operator, right);
+}
+
+function compareOrderedValues(
+  left: number | string,
+  operator: NonNullable<ConversationResourceQueryInput["filterOperator"]>,
+  right: number | string,
+): boolean {
+  if (operator === "equals") return left === right;
+  if (operator === "not_equals") return left !== right;
+  if (operator === "contains") {
+    return String(left).includes(String(right));
+  }
   if (operator === "greater_than") return left > right;
   if (operator === "greater_than_or_equal") return left >= right;
   if (operator === "less_than") return left < right;
   return left <= right;
+}
+
+function resolveDateFilterExpected(
+  selectedSheets: readonly {
+    sheet: TabularSheet;
+    filterColumnIndex: number;
+  }[],
+  operator: NonNullable<ConversationResourceQueryInput["filterOperator"]>,
+  expected: string | number | boolean,
+): number | null {
+  if (operator === "contains" || typeof expected !== "string") return null;
+  const parsedExpected = parseDateCell(expected);
+  if (parsedExpected === null) return null;
+  const hasDateValue = selectedSheets.some(({ sheet, filterColumnIndex }) =>
+    sheet.rows
+      .slice(1)
+      .some((row) => parseDateCell(row[filterColumnIndex] ?? "") !== null),
+  );
+  return hasDateValue ? parsedExpected : null;
+}
+
+function parseDateCell(value: string): number | null {
+  const normalized = value.trim();
+  const isoMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const usMatch = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  const match = isoMatch ?? usMatch;
+  if (!match) return null;
+  const year = Number(isoMatch ? match[1] : match[3]);
+  const month = Number(isoMatch ? match[2] : match[1]);
+  const day = Number(isoMatch ? match[3] : match[2]);
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
+  const date = new Date(0);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(year, month - 1, day);
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return Math.floor(date.getTime() / 86_400_000);
 }
 
 function compareCells(left: string, right: string): number {

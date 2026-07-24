@@ -14,12 +14,15 @@ import type {
 } from "@ai-workspace/agent-runtime";
 import {
   extractAssistantSources,
+  MODELS,
   serializeActivation,
   type AssistantSource,
+  type ModelId,
 } from "@ai-workspace/agent";
 import {
   buildChatContextPack,
   type ChatContextUploadedFile,
+  type ChatContextWebAccessReceipt,
 } from "@/lib/chat-context-pack";
 import { loadUserCapabilityGraph } from "@/lib/capability-graph";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
@@ -54,6 +57,7 @@ import {
   createDraftAppVersionsForThreadArtifacts,
 } from "@/lib/apps";
 import { shouldPersistAssistantMessage } from "@/lib/assistant-persistence";
+import { persistAssistantMessageOnce } from "@/lib/assistant-message-persistence";
 import {
   appendRunEventBestEffort,
   appendToolCallRunEvent,
@@ -64,17 +68,35 @@ import {
   normalizeRuntimeError,
   type NormalizedRuntimeError,
 } from "@/lib/runtime-errors";
-import type { RuntimeModelSelection } from "@/lib/runtime-model-policy";
+import {
+  applyRuntimeModelFailover,
+  type RuntimeModelSelection,
+} from "@/lib/runtime-model-policy";
+import {
+  runTurnWithModelFailover,
+  type ModelFailoverTransition,
+} from "@/lib/model-failover";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
+import type { RecentToolEvidenceReceipt } from "@/lib/recent-tool-evidence";
 import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
 import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
+import {
+  skillDeclaresWebAccess,
+  skillMcpProviders,
+} from "@/lib/skill-tool-declarations";
+import { loadWebEgressPolicy } from "@/lib/web-egress-policy";
 import { normalizeRuntimeUsage } from "@/lib/runtime-usage";
 import {
   createProviderTraceAccumulator,
   persistProviderTraceCapture,
 } from "@/lib/run-trace";
+import {
+  abortChatWorkerRuntime,
+  chatWorkerAbortReason,
+  type ChatWorkerAbortReason,
+} from "@/lib/chat-worker-abort";
 import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import {
   createArtifactsFromAssistantMessage,
@@ -86,6 +108,13 @@ import {
 } from "@/lib/recommendation-persistence";
 import type { PersistedRecommendation } from "@/lib/recommendations";
 import { createProactiveRunNotification } from "@/lib/notifications";
+import { outputProposalContext } from "@/lib/output-proposals";
+import {
+  completeProposalIteration,
+  outputProposalContextForIteration,
+  proposalIterationFromRunInputs,
+  releaseProposalIteration,
+} from "@/lib/proposal-iterations";
 import {
   revalidateConversationResourceResolution,
   type ConversationResourceResolution,
@@ -96,6 +125,10 @@ import {
   CONVERSATION_RESOURCE_QUERY_TOOL,
   loadSelectedResourceImages,
 } from "@/lib/conversation-resource-runtime";
+import type {
+  ChatRunTimingMetrics,
+  ChatStreamSend,
+} from "@/lib/chat-stream-contract";
 
 /**
  * #442 — the single chat-turn pipeline. Both execution lanes (interactive
@@ -108,8 +141,6 @@ import {
  * divergence is a visible, reviewable decision instead of a hand-sync.
  */
 
-export type ChatStreamSend = (event: Record<string, unknown>) => void;
-
 export type ChatTurnTerminalStatus = "succeeded" | "failed";
 
 export interface ChatRunTimingMarks {
@@ -119,21 +150,6 @@ export interface ChatRunTimingMarks {
   providerStartedAt?: Date;
   firstTokenAt?: Date;
   completedAt?: Date;
-}
-
-export interface ChatRunTimingMetrics {
-  requestStartedAt: string;
-  inlineStartedAt: string;
-  contextReadyAt?: string;
-  providerStartedAt?: string;
-  firstTokenAt?: string;
-  completedAt?: string;
-  requestToInlineMs: number;
-  inlineToContextReadyMs?: number;
-  requestToProviderMs?: number;
-  providerToFirstTokenMs?: number;
-  requestToFirstTokenMs?: number;
-  requestToCompletedMs?: number;
 }
 
 export type ChatTurnLane =
@@ -178,7 +194,9 @@ export interface ExecuteChatTurnInput {
   /** Aborted by the lane shell (browser disconnect, worker timeout/SIGTERM). */
   runtimeAbort: AbortController;
   /** Turn-time validated model id (#300) — both lanes resolve before calling. */
-  modelId: string;
+  modelId: ModelId;
+  /** Enabled, bounded attempt order; the first entry is `modelId`. */
+  modelCandidates?: readonly ModelId[];
   requestedProviders?: string[];
   activeSkillPrompt?: PinnedActiveSkill | null;
   uploadedFiles?: ChatContextUploadedFile[];
@@ -207,7 +225,8 @@ export async function executeChatTurn({
   route,
   runtime,
   runtimeAbort,
-  modelId,
+  modelId: initialModelId,
+  modelCandidates = [initialModelId],
   requestedProviders,
   activeSkillPrompt,
   uploadedFiles = [],
@@ -217,13 +236,36 @@ export async function executeChatTurn({
   interactive,
   lane,
 }: ExecuteChatTurnInput): Promise<void> {
+  let modelId = initialModelId;
   const userInstruction = persistedPrompt ?? prompt;
   const timing = lane.kind === "inline" ? lane.timing : undefined;
   const priorOutputs =
     lane.kind === "worker" ? parseStoredOutputs(lane.run.outputs) : {};
-  const builtinTools = builtinToolsForChatRoute(route);
+  const webAccessDeclared = skillDeclaresWebAccess(requestedProviders);
+  const webAccessState = interactive || webAccessDeclared
+    ? "granted"
+    : "not_granted";
+  const webAccessSource = interactive
+    ? "interactive_default"
+    : webAccessDeclared
+      ? "skill_declaration"
+      : "not_declared";
+  const webAccess: Pick<
+    ChatContextWebAccessReceipt,
+    "state" | "source"
+  > = {
+    state: webAccessState,
+    source: webAccessSource,
+  };
+  const builtinTools = builtinToolsForChatRoute(route, {
+    interactive,
+    webAccessDeclared,
+  });
+  const requestedMcpProviders = requestedProviders
+    ? skillMcpProviders(requestedProviders)
+    : undefined;
   const mcpProviderScope = resolveChatMcpProviderScope(
-    requestedProviders,
+    requestedMcpProviders,
     route.routingMode,
   );
   // The worker lane has always mounted Vault context regardless of the
@@ -231,8 +273,14 @@ export async function executeChatTurn({
   const includeVaultContext =
     lane.kind === "worker" || route.includeVaultContext;
 
-  const [userRows, history, vaultMarkdown, providerStatus, recentRecommendations] =
-    await Promise.all([
+  const [
+    userRows,
+    history,
+    vaultMarkdown,
+    providerStatus,
+    recentRecommendations,
+    webEgressPolicy,
+  ] = await Promise.all([
       db
         .select({
           displayName: users.displayName,
@@ -261,6 +309,7 @@ export async function executeChatTurn({
         userId,
         threadId: thread.id,
       }),
+      loadWebEgressPolicy(db),
     ]);
   const effectiveResourceResolution = resourceResolution
     ? await revalidateConversationResourceResolution({
@@ -304,7 +353,7 @@ export async function executeChatTurn({
   });
   const appEditContext = appEditContextResult?.context ?? null;
   const appEditSourceOmitted =
-    appEditContextResult?.contentOmittedForSize ?? false;
+    appEditContextResult?.sourceContentOmitted ?? false;
   const combinedArtifactContext = [appEditContext, artifactContext]
     .filter(Boolean)
     .join("\n\n");
@@ -315,6 +364,7 @@ export async function executeChatTurn({
     customInstructions: null,
     role: "user" as const,
   };
+  let recentToolEvidenceReceipt: RecentToolEvidenceReceipt | undefined;
   const selectedResourceImages = effectiveResourceResolution
     ? await loadSelectedResourceImages({
         db,
@@ -343,6 +393,9 @@ export async function executeChatTurn({
             ...event,
           })}\n`,
         );
+      },
+      onToolEvidenceReceipt: (receipt) => {
+        recentToolEvidenceReceipt = receipt;
       },
     }),
     runtimeUploadedFiles,
@@ -425,7 +478,7 @@ export async function executeChatTurn({
           thread,
           grantedProviders: accountMcpProviders,
           userMessage: userInstruction,
-          skillProviders: requestedProviders,
+          skillProviders: requestedMcpProviders,
         })
       : undefined;
   const toolDiscovery = baseToolDiscovery
@@ -487,10 +540,16 @@ export async function executeChatTurn({
     modelId,
     artifactContext: combinedArtifactContext,
     uploadedFiles: runtimeUploadedFiles,
+    recentToolEvidenceReceipt,
     resourceResolution: effectiveResourceResolution,
     recommendations: recentRecommendations,
     route,
     builtinTools,
+    webAccess: {
+      ...webAccess,
+      policy: webEgressPolicy.name,
+      deniedDomainCount: webEgressPolicy.deniedDomains.length,
+    },
     ...(lane.kind === "worker" ? { forcePreamble: true } : {}),
     activeSkill: activeSkillPrompt ?? null,
   });
@@ -513,6 +572,11 @@ export async function executeChatTurn({
     })),
     ...(requiredToolName ? { requiredToolName } : {}),
     writeAuthorizationReceipts,
+    webAccess: {
+      ...webAccess,
+      policy: webEgressPolicy.name,
+      deniedDomainCount: webEgressPolicy.deniedDomains.length,
+    },
     ...(effectiveResourceResolution
       ? { resourceResolution: effectiveResourceResolution }
       : {}),
@@ -633,16 +697,18 @@ export async function executeChatTurn({
   const runtimeErrors: NormalizedRuntimeError[] = [];
   const toolEvents = createToolEventAccumulator(mountedProviders);
   const providerTrace = createProviderTraceAccumulator();
-  const errorContext = {
+  const currentErrorContext = () => ({
     runtime: runtime.name,
     runtimeTarget: route.runtimeTarget,
     requestedModelId:
-      lane.kind === "inline" ? lane.modelSelection.requestedModelId : modelId,
+      lane.kind === "inline"
+        ? lane.modelSelection.requestedModelId
+        : initialModelId,
     modelId,
     ...(lane.kind === "inline" && lane.modelSelection.providerModelId
       ? { providerModelId: lane.modelSelection.providerModelId }
       : {}),
-  };
+  });
   const buildWorkerOutput = (extra: Record<string, unknown> = {}) => ({
     ...priorOutputs,
     assistantText,
@@ -662,6 +728,22 @@ export async function executeChatTurn({
     ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
     ...extra,
   });
+  const buildWorkerTelemetryOutput = () => ({
+    ...priorOutputs,
+    tokensIn,
+    tokensOut,
+    usage: {
+      tokensIn,
+      tokensOut,
+      inputTokens,
+      cacheReadInputTokens,
+      cacheWriteInputTokens,
+    },
+    modelId,
+    runtime: runtime.name,
+    ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
+    lifecycle: "provider_running",
+  });
 
   // #452: the worker lane used to SELECT the run row once per streamed
   // event — including every text-delta. Throttled to a cheap cadence; the
@@ -669,6 +751,117 @@ export async function executeChatTurn({
   const workerCanceled = throttleCancellationCheck(() =>
     isRunCanceled(db, runId),
   );
+  let providerTerminalSeen = false;
+  let providerStreamTruncated = false;
+  const failoverCandidates = [
+    ...new Set<ModelId>([modelId, ...modelCandidates]),
+  ];
+
+  const recordModelFailover = async ({
+    fromModelId,
+    toModelId,
+    error,
+    attempt,
+  }: ModelFailoverTransition) => {
+    const normalized = normalizeRuntimeError(error, {
+      runtime: runtime.name,
+      runtimeTarget: route.runtimeTarget,
+      requestedModelId:
+        lane.kind === "inline"
+          ? lane.modelSelection.requestedModelId
+          : initialModelId,
+      modelId: fromModelId,
+      providerModelId: MODELS[fromModelId].bedrockModelId,
+    });
+    const now = new Date();
+    await db.transaction(async (tx) => {
+      const updatedRows = await tx
+        .update(runs)
+        .set({ modelId: toModelId, updatedAt: now })
+        .where(
+          lane.kind === "worker"
+            ? and(
+                eq(runs.id, runId),
+                eq(runs.status, "running"),
+                eq(runs.workerId, lane.workerId),
+              )
+            : and(eq(runs.id, runId), eq(runs.status, "running")),
+        )
+        .returning({ id: runs.id });
+      if (updatedRows.length === 0) {
+        throw new Error("The run stopped before model failover could start.");
+      }
+      await tx.insert(auditLog).values({
+        actorUserId: userId,
+        actionType: "model_failover",
+        status: "succeeded",
+        provider: MODELS[toModelId].provider,
+        chatThreadId: thread.id,
+        runId,
+        input: {
+          modelId: fromModelId,
+          providerModelId: MODELS[fromModelId].bedrockModelId,
+          errorCode: normalized.code,
+          errorCategory: normalized.category,
+        },
+        output: {
+          modelId: toModelId,
+          providerModelId: MODELS[toModelId].bedrockModelId,
+          attempt,
+        },
+        metadata: {
+          runtime: runtime.name,
+          runtimeTarget: route.runtimeTarget,
+          triggerError: normalized.userMessage,
+        },
+        startedAt: now,
+        completedAt: now,
+      });
+    });
+
+    modelId = toModelId;
+    if (lane.kind === "inline") {
+      lane.modelSelection = applyRuntimeModelFailover(
+        lane.modelSelection,
+        toModelId,
+        fromModelId,
+        attempt,
+      );
+    }
+
+    await appendTurnRunEvent(lane, {
+      db,
+      runId,
+      eventType: "model_failover",
+      status: "succeeded",
+      label: `Failed over from ${fromModelId} to ${toModelId}`,
+      metadata: {
+        fromModelId,
+        fromProviderModelId: MODELS[fromModelId].bedrockModelId,
+        toModelId,
+        toProviderModelId: MODELS[toModelId].bedrockModelId,
+        attempt,
+        errorCode: normalized.code,
+        errorCategory: normalized.category,
+        runtime: runtime.name,
+        runtimeTarget: route.runtimeTarget,
+      },
+      occurredAt: now,
+    });
+
+    if (lane.kind === "inline") {
+      lane.send({
+        type: "model",
+        requestedModelId: lane.requestedModelId,
+        modelOverride: lane.modelOverride,
+        modelId,
+        providerModelId: lane.modelSelection.providerModelId,
+        modelSelection: lane.modelSelection,
+        runtime: runtime.name,
+        runtimeTarget: route.runtimeTarget,
+      });
+    }
+  };
 
   try {
     // Tracks persisted activation across same-turn activations so a
@@ -678,88 +871,103 @@ export async function executeChatTurn({
       toolDiscovery?.activatedProviders ?? [],
     );
 
-    for await (const ev of runtime.runTurn({
-      threadId: thread.id,
-      modelId,
-      messages: contextPack.prompt.messages,
-      context: { userId },
-      signal: runtimeAbort.signal,
-      volatileSystemSuffix: contextPack.prompt.volatileSystemSuffix,
-      ...(userTimeZone ? { userTimeZone } : {}),
-      // Same content, different composition slot: the AgentCore container
-      // composes [systemPrompt, firstTurnPreamble] itself, and the durable
-      // lane has always ridden the preamble slot. Keyed by lane to preserve
-      // each lane's historical prompt assembly byte-for-byte.
-      ...(lane.kind === "inline"
-        ? { systemPrompt: contextPack.prompt.systemPrompt }
-        : { firstTurnPreamble: contextPack.prompt.systemPrompt }),
-      onRunStarted: async (metadata) => {
-        providerRunMetadata = metadata;
-        if (lane.kind === "inline") {
-          lane.timing.providerStartedAt = new Date();
-          const metrics = buildTimingMetrics(lane.timing);
-          lane.send({ type: "metrics", stage: "provider_started", metrics });
-          await db
-            .update(runs)
-            .set({
-              outputs: {
-                assistantText,
-                lifecycle: "provider_started",
+    for await (const ev of runTurnWithModelFailover({
+      runtime,
+      candidates: failoverCandidates,
+      onFailover: recordModelFailover,
+      input: {
+        threadId: thread.id,
+        modelId,
+        messages: contextPack.prompt.messages,
+        context: { userId },
+        signal: runtimeAbort.signal,
+        volatileSystemSuffix: contextPack.prompt.volatileSystemSuffix,
+        ...(userTimeZone ? { userTimeZone } : {}),
+        // Same content, different composition slot: the AgentCore container
+        // composes [systemPrompt, firstTurnPreamble] itself, and the durable
+        // lane has always ridden the preamble slot. Keyed by lane to preserve
+        // each lane's historical prompt assembly byte-for-byte.
+        ...(lane.kind === "inline"
+          ? { systemPrompt: contextPack.prompt.systemPrompt }
+          : { firstTurnPreamble: contextPack.prompt.systemPrompt }),
+        onRunStarted: async (metadata) => {
+          providerRunMetadata = metadata;
+          if (lane.kind === "inline") {
+            lane.timing.providerStartedAt = new Date();
+            const metrics = buildTimingMetrics(lane.timing);
+            lane.send({ type: "metrics", stage: "provider_started", metrics });
+            await db
+              .update(runs)
+              .set({
+                outputs: {
+                  assistantText,
+                  lifecycle: "provider_started",
+                  requestedModelId: lane.requestedModelId,
+                  modelId,
+                  providerModelId: lane.modelSelection.providerModelId,
+                  modelSelection: lane.modelSelection,
+                  runtime: runtime.name,
+                  runtimeTarget: route.runtimeTarget,
+                  providerRun: metadata,
+                  metrics,
+                },
+                updatedAt: new Date(),
+              })
+              .where(eq(runs.id, runId));
+            await appendTurnRunEvent(lane, {
+              db,
+              runId,
+              eventType: "provider_run_started",
+              status: "pending",
+              label: `Started ${runtime.name} run`,
+              metadata: {
+                ...(metadata as unknown as Record<string, unknown>),
+                runtimeTarget: route.runtimeTarget,
                 requestedModelId: lane.requestedModelId,
-                modelId,
+                runtimeModelId: modelId,
                 providerModelId: lane.modelSelection.providerModelId,
                 modelSelection: lane.modelSelection,
-                runtime: runtime.name,
-                runtimeTarget: route.runtimeTarget,
-                providerRun: metadata,
                 metrics,
               },
-              updatedAt: new Date(),
-            })
-            .where(eq(runs.id, runId));
-          await appendTurnRunEvent(lane, {
-            db,
-            runId,
-            eventType: "provider_run_started",
-            status: "pending",
-            label: `Started ${runtime.name} run`,
-            metadata: {
-              ...(metadata as unknown as Record<string, unknown>),
-              runtimeTarget: route.runtimeTarget,
-              requestedModelId: lane.requestedModelId,
-              runtimeModelId: modelId,
-              providerModelId: lane.modelSelection.providerModelId,
-              modelSelection: lane.modelSelection,
-              metrics,
-            },
-          });
-        } else {
-          await db
-            .update(runs)
-            .set({
-              outputs: buildWorkerOutput({
-                lifecycle: "provider_started",
-                providerRun: metadata,
-              }),
-              updatedAt: new Date(),
-            })
-            .where(eq(runs.id, runId));
-          await appendTurnRunEvent(lane, {
-            db,
-            runId,
-            eventType: "provider_run_started",
-            status: "pending",
-            label: `Started ${runtime.name} run`,
-            metadata: metadata as unknown as Record<string, unknown>,
-          });
-        }
+            });
+          } else {
+            await db
+              .update(runs)
+              .set({
+                outputs: buildWorkerOutput({
+                  lifecycle: "provider_started",
+                  providerRun: metadata,
+                }),
+                updatedAt: new Date(),
+              })
+              .where(eq(runs.id, runId));
+            await appendTurnRunEvent(lane, {
+              db,
+              runId,
+              eventType: "provider_run_started",
+              status: "pending",
+              label: `Started ${runtime.name} run`,
+              metadata: metadata as unknown as Record<string, unknown>,
+            });
+          }
+        },
+        ...(mcpServers ? { mcpServers } : {}),
+        ...(builtinTools.length > 0 ? { builtinTools } : {}),
+        webEgressPolicy,
+        ...(requiredToolName ? { requiredToolName } : {}),
+        ...(toolDiscovery ? { toolDiscovery } : {}),
       },
-      ...(mcpServers ? { mcpServers } : {}),
-      ...(builtinTools.length > 0 ? { builtinTools } : {}),
-      ...(requiredToolName ? { requiredToolName } : {}),
-      ...(toolDiscovery ? { toolDiscovery } : {}),
     })) {
+      if (providerTerminalSeen) {
+        throw new Error(
+          `Chat runtime emitted ${ev.type} after its done event.`,
+        );
+      }
       providerTrace.record(ev);
+      if (ev.type === "done") {
+        providerTerminalSeen = true;
+        continue;
+      }
       // Sticky activation persistence (#384 P2) — the shared trigger for
       // both runtime lanes; see persistActivationFromEvent.
       if (toolDiscovery) {
@@ -776,7 +984,11 @@ export async function executeChatTurn({
           ? (lane.signal?.aborted ?? false)
           : await workerCanceled();
       if (canceled) {
-        runtimeAbort.abort();
+        if (lane.kind === "worker") {
+          abortChatWorkerRuntime(runtimeAbort, "canceled");
+        } else {
+          runtimeAbort.abort();
+        }
         break;
       }
       if (ev.type === "text-delta") {
@@ -837,51 +1049,75 @@ export async function executeChatTurn({
           // #359: live token counts for the run footer — totals only, the
           // full breakdown ships with `persisted` as before.
           lane.send({ type: "usage", tokensIn, tokensOut });
+        } else {
+          // Worker runs have no SSE connection. Persist the same aggregate
+          // behind the active lease so the slim status poll can update the
+          // footer without reloading messages, artifacts, or event details.
+          await db
+            .update(runs)
+            .set({
+              outputs: buildWorkerTelemetryOutput(),
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(runs.id, runId),
+                eq(runs.status, "running"),
+                eq(runs.workerId, lane.workerId),
+              ),
+            );
         }
       } else if (ev.type === "tool-call") {
         toolEvents.recordCall(ev.call);
         const persistedCall = toolEvents
           .calls()
           .find((call) => call.id === ev.call.id);
-        if (persistedCall) {
-          await appendToolCallRunEvent({
-            db,
-            runId,
-            call: persistedCall,
-          });
+        if (!persistedCall) {
+          throw new Error(`Failed to normalize tool call ${ev.call.id}.`);
         }
+        await appendToolCallRunEvent({
+          db,
+          runId,
+          call: persistedCall,
+        });
         if (lane.kind === "inline") {
           // #359: stream the REDACTED copy — the live SSE previously sent
           // the raw runtime payload while only the persisted copy was
           // redacted, so a viewer's live stream could carry what replay
           // would have scrubbed.
-          lane.send({ type: "tool-call", call: persistedCall ?? ev.call });
+          lane.send({ type: "tool-call", call: persistedCall });
         }
       } else if (ev.type === "tool-result") {
         toolEvents.recordResult(ev.result);
         const persistedResult = toolEvents
           .results()
           .find((result) => result.toolCallId === ev.result.toolCallId);
-        if (persistedResult) {
-          const persistedCall = toolEvents
-            .calls()
-            .find((call) => call.id === ev.result.toolCallId);
-          await appendToolResultRunEvent({
-            db,
-            runId,
-            call: persistedCall,
-            result: persistedResult,
-          });
+        if (!persistedResult) {
+          throw new Error(
+            `Failed to normalize tool result ${ev.result.toolCallId}.`,
+          );
         }
+        const persistedCall = toolEvents
+          .calls()
+          .find((call) => call.id === ev.result.toolCallId);
+        await appendToolResultRunEvent({
+          db,
+          runId,
+          call: persistedCall,
+          result: persistedResult,
+        });
         if (lane.kind === "inline") {
           // #359: redacted copy on the live stream too (see tool-call above).
           lane.send({
             type: "tool-result",
-            result: persistedResult ?? ev.result,
+            result: persistedResult,
           });
         }
       } else if (ev.type === "error") {
-        const normalized = normalizeRuntimeError(ev.message, errorContext);
+        const normalized = normalizeRuntimeError(
+          ev.message,
+          currentErrorContext(),
+        );
         runtimeErrors.push(normalized);
         if (lane.kind === "inline") {
           lane.send({ type: "error", message: normalized.userMessage });
@@ -899,8 +1135,8 @@ export async function executeChatTurn({
   } catch (err) {
     if (lane.kind === "worker") {
       if (await isRunCanceled(db, runId)) {
-        runtimeAbort.abort();
-      } else {
+        abortChatWorkerRuntime(runtimeAbort, "canceled");
+      } else if (!runtimeAbort.signal.aborted) {
         await persistProviderTraceCapture({
           db,
           runId,
@@ -910,7 +1146,7 @@ export async function executeChatTurn({
         throw err;
       }
     } else {
-      const normalized = normalizeRuntimeError(err, errorContext);
+      const normalized = normalizeRuntimeError(err, currentErrorContext());
       runtimeErrors.push(normalized);
       lane.send({ type: "error", message: normalized.userMessage });
       await appendTurnRunEvent(lane, {
@@ -934,11 +1170,59 @@ export async function executeChatTurn({
     }
   }
 
+  if (
+    !providerTerminalSeen &&
+    !runtimeAbort.signal.aborted &&
+    runtimeErrors.length === 0
+  ) {
+    providerStreamTruncated = true;
+    const normalized = normalizeRuntimeError(
+      "The model response ended before its completion event. Please try again.",
+      currentErrorContext(),
+    );
+    runtimeErrors.push(normalized);
+    if (lane.kind === "inline") {
+      lane.send({ type: "error", message: normalized.userMessage });
+      await appendTurnRunEvent(lane, {
+        db,
+        runId,
+        eventType: "provider_run_failed",
+        status: "failed",
+        label: "Provider stream ended before completion",
+        error: normalized.userMessage,
+        metadata: {
+          errorDetails: normalized,
+          runtimeTarget: route.runtimeTarget,
+          runtime: runtime.name,
+          requestedModelId: lane.requestedModelId,
+          runtimeModelId: modelId,
+          providerModelId: lane.modelSelection.providerModelId,
+          modelSelection: lane.modelSelection,
+          metrics: buildTimingMetrics(lane.timing),
+        },
+      });
+    } else {
+      process.stderr.write(
+        `[chat-run-worker-runtime-error] ${JSON.stringify({
+          runId,
+          threadId: thread.id,
+          message: normalized.rawMessage,
+        })}\n`,
+      );
+    }
+  }
+
+  const workerAbortReason =
+    lane.kind === "worker"
+      ? chatWorkerAbortReason(runtimeAbort.signal)
+      : null;
+
   if (lane.kind === "worker" && (await isRunCanceled(db, runId))) {
     await persistProviderTraceCapture({
       db,
       runId,
       capture: providerTrace.snapshot(),
+      metadata: { abortReason: "canceled" },
     });
     await appendTurnRunEvent(lane, {
       db,
@@ -946,6 +1230,38 @@ export async function executeChatTurn({
       eventType: "worker_stopped_after_cancel",
       status: "failed",
       label: "Worker stopped after cancellation",
+      metadata: {
+        abortReason: "canceled",
+        ...(workerAbortReason && workerAbortReason !== "canceled"
+          ? { runtimeAbortReason: workerAbortReason }
+          : {}),
+        cancellationObservedVia: "database_poll",
+        runtimeRequestAbortAttempted: runtimeAbort.signal.aborted,
+        providerSessionStopAttempted: false,
+      },
+    });
+    return;
+  }
+
+  if (lane.kind === "worker" && workerAbortReason === "lease_lost") {
+    await persistProviderTraceCapture({
+      db,
+      runId,
+      capture: providerTrace.snapshot(),
+      metadata: { abortReason: workerAbortReason },
+    });
+    await appendTurnRunEvent(lane, {
+      db,
+      runId,
+      eventType: "worker_stopped_after_lease_loss",
+      status: "info",
+      label: "Prior worker stopped after losing its run lease",
+      metadata: {
+        abortReason: workerAbortReason,
+        workerId: lane.workerId,
+        runtimeRequestAbortAttempted: true,
+        providerSessionStopAttempted: false,
+      },
     });
     return;
   }
@@ -956,7 +1272,7 @@ export async function executeChatTurn({
         ? "Browser request disconnected before the local chat run completed."
         : null
       : runtimeAbort.signal.aborted
-        ? `Chat runtime timed out after ${lane.timeoutMs}ms.`
+        ? workerAbortMessage(workerAbortReason, lane.timeoutMs)
         : null;
   const runError =
     abortError ??
@@ -970,6 +1286,9 @@ export async function executeChatTurn({
     db,
     runId,
     capture: providerTrace.snapshot(completedAt),
+    ...(workerAbortReason
+      ? { metadata: { abortReason: workerAbortReason } }
+      : {}),
   });
 
   const persisted = await persistChatTurnResult({
@@ -999,15 +1318,23 @@ export async function executeChatTurn({
     artifactContextTarget,
     separateFromArtifact,
     appEditSourceOmitted,
+    suppressAssistantPersistence: providerStreamTruncated,
     completedAt,
     priorOutputs,
     lane,
+    abortReason: workerAbortReason ?? undefined,
   });
 
   if (lane.kind === "inline") {
     lane.send({ type: "metrics", stage: "completed", metrics: finalMetrics });
-    if (runError) return;
-    lane.send({ type: "done" });
+    if (runError) {
+      lane.send({
+        type: "failed",
+        stopReason: abortError ? "request_aborted" : "runtime_error",
+        message: runError,
+      });
+      return;
+    }
     lane.send({
       type: "persisted",
       assistantMessageId: persisted.assistantMessageId,
@@ -1020,6 +1347,7 @@ export async function executeChatTurn({
       runId,
       threadId: thread.id,
     });
+    lane.send({ type: "done", stopReason: "completed" });
   }
 }
 
@@ -1050,9 +1378,11 @@ async function persistChatTurnResult({
   artifactContextTarget,
   separateFromArtifact,
   appEditSourceOmitted,
+  suppressAssistantPersistence,
   completedAt,
   priorOutputs,
   lane,
+  abortReason,
 }: {
   db: Database;
   runId: string;
@@ -1082,9 +1412,11 @@ async function persistChatTurnResult({
   artifactContextTarget?: WorkspaceArtifactVersionTarget | null;
   separateFromArtifact?: WorkspaceArtifactVersionTarget | null;
   appEditSourceOmitted: boolean;
+  suppressAssistantPersistence: boolean;
   completedAt: Date;
   priorOutputs: StoredChatRunOutputs;
   lane: ChatTurnLane;
+  abortReason?: ChatWorkerAbortReason;
 }): Promise<{
   assistantMessageId: string | undefined;
   artifacts: WorkspaceArtifactSummary[];
@@ -1107,51 +1439,52 @@ async function persistChatTurnResult({
   let artifacts: WorkspaceArtifactSummary[] = [];
   let appDraftVersions: AppDraftVersionSummary[] = [];
   let recommendations: PersistedRecommendation[] = [];
-  const sources =
+  let sources =
     terminalStatus === "succeeded"
       ? extractAssistantSources({ toolCalls, toolResults })
       : [];
-  const shouldPersistAssistant = shouldPersistAssistantMessage({
-    terminalStatus,
-    assistantText,
-    toolCallsCount: toolCalls.length,
-    toolResultsCount: toolResults.length,
-  });
+  const proposalIteration =
+    lane.kind === "worker"
+      ? proposalIterationFromRunInputs(lane.storedInputs)
+      : null;
+  const proposal =
+    lane.kind === "worker"
+      ? proposalIteration
+        ? outputProposalContextForIteration(proposalIteration, completedAt)
+        : outputProposalContext({
+            runId,
+            triggerType: lane.run.triggerType,
+            createdAt: completedAt,
+          })
+      : null;
+  const shouldPersistAssistant =
+    !suppressAssistantPersistence &&
+    shouldPersistAssistantMessage({
+      terminalStatus,
+      assistantText,
+      toolCallsCount: toolCalls.length,
+      toolResultsCount: toolResults.length,
+    });
 
   if (!assistantMessageId && shouldPersistAssistant) {
-    const persisted = await db
-      .insert(chatMessages)
-      .values({
-        threadId,
-        role: "assistant",
-        content: assistantText,
-        modelId,
-        runtime: runtimeName,
-        tokensIn,
-        tokensOut,
-        toolCalls,
-        toolResults,
-      })
-      .returning({ id: chatMessages.id });
-    assistantMessageId = persisted[0]!.id;
-    // #456: content mutations audit by construction — this insert is the one
-    // place either lane persists an assistant message. References only; the
-    // content itself lives in chat_messages, not the audit row.
-    const auditNow = new Date();
-    await db.insert(auditLog).values({
-      actorUserId: userId,
-      actionType: "chat_message_create",
-      status: "succeeded",
-      provider: "ai-hub",
-      toolName: "chat_message_create",
-      chatThreadId: threadId,
-      chatMessageId: assistantMessageId,
+    const persisted = await persistAssistantMessageOnce({
+      db,
       runId,
-      input: { role: "assistant", lane: lane.kind },
-      metadata: { modelId, runtime: runtimeName },
-      startedAt: auditNow,
-      completedAt: auditNow,
+      userId,
+      threadId,
+      lane: lane.kind,
+      ...(lane.kind === "worker"
+        ? { expectedWorkerId: lane.workerId }
+        : {}),
+      content: assistantText,
+      modelId,
+      runtime: runtimeName,
+      tokensIn,
+      tokensOut,
+      toolCalls,
+      toolResults,
     });
+    assistantMessageId = persisted?.assistantMessageId;
   }
 
   if (assistantMessageId) {
@@ -1184,6 +1517,7 @@ async function persistChatTurnResult({
         separateFromArtifact,
         turnToolCalls: toolCalls,
         turnToolResults: toolResults,
+        proposal,
       });
       if (artifacts.length > 0) {
         await appendTurnRunEvent(lane, {
@@ -1201,23 +1535,39 @@ async function persistChatTurnResult({
             threadId,
             artifacts,
             sourceContentOmitted: appEditSourceOmitted,
+            proposal,
           });
           appDraftVersions = appDrafts.summaries;
           if (appDrafts.created.length > 0 || appDrafts.rejected.length > 0) {
             await appendTurnRunEvent(lane, {
               db,
               runId,
-              eventType: "app_draft_versions_created",
+              eventType: "app_draft_validation_completed",
               status: appDrafts.rejected.length > 0 ? "failed" : "succeeded",
               label:
-                appDrafts.created.length > 0
-                  ? `Created ${appDrafts.created.length} draft app version${appDrafts.created.length === 1 ? "" : "s"}`
-                  : "Rejected draft app versions",
+                appDrafts.rejected.length > 0
+                  ? "App draft validation failed"
+                  : `Validated ${appDrafts.created.length} app draft${appDrafts.created.length === 1 ? "" : "s"}`,
               metadata: {
-                draftVersions: appDraftVersions,
-                rejected: appDrafts.rejected,
+                check: "app source and ownership",
+                passed: appDrafts.created.length,
+                failed: appDrafts.rejected.length,
+                filenames: artifacts.map((artifact) => artifact.filename),
+                failureReasons: appDrafts.rejected.map(
+                  (rejected) => rejected.reason,
+                ),
               },
             });
+            if (appDrafts.created.length > 0) {
+              await appendTurnRunEvent(lane, {
+                db,
+                runId,
+                eventType: "app_draft_versions_created",
+                status: "succeeded",
+                label: `Created ${appDrafts.created.length} draft app version${appDrafts.created.length === 1 ? "" : "s"}`,
+                metadata: { draftVersions: appDraftVersions },
+              });
+            }
           }
         } catch (err) {
           process.stderr.write(
@@ -1239,6 +1589,97 @@ async function persistChatTurnResult({
           message: err instanceof Error ? err.message : String(err),
         })}\n`,
       );
+    }
+  }
+
+  if (proposalIteration) {
+    let iterationError =
+      terminalStatus === "failed"
+        ? error ?? "The proposal iteration run failed."
+        : null;
+    if (!iterationError) {
+      const replacementArtifact = artifacts.find(
+        (artifact) =>
+          artifact.artifactGroupId ===
+            proposalIteration.sourceArtifactGroupId &&
+          artifact.supersedesArtifactId ===
+            proposalIteration.sourceArtifactId,
+      );
+      const replacementAppVersion =
+        proposalIteration.kind === "app" && replacementArtifact
+          ? appDraftVersions.find(
+              (version) =>
+                version.appId === proposalIteration.sourceAppId &&
+                version.artifactId === replacementArtifact.id &&
+                version.status === "proposed",
+            )
+          : undefined;
+      if (!replacementArtifact) {
+        iterationError =
+          "The run finished without creating a replacement proposal.";
+      } else if (
+        proposalIteration.kind === "app" &&
+        !replacementAppVersion
+      ) {
+        iterationError =
+          "The run did not create a valid replacement app proposal.";
+      } else {
+        const completed = await completeProposalIteration({
+          db,
+          iteration: proposalIteration,
+          replacementArtifact,
+          replacementAppVersion,
+          completedAt,
+          expectedWorkerId:
+            lane.kind === "worker" ? lane.workerId : undefined,
+        });
+        if (!completed) {
+          iterationError =
+            "The original proposal changed before the replacement could be saved.";
+        }
+      }
+    }
+
+    if (iterationError) {
+      const failedArtifactIds = artifacts.map((artifact) => artifact.id);
+      await releaseProposalIteration({
+        db,
+        iteration: proposalIteration,
+        error: iterationError,
+        completedAt,
+        expectedWorkerId:
+          lane.kind === "worker" ? lane.workerId : undefined,
+        replacementArtifactIds: failedArtifactIds,
+      });
+      artifacts = [];
+      appDraftVersions = [];
+      sources = [];
+      terminalStatus = "failed";
+      error = iterationError;
+      await appendTurnRunEvent(lane, {
+        db,
+        runId,
+        eventType: "proposal_iteration_failed",
+        status: "failed",
+        label: "Proposal iteration failed",
+        error: iterationError,
+        metadata: {
+          sourceArtifactId: proposalIteration.sourceArtifactId,
+          failedArtifactIds,
+        },
+      });
+    } else {
+      await appendTurnRunEvent(lane, {
+        db,
+        runId,
+        eventType: "proposal_iteration_completed",
+        status: "succeeded",
+        label: "Created replacement proposal",
+        metadata: {
+          sourceArtifactId: proposalIteration.sourceArtifactId,
+          replacementArtifactIds: artifacts.map((artifact) => artifact.id),
+        },
+      });
     }
   }
 
@@ -1301,6 +1742,7 @@ async function persistChatTurnResult({
     modelId,
     runtime: runtimeName,
     ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
+    ...(abortReason ? { abortReason } : {}),
     ...(runtimeErrors.length > 0 ? { errorDetails: runtimeErrors } : {}),
     ...(artifacts.length > 0 ? { artifacts } : {}),
     ...(appDraftVersions.length > 0 ? { appDraftVersions } : {}),
@@ -1354,7 +1796,13 @@ async function persistChatTurnResult({
         sources,
       };
     }
-    await createProactiveRunNotification(db, lane.run, terminalStatus, threadId);
+    await createProactiveRunNotification(
+      db,
+      lane.run,
+      terminalStatus,
+      threadId,
+      { hasProposal: proposal !== null && artifacts.length > 0 },
+    );
   }
 
   if (terminalStatus === "succeeded" && assistantMessageId) {
@@ -1409,6 +1857,7 @@ async function persistChatTurnResult({
       ...(recommendations.length > 0 ? { recommendations } : {}),
       ...(sources.length > 0 ? { sources } : {}),
       ...(timingMetrics ? { metrics: timingMetrics } : {}),
+      ...(abortReason ? { abortReason } : {}),
     },
   });
 
@@ -1419,6 +1868,22 @@ async function persistChatTurnResult({
     recommendations,
     sources,
   };
+}
+
+function workerAbortMessage(
+  reason: ChatWorkerAbortReason | null,
+  timeoutMs: number,
+): string {
+  if (reason === "timeout") {
+    return `Chat runtime timed out after ${timeoutMs}ms.`;
+  }
+  if (reason === "shutdown") {
+    return "Background worker stopped because the service is shutting down.";
+  }
+  if (reason === "canceled") {
+    return "Chat run was canceled before the provider finished.";
+  }
+  return "Background worker stopped before the chat run completed.";
 }
 
 export async function isRunCanceled(

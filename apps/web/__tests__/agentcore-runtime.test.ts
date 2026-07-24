@@ -119,6 +119,10 @@ describe("AgentCoreRuntime", () => {
         ...baseInput,
         requiredToolName: "google__create_event",
         userTimeZone: "America/New_York",
+        webEgressPolicy: {
+          name: "admin_domain_denylist",
+          deniedDomains: ["blocked.example"],
+        },
       }),
     );
     expect(events).toEqual([
@@ -140,6 +144,10 @@ describe("AgentCoreRuntime", () => {
     expect(payload.modelId).toBe("sonnet-4-6");
     expect(payload.userId).toBe("u1");
     expect(payload.requiredToolName).toBe("google__create_event");
+    expect(payload.webEgressPolicy).toEqual({
+      name: "admin_domain_denylist",
+      deniedDomains: ["blocked.example"],
+    });
     // #432: the clock context rides the payload into the container.
     expect(payload.userTimeZone).toBe("America/New_York");
   });

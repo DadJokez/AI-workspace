@@ -25,7 +25,7 @@ interface ArtifactVersionTargetSource {
   filename: string;
   artifactGroupId: string;
   versionNumber: number;
-  metadata?: Record<string, unknown> | null;
+  metadata?: unknown;
 }
 
 interface ArtifactContextTargetPayload {
@@ -57,7 +57,7 @@ export function toWorkspaceArtifactVersionTarget(
     filename: artifact.filename,
     artifactGroupId: artifact.artifactGroupId,
     versionNumber: artifact.versionNumber,
-    metadata: artifact.metadata ?? null,
+    metadata: isRecord(artifact.metadata) ? artifact.metadata : null,
   };
 }
 

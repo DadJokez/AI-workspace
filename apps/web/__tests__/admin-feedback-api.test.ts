@@ -22,6 +22,7 @@ let currentSession: SessionUser | null = adminSession;
 let updateReturning: Array<Record<string, unknown>> = [];
 let selectRows: Array<Record<string, unknown>> = [];
 let capturedPatch: Record<string, unknown> | undefined;
+let capturedAudits: Array<Record<string, unknown>> = [];
 
 function installMocks() {
   vi.doMock("@/lib/auth/getSessionUser", () => ({
@@ -52,6 +53,17 @@ function installMocks() {
         ({
           select: () => selectQuery,
           update: () => updateQuery,
+          insert: () => ({
+            values: async (
+              values:
+                | Record<string, unknown>
+                | Array<Record<string, unknown>>,
+            ) => {
+              capturedAudits.push(
+                ...(Array.isArray(values) ? values : [values]),
+              );
+            },
+          }),
         }) as never,
     };
   });
@@ -68,6 +80,7 @@ function makeReq(body: unknown) {
 beforeEach(() => {
   currentSession = adminSession;
   capturedPatch = undefined;
+  capturedAudits = [];
   selectRows = [];
   updateReturning = [
     {
@@ -227,6 +240,7 @@ describe("GET /api/admin/feedback/[id]/screenshot", () => {
   it("returns safe screenshot data for admins", async () => {
     selectRows = [
       {
+        userId: userSession.id,
         screenshotDataUrl: "data:image/png;base64,aGVsbG8=",
         screenshotMimeType: "image/png",
         screenshotName: "bug.png",
@@ -248,11 +262,24 @@ describe("GET /api/admin/feedback/[id]/screenshot", () => {
         name: "bug.png",
       },
     });
+    expect(capturedAudits).toEqual([
+      expect.objectContaining({
+        actorUserId: adminSession.id,
+        actionType: "admin_data_access",
+        metadata: expect.objectContaining({
+          targetUserId: userSession.id,
+          resourceType: "feedback_report",
+          resourceId: REPORT_ID,
+          surface: "feedback_screenshot",
+        }),
+      }),
+    ]);
   });
 
   it("rejects stored non-data screenshot URLs", async () => {
     selectRows = [
       {
+        userId: userSession.id,
         screenshotDataUrl: "https://attacker.example/pixel.png",
         screenshotMimeType: "image/png",
         screenshotName: "pixel.png",

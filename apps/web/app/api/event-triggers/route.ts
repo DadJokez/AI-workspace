@@ -7,7 +7,7 @@ import {
 } from "@ai-workspace/db";
 import { and, count, desc, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { requireSession } from "@/lib/auth/requireSession";
 import {
   eventTriggerKind,
   parseGitHubEventTriggerInput,
@@ -22,10 +22,9 @@ export const dynamic = "force-dynamic";
 const MAX_TRIGGERS_PER_USER = 50;
 
 export async function GET(req: Request) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   const skillId = new URL(req.url).searchParams.get("skillId");
   const db = getDb();
@@ -65,10 +64,9 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const session = await requireSession();
+  if ("error" in session) return session.error;
+  const sessionUser = session.user;
 
   let body: unknown;
   try {

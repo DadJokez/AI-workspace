@@ -55,7 +55,7 @@ export function buildToolActivityEvents(
     return {
       id: call.id,
       state,
-      label: describeActivityStep(call, state),
+      label: describeActivityStep(call, state, result),
       detail: result?.isError ? summarizePayload(result.output) : undefined,
       at: result?.completedAt ?? call.startedAt,
       category: categorizeTool(call.provider, `${call.name} ${call.toolName}`),
@@ -86,7 +86,11 @@ export function summarizeActivity(
   if (pending && status) return status;
   if (events.length === 0) return pending ? "Thinking..." : undefined;
   const failed = events.filter((event) => event.state === "failed").length;
-  if (failed > 0) return `${failed} step ${failed === 1 ? "needs" : "need"} attention`;
+  if (failed > 0) {
+    return pending
+      ? `${failed} step ${failed === 1 ? "needs" : "need"} attention`
+      : `Finished with ${failed} failed ${failed === 1 ? "step" : "steps"}`;
+  }
   const pendingCount = events.filter((event) => event.state === "pending").length;
   if (pending && pendingCount > 0) {
     return `${pendingCount} ${pendingCount === 1 ? "step" : "steps"} running`;
@@ -106,12 +110,25 @@ export function summarizeActivity(
 function describeActivityStep(
   call: PersistedToolCall,
   state: ActivityState,
+  result?: PersistedToolResult,
 ): string {
   if (state === "failed") {
     return `Could not ${toInfinitiveActivityVerb(baseActivityVerb(call))}`;
   }
   if (state === "pending") return `${capitalize(baseActivityVerb(call, true))}...`;
-  return capitalize(baseActivityVerb(call));
+  const base = capitalize(baseActivityVerb(call));
+  const fetchedHosts = fetchedHostsFromResult(result?.output);
+  return fetchedHosts.length > 0 ? `${base} · ${fetchedHosts.join(", ")}` : base;
+}
+
+function fetchedHostsFromResult(value: unknown): string[] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return [];
+  }
+  const hosts = (value as { fetchedHosts?: unknown }).fetchedHosts;
+  return Array.isArray(hosts)
+    ? hosts.filter((host): host is string => typeof host === "string").slice(0, 5)
+    : [];
 }
 
 function toInfinitiveActivityVerb(value: string): string {
