@@ -70,6 +70,7 @@ export interface ChatTab {
   id: string;
   title: string;
   threadId?: string;
+  restoreDraft?: boolean;
   messages: UiMessage[];
   modelId?: string;
   busy: boolean;
@@ -221,11 +222,15 @@ function messageUploadsReplayable(
   );
 }
 
-export function makeFreshTab(modelId?: string): ChatTab {
+export function makeFreshTab(
+  modelId?: string,
+  restoreDraft = true,
+): ChatTab {
   return {
     id: crypto.randomUUID(),
     title: "New chat",
     threadId: undefined,
+    restoreDraft,
     messages: [],
     modelId,
     busy: false,

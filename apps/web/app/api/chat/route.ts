@@ -170,7 +170,9 @@ export async function POST(req: Request) {
     body.attachmentCount,
     body.message,
   );
-  if (declaredAttachmentCount > attachments.length) {
+  const receivedAttachmentCount =
+    attachmentCheck.receivedAttachmentCount ?? attachments.length;
+  if (declaredAttachmentCount > receivedAttachmentCount) {
     return NextResponse.json(
       {
         error: "missing_attachment_payload",

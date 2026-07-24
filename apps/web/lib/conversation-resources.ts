@@ -85,6 +85,8 @@ const DATA_QUESTION_RE =
   /\b(?:trends?|insights?|patterns?|anomal(?:y|ies)|outliers?|totals?|averages?|rows?|columns?|categories|regions?|revenue|sales|orders?|records?|duplicates?|correlations?|breakdowns?|beginning|middle|end)\b/i;
 const PLURAL_REFERENCE_RE =
   /\b(?:compare|contrast|both|those|these|them|two|all)\b/i;
+const RESOURCE_CONTINUATION_RE =
+  /(?:^\s*(?:continue|resume|keep going|go on)[.!?]?\s*$|\b(?:continue|resume|keep going|go on)\s+(?:the\s+|this\s+|that\s+|our\s+|my\s+)?(?:file|document|spreadsheet|dataset|analysis|review)\b)/i;
 
 export function hasConversationResourceIntent(message: string): boolean {
   const value = message.trim();
@@ -316,7 +318,10 @@ export function resolveConversationResources({
     );
   }
 
-  const intent = hasConversationResourceIntent(message);
+  const intent =
+    hasConversationResourceIntent(message) ||
+    (previousResolution?.status === "selected" &&
+      RESOURCE_CONTINUATION_RE.test(message));
   const explicitReference = explicitFilenameMatches(message, active);
   if (explicitReference.resources.length > 0) {
     if (
@@ -340,6 +345,11 @@ export function resolveConversationResources({
     };
   }
 
+  // A prior receipt is a continuity hint, not permission to mount a file on
+  // every later turn. Unrelated chat, tool, and Skill requests must remain
+  // resource-free until the user refers to the file again.
+  if (!intent) return emptyResolution(false);
+
   if (previousResolution?.status === "selected") {
     const activeById = new Map(
       active.map((resource) => [resource.resourceId, resource]),
@@ -362,7 +372,6 @@ export function resolveConversationResources({
       return selectedResolution(previous, "previous_run_receipt", intent);
     }
   }
-  if (!intent) return emptyResolution(false);
 
   const typed = resourcesMatchingNoun(message, active);
   if (typed.length === 1) {

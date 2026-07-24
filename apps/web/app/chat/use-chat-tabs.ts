@@ -217,7 +217,7 @@ export function useChatTabs({
   }
 
   function newTab() {
-    const tab = makeFreshTab(freshTabModel());
+    const tab = makeFreshTab(freshTabModel(), false);
     setTabs([tab]);
     setActiveId(tab.id);
   }
@@ -300,7 +300,7 @@ export function useChatTabs({
       previous.filter((thread) => thread.id !== threadId),
     );
     if (activeTab?.threadId !== threadId) return false;
-    const fresh = makeFreshTab(freshTabModel());
+    const fresh = makeFreshTab(freshTabModel(), false);
     setTabs([fresh]);
     setActiveId(fresh.id);
     return true;

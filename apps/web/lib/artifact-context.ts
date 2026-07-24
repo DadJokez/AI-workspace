@@ -22,6 +22,7 @@ import {
  */
 
 const MANIFEST_LIMIT = 24;
+const ARTIFACT_TURN_BOUNDARY = "\n\n<<<ARTIFACT-USER-TURN>>>\n\n";
 // Workspace artifacts are capped at 500k chars when saved. Keep revision
 // context aligned with that cap so the model never revises a silently truncated
 // copy of an artifact that Comparative can otherwise store.
@@ -61,18 +62,37 @@ const ARTIFACT_REFERENCE_RE =
 const RECENT_REFERENCE_RE =
   /\b(?:it|that|this|same|existing|current|prior|previous|last|latest|earlier|the one)\b/i;
 const LIST_INTENT_RE =
-  /\bartifacts?\b|\bmy (files|docs|documents|work|stuff)\b|what (have|did) i (make|made|create|build|built)|(things|stuff) i('| ha)?ve (made|built|created)/i;
+  /\b(?:list|show|browse|open)\s+(?:me\s+)?(?:my\s+|the\s+)?artifacts?\b|\bwhat artifacts?\b|\bmy (files|docs|documents|work|stuff)\b|what (have|did) i (make|made|create|build|built)|(things|stuff) i('| ha)?ve (made|built|created)/i;
+const NEW_ARTIFACT_CREATION_RE =
+  /\b(?:create|make|generate|write|produce|build)\b[^.?!\n]{0,120}\b(?:artifact|file|document|doc|html|htm|page|site|app|deck|markdown|md|csv|json|spreadsheet|sheet)\b/i;
+const EXISTING_ARTIFACT_REFERENCE_RE =
+  /\b(?:existing|current|same|prior|previous|earlier|last|latest|this|that|it|copy|fork|duplicate|variant|version)\b/i;
 
 export function shouldIncludeArtifactManifestForMessage(message: string): boolean {
-  if (LIST_INTENT_RE.test(message)) return true;
+  const currentTurn = currentArtifactTurn(message);
+  if (LIST_INTENT_RE.test(currentTurn)) return true;
   // A convert-into request creates new content; listing the library would only
   // tempt the model to claim an existing artifact satisfies it.
-  if (hasConvertToNewArtifactIntent(message)) return false;
-  return hasArtifactRevisionReference(message);
+  if (
+    hasConvertToNewArtifactIntent(currentTurn) ||
+    hasNewArtifactCreationIntent(currentTurn)
+  ) {
+    return false;
+  }
+  return hasArtifactRevisionReference(currentTurn);
 }
 
 export function hasConvertToNewArtifactIntent(message: string): boolean {
   return CONVERT_TO_NEW_ARTIFACT_RE.test(message);
+}
+
+export function hasNewArtifactCreationIntent(message: string): boolean {
+  return (
+    NEW_ARTIFACT_CREATION_RE.test(message) &&
+    !EXISTING_ARTIFACT_REFERENCE_RE.test(message) &&
+    !hasSeparateArtifactIntent(message) &&
+    !hasConvertToNewArtifactIntent(message)
+  );
 }
 
 function hasArtifactRevisionReference(message: string): boolean {
@@ -105,6 +125,18 @@ export function matchArtifact(
   artifacts: readonly WorkspaceArtifactSummary[],
   options: { threadId?: string } = {},
 ): WorkspaceArtifactSummary | null {
+  const currentTurn = currentArtifactTurn(message);
+  if (hasNewArtifactCreationIntent(currentTurn)) return null;
+
+  const currentThreadArtifacts = options.threadId
+    ? artifacts.filter((artifact) => artifact.threadId === options.threadId)
+    : artifacts;
+  const exactCrossThreadMatch =
+    ARTIFACT_REFERENCE_RE.test(currentTurn)
+      ? matchExactArtifactReference(currentTurn, artifacts)
+      : null;
+  if (exactCrossThreadMatch) return exactCrossThreadMatch;
+
   const normalized = ` ${message.toLowerCase()} `;
   // Word-boundary tokens of the message (set membership), so the token "api"
   // matches the word "api" but NOT "therapist", and "plan" doesn't match
@@ -117,7 +149,7 @@ export function matchArtifact(
   );
   let best: WorkspaceArtifactSummary | null = null;
   let bestScore = 0;
-  for (const artifact of artifacts) {
+  for (const artifact of currentThreadArtifacts) {
     const tokens = artifactTokens(artifact);
     if (tokens.length === 0) continue;
     const hitTokens = tokens.filter((token) => messageTokens.has(token));
@@ -158,6 +190,11 @@ export function matchImplicitRevisionArtifact(
   const currentThreadArtifacts = threadId
     ? artifacts.filter((artifact) => artifact.threadId === threadId)
     : [];
+  // Cross-thread artifacts are available through the global library, but an
+  // implicit "update the app" must never mount the sole matching file from a
+  // different conversation. Cross-thread use requires its exact title or
+  // filename, handled above by matchExactArtifactReference.
+  if (threadId && currentThreadArtifacts.length === 0) return null;
   const candidates =
     currentThreadArtifacts.length > 0 ? currentThreadArtifacts : artifacts;
   const scoped = kindHint
@@ -165,17 +202,39 @@ export function matchImplicitRevisionArtifact(
     : candidates;
   if (scoped.length === 0) return null;
 
-  // Vague "make it blue" style follow-ups are only safe when the thread itself
-  // has an artifact. Without thread scope, require an explicit file/artifact
-  // reference, and a UNIQUE candidate — picking the newest of several library
-  // artifacts is a guess, and the unresolved-reference path (ask the user)
-  // handles ambiguity honestly.
-  if (currentThreadArtifacts.length === 0) {
-    if (!ARTIFACT_REFERENCE_RE.test(message)) return null;
-    return scoped.length === 1 ? scoped[0]! : null;
-  }
-
   return scoped[0] ?? null;
+}
+
+function matchExactArtifactReference(
+  message: string,
+  artifacts: readonly WorkspaceArtifactSummary[],
+): WorkspaceArtifactSummary | null {
+  const normalizedMessage = ` ${normalizeArtifactPhrase(message)} `;
+  const matches = artifacts.filter((artifact) => {
+    const title = normalizeArtifactPhrase(artifact.title);
+    const filename = normalizeArtifactPhrase(artifact.filename);
+    const stem = normalizeArtifactPhrase(
+      artifact.filename.replace(/\.[^.]+$/, ""),
+    );
+    return [title, filename, stem].some(
+      (candidate) =>
+        candidate.length >= 4 &&
+        normalizedMessage.includes(` ${candidate} `),
+    );
+  });
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function normalizeArtifactPhrase(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function currentArtifactTurn(message: string): string {
+  return message.split(ARTIFACT_TURN_BOUNDARY).at(-1)?.trim() || message.trim();
 }
 
 export function buildArtifactLookupMessage(
@@ -189,7 +248,9 @@ export function buildArtifactLookupMessage(
     .slice(-3)
     .map((message) => message.content.trim())
     .filter(Boolean);
-  return rawUserTurns.length > 0 ? rawUserTurns.join("\n\n") : fallback;
+  return rawUserTurns.length > 0
+    ? rawUserTurns.join(ARTIFACT_TURN_BOUNDARY)
+    : fallback;
 }
 
 export function mergeArtifactContextManifests({
