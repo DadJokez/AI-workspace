@@ -1,4 +1,5 @@
 import posthog from "posthog-js";
+import { sanitizePostHogCapture } from "@/lib/posthog-privacy";
 
 if (!process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN) {
   if (process.env.NODE_ENV === "development") {
@@ -17,6 +18,7 @@ if (!process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN) {
     capture_exceptions: false,
     disable_session_recording: true,
     person_profiles: "identified_only",
+    before_send: sanitizePostHogCapture,
     debug: process.env.NODE_ENV === "development",
   });
 }

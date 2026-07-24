@@ -26,4 +26,9 @@ describe("analyticsPathFor", () => {
     expect(analyticsPathFor("/admin/feedback")).toBe("/admin/feedback");
     expect(analyticsPathFor("/skills/new")).toBe("/skills/new");
   });
+
+  it("fails closed for unclassified routes and malformed paths", () => {
+    expect(analyticsPathFor("/future/private-resource")).toBe("/[redacted]");
+    expect(analyticsPathFor("http://[")).toBe("/[redacted]");
+  });
 });
