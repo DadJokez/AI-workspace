@@ -40,6 +40,20 @@ describe("tool-use honesty grounding", () => {
     expect(preamble).toContain("state exactly what you queried");
   });
 
+  it("forbids simulated calls and unsupported side-effect claims", () => {
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: [],
+    });
+
+    expect(preamble).toContain("External action boundary");
+    expect(preamble).toContain("Never emit fake function calls");
+    expect(preamble).toContain(
+      "unless a successful tool result in this turn proves it",
+    );
+    expect(preamble).toContain("offer a safe next step");
+  });
+
   it("keeps the honesty rule even when no tools are mounted this turn", () => {
     // The fast lane can stamp a preamble with no mounted providers; the rule
     // must still be present so a tool-less turn can't deny a connected system.
