@@ -10,6 +10,7 @@
     "worker:memory-capture": "tsx scripts/memory-capture-worker.ts",
     "memory:backfill": "tsx scripts/backfill-memory-captures.ts",
     "audit:retention": "tsx scripts/audit-retention.ts",
+    "audit:canceled-run-results": "tsx scripts/audit-canceled-run-results.ts",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

@@ -69,7 +69,7 @@ test.describe("command palette", () => {
     await expect(page.getByTestId("active-chat-title")).toHaveText(
       "Quarterly launch planning",
     );
-    await expect(page).toHaveURL(/\/e2e\/chat$/);
+    await expect(page).toHaveURL(/\/e2e\/chat\?threadId=thread-quarterly-launch$/);
 
     const sidebar = await openPrimarySidebar(page, isMobile);
     await sidebar.getByRole("button", { name: "Search", exact: true }).click();
