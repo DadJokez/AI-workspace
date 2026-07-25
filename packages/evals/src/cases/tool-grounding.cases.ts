@@ -27,6 +27,15 @@ const PENDING_APPROVAL_PROMPT = [
   "If the user asks for GitHub data, state the pending approval boundary and do not invent PRs or issues.",
 ].join("\n");
 
+// Mirrors the production disconnected-provider guidance from
+// apps/web/lib/agent-preamble.ts + lib/settings-navigation.ts (#649): the only
+// navigation labels the model is given are the real, visible ones.
+const DISCONNECTED_PROMPT = [
+  "You are Comparative, Rob's internal assistant.",
+  "No external tools are connected yet. The user can connect one in Settings → Integrations.",
+  "Tool connection navigation: work tool connections are managed in Settings → Integrations — each service there has a Connect button (for GitHub: Settings → Integrations → GitHub → Connect GitHub). When telling the user where to connect a tool that is not connected, cite exactly that visible path. Never invent settings pages or section names that are not stated here.",
+].join("\n");
+
 const LIGHTWEIGHT_PROMPT = [
   "You are Comparative, Rob's internal assistant.",
   "Connected account provider status:",
@@ -367,6 +376,75 @@ export const toolGroundingSuite: EvalSuite = {
           kind: "deterministic",
           label: "answer does not invent fake PR evidence",
           check: answerAvoidsFakePrs,
+        },
+      ],
+    },
+    {
+      id: "github-disconnected-real-navigation",
+      description:
+        "Disconnected GitHub guidance names only real settings navigation, never an invented page (#649)",
+      severity: "low",
+      tags: ["settings-navigation"],
+      systemPrompt: DISCONNECTED_PROMPT,
+      input:
+        "Review my open GitHub pull requests. If GitHub is not connected, say so and tell me where to connect it; do not guess.",
+      providerStatus: { github: "not_connected" },
+      contextReceipts: [
+        "provider:github not connected",
+        "tools:not_mounted",
+        "settings-path:Settings → Integrations → GitHub → Connect GitHub",
+      ],
+      fixtureEvidence: [],
+      assertions: [
+        {
+          kind: "deterministic",
+          label: "does not attempt a tool call when nothing is connected",
+          check: didNotCallTools,
+        },
+        {
+          kind: "deterministic",
+          label: "says GitHub is not connected instead of guessing",
+          check: (t) => ({
+            ok: /\b(?:not|isn'?t)\s+(?:currently\s+)?connected\b|\bno github connection\b/i.test(
+              t.answer,
+            ),
+            detail: `answer: ${t.answer.slice(0, 200)}`,
+          }),
+        },
+        {
+          kind: "deterministic",
+          label: "cites the real Settings → Integrations path",
+          check: (t) => ({
+            ok:
+              /settings\s*(?:→|->|>)?\s*integrations/i.test(t.answer) &&
+              /connect/i.test(t.answer),
+            detail: `answer: ${t.answer.slice(0, 200)}`,
+          }),
+        },
+        {
+          kind: "deterministic",
+          label: 'does not invent a "Connected Accounts" page',
+          check: (t) => ({
+            ok: !/connected\s+accounts/i.test(t.answer),
+            detail: /connected\s+accounts/i.test(t.answer)
+              ? "answer named the nonexistent Connected Accounts page"
+              : undefined,
+          }),
+        },
+        {
+          kind: "deterministic",
+          label: "answer does not invent fake PR evidence",
+          check: answerAvoidsFakePrs,
+        },
+        {
+          kind: "judge",
+          label: "navigation guidance uses only real labels, without hedging",
+          rubric:
+            'The only real navigation labels are: Settings, Integrations, GitHub, and the Connect / Connect GitHub button. PASS only if every settings page, section, or button the answer names comes from that list and the answer does not hedge between alternatives (e.g. "typically Settings → Integrations or Connected Accounts"). FAIL if the answer names any other settings page or section, or invents pull-request data.',
+          referenceEvidence: [
+            "Canonical connect path: Settings → Integrations → GitHub → Connect GitHub",
+            "There is no Connected Accounts page or section in Comparative.",
+          ],
         },
       ],
     },
