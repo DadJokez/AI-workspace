@@ -85,4 +85,36 @@ describe("reduceAssistantStreamMessage", () => {
       });
     },
   );
+
+  it("replaces streamed content when persisted carries the reduced literal (#652)", () => {
+    const streamed = {
+      ...pendingMessage(),
+      content: "Noted! Here you go: ACK-7",
+    };
+    expect(
+      reduceAssistantStreamMessage(streamed, {
+        type: "persisted",
+        messageId: "assistant-1",
+        content: "ACK-7",
+      }),
+    ).toMatchObject({
+      id: "assistant-1",
+      content: "ACK-7",
+      pending: false,
+    });
+  });
+
+  it("keeps streamed content when persisted carries no replacement", () => {
+    const streamed = { ...pendingMessage(), content: "Full answer" };
+    expect(
+      reduceAssistantStreamMessage(streamed, {
+        type: "persisted",
+        messageId: "assistant-1",
+      }),
+    ).toMatchObject({
+      id: "assistant-1",
+      content: "Full answer",
+      pending: false,
+    });
+  });
 });

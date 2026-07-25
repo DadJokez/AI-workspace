@@ -185,6 +185,7 @@ import { buildTurnContext } from "@/lib/turn-context";
 import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
 import { createDraftAppVersionsForThreadArtifacts } from "@/lib/apps";
+import { enqueueMemoryCapture } from "@/lib/memory-capture";
 import { persistProviderTraceCapture } from "@/lib/run-trace";
 import {
   abortChatWorkerRuntime,
@@ -271,7 +272,10 @@ function fakeDb(state: FakeDbState): Database {
   return db as unknown as Database;
 }
 
-function fakeRuntime(captured: { turnInput?: Record<string, unknown> }): AgentRuntime {
+function fakeRuntime(
+  captured: { turnInput?: Record<string, unknown> },
+  text = "Hello",
+): AgentRuntime {
   return {
     name: "bedrock",
     runTurn: async function* (input: Record<string, unknown>) {
@@ -279,7 +283,7 @@ function fakeRuntime(captured: { turnInput?: Record<string, unknown> }): AgentRu
       await (
         input.onRunStarted as (m: Record<string, unknown>) => Promise<void>
       )?.({ providerRunId: "pr-1" });
-      yield { type: "text-delta", delta: "Hello" };
+      yield { type: "text-delta", delta: text };
       yield { type: "usage", tokensIn: 11, tokensOut: 7 };
       yield { type: "done" };
     },
@@ -1641,5 +1645,194 @@ describe("throttleCancellationCheck (#452 worker cancel cadence)", () => {
     clock = 60_000;
     expect(await check()).toBe(true);
     expect(probe).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("executeChatTurn — literal output contract (#652/#644)", () => {
+  it("answers a pure echo demand deterministically without invoking the model", async () => {
+    const { input, sent, state, captured } = inlineInput({
+      prompt: 'Reply exactly with "CBX-7745-TANGO"',
+    });
+
+    await executeChatTurn(input);
+
+    // The seam that failed in #644: the model was asked to echo and refused.
+    // A pure echo never reaches the model at all.
+    expect(captured.turnInput).toBeUndefined();
+    expect(
+      state.inserts.find((insert) => insert.table === chatMessages)?.values,
+    ).toMatchObject({ role: "assistant", content: "CBX-7745-TANGO" });
+    expect(sent.find((event) => event.type === "text-delta")).toMatchObject({
+      delta: "CBX-7745-TANGO",
+    });
+    expect(
+      state.runUpdates.find((update) => update.status === "succeeded"),
+    ).toMatchObject({ error: null });
+    const eventTypes = vi
+      .mocked(appendRunEventBestEffort)
+      .mock.calls.map(([, event]) => event.eventType);
+    expect(eventTypes).toContain("exact_output_fast_path");
+    expect(eventTypes).not.toContain("provider_run_started");
+    // The turn still succeeds normally, so memory capture stays untouched.
+    expect(enqueueMemoryCapture).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes a compound message to the model even when it contains an echo demand", async () => {
+    const { input, captured } = inlineInput({
+      prompt: "reply exactly ACK and also summarize the doc",
+    });
+
+    await executeChatTurn(input);
+
+    expect(captured.turnInput).toBeDefined();
+  });
+
+  it("keeps the fast path off when the turn carries an attachment", async () => {
+    const { input, captured } = inlineInput({
+      prompt: 'Reply exactly with "CBX-7745-TANGO"',
+      uploadedFiles: [{ name: "notes.txt", sizeBytes: 10 }],
+    });
+
+    await executeChatTurn(input);
+
+    expect(captured.turnInput).toBeDefined();
+  });
+
+  it("runs the fast path through the shared worker pipeline too", async () => {
+    const { input, state, captured } = workerInput({
+      prompt: "Reply exactly: ACK-7",
+    });
+
+    await executeChatTurn(input);
+
+    expect(captured.turnInput).toBeUndefined();
+    expect(
+      state.inserts.find((insert) => insert.table === chatMessages)?.values,
+    ).toMatchObject({ content: "ACK-7" });
+    expect(
+      state.runUpdates.find((update) => update.status === "succeeded")?.outputs,
+    ).toMatchObject({ assistantText: "ACK-7" });
+    expect(createProactiveRunNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "succeeded",
+      "thread-1",
+      expect.anything(),
+    );
+  });
+
+  it("reduces a prose-wrapped literal to the demanded text before persistence", async () => {
+    const fixture = inlineInput({
+      prompt: "Remember my favorite color is teal, then reply exactly: ACK-7",
+    });
+    fixture.input.runtime = fakeRuntime(
+      fixture.captured,
+      "Noted! Here you go: ACK-7",
+    );
+
+    await executeChatTurn(fixture.input);
+
+    // The model ran (compound message)…
+    expect(fixture.captured.turnInput).toBeDefined();
+    // …but the persisted answer is exactly the demanded literal.
+    expect(
+      fixture.state.inserts.find((insert) => insert.table === chatMessages)
+        ?.values,
+    ).toMatchObject({ content: "ACK-7" });
+    const terminal = fixture.state.runUpdates.find(
+      (update) => update.status === "succeeded",
+    );
+    expect(terminal?.outputs).toMatchObject({ assistantText: "ACK-7" });
+    expect(terminal?.outputs).not.toHaveProperty("contractViolation");
+    // The client streamed the wrapped text, so the persisted event must
+    // carry the corrected final answer.
+    expect(
+      fixture.sent.find((event) => event.type === "persisted"),
+    ).toMatchObject({ content: "ACK-7" });
+    expect(
+      vi
+        .mocked(appendRunEventBestEffort)
+        .mock.calls.map(([, event]) => event.eventType),
+    ).toContain("exact_output_reduced");
+  });
+
+  it("never reduces away requested content on a compound content+marker message (review)", async () => {
+    const summary =
+      "Here's a summary of the document: it covers the Q3 migration plan, " +
+      "the rollback strategy, and the sign-off checklist. Overall the " +
+      "migration is done and the checklist has two open items remaining.";
+    const fixture = inlineInput({
+      prompt: "Summarize the doc. Reply exactly: done",
+    });
+    fixture.input.runtime = fakeRuntime(fixture.captured, summary);
+
+    await executeChatTurn(fixture.input);
+
+    const persisted = fixture.state.inserts.find(
+      (insert) => insert.table === chatMessages,
+    )?.values as { content?: string } | undefined;
+    // The summary the user asked for survives the incidental "done" hit.
+    expect(persisted?.content).toBe(summary);
+    expect(
+      vi
+        .mocked(appendRunEventBestEffort)
+        .mock.calls.map(([, event]) => event.eventType),
+    ).not.toContain("exact_output_reduced");
+    const terminal = fixture.state.runUpdates.find(
+      (update) => update.status === "succeeded",
+    );
+    expect(terminal?.outputs).toMatchObject({ assistantText: summary });
+    expect(terminal?.outputs).not.toHaveProperty("contractViolation");
+  });
+
+  it("flags a missing literal on the run outputs without rewriting the answer", async () => {
+    const fixture = inlineInput({
+      prompt: "Remember my favorite color is teal, then reply exactly: ACK-7",
+    });
+    fixture.input.runtime = fakeRuntime(
+      fixture.captured,
+      "I saved that preference for you.",
+    );
+
+    await executeChatTurn(fixture.input);
+
+    // Never invent the literal — the generated answer persists as-is.
+    expect(
+      fixture.state.inserts.find((insert) => insert.table === chatMessages)
+        ?.values,
+    ).toMatchObject({ content: "I saved that preference for you." });
+    const terminal = fixture.state.runUpdates.find(
+      (update) => update.status === "succeeded",
+    );
+    expect(terminal?.outputs).toMatchObject({
+      assistantText: "I saved that preference for you.",
+      contractViolation: "literal_missing",
+    });
+    expect(
+      fixture.sent.find((event) => event.type === "persisted"),
+    ).not.toMatchObject({ content: expect.anything() });
+    expect(
+      vi
+        .mocked(appendRunEventBestEffort)
+        .mock.calls.map(([, event]) => event.eventType),
+    ).toContain("exact_output_contract_violation");
+  });
+
+  it("leaves an exact answer and its outputs untouched", async () => {
+    const fixture = inlineInput({
+      prompt: "Remember my favorite color is teal, then reply exactly: ACK-7",
+    });
+    fixture.input.runtime = fakeRuntime(fixture.captured, "ACK-7");
+
+    await executeChatTurn(fixture.input);
+
+    const terminal = fixture.state.runUpdates.find(
+      (update) => update.status === "succeeded",
+    );
+    expect(terminal?.outputs).toMatchObject({ assistantText: "ACK-7" });
+    expect(terminal?.outputs).not.toHaveProperty("contractViolation");
+    expect(
+      fixture.sent.find((event) => event.type === "persisted"),
+    ).not.toMatchObject({ content: expect.anything() });
   });
 });

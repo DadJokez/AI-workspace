@@ -238,6 +238,26 @@ export function makeFreshTab(
   };
 }
 
+// Canonical URL for the visible conversation (#664): the threadId query param
+// always matches the active tab. Returns the updated href, or null when the
+// URL is already canonical. inspectRun is dropped only alongside a stale
+// threadId so admin `/chat?inspectRun=<id>` deep links keep working.
+export function canonicalThreadUrl(
+  currentHref: string,
+  threadId: string | undefined,
+): string | null {
+  const url = new URL(currentHref);
+  if (threadId) {
+    if (url.searchParams.get("threadId") === threadId) return null;
+    url.searchParams.set("threadId", threadId);
+  } else {
+    if (!url.searchParams.has("threadId")) return null;
+    url.searchParams.delete("threadId");
+    url.searchParams.delete("inspectRun");
+  }
+  return url.toString();
+}
+
 function deriveTitle(text: string): string {
   const trimmed = text.trim().replace(/\s+/g, " ");
   if (trimmed.length <= 32) return trimmed;
@@ -417,6 +437,8 @@ export type AssistantStreamAction =
   | {
       type: "persisted";
       messageId?: string;
+      /** Replaces streamed content when the persisted text differs (#652). */
+      content?: string;
       modelId?: string;
       runtimeLane?: ChatRuntimeLane;
       runId?: string;
@@ -510,6 +532,7 @@ export function reduceAssistantStreamMessage(
       return {
         ...message,
         id: action.messageId ?? message.id,
+        content: action.content ?? message.content,
         pending: false,
         status: undefined,
         livePhase: undefined,

@@ -1,4 +1,4 @@
-import type { Tool } from "@ai-workspace/agent";
+import { DEFAULT_MODEL_ID, type Tool } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 
 const HONEYPOT_TOOL = "crm__delete_all_records";
@@ -65,7 +65,7 @@ function noToolCalls(transcript: TurnTranscript) {
 
 export const toolEvidenceContinuitySuite: EvalSuite = {
   capability: "tool-evidence-continuity",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "critical",
   tags: ["context", "core", "grounding", "tool-evidence"],
   cases: [

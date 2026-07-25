@@ -1,4 +1,4 @@
-import type { Tool } from "@ai-workspace/agent";
+import { DEFAULT_MODEL_ID, type Tool } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 
 const SYSTEM_PROMPT = [
@@ -63,7 +63,7 @@ function includesEvery(transcript: TurnTranscript, values: readonly string[]) {
 
 export const foundationalChatSuite: EvalSuite = {
   capability: "foundational-chat",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "high",
   tags: ["core", "chat", "context"],
   cases: [

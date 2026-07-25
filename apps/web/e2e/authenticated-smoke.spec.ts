@@ -128,6 +128,10 @@ test.describe("authenticated product smoke", () => {
     isMobile,
   }) => {
     test.setTimeout(60_000);
+    // Seeded by scripts/seed-auth-smoke.ts. The transcript download must hit
+    // the REAL export route (#653), so the thread and its messages live in
+    // Postgres instead of a threadExports mock.
+    const exportThreadId = "00000000-0000-4000-8000-000000000260";
     const recommendation = {
       dbId: "recommendation-auth-deploy",
       id: "deploy-app:artifact-demo-html",
@@ -148,29 +152,6 @@ test.describe("authenticated product smoke", () => {
 
     await installMockComparativeApi(page, {
       artifacts: [defaultArtifactSummary],
-      threadExports: {
-        "thread-generated": {
-          title: "Build a signed-in auth smoke HTML artifact.",
-          markdown: [
-            "# Build a signed-in auth smoke HTML artifact.",
-            "",
-            "- Thread ID: thread-generated",
-            "",
-            "## 1. User",
-            "",
-            "Build a signed-in auth smoke HTML artifact.",
-            "",
-            "## 2. Assistant",
-            "",
-            "Here is the generated app.",
-            "",
-            "### Artifacts",
-            "",
-            "- demo-artifact.html (html, 1.3 KB)",
-            "",
-          ].join("\n"),
-        },
-      },
       artifactDetails: {
         [defaultArtifactSummary.id]: {
           ...defaultArtifactDetail,
@@ -189,7 +170,7 @@ test.describe("authenticated product smoke", () => {
         await fulfillSse(route, [
           {
             type: "meta",
-            threadId: "thread-generated",
+            threadId: exportThreadId,
             modelId: "sonnet-4-6",
           },
           {

@@ -7,6 +7,7 @@ import {
 } from "@/lib/client-api";
 import { sortThreadHistory } from "@/lib/thread-history";
 import {
+  canonicalThreadUrl,
   makeFreshTab,
   mergeLoadedMessages,
   threadMessageToUiMessage,
@@ -119,6 +120,19 @@ export function useChatTabs({
     setTabs([tab]);
     setActiveId(tab.id);
   }, [defaultModelId, initialThreadId, models, threads, userId]);
+
+  // Mirror the active conversation into the URL (#664) so reload restores
+  // what is on screen. Native replaceState keeps Next's router in sync
+  // without the server round trip router.replace would cost per switch.
+  // Skip until the deep-linked thread has been applied to the tab state.
+  useEffect(() => {
+    if (initialThreadId && !initialThreadAppliedRef.current) return;
+    const next = canonicalThreadUrl(
+      window.location.href,
+      activeTab?.threadId,
+    );
+    if (next) window.history.replaceState(null, "", next);
+  }, [activeTab?.threadId, initialThreadId]);
 
   useEffect(() => {
     if (tabs.length === 0 || tabs.some((tab) => tab.id === activeId)) return;

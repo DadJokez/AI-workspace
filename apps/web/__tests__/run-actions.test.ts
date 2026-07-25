@@ -86,13 +86,25 @@ function fakeDb(selectResults: Array<Run[]>) {
     inserts: Array<{ values: Record<string, unknown> }>;
   } = { selectWheres: [], updateSets: [], inserts: [] };
 
+  interface SelectChain extends Promise<Run[]> {
+    limit: (n?: number) => SelectChain;
+    for: (mode?: string) => SelectChain;
+  }
+
   const db = {
+    // cancelRun locks inside a transaction; the fake replays it on the same
+    // chainable builder so the captured predicates/writes stay assertable.
+    transaction: async <T>(fn: (tx: unknown) => Promise<T>) => fn(db),
     select: () => ({
       from: () => ({
         where: (condition: SQL) => {
           captured.selectWheres.push(condition);
-          const pending = Promise.resolve(selectResults.shift() ?? []);
-          return Object.assign(pending, { limit: () => pending });
+          const chain = Promise.resolve(
+            selectResults.shift() ?? [],
+          ) as SelectChain;
+          chain.limit = () => chain;
+          chain.for = () => chain;
+          return chain;
         },
       }),
     }),
@@ -178,7 +190,11 @@ describe("legal-transition matrix", () => {
     const result = await cancelRun({ db, actor: owner, runId: "run-1" });
 
     if (status === "queued" || status === "running") {
-      expect(result).toMatchObject({ ok: true, run: { status: "canceled" } });
+      expect(result).toMatchObject({
+        ok: true,
+        outcome: "canceled",
+        run: { status: "canceled" },
+      });
       expect(captured.updateSets[0]).toMatchObject({
         status: "canceled",
         workerId: null,
@@ -214,13 +230,39 @@ describe("legal-transition matrix", () => {
         }),
       });
     } else {
+      // Terminal runs now report a truthful outcome instead of a 409, and the
+      // row is left exactly as it was.
       expect(result).toMatchObject({
-        ok: false,
-        status: 409,
-        error: "run_not_cancelable",
+        ok: true,
+        outcome: status === "canceled" ? "already_canceled" : "already_terminal",
+        run: { id: "run-1", status },
       });
       expect(captured.updateSets).toEqual([]);
+      expect(captured.inserts).toEqual([]);
+      expect(vi.mocked(appendRunEventWithNextSequence)).not.toHaveBeenCalled();
     }
+  });
+
+  it("cancelRun keeps a running run whose durable answer already committed (#655)", async () => {
+    const { db, captured } = fakeDb([
+      [
+        chatRun({
+          status: "running",
+          outputs: { assistantMessageId: "assistant-durable" },
+        }),
+      ],
+    ]);
+    const result = await cancelRun({ db, actor: owner, runId: "run-1" });
+
+    expect(result).toMatchObject({
+      ok: true,
+      outcome: "result_committed",
+      run: { id: "run-1", status: "running" },
+    });
+    expect(captured.updateSets).toEqual([]);
+    expect(captured.inserts).toEqual([]);
+    expect(vi.mocked(appendRunEventWithNextSequence)).not.toHaveBeenCalled();
+    expect(vi.mocked(releaseProposalIteration)).not.toHaveBeenCalled();
   });
 
   it.each(statuses)("retryChatRun from %s", async (status) => {
