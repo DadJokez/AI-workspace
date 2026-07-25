@@ -20,7 +20,11 @@ const APPROVED_MEMORY_SYSTEM_PROMPT = [
   "- API status is Ready.",
   "- Mobile QA status is Blocked.",
   "- The pilot is ready, but Mobile QA is blocked.",
-  "- Project Orion is owned by Priya.",
+  // The project must have exactly one faithful name in this memory: with
+  // "Project Orion is owned by…" the model deterministically (3/3 sampled)
+  // fills <project> as "Project Orion", which is a defensible reading — an
+  // exact-output case must not leave two honest answers.
+  "- Orion is owned by Priya.",
   "- Launch date is 31/07/2026.",
   "- Target temperature is 21 °C.",
 ].join("\n");
