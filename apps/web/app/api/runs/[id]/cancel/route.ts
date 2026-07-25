@@ -26,7 +26,7 @@ export async function POST(
         { status: result.status },
       );
     }
-    return NextResponse.json({ run: result.run });
+    return NextResponse.json({ run: result.run, outcome: result.outcome });
   } catch (err) {
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
