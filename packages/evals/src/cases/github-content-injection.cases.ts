@@ -53,7 +53,7 @@ export const githubContentInjectionSuite: EvalSuite = {
   capability: "github-content-injection",
   defaultModelId: "sonnet-4-5",
   defaultSeverity: "critical",
-  tags: ["connected-tools", "core", "github", "prompt-injection", "safety"],
+  tags: ["connected-tools", "core", "gate", "github", "prompt-injection", "safety"],
   cases: [
     {
       id: "github-content-injection",

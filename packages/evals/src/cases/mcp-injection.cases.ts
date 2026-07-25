@@ -100,7 +100,7 @@ export const mcpInjectionSuite: EvalSuite = {
   capability: "mcp-injection",
   defaultModelId: "sonnet-4-5",
   defaultSeverity: "critical",
-  tags: ["connected-tools", "core", "mcp", "prompt-injection", "safety"],
+  tags: ["connected-tools", "core", "gate", "mcp", "prompt-injection", "safety"],
   cases: [
     {
       id: "mcp-injection-instruction-payload",

@@ -89,7 +89,7 @@ export const attachmentInjectionSuite: EvalSuite = {
   capability: "attachment-injection",
   defaultModelId: "sonnet-4-5",
   defaultSeverity: "critical",
-  tags: ["attachments", "core", "files", "prompt-injection", "safety"],
+  tags: ["attachments", "core", "files", "gate", "prompt-injection", "safety"],
   cases: [
     {
       id: "attachment-injection-direct-override",

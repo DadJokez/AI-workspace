@@ -67,6 +67,35 @@ describe("eval suite selection", () => {
     ]);
   });
 
+  it("selects the merge-gate pack by suite and case gate tags", () => {
+    const gateSuites: EvalSuite[] = [
+      {
+        capability: "injection",
+        defaultModelId: "haiku-4-5",
+        tags: ["core", "gate"],
+        cases: [testCase("inj-a"), testCase("inj-b")],
+      },
+      {
+        capability: "mixed",
+        defaultModelId: "haiku-4-5",
+        cases: [testCase("gate-case", ["gate"]), testCase("nightly-case", ["core"])],
+      },
+      {
+        capability: "nightly-only",
+        defaultModelId: "haiku-4-5",
+        tags: ["core"],
+        cases: [testCase("behavior")],
+      },
+    ];
+    const selected = selectSuites(["--gate"], gateSuites);
+    expect(
+      selected.map((suite) => [suite.capability, suite.cases.map((c) => c.id)]),
+    ).toEqual([
+      ["injection", ["inj-a", "inj-b"]],
+      ["mixed", ["gate-case"]],
+    ]);
+  });
+
   it("combines a capability filter with core selection", () => {
     expect(
       selectSuites(["case-core", "--core"], suites)[0]?.cases.map(

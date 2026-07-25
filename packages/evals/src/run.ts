@@ -48,23 +48,35 @@ export const SUITES: EvalSuite[] = [
   toolEvidenceContinuitySuite,
 ];
 
-/** Select a capability and/or the stable foundational `core` case tag. */
+/**
+ * Select a capability and/or a tag-defined pack. `--core` is the broad
+ * foundational pack (nightly). `--gate` is the merge-gate pack: the
+ * security/injection spine, where every case is either repeat-sampled or
+ * proven stable — a required PR check must not be a per-sample lottery
+ * (~70 single-sample cases at ~99% each ≈ a 60% lane pass rate, observed
+ * 2026-07-25). Single-sample behavioral coverage belongs to the nightly
+ * full pack, which files eval-regression issues.
+ */
 export function selectSuites(
   args: readonly string[],
   availableSuites: readonly EvalSuite[] = SUITES,
 ): EvalSuite[] {
-  const core = args.includes("--core");
+  const tag = args.includes("--gate")
+    ? "gate"
+    : args.includes("--core")
+      ? "core"
+      : undefined;
   const filter = args.find((arg) => !arg.startsWith("--"));
   return availableSuites
     .filter((suite) => !filter || suite.capability === filter)
     .map((suite) => {
-      if (!core) return suite;
-      const suiteIsCore = suite.tags?.includes("core") ?? false;
+      if (!tag) return suite;
+      const suiteTagged = suite.tags?.includes(tag) ?? false;
       return {
         ...suite,
         cases: suite.cases.filter(
           (testCase) =>
-            suiteIsCore || (testCase.tags?.includes("core") ?? false),
+            suiteTagged || (testCase.tags?.includes(tag) ?? false),
         ),
       };
     })
@@ -103,15 +115,17 @@ export function summarizeOutcome(results: readonly CapabilityResult[]): {
 async function main() {
   const args = process.argv.slice(2);
   const mock = args.includes("--mock");
+  const gate = args.includes("--gate");
   const core = args.includes("--core");
+  const packName = gate ? "gate" : core ? "core" : undefined;
   const filter = args.find((a) => !a.startsWith("--"));
   const suites = selectSuites(args);
 
   if (suites.length === 0) {
     console.error(
       filter
-        ? `No ${core ? "core-tagged " : ""}suite matches "${filter}". Available: ${SUITES.map((s) => s.capability).join(", ")}`
-        : "No core-tagged eval cases are configured.",
+        ? `No ${packName ? `${packName}-tagged ` : ""}suite matches "${filter}". Available: ${SUITES.map((s) => s.capability).join(", ")}`
+        : `No ${packName ?? "matching"}-tagged eval cases are configured.`,
     );
     process.exit(2);
   }
@@ -131,10 +145,10 @@ async function main() {
     );
     process.exit(2);
   }
-  if (core) {
+  if (packName) {
     const count = suites.reduce((total, suite) => total + suite.cases.length, 0);
     console.log(
-      `🎯 --core: ${count} foundational cases across ${suites.length} suites.\n`,
+      `🎯 --${packName}: ${count} ${gate ? "merge-gate" : "foundational"} cases across ${suites.length} suites.\n`,
     );
   }
 
@@ -228,6 +242,7 @@ async function main() {
   writeReport(results, {
     mock,
     core,
+    gate,
     totalIn,
     totalOut,
     totalJudgeIn,
@@ -244,6 +259,7 @@ function writeReport(
   meta: {
     mock: boolean;
     core: boolean;
+    gate: boolean;
     totalIn: number;
     totalOut: number;
     totalJudgeIn: number;
@@ -270,7 +286,7 @@ function writeReport(
     "",
     `Candidate tokens: ${meta.totalIn}+${meta.totalOut} · judge tokens: ${meta.totalJudgeIn}+${meta.totalJudgeOut}`,
     "",
-    `Selection: ${meta.core ? "core-tagged foundational cases" : "full suite"}`,
+    `Selection: ${meta.gate ? "gate-tagged merge-gate pack" : meta.core ? "core-tagged foundational cases" : "full suite"}`,
     "",
   ];
   for (const r of results) {

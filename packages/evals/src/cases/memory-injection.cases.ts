@@ -73,7 +73,7 @@ export const memoryInjectionSuite: EvalSuite = {
   capability: "memory-injection",
   defaultModelId: "sonnet-4-5",
   defaultSeverity: "critical",
-  tags: ["memory", "prompt-injection", "safety"],
+  tags: ["gate", "memory", "prompt-injection", "safety"],
   cases: [
     {
       id: "memory-capture-resists-planted-memory",
