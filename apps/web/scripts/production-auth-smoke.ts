@@ -10,6 +10,7 @@ import {
   workspaceArtifacts,
 } from "@ai-workspace/db";
 import { and, eq, inArray, lt, or } from "drizzle-orm";
+import { nonNegativeNumber, positiveNumber } from "./env-numbers";
 
 import {
   buildProductionResourceFixtures,
@@ -37,6 +38,10 @@ const agentCoreTimeoutMs = positiveNumber(
 const staleBacklogMs = positiveNumber(
   process.env.SMOKE_BACKLOG_STALE_MS,
   5 * 60_000,
+);
+const requestPaceMs = nonNegativeNumber(
+  process.env.SMOKE_REQUEST_PACE_MS,
+  500,
 );
 const cleanupMode = process.env.SMOKE_AUTH_CLEANUP ?? "success";
 const runId = safeRunId(process.env.SMOKE_RUN_ID ?? String(Date.now()));
@@ -1066,6 +1071,7 @@ async function fetchAndReadWithTimeout<T>(
     return { response, body };
   } finally {
     clearTimeout(timeout);
+    if (requestPaceMs > 0) await delay(requestPaceMs);
   }
 }
 
@@ -1094,11 +1100,6 @@ function normalizeBaseUrl(raw: string) {
 
 function safeRunId(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 64) || "manual";
-}
-
-function positiveNumber(value: string | undefined, fallback: number) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function delay(ms: number) {

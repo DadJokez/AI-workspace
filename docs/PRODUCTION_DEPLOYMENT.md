@@ -28,21 +28,22 @@ this order:
    already-superseded build, but it is not itself an atomic lock.
 5. `cdk deploy AiWorkspaceEcsStack --require-approval never --exclusively`
    reconciles the checked-in stack with CloudFormation.
-6. CodeBuild forces new deployments of `ai-workspace-web`,
-   `ai-workspace-chat-worker`, and `ai-workspace-memory-worker` so every service
-   pulls the images that were just pushed.
-7. `aws ecs wait services-stable` blocks until all three services stabilize.
+6. The commit-SHA `ImageTag` parameter produces new task definitions, and the
+   CloudFormation update rolls all three ECS services. There is no redundant
+   second forced deployment.
+7. `aws ecs wait services-stable` confirms all three services remain stable
+   before the deployment receipt is recorded.
 8. The build log records JSON receipts for AgentCore and ECS. The AgentCore
    receipt contains the commit SHA, image digest and tag, stack status,
    deployment sequence, and source-template SHA-256. The ECS receipt contains
    the commit SHA and each service's live task-definition ARN.
 9. The authenticated production smoke runs against the stable services.
 
-CDK is the change detector. For an image-only commit it reports no stack
-changes and immediately continues to the ECS refresh. For a task-definition,
-environment, IAM, load balancer, or other `AiWorkspaceEcsStack` change, CDK
-applies and waits for the CloudFormation update before the image refresh can
-begin. A failed CDK update or unstable ECS service stops the build before smoke.
+CDK is the change detector. Every non-docs deployment passes the resolved
+commit SHA as `ImageTag`; a new SHA changes the task definitions and rolls the
+services as part of the stack update. Re-deploying the identical SHA does not
+recycle otherwise unchanged services. A failed CDK update or unstable ECS
+service stops the build before smoke.
 
 The CodeBuild service role may assume only the account-and-region-specific CDK
 bootstrap deploy and file-publishing roles. The publisher is limited to the
@@ -92,6 +93,24 @@ never incorrectly skip one.
 
 ## One-time bootstrap
 
+The ECS stack expects its ALB access-log bucket to exist before access logging
+is enabled. The bucket remains outside the stack so CDK does not attempt to
+adopt or replace the existing production bucket. Its reviewed, idempotent
+bootstrap and repair path is:
+
+```bash
+AWS_DEFAULT_REGION=us-east-1 \
+  ./infra/scripts/setup-alb-access-logs.sh
+```
+
+The script derives the account-specific default bucket name used by CDK,
+blocks public access, enforces bucket ownership and SSE-S3 encryption, grants
+only the account's ALB log-delivery path, and expires logs after 30 days. Run it
+before the first ECS stack deployment in a new account or region and whenever
+the bucket policy or lifecycle may have drifted. A custom
+`ALB_ACCESS_LOG_BUCKET_NAME` must match the stack's
+`aiWorkspace:albAccessLogBucketName` context value.
+
 The AgentCore child and parent concurrency change must be rolled out in this
 order:
 
@@ -122,6 +141,13 @@ that served a commit. The final authenticated smoke must pass before the
 CodeBuild deployment is considered healthy. Unit tests use fake CDK and AWS
 commands to enforce the ordering and fail-closed behavior without changing
 production.
+
+Application Auto Scaling owns the web service's live desired count between its
+two-task floor and four-task ceiling. The synthesized ECS service deliberately
+omits `DesiredCount`, so a routine stack deployment does not reduce a service
+that has scaled above the floor. On a new stack, ECS starts with its default
+count and registering the scalable target brings it inside the configured
+range.
 
 The console-managed parent project must retain its single-flight setting.
 Verify it after any CodeBuild project change:
