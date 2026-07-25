@@ -41,19 +41,34 @@ GitHub Actions, and human review in this repository.
 - `.github/workflows/ci.yml` runs lint, typecheck, unit tests, and build.
 - `.github/workflows/product-smoke.yml` runs the local Playwright browser
   smoke tests.
-- `.github/workflows/claude.yml` handles explicit `@claude` mentions.
+- `.github/workflows/claude.yml` handles explicit `@claude` mentions. The
+  trigger is gated on `author_association` (`OWNER`/`MEMBER`/`COLLABORATOR`)
+  so that on a public repository an arbitrary commenter cannot spend a paid
+  model run.
 - `.github/workflows/claude-code-review.yml` handles automatic review after
-  `CI` and `Product Smoke` both succeed, then publishes the final
-  `Claude verdict` commit status. It records a `Claude review completed`
-  commit status only after the Claude review action completes successfully;
-  if that status already exists for the SHA, it republishes the verdict so
-  stale red statuses do not block clean PRs. A commit status — not a PR
-  comment — is the review-happened fact because posting one requires
-  `statuses: write`, which PR commenters and the `@claude` workflow's token
-  do not have (#459).
+  `CI` and `Product Smoke` both succeed. It is split into two jobs:
+  - `review` runs the model. It reads the PR diff, title, and comments —
+    attacker-authored text — so it holds **no** `statuses: write` and its
+    `--allowedTools` list contains no `gh api`. A prompt-injected session
+    therefore has no channel to publish a commit status.
+  - `publish-verdict` holds the `statuses: write` and runs no model. It
+    records `Claude review completed` only when the review step's own
+    conclusion is `success`, then publishes the final `Claude verdict`. Its
+    inputs are job outputs the session cannot author plus facts re-read from
+    the API. If the completion status already exists for the SHA it
+    republishes the verdict, so stale red statuses do not block clean PRs.
+
+  A commit status — not a PR comment — is the review-happened fact because
+  posting one requires `statuses: write`, which PR commenters, the `@claude`
+  workflow's token, and now the review session itself all lack (#459).
 - `.github/workflows/claude-verdict.yml` publishes an initial red
   `Claude verdict` status for new PR commits and refreshes the status when
-  labels or reviews change.
+  labels or reviews change. It also carries the merge-conflict guard: a
+  conflicting PR gets no `CI` or `Product Smoke` runs at all (GitHub cannot
+  build the merge ref), so this workflow — which runs on
+  `pull_request_target` and needs no merge ref — reports the conflict as its
+  own failing check and turns `Claude verdict` red rather than letting the
+  gate go quiet.
 - `CLAUDE.md` contains Claude's review rubric.
 - `AGENTS.md` contains Codex's repository instructions and should reference this
   document.
@@ -138,12 +153,17 @@ comments, labels, and reviews. It must not push commits or merge PRs.
 
 The required `Claude verdict` status is the mechanical merge gate:
 
+- `failure` if the PR has merge conflicts (`mergeable_state == "dirty"`).
 - `failure` if the current head SHA does not carry a successful
   `Claude review completed` commit status.
 - `failure` if the PR has the `needs-codex` label.
 - `failure` if the Claude Code review action fails to complete.
-- `success` only when the current head SHA was reviewed and `needs-codex` is
-  absent.
+- `success` only when the current head SHA was reviewed, the PR merges
+  cleanly, and `needs-codex` is absent.
+
+It is published only by jobs that run no model and hold `statuses: write`.
+No model session in this repository has that permission, so the verdict
+cannot be self-published by the thing being gated.
 
 ## Codex Expectations
 

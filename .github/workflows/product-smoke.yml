@@ -14,6 +14,12 @@ on:
         required: false
         default: "https://comparative.builtwithrobot.link"
 
+# Least privilege baseline; `foundational_evals` re-declares its own block to
+# add the `id-token: write` its OIDC role assumption needs. Without this the
+# workflow inherits the repository default, which can be read/write.
+permissions:
+  contents: read
+
 concurrency:
   group: product-smoke-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
@@ -38,15 +44,17 @@ jobs:
       matrix:
         project: [desktop-chromium, mobile-chromium]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 9.12.3
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -61,7 +69,7 @@ jobs:
       # Caching the browser binaries removes the Chromium CDN download from
       # the critical path — historically a flake source of its own.
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -76,7 +84,7 @@ jobs:
 
       - name: Upload Playwright report
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-report-${{ matrix.project }}
           path: apps/web/playwright-report/
@@ -108,15 +116,17 @@ jobs:
     env:
       DATABASE_URL: postgres://aihub:aihub_dev@127.0.0.1:5432/aihub_core_smoke
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 9.12.3
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -125,7 +135,7 @@ jobs:
       # (prod-server smoke). Same cache key as ci.yml so a warm compiler cache
       # bounds the added build time.
       - name: Next.js build cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: apps/web/.next/cache
           key: nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/**/*.ts', 'apps/web/**/*.tsx', 'packages/**/*.ts', '!**/node_modules/**', '!apps/web/.next/**') }}
@@ -140,7 +150,7 @@ jobs:
         run: echo "version=$(pnpm --filter @ai-workspace/web exec node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -155,7 +165,7 @@ jobs:
 
       - name: Upload core pipeline report
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-core-pipeline-report
           path: apps/web/playwright-report/
@@ -190,17 +200,19 @@ jobs:
           fi
 
       - if: ${{ env.RUN_REAL_EVAL == 'true' }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         if: ${{ env.RUN_REAL_EVAL == 'true' }}
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 9.12.3
 
       - name: Setup Node
         if: ${{ env.RUN_REAL_EVAL == 'true' }}
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -211,7 +223,7 @@ jobs:
 
       - name: Configure AWS credentials
         if: ${{ env.RUN_REAL_EVAL == 'true' }}
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_EVAL_ROLE_ARN }}
           aws-region: us-east-1
@@ -271,7 +283,7 @@ jobs:
 
       - name: Upload eval report
         if: ${{ always() && env.RUN_REAL_EVAL == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: pr-core-eval-report-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
           path: packages/evals/eval-reports/
@@ -328,15 +340,17 @@ jobs:
       DATABASE_URL: postgres://aihub:aihub_dev@127.0.0.1:5432/aihub_auth_smoke
       NEXTAUTH_SECRET: playwright-local-secret-with-enough-length
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 9.12.3
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -345,7 +359,7 @@ jobs:
       # (prod-server smoke). Same cache key as ci.yml so a warm compiler cache
       # bounds the added build time.
       - name: Next.js build cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: apps/web/.next/cache
           key: nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/**/*.ts', 'apps/web/**/*.tsx', 'packages/**/*.ts', '!**/node_modules/**', '!apps/web/.next/**') }}
@@ -360,7 +374,7 @@ jobs:
         run: echo "version=$(pnpm --filter @ai-workspace/web exec node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -375,7 +389,7 @@ jobs:
 
       - name: Upload authenticated Playwright report
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-auth-report
           path: apps/web/playwright-report/
@@ -387,10 +401,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
 
