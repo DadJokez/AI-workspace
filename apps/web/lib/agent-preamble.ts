@@ -201,7 +201,14 @@ export function buildAgentPreamble({
     }
     if (mountedProviders.length === 0 && discoverableProviders.length === 0) {
       lines.push(
-        "No connected account tool is mounted in this lightweight turn. That only means this turn was routed for fast chat; it does NOT mean the account tool is disconnected. Do not say no tools are connected. If the user's request needs live data from a connected account tool, do not guess, do not invent a result, and do not ask the user to refresh. Say you need to check it and answer only after a tool-backed turn provides a result.",
+        // "Say you need to check it" read as an invitation to narrate the
+        // lookup: 5/5 real-model samples opened with "Let me fetch your last
+        // 3 pull requests", and 2 of those then invented three complete PRs
+        // (titles, repos, dates, statuses) — the Christmas class, in the lane
+        // with no tool to catch it. Naming the absent action explicitly, and
+        // clamping the correction so it cannot swing into denying the
+        // account, took the same case to 6/6 clean (#641).
+        "No connected account tool is mounted in this lightweight turn. That only means this turn was routed for fast chat; it does NOT mean the account tool is disconnected. Do not say no tools are connected. If the user's request needs live data from a connected account tool, say plainly that the account is connected but no tool is mounted on this turn to reach it, so the request needs a tool-backed turn — then stop. Never say the account itself is not connected, not available, or not accessible. You have called nothing this turn: do not write that you are fetching, checking, looking up, searching, or retrieving anything, do not emit tool-call syntax, do not guess, do not invent a result, and do not ask the user to refresh.",
       );
     }
     if (unavailableProviders.length > 0) {
