@@ -8,6 +8,7 @@
 
 import { MODELS, isValidModelId } from "@ai-workspace/agent";
 import {
+  INTEGRATION_DISPLAY_NAMES,
   SETTINGS_INTEGRATIONS_PATH,
   integrationConnectPath,
 } from "@/lib/settings-navigation";
@@ -76,17 +77,14 @@ const PROVIDER_DESCRIPTIONS: Record<string, string> = {
   notion:
     "Notion: search/read pages, read markdown, inspect databases/data sources, query rows, create/update pages, append blocks (pre-authorized)",
   google:
-    "Google Mail and Calendar: search/read Gmail, save drafts without sending, read calendars, and create confirmed events (pre-authorized)",
+    `${INTEGRATION_DISPLAY_NAMES.google}: search/read Gmail, save drafts without sending, read calendars, and create confirmed events (pre-authorized)`,
   salesforce:
     "Salesforce: search records, run read-only SOQL SELECT queries, describe objects, and read records — strictly read-only, scoped to the user's own Salesforce permissions (pre-authorized)",
 };
 
-const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  google: "Google Mail and Calendar",
-  salesforce: "Salesforce",
-  github: "GitHub",
-  notion: "Notion",
-};
+// Display names come from the canonical Settings map (#649) so prompt copy,
+// reconnect quotes, and the visible integration cards cannot disagree.
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = INTEGRATION_DISPLAY_NAMES;
 
 export function buildAgentPreamble({
   user,
@@ -329,7 +327,7 @@ function pushReconnectGuidance(
     .map((provider) => PROVIDER_DISPLAY_NAMES[provider] ?? provider)
     .join(" and ");
   lines.push(
-    `These account connections exist, but their delegated grant is expired, invalid, or missing newly required scopes. They are not callable in this turn. If the user asks for one, say exactly: "${names} needs to be reconnected in Tools before I can use it." Do not say no tools are connected, and do not invent a result.`,
+    `These account connections exist, but their delegated grant is expired, invalid, or missing newly required scopes. They are not callable in this turn. If the user asks for one, say exactly: "${names} needs to be reconnected in ${SETTINGS_INTEGRATIONS_PATH} before I can use it." Do not say no tools are connected, and do not invent a result.`,
   );
 }
 

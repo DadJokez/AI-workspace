@@ -6,6 +6,7 @@ import {
 } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { canActorRunSkill } from "@/lib/shares";
+import { SETTINGS_INTEGRATIONS_PATH } from "@/lib/settings-navigation";
 import {
   checkSkillProviderAccess,
   isSkillProviderAccessReady,
@@ -113,13 +114,13 @@ export async function resolveActivatedSkillForChat({
   if (!isSkillProviderAccessReady(access)) {
     const parts = [
       access.missingConnections.length
-        ? `connect ${access.missingConnections.join(", ")} in Tools`
+        ? `connect ${access.missingConnections.join(", ")} in ${SETTINGS_INTEGRATIONS_PATH}`
         : "",
       access.deniedAttestations.length
         ? `approve ${access.deniedAttestations.join(", ")}`
         : "",
       access.reconnectRequired.length
-        ? `reconnect ${access.reconnectRequired.join(", ")} in Tools`
+        ? `reconnect ${access.reconnectRequired.join(", ")} in ${SETTINGS_INTEGRATIONS_PATH}`
         : "",
       access.temporarilyUnavailable.length
         ? `try ${access.temporarilyUnavailable.join(", ")} again in a moment`

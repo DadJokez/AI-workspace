@@ -9,6 +9,7 @@ import {
   isSkillProviderAccessReady,
 } from "@/lib/skills";
 import { canActorRunSkill } from "@/lib/shares";
+import { SETTINGS_INTEGRATIONS_PATH } from "@/lib/settings-navigation";
 import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
 export const dynamic = "force-dynamic";
@@ -93,7 +94,7 @@ export async function POST(
     const parts: string[] = [];
     if (access.missingConnections.length > 0) {
       parts.push(
-        `connect ${access.missingConnections.join(", ")} in Tools`,
+        `connect ${access.missingConnections.join(", ")} in ${SETTINGS_INTEGRATIONS_PATH}`,
       );
     }
     if (access.deniedAttestations.length > 0) {
@@ -103,7 +104,7 @@ export async function POST(
     }
     if (access.reconnectRequired.length > 0) {
       parts.push(
-        `reconnect ${access.reconnectRequired.join(", ")} in Tools`,
+        `reconnect ${access.reconnectRequired.join(", ")} in ${SETTINGS_INTEGRATIONS_PATH}`,
       );
     }
     if (access.temporarilyUnavailable.length > 0) {
