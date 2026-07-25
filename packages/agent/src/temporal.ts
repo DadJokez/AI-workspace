@@ -40,6 +40,17 @@ const RELATIVE_REFERENCE_RE =
 // matching the module's stance on "next weekend".
 const BACKWARD_MODIFIER_BEFORE_RE = /\b(?:last|past|ago)\s+$/i;
 
+// A turn that explicitly redefines "today" ("For this exercise, today is
+// Friday, July 24…", "assume today is…") sets a reference frame the real
+// clock cannot serve. Injecting real-clock resolutions would fight the
+// user's stated premise, so the whole turn stays unresolved — the model
+// still sees the wording plus the honest clock line and reasons from
+// there. Matched only when "today is/was" is followed by a date-shaped
+// token (weekday, month, or digit) or preceded by an assume-style verb, so
+// "today is a good day to ship" still resolves normally.
+const TODAY_REDEFINITION_RE =
+  /\b(?:assume|pretend|suppose|imagine|say)\b[^.\n]{0,40}\btoday\b|\btoday\s+(?:is|was)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december|\d)/i;
+
 export interface ResolvedDateReference {
   /** The matched phrase, lowercased with collapsed spaces ("next tuesday"). */
   sourceText: string;
@@ -99,6 +110,7 @@ export function resolveRelativeDateReferences(
 ): ResolvedDateReference[] {
   const today = localCalendarDate(now, timeZone);
   if (!today) return [];
+  if (TODAY_REDEFINITION_RE.test(text)) return [];
   const todayIso = isoWeekday(today);
   // Days from today back to the current ISO week's Monday.
   const mondayOffset = 1 - todayIso;
@@ -124,6 +136,10 @@ export function resolveRelativeDateReferences(
       const qualifierWord = qualifier?.toLowerCase();
       if (qualifierWord === "this") {
         dayDelta = mondayOffset + (targetIso - 1);
+        // "this Monday" said mid-week often means the UPCOMING Monday;
+        // resolving it to the past would inject a date many users don't
+        // mean. Same stance as last/past/ago: unresolved beats wrong.
+        if (dayDelta < 0) continue;
       } else if (qualifierWord === "next") {
         dayDelta = mondayOffset + 7 + (targetIso - 1);
       } else {

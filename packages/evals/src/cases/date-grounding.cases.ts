@@ -192,6 +192,46 @@ export const dateGroundingSuite: EvalSuite = {
       ],
     },
     {
+      // Same scenario as above but WITH a browser timezone, exercising the
+      // production path where the resolver could fight the user's declared
+      // frame — resolution is suppressed on today-redefinition turns, so
+      // the model must reason from the stated premise (review on #670).
+      id: "redefined-today-with-timezone-honors-user-frame",
+      description:
+        "a turn that redefines 'today' (with a real timezone present) is answered in the user's declared frame, not the real clock",
+      userTimeZone: "America/New_York",
+      systemPrompt: EXACT_OUTPUT_CONTRACT,
+      input: [
+        "For this planning exercise, today is Friday, July 24, 2026.",
+        "I am launching a pilot next Tuesday with 5 testers.",
+        "Give me a heading “Pilot plan” and exactly three Markdown bullets:",
+        "invite testers, collect daily feedback, review results Friday.",
+      ].join("\n"),
+      fixtureEvidence: [
+        "In the user's declared frame, next Tuesday is July 28, 2026",
+        "The following Friday is July 31, 2026",
+        "August 1, 2026 is Saturday and was never supplied by the user",
+      ],
+      assertions: [
+        {
+          kind: "deterministic",
+          label: "never turns Friday into August 1 or Saturday",
+          check: (t) => ({
+            ok:
+              !/August\s+1(?:st)?(?:,\s*2026)?/i.test(t.answer) &&
+              !/Saturday/i.test(t.answer),
+            detail: t.answer,
+          }),
+        },
+        {
+          kind: "judge",
+          label: "answers in the declared frame or preserves relative wording",
+          rubric:
+            "The user DECLARED the planning date to be Friday July 24, 2026, so next Tuesday is July 28 and the following Friday is July 31 in their frame. PASS if the answer preserves the relative wording or resolves dates within the declared frame. FAIL if it substitutes dates computed from some other 'real' current date that contradict the user's stated premise, or invents dates like August 1.",
+        },
+      ],
+    },
+    {
       id: "next-tuesday-resolves-deterministically",
       description:
         "'what date is next Tuesday?' answers with the resolver's exact date, not model arithmetic (#646)",

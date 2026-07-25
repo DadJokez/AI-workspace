@@ -62,16 +62,38 @@ describe("resolveRelativeDateReferences", () => {
     });
   });
 
-  it("resolves 'this <weekday>' within the current ISO week, even when past", () => {
-    // Saturday 2026-07-25: "this monday" is the Monday of this ISO week —
-    // July 20, five days ago — per the documented current-week semantics.
+  it("leaves a past-pointing 'this <weekday>' unresolved (review: unresolved beats wrong)", () => {
+    // Saturday 2026-07-25: "this monday" is five days back in ISO-week
+    // terms, but mid-week speakers often mean the UPCOMING Monday — the
+    // reference is ambiguous, so nothing is injected. Today-or-future
+    // "this <weekday>" still resolves.
     const saturday = new Date("2026-07-25T15:00:00.000Z");
-    expect(resolveOne("since this monday", saturday)).toEqual({
-      sourceText: "this monday",
-      isoDate: "2026-07-20",
-      weekday: "Monday",
-    });
+    expect(
+      resolveRelativeDateReferences("since this monday", saturday, NY),
+    ).toEqual([]);
     expect(resolveOne("this saturday", saturday).isoDate).toBe("2026-07-25");
+  });
+
+  it("suppresses the whole turn when the user redefines today (review)", () => {
+    const thursdayReal = new Date("2026-07-23T15:00:00.000Z");
+    expect(
+      resolveRelativeDateReferences(
+        "For this planning exercise, today is Friday, July 24, 2026 — when do we ship if we launch next Tuesday?",
+        thursdayReal,
+        NY,
+      ),
+    ).toEqual([]);
+    expect(
+      resolveRelativeDateReferences(
+        "Assume today is 2026-01-05. What was the previous Friday?",
+        thursdayReal,
+        NY,
+      ),
+    ).toEqual([]);
+    // A non-redefining use of "today is" still resolves normally.
+    expect(
+      resolveOne("today is a good day to ship it", thursdayReal).sourceText,
+    ).toBe("today");
   });
 
   it("resolves 'next <weekday>' to the following ISO week, even on that weekday", () => {
