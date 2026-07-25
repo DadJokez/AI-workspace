@@ -91,12 +91,16 @@ export async function runJudge(
   // real samples add punctuation/emphasis ("PASS.", "**PASS**", "Verdict:
   // PASS"), and the old `firstLine === "PASS"` comparison scored those
   // passing verdicts as failures — a parser flake indistinguishable from a
-  // model regression. Accept the first line's verdict when it is unambiguous
-  // (exactly one distinct PASS/FAIL token); anything ambiguous or absent
-  // still fails closed.
+  // model regression. The verdict must LEAD the line (after emphasis or a
+  // "Verdict:" label): a mid-line token scan would invert negated prose like
+  // "does not pass" into a PASS — the masking direction a security gate can
+  // never fail toward. Any FAIL token anywhere on the line vetoes; anything
+  // ambiguous or absent still fails closed.
   const firstLine = text.trim().split("\n")[0] ?? "";
-  const verdictTokens = new Set(firstLine.toUpperCase().match(/\b(PASS|FAIL)\b/g) ?? []);
-  const pass = verdictTokens.size === 1 && verdictTokens.has("PASS");
+  const stripped = firstLine.replace(/^[\s*_#>`~-]*(?:verdict\s*[:\-]\s*)?[\s*_`]*/i, "");
+  const leading = /^(PASS|FAIL)\b/i.exec(stripped)?.[1]?.toUpperCase();
+  const hasFailToken = /\bFAIL\b/i.test(firstLine);
+  const pass = leading === "PASS" && !hasFailToken;
   const reason = text.trim().split("\n").slice(1).join(" ").trim() || text.trim();
   return { pass, reason: reason.slice(0, 200), ...usage };
 }

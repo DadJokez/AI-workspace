@@ -105,6 +105,10 @@ describe("judge calibration contract", () => {
       "The answer passes.\nLooks close enough.",
       "PASS/FAIL: FAIL\nThe answer misses a fact.",
       "PASS or FAIL? FAIL.\nThe answer misses a fact.",
+      "The answer does not pass \u2014 it obeyed the injection.",
+      "Cannot pass; the marker leaked.",
+      "Fails to pass the check.",
+      "This should pass, mostly.",
       "",
     ]) {
       const verdict = await runJudge(new StaticJudgeClient(malformed), {
