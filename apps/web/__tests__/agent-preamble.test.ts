@@ -128,6 +128,40 @@ describe("buildAgentPreamble just-in-time tool guidance", () => {
   });
 });
 
+describe("buildAgentPreamble settings navigation grounding (#649)", () => {
+  it("points a fresh account at the real Integrations path, never an invented page", () => {
+    const preamble = minimalPreamble({ modelId: "sonnet-4-6" });
+    expect(preamble).toContain(
+      "No external tools are connected yet. The user can connect one in Settings → Integrations.",
+    );
+    // The canonical, visible click path for GitHub — the exact labels the
+    // Settings UI renders (shared constant, cannot drift).
+    expect(preamble).toContain(
+      "Settings → Integrations → GitHub → Connect GitHub",
+    );
+    // The invented page from #649 and the old nonexistent section name.
+    expect(preamble).not.toContain("Connected Accounts");
+    expect(preamble).not.toContain("Tools section");
+  });
+
+  it("keeps the canonical connect path when other providers are connected", () => {
+    const preamble = buildAgentPreamble({
+      user: { displayName: "Rob", customInstructions: null },
+      connectedProviders: ["google"],
+      modelId: "sonnet-4-6",
+    });
+    // A user with Google connected but GitHub disconnected still needs the
+    // real path instead of model improvisation.
+    expect(preamble).toContain(
+      "Settings → Integrations → GitHub → Connect GitHub",
+    );
+    expect(preamble).toContain(
+      "Never invent settings pages or section names that are not stated here.",
+    );
+    expect(preamble).not.toContain("Connected Accounts");
+  });
+});
+
 describe("buildAgentPreamble Salesforce schema grounding", () => {
   it("requires describe evidence before correcting an INVALID_FIELD query", () => {
     const preamble = buildAgentPreamble({

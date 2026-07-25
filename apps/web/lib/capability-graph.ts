@@ -18,6 +18,7 @@ import type {
   RecommendationApp,
   RecommendationSkill,
 } from "@/lib/recommendations";
+import { integrationConnectPath } from "@/lib/settings-navigation";
 import { skillMcpProviders } from "@/lib/skill-tool-declarations";
 import { listSkillsSharedWith } from "@/lib/shares";
 import { canonicalizeStarterSkill } from "@/lib/starter-skills";
@@ -471,9 +472,16 @@ function skillWhy(
   comingSoonProviders: ReadonlySet<string>,
 ): string {
   if (missingProviders.length > 0) {
+    // Cite the real Settings navigation (shared with the Settings UI) so the
+    // model never invents a settings page for connecting a provider (#649).
+    const connectPaths = unique(
+      missingProviders.map(integrationConnectPath),
+    ).join("; ");
     return `${skill.name} is ${source}, but needs ${formatList(
       missingProviders,
-    )} connected before it can run fully.`;
+    )} connected before it can run fully. The user can connect ${
+      missingProviders.length === 1 ? "it" : "them"
+    } via ${connectPaths}.`;
   }
   if (pendingApprovalProviders.length > 0) {
     return `${skill.name} is ${source}, but ${formatList(
