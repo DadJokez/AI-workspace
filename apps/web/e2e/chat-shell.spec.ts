@@ -472,14 +472,13 @@ test.describe("chat shell guardrails", () => {
     });
 
     await gotoE2EChat(page);
-    let sidebar = await openPrimarySidebar(page, isMobile);
+    const sidebar = await openPrimarySidebar(page, isMobile);
     await sidebar.getByRole("button", { name: title }).click();
     await expect(page.getByTestId("user-message")).toContainText(originalPrompt);
 
+    // #664: the URL identifies the open thread, so reload restores it.
+    await expect(page).toHaveURL(new RegExp(`threadId=${threadId}`));
     await page.reload();
-    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
-    sidebar = await openPrimarySidebar(page, isMobile);
-    await sidebar.getByRole("button", { name: title }).click();
     const originalMessage = page
       .getByTestId("user-message")
       .filter({ hasText: originalPrompt });
@@ -501,9 +500,6 @@ test.describe("chat shell guardrails", () => {
     ]);
 
     await page.reload();
-    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
-    sidebar = await openPrimarySidebar(page, isMobile);
-    await sidebar.getByRole("button", { name: title }).click();
     await expect(
       page.getByTestId("user-message").filter({ hasText: replacementPrompt }),
     ).toBeVisible();

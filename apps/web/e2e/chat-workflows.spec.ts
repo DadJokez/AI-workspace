@@ -646,15 +646,13 @@ test.describe("chat workflow regressions", () => {
     });
 
     await gotoE2EChat(page);
-    let sidebar = await openPrimarySidebar(page, isMobile);
+    const sidebar = await openPrimarySidebar(page, isMobile);
     await sidebar.getByRole("button", { name: title }).click();
     await expect(page.getByText(firstMarker)).toBeVisible();
     await expect(page.getByText(secondMarker)).toBeVisible();
 
+    // #664: the URL identifies the open thread, so reload restores it.
     await page.reload();
-    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
-    sidebar = await openPrimarySidebar(page, isMobile);
-    await sidebar.getByRole("button", { name: title }).click();
     await expect(page.getByText(secondMarker)).toBeVisible();
 
     const exportRequest = page.waitForRequest(
@@ -1769,9 +1767,11 @@ test.describe("chat workflow regressions", () => {
     await sidebar.getByRole("button", { name: /beta reload chat/i }).click();
     await expect(page.getByText("Beta persisted answer.")).toBeVisible();
 
+    // #664: reload restores the beta thread from the URL instead of a blank
+    // chat; the sidebar can still switch to another thread afterwards.
     await page.reload();
     await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
-    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+    await expect(page.getByText("Beta persisted answer.")).toBeVisible();
 
     sidebar = await openPrimarySidebar(page, isMobile);
     await sidebar.getByRole("button", { name: /alpha reload chat/i }).click();
