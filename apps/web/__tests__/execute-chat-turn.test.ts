@@ -1756,6 +1756,35 @@ describe("executeChatTurn — literal output contract (#652/#644)", () => {
     ).toContain("exact_output_reduced");
   });
 
+  it("never reduces away requested content on a compound content+marker message (review)", async () => {
+    const summary =
+      "Here's a summary of the document: it covers the Q3 migration plan, " +
+      "the rollback strategy, and the sign-off checklist. Overall the " +
+      "migration is done and the checklist has two open items remaining.";
+    const fixture = inlineInput({
+      prompt: "Summarize the doc. Reply exactly: done",
+    });
+    fixture.input.runtime = fakeRuntime(fixture.captured, summary);
+
+    await executeChatTurn(fixture.input);
+
+    const persisted = fixture.state.inserts.find(
+      (insert) => insert.table === chatMessages,
+    )?.values as { content?: string } | undefined;
+    // The summary the user asked for survives the incidental "done" hit.
+    expect(persisted?.content).toBe(summary);
+    expect(
+      vi
+        .mocked(appendRunEventBestEffort)
+        .mock.calls.map(([, event]) => event.eventType),
+    ).not.toContain("exact_output_reduced");
+    const terminal = fixture.state.runUpdates.find(
+      (update) => update.status === "succeeded",
+    );
+    expect(terminal?.outputs).toMatchObject({ assistantText: summary });
+    expect(terminal?.outputs).not.toHaveProperty("contractViolation");
+  });
+
   it("flags a missing literal on the run outputs without rewriting the answer", async () => {
     const fixture = inlineInput({
       prompt: "Remember my favorite color is teal, then reply exactly: ACK-7",

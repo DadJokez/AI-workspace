@@ -20,6 +20,12 @@ const COLON_LITERAL_TAIL = /^\s*:\s*(\S[\s\S]*)$/;
 const MEMORY_REQUEST_SIGNAL =
   /\b(?:remember|memori[sz]e|don'?t\s+forget)\b|\b(?:save|store|add)\b[^\n]{0,60}\b(?:memory|vault)\b/i;
 
+// A prefix that asks for produced CONTENT (not just a side effect) makes the
+// literal non-reducible: the user wants that content, and an incidental
+// substring hit ("…the migration is done.") must never discard it.
+const CONTENT_REQUEST_SIGNAL =
+  /\b(?:summari[sz]e|draft|write|translate|explain|analy[sz]e|list|describe|generate|create|compose|review|compare|outline|calculate|extract|convert|rewrite|fix|answer|tell me|show me|give me)\b/i;
+
 export const EXACT_OUTPUT_CONTRACT = [
   "Exact-output contract for this turn:",
   "Treat the user's requested text, item count, structure, schema, punctuation, casing, and Unicode spacing as literal constraints.",
@@ -40,6 +46,16 @@ export const EXACT_OUTPUT_MEMORY_ACK =
 export interface ExactOutputSpec {
   kind: "literal";
   value: string;
+  /**
+   * Whether a prose-wrapped answer may be REDUCED to the literal before
+   * persistence. True only when nothing content-producing precedes the
+   * demand: a clean/"please" prefix, or a pure side-effect prefix (memory
+   * request with no content verb). "Summarize the doc. Reply exactly:
+   * done" must never have its summary discarded because the summary
+   * happens to contain "done" — for such prefixes the generated answer
+   * stands (validation/violation flagging still applies).
+   */
+  reducible: boolean;
 }
 
 export interface ExactOutputContract {
@@ -111,11 +127,18 @@ export function buildExactOutputContract(
     literal && MEMORY_REQUEST_SIGNAL.test(text)
       ? `${EXACT_OUTPUT_CONTRACT} ${EXACT_OUTPUT_MEMORY_ACK}`
       : EXACT_OUTPUT_CONTRACT;
+  if (!literal) return { prose };
+  const prefix = text.slice(0, literal.index).trim();
+  const cleanPrefix = prefix.length === 0 || /^please[,!]?$/i.test(prefix);
+  const sideEffectOnlyPrefix =
+    MEMORY_REQUEST_SIGNAL.test(prefix) && !CONTENT_REQUEST_SIGNAL.test(prefix);
   return {
     prose,
-    ...(literal
-      ? { spec: { kind: "literal" as const, value: literal.value } }
-      : {}),
+    spec: {
+      kind: "literal" as const,
+      value: literal.value,
+      reducible: cleanPrefix || sideEffectOnlyPrefix,
+    },
   };
 }
 
@@ -138,19 +161,34 @@ export function extractPureEchoReply(userMessage: string): string | undefined {
   return /^\S+$/.test(found.value) ? found.value : undefined;
 }
 
-export type LiteralContractOutcome = "exact" | "reduced" | "violated";
+export type LiteralContractOutcome =
+  | "exact"
+  | "reduced"
+  | "present"
+  | "violated";
+
+/**
+ * Reduction may only strip FRAMING, never the bulk of an answer: beyond
+ * this much surrounding text, a contained literal is reported as "present"
+ * and the generated answer stands.
+ */
+const REDUCTION_FRAMING_ALLOWANCE = 240;
 
 /**
  * Post-stream check of a literal contract. "reduced" means the literal is
- * present but wrapped in prose (persist the literal instead); "violated"
- * means it is absent (keep the answer as generated, flag the run — never
- * invent it). Byte-exact on purpose: casing and punctuation are part of the
- * contract.
+ * wrapped in bounded framing prose (persist the literal instead);
+ * "present" means the literal appears inside substantially more content
+ * than framing — keep the answer as generated; "violated" means it is
+ * absent (keep the answer, flag the run — never invent it). Byte-exact on
+ * purpose: casing and punctuation are part of the contract.
  */
 export function evaluateLiteralContract(
   answer: string,
   literal: string,
 ): LiteralContractOutcome {
   if (answer === literal) return "exact";
-  return answer.includes(literal) ? "reduced" : "violated";
+  if (!answer.includes(literal)) return "violated";
+  return answer.length - literal.length <= REDUCTION_FRAMING_ALLOWANCE
+    ? "reduced"
+    : "present";
 }

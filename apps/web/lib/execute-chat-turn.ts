@@ -1326,14 +1326,21 @@ export async function executeChatTurn({
   let contractViolation: "literal_missing" | undefined;
   if (exactOutputContract?.spec && !runError && assistantText.length > 0) {
     const literal = exactOutputContract.spec.value;
-    const outcome = evaluateLiteralContract(assistantText, literal);
+    const rawOutcome = evaluateLiteralContract(assistantText, literal);
+    // A non-reducible spec (content-producing prefix, e.g. "Summarize the
+    // doc. Reply exactly: done") must never have the requested content
+    // discarded over an incidental substring hit — the answer stands.
+    const outcome =
+      rawOutcome === "reduced" && !exactOutputContract.spec.reducible
+        ? "present"
+        : rawOutcome;
     if (outcome === "reduced") {
       assistantText = literal;
       assistantTextReduced = true;
     } else if (outcome === "violated") {
       contractViolation = "literal_missing";
     }
-    if (outcome !== "exact") {
+    if (outcome !== "exact" && outcome !== "present") {
       await appendTurnRunEvent(lane, {
         db,
         runId,

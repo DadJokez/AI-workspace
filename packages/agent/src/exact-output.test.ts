@@ -56,13 +56,34 @@ describe("buildExactOutputContract", () => {
       expect(buildExactOutputContract(message)?.spec).toEqual({
         kind: "literal",
         value: literal,
+        // Every fixture above has a clean or side-effect-only prefix.
+        reducible: true,
       });
+    });
+
+    it("marks a content-producing prefix non-reducible (review: reduction must not discard requested content)", () => {
+      for (const message of [
+        "Summarize the doc. Reply exactly: done",
+        "Draft a decline email, then reply exactly: sent",
+        "Remember the launch date and summarize the doc, then reply exactly: ACK-7",
+      ]) {
+        const spec = buildExactOutputContract(message)?.spec;
+        expect(spec?.value).toBeDefined();
+        expect(spec?.reducible, message).toBe(false);
+      }
+    });
+
+    it("keeps a please-prefixed echo reducible", () => {
+      expect(
+        buildExactOutputContract('Please reply exactly with "CBX-1"')?.spec
+          ?.reducible,
+      ).toBe(true);
     });
 
     it("keeps a trailing period outside the quotes out of the literal", () => {
       expect(
         buildExactOutputContract('Reply exactly with "MiXeD-CaSe-42".')?.spec,
-      ).toEqual({ kind: "literal", value: "MiXeD-CaSe-42" });
+      ).toEqual({ kind: "literal", value: "MiXeD-CaSe-42", reducible: true });
     });
 
     it.each([
@@ -159,6 +180,16 @@ describe("evaluateLiteralContract", () => {
       "violated",
     );
     expect(evaluateLiteralContract("ACK 7", "ACK-7")).toBe("violated");
+  });
+
+  it("reports 'present' beyond the framing allowance instead of discarding content", () => {
+    const summary =
+      "The document covers the Q3 migration in detail. ".repeat(8) +
+      "In short, the migration is done.";
+    expect(evaluateLiteralContract(summary, "done")).toBe("present");
+    expect(
+      evaluateLiteralContract("Sure thing — here it is: done", "done"),
+    ).toBe("reduced");
   });
 
   it("flags an absent literal without inventing it", () => {
