@@ -8,6 +8,16 @@
 #
 # The default bucket name matches the CDK stack. Override it only when the stack
 # uses the matching aiWorkspace:albAccessLogBucketName context value.
+#
+# API-shape provenance (verified 2026-07-25 against the LIVE production
+# bucket, which has ALB log objects landing): the
+# `logdelivery.elasticloadbalancing.amazonaws.com` service principal with
+# SourceAccount/SourceArn conditions is the policy the working us-east-1
+# bucket carries (the legacy regional ELB account-id principal is not
+# needed), and `BlockedEncryptionTypes: ["SSE-C"]` is a current
+# ServerSideEncryptionRule member (added to S3 in 2025), accepted and active
+# on that bucket. `get-bucket-policy` / `get-bucket-encryption` on the prod
+# bucket are the reference if these shapes are ever in doubt.
 set -euo pipefail
 
 : "${AWS_DEFAULT_REGION:?AWS_DEFAULT_REGION is required}"
