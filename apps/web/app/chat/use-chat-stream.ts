@@ -424,6 +424,8 @@ export function useChatStream({
           patchDraft({
             type: "persisted",
             messageId: persistedAssistantMessageId,
+            content:
+              typeof event.content === "string" ? event.content : undefined,
             modelId: assistantModel,
             runtimeLane: assistantLane,
             artifacts,
@@ -541,6 +543,18 @@ export function useChatStream({
             response,
             "Comparative could not confirm that the run stopped.",
           );
+        }
+        const payload = (await response.json().catch(() => null)) as {
+          outcome?: string;
+        } | null;
+        if (
+          payload?.outcome === "result_committed" ||
+          payload?.outcome === "already_terminal"
+        ) {
+          // The run finished with a durable answer before the cancel landed
+          // (#655). Let the stream deliver that result instead of claiming a
+          // cancellation that did not happen.
+          return;
         }
         activeStream.abort.abort();
       } catch (error) {

@@ -241,6 +241,163 @@ test.describe("chat workflow regressions", () => {
     ).toBeVisible();
   });
 
+  test("keeps the delivered answer when cancel reports result_committed", async ({
+    page,
+  }) => {
+    await installMockComparativeApi(page);
+    await page.addInitScript(() => {
+      type CommittedHarness = { events: string[] };
+      const browser = window as typeof window & {
+        __committedHarness?: CommittedHarness;
+      };
+      const originalFetch = window.fetch.bind(window);
+      const harness: CommittedHarness = { events: [] };
+      let finishStream = () => {};
+      browser.__committedHarness = harness;
+
+      window.fetch = async (input, init) => {
+        const requestUrl =
+          typeof input === "string"
+            ? input
+            : input instanceof Request
+              ? input.url
+              : input.toString();
+        const path = new URL(requestUrl, window.location.origin).pathname;
+        const method = (
+          init?.method ??
+          (input instanceof Request ? input.method : "GET")
+        ).toUpperCase();
+
+        if (path === "/api/chat" && method === "POST") {
+          const encoder = new TextEncoder();
+          const event = (value: unknown) =>
+            encoder.encode(`data: ${JSON.stringify(value)}\n\n`);
+          const signal =
+            init?.signal ?? (input instanceof Request ? input.signal : null);
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(
+                  event({
+                    type: "meta",
+                    threadId: "thread-committed-cancel",
+                    runId: "run-committed-cancel",
+                    userMessageId: "user-committed-cancel",
+                    modelId: "sonnet-4-6",
+                    runtimeRoute: {
+                      useWorker: false,
+                      lane: "durable-local",
+                    },
+                  }),
+                );
+                controller.enqueue(
+                  event({
+                    type: "text-delta",
+                    delta: "COMMITTED_ANSWER_BODY",
+                  }),
+                );
+                finishStream = () => {
+                  controller.enqueue(
+                    event({
+                      type: "persisted",
+                      assistantMessageId: "assistant-committed",
+                      artifacts: [],
+                      recommendations: [],
+                    }),
+                  );
+                  controller.enqueue(
+                    event({ type: "done", stopReason: "completed" }),
+                  );
+                  controller.close();
+                };
+                signal?.addEventListener(
+                  "abort",
+                  () => {
+                    harness.events.push("abort");
+                    controller.error(
+                      new DOMException(
+                        "The operation was aborted.",
+                        "AbortError",
+                      ),
+                    );
+                  },
+                  { once: true },
+                );
+              },
+            }),
+            {
+              headers: {
+                "content-type": "text/event-stream; charset=utf-8",
+              },
+            },
+          );
+        }
+
+        if (
+          path === "/api/runs/run-committed-cancel/cancel" &&
+          method === "POST"
+        ) {
+          // #655: the durable answer already committed server-side; the run
+          // will finish as succeeded, so the cancel reports result_committed
+          // and the worker delivers the rest of the stream.
+          harness.events.push("cancel");
+          finishStream();
+          return new Response(
+            JSON.stringify({
+              run: { id: "run-committed-cancel", status: "running" },
+              outcome: "result_committed",
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+
+        return originalFetch(input, init);
+      };
+    });
+
+    await gotoE2EChat(page);
+    await page
+      .getByPlaceholder(/ask anything/i)
+      .fill("Stop right after the answer commits.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("COMMITTED_ANSWER_BODY")).toBeVisible();
+
+    await page.getByRole("button", { name: "Stop generating" }).click();
+
+    // The Stop flow must not abort the stream or claim a cancellation: the
+    // answer stands and the turn completes normally.
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              window as typeof window & {
+                __committedHarness?: { events: string[] };
+              }
+            ).__committedHarness?.events ?? [],
+        ),
+      )
+      .toEqual(["cancel"]);
+    await expect(page.getByPlaceholder(/ask anything/i)).toBeEnabled();
+    await expect(page.getByText("COMMITTED_ANSWER_BODY")).toBeVisible();
+    await expect(
+      page.getByText("Comparative could not confirm that the run stopped."),
+    ).toHaveCount(0);
+    expect(
+      await page.evaluate(
+        () =>
+          (
+            window as typeof window & {
+              __committedHarness?: { events: string[] };
+            }
+          ).__committedHarness?.events ?? [],
+      ),
+    ).toEqual(["cancel"]);
+  });
+
   test("switching chats detaches a worker stream without canceling its run", async ({
     page,
   }, testInfo) => {
@@ -489,15 +646,13 @@ test.describe("chat workflow regressions", () => {
     });
 
     await gotoE2EChat(page);
-    let sidebar = await openPrimarySidebar(page, isMobile);
+    const sidebar = await openPrimarySidebar(page, isMobile);
     await sidebar.getByRole("button", { name: title }).click();
     await expect(page.getByText(firstMarker)).toBeVisible();
     await expect(page.getByText(secondMarker)).toBeVisible();
 
+    // #664: the URL identifies the open thread, so reload restores it.
     await page.reload();
-    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
-    sidebar = await openPrimarySidebar(page, isMobile);
-    await sidebar.getByRole("button", { name: title }).click();
     await expect(page.getByText(secondMarker)).toBeVisible();
 
     const exportRequest = page.waitForRequest(
@@ -517,6 +672,53 @@ test.describe("chat workflow regressions", () => {
     expect(downloaded).toContain(firstMarker);
     expect(downloaded).toContain(secondMarker);
     expect(downloaded).not.toContain("UNRELATED_THREAD_MARKER");
+  });
+
+  test("shows an inline error and stays on the page when transcript export fails", async ({
+    page,
+    isMobile,
+  }) => {
+    const threadId = "thread-export-error";
+    const title = "Export error transcript";
+    await installMockComparativeApi(page, {
+      threads: [threadSummary(threadId, title)],
+      threadMessages: {
+        [threadId]: [
+          userMessage({
+            id: "user-export-error",
+            content: "Export this thread.",
+          }),
+          assistantMessage({
+            id: "assistant-export-error",
+            content: "Recorded answer for export.",
+          }),
+        ],
+      },
+    });
+    // Registered after the mock API so it wins for this path: the export
+    // route fails hard instead of serving a transcript.
+    await page.route(`**/api/threads/${threadId}/export`, (route) =>
+      json(route, { error: "export_failed" }, 500),
+    );
+
+    await gotoE2EChat(page);
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: title }).click();
+    await expect(page.getByText("Recorded answer for export.")).toBeVisible();
+
+    let downloadFired = false;
+    page.on("download", () => {
+      downloadFired = true;
+    });
+    const chatUrl = page.url();
+    await page
+      .getByRole("button", { name: "Download chat transcript" })
+      .click();
+    await expect(
+      page.getByText("Could not download the transcript. Please try again."),
+    ).toBeVisible();
+    expect(downloadFired).toBe(false);
+    expect(page.url()).toBe(chatUrl);
   });
 
   test("downloads the active chat as markdown", async ({ page }) => {
@@ -1612,9 +1814,11 @@ test.describe("chat workflow regressions", () => {
     await sidebar.getByRole("button", { name: /beta reload chat/i }).click();
     await expect(page.getByText("Beta persisted answer.")).toBeVisible();
 
+    // #664: reload restores the beta thread from the URL instead of a blank
+    // chat; the sidebar can still switch to another thread afterwards.
     await page.reload();
     await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
-    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+    await expect(page.getByText("Beta persisted answer.")).toBeVisible();
 
     sidebar = await openPrimarySidebar(page, isMobile);
     await sidebar.getByRole("button", { name: /alpha reload chat/i }).click();

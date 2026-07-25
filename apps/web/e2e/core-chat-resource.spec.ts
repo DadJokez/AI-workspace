@@ -122,16 +122,19 @@ test.describe("core chat resource pipeline", () => {
     );
     await attachScreenshot(testInfo, page, "csv-grounded-answer");
 
-    const thread = await findCanaryThread(page);
-    await assertPersistedResourceTurn(thread.id, 1);
+    // #664: the URL must identify the visible conversation on its own — read
+    // the thread id straight from it and reload in place, no API discovery.
+    await expect(page).toHaveURL(/[?&]threadId=/, { timeout: 15_000 });
+    const threadId = new URL(page.url()).searchParams.get("threadId")!;
+    await assertPersistedResourceTurn(threadId, 1);
 
     const reloadedMessagesResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "GET" &&
         new URL(response.url()).pathname ===
-          `/api/threads/${thread.id}/messages`,
+          `/api/threads/${threadId}/messages`,
     );
-    await page.goto(`/chat?threadId=${thread.id}`);
+    await page.reload();
     expect((await reloadedMessagesResponse).status()).toBe(200);
     await expect(
       page.getByTestId("user-message-content").filter({ hasText: FIRST_PROMPT }),
@@ -164,43 +167,11 @@ test.describe("core chat resource pipeline", () => {
     await expect(groundedAnswers).toHaveCount(2, {
       timeout: ANSWER_TIMEOUT_MS,
     });
-    await assertPersistedResourceTurn(thread.id, 2);
+    await assertPersistedResourceTurn(threadId, 2);
     expect(realChatRequestCount).toBe(2);
     await attachScreenshot(testInfo, page, "csv-durable-follow-up");
   });
 });
-
-async function findCanaryThread(page: Page) {
-  let found:
-    | {
-        id: string;
-        title: string;
-      }
-    | undefined;
-  await expect
-    .poll(
-      async () => {
-        const response = await page.request.get("/api/threads?scope=mine&limit=50");
-        if (!response.ok()) return false;
-        const body = (await response.json()) as {
-          threads?: Array<{ id: string; title: string }>;
-        };
-        found = body.threads?.find((thread) =>
-          normalizedReference(thread.title).includes(
-            normalizedReference(CSV_CUSTOMER),
-          ),
-        );
-        return Boolean(found);
-      },
-      { timeout: 15_000 },
-    )
-    .toBe(true);
-  return found!;
-}
-
-function normalizedReference(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
 
 async function assertPersistedResourceTurn(
   threadId: string,

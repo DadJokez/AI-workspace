@@ -48,27 +48,61 @@ export const SUITES: EvalSuite[] = [
   toolEvidenceContinuitySuite,
 ];
 
-/** Select a capability and/or the stable foundational `core` case tag. */
+/**
+ * Select a capability and/or a tag-defined pack. `--core` is the broad
+ * foundational pack (nightly). `--gate` is the merge-gate pack: the
+ * security/injection spine, where every case is either repeat-sampled or
+ * proven stable — a required PR check must not be a per-sample lottery
+ * (~70 single-sample cases at ~99% each ≈ a 60% lane pass rate, observed
+ * 2026-07-25). Single-sample behavioral coverage belongs to the nightly
+ * full pack, which files eval-regression issues.
+ */
 export function selectSuites(
   args: readonly string[],
   availableSuites: readonly EvalSuite[] = SUITES,
 ): EvalSuite[] {
-  const core = args.includes("--core");
+  const tag = args.includes("--gate")
+    ? "gate"
+    : args.includes("--core")
+      ? "core"
+      : undefined;
   const filter = args.find((arg) => !arg.startsWith("--"));
   return availableSuites
     .filter((suite) => !filter || suite.capability === filter)
     .map((suite) => {
-      if (!core) return suite;
-      const suiteIsCore = suite.tags?.includes("core") ?? false;
+      if (!tag) return suite;
+      const suiteTagged = suite.tags?.includes(tag) ?? false;
       return {
         ...suite,
         cases: suite.cases.filter(
           (testCase) =>
-            suiteIsCore || (testCase.tags?.includes("core") ?? false),
+            suiteTagged || (testCase.tags?.includes(tag) ?? false),
         ),
       };
     })
     .filter((suite) => suite.cases.length > 0);
+}
+
+/**
+ * Split failures into blocking vs. known (#675): a failed case that carries
+ * `knownIssue` is reported loudly but does not fail the run — a tracked
+ * permanently-red case must not make every gate a coin flip. Exported for
+ * tests; the assertions themselves are never weakened by this split.
+ */
+export function summarizeOutcome(results: readonly CapabilityResult[]): {
+  passed: number;
+  blockingFailed: number;
+  knownFailed: Array<{ caseId: string; knownIssue: string }>;
+  exitCode: 0 | 1;
+} {
+  const cases = results.flatMap((r) => r.results);
+  const passed = cases.filter((c) => c.passed).length;
+  const failed = cases.filter((c) => !c.passed);
+  const knownFailed = failed
+    .filter((c) => c.knownIssue)
+    .map((c) => ({ caseId: c.caseId, knownIssue: c.knownIssue! }));
+  const blockingFailed = failed.length - knownFailed.length;
+  return { passed, blockingFailed, knownFailed, exitCode: blockingFailed === 0 ? 0 : 1 };
 }
 
 /**
@@ -81,15 +115,17 @@ export function selectSuites(
 async function main() {
   const args = process.argv.slice(2);
   const mock = args.includes("--mock");
+  const gate = args.includes("--gate");
   const core = args.includes("--core");
+  const packName = gate ? "gate" : core ? "core" : undefined;
   const filter = args.find((a) => !a.startsWith("--"));
   const suites = selectSuites(args);
 
   if (suites.length === 0) {
     console.error(
       filter
-        ? `No ${core ? "core-tagged " : ""}suite matches "${filter}". Available: ${SUITES.map((s) => s.capability).join(", ")}`
-        : "No core-tagged eval cases are configured.",
+        ? `No ${packName ? `${packName}-tagged ` : ""}suite matches "${filter}". Available: ${SUITES.map((s) => s.capability).join(", ")}`
+        : `No ${packName ?? "matching"}-tagged eval cases are configured.`,
     );
     process.exit(2);
   }
@@ -109,10 +145,10 @@ async function main() {
     );
     process.exit(2);
   }
-  if (core) {
+  if (packName) {
     const count = suites.reduce((total, suite) => total + suite.cases.length, 0);
     console.log(
-      `🎯 --core: ${count} foundational cases across ${suites.length} suites.\n`,
+      `🎯 --${packName}: ${count} ${gate ? "merge-gate" : "foundational"} cases across ${suites.length} suites.\n`,
     );
   }
 
@@ -134,13 +170,15 @@ async function main() {
       totalOut += c.tokensOut;
       totalJudgeIn += c.judgeUsage.tokensIn;
       totalJudgeOut += c.judgeUsage.tokensOut;
-      const icon = c.errored ? "💥" : c.passed ? "✅" : "❌";
+      const icon = c.errored ? "💥" : c.passed ? "✅" : c.knownIssue ? "⚠️" : "❌";
       const repeatNote =
         c.runs && c.runs > 1
           ? ` [${c.passCount ?? 0}/${c.runs} passed, ${c.passPolicy ?? "all"}]`
           : "";
+      const knownNote =
+        !c.passed && c.knownIssue ? ` [KNOWN ${c.knownIssue}, non-blocking]` : "";
       process.stdout.write(
-        `  ${icon} [${c.severity.toUpperCase()}] ${c.caseId}${repeatNote} — ${c.description}\n`,
+        `  ${icon} [${c.severity.toUpperCase()}] ${c.caseId}${repeatNote}${knownNote} — ${c.description}\n`,
       );
       if (c.errored) {
         process.stdout.write(`       error: ${c.errored}\n`);
@@ -148,7 +186,7 @@ async function main() {
         process.stdout.write(`       debug: thread=${c.threadId} run=${c.runId}\n`);
         for (const a of c.assertions.filter((x) => !x.ok)) {
           process.stdout.write(
-            `       ✗ ${a.label}${a.detail ? ` — ${a.detail}` : ""}\n`,
+            `       ✗ ${a.label}${a.knownIssue ? ` [known ${a.knownIssue}]` : ""}${a.detail ? ` — ${a.detail}` : ""}\n`,
           );
         }
         process.stdout.write(`       answer: ${c.answerPreview}\n`);
@@ -159,6 +197,7 @@ async function main() {
     }
   }
 
+  const outcome = summarizeOutcome(results);
   const totalPassed = results.reduce((n, r) => n + r.passed, 0);
   const totalFailed = results.reduce((n, r) => n + r.failed, 0);
   const generationCostUsd = results.reduce(
@@ -185,8 +224,14 @@ async function main() {
   const approxCostUsd = generationCostUsd + judgeCostUsd;
 
   process.stdout.write(
-    `\n${totalFailed === 0 ? "✅" : "❌"} ${totalPassed} passed, ${totalFailed} failed · ` +
-      `${totalIn}+${totalOut} tokens · ~$${approxCostUsd.toFixed(4)}${mock ? " (mock)" : ""}\n`,
+    `\n${outcome.exitCode === 0 ? (totalFailed === 0 ? "✅" : "⚠️") : "❌"} ${totalPassed} passed, ` +
+      `${outcome.blockingFailed} failed` +
+      (outcome.knownFailed.length > 0
+        ? `, ${outcome.knownFailed.length} known-red (${outcome.knownFailed
+            .map((k) => `${k.caseId} ${k.knownIssue}`)
+            .join("; ")})`
+        : "") +
+      ` · ${totalIn}+${totalOut} tokens · ~$${approxCostUsd.toFixed(4)}${mock ? " (mock)" : ""}\n`,
   );
   if (totalJudgeIn > 0 || totalJudgeOut > 0) {
     process.stdout.write(
@@ -197,6 +242,7 @@ async function main() {
   writeReport(results, {
     mock,
     core,
+    gate,
     totalIn,
     totalOut,
     totalJudgeIn,
@@ -205,7 +251,7 @@ async function main() {
     judgeCostUsd,
     approxCostUsd,
   });
-  process.exit(totalFailed === 0 ? 0 : 1);
+  process.exit(outcome.exitCode);
 }
 
 function writeReport(
@@ -213,6 +259,7 @@ function writeReport(
   meta: {
     mock: boolean;
     core: boolean;
+    gate: boolean;
     totalIn: number;
     totalOut: number;
     totalJudgeIn: number;
@@ -239,7 +286,7 @@ function writeReport(
     "",
     `Candidate tokens: ${meta.totalIn}+${meta.totalOut} · judge tokens: ${meta.totalJudgeIn}+${meta.totalJudgeOut}`,
     "",
-    `Selection: ${meta.core ? "core-tagged foundational cases" : "full suite"}`,
+    `Selection: ${meta.gate ? "gate-tagged merge-gate pack" : meta.core ? "core-tagged foundational cases" : "full suite"}`,
     "",
   ];
   for (const r of results) {
@@ -258,9 +305,14 @@ function writeReport(
     );
     for (const c of r.results) {
       md.push(
-        `- ${c.passed ? "✅" : c.errored ? "💥" : "❌"} **[${c.severity.toUpperCase()}] ${c.caseId}** — ${c.description}`,
+        `- ${c.passed ? "✅" : c.errored ? "💥" : c.knownIssue ? "⚠️" : "❌"} **[${c.severity.toUpperCase()}] ${c.caseId}** — ${c.description}`,
       );
       md.push(`  - Tags: ${c.tags.join(", ") || "(none)"}`);
+      if (!c.passed && c.knownIssue) {
+        md.push(
+          `  - ⚠️ Known-red, non-blocking: tracked in ${c.knownIssue}; assertions unchanged`,
+        );
+      }
       if (c.runs && c.runs > 1) {
         md.push(
           `  - Repeats: ${c.passCount ?? 0}/${c.runs} runs passed (policy: ${c.passPolicy ?? "all"})`,
@@ -298,7 +350,9 @@ function writeReport(
       }
       if (!c.passed && !c.errored) {
         for (const a of c.assertions.filter((x) => !x.ok)) {
-          md.push(`  - ✗ ${a.label}${a.detail ? ` — ${a.detail}` : ""}`);
+          md.push(
+            `  - ✗ ${a.label}${a.knownIssue ? ` [known ${a.knownIssue}]` : ""}${a.detail ? ` — ${a.detail}` : ""}`,
+          );
         }
         md.push(
           `  - Answer preview: ${c.answerPreview.replace(/\s+/g, " ").trim() || "(empty)"}`,
