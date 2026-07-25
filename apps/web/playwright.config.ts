@@ -10,6 +10,15 @@ const localDatabaseUrl =
 const coreEval = process.env.PLAYWRIGHT_CORE_EVAL === "1";
 const coreRealModel =
   coreEval && process.env.PLAYWRIGHT_CORE_REAL_MODEL === "1";
+const authSmoke = process.env.PLAYWRIGHT_AUTH_SMOKE === "1";
+// The two real-stack lanes (core pipeline canary + authenticated smoke) run
+// against a production server (`next build` && `next start`) because merge to
+// main deploys a `next start` server: prod-mode-only failures (RSC/bundling,
+// middleware, runtime env handling) must surface before merge. The mocked
+// feature suite stays on `next dev` where fast iteration matters more.
+// `next start` prints a warning about `output: "standalone"` but serves the
+// regular `.next` output; the standalone server.js is a Docker-only concern.
+const prodServer = coreEval || authSmoke;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -17,8 +26,8 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 1 : undefined,
-  // The authenticated smoke drives real turns through a dev-mode server on a
-  // 2-core CI runner; the suite sits right at the edge of Playwright's 30s
+  // The authenticated smoke drives real turns through a full-stack server on
+  // a 2-core CI runner; the suite sat right at the edge of Playwright's 30s
   // default, and a runner-speed dip (2026-07-19) tipped green tests into
   // deterministic timeouts. Headroom over precision: these are smoke gates,
   // not latency benchmarks.
@@ -35,10 +44,16 @@ export default defineConfig({
   webServer: externalBaseUrl
     ? undefined
     : {
-        command: `pnpm exec next dev --hostname 127.0.0.1 --port ${port}`,
+        command: prodServer
+          ? `pnpm exec next build && pnpm exec next start --hostname 127.0.0.1 --port ${port}`
+          : `pnpm exec next dev --hostname 127.0.0.1 --port ${port}`,
         url: `${baseURL}/login`,
-        reuseExistingServer: !process.env.CI && !coreEval,
-        timeout: 120_000,
+        // A leftover local dev server must never satisfy a prod-server lane.
+        reuseExistingServer: !process.env.CI && !prodServer,
+        // Prod lanes pay for `next build` inside webServer startup; a cold
+        // build takes ~90s locally and several minutes on a 2-core CI runner
+        // when the .next/cache restore misses.
+        timeout: prodServer ? 420_000 : 120_000,
         env: {
           E2E_TEST_MODE: "1",
           NEXTAUTH_SECRET: nextAuthSecret,
@@ -52,8 +67,7 @@ export default defineConfig({
           OAUTH_ENCRYPTION_KEY:
             process.env.OAUTH_ENCRYPTION_KEY ??
             "playwright-oauth-encryption-key-at-least-32-characters",
-          CHAT_RUN_IN_PROCESS_WORKER:
-            process.env.PLAYWRIGHT_AUTH_SMOKE === "1" || coreEval ? "1" : "0",
+          CHAT_RUN_IN_PROCESS_WORKER: prodServer ? "1" : "0",
           MEMORY_CAPTURE_IN_PROCESS_SCHEDULER: "0",
           GITHUB_WEBHOOK_SECRET: "playwright-github-webhook-secret",
           GITHUB_AUTH_CLIENT_ID: "playwright-local-client",
