@@ -177,6 +177,68 @@ Here's what's covered:
 
     expect(artifacts).toHaveLength(0);
   });
+
+  // #647: a plain formatting request ("a heading and exactly three Markdown
+  // bullets") must answer inline. When the turn shows no document-creation
+  // intent, a short fenced block is chat formatting the model wrongly wrapped
+  // as a file — even with an explicit filename.
+  describe("#647 creation-intent gate", () => {
+    const shortNamedFence = `Here you go:
+
+\`\`\`markdown filename="Pilot-Plan.md"
+# Pilot plan
+
+- Invite testers
+- Collect daily feedback
+- Review results Friday
+\`\`\`
+`;
+
+    it("drops a short named fence when the turn asked for formatting, not a file", () => {
+      expect(
+        parseAssistantArtifacts(shortNamedFence, {
+          documentCreationIntent: false,
+        }),
+      ).toHaveLength(0);
+    });
+
+    it("keeps the same fence when the turn asked for a document", () => {
+      const artifacts = parseAssistantArtifacts(shortNamedFence, {
+        documentCreationIntent: true,
+      });
+      expect(artifacts).toHaveLength(1);
+      expect(artifacts[0]?.filename).toBe("Pilot-Plan.md");
+    });
+
+    it("keeps the same fence when intent is unknown (legacy callers)", () => {
+      expect(parseAssistantArtifacts(shortNamedFence)).toHaveLength(1);
+    });
+
+    it("still persists a substantive document without detected intent", () => {
+      const longDoc = `\`\`\`markdown filename="pilot-plan.md"
+# Pilot plan
+
+${"- A meaningful step in the pilot rollout plan\n".repeat(12)}
+\`\`\`
+`;
+      const artifacts = parseAssistantArtifacts(longDoc, {
+        documentCreationIntent: false,
+      });
+      expect(artifacts).toHaveLength(1);
+      expect(artifacts[0]?.filename).toBe("pilot-plan.md");
+    });
+
+    it("applies the same gate to short declared-save claims without a fence", () => {
+      const declared =
+        "# Pilot plan\n\n- Invite the five testers on Monday\n- Collect daily feedback in the shared form\n- Review the results together on Friday\n\nWritten to `Pilot-Plan.md`.";
+      expect(
+        parseAssistantArtifacts(declared, { documentCreationIntent: false }),
+      ).toHaveLength(0);
+      expect(
+        parseAssistantArtifacts(declared, { documentCreationIntent: true }),
+      ).toHaveLength(1);
+    });
+  });
 });
 
 describe("planArtifactVersionsForExistingArtifacts", () => {

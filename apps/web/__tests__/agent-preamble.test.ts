@@ -144,3 +144,17 @@ describe("buildAgentPreamble Salesforce schema grounding", () => {
     expect(preamble).toContain("do not retry identical SOQL");
   });
 });
+
+describe("buildAgentPreamble artifact boundary", () => {
+  it("#647 draws the formatting-in-chat vs document-creation line", () => {
+    const preamble = minimalPreamble({ modelId: "sonnet-4-6" });
+    expect(preamble).toContain(
+      "A request to FORMAT your answer is not a file request",
+    );
+    expect(preamble).toContain("answer inline in ordinary chat Markdown");
+    // The file path still exists for genuine document requests.
+    expect(preamble).toContain(
+      "return the complete finished file contents in a fenced code block",
+    );
+  });
+});

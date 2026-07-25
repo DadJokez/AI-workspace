@@ -69,6 +69,14 @@ interface CreateArtifactsInput {
   turnToolCalls?: readonly ToolCall[];
   turnToolResults?: readonly ToolResult[];
   proposal?: OutputProposalContext | null;
+  /**
+   * #647: whether the user's turn asked for a saved document/file at all
+   * (`hasDocumentCreationIntent` over the raw user turn). `false` suppresses
+   * persisting short fenced blocks — a formatting answer the model wrongly
+   * wrapped as a file. Omit when the turn text is unavailable (no behavior
+   * change).
+   */
+  documentCreationIntent?: boolean;
 }
 
 export interface ParsedArtifact {
@@ -99,8 +107,14 @@ export async function createArtifactsFromAssistantMessage({
   turnToolCalls,
   turnToolResults,
   proposal,
+  documentCreationIntent,
 }: CreateArtifactsInput): Promise<WorkspaceArtifactSummary[]> {
-  const parsed = parseAssistantArtifacts(assistantText);
+  // #647: with a matched revision/copy target the turn operates on an existing
+  // artifact, so the creation-intent gate must not drop the updated file.
+  const parsed = parseAssistantArtifacts(assistantText, {
+    documentCreationIntent:
+      targetArtifact || separateFromArtifact ? undefined : documentCreationIntent,
+  });
   if (parsed.length === 0) return [];
   const derivedBindings = deriveBindingsFromTurnTools(
     turnToolCalls,
@@ -365,7 +379,10 @@ export function serializeWorkspaceArtifactDetail(
   };
 }
 
-export function parseAssistantArtifacts(text: string): ParsedArtifact[] {
+export function parseAssistantArtifacts(
+  text: string,
+  options: { documentCreationIntent?: boolean } = {},
+): ParsedArtifact[] {
   const blocks = extractFencedCodeBlocks(text);
   const artifacts: ParsedArtifact[] = [];
   const usedFilenames = new Set<string>();
@@ -383,6 +400,7 @@ export function parseAssistantArtifacts(text: string): ParsedArtifact[] {
         language,
         explicitFilename,
         closed: block.closed,
+        documentCreationIntent: options.documentCreationIntent,
       })
     ) {
       continue;
@@ -416,7 +434,9 @@ export function parseAssistantArtifacts(text: string): ParsedArtifact[] {
   }
 
   if (artifacts.length === 0) {
-    artifacts.push(...extractDeclaredTextArtifacts(text, usedFilenames));
+    artifacts.push(
+      ...extractDeclaredTextArtifacts(text, usedFilenames, options),
+    );
   }
 
   return artifacts;
@@ -537,6 +557,7 @@ function parseFilenameFromInfo(info: string): string | undefined {
 function extractDeclaredTextArtifacts(
   text: string,
   usedFilenames: Set<string>,
+  options: { documentCreationIntent?: boolean } = {},
 ): ParsedArtifact[] {
   const artifacts: ParsedArtifact[] = [];
   const filenames = extractDeclaredTextFilenames(text);
@@ -552,6 +573,14 @@ function extractDeclaredTextArtifacts(
       !content ||
       content.length < MIN_DECLARED_TEXT_ARTIFACT_CHARS ||
       content.length > MAX_ARTIFACT_CHARS
+    ) {
+      continue;
+    }
+    // #647: same intent gate as fenced blocks — a short save claim on a turn
+    // that never asked for a file stays an inline answer, not clutter.
+    if (
+      options.documentCreationIntent === false &&
+      content.length < MIN_IMPLICIT_ARTIFACT_CHARS
     ) {
       continue;
     }
@@ -624,13 +653,25 @@ function shouldSaveArtifact({
   language,
   explicitFilename,
   closed,
+  documentCreationIntent,
 }: {
   content: string;
   language: string;
   explicitFilename?: string;
   closed: boolean;
+  documentCreationIntent?: boolean;
 }): boolean {
   if (!closed && !isLikelyCompleteUnclosedArtifact(content, language, explicitFilename)) {
+    return false;
+  }
+  // #647: a short fenced block on a turn with no document-creation intent is
+  // chat formatting the model wrongly wrapped as a file — even when it
+  // attached a filename. Substantive blocks (>= MIN_IMPLICIT_ARTIFACT_CHARS)
+  // still persist so an implicitly requested deliverable is never dropped.
+  if (
+    documentCreationIntent === false &&
+    content.length < MIN_IMPLICIT_ARTIFACT_CHARS
+  ) {
     return false;
   }
   if (isHtmlArtifactCandidate(content, language, explicitFilename)) {
