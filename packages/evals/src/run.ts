@@ -172,7 +172,7 @@ async function main() {
         process.stdout.write(`       debug: thread=${c.threadId} run=${c.runId}\n`);
         for (const a of c.assertions.filter((x) => !x.ok)) {
           process.stdout.write(
-            `       ✗ ${a.label}${a.detail ? ` — ${a.detail}` : ""}\n`,
+            `       ✗ ${a.label}${a.knownIssue ? ` [known ${a.knownIssue}]` : ""}${a.detail ? ` — ${a.detail}` : ""}\n`,
           );
         }
         process.stdout.write(`       answer: ${c.answerPreview}\n`);
@@ -334,7 +334,9 @@ function writeReport(
       }
       if (!c.passed && !c.errored) {
         for (const a of c.assertions.filter((x) => !x.ok)) {
-          md.push(`  - ✗ ${a.label}${a.detail ? ` — ${a.detail}` : ""}`);
+          md.push(
+            `  - ✗ ${a.label}${a.knownIssue ? ` [known ${a.knownIssue}]` : ""}${a.detail ? ` — ${a.detail}` : ""}`,
+          );
         }
         md.push(
           `  - Answer preview: ${c.answerPreview.replace(/\s+/g, " ").trim() || "(empty)"}`,
