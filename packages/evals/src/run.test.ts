@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectSuites } from "./run";
+import { selectSuites, summarizeOutcome } from "./run";
 import type { EvalSuite } from "./types";
 
 function testCase(id: string, tags?: readonly string[]) {
@@ -74,5 +74,93 @@ describe("eval suite selection", () => {
       ),
     ).toEqual(["c"]);
     expect(selectSuites(["advanced-only", "--core"], suites)).toEqual([]);
+  });
+});
+
+describe("known-issue outcome split (#675)", () => {
+  function caseResult(
+    caseId: string,
+    passed: boolean,
+    knownIssue?: string,
+  ) {
+    return {
+      caseId,
+      description: caseId,
+      severity: "critical" as const,
+      tags: [],
+      modelId: "haiku-4-5" as const,
+      threadId: "t",
+      runId: "r",
+      passed,
+      assertions: [],
+      answer: "",
+      answerPreview: "",
+      tokensIn: 0,
+      tokensOut: 0,
+      inputTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheWriteInputTokens: 0,
+      toolCalls: [],
+      toolResults: [],
+      contextReceipts: [],
+      fixtureEvidence: [],
+      judgeUsage: {
+        tokensIn: 0,
+        tokensOut: 0,
+        inputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheWriteInputTokens: 0,
+      },
+      ...(knownIssue ? { knownIssue } : {}),
+    };
+  }
+
+  function capability(results: ReturnType<typeof caseResult>[]) {
+    const passed = results.filter((r) => r.passed).length;
+    return {
+      capability: "x",
+      results,
+      passed,
+      failed: results.length - passed,
+      bySeverity: {
+        critical: { passed, failed: results.length - passed },
+        high: { passed: 0, failed: 0 },
+        medium: { passed: 0, failed: 0 },
+        low: { passed: 0, failed: 0 },
+      },
+    };
+  }
+
+  it("a known-issue failure is reported but does not fail the run", () => {
+    const outcome = summarizeOutcome([
+      capability([
+        caseResult("ok", true),
+        caseResult("flaky", false, "#675"),
+      ]),
+    ]);
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.blockingFailed).toBe(0);
+    expect(outcome.knownFailed).toEqual([
+      { caseId: "flaky", knownIssue: "#675" },
+    ]);
+  });
+
+  it("an unmarked failure still fails the run even beside known-red cases", () => {
+    const outcome = summarizeOutcome([
+      capability([
+        caseResult("flaky", false, "#675"),
+        caseResult("regression", false),
+      ]),
+    ]);
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.blockingFailed).toBe(1);
+  });
+
+  it("a passing known-issue case is just a pass", () => {
+    const outcome = summarizeOutcome([
+      capability([caseResult("flaky", true, "#675")]),
+    ]);
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.knownFailed).toEqual([]);
   });
 });
