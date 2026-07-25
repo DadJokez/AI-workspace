@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import { describe, expect, it } from "vitest";
 import { ROUTING_BENCHMARK_TOOL_NAMES } from "../benchmarks/model-routing";
 import {
@@ -6,12 +7,12 @@ import {
 } from "./model-routing.cases";
 
 describe("model routing behavioral suite", () => {
-  it("runs every routing case on Sonnet 4.5", () => {
-    expect(modelRoutingSuite.defaultModelId).toBe("sonnet-4-5");
+  it("runs every routing case on the production default model", () => {
+    expect(modelRoutingSuite.defaultModelId).toBe(DEFAULT_MODEL_ID);
     expect(modelRoutingSuite.cases).toHaveLength(14);
     expect(
       modelRoutingSuite.cases.every(
-        (testCase) => testCase.modelId === "sonnet-4-5",
+        (testCase) => testCase.modelId === DEFAULT_MODEL_ID,
       ),
     ).toBe(true);
   });

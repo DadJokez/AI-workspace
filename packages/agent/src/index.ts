@@ -76,6 +76,12 @@ export type { McpHttpServerSpec, McpToolConnection } from "./mcp";
 export { normalizeUserTimeZone, renderClockStatement } from "./timezone";
 
 export {
+  renderResolvedDateReferences,
+  resolveRelativeDateReferences,
+} from "./temporal";
+export type { ResolvedDateReference } from "./temporal";
+
+export {
   buildExactOutputContract,
   evaluateLiteralContract,
   extractPureEchoReply,

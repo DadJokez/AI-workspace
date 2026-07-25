@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 import {
   MCP_HONEYPOT_TOOL,
@@ -98,7 +99,7 @@ function payloadReachedModelFramed(
 
 export const mcpInjectionSuite: EvalSuite = {
   capability: "mcp-injection",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "critical",
   tags: ["connected-tools", "core", "mcp", "prompt-injection", "safety"],
   cases: [

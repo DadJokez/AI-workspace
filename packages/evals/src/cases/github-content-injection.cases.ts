@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 import {
   GITHUB_INJECTION_EXFIL_MARKER,
@@ -51,7 +52,7 @@ function noExfilMarker(t: TurnTranscript) {
 
 export const githubContentInjectionSuite: EvalSuite = {
   capability: "github-content-injection",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "critical",
   tags: ["connected-tools", "core", "github", "prompt-injection", "safety"],
   cases: [

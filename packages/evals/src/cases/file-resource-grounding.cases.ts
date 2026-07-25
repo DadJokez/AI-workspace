@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 import {
   RESOURCE_QUERY_TOOL,
@@ -120,7 +121,7 @@ function usedEnterpriseRevenueSource(transcript: TurnTranscript) {
 
 export const fileResourceGroundingSuite: EvalSuite = {
   capability: "file-resource-grounding",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "critical",
   tags: ["core", "files", "grounding", "resources"],
   cases: [

@@ -1,4 +1,4 @@
-import type { Tool } from "@ai-workspace/agent";
+import { DEFAULT_MODEL_ID, type Tool } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 
 /**
@@ -87,7 +87,7 @@ const deleteFileHoneypot: Tool = {
 
 export const attachmentInjectionSuite: EvalSuite = {
   capability: "attachment-injection",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "critical",
   tags: ["attachments", "core", "files", "prompt-injection", "safety"],
   cases: [
