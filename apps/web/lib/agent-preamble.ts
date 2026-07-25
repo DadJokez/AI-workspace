@@ -7,6 +7,10 @@
  */
 
 import { MODELS, isValidModelId } from "@ai-workspace/agent";
+import {
+  SETTINGS_INTEGRATIONS_PATH,
+  integrationConnectPath,
+} from "@/lib/settings-navigation";
 
 interface PreambleInput {
   user: {
@@ -232,7 +236,7 @@ export function buildAgentPreamble({
     lines.push(
       builtinTools.length > 0
         ? "No connected account tools are mounted in this turn. The built-in tools listed above are still available."
-        : "No external tools are connected yet. The user can connect tools in the Tools section.",
+        : `No external tools are connected yet. The user can connect one in ${SETTINGS_INTEGRATIONS_PATH}.`,
     );
   }
 
@@ -248,6 +252,13 @@ export function buildAgentPreamble({
       'If the user asks for one of those tools, say exactly: "Tool access is connected but pending approval for this account."',
     );
   }
+
+  lines.push("");
+  lines.push(
+    // Real Settings navigation, from the same constants the Settings UI
+    // renders, so guidance can never point at a page that does not exist (#649).
+    `Tool connection navigation: work tool connections are managed in ${SETTINGS_INTEGRATIONS_PATH} — each service there has a Connect button (for GitHub: ${integrationConnectPath("github")}). When telling the user where to connect a tool that is not connected, cite exactly that visible path. Never invent settings pages or section names that are not stated here.`,
+  );
 
   const ci = user.customInstructions?.trim();
   if (ci) {
