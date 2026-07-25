@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # verify-pr-gate.sh <pr-number> [expected-head-sha]
 #
-# #479: the merge gate is convention, not server enforcement — this private
-# repo's plan has no branch protection, so ANY write-capable token can merge
-# (or push) with red or absent checks and GitHub will not stop it. This script
-# is the gate: it passes only when the PR's current head SHA has
+# Post-merge audit engine for .github/workflows/merge-gate-audit.yml — NOT a
+# merge path. Merging is plain `gh pr merge --squash --delete-branch` once
+# checks are green; server-side branch protection (required checks, strict,
+# enforce_admins) is what actually gates the merge. This script re-verifies,
+# after the fact, that a PR's head SHA had
 #   1. a successful "CI" and "Product Smoke" workflow run AT that SHA,
 #   2. a success "Claude verdict" commit status (the AI review of that SHA),
 #   3. no check-run or status context in a red or unfinished state.
-# Absence of a gate is failure — a merge that outruns the workflows must not
-# pass just because nothing red exists yet.
-#
-# Used by scripts/verified-merge.sh before every merge and re-checked by
-# .github/workflows/merge-gate-audit.yml after every push to main.
+# Absence of a gate is failure — a merge that outran the workflows must not
+# pass just because nothing red exists yet. It exists because protection can
+# silently vanish (the #479 root cause was a paid-plan lapse dropping it);
+# the audit workflow catches that class. Also fine to run manually when
+# reviewing a suspect merge.
 set -euo pipefail
 
 pr="${1:?usage: verify-pr-gate.sh <pr-number> [expected-head-sha]}"
