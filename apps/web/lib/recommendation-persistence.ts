@@ -71,6 +71,7 @@ export async function createRecommendationsForAssistantMessage({
   const capabilityInputs = recommendationInputsFromCapabilityGraph(capabilityGraph);
   const candidates = buildRecommendationCandidates({
     currentMessage,
+    currentThreadId: threadId,
     recentUserMessages: recentRows
       .map((row) => row.content)
       .filter((content) => content !== currentMessage),

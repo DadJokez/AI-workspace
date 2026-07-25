@@ -646,15 +646,13 @@ test.describe("chat workflow regressions", () => {
     });
 
     await gotoE2EChat(page);
-    let sidebar = await openPrimarySidebar(page, isMobile);
+    const sidebar = await openPrimarySidebar(page, isMobile);
     await sidebar.getByRole("button", { name: title }).click();
     await expect(page.getByText(firstMarker)).toBeVisible();
     await expect(page.getByText(secondMarker)).toBeVisible();
 
+    // #664: the URL identifies the open thread, so reload restores it.
     await page.reload();
-    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
-    sidebar = await openPrimarySidebar(page, isMobile);
-    await sidebar.getByRole("button", { name: title }).click();
     await expect(page.getByText(secondMarker)).toBeVisible();
 
     const exportRequest = page.waitForRequest(
@@ -674,6 +672,53 @@ test.describe("chat workflow regressions", () => {
     expect(downloaded).toContain(firstMarker);
     expect(downloaded).toContain(secondMarker);
     expect(downloaded).not.toContain("UNRELATED_THREAD_MARKER");
+  });
+
+  test("shows an inline error and stays on the page when transcript export fails", async ({
+    page,
+    isMobile,
+  }) => {
+    const threadId = "thread-export-error";
+    const title = "Export error transcript";
+    await installMockComparativeApi(page, {
+      threads: [threadSummary(threadId, title)],
+      threadMessages: {
+        [threadId]: [
+          userMessage({
+            id: "user-export-error",
+            content: "Export this thread.",
+          }),
+          assistantMessage({
+            id: "assistant-export-error",
+            content: "Recorded answer for export.",
+          }),
+        ],
+      },
+    });
+    // Registered after the mock API so it wins for this path: the export
+    // route fails hard instead of serving a transcript.
+    await page.route(`**/api/threads/${threadId}/export`, (route) =>
+      json(route, { error: "export_failed" }, 500),
+    );
+
+    await gotoE2EChat(page);
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: title }).click();
+    await expect(page.getByText("Recorded answer for export.")).toBeVisible();
+
+    let downloadFired = false;
+    page.on("download", () => {
+      downloadFired = true;
+    });
+    const chatUrl = page.url();
+    await page
+      .getByRole("button", { name: "Download chat transcript" })
+      .click();
+    await expect(
+      page.getByText("Could not download the transcript. Please try again."),
+    ).toBeVisible();
+    expect(downloadFired).toBe(false);
+    expect(page.url()).toBe(chatUrl);
   });
 
   test("downloads the active chat as markdown", async ({ page }) => {
@@ -1769,9 +1814,11 @@ test.describe("chat workflow regressions", () => {
     await sidebar.getByRole("button", { name: /beta reload chat/i }).click();
     await expect(page.getByText("Beta persisted answer.")).toBeVisible();
 
+    // #664: reload restores the beta thread from the URL instead of a blank
+    // chat; the sidebar can still switch to another thread afterwards.
     await page.reload();
     await expect(page.getByTestId("chat-tab-strip")).toHaveCount(0);
-    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+    await expect(page.getByText("Beta persisted answer.")).toBeVisible();
 
     sidebar = await openPrimarySidebar(page, isMobile);
     await sidebar.getByRole("button", { name: /alpha reload chat/i }).click();

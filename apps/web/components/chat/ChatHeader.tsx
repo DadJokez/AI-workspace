@@ -16,7 +16,6 @@ interface ChatHeaderProps {
   onOpenMenu: () => void;
   onModelChange: (modelId: string) => void;
   onToggleNotifications: () => void;
-  downloadHref?: string;
   onDownload: () => void;
   onStop: () => void;
 }
@@ -30,7 +29,6 @@ export function ChatHeader({
   onOpenMenu,
   onModelChange,
   onToggleNotifications,
-  downloadHref,
   onDownload,
   onStop,
 }: ChatHeaderProps) {
@@ -151,34 +149,16 @@ export function ChatHeader({
             </span>
           ) : null}
         </button>
-        {downloadHref && activeTab.messages.length > 0 ? (
-          <a
-            role="button"
-            aria-label="Download chat transcript"
-            title="Download chat transcript"
-            href={downloadHref}
-            onClick={onDownload}
-            onKeyDown={(event) => {
-              if (event.key !== " ") return;
-              event.preventDefault();
-              event.currentTarget.click();
-            }}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-muted hover:bg-subtle hover:text-ink"
-          >
-            <DownloadIcon />
-          </a>
-        ) : (
-          <button
-            type="button"
-            aria-label="Download chat transcript"
-            title="Download chat transcript"
-            disabled={activeTab.messages.length === 0}
-            onClick={onDownload}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-muted hover:bg-subtle hover:text-ink disabled:opacity-40"
-          >
-            <DownloadIcon />
-          </button>
-        )}
+        <button
+          type="button"
+          aria-label="Download chat transcript"
+          title="Download chat transcript"
+          disabled={activeTab.messages.length === 0}
+          onClick={onDownload}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-muted hover:bg-subtle hover:text-ink disabled:opacity-40"
+        >
+          <DownloadIcon />
+        </button>
         {activeTab.busy ? (
           <button
             type="button"

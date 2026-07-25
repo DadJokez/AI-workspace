@@ -2,6 +2,8 @@ import {
   appEditSessions,
   appVersions,
   apps,
+  chatMessages,
+  chatThreads,
   feedbackReports,
   getDb,
   rateLimitBuckets,
@@ -28,6 +30,7 @@ const liveVersionId = "00000000-0000-4000-8000-000000000241";
 const previousVersionId = "00000000-0000-4000-8000-000000000242";
 const draftVersionId = "00000000-0000-4000-8000-000000000243";
 const discardVersionId = "00000000-0000-4000-8000-000000000244";
+const exportThreadId = "00000000-0000-4000-8000-000000000260";
 const triagedFeedbackId = "00000000-0000-4000-8000-000000000251";
 const fixedFeedbackId = "00000000-0000-4000-8000-000000000252";
 const resolvedFeedbackId = "00000000-0000-4000-8000-000000000253";
@@ -101,6 +104,37 @@ async function main() {
       email: "app-recipient@example.com",
       displayName: "App Recipient",
       role: "user",
+    },
+  ]);
+
+  // Seeded thread for the transcript-export smoke: the download test hits the
+  // real /api/threads/:id/export route, so the content must live in Postgres.
+  await db.insert(chatThreads).values({
+    id: exportThreadId,
+    userId: smokeUserId,
+    title: "Build a signed-in auth smoke HTML artifact.",
+    defaultModelId: "sonnet-4-5",
+  });
+  await db.insert(chatMessages).values([
+    {
+      threadId: exportThreadId,
+      role: "user",
+      content: "Build a signed-in auth smoke HTML artifact.",
+      createdAt: new Date(Date.now() - 2_000),
+    },
+    {
+      threadId: exportThreadId,
+      role: "assistant",
+      content: [
+        "Here is the generated app:",
+        "",
+        '```html filename="demo-artifact.html"',
+        "<!doctype html><html><body><h1>Auth Smoke Artifact</h1></body></html>",
+        "```",
+      ].join("\n"),
+      modelId: "sonnet-4-5",
+      runtime: "bedrock",
+      createdAt: new Date(Date.now() - 1_000),
     },
   ]);
 

@@ -56,12 +56,15 @@ export interface RecommendationApp {
   name: string;
   description?: string | null;
   slug?: string | null;
+  /** Thread the app was built in; null/undefined = unknown provenance. */
+  sourceThreadId?: string | null;
   runnableNow?: boolean;
   sharedWithMe?: boolean;
 }
 
 export interface BuildRecommendationCandidatesInput {
   currentMessage: string;
+  currentThreadId?: string | null;
   recentUserMessages?: readonly string[];
   roleContext?: string | null;
   connectedProviders?: readonly string[];
@@ -128,6 +131,7 @@ const APP_MATCH_GENERIC_TOKENS = new Set([
 
 export function buildRecommendationCandidates({
   currentMessage,
+  currentThreadId,
   recentUserMessages = [],
   roleContext,
   connectedProviders = [],
@@ -208,6 +212,7 @@ export function buildRecommendationCandidates({
         message: currentMessage,
         roleContext,
         apps,
+        currentThreadId,
       });
   if (matchingApp) {
     candidates.push({
@@ -331,10 +336,12 @@ function bestMatchingApp({
   message,
   roleContext,
   apps,
+  currentThreadId,
 }: {
   message: string;
   roleContext?: string | null;
   apps: readonly RecommendationApp[];
+  currentThreadId?: string | null;
 }): RecommendationApp | null {
   const queryTokens = new Set([
     ...significantTokens(message),
@@ -345,12 +352,26 @@ function bestMatchingApp({
 
   for (const app of apps) {
     if (app.runnableNow === false) continue;
-    const appTokens = significantTokens(`${app.name} ${app.description ?? ""}`);
+    // An app built in another thread must be asked for by explicit app intent
+    // or by name; generic token overlap alone cannot resurface it (#643).
+    const crossThread =
+      typeof app.sourceThreadId === "string" &&
+      app.sourceThreadId !== currentThreadId;
+    const namedInMessage =
+      crossThread && messageNamesApp(message, app, explicitAppIntent);
+    if (crossThread && !explicitAppIntent && !namedInMessage) continue;
+
+    // Identifier-like tokens are excluded from APP overlap only (#643);
+    // skills/workflows/artifacts keep the full tokenizer so tech tokens
+    // like s3 or gpt4 still match there.
+    const appTokens = significantTokens(
+      `${app.name} ${app.description ?? ""}`,
+    ).filter((token) => !isIdentifierToken(token));
     const overlap = appTokens.filter(
       (token) =>
         queryTokens.has(token) && !APP_MATCH_GENERIC_TOKENS.has(token),
     );
-    const minimumOverlap = explicitAppIntent ? 1 : 2;
+    const minimumOverlap = namedInMessage ? 0 : explicitAppIntent ? 1 : 2;
     if (overlap.length < minimumOverlap) continue;
 
     const score = overlap.length + appIntentBoost(message);
@@ -360,6 +381,36 @@ function bestMatchingApp({
   }
 
   return best?.app ?? null;
+}
+
+// A cross-thread exact-name trigger bypasses token overlap entirely, so it
+// must not fire on incidental prose: matches are word-bounded (no
+// "statuses" hitting "status"), and a single-word name — user-authored, so
+// possibly a common word like "Status" — only counts alongside explicit app
+// intent ("open the Status app"), never bare mention.
+function messageNamesApp(
+  message: string,
+  app: RecommendationApp,
+  explicitAppIntent: boolean,
+): boolean {
+  const normalized = normalize(message);
+  const candidates = [normalize(app.name)];
+  if (app.slug) {
+    const slug = normalize(app.slug);
+    candidates.push(slug, slug.replace(/-/g, " "));
+  }
+  for (const candidate of candidates) {
+    if (candidate.length < 3) continue;
+    const escaped = candidate
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      .replace(/[\s-]+/g, "[\\s-]+");
+    if (!new RegExp(`\\b${escaped}\\b`).test(normalized)) continue;
+    const contentWords = candidate
+      .split(/[\s-]+/)
+      .filter((word) => word.length >= 3 && !STOPWORDS.has(word));
+    if (contentWords.length >= 2 || explicitAppIntent) return true;
+  }
+  return false;
 }
 
 function hasExplicitAppIntent(normalized: string): boolean {
@@ -533,6 +584,17 @@ function appIntentBoost(message: string): number {
   )
     ? 1
     : 0;
+}
+
+/**
+ * Identifier-like tokens (run ids, timestamps, uuid fragments, the bare CBX
+ * run-label prefix) must not count as semantic overlap between APP requests
+ * (#643). Applied at the app-matching call sites only — the shared
+ * tokenizer below keeps digit-bearing tech tokens (s3, gpt4, p95) so
+ * skill/workflow/artifact matching is unaffected.
+ */
+export function isIdentifierToken(token: string): boolean {
+  return /\d/.test(token) || /^[0-9a-f]{8,}$/.test(token) || token === "cbx";
 }
 
 function significantTokens(value: string): string[] {

@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 import {
   CALENDAR_LIST_TOOL,
@@ -161,7 +162,7 @@ function createdMarkdownArtifact(filename: string) {
 
 export const skillFaithfulnessSuite: EvalSuite = {
   capability: "skill-faithfulness",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "high",
   tags: ["grounding", "skills"],
   cases: [

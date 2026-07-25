@@ -339,7 +339,7 @@ test.describe("chat files and artifacts", () => {
       },
     });
 
-    await page.goto(`/e2e/chat?threadId=${threadId}`);
+    await page.goto("/e2e/chat");
     const fileInput = page.getByTestId("chat-file-input");
     await expect(fileInput).toBeEnabled({ timeout: 15_000 });
     await fileInput.setInputFiles({

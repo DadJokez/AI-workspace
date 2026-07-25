@@ -121,6 +121,17 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      # This lane's Playwright webServer runs `next build` before `next start`
+      # (prod-server smoke). Same cache key as ci.yml so a warm compiler cache
+      # bounds the added build time.
+      - name: Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: apps/web/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/**/*.ts', 'apps/web/**/*.tsx', 'packages/**/*.ts', '!**/node_modules/**', '!apps/web/.next/**') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+
       - name: Install
         run: pnpm install --frozen-lockfile
 
@@ -215,11 +226,15 @@ jobs:
         id: evals
         env:
           BEDROCK_CLIENT: real
-        run: pnpm eval --core
+        # --gate: the merge-gate pack — repeat-sampled injection/security
+        # cases only. The broad single-sample behavioral pack runs nightly;
+        # on a required PR check it made every gate a per-sample lottery
+        # (~70 cases at ~99% each ≈ 60% lane pass rate, observed 2026-07-25).
+        run: pnpm eval --gate
 
       # Post-run spend-regression tripwire. Superseded runs are actively
       # canceled by workflow concurrency; this check forces review if the
-      # stable core pack grows beyond its calibrated envelope.
+      # stable gate pack grows beyond its calibrated envelope.
       - name: Enforce PR eval cost tripwire
         if: ${{ always() && env.RUN_REAL_EVAL == 'true' && steps.evals.outcome != 'skipped' }}
         env:
@@ -325,6 +340,17 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+
+      # This lane's Playwright webServer runs `next build` before `next start`
+      # (prod-server smoke). Same cache key as ci.yml so a warm compiler cache
+      # bounds the added build time.
+      - name: Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: apps/web/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/**/*.ts', 'apps/web/**/*.tsx', 'packages/**/*.ts', '!**/node_modules/**', '!apps/web/.next/**') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
 
       - name: Install
         run: pnpm install --frozen-lockfile

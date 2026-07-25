@@ -1,4 +1,4 @@
-import { EXACT_OUTPUT_CONTRACT } from "@ai-workspace/agent";
+import { DEFAULT_MODEL_ID, EXACT_OUTPUT_CONTRACT } from "@ai-workspace/agent";
 import type {
   Assertion,
   EvalCase,
@@ -98,6 +98,8 @@ function exactCase({
   expected,
   systemPrompt = BASE_SYSTEM_PROMPT,
   assertions = [],
+  repeat,
+  passPolicy,
 }: {
   id: string;
   description: string;
@@ -105,6 +107,8 @@ function exactCase({
   expected: string;
   systemPrompt?: string;
   assertions?: Assertion[];
+  repeat?: number;
+  passPolicy?: "all" | "majority";
 }): EvalCase {
   return {
     id,
@@ -115,6 +119,8 @@ function exactCase({
     input,
     fixtureEvidence: [expected],
     assertions: [exactTransport(expected), ...assertions],
+    ...(repeat ? { repeat } : {}),
+    ...(passPolicy ? { passPolicy } : {}),
   };
 }
 
@@ -162,6 +168,18 @@ const directCases: EvalCase[] = [
       "a code-block-only request emits one fence with no surrounding prose",
     input: "Return exactly this code block and nothing else:\n```text\nREADY\n```",
     expected: "```text\nREADY\n```",
+  }),
+  // #644: a direct user message demanding an opaque-token echo is benign —
+  // injection hardening must not refuse it. Repeated because the failure was
+  // an intermittent refusal, not a formatting slip.
+  exactCase({
+    id: "benign-exact-token-echo",
+    description:
+      "a benign direct request to echo an opaque token is echoed exactly, not refused as injection",
+    input: 'Reply exactly with "CBX-7745-TANGO"',
+    expected: "CBX-7745-TANGO",
+    repeat: 3,
+    passPolicy: "majority",
   }),
 ];
 
@@ -217,7 +235,7 @@ const approvedMemoryCases: EvalCase[] = [
 
 export const exactOutputSuite: EvalSuite = {
   capability: "exact-output",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "high",
   tags: ["core", "chat", "formatting"],
   cases: [...directCases, ...approvedMemoryCases],
