@@ -65,29 +65,30 @@ GitHub Actions, and human review in this repository.
 
 ## Merge Protocol (#479)
 
-**There is no server-side merge enforcement.** GitHub branch protection is not
-available on this repository's current plan (private repo, free tier) — the
-protection API returns 403 and `branchProtectionRules` is empty. Every merge
-gate in this pipeline is convention, verified by tooling, not enforced by
-GitHub. (Enforcement by construction requires GitHub Pro or a public repo —
-Rob's call, tracked in #479.)
+**Server-side branch protection enforces the merge gate.** `main` requires
+the full check suite (CI, Product Smoke lanes, `Claude verdict`), is `strict`
+(branches must be up to date), and has `enforce_admins` on — no bypass for
+anyone. Restored 2026-07-21 after the plan re-upgrade; the original #479 root
+cause was the paid plan lapsing, which made GitHub *silently drop* protection
+on this private repo.
 
 Consequences:
 
-- **Merges go through `scripts/verified-merge.sh <pr>` only.** It verifies the
-  full gate — successful `CI` and `Product Smoke` runs at the PR's current
-  head SHA, a success `Claude verdict` status, and no red or unfinished
-  check-run or status — then merges pinned to that exact SHA with
-  `--match-head-commit`, so a commit racing in between verification and merge
-  aborts the merge.
-- **`gh pr merge --auto` is prohibited.** Without branch protection GitHub
-  reports every PR as "clean", and gh silently falls back from arming
-  auto-merge to merging immediately — that fallback caused incident #479
-  (five merges before their gates finished, three with a red required check).
-- **`merge-gate-audit.yml` is the backstop.** After every push to `main` it
-  re-verifies the merged PR's head-SHA gate and files a `security`/`ops`
-  incident issue on any violation — including direct pushes to `main`, which
-  remain break-glass only. A bypass can still happen; a silent one cannot.
+- **Merging is plain `gh pr merge <n> --squash --delete-branch` once checks
+  are green.** GitHub refuses the merge otherwise. No bespoke merge tooling.
+- **`gh pr merge --auto` stays discouraged.** It is safe while protection is
+  present, but if protection ever silently vanishes again, gh falls back from
+  arming auto-merge to merging immediately — the exact #479 failure — at
+  precisely the moment nothing else is guarding the gate. Merge when green
+  instead. `--admin` remains prohibited outside break-glass.
+- **`merge-gate-audit.yml` is the backstop for silent protection loss.**
+  After every push to `main` it checks that protection is still present with
+  the `Claude verdict` context required, re-verifies the merged PR's head-SHA
+  gate (`scripts/verify-pr-gate.sh`, audit-only), and files a
+  `security`/`ops` incident issue on any violation — including direct pushes
+  to `main`, which remain break-glass only. A bypass can still happen; a
+  silent one cannot. If billing ever lapses again, assume protection is gone
+  and re-check before merging anything.
 
 The production AWS CodeBuild project (`ai-workspace-build`) is intentionally
 outside the PR merge gate. It deploys merged `main` commits only. Its webhook

@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 import {
   CALENDAR_CREATE_TOOL,
@@ -151,7 +152,7 @@ function noAccessDenial(t: TurnTranscript) {
 
 export const gmailCalendarFaithfulnessSuite: EvalSuite = {
   capability: "gmail-calendar-faithfulness",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "high",
   tags: ["calendar", "connected-tools", "gmail", "grounding"],
   cases: [
@@ -223,10 +224,10 @@ export const gmailCalendarFaithfulnessSuite: EvalSuite = {
     {
       id: "incremental-inbox-reasoning-sonnet",
       description:
-        "Sonnet maps a natural follow-up to the saved Gmail cursor and inbox scope",
+        "the default model maps a natural follow-up to the saved Gmail cursor and inbox scope",
       systemPrompt: PRIOR_GMAIL_SEARCH_PROMPT,
       input: "Anything land in my inbox since you checked it for me?",
-      modelId: "sonnet-4-5",
+      modelId: DEFAULT_MODEL_ID,
       tools: createGoogleFixtureTools({ emails: [] }),
       providerStatus: { google: "mounted_fixture_with_prior_search" },
       contextReceipts: ["prior successful Gmail search cursor retained"],

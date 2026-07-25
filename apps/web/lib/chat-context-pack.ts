@@ -487,7 +487,10 @@ export function buildChatContextPack({
         freshness: "current_turn",
         visibility: "hidden_prompt",
         injected: true,
-        charCount: exactOutputContract.length,
+        charCount: exactOutputContract.prose.length,
+        ...(exactOutputContract.spec
+          ? { metadata: { specKind: exactOutputContract.spec.kind } }
+          : {}),
       })
     : undefined;
   const contextItems = [
@@ -640,7 +643,7 @@ export function buildChatContextPack({
           ? [renderRecentRecommendationsForPrompt(recommendations), ""]
           : []),
         renderContextReceiptForPrompt(receipt),
-        ...(exactOutputContract ? ["", exactOutputContract] : []),
+        ...(exactOutputContract ? ["", exactOutputContract.prose] : []),
       ].join("\n")
     : undefined;
 

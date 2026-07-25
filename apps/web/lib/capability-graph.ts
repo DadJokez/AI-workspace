@@ -71,6 +71,7 @@ export interface AppCapabilityInput {
   ownerUserId: string;
   status: string;
   liveArtifactId?: string | null;
+  sourceThreadId?: string | null;
   sharedWithMe?: boolean;
 }
 
@@ -291,6 +292,7 @@ export function recommendationInputsFromCapabilityGraph(graph: CapabilityGraph):
           name: entry.name,
           description: nullableStringMetadata(entry, "description"),
           slug: nullableStringMetadata(entry, "slug"),
+          sourceThreadId: nullableStringMetadata(entry, "sourceThreadId"),
           runnableNow: entry.runnableNow,
           sharedWithMe: entry.source === "shared",
         } satisfies RecommendationApp;
@@ -402,6 +404,7 @@ function buildAppCapability(
       slug: app.slug,
       description: app.description ?? null,
       liveArtifactId: app.liveArtifactId ?? null,
+      sourceThreadId: app.sourceThreadId ?? null,
     },
   };
 }
