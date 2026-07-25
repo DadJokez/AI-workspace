@@ -121,6 +121,17 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      # This lane's Playwright webServer runs `next build` before `next start`
+      # (prod-server smoke). Same cache key as ci.yml so a warm compiler cache
+      # bounds the added build time.
+      - name: Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: apps/web/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/**/*.ts', 'apps/web/**/*.tsx', 'packages/**/*.ts', '!**/node_modules/**', '!apps/web/.next/**') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+
       - name: Install
         run: pnpm install --frozen-lockfile
 
@@ -329,6 +340,17 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+
+      # This lane's Playwright webServer runs `next build` before `next start`
+      # (prod-server smoke). Same cache key as ci.yml so a warm compiler cache
+      # bounds the added build time.
+      - name: Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: apps/web/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/**/*.ts', 'apps/web/**/*.tsx', 'packages/**/*.ts', '!**/node_modules/**', '!apps/web/.next/**') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
 
       - name: Install
         run: pnpm install --frozen-lockfile
