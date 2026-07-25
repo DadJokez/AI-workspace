@@ -10,6 +10,7 @@ import {
   workspaceArtifacts,
 } from "@ai-workspace/db";
 import { and, eq, inArray, lt, or } from "drizzle-orm";
+import { nonNegativeNumber, positiveNumber } from "./env-numbers";
 
 import {
   buildProductionResourceFixtures,
@@ -1101,15 +1102,6 @@ function safeRunId(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 64) || "manual";
 }
 
-function positiveNumber(value: string | undefined, fallback: number) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function nonNegativeNumber(value: string | undefined, fallback: number) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-}
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
