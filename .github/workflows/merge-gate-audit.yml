@@ -10,10 +10,19 @@ name: Merge Gate Audit
 # `Claude verdict`). A violation — or a direct push with no PR at all — files
 # a labeled incident issue within a minute and fails loudly on the main
 # commit. It cannot prevent a bypass; it makes a silent one impossible.
+#
+# Canary honesty: the protected=true/false check is fully live under the
+# default token. The finer degradation checks (required contexts,
+# enforce_admins) need repo Administration read, which GITHUB_TOKEN cannot
+# be granted in a workflow — they run best-effort, only when the API
+# exposes the data. Making them unconditional requires a scoped machine
+# credential (#458, Rob-owned). `workflow_dispatch` runs the canary alone,
+# so what this token can actually see is empirically checkable on demand.
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -64,7 +73,9 @@ jobs:
           # Protection-presence canary: the #479 root cause was a paid-plan
           # lapse silently dropping branch protection. The branch endpoint's
           # `protected` field is readable with this workflow's default token,
-          # unlike the admin-only protection endpoint.
+          # unlike the admin-only protection endpoint. The contexts check
+          # below it is BEST-EFFORT (see header) — it fires only when the
+          # token can see protection detail.
           prot=$(gh api "repos/$GH_REPO/branches/main" \
             --jq '{p: .protected, ctx: (.protection.required_status_checks.contexts // [])}' \
             2>/dev/null || echo "")
@@ -85,6 +96,13 @@ jobs:
               "At push \`$SHA\`, main is protected but its required contexts \`$(jq -c .ctx <<<"$prot")\` no longer include \`Claude verdict\`. The AI review gate is off — restore the required context before merging anything else."
             echo "::error::Branch protection is missing the Claude verdict context."
             exit 1
+          fi
+
+          # Dispatch runs exist to probe the canary (and what the token can
+          # see) without a push; the merged-PR audit below is push-only.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Canary-only dispatch run. Token visibility: $prot"
+            exit 0
           fi
 
           # Resolve the PR this main commit came from (squash merge commit).
