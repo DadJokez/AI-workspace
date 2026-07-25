@@ -8,13 +8,17 @@
   },
   "pnpm": {
     "overrides": {
-      "archiver@5.3.2>readdir-glob": "3.0.0",
+      "@hono/node-server": "^2.0.5",
       "archiver-utils@2.1.0>glob": "13.0.6",
       "archiver-utils@3.0.4>glob": "13.0.6",
+      "archiver@5.3.2>readdir-glob": "3.0.0",
+      "body-parser": "^2.3.0",
       "brace-expansion@1": "^1.1.16",
       "brace-expansion@5": "5.0.8",
+      "esbuild": "^0.28.1",
       "exceljs>unzipper": "0.12.1",
       "fast-uri": "^3.1.3",
+      "hono": "^4.12.27",
       "postcss": "8.5.18",
       "prismjs": "1.30.0",
       "sharp": "0.35.3",
