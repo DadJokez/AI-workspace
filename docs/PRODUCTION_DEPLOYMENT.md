@@ -189,9 +189,32 @@ chat-worker log metric matches the emitted `[chat-run-worker-error]` marker.
 ## Rollback
 
 Task definitions pin a commit-SHA tag (`ImageTag` stack parameter, #449), and
-`latest` is only the parameter default for manual deploys. The ECR repositories
-allow mutable tags, so this is traceable by deployment convention rather than
-registry-enforced immutability; digest pinning would be required for that.
+`latest` is only the parameter default for manual deploys.
+
+**Image tags are mutable. Do not describe them as immutable.** Verified
+2026-07-25 with `aws ecr describe-repositories`:
+
+| Repository | `imageTagMutability` | `scanOnPush` |
+|---|---|---|
+| `ai-workspace` (web, worker, memory-worker) | `MUTABLE` | `false` |
+| `ai-workspace-agentcore-agent` | `MUTABLE` | `true` |
+
+Both buildspecs still push a floating `latest` alongside the commit-SHA tag
+(`buildspec.yml` pushes `:latest`, `:worker-latest`, `:memory-worker-latest`;
+`buildspec.agentcore.yml` pushes `:latest`). So a commit-SHA tag is unique by
+*deployment convention*, and anyone with ECR push rights could repoint one.
+What is genuinely immutable is the digest: `update-agentcore-stack.sh` resolves
+the tag to a `sha256:` digest and records it in the deployment receipt, and
+AgentCore pins the digest per runtime version. The ECS task definitions, by
+contrast, reference the tag.
+
+**Rob-gated follow-up:** setting `imageTagMutability=IMMUTABLE` on both
+repositories, dropping the `latest` pushes, and pinning ECS task definitions to
+digests would make this registry-enforced rather than conventional. That is an
+infrastructure and deploy-contract change (it would break any manual
+`:latest` deploy path) and belongs to Rob — tracked in #449. Enabling
+`scanOnPush` on `ai-workspace` is the same conversation.
+
 For an image-only regression, one command rolls all three services to a
 previously built commit:
 

@@ -20,12 +20,14 @@ evidence, not a compliance certification or legal DPA.
 
 | Area | Status | Notes |
 |---|---|---|
-| Dependency audit | Partial | Next.js, Bedrock SDK, Drizzle, PostCSS, and PrismJS patches/overrides applied. Remaining audit findings are transitive and tracked below. |
+| Dependency audit | Enforced | `pnpm audit --prod --audit-level high` is the required `dependency CVE audit` status check on `main` (#459), so a high/critical production finding blocks merge rather than waiting for release triage. |
 | Health checks | Pilot shipped | `/api/health` checks DB connectivity/latency and runtime configuration. |
-| Rate limits and quotas | Pilot shipped | `/api/chat`, skill runs, authentication, and event triggers use shared Postgres fixed-window request limits plus body/message caps. Per-team/token/cost quotas are not live. |
-| Logging/redaction/retention | Pilot shipped | Shared tool payload redaction is applied before chat/tool/run/audit persistence; audit retention has a configurable cleanup script and admin visibility. |
-| KMS/Secrets/IaC | Partial | ECS/Fargate, ALB, task IAM, log groups, alarms, and secret injection are CDK-managed. Secrets Manager uses its AWS-managed key without automatic rotation; RDS storage encryption/private networking are not live. |
-| Load-test model | Model defined | Synthetic scenarios and thresholds are ready for a follow-up test harness. |
+| Rate limits and quotas | Pilot shipped | `/api/chat`, skill runs, authentication, and event triggers use shared Postgres fixed-window request limits plus body/message caps. Per-team/token/cost quotas are not live. There is no edge-layer (WAF) limit — #691. |
+| Logging/redaction/retention | Pilot shipped | Shared tool payload redaction is applied before chat/tool/run/audit persistence; audit retention has a configurable cleanup script and admin visibility. Authentication events are not logged at all — #694. |
+| Response security headers | **Not shipped** | The app sends no CSP, HSTS, `nosniff`, `Referrer-Policy`, or `frame-ancestors`. The only CSP covers deployed user-generated apps. #693. |
+| KMS/Secrets/IaC | Partial | ECS/Fargate, ALB, task IAM, log groups, alarms, and secret injection are CDK-managed. Secrets Manager uses its AWS-managed key without automatic rotation; RDS storage encryption (#689) and private networking (#492) are not live, and the RDS security group has console-only ingress not present in IaC (#690). |
+| Environments | **Single** | Production is the only deployed environment. Merging to `main` deploys, and migrations run against the production database before the new code is live. #697. |
+| Load-test model | Model defined, **never executed** | The scenarios and thresholds below are planning assumptions. No harness exists and no run has happened, so no threshold in this document has been measured. #696. |
 
 ## Dependency Audit
 
@@ -35,23 +37,33 @@ Run from repo root:
 pnpm audit:prod
 ```
 
-Current triage after package patches:
+Since #459 this is not only a release-time step: `.github/workflows/ci.yml`
+runs `pnpm audit --prod --audit-level high` as the `dependency CVE audit` job,
+and that context is one of the eight required status checks on `main`. A
+high or critical finding in the production dependency graph blocks merge.
+Moderate and low findings report without blocking.
+
+Result as of 2026-07-25: **0 high, 0 critical**, 4 moderate and 2 low — the
+gate is green and the standing findings are all below the blocking threshold.
+
+Mitigations currently carried in `package.json` `pnpm.overrides`:
 
 | Finding | Source | Decision |
 |---|---|---|
-| Next.js advisories | `next` | Fixed by pinning `next` / `eslint-config-next` to `15.5.18`. |
-| AWS XML parser advisory | `@aws-sdk/client-bedrock-runtime` path | Reduced by upgrading Bedrock SDK to `3.1048.0`; monitor upstream until `pnpm audit:prod` is clean. |
-| `tar` / `sqlite3` advisories | `drizzle-orm` optional/native dependency paths | Accepted temporarily for production runtime with mitigation: do not unpack untrusted archives at runtime; keep lockfile pinned; revisit removing optional SQLite paths or upstream updates. |
-| PostCSS advisory | `next -> postcss` | Mitigated with a pnpm override to `postcss@8.5.10`. |
+| Next.js advisories | `next` | Fixed by upgrading `next` to `^15.5.21`. |
+| AWS XML parser advisory | `@aws-sdk/client-bedrock-runtime` path | Reduced by upgrading Bedrock SDK to `^3.1048.0`. |
+| `sqlite3` / `tar` chain | `drizzle-orm` optional native dependency path | **Resolved, not accepted.** The chain is pruned outright with the `"sqlite3": "-"` override (#459); the earlier "accepted temporarily" triage no longer applies. |
+| PostCSS advisory | `next -> postcss` | Mitigated with a pnpm override to `postcss@8.5.18`. |
 | `prismjs` advisory | `react-syntax-highlighter -> refractor -> prismjs` | Mitigated with a pnpm override to `prismjs@1.30.0`; assistant markdown rendering still avoids raw HTML. |
+| `brace-expansion` ReDoS | transitive | Overrides on the `@1` and `@5` ranges. |
+| Archiver/unzipper/glob chain | `archiver`, `exceljs` | Pinned through overrides. |
 
 Acceptance is not "ignore forever." The review cadence is:
-- run `pnpm audit:prod` before production release candidates;
+- the CI gate blocks high/critical on every PR — no human step required;
+- review the moderate/low tail before production release candidates;
 - upgrade direct dependencies first;
 - document any remaining transitive finding with owner, mitigation, and next
-  review date;
-- fail the release on critical findings or on reachable high findings without
-  a mitigation.
+  review date.
 
 ## Health Checks
 
@@ -124,7 +136,8 @@ Current behavior is not an approved retention policy:
 | Audit log | Persists; destructive cleanup requires an explicit `AUDIT_LOG_RETENTION_DAYS` | Window, legal hold, and DB enforcement pending #460/#457 |
 | Runs, events, and traces | Persist until manual cleanup | Output/metadata windows pending #460/#381 |
 | Runtime debug logs | CDK log groups retain 30 days | Confirm with security/privacy before enterprise rollout |
-| OAuth tokens | Until disconnect/revocation | Deprovisioning and provider rotation policy pending #460 |
+| OAuth tokens | Indefinite — there is no disconnect route (#692) | Disconnect route is #692; deprovisioning and provider rotation policy pending #460 |
+| Authentication events | Not recorded anywhere | No sign-in, denial, sign-out, or account-linking event reaches `audit_log` (#694) |
 | Future S3/Athena Agent Wire | Not live | Classification and lifecycle policy required before launch |
 
 Current code applies a shared tool payload redaction helper before persisting
@@ -145,11 +158,18 @@ Current pilot state:
   `OAUTH_ENCRYPTION_KEY`.
 - CDK owns ECS services, ALB, task IAM, log groups, alarms, and secret
   references. The pre-existing RDS instance, complete CodeBuild project, and
-  network are not fully owned by this stack.
+  network are not fully owned by this stack. That divergence has already
+  produced one live security finding invisible to `cdk diff`: a console-only
+  `0.0.0.0/0` ingress rule on the database security group (#690).
 - Secrets Manager uses its AWS-managed key and automatic rotation is not
   enabled.
 - The production database connection requires TLS, but the pilot RDS storage
-  volume is not encrypted and remains publicly addressable.
+  volume is not encrypted (`StorageEncrypted: false`, verified 2026-07-25) and
+  remains publicly addressable. Enabling encryption requires a
+  snapshot-copy-restore cutover, not a setting change — #689.
+- ECR repositories are `MUTABLE` and both buildspecs push a floating `latest`
+  alongside the commit-SHA tag. Traceability rests on the recorded digest in
+  the deployment receipt, not on registry-enforced tag immutability — #449.
 
 Enterprise target:
 - KMS customer-managed keys protect Secrets Manager values and storage that
@@ -194,7 +214,10 @@ plane:
 
 ## Load-Test Model
 
-These are planning assumptions, not measured results yet.
+**Nothing below has been measured.** These are planning assumptions. There is
+no k6/Artillery harness, no perf job in CI, and no recorded run — and no
+non-production environment to run one against (#697). Treat every number here
+as a target to validate, never as evidence. Tracked in #696.
 
 | Stage | Users | Concurrent chat turns | Scheduled runs/hour | Target |
 |---|---:|---:|---:|---|
@@ -223,3 +246,8 @@ Recommended harness:
 - seeded synthetic users and threads;
 - stub runtime mode for high-volume app tests;
 - small live-runtime tests for provider/model integration only.
+
+Known capacity constraints the model has not yet been tested against: the web
+service autoscales between two and four tasks, platform-wide background-run
+concurrency is 1 (#448), the rate limiter costs a Postgres round trip per
+request, and RDS is a single-AZ instance with no proxy or pooler.

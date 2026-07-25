@@ -36,7 +36,7 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
       type: "String",
       default: "latest",
       description:
-        "Immutable ECR tag deployed to the AgentCore runtime. CodeBuild updates this parameter after pushing the image.",
+        "Commit-SHA ECR tag deployed to the AgentCore runtime. CodeBuild updates this parameter after pushing the image. The repository accepts MUTABLE tags, so uniqueness is a deployment convention, not a registry guarantee.",
     });
     const appSecretName = new cdk.CfnParameter(this, "AppSecretName", {
       type: "String",
@@ -202,8 +202,14 @@ export class AiWorkspaceAgentCoreSpikeStack extends cdk.Stack {
     runtime.node.addDependency(braveCredentialProvider);
 
     // CloudFormation remains the sole owner of the runtime. CodeBuild submits
-    // the current synthesized template and immutable image tag together, so
-    // reviewed infrastructure changes cannot remain source-only.
+    // the current synthesized template and the commit-SHA image tag together,
+    // so reviewed infrastructure changes cannot remain source-only. The tag
+    // is not registry-immutable — `ai-workspace-agentcore-agent` is a MUTABLE
+    // ECR repository and `buildspec.agentcore.yml` also pushes `:latest`.
+    // `ContainerUri` above therefore carries a tag, not a digest;
+    // update-agentcore-stack.sh separately resolves that tag to a sha256
+    // digest and records it in the deployment receipt, so the receipt stays
+    // digest-accurate even though the template reference is by tag (#449).
     const codeBuildRole = iam.Role.fromRoleName(
       this,
       "CodeBuildDeploymentRole",
