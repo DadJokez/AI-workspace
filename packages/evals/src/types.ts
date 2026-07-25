@@ -89,6 +89,15 @@ export interface EvalCase {
    *   where the occasional judge miss is tolerable).
    */
   passPolicy?: "all" | "majority";
+  /**
+   * Open tracking-issue ref (e.g. "#675") for a case that is known-red on an
+   * acknowledged defect. The assertions run at full strength and a failure is
+   * reported loudly (⚠️ KNOWN), but it does not fail the run's exit code — a
+   * tracked, permanently-red case must not turn every PR gate into a coin
+   * flip. Remove the marker (and close the issue) once the case is stably
+   * green; a case must never carry this without an open issue.
+   */
+  knownIssue?: string;
 }
 
 /** What the harness captures from one turn for assertions to inspect. */
@@ -166,6 +175,8 @@ export interface CaseResult extends TokenUsage {
   runs?: number;
   passCount?: number;
   passPolicy?: "all" | "majority";
+  /** Carried from the case: open-issue ref that makes a failure non-blocking. */
+  knownIssue?: string;
 }
 
 export interface CapabilityResult {

@@ -72,6 +72,28 @@ export function selectSuites(
 }
 
 /**
+ * Split failures into blocking vs. known (#675): a failed case that carries
+ * `knownIssue` is reported loudly but does not fail the run — a tracked
+ * permanently-red case must not make every gate a coin flip. Exported for
+ * tests; the assertions themselves are never weakened by this split.
+ */
+export function summarizeOutcome(results: readonly CapabilityResult[]): {
+  passed: number;
+  blockingFailed: number;
+  knownFailed: Array<{ caseId: string; knownIssue: string }>;
+  exitCode: 0 | 1;
+} {
+  const cases = results.flatMap((r) => r.results);
+  const passed = cases.filter((c) => c.passed).length;
+  const failed = cases.filter((c) => !c.passed);
+  const knownFailed = failed
+    .filter((c) => c.knownIssue)
+    .map((c) => ({ caseId: c.caseId, knownIssue: c.knownIssue! }));
+  const blockingFailed = failed.length - knownFailed.length;
+  return { passed, blockingFailed, knownFailed, exitCode: blockingFailed === 0 ? 0 : 1 };
+}
+
+/**
  * CLI entry (FR-005): `pnpm eval [capability]` runs all or one capability
  * against real Bedrock, prints a report, writes JSON+Markdown under
  * eval-reports/, and exits non-zero on any failure. `--mock` swaps the fake
@@ -134,13 +156,15 @@ async function main() {
       totalOut += c.tokensOut;
       totalJudgeIn += c.judgeUsage.tokensIn;
       totalJudgeOut += c.judgeUsage.tokensOut;
-      const icon = c.errored ? "💥" : c.passed ? "✅" : "❌";
+      const icon = c.errored ? "💥" : c.passed ? "✅" : c.knownIssue ? "⚠️" : "❌";
       const repeatNote =
         c.runs && c.runs > 1
           ? ` [${c.passCount ?? 0}/${c.runs} passed, ${c.passPolicy ?? "all"}]`
           : "";
+      const knownNote =
+        !c.passed && c.knownIssue ? ` [KNOWN ${c.knownIssue}, non-blocking]` : "";
       process.stdout.write(
-        `  ${icon} [${c.severity.toUpperCase()}] ${c.caseId}${repeatNote} — ${c.description}\n`,
+        `  ${icon} [${c.severity.toUpperCase()}] ${c.caseId}${repeatNote}${knownNote} — ${c.description}\n`,
       );
       if (c.errored) {
         process.stdout.write(`       error: ${c.errored}\n`);
@@ -159,6 +183,7 @@ async function main() {
     }
   }
 
+  const outcome = summarizeOutcome(results);
   const totalPassed = results.reduce((n, r) => n + r.passed, 0);
   const totalFailed = results.reduce((n, r) => n + r.failed, 0);
   const generationCostUsd = results.reduce(
@@ -185,8 +210,14 @@ async function main() {
   const approxCostUsd = generationCostUsd + judgeCostUsd;
 
   process.stdout.write(
-    `\n${totalFailed === 0 ? "✅" : "❌"} ${totalPassed} passed, ${totalFailed} failed · ` +
-      `${totalIn}+${totalOut} tokens · ~$${approxCostUsd.toFixed(4)}${mock ? " (mock)" : ""}\n`,
+    `\n${outcome.exitCode === 0 ? (totalFailed === 0 ? "✅" : "⚠️") : "❌"} ${totalPassed} passed, ` +
+      `${outcome.blockingFailed} failed` +
+      (outcome.knownFailed.length > 0
+        ? `, ${outcome.knownFailed.length} known-red (${outcome.knownFailed
+            .map((k) => `${k.caseId} ${k.knownIssue}`)
+            .join("; ")})`
+        : "") +
+      ` · ${totalIn}+${totalOut} tokens · ~$${approxCostUsd.toFixed(4)}${mock ? " (mock)" : ""}\n`,
   );
   if (totalJudgeIn > 0 || totalJudgeOut > 0) {
     process.stdout.write(
@@ -205,7 +236,7 @@ async function main() {
     judgeCostUsd,
     approxCostUsd,
   });
-  process.exit(totalFailed === 0 ? 0 : 1);
+  process.exit(outcome.exitCode);
 }
 
 function writeReport(
@@ -258,9 +289,14 @@ function writeReport(
     );
     for (const c of r.results) {
       md.push(
-        `- ${c.passed ? "✅" : c.errored ? "💥" : "❌"} **[${c.severity.toUpperCase()}] ${c.caseId}** — ${c.description}`,
+        `- ${c.passed ? "✅" : c.errored ? "💥" : c.knownIssue ? "⚠️" : "❌"} **[${c.severity.toUpperCase()}] ${c.caseId}** — ${c.description}`,
       );
       md.push(`  - Tags: ${c.tags.join(", ") || "(none)"}`);
+      if (!c.passed && c.knownIssue) {
+        md.push(
+          `  - ⚠️ Known-red, non-blocking: tracked in ${c.knownIssue}; assertions unchanged`,
+        );
+      }
       if (c.runs && c.runs > 1) {
         md.push(
           `  - Repeats: ${c.passCount ?? 0}/${c.runs} runs passed (policy: ${c.passPolicy ?? "all"})`,

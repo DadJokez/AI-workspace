@@ -233,6 +233,7 @@ async function evaluateCase(
   const metadata = {
     severity: testCase.severity ?? defaultSeverity,
     tags: Array.from(new Set([...suiteTags, ...(testCase.tags ?? [])])).sort(),
+    ...(testCase.knownIssue ? { knownIssue: testCase.knownIssue } : {}),
   };
 
   if (structuralOnly) {
