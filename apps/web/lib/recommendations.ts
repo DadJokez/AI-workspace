@@ -357,10 +357,16 @@ function bestMatchingApp({
     const crossThread =
       typeof app.sourceThreadId === "string" &&
       app.sourceThreadId !== currentThreadId;
-    const namedInMessage = crossThread && messageNamesApp(message, app);
+    const namedInMessage =
+      crossThread && messageNamesApp(message, app, explicitAppIntent);
     if (crossThread && !explicitAppIntent && !namedInMessage) continue;
 
-    const appTokens = significantTokens(`${app.name} ${app.description ?? ""}`);
+    // Identifier-like tokens are excluded from APP overlap only (#643);
+    // skills/workflows/artifacts keep the full tokenizer so tech tokens
+    // like s3 or gpt4 still match there.
+    const appTokens = significantTokens(
+      `${app.name} ${app.description ?? ""}`,
+    ).filter((token) => !isIdentifierToken(token));
     const overlap = appTokens.filter(
       (token) =>
         queryTokens.has(token) && !APP_MATCH_GENERIC_TOKENS.has(token),
@@ -377,16 +383,34 @@ function bestMatchingApp({
   return best?.app ?? null;
 }
 
-function messageNamesApp(message: string, app: RecommendationApp): boolean {
+// A cross-thread exact-name trigger bypasses token overlap entirely, so it
+// must not fire on incidental prose: matches are word-bounded (no
+// "statuses" hitting "status"), and a single-word name — user-authored, so
+// possibly a common word like "Status" — only counts alongside explicit app
+// intent ("open the Status app"), never bare mention.
+function messageNamesApp(
+  message: string,
+  app: RecommendationApp,
+  explicitAppIntent: boolean,
+): boolean {
   const normalized = normalize(message);
-  const name = normalize(app.name);
-  if (name.length >= 3 && normalized.includes(name)) return true;
-  if (!app.slug) return false;
-  const slug = normalize(app.slug);
-  return (
-    slug.length >= 3 &&
-    (normalized.includes(slug) || normalized.includes(slug.replace(/-/g, " ")))
-  );
+  const candidates = [normalize(app.name)];
+  if (app.slug) {
+    const slug = normalize(app.slug);
+    candidates.push(slug, slug.replace(/-/g, " "));
+  }
+  for (const candidate of candidates) {
+    if (candidate.length < 3) continue;
+    const escaped = candidate
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      .replace(/[\s-]+/g, "[\\s-]+");
+    if (!new RegExp(`\\b${escaped}\\b`).test(normalized)) continue;
+    const contentWords = candidate
+      .split(/[\s-]+/)
+      .filter((word) => word.length >= 3 && !STOPWORDS.has(word));
+    if (contentWords.length >= 2 || explicitAppIntent) return true;
+  }
+  return false;
 }
 
 function hasExplicitAppIntent(normalized: string): boolean {
@@ -563,23 +587,21 @@ function appIntentBoost(message: string): number {
 }
 
 /**
- * Identifier-like tokens (run ids, timestamps, uuid fragments, CBX run
- * labels) must not count as semantic overlap between requests (#643).
+ * Identifier-like tokens (run ids, timestamps, uuid fragments, the bare CBX
+ * run-label prefix) must not count as semantic overlap between APP requests
+ * (#643). Applied at the app-matching call sites only — the shared
+ * tokenizer below keeps digit-bearing tech tokens (s3, gpt4, p95) so
+ * skill/workflow/artifact matching is unaffected.
  */
 export function isIdentifierToken(token: string): boolean {
-  return /\d/.test(token) || /^[0-9a-f]{8,}$/.test(token) || /^cbx/.test(token);
+  return /\d/.test(token) || /^[0-9a-f]{8,}$/.test(token) || token === "cbx";
 }
 
 function significantTokens(value: string): string[] {
   return unique(
     normalize(value)
       .split(/[^a-z0-9]+/)
-      .filter(
-        (token) =>
-          token.length >= 3 &&
-          !STOPWORDS.has(token) &&
-          !isIdentifierToken(token),
-      ),
+      .filter((token) => token.length >= 3 && !STOPWORDS.has(token)),
   );
 }
 

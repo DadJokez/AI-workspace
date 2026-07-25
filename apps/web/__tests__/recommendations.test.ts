@@ -60,6 +60,29 @@ describe("recommendation candidates", () => {
     expect(candidates[0]?.reason).toContain("connected GitHub tool access");
   });
 
+  it("keeps digit-bearing tech tokens for skill matching (identifier filter is app-only)", () => {
+    const candidates = buildRecommendationCandidates({
+      currentMessage: "Which skill helps me audit s3 bucket policies?",
+      connectedProviders: ["github"],
+      approvedProviders: ["github"],
+      skills: [
+        {
+          id: "skill-s3",
+          name: "S3 Policy Audit",
+          description: "Audit s3 bucket policies for public access.",
+          mcpProviders: ["github"],
+          runnableNow: true,
+          sharedWithMe: true,
+        },
+      ],
+    });
+    expect(
+      candidates.some(
+        (c) => c.type === "run_existing_skill" && /S3 Policy Audit/.test(c.title),
+      ),
+    ).toBe(true);
+  });
+
   it("does not recommend a skill during normal chat unless the user asks for skills", () => {
     const candidates = buildRecommendationCandidates({
       currentMessage: "What PRs need my review this week?",
@@ -409,6 +432,37 @@ describe("recommendation candidates", () => {
     );
   });
 
+  it("does not resurface a single-common-word cross-thread app on bare prose", () => {
+    const statusApp = {
+      ...priorThreadRunStatusApp,
+      name: "Status",
+      slug: "status",
+      description: "Deployment status board.",
+    };
+    const bareProse = buildRecommendationCandidates({
+      currentMessage: "what's the status of the deployment",
+      currentThreadId: "thread-2",
+      apps: [statusApp],
+    });
+    expect(bareProse.some((c) => c.type === "open_existing_app")).toBe(false);
+
+    // Word boundary: "statuses" must not hit "status" either.
+    const boundary = buildRecommendationCandidates({
+      currentMessage: "compare the statuses across environments",
+      currentThreadId: "thread-2",
+      apps: [statusApp],
+    });
+    expect(boundary.some((c) => c.type === "open_existing_app")).toBe(false);
+
+    // Explicit app intent unlocks the single-word name.
+    const withIntent = buildRecommendationCandidates({
+      currentMessage: "open the Status app",
+      currentThreadId: "thread-2",
+      apps: [statusApp],
+    });
+    expect(withIntent.some((c) => c.type === "open_existing_app")).toBe(true);
+  });
+
   it("resurfaces a prior-thread app on explicit app intent", () => {
     const candidates = buildRecommendationCandidates({
       currentMessage: "Open my run status app",
@@ -449,7 +503,9 @@ describe("isIdentifierToken", () => {
     expect(isIdentifierToken("a716446655440000")).toBe(true);
     expect(isIdentifierToken("deadbeef")).toBe(true);
     expect(isIdentifierToken("cbx")).toBe(true);
-    expect(isIdentifierToken("cbxrun")).toBe(true);
+    // Only the bare run-label prefix is dropped; cbx-prefixed WORDS are
+    // legitimate names ("CBX Portal") and must keep matching.
+    expect(isIdentifierToken("cbxrun")).toBe(false);
   });
 
   it("keeps real words", () => {
