@@ -254,6 +254,25 @@ describe("runAgentLoop system prompt caching", () => {
     );
   });
 
+  it("injects no resolution line for a past-tense weekday turn (review)", async () => {
+    const client = new CaptureClient();
+    const events = runAgentLoop({
+      modelId: "sonnet-4-6",
+      messages: [{ role: "user", content: "Did we ship it last friday?" }],
+      registry: new ToolRegistry(),
+      context: { userId: "u1" },
+      userTimeZone: "America/New_York",
+      client,
+    });
+    for await (const _ev of events) {
+      // drain
+    }
+
+    expect(client.captured[0]?.volatileSystemSuffix).not.toContain(
+      "Resolved date references",
+    );
+  });
+
   it("forwards an explicit sampling temperature to the Bedrock seam", async () => {
     const client = new CaptureClient();
     await runTurn(client, undefined, 0);

@@ -144,6 +144,34 @@ describe("resolveRelativeDateReferences", () => {
     ).toEqual([]);
   });
 
+  it("leaves backward-looking weekday phrases unresolved (review: never resolve them forward)", () => {
+    // thursday 2026-07-23: bare-weekday semantics would resolve these to
+    // FUTURE dates; the user meant the past, so nothing is injected.
+    expect(
+      resolveRelativeDateReferences("did we ship it last friday?", thursday, NY),
+    ).toEqual([]);
+    expect(
+      resolveRelativeDateReferences("since this past monday", thursday, NY),
+    ).toEqual([]);
+    expect(
+      resolveRelativeDateReferences("a week ago tuesday", thursday, NY),
+    ).toEqual([]);
+    // A later forward mention of the same weekday still resolves.
+    const mixed = resolveRelativeDateReferences(
+      "last friday slipped; can we retry friday?",
+      thursday,
+      NY,
+    );
+    expect(mixed).toHaveLength(1);
+    expect(mixed[0]!.sourceText).toBe("friday");
+  });
+
+  it("does not treat weekday-named products as dates", () => {
+    expect(
+      resolveRelativeDateReferences("sync the monday.com board", thursday, NY),
+    ).toEqual([]);
+  });
+
   it("dedupes repeats, keeps first-appearance order, and lowercases sources", () => {
     const refs = resolveRelativeDateReferences(
       "Tomorrow, then NEXT TUESDAY, then tomorrow again",

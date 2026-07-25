@@ -31,7 +31,14 @@ const WEEKDAYS = [
  * week") deliberately do not match and stay unresolved.
  */
 const RELATIVE_REFERENCE_RE =
-  /\b(?:(today|tonight|tomorrow|yesterday)|(?:(this|next)\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/gi;
+  /\b(?:(today|tonight|tomorrow|yesterday)|(?:(this|next)\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b(?!\.[a-z])/gi;
+
+// Backward-looking weekday phrases ("last friday", "this past monday",
+// "a week ago tuesday") must stay UNRESOLVED: today-or-after semantics
+// would inject a confidently-wrong FUTURE date as ground truth — the #646
+// failure class inverted. Unresolved is strictly safer than resolved-wrong,
+// matching the module's stance on "next weekend".
+const BACKWARD_MODIFIER_BEFORE_RE = /\b(?:last|past|ago)\s+$/i;
 
 export interface ResolvedDateReference {
   /** The matched phrase, lowercased with collapsed spaces ("next tuesday"). */
@@ -100,8 +107,14 @@ export function resolveRelativeDateReferences(
   for (const match of text.matchAll(RELATIVE_REFERENCE_RE)) {
     const sourceText = match[0].toLowerCase().replace(/\s+/g, " ");
     if (seen.has(sourceText)) continue;
-    seen.add(sourceText);
     const [, fixedWord, qualifier, weekdayName] = match;
+    if (
+      weekdayName &&
+      BACKWARD_MODIFIER_BEFORE_RE.test(text.slice(0, match.index))
+    ) {
+      continue;
+    }
+    seen.add(sourceText);
     let dayDelta: number;
     if (fixedWord) {
       const word = fixedWord.toLowerCase();
