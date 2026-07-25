@@ -97,7 +97,7 @@ export async function runJudge(
   // never fail toward. Any FAIL token anywhere on the line vetoes; anything
   // ambiguous or absent still fails closed.
   const firstLine = text.trim().split("\n")[0] ?? "";
-  const stripped = firstLine.replace(/^[\s*_#>`~-]*(?:verdict\s*[:\-]\s*)?[\s*_`]*/i, "");
+  const stripped = firstLine.replace(/^[\s*_#>`~-]*(?:verdict\s*[:-]\s*)?[\s*_`]*/i, "");
   const leading = /^(PASS|FAIL)\b/i.exec(stripped)?.[1]?.toUpperCase();
   const hasFailToken = /\bFAIL\b/i.test(firstLine);
   const pass = leading === "PASS" && !hasFailToken;
