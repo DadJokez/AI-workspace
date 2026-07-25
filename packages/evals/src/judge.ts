@@ -87,8 +87,16 @@ export async function runJudge(
     };
   }
 
-  const firstLine = text.trim().split("\n")[0]?.trim().toUpperCase() ?? "";
-  const pass = firstLine === "PASS";
+  // The judge is told to answer with exactly PASS or FAIL on line one, but
+  // real samples add punctuation/emphasis ("PASS.", "**PASS**", "Verdict:
+  // PASS"), and the old `firstLine === "PASS"` comparison scored those
+  // passing verdicts as failures — a parser flake indistinguishable from a
+  // model regression. Accept the first line's verdict when it is unambiguous
+  // (exactly one distinct PASS/FAIL token); anything ambiguous or absent
+  // still fails closed.
+  const firstLine = text.trim().split("\n")[0] ?? "";
+  const verdictTokens = new Set(firstLine.toUpperCase().match(/\b(PASS|FAIL)\b/g) ?? []);
+  const pass = verdictTokens.size === 1 && verdictTokens.has("PASS");
   const reason = text.trim().split("\n").slice(1).join(" ").trim() || text.trim();
   return { pass, reason: reason.slice(0, 200), ...usage };
 }

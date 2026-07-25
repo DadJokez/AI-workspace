@@ -99,11 +99,12 @@ describe("judge calibration contract", () => {
     expect(verdict.reason).toContain("does not match");
   });
 
-  it("fails closed when the first line is not exactly PASS", async () => {
+  it("fails closed when the first line carries no unambiguous PASS verdict", async () => {
     for (const malformed of [
       "PASSENGER\nLooks close enough.",
-      "PASS: yes\nLooks close enough.",
       "The answer passes.\nLooks close enough.",
+      "PASS/FAIL: FAIL\nThe answer misses a fact.",
+      "PASS or FAIL? FAIL.\nThe answer misses a fact.",
       "",
     ]) {
       const verdict = await runJudge(new StaticJudgeClient(malformed), {
@@ -111,6 +112,32 @@ describe("judge calibration contract", () => {
         answer: "candidate",
       });
       expect(verdict.pass, malformed).toBe(false);
+    }
+  });
+
+  it("accepts unambiguous PASS formatting variants (parser flake, not model regression)", async () => {
+    for (const variant of [
+      "PASS.\nThe answer matches the evidence.",
+      "**PASS**\nThe answer matches the evidence.",
+      "Verdict: PASS\nThe answer matches the evidence.",
+      "PASS — the answer is correct.",
+      "PASS: yes\nLooks correct.",
+    ]) {
+      const verdict = await runJudge(new StaticJudgeClient(variant), {
+        rubric: "Does the answer pass?",
+        answer: "candidate",
+      });
+      expect(verdict.pass, variant).toBe(true);
+    }
+  });
+
+  it("still fails on unambiguous FAIL formatting variants", async () => {
+    for (const variant of ["FAIL.\nMissing fact.", "**FAIL**\nMissing fact."]) {
+      const verdict = await runJudge(new StaticJudgeClient(variant), {
+        rubric: "Does the answer pass?",
+        answer: "candidate",
+      });
+      expect(verdict.pass, variant).toBe(false);
     }
   });
 
