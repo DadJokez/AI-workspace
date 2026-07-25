@@ -674,6 +674,53 @@ test.describe("chat workflow regressions", () => {
     expect(downloaded).not.toContain("UNRELATED_THREAD_MARKER");
   });
 
+  test("shows an inline error and stays on the page when transcript export fails", async ({
+    page,
+    isMobile,
+  }) => {
+    const threadId = "thread-export-error";
+    const title = "Export error transcript";
+    await installMockComparativeApi(page, {
+      threads: [threadSummary(threadId, title)],
+      threadMessages: {
+        [threadId]: [
+          userMessage({
+            id: "user-export-error",
+            content: "Export this thread.",
+          }),
+          assistantMessage({
+            id: "assistant-export-error",
+            content: "Recorded answer for export.",
+          }),
+        ],
+      },
+    });
+    // Registered after the mock API so it wins for this path: the export
+    // route fails hard instead of serving a transcript.
+    await page.route(`**/api/threads/${threadId}/export`, (route) =>
+      json(route, { error: "export_failed" }, 500),
+    );
+
+    await gotoE2EChat(page);
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: title }).click();
+    await expect(page.getByText("Recorded answer for export.")).toBeVisible();
+
+    let downloadFired = false;
+    page.on("download", () => {
+      downloadFired = true;
+    });
+    const chatUrl = page.url();
+    await page
+      .getByRole("button", { name: "Download chat transcript" })
+      .click();
+    await expect(
+      page.getByText("Could not download the transcript. Please try again."),
+    ).toBeVisible();
+    expect(downloadFired).toBe(false);
+    expect(page.url()).toBe(chatUrl);
+  });
+
   test("downloads the active chat as markdown", async ({ page }) => {
     await installMockComparativeApi(page, {
       onChat: async (_body, route) => {
