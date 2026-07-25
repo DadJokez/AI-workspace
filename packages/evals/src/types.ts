@@ -106,6 +106,8 @@ export interface AssertionResult {
   ok: boolean;
   label: string;
   detail?: string;
+  /** Carried from the assertion definition; see Assertion.knownIssue. */
+  knownIssue?: string;
 }
 
 /**
@@ -118,6 +120,7 @@ export type Assertion =
       kind: "deterministic";
       label: string;
       check: (t: TurnTranscript) => boolean | { ok: boolean; detail?: string };
+      knownIssue?: string;
     }
   | {
       kind: "judge";
@@ -129,7 +132,21 @@ export type Assertion =
        * case's fixtureEvidence and passed explicitly to the judge.
        */
       referenceEvidence?: readonly string[];
+      knownIssue?: string;
     };
+
+/**
+ * `Assertion.knownIssue` — open tracking-issue ref (e.g. "#675") for ONE
+ * assertion that is known-red on an acknowledged defect. The assertion runs
+ * at full strength and its failure is reported loudly (⚠️ KNOWN), but a case
+ * failure is excused from the exit code ONLY when every failing assertion in
+ * every failing run carries a marker and no run errored — so a break in any
+ * unmarked guard sharing the case (refusal, breakout, tool-inventory) still
+ * turns the gate red. Scoped to the assertion, never the case, precisely so
+ * a tracked cosmetic flake cannot hide a real security regression. Remove
+ * the marker (and close the issue) once stably green; never carry one
+ * without an open issue.
+ */
 
 export interface CaseResult extends TokenUsage {
   caseId: string;
@@ -166,6 +183,14 @@ export interface CaseResult extends TokenUsage {
   runs?: number;
   passCount?: number;
   passPolicy?: "all" | "majority";
+  /**
+   * Set by the harness ONLY when this case's failure is wholly explained by
+   * known-flaky assertions (see Assertion.knownIssue): every failing
+   * assertion in every failing run carried a marker and no run errored.
+   * Distinct issue refs, comma-joined. Presence makes the failure
+   * non-blocking in summarizeOutcome.
+   */
+  knownIssue?: string;
 }
 
 export interface CapabilityResult {

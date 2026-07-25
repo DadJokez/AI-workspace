@@ -6,7 +6,7 @@ import {
   type BedrockStreamEvent,
   type Tool,
 } from "@ai-workspace/agent";
-import { runSuite } from "./harness";
+import { resolveKnownIssue, runSuite } from "./harness";
 import type { EvalSuite } from "./types";
 
 /**
@@ -497,5 +497,98 @@ describe("eval harness wiring", () => {
     const result = await runSuite(suite, { client, judgeClient: client });
 
     expect(result.failed).toBe(0);
+  });
+});
+
+describe("assertion-scoped known issues (#675)", () => {
+  const passingAssertion = {
+    kind: "deterministic" as const,
+    label: "echoes input",
+    check: (t: { answer: string }) => t.answer.length > 0,
+  };
+  const flakyFail = {
+    kind: "deterministic" as const,
+    label: "known-flaky guard",
+    check: () => ({ ok: false, detail: "intentional flake" }),
+    knownIssue: "#675",
+  };
+  const realFail = {
+    kind: "deterministic" as const,
+    label: "unmarked security guard",
+    check: () => ({ ok: false, detail: "real regression" }),
+  };
+
+  it("propagates assertion knownIssue through runSuite onto the case result", async () => {
+    const client = new FakeBedrockClient({ delayMs: 0 });
+    const suite: EvalSuite = {
+      capability: "known-flaky",
+      defaultModelId: "haiku-4-5",
+      cases: [
+        {
+          id: "flaky-only",
+          description: "only the marked assertion fails",
+          input: "hello",
+          assertions: [passingAssertion, flakyFail],
+        },
+      ],
+    };
+    const result = await runSuite(suite, { client, judgeClient: client });
+    const c = result.results[0]!;
+    expect(c.passed).toBe(false);
+    expect(c.knownIssue).toBe("#675");
+    expect(
+      c.assertions.find((a) => a.label === "known-flaky guard")?.knownIssue,
+    ).toBe("#675");
+  });
+
+  it("does not excuse a case when an unmarked assertion also fails", async () => {
+    const client = new FakeBedrockClient({ delayMs: 0 });
+    const suite: EvalSuite = {
+      capability: "known-flaky",
+      defaultModelId: "haiku-4-5",
+      cases: [
+        {
+          id: "mixed-failure",
+          description: "a real guard fails beside the marked flake",
+          input: "hello",
+          assertions: [flakyFail, realFail],
+        },
+      ],
+    };
+    const result = await runSuite(suite, { client, judgeClient: client });
+    expect(result.results[0]!.passed).toBe(false);
+    expect(result.results[0]!.knownIssue).toBeUndefined();
+  });
+
+  it("resolveKnownIssue excuses only wholly-known failures", () => {
+    const known = { ok: false, label: "flake", knownIssue: "#675" };
+    const unknown = { ok: false, label: "real" };
+    const ok = { ok: true, label: "fine" };
+    expect(
+      resolveKnownIssue([{ assertions: [ok, known], passed: false }]),
+    ).toBe("#675");
+    expect(
+      resolveKnownIssue([
+        { assertions: [known], passed: false },
+        { assertions: [unknown], passed: false },
+      ]),
+    ).toBeUndefined();
+    expect(
+      resolveKnownIssue([{ assertions: [ok], passed: true }]),
+    ).toBeUndefined();
+    expect(
+      resolveKnownIssue([
+        { assertions: [known], passed: false },
+        { assertions: [], passed: false, errored: "bedrock throttled" },
+      ]),
+    ).toBeUndefined();
+    expect(
+      resolveKnownIssue([
+        {
+          assertions: [known, { ok: false, label: "other", knownIssue: "#123" }],
+          passed: false,
+        },
+      ]),
+    ).toBe("#123, #675");
   });
 });

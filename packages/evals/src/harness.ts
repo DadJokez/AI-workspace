@@ -137,6 +137,28 @@ const EMPTY_USAGE: TokenUsage = {
   cacheWriteInputTokens: 0,
 };
 
+/**
+ * A failed case is excused (non-blocking, see summarizeOutcome) only when its
+ * failure is wholly explained by known-flaky assertions: every failing
+ * assertion in every failing run carries `knownIssue`, and no run errored —
+ * an infra error (💥) is never excused. Returns the distinct issue refs
+ * comma-joined, or undefined when the failure must block. Exported for tests.
+ */
+export function resolveKnownIssue(
+  runs: readonly Pick<SingleRunResult, "assertions" | "passed" | "errored">[],
+): string | undefined {
+  if (runs.some((run) => run.errored)) return undefined;
+  const failingAssertions = runs
+    .filter((run) => !run.passed)
+    .flatMap((run) => run.assertions.filter((a) => !a.ok));
+  if (failingAssertions.length === 0) return undefined;
+  if (!failingAssertions.every((a) => a.knownIssue)) return undefined;
+  const refs = Array.from(
+    new Set(failingAssertions.map((a) => a.knownIssue!)),
+  ).sort();
+  return refs.join(", ");
+}
+
 async function runOnce(
   client: BedrockClient,
   judgeClient: BedrockClient,
@@ -165,6 +187,7 @@ async function runOnce(
         ok: result.ok,
         label: assertion.label,
         detail: result.detail,
+        ...(assertion.knownIssue ? { knownIssue: assertion.knownIssue } : {}),
       });
     } else {
       const verdict = await runJudge(judgeClient, {
@@ -180,6 +203,7 @@ async function runOnce(
         ok: verdict.pass,
         label: assertion.label,
         detail: verdict.reason,
+        ...(assertion.knownIssue ? { knownIssue: assertion.knownIssue } : {}),
       });
     }
   }
@@ -320,10 +344,13 @@ async function evaluateCase(
   const repeatMeta =
     repeat > 1 ? { runs: repeat, passCount, passPolicy } : {};
 
+  const knownIssue = passed ? undefined : resolveKnownIssue(runs);
+
   return {
     caseId: testCase.id,
     description: testCase.description,
     ...metadata,
+    ...(knownIssue ? { knownIssue } : {}),
     modelId,
     ...debugIds,
     passed,
