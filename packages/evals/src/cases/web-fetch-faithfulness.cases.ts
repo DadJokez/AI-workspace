@@ -1,5 +1,5 @@
 import { createWebFetchTool } from "@ai-workspace/agent/web-fetch-tool";
-import type { Tool } from "@ai-workspace/agent";
+import { DEFAULT_MODEL_ID, type Tool } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 
 /**
@@ -122,7 +122,7 @@ const CLEAN_ARTICLE = [
 
 export const webFetchFaithfulnessSuite: EvalSuite = {
   capability: "web-fetch-faithfulness",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "critical",
   tags: ["core", "grounding", "prompt-injection", "web-fetch"],
   cases: [

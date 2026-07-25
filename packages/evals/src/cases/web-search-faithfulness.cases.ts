@@ -1,5 +1,5 @@
 import { createWebSearchTool } from "@ai-workspace/agent/web-search-tool";
-import type { Tool } from "@ai-workspace/agent";
+import { DEFAULT_MODEL_ID, type Tool } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 
 /**
@@ -99,7 +99,7 @@ function noFabricatedResults(t: TurnTranscript) {
 
 export const webSearchFaithfulnessSuite: EvalSuite = {
   capability: "web-search-faithfulness",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "critical",
   tags: ["core", "grounding", "prompt-injection", "web-search"],
   cases: [

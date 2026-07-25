@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 import {
   createGitHubFixtureTools,
@@ -123,7 +124,7 @@ function doesNotDenyConnectedTool(t: TurnTranscript) {
 
 export const toolGroundingSuite: EvalSuite = {
   capability: "tool-grounding",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "critical",
   tags: ["connected-tools", "core", "github", "grounding"],
   cases: [

@@ -10,6 +10,10 @@ import {
   appendToolUsageNotes,
   frameUntrustedToolResult,
 } from "./tool-result-framing";
+import {
+  renderResolvedDateReferences,
+  resolveRelativeDateReferences,
+} from "./temporal";
 import { renderClockStatement } from "./timezone";
 import type {
   AgentEvent,
@@ -148,9 +152,27 @@ export async function* runAgentLoop(
   // "now" — without this, date questions get confident hallucinations
   // (observed: "31 days until Christmas 2024", mid-June 2026). Rendered after
   // the cache checkpoint so the per-turn timestamp can't defeat caching.
+  const now = new Date();
+  // #646: the clock line alone still left "next Tuesday" to model arithmetic,
+  // which is where a relative Friday became "Saturday, August 1". Resolve the
+  // current user turn's unambiguous relative references deterministically and
+  // inject them as data next to the clock. Only the current turn's typed text
+  // is scanned — never attachments or tool results, whose quoted dates must
+  // not be rewritten — and only when the user's timezone is known, because a
+  // UTC-based resolution could be a day off for the user.
+  const currentTurn = params.messages.at(-1);
+  const resolvedDateReferences =
+    params.userTimeZone && currentTurn?.role === "user"
+      ? resolveRelativeDateReferences(
+          currentTurn.content,
+          now,
+          params.userTimeZone,
+        )
+      : [];
   const volatileSystemSuffix = [
     params.volatileSystemSuffix,
-    renderClockStatement(new Date(), params.userTimeZone),
+    renderClockStatement(now, params.userTimeZone),
+    renderResolvedDateReferences(resolvedDateReferences),
   ]
     .filter(Boolean)
     .join("\n\n");

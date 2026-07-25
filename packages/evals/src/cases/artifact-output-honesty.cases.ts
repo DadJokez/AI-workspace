@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 
 const ARTIFACT_SYSTEM_PROMPT = [
@@ -66,7 +67,7 @@ function avoidsManualSaveInstructions(transcript: TurnTranscript) {
 
 export const artifactOutputHonestySuite: EvalSuite = {
   capability: "artifact-output-honesty",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "critical",
   tags: ["artifacts", "core", "output-honesty"],
   cases: [

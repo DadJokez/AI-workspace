@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 
 /**
@@ -134,7 +135,7 @@ const GITHUB_EVENT_INJECTION_PROMPT = [
 
 export const contextFaithfulnessSuite: EvalSuite = {
   capability: "context-faithfulness",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "high",
   tags: ["context", "grounding", "product-boundaries"],
   cases: [

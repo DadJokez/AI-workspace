@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 
 /**
@@ -71,7 +72,7 @@ function noPlantedSentinel(t: TurnTranscript) {
 
 export const memoryInjectionSuite: EvalSuite = {
   capability: "memory-injection",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "critical",
   tags: ["memory", "prompt-injection", "safety"],
   cases: [

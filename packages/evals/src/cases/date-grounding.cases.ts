@@ -1,4 +1,8 @@
-import { EXACT_OUTPUT_CONTRACT } from "@ai-workspace/agent";
+import {
+  DEFAULT_MODEL_ID,
+  EXACT_OUTPUT_CONTRACT,
+  resolveRelativeDateReferences,
+} from "@ai-workspace/agent";
 import type { EvalSuite } from "../types";
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -14,7 +18,7 @@ const STALE_TRAINING_YEARS = ["2023", "2024", "2025"];
  */
 export const dateGroundingSuite: EvalSuite = {
   capability: "date-grounding",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "high",
   tags: ["core", "dates", "grounding"],
   cases: [
@@ -184,6 +188,44 @@ export const dateGroundingSuite: EvalSuite = {
           label: "keeps relative dates faithful if it chooses not to resolve them",
           rubric:
             "The planning date is Friday July 24, 2026. Next Tuesday is July 28 and the following Friday is July 31. PASS if the answer either preserves the user's relative wording ('next Tuesday' and 'Friday') or resolves those dates correctly. FAIL if it invents another date, especially August 1, or changes the requested actions.",
+        },
+      ],
+    },
+    {
+      id: "next-tuesday-resolves-deterministically",
+      description:
+        "'what date is next Tuesday?' answers with the resolver's exact date, not model arithmetic (#646)",
+      userTimeZone: "America/New_York",
+      input:
+        "What date is next Tuesday for me? Answer with only the date in YYYY-MM-DD format.",
+      assertions: [
+        {
+          kind: "deterministic",
+          label: "states the deterministically resolved date for 'next tuesday'",
+          check: (t) => {
+            // Expected value comes from the same resolver whose line the loop
+            // injects, so this assertion can never drift from production
+            // semantics. As in local-timezone-today, also accept a resolution
+            // from 15 minutes earlier so a week boundary between the model
+            // call and this check cannot flake the case.
+            const resolveAt = (d: Date) =>
+              resolveRelativeDateReferences(
+                "next tuesday",
+                d,
+                "America/New_York",
+              )[0]!.isoDate;
+            const candidates = [
+              resolveAt(new Date()),
+              resolveAt(new Date(Date.now() - 15 * 60 * 1000)),
+            ];
+            const ok = candidates.some((date) => t.answer.includes(date));
+            return {
+              ok,
+              detail: ok
+                ? undefined
+                : `expected ${[...new Set(candidates)].join(" or ")} in: ${t.answer}`,
+            };
+          },
         },
       ],
     },

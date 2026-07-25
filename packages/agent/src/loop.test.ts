@@ -159,6 +159,101 @@ describe("runAgentLoop system prompt caching", () => {
     expect(suffix).not.toContain("Current date and time for the user (");
   });
 
+  it("injects resolved date references for the current user turn (#646)", async () => {
+    const client = new CaptureClient();
+    const events = runAgentLoop({
+      modelId: "sonnet-4-6",
+      userTimeZone: "America/New_York",
+      messages: [
+        { role: "user", content: "Can we launch next tuesday instead?" },
+      ],
+      registry: new ToolRegistry(),
+      context: { userId: "u1" },
+      client,
+    });
+    for await (const _ev of events) {
+      // drain
+    }
+
+    const suffix = client.captured[0]?.volatileSystemSuffix ?? "";
+    // At 2026-07-09T01:00Z New York is still Wednesday, July 8 — the
+    // following ISO week's Tuesday is July 14.
+    const clockAt = suffix.indexOf("Current date and time (UTC)");
+    const resolvedAt = suffix.indexOf(
+      "Resolved date references: 'next tuesday' = 2026-07-14 (Tuesday).",
+    );
+    expect(clockAt).toBeGreaterThanOrEqual(0);
+    expect(resolvedAt).toBeGreaterThan(clockAt);
+  });
+
+  it("never resolves dates from earlier turns or tool results", async () => {
+    const client = new CaptureClient();
+    const historyEvents = runAgentLoop({
+      modelId: "sonnet-4-6",
+      userTimeZone: "America/New_York",
+      messages: [
+        { role: "user", content: "Can we launch tomorrow?" },
+        { role: "assistant", content: "Tomorrow works." },
+        { role: "user", content: "Great, book it." },
+      ],
+      registry: new ToolRegistry(),
+      context: { userId: "u1" },
+      client,
+    });
+    for await (const _ev of historyEvents) {
+      // drain
+    }
+    const toolTurnEvents = runAgentLoop({
+      modelId: "sonnet-4-6",
+      userTimeZone: "America/New_York",
+      messages: [
+        { role: "user", content: "Summarize the schedule file." },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [{ id: "t1", name: "files__read", input: {} }],
+        },
+        {
+          role: "tool",
+          content: "",
+          toolResults: [
+            { toolCallId: "t1", output: "csv row: deadline, tomorrow" },
+          ],
+        },
+      ],
+      registry: new ToolRegistry(),
+      context: { userId: "u1" },
+      client,
+    });
+    for await (const _ev of toolTurnEvents) {
+      // drain
+    }
+
+    for (const params of client.captured) {
+      expect(params.volatileSystemSuffix).not.toContain(
+        "Resolved date references",
+      );
+    }
+  });
+
+  it("does not resolve relative dates without a known user timezone", async () => {
+    const client = new CaptureClient();
+    const events = runAgentLoop({
+      modelId: "sonnet-4-6",
+      messages: [{ role: "user", content: "Can we launch tomorrow?" }],
+      registry: new ToolRegistry(),
+      context: { userId: "u1" },
+      client,
+    });
+    for await (const _ev of events) {
+      // drain
+    }
+
+    expect(client.captured[0]?.volatileSystemSuffix).not.toContain(
+      "Resolved date references",
+    );
+  });
+
   it("forwards an explicit sampling temperature to the Bedrock seam", async () => {
     const client = new CaptureClient();
     await runTurn(client, undefined, 0);

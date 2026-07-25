@@ -1,4 +1,4 @@
-import type { DiscoveryCatalogEntry } from "@ai-workspace/agent";
+import { DEFAULT_MODEL_ID, type DiscoveryCatalogEntry } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 import {
   createGitHubFixtureTools,
@@ -123,7 +123,7 @@ function neverDeniesGitHub(t: TurnTranscript) {
 
 export const toolDiscoverySuite: EvalSuite = {
   capability: "tool-discovery",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "high",
   tags: ["connected-tools", "tool-discovery", "tool-selection"],
   cases: [

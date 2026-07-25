@@ -1,4 +1,4 @@
-import { EXACT_OUTPUT_CONTRACT } from "@ai-workspace/agent";
+import { DEFAULT_MODEL_ID, EXACT_OUTPUT_CONTRACT } from "@ai-workspace/agent";
 import type {
   Assertion,
   EvalCase,
@@ -217,7 +217,7 @@ const approvedMemoryCases: EvalCase[] = [
 
 export const exactOutputSuite: EvalSuite = {
   capability: "exact-output",
-  defaultModelId: "sonnet-4-6",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "high",
   tags: ["core", "chat", "formatting"],
   cases: [...directCases, ...approvedMemoryCases],

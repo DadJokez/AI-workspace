@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 import {
   DESCRIBE_TOOL,
@@ -121,7 +122,7 @@ function noAccessDenial(t: TurnTranscript) {
 
 export const salesforceFaithfulnessSuite: EvalSuite = {
   capability: "salesforce-faithfulness",
-  defaultModelId: "sonnet-4-5",
+  defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "high",
   tags: ["connected-tools", "grounding", "salesforce"],
   cases: [
