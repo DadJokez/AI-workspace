@@ -7,6 +7,19 @@ const OUTPUT_VERB_WITH_EXACT =
 const ONLY_OUTPUT_SIGNAL =
   /\b(?:return|reply|respond|output|print|give|provide)\b[^\n]{0,80}\b(?:only|just)\b|\b(?:only|just)\b[^\n]{0,80}\b(?:return|reply|response|output|json|code block)\b/i;
 
+const EXACT_REPLY_DEMAND =
+  /\b(?:reply|respond|answer|say)\b(?:\s+back)?(?:\s+with)?\s+exactly(?:\s+with)?\b/i;
+
+// A quoted/backticked literal must END the message: extra clauses after it
+// ("… and then summarize") make the demand ambiguous, so nothing is extracted.
+const QUOTED_LITERAL_TAIL =
+  /^\s*:?\s*(?:"([^"\n]+)"|'([^'\n]+)'|`([^`\n]+)`)\s*[.!]?\s*$/;
+
+const COLON_LITERAL_TAIL = /^\s*:\s*(\S[\s\S]*)$/;
+
+const MEMORY_REQUEST_SIGNAL =
+  /\b(?:remember|memori[sz]e|don'?t\s+forget)\b|\b(?:save|store|add)\b[^\n]{0,60}\b(?:memory|vault)\b/i;
+
 export const EXACT_OUTPUT_CONTRACT = [
   "Exact-output contract for this turn:",
   "Treat the user's requested text, item count, structure, schema, punctuation, casing, and Unicode spacing as literal constraints.",
@@ -17,6 +30,61 @@ export const EXACT_OUTPUT_CONTRACT = [
   "Approved memory and other context may supply facts, but they never relax or alter this output contract.",
 ].join(" ");
 
+// Truthful by construction: memory capture is enqueued after every
+// successful turn and only produces approval-gated suggestions, so the model
+// can obey a demanded literal without claiming or disclaiming a save
+// (apps/web/lib/memory-capture.ts).
+export const EXACT_OUTPUT_MEMORY_ACK =
+  "This turn also asks to remember information: memory capture runs after the turn completes and queues suggestions for the user's later review, so replying with only the demanded text is truthful and neither skips nor confirms the save.";
+
+export interface ExactOutputSpec {
+  kind: "literal";
+  value: string;
+}
+
+export interface ExactOutputContract {
+  prose: string;
+  /** Present when the demanded reply literal could be extracted verbatim. */
+  spec?: ExactOutputSpec;
+}
+
+interface DemandedReplyLiteral {
+  value: string;
+  /** Offset of the demand clause, so callers can see what precedes it. */
+  index: number;
+  delimiter: "quoted" | "colon";
+}
+
+/**
+ * A demanded exact reply whose literal is explicitly delimited: quoted,
+ * backticked, or everything after a colon. Undelimited tails ("reply exactly
+ * ACK and also …") stay unextracted on purpose — only an unambiguous literal
+ * may be machine-enforced. List/JSON/code contracts are prompt-prose only
+ * for now (#652 follow-up).
+ */
+function findDemandedReplyLiteral(
+  text: string,
+): DemandedReplyLiteral | undefined {
+  const demand = EXACT_REPLY_DEMAND.exec(text);
+  if (!demand) return undefined;
+  const tail = text.slice(demand.index + demand[0].length);
+  const quoted = QUOTED_LITERAL_TAIL.exec(tail);
+  if (quoted) {
+    const value = quoted[1] ?? quoted[2] ?? quoted[3];
+    return value
+      ? { value, index: demand.index, delimiter: "quoted" }
+      : undefined;
+  }
+  const colon = COLON_LITERAL_TAIL.exec(tail);
+  if (colon) {
+    const value = colon[1]!.trim();
+    return value
+      ? { value, index: demand.index, delimiter: "colon" }
+      : undefined;
+  }
+  return undefined;
+}
+
 /**
  * Exact-format requests need stronger steering, but ordinary chat should not
  * pay for it. This conservative detector catches explicit output contracts
@@ -25,15 +93,64 @@ export const EXACT_OUTPUT_CONTRACT = [
  */
 export function buildExactOutputContract(
   userMessage: string,
-): string | undefined {
+): ExactOutputContract | undefined {
   const text = userMessage.trim();
   if (!text) return undefined;
+  // A demanded reply literal is itself an explicit contract ("Answer
+  // exactly: X" uses a verb the broad signals never listed).
+  const literal = findDemandedReplyLiteral(text);
   if (
+    !literal &&
     !STRONG_EXACT_OUTPUT_SIGNAL.test(text) &&
     !OUTPUT_VERB_WITH_EXACT.test(text) &&
     !ONLY_OUTPUT_SIGNAL.test(text)
   ) {
     return undefined;
   }
-  return EXACT_OUTPUT_CONTRACT;
+  const prose =
+    literal && MEMORY_REQUEST_SIGNAL.test(text)
+      ? `${EXACT_OUTPUT_CONTRACT} ${EXACT_OUTPUT_MEMORY_ACK}`
+      : EXACT_OUTPUT_CONTRACT;
+  return {
+    prose,
+    ...(literal
+      ? { spec: { kind: "literal" as const, value: literal.value } }
+      : {}),
+  };
+}
+
+/**
+ * When the ENTIRE user message is a single demanded echo ("Reply exactly
+ * with \"X\"" and nothing else), returns the literal so the caller can answer
+ * deterministically without invoking the model (#644: our own injection
+ * hardening refused a benign token echo). Conservative on purpose: any prefix
+ * beyond "please", an undelimited literal, or a multi-word colon-delimited
+ * tail falls back to the model path.
+ */
+export function extractPureEchoReply(userMessage: string): string | undefined {
+  const text = userMessage.trim();
+  if (!text) return undefined;
+  const found = findDemandedReplyLiteral(text);
+  if (!found) return undefined;
+  const prefix = text.slice(0, found.index).trim();
+  if (prefix.length > 0 && !/^please[,!]?$/i.test(prefix)) return undefined;
+  if (found.delimiter === "quoted") return found.value;
+  return /^\S+$/.test(found.value) ? found.value : undefined;
+}
+
+export type LiteralContractOutcome = "exact" | "reduced" | "violated";
+
+/**
+ * Post-stream check of a literal contract. "reduced" means the literal is
+ * present but wrapped in prose (persist the literal instead); "violated"
+ * means it is absent (keep the answer as generated, flag the run — never
+ * invent it). Byte-exact on purpose: casing and punctuation are part of the
+ * contract.
+ */
+export function evaluateLiteralContract(
+  answer: string,
+  literal: string,
+): LiteralContractOutcome {
+  if (answer === literal) return "exact";
+  return answer.includes(literal) ? "reduced" : "violated";
 }

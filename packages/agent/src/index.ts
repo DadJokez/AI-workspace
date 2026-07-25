@@ -77,7 +77,15 @@ export { normalizeUserTimeZone, renderClockStatement } from "./timezone";
 
 export {
   buildExactOutputContract,
+  evaluateLiteralContract,
+  extractPureEchoReply,
   EXACT_OUTPUT_CONTRACT,
+  EXACT_OUTPUT_MEMORY_ACK,
+} from "./exact-output";
+export type {
+  ExactOutputContract,
+  ExactOutputSpec,
+  LiteralContractOutcome,
 } from "./exact-output";
 
 export { extractAssistantSources, parseAssistantSources } from "./sources";

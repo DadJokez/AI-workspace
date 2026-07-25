@@ -10,10 +10,14 @@ import {
 import { eq, ne, and, asc } from "drizzle-orm";
 import type {
   AgentRuntime,
+  McpServerSpec,
   RuntimeRunMetadata,
 } from "@ai-workspace/agent-runtime";
 import {
+  buildExactOutputContract,
+  evaluateLiteralContract,
   extractAssistantSources,
+  extractPureEchoReply,
   MODELS,
   serializeActivation,
   type AssistantSource,
@@ -238,6 +242,15 @@ export async function executeChatTurn({
 }: ExecuteChatTurnInput): Promise<void> {
   let modelId = initialModelId;
   const userInstruction = persistedPrompt ?? prompt;
+  // #652/#644: the machine-checkable side of the exact-output contract. The
+  // pure-echo fast path only engages when nothing beyond the message text
+  // could change the answer — attachments, selected resources, or an active
+  // skill all fall back to the normal model path.
+  const exactOutputContract = buildExactOutputContract(userInstruction);
+  const pureEchoReply =
+    uploadedFiles.length === 0 && !resourceResolution && !activeSkillPrompt
+      ? extractPureEchoReply(userInstruction)
+      : undefined;
   const timing = lane.kind === "inline" ? lane.timing : undefined;
   const priorOutputs =
     lane.kind === "worker" ? parseStoredOutputs(lane.run.outputs) : {};
@@ -401,7 +414,7 @@ export async function executeChatTurn({
     runtimeUploadedFiles,
   );
 
-  let mcpServers;
+  let mcpServers: Record<string, McpServerSpec> | undefined;
   let requiredToolName: string | undefined;
   let deniedMcpProviders: string[] = [];
   let writeAuthorizationReceipts: McpWriteAuthorizationReceipt[] = [];
@@ -863,7 +876,7 @@ export async function executeChatTurn({
     }
   };
 
-  try {
+  const streamProviderTurn = async () => {
     // Tracks persisted activation across same-turn activations so a
     // second activate never unions against a stale snapshot.
     const grantedProviders = accountMcpProviders;
@@ -1132,6 +1145,31 @@ export async function executeChatTurn({
         }
       }
     }
+  };
+
+  try {
+    if (pureEchoReply !== undefined) {
+      // #644: the whole message demands one delimited literal — answer it
+      // deterministically instead of asking a model to echo it (and risking
+      // an injection-hardening false refusal). The turn persists, succeeds,
+      // and queues memory capture exactly like a model turn.
+      assistantText = pureEchoReply;
+      providerTerminalSeen = true;
+      if (lane.kind === "inline") {
+        lane.timing.firstTokenAt = new Date();
+        lane.send({ type: "text-delta", delta: pureEchoReply });
+      }
+      await appendTurnRunEvent(lane, {
+        db,
+        runId,
+        eventType: "exact_output_fast_path",
+        status: "succeeded",
+        label: "Answered a pure echo request without a model call",
+        metadata: { literalChars: pureEchoReply.length },
+      });
+    } else {
+      await streamProviderTurn();
+    }
   } catch (err) {
     if (lane.kind === "worker") {
       if (await isRunCanceled(db, runId)) {
@@ -1279,6 +1317,39 @@ export async function executeChatTurn({
     (runtimeErrors.length > 0
       ? runtimeErrors.map((err) => err.userMessage).join("\n")
       : null);
+
+  // #652: enforce the literal contract at the only seam that can — after the
+  // stream, before persistence. A literal wrapped in prose is reduced
+  // deterministically (no model retry); an absent literal is never invented,
+  // only flagged on the run outputs so evals and receipts can see it.
+  let assistantTextReduced = false;
+  let contractViolation: "literal_missing" | undefined;
+  if (exactOutputContract?.spec && !runError && assistantText.length > 0) {
+    const literal = exactOutputContract.spec.value;
+    const outcome = evaluateLiteralContract(assistantText, literal);
+    if (outcome === "reduced") {
+      assistantText = literal;
+      assistantTextReduced = true;
+    } else if (outcome === "violated") {
+      contractViolation = "literal_missing";
+    }
+    if (outcome !== "exact") {
+      await appendTurnRunEvent(lane, {
+        db,
+        runId,
+        eventType:
+          outcome === "reduced"
+            ? "exact_output_reduced"
+            : "exact_output_contract_violation",
+        status: outcome === "reduced" ? "succeeded" : "info",
+        label:
+          outcome === "reduced"
+            ? "Reduced the answer to the demanded literal"
+            : "Answer did not contain the demanded literal",
+        metadata: { literalChars: literal.length },
+      });
+    }
+  }
   const completedAt = new Date();
   if (timing) timing.completedAt = completedAt;
   const finalMetrics = timing ? buildTimingMetrics(timing) : undefined;
@@ -1319,6 +1390,7 @@ export async function executeChatTurn({
     separateFromArtifact,
     appEditSourceOmitted,
     suppressAssistantPersistence: providerStreamTruncated,
+    contractViolation,
     completedAt,
     priorOutputs,
     lane,
@@ -1346,6 +1418,9 @@ export async function executeChatTurn({
       sources: persisted.sources,
       runId,
       threadId: thread.id,
+      // The streamed deltas carried the wrapped answer; the reduced literal
+      // is the persisted final answer, so the client must replace, not keep.
+      ...(assistantTextReduced ? { content: assistantText } : {}),
     });
     lane.send({ type: "done", stopReason: "completed" });
   }
@@ -1379,6 +1454,7 @@ async function persistChatTurnResult({
   separateFromArtifact,
   appEditSourceOmitted,
   suppressAssistantPersistence,
+  contractViolation,
   completedAt,
   priorOutputs,
   lane,
@@ -1413,6 +1489,8 @@ async function persistChatTurnResult({
   separateFromArtifact?: WorkspaceArtifactVersionTarget | null;
   appEditSourceOmitted: boolean;
   suppressAssistantPersistence: boolean;
+  /** #652: the answer never contained the demanded literal. */
+  contractViolation?: "literal_missing";
   completedAt: Date;
   priorOutputs: StoredChatRunOutputs;
   lane: ChatTurnLane;
@@ -1744,6 +1822,7 @@ async function persistChatTurnResult({
     ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
     ...(abortReason ? { abortReason } : {}),
     ...(runtimeErrors.length > 0 ? { errorDetails: runtimeErrors } : {}),
+    ...(contractViolation ? { contractViolation } : {}),
     ...(artifacts.length > 0 ? { artifacts } : {}),
     ...(appDraftVersions.length > 0 ? { appDraftVersions } : {}),
     ...(recommendations.length > 0 ? { recommendations } : {}),

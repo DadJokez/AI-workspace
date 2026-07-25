@@ -417,6 +417,8 @@ export type AssistantStreamAction =
   | {
       type: "persisted";
       messageId?: string;
+      /** Replaces streamed content when the persisted text differs (#652). */
+      content?: string;
       modelId?: string;
       runtimeLane?: ChatRuntimeLane;
       runId?: string;
@@ -510,6 +512,7 @@ export function reduceAssistantStreamMessage(
       return {
         ...message,
         id: action.messageId ?? message.id,
+        content: action.content ?? message.content,
         pending: false,
         status: undefined,
         livePhase: undefined,

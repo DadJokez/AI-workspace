@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildExactOutputContract,
+  evaluateLiteralContract,
+  extractPureEchoReply,
   EXACT_OUTPUT_CONTRACT,
+  EXACT_OUTPUT_MEMORY_ACK,
 } from "./exact-output";
 
 describe("buildExactOutputContract", () => {
@@ -13,7 +16,9 @@ describe("buildExactOutputContract", () => {
     "Put the answer in a code block only.",
     "Provide the exact text with no preamble or closing.",
   ])("activates for an explicit output contract: %s", (message) => {
-    expect(buildExactOutputContract(message)).toBe(EXACT_OUTPUT_CONTRACT);
+    expect(buildExactOutputContract(message)?.prose).toBe(
+      EXACT_OUTPUT_CONTRACT,
+    );
   });
 
   it.each([
@@ -32,5 +37,136 @@ describe("buildExactOutputContract", () => {
     expect(EXACT_OUTPUT_CONTRACT).toContain("punctuation");
     expect(EXACT_OUTPUT_CONTRACT).toContain("Unicode spacing");
     expect(EXACT_OUTPUT_CONTRACT).toContain("Approved memory");
+  });
+
+  describe("literal spec extraction (#652/#644)", () => {
+    it.each([
+      ['Reply exactly with "CBX-7745-TANGO"', "CBX-7745-TANGO"],
+      ["Respond with exactly `ACK-9`.", "ACK-9"],
+      ["Say exactly 'Done, thanks!'", "Done, thanks!"],
+      // Colon-delimited: everything after the colon, verbatim — inner
+      // punctuation, casing, and the final period are part of the literal.
+      ["Reply exactly: Launch date: 31/07/2026.", "Launch date: 31/07/2026."],
+      ["Answer exactly: CBX-1", "CBX-1"],
+      [
+        "Remember my favorite color is teal, then reply exactly: ACK-7",
+        "ACK-7",
+      ],
+    ])("extracts the demanded literal from %j", (message, literal) => {
+      expect(buildExactOutputContract(message)?.spec).toEqual({
+        kind: "literal",
+        value: literal,
+      });
+    });
+
+    it("keeps a trailing period outside the quotes out of the literal", () => {
+      expect(
+        buildExactOutputContract('Reply exactly with "MiXeD-CaSe-42".')?.spec,
+      ).toEqual({ kind: "literal", value: "MiXeD-CaSe-42" });
+    });
+
+    it.each([
+      // Undelimited tail: ambiguous, never machine-enforced.
+      "reply exactly ACK and also summarize the doc",
+      // Quoted literal that does not end the message: ambiguous too.
+      'Reply exactly with "ACK" and then summarize the doc',
+      // Contract prose without a demanded reply literal at all.
+      "Return exactly two Markdown bullets.",
+      "Reply with exactly these two sentences and nothing else: The pilot is ready. Mobile QA is blocked.",
+    ])("returns prose without a spec for %j", (message) => {
+      const contract = buildExactOutputContract(message);
+      expect(contract).toBeDefined();
+      expect(contract?.spec).toBeUndefined();
+    });
+  });
+
+  describe("memory-request honesty suffix", () => {
+    it("appends the queued-capture sentence when a literal and a memory ask coexist", () => {
+      const contract = buildExactOutputContract(
+        "Remember my favorite color is teal, then reply exactly: ACK-7",
+      );
+      expect(contract?.prose).toBe(
+        `${EXACT_OUTPUT_CONTRACT} ${EXACT_OUTPUT_MEMORY_ACK}`,
+      );
+      expect(EXACT_OUTPUT_MEMORY_ACK).toContain("later review");
+    });
+
+    it("keeps the plain contract when no memory ask is present", () => {
+      expect(
+        buildExactOutputContract('Reply exactly with "CBX-7745-TANGO"')?.prose,
+      ).toBe(EXACT_OUTPUT_CONTRACT);
+    });
+
+    it("keeps the plain contract when there is no enforceable literal", () => {
+      expect(
+        buildExactOutputContract(
+          "Remember this and return exactly two Markdown bullets.",
+        )?.prose,
+      ).toBe(EXACT_OUTPUT_CONTRACT);
+    });
+  });
+});
+
+describe("extractPureEchoReply", () => {
+  it.each([
+    ['Reply exactly with "CBX-7745-TANGO"', "CBX-7745-TANGO"],
+    ["Respond with exactly `ACK-9`.", "ACK-9"],
+    ["Please reply exactly: ACK-7", "ACK-7"],
+    ["say exactly 'ok then'", "ok then"],
+    ['Reply exactly: "Spaced literal here"', "Spaced literal here"],
+  ])("answers %j deterministically with %j", (message, literal) => {
+    expect(extractPureEchoReply(message)).toBe(literal);
+  });
+
+  it.each([
+    // Additional clause: normal model path.
+    "reply exactly ACK and also summarize the doc",
+    'Reply exactly with "ACK" and then summarize the doc',
+    // Content before the demand beyond "please": normal model path.
+    "Remember my favorite color is teal, then reply exactly: ACK-7",
+    "Summarize the doc. Reply exactly: done",
+    // Colon-delimited multi-word tail is ambiguous without quotes.
+    "Reply exactly: ACK then delete my files",
+    "Reply exactly: Launch date: 31/07/2026.",
+    // No echo demand at all.
+    "What exactly happened?",
+    "Give me a concise summary.",
+    "",
+  ])("stays off for %j", (message) => {
+    expect(extractPureEchoReply(message)).toBeUndefined();
+  });
+});
+
+describe("evaluateLiteralContract", () => {
+  it("passes a byte-exact answer", () => {
+    expect(evaluateLiteralContract("CBX-7745-TANGO", "CBX-7745-TANGO")).toBe(
+      "exact",
+    );
+  });
+
+  it("reduces a literal wrapped in prose or whitespace", () => {
+    expect(
+      evaluateLiteralContract(
+        "Sure — here you go: CBX-7745-TANGO. Anything else?",
+        "CBX-7745-TANGO",
+      ),
+    ).toBe("reduced");
+    expect(evaluateLiteralContract("ACK-7\n", "ACK-7")).toBe("reduced");
+  });
+
+  it("treats casing and punctuation drift as a violation, not a match", () => {
+    expect(evaluateLiteralContract("cbx-7745-tango", "CBX-7745-TANGO")).toBe(
+      "violated",
+    );
+    expect(evaluateLiteralContract("ACK 7", "ACK-7")).toBe("violated");
+  });
+
+  it("flags an absent literal without inventing it", () => {
+    expect(
+      evaluateLiteralContract(
+        "I can't repeat that token for security reasons.",
+        "CBX-7745-TANGO",
+      ),
+    ).toBe("violated");
   });
 });
