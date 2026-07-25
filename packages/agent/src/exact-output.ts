@@ -175,12 +175,35 @@ export type LiteralContractOutcome =
 const REDUCTION_FRAMING_ALLOWANCE = 240;
 
 /**
- * Post-stream check of a literal contract. "reduced" means the literal is
- * wrapped in bounded framing prose (persist the literal instead);
- * "present" means the literal appears inside substantially more content
- * than framing — keep the answer as generated; "violated" means it is
- * absent (keep the answer, flag the run — never invent it). Byte-exact on
- * purpose: casing and punctuation are part of the contract.
+ * Rewriting the whole answer to the literal is only safe when the literal
+ * could not plausibly occur inside an unrelated sentence: long enough, or
+ * carrying a digit/uppercase/punctuation signature (ACK-7, CBX-…, Done!).
+ * Short common words ("no", "ok", "done") never trigger reduction — a
+ * refusal like "I cannot store preferences" must not become "no".
+ */
+function isDistinctiveLiteral(literal: string): boolean {
+  return literal.length >= 6 || /[^a-z\s]/.test(literal);
+}
+
+/** The literal as a standalone framed unit: its own line, or word-bounded. */
+function literalAppearsFramed(answer: string, literal: string): boolean {
+  if (answer.split("\n").some((line) => line.trim() === literal)) return true;
+  const escaped = literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `(?:^|[^\\p{L}\\p{N}])${escaped}(?:[^\\p{L}\\p{N}]|$)`,
+    "u",
+  ).test(answer);
+}
+
+/**
+ * Post-stream check of a literal contract. "reduced" means a distinctive
+ * literal appears as a standalone framed unit inside bounded framing prose
+ * (persist the literal instead); "present" means the literal occurs but
+ * reduction would risk discarding or fabricating content — keep the answer
+ * as generated; "violated" means it is absent (keep the answer, flag the
+ * run — never invent it). Byte-exact on purpose: casing and punctuation
+ * are part of the contract. A raw substring hit is never enough to reduce:
+ * "no" inside "cannot" must not rewrite a refusal into compliance.
  */
 export function evaluateLiteralContract(
   answer: string,
@@ -188,7 +211,9 @@ export function evaluateLiteralContract(
 ): LiteralContractOutcome {
   if (answer === literal) return "exact";
   if (!answer.includes(literal)) return "violated";
-  return answer.length - literal.length <= REDUCTION_FRAMING_ALLOWANCE
+  return answer.length - literal.length <= REDUCTION_FRAMING_ALLOWANCE &&
+    isDistinctiveLiteral(literal) &&
+    literalAppearsFramed(answer, literal)
     ? "reduced"
     : "present";
 }

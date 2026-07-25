@@ -182,13 +182,39 @@ describe("evaluateLiteralContract", () => {
     expect(evaluateLiteralContract("ACK 7", "ACK-7")).toBe("violated");
   });
 
+  it("never reduces on an incidental substring or short common literal (review)", () => {
+    // "no" inside "cannot": a refusal must not be rewritten into compliance.
+    expect(
+      evaluateLiteralContract("I cannot store preferences right now.", "no"),
+    ).toBe("present");
+    // Even standalone, a short common word is not distinctive enough to
+    // replace what the model actually said.
+    expect(
+      evaluateLiteralContract("No, that is not something I can do.", "no"),
+    ).toBe("present");
+    expect(evaluateLiteralContract("look at this: ok", "ok")).toBe("present");
+    // Distinctive literals still reduce when framed…
+    expect(
+      evaluateLiteralContract("Sure — here you go: ACK-7", "ACK-7"),
+    ).toBe("reduced");
+    // …but not when only embedded inside a larger token.
+    expect(
+      evaluateLiteralContract("The id is XACK-77 today.", "ACK-7"),
+    ).toBe("present");
+  });
+
   it("reports 'present' beyond the framing allowance instead of discarding content", () => {
     const summary =
       "The document covers the Q3 migration in detail. ".repeat(8) +
       "In short, the migration is done.";
     expect(evaluateLiteralContract(summary, "done")).toBe("present");
+    // "done" fails the distinctiveness floor, so even a framed occurrence
+    // stays as-generated; only distinctive literals reduce.
     expect(
       evaluateLiteralContract("Sure thing — here it is: done", "done"),
+    ).toBe("present");
+    expect(
+      evaluateLiteralContract("Sure thing — here it is: ACK-7", "ACK-7"),
     ).toBe("reduced");
   });
 
