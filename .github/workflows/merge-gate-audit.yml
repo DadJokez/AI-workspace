@@ -1,9 +1,12 @@
 name: Merge Gate Audit
 
-# #479: this private repo's plan has no branch protection, so nothing
-# server-side stops a merge (or direct push) with red or absent checks. This
-# workflow is the backstop: after every push to main it re-verifies that the
-# merged PR's head SHA had the full gate green (CI + Product Smoke +
+# Server-side branch protection enforces the merge gate (required checks,
+# strict, enforce_admins). This workflow is the backstop for the one failure
+# GitHub does not announce: protection silently disappearing — the actual
+# root cause of incident #479 was a paid-plan lapse that dropped protection
+# on this private repo without any notification. After every push to main it
+# (1) confirms protection is still present on main and (2) re-verifies that
+# the merged PR's head SHA had the full gate green (CI + Product Smoke +
 # `Claude verdict`). A violation — or a direct push with no PR at all — files
 # a labeled incident issue within a minute and fails loudly on the main
 # commit. It cannot prevent a bypass; it makes a silent one impossible.
@@ -57,6 +60,32 @@ jobs:
               --body "$(printf '%s\n\n%s\n%s' "$body" "$marker" \
                 '🤖 Filed automatically by the Merge Gate Audit workflow.')"
           }
+
+          # Protection-presence canary: the #479 root cause was a paid-plan
+          # lapse silently dropping branch protection. The branch endpoint's
+          # `protected` field is readable with this workflow's default token,
+          # unlike the admin-only protection endpoint.
+          prot=$(gh api "repos/$GH_REPO/branches/main" \
+            --jq '{p: .protected, ctx: (.protection.required_status_checks.contexts // [])}' \
+            2>/dev/null || echo "")
+          if [ -z "$prot" ]; then
+            echo "::warning::Could not read branch metadata; skipping protection canary."
+          elif [ "$(jq -r .p <<<"$prot")" != "true" ]; then
+            file_incident \
+              "INCIDENT: branch protection on main is absent" \
+              "At push \`$SHA\`, main reports protected=\`$(jq -r .p <<<"$prot")\`. This is the #479 failure class (protection silently dropped, e.g. by a plan lapse). Restore protection before merging anything else — until then every merge is ungated."
+            echo "::error::Branch protection on main is absent."
+            exit 1
+          elif [ "$(jq -r '.ctx | length' <<<"$prot")" -gt 0 ] && \
+               ! jq -e '.ctx | index("Claude verdict")' <<<"$prot" >/dev/null; then
+            # Contexts are only judged when the token can see them; an empty
+            # list is indistinguishable from a permissions-hidden one.
+            file_incident \
+              "INCIDENT: branch protection on main is degraded" \
+              "At push \`$SHA\`, main is protected but its required contexts \`$(jq -c .ctx <<<"$prot")\` no longer include \`Claude verdict\`. The AI review gate is off — restore the required context before merging anything else."
+            echo "::error::Branch protection is missing the Claude verdict context."
+            exit 1
+          fi
 
           # Resolve the PR this main commit came from (squash merge commit).
           pr=$(gh api "repos/$GH_REPO/commits/$SHA/pulls" \
