@@ -8,7 +8,6 @@
   },
   "pnpm": {
     "overrides": {
-      "@hono/node-server": "^2.0.5",
       "archiver-utils@2.1.0>glob": "13.0.6",
       "archiver-utils@3.0.4>glob": "13.0.6",
       "archiver@5.3.2>readdir-glob": "3.0.0",
