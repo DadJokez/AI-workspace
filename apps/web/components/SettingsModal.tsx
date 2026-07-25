@@ -5,6 +5,7 @@ import { IntegrationsSettings } from "@/components/ToolsPanel";
 import { MemorySettings } from "@/components/VaultPanel";
 import { useDensity, type Density } from "@/lib/density";
 import { COMPARATIVE_VERSION_LABEL } from "@/lib/product-version";
+import { SETTINGS_INTEGRATIONS_LABEL } from "@/lib/settings-navigation";
 import { useTheme, type Theme } from "@/lib/theme";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -53,7 +54,7 @@ const SECTIONS: readonly SectionOption[] = [
   { id: "appearance", label: "Appearance" },
   { id: "model", label: "Model" },
   { id: "memory", label: "Memory" },
-  { id: "integrations", label: "Integrations" },
+  { id: "integrations", label: SETTINGS_INTEGRATIONS_LABEL },
 ];
 
 const CUSTOM_INSTRUCTIONS_MAX = 4000;

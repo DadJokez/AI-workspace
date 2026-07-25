@@ -7,6 +7,11 @@
  */
 
 import { MODELS, isValidModelId } from "@ai-workspace/agent";
+import {
+  INTEGRATION_DISPLAY_NAMES,
+  SETTINGS_INTEGRATIONS_PATH,
+  integrationConnectPath,
+} from "@/lib/settings-navigation";
 
 interface PreambleInput {
   user: {
@@ -72,17 +77,14 @@ const PROVIDER_DESCRIPTIONS: Record<string, string> = {
   notion:
     "Notion: search/read pages, read markdown, inspect databases/data sources, query rows, create/update pages, append blocks (pre-authorized)",
   google:
-    "Google Mail and Calendar: search/read Gmail, save drafts without sending, read calendars, and create confirmed events (pre-authorized)",
+    `${INTEGRATION_DISPLAY_NAMES.google}: search/read Gmail, save drafts without sending, read calendars, and create confirmed events (pre-authorized)`,
   salesforce:
     "Salesforce: search records, run read-only SOQL SELECT queries, describe objects, and read records — strictly read-only, scoped to the user's own Salesforce permissions (pre-authorized)",
 };
 
-const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  google: "Google Mail and Calendar",
-  salesforce: "Salesforce",
-  github: "GitHub",
-  notion: "Notion",
-};
+// Display names come from the canonical Settings map (#649) so prompt copy,
+// reconnect quotes, and the visible integration cards cannot disagree.
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = INTEGRATION_DISPLAY_NAMES;
 
 export function buildAgentPreamble({
   user,
@@ -232,7 +234,7 @@ export function buildAgentPreamble({
     lines.push(
       builtinTools.length > 0
         ? "No connected account tools are mounted in this turn. The built-in tools listed above are still available."
-        : "No external tools are connected yet. The user can connect tools in the Tools section.",
+        : `No external tools are connected yet. The user can connect one in ${SETTINGS_INTEGRATIONS_PATH}.`,
     );
   }
 
@@ -248,6 +250,13 @@ export function buildAgentPreamble({
       'If the user asks for one of those tools, say exactly: "Tool access is connected but pending approval for this account."',
     );
   }
+
+  lines.push("");
+  lines.push(
+    // Real Settings navigation, from the same constants the Settings UI
+    // renders, so guidance can never point at a page that does not exist (#649).
+    `Tool connection navigation: work tool connections are managed in ${SETTINGS_INTEGRATIONS_PATH} — each service there has a Connect button (for GitHub: ${integrationConnectPath("github")}). When telling the user where to connect a tool that is not connected, cite exactly that visible path. Never invent settings pages or section names that are not stated here.`,
+  );
 
   const ci = user.customInstructions?.trim();
   if (ci) {
@@ -318,7 +327,7 @@ function pushReconnectGuidance(
     .map((provider) => PROVIDER_DISPLAY_NAMES[provider] ?? provider)
     .join(" and ");
   lines.push(
-    `These account connections exist, but their delegated grant is expired, invalid, or missing newly required scopes. They are not callable in this turn. If the user asks for one, say exactly: "${names} needs to be reconnected in Tools before I can use it." Do not say no tools are connected, and do not invent a result.`,
+    `These account connections exist, but their delegated grant is expired, invalid, or missing newly required scopes. They are not callable in this turn. If the user asks for one, say exactly: "${names} needs to be reconnected in ${SETTINGS_INTEGRATIONS_PATH} before I can use it." Do not say no tools are connected, and do not invent a result.`,
   );
 }
 
