@@ -424,6 +424,8 @@ export function useChatStream({
           patchDraft({
             type: "persisted",
             messageId: persistedAssistantMessageId,
+            content:
+              typeof event.content === "string" ? event.content : undefined,
             modelId: assistantModel,
             runtimeLane: assistantLane,
             artifacts,

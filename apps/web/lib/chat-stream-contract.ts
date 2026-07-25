@@ -115,6 +115,12 @@ export type ChatStreamEvent =
   | {
       type: "persisted";
       assistantMessageId: string | undefined;
+      /**
+       * Present only when the persisted text differs from the streamed
+       * deltas (#652: a literal contract reduced a prose-wrapped answer).
+       * The client must replace its accumulated content with this value.
+       */
+      content?: string;
       tokensIn: number;
       tokensOut: number;
       artifacts: WorkspaceArtifactSummary[];
