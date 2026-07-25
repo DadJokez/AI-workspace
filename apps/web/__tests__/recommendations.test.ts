@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { buildRecommendationCandidates } from "@/lib/recommendations";
+import {
+  buildRecommendationCandidates,
+  isIdentifierToken,
+} from "@/lib/recommendations";
+
+const priorThreadRunStatusApp = {
+  id: "app-run",
+  name: "Run Status Explorer",
+  description: "Status explorer for run CBX-4821 captured 20260722104500.",
+  slug: "run-status-explorer",
+  sourceThreadId: "thread-1",
+  runnableNow: true,
+};
 
 describe("recommendation candidates", () => {
   it("suggests saving a repeated workflow as a skill", () => {
@@ -329,6 +341,89 @@ describe("recommendation candidates", () => {
     }
   });
 
+  it("does not match apps on shared run ids or timestamps", () => {
+    const candidates = buildRecommendationCandidates({
+      currentMessage: "Summarize run CBX-4821 from 20260722104500 for the team",
+      apps: [
+        {
+          id: "app-notes",
+          name: "CBX-4821 Notes",
+          description: "Notes captured for CBX-4821 at 20260722104500.",
+          slug: "cbx-4821-notes",
+          runnableNow: true,
+        },
+      ],
+    });
+
+    expect(candidates.some((c) => c.type === "open_existing_app")).toBe(false);
+  });
+
+  it("still matches an app built in the current thread on token overlap", () => {
+    const candidates = buildRecommendationCandidates({
+      currentMessage: "Compare sales dashboard metrics for the team",
+      currentThreadId: "thread-1",
+      apps: [
+        {
+          id: "app-sales",
+          name: "Sales Dashboard",
+          description: "Sales dashboard metrics and pipeline reporting.",
+          slug: "sales-dashboard",
+          sourceThreadId: "thread-1",
+          runnableNow: true,
+        },
+      ],
+    });
+
+    expect(candidates).toContainEqual(
+      expect.objectContaining({
+        id: "open-app:app-sales",
+        type: "open_existing_app",
+      }),
+    );
+  });
+
+  it("does not resurface a prior-thread app via generic token overlap", () => {
+    // Real-word overlap ("run", "status") would clear the old 2-token
+    // minimum; thread provenance must block it without explicit intent.
+    const candidates = buildRecommendationCandidates({
+      currentMessage: "Check the status of run CBX-4821 from 20260722104500",
+      currentThreadId: "thread-2",
+      apps: [priorThreadRunStatusApp],
+    });
+
+    expect(candidates.some((c) => c.type === "open_existing_app")).toBe(false);
+  });
+
+  it("resurfaces a prior-thread app when the message names it", () => {
+    const candidates = buildRecommendationCandidates({
+      currentMessage: "Bring back the Run Status Explorer from last week",
+      currentThreadId: "thread-2",
+      apps: [priorThreadRunStatusApp],
+    });
+
+    expect(candidates).toContainEqual(
+      expect.objectContaining({
+        id: "open-app:app-run",
+        type: "open_existing_app",
+      }),
+    );
+  });
+
+  it("resurfaces a prior-thread app on explicit app intent", () => {
+    const candidates = buildRecommendationCandidates({
+      currentMessage: "Open my run status app",
+      currentThreadId: "thread-2",
+      apps: [priorThreadRunStatusApp],
+    });
+
+    expect(candidates).toContainEqual(
+      expect.objectContaining({
+        id: "open-app:app-run",
+        type: "open_existing_app",
+      }),
+    );
+  });
+
   it("suggests using a connected tool directly when no skill is a better fit", () => {
     const candidates = buildRecommendationCandidates({
       currentMessage: "Can you check GitHub for my assigned issues?",
@@ -343,5 +438,25 @@ describe("recommendation candidates", () => {
         action: { kind: "connect_tool", provider: "github" },
       }),
     );
+  });
+});
+
+describe("isIdentifierToken", () => {
+  it("flags digit-bearing, hex, and cbx-prefixed tokens", () => {
+    expect(isIdentifierToken("4821")).toBe(true);
+    expect(isIdentifierToken("20260722104500")).toBe(true);
+    expect(isIdentifierToken("41d4")).toBe(true);
+    expect(isIdentifierToken("a716446655440000")).toBe(true);
+    expect(isIdentifierToken("deadbeef")).toBe(true);
+    expect(isIdentifierToken("cbx")).toBe(true);
+    expect(isIdentifierToken("cbxrun")).toBe(true);
+  });
+
+  it("keeps real words", () => {
+    expect(isIdentifierToken("dashboard")).toBe(false);
+    expect(isIdentifierToken("sales")).toBe(false);
+    expect(isIdentifierToken("status")).toBe(false);
+    expect(isIdentifierToken("decade")).toBe(false);
+    expect(isIdentifierToken("facade")).toBe(false);
   });
 });

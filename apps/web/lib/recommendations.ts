@@ -56,12 +56,15 @@ export interface RecommendationApp {
   name: string;
   description?: string | null;
   slug?: string | null;
+  /** Thread the app was built in; null/undefined = unknown provenance. */
+  sourceThreadId?: string | null;
   runnableNow?: boolean;
   sharedWithMe?: boolean;
 }
 
 export interface BuildRecommendationCandidatesInput {
   currentMessage: string;
+  currentThreadId?: string | null;
   recentUserMessages?: readonly string[];
   roleContext?: string | null;
   connectedProviders?: readonly string[];
@@ -128,6 +131,7 @@ const APP_MATCH_GENERIC_TOKENS = new Set([
 
 export function buildRecommendationCandidates({
   currentMessage,
+  currentThreadId,
   recentUserMessages = [],
   roleContext,
   connectedProviders = [],
@@ -208,6 +212,7 @@ export function buildRecommendationCandidates({
         message: currentMessage,
         roleContext,
         apps,
+        currentThreadId,
       });
   if (matchingApp) {
     candidates.push({
@@ -331,10 +336,12 @@ function bestMatchingApp({
   message,
   roleContext,
   apps,
+  currentThreadId,
 }: {
   message: string;
   roleContext?: string | null;
   apps: readonly RecommendationApp[];
+  currentThreadId?: string | null;
 }): RecommendationApp | null {
   const queryTokens = new Set([
     ...significantTokens(message),
@@ -345,12 +352,20 @@ function bestMatchingApp({
 
   for (const app of apps) {
     if (app.runnableNow === false) continue;
+    // An app built in another thread must be asked for by explicit app intent
+    // or by name; generic token overlap alone cannot resurface it (#643).
+    const crossThread =
+      typeof app.sourceThreadId === "string" &&
+      app.sourceThreadId !== currentThreadId;
+    const namedInMessage = crossThread && messageNamesApp(message, app);
+    if (crossThread && !explicitAppIntent && !namedInMessage) continue;
+
     const appTokens = significantTokens(`${app.name} ${app.description ?? ""}`);
     const overlap = appTokens.filter(
       (token) =>
         queryTokens.has(token) && !APP_MATCH_GENERIC_TOKENS.has(token),
     );
-    const minimumOverlap = explicitAppIntent ? 1 : 2;
+    const minimumOverlap = namedInMessage ? 0 : explicitAppIntent ? 1 : 2;
     if (overlap.length < minimumOverlap) continue;
 
     const score = overlap.length + appIntentBoost(message);
@@ -360,6 +375,18 @@ function bestMatchingApp({
   }
 
   return best?.app ?? null;
+}
+
+function messageNamesApp(message: string, app: RecommendationApp): boolean {
+  const normalized = normalize(message);
+  const name = normalize(app.name);
+  if (name.length >= 3 && normalized.includes(name)) return true;
+  if (!app.slug) return false;
+  const slug = normalize(app.slug);
+  return (
+    slug.length >= 3 &&
+    (normalized.includes(slug) || normalized.includes(slug.replace(/-/g, " ")))
+  );
 }
 
 function hasExplicitAppIntent(normalized: string): boolean {
@@ -535,11 +562,24 @@ function appIntentBoost(message: string): number {
     : 0;
 }
 
+/**
+ * Identifier-like tokens (run ids, timestamps, uuid fragments, CBX run
+ * labels) must not count as semantic overlap between requests (#643).
+ */
+export function isIdentifierToken(token: string): boolean {
+  return /\d/.test(token) || /^[0-9a-f]{8,}$/.test(token) || /^cbx/.test(token);
+}
+
 function significantTokens(value: string): string[] {
   return unique(
     normalize(value)
       .split(/[^a-z0-9]+/)
-      .filter((token) => token.length >= 3 && !STOPWORDS.has(token)),
+      .filter(
+        (token) =>
+          token.length >= 3 &&
+          !STOPWORDS.has(token) &&
+          !isIdentifierToken(token),
+      ),
   );
 }
 
