@@ -5,7 +5,7 @@ import {
   runs,
   type Run,
 } from "@ai-workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 const WORKER_TRIGGER_TYPES = new Set([
   "skill",
@@ -33,6 +33,16 @@ type RunActionResult =
   | { ok: true; run: Pick<Run, "id" | "status"> }
   | { ok: false; status: number; error: string; message: string };
 
+export type CancelRunOutcome =
+  | "canceled"
+  | "already_canceled"
+  | "already_terminal"
+  | "result_committed";
+
+type CancelRunResult =
+  | { ok: true; outcome: CancelRunOutcome; run: Pick<Run, "id" | "status"> }
+  | { ok: false; status: number; error: string; message: string };
+
 interface ChatRunInputs {
   prompt?: string;
   threadId?: string;
@@ -50,30 +60,86 @@ export async function cancelRun({
   db: Database;
   actor: SessionUser;
   runId: string;
-}): Promise<RunActionResult> {
-  const run = await findAuthorizedRun(db, actor, runId);
-  if (!run) {
-    return notFound();
+}): Promise<CancelRunResult> {
+  const now = new Date();
+  const error = "Canceled by user.";
+  // One FOR UPDATE transaction so a cancel serializes against
+  // persistAssistantMessageOnce: it can no longer land between the status
+  // read and the canceled write and disown a committed answer (#655).
+  const decision = await db.transaction(
+    async (
+      tx,
+    ): Promise<
+      | { kind: "rejected"; result: CancelRunResult }
+      | { kind: "kept"; outcome: CancelRunOutcome; run: Run }
+      | { kind: "canceled"; run: Run; updated: Pick<Run, "id" | "status"> }
+    > => {
+      const rows = await tx
+        .select()
+        .from(runs)
+        .where(authorizedRunScope(actor, runId))
+        .limit(1)
+        .for("update");
+      const run = rows[0];
+      if (!run) {
+        return { kind: "rejected", result: notFound() };
+      }
+      if (!isWorkerExecutableRun(run)) {
+        return {
+          kind: "rejected",
+          result: {
+            ok: false,
+            status: 400,
+            error: "unsupported_run_type",
+            message:
+              "Only chat and skill runs can be canceled from this endpoint.",
+          },
+        };
+      }
+      if (run.status === "canceled") {
+        return { kind: "kept", outcome: "already_canceled", run };
+      }
+      if (run.status !== "queued" && run.status !== "running") {
+        return { kind: "kept", outcome: "already_terminal", run };
+      }
+      const committedMessageId = isRecord(run.outputs)
+        ? run.outputs.assistantMessageId
+        : undefined;
+      if (typeof committedMessageId === "string" && committedMessageId.length > 0) {
+        // The durable assistant answer already committed; the worker's fenced
+        // terminal write will finish the run, so keep the result instead.
+        return { kind: "kept", outcome: "result_committed", run };
+      }
+      const updated = await tx
+        .update(runs)
+        .set({
+          status: "canceled",
+          error,
+          workerId: null,
+          leaseExpiresAt: null,
+          completedAt: now,
+          updatedAt: now,
+        })
+        // Defense in depth: the lock already pinned the status, but never let
+        // this write stomp a terminal row even if the guards above drift.
+        .where(and(eq(runs.id, run.id), inArray(runs.status, ["queued", "running"])))
+        .returning({ id: runs.id, status: runs.status });
+      return { kind: "canceled", run, updated: updated[0]! };
+    },
+  );
+
+  if (decision.kind === "rejected") {
+    return decision.result;
   }
-  if (!isWorkerExecutableRun(run)) {
+  if (decision.kind === "kept") {
     return {
-      ok: false,
-      status: 400,
-      error: "unsupported_run_type",
-      message: "Only chat and skill runs can be canceled from this endpoint.",
-    };
-  }
-  if (run.status !== "queued" && run.status !== "running") {
-    return {
-      ok: false,
-      status: 409,
-      error: "run_not_cancelable",
-      message: "Only queued or running runs can be canceled.",
+      ok: true,
+      outcome: decision.outcome,
+      run: { id: decision.run.id, status: decision.run.status },
     };
   }
 
-  const now = new Date();
-  const error = "Canceled by user.";
+  const run = decision.run;
   const cancellationMetadata =
     run.status === "running"
       ? {
@@ -86,18 +152,6 @@ export async function cancelRun({
           runtimeRequestAbortExpected: false,
           providerSessionStopAttempted: false,
         };
-  const rows = await db
-    .update(runs)
-    .set({
-      status: "canceled",
-      error,
-      workerId: null,
-      leaseExpiresAt: null,
-      completedAt: now,
-      updatedAt: now,
-    })
-    .where(eq(runs.id, run.id))
-    .returning({ id: runs.id, status: runs.status });
 
   const proposalIteration = proposalIterationFromRunInputs(run.inputs);
   if (proposalIteration) {
@@ -148,7 +202,7 @@ export async function cancelRun({
     completedAt: now,
   });
 
-  return { ok: true, run: rows[0]! };
+  return { ok: true, outcome: "canceled", run: decision.updated };
 }
 
 export async function retryChatRun({
@@ -318,6 +372,12 @@ export async function resumeChatRun({
   return { ok: true, run: { id: run.id, status: run.status } };
 }
 
+function authorizedRunScope(actor: SessionUser, runId: string) {
+  return actor.role === "admin"
+    ? eq(runs.id, runId)
+    : and(eq(runs.id, runId), eq(runs.userId, actor.id));
+}
+
 async function findAuthorizedRun(
   db: Database,
   actor: SessionUser,
@@ -326,16 +386,17 @@ async function findAuthorizedRun(
   const rows = await db
     .select()
     .from(runs)
-    .where(
-      actor.role === "admin"
-        ? eq(runs.id, runId)
-        : and(eq(runs.id, runId), eq(runs.userId, actor.id)),
-    )
+    .where(authorizedRunScope(actor, runId))
     .limit(1);
   return rows[0] ?? null;
 }
 
-function notFound(): RunActionResult {
+function notFound(): {
+  ok: false;
+  status: number;
+  error: string;
+  message: string;
+} {
   return {
     ok: false,
     status: 404,

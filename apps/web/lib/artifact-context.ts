@@ -46,8 +46,17 @@ const SEPARATE_ARTIFACT_INTENT_PATTERNS = [
   /\bseparate\s+(?:copy|fork|duplicate|variant|version|v\d+)\b/i,
   /\b(?:fork|duplicate|clone)\s+(?:this|that|it|the\s+(?:artifact|file|document|doc|page|app|deck|html|markdown|md))\b/i,
   /\bkeep (?:the )?original\b/i,
-  /\b(?:do not|don't)\s+overwrite\b/i,
 ];
+// "do not make a copy" / "edit it in place, don't create a duplicate": a
+// negated action clause must not trip the affirmative patterns above (issue
+// #642). Strip the clause, through to the next clause boundary, before testing
+// them.
+const NEGATED_SEPARATE_ACTION_RE =
+  /\b(?:do not|don't|dont|never|without|instead of|rather than|no need to)\s+(?:mak|creat|sav|generat|writ|produc|build|fork|duplicat|clon|cop)\w*[^,.;!?]*/gi;
+// "do not overwrite" reads as a negation but demands a copy — keep the
+// original intact — so it is tested against the ORIGINAL text, before
+// NEGATED_SEPARATE_ACTION_RE stripping.
+const DO_NOT_OVERWRITE_RE = /\b(?:do not|don't)\s+overwrite\b/i;
 // "Turn this into a web app" / "convert my notes to html": a request to create
 // NEW content out of existing material (usually the conversation itself). Such
 // a request is never *satisfied* by an existing artifact, so it must not be
@@ -343,7 +352,11 @@ export function artifactContextModeForMessage({
 }
 
 function hasSeparateArtifactIntent(message: string): boolean {
-  return SEPARATE_ARTIFACT_INTENT_PATTERNS.some((pattern) => pattern.test(message));
+  if (DO_NOT_OVERWRITE_RE.test(message)) return true;
+  const affirmative = message.replace(NEGATED_SEPARATE_ACTION_RE, " ");
+  return SEPARATE_ARTIFACT_INTENT_PATTERNS.some((pattern) =>
+    pattern.test(affirmative),
+  );
 }
 
 /**

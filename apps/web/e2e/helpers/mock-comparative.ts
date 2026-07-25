@@ -519,6 +519,11 @@ export async function installMockComparativeApi(
 
     const threadExportMatch = /^\/api\/threads\/([^/]+)\/export$/.exec(path);
     if (threadExportMatch && request.method() === "GET") {
+      // No export fixtures configured: let the request reach the real route
+      // so seeded-database suites exercise the actual export boundary (#653).
+      if (options.threadExports === undefined) {
+        return route.fallback();
+      }
       const threadId = decodeURIComponent(threadExportMatch[1]!);
       const threadExport = options.threadExports?.[threadId];
       if (threadExport === undefined) {

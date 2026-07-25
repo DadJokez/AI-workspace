@@ -620,6 +620,53 @@ describe("formatArtifactContext", () => {
     ).toBe("manifest");
   });
 
+  it("#642 negated copy phrases resolve to an in-place revision", () => {
+    for (const message of [
+      "do not make a copy",
+      "don't make a copy, just update the doc",
+      "update the doc but do not make a copy",
+      "edit it in place, don't create a duplicate",
+      "update the doc without creating a copy",
+      "edit it directly rather than making a duplicate",
+    ]) {
+      expect(artifactContextModeForMessage({ message, matched: true })).toBe(
+        "revision",
+      );
+    }
+  });
+
+  it("#642 keeps affirmative copy phrases classifying as before", () => {
+    expect(
+      artifactContextModeForMessage({ message: "make a copy", matched: true }),
+    ).toBe("separate");
+    expect(
+      artifactContextModeForMessage({ message: "fork it", matched: true }),
+    ).toBe("separate");
+    // "new file" was never a copy/fork/variant phrase; the negation guard
+    // must not change that either.
+    expect(
+      artifactContextModeForMessage({
+        message: "save this as a new file",
+        matched: true,
+      }),
+    ).toBe("revision");
+  });
+
+  it("#642 'do not overwrite' still demands a separate copy", () => {
+    expect(
+      artifactContextModeForMessage({
+        message: "do not overwrite the original",
+        matched: true,
+      }),
+    ).toBe("separate");
+    expect(
+      artifactContextModeForMessage({
+        message: "make a copy but do not overwrite",
+        matched: true,
+      }),
+    ).toBe("separate");
+  });
+
   it("tells the model when a matched artifact should become a separate copy", () => {
     const block = formatArtifactContext({
       artifacts: ARTIFACTS,
