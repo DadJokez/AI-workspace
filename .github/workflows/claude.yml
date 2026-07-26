@@ -7,6 +7,12 @@ name: Claude
 #
 # Auth: the CLAUDE_CODE_OAUTH_TOKEN secret (Claude GitHub App / `claude
 # setup-token`). Dev tooling, not part of the product.
+#
+# The repository is public, so the trigger is gated on `author_association`:
+# only the owner, org members, and invited collaborators can spend a paid model
+# run. `author_association` is computed by GitHub from the actor's relationship
+# to the repository — a commenter cannot set it. NONE/FIRST_TIME_CONTRIBUTOR
+# comments are ignored silently (no job, no cost).
 
 on:
   issue_comment:
@@ -26,19 +32,28 @@ permissions:
 jobs:
   claude:
     if: >-
-      ${{ (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-          (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-          (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-          (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))) }}
+      ${{ ((github.event_name == 'issue_comment' &&
+            contains(github.event.comment.body, '@claude') &&
+            contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)) ||
+           (github.event_name == 'pull_request_review_comment' &&
+            contains(github.event.comment.body, '@claude') &&
+            contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)) ||
+           (github.event_name == 'pull_request_review' &&
+            contains(github.event.review.body, '@claude') &&
+            contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.review.author_association)) ||
+           (github.event_name == 'issues' &&
+            (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) &&
+            contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Claude
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1.0.183
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
