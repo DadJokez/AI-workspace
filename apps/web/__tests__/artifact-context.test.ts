@@ -968,3 +968,29 @@ describe("resolveArtifactContextTargets", () => {
     });
   });
 });
+
+describe("#685 review — short human deliverables count as document intent", () => {
+  it.each([
+    "write me a cover letter for the pilot role",
+    "draft a thank-you note to the team",
+    "create a short readme for this repo",
+    "write a memo about the launch",
+    "write a one-page resume",
+  ])("classifies %j as document creation", (message) => {
+    expect(hasDocumentCreationIntent(message)).toBe(true);
+  });
+
+  it("keeps formatting requests classified as chat formatting, not files", () => {
+    // The #647 case and its neighbours must stay false, or the gate that
+    // motivated this PR becomes a no-op.
+    for (const message of [
+      'Give me a heading "Pilot plan" and exactly three Markdown bullets: invite testers, collect daily feedback, review results Friday.',
+      "use Markdown formatting",
+      "write the summary in markdown",
+      "summarize the doc as an outline",
+      "make me an HTML table",
+    ]) {
+      expect(hasDocumentCreationIntent(message), message).toBe(false);
+    }
+  });
+});

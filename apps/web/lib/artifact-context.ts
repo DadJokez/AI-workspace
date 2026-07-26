@@ -84,7 +84,7 @@ const EXISTING_ARTIFACT_REFERENCE_RE =
 const FORMATTING_QUALIFIER_RE =
   /\b(?:markdown|md|html)[\s-]+(?:formatting|formatted|format|syntax|style|styling|bullets?|bullet[\s-]?points?|lists?|tables?|headings?|headers?|links?)\b|\b(?:in|as|using|with)\s+(?:markdown|md|html)\b(?!\s+(?:file|doc|document|artifact|page|attachment)s?\b)/gi;
 const DOCUMENT_CREATION_RE =
-  /\b(?:create|make|generate|write|draft|produce|build|save|export|download)\b[^.?!\n]{0,120}?\b(?:artifact|file|document|doc|html|htm|page|site|app|deck|markdown|md|csv|json|spreadsheet|sheet)\b/i;
+  /\b(?:create|make|generate|write|draft|produce|build|save|export|download)\b[^.?!\n]{0,120}?\b(?:artifact|file|document|doc|html|htm|page|site|app|deck|markdown|md|csv|json|spreadsheet|sheet|letter|note|memo|email|readme|resume|cv|poem|essay|bio|proposal|report)\b/i;
 const FILENAME_MENTION_RE =
   /\b[a-z0-9_][a-z0-9_ .-]{0,60}\.(?:md|markdown|txt|html?|csv|json)\b/i;
 const SAVE_REFERENCE_RE = /\b(?:save|export|download)\s+(?:this|that|it)\b/i;
