@@ -664,13 +664,21 @@ function shouldSaveArtifact({
   if (!closed && !isLikelyCompleteUnclosedArtifact(content, language, explicitFilename)) {
     return false;
   }
-  // #647: a short fenced block on a turn with no document-creation intent is
+  // #647: a short PROSE fence on a turn with no document-creation intent is
   // chat formatting the model wrongly wrapped as a file — even when it
   // attached a filename. Substantive blocks (>= MIN_IMPLICIT_ARTIFACT_CHARS)
   // still persist so an implicitly requested deliverable is never dropped.
+  //
+  // Scoped to markdown/text deliberately (review): hasDocumentCreationIntent
+  // only recognizes document nouns and .md/.txt/.html/.csv/.json filenames, so
+  // an ordinary code request ("write quicksort, call it quicksort.py") is
+  // intent=false. Applying this drop to every language would silently discard
+  // a short code file the user explicitly asked for — the inverse of #647, and
+  // worse, it would leave a "saved to quicksort.py" claim unbacked.
   if (
     documentCreationIntent === false &&
-    content.length < MIN_IMPLICIT_ARTIFACT_CHARS
+    content.length < MIN_IMPLICIT_ARTIFACT_CHARS &&
+    isProseFence(language, explicitFilename)
   ) {
     return false;
   }
@@ -685,6 +693,19 @@ function shouldSaveArtifact({
   if (language === "csv") return content.includes(",") && content.includes("\n");
   if (language === "json") return /^[\s\n]*[{[]/.test(content);
   return false;
+}
+
+/**
+ * Markdown/plain-text fences only — the surface #647 is about. A fence is
+ * prose if its language is markdown/text OR (absent a language) its filename
+ * carries a prose extension. Code fences are never prose, so the #647 gate
+ * cannot reach them.
+ */
+function isProseFence(language?: string, explicitFilename?: string): boolean {
+  const lang = language?.toLowerCase();
+  if (lang) return ["markdown", "md", "text", "txt", "plaintext"].includes(lang);
+  if (!explicitFilename) return true;
+  return /\.(?:md|markdown|txt|text)$/i.test(explicitFilename);
 }
 
 function isHtmlArtifactCandidate(

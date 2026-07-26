@@ -561,3 +561,42 @@ Here is the revised version:
     });
   });
 });
+
+describe("#685 review — the short-block gate is scoped to prose fences", () => {
+  const fence = (lang: string, filename: string, body: string) =>
+    "```" + lang + " filename=" + filename + "\n" + body + "\n```";
+
+  it("keeps short code files the user explicitly named on an intent=false turn", () => {
+    // "write a quicksort function in Python, call it quicksort.py" has no
+    // document noun, and .py is not a recognized document extension, so the
+    // turn classifies intent=false. Dropping these would discard a file the
+    // user asked for BY NAME — the inverse of #647, and it would leave any
+    // "saved to quicksort.py" claim unbacked.
+    for (const [lang, name, body] of [
+      ["python", "quicksort.py", "def quicksort(a):\n    return a"],
+      ["sql", "active.sql", "SELECT 1;"],
+      ["bash", "cleanup.sh", "rm -rf ./tmp"],
+    ] as const) {
+      const parsed = parseAssistantArtifacts(fence(lang, name, body), {
+        documentCreationIntent: false,
+      });
+      expect(parsed.map((a) => a.filename), name).toContain(name);
+    }
+  });
+
+  it("still drops the #647 case: a short markdown fence with no intent", () => {
+    const parsed = parseAssistantArtifacts(
+      fence("markdown", "Pilot-Plan.md", "# Pilot plan\n\n- invite testers"),
+      { documentCreationIntent: false },
+    );
+    expect(parsed).toHaveLength(0);
+  });
+
+  it("still persists a short markdown fence when intent IS present", () => {
+    const parsed = parseAssistantArtifacts(
+      fence("markdown", "Pilot-Plan.md", "# Pilot plan\n\n- invite testers"),
+      { documentCreationIntent: true },
+    );
+    expect(parsed.map((a) => a.filename)).toContain("Pilot-Plan.md");
+  });
+});

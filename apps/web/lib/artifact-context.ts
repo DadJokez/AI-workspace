@@ -52,7 +52,7 @@ const SEPARATE_ARTIFACT_INTENT_PATTERNS = [
 // #642). Strip the clause, through to the next clause boundary, before testing
 // them.
 const NEGATED_SEPARATE_ACTION_RE =
-  /\b(?:do not|don't|dont|never|without|instead of|rather than|no need to)\s+(?:mak|creat|sav|generat|writ|produc|build|fork|duplicat|clon|cop)\w*[^,.;!?]*/gi;
+  /\b(?:do not|don't|dont|never|without|instead of|rather than|no need to)\s+(?:mak|creat|sav|generat|writ|produc|build|fork|duplicat|clon|cop|export|draft|download)\w*[^,.;!?]*/gi;
 // "do not overwrite" reads as a negation but demands a copy — keep the
 // original intact — so it is tested against the ORIGINAL text, before
 // NEGATED_SEPARATE_ACTION_RE stripping.
