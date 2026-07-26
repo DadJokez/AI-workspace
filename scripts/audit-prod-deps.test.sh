@@ -54,8 +54,13 @@ check "empty output warns, no CVE claim" 0 "could not run" \
 check "zero-count report passes" 0 "No known high/critical CVEs" \
   'echo "{\"advisories\":{},\"metadata\":{\"vulnerabilities\":{\"high\":0,\"critical\":0}}}"; exit 1'
 
+# The stub runs as a separate process, so it cannot see this script's locals.
+# GATE_TEST_MARKER is exported below specifically so the retry case can keep
+# state across the two invocations.
+export GATE_TEST_MARKER="$stub_dir/retry-marker"
+rm -f "$GATE_TEST_MARKER"
 check "a transient failure that then succeeds passes" 0 "No known high/critical CVEs" \
-  'f="$stub_dir/marker"; if [ -f "$f" ]; then exit 0; else touch "$f"; echo "ECONNRESET"; exit 1; fi'
+  'if [ -f "$GATE_TEST_MARKER" ]; then exit 0; else touch "$GATE_TEST_MARKER"; echo "ECONNRESET"; exit 1; fi'
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
