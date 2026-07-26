@@ -25,6 +25,25 @@ const FIRST_PROMPT =
   "Find CSV_CANARY_7391 in core-eval-canary.csv and report its revenue. Use the file itself.";
 const FOLLOW_UP =
   "Using the same CSV, repeat the customer and revenue you verified.";
+const DEDUPE_PROMPT =
+  "Dedupe check: find CSV_CANARY_7391 in the re-attached CSV and report its revenue.";
+// Long enough that attaching lands while the profile request is still in
+// flight, short enough not to stretch the lane.
+const PROFILE_HOLD_MS = 2_000;
+
+function csvFixture() {
+  return {
+    name: CSV_FILENAME,
+    mimeType: "text/csv",
+    buffer: Buffer.from(
+      [
+        "customer,revenue,region",
+        "CSV_CANARY_7391,48217,East",
+        "CONTROL_ROW,19,West",
+      ].join("\n"),
+    ),
+  };
+}
 
 test.describe("core chat resource pipeline", () => {
   test.describe.configure({ mode: "serial", retries: 0 });
@@ -77,17 +96,7 @@ test.describe("core chat resource pipeline", () => {
 
     const fileInput = page.getByTestId("chat-file-input");
     await expect(fileInput).toBeEnabled({ timeout: 15_000 });
-    await fileInput.setInputFiles({
-      name: CSV_FILENAME,
-      mimeType: "text/csv",
-      buffer: Buffer.from(
-        [
-          "customer,revenue,region",
-          "CSV_CANARY_7391,48217,East",
-          "CONTROL_ROW,19,West",
-        ].join("\n"),
-      ),
-    });
+    await fileInput.setInputFiles(csvFixture());
 
     const composerAttachment = page
       .getByRole("button", { name: `Remove ${CSV_FILENAME}` })
@@ -170,6 +179,144 @@ test.describe("core chat resource pipeline", () => {
     await assertPersistedResourceTurn(threadId, 2);
     expect(realChatRequestCount).toBe(2);
     await attachScreenshot(testInfo, page, "csv-durable-follow-up");
+  });
+
+  test("#650: unsent attachments survive boot transitions, clear on New chat, and never duplicate", async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(REAL_MODEL ? 300_000 : 240_000);
+
+    // Hold the profile response so attaching deterministically lands inside
+    // the boot window where models are ready but the user profile is not —
+    // the transition that historically remounted the composer (#650 A).
+    let holdProfile = true;
+    await page.route("**/api/user", async (route) => {
+      if (holdProfile && route.request().method() === "GET") {
+        await new Promise((resolve) => setTimeout(resolve, PROFILE_HOLD_MS));
+      }
+      await route.continue();
+    });
+
+    // Journey A1 — fresh composer: a chip added mid-boot must survive the
+    // profile landing.
+    const profileReady = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === "/api/user",
+      { timeout: STARTUP_TIMEOUT_MS },
+    );
+    await page.goto("/chat");
+    const fileInput = page.getByTestId("chat-file-input");
+    await expect(fileInput).toBeEnabled({ timeout: STARTUP_TIMEOUT_MS });
+    await fileInput.setInputFiles(csvFixture());
+    const chip = page.getByRole("button", { name: `Remove ${CSV_FILENAME}` });
+    await expect(chip).toHaveCount(1);
+    expect((await profileReady).status()).toBe(200);
+    // Give the post-profile re-render its chance to (incorrectly) remount.
+    await page.waitForTimeout(750);
+    await expect(chip).toHaveCount(1);
+    holdProfile = false;
+    await attachScreenshot(testInfo, page, "650-chip-survives-profile-load");
+
+    // Journey C — byte-identical re-selections must never grow a second chip.
+    await fileInput.setInputFiles(csvFixture());
+    await fileInput.setInputFiles(csvFixture());
+    await page.waitForTimeout(300);
+    await expect(chip).toHaveCount(1);
+
+    // The deduplicated selection must send as a clean single-attachment turn.
+    const composer = page.getByPlaceholder(/ask anything/i);
+    await composer.fill(FIRST_PROMPT);
+    const firstResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname === "/api/chat",
+    );
+    await page.getByRole("button", { name: "Send" }).click();
+    expect((await firstResponse).status()).toBe(200);
+    const sentMessage = page
+      .getByTestId("user-message")
+      .filter({ hasText: FIRST_PROMPT });
+    await expect(sentMessage).toContainText("1 file attached");
+    await expect(sentMessage).not.toContainText("2 files attached");
+    await expect(
+      sentMessage.getByTestId("message-attachment-pill"),
+    ).toHaveCount(1);
+    await expect(groundedAssistantAnswers(page)).toBeVisible({
+      timeout: ANSWER_TIMEOUT_MS,
+    });
+    await expect(page).toHaveURL(/[?&]threadId=/, { timeout: 15_000 });
+    const firstThreadId = new URL(page.url()).searchParams.get("threadId")!;
+    await assertPersistedResourceTurn(firstThreadId, 1);
+
+    // Journey A2 — reloads carry ?threadId= since #664, so boot applies the
+    // deep-linked thread once the profile lands. That application must not
+    // remount the composer and drop an attachment added during the window.
+    holdProfile = true;
+    const reloadProfileReady = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === "/api/user",
+      { timeout: STARTUP_TIMEOUT_MS },
+    );
+    await page.goto(`/chat?threadId=${firstThreadId}`);
+    await expect(fileInput).toBeEnabled({ timeout: STARTUP_TIMEOUT_MS });
+    await fileInput.setInputFiles(csvFixture());
+    await expect(chip).toHaveCount(1);
+    // Precondition: the attach really landed inside the boot window — the
+    // deep-linked history must not have been applied yet.
+    await expect(
+      page.getByTestId("user-message-content").filter({ hasText: FIRST_PROMPT }),
+    ).toHaveCount(0);
+    expect((await reloadProfileReady).status()).toBe(200);
+    await expect(
+      page.getByTestId("user-message-content").filter({ hasText: FIRST_PROMPT }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(chip).toHaveCount(1);
+    holdProfile = false;
+    await attachScreenshot(testInfo, page, "650-chip-survives-deep-link-boot");
+
+    // Journey B — explicit New chat clears the unsent attachment and draft.
+    await page
+      .locator('aside[aria-label="Primary"]')
+      .getByRole("button", { name: "New chat", exact: true })
+      .click();
+    await expect(chip).toHaveCount(0);
+    await expect(composer).toHaveValue("");
+    await expect(page).not.toHaveURL(/[?&]threadId=/);
+
+    // Journey B+C — the recorded recurrence script: fresh chat, attach the
+    // same file twice, send once. State carried across New chat must never
+    // fail a valid send or inflate the persisted attachment count.
+    await fileInput.setInputFiles(csvFixture());
+    await fileInput.setInputFiles(csvFixture());
+    await page.waitForTimeout(300);
+    await expect(chip).toHaveCount(1);
+    await composer.fill(DEDUPE_PROMPT);
+    const secondResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname === "/api/chat",
+    );
+    await page.getByRole("button", { name: "Send" }).click();
+    expect((await secondResponse).status()).toBe(200);
+    const dedupedMessage = page
+      .getByTestId("user-message")
+      .filter({ hasText: DEDUPE_PROMPT });
+    await expect(dedupedMessage).toContainText("1 file attached");
+    await expect(dedupedMessage).not.toContainText("2 files attached");
+    await expect(
+      dedupedMessage.getByTestId("message-attachment-pill"),
+    ).toHaveCount(1);
+    await expect(groundedAssistantAnswers(page)).toBeVisible({
+      timeout: ANSWER_TIMEOUT_MS,
+    });
+    await expect(page.getByText(/Could not send/i)).toHaveCount(0);
+    await expect(page).toHaveURL(/[?&]threadId=/, { timeout: 15_000 });
+    const secondThreadId = new URL(page.url()).searchParams.get("threadId")!;
+    expect(secondThreadId).not.toBe(firstThreadId);
+    await assertPersistedResourceTurn(secondThreadId, 1);
+    await attachScreenshot(testInfo, page, "650-deduped-send-after-new-chat");
   });
 });
 
