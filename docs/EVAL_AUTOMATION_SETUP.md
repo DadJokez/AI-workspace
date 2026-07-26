@@ -11,7 +11,7 @@ GitHub receives the narrowly scoped AWS identity needed for real-model checks.
 | --- | --- | --- | --- |
 | Required deterministic CI | Every pull request and every `main` push | All 126 eval definitions via `pnpm eval --mock`, plus `pnpm transcripts:replay`, inside `CI` | Fails the existing required `lint + typecheck + build` job |
 | Required real core pipeline | Every pull request, every `main` push, every six-hour schedule, and manual dispatch | `pnpm smoke:browser:core` inside `Product Smoke` | On PRs/pushes, fails the existing required `local browser smoke` summary |
-| Foundational real-model PR evals | Every ready, same-repository pull request | `BEDROCK_CLIENT=real pnpm eval --core` inside `Product Smoke` | Fans into and fails the existing required `local browser smoke` result; superseded commits are cancelled |
+| Merge-gate pack (on demand) | Manual dispatch only: `gh workflow run product-smoke.yml -f run_evals=true` | `BEDROCK_CLIENT=real pnpm eval --gate` inside `Product Smoke` — the security/injection spine, repeat-sampled; NOT the broad `--core` pack | **Gates nothing.** Retired as a per-PR gate in #706 — behavioral regressions are caught by the nightly lane below, not blocked pre-merge |
 | Comprehensive nightly evals | Every day at 07:00 UTC and manual dispatch on `main` | Independent `BEDROCK_CLIENT=real pnpm eval` and app-backed real-Bedrock CSV lanes | Either lane fails the workflow without suppressing the other, retains available reports/screenshots/traces, and independently opens or refreshes the `Nightly evals failing` issue |
 | Advisory Codex browser-user evals | Local Codex scheduled task after canary-profile provisioning, plus manual pre-release runs | `$comparative-browser-evals` through the Codex in-app Browser | Reports exact `PASS`/`FAIL`/`BLOCKED` scorecards in Scheduled; never fans into branch protection |
 
@@ -65,11 +65,19 @@ merges.
 
 ## Cost And Concurrency Bounds
 
-- PR evals run only the foundational `--core` subset, allow one active run per
-  pull request, cancel superseded commits, time out after 25 minutes, and trip
-  at an estimated `$1.50` per completed run. A calibrated 59-case run on
-  2026-07-23 cost about `$1.03`; the tripwire leaves headroom for output
-  variance while forcing review of unplanned suite growth.
+- The on-demand eval lane runs the `--gate` pack (the repeat-sampled
+  security/injection spine, 11 cases across 6 suites), times out after 25
+  minutes, and trips at an estimated `$1.50` per completed run. Measured
+  2026-07-26: a full `--gate` run is ~112k tokens at about `$0.67`.
+  (The `$1.50` tripwire was originally calibrated against the larger `--core`
+  pack — a 59-case run on 2026-07-23 cost about `$1.03` — so it now leaves
+  generous headroom; it is kept as-is to force review of unplanned suite
+  growth rather than retuned downward.)
+- The lane no longer runs per pull request: at ~148k Bedrock tokens per run
+  against a NON-adjustable 10.8M tokens/day account ceiling, and with
+  `strict: true` re-gating every open PR after each merge, a normal day's
+  merges exhausted the quota and blocked merges on an infrastructure limit
+  rather than on code (#706).
 - Nightly evals allow only one active workflow run. The independent behavior
   and browser lanes time out after 35 and 20 minutes respectively. The behavior
   report trips above an estimated `$5.00` per completed suite; the additional
