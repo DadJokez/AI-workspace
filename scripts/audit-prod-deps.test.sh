@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Regression coverage for the production CVE gate's classification. The gate
-# must never (a) let a real advisory through, nor (b) announce a CVE when the
-# audit merely failed to run — the second is what review caught: an unmatched
-# network error was being reported as "Production CVE found".
+# Regression coverage for the production CVE gate's classifier.
+#
+# Two directions must both hold, and the fail-CLOSED one matters most:
+#   - a real advisory must NEVER be reclassified as an outage (silent pass)
+#   - an outage must NEVER be announced as a CVE (fabricated finding)
 set -uo pipefail
 cd "$(dirname "$0")/.."
 pass=0; fail=0
@@ -25,25 +26,36 @@ check() { # name expected_exit expected_substr stub_body
 }
 
 echo "audit gate classification:"
+
 check "clean audit passes" 0 "No known high/critical CVEs" \
   'exit 0'
-check "real advisory fails closed" 1 "Production CVE found" \
-  'echo "1 vulnerabilities found"; echo "Severity: 1 high"; exit 1'
-check "advisory table alone fails closed" 1 "Production CVE found" \
-  'echo "│ Paths │ apps/web > bad-pkg"; exit 1'
-# The review finding: none of these may be reported as a CVE.
-check "gzip parse error warns, no CVE claim" 0 "could not run" \
-  'echo "ERROR  Unexpected token is not valid JSON"; exit 1'
+
+# --- fail-closed direction: a real advisory must block ---
+check "advisories object blocks" 1 "Production CVE found" \
+  'echo "{\"advisories\":{\"1234\":{\"severity\":\"high\"}},\"metadata\":{\"vulnerabilities\":{\"high\":1}}}"; exit 1'
+check "metadata counts alone block" 1 "Production CVE found" \
+  'echo "{\"advisories\":{},\"metadata\":{\"vulnerabilities\":{\"critical\":2}}}"; exit 1'
+check "node deprecation noise does not hide a finding" 1 "Production CVE found" \
+  'echo "(node:123) [DEP0169] DeprecationWarning: url.parse()"; echo "{\"advisories\":{\"9\":{}},\"metadata\":{\"vulnerabilities\":{\"high\":1}}}"; exit 1'
+
+# --- outage direction: must never claim a CVE (the earlier review finding) ---
+check "pnpm error envelope warns, no CVE claim" 0 "could not run" \
+  'echo "{\"error\":{\"code\":\"pnpm\",\"message\":\"Unexpected token is not valid JSON\"}}"; exit 1'
+check "unparseable body warns, no CVE claim" 0 "could not run" \
+  'echo "<html>502 Bad Gateway</html>"; exit 1'
 check "EAI_AGAIN warns, no CVE claim" 0 "could not run" \
-  'echo "request to registry.npmjs.org failed: getaddrinfo EAI_AGAIN"; exit 1'
-check "ENOTFOUND warns, no CVE claim" 0 "could not run" \
-  'echo "ENOTFOUND registry.npmjs.org"; exit 1'
+  'echo "getaddrinfo EAI_AGAIN registry.npmjs.org"; exit 1'
 check "TLS failure warns, no CVE claim" 0 "could not run" \
   'echo "unable to verify the first certificate"; exit 1'
-check "proxy 407 warns, no CVE claim" 0 "could not run" \
-  'echo "407 Proxy Authentication Required"; exit 1'
+check "empty output warns, no CVE claim" 0 "could not run" \
+  'exit 1'
+
+# --- non-zero exit with a structurally clean report is not a finding ---
+check "zero-count report passes" 0 "No known high/critical CVEs" \
+  'echo "{\"advisories\":{},\"metadata\":{\"vulnerabilities\":{\"high\":0,\"critical\":0}}}"; exit 1'
+
 check "a transient failure that then succeeds passes" 0 "No known high/critical CVEs" \
-  'f="$TMPDIR/gate-retry-marker"; if [ -f "$f" ]; then rm -f "$f"; exit 0; else touch "$f"; echo "ECONNRESET"; exit 1; fi'
+  'f="$stub_dir/marker"; if [ -f "$f" ]; then exit 0; else touch "$f"; echo "ECONNRESET"; exit 1; fi'
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

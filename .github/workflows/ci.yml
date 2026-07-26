@@ -100,6 +100,12 @@ jobs:
       # safe because Dependabot alerts + security updates (enabled 2026-07-25)
       # cover this tree over a different path. If Dependabot is ever disabled,
       # this warning path becomes an unguarded hole — restore fail-closed here.
+      # Runs first: the classifier is what decides whether a real advisory
+      # blocks, so it must itself be gated. Without this the coverage exists
+      # but nothing enforces it (review).
+      - name: Verify the audit classifier
+        run: bash scripts/audit-prod-deps.test.sh
+
       - name: Audit production dependencies
         run: bash scripts/audit-prod-deps.sh
 
