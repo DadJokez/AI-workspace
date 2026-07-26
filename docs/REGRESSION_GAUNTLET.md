@@ -16,7 +16,7 @@ checks the deployed public surface.
 | Production public smoke | `pnpm smoke:prod` | Scheduled every 6 hours and manual dispatch via `Product Smoke` | Public deployment health, DB/runtime health, login page, protected redirect, model metadata, anonymous chat guard |
 | Production authenticated smoke | `pnpm smoke:prod:auth` | CodeBuild after ECS services stabilize | Signed-in DB/runtime health, locked-down smoke identity, scoped thread access, live signed-in chat, persisted markdown artifact, durable large-upload follow-up, artifact listing, server-side transcript export, AgentCore execution, and failed/stale smoke-run backlog checks |
 | Production resource matrix | `pnpm smoke:prod:auth -- --resource-matrix` | Explicit release gate for file-runtime changes | Authenticated upload and later-turn recovery for TXT, CSV, TSV, XLSX, PDF, DOCX, PPTX, PNG, JPG, JPEG, and WebP; stable registry metadata; deterministic complete-source results; full-coverage run receipts; no duplicate artifacts or persisted file excerpts |
-| Foundational real-model evals | `pnpm eval --core` | **On demand only** — `gh workflow run product-smoke.yml -f run_evals=true`. NOT a per-PR gate (#706: ~148k Bedrock tokens per run against a non-adjustable 10.8M/day ceiling) | Core model, prompt, grounding, context, tool, file, and artifact regressions. These are caught by the nightly lane below, **not** blocked pre-merge |
+| Merge-gate pack | `pnpm eval --gate` | **On demand only** — `gh workflow run product-smoke.yml -f run_evals=true`. NOT a per-PR gate (#706: ~148k Bedrock tokens per run against a non-adjustable 10.8M/day ceiling) | The security/injection spine only, repeat-sampled (attachment, web-fetch, web-search, MCP, GitHub-content, vault-memory). Broad model, prompt, grounding, context, tool, file, and artifact regressions belong to the nightly row below and are **not** blocked pre-merge |
 | Comprehensive real-model evals | Independent `pnpm eval` and real-model CSV browser lanes | Nightly at 07:00 UTC and manual via `Nightly Evals` | Full model/prompt/harness regressions plus a separately isolated lane combining real Bedrock with the production preamble, browser, chat API, Postgres, resource serialization, SSE, reload, and follow-up |
 | Codex agent-as-user browser canaries | `$comparative-browser-evals` in the Codex in-app Browser | Local nightly advisory task and manual pre-release runs | Whether an agent can discover and complete CSV continuity and artifact lifecycle workflows through visible deployed UI; emits exact `PASS`/`FAIL`/`BLOCKED` scorecards and screenshots |
 | Golden transcript replay | `pnpm transcripts:replay` | Every PR and `main` push inside required `CI` | Downloaded chat regressions: denied Vault/tool/artifact access, model label mismatch, competitor-identity claims, missing artifact evidence, missing attachment evidence, manual save instructions after artifact creation, in-place artifact revision (same filename), and cross-thread artifact reference by name |
@@ -108,8 +108,9 @@ pnpm transcripts:replay
 Real-model evals need Bedrock access:
 
 ```bash
-AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval --core
-AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval
+AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval --gate   # security/injection spine (what CI runs on demand)
+AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval --core   # broad foundational pack
+AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm eval          # everything (what nightly runs)
 AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm --filter @ai-workspace/evals eval:routing
 ```
 
