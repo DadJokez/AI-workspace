@@ -52,7 +52,7 @@ const SEPARATE_ARTIFACT_INTENT_PATTERNS = [
 // #642). Strip the clause, through to the next clause boundary, before testing
 // them.
 const NEGATED_SEPARATE_ACTION_RE =
-  /\b(?:do not|don't|dont|never|without|instead of|rather than|no need to)\s+(?:mak|creat|sav|generat|writ|produc|build|fork|duplicat|clon|cop)\w*[^,.;!?]*/gi;
+  /\b(?:do not|don't|dont|never|without|instead of|rather than|no need to)\s+(?:mak|creat|sav|generat|writ|produc|build|fork|duplicat|clon|cop|export|draft|download)\w*[^,.;!?]*/gi;
 // "do not overwrite" reads as a negation but demands a copy — keep the
 // original intact — so it is tested against the ORIGINAL text, before
 // NEGATED_SEPARATE_ACTION_RE stripping.
@@ -76,6 +76,18 @@ const NEW_ARTIFACT_CREATION_RE =
   /\b(?:create|make|generate|write|produce|build)\b[^.?!\n]{0,120}\b(?:artifact|file|document|doc|html|htm|page|site|app|deck|markdown|md|csv|json|spreadsheet|sheet)\b/i;
 const EXISTING_ARTIFACT_REFERENCE_RE =
   /\b(?:existing|current|same|prior|previous|earlier|last|latest|this|that|it|copy|fork|duplicate|variant|version)\b/i;
+// #647: "use Markdown formatting" must not read as "create a Markdown
+// document". A format word acting as a QUALIFIER of chat formatting ("three
+// Markdown bullets", "an HTML table", "in markdown") is neutralized before
+// document-creation matching; "markdown document" / "in a markdown file" keep
+// their document noun and still classify as creation.
+const FORMATTING_QUALIFIER_RE =
+  /\b(?:markdown|md|html)[\s-]+(?:formatting|formatted|format|syntax|style|styling|bullets?|bullet[\s-]?points?|lists?|tables?|headings?|headers?|links?)\b|\b(?:in|as|using|with)\s+(?:markdown|md|html)\b(?!\s+(?:file|doc|document|artifact|page|attachment)s?\b)/gi;
+const DOCUMENT_CREATION_RE =
+  /\b(?:create|make|generate|write|draft|produce|build|save|export|download)\b[^.?!\n]{0,120}?\b(?:artifact|file|document|doc|html|htm|page|site|app|deck|markdown|md|csv|json|spreadsheet|sheet|letter|note|memo|email|readme|resume|cv|poem|essay|bio|proposal|report)\b/i;
+const FILENAME_MENTION_RE =
+  /\b[a-z0-9_][a-z0-9_ .-]{0,60}\.(?:md|markdown|txt|html?|csv|json)\b/i;
+const SAVE_REFERENCE_RE = /\b(?:save|export|download)\s+(?:this|that|it)\b/i;
 
 export function shouldIncludeArtifactManifestForMessage(message: string): boolean {
   const currentTurn = currentArtifactTurn(message);
@@ -101,6 +113,30 @@ export function hasNewArtifactCreationIntent(message: string): boolean {
     !EXISTING_ARTIFACT_REFERENCE_RE.test(message) &&
     !hasSeparateArtifactIntent(message) &&
     !hasConvertToNewArtifactIntent(message)
+  );
+}
+
+/**
+ * Whether the user's turn asks for a saved document/file AT ALL (#647). This
+ * gates PERSISTENCE of fenced blocks the model emits, so unlike
+ * `hasNewArtifactCreationIntent` (which routes context injection) it is
+ * deliberately broad: any create/save/export/draft verb near a document noun,
+ * a concrete filename, or a bare "save this" counts — while a format word used
+ * as a chat-formatting qualifier ("exactly three Markdown bullets", "use
+ * Markdown formatting") does not. Negated action clauses ("don't create a
+ * file") are stripped first, matching the #642 negation handling.
+ */
+export function hasDocumentCreationIntent(message: string): boolean {
+  const affirmative = message.replace(NEGATED_SEPARATE_ACTION_RE, " ");
+  if (FILENAME_MENTION_RE.test(affirmative)) return true;
+  if (SAVE_REFERENCE_RE.test(affirmative)) return true;
+  const withoutFormattingQualifiers = affirmative.replace(
+    FORMATTING_QUALIFIER_RE,
+    " ",
+  );
+  return (
+    DOCUMENT_CREATION_RE.test(withoutFormattingQualifiers) ||
+    CONVERT_TO_NEW_ARTIFACT_RE.test(withoutFormattingQualifiers)
   );
 }
 

@@ -346,142 +346,150 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-canvas text-ink">
-      {!sidebarOpen && rightPane === null ? (
-        <div
-          aria-hidden="true"
-          data-testid="sidebar-swipe-edge"
-          onPointerDown={openSidebarSwipe}
-          className="fixed bottom-24 left-0 top-12 z-20 w-6 touch-pan-y md:hidden"
+      {/* App shell. SettingsModal marks this subtree `inert` while it is open
+          (#648) so background controls leave the accessibility tree and cannot
+          take focus or clicks; overlays below stay outside it. */}
+      <div
+        data-app-shell="true"
+        className="flex h-full w-full min-w-0 overflow-hidden"
+      >
+        {!sidebarOpen && rightPane === null ? (
+          <div
+            aria-hidden="true"
+            data-testid="sidebar-swipe-edge"
+            onPointerDown={openSidebarSwipe}
+            className="fixed bottom-24 left-0 top-12 z-20 w-6 touch-pan-y md:hidden"
+          />
+        ) : null}
+        <Sidebar
+          userName={user?.displayName}
+          userEmail={user?.email}
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          onNewChat={newTab}
+          onSearch={openPalette}
+          autoCollapse={rightPane !== null}
+          threads={threads}
+          threadsLoading={threadsLoading}
+          threadsError={threadsError}
+          activeThreadId={
+            rightPane?.kind !== "workspace" ? activeTab.threadId : undefined
+          }
+          onOpenThread={openThread}
+          activeNavId={rightPane?.kind === "workspace" ? "workspace" : "chat"}
+          onNavSelect={handleNavSelect}
+          isAdmin={user?.role === "admin"}
+          onSignOut={() => {
+            posthog.reset();
+            void signOut({ callbackUrl: "/login" });
+          }}
+          onRenameThread={handleRenameThread}
+          onDeleteThread={handleDeleteThread}
+          onPinThread={handlePinThread}
         />
-      ) : null}
-      <Sidebar
-        userName={user?.displayName}
-        userEmail={user?.email}
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        onNewChat={newTab}
-        onSearch={openPalette}
-        autoCollapse={rightPane !== null}
-        threads={threads}
-        threadsLoading={threadsLoading}
-        threadsError={threadsError}
-        activeThreadId={
-          rightPane?.kind !== "workspace" ? activeTab.threadId : undefined
-        }
-        onOpenThread={openThread}
-        activeNavId={rightPane?.kind === "workspace" ? "workspace" : "chat"}
-        onNavSelect={handleNavSelect}
-        isAdmin={user?.role === "admin"}
-        onSignOut={() => {
-          posthog.reset();
-          void signOut({ callbackUrl: "/login" });
-        }}
-        onRenameThread={handleRenameThread}
-        onDeleteThread={handleDeleteThread}
-        onPinThread={handlePinThread}
-      />
 
-      <main className="flex h-full min-w-0 flex-1 overflow-hidden">
-        <section
-          data-testid="chat-workspace-pane"
-          className="flex h-full min-w-0 flex-1 flex-col"
-        >
-          <ChatHeader
+        <main className="flex h-full min-w-0 flex-1 overflow-hidden">
+          <section
+            data-testid="chat-workspace-pane"
+            className="flex h-full min-w-0 flex-1 flex-col"
+          >
+            <ChatHeader
+              activeTab={activeTab}
+              models={models}
+              runtimeV2Enabled={runtimeV2Enabled}
+              activeHasPendingRun={activeHasPendingRun}
+              unreadNotifications={unreadNotifications}
+              onOpenMenu={() => setSidebarOpen(true)}
+              onModelChange={handleModelChange}
+              onToggleNotifications={() =>
+                setRightPane((current) =>
+                  current?.kind === "notifications"
+                    ? null
+                    : { kind: "notifications" },
+                )
+              }
+              onDownload={handleDownloadTranscript}
+              onStop={stopStreaming}
+            />
+
+          <ChatThread
             activeTab={activeTab}
-            models={models}
-            runtimeV2Enabled={runtimeV2Enabled}
             activeHasPendingRun={activeHasPendingRun}
-            unreadNotifications={unreadNotifications}
-            onOpenMenu={() => setSidebarOpen(true)}
-            onModelChange={handleModelChange}
-            onToggleNotifications={() =>
-              setRightPane((current) =>
-                current?.kind === "notifications"
-                  ? null
-                  : { kind: "notifications" },
-              )
+            displayName={user?.displayName}
+            assistantName={user?.assistantName}
+            isAdmin={user?.role === "admin"}
+            connectedProviders={connectedProviders}
+            suggestions={emptyStateSuggestions}
+            recommendationPendingId={recommendationPendingId}
+            appDraftPendingId={appDraftPendingId}
+            artifactProposalPendingId={artifactProposalPendingId}
+            runActionPendingId={runActionPendingId}
+            stickToBottomRef={stickToBottomRef}
+            onPickSuggestion={(suggestion) => void send(suggestion)}
+            onOpenIntegrations={() => setSettingsSection("integrations")}
+            onOpenArtifact={openArtifactPreview}
+            onDeployAppDraft={(version) => void handleAppDraftDeploy(version)}
+            onDiscardAppProposal={(version) =>
+              void handleAppProposalDiscard(version)
             }
-            onDownload={handleDownloadTranscript}
-            onStop={stopStreaming}
+            onIterateAppProposal={(version, feedback) =>
+              void handleAppProposalIteration(version, feedback)
+            }
+            onArtifactProposalAction={(artifact, decision) =>
+              void handleArtifactProposalAction(artifact, decision)
+            }
+            onIterateArtifactProposal={(artifact, feedback) =>
+              void handleArtifactProposalIteration(artifact, feedback)
+            }
+            onRecommendationAction={(recommendation, status) =>
+              void handleRecommendationAction(recommendation, status)
+            }
+            onRunAction={(runId, action) => void runAction(runId, action)}
+            onOpenRunInspector={openRunInspector}
+            onRegenerate={regenerate}
+            onEdit={setEditRequest}
+            onRetry={retry}
           />
 
-        <ChatThread
-          activeTab={activeTab}
-          activeHasPendingRun={activeHasPendingRun}
-          displayName={user?.displayName}
-          assistantName={user?.assistantName}
-          isAdmin={user?.role === "admin"}
-          connectedProviders={connectedProviders}
-          suggestions={emptyStateSuggestions}
-          recommendationPendingId={recommendationPendingId}
-          appDraftPendingId={appDraftPendingId}
-          artifactProposalPendingId={artifactProposalPendingId}
-          runActionPendingId={runActionPendingId}
-          stickToBottomRef={stickToBottomRef}
-          onPickSuggestion={(suggestion) => void send(suggestion)}
-          onOpenIntegrations={() => setSettingsSection("integrations")}
-          onOpenArtifact={openArtifactPreview}
-          onDeployAppDraft={(version) => void handleAppDraftDeploy(version)}
-          onDiscardAppProposal={(version) =>
-            void handleAppProposalDiscard(version)
-          }
-          onIterateAppProposal={(version, feedback) =>
-            void handleAppProposalIteration(version, feedback)
-          }
-          onArtifactProposalAction={(artifact, decision) =>
-            void handleArtifactProposalAction(artifact, decision)
-          }
-          onIterateArtifactProposal={(artifact, feedback) =>
-            void handleArtifactProposalIteration(artifact, feedback)
-          }
-          onRecommendationAction={(recommendation, status) =>
-            void handleRecommendationAction(recommendation, status)
-          }
-          onRunAction={(runId, action) => void runAction(runId, action)}
-          onOpenRunInspector={openRunInspector}
-          onRegenerate={regenerate}
-          onEdit={setEditRequest}
-          onRetry={retry}
-        />
-
-        <div
-          data-tour="chat-input"
-          className="kb-safe-bottom border-t border-hairline bg-canvas px-3 pt-3 sm:px-6 sm:pt-4"
-        >
-          <div className="mx-auto max-w-3xl">
-            <ChatInput
-              key={activeTab.id}
-              onSubmit={send}
-              disabled={inputDisabled}
-              skills={slashSkills}
-              draftKey={composerDraftKey}
-              restoreDraft={activeTab.restoreDraft !== false}
-              editRequest={editRequest}
-              onEditComplete={() => setEditRequest(undefined)}
-              placeholder={
-                models.length === 0
-                  ? "Loading models…"
-                  : busy
-                    ? "Generating…"
-                    : activeHasPendingRun
-                      ? "Run in progress…"
-                    : "Ask anything (Shift+Enter for newline)"
-              }
-            />
+          <div
+            data-tour="chat-input"
+            className="kb-safe-bottom border-t border-hairline bg-canvas px-3 pt-3 sm:px-6 sm:pt-4"
+          >
+            <div className="mx-auto max-w-3xl">
+              <ChatInput
+                key={activeTab.id}
+                onSubmit={send}
+                disabled={inputDisabled}
+                skills={slashSkills}
+                draftKey={composerDraftKey}
+                restoreDraft={activeTab.restoreDraft !== false}
+                editRequest={editRequest}
+                onEditComplete={() => setEditRequest(undefined)}
+                placeholder={
+                  models.length === 0
+                    ? "Loading models…"
+                    : busy
+                      ? "Generating…"
+                      : activeHasPendingRun
+                        ? "Run in progress…"
+                      : "Ask anything (Shift+Enter for newline)"
+                }
+              />
+            </div>
           </div>
-        </div>
-        </section>
+          </section>
 
-        <ChatPaneHost
-          rightPane={rightPane}
-          isAdmin={user?.role === "admin"}
-          inspectedMessage={inspectedMessage}
-          onClose={closeRightPane}
-          onOpenArtifact={openArtifactPreview}
-          onOpenThread={openThread}
-          onUnreadChange={setUnreadNotifications}
-        />
-      </main>
+          <ChatPaneHost
+            rightPane={rightPane}
+            isAdmin={user?.role === "admin"}
+            inspectedMessage={inspectedMessage}
+            onClose={closeRightPane}
+            onOpenArtifact={openArtifactPreview}
+            onOpenThread={openThread}
+            onUnreadChange={setUnreadNotifications}
+          />
+        </main>
+      </div>
 
       {settingsSection ? (
         <SettingsModal
