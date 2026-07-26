@@ -13,6 +13,17 @@ on:
         description: "Production-like URL to smoke test"
         required: false
         default: "https://comparative.builtwithrobot.link"
+      run_evals:
+        description: "Also run the real-model behavioral eval pack (costs Bedrock quota)"
+        type: boolean
+        required: false
+        default: false
+
+# Least privilege baseline; `foundational_evals` re-declares its own block to
+# add the `id-token: write` its OIDC role assumption needs. Without this the
+# workflow inherits the repository default, which can be read/write.
+permissions:
+  contents: read
 
 concurrency:
   group: product-smoke-${{ github.ref }}-${{ github.event_name }}
@@ -38,15 +49,17 @@ jobs:
       matrix:
         project: [desktop-chromium, mobile-chromium]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 9.12.3
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -61,7 +74,7 @@ jobs:
       # Caching the browser binaries removes the Chromium CDN download from
       # the critical path — historically a flake source of its own.
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -76,7 +89,7 @@ jobs:
 
       - name: Upload Playwright report
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-report-${{ matrix.project }}
           path: apps/web/playwright-report/
@@ -108,15 +121,17 @@ jobs:
     env:
       DATABASE_URL: postgres://aihub:aihub_dev@127.0.0.1:5432/aihub_core_smoke
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 9.12.3
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -125,7 +140,7 @@ jobs:
       # (prod-server smoke). Same cache key as ci.yml so a warm compiler cache
       # bounds the added build time.
       - name: Next.js build cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: apps/web/.next/cache
           key: nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/**/*.ts', 'apps/web/**/*.tsx', 'packages/**/*.ts', '!**/node_modules/**', '!apps/web/.next/**') }}
@@ -140,7 +155,7 @@ jobs:
         run: echo "version=$(pnpm --filter @ai-workspace/web exec node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -155,32 +170,34 @@ jobs:
 
       - name: Upload core pipeline report
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-core-pipeline-report
           path: apps/web/playwright-report/
           if-no-files-found: ignore
 
-  # This job is always present on pull requests so the required fan-in below
-  # has a stable result. Forks and drafts cannot receive AWS credentials;
-  # same-repository PRs run once ready (including the ready_for_review event).
+  # Real-model behavioral evals are NOT a per-PR gate. They cost ~148k Bedrock
+  # tokens per run against a non-adjustable 10.8M/day account ceiling, and
+  # `strict: true` re-gates every open PR after each merge — so a normal day's
+  # merges exhausted the quota and blocked all merges on an infra limit rather
+  # than on code (#706). This matches the layering in
+  # docs/CORE_RELIABILITY_REPLUMBING_SPEC.md, which places behavioral model
+  # evals at "nightly and release candidate", not every PR.
+  #
+  # Coverage is NOT reduced: nightly-evals.yml runs the FULL pack (every
+  # injection suite included) against the production-default model and files
+  # an eval-regression issue on failure. Run on demand here with
+  # `gh workflow run product-smoke.yml -f run_evals=true`.
   foundational_evals:
     name: foundational real-model evals
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_evals }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
       id-token: write
       contents: read
-    env:
-      RUN_REAL_EVAL: ${{ github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft }}
     steps:
-      - name: Explain ineligible PR
-        if: ${{ env.RUN_REAL_EVAL != 'true' }}
-        run: echo "Real-model evals are deferred for draft or forked pull requests."
-
       - name: Validate AWS eval configuration
-        if: ${{ env.RUN_REAL_EVAL == 'true' }}
         env:
           AWS_EVAL_ROLE_ARN: ${{ vars.AWS_EVAL_ROLE_ARN }}
         run: |
@@ -189,40 +206,36 @@ jobs:
             exit 1
           fi
 
-      - if: ${{ env.RUN_REAL_EVAL == 'true' }}
-        uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        if: ${{ env.RUN_REAL_EVAL == 'true' }}
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 9.12.3
 
       - name: Setup Node
-        if: ${{ env.RUN_REAL_EVAL == 'true' }}
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install
-        if: ${{ env.RUN_REAL_EVAL == 'true' }}
         run: pnpm install --frozen-lockfile
 
       - name: Configure AWS credentials
-        if: ${{ env.RUN_REAL_EVAL == 'true' }}
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_EVAL_ROLE_ARN }}
           aws-region: us-east-1
           allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
           role-duration-seconds: 1800
-          role-session-name: pr-evals-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          role-session-name: ondemand-evals-${{ github.run_id }}-${{ github.run_attempt }}
           mask-aws-account-id: true
           unset-current-credentials: true
 
       - name: Run foundational real-model evals
-        if: ${{ env.RUN_REAL_EVAL == 'true' }}
         id: evals
         env:
           BEDROCK_CLIENT: real
@@ -235,8 +248,8 @@ jobs:
       # Post-run spend-regression tripwire. Superseded runs are actively
       # canceled by workflow concurrency; this check forces review if the
       # stable gate pack grows beyond its calibrated envelope.
-      - name: Enforce PR eval cost tripwire
-        if: ${{ always() && env.RUN_REAL_EVAL == 'true' && steps.evals.outcome != 'skipped' }}
+      - name: Enforce eval cost tripwire
+        if: ${{ always() && steps.evals.outcome != 'skipped' }}
         env:
           MAX_COST_USD: ${{ env.PR_EVAL_MAX_COST_USD }}
         run: |
@@ -270,10 +283,10 @@ jobs:
           NODE
 
       - name: Upload eval report
-        if: ${{ always() && env.RUN_REAL_EVAL == 'true' }}
-        uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: pr-core-eval-report-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          name: ondemand-eval-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: packages/evals/eval-reports/
           if-no-files-found: warn
 
@@ -285,7 +298,7 @@ jobs:
   browser-smoke:
     name: local browser smoke
     if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
-    needs: [browser-smoke-shard, core-pipeline-smoke, foundational_evals]
+    needs: [browser-smoke-shard, core-pipeline-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -299,11 +312,7 @@ jobs:
             echo "core chat + CSV pipeline did not pass: ${{ needs.core-pipeline-smoke.result }}"
             exit 1
           fi
-          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ needs.foundational_evals.result }}" != "success" ]; then
-            echo "foundational real-model evals did not pass: ${{ needs.foundational_evals.result }}"
-            exit 1
-          fi
-          echo "all browser smoke shards, core pipeline, and applicable real-model evals passed"
+          echo "all browser smoke shards and the core chat + CSV pipeline passed"
 
   authenticated-browser-smoke:
     name: authenticated browser smoke
@@ -328,15 +337,17 @@ jobs:
       DATABASE_URL: postgres://aihub:aihub_dev@127.0.0.1:5432/aihub_auth_smoke
       NEXTAUTH_SECRET: playwright-local-secret-with-enough-length
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 9.12.3
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -345,7 +356,7 @@ jobs:
       # (prod-server smoke). Same cache key as ci.yml so a warm compiler cache
       # bounds the added build time.
       - name: Next.js build cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: apps/web/.next/cache
           key: nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/**/*.ts', 'apps/web/**/*.tsx', 'packages/**/*.ts', '!**/node_modules/**', '!apps/web/.next/**') }}
@@ -360,7 +371,7 @@ jobs:
         run: echo "version=$(pnpm --filter @ai-workspace/web exec node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -375,7 +386,7 @@ jobs:
 
       - name: Upload authenticated Playwright report
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-auth-report
           path: apps/web/playwright-report/
@@ -387,10 +398,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
 

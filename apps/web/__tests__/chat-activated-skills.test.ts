@@ -174,7 +174,9 @@ describe("resolveActivatedSkillForChat", () => {
       ok: false,
       status: 409,
       error: "skill_provider_unavailable",
-      message: expect.stringContaining("reconnect google in Tools"),
+      message: expect.stringContaining(
+        "reconnect google in Settings → Integrations",
+      ),
     });
   });
 

@@ -182,9 +182,37 @@ setup. Confirm the first subscription email before relying on notifications.
 Worker liveness uses the standard `AWS/ECS` `LiveTaskCount` metric with the
 cluster and service dimensions. `RunningTaskCount` belongs to the paid
 Container Insights namespace and must not be substituted into `AWS/ECS`.
-Application Load Balancer coverage includes target-generated 5xx responses,
-load-balancer-generated 5xx responses, and unhealthy web targets. The
-chat-worker log metric matches the emitted `[chat-run-worker-error]` marker.
+Application Load Balancer coverage includes target-generated 5xx responses and
+load-balancer-generated 5xx responses. The chat-worker log metric matches the
+emitted `[chat-run-worker-error]` marker — including the poison-pill
+quarantine described below, so an exhausted run reaches the same inbox.
+
+### Who owns which alarm
+
+Alarms that depend on a CDK-managed resource are owned by
+`AiWorkspaceEcsStack`; the rest are applied by the script above. Nothing is
+owned by both — `ai-workspace-web-unhealthy-hosts` previously was, and whichever
+writer ran last silently decided its settings.
+
+| Alarm | Owner |
+|---|---|
+| `ai-workspace-web-unhealthy-hosts` | CDK (`WebUnhealthyHostsAlarm`) |
+| `ai-workspace-web-below-task-floor` | CDK (`WebTaskFloorAlarm`) |
+| `ai-workspace-memory-capture-failures` | CDK (`MemoryCaptureFailureAlarm`) |
+| `ai-workspace-{chat,memory}-worker-no-running-tasks` | `setup-ops-alarms.sh` |
+| `ai-workspace-web-5xx`, `ai-workspace-load-balancer-5xx` | `setup-ops-alarms.sh` |
+| `ai-workspace-run-failure-burst` | `setup-ops-alarms.sh` |
+
+`ai-workspace-web-below-task-floor` (#568) alarms when the web service has
+fewer live tasks than the stack's autoscaling `minCapacity`; both read the same
+`WEB_MIN_TASK_COUNT` constant, so the threshold cannot drift from the declared
+floor. It treats missing data as breaching — a service with no tasks stops
+publishing the metric entirely, which is precisely the outage to page on.
+
+The CDK alarms send to the `ai-workspace-ops-alerts` topic by name. Run
+`setup-ops-alarms.sh` first (or at least once) so the topic and its confirmed
+email subscription exist; CloudWatch accepts the action ARN either way, but a
+missing topic means a missing notification.
 
 ## Rollback
 

@@ -5,6 +5,12 @@ on:
   push:
     branches: [main]
 
+# Least privilege: every job here only reads the checked-out source. Without an
+# explicit block this workflow inherits the repository default, which can be
+# read/write for the whole GITHUB_TOKEN.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -15,15 +21,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 9.12.3
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -32,7 +40,7 @@ jobs:
       # ~90s to ~20s locally. Source-hash miss falls back to the lockfile
       # restore-key, which still restores a mostly-warm compiler cache.
       - name: Next.js build cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: apps/web/.next/cache
           key: nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/**/*.ts', 'apps/web/**/*.tsx', 'packages/**/*.ts', '!**/node_modules/**', '!apps/web/.next/**') }}
@@ -71,20 +79,45 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 9.12.3
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
 
+      # The gate answers "does the production tree contain a known high/critical
+      # CVE?". It can only answer that when it can REACH the advisory database.
+      # On 2026-07-26 the npm audit endpoint began returning gzip that pnpm
+      # 9.12.3 does not decompress ("Unexpected token ... is not valid JSON"),
+      # failing this check identically on main and on every PR — an outage
+      # indistinguishable, in the old one-line form, from a real vulnerability.
+      #
+      # A finding is detected POSITIVELY (pnpm prints an advisory table), never
+      # by elimination: any other non-zero exit means the audit could not run,
+      # which is retried and then warned about. Reporting an unrecognized
+      # network error as "CVE found" would fabricate a finding — the same
+      # outage-vs-signal confusion inverted (review).
+      #
+      # DEPENDS ON DEPENDABOT: not blocking on an unreachable registry is only
+      # safe because Dependabot alerts + security updates (enabled 2026-07-25)
+      # cover this tree over a different path. If Dependabot is ever disabled,
+      # this warning path becomes an unguarded hole — restore fail-closed here.
+      # Runs first: the classifier is what decides whether a real advisory
+      # blocks, so it must itself be gated. Without this the coverage exists
+      # but nothing enforces it (review).
+      - name: Verify the audit classifier
+        run: bash scripts/audit-prod-deps.test.sh
+
       - name: Audit production dependencies
-        run: pnpm audit --prod --audit-level high
+        run: bash scripts/audit-prod-deps.sh
 
   scoping-integration:
     name: scoping integration (real Postgres)
@@ -104,15 +137,17 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 9.12.3
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -141,15 +176,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 9.12.3
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
           cache: pnpm

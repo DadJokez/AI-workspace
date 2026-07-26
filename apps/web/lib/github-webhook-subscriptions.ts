@@ -4,6 +4,7 @@ import {
 } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { decryptSecret } from "@/lib/oauth/crypto";
+import { integrationConnectPath } from "@/lib/settings-navigation";
 import { loadActiveToolAttestations } from "@/lib/tool-attestations";
 
 const GITHUB_API = "https://api.github.com";
@@ -68,7 +69,7 @@ export async function ensureGitHubRepositoryWebhook({
       ok: false,
       status: 409,
       error: "github_not_connected",
-      message: "Connect GitHub in Tools before adding a GitHub trigger.",
+      message: `Connect GitHub in ${integrationConnectPath("github")} before adding a GitHub trigger.`,
     };
   }
   if (
