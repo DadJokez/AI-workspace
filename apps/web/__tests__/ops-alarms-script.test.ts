@@ -95,7 +95,11 @@ describe("setup-ops-alarms.sh", () => {
       "utf8",
     );
 
-    expect(deployment).toContain("allow mutable tags");
+    // Assert the INVARIANT (tags are mutable and the doc says so), not one
+    // phrasing: #703 rewrote this section with the verified ECR state, so the
+    // old exact string "allow mutable tags" no longer appears.
+    expect(deployment).toMatch(/Image tags are mutable/i);
+    expect(deployment).toContain("`MUTABLE`");
     expect(deployment).not.toContain("immutable commit tag");
   });
 });
