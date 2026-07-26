@@ -186,15 +186,8 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    env:
-      RUN_REAL_EVAL: ${{ github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft }}
     steps:
-      - name: Explain ineligible PR
-        if: ${{ env.RUN_REAL_EVAL != 'true' }}
-        run: echo "Real-model evals are deferred for draft or forked pull requests."
-
       - name: Validate AWS eval configuration
-        if: ${{ env.RUN_REAL_EVAL == 'true' }}
         env:
           AWS_EVAL_ROLE_ARN: ${{ vars.AWS_EVAL_ROLE_ARN }}
         run: |
@@ -203,40 +196,34 @@ jobs:
             exit 1
           fi
 
-      - if: ${{ env.RUN_REAL_EVAL == 'true' }}
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
 
       - name: Setup pnpm
-        if: ${{ env.RUN_REAL_EVAL == 'true' }}
         uses: pnpm/action-setup@v6
         with:
           version: 9.12.3
 
       - name: Setup Node
-        if: ${{ env.RUN_REAL_EVAL == 'true' }}
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install
-        if: ${{ env.RUN_REAL_EVAL == 'true' }}
         run: pnpm install --frozen-lockfile
 
       - name: Configure AWS credentials
-        if: ${{ env.RUN_REAL_EVAL == 'true' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_EVAL_ROLE_ARN }}
           aws-region: us-east-1
           allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
           role-duration-seconds: 1800
-          role-session-name: pr-evals-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          role-session-name: ondemand-evals-${{ github.run_id }}-${{ github.run_attempt }}
           mask-aws-account-id: true
           unset-current-credentials: true
 
       - name: Run foundational real-model evals
-        if: ${{ env.RUN_REAL_EVAL == 'true' }}
         id: evals
         env:
           BEDROCK_CLIENT: real
@@ -249,8 +236,8 @@ jobs:
       # Post-run spend-regression tripwire. Superseded runs are actively
       # canceled by workflow concurrency; this check forces review if the
       # stable gate pack grows beyond its calibrated envelope.
-      - name: Enforce PR eval cost tripwire
-        if: ${{ always() && env.RUN_REAL_EVAL == 'true' && steps.evals.outcome != 'skipped' }}
+      - name: Enforce eval cost tripwire
+        if: ${{ always() && steps.evals.outcome != 'skipped' }}
         env:
           MAX_COST_USD: ${{ env.PR_EVAL_MAX_COST_USD }}
         run: |
@@ -284,10 +271,10 @@ jobs:
           NODE
 
       - name: Upload eval report
-        if: ${{ always() && env.RUN_REAL_EVAL == 'true' }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: pr-core-eval-report-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          name: ondemand-eval-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: packages/evals/eval-reports/
           if-no-files-found: warn
 
