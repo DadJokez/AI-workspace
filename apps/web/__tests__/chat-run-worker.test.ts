@@ -35,6 +35,7 @@ vi.mock("@/lib/notifications", () => ({
 import {
   heartbeatRunLease,
   processQueuedChatRun,
+  quarantineExhaustedRuns,
   reapOrphanedRuns,
   runChatRunWorkerLoop,
 } from "@/lib/chat-run-worker";
@@ -634,5 +635,156 @@ describe("runChatRunWorkerLoop concurrency (#448)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/**
+ * #464 — a run whose execution kills the worker never reaches markRunFailed,
+ * so before this the lease simply lapsed and the same poison pill was
+ * re-claimed forever, starving every slot on a 3-slot lane. The claim is now
+ * bounded by an attempt ceiling and exhausted runs are retired.
+ */
+describe("poison-pill attempt ceiling (#464)", () => {
+  function capturingDb(returning: () => Promise<unknown[]>) {
+    const captured: Array<{
+      condition: unknown;
+      values: Record<string, unknown>;
+    }> = [];
+    const db = {
+      update: () => ({
+        set: (values: Record<string, unknown>) => ({
+          where: (condition: unknown) => {
+            captured.push({ condition, values });
+            return { returning };
+          },
+        }),
+      }),
+    } as unknown as Database;
+    return { db, captured };
+  }
+
+  const rendered = (condition: unknown) =>
+    new PgDialect().sqlToQuery(condition as never);
+
+  it("refuses to claim a run that has burned its ceiling", async () => {
+    const { db, captured } = capturingDb(async () => []);
+
+    const result = await processQueuedChatRun({ db, runId: "run-1" });
+
+    // No row comes back, so the run is not executed one more time.
+    expect(result).toEqual({ status: "idle" });
+    expect(executeChatTurn).not.toHaveBeenCalled();
+    const { sql, params } = rendered(captured[0]!.condition);
+    expect(sql).toContain('"attempt_count" <');
+    expect(params).toContain(3);
+  });
+
+  it("takes the ceiling from CHAT_RUN_MAX_ATTEMPTS", async () => {
+    vi.mocked(numberFromEnv).mockImplementation((name: string) =>
+      name === "CHAT_RUN_MAX_ATTEMPTS" ? 5 : undefined,
+    );
+    const { db, captured } = capturingDb(async () => []);
+
+    await processQueuedChatRun({ db, runId: "run-1" });
+
+    expect(rendered(captured[0]!.condition).params).toContain(5);
+  });
+
+  it("quarantines exhausted runs with a reason the run-failure alarm sees", async () => {
+    const poison = claimedRun({
+      triggerType: "chat",
+      attemptCount: 3,
+    } as Partial<Run>);
+    const { db, captured } = capturingDb(async () => [poison]);
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    let quarantined: number;
+    let logged: string;
+    try {
+      quarantined = await quarantineExhaustedRuns({ db });
+    } finally {
+      // mockRestore() wipes mock.calls, so read the log before restoring.
+      logged = stderr.mock.calls.map((call) => String(call[0])).join("");
+      stderr.mockRestore();
+    }
+
+    expect(quarantined).toBe(1);
+    const { condition, values } = captured[0]!;
+    expect(values.status).toBe("failed");
+    expect(values.error).toContain("3-attempt ceiling");
+    // Releases the lane: no owner, and no lease left to expire and reclaim on.
+    expect(values.workerId).toBeNull();
+    expect(values.leaseExpiresAt).toBeNull();
+
+    const { sql, params } = rendered(condition);
+    expect(sql).toContain('"attempt_count" >=');
+    expect(params).toContain(3);
+    // Scoped to runs a worker would otherwise re-claim, so a run executing
+    // under a live lease is never failed out from under its owner.
+    expect(sql).toContain('"lease_expires_at" <');
+    expect(params).toContain("queued");
+
+    // setup-ops-alarms.sh filters the chat-worker log group on this marker.
+    expect(logged).toContain("[chat-run-worker-error]");
+    expect(logged).toContain("attempt_ceiling_exhausted");
+
+    expect(appendRunEventBestEffort).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        runId: "run-1",
+        eventType: "run_failed",
+        status: "failed",
+      }),
+    );
+    expect(createProactiveRunNotification).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({ id: "run-1" }),
+      "failed",
+      "thread-1",
+    );
+  });
+
+  it("sweeps exhausted runs from the worker loop", async () => {
+    const terminalErrors: unknown[] = [];
+    const db = {
+      update: () => ({
+        set: (values: Record<string, unknown>) => ({
+          where: () => ({
+            returning: async () => {
+              if (values.status === "failed") terminalErrors.push(values.error);
+              return [];
+            },
+          }),
+        }),
+      }),
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            orderBy: () => ({ limit: async () => [] }),
+            limit: async () => [],
+          }),
+        }),
+      }),
+    } as unknown as Database;
+    const controller = new AbortController();
+
+    const loop = runChatRunWorkerLoop({
+      db,
+      workerId: "w-sweep",
+      pollIntervalMs: 5,
+      signal: controller.signal,
+    });
+    await vi.waitFor(() =>
+      expect(
+        terminalErrors.some((error) =>
+          String(error).includes("attempt ceiling"),
+        ),
+      ).toBe(true),
+    );
+
+    controller.abort();
+    await loop;
   });
 });

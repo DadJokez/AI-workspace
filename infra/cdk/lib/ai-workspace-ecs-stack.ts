@@ -10,6 +10,8 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
+import * as sns from "aws-cdk-lib/aws-sns";
 import { Construct } from "constructs";
 
 const APP_SECRET_FIELDS = [
@@ -34,6 +36,15 @@ const WORKER_TASK_SIZE = {
   cpu: 256,
   memoryLimitMiB: 512,
 } as const;
+
+/**
+ * The production availability floor for the web service. Autoscaling's
+ * minCapacity and the #568 liveness alarm threshold both read this constant so
+ * the alarm cannot silently drift away from the declared floor.
+ */
+const WEB_MIN_TASK_COUNT = 2;
+const CLUSTER_NAME = "ai-workspace-prod";
+const WEB_SERVICE_NAME = "ai-workspace-web";
 
 export class AiWorkspaceEcsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -110,6 +121,20 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       "aiWorkspace:albAccessLogBucketName",
       `ai-workspace-alb-logs-${this.account}-${this.region}`,
     );
+    // The ops topic and its confirmed email subscription are created by
+    // infra/scripts/setup-ops-alarms.sh (an operator confirms the subscription
+    // out of band), so the stack references it by name instead of creating it.
+    const opsAlertTopicName = contextString(
+      this,
+      "aiWorkspace:opsAlertTopicName",
+      "ai-workspace-ops-alerts",
+    );
+    const opsAlertTopic = sns.Topic.fromTopicArn(
+      this,
+      "OpsAlertTopic",
+      `arn:${this.partition}:sns:${this.region}:${this.account}:${opsAlertTopicName}`,
+    );
+    const opsAlertAction = new cloudwatchActions.SnsAction(opsAlertTopic);
 
     const vpc = ec2.Vpc.fromLookup(this, "DefaultVpc", {
       isDefault: true,
@@ -138,7 +163,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       legacyDomainName !== domainName ? legacyDomainName : domainName;
 
     const cluster = new ecs.Cluster(this, "Cluster", {
-      clusterName: "ai-workspace-prod",
+      clusterName: CLUSTER_NAME,
       vpc,
       containerInsightsV2: ecs.ContainerInsights.DISABLED,
     });
@@ -256,7 +281,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
         "WebService",
         {
           cluster,
-          serviceName: "ai-workspace-web",
+          serviceName: WEB_SERVICE_NAME,
           taskDefinition: webTask,
           publicLoadBalancer: true,
           assignPublicIp: true,
@@ -296,7 +321,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     webService.service.node.addDependency(certificate);
 
     const webScaling = webService.service.autoScaleTaskCount({
-      minCapacity: 2,
+      minCapacity: WEB_MIN_TASK_COUNT,
       maxCapacity: 4,
     });
     webScaling.scaleOnCpuUtilization("WebCpuScaling", {
@@ -374,18 +399,26 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
         defaultValue: 0,
       },
     );
-    new cloudwatch.Alarm(this, "MemoryCaptureFailureAlarm", {
-      alarmName: "ai-workspace-memory-capture-failures",
-      metric: memoryCaptureFailureMetric.metric({
-        statistic: "Sum",
-        period: cdk.Duration.minutes(20),
-      }),
-      threshold: 1,
-      evaluationPeriods: 1,
-      comparisonOperator:
-        cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    });
+    const memoryCaptureFailureAlarm = new cloudwatch.Alarm(
+      this,
+      "MemoryCaptureFailureAlarm",
+      {
+        alarmName: "ai-workspace-memory-capture-failures",
+        alarmDescription:
+          "The memory worker logged a capture failure in the last 20 minutes.",
+        metric: memoryCaptureFailureMetric.metric({
+          statistic: "Sum",
+          period: cdk.Duration.minutes(20),
+        }),
+        threshold: 1,
+        evaluationPeriods: 1,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      },
+    );
+    // #509 class: an alarm with no action is an alarm nobody receives.
+    memoryCaptureFailureAlarm.addAlarmAction(opsAlertAction);
 
     if (codeBuildRoleArn) {
       const codeBuildRole = iam.Role.fromRoleArn(
@@ -416,16 +449,60 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       );
     }
 
-    new cloudwatch.Alarm(this, "WebUnhealthyHostsAlarm", {
-      alarmName: "ai-workspace-web-unhealthy-hosts",
-      metric: webService.targetGroup.metrics.unhealthyHostCount({
+    // This stack is the single owner of `ai-workspace-web-unhealthy-hosts`.
+    // setup-ops-alarms.sh used to write the same alarm name with different
+    // settings, so whichever ran last silently won; the script no longer
+    // touches it. Statistic/datapoints match what the script used, so the
+    // handover does not weaken the alarm.
+    const webUnhealthyHostsAlarm = new cloudwatch.Alarm(
+      this,
+      "WebUnhealthyHostsAlarm",
+      {
+        alarmName: "ai-workspace-web-unhealthy-hosts",
+        alarmDescription:
+          "The web target group has had unhealthy hosts for 3 minutes.",
+        metric: webService.targetGroup.metrics.unhealthyHostCount({
+          statistic: "Maximum",
+          period: cdk.Duration.minutes(1),
+        }),
+        threshold: 1,
+        evaluationPeriods: 3,
+        datapointsToAlarm: 3,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      },
+    );
+    webUnhealthyHostsAlarm.addAlarmAction(opsAlertAction);
+    webUnhealthyHostsAlarm.addOkAction(opsAlertAction);
+
+    // #568: unhealthy hosts detect bad registered targets; this detects the
+    // service falling below its declared availability floor. `LiveTaskCount`
+    // is the standard AWS/ECS metric — `RunningTaskCount` lives in the paid
+    // Container Insights namespace, which this cluster deliberately disables.
+    // Missing data breaches: a dead metric is exactly the outage this alarm
+    // exists to catch, so it must page rather than silently pass.
+    const webTaskFloorAlarm = new cloudwatch.Alarm(this, "WebTaskFloorAlarm", {
+      alarmName: "ai-workspace-web-below-task-floor",
+      alarmDescription: `#568: the web service has had fewer than ${WEB_MIN_TASK_COUNT} live ECS tasks for 3 minutes.`,
+      metric: new cloudwatch.Metric({
+        namespace: "AWS/ECS",
+        metricName: "LiveTaskCount",
+        dimensionsMap: {
+          ClusterName: CLUSTER_NAME,
+          ServiceName: WEB_SERVICE_NAME,
+        },
+        statistic: "Minimum",
         period: cdk.Duration.minutes(1),
       }),
-      threshold: 1,
+      threshold: WEB_MIN_TASK_COUNT,
       evaluationPeriods: 3,
-      comparisonOperator:
-        cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      datapointsToAlarm: 3,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.BREACHING,
     });
+    webTaskFloorAlarm.addAlarmAction(opsAlertAction);
+    webTaskFloorAlarm.addOkAction(opsAlertAction);
 
     new cdk.CfnOutput(this, "Url", {
       value: `https://${domainName}`,
