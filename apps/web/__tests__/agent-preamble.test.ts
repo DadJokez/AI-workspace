@@ -178,3 +178,45 @@ describe("buildAgentPreamble Salesforce schema grounding", () => {
     expect(preamble).toContain("do not retry identical SOQL");
   });
 });
+
+describe("buildAgentPreamble connected-but-not-mounted honesty", () => {
+  const lightweightPreamble = () =>
+    buildAgentPreamble({
+      user: {
+        displayName: "Rob",
+        assistantName: null,
+        customInstructions: null,
+      },
+      // Connected on the account, nothing mounted on this fast-chat turn.
+      accountConnectedProviders: ["github"],
+      connectedProviders: [],
+    });
+
+  it("forbids narrating a lookup the turn cannot perform", () => {
+    const preamble = lightweightPreamble();
+
+    expect(preamble).toContain(
+      "No connected account tool is mounted in this lightweight turn",
+    );
+    // The regression (#641): "Say you need to check it" produced "Let me
+    // fetch your last 3 pull requests" followed by invented PRs. The lane
+    // has no tool to contradict the fabrication, so the prompt must name
+    // the absent action instead of inviting it.
+    expect(preamble).not.toContain("Say you need to check it");
+    expect(preamble).toContain(
+      "do not write that you are fetching, checking, looking up, searching, or retrieving anything",
+    );
+    expect(preamble).toContain("do not emit tool-call syntax");
+  });
+
+  it("clamps the correction so it cannot deny the account itself", () => {
+    const preamble = lightweightPreamble();
+
+    expect(preamble).toContain(
+      "the account is connected but no tool is mounted on this turn to reach it",
+    );
+    expect(preamble).toContain(
+      "Never say the account itself is not connected, not available, or not accessible",
+    );
+  });
+});
