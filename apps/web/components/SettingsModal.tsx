@@ -148,6 +148,10 @@ export function SettingsModal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const requestCloseRef = useRef<() => void>(() => undefined);
   const warningFocusRef = useRef<HTMLButtonElement>(null);
+  // The element to restore focus to on close. Kept in a ref (not an effect
+  // local) so StrictMode's dev remount cannot recapture it after the shell
+  // went inert and blurred the opener.
+  const openerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setNameDraft(displayName);
@@ -193,7 +197,20 @@ export function SettingsModal({
   requestCloseRef.current = () => requestNavigation({ kind: "close" });
 
   useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
+    // Capture the opener before marking the shell inert: applying `inert`
+    // blurs any focused element inside it.
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body) {
+      openerRef.current = active;
+    }
+    // #648: aria-modal alone left background controls (New chat, composer)
+    // addressable through assistive tech while Settings was open — a
+    // wrong-thread write path. `inert` removes the app shell from the
+    // accessibility tree and blocks focus and clicks until close.
+    const appShell = document.querySelector<HTMLElement>(
+      '[data-app-shell="true"]',
+    );
+    appShell?.setAttribute("inert", "");
     const dialog = dialogRef.current;
     window.requestAnimationFrame(() => {
       dialog
@@ -241,14 +258,14 @@ export function SettingsModal({
     window.addEventListener("keydown", handleKeyDown, true);
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
+      // Lift `inert` before restoring focus — an inert opener ignores focus().
+      appShell?.removeAttribute("inert");
       window.requestAnimationFrame(() => {
         const fallback = document.querySelector<HTMLElement>(
           '[data-settings-trigger="true"]',
         );
-        const target =
-          previouslyFocused?.isConnected && previouslyFocused !== document.body
-            ? previouslyFocused
-            : fallback;
+        const opener = openerRef.current;
+        const target = opener?.isConnected ? opener : fallback;
         target?.focus();
       });
     };
@@ -313,11 +330,15 @@ export function SettingsModal({
 
   return (
     <div className="fixed inset-0 z-[90] flex items-stretch justify-center md:items-center md:p-6">
-      <button
-        type="button"
-        aria-label="Close settings"
-        className="absolute inset-0 hidden cursor-default bg-black/45 md:block"
-        onClick={() => requestNavigation({ kind: "close" })}
+      {/* Desktop dimming scrim. Purely presentational (#648): it was an
+          aria-labelled button, giving the a11y tree a second "Close settings"
+          control that dismissed the modal from outside the dialog. The modal
+          contract wants exactly one accessible close control and clicks over
+          background controls to do nothing, so the scrim no longer closes —
+          Escape and the header ✕ are the two ways out. */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 hidden bg-black/45 md:block"
       />
       <div
         ref={dialogRef}
