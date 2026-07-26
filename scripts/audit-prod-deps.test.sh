@@ -38,6 +38,19 @@ check "metadata counts alone block" 1 "Production CVE found" \
 check "node deprecation noise does not hide a finding" 1 "Production CVE found" \
   'echo "(node:123) [DEP0169] DeprecationWarning: url.parse()"; echo "{\"advisories\":{\"9\":{}},\"metadata\":{\"vulnerabilities\":{\"high\":1}}}"; exit 1'
 
+# The review finding: stderr noise beside a real report must not break parsing
+# and downgrade a finding to "outage" (that would fail OPEN on a live CVE).
+check "stderr noise cannot hide a finding" 1 "Production CVE found" \
+  'echo "WARN  Ignoring unknown option" >&2; echo "{\"advisories\":{\"7\":{}},\"metadata\":{\"vulnerabilities\":{\"high\":1}}}"; exit 1'
+check "update-notifier chatter cannot hide a finding" 1 "Production CVE found" \
+  'echo "Update available 9.12.3 -> 10.0.0" >&2; echo "{\"metadata\":{\"vulnerabilities\":{\"critical\":1}}}"; exit 1'
+
+# Severity contract: counts are authoritative when present.
+check "sub-high advisories with zero high/critical do not block" 0 "No known high/critical CVEs" \
+  'echo "{\"advisories\":{\"3\":{\"severity\":\"moderate\"}},\"metadata\":{\"vulnerabilities\":{\"moderate\":1,\"high\":0,\"critical\":0}}}"; exit 1'
+check "advisories with no severity breakdown still block" 1 "Production CVE found" \
+  'echo "{\"advisories\":{\"3\":{\"severity\":\"high\"}}}"; exit 1'
+
 # --- outage direction: must never claim a CVE (the earlier review finding) ---
 check "pnpm error envelope warns, no CVE claim" 0 "could not run" \
   'echo "{\"error\":{\"code\":\"pnpm\",\"message\":\"Unexpected token is not valid JSON\"}}"; exit 1'

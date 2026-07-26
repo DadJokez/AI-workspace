@@ -46,19 +46,31 @@ process.stdin.on("end", () => {
     return;
   }
   const advisories = parsed?.advisories ?? {};
-  const counts = parsed?.metadata?.vulnerabilities ?? {};
-  const blocking = (counts.high ?? 0) + (counts.critical ?? 0);
-  process.stdout.write(
-    Object.keys(advisories).length > 0 || blocking > 0 ? "finding" : "clean",
-  );
+  const counts = parsed?.metadata?.vulnerabilities;
+  if (counts) {
+    // Authoritative when present: the contract is high/critical only.
+    const blocking = (counts.high ?? 0) + (counts.critical ?? 0);
+    process.stdout.write(blocking > 0 ? "finding" : "clean");
+    return;
+  }
+  // No severity breakdown (older/newer report shape): any advisory blocks
+  // rather than risk passing a real one.
+  process.stdout.write(Object.keys(advisories).length > 0 ? "finding" : "clean");
 });
 '
 }
 
 raw=""
+err=""
+err_file="$(mktemp)"
+trap 'rm -f "$err_file"' EXIT
 for attempt in $(seq 1 "$ATTEMPTS"); do
-  raw="$($AUDIT_CMD 2>&1)"
+  # stdout carries the report and is the ONLY thing parsed; folding stderr in
+  # would let one stray warning break JSON.parse next to a real finding and
+  # silently downgrade it to "registry unreachable" (review).
+  raw="$($AUDIT_CMD 2>"$err_file")"
   code=$?
+  err="$(cat "$err_file")"
 
   if [ $code -eq 0 ]; then
     echo "No known high/critical CVEs in the production dependency tree."
@@ -69,6 +81,7 @@ for attempt in $(seq 1 "$ATTEMPTS"); do
 
   if [ "$verdict" = "finding" ]; then
     echo "$raw"
+    [ -n "$err" ] && echo "$err" >&2
     echo "::error title=Production CVE found::pnpm audit reported a high or critical advisory in the production dependency tree."
     exit 1
   fi
@@ -85,5 +98,6 @@ for attempt in $(seq 1 "$ATTEMPTS"); do
 done
 
 echo "$raw"
+[ -n "$err" ] && echo "$err" >&2
 echo "::warning title=CVE audit could not run::The advisory registry was unreachable or returned an unparseable body after ${ATTEMPTS} attempts, so this run proves nothing about CVEs. Not failing the gate: absence of information is not evidence of a vulnerability, and Dependabot alerts cover this tree independently. Re-run once the registry recovers."
 exit 0
