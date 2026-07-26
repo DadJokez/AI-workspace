@@ -69,6 +69,8 @@ vi.mock("@/lib/artifact-context", () => ({
     ({ payload }: { payload: { text?: string } | null }) =>
       payload?.text ?? null,
   ),
+  // #647: fixtures are plain prompts with no document request.
+  hasDocumentCreationIntent: vi.fn(() => false),
 }));
 vi.mock("@/lib/artifact-revisions", () => ({
   resolveArtifactContextTargets: vi.fn(() => ({
@@ -1074,6 +1076,9 @@ describe("executeChatTurn — persist tail", () => {
             runId: "run-1",
             triggerType,
           }),
+          // #647: the user-turn creation-intent classification reaches the
+          // persistence seam on the worker lane too.
+          documentCreationIntent: false,
         }),
       );
       expect(createDraftAppVersionsForThreadArtifacts).toHaveBeenCalledWith(

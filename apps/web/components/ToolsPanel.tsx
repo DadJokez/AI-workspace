@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
+import {
+  INTEGRATION_DISPLAY_NAMES,
+  SETTINGS_INTEGRATIONS_LABEL,
+} from "@/lib/settings-navigation";
 
 interface Integration {
   id: string;
@@ -46,7 +50,7 @@ interface IntegrationCardState {
 const INTEGRATIONS: Integration[] = [
   {
     id: "github",
-    name: "GitHub",
+    name: INTEGRATION_DISPLAY_NAMES.github,
     description: "Repositories, issues, and pull requests",
     initial: "G",
     bg: "#1F2328",
@@ -65,7 +69,7 @@ const INTEGRATIONS: Integration[] = [
   },
   {
     id: "salesforce",
-    name: "Salesforce",
+    name: INTEGRATION_DISPLAY_NAMES.salesforce,
     description: "Search and read accounts, opportunities, contacts, and pipeline (read-only)",
     initial: "S",
     bg: "#00A1E0",
@@ -125,7 +129,7 @@ const INTEGRATIONS: Integration[] = [
   },
   {
     id: "notion",
-    name: "Notion",
+    name: INTEGRATION_DISPLAY_NAMES.notion,
     description: "Search, summarize, query, create, and update workspace docs",
     initial: "N",
     bg: "#000000",
@@ -135,7 +139,7 @@ const INTEGRATIONS: Integration[] = [
   },
   {
     id: "google",
-    name: "Google Mail & Calendar",
+    name: INTEGRATION_DISPLAY_NAMES.google,
     description: "Read Gmail and Calendar, save drafts, and create confirmed events",
     initial: "G",
     bg: "#34A853",
@@ -216,7 +220,9 @@ export function IntegrationsSettings() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h2 className="text-md font-semibold text-ink">Integrations</h2>
+        <h2 className="text-md font-semibold text-ink">
+          {SETTINGS_INTEGRATIONS_LABEL}
+        </h2>
         <p className="mt-1 text-sm text-muted">
           Connect services to give Comparative access to your work.
         </p>
@@ -227,7 +233,7 @@ export function IntegrationsSettings() {
           <EmptyState
             title="Connect your first integration"
             description="Connected work tools let Comparative answer with your real projects, documents, and activity."
-            actionLabel="Connect GitHub"
+            actionLabel={`Connect ${INTEGRATION_DISPLAY_NAMES.github}`}
             actionHref="/api/oauth/github/start"
           />
         ) : null}
