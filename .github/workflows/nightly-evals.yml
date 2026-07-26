@@ -1,7 +1,11 @@
 name: Nightly Evals
 
 # Full real-model behavior suite plus one app-backed real-Bedrock CSV journey.
-# Ready same-repository PRs run the foundational subset inside Product Smoke.
+# This is now the ONLY automated real-model lane: the per-PR eval gate was
+# retired because ~148k tokens per run against a non-adjustable 10.8M/day
+# Bedrock ceiling made merges fail on quota rather than on code (#706). Every
+# suite still runs here, including all four injection suites, and a failure
+# files/refreshes an `eval-regression` issue.
 on:
   schedule:
     - cron: "0 7 * * *" # 07:00 UTC daily

@@ -41,6 +41,33 @@ unit suites.
 | Provider (OAuth) connection ⚙ | `mcp_connection_create` | `lib/oauth/connection.ts` (every callback flows through it) |
 | Admin trace access (all inspector reads) | `run_trace_viewed` | admin trace route |
 
+## Authentication
+
+Written from the next-auth config (`lib/auth/nextauth.ts`) through
+`lib/auth/auth-audit.ts`; pinned by
+`apps/web/__tests__/nextauth-auth-events.test.ts`.
+
+| Surface | Action type | Written in |
+| --- | --- | --- |
+| Sign-in success | `auth_sign_in` | `lib/auth/nextauth.ts` (`events.signIn`) |
+| Sign-in denied by the invite gate — both providers, both magic-link phases | `auth_sign_in_denied` | `lib/auth/nextauth.ts` (`callbacks.signIn`) |
+| Sign-out | `auth_sign_out` | `lib/auth/nextauth.ts` (`events.signOut`) |
+
+Rows carry the DB user id (success, sign-out) or the attempted address
+(denial, same class of data as `invite.*`), the provider id, and the
+ALB-appended client IP plus a truncated user-agent — never tokens.
+
+Two deliberate departures from the surfaces above:
+
+- The auth ledger fails **open**. Cross-user reads fail closed because the
+  alternative is unattributable data access; auth failing closed would lock
+  every user out of a working app when the ledger is unavailable. A failed
+  write logs the error message (never the driver error, which can echo row
+  values) and continues.
+- Sign-in attempts next-auth rejects *before* the gate runs — expired or
+  reused magic-link token, OAuth state mismatch — are not audited. next-auth
+  v4 emits no event for them; they surface only as `?error=` on `/login`.
+
 ## Cross-user admin data access
 
 Every read below writes `admin_data_access` through

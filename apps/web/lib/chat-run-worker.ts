@@ -1,7 +1,7 @@
 import { normalizeUserTimeZone } from "@ai-workspace/agent";
 import { getRuntime } from "@ai-workspace/agent-runtime";
 import { chatThreads, type Database, runs, type Run } from "@ai-workspace/db";
-import { and, asc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { ChatContextUploadedFile } from "@/lib/chat-context-pack";
 import {
   parseChatExecutionMode,
@@ -32,6 +32,13 @@ import {
 } from "@/lib/proposal-iterations";
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
+/**
+ * #464: how many times a run may be claimed before it is quarantined. A run
+ * whose execution kills the worker process never reaches markRunFailed, so
+ * without a ceiling its lease just expires and it is re-claimed forever —
+ * one poison pill starves every slot on the lane.
+ */
+const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_RUNTIME_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
 /** #448: how many claimed runs a single worker executes concurrently. */
@@ -76,6 +83,26 @@ function claimableRunCondition() {
     eq(runs.skillSlug, "chat-turn"),
     inArray(runs.triggerType, WORKER_TRIGGER_TYPES),
   );
+}
+
+/** A run is up for grabs when it is fresh, or its owner's lease has lapsed. */
+function unownedRunCondition(now: Date) {
+  return or(
+    eq(runs.status, "queued"),
+    and(eq(runs.status, "running"), lt(runs.leaseExpiresAt, now)),
+  );
+}
+
+/** #464: total claims a run gets before the lane gives up on it. */
+function chatRunMaxAttempts(): number {
+  return Math.max(
+    1,
+    Math.floor(numberFromEnv("CHAT_RUN_MAX_ATTEMPTS") ?? DEFAULT_MAX_ATTEMPTS),
+  );
+}
+
+function quarantineError(maxAttempts: number): string {
+  return `Quarantined after reaching the ${maxAttempts}-attempt ceiling: the run stopped before finishing every time, so it will not be retried.`;
 }
 
 interface ProcessChatRunInput {
@@ -147,15 +174,15 @@ export async function runChatRunWorkerLoop({
     // process crash never leaves a thread showing "Working…" forever.
     if (Date.now() - lastSweepAt >= ORPHAN_SWEEP_INTERVAL_MS) {
       lastSweepAt = Date.now();
-      try {
-        await reapOrphanedRuns({ db });
-      } catch (err) {
-        process.stderr.write(
-          `[chat-run-orphan-sweep-error] ${JSON.stringify({
-            message: err instanceof Error ? err.message : String(err),
-          })}\n`,
-        );
-      }
+      await sweepBestEffort("chat-run-orphan-sweep-error", () =>
+        reapOrphanedRuns({ db }),
+      );
+      // #464: retire poison-pill runs that have burned their attempt ceiling.
+      // The claim conditions already refuse them; this is what stops them
+      // sitting `queued`/`running` forever with nobody willing to take them.
+      await sweepBestEffort("chat-run-quarantine-sweep-error", () =>
+        quarantineExhaustedRuns({ db }),
+      );
     }
     const claimed =
       inFlight.size < concurrency ? await claimChatRun({ db, workerId }) : null;
@@ -295,7 +322,11 @@ async function runClaimedChatRun({
   }
 }
 
-async function claimChatRun({
+/**
+ * Exported alongside the other lease primitives so the claim SQL — including
+ * the #464 attempt ceiling — can be exercised against real Postgres.
+ */
+export async function claimChatRun({
   db,
   runId,
   workerId,
@@ -326,10 +357,10 @@ async function claimChatRun({
       and(
         eq(runs.id, id),
         claimableRunCondition(),
-        or(
-          eq(runs.status, "queued"),
-          and(eq(runs.status, "running"), lt(runs.leaseExpiresAt, now)),
-        ),
+        unownedRunCondition(now),
+        // #464: never hand a run more attempts than its ceiling, including on
+        // the targeted (runId) path. quarantineExhaustedRuns retires it.
+        lt(runs.attemptCount, chatRunMaxAttempts()),
       ),
     )
     .returning();
@@ -345,16 +376,75 @@ async function findNextClaimableRunId(db: Database): Promise<string | null> {
     .where(
       and(
         claimableRunCondition(),
-        or(
-          eq(runs.status, "queued"),
-          and(eq(runs.status, "running"), lt(runs.leaseExpiresAt, now)),
-        ),
+        unownedRunCondition(now),
+        lt(runs.attemptCount, chatRunMaxAttempts()),
       ),
     )
     .orderBy(asc(runs.createdAt))
     .limit(1);
 
   return rows[0]?.id ?? null;
+}
+
+/**
+ * #464: retire runs that have burned their attempt ceiling. Scoped to the
+ * states a worker would otherwise re-claim (queued, or running past a lapsed
+ * lease), so a run currently executing under a live lease is never failed out
+ * from under its owner. The `[chat-run-worker-error]` marker is what the
+ * production run-failure-burst alarm filters on, so a quarantine pages the
+ * same way a burst of terminal errors does.
+ */
+export async function quarantineExhaustedRuns({
+  db,
+  maxAttempts = chatRunMaxAttempts(),
+}: {
+  db: Database;
+  maxAttempts?: number;
+}): Promise<number> {
+  const now = new Date();
+  const message = quarantineError(maxAttempts);
+  const quarantined = await db
+    .update(runs)
+    .set({
+      status: "failed",
+      error: message,
+      workerId: null,
+      leaseExpiresAt: null,
+      completedAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        claimableRunCondition(),
+        unownedRunCondition(now),
+        gte(runs.attemptCount, maxAttempts),
+      ),
+    )
+    .returning();
+
+  for (const run of quarantined) {
+    process.stderr.write(
+      `[chat-run-worker-error] ${JSON.stringify({
+        runId: run.id,
+        threadId: run.threadId,
+        reason: "attempt_ceiling_exhausted",
+        attemptCount: run.attemptCount,
+        maxAttempts,
+        message,
+      })}\n`,
+    );
+    await releaseProposalIterationBestEffort(db, run, message, now);
+    await appendRunEventBestEffort("chat-run-event-error", {
+      db,
+      runId: run.id,
+      eventType: "run_failed",
+      status: "failed",
+      label: "Run quarantined after exhausting its attempt ceiling",
+      error: message,
+    });
+    await createProactiveRunNotification(db, run, "failed", run.threadId);
+  }
+  return quarantined.length;
 }
 
 /**
@@ -553,24 +643,7 @@ async function markRunFailed(
 
   if (updatedRows.length === 0) return;
 
-  const proposalIteration = proposalIterationFromRunInputs(run.inputs);
-  if (proposalIteration) {
-    try {
-      await releaseProposalIteration({
-        db,
-        iteration: proposalIteration,
-        error: message,
-        completedAt,
-      });
-    } catch (error) {
-      process.stderr.write(
-        `[proposal-iteration-release-error] ${JSON.stringify({
-          runId: run.id,
-          message: error instanceof Error ? error.message : String(error),
-        })}\n`,
-      );
-    }
-  }
+  await releaseProposalIterationBestEffort(db, run, message, completedAt);
 
   await createProactiveRunNotification(db, { ...run, error: message }, "failed");
 
@@ -582,6 +655,36 @@ async function markRunFailed(
     label: "Background worker failed the run",
     error: message,
   });
+}
+
+/**
+ * A terminal run must not keep holding its proposal-iteration slot; a failure
+ * to release is logged rather than thrown so it cannot mask the run's own
+ * terminal write.
+ */
+async function releaseProposalIterationBestEffort(
+  db: Database,
+  run: Run,
+  message: string,
+  completedAt: Date,
+): Promise<void> {
+  const proposalIteration = proposalIterationFromRunInputs(run.inputs);
+  if (!proposalIteration) return;
+  try {
+    await releaseProposalIteration({
+      db,
+      iteration: proposalIteration,
+      error: message,
+      completedAt,
+    });
+  } catch (error) {
+    process.stderr.write(
+      `[proposal-iteration-release-error] ${JSON.stringify({
+        runId: run.id,
+        message: error instanceof Error ? error.message : String(error),
+      })}\n`,
+    );
+  }
 }
 
 /**
@@ -758,6 +861,22 @@ function workerRuntimeName(): "agentcore" | "bedrock" {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A background sweep must never tear down the loop that runs it. */
+async function sweepBestEffort(
+  logTag: string,
+  sweep: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    await sweep();
+  } catch (err) {
+    process.stderr.write(
+      `[${logTag}] ${JSON.stringify({
+        message: err instanceof Error ? err.message : String(err),
+      })}\n`,
+    );
+  }
 }
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {

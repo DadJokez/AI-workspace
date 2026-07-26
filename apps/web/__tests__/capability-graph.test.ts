@@ -234,7 +234,17 @@ describe("capability graph", () => {
       missingProviders: ["github"],
       pendingApprovalProviders: [],
     });
-    expect(renderCapabilitySummaryForPrompt(graph)).toContain("Tools: none");
+    const summary = renderCapabilitySummaryForPrompt(graph);
+    expect(summary).toContain("Tools: none");
+    // Disconnected-provider guidance cites the real Settings navigation the
+    // UI renders — never an invented page like "Connected Accounts" (#649).
+    expect(graph.skills[0]!.why).toContain(
+      "Settings → Integrations → GitHub → Connect GitHub",
+    );
+    expect(summary).toContain(
+      "Settings → Integrations → GitHub → Connect GitHub",
+    );
+    expect(summary).not.toContain("Connected Accounts");
   });
 
   it("includes enabled schedules as owned runnable capabilities", () => {
