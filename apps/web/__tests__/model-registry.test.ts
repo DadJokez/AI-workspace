@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { Database } from "@ai-workspace/db";
-import { MODELS, estimateCostUsd } from "@ai-workspace/agent";
+import {
+  DEFAULT_MODEL_ID,
+  MODEL_IDS,
+  MODELS,
+  estimateCostUsd,
+} from "@ai-workspace/agent";
 import {
   enabledModelsForPurpose,
   invalidateModelEnablementCache,
@@ -10,7 +15,12 @@ import {
   resolveModelForPurpose,
 } from "@/lib/model-registry";
 
-/** Temporary platform override while the Sonnet 4.6 quota is unavailable. */
+/**
+ * The account-wide platform pin decides every enablement answer below, so these
+ * assertions track `DEFAULT_MODEL_ID` instead of naming a model version — moving
+ * the pin stays a one-line change in `packages/agent/src/models.ts`.
+ */
+const UNPINNED_MODEL_IDS = MODEL_IDS.filter((id) => id !== DEFAULT_MODEL_ID);
 
 function fakeDb(
   rows: Array<{ modelId: string; purpose: string }> | Error,
@@ -30,52 +40,60 @@ afterEach(() => {
 });
 
 describe("enabledModelsForPurpose", () => {
-  it("returns only Sonnet 4.5 for every purpose", async () => {
-    const db = fakeDb([
-      { modelId: "haiku-4-5", purpose: "chat" },
-      { modelId: "sonnet-4-6", purpose: "chat" },
-      { modelId: "sonnet-4-6", purpose: "memory-capture" },
-    ]);
+  it("returns only the pinned platform model for every purpose", async () => {
+    const db = fakeDb(
+      UNPINNED_MODEL_IDS.flatMap((modelId) => [
+        { modelId, purpose: "chat" },
+        { modelId, purpose: "memory-capture" },
+      ]),
+    );
 
-    expect(await enabledModelsForPurpose(db, "chat")).toEqual(["sonnet-4-5"]);
+    expect(await enabledModelsForPurpose(db, "chat")).toEqual([
+      DEFAULT_MODEL_ID,
+    ]);
     expect(await enabledModelsForPurpose(db, "memory-capture")).toEqual([
-      "sonnet-4-5",
+      DEFAULT_MODEL_ID,
     ]);
     expect(await enabledModelsForPurpose(db, "durable-local")).toEqual([
-      "sonnet-4-5",
+      DEFAULT_MODEL_ID,
     ]);
   });
 });
 
 describe("isModelEnabled", () => {
   it("only reports the platform override as enabled", async () => {
-    const db = fakeDb([{ modelId: "sonnet-4-6", purpose: "chat" }]);
+    const db = fakeDb(
+      UNPINNED_MODEL_IDS.map((modelId) => ({ modelId, purpose: "chat" })),
+    );
 
-    expect(await isModelEnabled(db, "sonnet-4-5", "chat")).toBe(true);
-    expect(await isModelEnabled(db, "sonnet-4-6", "chat")).toBe(false);
-    expect(await isModelEnabled(db, "opus-4-7", "chat")).toBe(false);
+    expect(await isModelEnabled(db, DEFAULT_MODEL_ID, "chat")).toBe(true);
+    for (const modelId of UNPINNED_MODEL_IDS) {
+      expect(await isModelEnabled(db, modelId, "chat")).toBe(false);
+    }
     expect(await isModelEnabled(db, "gpt-troll", "chat")).toBe(false);
   });
 });
 
 describe("resolveModelForPurpose", () => {
   it("supersedes persisted preferences for every internal purpose", async () => {
-    const db = fakeDb([
-      { modelId: "haiku-4-5", purpose: "memory-capture" },
-      { modelId: "sonnet-4-6", purpose: "memory-capture" },
-    ]);
+    const db = fakeDb(
+      UNPINNED_MODEL_IDS.map((modelId) => ({
+        modelId,
+        purpose: "memory-capture",
+      })),
+    );
 
     expect(
       await resolveModelForPurpose(db, "memory-capture", {
-        preferred: "haiku-4-5",
+        preferred: UNPINNED_MODEL_IDS[0],
       }),
-    ).toBe("sonnet-4-5");
+    ).toBe(DEFAULT_MODEL_ID);
     expect(
       await resolveModelForPurpose(db, "summaries", {
-        preferred: "opus-4-7",
+        preferred: UNPINNED_MODEL_IDS.at(-1),
       }),
-    ).toBe("sonnet-4-5");
-    expect(await resolveModelForPurpose(db, "routing")).toBe("sonnet-4-5");
+    ).toBe(DEFAULT_MODEL_ID);
+    expect(await resolveModelForPurpose(db, "routing")).toBe(DEFAULT_MODEL_ID);
   });
 });
 
@@ -106,15 +124,13 @@ describe("model candidate ordering", () => {
     ).toThrow('No models are enabled for purpose "chat".');
   });
 
-  it("pins internal candidate lists to Sonnet 4.5", async () => {
-    const db = fakeDb([
-      { modelId: "haiku-4-5", purpose: "routing" },
-      { modelId: "sonnet-4-6", purpose: "routing" },
-      { modelId: "opus-4-7", purpose: "routing" },
-    ]);
+  it("pins internal candidate lists to the pinned platform model", async () => {
+    const db = fakeDb(
+      UNPINNED_MODEL_IDS.map((modelId) => ({ modelId, purpose: "routing" })),
+    );
 
     expect(await resolveModelCandidatesForPurpose(db, "routing")).toEqual([
-      "sonnet-4-5",
+      DEFAULT_MODEL_ID,
     ]);
   });
 });

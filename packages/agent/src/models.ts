@@ -169,11 +169,16 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
 };
 
 /**
- * Temporary account-wide model pin while the Sonnet 4.6 daily-token quota
- * increase is pending. Keeping this separate from the default lets us remove
- * the pin later without rewriting stored thread, user, or skill preferences.
+ * Account-wide model pin. Kept separate from the default so it can be changed
+ * without rewriting stored thread, user, or skill preferences.
+ *
+ * 2026-07-25: released back to Sonnet 4.6. The 4.5 pin (#661) was taken while
+ * a 4.6 quota increase was pending, but pinning concentrated ALL platform AND
+ * eval spend onto one model's daily bucket — a heavy eval day then exhausted
+ * it and blocked every merge gate (#706), while 4.6's bucket sat untouched.
+ * Quotas are per-model, so the pin turned a two-bucket budget into one.
  */
-export const PLATFORM_MODEL_OVERRIDE_ID: ModelId | null = "sonnet-4-5";
+export const PLATFORM_MODEL_OVERRIDE_ID: ModelId | null = "sonnet-4-6";
 
 export const DEFAULT_MODEL_ID: ModelId =
   PLATFORM_MODEL_OVERRIDE_ID ?? "sonnet-4-6";

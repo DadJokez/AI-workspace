@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import {
   parseSkillMarkdown,
   serializeSkillToMarkdown,
@@ -40,7 +41,7 @@ describe("parseSkillMarkdown", () => {
     const result = parseSkillMarkdown(md);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.skill.modelId).toBe("sonnet-4-5"); // DEFAULT_MODEL_ID
+    expect(result.skill.modelId).toBe(DEFAULT_MODEL_ID);
     expect(result.skill.mcpProviders).toEqual(["github"]);
     expect(result.skill.warnings.join(" ")).toMatch(/workfront/);
   });

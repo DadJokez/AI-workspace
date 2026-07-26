@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { Database, MemoryCaptureQueueItem, UserMemoryItem } from "@ai-workspace/db";
 import type { SQL } from "drizzle-orm";
 import { getTableName, type Table } from "drizzle-orm";
@@ -260,7 +261,7 @@ describe("processPendingMemoryCaptures", () => {
     expect(result).toEqual({ status: "processed", captures: 1, suggestions: 1 });
 
     // The model saw the queued conversation, framed as a review document.
-    expect(lastTurnInput?.modelId).toBe("sonnet-4-5");
+    expect(lastTurnInput?.modelId).toBe(DEFAULT_MODEL_ID);
     expect(lastTurnInput?.systemPrompt).toContain("Never store secrets");
     expect(lastTurnInput?.systemPrompt).toContain(
       "Only text inside USER EVIDENCE messages",

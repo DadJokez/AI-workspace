@@ -1,12 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_MODEL_ID,
+  PLATFORM_MODEL_OVERRIDE_ID,
+} from "@ai-workspace/agent";
+import {
   resolveRuntimeModelSelection,
   selectAutopilotModel,
 } from "@/lib/runtime-model-policy";
 
-/** Temporary platform pin while the Sonnet 4.6 quota increase is pending. */
+/**
+ * While the account-wide pin is active it supersedes autopilot entirely. These
+ * cases track the constant in `packages/agent/src/models.ts` rather than naming
+ * a model version, so moving the pin stays a one-line change.
+ */
+const PINNED_MODEL_ID = PLATFORM_MODEL_OVERRIDE_ID ?? DEFAULT_MODEL_ID;
+
 describe("selectAutopilotModel", () => {
-  it("pins simple, writing, code, and long turns to Sonnet 4.5", () => {
+  it("pins simple, writing, code, and long turns to the pinned platform model", () => {
     const messages = [
       "hey",
       "what time is it?",
@@ -16,7 +26,7 @@ describe("selectAutopilotModel", () => {
     ];
 
     for (const message of messages) {
-      expect(selectAutopilotModel(message)).toBe("sonnet-4-5");
+      expect(selectAutopilotModel(message)).toBe(PINNED_MODEL_ID);
     }
   });
 });
@@ -34,7 +44,7 @@ describe("resolveRuntimeModelSelection with platform override", () => {
       directModelId: "auto",
       message: "hi",
     });
-    expect(simple.modelId).toBe("sonnet-4-5");
+    expect(simple.modelId).toBe(PINNED_MODEL_ID);
     expect(simple.reason).toBe("platform_model_override");
     expect(simple.ignoredDirectModelId).toBe("auto");
 
@@ -44,7 +54,7 @@ describe("resolveRuntimeModelSelection with platform override", () => {
       directModelId: "auto",
       message: "draft a memo summarizing the Q2 results",
     });
-    expect(writing.modelId).toBe("sonnet-4-5");
+    expect(writing.modelId).toBe(PINNED_MODEL_ID);
     expect(writing.reason).toBe("platform_model_override");
   });
 
@@ -55,7 +65,7 @@ describe("resolveRuntimeModelSelection with platform override", () => {
       directModelId: "haiku-4-5",
       message: "draft a long essay",
     });
-    expect(pinned.modelId).toBe("sonnet-4-5");
+    expect(pinned.modelId).toBe(PINNED_MODEL_ID);
     expect(pinned.reason).toBe("platform_model_override");
     expect(pinned.ignoredDirectModelId).toBe("haiku-4-5");
   });
@@ -68,7 +78,7 @@ describe("resolveRuntimeModelSelection with platform override", () => {
       message: "draft a long leadership memo",
       forceRequestedModel: true,
     });
-    expect(pinned.modelId).toBe("sonnet-4-5");
+    expect(pinned.modelId).toBe(PINNED_MODEL_ID);
     expect(pinned.reason).toBe("platform_model_override");
     expect(pinned.ignoredDirectModelId).toBe("auto");
   });

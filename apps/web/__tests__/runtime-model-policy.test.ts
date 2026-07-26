@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_MODEL_ID,
+  MODEL_IDS,
+  MODELS,
+  PLATFORM_MODEL_OVERRIDE_ID,
+} from "@ai-workspace/agent";
+import {
   applyRuntimeModelFailover,
   resolveChatModelPreference,
   resolveRuntimeModelSelection,
@@ -8,25 +14,35 @@ import {
 const directRoute = { runtimeTarget: "direct-chat" as const };
 const agentRoute = { runtimeTarget: "agentcore-worker" as const };
 
+/**
+ * These cases assert that the account-wide pin wins, not that any particular
+ * model version does, so they track the constant in
+ * `packages/agent/src/models.ts` — moving the pin stays a one-line change.
+ */
+const PINNED_MODEL_ID = PLATFORM_MODEL_OVERRIDE_ID ?? DEFAULT_MODEL_ID;
+const PINNED_PROVIDER_MODEL_ID = MODELS[PINNED_MODEL_ID].bedrockModelId;
+/** Every registry model except the pin — the ids a pin has to supersede. */
+const UNPINNED_MODEL_IDS = MODEL_IDS.filter((id) => id !== PINNED_MODEL_ID);
+
 describe("resolveRuntimeModelSelection", () => {
-  it("pins direct Bedrock chat to Sonnet 4.5", () => {
+  it("pins direct Bedrock chat to the pinned platform model", () => {
     expect(
       resolveRuntimeModelSelection({
-        requestedModelId: "claude-sonnet-4-6",
+        requestedModelId: "claude-opus-4-7",
         route: directRoute,
         runtimeName: "bedrock",
         directModelId: "haiku-4-5",
       }),
     ).toMatchObject({
-      requestedModelId: "claude-sonnet-4-6",
-      modelId: "sonnet-4-5",
-      providerModelId: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+      requestedModelId: "claude-opus-4-7",
+      modelId: PINNED_MODEL_ID,
+      providerModelId: PINNED_PROVIDER_MODEL_ID,
       reason: "platform_model_override",
       ignoredDirectModelId: "haiku-4-5",
     });
   });
 
-  it("pins model-decided and AgentCore turns to Sonnet 4.5", () => {
+  it("pins model-decided and AgentCore turns to the pinned platform model", () => {
     expect(
       resolveRuntimeModelSelection({
         requestedModelId: "haiku-4-5",
@@ -39,21 +55,21 @@ describe("resolveRuntimeModelSelection", () => {
         message: "hi",
       }),
     ).toMatchObject({
-      modelId: "sonnet-4-5",
-      providerModelId: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+      modelId: PINNED_MODEL_ID,
+      providerModelId: PINNED_PROVIDER_MODEL_ID,
       reason: "platform_model_override",
       ignoredDirectModelId: "auto",
     });
     expect(
       resolveRuntimeModelSelection({
-        requestedModelId: "claude-sonnet-4-6",
+        requestedModelId: "claude-opus-4-7",
         route: agentRoute,
         runtimeName: "agentcore",
         directModelId: "haiku-4-5",
       }),
     ).toMatchObject({
-      modelId: "sonnet-4-5",
-      providerModelId: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+      modelId: PINNED_MODEL_ID,
+      providerModelId: PINNED_PROVIDER_MODEL_ID,
       reason: "platform_model_override",
     });
   });
@@ -71,7 +87,7 @@ describe("resolveRuntimeModelSelection", () => {
         forceRequestedModel: true,
       }),
     ).toMatchObject({
-      modelId: "sonnet-4-5",
+      modelId: PINNED_MODEL_ID,
       reason: "platform_model_override",
     });
   });
@@ -85,8 +101,8 @@ describe("resolveRuntimeModelSelection", () => {
         directModelId: "not-valid",
       }),
     ).toMatchObject({
-      modelId: "sonnet-4-5",
-      providerModelId: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+      modelId: PINNED_MODEL_ID,
+      providerModelId: PINNED_PROVIDER_MODEL_ID,
       reason: "platform_model_override",
       ignoredDirectModelId: "not-valid",
     });
@@ -100,10 +116,11 @@ describe("resolveRuntimeModelSelection", () => {
         runtimeName: "bedrock",
         directModelId: undefined,
         forceRequestedModel: true,
-        enabledModelIds: new Set(["haiku-4-5", "sonnet-4-6"]),
+        // The pin is absent from the enablement set and still wins.
+        enabledModelIds: new Set(UNPINNED_MODEL_IDS),
       }),
     ).toMatchObject({
-      modelId: "sonnet-4-5",
+      modelId: PINNED_MODEL_ID,
       reason: "platform_model_override",
     });
   });
