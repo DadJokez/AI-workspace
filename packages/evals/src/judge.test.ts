@@ -119,6 +119,32 @@ describe("judge calibration contract", () => {
     }
   });
 
+  it("names the unreadable line when it fails closed on an unparsed verdict", async () => {
+    // A fail-closed verdict and a real model regression look identical in the
+    // report, because the reason drops line one — the line that failed to
+    // parse. Surfacing it is diagnosis only: the verdict is still false.
+    const verdict = await runJudge(
+      new StaticJudgeClient("**Verdict:**\nPASS\n\nThe answer is fine."),
+      { rubric: "Does the answer pass?", answer: "candidate" },
+    );
+
+    expect(verdict.pass).toBe(false);
+    expect(verdict.reason).toContain("unparsed verdict line");
+    expect(verdict.reason).toContain("**Verdict:**");
+  });
+
+  it("leaves a cleanly parsed verdict's reason untouched", async () => {
+    const verdict = await runJudge(
+      new StaticJudgeClient("PASS\nThe answer matches the evidence."),
+      { rubric: "Does the answer pass?", answer: "candidate" },
+    );
+
+    expect(verdict).toMatchObject({
+      pass: true,
+      reason: "The answer matches the evidence.",
+    });
+  });
+
   it("accepts unambiguous PASS formatting variants (parser flake, not model regression)", async () => {
     for (const variant of [
       "PASS.\nThe answer matches the evidence.",

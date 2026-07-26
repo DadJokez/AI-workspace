@@ -80,6 +80,14 @@ function calledGitHubDirectlyNoDiscovery(t: TurnTranscript) {
   };
 }
 
+/**
+ * Every PR the fixture tool returned must appear. The question these cases
+ * ask must therefore be the question the fixture answers: asking for *open*
+ * PRs while demanding merged #314 be cited made a correctly-filtered answer
+ * fail, and would have passed an answer that mislabeled a merged PR as open
+ * (#641). The cases ask for the PRs the tool returns; the filtering behavior
+ * is not what tool discovery is under test for.
+ */
 function answerCitesFixturePrs(t: TurnTranscript) {
   const missing = githubFixturePullRequests
     .map((pr) => `#${pr.number}`)
@@ -132,7 +140,7 @@ export const toolDiscoverySuite: EvalSuite = {
       description:
         "Cold conversation: 'check my PRs' activates github via discovery and answers with fixture data in one user-visible turn.",
       systemPrompt: DISCOVERY_PROMPT,
-      input: `Check my open pull requests in ${githubFixtureRepo.fullName} and summarize them.`,
+      input: `Check my pull requests in ${githubFixtureRepo.fullName} and summarize them.`,
       tools: createGitHubFixtureTools(),
       toolDiscovery: {
         catalog: DISCOVERY_CATALOG,
@@ -153,7 +161,7 @@ export const toolDiscoverySuite: EvalSuite = {
       description:
         "Fast-path: naming GitHub pre-activates it, so the model answers directly with no discovery round-trip (#384 P3).",
       systemPrompt: FAST_PATH_PROMPT,
-      input: `Check my open pull requests in ${githubFixtureRepo.fullName} on GitHub and summarize them.`,
+      input: `Check my pull requests in ${githubFixtureRepo.fullName} on GitHub and summarize them.`,
       tools: createGitHubFixtureTools(),
       toolDiscovery: {
         catalog: DISCOVERY_CATALOG,
