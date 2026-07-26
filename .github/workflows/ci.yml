@@ -83,8 +83,31 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # The gate answers "does the production tree contain a known high/critical
+      # CVE?". It can only answer that when it can REACH the advisory database.
+      # On 2026-07-26 the npm audit endpoint began returning gzip that pnpm
+      # 9.12.3 does not decompress ("Unexpected token ... is not valid JSON"),
+      # failing this check identically on main and on every PR — an outage
+      # indistinguishable, in the old one-line form, from a real vulnerability.
+      #
+      # A finding is detected POSITIVELY (pnpm prints an advisory table), never
+      # by elimination: any other non-zero exit means the audit could not run,
+      # which is retried and then warned about. Reporting an unrecognized
+      # network error as "CVE found" would fabricate a finding — the same
+      # outage-vs-signal confusion inverted (review).
+      #
+      # DEPENDS ON DEPENDABOT: not blocking on an unreachable registry is only
+      # safe because Dependabot alerts + security updates (enabled 2026-07-25)
+      # cover this tree over a different path. If Dependabot is ever disabled,
+      # this warning path becomes an unguarded hole — restore fail-closed here.
+      # Runs first: the classifier is what decides whether a real advisory
+      # blocks, so it must itself be gated. Without this the coverage exists
+      # but nothing enforces it (review).
+      - name: Verify the audit classifier
+        run: bash scripts/audit-prod-deps.test.sh
+
       - name: Audit production dependencies
-        run: pnpm audit --prod --audit-level high
+        run: bash scripts/audit-prod-deps.sh
 
   scoping-integration:
     name: scoping integration (real Postgres)
