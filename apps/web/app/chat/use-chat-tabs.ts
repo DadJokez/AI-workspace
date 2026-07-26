@@ -7,6 +7,7 @@ import {
 } from "@/lib/client-api";
 import { sortThreadHistory } from "@/lib/thread-history";
 import {
+  adoptInitialThreadTab,
   canonicalThreadUrl,
   makeFreshTab,
   mergeLoadedMessages,
@@ -108,18 +109,16 @@ export function useChatTabs({
       validIds,
       defaultModelId,
     );
-    const tab: ChatTab = {
-      id: crypto.randomUUID(),
-      title: thread?.title?.trim() || `Thread ${initialThreadId.slice(0, 8)}`,
+    // Keep the boot tab's identity where possible so the composer (keyed by
+    // tab id) does not remount and drop unsent attachments (#650).
+    const tab = adoptInitialThreadTab(tabs, {
       threadId: initialThreadId,
-      messages: [],
+      title: thread?.title?.trim() || `Thread ${initialThreadId.slice(0, 8)}`,
       modelId,
-      busy: false,
-      loaded: false,
-    };
+    });
     setTabs([tab]);
     setActiveId(tab.id);
-  }, [defaultModelId, initialThreadId, models, threads, userId]);
+  }, [defaultModelId, initialThreadId, models, tabs, threads, userId]);
 
   // Mirror the active conversation into the URL (#664) so reload restores
   // what is on screen. Native replaceState keeps Next's router in sync

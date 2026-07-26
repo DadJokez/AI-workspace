@@ -50,6 +50,7 @@ import {
   artifactContextTextForTurn,
   buildArtifactContextPayload,
   buildArtifactLookupMessage,
+  hasDocumentCreationIntent,
 } from "@/lib/artifact-context";
 import {
   resolveArtifactContextTargets,
@@ -1395,6 +1396,10 @@ export async function executeChatTurn({
     suppressedSkillIds,
     artifactContextTarget,
     separateFromArtifact,
+    // #647: classified from the raw user turn, not the model's answer, so a
+    // fenced block the model emits for a pure formatting request is not
+    // persisted as an artifact.
+    documentCreationIntent: hasDocumentCreationIntent(userInstruction),
     appEditSourceOmitted,
     suppressAssistantPersistence: providerStreamTruncated,
     contractViolation,
@@ -1459,6 +1464,7 @@ async function persistChatTurnResult({
   suppressedSkillIds,
   artifactContextTarget,
   separateFromArtifact,
+  documentCreationIntent,
   appEditSourceOmitted,
   suppressAssistantPersistence,
   contractViolation,
@@ -1494,6 +1500,8 @@ async function persistChatTurnResult({
   suppressedSkillIds: string[];
   artifactContextTarget?: WorkspaceArtifactVersionTarget | null;
   separateFromArtifact?: WorkspaceArtifactVersionTarget | null;
+  /** #647: whether the user's turn asked for a saved document/file at all. */
+  documentCreationIntent: boolean;
   appEditSourceOmitted: boolean;
   suppressAssistantPersistence: boolean;
   /** #652: the answer never contained the demanded literal. */
@@ -1603,6 +1611,7 @@ async function persistChatTurnResult({
         turnToolCalls: toolCalls,
         turnToolResults: toolResults,
         proposal,
+        documentCreationIntent,
       });
       if (artifacts.length > 0) {
         await appendTurnRunEvent(lane, {

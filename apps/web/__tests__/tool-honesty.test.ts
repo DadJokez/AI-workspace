@@ -152,7 +152,7 @@ describe("tool-use honesty grounding", () => {
     expect(preamble).toContain(
       "Connected account tools linked but not enabled for chat execution",
     );
-    expect(preamble).toContain("Google Mail and Calendar");
+    expect(preamble).toContain("Google Mail & Calendar");
     expect(preamble).toContain(
       "Do not claim you can read, search, write, or summarize these linked tools yet",
     );
@@ -174,7 +174,7 @@ describe("tool-use honesty grounding", () => {
       "Connected account tools that require OAuth reconnection",
     );
     expect(preamble).toContain(
-      "Google Mail and Calendar needs to be reconnected in Tools before I can use it.",
+      "Google Mail & Calendar needs to be reconnected in Settings → Integrations before I can use it.",
     );
     expect(preamble).toContain("Do not say no tools are connected");
     expect(preamble).not.toContain("No external tools are connected yet");

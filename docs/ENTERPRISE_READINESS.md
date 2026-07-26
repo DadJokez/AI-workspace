@@ -24,6 +24,8 @@ evidence, not a compliance certification or legal DPA.
 | Health checks | Pilot shipped | `/api/health` checks DB connectivity/latency and runtime configuration. |
 | Rate limits and quotas | Pilot shipped | `/api/chat`, skill runs, authentication, and event triggers use shared Postgres fixed-window request limits plus body/message caps. Per-team/token/cost quotas are not live. |
 | Logging/redaction/retention | Pilot shipped | Shared tool payload redaction is applied before chat/tool/run/audit persistence; audit retention has a configurable cleanup script and admin visibility. |
+| Browser security headers | Partial | HSTS, `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and `X-Frame-Options: DENY` ship on every response from `apps/web/next.config.mjs`. The CSP is **report-only** until a soak confirms no violations; `/apps/<slug>` is the one framing exemption (SAMEORIGIN, matching the deployed-app document's own `frame-ancestors 'self'`). |
+| Authentication auditing | Pilot shipped | Sign-in, invite-gate denial, and sign-out write `audit_log` rows with provider, client IP, and user-agent (see `docs/AUDIT_SURFACES.md`). Sessions carry an explicit 24h idle expiry; per-user revocation needs a token-version column and is not live. |
 | KMS/Secrets/IaC | Partial | ECS/Fargate, ALB, task IAM, log groups, alarms, and secret injection are CDK-managed. Secrets Manager uses its AWS-managed key without automatic rotation; RDS storage encryption/private networking are not live. |
 | Load-test model | Model defined | Synthetic scenarios and thresholds are ready for a follow-up test harness. |
 
