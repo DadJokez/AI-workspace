@@ -131,7 +131,7 @@ silent bypass impossible, not a bypass impossible.
 ## Authentication and identity decisions
 
 **`allowDangerousEmailAccountLinking: true` on the GitHub provider**
-(`apps/web/lib/auth/nextauth.ts:191`) is deliberate, and the name is alarming
+(`apps/web/lib/auth/nextauth.ts:201`) is deliberate, and the name is alarming
 enough to deserve an explicit accepted-risk entry rather than a code comment.
 
 *What it does.* NextAuth normally refuses to attach an OAuth identity to an

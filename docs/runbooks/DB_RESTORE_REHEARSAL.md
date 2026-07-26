@@ -31,7 +31,10 @@ from automated backups.
 ## Prerequisites
 
 - AWS credentials with RDS and EC2 describe/create rights in `us-east-1`.
-- The DB security group id (`sg-019e87b5938a295a4` as of 2026-07-25) and the
+- The DB security group id and the subnet group, both read at run time (this
+  repository is public, so live resource identifiers are looked up rather than
+  written down):
+  `aws rds describe-db-instances --db-instance-identifier "$DB_INSTANCE" --query 'DBInstances[0].[VpcSecurityGroups[0].VpcSecurityGroupId,DBSubnetGroup.DBSubnetGroupName]' --output text`
   subnet group used by the live instance — read them, do not assume them.
 - A wall clock. **Record timings**; the numbers are the deliverable.
 
