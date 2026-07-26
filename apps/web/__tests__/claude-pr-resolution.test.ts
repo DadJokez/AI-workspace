@@ -200,15 +200,54 @@ describe("Claude review exact-head PR resolution", () => {
   });
 
   it("skips the closed or merged case before the workflow can write a failure verdict", () => {
+    // #699 split this workflow into a `review` job (runs the model, holds NO
+    // statuses:write) and a model-free `publish-verdict` job. So this can no
+    // longer be checked by string order in one script — assert the invariant
+    // across both jobs: a PR that closed or merged mid-run must leave the
+    // authenticated success alone and write no failure verdict.
     const workflow = readFileSync(WORKFLOW_PATH, "utf8");
-    const noOpenGuard = workflow.indexOf(
-      "if jq -e '.code == \"no_open_pull_request\"'",
-    );
-    const skipExit = workflow.indexOf("exit 0", noOpenGuard);
-    const failureStatus = workflow.indexOf('-f state="failure"', noOpenGuard);
 
-    expect(noOpenGuard).toBeGreaterThan(-1);
-    expect(skipExit).toBeGreaterThan(noOpenGuard);
-    expect(failureStatus).toBeGreaterThan(skipExit);
+    // 1. The review job recognizes the closed/merged case and stops early.
+    const guard = workflow.indexOf("if jq -e '.code == \"no_open_pull_request\"'");
+    expect(guard).toBeGreaterThan(-1);
+    const guardBlock = workflow.slice(guard, guard + 400);
+    expect(guardBlock).toContain('go=false');
+    expect(guardBlock).toContain("exit 0");
+
+    // 2. Critically, it does NOT mark the run as a resolution failure — that
+    //    flag is what makes the publisher write a red verdict.
+    expect(guardBlock).not.toContain("resolution_failed=true");
+
+    // 3. With no review outcome, the publisher exits before publishing.
+    const publishJob = workflow.slice(workflow.indexOf("  publish-verdict:"));
+    const noOutcome = publishJob.indexOf("No review outcome to publish");
+    expect(noOutcome).toBeGreaterThan(-1);
+    expect(publishJob.slice(noOutcome, noOutcome + 120)).toContain("exit 0");
+
+    // 4. The publisher is the only job that can write a status, so a
+    //    prompt-injected review session cannot green its own verdict (#698).
+    //    Read the permissions BLOCKS, not the file text — the review job's
+    //    header explains "Deliberately NO `statuses: write`", and a naive
+    //    substring match scores that prose as the grant it warns about.
+    const permissionsOf = (job: string) => {
+      const start = workflow.indexOf(`  ${job}:`);
+      const block = workflow.slice(start, workflow.indexOf("\n    steps:", start));
+      const perms = block.indexOf("permissions:");
+      if (perms === -1) return "";
+      // Permission entries are the indented lines directly under the key.
+      return block
+        .slice(perms)
+        .split("\n")
+        .slice(1)
+        .filter((line) => /^\s{6}\S/.test(line))
+        // Drop comments: the review job documents its own absent grant as
+        // "Deliberately NO `statuses: write`" INSIDE this block, and matching
+        // that prose would read the warning as the permission.
+        .filter((line) => !/^\s*#/.test(line))
+        .join("\n");
+    };
+
+    expect(permissionsOf("review")).not.toMatch(/statuses:\s*write/);
+    expect(permissionsOf("publish-verdict")).toMatch(/statuses:\s*write/);
   });
 });
