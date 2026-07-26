@@ -59,8 +59,11 @@ flowchart LR
    and feedback for support. Cross-owner reads create `admin_data_access`
    receipts.
 7. **CI/CD to production:** CodeBuild, ECR, CloudFormation/CDK, and ECS deploy
-   immutable commit-tagged images. Deploy receipts correlate source and task
-   definitions.
+   commit-tagged images. Deploy receipts correlate source and task
+   definitions. The ECR repositories are `MUTABLE` and the buildspecs also push
+   a floating `latest`, so tag uniqueness is a deployment convention, not a
+   registry guarantee; only the recorded `sha256:` digest is immutable. See
+   [Rollback](../PRODUCTION_DEPLOYMENT.md#rollback) and #449.
 
 ## Store and flow inventory
 
@@ -75,7 +78,7 @@ flowchart LR
 | Vault memory and capture queue | Confidential | Postgres `user_memory_items`, `memory_capture_queue` | DB TLS; AWS API TLS | RDS storage encryption disabled | User can review/archive; purge window pending #460 | Bedrock memory-capture turn; owner browser |
 | Run inputs, outputs, events, and standard trace snapshots | Confidential | Postgres `runs`, `run_events`, related JSON | DB TLS; AWS API TLS | RDS storage encryption disabled; persisted traces are redacted and byte-bounded | Policy pending #460/#381 | Bedrock/AgentCore; owner/admin browser |
 | Tool inputs, results, and receipts | Confidential | Postgres messages/runs/audit rows after redaction | Provider HTTPS; DB TLS | RDS storage encryption disabled | Audit/product windows pending #460 | Connected provider; Bedrock/AgentCore |
-| OAuth access and refresh tokens | Restricted | Postgres `oauth_tokens` | Provider HTTPS; DB TLS | AES-256-GCM application ciphertext; RDS storage encryption disabled | Until disconnect/revoke; no automated rotation | Connected provider only; model never receives raw token |
+| OAuth access and refresh tokens | Restricted | Postgres `oauth_tokens` | Provider HTTPS; DB TLS | AES-256-GCM application ciphertext; RDS storage encryption disabled | **Indefinite. There is no disconnect route** — see #692 — and no automated rotation | Connected provider only; model never receives raw token |
 | App/runtime secrets | Restricted | Secrets Manager JSON secret; injected into ECS tasks | AWS API/TLS | AWS-managed Secrets Manager key; no automatic rotation | Versioned by Secrets Manager; rotation runbook required | ECS task environment only |
 | Feedback text, context, and screenshots | Confidential | Postgres `feedback_reports` | HTTPS; DB TLS | RDS storage encryption disabled | Admin triage state; policy pending #460 | Reporter and authorized admins |
 | Audit ledger | Internal metadata plus redacted Confidential payloads | Postgres `audit_log` | DB TLS | RDS storage encryption disabled; append-only by application convention | Window pending #460; DB enforcement pending #457 | Authorized admins; no SIEM export yet |
@@ -84,7 +87,7 @@ flowchart LR
 | Model prompts and completions | Confidential | Transient Bedrock/AgentCore request/response path; durable source/answer remains in Postgres | AWS API/TLS | Governed by AWS service configuration and contract, not a Comparative product table | Confirm AWS service retention terms during enterprise review | AWS Bedrock/AgentCore; `us.*` profiles may route across US regions |
 | Provider requests and responses | Confidential; tokens Restricted | GitHub, Google, Notion, Salesforce APIs | HTTPS | Provider-controlled | Provider policy plus Comparative product/audit copies | Named provider selected by user/tool gate |
 | Search query and fetched public page | Internal or Confidential depending on query | Brave Search or requested public host; selected result may enter model context | HTTPS where target supports it; fetch also permits public HTTP | Remote-site controlled; redacted product copies may persist | Product copies follow chat/run policy | Brave Search; arbitrary public host passing SSRF and denylist checks |
-| Deploy images and receipts | Internal | ECR, CloudFormation/ECS, CodeBuild logs | AWS API/TLS | AWS-managed service storage | Immutable commit tags; service-specific log retention | AWS deployment services |
+| Deploy images and receipts | Internal | ECR, CloudFormation/ECS, CodeBuild logs | AWS API/TLS | AWS-managed service storage | Commit tags (mutable repositories, no lifecycle policy); service-specific log retention | AWS deployment services |
 
 ## External processors and egress
 
@@ -92,10 +95,10 @@ flowchart LR
 |---|---|---|---|---|
 | AWS Bedrock / AgentCore | Model inference and durable agent execution | Prompt/context, selected attachments, tool schemas/results | ECS task IAM | User initiates chat/skill/schedule; admin controls model enablement |
 | Amazon SES | Magic-link and invitation delivery | Recipient address and transactional content | Web task IAM scoped to verified identity | Admin invite or user sign-in request |
-| GitHub | OAuth, source-control tools, webhook events | Scoped tool arguments; repository data returned | Per-user OAuth; webhook HMAC for inbound events | User connects/disconnects and attests |
-| Google Gmail/Calendar | Mail/calendar read and user-authorized writes | Scoped query/draft/event data | Per-user OAuth; write authorization bound to the turn | User connects/disconnects; write intent is explicit |
-| Notion | Page/database search and reads | Scoped tool arguments and returned workspace data | Per-user OAuth | User connects/disconnects and attests |
-| Salesforce | Read-only CRM queries in the current tool surface | SOQL/search arguments and returned records | Per-user OAuth; instance URL validated | User connects/disconnects and attests |
+| GitHub | OAuth, source-control tools, webhook events | Scoped tool arguments; repository data returned | Per-user OAuth; webhook HMAC for inbound events | User connects and attests; **no in-product disconnect** (#692) |
+| Google Gmail/Calendar | Mail/calendar read and user-authorized writes | Scoped query/draft/event data | Per-user OAuth; write authorization bound to the turn | User connects; write intent is explicit; **no in-product disconnect** (#692) |
+| Notion | Page/database search and reads | Scoped tool arguments and returned workspace data | Per-user OAuth | User connects and attests; **no in-product disconnect** (#692) |
+| Salesforce | Read-only CRM queries in the current tool surface | SOQL/search arguments and returned records | Per-user OAuth; instance URL validated | User connects and attests; **no in-product disconnect** (#692) |
 | Brave Search | Public web search | Search query and result pagination | Server API key | Model invokes only when web capability is granted |
 | Public web host | Read a user-requested public URL | URL, normal HTTP headers; response body enters bounded context | No credentials; credentialed URLs rejected | Admin denylist; private/link-local/metadata addresses blocked |
 | PostHog Cloud | Product usage analytics | Stable user ID and role, sanitized route template, event name, model/resource IDs, and bounded status/boolean properties | Public project token; no provider or application credentials | Browser tracking disables autocapture, session replay, and exception capture; custom events contain no user content |
@@ -107,9 +110,17 @@ identity and grants.
 ## Encryption and residency decisions
 
 - Browser traffic terminates at the ALB over HTTPS; HTTP redirects to HTTPS.
+  The ALB is internet-facing with no WAF in front of it (#691), and the
+  application sends no security response headers — no CSP, HSTS, `nosniff`, or
+  `frame-ancestors` outside the deployed-app sandbox routes (#693).
 - The production database URL requires TLS. The current RDS storage volume is
-  not encrypted, so user-content-at-rest encryption is a release blocker for
-  an enterprise data boundary.
+  not encrypted (`StorageEncrypted: false`, verified 2026-07-25), so
+  user-content-at-rest encryption is a release blocker for an enterprise data
+  boundary. Tracked in #689; it needs a snapshot-copy-restore window, not a
+  setting change.
+- The instance is also `PubliclyAccessible: true`, and its security group
+  carries an undescribed `0.0.0.0/0` ingress rule on 5432 that exists only in
+  the AWS console, not in this repository's IaC (#690).
 - OAuth tokens receive application-layer AES-256-GCM encryption before
   persistence. Other product content relies on the database storage layer,
   which is presently the gap above.
@@ -129,10 +140,16 @@ lands:
 - product records generally persist until an existing user/admin lifecycle
   action removes or archives them;
 - CloudWatch ECS log groups retain 30 days;
-- OAuth tokens persist until disconnect/revocation;
+- OAuth tokens persist indefinitely — there is no disconnect route and no
+  automated rotation (#692). A user who wants Comparative's access to their
+  mailbox, calendar, repositories, or CRM withdrawn must revoke it at the
+  provider, and the encrypted token row survives that;
 - RDS automated backups retain one day in the pilot;
 - a user deletion or legal-hold request requires a documented, reviewed
-  operator procedure and privacy/legal approval.
+  operator procedure and privacy/legal approval. The manual procedure is
+  written up in
+  [`docs/runbooks/DSAR_RIGHT_TO_DELETE.md`](../runbooks/DSAR_RIGHT_TO_DELETE.md);
+  it is deliberately explicit about which steps have no product support.
 
 ## Review checklist
 
