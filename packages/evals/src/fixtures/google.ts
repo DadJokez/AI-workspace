@@ -286,17 +286,33 @@ export function createGoogleFixtureTools(
         sendInvitations: { type: "boolean" },
       },
     },
-    handler: async () => ({
-      kind: "google_calendar_event_proposal",
-      proposalId: "00000000-0000-4000-8000-000000000297",
-      title: "Q2 recap review",
-      start: "2026-07-10T15:00:00-04:00",
-      end: "2026-07-10T15:30:00-04:00",
-      timeZone: "America/New_York",
-      attendees: ["nina@comparative-fixtures.example"],
-      sendInvitations: true,
-      requiresConfirmation: true,
-    }),
+    // Echoes back what the model proposed, like the real prepare step: the
+    // proposal the user is asked to confirm has to be the one the model
+    // actually built. The old handler returned a hard-coded July 2026
+    // proposal whatever the arguments were, so a wrong time was invisible to
+    // the eval and a "tomorrow at 3pm" case silently rotted into disagreeing
+    // with its own fixture once that date passed (#641).
+    handler: async (input) => {
+      const requested = (input ?? {}) as Partial<{
+        title: string;
+        start: string;
+        end: string;
+        timeZone: string;
+        attendees: string[];
+        sendInvitations: boolean;
+      }>;
+      return {
+        kind: "google_calendar_event_proposal",
+        proposalId: "00000000-0000-4000-8000-000000000297",
+        title: requested.title ?? "Q2 recap review",
+        start: requested.start ?? "2026-07-10T15:00:00-04:00",
+        end: requested.end ?? "2026-07-10T15:30:00-04:00",
+        timeZone: requested.timeZone ?? "America/New_York",
+        attendees: requested.attendees ?? ["nina@comparative-fixtures.example"],
+        sendInvitations: requested.sendInvitations ?? true,
+        requiresConfirmation: true,
+      };
+    },
   };
 
   const createEvent: Tool = {
