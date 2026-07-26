@@ -65,15 +65,19 @@ merges.
 
 ## Cost And Concurrency Bounds
 
-- The on-demand eval lane runs only the foundational `--core` subset, times out
-  after 25 minutes, and trips at an estimated `$1.50` per completed run. It no
-  longer runs per pull request: at ~148k Bedrock tokens per run against a
-  NON-adjustable 10.8M tokens/day account ceiling, and with `strict: true`
-  re-gating every open PR after each merge, a normal day's merges exhausted the
-  quota and blocked merges on an infrastructure limit rather than on code
-  (#706). A calibrated 59-case run on
-  2026-07-23 cost about `$1.03`; the tripwire leaves headroom for output
-  variance while forcing review of unplanned suite growth.
+- The on-demand eval lane runs the `--gate` pack (the repeat-sampled
+  security/injection spine, 11 cases across 6 suites), times out after 25
+  minutes, and trips at an estimated `$1.50` per completed run. Measured
+  2026-07-26: a full `--gate` run is ~112k tokens at about `$0.67`.
+  (The `$1.50` tripwire was originally calibrated against the larger `--core`
+  pack — a 59-case run on 2026-07-23 cost about `$1.03` — so it now leaves
+  generous headroom; it is kept as-is to force review of unplanned suite
+  growth rather than retuned downward.)
+- The lane no longer runs per pull request: at ~148k Bedrock tokens per run
+  against a NON-adjustable 10.8M tokens/day account ceiling, and with
+  `strict: true` re-gating every open PR after each merge, a normal day's
+  merges exhausted the quota and blocked merges on an infrastructure limit
+  rather than on code (#706).
 - Nightly evals allow only one active workflow run. The independent behavior
   and browser lanes time out after 35 and 20 minutes respectively. The behavior
   report trips above an estimated `$5.00` per completed suite; the additional
