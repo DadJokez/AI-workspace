@@ -40,8 +40,8 @@ const MOUNTED_SALESFORCE_PROMPT = [
 const DISCONNECTED_PROMPT = [
   "You are Comparative, Rob's internal assistant.",
   "Connected account provider status:",
-  "- The user's Salesforce connection has expired. No Salesforce tool is mounted and none can be called until the user reconnects in Tools.",
-  "If the user asks for Salesforce data, state the expired connection honestly and point them to the Tools section to reconnect Salesforce. Never invent records.",
+  "- The user's Salesforce connection has expired. No Salesforce tool is mounted and none can be called until the user reconnects in Settings → Integrations.",
+  "If the user asks for Salesforce data, state the expired connection honestly and point them to Settings → Integrations to reconnect Salesforce. Cite exactly that visible path; never invent settings pages or section names, and never invent records.",
 ].join("\n");
 
 function calledAnyReadTool(t: TurnTranscript) {
@@ -418,7 +418,7 @@ export const salesforceFaithfulnessSuite: EvalSuite = {
           kind: "deterministic",
           label: "points at reconnecting",
           check: (t) => ({
-            ok: /reconnect|connect (salesforce )?again|tools section/i.test(
+            ok: /reconnect|connect (salesforce )?again|settings\s*(?:→|->|>)?\s*integrations/i.test(
               t.answer,
             ),
             detail: `answer: ${t.answer.slice(0, 120)}`,

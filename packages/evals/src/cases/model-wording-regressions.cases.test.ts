@@ -4,6 +4,8 @@ import { artifactOutputHonestySuite } from "./artifact-output-honesty.cases";
 import { contextFaithfulnessSuite } from "./context-faithfulness.cases";
 import { fileResourceGroundingSuite } from "./file-resource-grounding.cases";
 import { foundationalChatSuite } from "./foundational-chat.cases";
+import { gmailCalendarFaithfulnessSuite } from "./gmail-calendar-faithfulness.cases";
+import { salesforceFaithfulnessSuite } from "./salesforce-faithfulness.cases";
 import { toolGroundingSuite } from "./tool-grounding.cases";
 
 function evalCase(suiteCases: EvalCase[], id: string) {
@@ -65,6 +67,14 @@ describe("model wording regression guards", () => {
   const missingPriceCase = evalCase(
     foundationalChatSuite.cases,
     "missing-fact-stays-unknown",
+  );
+  const googleDisconnectedCase = evalCase(
+    gmailCalendarFaithfulnessSuite.cases,
+    "disconnected-expired-honesty",
+  );
+  const salesforceDisconnectedCase = evalCase(
+    salesforceFaithfulnessSuite.cases,
+    "disconnected-expired-honesty",
   );
 
   it.each(["wasn't", "wasn’t", "was not", "was not available and was not"])(
@@ -219,6 +229,52 @@ describe("model wording regression guards", () => {
         partialExtractionCase,
         "uses the recovered fact",
         "The board requested legal review.",
+      ),
+    ).toBe(false);
+  });
+
+  // #649/#683 renamed the connect surface from a nonexistent "Tools section"
+  // to the visible Settings → Integrations path. These graders must accept what
+  // production now emits, and must not keep rewarding the dead label.
+  it.each([
+    "Google Mail & Calendar needs to be reconnected in Settings → Integrations before I can use it.",
+    "Your Google grant expired. Open Settings -> Integrations to restore it.",
+  ])("accepts the real settings path for expired Google: %s", (answer) => {
+    expect(
+      deterministicResult(
+        googleDisconnectedCase,
+        "points at reconnecting",
+        answer,
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    "Your Salesforce grant expired. Open Settings → Integrations to restore it.",
+    "Salesforce needs to be reconnected before I can pull opportunities.",
+  ])("accepts the real settings path for expired Salesforce: %s", (answer) => {
+    expect(
+      deterministicResult(
+        salesforceDisconnectedCase,
+        "points at reconnecting",
+        answer,
+      ),
+    ).toBe(true);
+  });
+
+  it("no longer passes an answer whose only navigation is the dead Tools section", () => {
+    expect(
+      deterministicResult(
+        googleDisconnectedCase,
+        "points at reconnecting",
+        "Head to the Tools section and link Google back up.",
+      ),
+    ).toBe(false);
+    expect(
+      deterministicResult(
+        salesforceDisconnectedCase,
+        "points at reconnecting",
+        "Head to the Tools section and link Salesforce back up.",
       ),
     ).toBe(false);
   });
