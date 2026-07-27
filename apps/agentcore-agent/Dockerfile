@@ -13,6 +13,9 @@ RUN corepack enable
 
 WORKDIR /repo
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+# pnpm patchedDependencies (root package.json) must be present for any
+# frozen-lockfile install — the lockfile pins each patch file's hash.
+COPY patches ./patches
 COPY packages/agent ./packages/agent
 COPY apps/agentcore-agent ./apps/agentcore-agent
 

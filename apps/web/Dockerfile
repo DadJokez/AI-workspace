@@ -11,6 +11,9 @@ WORKDIR /repo
 
 FROM base AS deps
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml* ./
+# pnpm patchedDependencies (root package.json) must be present for any
+# frozen-lockfile install — the lockfile pins each patch file's hash.
+COPY patches ./patches
 COPY apps/web/package.json apps/web/package.json
 COPY packages/agent/package.json packages/agent/package.json
 COPY packages/agent-runtime/package.json packages/agent-runtime/package.json
