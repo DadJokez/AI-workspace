@@ -38,8 +38,35 @@ unit suites.
 | Runs cancel/retry/resume | `run_cancel`, `run_retry`, `run_resume` | `lib/run-actions.ts` |
 | Admin invitations create/send/revoke/resend/accept | `invite.*` | admin routes + `lib/admin-invitations.ts`, `lib/users.ts` |
 | Admin user role change ⚙ | `admin_user_role_update` | `app/api/admin/users/[id]/route.ts` |
-| Provider (OAuth) connection ⚙ | `mcp_connection_create` | `lib/oauth/connection.ts` (every callback flows through it) |
+| Provider (OAuth) connection ⚙ | `mcp_connection_create` | `lib/oauth/connection.ts` (every callback flows through it) — connect only; there is no disconnect route to audit (#692) |
 | Admin trace access (all inspector reads) | `run_trace_viewed` | admin trace route |
+
+## Authentication
+
+Written from the next-auth config (`lib/auth/nextauth.ts`) through
+`lib/auth/auth-audit.ts`; pinned by
+`apps/web/__tests__/nextauth-auth-events.test.ts`.
+
+| Surface | Action type | Written in |
+| --- | --- | --- |
+| Sign-in success | `auth_sign_in` | `lib/auth/nextauth.ts` (`events.signIn`) |
+| Sign-in denied by the invite gate — both providers, both magic-link phases | `auth_sign_in_denied` | `lib/auth/nextauth.ts` (`callbacks.signIn`) |
+| Sign-out | `auth_sign_out` | `lib/auth/nextauth.ts` (`events.signOut`) |
+
+Rows carry the DB user id (success, sign-out) or the attempted address
+(denial, same class of data as `invite.*`), the provider id, and the
+ALB-appended client IP plus a truncated user-agent — never tokens.
+
+Two deliberate departures from the surfaces above:
+
+- The auth ledger fails **open**. Cross-user reads fail closed because the
+  alternative is unattributable data access; auth failing closed would lock
+  every user out of a working app when the ledger is unavailable. A failed
+  write logs the error message (never the driver error, which can echo row
+  values) and continues.
+- Sign-in attempts next-auth rejects *before* the gate runs — expired or
+  reused magic-link token, OAuth state mismatch — are not audited. next-auth
+  v4 emits no event for them; they surface only as `?error=` on `/login`.
 
 ## Cross-user admin data access
 
@@ -82,6 +109,20 @@ Run-inspector reads retain the existing `run_trace_viewed` receipt for every
 view. Cross-user admin views additionally write `admin_data_access`, so
 existing retention/reporting queries remain compatible while the target user
 is now attributable.
+
+## Known gap: authentication events (#694)
+
+Not deferred — missing. No authentication event of any kind reaches
+`audit_log`: not sign-in, not a sign-in denied by the invite gate, not
+sign-out, not session issuance, and not the GitHub-to-existing-user identity
+linking that `allowDangerousEmailAccountLinking` permits
+(`apps/web/lib/auth/nextauth.ts`). `invite.accept` is the closest existing row
+and it fires once per account lifetime.
+
+This is called out separately from the deferred list below because it is not a
+low-privilege self-scoped mutation — it is the entry point to everything else,
+and "show me failed sign-ins for this user" is a question the ledger cannot
+answer. Tracked in #694.
 
 ## Deliberately deferred (documented, not yet audited)
 

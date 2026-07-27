@@ -85,6 +85,7 @@ pnpm dev          # http://localhost:3000
 | `CHAT_RUN_IN_PROCESS_WORKER` | `1`/unset runs accepted chat work in the web process; `0` disables that bridge for dedicated worker deployments |
 | `CHAT_RUN_WORKER_LEASE_MS` | Lease duration for claimed background chat runs |
 | `WORKER_RUN_CONCURRENCY` | Runs a single worker process executes concurrently; default 3 |
+| `CHAT_RUN_MAX_ATTEMPTS` | Claims a background run gets before it is quarantined as a poison pill; default 3 |
 | `CHAT_WORKER_RUNTIME_TIMEOUT_MS` | Max runtime duration for a background chat run |
 | `CHAT_RUN_PROVIDER_POLL_INTERVAL_MS` | Poll interval reserved for provider-backed durable run reconciliation |
 | `MEMORY_CAPTURE_IN_PROCESS_SCHEDULER` | `1`/unset schedules Vault capture in the web process after successful chats; `0` disables it for dedicated worker deployments |

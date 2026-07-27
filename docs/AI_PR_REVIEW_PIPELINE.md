@@ -41,19 +41,34 @@ GitHub Actions, and human review in this repository.
 - `.github/workflows/ci.yml` runs lint, typecheck, unit tests, and build.
 - `.github/workflows/product-smoke.yml` runs the local Playwright browser
   smoke tests.
-- `.github/workflows/claude.yml` handles explicit `@claude` mentions.
+- `.github/workflows/claude.yml` handles explicit `@claude` mentions. The
+  trigger is gated on `author_association` (`OWNER`/`MEMBER`/`COLLABORATOR`)
+  so that on a public repository an arbitrary commenter cannot spend a paid
+  model run.
 - `.github/workflows/claude-code-review.yml` handles automatic review after
-  `CI` and `Product Smoke` both succeed, then publishes the final
-  `Claude verdict` commit status. It records a `Claude review completed`
-  commit status only after the Claude review action completes successfully;
-  if that status already exists for the SHA, it republishes the verdict so
-  stale red statuses do not block clean PRs. A commit status — not a PR
-  comment — is the review-happened fact because posting one requires
-  `statuses: write`, which PR commenters and the `@claude` workflow's token
-  do not have (#459).
+  `CI` and `Product Smoke` both succeed. It is split into two jobs:
+  - `review` runs the model. It reads the PR diff, title, and comments —
+    attacker-authored text — so it holds **no** `statuses: write` and its
+    `--allowedTools` list contains no `gh api`. A prompt-injected session
+    therefore has no channel to publish a commit status.
+  - `publish-verdict` holds the `statuses: write` and runs no model. It
+    records `Claude review completed` only when the review step's own
+    conclusion is `success`, then publishes the final `Claude verdict`. Its
+    inputs are job outputs the session cannot author plus facts re-read from
+    the API. If the completion status already exists for the SHA it
+    republishes the verdict, so stale red statuses do not block clean PRs.
+
+  A commit status — not a PR comment — is the review-happened fact because
+  posting one requires `statuses: write`, which PR commenters, the `@claude`
+  workflow's token, and now the review session itself all lack (#459).
 - `.github/workflows/claude-verdict.yml` publishes an initial red
   `Claude verdict` status for new PR commits and refreshes the status when
-  labels or reviews change.
+  labels or reviews change. It also carries the merge-conflict guard: a
+  conflicting PR gets no `CI` or `Product Smoke` runs at all (GitHub cannot
+  build the merge ref), so this workflow — which runs on
+  `pull_request_target` and needs no merge ref — reports the conflict as its
+  own failing check and turns `Claude verdict` red rather than letting the
+  gate go quiet.
 - `CLAUDE.md` contains Claude's review rubric.
 - `AGENTS.md` contains Codex's repository instructions and should reference this
   document.
@@ -63,19 +78,44 @@ GitHub Actions, and human review in this repository.
 - `.github/workflows/merge-gate-audit.yml` re-verifies the full gate on every
   push to `main` and files a labeled incident issue on any violation (#479).
 
-## Merge Protocol (#479)
+## Merge Protocol (#479, #667)
 
-**Server-side branch protection enforces the merge gate.** `main` requires
-the full check suite (CI, Product Smoke lanes, `Claude verdict`), is `strict`
-(branches must be up to date), and has `enforce_admins` on — no bypass for
-anyone. Restored 2026-07-21 after the plan re-upgrade; the original #479 root
-cause was the paid plan lapsing, which made GitHub *silently drop* protection
-on this private repo.
+**Server-side branch protection enforces the merge gate.** As verified on
+2026-07-25, `main` requires eight status contexts, is `strict` (branches must
+be up to date before merge), and has `enforce_admins` enabled — no bypass for
+anyone, including the repository owner. Force pushes and branch deletion are
+blocked. Required signatures, required linear history, and required
+conversation resolution are *not* enabled.
+
+The eight required contexts (`gh api repos/DadJokez/AI-workspace/branches/main/protection`):
+
+| Context | Workflow |
+|---|---|
+| `lint + typecheck + build` | `ci.yml` |
+| `dependency CVE audit` | `ci.yml` |
+| `scoping integration (real Postgres)` | `ci.yml` |
+| `local browser smoke` | `product-smoke.yml` |
+| `authenticated browser smoke` | `product-smoke.yml` |
+| `browser smoke (desktop-chromium)` | `product-smoke.yml` |
+| `browser smoke (mobile-chromium)` | `product-smoke.yml` |
+| `Claude verdict` | `claude-verdict.yml` / `claude-code-review.yml` |
+
+Protection was restored 2026-07-21 after the plan re-upgrade. The original
+#479 root cause was the paid plan lapsing, which made GitHub *silently drop*
+protection — at the time the repository was private, and branch protection on
+private repositories required the paid plan. **The repository is public as of
+2026-07-25** (a deliberate decision), so that specific plan-lapse failure mode
+no longer applies; the audit backstop below is retained anyway because silent
+protection loss has other causes and the failure is invisible by construction.
 
 Consequences:
 
 - **Merging is plain `gh pr merge <n> --squash --delete-branch` once checks
-  are green.** GitHub refuses the merge otherwise. No bespoke merge tooling.
+  are green.** GitHub refuses the merge otherwise. There is no bespoke merge
+  tooling: `scripts/verified-merge.sh` was retired in #667 because branch
+  protection now does server-side what the script did client-side, and a
+  client-side gate is advisory by definition. Only `scripts/verify-pr-gate.sh`
+  survives, and it is audit-only — it reports, it does not merge.
 - **`gh pr merge --auto` stays discouraged.** It is safe while protection is
   present, but if protection ever silently vanishes again, gh falls back from
   arming auto-merge to merging immediately — the exact #479 failure — at
@@ -87,8 +127,32 @@ Consequences:
   gate (`scripts/verify-pr-gate.sh`, audit-only), and files a
   `security`/`ops` incident issue on any violation — including direct pushes
   to `main`, which remain break-glass only. A bypass can still happen; a
-  silent one cannot. If billing ever lapses again, assume protection is gone
-  and re-check before merging anything.
+  silent one cannot. Its protection-presence canary runs unconditionally; the
+  finer required-contexts and `enforce_admins` checks are best-effort, because
+  `GITHUB_TOKEN` cannot be granted repo Administration read.
+
+## Public-repository consequences (2026-07-25)
+
+The repository is public. That is a statement about the *source*, not about
+production data: the deployed application is internet-reachable but
+authentication-gated, and no production secret, credential, or user data lives
+in this repository. Two consequences matter for this pipeline and are stated
+here so nobody has to rediscover them:
+
+- **Anyone can open a fork pull request**, which means untrusted branches can
+  reach the CI workflows. GitHub's fork-run approval policy for this repo is
+  `first_time_contributors`, so a first PR from a new account needs a
+  maintainer to approve the workflow run — but a contributor approved once
+  runs automatically thereafter.
+- **Nothing in the repository may be a secret.** Workflow files, `CLAUDE.md`,
+  the review prompt, the gate logic, and every doc under `docs/` are readable
+  by an attacker designing a PR to slip past the review. The gate must be
+  sound under that assumption; it is not, and cannot be, secret.
+
+The residual CI/supply-chain threats — including a forged `Claude verdict` and
+the `workflow_run` privilege boundary — are enumerated in
+[`docs/security/THREAT_MODEL.md`](./security/THREAT_MODEL.md) under
+"CI and supply-chain threats" rather than duplicated here.
 
 The production AWS CodeBuild project (`ai-workspace-build`) is intentionally
 outside the PR merge gate. It deploys merged `main` commits only. Its webhook
@@ -101,8 +165,10 @@ The main x86 CodeBuild job launches the dedicated, CDK-owned
 `ai-workspace-agentcore-build` ARM project for the exact source commit while it
 builds the ECS images. The child has no webhook, reports no GitHub status, and
 cannot recursively launch itself. The parent waits for it before updating the
-stack from the current synthesized template with the same immutable
-`AgentImageTag`.
+stack from the current synthesized template with the same commit-SHA
+`AgentImageTag`. That tag is unique per commit by convention, not by registry
+enforcement — the ECR repositories accept mutable tags (see
+[Rollback](./PRODUCTION_DEPLOYMENT.md#rollback)).
 
 The parent project has `concurrentBuildLimit=1`; because the ARM work runs in a
 different project, that single-flight setting prevents out-of-order production
@@ -138,12 +204,17 @@ comments, labels, and reviews. It must not push commits or merge PRs.
 
 The required `Claude verdict` status is the mechanical merge gate:
 
+- `failure` if the PR has merge conflicts (`mergeable_state == "dirty"`).
 - `failure` if the current head SHA does not carry a successful
   `Claude review completed` commit status.
 - `failure` if the PR has the `needs-codex` label.
 - `failure` if the Claude Code review action fails to complete.
-- `success` only when the current head SHA was reviewed and `needs-codex` is
-  absent.
+- `success` only when the current head SHA was reviewed, the PR merges
+  cleanly, and `needs-codex` is absent.
+
+It is published only by jobs that run no model and hold `statuses: write`.
+No model session in this repository has that permission, so the verdict
+cannot be self-published by the thing being gated.
 
 ## Codex Expectations
 

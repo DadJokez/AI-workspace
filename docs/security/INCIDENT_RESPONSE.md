@@ -102,10 +102,14 @@ rollout.
 
 1. Revoke the credential at its authority first: connected provider, database,
    AWS IAM, or application session.
-2. For one user's provider token, disconnect/revoke that provider and cancel
-   active affected runs. Do not rotate the shared OAuth encryption key as a
-   first response; changing it without re-encryption makes every stored token
-   unreadable.
+2. For one user's provider token, cancel active affected runs and destroy the
+   stored token. **There is no disconnect route in the product (#692)**, so
+   this is two manual actions: revoke the grant at the provider (their own
+   console, or the user's), and `DELETE FROM oauth_tokens` for that
+   user/provider against production. Neither is self-service and neither is
+   scripted — budget for that in the response timeline. Do not rotate the
+   shared OAuth encryption key as a first response; changing it without
+   re-encryption makes every stored token unreadable.
 3. For a provider OAuth client-secret exposure, rotate the client secret,
    update the existing Secrets Manager field, redeploy tasks, and determine
    whether provider-issued user tokens must also be revoked.
@@ -134,8 +138,10 @@ rollout.
 ### Prompt injection or unauthorized tool side effect
 
 1. Cancel the run and prevent another attempt.
-2. Revoke or disconnect the affected provider/token, disable the tool/provider
-   in the governed catalog where available, or remove the user's attestation.
+2. Disable the tool/provider in the governed catalog or remove the user's
+   attestation — these are the fast, in-product levers. Destroying the token
+   itself is the manual two-step in "Restricted credential or session
+   exposure" above, because no disconnect route exists (#692).
 3. Preserve the untrusted source, framed prompt evidence, tool call/result,
    write-authorization receipt, provider-side object ID, and audit row.
 4. Reverse the provider-side change only after preserving evidence and
@@ -163,16 +169,20 @@ rollout.
 3. Restrict the public/database perimeter and rotate credentials if compromise
    is suspected.
 4. Restore into an isolated target first; validate schema, owner scoping,
-   audit/run continuity, and application smoke before cutover.
+   audit/run continuity, and application smoke before cutover. The mechanics
+   and the verification queries are in
+   [DB restore rehearsal](../runbooks/DB_RESTORE_REHEARSAL.md).
 5. The pilot is single-AZ with one day of automated backups and no deletion
-   protection. Treat untested recovery as SEV-1 uncertainty and open an AWS
-   support case when needed.
+   protection, and **the restore has never been rehearsed** — the runbook
+   above is written but unexecuted, so restore duration and achievable RPO are
+   both unmeasured. Treat untested recovery as SEV-1 uncertainty and open an
+   AWS support case when needed.
 
 ### Runtime or deployment outage
 
 1. Determine whether the web, chat worker, memory worker, RDS, Bedrock,
    AgentCore, or one provider is the failing boundary.
-2. If the current immutable image is the regression and the schema remains
+2. If the currently deployed image is the regression and the schema remains
    backward compatible, run:
 
 ```bash
@@ -180,7 +190,10 @@ AWS_DEFAULT_REGION=us-east-1 ./infra/scripts/rollback-ecs.sh <known-good-commit-
 ```
 
 3. Do not roll application code backward across an incompatible migration.
-   Follow [Production deployment](../PRODUCTION_DEPLOYMENT.md).
+   Follow [Production deployment](../PRODUCTION_DEPLOYMENT.md). Rolling back
+   the AgentCore runtime is a separate, manual procedure with a sequence-guard
+   trap in it — see
+   [AgentCore rollback](../runbooks/AGENTCORE_ROLLBACK.md).
 4. Confirm ECS stability, `/api/health`, authenticated product smoke, queued
    run recovery, and memory backlog before closing.
 

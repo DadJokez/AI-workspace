@@ -228,4 +228,64 @@ suite("concurrent chat persistence (real Postgres)", () => {
     expect(new Set(rows.map((row) => row.artifactGroupId)).size).toBe(1);
     expect(rows.map((row) => row.versionNumber)).toEqual([1, 2, 3, 4, 5, 6, 7]);
   });
+
+  it("#647 drops an unrequested short fenced block but never a matched revision", async () => {
+    const [ask, revise] = await db
+      .insert(chatMessages)
+      .values([
+        { threadId, role: "assistant" as const, content: "created" },
+        { threadId, role: "assistant" as const, content: "revised" },
+      ])
+      .returning({ id: chatMessages.id });
+    const fence = (label: string) =>
+      '```markdown filename="Pilot-Plan.md"\n' +
+      `# Pilot plan (${label})\n\n- Invite testers\n- Collect daily feedback\n- Review results Friday\n` +
+      "```";
+
+    // A formatting turn with no document-creation intent: nothing persists.
+    const dropped = await createArtifactsFromAssistantMessage({
+      db,
+      userId,
+      threadId,
+      chatMessageId: ask!.id,
+      assistantText: fence("unrequested"),
+      documentCreationIntent: false,
+    });
+    expect(dropped).toHaveLength(0);
+
+    // The user then genuinely asks for the document.
+    const created = await createArtifactsFromAssistantMessage({
+      db,
+      userId,
+      threadId,
+      chatMessageId: ask!.id,
+      assistantText: fence("v1"),
+      documentCreationIntent: true,
+    });
+    expect(created).toHaveLength(1);
+
+    // A matched revision target bypasses the gate even on a no-intent turn
+    // ("change Friday to Monday"), so the short updated file still persists.
+    const revised = await createArtifactsFromAssistantMessage({
+      db,
+      userId,
+      threadId,
+      chatMessageId: revise!.id,
+      assistantText: fence("v2"),
+      documentCreationIntent: false,
+      targetArtifact: {
+        id: created[0]!.id,
+        title: created[0]!.title,
+        filename: created[0]!.filename,
+        artifactGroupId: created[0]!.artifactGroupId,
+        versionNumber: created[0]!.versionNumber,
+        metadata: created[0]!.metadata ?? null,
+      },
+    });
+    expect(revised).toHaveLength(1);
+    expect(revised[0]).toMatchObject({
+      artifactGroupId: created[0]!.artifactGroupId,
+      versionNumber: 2,
+    });
+  });
 });

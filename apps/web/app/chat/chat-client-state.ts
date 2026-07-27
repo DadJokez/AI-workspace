@@ -238,6 +238,32 @@ export function makeFreshTab(
   };
 }
 
+/**
+ * Tab for a deep-linked thread applied after boot (#664). Reuses the pristine
+ * boot tab's id whenever the user has not started a conversation yet: the
+ * composer is keyed by tab id, so minting a new id here remounted it and
+ * silently dropped attachments added while the profile request was still in
+ * flight (#650 repro A — every reload carries ?threadId= since #664).
+ */
+export function adoptInitialThreadTab(
+  tabs: readonly ChatTab[],
+  target: { threadId: string; title: string; modelId: string },
+): ChatTab {
+  const boot =
+    tabs.length === 1 && !tabs[0]!.threadId && tabs[0]!.messages.length === 0
+      ? tabs[0]!
+      : undefined;
+  return {
+    id: boot?.id ?? crypto.randomUUID(),
+    title: target.title,
+    threadId: target.threadId,
+    messages: [],
+    modelId: target.modelId,
+    busy: false,
+    loaded: false,
+  };
+}
+
 // Canonical URL for the visible conversation (#664): the threadId query param
 // always matches the active tab. Returns the updated href, or null when the
 // URL is already canonical. inspectRun is dropped only alongside a stale

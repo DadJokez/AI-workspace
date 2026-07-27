@@ -7,6 +7,7 @@ import {
 } from "@/lib/client-api";
 import { sortThreadHistory } from "@/lib/thread-history";
 import {
+  adoptInitialThreadTab,
   canonicalThreadUrl,
   makeFreshTab,
   mergeLoadedMessages,
@@ -56,6 +57,16 @@ export function useChatTabs({
   const initialThreadAppliedRef = useRef(false);
   const stickToBottomRef = useRef(true);
   const activeTab = tabs.find((tab) => tab.id === activeId) ?? tabs[0];
+
+  // Latest server default, readable inside the hydration effect without being
+  // one of its dependencies. When the client fallback constant drifts from the
+  // value /api/models returns, a `defaultModelId` dependency cancels the
+  // in-flight messages fetch and the retry bails on the loading guard, so the
+  // thread renders "Loading conversation" forever (#711/#709).
+  const defaultModelIdRef = useRef(defaultModelId);
+  useEffect(() => {
+    defaultModelIdRef.current = defaultModelId;
+  }, [defaultModelId]);
 
   useEffect(() => {
     if (models.length === 0) return;
@@ -108,18 +119,16 @@ export function useChatTabs({
       validIds,
       defaultModelId,
     );
-    const tab: ChatTab = {
-      id: crypto.randomUUID(),
-      title: thread?.title?.trim() || `Thread ${initialThreadId.slice(0, 8)}`,
+    // Keep the boot tab's identity where possible so the composer (keyed by
+    // tab id) does not remount and drop unsent attachments (#650).
+    const tab = adoptInitialThreadTab(tabs, {
       threadId: initialThreadId,
-      messages: [],
+      title: thread?.title?.trim() || `Thread ${initialThreadId.slice(0, 8)}`,
       modelId,
-      busy: false,
-      loaded: false,
-    };
+    });
     setTabs([tab]);
     setActiveId(tab.id);
-  }, [defaultModelId, initialThreadId, models, threads, userId]);
+  }, [defaultModelId, initialThreadId, models, tabs, threads, userId]);
 
   // Mirror the active conversation into the URL (#664) so reload restores
   // what is on screen. Native replaceState keeps Next's router in sync
@@ -149,7 +158,8 @@ export function useChatTabs({
     if (loadingThreadsRef.current.has(activeTab.id)) return;
     const tabId = activeTab.id;
     const threadId = activeTab.threadId;
-    loadingThreadsRef.current.add(tabId);
+    const loadingThreads = loadingThreadsRef.current;
+    loadingThreads.add(tabId);
     let cancelled = false;
 
     fetchJson<ThreadMessagesResponse>(
@@ -180,7 +190,7 @@ export function useChatTabs({
           (error instanceof ClientApiError && error.status === 404) ||
           /thread_not_found/i.test(message)
         ) {
-          setTabs([makeFreshTab(defaultModelId)]);
+          setTabs([makeFreshTab(defaultModelIdRef.current)]);
           return;
         }
         setTabs((previous) =>
@@ -196,12 +206,17 @@ export function useChatTabs({
         );
       })
       .finally(() => {
-        loadingThreadsRef.current.delete(tabId);
+        // A cancelled run's guard entry is released by its cleanup below;
+        // deleting it here too would clobber the entry a newer run re-added.
+        if (!cancelled) loadingThreads.delete(tabId);
       });
     return () => {
+      // Release the guard on cancellation so a re-run can retry the fetch
+      // instead of bailing out and stranding the tab unloaded (#711).
       cancelled = true;
+      loadingThreads.delete(tabId);
     };
-  }, [activeTab?.id, activeTab?.loaded, activeTab?.threadId, defaultModelId]);
+  }, [activeTab?.id, activeTab?.loaded, activeTab?.threadId]);
 
   function patchTab(id: string, patch: Partial<ChatTab>) {
     setTabs((previous) =>

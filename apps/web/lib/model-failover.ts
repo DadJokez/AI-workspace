@@ -43,6 +43,10 @@ export async function* runTurnWithModelFailover({
       for await (const event of runtime.runTurn({ ...input, modelId })) {
         if (
           event.type === "error" &&
+          // #713: a degraded MCP mount is a provider-side problem the turn
+          // already recovered from — switching models would just re-dial the
+          // same dead provider.
+          !event.degradedProvider &&
           !attemptCommitted &&
           nextModelId &&
           isModelFailoverEligibleError(event.message)

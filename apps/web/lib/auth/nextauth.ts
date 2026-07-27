@@ -8,6 +8,13 @@ import {
   sendMagicLinkEmail,
 } from "@/lib/magic-link-email";
 import { createNextAuthAdapter } from "@/lib/auth/nextauth-adapter";
+import {
+  authRequestContext,
+  clientIpFromForwardedFor,
+  recordAuthEvent,
+  type AuthDenialReason,
+  type AuthSignInPhase,
+} from "@/lib/auth/auth-audit";
 import { ensureUser, findPendingInvitation } from "@/lib/users";
 
 /**
@@ -35,6 +42,10 @@ import { ensureUser, findPendingInvitation } from "@/lib/users";
  *     returned address is the account's primary email.
  *   - Provider GitHub OAuth here is separate from the per-user GitHub
  *     MCP-token flow at /api/oauth/github/* — different scopes, purposes.
+ *   - Sessions carry an explicit 24h idle expiry (SESSION_MAX_AGE_SECONDS)
+ *     rather than next-auth's 30-day default.
+ *   - Sign-in, sign-in-denied and sign-out are appended to the audit ledger
+ *     (`lib/auth/auth-audit.ts`); no token material is ever recorded.
  */
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_AUTH_CLIENT_ID;
@@ -117,8 +128,7 @@ export function magicLinkRateLimitKey(
   email: string,
   xForwardedFor: string | null,
 ): string {
-  const hops = (xForwardedFor ?? "").split(",");
-  const ip = hops[hops.length - 1]!.trim() || "unknown";
+  const ip = clientIpFromForwardedFor(xForwardedFor) ?? "unknown";
   return `magic-link:${email.trim().toLowerCase()}:${ip}`;
 }
 
@@ -198,13 +208,113 @@ function buildProviders(): NextAuthOptions["providers"] {
   return providers;
 }
 
+/**
+ * Explicit session lifetime instead of next-auth's 30-day default. This is an
+ * IDLE expiry: the cookie/JWT is re-issued while the tab is in use (at most
+ * once per `updateAge`) and dies 24h after the last request. An absolute cap
+ * and per-user revocation both need a token-version column on `users`, i.e. a
+ * migration — deliberately out of scope here.
+ */
+export const SESSION_MAX_AGE_SECONDS = 24 * 60 * 60;
+export const SESSION_UPDATE_AGE_SECONDS = 60 * 60;
+
+type SignInParams = Parameters<
+  NonNullable<NonNullable<NextAuthOptions["callbacks"]>["signIn"]>
+>[0];
+
+interface SignInDecision {
+  allowed: boolean;
+  email?: string | null;
+  reason?: AuthDenialReason;
+  phase?: AuthSignInPhase;
+}
+
+/**
+ * Gate sign-up. Allow when:
+ *   1. The `users` table is empty — first signer becomes admin.
+ *   2. A user row already exists for this identity (GitHub subject or
+ *      email address).
+ *   3. There's a pending, unexpired invitation for this email.
+ * Otherwise: deny.
+ *
+ * For the email provider this runs TWICE: at link-request time
+ * (`email.verificationRequest === true` — deny means the stranger never
+ * receives a link; the login page shows the same neutral "if that address is
+ * invited, a link is on its way" copy either way, so denial is not an
+ * account-existence oracle) and again at link-click time (`email` undefined —
+ * covers invites revoked between request and click).
+ *
+ * Returns the decision rather than a bare boolean so the caller can audit the
+ * denial (who was turned away, at which phase, and why).
+ */
+async function evaluateSignIn({
+  account,
+  profile,
+  user,
+  email,
+}: SignInParams): Promise<SignInDecision> {
+  const db = getDb();
+
+  if (account?.provider === "email") {
+    const phase: AuthSignInPhase = email?.verificationRequest
+      ? "link_request"
+      : "callback";
+    const address = (user?.email ?? String(account.providerAccountId))
+      ?.trim()
+      .toLowerCase();
+    if (!address) return { allowed: false, reason: "missing_email", phase };
+    // Same gate for the request phase (email.verificationRequest) and
+    // the callback phase — the callback's token validity/single-use is
+    // already enforced by next-auth core + the adapter by this point.
+    // The response copy is neutral, but an allowed request still includes
+    // SES latency while a denied request does not. That low-sensitivity
+    // timing signal is accepted for this invite-only tester phase.
+    const allowed = await emailAllowedToSignIn(db, address);
+    return {
+      allowed,
+      email: address,
+      phase,
+      ...(allowed ? {} : { reason: "not_invited" as const }),
+    };
+  }
+
+  if (account?.provider === "github") {
+    const ghSub = String(account.providerAccountId);
+    const ghEmail =
+      (profile as { email?: string | null } | undefined)?.email ??
+      user.email ??
+      null;
+    if (!ghEmail) return { allowed: false, reason: "missing_email" };
+
+    const existing = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.pingSubject, ghSub))
+      .limit(1);
+    if (existing[0]) return { allowed: true, email: ghEmail };
+
+    const allowed = await emailAllowedToSignIn(db, ghEmail);
+    return {
+      allowed,
+      email: ghEmail,
+      ...(allowed ? {} : { reason: "not_invited" as const }),
+    };
+  }
+
+  return { allowed: false, reason: "unsupported_provider" };
+}
+
 export const authOptions: NextAuthOptions = {
   providers: buildProviders(),
   // Required by the email provider; also puts GitHub OAuth on the adapter
   // path (attached unconditionally so behavior never depends on which
   // allowlist combination is active). Sessions remain JWT regardless.
   adapter: createNextAuthAdapter(),
-  session: { strategy: "jwt" },
+  session: {
+    strategy: "jwt",
+    maxAge: SESSION_MAX_AGE_SECONDS,
+    updateAge: SESSION_UPDATE_AGE_SECONDS,
+  },
   secret: NEXTAUTH_SECRET,
   pages: {
     // Replace NextAuth's default sign-in / error pages with our own /login.
@@ -212,59 +322,55 @@ export const authOptions: NextAuthOptions = {
     signIn: "/login",
     error: "/login",
   },
+  events: {
+    /**
+     * Successful sign-in. `user.id` is the DB uuid (every provider routes
+     * through the adapter), so the row joins straight to `users` in the admin
+     * audit view. Nothing from `account` — access/id tokens included — is
+     * recorded; only the provider id.
+     */
+    async signIn({ user, account, isNewUser }) {
+      await recordAuthEvent({
+        action: "auth_sign_in",
+        actorUserId: user?.id ?? null,
+        authProvider: account?.provider ?? null,
+        isNewUser,
+        request: await authRequestContext(),
+      });
+    },
+
+    /** Sign-out. JWT strategy, so the ended session arrives as `token`. */
+    async signOut({ token }) {
+      await recordAuthEvent({
+        action: "auth_sign_out",
+        actorUserId:
+          typeof token?.userId === "string" ? token.userId : null,
+        request: await authRequestContext(),
+      });
+    },
+  },
   callbacks: {
     /**
-     * Gate sign-up. Allow when:
-     *   1. The `users` table is empty — first signer becomes admin.
-     *   2. A user row already exists for this identity (GitHub subject or
-     *      email address).
-     *   3. There's a pending, unexpired invitation for this email.
-     * Otherwise: deny.
-     *
-     * For the email provider this runs TWICE: at link-request time
-     * (`email.verificationRequest === true` — deny means the stranger never
-     * receives a link; the login page shows the same neutral "if that address
-     * is invited, a link is on its way" copy either way, so denial is not an
-     * account-existence oracle) and again at link-click time (`email`
-     * undefined — covers invites revoked between request and click).
+     * The invite gate (see `evaluateSignIn`). Every denial is appended to the
+     * audit ledger — that record is the point of the gate for an access
+     * review. Denials at the magic-link REQUEST phase are reachable by
+     * unauthenticated callers, so they are bounded by the same per-email rate
+     * limit that already caps that endpoint (5 / 15 min, see
+     * `magicLinkRateLimit`) and by audit retention.
      */
-    async signIn({ account, profile, user, email }) {
-      const db = getDb();
-
-      if (account?.provider === "email") {
-        const address = (user?.email ?? String(account.providerAccountId))
-          ?.trim()
-          .toLowerCase();
-        if (!address) return false;
-        // Same gate for the request phase (email.verificationRequest) and
-        // the callback phase — the callback's token validity/single-use is
-        // already enforced by next-auth core + the adapter by this point.
-        // The response copy is neutral, but an allowed request still includes
-        // SES latency while a denied request does not. That low-sensitivity
-        // timing signal is accepted for this invite-only tester phase.
-        void email;
-        return emailAllowedToSignIn(db, address);
+    async signIn(params) {
+      const decision = await evaluateSignIn(params);
+      if (!decision.allowed) {
+        await recordAuthEvent({
+          action: "auth_sign_in_denied",
+          authProvider: params.account?.provider ?? null,
+          email: decision.email,
+          reason: decision.reason,
+          phase: decision.phase,
+          request: await authRequestContext(),
+        });
       }
-
-      if (account?.provider === "github") {
-        const ghSub = String(account.providerAccountId);
-        const ghEmail =
-          (profile as { email?: string | null } | undefined)?.email ??
-          user.email ??
-          null;
-        if (!ghEmail) return false;
-
-        const existing = await db
-          .select({ id: users.id })
-          .from(users)
-          .where(eq(users.pingSubject, ghSub))
-          .limit(1);
-        if (existing[0]) return true;
-
-        return emailAllowedToSignIn(db, ghEmail);
-      }
-
-      return false;
+      return decision.allowed;
     },
 
     /**

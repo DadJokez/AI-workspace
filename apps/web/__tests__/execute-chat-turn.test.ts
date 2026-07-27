@@ -69,6 +69,8 @@ vi.mock("@/lib/artifact-context", () => ({
     ({ payload }: { payload: { text?: string } | null }) =>
       payload?.text ?? null,
   ),
+  // #647: fixtures are plain prompts with no document request.
+  hasDocumentCreationIntent: vi.fn(() => false),
 }));
 vi.mock("@/lib/artifact-revisions", () => ({
   resolveArtifactContextTargets: vi.fn(() => ({
@@ -805,6 +807,57 @@ describe("executeChatTurn — persist tail", () => {
     expect(eventTypes).toContain("run_completed");
   });
 
+  it("#713: a degraded provider mount is recorded on the run but does not fail it", async () => {
+    const runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        await (
+          turnInput.onRunStarted as
+            | ((metadata: Record<string, unknown>) => Promise<void>)
+            | undefined
+        )?.({ providerRunId: "pr-713" });
+        yield {
+          type: "error",
+          degradedProvider: "google",
+          message:
+            "BedrockRuntime: MCP connection failed for google — continuing without its tools (invalid_grant)",
+        };
+        yield { type: "text-delta", delta: "Hello" };
+        yield { type: "usage", tokensIn: 11, tokensOut: 7 };
+        yield { type: "done" };
+      },
+    } as unknown as AgentRuntime;
+    const { input, sent, state } = inlineInput({ runtime });
+    await executeChatTurn(input);
+
+    // The run succeeded — degraded, not failed — and the client stream never
+    // saw an error (a streamed error would make the client throw on done).
+    expect(
+      state.runUpdates.find((update) => update.status === "succeeded"),
+    ).toBeDefined();
+    expect(
+      state.runUpdates.find((update) => update.status === "failed"),
+    ).toBeUndefined();
+    const types = sent.map((event) => event.type);
+    expect(types).toContain("persisted");
+    expect(types).toContain("done");
+    expect(types).not.toContain("failed");
+    expect(types).not.toContain("error");
+
+    // No silent degradation: the mount failure is on the run's receipts.
+    const degradedEvents = vi
+      .mocked(appendRunEventBestEffort)
+      .mock.calls.map(([, event]) => event)
+      .filter((event) => event.eventType === "mcp_provider_mount_failed");
+    expect(degradedEvents).toHaveLength(1);
+    expect(degradedEvents[0]).toMatchObject({
+      provider: "google",
+      status: "failed",
+      error:
+        "BedrockRuntime: MCP connection failed for google — continuing without its tools (invalid_grant)",
+    });
+  });
+
   it("records and persists the actual model after pre-stream failover", async () => {
     const attempted: string[] = [];
     const runtime = {
@@ -1074,6 +1127,9 @@ describe("executeChatTurn — persist tail", () => {
             runId: "run-1",
             triggerType,
           }),
+          // #647: the user-turn creation-intent classification reaches the
+          // persistence seam on the worker lane too.
+          documentCreationIntent: false,
         }),
       );
       expect(createDraftAppVersionsForThreadArtifacts).toHaveBeenCalledWith(

@@ -24,7 +24,7 @@ afterEach(() => {
 });
 
 describe("setup-ops-alarms.sh", () => {
-  it("uses real AWS metrics and covers worker, target, load-balancer, and host failures", () => {
+  it("uses real AWS metrics and covers worker, target, and load-balancer failures", () => {
     const result = runScript();
 
     expect(result.status).toBe(0);
@@ -43,10 +43,21 @@ describe("setup-ops-alarms.sh", () => {
 
     expect(commands).toContain("HTTPCode_Target_5XX_Count");
     expect(commands).toContain("HTTPCode_ELB_5XX_Count");
-    expect(commands).toContain("UnHealthyHostCount");
     expect(commands).toContain("Name=TargetGroup,Value=AiWork-WebTarget/abc123");
     expect(commands).toContain("chat-run-worker-error");
     expect(commands).not.toContain("run_failed");
+  });
+
+  it("leaves the CDK-owned alarms alone so no alarm has two writers", () => {
+    const commands = readFileSync(runScript().capturePath, "utf8");
+
+    // ai-workspace-web-unhealthy-hosts used to be written here AND by
+    // AiWorkspaceEcsStack with different settings, so whichever ran last
+    // silently won. CDK owns it now, along with the #568 task-floor alarm.
+    expect(commands).not.toContain("ai-workspace-web-unhealthy-hosts");
+    expect(commands).not.toContain("UnHealthyHostCount");
+    expect(commands).not.toContain("ai-workspace-web-below-task-floor");
+    expect(commands).not.toContain("ai-workspace-memory-capture-failures");
   });
 
   it("does not create a duplicate email subscription", () => {
@@ -84,7 +95,11 @@ describe("setup-ops-alarms.sh", () => {
       "utf8",
     );
 
-    expect(deployment).toContain("allow mutable tags");
+    // Assert the INVARIANT (tags are mutable and the doc says so), not one
+    // phrasing: #703 rewrote this section with the verified ECR state, so the
+    // old exact string "allow mutable tags" no longer appears.
+    expect(deployment).toMatch(/Image tags are mutable/i);
+    expect(deployment).toContain("`MUTABLE`");
     expect(deployment).not.toContain("immutable commit tag");
   });
 });

@@ -4,7 +4,10 @@ name: Merge Gate Audit
 # strict, enforce_admins). This workflow is the backstop for the one failure
 # GitHub does not announce: protection silently disappearing — the actual
 # root cause of incident #479 was a paid-plan lapse that dropped protection
-# on this private repo without any notification. After every push to main it
+# without any notification, back when this repo was private. The repo is
+# public as of 2026-07-25, so that specific cause is gone; the canary stays
+# because silent protection loss is invisible whatever causes it. After
+# every push to main it
 # (1) confirms protection is still present on main and (2) re-verifies that
 # the merged PR's head SHA had the full gate green (CI + Product Smoke +
 # `Claude verdict`). A violation — or a direct push with no PR at all — files
@@ -41,9 +44,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Verify the merged PR's gate was green
         env:

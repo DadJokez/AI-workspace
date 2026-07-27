@@ -13,9 +13,18 @@
 #   2. Worker-liveness alarms: LiveTaskCount < 1 for chat-worker and
 #      memory-worker (the "background lane is silently dead" detector,
 #      without requiring Container Insights).
-#   3. Web target 5xx, load-balancer 5xx, and unhealthy-host alarms.
+#   3. Web target 5xx and load-balancer 5xx alarms.
 #   4. A run-failure log metric filter + alarm on the chat-worker log group
 #      (>=3 terminal worker errors in 15 minutes).
+#
+# Ownership: alarms that depend on a CDK-managed resource live in the stack,
+# not here. `ai-workspace-web-unhealthy-hosts` (target group) and
+# `ai-workspace-web-below-task-floor` (#568, must track the stack's autoscaling
+# minCapacity) are owned by infra/cdk/lib/ai-workspace-ecs-stack.ts. This
+# script used to also write the unhealthy-hosts alarm under the same name with
+# different settings, so whichever ran last silently won — it no longer touches
+# it. Everything above needs an ALB/target-group lookup or a log group that
+# outlives the stack, so it stays operator-applied.
 set -euo pipefail
 
 : "${AWS_DEFAULT_REGION:?AWS_DEFAULT_REGION is required}"
@@ -95,17 +104,6 @@ aws cloudwatch put-metric-alarm \
   --dimensions Name=LoadBalancer,Value="$ALB_FULL_NAME" \
   --statistic Sum --period 300 --evaluation-periods 1 \
   --threshold 5 --comparison-operator GreaterThanOrEqualToThreshold \
-  --treat-missing-data notBreaching \
-  --alarm-actions "$TOPIC_ARN" --ok-actions "$TOPIC_ARN"
-
-aws cloudwatch put-metric-alarm \
-  --alarm-name "ai-workspace-web-unhealthy-hosts" \
-  --alarm-description "#509: the web target group has unhealthy hosts for 3 minutes." \
-  --namespace AWS/ApplicationELB --metric-name UnHealthyHostCount \
-  --dimensions Name=LoadBalancer,Value="$ALB_FULL_NAME" Name=TargetGroup,Value="$TARGET_GROUP_FULL_NAME" \
-  --statistic Maximum --period 60 --evaluation-periods 3 \
-  --datapoints-to-alarm 3 --threshold 1 \
-  --comparison-operator GreaterThanOrEqualToThreshold \
   --treat-missing-data notBreaching \
   --alarm-actions "$TOPIC_ARN" --ok-actions "$TOPIC_ARN"
 

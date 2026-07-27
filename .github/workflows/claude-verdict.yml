@@ -3,6 +3,10 @@ name: Claude Verdict
 # Publishes a commit status named `Claude verdict` for branch protection.
 # New PR commits are blocked until the automatic Claude review marks the exact
 # head SHA as reviewed; `needs-codex` keeps the verdict red.
+#
+# This workflow runs on `pull_request_target`, so unlike CI and Product Smoke it
+# does not need a buildable merge ref — it is the one lane that still reports on
+# a conflicting PR. That is why the merge-conflict guard lives here.
 
 on:
   pull_request_target:
@@ -25,12 +29,68 @@ permissions:
   statuses: write
 
 jobs:
-  verdict:
-    name: Publish Claude verdict
+  # A PR with merge conflicts gets NO `CI` or `Product Smoke` runs at all —
+  # GitHub cannot build the merge ref, so those workflows never start and the
+  # required checks go quiet instead of red. Branch protection treats a check
+  # that never reported as pending, but the gate loses its teeth the moment
+  # anyone force-updates the required set or an audit reads "nothing failed".
+  # This job reports the conflict explicitly, and feeds the already-required
+  # `Claude verdict` status below so the conflict is red in the merge gate
+  # without needing a new required context (branch protection is Rob's).
+  mergeable:
+    name: PR has no merge conflicts
     if: >-
       ${{ github.event_name == 'workflow_dispatch' ||
           github.event_name == 'pull_request_target' ||
           github.event.pull_request != null }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      conflicting: ${{ steps.check.outputs.conflicting }}
+    steps:
+      - name: Check PR mergeable state
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          # `mergeable_state` is computed asynchronously; it reads "unknown"
+          # for a few seconds after a push. Poll rather than guess.
+          mergeable_state="unknown"
+          for _ in 1 2 3 4 5 6; do
+            mergeable_state=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.mergeable_state')
+            [ "$mergeable_state" != "unknown" ] && break
+            sleep 5
+          done
+
+          echo "mergeable_state=$mergeable_state"
+
+          if [ "$mergeable_state" = "dirty" ]; then
+            echo "conflicting=true" >> "$GITHUB_OUTPUT"
+            echo "::error title=Pull request has merge conflicts::CI and Product Smoke cannot run on a conflicting pull request — GitHub never builds the merge ref, so those required checks stay silent instead of failing. Rebase or merge the base branch."
+            exit 1
+          fi
+
+          echo "conflicting=false" >> "$GITHUB_OUTPUT"
+          if [ "$mergeable_state" = "unknown" ]; then
+            # Inconclusive, not clean: say so rather than implying a clean merge.
+            echo "::warning title=Mergeability not computed::GitHub did not finish computing mergeability for #$PR_NUMBER; the conflict guard could not reach a verdict."
+          fi
+
+  verdict:
+    name: Publish Claude verdict
+    needs: [mergeable]
+    if: >-
+      ${{ always() &&
+          (github.event_name == 'workflow_dispatch' ||
+           github.event_name == 'pull_request_target' ||
+           github.event.pull_request != null) }}
     runs-on: ubuntu-latest
     steps:
       - name: Publish Claude verdict
@@ -39,6 +99,7 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}
           SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.event.pull_request.head.sha }}
+          CONFLICTING: ${{ needs.mergeable.outputs.conflicting }}
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -51,13 +112,17 @@ jobs:
           description="Claude review passed for this commit"
 
           # The review-happened fact is the `Claude review completed` commit
-          # status posted by the review workflow — not a comment marker, which
-          # anyone able to comment (including a steered @claude session) could
-          # forge (#459). Posting a status requires statuses:write.
+          # status posted by the review workflow's publisher job — not a
+          # comment marker, which anyone able to comment (including a steered
+          # @claude or review session) could forge (#459). Posting a status
+          # requires statuses:write, which no model-facing job holds.
           completed=$(gh api "repos/$REPO/commits/$SHA/status" \
-            --jq '.statuses[] | select(.context=="Claude review completed") | .state')
+            --jq '[.statuses[] | select(.context=="Claude review completed")][0].state // ""')
 
-          if gh api "repos/$REPO/issues/$PR_NUMBER/labels" --paginate --jq '.[].name' \
+          if [ "${CONFLICTING:-}" = "true" ]; then
+            state="failure"
+            description="Pull request has merge conflicts; CI cannot run"
+          elif gh api "repos/$REPO/issues/$PR_NUMBER/labels" --paginate --jq '.[].name' \
               | grep -qx "needs-codex"; then
             state="failure"
             description="Claude requested changes; needs-codex is present"

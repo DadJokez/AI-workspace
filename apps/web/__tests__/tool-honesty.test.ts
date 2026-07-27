@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { renderMcpMountFailureGuidance } from "@ai-workspace/agent";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
+import {
+  INTEGRATION_DISPLAY_NAMES,
+  SETTINGS_INTEGRATIONS_PATH,
+} from "@/lib/settings-navigation";
 
 /**
  * Tool-use honesty grounding. Born from a real failure: the assistant claimed
@@ -178,6 +183,23 @@ describe("tool-use honesty grounding", () => {
     );
     expect(preamble).toContain("Do not say no tools are connected");
     expect(preamble).not.toContain("No external tools are connected yet");
+  });
+
+  it("#713: runtime mount-failure guidance matches the preamble's reconnect copy and the real Settings path", () => {
+    // The renderer lives in packages/agent (the dependency direction keeps it
+    // from importing settings-navigation), so this pins its hardcoded copy to
+    // the canonical constants — a Settings rename must fail this test (#649).
+    const guidance = renderMcpMountFailureGuidance([
+      {
+        provider: "google",
+        displayName: INTEGRATION_DISPLAY_NAMES.google,
+        message: "invalid_grant",
+      },
+    ]);
+    expect(guidance).toContain(SETTINGS_INTEGRATIONS_PATH);
+    expect(guidance).toContain(
+      `"${INTEGRATION_DISPLAY_NAMES.google} needs to be reconnected in ${SETTINGS_INTEGRATIONS_PATH} before I can use it."`,
+    );
   });
 
   it("keeps post-call Google guidance out of the cached preamble", () => {
