@@ -58,6 +58,16 @@ export function useChatTabs({
   const stickToBottomRef = useRef(true);
   const activeTab = tabs.find((tab) => tab.id === activeId) ?? tabs[0];
 
+  // Latest server default, readable inside the hydration effect without being
+  // one of its dependencies. When the client fallback constant drifts from the
+  // value /api/models returns, a `defaultModelId` dependency cancels the
+  // in-flight messages fetch and the retry bails on the loading guard, so the
+  // thread renders "Loading conversation" forever (#711/#709).
+  const defaultModelIdRef = useRef(defaultModelId);
+  useEffect(() => {
+    defaultModelIdRef.current = defaultModelId;
+  }, [defaultModelId]);
+
   useEffect(() => {
     if (models.length === 0) return;
     const validIds = new Set(models.map((model) => model.id));
@@ -148,7 +158,8 @@ export function useChatTabs({
     if (loadingThreadsRef.current.has(activeTab.id)) return;
     const tabId = activeTab.id;
     const threadId = activeTab.threadId;
-    loadingThreadsRef.current.add(tabId);
+    const loadingThreads = loadingThreadsRef.current;
+    loadingThreads.add(tabId);
     let cancelled = false;
 
     fetchJson<ThreadMessagesResponse>(
@@ -179,7 +190,7 @@ export function useChatTabs({
           (error instanceof ClientApiError && error.status === 404) ||
           /thread_not_found/i.test(message)
         ) {
-          setTabs([makeFreshTab(defaultModelId)]);
+          setTabs([makeFreshTab(defaultModelIdRef.current)]);
           return;
         }
         setTabs((previous) =>
@@ -195,12 +206,17 @@ export function useChatTabs({
         );
       })
       .finally(() => {
-        loadingThreadsRef.current.delete(tabId);
+        // A cancelled run's guard entry is released by its cleanup below;
+        // deleting it here too would clobber the entry a newer run re-added.
+        if (!cancelled) loadingThreads.delete(tabId);
       });
     return () => {
+      // Release the guard on cancellation so a re-run can retry the fetch
+      // instead of bailing out and stranding the tab unloaded (#711).
       cancelled = true;
+      loadingThreads.delete(tabId);
     };
-  }, [activeTab?.id, activeTab?.loaded, activeTab?.threadId, defaultModelId]);
+  }, [activeTab?.id, activeTab?.loaded, activeTab?.threadId]);
 
   function patchTab(id: string, patch: Partial<ChatTab>) {
     setTabs((previous) =>
