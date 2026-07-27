@@ -6,7 +6,7 @@
 // client fallback constant, that dependency change cancelled the in-flight
 // messages fetch, the immediate re-run bailed on the loadingThreadsRef guard,
 // and the tab never left "Loading conversation".
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelOption } from "@/components/ModelSelector";
 import { useChatTabs } from "@/app/chat/use-chat-tabs";
@@ -60,6 +60,18 @@ function deferredFetch() {
   });
   const fetchMock = vi.fn(() => response);
   return { fetchMock, resolve };
+}
+
+/** Like deferredFetch, but every call gets its own controllable response. */
+function deferredFetchQueue() {
+  const resolvers: Array<(response: Response) => void> = [];
+  const fetchMock = vi.fn(
+    () =>
+      new Promise<Response>((r) => {
+        resolvers.push(r);
+      }),
+  );
+  return { fetchMock, resolvers };
 }
 
 function hookProps(defaultModelId: string) {
@@ -139,5 +151,55 @@ describe("useChatTabs reload hydration under model drift (#711)", () => {
     // client constant captured when the fetch started.
     expect(result.current.activeTab?.modelId).toBe(SERVER_DEFAULT_MODEL_ID);
     expect(result.current.activeTab?.loaded).toBe(true);
+  });
+
+  // Pins the OTHER half of the #711 diff: the loadingThreadsRef guard
+  // release. Cancelling a run must free the guard so the effect's immediate
+  // re-run can fetch instead of bailing and stranding the tab on "Loading
+  // conversation". The re-run is driven by a threadId change on the SAME tab
+  // (not by defaultModelId, which is no longer a dependency), so this fails
+  // on a partial revert of just the guard-release mechanism even with the
+  // deps-array fix intact.
+  it("recovers when the active tab switches threads while the first fetch is in flight", async () => {
+    const SECOND_THREAD_ID = "66666666-7777-4888-9999-aaaaaaaaaaaa";
+    const { fetchMock, resolvers } = deferredFetchQueue();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook((props) => useChatTabs(props), {
+      initialProps: hookProps(SERVER_DEFAULT_MODEL_ID),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const tabId = result.current.activeTab!.id;
+
+    // Retarget the SAME tab at a different thread while fetch #1 is still
+    // deferred. The effect re-runs under the same guard key: cleanup must
+    // cancel run #1 and release the guard so run #2 can fetch thread #2.
+    act(() => {
+      result.current.patchTab(tabId, {
+        threadId: SECOND_THREAD_ID,
+        messages: [],
+        loaded: false,
+      });
+    });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/threads/${SECOND_THREAD_ID}/messages`,
+      undefined,
+    );
+
+    // Resolve out of order: the cancelled first fetch must not clobber the
+    // live run's state.
+    resolvers[1]!(jsonResponse(200, messagesBody()));
+    resolvers[0]!(jsonResponse(200, { messages: [] }));
+
+    await waitFor(() => {
+      expect(result.current.activeTab?.loaded).toBe(true);
+    });
+    expect(result.current.activeTab?.threadId).toBe(SECOND_THREAD_ID);
+    expect(result.current.activeTab?.messages).toHaveLength(1);
+    expect(result.current.activeTab?.error).toBeUndefined();
   });
 });
