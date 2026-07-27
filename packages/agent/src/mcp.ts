@@ -30,6 +30,26 @@ export interface McpHttpServerSpec {
   blockedTools?: string[];
   /** Provider-native tool name -> trusted first-result usage guidance. */
   usageNotesByTool?: Record<string, string>;
+  /**
+   * Canonical user-visible integration name (the Settings → Integrations card
+   * label, e.g. "Google Mail & Calendar"). Used verbatim in degraded-provider
+   * prompt guidance so the model's reconnect copy matches the visible UI
+   * (#649). Falls back to the provider key when absent.
+   */
+  displayName?: string;
+}
+
+/** One provider that failed to connect or list tools this turn (#713). */
+export interface McpProviderFailure {
+  provider: string;
+  /** `spec.displayName` when supplied, else the provider key. */
+  displayName: string;
+  /**
+   * Underlying connect/list error, for logs, receipts, and error events.
+   * Never rendered into the model prompt — a provider-controlled error
+   * string is third-party content, not instructions.
+   */
+  message: string;
 }
 
 export interface McpToolConnection {
@@ -37,6 +57,11 @@ export interface McpToolConnection {
   tools: Tool[];
   /** Providers that connected and the tool count each contributed. */
   providers: Record<string, number>;
+  /**
+   * Providers that failed to connect this turn (#713). Healthy providers
+   * mount regardless; callers surface these as degraded provider status.
+   */
+  failedProviders: McpProviderFailure[];
   /** Close all underlying MCP clients. Always call after the turn. */
   close(): Promise<void>;
 }
@@ -56,8 +81,13 @@ export function mcpToolName(provider: string, toolName: string): string {
 
 /**
  * Connect to each MCP server, list its tools, and wrap them as `Tool`s.
- * Connection failures throw — callers decide whether a turn proceeds
- * tool-less (chat) or fails loudly (skills declared the provider).
+ *
+ * Mounting is fault-isolated per provider (#713): one dead provider (expired
+ * OAuth grant, provider API down) must never blank the tools of the healthy
+ * ones for the turn. A provider that fails to connect or list is skipped and
+ * reported in `failedProviders`; callers surface the degraded status honestly
+ * and the turn proceeds with whatever mounted. A skill that hard-requires a
+ * failed provider still fails closed via the loop's `requiredToolName` check.
  */
 export async function connectMcpTools(
   servers: Record<string, McpHttpServerSpec>,
@@ -74,13 +104,19 @@ export async function connectMcpTools(
   const connected = settled.flatMap((result) =>
     result.status === "fulfilled" ? [result.value] : [],
   );
-  const failure = settled.find(
-    (result): result is PromiseRejectedResult => result.status === "rejected",
-  );
-  if (failure) {
-    await closeAll(connected.map((item) => item.client)).catch(() => {});
-    throw failure.reason;
-  }
+  const failedProviders: McpProviderFailure[] = [];
+  settled.forEach((result, index) => {
+    if (result.status !== "rejected") return;
+    const [provider, spec] = serverEntries[index]!;
+    failedProviders.push({
+      provider,
+      displayName: spec.displayName?.trim() || provider,
+      message:
+        result.reason instanceof Error
+          ? result.reason.message
+          : String(result.reason),
+    });
+  });
 
   const clients = connected.map((item) => item.client);
   const tools: Tool[] = [];
@@ -101,8 +137,32 @@ export async function connectMcpTools(
   return {
     tools,
     providers,
+    failedProviders,
     close: () => closeAll(clients),
   };
+}
+
+/**
+ * Honest prompt guidance for providers that failed to mount this turn (#713).
+ * Rendered post-cache-checkpoint (volatile suffix / per-turn system text) by
+ * the runtimes, so a transient failure never breaks prompt-prefix caching.
+ *
+ * The say-exactly sentence and the "Settings → Integrations" path mirror the
+ * reconnect copy in `apps/web/lib/agent-preamble.ts` /
+ * `apps/web/lib/settings-navigation.ts` (#649) — the dependency direction
+ * prevents importing them here, so keep the wording in sync with that file.
+ * Raw connection errors are deliberately NOT rendered: a provider-controlled
+ * error string is untrusted content and stays in logs/receipts only.
+ */
+export function renderMcpMountFailureGuidance(
+  failures: readonly McpProviderFailure[],
+): string {
+  const names = failures.map((failure) => failure.displayName).join(" and ");
+  return [
+    "Connected account tools that failed to connect for this turn:",
+    ...failures.map((failure) => `- ${failure.displayName}`),
+    `These integrations are connected to the user's account, but their tool connection could not be established this turn, so none of their tools are callable right now. The other mounted tools are unaffected — keep using them normally. If the user asks for one of the failed integrations, say plainly that its connection failed this turn and that "${names} needs to be reconnected in Settings → Integrations before I can use it." Do not say all tools are down, do not deny that the account connection exists, and do not invent a result from an integration that did not mount.`,
+  ].join("\n");
 }
 
 async function connectMcpProvider(

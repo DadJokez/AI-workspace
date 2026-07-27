@@ -3,8 +3,12 @@ import {
   createDiscoveryTools,
   resolveMountedToolNames,
   ToolRegistry,
+  type AgentEvent,
+  type BedrockClient,
+  type BedrockStreamEvent,
+  type ConverseStreamParams,
 } from "@ai-workspace/agent";
-import { parseInvocationPayload } from "./handler";
+import { parseInvocationPayload, runInvocation } from "./handler";
 
 /**
  * The AgentCore lane's tool-discovery parity pin (#384, promised in the P1
@@ -148,6 +152,76 @@ describe("parseInvocationPayload just-in-time tool guidance", () => {
     expect(payload.mcpServers?.github?.usageNotesByTool).toEqual({
       create_issue: "Report the exact issue URL.",
     });
+  });
+
+  it("keeps the canonical displayName and drops junk values (#713)", () => {
+    const payload = parseInvocationPayload({
+      ...BASE_PAYLOAD,
+      mcpServers: {
+        google: {
+          url: "https://mcp.example.test",
+          displayName: "Google Mail & Calendar",
+        },
+        github: { url: "https://mcp.example.test", displayName: 42 },
+      },
+    });
+
+    expect(payload.mcpServers?.google?.displayName).toBe(
+      "Google Mail & Calendar",
+    );
+    expect(payload.mcpServers?.github?.displayName).toBeUndefined();
+  });
+});
+
+/**
+ * #713 in the container lane: a provider that fails to mount becomes a
+ * degraded (non-fatal) error event and honest system-prompt guidance, and
+ * the turn still completes.
+ */
+describe("runInvocation degraded MCP mounting (#713)", () => {
+  it("emits a degraded event, tells the model honestly, and completes the turn", async () => {
+    const captured: { systemPrompt?: string } = {};
+    const client: BedrockClient = {
+      async *converseStream(
+        params: ConverseStreamParams,
+      ): AsyncIterable<BedrockStreamEvent> {
+        captured.systemPrompt = params.systemPrompt;
+        yield { type: "text-delta", text: "ok" } as BedrockStreamEvent;
+        yield { type: "stop", reason: "end_turn" } as BedrockStreamEvent;
+      },
+    };
+
+    const events: AgentEvent[] = [];
+    await runInvocation(
+      parseInvocationPayload({
+        ...BASE_PAYLOAD,
+        systemPrompt: "SYSTEM",
+        mcpServers: {
+          google: {
+            url: "http://127.0.0.1:9/",
+            displayName: "Google Mail & Calendar",
+          },
+        },
+      }),
+      (event) => {
+        events.push(event);
+      },
+      { client },
+    );
+
+    const errors = events.filter(
+      (event): event is Extract<AgentEvent, { type: "error" }> =>
+        event.type === "error",
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.degradedProvider).toBe("google");
+    expect(errors[0]!.message).toContain("MCP connection failed for google");
+    expect(events.some((event) => event.type === "done")).toBe(true);
+
+    expect(captured.systemPrompt).toContain("SYSTEM");
+    expect(captured.systemPrompt).toContain(
+      "Google Mail & Calendar needs to be reconnected in Settings → Integrations before I can use it.",
+    );
   });
 });
 

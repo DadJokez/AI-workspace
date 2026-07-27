@@ -70,8 +70,16 @@ export {
 } from "./loop";
 export type { RunAgentLoopParams } from "./loop";
 
-export { connectMcpTools, mcpToolName } from "./mcp";
-export type { McpHttpServerSpec, McpToolConnection } from "./mcp";
+export {
+  connectMcpTools,
+  mcpToolName,
+  renderMcpMountFailureGuidance,
+} from "./mcp";
+export type {
+  McpHttpServerSpec,
+  McpProviderFailure,
+  McpToolConnection,
+} from "./mcp";
 
 export { normalizeUserTimeZone, renderClockStatement } from "./timezone";
 

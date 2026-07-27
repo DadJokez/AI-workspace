@@ -159,5 +159,15 @@ export type AgentEvent =
   | { type: "tool-call"; call: ToolCall }
   | { type: "tool-result"; result: ToolResult }
   | ({ type: "usage" } & TokenUsage)
-  | { type: "error"; message: string }
+  | {
+      type: "error";
+      message: string;
+      /**
+       * #713: set when this error is a per-provider MCP mount failure the
+       * turn recovered from (healthy providers still mounted, the model was
+       * told honestly). Consumers record it in logs/receipts but must not
+       * fail the run or trigger model failover over it.
+       */
+      degradedProvider?: string;
+    }
   | { type: "done" };

@@ -9,6 +9,7 @@ import {
   createDiscoveryTools,
   isValidModelId,
   normalizeUserTimeZone,
+  renderMcpMountFailureGuidance,
   resolveMountedToolNames,
   runAgentLoop,
   type DiscoveryCatalogEntry,
@@ -134,6 +135,7 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
           allowedTools?: unknown;
           blockedTools?: unknown;
           usageNotesByTool?: unknown;
+          displayName?: unknown;
         };
         mcpServers[name] = {
           url: s.url,
@@ -149,6 +151,10 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
               )
             : undefined,
           usageNotesByTool: parseUsageNotesByTool(s.usageNotesByTool),
+          displayName:
+            typeof s.displayName === "string" && s.displayName.trim()
+              ? s.displayName
+              : undefined,
         };
       }
     }
@@ -222,33 +228,44 @@ export async function runInvocation(
       }),
     );
   }
+  // #713: fault-isolated mounting, same semantics as `BedrockRuntime.runTurn`
+  // — healthy providers mount, each failed provider becomes a degraded
+  // (non-fatal) error event, and the model is told honestly. This lane has no
+  // volatile-suffix seam, so the guidance rides the end of the system prompt.
   let mcp: McpToolConnection | null = null;
   const dynamicToolNames = new Set<string>();
+  let mountFailureGuidance: string | undefined;
 
   const servers = payload.mcpServers ?? {};
   if (Object.keys(servers).length > 0) {
-    try {
-      mcp = await connectMcpTools(servers, {
-        clientName: "ai-hub-agentcore-agent",
-      });
-      for (const tool of mcp.tools) {
-        if (!registry.has(tool.name)) {
-          registry.register(tool);
-          dynamicToolNames.add(tool.name);
-        }
+    mcp = await connectMcpTools(servers, {
+      clientName: "ai-hub-agentcore-agent",
+    });
+    for (const tool of mcp.tools) {
+      if (!registry.has(tool.name)) {
+        registry.register(tool);
+        dynamicToolNames.add(tool.name);
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+    }
+    for (const failure of mcp.failedProviders) {
       await emit({
         type: "error",
-        message: `MCP connection failed — continuing without tools (${message})`,
+        degradedProvider: failure.provider,
+        message: `MCP connection failed for ${failure.provider} — continuing without its tools (${failure.message})`,
       });
+    }
+    if (mcp.failedProviders.length > 0) {
+      mountFailureGuidance = renderMcpMountFailureGuidance(
+        mcp.failedProviders,
+      );
     }
   }
 
-  const systemParts = [payload.systemPrompt, payload.firstTurnPreamble].filter(
-    (p): p is string => typeof p === "string" && p.length > 0,
-  );
+  const systemParts = [
+    payload.systemPrompt,
+    payload.firstTurnPreamble,
+    mountFailureGuidance,
+  ].filter((p): p is string => typeof p === "string" && p.length > 0);
 
   try {
     for await (const event of runAgentLoop({

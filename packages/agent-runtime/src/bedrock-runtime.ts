@@ -7,6 +7,7 @@ import {
   connectMcpTools,
   createDiscoveryTools,
   isValidModelId,
+  renderMcpMountFailureGuidance,
   resolveMountedToolNames,
   runAgentLoop,
 } from "@ai-workspace/agent";
@@ -77,34 +78,48 @@ export class BedrockRuntime implements AgentRuntime {
       );
     }
 
+    // #713: mounting is fault-isolated per provider. Healthy providers mount
+    // and the turn proceeds; each failed provider is reported as a degraded
+    // (non-fatal) error event for logs/receipts, and the model is told
+    // honestly via post-checkpoint system text so it can point the user at
+    // the reconnect path while still using the tools that did mount.
     let mcp: McpToolConnection | null = null;
     const dynamicToolNames = new Set<string>();
+    let mountFailureGuidance: string | undefined;
     const httpServers = pickHttpMcpServers(input.mcpServers);
     if (Object.keys(httpServers).length > 0) {
-      try {
-        mcp = await connectMcpTools(httpServers);
-        for (const tool of mcp.tools) {
-          if (!registry.has(tool.name)) {
-            registry.register(tool);
-            dynamicToolNames.add(tool.name);
-          }
+      mcp = await connectMcpTools(httpServers);
+      for (const tool of mcp.tools) {
+        if (!registry.has(tool.name)) {
+          registry.register(tool);
+          dynamicToolNames.add(tool.name);
         }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+      }
+      for (const failure of mcp.failedProviders) {
         yield {
           type: "error",
-          message: `BedrockRuntime: MCP connection failed — continuing without tools (${message})`,
+          degradedProvider: failure.provider,
+          message: `BedrockRuntime: MCP connection failed for ${failure.provider} — continuing without its tools (${failure.message})`,
         };
       }
+      if (mcp.failedProviders.length > 0) {
+        mountFailureGuidance = renderMcpMountFailureGuidance(
+          mcp.failedProviders,
+        );
+      }
     }
+    const volatileSystemSuffix = [
+      input.volatileSystemSuffix,
+      mountFailureGuidance,
+    ]
+      .filter((part): part is string => Boolean(part))
+      .join("\n\n");
 
     try {
       yield* runAgentLoop({
         modelId: input.modelId,
         systemPrompt: composeSystemPrompt(input),
-        ...(input.volatileSystemSuffix
-          ? { volatileSystemSuffix: input.volatileSystemSuffix }
-          : {}),
+        ...(volatileSystemSuffix ? { volatileSystemSuffix } : {}),
         ...(input.userTimeZone ? { userTimeZone: input.userTimeZone } : {}),
         messages: input.messages,
         registry,
@@ -155,6 +170,7 @@ export function pickHttpMcpServers(
         allowedTools: spec.allowedTools,
         blockedTools: spec.blockedTools,
         usageNotesByTool: spec.usageNotesByTool,
+        displayName: spec.displayName,
       };
     }
   }
