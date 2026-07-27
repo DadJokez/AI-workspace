@@ -68,6 +68,10 @@ describe("model wording regression guards", () => {
     foundationalChatSuite.cases,
     "missing-fact-stays-unknown",
   );
+  const briefFactsCase = evalCase(
+    foundationalChatSuite.cases,
+    "preserves-brief-facts",
+  );
   const googleDisconnectedCase = evalCase(
     gmailCalendarFaithfulnessSuite.cases,
     "disconnected-expired-honesty",
@@ -260,6 +264,46 @@ describe("model wording regression guards", () => {
         answer,
       ),
     ).toBe(true);
+  });
+
+  // The 2026-07-27 full-pack run failed a factually complete answer because
+  // the unsigned-contract check only accepted "not signed"/"unsigned"
+  // vocabulary. Every accepted phrase must still assert the contract is
+  // unsigned; the companion no-upgrade assertion keeps rejecting signed
+  // claims.
+  it.each([
+    "Alder & Finch's $184,250 renewal is verbally approved but awaiting signature by the 2026-08-14 decision date.",
+    "Alder & Finch's $184,250 renewal is verbally approved with the signature still pending ahead of the 2026-08-14 decision date.",
+    "Alder & Finch's $184,250 renewal is verbally approved but the contract hasn't been signed; the decision date is 2026-08-14.",
+    "Alder & Finch's $184,250 renewal is verbally approved though the contract is yet to be signed before 2026-08-14.",
+  ])("accepts truthful unsigned-contract wording: %s", (answer) => {
+    expect(
+      deterministicResult(
+        briefFactsCase,
+        "includes every material fact from the brief",
+        answer,
+      ),
+    ).toBe(true);
+  });
+
+  it("still fails a brief summary that drops the unsigned-contract status", () => {
+    expect(
+      deterministicResult(
+        briefFactsCase,
+        "includes every material fact from the brief",
+        "Alder & Finch's $184,250 renewal is verbally approved, with a decision due 2026-08-14.",
+      ),
+    ).toBe(false);
+  });
+
+  it("still rejects wording that upgrades the deal to a signed contract", () => {
+    expect(
+      deterministicResult(
+        briefFactsCase,
+        "does not upgrade verbal approval to a signed contract",
+        "Alder & Finch's $184,250 renewal contract was signed ahead of 2026-08-14.",
+      ),
+    ).toBe(false);
   });
 
   it("no longer passes an answer whose only navigation is the dead Tools section", () => {
