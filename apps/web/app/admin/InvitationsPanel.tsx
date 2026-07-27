@@ -1,10 +1,11 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type {
-  AdminInvitationRow,
-  AdminInvitationStatus,
-} from "@/lib/admin-invitations";
+import {
+  needsGoogleTestUserRegistration,
+  type AdminInvitationRow,
+  type AdminInvitationStatus,
+} from "@/lib/admin-invitations-shared";
 import { EmptyState } from "@/components/EmptyState";
 import { ClientApiError, fetchJson } from "@/lib/client-api";
 import { formatDateTime as shortDate } from "@/lib/format-date";
@@ -37,6 +38,9 @@ export function InvitationsPanel({ initialInvitations }: Props) {
   const [error, setError] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | undefined>();
   const [copiedId, setCopiedId] = useState<string | undefined>();
+  const [googleBusy, setGoogleBusy] = useState(false);
+
+  const googleOutstanding = rows.filter(needsGoogleTestUserRegistration);
 
   function upsertRow(invitation: AdminInvitationRow) {
     setRows((rs) => [
@@ -123,6 +127,38 @@ export function InvitationsPanel({ initialInvitations }: Props) {
     }
   }
 
+  async function markGoogleRegistered(ids: string[]) {
+    setGoogleBusy(true);
+    setError(undefined);
+    setNotice(undefined);
+    try {
+      const body = await fetchJson<{ invitations: AdminInvitationRow[] }>(
+        "/api/admin/invitations/google-registered",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ids }),
+        },
+        "Could not mark the invitation as registered.",
+      );
+      setRows((rs) =>
+        rs.map(
+          (row) => body.invitations.find((inv) => inv.id === row.id) ?? row,
+        ),
+      );
+      const emails = [...new Set(body.invitations.map((inv) => inv.email))];
+      setNotice(
+        emails.length === 1
+          ? `Marked ${emails[0]} as registered in the Google test-user list.`
+          : `Marked ${emails.length} emails as registered in the Google test-user list.`,
+      );
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setGoogleBusy(false);
+    }
+  }
+
   async function copy(id: string, url: string) {
     try {
       await navigator.clipboard.writeText(url);
@@ -193,6 +229,86 @@ export function InvitationsPanel({ initialInvitations }: Props) {
         </div>
       ) : null}
 
+      {googleOutstanding.length > 0 ? (
+        <div
+          data-testid="google-test-users-outstanding"
+          className="mx-6 mb-4 rounded-md border border-hairline bg-subtle/40 p-3"
+        >
+          <h3 className="text-sm font-semibold text-ink">
+            Google test users to register
+          </h3>
+          <p className="mt-1 text-xs text-muted">
+            Our Google OAuth app is in testing mode, so Google only lets
+            hand-registered emails connect Google tools — and Google has no
+            API for that list. Add these emails in Google Auth Platform →
+            Audience, then mark them registered here.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                copy(
+                  "google-outstanding-emails",
+                  [...new Set(googleOutstanding.map((inv) => inv.email))].join(
+                    "\n",
+                  ),
+                )
+              }
+              className="rounded-md border border-hairline px-2 py-1 text-xs text-ink hover:bg-subtle"
+            >
+              {copiedId === "google-outstanding-emails"
+                ? "Copied"
+                : "Copy emails"}
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                markGoogleRegistered(googleOutstanding.map((inv) => inv.id))
+              }
+              disabled={googleBusy}
+              className="rounded-md border border-hairline px-2 py-1 text-xs text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {googleBusy ? "Working..." : "Mark all registered"}
+            </button>
+            <a
+              href="https://console.cloud.google.com/auth/audience"
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-muted underline-offset-2 hover:text-ink hover:underline"
+            >
+              Google Auth Platform → Audience
+            </a>
+          </div>
+          <ul className="mt-2 flex flex-col gap-1">
+            {googleOutstanding.map((inv) => (
+              <li
+                key={inv.id}
+                className="flex items-center justify-between gap-2 text-xs text-ink"
+              >
+                <span>{inv.email}</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    // Registration is per-email in the Google console, so
+                    // marking one row marks every outstanding invite for
+                    // that address (re-issued invites share the email).
+                    markGoogleRegistered(
+                      googleOutstanding
+                        .filter((other) => other.email === inv.email)
+                        .map((other) => other.id),
+                    )
+                  }
+                  disabled={googleBusy}
+                  className="rounded-md border border-hairline px-2 py-1 text-xs text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  Mark registered
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <div className="overflow-x-auto">
         <table className="w-full border-separate border-spacing-0 text-sm">
           <thead>
@@ -207,6 +323,9 @@ export function InvitationsPanel({ initialInvitations }: Props) {
                 Status
               </th>
               <th className="border-b border-hairline px-4 py-2 font-medium">
+                Google access
+              </th>
+              <th className="border-b border-hairline px-4 py-2 font-medium">
                 Expires
               </th>
               <th
@@ -219,7 +338,7 @@ export function InvitationsPanel({ initialInvitations }: Props) {
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={6}
                   className="border-b border-hairline"
                 >
                   <EmptyState
@@ -260,6 +379,26 @@ export function InvitationsPanel({ initialInvitations }: Props) {
                       <span className="text-2xs text-muted">
                         {statusDetail(inv)}
                       </span>
+                    </div>
+                  </td>
+                  <td className="border-b border-hairline px-4 py-3 align-middle">
+                    <div className="flex flex-col gap-1">
+                      <span
+                        className={`inline-flex w-fit items-center rounded px-2 py-0.5 text-2xs uppercase tracking-wider ${
+                          inv.googleTestUserRegisteredAt
+                            ? "bg-success-bg text-success"
+                            : "bg-subtle text-muted"
+                        }`}
+                      >
+                        {inv.googleTestUserRegisteredAt
+                          ? "registered"
+                          : "not registered"}
+                      </span>
+                      {inv.googleTestUserRegisteredAt ? (
+                        <span className="text-2xs text-muted">
+                          {shortDate(inv.googleTestUserRegisteredAt)}
+                        </span>
+                      ) : null}
                     </div>
                   </td>
                   <td className="border-b border-hairline px-4 py-3 align-middle text-muted">

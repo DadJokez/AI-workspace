@@ -19,15 +19,19 @@ export const inviteEmailRateLimit = {
   maxRequests: 20,
 };
 
-export type InvitationRole = "admin" | "user";
-export type InvitationEmailStatus = "not_sent" | "sent" | "failed";
-export type AdminInvitationStatus =
-  | "pending"
-  | "sent"
-  | "failed"
-  | "expired"
-  | "revoked"
-  | "accepted";
+export {
+  needsGoogleTestUserRegistration,
+  type AdminInvitationRow,
+  type AdminInvitationStatus,
+  type InvitationEmailStatus,
+  type InvitationRole,
+} from "./admin-invitations-shared";
+import type {
+  AdminInvitationRow,
+  AdminInvitationStatus,
+  InvitationEmailStatus,
+  InvitationRole,
+} from "./admin-invitations-shared";
 
 export interface AdminInvitationRecord {
   id: string;
@@ -43,26 +47,8 @@ export interface AdminInvitationRecord {
   lastEmailSentAt: Date | null;
   lastEmailError: string | null;
   lastEmailMessageId: string | null;
+  googleTestUserRegisteredAt: Date | null;
   createdAt: Date;
-}
-
-export interface AdminInvitationRow {
-  id: string;
-  email: string;
-  role: InvitationRole;
-  status: AdminInvitationStatus;
-  emailStatus: InvitationEmailStatus;
-  emailAttempts: number;
-  inviteUrl: string;
-  expiresAt: string;
-  createdAt: string;
-  acceptedAt: string | null;
-  revokedAt: string | null;
-  lastEmailAttemptedAt: string | null;
-  lastEmailSentAt: string | null;
-  lastEmailError: string | null;
-  canResend: boolean;
-  canRevoke: boolean;
 }
 
 export const adminInvitationSelect = {
@@ -79,6 +65,7 @@ export const adminInvitationSelect = {
   lastEmailSentAt: invitations.lastEmailSentAt,
   lastEmailError: invitations.lastEmailError,
   lastEmailMessageId: invitations.lastEmailMessageId,
+  googleTestUserRegisteredAt: invitations.googleTestUserRegisteredAt,
   createdAt: invitations.createdAt,
 };
 
@@ -108,6 +95,7 @@ export function toAdminInvitationRow(
     lastEmailAttemptedAt: isoOrNull(record.lastEmailAttemptedAt),
     lastEmailSentAt: isoOrNull(record.lastEmailSentAt),
     lastEmailError: record.lastEmailError,
+    googleTestUserRegisteredAt: isoOrNull(record.googleTestUserRegisteredAt),
     canResend: actionable,
     canRevoke: actionable,
   };
@@ -147,7 +135,8 @@ export async function auditInvitationEvent({
     | "invite.send"
     | "invite.resend"
     | "invite.revoke"
-    | "invite.accept";
+    | "invite.accept"
+    | "invite.google_test_user_registered";
   status: "succeeded" | "failed" | "denied";
   error?: string;
   metadata?: Record<string, unknown>;

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
+import { connectErrorNotice } from "@/lib/connect-error-copy";
 import {
   INTEGRATION_DISPLAY_NAMES,
   SETTINGS_INTEGRATIONS_LABEL,
@@ -190,6 +191,10 @@ export function IntegrationsSettings() {
     setOauthNotice({ provider, error });
   }, []);
 
+  const bounceNotice = oauthNotice?.error
+    ? connectErrorNotice(oauthNotice.provider, oauthNotice.error)
+    : undefined;
+
   const cards = INTEGRATIONS.map((integration): IntegrationCardState => {
     const detail = oauthStatus.providerDetails?.[integration.id];
     const connected =
@@ -227,6 +232,15 @@ export function IntegrationsSettings() {
           Connect services to give Comparative access to your work.
         </p>
       </div>
+
+      {bounceNotice ? (
+        <div
+          data-testid="oauth-bounce-notice"
+          className="rounded-md border border-hairline bg-subtle/40 px-3 py-2 text-sm text-ink"
+        >
+          {bounceNotice}
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-5">
         {!loading && connectedCards.length === 0 ? (

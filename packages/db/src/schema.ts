@@ -365,6 +365,13 @@ export const invitations = pgTable(
     lastEmailSentAt: timestamp("last_email_sent_at", { withTimezone: true }),
     lastEmailError: text("last_email_error"),
     lastEmailMessageId: text("last_email_message_id"),
+    // The Google OAuth app runs in External + Testing mode, so only emails
+    // hand-added to its test-user list can connect Google tools. Google has
+    // no API for that list, so an admin records here when they've added the
+    // invitee in the Google console. Null = not registered yet.
+    googleTestUserRegisteredAt: timestamp("google_test_user_registered_at", {
+      withTimezone: true,
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
