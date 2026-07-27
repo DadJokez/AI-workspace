@@ -5,6 +5,7 @@ import type { McpServerSpec } from "@ai-workspace/agent-runtime";
 import { eq } from "drizzle-orm";
 
 import { decryptSecret } from "./crypto";
+import { INTEGRATION_DISPLAY_NAMES } from "@/lib/settings-navigation";
 import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
 import {
   NOTION_MCP_PATH,
@@ -514,6 +515,10 @@ export async function buildUserMcpServers(
       row.provider === "google"
         ? applyGoogleTurnToolPolicy(toolPolicy, googleTurnContext)
         : toolPolicy;
+    const displayName =
+      INTEGRATION_DISPLAY_NAMES[
+        row.provider as keyof typeof INTEGRATION_DISPLAY_NAMES
+      ];
     out[row.provider] = {
       type: "http",
       url: endpoint.url,
@@ -522,6 +527,9 @@ export async function buildUserMcpServers(
       ...(providerConfig.usageNotesByTool
         ? { usageNotesByTool: providerConfig.usageNotesByTool }
         : {}),
+      // #713: canonical Settings card name, so degraded-mount prompt guidance
+      // quotes the same integration name the visible UI renders (#649).
+      ...(displayName ? { displayName } : {}),
     };
   }
   return {

@@ -27,6 +27,11 @@ export type McpServerSpec =
       blockedTools?: string[];
       /** Provider-native tool name -> trusted first-result usage guidance. */
       usageNotesByTool?: Record<string, string>;
+      /**
+       * Canonical Settings → Integrations card label, used verbatim in
+       * degraded-provider prompt guidance when the mount fails (#713).
+       */
+      displayName?: string;
     };
 
 export interface RuntimeRunMetadata {

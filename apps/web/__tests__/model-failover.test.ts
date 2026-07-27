@@ -153,6 +153,32 @@ describe("runTurnWithModelFailover", () => {
     expect(result.onFailover).not.toHaveBeenCalled();
   });
 
+  it("#713: does not switch models for a degraded MCP mount even when the underlying error looks retryable", async () => {
+    const degraded = {
+      type: "error",
+      degradedProvider: "google",
+      message:
+        "BedrockRuntime: MCP connection failed for google — continuing without its tools (503 Service Unavailable)",
+    } satisfies AgentEvent;
+    const runtime = {
+      name: "bedrock",
+      runTurn: async function* () {
+        yield degraded;
+        yield { type: "text-delta", delta: "Hello" } satisfies AgentEvent;
+        yield { type: "done" } satisfies AgentEvent;
+      },
+    } as unknown as AgentRuntime;
+
+    const result = await collect(runtime);
+
+    expect(result.events).toEqual([
+      degraded,
+      { type: "text-delta", delta: "Hello" },
+      { type: "done" },
+    ]);
+    expect(result.onFailover).not.toHaveBeenCalled();
+  });
+
   it("keeps single-candidate behavior unchanged", async () => {
     const onFailover = vi.fn();
     const events: AgentEvent[] = [];

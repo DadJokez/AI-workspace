@@ -22,12 +22,14 @@ class ScriptedBedrockClient implements BedrockClient {
   calls = 0;
   toolResultSeen: string | null = null;
   toolChoices: ConverseStreamParams["toolConfig"][] = [];
+  volatileSuffixes: Array<string | undefined> = [];
 
   async *converseStream(
     params: ConverseStreamParams,
   ): AsyncIterable<BedrockStreamEvent> {
     this.calls += 1;
     this.toolChoices.push(params.toolConfig);
+    this.volatileSuffixes.push(params.volatileSystemSuffix);
     if (this.calls === 1) {
       yield {
         type: "tool-use",
@@ -111,6 +113,53 @@ describe("BedrockRuntime with MCP servers", () => {
 
     expect(events.some((e) => e.type === "done")).toBe(true);
     expect(events.some((e) => e.type === "error")).toBe(false);
+  });
+
+  it("#713: one dead provider does not blank the healthy provider's tools", async () => {
+    server = await startTestMcpServer();
+    const client = new ScriptedBedrockClient();
+    const runtime = new BedrockRuntime({ client });
+
+    const events: AgentEvent[] = [];
+    for await (const ev of runtime.runTurn({
+      threadId: "thread-713",
+      modelId: "sonnet-4-6",
+      messages: [{ role: "user", content: "run the echo tool" }],
+      context: { userId: "u1" },
+      requiredToolName: "github__echo",
+      mcpServers: {
+        github: { type: "http", url: server.url },
+        salesforce: {
+          type: "http",
+          url: "http://127.0.0.1:9/",
+          displayName: "Salesforce",
+        },
+      },
+    })) {
+      events.push(ev);
+    }
+
+    // The healthy provider still mounted and round-tripped its tool call.
+    const toolResult = events.find((e) => e.type === "tool-result");
+    expect(toolResult).toMatchObject({ result: { output: "echo:ping" } });
+    expect(events.some((e) => e.type === "done")).toBe(true);
+
+    // The dead provider surfaced as a degraded (non-fatal) mount failure.
+    const errors = events.filter(
+      (e): e is Extract<AgentEvent, { type: "error" }> => e.type === "error",
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.degradedProvider).toBe("salesforce");
+    expect(errors[0]!.message).toContain(
+      "MCP connection failed for salesforce",
+    );
+
+    // The model was told honestly, with the canonical reconnect copy, in the
+    // post-checkpoint volatile suffix (per-turn state must not break the
+    // prompt-prefix cache).
+    expect(client.volatileSuffixes[0]).toContain(
+      "Salesforce needs to be reconnected in Settings → Integrations before I can use it.",
+    );
   });
 
   it("continues tool-less with an error event when MCP connect fails", async () => {

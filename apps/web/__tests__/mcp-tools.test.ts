@@ -143,11 +143,42 @@ describe("connectMcpTools", () => {
     }
   });
 
-  it("fails loudly when the server is unreachable", async () => {
-    await expect(
-      connectMcpTools({
-        github: { url: "http://127.0.0.1:9/" },
-      }),
-    ).rejects.toThrow();
+  it("#713: reports an unreachable server as a failed provider instead of throwing", async () => {
+    const connection = await connectMcpTools({
+      github: { url: "http://127.0.0.1:9/" },
+    });
+    try {
+      expect(connection.tools).toEqual([]);
+      expect(connection.providers).toEqual({});
+      expect(connection.failedProviders).toHaveLength(1);
+      expect(connection.failedProviders[0]).toMatchObject({
+        provider: "github",
+        displayName: "github",
+      });
+    } finally {
+      await connection.close();
+    }
+  });
+
+  it("#713: mounts the reachable server's tools when another server is dead", async () => {
+    server = await startTestMcpServer();
+    const connection = await connectMcpTools({
+      github: { url: server.url },
+      salesforce: { url: "http://127.0.0.1:9/", displayName: "Salesforce" },
+    });
+    try {
+      expect(connection.tools.map((tool) => tool.name)).toEqual([
+        "github__always_fails",
+        "github__echo",
+      ]);
+      expect(connection.providers).toEqual({ github: 2 });
+      expect(connection.failedProviders).toHaveLength(1);
+      expect(connection.failedProviders[0]).toMatchObject({
+        provider: "salesforce",
+        displayName: "Salesforce",
+      });
+    } finally {
+      await connection.close();
+    }
   });
 });
