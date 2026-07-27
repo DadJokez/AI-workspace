@@ -1128,21 +1128,49 @@ export async function executeChatTurn({
           });
         }
       } else if (ev.type === "error") {
-        const normalized = normalizeRuntimeError(
-          ev.message,
-          currentErrorContext(),
-        );
-        runtimeErrors.push(normalized);
-        if (lane.kind === "inline") {
-          lane.send({ type: "error", message: normalized.userMessage });
+        if (ev.degradedProvider) {
+          // #713: one provider failed to mount but the turn continued with
+          // the remaining tools — degraded, not failed. Record it on the run
+          // (receipts) and the worker log so the outcome is never silent,
+          // but do not mark the run failed and do not send a stream error:
+          // the client treats any streamed error as a failed turn, and the
+          // model tells the user honestly in the answer itself.
+          await appendTurnRunEvent(lane, {
+            db,
+            runId,
+            eventType: "mcp_provider_mount_failed",
+            status: "failed",
+            label: `MCP provider ${ev.degradedProvider} failed to mount; the turn continued with the remaining tools`,
+            provider: ev.degradedProvider,
+            error: ev.message,
+          });
+          if (lane.kind === "worker") {
+            process.stderr.write(
+              `[chat-run-worker-mcp-mount-degraded] ${JSON.stringify({
+                runId,
+                threadId: thread.id,
+                provider: ev.degradedProvider,
+                message: ev.message,
+              })}\n`,
+            );
+          }
         } else {
-          process.stderr.write(
-            `[chat-run-worker-runtime-error] ${JSON.stringify({
-              runId,
-              threadId: thread.id,
-              message: ev.message,
-            })}\n`,
+          const normalized = normalizeRuntimeError(
+            ev.message,
+            currentErrorContext(),
           );
+          runtimeErrors.push(normalized);
+          if (lane.kind === "inline") {
+            lane.send({ type: "error", message: normalized.userMessage });
+          } else {
+            process.stderr.write(
+              `[chat-run-worker-runtime-error] ${JSON.stringify({
+                runId,
+                threadId: thread.id,
+                message: ev.message,
+              })}\n`,
+            );
+          }
         }
       }
     }
