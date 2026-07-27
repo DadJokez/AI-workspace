@@ -5,7 +5,7 @@ import {
   needsGoogleTestUserRegistration,
   type AdminInvitationRow,
   type AdminInvitationStatus,
-} from "@/lib/admin-invitations";
+} from "@/lib/admin-invitations-shared";
 import { EmptyState } from "@/components/EmptyState";
 import { ClientApiError, fetchJson } from "@/lib/client-api";
 import { formatDateTime as shortDate } from "@/lib/format-date";
