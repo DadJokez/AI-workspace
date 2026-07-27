@@ -1,0 +1,18 @@
+diff --git a/dist/chunks/rpc.-pEldfrD.js b/dist/chunks/rpc.-pEldfrD.js
+index a48eb0174a4fbc508a36c46ff78b0f9bf7ba6295..d1301f4e3e4ec85b891f3fd2788899a2f290c00e 100644
+--- a/dist/chunks/rpc.-pEldfrD.js
++++ b/dist/chunks/rpc.-pEldfrD.js
+@@ -45,6 +45,13 @@ function createRuntimeRpc(options) {
+ 			"onCollected",
+ 			"onCancel"
+ 		],
++		// Backport of vitest-dev/vitest#8297 (fixes #8164, first shipped in v4):
++		// disable birpc's hardcoded 60s call timeout. CPU-heavy suites (e.g. the
++		// #575 large-attachment matrix) starve the worker event loop long enough
++		// that "onTaskUpdate" responses spuriously time out and fail the run as
++		// an unhandled error even though every test passed. Drop this patch when
++		// vitest is upgraded to v4.
++		timeout: -1,
+ 		onTimeoutError(functionName, args) {
+ 			let message = `[vitest-worker]: Timeout calling "${functionName}"`;
+ 			if (functionName === "fetch" || functionName === "transform" || functionName === "resolveId") message += ` with "${JSON.stringify(args)}"`;

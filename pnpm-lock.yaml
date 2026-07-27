@@ -21,6 +21,11 @@ overrides:
   sqlite3: '-'
   uuid: ^11.1.1
 
+patchedDependencies:
+  vitest@3.2.6:
+    hash: heba72wblh5avnlvvpqj2qldqi
+    path: patches/vitest@3.2.6.patch
+
 importers:
 
   .: {}
@@ -54,7 +59,7 @@ importers:
         version: 8.59.1(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
       vitest:
         specifier: ^3.2.6
-        version: 3.2.6(@types/debug@4.1.13)(@types/node@22.19.17)(jiti@1.21.7)(tsx@4.21.0)
+        version: 3.2.6(patch_hash=heba72wblh5avnlvvpqj2qldqi)(@types/debug@4.1.13)(@types/node@22.19.17)(jiti@1.21.7)(tsx@4.21.0)
 
   apps/web:
     dependencies:
@@ -166,7 +171,7 @@ importers:
         version: 5.1.4(typescript@5.9.3)(vite@7.3.6(@types/node@22.19.17)(jiti@1.21.7)(tsx@4.21.0))
       vitest:
         specifier: ^3.2.6
-        version: 3.2.6(@types/debug@4.1.13)(@types/node@22.19.17)(jiti@1.21.7)(tsx@4.21.0)
+        version: 3.2.6(patch_hash=heba72wblh5avnlvvpqj2qldqi)(@types/debug@4.1.13)(@types/node@22.19.17)(jiti@1.21.7)(tsx@4.21.0)
 
   infra/cdk:
     dependencies:
@@ -222,7 +227,7 @@ importers:
         version: 8.59.1(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
       vitest:
         specifier: ^3.2.6
-        version: 3.2.6(@types/debug@4.1.13)(@types/node@22.19.17)(jiti@1.21.7)(tsx@4.21.0)
+        version: 3.2.6(patch_hash=heba72wblh5avnlvvpqj2qldqi)(@types/debug@4.1.13)(@types/node@22.19.17)(jiti@1.21.7)(tsx@4.21.0)
 
   packages/agent-runtime:
     dependencies:
@@ -324,7 +329,7 @@ importers:
         version: 8.59.1(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
       vitest:
         specifier: ^3.2.6
-        version: 3.2.6(@types/debug@4.1.13)(@types/node@22.19.17)(jiti@1.21.7)(tsx@4.21.0)
+        version: 3.2.6(patch_hash=heba72wblh5avnlvvpqj2qldqi)(@types/debug@4.1.13)(@types/node@22.19.17)(jiti@1.21.7)(tsx@4.21.0)
 
   packages/umber:
     dependencies:
@@ -8306,7 +8311,7 @@ snapshots:
       jiti: 1.21.7
       tsx: 4.21.0
 
-  vitest@3.2.6(@types/debug@4.1.13)(@types/node@22.19.17)(jiti@1.21.7)(tsx@4.21.0):
+  vitest@3.2.6(patch_hash=heba72wblh5avnlvvpqj2qldqi)(@types/debug@4.1.13)(@types/node@22.19.17)(jiti@1.21.7)(tsx@4.21.0):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.6
