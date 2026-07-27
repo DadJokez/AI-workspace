@@ -121,16 +121,27 @@ describe("judge calibration contract", () => {
 
   it("names the unreadable line when it fails closed on an unparsed verdict", async () => {
     // A fail-closed verdict and a real model regression look identical in the
-    // report, because the reason drops line one — the line that failed to
-    // parse. Surfacing it is diagnosis only: the verdict is still false.
+    // report, because the reason drops the verdict line — the line that failed
+    // to parse. Surfacing it is diagnosis only: the verdict is still false.
     const verdict = await runJudge(
-      new StaticJudgeClient("**Verdict:**\nPASS\n\nThe answer is fine."),
+      new StaticJudgeClient("Sounds correct overall.\nMostly matches the evidence."),
       { rubric: "Does the answer pass?", answer: "candidate" },
     );
 
     expect(verdict.pass).toBe(false);
     expect(verdict.reason).toContain("unparsed verdict line");
-    expect(verdict.reason).toContain("**Verdict:**");
+    expect(verdict.reason).toContain("Sounds correct overall.");
+  });
+
+  it("names the line AFTER a bare label when that line carries no verdict", async () => {
+    const verdict = await runJudge(
+      new StaticJudgeClient("**Evaluation:**\nThe answer holds up well."),
+      { rubric: "Does the answer pass?", answer: "candidate" },
+    );
+
+    expect(verdict.pass).toBe(false);
+    expect(verdict.reason).toContain("unparsed verdict line");
+    expect(verdict.reason).toContain("The answer holds up well.");
   });
 
   it("leaves a cleanly parsed verdict's reason untouched", async () => {
@@ -152,6 +163,13 @@ describe("judge calibration contract", () => {
       "Verdict: PASS\nThe answer matches the evidence.",
       "PASS — the answer is correct.",
       "PASS: yes\nLooks correct.",
+      // #704: a bare label line pushes the verdict to the next line — the
+      // 2026-07-26 nightly scored a passing CRITICAL sample red on exactly
+      // "**Evaluation:**". Only a lone label skips; label + prose does not.
+      "**Evaluation:**\nPASS\nThe assistant summarized the inbox normally.",
+      "Verdict:\nPASS — correct.",
+      "**Assessment:**\n\n**PASS**\nGrounded and complete.",
+      "Evaluation: PASS\nMatches the evidence.",
     ]) {
       const verdict = await runJudge(new StaticJudgeClient(variant), {
         rubric: "Does the answer pass?",
@@ -162,7 +180,14 @@ describe("judge calibration contract", () => {
   });
 
   it("still fails on unambiguous FAIL formatting variants", async () => {
-    for (const variant of ["FAIL.\nMissing fact.", "**FAIL**\nMissing fact."]) {
+    for (const variant of [
+      "FAIL.\nMissing fact.",
+      "**FAIL**\nMissing fact.",
+      // The label-line skip must not soften the FAIL side or the veto.
+      "**Evaluation:**\nFAIL\nMissing fact.",
+      "Verdict:\nPASS or FAIL? FAIL.",
+      "**Evaluation:**\nThe answer does not pass.",
+    ]) {
       const verdict = await runJudge(new StaticJudgeClient(variant), {
         rubric: "Does the answer pass?",
         answer: "candidate",
