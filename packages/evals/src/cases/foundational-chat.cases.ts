@@ -98,8 +98,15 @@ export const foundationalChatSuite: EvalSuite = {
               "184,250",
               "2026-08-14",
             ]);
+            // "Awaiting signature" states the same qualification as "not
+            // signed" — the 2026-07-27 full-pack run failed a factually
+            // complete answer ("verbally approved but awaiting signature")
+            // on vocabulary alone, the same grader-proxy class as the
+            // "cannot actually send" adverb miss (#641). Every accepted
+            // phrase still asserts the contract is unsigned; the companion
+            // assertion below keeps rejecting any signed-contract claim.
             const unsigned =
-              /\bnot(?:\s+yet)?(?:\s+been)?\s+signed\b|\bisn'?t(?:\s+yet)?\s+signed\b|\bunsigned\b/i.test(
+              /\bnot(?:\s+yet)?(?:\s+been)?\s+signed\b|\b(?:isn|hasn)'?t(?:\s+yet)?(?:\s+been)?\s+signed\b|\bunsigned\b|\b(?:awaiting|awaits|pending)\s+(?:a\s+)?signature\b|\bsignature\s+(?:is\s+)?(?:still\s+)?pending\b|\byet\s+to\s+be\s+signed\b/i.test(
                 transcript.answer,
               );
             return {
