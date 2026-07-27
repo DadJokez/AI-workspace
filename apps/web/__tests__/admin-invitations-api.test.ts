@@ -130,7 +130,10 @@ function installDbMock() {
             return () => proxy;
           }
           if (prop === "then") {
-            return (resolve: (value: unknown) => void) => resolve([]);
+            // Awaiting a select chain without `.limit()` resolves the stub
+            // rows; awaited update/insert chains resolve to nothing.
+            return (resolve: (value: unknown) => void) =>
+              resolve(mode === "select" ? dbHooks.selectRows ?? [] : []);
           }
           return () => proxy;
         },
@@ -165,6 +168,7 @@ function invitationRecord(overrides: Record<string, unknown> = {}) {
     lastEmailSentAt: null,
     lastEmailError: null,
     lastEmailMessageId: null,
+    googleTestUserRegisteredAt: null,
     createdAt: fixedDate,
     ...overrides,
   };
@@ -381,6 +385,164 @@ describe("GET /api/admin/invitations", () => {
     ]);
     expect(body.invitations.find((row) => row.id === "accepted")?.canResend)
       .toBe(false);
+  });
+});
+
+describe("needsGoogleTestUserRegistration", () => {
+  it("flags active unregistered invites and skips registered/revoked/expired", async () => {
+    const { needsGoogleTestUserRegistration } = await import(
+      "@/lib/admin-invitations"
+    );
+    const base = { googleTestUserRegisteredAt: null };
+    expect(
+      needsGoogleTestUserRegistration({ ...base, status: "pending" }),
+    ).toBe(true);
+    expect(needsGoogleTestUserRegistration({ ...base, status: "sent" })).toBe(
+      true,
+    );
+    expect(needsGoogleTestUserRegistration({ ...base, status: "failed" })).toBe(
+      true,
+    );
+    expect(
+      needsGoogleTestUserRegistration({ ...base, status: "accepted" }),
+    ).toBe(true);
+    expect(
+      needsGoogleTestUserRegistration({ ...base, status: "revoked" }),
+    ).toBe(false);
+    expect(
+      needsGoogleTestUserRegistration({ ...base, status: "expired" }),
+    ).toBe(false);
+    expect(
+      needsGoogleTestUserRegistration({
+        status: "sent",
+        googleTestUserRegisteredAt: "2026-06-20T00:00:00.000Z",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("POST /api/admin/invitations/google-registered", () => {
+  function makeGoogleReq(body: unknown) {
+    return new Request(
+      "http://localhost/api/admin/invitations/google-registered",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+  }
+
+  it("returns 403 when the session role is 'user'", async () => {
+    setSession(userSession);
+    installDbMock();
+    const { POST } = await import(
+      "@/app/api/admin/invitations/google-registered/route"
+    );
+    const res = await POST(makeGoogleReq({ ids: ["invite-1"] }));
+    expect(res.status).toBe(403);
+    expect(dbHooks.updates).toEqual([]);
+  });
+
+  it("returns 401 when there is no session", async () => {
+    setSession(null);
+    installDbMock();
+    const { POST } = await import(
+      "@/app/api/admin/invitations/google-registered/route"
+    );
+    const res = await POST(makeGoogleReq({ ids: ["invite-1"] }));
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects a body without ids", async () => {
+    setSession(adminSession);
+    installDbMock();
+    const { POST } = await import(
+      "@/app/api/admin/invitations/google-registered/route"
+    );
+    const res = await POST(makeGoogleReq({ ids: [] }));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("invalid_ids");
+  });
+
+  it("returns 404 when none of the ids exist", async () => {
+    setSession(adminSession);
+    installDbMock();
+    dbHooks.selectRows = [];
+    const { POST } = await import(
+      "@/app/api/admin/invitations/google-registered/route"
+    );
+    const res = await POST(makeGoogleReq({ ids: ["missing"] }));
+    expect(res.status).toBe(404);
+  });
+
+  it("stamps unregistered invitations, audits each, and returns the rows", async () => {
+    setSession(adminSession);
+    installDbMock();
+    dbHooks.selectRows = [
+      invitationRecord({ id: "invite-1", emailStatus: "sent" }),
+      invitationRecord({
+        id: "invite-2",
+        email: "second@example.com",
+        emailStatus: "sent",
+      }),
+    ];
+
+    const { POST } = await import(
+      "@/app/api/admin/invitations/google-registered/route"
+    );
+    const res = await POST(makeGoogleReq({ ids: ["invite-1", "invite-2"] }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      invitations: Array<{ id: string; googleTestUserRegisteredAt: string | null }>;
+    };
+    expect(body.invitations).toHaveLength(2);
+    for (const row of body.invitations) {
+      expect(row.googleTestUserRegisteredAt).toEqual(expect.any(String));
+    }
+    expect(dbHooks.updates).toEqual([
+      expect.objectContaining({
+        table: "invitations",
+        set: expect.objectContaining({
+          googleTestUserRegisteredAt: expect.any(Date),
+          updatedAt: expect.any(Date),
+        }),
+      }),
+    ]);
+    expect(
+      dbHooks.insertedValues.filter(
+        (entry) =>
+          entry.table === "audit_log" &&
+          entry.values.actionType === "invite.google_test_user_registered",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("keeps the original timestamp for already-registered invitations", async () => {
+    setSession(adminSession);
+    installDbMock();
+    dbHooks.selectRows = [
+      invitationRecord({
+        id: "invite-1",
+        emailStatus: "sent",
+        googleTestUserRegisteredAt: fixedDate,
+      }),
+    ];
+
+    const { POST } = await import(
+      "@/app/api/admin/invitations/google-registered/route"
+    );
+    const res = await POST(makeGoogleReq({ ids: ["invite-1"] }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      invitations: Array<{ googleTestUserRegisteredAt: string | null }>;
+    };
+    expect(body.invitations[0]?.googleTestUserRegisteredAt).toBe(
+      fixedDate.toISOString(),
+    );
+    expect(dbHooks.updates).toEqual([]);
+    expect(dbHooks.insertedValues).toEqual([]);
   });
 });
 

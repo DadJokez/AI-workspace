@@ -43,6 +43,7 @@ export interface AdminInvitationRecord {
   lastEmailSentAt: Date | null;
   lastEmailError: string | null;
   lastEmailMessageId: string | null;
+  googleTestUserRegisteredAt: Date | null;
   createdAt: Date;
 }
 
@@ -61,6 +62,7 @@ export interface AdminInvitationRow {
   lastEmailAttemptedAt: string | null;
   lastEmailSentAt: string | null;
   lastEmailError: string | null;
+  googleTestUserRegisteredAt: string | null;
   canResend: boolean;
   canRevoke: boolean;
 }
@@ -79,6 +81,7 @@ export const adminInvitationSelect = {
   lastEmailSentAt: invitations.lastEmailSentAt,
   lastEmailError: invitations.lastEmailError,
   lastEmailMessageId: invitations.lastEmailMessageId,
+  googleTestUserRegisteredAt: invitations.googleTestUserRegisteredAt,
   createdAt: invitations.createdAt,
 };
 
@@ -108,9 +111,26 @@ export function toAdminInvitationRow(
     lastEmailAttemptedAt: isoOrNull(record.lastEmailAttemptedAt),
     lastEmailSentAt: isoOrNull(record.lastEmailSentAt),
     lastEmailError: record.lastEmailError,
+    googleTestUserRegisteredAt: isoOrNull(record.googleTestUserRegisteredAt),
     canResend: actionable,
     canRevoke: actionable,
   };
+}
+
+/**
+ * True when the admin still needs to hand-add this invitee's email to the
+ * Google OAuth app's test-user list (the app runs in External + Testing
+ * mode and Google exposes no API for that list). Revoked and expired
+ * invites drop off the list — those people aren't joining on this invite.
+ */
+export function needsGoogleTestUserRegistration(
+  row: Pick<AdminInvitationRow, "status" | "googleTestUserRegisteredAt">,
+): boolean {
+  return (
+    row.googleTestUserRegisteredAt === null &&
+    row.status !== "revoked" &&
+    row.status !== "expired"
+  );
 }
 
 export function invitationStatus(
@@ -147,7 +167,8 @@ export async function auditInvitationEvent({
     | "invite.send"
     | "invite.resend"
     | "invite.revoke"
-    | "invite.accept";
+    | "invite.accept"
+    | "invite.google_test_user_registered";
   status: "succeeded" | "failed" | "denied";
   error?: string;
   metadata?: Record<string, unknown>;
