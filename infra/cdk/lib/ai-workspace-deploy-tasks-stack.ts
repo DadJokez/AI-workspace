@@ -46,6 +46,16 @@ export class AiWorkspaceDeployTasksStack extends cdk.Stack {
       ),
       { mutable: true },
     );
+    const databaseInstanceIdentifier = contextString(
+      this,
+      "aiWorkspace:dbInstanceIdentifier",
+      "ai-workspace-db",
+    );
+    const ecsStackName = contextString(
+      this,
+      "aiWorkspace:ecsStackName",
+      "AiWorkspaceEcsStack",
+    );
     const deployTaskSecurityGroup = new ec2.SecurityGroup(
       this,
       "DeployTaskSecurityGroup",
@@ -179,6 +189,45 @@ export class AiWorkspaceDeployTasksStack extends cdk.Stack {
             new iam.PolicyStatement({
               actions: ["cloudformation:DescribeStacks"],
               resources: [this.stackId],
+            }),
+            new iam.PolicyStatement({
+              actions: ["cloudformation:ListStackResources"],
+              resources: [
+                cdk.Stack.of(this).formatArn({
+                  service: "cloudformation",
+                  resource: "stack",
+                  resourceName: `${ecsStackName}/*`,
+                }),
+              ],
+            }),
+            new iam.PolicyStatement({
+              actions: ["ec2:DescribeSecurityGroups"],
+              resources: ["*"],
+            }),
+            new iam.PolicyStatement({
+              actions: ["ec2:RevokeSecurityGroupIngress"],
+              resources: [
+                cdk.Stack.of(this).formatArn({
+                  service: "ec2",
+                  resource: "security-group",
+                  resourceName: databaseSecurityGroup.securityGroupId,
+                }),
+              ],
+            }),
+            new iam.PolicyStatement({
+              actions: ["rds:DescribeDBInstances"],
+              resources: ["*"],
+            }),
+            new iam.PolicyStatement({
+              actions: ["rds:ModifyDBInstance"],
+              resources: [
+                cdk.Stack.of(this).formatArn({
+                  service: "rds",
+                  resource: "db",
+                  resourceName: databaseInstanceIdentifier,
+                  arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
+                }),
+              ],
             }),
           ],
         },

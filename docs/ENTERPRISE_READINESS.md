@@ -26,7 +26,7 @@ evidence, not a compliance certification or legal DPA.
 | Logging/redaction/retention | Pilot shipped | Shared tool payload redaction is applied before chat/tool/run/audit persistence; audit retention has a configurable cleanup script and admin visibility. |
 | Browser security headers | Partial | HSTS, `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and `X-Frame-Options: DENY` ship on every response from `apps/web/next.config.mjs` (#702). The CSP is **report-only** until a soak confirms no violations; `/apps/<slug>` is the one framing exemption (SAMEORIGIN, matching the deployed-app document's own `frame-ancestors 'self'`). |
 | Authentication auditing | Pilot shipped | Sign-in, invite-gate denial, and sign-out write `audit_log` rows with provider, client IP, and user-agent (#702; see `docs/AUDIT_SURFACES.md`). Sessions carry an explicit 24h idle expiry; per-user revocation needs a token-version column and is not live. |
-| KMS/Secrets/IaC | Partial | ECS/Fargate, ALB, task IAM, log groups, alarms, and secret injection are CDK-managed. Secrets Manager uses its AWS-managed key without automatic rotation; RDS storage encryption (#689) and private networking (#492) are not live, and the RDS security group has console-only ingress not present in IaC (#690). |
+| KMS/Secrets/IaC | Partial | ECS/Fargate, ALB, task IAM, log groups, alarms, and secret injection are CDK-managed. Secrets Manager uses its AWS-managed key without automatic rotation; RDS storage encryption (#689) and full private-network adoption (#492) are not live. A deployment-time reconciler keeps the pre-existing RDS instance non-public and rejects security-group drift (#690). |
 | Environments | **Single** | Production is the only deployed environment. Merging to `main` deploys, and migrations run against the production database before the new code is live. #697. |
 | Load-test model | Model defined, **never executed** | The scenarios and thresholds below are planning assumptions. No harness exists and no run has happened, so no threshold in this document has been measured. #696. |
 
@@ -159,14 +159,14 @@ Current pilot state:
   `OAUTH_ENCRYPTION_KEY`.
 - CDK owns ECS services, ALB, task IAM, log groups, alarms, and secret
   references. The pre-existing RDS instance, complete CodeBuild project, and
-  network are not fully owned by this stack. That divergence has already
-  produced one live security finding invisible to `cdk diff`: a console-only
-  `0.0.0.0/0` ingress rule on the database security group (#690).
+  network are not fully owned by this stack. Until #492 adopts RDS, the
+  deployment's fail-closed perimeter reconciler keeps it non-public, permits
+  only the three reviewed ECS security-group paths, and rejects console drift.
 - Secrets Manager uses its AWS-managed key and automatic rotation is not
   enabled.
-- The production database connection requires TLS, but the pilot RDS storage
-  volume is not encrypted (`StorageEncrypted: false`, verified 2026-07-25) and
-  remains publicly addressable. Enabling encryption requires a
+- The production database connection requires TLS, and the pilot RDS instance
+  is non-public. Its storage volume is not encrypted (`StorageEncrypted:
+  false`, verified 2026-07-25). Enabling encryption requires a
   snapshot-copy-restore cutover, not a setting change — #689.
 - ECR repositories are `MUTABLE` and both buildspecs push a floating `latest`
   alongside the commit-SHA tag. Traceability rests on the recorded digest in

@@ -5,8 +5,8 @@ describes the system that is deployed today, not a future enterprise target.
 Planned controls are labeled as gaps and linked to their backlog issue.
 
 Last verified against source and the `us-east-1` pilot deployment:
-2026-07-25 (AWS API, GitHub API, and code re-checked; every stale claim found
-in that pass is corrected here and tracked in #689-#698).
+2026-08-03 (AWS API, GitHub API, VPC migration, and authenticated production
+smoke re-checked).
 
 ## Review artifacts
 
@@ -33,7 +33,7 @@ enterprise rollout.
 | Area | Verified pilot state | Gap / decision |
 |---|---|---|
 | Runtime | Three ECS/Fargate services behind an HTTPS ALB; direct Bedrock for fast turns and AgentCore for worker turns | Tasks run in public subnets with public IPs and unrestricted outbound security-group egress; private networking is tracked by [#492](https://github.com/DadJokez/AI-workspace/issues/492) |
-| Database | RDS PostgreSQL; application connection requires TLS (`sslmode=require`) | Storage encryption is disabled ([#689](https://github.com/DadJokez/AI-workspace/issues/689)), the instance is publicly addressable and its security group has a console-only `0.0.0.0/0` rule on 5432 that is absent from IaC ([#690](https://github.com/DadJokez/AI-workspace/issues/690)), single-AZ, one day of automated backups, no deletion protection, no restore drill (procedure: [DB restore rehearsal](../runbooks/DB_RESTORE_REHEARSAL.md)); network remediation belongs to [#492](https://github.com/DadJokez/AI-workspace/issues/492) |
+| Database | RDS PostgreSQL; application connection requires TLS (`sslmode=require`); instance is non-public and 5432 is limited to the web, worker, and deploy-task security groups | Storage encryption is disabled ([#689](https://github.com/DadJokez/AI-workspace/issues/689)); RDS predates the stack, so a fail-closed [perimeter reconciler](../runbooks/RDS_NETWORK_PERIMETER.md) enforces the boundary until full adoption in [#492](https://github.com/DadJokez/AI-workspace/issues/492); single-AZ, one day of automated backups, no deletion protection, no restore drill (procedure: [DB restore rehearsal](../runbooks/DB_RESTORE_REHEARSAL.md)) |
 | Secrets | Runtime secrets are injected from AWS Secrets Manager; OAuth access and refresh tokens are additionally encrypted with AES-256-GCM before Postgres persistence | The app secret uses the AWS-managed Secrets Manager key and has no automatic rotation; rotation and key-separation work require an approved plan |
 | Identity | Invite-gated email magic links and optional GitHub OAuth, both using NextAuth JWT sessions | Enterprise OIDC/SCIM and deprovisioning are not live; no authentication event reaches the audit ledger ([#694](https://github.com/DadJokez/AI-workspace/issues/694)); `allowDangerousEmailAccountLinking` is set on the GitHub provider — the reasoning and what would invalidate it are recorded in the [threat model](./THREAT_MODEL.md#authentication-and-identity-decisions) |
 | Connected providers | Per-user OAuth to GitHub, Google, Notion, and Salesforce; tokens AES-256-GCM encrypted; connect is audited | **There is no disconnect route** — a user cannot withdraw a provider connection from inside Comparative and the token row survives provider-side revocation ([#692](https://github.com/DadJokez/AI-workspace/issues/692)) |

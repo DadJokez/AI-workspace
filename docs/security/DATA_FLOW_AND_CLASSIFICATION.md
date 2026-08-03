@@ -118,9 +118,11 @@ identity and grants.
   user-content-at-rest encryption is a release blocker for an enterprise data
   boundary. Tracked in #689; it needs a snapshot-copy-restore window, not a
   setting change.
-- The instance is also `PubliclyAccessible: true`, and its security group
-  carries an undescribed `0.0.0.0/0` ingress rule on 5432 that exists only in
-  the AWS console, not in this repository's IaC (#690).
+- The instance is non-public. Postgres ingress is limited to the CDK-owned web,
+  worker, and one-off deploy-task security groups. Because the instance
+  predates the stack, `infra/scripts/reconcile-rds-perimeter.sh` enforces and
+  rechecks that boundary on each production deployment; it fails closed on
+  unrecognized port-5432 ingress. Full RDS adoption remains part of #492.
 - OAuth tokens receive application-layer AES-256-GCM encryption before
   persistence. Other product content relies on the database storage layer,
   which is presently the gap above.
