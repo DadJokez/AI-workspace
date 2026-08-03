@@ -176,6 +176,10 @@ export class AiWorkspaceDeployTasksStack extends cdk.Stack {
               actions: ["ecs:DescribeTasks"],
               resources: ["*"],
             }),
+            new iam.PolicyStatement({
+              actions: ["cloudformation:DescribeStacks"],
+              resources: [this.stackId],
+            }),
           ],
         },
       );
