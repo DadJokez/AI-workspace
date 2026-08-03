@@ -113,12 +113,12 @@ pnpm dev          # http://localhost:3000
 GitHub Actions runs lint + typecheck + build on every PR and on push to `main`.
 Merging to `main` triggers a CodeBuild pipeline that builds the web image,
 chat-run worker image, memory-capture worker image, and a small migration
-image. CodeBuild reads `ai-workspace/production/app` from Secrets Manager,
-runs Drizzle migrations, pushes the images to ECR, and forces new deployments
-for the ECS services `ai-workspace-web`, `ai-workspace-chat-worker`, and
-`ai-workspace-memory-worker`. Before refreshing those images, CodeBuild
-reconciles `AiWorkspaceEcsStack` so task-definition and environment changes are
-live before the authenticated production smoke. The ordered paths and rollback
+image. After pushing immutable images, CodeBuild reconciles CDK-owned one-off
+ECS task definitions. Their ECS execution roles read the required fields from
+`ai-workspace/production/app`; the CodeBuild host never receives the database
+URL or authentication secret. A Fargate task runs Drizzle migrations before
+`AiWorkspaceEcsStack` rolls the web and worker services, and a second Fargate
+task runs the authenticated production smoke after they stabilize. The ordered paths and rollback
 procedure are documented in
 [`docs/PRODUCTION_DEPLOYMENT.md`](./docs/PRODUCTION_DEPLOYMENT.md).
 

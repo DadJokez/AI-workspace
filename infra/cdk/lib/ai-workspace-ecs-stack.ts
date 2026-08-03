@@ -427,7 +427,6 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
         codeBuildRoleArn,
         { mutable: true },
       );
-      appSecret.grantRead(codeBuildRole);
       codeBuildRole.addToPrincipalPolicy(
         new iam.PolicyStatement({
           actions: ["ecs:DescribeServices", "ecs:UpdateService"],

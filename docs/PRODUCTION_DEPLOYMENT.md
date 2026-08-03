@@ -14,30 +14,40 @@ this order:
    The CDK-owned child uses the native ARM64 CodeBuild image,
    `buildspec.agentcore.yml`, and no webhook or GitHub build status.
 2. The parent builds the ECS images in parallel, then waits for the ARM child
-   to finish successfully.
-3. `infra/scripts/update-agentcore-stack.sh` synthesizes the current
+   to finish successfully and pushes the commit-SHA web, worker, memory-worker,
+   and migrator images.
+3. `AiWorkspaceDeployTasksStack` registers commit-pinned migration and
+   authenticated-smoke Fargate task definitions. It owns their execution roles,
+   log groups, and the security-group path to Postgres.
+4. `infra/scripts/run-ecs-deploy-task.sh migrate` launches the migrator in the
+   application VPC, waits for it to stop, and requires a zero container exit
+   code. Database credentials are injected by the ECS execution role; they are
+   never materialized on the CodeBuild host.
+5. `infra/scripts/update-agentcore-stack.sh` synthesizes the current
    `AiWorkspaceAgentCoreSpikeStack` template and submits that template together
    with the commit-SHA image tag. It verifies the immutable ECR digest and
    records the source-template SHA-256 plus the monotonic CodeBuild sequence in
    the stack parameters.
-4. The parent `ai-workspace-build` project is single-flight
+6. The parent `ai-workspace-build` project is single-flight
    (`concurrentBuildLimit=1`), so an older build cannot deploy after a newer
    build. The dedicated child is independently single-flight, so the parent
    never consumes the only slot needed by its child. The recorded deployment
    sequence is a receipt and defense-in-depth check: it rejects an
    already-superseded build, but it is not itself an atomic lock.
-5. `cdk deploy AiWorkspaceEcsStack --require-approval never --exclusively`
+7. `cdk deploy AiWorkspaceEcsStack --require-approval never --exclusively`
    reconciles the checked-in stack with CloudFormation.
-6. The commit-SHA `ImageTag` parameter produces new task definitions, and the
+8. The commit-SHA `ImageTag` parameter produces new task definitions, and the
    CloudFormation update rolls all three ECS services. There is no redundant
    second forced deployment.
-7. `aws ecs wait services-stable` confirms all three services remain stable
+9. `aws ecs wait services-stable` confirms all three services remain stable
    before the deployment receipt is recorded.
-8. The build log records JSON receipts for AgentCore and ECS. The AgentCore
+10. The build log records JSON receipts for migration, AgentCore, and ECS. The AgentCore
    receipt contains the commit SHA, image digest and tag, stack status,
    deployment sequence, and source-template SHA-256. The ECS receipt contains
    the commit SHA and each service's live task-definition ARN.
-9. The authenticated production smoke runs against the stable services.
+11. A second one-off Fargate task runs the authenticated production smoke
+    against the stable services and records its task definition, commit SHA,
+    task ARN, and zero exit code.
 
 CDK is the change detector. Every non-docs deployment passes the resolved
 commit SHA as `ImageTag`; a new SHA changes the task definitions and rolls the

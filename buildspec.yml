@@ -6,13 +6,12 @@ env:
     AGENTCORE_IMAGE_REPO_NAME: ai-workspace-agentcore-agent
     AGENTCORE_BUILD_PROJECT_NAME: ai-workspace-agentcore-build
     AGENTCORE_STACK_NAME: AiWorkspaceAgentCoreSpikeStack
-    APP_SECRET_NAME: ai-workspace/production/app
     ECS_CLUSTER_NAME: ai-workspace-prod
     ECS_STACK_NAME: AiWorkspaceEcsStack
+    ECS_DEPLOY_TASK_STACK_NAME: AiWorkspaceDeployTasksStack
     ECS_WEB_SERVICE_NAME: ai-workspace-web
     ECS_CHAT_WORKER_SERVICE_NAME: ai-workspace-chat-worker
     ECS_MEMORY_WORKER_SERVICE_NAME: ai-workspace-memory-worker
-    SMOKE_BASE_URL: https://comparative.builtwithrobot.link
 
 phases:
   install:
@@ -79,6 +78,8 @@ phases:
         docker tag $IMAGE_REPO_NAME:worker $REPOSITORY_URI:worker-$COMMIT_TAG
         docker tag $IMAGE_REPO_NAME:memory-worker $REPOSITORY_URI:memory-worker-latest
         docker tag $IMAGE_REPO_NAME:memory-worker $REPOSITORY_URI:memory-worker-$COMMIT_TAG
+        docker tag $IMAGE_REPO_NAME:migrator $REPOSITORY_URI:migrator-latest
+        docker tag $IMAGE_REPO_NAME:migrator $REPOSITORY_URI:migrator-$COMMIT_TAG
   post_build:
     commands:
       - |
@@ -91,11 +92,6 @@ phases:
         fi
         echo Waiting for native ARM AgentCore image build...
         ./infra/scripts/agentcore-image-build.sh wait "$AGENTCORE_BUILD_ID"
-        echo Running database migrations...
-        APP_SECRET_JSON=$(aws secretsmanager get-secret-value --region "$AWS_DEFAULT_REGION" --secret-id "$APP_SECRET_NAME" --query SecretString --output text)
-        DATABASE_URL=$(printf "%s" "$APP_SECRET_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["DATABASE_URL"])')
-        test -n "$DATABASE_URL" && test "$DATABASE_URL" != "None"
-        docker run --rm -e DATABASE_URL="$DATABASE_URL" $IMAGE_REPO_NAME:migrator
         echo Pushing the Docker images...
         docker push $REPOSITORY_URI:latest
         docker push $REPOSITORY_URI:$COMMIT_TAG
@@ -103,6 +99,12 @@ phases:
         docker push $REPOSITORY_URI:worker-$COMMIT_TAG
         docker push $REPOSITORY_URI:memory-worker-latest
         docker push $REPOSITORY_URI:memory-worker-$COMMIT_TAG
+        docker push $REPOSITORY_URI:migrator-latest
+        docker push $REPOSITORY_URI:migrator-$COMMIT_TAG
+        echo Reconciling one-off deploy tasks...
+        ./infra/scripts/deploy-ecs-deploy-tasks-stack.sh
+        echo Running database migrations inside the VPC...
+        ./infra/scripts/run-ecs-deploy-task.sh migrate
         # AgentCore pins the image digest per runtime version. Update the CDK
         # stack's immutable image-tag parameter so CloudFormation remains the
         # single owner of the runtime and cuts the new version.
@@ -112,8 +114,6 @@ phases:
           ./infra/scripts/update-agentcore-stack.sh
         echo Reconciling the ECS stack and deploying images...
         ./infra/scripts/deploy-ecs-stack.sh
-        echo Running authenticated production smoke...
-        NEXTAUTH_SECRET=$(printf "%s" "$APP_SECRET_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["NEXTAUTH_SECRET"])')
-        test -n "$NEXTAUTH_SECRET" && test "$NEXTAUTH_SECRET" != "None"
-        docker run --rm -e DATABASE_URL="$DATABASE_URL" -e NEXTAUTH_SECRET="$NEXTAUTH_SECRET" -e SMOKE_BASE_URL="$SMOKE_BASE_URL" -e SMOKE_RUN_ID="$COMMIT_TAG" $IMAGE_REPO_NAME:worker pnpm --filter @ai-workspace/web smoke:prod:auth
+        echo Running authenticated production smoke inside the VPC...
+        ./infra/scripts/run-ecs-deploy-task.sh smoke
         echo Build completed on $(date)
