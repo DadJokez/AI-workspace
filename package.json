@@ -18,6 +18,7 @@
       "exceljs>unzipper": "0.12.1",
       "fast-uri": "^3.1.5",
       "hono": "^4.12.27",
+      "ip-address": "^10.3.1",
       "postcss": "8.5.23",
       "prismjs": "1.30.0",
       "sharp": "0.35.3",
