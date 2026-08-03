@@ -103,6 +103,14 @@ describe("AiWorkspaceDeployTasksStack", () => {
     expect(
       statements.find((statement) => statement.Action === "ecs:DescribeTasks"),
     ).toMatchObject({ Effect: "Allow", Resource: "*" });
+    expect(
+      statements.find(
+        (statement) => statement.Action === "cloudformation:DescribeStacks",
+      ),
+    ).toMatchObject({
+      Effect: "Allow",
+      Resource: { Ref: "AWS::StackId" },
+    });
     const passRole = statements.find(
       (statement) => statement.Action === "iam:PassRole",
     );
