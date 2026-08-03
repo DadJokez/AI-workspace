@@ -19,35 +19,41 @@ this order:
 3. `AiWorkspaceDeployTasksStack` registers commit-pinned migration and
    authenticated-smoke Fargate task definitions. It owns their execution roles,
    log groups, and the security-group path to Postgres.
-4. `infra/scripts/run-ecs-deploy-task.sh migrate` launches the migrator in the
+4. `infra/scripts/reconcile-rds-perimeter.sh --apply` verifies the exact web,
+   worker, and deploy-task security-group sources, removes only the historical
+   `0.0.0.0/0` Postgres rule, and makes the RDS instance non-public. Any other
+   unexpected Postgres ingress stops the deployment for operator review.
+5. `infra/scripts/run-ecs-deploy-task.sh migrate` launches the migrator in the
    application VPC, waits for it to stop, and requires a zero container exit
    code. Database credentials are injected by the ECS execution role; they are
    never materialized on the CodeBuild host.
-5. `infra/scripts/update-agentcore-stack.sh` synthesizes the current
+6. `infra/scripts/update-agentcore-stack.sh` synthesizes the current
    `AiWorkspaceAgentCoreSpikeStack` template and submits that template together
    with the commit-SHA image tag. It verifies the immutable ECR digest and
    records the source-template SHA-256 plus the monotonic CodeBuild sequence in
    the stack parameters.
-6. The parent `ai-workspace-build` project is single-flight
+7. The parent `ai-workspace-build` project is single-flight
    (`concurrentBuildLimit=1`), so an older build cannot deploy after a newer
    build. The dedicated child is independently single-flight, so the parent
    never consumes the only slot needed by its child. The recorded deployment
    sequence is a receipt and defense-in-depth check: it rejects an
    already-superseded build, but it is not itself an atomic lock.
-7. `cdk deploy AiWorkspaceEcsStack --require-approval never --exclusively`
+8. `cdk deploy AiWorkspaceEcsStack --require-approval never --exclusively`
    reconciles the checked-in stack with CloudFormation.
-8. The commit-SHA `ImageTag` parameter produces new task definitions, and the
+9. The commit-SHA `ImageTag` parameter produces new task definitions, and the
    CloudFormation update rolls all three ECS services. There is no redundant
    second forced deployment.
-9. `aws ecs wait services-stable` confirms all three services remain stable
+10. `aws ecs wait services-stable` confirms all three services remain stable
    before the deployment receipt is recorded.
-10. The build log records JSON receipts for migration, AgentCore, and ECS. The AgentCore
+11. The build log records JSON receipts for migration, AgentCore, and ECS. The AgentCore
    receipt contains the commit SHA, image digest and tag, stack status,
    deployment sequence, and source-template SHA-256. The ECS receipt contains
    the commit SHA and each service's live task-definition ARN.
-11. A second one-off Fargate task runs the authenticated production smoke
+12. A second one-off Fargate task runs the authenticated production smoke
     against the stable services and records its task definition, commit SHA,
     task ARN, and zero exit code.
+13. `reconcile-rds-perimeter.sh --check` re-reads RDS and its security group
+    after smoke. A console change that reopens the database fails the build.
 
 CDK is the change detector. Every non-docs deployment passes the resolved
 commit SHA as `ImageTag`; a new SHA changes the task definitions and rolls the
@@ -61,6 +67,11 @@ bootstrap asset bucket and key used for large synthesized templates.
 CloudFormation continues to apply stack changes through the bootstrap execution
 role; CodeBuild does not receive direct broad CloudFormation or IAM
 permissions.
+
+The database and its security group predate this stack. Until #492 adopts them
+fully, the reviewed perimeter reconciler is their deployment-time source of
+truth. See [RDS network perimeter](./runbooks/RDS_NETWORK_PERIMETER.md) for the
+exact invariant and recovery procedure.
 
 AgentCore remains a separate stack. Its deploy script uses an inline synthesized
 template so the existing stack-scoped `cloudformation:UpdateStack` permission is

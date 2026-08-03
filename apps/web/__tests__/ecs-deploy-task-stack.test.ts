@@ -111,6 +111,42 @@ describe("AiWorkspaceDeployTasksStack", () => {
       Effect: "Allow",
       Resource: { Ref: "AWS::StackId" },
     });
+    const listStackResources = statements.find(
+      (statement) =>
+        statement.Action === "cloudformation:ListStackResources",
+    );
+    expect(listStackResources?.Effect).toBe("Allow");
+    expect(JSON.stringify(listStackResources?.Resource)).toContain(
+      ":cloudformation:us-east-1:351478076796:stack/AiWorkspaceEcsStack/*",
+    );
+    expect(
+      statements.find(
+        (statement) => statement.Action === "ec2:DescribeSecurityGroups",
+      ),
+    ).toMatchObject({ Effect: "Allow", Resource: "*" });
+    const revokeIngress = statements.find(
+      (statement) =>
+        statement.Action === "ec2:RevokeSecurityGroupIngress",
+    );
+    expect(revokeIngress?.Effect).toBe("Allow");
+    expect(JSON.stringify(revokeIngress?.Resource)).toContain(
+      ":ec2:us-east-1:351478076796:security-group/sg-019e87b5938a295a4",
+    );
+    expect(
+      statements.find(
+        (statement) => statement.Action === "rds:DescribeDBInstances",
+      ),
+    ).toMatchObject({ Effect: "Allow", Resource: "*" });
+    const modifyDatabase = statements.find(
+      (statement) => statement.Action === "rds:ModifyDBInstance",
+    );
+    expect(modifyDatabase?.Effect).toBe("Allow");
+    expect(JSON.stringify(modifyDatabase?.Resource)).toContain(
+      ":rds:us-east-1:351478076796:db:ai-workspace-db",
+    );
+    expect(JSON.stringify(statements)).not.toContain(
+      "ec2:AuthorizeSecurityGroupIngress",
+    );
     const passRole = statements.find(
       (statement) => statement.Action === "iam:PassRole",
     );

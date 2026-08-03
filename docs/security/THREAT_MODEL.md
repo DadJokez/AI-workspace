@@ -54,7 +54,7 @@ end state.
 | Boundary | What crosses it | Primary controls | Residual risk |
 |---|---|---|---|
 | Internet -> ALB/web | Sessions, messages, uploads, invites, OAuth callbacks, webhooks | HTTPS redirect, NextAuth, invite gate, request/body limits, HMAC webhook verification, content validation | Public endpoint and public task networking; no WAF on the internet-facing ALB (#691); the application sends no security response headers — no CSP, HSTS, `nosniff`, or `frame-ancestors` outside the deployed-app sandbox routes (#693) |
-| Web/worker -> Postgres | Product records, credentials, audit and run state | User/owner scoping, role checks, DB TLS, parameterized Drizzle/Postgres queries | RDS storage is unencrypted (#689) and the instance is publicly accessible with an undescribed console-only `0.0.0.0/0` ingress rule on 5432 (#690); coarse app DB credential; no DB-enforced audit immutability |
+| Web/worker -> Postgres | Product records, credentials, audit and run state | User/owner scoping, role checks, DB TLS, parameterized Drizzle/Postgres queries, non-public RDS, fail-closed security-group reconciler | RDS storage is unencrypted (#689); the database/network predate CDK adoption (#492); coarse app DB credential; no DB-enforced audit immutability |
 | Web/worker -> Bedrock/AgentCore | Prompt, context, attachments, tool schemas/results | AWS task IAM, bounded context, redaction, model registry, tool-iteration cap | `bedrock:InvokeModel*` resource is broad; cross-region profiles; no Bedrock Guardrail/DLP baseline |
 | Runtime -> MCP/provider | Delegated token, tool arguments/results | Per-user token lookup, encrypted token store, attestation/catalog gate, provider validation, write-context controls where implemented | Tri-state policy/approval is not universal; provider compromise; broad outbound network |
 | Runtime -> public web | Query, URL, fetched text | Explicit web capability, private/link-local/metadata address blocking, DNS/redirect re-checks, response caps, admin denylist, untrusted-content framing | Arbitrary public host egress; denylist rather than allowlist; public HTTP is permitted |
@@ -179,13 +179,13 @@ is the weakest part of this decision and is tracked in #694.
 
 ## Highest residual risks
 
-1. **Data-store perimeter and at-rest protection:** pilot RDS is public,
-   single-AZ, and not storage encrypted; its security group carries a
-   console-only `0.0.0.0/0` rule on 5432; ECS tasks are public with broad
-   outbound access and no WAF at the edge. Track:
+1. **Data-store and at-rest protection:** pilot RDS is non-public but remains
+   single-AZ and not storage encrypted. Its interim perimeter is enforced by a
+   reviewed deployment reconciler because RDS is not yet CDK-owned; ECS tasks
+   are public with broad outbound access and no WAF at the edge. Track:
    [#689](https://github.com/DadJokez/AI-workspace/issues/689) (storage
    encryption), [#690](https://github.com/DadJokez/AI-workspace/issues/690)
-   (ingress rule + IaC drift),
+   (interim ingress reconciler and live close),
    [#691](https://github.com/DadJokez/AI-workspace/issues/691) (WAF),
    [#492](https://github.com/DadJokez/AI-workspace/issues/492) (perimeter epic).
 2. **Tool-side-effect policy:** provider attestations exist, but universal
