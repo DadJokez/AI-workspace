@@ -65,24 +65,35 @@ describe("AiWorkspaceDeployTasksStack", () => {
   });
 
   it("grants CodeBuild only task launch, receipt, and scoped pass-role access", () => {
-    const statements = resourcesOfType(template, "AWS::IAM::Policy").flatMap(
-      (resource) => resource.Properties?.PolicyDocument?.Statement ?? [],
+    const codeBuildPolicies = Object.entries(template.Resources).filter(
+      ([logicalId, resource]) =>
+        logicalId.startsWith("CodeBuildDeployTaskPolicy") &&
+        resource.Type === "AWS::IAM::Policy",
     );
-    expect(statements.filter((statement) => statement.Action === "ecs:RunTask"))
-      .toHaveLength(2);
+    expect(codeBuildPolicies).toHaveLength(1);
+    expect(
+      Object.keys(template.Resources).filter((logicalId) =>
+        logicalId.startsWith("CodeBuildAiWorkspaceRolePolicy"),
+      ),
+    ).toEqual([]);
+
+    const statements =
+      codeBuildPolicies[0]?.[1].Properties?.PolicyDocument?.Statement ?? [];
+    const runTask = statements.find(
+      (statement) => statement.Action === "ecs:RunTask",
+    );
+    expect(runTask?.Resource).toHaveLength(2);
     expect(
       statements.find((statement) => statement.Action === "ecs:DescribeTasks"),
     ).toMatchObject({ Effect: "Allow", Resource: "*" });
-    const passRole = statements.filter(
+    const passRole = statements.find(
       (statement) => statement.Action === "iam:PassRole",
     );
-    expect(passRole).toHaveLength(2);
-    for (const statement of passRole) {
-      expect(statement.Condition).toEqual({
-        StringLike: { "iam:PassedToService": "ecs-tasks.amazonaws.com" },
-      });
-      expect(statement.Resource).not.toBe("*");
-    }
+    expect(passRole?.Condition).toEqual({
+      StringLike: { "iam:PassedToService": "ecs-tasks.amazonaws.com" },
+    });
+    expect(passRole?.Resource).toHaveLength(4);
+    expect(passRole?.Resource).not.toBe("*");
   });
 
   it("publishes the task and network identifiers used by the runner", () => {
@@ -157,5 +168,5 @@ interface PolicyStatement {
   Action?: string | string[];
   Condition?: unknown;
   Effect?: string;
-  Resource?: unknown;
+  Resource?: unknown[] | string;
 }

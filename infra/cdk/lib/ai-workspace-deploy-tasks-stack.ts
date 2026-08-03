@@ -146,14 +146,40 @@ export class AiWorkspaceDeployTasksStack extends cdk.Stack {
         codeBuildRoleArn,
         { mutable: true },
       );
-      migratorTask.grantRun(codeBuildRole);
-      smokeTask.grantRun(codeBuildRole);
-      codeBuildRole.addToPrincipalPolicy(
-        new iam.PolicyStatement({
-          actions: ["ecs:DescribeTasks"],
-          resources: ["*"],
-        }),
+      const codeBuildDeployTaskPolicy = new iam.Policy(
+        this,
+        "CodeBuildDeployTaskPolicy",
+        {
+          statements: [
+            new iam.PolicyStatement({
+              actions: ["ecs:RunTask"],
+              resources: [
+                migratorTask.taskDefinitionArn,
+                smokeTask.taskDefinitionArn,
+              ],
+            }),
+            new iam.PolicyStatement({
+              actions: ["iam:PassRole"],
+              resources: [
+                migratorTask.taskRole.roleArn,
+                migratorTask.obtainExecutionRole().roleArn,
+                smokeTask.taskRole.roleArn,
+                smokeTask.obtainExecutionRole().roleArn,
+              ],
+              conditions: {
+                StringLike: {
+                  "iam:PassedToService": "ecs-tasks.amazonaws.com",
+                },
+              },
+            }),
+            new iam.PolicyStatement({
+              actions: ["ecs:DescribeTasks"],
+              resources: ["*"],
+            }),
+          ],
+        },
       );
+      codeBuildDeployTaskPolicy.attachToRole(codeBuildRole);
     }
 
     new cdk.CfnOutput(this, "MigratorTaskDefinitionArn", {
