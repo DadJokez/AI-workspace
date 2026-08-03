@@ -64,12 +64,12 @@ export class AiWorkspaceDeployTasksStack extends cdk.Stack {
     const migrationLogGroup = new logs.LogGroup(this, "MigrationLogGroup", {
       logGroupName: "/ecs/ai-workspace/migrator",
       retention: logs.RetentionDays.ONE_MONTH,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
     });
     const smokeLogGroup = new logs.LogGroup(this, "SmokeLogGroup", {
       logGroupName: "/ecs/ai-workspace/production-smoke",
       retention: logs.RetentionDays.ONE_MONTH,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
     });
 
     const migratorTask = new ecs.FargateTaskDefinition(this, "MigratorTask", {
