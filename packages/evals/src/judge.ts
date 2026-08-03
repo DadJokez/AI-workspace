@@ -127,5 +127,5 @@ export async function runJudge(
     leading === undefined && text.trim()
       ? `unparsed verdict line ${JSON.stringify(verdictLine)}; `
       : "";
-  return { pass, reason: `${detail}${reason}`.slice(0, 200), ...usage };
+  return { pass, reason: `${detail}${reason}`.slice(0, 1_000), ...usage };
 }

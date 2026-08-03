@@ -160,6 +160,20 @@ function createdMarkdownArtifact(filename: string) {
   });
 }
 
+export function statesEmptyCalendarResult(answer: string): boolean {
+  return [
+    /\bno (?:scheduled |upcoming |matching )*(?:meetings?|events?)\b/i,
+    /\b(?:found|returned) (?:no|zero) (?:scheduled |upcoming |matching )*(?:meetings?|events?)\b/i,
+    /\b(?:zero|0) (?:scheduled |upcoming |matching )*(?:meetings?|events?)\b/i,
+    /\b(?:calendar|schedule) (?:is|was|looks) (?:clear|empty)\b/i,
+    /\b(?:did not|didn't|could not|couldn't) find (?:any )?(?:scheduled |upcoming |matching )*(?:meetings?|events?)\b/i,
+  ].some((pattern) => pattern.test(answer));
+}
+
+export function statesNext24HourScope(answer: string): boolean {
+  return /\bnext (?:24|twenty[- ]four) hours?\b/i.test(answer);
+}
+
 export const skillFaithfulnessSuite: EvalSuite = {
   capability: "skill-faithfulness",
   defaultModelId: DEFAULT_MODEL_ID,
@@ -486,10 +500,36 @@ export const skillFaithfulnessSuite: EvalSuite = {
           }),
         },
         {
+          kind: "deterministic",
+          label: "states that Calendar returned no meeting",
+          check: (transcript) => ({
+            ok: statesEmptyCalendarResult(transcript.answer),
+            detail:
+              "expected an explicit no-meetings or no-events Calendar result",
+          }),
+        },
+        {
+          kind: "deterministic",
+          label: "identifies the checked next-24-hour scope",
+          check: (transcript) => ({
+            ok: statesNext24HourScope(transcript.answer),
+            detail: "expected the checked scope to identify the next 24 hours",
+          }),
+        },
+        {
           kind: "judge",
-          label: "states the checked scope and that no meeting was found",
-          rubric:
-            "PASS only if the artifact says no upcoming matching meeting was found and identifies the checked calendar/time range without inventing a placeholder meeting.",
+          label: "does not invent a placeholder meeting",
+          rubric: [
+            "The Calendar tool returned zero events for the requested next-24-hour range.",
+            "PASS if the answer does not name, schedule, or claim that an actual meeting exists despite that empty result.",
+            `The required Markdown status artifact named meeting-prep-${EVAL_TODAY}.md is a report about the empty result, not a meeting and not a placeholder meeting; creating or describing that artifact must not cause a failure.`,
+            "FAIL only if the answer invents an actual meeting or event absent from the empty Calendar result.",
+          ].join(" "),
+          referenceEvidence: [
+            "The Calendar fixture returned zero events.",
+            "The requested and checked Calendar scope was the next 24 hours.",
+            `The empty-result contract requires a Markdown status artifact named meeting-prep-${EVAL_TODAY}.md; that artifact is not a meeting.`,
+          ],
         },
       ],
     },

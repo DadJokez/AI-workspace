@@ -156,6 +156,18 @@ describe("judge calibration contract", () => {
     });
   });
 
+  it("preserves enough judge detail to diagnose a contradictory verdict", async () => {
+    const detail = `The answer satisfies the required facts. ${"Additional diagnostic context. ".repeat(12)}`;
+    const verdict = await runJudge(
+      new StaticJudgeClient(`FAIL\n${detail}`),
+      { rubric: "Does the answer pass?", answer: "candidate" },
+    );
+
+    expect(verdict.pass).toBe(false);
+    expect(verdict.reason.length).toBeGreaterThan(200);
+    expect(verdict.reason).toBe(detail.trim());
+  });
+
   it("accepts unambiguous PASS formatting variants (parser flake, not model regression)", async () => {
     for (const variant of [
       "PASS.\nThe answer matches the evidence.",
