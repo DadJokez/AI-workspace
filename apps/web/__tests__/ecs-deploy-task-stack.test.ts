@@ -64,6 +64,23 @@ describe("AiWorkspaceDeployTasksStack", () => {
     expect(JSON.stringify(ingress)).not.toContain("0.0.0.0/0");
   });
 
+  it("cleans up new log groups on create rollback but retains established logs", () => {
+    const logGroups = resourcesOfType(template, "AWS::Logs::LogGroup");
+    expect(logGroups).toHaveLength(2);
+    expect(logGroups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          DeletionPolicy: "RetainExceptOnCreate",
+          UpdateReplacePolicy: "Retain",
+        }),
+        expect.objectContaining({
+          DeletionPolicy: "RetainExceptOnCreate",
+          UpdateReplacePolicy: "Retain",
+        }),
+      ]),
+    );
+  });
+
   it("grants CodeBuild only task launch, receipt, and scoped pass-role access", () => {
     const codeBuildPolicies = Object.entries(template.Resources).filter(
       ([logicalId, resource]) =>
@@ -156,7 +173,9 @@ interface CloudFormationTemplate {
 }
 
 interface CloudFormationResource {
+  DeletionPolicy?: string;
   Type: string;
+  UpdateReplacePolicy?: string;
   Properties?: {
     Family?: string;
     PolicyDocument?: { Statement: PolicyStatement[] };
