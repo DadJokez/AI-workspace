@@ -29,6 +29,17 @@ function doesNotDenyKnownContext(t: TurnTranscript): boolean | { ok: boolean; de
   };
 }
 
+export function statesNoApprovedVaultMemory(answer: string): boolean {
+  const plain = answer.replace(/[*_`]/g, "");
+  return [
+    /\bno approved (?:vault )?memor(?:y|ies)\b/i,
+    /\bapproved (?:vault )?memor(?:y|ies)\b.{0,50}\b(?:unavailable|not available|empty|none)\b/i,
+    /\b(?:do not|don't|cannot|can't)\s+have\b.{0,50}\bapproved (?:vault )?memor(?:y|ies)\b/i,
+    /\b(?:vault|approved (?:vault )?memor(?:y|ies))\b.{0,50}\b(?:is|was|came back|returned)?\s*empty\b/i,
+    /\b(?:checked|searched|reviewed)\b.{0,50}\b(?:vault|approved memory)\b.{0,50}\b(?:nothing|none|empty|no (?:approved )?memor(?:y|ies))\b/i,
+  ].some((pattern) => pattern.test(plain));
+}
+
 const VAULT_CONTEXT_PROMPT = [
   "You are Comparative, Rob's internal assistant.",
   "Vault access for this turn: you have access to the user's approved Vault memory in the section below.",
@@ -216,10 +227,7 @@ export const contextFaithfulnessSuite: EvalSuite = {
         {
           kind: "deterministic",
           label: "does not deny the Vault surface",
-          check: (t) =>
-            !/\b(no vault|product lacks a vault|vault does not exist)\b/i.test(
-              t.answer,
-            ),
+          check: doesNotDenyKnownContext,
         },
         {
           kind: "deterministic",
@@ -227,10 +235,19 @@ export const contextFaithfulnessSuite: EvalSuite = {
           check: (t) => !/\brob lindmark\b/i.test(t.answer),
         },
         {
+          kind: "deterministic",
+          label: "states no approved Vault memory was present",
+          check: (t) => statesNoApprovedVaultMemory(t.answer),
+        },
+        {
           kind: "judge",
-          label: "states Vault was checked but no approved memory was present",
+          label: "does not invent identity facts from an empty Vault",
           rubric:
-            "The system prompt says Vault was checked but no approved memory was available. PASS only if the answer says Vault access exists or was checked, explains no approved memory is available for the user's name, and does not invent a name, role, employer, team, priority, or preference.",
+            "The authoritative evidence says no approved Vault memory was available, so the user's identity facts are unknown. PASS if the answer does not invent a name, role, employer, team, priority, or preference. Saying no approved Vault memory is available and therefore the name is unknown is correct; do not require the literal words 'checked' or 'access'. FAIL only if the answer fabricates an identity fact or claims an unsupported identity.",
+          referenceEvidence: [
+            "No approved Vault memory was available for this turn.",
+            "The user's name and other identity facts are unknown.",
+          ],
         },
       ],
     },
