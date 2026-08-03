@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
 import { AiWorkspaceEcsStack } from "../lib/ai-workspace-ecs-stack.js";
+import { AiWorkspaceDeployTasksStack } from "../lib/ai-workspace-deploy-tasks-stack.js";
 import { AiWorkspaceAgentCoreSpikeStack } from "../lib/ai-workspace-agentcore-spike-stack.js";
 import { AiWorkspaceEvalCiStack } from "../lib/ai-workspace-eval-ci-stack.js";
 
@@ -12,6 +13,10 @@ const env = {
 };
 
 new AiWorkspaceEcsStack(app, "AiWorkspaceEcsStack", {
+  env,
+});
+
+new AiWorkspaceDeployTasksStack(app, "AiWorkspaceDeployTasksStack", {
   env,
 });
 

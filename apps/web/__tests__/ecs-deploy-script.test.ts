@@ -96,8 +96,25 @@ describe("deploy-ecs-stack.sh", () => {
     );
     expect(deploy).toBeGreaterThan(buildspec.indexOf("docker push"));
     expect(deploy).toBeLessThan(
-      buildspec.indexOf("Running authenticated production smoke"),
+      buildspec.indexOf("Running authenticated production smoke inside the VPC"),
     );
+    const deployTasks = buildspec.indexOf(
+      "deploy-ecs-deploy-tasks-stack.sh",
+    );
+    const migration = buildspec.indexOf(
+      "run-ecs-deploy-task.sh migrate",
+    );
+    const smoke = buildspec.indexOf("run-ecs-deploy-task.sh smoke");
+    expect(deployTasks).toBeGreaterThan(
+      buildspec.indexOf(
+        "docker push $REPOSITORY_URI:migrator-$COMMIT_TAG",
+      ),
+    );
+    expect(migration).toBeGreaterThan(deployTasks);
+    expect(migration).toBeLessThan(deploy);
+    expect(smoke).toBeGreaterThan(deploy);
+    expect(buildspec).not.toContain("APP_SECRET_JSON");
+    expect(buildspec).not.toContain('docker run --rm -e DATABASE_URL');
   });
 });
 
