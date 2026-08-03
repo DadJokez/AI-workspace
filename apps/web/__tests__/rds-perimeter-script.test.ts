@@ -25,8 +25,11 @@ afterEach(() => {
 });
 
 describe("reconcile-rds-perimeter.sh", () => {
-  it("removes the known public rule, makes RDS private, and verifies", () => {
-    const result = runScript("--apply", { publicState: true });
+  it("waits through stale RDS reads before verifying the private perimeter", () => {
+    const result = runScript("--apply", {
+      publicState: true,
+      stalePrivateReads: 2,
+    });
 
     expect(result.status, result.stderr).toBe(0);
     const commands = readFileSync(result.capturePath, "utf8");
@@ -37,7 +40,27 @@ describe("reconcile-rds-perimeter.sh", () => {
       "rds modify-db-instance --region us-east-1 --db-instance-identifier ai-workspace-db --no-publicly-accessible --apply-immediately",
     );
     expect(commands).toContain("rds wait db-instance-available");
+    expect(
+      commands.match(/rds describe-db-instances/g)?.length,
+    ).toBeGreaterThanOrEqual(5);
     expect(result.stdout).toContain("RDS perimeter reconciled");
+  });
+
+  it("fails closed when RDS never reflects the accepted private change", () => {
+    const result = runScript("--apply", {
+      publicState: true,
+      stalePrivateReads: 10,
+      privateWaitAttempts: 3,
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "Timed out waiting for ai-workspace-db to report PubliclyAccessible=false",
+    );
+    const commands = readFileSync(result.capturePath, "utf8");
+    expect(commands).toContain("modify-db-instance");
+    expect(commands).not.toContain("rds wait db-instance-available");
+    expect(result.stdout).not.toContain("RDS perimeter reconciled");
   });
 
   it("is idempotent when the reviewed private perimeter is already live", () => {
@@ -102,11 +125,15 @@ function runScript(
   mode: "--apply" | "--check",
   {
     broadPublicRule = false,
+    privateWaitAttempts = 5,
     publicState = false,
+    stalePrivateReads = 0,
     unknownCidr = false,
   }: {
     broadPublicRule?: boolean;
+    privateWaitAttempts?: number;
     publicState?: boolean;
+    stalePrivateReads?: number;
     unknownCidr?: boolean;
   } = {},
 ) {
@@ -138,6 +165,18 @@ JSON
     public=false
     if [[ "$FAKE_PUBLIC_STATE" == "1" && ! -f "$FAKE_STATE_DIR/private" ]]; then
       public=true
+      if [[ -f "$FAKE_STATE_DIR/modify-requested" ]]; then
+        stale_reads=0
+        if [[ -f "$FAKE_STATE_DIR/stale-reads" ]]; then
+          stale_reads=$(cat "$FAKE_STATE_DIR/stale-reads")
+        fi
+        if (( stale_reads >= FAKE_STALE_PRIVATE_READS )); then
+          touch "$FAKE_STATE_DIR/private"
+          public=false
+        else
+          printf '%s' "$((stale_reads + 1))" > "$FAKE_STATE_DIR/stale-reads"
+        fi
+      fi
     fi
     printf '{"DBInstances":[{"DBInstanceIdentifier":"ai-workspace-db","PubliclyAccessible":%s,"DBSubnetGroup":{"VpcId":"vpc-test"},"VpcSecurityGroups":[{"VpcSecurityGroupId":"sg-019e87b5938a295a4","Status":"active"}]}]}\\n' "$public"
     ;;
@@ -158,7 +197,7 @@ JSON
     touch "$FAKE_STATE_DIR/revoked"
     ;;
   "rds modify-db-instance")
-    touch "$FAKE_STATE_DIR/private"
+    touch "$FAKE_STATE_DIR/modify-requested"
     echo '{}'
     ;;
   "rds wait")
@@ -182,8 +221,11 @@ esac
       FAKE_CAPTURE_PATH: capturePath,
       FAKE_BROAD_PUBLIC_RULE: broadPublicRule ? "1" : "0",
       FAKE_PUBLIC_STATE: publicState ? "1" : "0",
+      FAKE_STALE_PRIVATE_READS: String(stalePrivateReads),
       FAKE_STATE_DIR: dir,
       FAKE_UNKNOWN_CIDR: unknownCidr ? "1" : "0",
+      RDS_PRIVATE_WAIT_ATTEMPTS: String(privateWaitAttempts),
+      RDS_PRIVATE_WAIT_INTERVAL_SECONDS: "0",
     },
   });
 

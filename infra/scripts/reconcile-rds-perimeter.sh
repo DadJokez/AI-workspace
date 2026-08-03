@@ -21,6 +21,17 @@ RDS_INSTANCE_ID="${RDS_INSTANCE_ID:-ai-workspace-db}"
 RDS_SECURITY_GROUP_ID="${RDS_SECURITY_GROUP_ID:-sg-019e87b5938a295a4}"
 ECS_STACK_NAME="${ECS_STACK_NAME:-AiWorkspaceEcsStack}"
 ECS_DEPLOY_TASK_STACK_NAME="${ECS_DEPLOY_TASK_STACK_NAME:-AiWorkspaceDeployTasksStack}"
+RDS_PRIVATE_WAIT_ATTEMPTS="${RDS_PRIVATE_WAIT_ATTEMPTS:-60}"
+RDS_PRIVATE_WAIT_INTERVAL_SECONDS="${RDS_PRIVATE_WAIT_INTERVAL_SECONDS:-10}"
+
+if ! [[ "$RDS_PRIVATE_WAIT_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "RDS_PRIVATE_WAIT_ATTEMPTS must be a positive integer" >&2
+  exit 2
+fi
+if ! [[ "$RDS_PRIVATE_WAIT_INTERVAL_SECONDS" =~ ^[0-9]+$ ]]; then
+  echo "RDS_PRIVATE_WAIT_INTERVAL_SECONDS must be a non-negative integer" >&2
+  exit 2
+fi
 
 resolve_stack_security_group() {
   local stack_name="$1"
@@ -74,6 +85,42 @@ if len(matches) != 1 or not matches[0]:
     raise SystemExit(f"Expected stack output {os.environ['OUTPUT_KEY']}")
 print(matches[0])
 PY
+}
+
+rds_publicly_accessible() {
+  local db_json
+  db_json=$(aws rds describe-db-instances \
+    --region "$AWS_DEFAULT_REGION" \
+    --db-instance-identifier "$RDS_INSTANCE_ID" \
+    --output json)
+
+  DB_JSON="$db_json" RDS_INSTANCE_ID="$RDS_INSTANCE_ID" python3 <<'PY'
+import json
+import os
+
+dbs = json.loads(os.environ["DB_JSON"]).get("DBInstances", [])
+if len(dbs) != 1 or dbs[0].get("DBInstanceIdentifier") != os.environ["RDS_INSTANCE_ID"]:
+    raise SystemExit("The expected RDS instance could not be resolved uniquely")
+print("1" if dbs[0].get("PubliclyAccessible") else "0")
+PY
+}
+
+wait_for_rds_private() {
+  local attempt
+  for ((attempt = 1; attempt <= RDS_PRIVATE_WAIT_ATTEMPTS; attempt++)); do
+    if [[ "$(rds_publicly_accessible)" == "0" ]]; then
+      aws rds wait db-instance-available \
+        --region "$AWS_DEFAULT_REGION" \
+        --db-instance-identifier "$RDS_INSTANCE_ID"
+      return 0
+    fi
+    if ((attempt < RDS_PRIVATE_WAIT_ATTEMPTS)); then
+      sleep "$RDS_PRIVATE_WAIT_INTERVAL_SECONDS"
+    fi
+  done
+
+  echo "Timed out waiting for $RDS_INSTANCE_ID to report PubliclyAccessible=false" >&2
+  return 1
 }
 
 WEB_SECURITY_GROUP_ID="${RDS_WEB_SECURITY_GROUP_ID:-$(resolve_stack_security_group "$ECS_STACK_NAME" "WebSecurityGroup")}"
@@ -253,9 +300,7 @@ if [[ "$publicly_accessible" == "1" ]]; then
     --db-instance-identifier "$RDS_INSTANCE_ID" \
     --no-publicly-accessible \
     --apply-immediately >/dev/null
-  aws rds wait db-instance-available \
-    --region "$AWS_DEFAULT_REGION" \
-    --db-instance-identifier "$RDS_INSTANCE_ID"
+  wait_for_rds_private
 fi
 
 inspect_perimeter final >/dev/null
