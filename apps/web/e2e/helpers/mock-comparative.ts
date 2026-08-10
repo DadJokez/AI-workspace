@@ -23,6 +23,9 @@ interface MockChatOptions {
   apps?: unknown[];
   user?: Record<string, unknown>;
   oauthStatus?: Record<string, unknown>;
+  commandPalette?: Record<string, unknown>;
+  commandPaletteDelayMs?: number;
+  commandPaletteStatus?: number;
   recommendationPrompts?: {
     suggestions: string[];
     connectedProviders?: string[];
@@ -329,6 +332,24 @@ export async function installMockComparativeApi(
 
     if (path === "/api/me") {
       return json(route, { user });
+    }
+
+    if (path === "/api/command-palette") {
+      if (options.commandPaletteDelayMs) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, options.commandPaletteDelayMs),
+        );
+      }
+      return json(
+        route,
+        options.commandPalette ?? {
+          items: [],
+          isAdmin: user.role === "admin",
+          partialSections: [],
+          durationMs: 1,
+        },
+        options.commandPaletteStatus ?? 200,
+      );
     }
 
     if (path === "/api/oauth/status") {

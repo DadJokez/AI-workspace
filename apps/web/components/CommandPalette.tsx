@@ -2,8 +2,12 @@
 
 import {
   groupCommandPaletteItems,
+  type CommandPaletteApiResponse,
   type CommandPaletteItem,
+  type CommandPaletteReadinessState,
+  type CommandPaletteServerCommand,
 } from "@/lib/command-palette";
+import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import { usePathname, useRouter } from "next/navigation";
 import {
   createContext,
@@ -19,43 +23,35 @@ import {
 } from "react";
 
 interface ChatCommandActions {
+  currentThreadId?: string;
   newChat: () => void;
+  openArtifact: (
+    artifact: WorkspaceArtifactSummary,
+    threadTitle?: string,
+  ) => void;
   openArtifacts: () => void;
-  openSettings: () => void;
+  openSettings: (
+    section?: "profile" | "memory" | "integrations",
+    focusId?: string,
+  ) => void;
+  openStudio: () => void;
   openThread: (threadId: string, title: string) => void;
+  uploadFile: () => void;
 }
 
 type PaletteCommand =
+  | CommandPaletteServerCommand
   | { type: "new-chat" }
   | { type: "open-artifacts" }
   | { type: "open-settings" }
-  | { type: "thread"; threadId: string; title: string }
+  | { type: "open-studio" }
+  | { type: "upload-file" }
   | { type: "toggle-theme" }
   | { type: "route"; href: string };
 
 interface PaletteItem extends CommandPaletteItem {
   command: PaletteCommand;
   shortcut?: string;
-}
-
-interface PaletteData {
-  threads: Array<{
-    id: string;
-    title: string | null;
-    previewSummary: string | null;
-  }>;
-  skills: Array<{
-    id: string;
-    name: string;
-    description: string | null;
-  }>;
-  apps: Array<{
-    id: string;
-    slug: string;
-    name: string;
-    description: string | null;
-  }>;
-  isAdmin: boolean;
 }
 
 interface CommandPaletteContextValue {
@@ -69,11 +65,11 @@ const CommandPaletteContext = createContext<CommandPaletteContextValue | null>(
   null,
 );
 
-const EMPTY_DATA: PaletteData = {
-  threads: [],
-  skills: [],
-  apps: [],
+const EMPTY_DATA: CommandPaletteApiResponse = {
+  items: [],
   isAdmin: false,
+  partialSections: [],
+  durationMs: 0,
 };
 
 const ADMIN_ITEMS: readonly PaletteItem[] = [
@@ -94,16 +90,6 @@ function adminItem(id: string, label: string, href: string): PaletteItem {
     keywords: ["workspace administration"],
     command: { type: "route", href },
   };
-}
-
-async function readJson<T>(url: string, fallback: T): Promise<T> {
-  try {
-    const response = await fetch(url, { credentials: "include" });
-    if (!response.ok) return fallback;
-    return (await response.json()) as T;
-  } catch {
-    return fallback;
-  }
 }
 
 function toggleCurrentTheme() {
@@ -130,7 +116,10 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [data, setData] = useState<PaletteData>(EMPTY_DATA);
+  const [data, setData] = useState<CommandPaletteApiResponse>(EMPTY_DATA);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [runningSkillId, setRunningSkillId] = useState<string | null>(null);
   const loadPromiseRef = useRef<Promise<void> | null>(null);
   const chatActionsRef = useRef<MutableRefObject<ChatCommandActions> | null>(
     null,
@@ -139,22 +128,45 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
   const loadData = useCallback(() => {
     if (loadPromiseRef.current) return loadPromiseRef.current;
     setLoading(true);
-    const promise = Promise.all([
-      readJson<{ user?: { role?: string } }>("/api/me", {}),
-      readJson<{ threads?: PaletteData["threads"] }>(
-        "/api/threads?limit=50&scope=mine",
-        {},
-      ),
-      readJson<{ skills?: PaletteData["skills"] }>("/api/skills", {}),
-      readJson<{ apps?: PaletteData["apps"] }>("/api/apps", {}),
-    ])
-      .then(([me, threads, skills, apps]) => {
+    setLoadError(null);
+    const params = new URLSearchParams();
+    const currentThreadId =
+      chatActionsRef.current?.current.currentThreadId?.trim();
+    if (currentThreadId) params.set("threadId", currentThreadId);
+    const url = `/api/command-palette${params.size ? `?${params.toString()}` : ""}`;
+    const startedAt = performance.now();
+    const promise = fetch(url, { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Workspace search is temporarily unavailable.");
+        }
+        const next = (await response.json()) as CommandPaletteApiResponse;
         setData({
-          isAdmin: me.user?.role === "admin",
-          threads: Array.isArray(threads.threads) ? threads.threads : [],
-          skills: Array.isArray(skills.skills) ? skills.skills : [],
-          apps: Array.isArray(apps.apps) ? apps.apps : [],
+          items: Array.isArray(next.items) ? next.items : [],
+          isAdmin: next.isAdmin === true,
+          partialSections: Array.isArray(next.partialSections)
+            ? next.partialSections
+            : [],
+          durationMs:
+            typeof next.durationMs === "number" ? next.durationMs : 0,
         });
+        try {
+          performance.measure("comparative-command-palette-load", {
+            start: startedAt,
+            end: performance.now(),
+            detail: { serverDurationMs: next.durationMs },
+          });
+        } catch {
+          // Search still succeeds when browser performance marks are unavailable.
+        }
+      })
+      .catch((error) => {
+        setData(EMPTY_DATA);
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : "Workspace search is temporarily unavailable.",
+        );
       })
       .finally(() => {
         loadPromiseRef.current = null;
@@ -166,6 +178,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
 
   const openPalette = useCallback(() => {
     setOpen(true);
+    setActionError(null);
     void loadData();
   }, [loadData]);
 
@@ -183,32 +196,112 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
 
   const runCommand = useCallback(
     (command: PaletteCommand) => {
-      closePalette();
       const chatActions = chatActionsRef.current?.current;
       switch (command.type) {
         case "new-chat":
+          closePalette();
           if (chatActions) chatActions.newChat();
           else router.push("/chat");
           return;
         case "open-artifacts":
+          closePalette();
           if (chatActions) chatActions.openArtifacts();
           else router.push("/chat?open=artifacts");
           return;
         case "open-settings":
-          if (chatActions) chatActions.openSettings();
+          closePalette();
+          if (chatActions) chatActions.openSettings("profile");
           else router.push("/chat?open=settings");
           return;
+        case "open-studio":
+          closePalette();
+          if (chatActions) chatActions.openStudio();
+          else router.push("/chat?open=studio");
+          return;
+        case "upload-file":
+          closePalette();
+          if (chatActions) chatActions.uploadFile();
+          else router.push("/chat?open=upload");
+          return;
         case "thread":
+          closePalette();
           if (chatActions) {
             chatActions.openThread(command.threadId, command.title);
           } else {
             router.push(`/chat?threadId=${encodeURIComponent(command.threadId)}`);
           }
           return;
+        case "artifact": {
+          closePalette();
+          if (chatActions) {
+            chatActions.openArtifact(command.artifact, command.threadTitle);
+          } else {
+            const params = new URLSearchParams({
+              artifactId: command.artifact.id,
+            });
+            if (command.artifact.threadId) {
+              params.set("threadId", command.artifact.threadId);
+            }
+            router.push(`/chat?${params.toString()}`);
+          }
+          return;
+        }
+        case "settings": {
+          closePalette();
+          if (chatActions) {
+            chatActions.openSettings(command.section, command.focusId);
+          } else {
+            const params = new URLSearchParams({
+              open: "settings",
+              section: command.section,
+            });
+            if (command.focusId) params.set("focus", command.focusId);
+            router.push(`/chat?${params.toString()}`);
+          }
+          return;
+        }
+        case "run-skill": {
+          setRunningSkillId(command.skillId);
+          setActionError(null);
+          void fetch(`/api/skills/${encodeURIComponent(command.skillId)}/run`, {
+            method: "POST",
+            credentials: "include",
+          })
+            .then(async (response) => {
+              const body = (await response.json().catch(() => ({}))) as {
+                threadId?: string;
+                message?: string;
+              };
+              if (!response.ok || !body.threadId) {
+                throw new Error(
+                  body.message ?? "Comparative could not start this Skill.",
+                );
+              }
+              closePalette();
+              const title = `Skill: ${command.skillName}`;
+              if (chatActions) chatActions.openThread(body.threadId, title);
+              else {
+                router.push(
+                  `/chat?threadId=${encodeURIComponent(body.threadId)}`,
+                );
+              }
+            })
+            .catch((error) => {
+              setActionError(
+                error instanceof Error
+                  ? error.message
+                  : "Comparative could not start this Skill.",
+              );
+            })
+            .finally(() => setRunningSkillId(null));
+          return;
+        }
         case "toggle-theme":
+          closePalette();
           toggleCurrentTheme();
           return;
         case "route":
+          closePalette();
           if (pathname !== command.href) router.push(command.href);
       }
     },
@@ -233,36 +326,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
   }, [openPalette, runCommand]);
 
   const items = useMemo<PaletteItem[]>(() => {
-    const dynamic: PaletteItem[] = [
-      ...data.threads.map((thread) => ({
-        id: `thread:${thread.id}`,
-        group: "chats" as const,
-        label: thread.title?.trim() || "Untitled",
-        description: thread.previewSummary,
-        keywords: ["conversation", "thread"],
-        command: {
-          type: "thread" as const,
-          threadId: thread.id,
-          title: thread.title?.trim() || "Untitled",
-        },
-      })),
-      ...data.skills.map((skill) => ({
-        id: `skill:${skill.id}`,
-        group: "skills" as const,
-        label: skill.name,
-        description: skill.description,
-        keywords: ["agent", "skill"],
-        command: { type: "route" as const, href: `/skills/${skill.id}` },
-      })),
-      ...data.apps.map((app) => ({
-        id: `app:${app.id}`,
-        group: "apps" as const,
-        label: app.name,
-        description: app.description,
-        keywords: ["application", "published app"],
-        command: { type: "route" as const, href: `/apps/${app.slug}` },
-      })),
-    ];
+    const dynamic: PaletteItem[] = data.items.map((item) => ({ ...item }));
     if (data.isAdmin) dynamic.push(...ADMIN_ITEMS);
     dynamic.push(
       {
@@ -295,6 +359,27 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
         keywords: ["files", "documents", "workspace"],
         command: { type: "open-artifacts" },
       },
+      {
+        id: "action:studio",
+        group: "actions",
+        label: "Open Contribution Studio",
+        keywords: ["work mode", "activity", "files", "browser"],
+        command: { type: "open-studio" },
+      },
+      {
+        id: "action:upload",
+        group: "actions",
+        label: "Upload a file",
+        keywords: ["attach", "document", "image", "context"],
+        command: { type: "upload-file" },
+      },
+      {
+        id: "action:connect-tool",
+        group: "actions",
+        label: "Connect a tool",
+        keywords: ["integration", "provider", "oauth", "settings"],
+        command: { type: "settings", section: "integrations" },
+      },
     );
     return dynamic;
   }, [data]);
@@ -311,7 +396,12 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
         <CommandPaletteDialog
           items={items}
           loading={loading}
+          loadError={loadError}
+          actionError={actionError}
+          partialSections={data.partialSections}
+          runningSkillId={runningSkillId}
           onClose={closePalette}
+          onRetry={() => void loadData()}
           onSelect={runCommand}
         />
       ) : null}
@@ -347,12 +437,22 @@ export function useRegisterCommandPaletteActions(
 function CommandPaletteDialog({
   items,
   loading,
+  loadError,
+  actionError,
+  partialSections,
+  runningSkillId,
   onClose,
+  onRetry,
   onSelect,
 }: {
   items: PaletteItem[];
   loading: boolean;
+  loadError: string | null;
+  actionError: string | null;
+  partialSections: CommandPaletteApiResponse["partialSections"];
+  runningSkillId: string | null;
   onClose: () => void;
+  onRetry: () => void;
   onSelect: (command: PaletteCommand) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -456,7 +556,7 @@ function CommandPaletteDialog({
                 onSelect(activeItem.command);
               }
             }}
-            placeholder="Search chats, skills, apps, and actions…"
+            placeholder="Search chats, files, memory, tools, and actions…"
             className="h-12 min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-muted"
           />
           <button
@@ -476,9 +576,32 @@ function CommandPaletteDialog({
           aria-busy={loading}
           className="min-h-0 overflow-y-auto p-2"
         >
+          {actionError ? (
+            <div
+              role="alert"
+              className="mb-2 rounded-md border border-danger/25 bg-danger-bg px-3 py-2 text-xs text-danger"
+            >
+              {actionError}
+            </div>
+          ) : null}
           {visibleItems.length === 0 ? (
-            <div className="px-3 py-8 text-center text-sm text-muted">
-              {loading ? "Loading workspace…" : "No matching commands."}
+            <div className="flex flex-col items-center gap-3 px-3 py-8 text-center text-sm text-muted">
+              <span>
+                {loading
+                  ? "Loading workspace…"
+                  : loadError
+                    ? loadError
+                    : "No matching commands."}
+              </span>
+              {loadError && !loading ? (
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  className="rounded-md border border-hairline px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-subtle"
+                >
+                  Try again
+                </button>
+              ) : null}
             </div>
           ) : (
             groups.map((group) => (
@@ -498,6 +621,9 @@ function CommandPaletteDialog({
                   const itemIndex = visibleItems.indexOf(item);
                   const active = itemIndex === activeIndex;
                   const optionId = `${listboxId}-option-${item.id.replace(/[^a-z0-9_-]/gi, "-")}`;
+                  const readinessDescriptionId = item.readiness
+                    ? `${optionId}-readiness`
+                    : undefined;
                   return (
                     <button
                       key={item.id}
@@ -505,12 +631,17 @@ function CommandPaletteDialog({
                       type="button"
                       role="option"
                       aria-selected={active}
+                      aria-describedby={readinessDescriptionId}
                       tabIndex={-1}
                       onMouseMove={() => setActiveIndex(itemIndex)}
                       onClick={() => onSelect(item.command)}
+                      disabled={
+                        item.command.type === "run-skill" &&
+                        runningSkillId === item.command.skillId
+                      }
                       className={`flex w-full items-center gap-3 rounded-md px-2 py-2 text-left ${
                         active ? "bg-subtle text-ink" : "text-muted"
-                      }`}
+                      } disabled:cursor-wait disabled:opacity-60`}
                     >
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm text-ink">
@@ -522,6 +653,29 @@ function CommandPaletteDialog({
                           </span>
                         ) : null}
                       </span>
+                      {item.readiness ? (
+                        <>
+                          <span
+                            className={`flex shrink-0 items-center gap-1.5 text-2xs ${readinessColor(item.readiness.state)}`}
+                            title={item.readiness.detail}
+                          >
+                            <span
+                              className="h-1.5 w-1.5 rounded-full bg-current"
+                              aria-hidden="true"
+                            />
+                            {item.command.type === "run-skill" &&
+                            runningSkillId === item.command.skillId
+                              ? "Starting"
+                              : item.readiness.label}
+                          </span>
+                          <span
+                            id={readinessDescriptionId}
+                            className="sr-only"
+                          >
+                            {item.readiness.detail}
+                          </span>
+                        </>
+                      ) : null}
                       {item.shortcut ? (
                         <kbd className="shrink-0 text-2xs text-muted">
                           {item.shortcut}
@@ -541,11 +695,34 @@ function CommandPaletteDialog({
           <span>Esc Close</span>
           {loading && visibleItems.length > 0 ? (
             <span className="ml-auto">Updating…</span>
+          ) : loadError && visibleItems.length > 0 ? (
+            <span className="ml-auto flex items-center gap-2">
+              <span role="status">Workspace results unavailable</span>
+              <button
+                type="button"
+                onClick={onRetry}
+                aria-label="Retry workspace search"
+                className="font-medium text-ink hover:underline"
+              >
+                Retry
+              </button>
+            </span>
+          ) : partialSections.length > 0 ? (
+            <span className="ml-auto" role="status">
+              Some workspace results are unavailable
+            </span>
           ) : null}
         </footer>
       </section>
     </div>
   );
+}
+
+function readinessColor(state: CommandPaletteReadinessState): string {
+  if (state === "ready") return "text-success";
+  if (state === "review_required") return "text-ink";
+  if (state === "policy_blocked") return "text-danger";
+  return "text-muted";
 }
 
 function SearchIcon() {

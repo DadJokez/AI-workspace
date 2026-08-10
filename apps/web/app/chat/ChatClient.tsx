@@ -57,10 +57,19 @@ import { useChatTurnQueue } from "./use-chat-turn-queue";
 
 interface ChatClientProps {
   initialThreadId?: string;
-  initialOpen?: "settings" | "artifacts";
+  initialOpen?: "settings" | "artifacts" | "studio" | "upload";
+  initialSettingsSection?: "memory" | "integrations";
+  initialMemoryId?: string;
+  initialArtifactId?: string;
 }
 
-export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
+export function ChatClient({
+  initialThreadId,
+  initialOpen,
+  initialSettingsSection,
+  initialMemoryId,
+  initialArtifactId,
+}: ChatClientProps) {
   const router = useRouter();
   const { openPalette } = useCommandPalette();
   const {
@@ -109,12 +118,22 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsSection, setSettingsSection] =
     useState<SettingsSection | null>(() =>
-      initialOpen === "settings" ? "profile" : null,
+      initialOpen === "settings"
+        ? (initialSettingsSection ?? "profile")
+        : null,
     );
+  const [settingsFocusId, setSettingsFocusId] = useState<string | undefined>(
+    initialMemoryId,
+  );
   const [rightPane, setRightPane] = useState<RightPane | null>(() =>
     initialOpen === "artifacts"
       ? { kind: "studio", tab: "files", scope: "workspace" }
-      : null,
+      : initialOpen === "studio"
+        ? { kind: "studio", scope: "thread" }
+        : null,
+  );
+  const [uploadRequestId, setUploadRequestId] = useState(
+    initialOpen === "upload" ? 1 : 0,
   );
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -160,6 +179,33 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
       setSettingsSection("integrations");
     }
   }, []);
+
+  useEffect(() => {
+    if (!initialArtifactId) return;
+    let cancelled = false;
+    void fetchJson<{ artifact: WorkspaceArtifactSummary }>(
+      `/api/workspace/artifacts/${encodeURIComponent(initialArtifactId)}`,
+      undefined,
+      "Could not open that artifact.",
+    )
+      .then(({ artifact }) => {
+        if (cancelled) return;
+        setRightPane({
+          kind: "studio",
+          tab: "preview",
+          artifact,
+          scope: artifact.threadId ? "thread" : "workspace",
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRightPane({ kind: "studio", tab: "files", scope: "workspace" });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialArtifactId]);
 
   // Open settings via ⌘,/Ctrl,
   useEffect(() => {
@@ -258,6 +304,23 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     scope: ContributionStudioScope = "thread",
   ) {
     setRightPane({ kind: "studio", tab: "preview", artifact, scope });
+  }
+
+  function openPaletteArtifact(
+    artifact: WorkspaceArtifactSummary,
+    threadTitle?: string,
+  ) {
+    setSettingsSection(null);
+    if (artifact.threadId && artifact.threadId !== activeTab?.threadId) {
+      openThread(
+        artifact.threadId,
+        threadTitle?.trim() || artifact.title || "Artifact",
+      );
+    }
+    openArtifactPreview(
+      artifact,
+      artifact.threadId ? "thread" : "workspace",
+    );
   }
 
   function openRunInspector(runId: string) {
@@ -468,21 +531,33 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   }
 
   useRegisterCommandPaletteActions({
+    currentThreadId: activeTab?.threadId,
     newChat: () => {
       setSettingsSection(null);
       newTab();
     },
+    openArtifact: openPaletteArtifact,
     openArtifacts: () => {
       setSettingsSection(null);
       setRightPane({ kind: "studio", tab: "files", scope: "workspace" });
     },
-    openSettings: () => {
-      setSettingsSection("profile");
+    openSettings: (section = "profile", focusId) => {
+      setSettingsFocusId(focusId);
+      setSettingsSection(section);
       setRightPane(null);
+    },
+    openStudio: () => {
+      setSettingsSection(null);
+      setRightPane({ kind: "studio", scope: "thread" });
     },
     openThread: (threadId, title) => {
       setSettingsSection(null);
       openThread(threadId, title);
+    },
+    uploadFile: () => {
+      setSettingsSection(null);
+      setRightPane(null);
+      setUploadRequestId((current) => current + 1);
     },
   });
 
@@ -644,6 +719,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                 restoreDraft={activeTab.restoreDraft !== false}
                 editRequest={editRequest}
                 onEditComplete={() => setEditRequest(undefined)}
+                uploadRequestId={uploadRequestId}
                 placeholder={
                   models.length === 0
                     ? "Loading models…"
@@ -676,13 +752,17 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
           displayName={user?.displayName ?? ""}
           customInstructions={user?.customInstructions ?? null}
           initialSection={settingsSection}
+          memoryFocusId={settingsFocusId}
           onProfileUpdated={handleProfileUpdated}
           models={models}
           defaultModelId={defaultModelId}
           userDefaultModelId={userDefaultModelId}
           onUserDefaultModelChange={updateUserDefaultModel}
           runtimeV2Enabled={runtimeV2Enabled}
-          onClose={() => setSettingsSection(null)}
+          onClose={() => {
+            setSettingsSection(null);
+            setSettingsFocusId(undefined);
+          }}
           onReplayTour={() => setWizardOpen(true)}
         />
       ) : null}
