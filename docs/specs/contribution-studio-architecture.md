@@ -17,7 +17,7 @@
 | Studio shell and Live Work Map | [#740](https://github.com/DadJokez/AI-workspace/issues/740) |
 | Branch this work | [#741](https://github.com/DadJokez/AI-workspace/issues/741) |
 | Command Palette 2.0 | [#742](https://github.com/DadJokez/AI-workspace/issues/742) |
-| Layered Workbench guardrails | [#743](https://github.com/DadJokez/AI-workspace/issues/743) |
+| Layered Studio guardrails | [#743](https://github.com/DadJokez/AI-workspace/issues/743) |
 | Runtime capability conformance | [#744](https://github.com/DadJokez/AI-workspace/issues/744) |
 
 ## 1. Decision
@@ -42,7 +42,7 @@ The user should never need to choose a harness, model, MCP server, or worker. Co
 | --- | --- |
 | Repository files | Uploads, Vault documents, artifacts, app files, and connector-derived resources |
 | Browser pane | Generated-app preview, web research evidence, screenshots, and isolated agent browsing |
-| Terminal | A contextual Console for app-building or technical work; a user-friendly Work view for everyone else |
+| Terminal | A contextual Console for app-building or technical work; a user-friendly Studio view for everyone else |
 | Tool trace | Concise work steps, evidence, approvals, and receipts |
 | Git diff | Artifact/document version comparison and proposed changes |
 | Worktree or session fork | Branch this chat, artifact, or app into an independent line of work |
@@ -55,7 +55,7 @@ The user should never need to choose a harness, model, MCP server, or worker. Co
 
 Simple questions remain simple. Direct chat should not gain extra ceremony, panels, or status rows when no meaningful work is happening.
 
-When a turn creates or inspects resources, calls tools, or runs long enough to benefit from inspection, Comparative makes a **Work** mode available. The switch is contextual rather than a permanent model or tool toggle.
+When a turn creates or inspects resources, calls tools, or runs long enough to benefit from inspection, Comparative makes **Studio** available. The switch is contextual rather than a permanent model or tool toggle.
 
 ### 3.2 The Contribution Studio
 
@@ -75,6 +75,26 @@ Opening the Studio must resize chat rather than cover it. Tabs appear only when 
 - **Studio** prioritizes the active resources, deliverables, and run while keeping the conversation available.
 - **Console** is not a global product mode. It is an optional Studio tab for technical tasks.
 - Comparative may suggest or open Studio when a user asks to build, analyze, compare, or investigate, but the user can always return to Chat.
+
+### 3.4 Studio identity and motion
+
+Chat and Studio are related but distinct Comparative surfaces:
+
+- **Chat** uses the existing Comparative Orb: one soft, imperfect, closed loop that continuously reshapes itself to communicate intelligence that is alive, conversational, and adaptive.
+- **Studio** uses an open four-corner frame: four hand-drawn, slightly irregular strokes with generous negative space that communicate knowledge being organized, focused, and turned into durable work.
+
+The marks share the Orb's monoline weight, softened geometry, subtle asymmetry, and Umber token colors. Studio endpoints are organic rather than perfect pill caps, and the mark must not collapse into a generic crop, scan, dashboard, terminal, or application-window icon. Product UI uses **Contribution Studio** as the full name and **Studio** in compact labels.
+
+Motion contract:
+
+- when Studio opens, the four corners arrive independently from their corresponding quadrants, with a quiet stagger, slight rotation/scale variation, and a soft overshoot before settling;
+- the production entrance plays once rather than repeatedly disassembling;
+- while Studio is actively working, the settled strokes may use the same low-amplitude, hand-drawn morph language as the Orb without spinning or distracting from the work;
+- an inactive Studio mark is static;
+- `prefers-reduced-motion` always receives the settled static frame; and
+- colors come from the Umber design system through `currentColor`; no cobalt-specific treatment is introduced.
+
+The production mark should live beside the Orb in the Umber design system so navigation, loading states, empty states, and future surfaces share one implementation.
 
 ## 4. Feature Tracks
 
