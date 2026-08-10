@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -23,6 +24,8 @@ interface Props {
   paneTestId?: string;
   resizerTestId?: string;
   minMainWidth?: number;
+  maximized?: boolean;
+  onMaximizedChange?: (maximized: boolean) => void;
 }
 
 const DEFAULT_MIN_MAIN_WIDTH = 420;
@@ -39,8 +42,11 @@ export function SlideOverPane({
   paneTestId,
   resizerTestId,
   minMainWidth = DEFAULT_MIN_MAIN_WIDTH,
+  maximized = false,
+  onMaximizedChange,
 }: Props) {
   const [width, setWidth] = useState(defaultWidth);
+  const paneRef = useRef<HTMLElement>(null);
   const dismissSwipe = useHorizontalSwipe({
     direction: "left",
     onSwipe: onClose,
@@ -51,9 +57,12 @@ export function SlideOverPane({
       if (typeof window === "undefined") {
         return Math.min(maxWidth, Math.max(minWidth, next));
       }
+      const containerWidth =
+        paneRef.current?.parentElement?.getBoundingClientRect().width ??
+        window.innerWidth;
       const maxByViewport = Math.max(
         minWidth,
-        window.innerWidth - minMainWidth,
+        containerWidth - minMainWidth,
       );
       return Math.min(
         Math.min(maxWidth, maxByViewport),
@@ -88,6 +97,7 @@ export function SlideOverPane({
   }, [onClose]);
 
   function updateAndPersistWidth(next: number) {
+    onMaximizedChange?.(false);
     const clamped = clampWidth(next);
     setWidth(clamped);
     window.localStorage.setItem(storageKey, String(Math.round(clamped)));
@@ -97,8 +107,9 @@ export function SlideOverPane({
     if (event.pointerType === "mouse" && event.button !== 0) return;
     event.preventDefault();
     const startX = event.clientX;
-    const startWidth = width;
+    const startWidth = maximized ? clampWidth(maxWidth) : width;
     let latestWidth = startWidth;
+    onMaximizedChange?.(false);
 
     const handleMove = (move: PointerEvent) => {
       latestWidth = clampWidth(startWidth + startX - move.clientX);
@@ -120,13 +131,15 @@ export function SlideOverPane({
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
     const step = event.shiftKey ? 80 : 24;
+    const currentWidth = maximized ? clampWidth(maxWidth) : width;
     updateAndPersistWidth(
-      width + (event.key === "ArrowLeft" ? step : -step),
+      currentWidth + (event.key === "ArrowLeft" ? step : -step),
     );
   }
 
+  const renderedWidth = maximized ? clampWidth(maxWidth) : width;
   const style = {
-    "--slide-over-width": `${width}px`,
+    "--slide-over-width": `${renderedWidth}px`,
   } as CSSProperties;
 
   return (
@@ -137,11 +150,12 @@ export function SlideOverPane({
         className="fixed inset-0 z-40 bg-black/30 md:hidden"
       />
       <aside
+        ref={paneRef}
         aria-label={ariaLabel}
         data-testid={paneTestId}
         onPointerDown={dismissSwipe}
         style={style}
-        className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-hairline bg-canvas text-ink shadow-2xl md:static md:z-auto md:h-full md:w-[var(--slide-over-width)] md:max-w-none md:shrink-0 md:shadow-none"
+        className="fixed inset-y-0 right-0 z-50 flex w-full touch-pan-y flex-col border-l border-hairline bg-canvas text-ink shadow-2xl md:static md:z-auto md:h-full md:w-[var(--slide-over-width)] md:max-w-none md:shrink-0 md:shadow-none"
       >
         <div
           role="separator"
@@ -149,7 +163,7 @@ export function SlideOverPane({
           aria-orientation="vertical"
           aria-valuemin={minWidth}
           aria-valuemax={maxWidth}
-          aria-valuenow={Math.round(width)}
+          aria-valuenow={Math.round(renderedWidth)}
           data-testid={resizerTestId}
           tabIndex={0}
           onPointerDown={startResize}

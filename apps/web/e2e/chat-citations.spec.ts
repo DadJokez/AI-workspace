@@ -103,7 +103,7 @@ test("renders persisted source chips without inventing inline attribution", asyn
 
   await page.getByTestId("source-chip-2").click();
   const preview = page.getByRole("complementary", {
-    name: "Artifact preview",
+    name: "Contribution Studio",
   });
   await expect(preview).toBeVisible();
   await expect(preview).toContainText(defaultArtifactSummary.filename);

@@ -24,6 +24,10 @@ import type {
   ContextResourceReference,
   ContextResourceSearchResult,
 } from "@/lib/context-shelf";
+import type {
+  ContributionStudioScope,
+  ContributionStudioTab,
+} from "@/lib/contribution-studio";
 
 export const FALLBACK_DEFAULT_MODEL_ID = "sonnet-4-5";
 export const DEFAULT_MODEL_PREFIX = "ai-workspace-default-model:";
@@ -32,9 +36,13 @@ export const RUN_POLL_INTERVAL_MS = 500;
 export const BACKGROUND_COMPLETION_TITLE = "✓ Done — Comparative";
 
 export type RightPane =
-  | { kind: "workspace" }
+  | {
+      kind: "studio";
+      tab?: ContributionStudioTab;
+      artifact?: WorkspaceArtifactSummary;
+      scope?: ContributionStudioScope;
+    }
   | { kind: "notifications" }
-  | { kind: "artifact"; artifact: WorkspaceArtifactSummary }
   | { kind: "inspector"; runId: string };
 
 export interface UiMessage {

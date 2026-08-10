@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { COMPARATIVE_VERSION_LABEL } from "@/lib/product-version";
 import {
-  isTemporaryTabletRail,
+  isTemporarySidebarRail,
   shouldUseSidebarRail,
   SIDEBAR_COLLAPSED_STORAGE_KEY,
 } from "@/lib/sidebar-layout";
@@ -85,6 +85,8 @@ interface Props {
   onSearch: () => void;
   /** Temporarily use the rail at tablet widths while a right pane is open. */
   autoCollapse?: boolean;
+  /** Temporarily use the rail at every desktop width while a dense pane is open. */
+  forceRail?: boolean;
   threads: ThreadSummary[];
   threadsLoading: boolean;
   threadsError?: string;
@@ -140,6 +142,7 @@ export function Sidebar({
   onNewChat,
   onSearch,
   autoCollapse = false,
+  forceRail = false,
   threads,
   threadsLoading,
   threadsError,
@@ -184,11 +187,13 @@ export function Sidebar({
     userCollapsed,
     rightPaneOpen: autoCollapse,
     viewportWidth,
+    forceRail,
   });
-  const temporaryTabletRail = isTemporaryTabletRail({
+  const temporaryRail = isTemporarySidebarRail({
     userCollapsed,
     rightPaneOpen: autoCollapse,
     viewportWidth,
+    forceRail,
   });
   const visibleNavGroups = useMemo(() => {
     if (!rail) return navGroups;
@@ -218,7 +223,7 @@ export function Sidebar({
   const historyLabel = "Chats";
 
   const toggleCollapsed = useCallback(() => {
-    if (temporaryTabletRail) return;
+    if (temporaryRail) return;
     setUserCollapsed((current) => {
       const next = !current;
       try {
@@ -231,7 +236,7 @@ export function Sidebar({
       }
       return next;
     });
-  }, [temporaryTabletRail]);
+  }, [temporaryRail]);
 
   useEffect(() => {
     try {
@@ -409,8 +414,10 @@ export function Sidebar({
         onPointerDown={closeSwipe}
         data-density="nav"
         data-sidebar-state={rail ? "rail" : "expanded"}
-        data-auto-collapsed={temporaryTabletRail || undefined}
-        className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] touch-pan-y flex-col overflow-hidden border-r border-hairline bg-sidebar transition-[transform,width] duration-base ease-umber-out md:static md:z-auto md:w-[var(--active-sidebar-w)] md:max-w-none md:shrink-0 md:translate-x-0 ${
+        data-auto-collapsed={temporaryRail || undefined}
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] touch-pan-y flex-col overflow-hidden border-r border-hairline bg-sidebar transition-[transform,width] ease-umber-out md:static md:z-auto md:w-[var(--active-sidebar-w)] md:max-w-none md:shrink-0 md:translate-x-0 ${
+          temporaryRail ? "duration-0" : "duration-base"
+        } ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
         style={
@@ -440,9 +447,9 @@ export function Sidebar({
           <button
             type="button"
             onClick={toggleCollapsed}
-            disabled={temporaryTabletRail}
+            disabled={temporaryRail}
             aria-label={
-              temporaryTabletRail
+              temporaryRail
                 ? "Sidebar temporarily collapsed while panel is open"
                 : rail
                   ? "Expand sidebar"
@@ -452,7 +459,7 @@ export function Sidebar({
             aria-controls="primary-sidebar"
             aria-pressed={rail}
             title={
-              temporaryTabletRail
+              temporaryRail
                 ? "Sidebar restores when the panel closes"
                 : rail
                   ? "Expand sidebar (⌘\\)"

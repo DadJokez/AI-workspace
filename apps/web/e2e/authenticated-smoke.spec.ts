@@ -209,15 +209,15 @@ test.describe("authenticated product smoke", () => {
     const previewBefore = page.context().pages().length;
     await page.getByRole("button", { name: /demo-artifact\.html/i }).click();
     await expect(
-      page.getByRole("complementary", { name: "Artifact preview" }),
+      page.getByRole("complementary", { name: "Contribution Studio" }),
     ).toBeVisible();
     await expect(
       page
-        .frameLocator('aside[aria-label="Artifact preview"] iframe')
+        .frameLocator('aside[aria-label="Contribution Studio"] iframe')
         .getByRole("heading", { name: "Auth Smoke Artifact" }),
     ).toBeVisible();
     expect(page.context().pages()).toHaveLength(previewBefore);
-    await page.getByRole("button", { name: "Close preview" }).click();
+    await page.getByRole("button", { name: "Close Contribution Studio" }).click();
 
     const [download] = await Promise.all([
       page.waitForEvent("download"),
@@ -236,14 +236,12 @@ test.describe("authenticated product smoke", () => {
       await page.getByRole("button", { name: "Open menu" }).click();
     }
     await openNavItem(page, "Artifacts", isMobile);
+    await expect(page.getByRole("heading", { name: "Artifacts" })).toBeVisible();
     await expect(
-      page.getByRole("heading", { level: 1, name: "Artifacts" }),
-    ).toBeVisible();
-    await expect(
-      page.getByTestId("artifacts-pane").getByText(/demo-artifact\.html/),
+      page.getByTestId("contribution-studio").getByText(/demo-artifact\.html/),
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "Close workspace" }).click();
+    await page.getByRole("button", { name: "Close Contribution Studio" }).click();
     await expect(page.getByText("Publish this as an app")).toBeVisible();
     const appManagementUrl =
       /\/apps\/manage\/00000000-0000-4000-8000-000000000230$/;

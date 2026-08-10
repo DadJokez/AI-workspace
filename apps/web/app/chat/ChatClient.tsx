@@ -26,6 +26,10 @@ import { shouldShowTour } from "@/lib/tour";
 import { Sidebar } from "@/components/Sidebar";
 import { useHorizontalSwipe } from "@/components/useHorizontalSwipe";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import {
+  deriveContributionStudio,
+  type ContributionStudioScope,
+} from "@/lib/contribution-studio";
 import posthog from "posthog-js";
 import { signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -108,7 +112,9 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
       initialOpen === "settings" ? "profile" : null,
     );
   const [rightPane, setRightPane] = useState<RightPane | null>(() =>
-    initialOpen === "artifacts" ? { kind: "workspace" } : null,
+    initialOpen === "artifacts"
+      ? { kind: "studio", tab: "files", scope: "workspace" }
+      : null,
   );
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -238,7 +244,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
       setSettingsSection("profile");
       setRightPane(null);
     } else if (id === "workspace") {
-      setRightPane({ kind: "workspace" });
+      setRightPane({ kind: "studio", tab: "files", scope: "workspace" });
     } else if (id === "feedback") {
       posthog.capture("feedback_opened");
       setFeedbackOpen(true);
@@ -247,8 +253,11 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     }
   }
 
-  function openArtifactPreview(artifact: WorkspaceArtifactSummary) {
-    setRightPane({ kind: "artifact", artifact });
+  function openArtifactPreview(
+    artifact: WorkspaceArtifactSummary,
+    scope: ContributionStudioScope = "thread",
+  ) {
+    setRightPane({ kind: "studio", tab: "preview", artifact, scope });
   }
 
   function openRunInspector(runId: string) {
@@ -465,7 +474,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     },
     openArtifacts: () => {
       setSettingsSection(null);
-      setRightPane({ kind: "workspace" });
+      setRightPane({ kind: "studio", tab: "files", scope: "workspace" });
     },
     openSettings: () => {
       setSettingsSection("profile");
@@ -481,6 +490,8 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   const inputDisabled = models.length === 0;
   const queueMode = currentRunActive || queuedTurns.turns.length > 0;
   const feedbackContext = buildFeedbackContext(activeTab);
+  const studioModel = deriveContributionStudio(activeTab.messages);
+  const studioOpen = rightPane?.kind === "studio";
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-canvas text-ink">
@@ -507,14 +518,21 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
           onNewChat={newTab}
           onSearch={openPalette}
           autoCollapse={rightPane !== null}
+          forceRail={studioOpen}
           threads={threads}
           threadsLoading={threadsLoading}
           threadsError={threadsError}
           activeThreadId={
-            rightPane?.kind !== "workspace" ? activeTab.threadId : undefined
+            rightPane?.kind !== "studio" || rightPane.scope !== "workspace"
+              ? activeTab.threadId
+              : undefined
           }
           onOpenThread={openThread}
-          activeNavId={rightPane?.kind === "workspace" ? "workspace" : "chat"}
+          activeNavId={
+            rightPane?.kind === "studio" && rightPane.scope === "workspace"
+              ? "workspace"
+              : "chat"
+          }
           onNavSelect={handleNavSelect}
           isAdmin={user?.role === "admin"}
           onSignOut={() => {
@@ -536,9 +554,20 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
               models={models}
               runtimeV2Enabled={runtimeV2Enabled}
               activeHasPendingRun={activeHasPendingRun}
+              studioAvailable={studioModel.tabs.length > 0}
+              studioOpen={studioOpen}
+              studioWorking={studioModel.working || currentRunActive}
               unreadNotifications={unreadNotifications}
               onOpenMenu={() => setSidebarOpen(true)}
               onModelChange={handleModelChange}
+              onToggleStudio={(open) =>
+                setRightPane((current) => {
+                  if (!open) return current?.kind === "studio" ? null : current;
+                  return current?.kind === "studio"
+                    ? current
+                    : { kind: "studio", scope: "thread" };
+                })
+              }
               onToggleNotifications={() =>
                 setRightPane((current) =>
                   current?.kind === "notifications"
@@ -630,9 +659,11 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
           <ChatPaneHost
             rightPane={rightPane}
             isAdmin={user?.role === "admin"}
+            messages={activeTab.messages}
             inspectedMessage={inspectedMessage}
             onClose={closeRightPane}
             onOpenArtifact={openArtifactPreview}
+            onOpenRunInspector={openRunInspector}
             onOpenThread={openThread}
             onUnreadChange={setUnreadNotifications}
           />

@@ -1,20 +1,25 @@
-import { ArtifactPreviewPane } from "@/components/ArtifactPreviewPane";
+import { ContributionStudio } from "@/components/ContributionStudio";
 import { NotificationsPanel } from "@/components/NotificationsPanel";
 import { RunInspectorPane } from "@/components/RunInspectorPane";
 import { SlideOverPane } from "@/components/SlideOverPane";
-import { WorkspacePanel } from "@/components/WorkspacePanel";
 import type {
   RightPane,
   UiMessage,
 } from "@/app/chat/chat-client-state";
+import type { ContributionStudioScope } from "@/lib/contribution-studio";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 
 interface ChatPaneHostProps {
   rightPane: RightPane | null;
   isAdmin: boolean;
+  messages: readonly UiMessage[];
   inspectedMessage?: UiMessage;
   onClose: () => void;
-  onOpenArtifact: (artifact: WorkspaceArtifactSummary) => void;
+  onOpenArtifact: (
+    artifact: WorkspaceArtifactSummary,
+    scope: ContributionStudioScope,
+  ) => void;
+  onOpenRunInspector: (runId: string) => void;
   onOpenThread: (threadId: string, title: string) => void;
   onUnreadChange: (count: number) => void;
 }
@@ -22,9 +27,11 @@ interface ChatPaneHostProps {
 export function ChatPaneHost({
   rightPane,
   isAdmin,
+  messages,
   inspectedMessage,
   onClose,
   onOpenArtifact,
+  onOpenRunInspector,
   onOpenThread,
   onUnreadChange,
 }: ChatPaneHostProps) {
@@ -37,29 +44,18 @@ export function ChatPaneHost({
       />
     );
   }
-  if (rightPane?.kind === "artifact") {
+  if (rightPane?.kind === "studio") {
     return (
-      <ArtifactPreviewPane artifact={rightPane.artifact} onClose={onClose} />
-    );
-  }
-  if (rightPane?.kind === "workspace") {
-    return (
-      <SlideOverPane
-        ariaLabel="Artifacts"
-        defaultWidth={520}
-        minWidth={360}
-        maxWidth={800}
+      <ContributionStudio
+        messages={messages}
+        artifact={rightPane.artifact}
+        requestedTab={rightPane.tab}
+        scope={rightPane.scope}
+        isAdmin={isAdmin}
         onClose={onClose}
-        paneTestId="artifacts-pane"
-        resizerLabel="Resize artifacts"
-        resizerTestId="artifacts-pane-resizer"
-        storageKey="comparative.slide-over.artifacts.width"
-      >
-        <WorkspacePanel
-          onClose={onClose}
-          onOpenArtifact={onOpenArtifact}
-        />
-      </SlideOverPane>
+        onOpenArtifact={onOpenArtifact}
+        onOpenRunInspector={onOpenRunInspector}
+      />
     );
   }
   if (rightPane?.kind === "notifications") {

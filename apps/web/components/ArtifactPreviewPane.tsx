@@ -15,6 +15,11 @@ interface Props {
   onClose: () => void;
 }
 
+interface ArtifactPreviewContentProps {
+  artifact: WorkspaceArtifactSummary;
+  onClose?: () => void;
+}
+
 interface ArtifactDetailResponse {
   artifact: WorkspaceArtifactDetail;
 }
@@ -23,6 +28,26 @@ const MIN_PREVIEW_WIDTH = 360;
 const MAX_PREVIEW_WIDTH = 960;
 
 export function ArtifactPreviewPane({ artifact, onClose }: Props) {
+  return (
+    <SlideOverPane
+      ariaLabel="Artifact preview"
+      defaultWidth={640}
+      minWidth={MIN_PREVIEW_WIDTH}
+      maxWidth={MAX_PREVIEW_WIDTH}
+      onClose={onClose}
+      resizerLabel="Resize artifact preview"
+      resizerTestId="artifact-preview-resizer"
+      storageKey="comparative.slide-over.artifact.width"
+    >
+      <ArtifactPreviewContent artifact={artifact} onClose={onClose} />
+    </SlideOverPane>
+  );
+}
+
+export function ArtifactPreviewContent({
+  artifact,
+  onClose,
+}: ArtifactPreviewContentProps) {
   const [detail, setDetail] = useState<WorkspaceArtifactDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
@@ -63,16 +88,7 @@ export function ArtifactPreviewPane({ artifact, onClose }: Props) {
   );
 
   return (
-    <SlideOverPane
-      ariaLabel="Artifact preview"
-      defaultWidth={640}
-      minWidth={MIN_PREVIEW_WIDTH}
-      maxWidth={MAX_PREVIEW_WIDTH}
-      onClose={onClose}
-      resizerLabel="Resize artifact preview"
-      resizerTestId="artifact-preview-resizer"
-      storageKey="comparative.slide-over.artifact.width"
-    >
+    <div className="flex h-full min-h-0 flex-col">
       <header className="flex min-h-12 shrink-0 touch-none items-center gap-2 border-b border-hairline px-3 md:touch-auto">
         <span className="flex h-7 min-w-7 items-center justify-center rounded-full border border-hairline bg-accent px-2 font-mono text-2xs uppercase text-on-accent">
           {activeArtifact.kind.slice(0, 4)}
@@ -97,14 +113,16 @@ export function ArtifactPreviewPane({ artifact, onClose }: Props) {
         >
           Full page
         </a>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close preview"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink"
-        >
-          <CloseIcon />
-        </button>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close preview"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink"
+          >
+            <CloseIcon />
+          </button>
+        ) : null}
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto bg-canvas">
@@ -144,7 +162,7 @@ export function ArtifactPreviewPane({ artifact, onClose }: Props) {
           </pre>
         )}
       </div>
-    </SlideOverPane>
+    </div>
   );
 }
 

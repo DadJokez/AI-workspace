@@ -6,7 +6,8 @@ export type IconName =
   | "arrow-right" | "ellipsis" | "copy" | "info" | "alert-triangle" | "database" | "activity"
   | "settings" | "bar-chart" | "clock" | "play" | "external-link" | "folder" | "file-text"
   | "user" | "log-out" | "layers" | "zap" | "home" | "bell" | "filter" | "download" | "trash"
-  | "git-branch" | "terminal" | "sparkles" | "circle" | "grid" | "link" | "moon" | "sun";
+  | "git-branch" | "terminal" | "sparkles" | "circle" | "grid" | "link" | "moon" | "sun"
+  | "globe";
 
 export interface IconProps
   extends Omit<React.SVGProps<SVGSVGElement>, "name"> {

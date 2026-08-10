@@ -77,7 +77,7 @@ test.describe("right slide-over panes", () => {
     expect(scrollBefore).toBeGreaterThan(0);
 
     await openNavItem(page, "Artifacts", isMobile);
-    const artifactsPane = page.getByTestId("artifacts-pane");
+    const artifactsPane = page.getByTestId("contribution-studio");
     await expect(artifactsPane).toBeVisible();
     await expect(scrollRegion).toBeAttached();
     await expectScrollPosition(scrollRegion, scrollBefore);
@@ -125,27 +125,31 @@ test.describe("right slide-over panes", () => {
       );
       await expect(artifactsPane).toHaveCount(0);
       await openNavItem(page, "Artifacts", true);
-      await expect(page.getByTestId("artifacts-pane")).toBeVisible();
+      await expect(page.getByTestId("contribution-studio")).toBeVisible();
     } else {
       const widthBefore = await paneWidth(artifactsPane);
-      await page.getByTestId("artifacts-pane-resizer").press("Shift+ArrowLeft");
+      await page.getByTestId("contribution-studio-resizer").press("Shift+ArrowLeft");
       const resizedWidth = await paneWidth(artifactsPane);
       expect(resizedWidth).toBeGreaterThan(widthBefore + 60);
 
-      await page.getByRole("button", { name: "Close workspace" }).click();
+      await page.getByRole("button", { name: "Close Contribution Studio" }).click();
       await openNavItem(page, "Artifacts", false);
       await expect
-        .poll(() => paneWidth(page.getByTestId("artifacts-pane")))
+        .poll(() => paneWidth(page.getByTestId("contribution-studio")))
         .toBe(resizedWidth);
     }
 
     await page.getByRole("button", { name: "Demo Artifact" }).click();
     await expect(
-      page.getByRole("complementary", { name: "Artifact preview" }),
+      page.getByRole("complementary", { name: "Contribution Studio" }),
     ).toBeVisible();
-    await expect(page.getByTestId("artifacts-pane")).toHaveCount(0);
+    await expect(page.getByTestId("contribution-studio")).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Preview" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     await expectScrollPosition(scrollRegion, scrollBefore);
-    await page.getByRole("button", { name: "Close preview" }).click();
+    await page.getByRole("button", { name: "Close Contribution Studio" }).click();
 
     await page.getByTestId("notification-bell").click();
     await expect(page.getByTestId("notifications-pane")).toBeVisible();
