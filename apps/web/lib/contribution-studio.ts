@@ -243,10 +243,10 @@ function collectWorkSteps(
   for (const message of messages) {
     if (message.role !== "assistant") continue;
     const events = activityEventsForMessage(message);
-    const receipts = groupAdjacentActivity(events, message);
+    const receipts = groupAdjacentActivity(events);
 
     for (const receipt of receipts) {
-      const state = workStateForEvents(receipt.events, message);
+      const state = workStateForEvents(receipt.events);
       const startedAt = firstTimestamp(receipt.events) ?? message.createdAt;
       const completedAt = isTerminalWorkState(state)
         ? lastTimestamp(receipt.events) ?? message.createdAt
@@ -323,7 +323,6 @@ function activityEventsForMessage(message: UiMessage): AgentActivityEvent[] {
 
 function groupAdjacentActivity(
   events: readonly AgentActivityEvent[],
-  message: UiMessage,
 ): ActivityReceipt[] {
   const groups: AgentActivityEvent[][] = [];
   for (const event of events) {
@@ -335,8 +334,7 @@ function groupAdjacentActivity(
         (event.category ?? inferCategory(event.label));
     const sameState =
       previous &&
-      workStateForEvents([previous], message) ===
-        workStateForEvents([event], message);
+      workStateForEvents([previous]) === workStateForEvents([event]);
     if (current && sameCategory && sameState) current.push(event);
     else groups.push([event]);
   }
@@ -351,39 +349,73 @@ function groupAdjacentActivity(
 
 function workStateForEvents(
   events: readonly AgentActivityEvent[],
-  message: UiMessage,
 ): StudioWorkState {
   if (events.some((event) => event.state === "failed")) return "failed";
-  const labels = events.map((event) => event.label).join(" ").toLowerCase();
-  if (/cancel(?:ed|led|lation)?/.test(labels)) return "canceled";
-  if (/waiting|awaiting|approval|needs your input|paused/.test(labels)) {
+  if (events.some(isCanonicalCanceledEvent)) return "canceled";
+  const pendingEvents = events.filter((event) => event.state === "pending");
+  if (pendingEvents.some(isCanonicalWaitingEvent)) {
     return "waiting";
   }
-  if (
-    events.some((event) => event.state === "pending") &&
-    /queued|planned|scheduled/.test(labels)
-  ) {
+  if (pendingEvents.some(isCanonicalPlannedEvent)) {
     return "planned";
   }
-  if (events.some((event) => event.state === "pending")) return "active";
-  return workStateForMessage(message) ?? "completed";
+  if (pendingEvents.length > 0) return "active";
+  return "completed";
 }
 
 function workStateForMessage(message: UiMessage): StudioWorkState | null {
-  const status = `${message.runStatus ?? ""} ${message.status ?? ""} ${message.livePhase ?? ""}`.toLowerCase();
-  if (/cancel/.test(status)) return "canceled";
-  if (/fail|error/.test(status) || message.runError) return "failed";
-  if (/waiting|awaiting|approval|needs your input|paused/.test(status)) {
+  const runStatus = message.runStatus?.trim().toLowerCase();
+  const status = message.status?.trim().toLowerCase();
+  if (runStatus === "canceled") return "canceled";
+  if (runStatus === "failed" || message.runError) return "failed";
+  if (status && CANONICAL_WAITING_LABELS.has(status)) {
     return "waiting";
   }
-  if (/queued|planned|scheduled/.test(status)) return "planned";
-  if (message.pending || message.canCancel || /running|pending|leased/.test(status)) {
+  if (runStatus === "queued") return "planned";
+  if (
+    message.pending ||
+    message.canCancel ||
+    runStatus === "running" ||
+    ACTIVE_LIVE_PHASES.has(message.livePhase?.trim().toLowerCase() ?? "")
+  ) {
     return "active";
   }
-  if (message.content || /success|complete|succeeded/.test(status)) {
+  if (message.content || runStatus === "succeeded") {
     return "completed";
   }
   return null;
+}
+
+const CANONICAL_WAITING_LABELS = new Set([
+  "awaiting approval",
+  "needs your input",
+  "paused",
+  "waiting for approval",
+  "waiting for your input",
+]);
+
+const ACTIVE_LIVE_PHASES = new Set(["finalizing", "planning", "using tools"]);
+
+function normalizedActivityLabel(event: AgentActivityEvent): string {
+  return event.label.trim().toLowerCase();
+}
+
+function isCanonicalCanceledEvent(event: AgentActivityEvent): boolean {
+  return (
+    event.category === "progress" &&
+    normalizedActivityLabel(event) === "run canceled"
+  );
+}
+
+function isCanonicalWaitingEvent(event: AgentActivityEvent): boolean {
+  return CANONICAL_WAITING_LABELS.has(normalizedActivityLabel(event));
+}
+
+function isCanonicalPlannedEvent(event: AgentActivityEvent): boolean {
+  if (event.category !== "progress") return false;
+  return /^(?:planned|queued|scheduled)(?:\s|$)/.test(
+    normalizedActivityLabel(event),
+  );
 }
 
 function directResponseLabel(state: StudioWorkState): string {

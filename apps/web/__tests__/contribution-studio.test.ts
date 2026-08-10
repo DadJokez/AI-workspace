@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createElement } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage } from "@/app/chat/chat-client-state";
+import { ContributionStudio } from "@/components/ContributionStudio";
 import {
   deriveContributionStudio,
   isSafeBrowserEvidenceUrl,
@@ -40,6 +44,9 @@ function assistant(overrides: Partial<UiMessage> = {}): UiMessage {
     ...overrides,
   };
 }
+
+beforeEach(() => window.localStorage.clear());
+afterEach(cleanup);
 
 describe("Contribution Studio model", () => {
   it("derives capability tabs and thread-scoped resources from messages", () => {
@@ -110,6 +117,49 @@ describe("Contribution Studio model", () => {
     expect(states).toContain("canceled");
   });
 
+  it("does not infer lifecycle state from successful tool labels", () => {
+    const steps = deriveContributionStudio([
+      assistant({
+        id: "assistant-cancel-host",
+        activityEvents: [
+          {
+            id: "host-1",
+            state: "succeeded",
+            label: "Checked sources details · cancelmyplan.com",
+            category: "tools",
+          },
+        ],
+      }),
+      assistant({
+        id: "assistant-approval-host",
+        activityEvents: [
+          {
+            id: "host-2",
+            state: "succeeded",
+            label: "Checked sources details · approval.example",
+            category: "tools",
+          },
+        ],
+      }),
+    ]).workSteps;
+
+    expect(steps.map((step) => step.state)).toEqual([
+      "completed",
+      "completed",
+    ]);
+
+    const active = deriveContributionStudio([
+      assistant({
+        content: "",
+        pending: true,
+        runStatus: undefined,
+        status: "Calling cancel_subscription…",
+        livePhase: "using tools",
+      }),
+    ]);
+    expect(active.workSteps[0]).toMatchObject({ state: "active" });
+  });
+
   it("uses direct response state and never exposes Console without capability", () => {
     const active = deriveContributionStudio([
       assistant({ content: "", pending: true, runStatus: "running" }),
@@ -147,5 +197,53 @@ describe("Contribution Studio model", () => {
     expect(isSafeBrowserEvidenceUrl("http://localhost:3000/test")).toBe(true);
     expect(isSafeBrowserEvidenceUrl("javascript:alert(1)")).toBe(false);
     expect(isSafeBrowserEvidenceUrl("file:///tmp/private.txt")).toBe(false);
+  });
+
+  it("preserves a selected tab while active messages stream", async () => {
+    const baseMessage = assistant({
+      content: "Working",
+      pending: true,
+      runStatus: "running",
+      artifacts: [artifact],
+      activityEvents: [
+        {
+          id: "tool-streaming",
+          state: "pending",
+          label: "Checking sources...",
+          category: "tools",
+        },
+      ],
+    });
+    const props = {
+      isAdmin: false,
+      onClose: vi.fn(),
+      onOpenArtifact: vi.fn(),
+      onOpenRunInspector: vi.fn(),
+    };
+    const view = render(
+      createElement(ContributionStudio, {
+        ...props,
+        messages: [baseMessage],
+      }),
+    );
+
+    const files = screen.getByRole("button", { name: "Files" });
+    fireEvent.click(files);
+    expect(files.getAttribute("aria-current")).toBe("page");
+
+    view.rerender(
+      createElement(ContributionStudio, {
+        ...props,
+        messages: [{ ...baseMessage, content: "Working on the brief" }],
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Files" })
+          .getAttribute("aria-current"),
+      ).toBe("page"),
+    );
   });
 });

@@ -1,6 +1,5 @@
 "use client";
 
-import { SlideOverPane } from "@/components/SlideOverPane";
 import { fetchJson } from "@/lib/client-api";
 import type {
   WorkspaceArtifactDetail,
@@ -10,11 +9,6 @@ import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-interface Props {
-  artifact: WorkspaceArtifactSummary;
-  onClose: () => void;
-}
-
 interface ArtifactPreviewContentProps {
   artifact: WorkspaceArtifactSummary;
   onClose?: () => void;
@@ -22,26 +16,6 @@ interface ArtifactPreviewContentProps {
 
 interface ArtifactDetailResponse {
   artifact: WorkspaceArtifactDetail;
-}
-
-const MIN_PREVIEW_WIDTH = 360;
-const MAX_PREVIEW_WIDTH = 960;
-
-export function ArtifactPreviewPane({ artifact, onClose }: Props) {
-  return (
-    <SlideOverPane
-      ariaLabel="Artifact preview"
-      defaultWidth={640}
-      minWidth={MIN_PREVIEW_WIDTH}
-      maxWidth={MAX_PREVIEW_WIDTH}
-      onClose={onClose}
-      resizerLabel="Resize artifact preview"
-      resizerTestId="artifact-preview-resizer"
-      storageKey="comparative.slide-over.artifact.width"
-    >
-      <ArtifactPreviewContent artifact={artifact} onClose={onClose} />
-    </SlideOverPane>
-  );
 }
 
 export function ArtifactPreviewContent({

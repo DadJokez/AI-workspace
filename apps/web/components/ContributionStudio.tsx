@@ -2,7 +2,7 @@
 
 import { StudioMark } from "@ai-workspace/umber/components/media/StudioMark";
 import { Icon } from "@ai-workspace/umber/components/media/Icon";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArtifactPreviewContent } from "@/components/ArtifactPreviewPane";
 import { SlideOverPane } from "@/components/SlideOverPane";
 import { WorkspacePanel } from "@/components/WorkspacePanel";
@@ -69,21 +69,28 @@ export function ContributionStudio({
     }),
   );
   const [maximized, setMaximized] = useState(false);
+  const contextKey = `${scope}:${requestedTab ?? ""}:${artifact?.id ?? ""}`;
+  const previousContextKey = useRef<string | null>(null);
 
   useEffect(() => {
+    const contextChanged = previousContextKey.current !== contextKey;
+    previousContextKey.current = contextKey;
     const stored = window.localStorage.getItem(TAB_STORAGE_KEY);
     const remembered = isContributionStudioTab(stored) ? stored : null;
-    setActiveTab(
-      resolveContributionStudioTab({
+    setActiveTab((current) => {
+      if (!contextChanged && current && model.tabs.includes(current)) {
+        return current;
+      }
+      return resolveContributionStudioTab({
         available: model.tabs,
         requested: requestedTab,
         remembered,
         scope,
         artifact,
         working: model.working,
-      }),
-    );
-  }, [artifact, model.tabs, model.working, requestedTab, scope]);
+      });
+    });
+  }, [artifact, contextKey, model.tabs, model.working, requestedTab, scope]);
 
   useEffect(() => {
     setMaximized(
