@@ -65,6 +65,21 @@ jobs:
       - name: Structural full eval smoke
         run: pnpm eval --mock
 
+      # #744: free runtime-contract lane. It reconciles every declared
+      # capability against deterministic probe evidence and emits JSON plus a
+      # Markdown/admin matrix. Offline evidence can block drift in the harness,
+      # but the report explicitly cannot qualify a production runtime.
+      - name: Offline runtime conformance
+        run: pnpm conformance:offline
+
+      - name: Upload runtime conformance report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: runtime-conformance-report
+          path: packages/evals/conformance-reports/
+          if-no-files-found: error
+
       - name: Golden transcript replay
         run: pnpm transcripts:replay
 

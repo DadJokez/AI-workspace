@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Self-running eval harness (specs/004): real-model behavior cases per capability, deterministic + judge assertions. Cases are data, not code.",
   "exports": {
-    "./portability": "./src/portability/context-portability.ts"
+    "./portability": "./src/portability/context-portability.ts",
+    "./conformance": "./src/conformance/index.ts"
   },
   "scripts": {
     "eval": "tsx src/run.ts",
@@ -16,10 +17,12 @@
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "benchmark:discovery": "tsx src/benchmarks/run-tool-discovery.ts"
+    "benchmark:discovery": "tsx src/benchmarks/run-tool-discovery.ts",
+    "conformance:offline": "tsx src/conformance/run.ts --offline"
   },
   "dependencies": {
     "@ai-workspace/agent": "workspace:*",
+    "@ai-workspace/agent-runtime": "workspace:*",
     "tsx": "^4.19.2"
   },
   "devDependencies": {
