@@ -82,6 +82,7 @@ export interface ModelsResponse {
   defaultModelId: string;
   models: ModelOption[];
   runtimeV2Enabled?: boolean;
+  runtimeCapabilities?: { liveTurnSteering?: boolean };
 }
 
 export interface UserResponse {

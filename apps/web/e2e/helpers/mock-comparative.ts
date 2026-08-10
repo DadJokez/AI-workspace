@@ -265,6 +265,7 @@ export async function installMockComparativeApi(
       return json(route, {
         defaultModelId: "sonnet-4-6",
         runtimeV2Enabled: true,
+        runtimeCapabilities: { liveTurnSteering: false },
         models: [
           {
             id: "sonnet-4-6",

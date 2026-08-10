@@ -45,6 +45,20 @@ export interface RuntimeRunMetadata {
   executionMode?: "local";
 }
 
+export interface AgentRuntimeCapabilities {
+  /** Whether an accepted turn can receive new user guidance while it is running. */
+  liveTurnSteering: boolean;
+}
+
+/**
+ * Both current AWS lanes accept turns atomically. Queued follow-ups therefore
+ * become the next turn instead of mutating a provider request already in flight.
+ */
+export const NEXT_TURN_RUNTIME_CAPABILITIES: AgentRuntimeCapabilities =
+  Object.freeze({
+    liveTurnSteering: false,
+  });
+
 /**
  * Runtime-agnostic turn input. Both runtimes accept this shape; the adapter
  * decides how to map it onto its native call.
@@ -140,6 +154,7 @@ export interface TurnInput {
 export interface AgentRuntime {
   /** Stable identifier — useful for logs, telemetry, the model selector tooltip. */
   readonly name: "bedrock" | "agentcore";
+  readonly capabilities: AgentRuntimeCapabilities;
 
   /**
    * Run a single chat turn. Yields `AgentEvent`s as they happen — the web

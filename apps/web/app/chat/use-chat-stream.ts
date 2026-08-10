@@ -38,7 +38,8 @@ export type SendChatMessage = (
     target: ProposalIterationTarget;
     feedback: string;
   },
-) => Promise<void>;
+  clientMessageId?: string,
+) => Promise<boolean>;
 
 interface ActiveChatStream {
   abort: AbortController;
@@ -87,9 +88,10 @@ export function useChatStream({
       target: ProposalIterationTarget;
       feedback: string;
     },
+    clientMessageId?: string,
   ) {
-    if (!activeTab || activeTab.busy) return;
-    if (!text.trim() && (!attachments || attachments.length === 0)) return;
+    if (!activeTab || activeTab.busy) return false;
+    if (!text.trim() && (!attachments || attachments.length === 0)) return false;
     const tabId = activeTab.id;
     const replaceIndex = replaceMessageId
       ? activeTab.messages.findIndex(
@@ -102,10 +104,16 @@ export function useChatStream({
         error:
           "That message changed before the edit could be sent. Reload the conversation and try again.",
       });
-      return;
+      return false;
     }
     const originalMessages = activeTab.messages;
-    const userMsgId = replaceMessageId ?? crypto.randomUUID();
+    const existingClientMessage = clientMessageId
+      ? activeTab.messages.find(
+          (message) =>
+            message.id === clientMessageId && message.role === "user",
+        )
+      : undefined;
+    const userMsgId = clientMessageId ?? replaceMessageId ?? crypto.randomUUID();
     const assistantMsgId = crypto.randomUUID();
     const turnCreatedAt = new Date().toISOString();
     const modelId = activeTab.modelId ?? defaultModelId;
@@ -136,29 +144,36 @@ export function useChatStream({
         !attachmentNote && replayedUploadCount > 0
           ? `\n\n📎 ${replayedUploadCount} file${replayedUploadCount === 1 ? "" : "s"} attached`
           : "";
+      const base = replaceMessageId
+        ? previous.slice(0, replaceIndex)
+        : previous;
+      const withUser = existingClientMessage
+        ? base
+        : [
+            ...base,
+            {
+              id: userMsgId,
+              role: "user" as const,
+              content: `${text}${attachmentNote}${replayNote}`,
+              createdAt: turnCreatedAt,
+              hasAttachments:
+                Boolean(attachments?.length) || Boolean(replaced?.hasAttachments),
+              attachmentsReplayable: replaced
+                ? replaced.attachmentsReplayable
+                : Boolean(attachments?.length),
+              attachmentPreviews:
+                attachments?.map((attachment) => ({
+                  name: attachment.name,
+                  ...(typeof attachment.sizeBytes === "number"
+                    ? { sizeBytes: attachment.sizeBytes }
+                    : {}),
+                })) ?? replaced?.attachmentPreviews,
+              ...(replaced?.artifacts ? { artifacts: replaced.artifacts } : {}),
+              persisted: Boolean(replaceMessageId),
+            },
+          ];
       return [
-        ...(replaceMessageId ? previous.slice(0, replaceIndex) : previous),
-        {
-          id: userMsgId,
-          role: "user",
-          content: `${text}${attachmentNote}${replayNote}`,
-          createdAt: turnCreatedAt,
-          hasAttachments:
-            Boolean(attachments?.length) || Boolean(replaced?.hasAttachments),
-          attachmentsReplayable: replaced
-            ? replaced.attachmentsReplayable
-            : Boolean(attachments?.length),
-          attachmentPreviews:
-            attachments?.map((attachment) => ({
-              name: attachment.name,
-              ...(typeof attachment.sizeBytes === "number"
-                ? { sizeBytes: attachment.sizeBytes }
-                : {}),
-            })) ??
-            replaced?.attachmentPreviews,
-          ...(replaced?.artifacts ? { artifacts: replaced.artifacts } : {}),
-          persisted: Boolean(replaceMessageId),
-        },
+        ...withUser,
         {
           id: assistantMsgId,
           role: "assistant",
@@ -214,6 +229,7 @@ export function useChatStream({
             ...(attachments && attachments.length > 0 ? { attachments } : {}),
             ...(replaceMessageId ? { replaceMessageId } : {}),
             ...(proposalIteration ? { proposalIteration } : {}),
+            ...(clientMessageId ? { clientMessageId } : {}),
           }),
         },
       );
@@ -476,12 +492,16 @@ export function useChatStream({
               : message,
           ),
         );
-        return;
+        return responseAccepted;
       }
       patchTab(tabId, { error: formatChatError(error) });
+      if (clientMessageId && !responseAccepted) {
+        patchTabMessages(tabId, () => originalMessages);
+        return false;
+      }
       if ((replaceMessageId || proposalIteration) && !responseAccepted) {
         patchTabMessages(tabId, () => originalMessages);
-        return;
+        return false;
       }
       patchTabMessages(tabId, (previous) =>
         previous.map((message) =>
@@ -490,6 +510,7 @@ export function useChatStream({
             : message,
         ),
       );
+      return responseAccepted;
     } finally {
       activeStream.resolveRunId(undefined);
       if (streamAbortRef.current === activeStream) {
@@ -507,6 +528,7 @@ export function useChatStream({
         ),
       );
     }
+    return responseAccepted;
   }
 
   async function stopStreaming() {

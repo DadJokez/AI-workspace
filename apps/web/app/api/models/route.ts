@@ -6,6 +6,7 @@ import {
   type ModelId,
 } from "@ai-workspace/agent";
 import { getDb } from "@ai-workspace/db";
+import { NEXT_TURN_RUNTIME_CAPABILITIES } from "@ai-workspace/agent-runtime/types";
 import { NextResponse } from "next/server";
 import { runtimeV2EnabledFromEnv } from "@/lib/chat-routing";
 import {
@@ -29,6 +30,7 @@ interface ModelsBody {
   defaultModelId: string;
   models: ApiModel[];
   runtimeV2Enabled: boolean;
+  runtimeCapabilities: typeof NEXT_TURN_RUNTIME_CAPABILITIES;
 }
 
 export async function GET() {
@@ -53,6 +55,7 @@ export async function GET() {
   const body: ModelsBody = {
     defaultModelId,
     runtimeV2Enabled: runtimeV2EnabledFromEnv(),
+    runtimeCapabilities: NEXT_TURN_RUNTIME_CAPABILITIES,
     models: enabledIds.map((id) => {
       const model = MODELS[id];
       return {

@@ -965,8 +965,12 @@ test.describe("chat shell guardrails", () => {
     await page.getByPlaceholder(/ask anything/i).fill(longTitlePrompt);
     await page.getByRole("button", { name: "Send" }).click();
 
-    await expect(page.getByPlaceholder("Generating…")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
+    await expect(
+      page.getByPlaceholder("Add a follow-up for the current run"),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Queue follow-up" }),
+    ).toBeDisabled();
     await expect(
       header.getByRole("button", { name: "Stop generating" }),
     ).toBeVisible();
@@ -1078,7 +1082,9 @@ test.describe("chat shell guardrails", () => {
 
     await page.getByPlaceholder(/ask anything/i).fill("Give me one more answer");
     await page.getByRole("button", { name: "Send" }).click();
-    await expect(page.getByPlaceholder("Generating…")).toBeVisible();
+    await expect(
+      page.getByPlaceholder("Add a follow-up for the current run"),
+    ).toBeVisible();
 
     await scrollRegion.evaluate((node) => {
       node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight - 60);

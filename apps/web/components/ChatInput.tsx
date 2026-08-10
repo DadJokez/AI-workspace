@@ -82,8 +82,10 @@ interface Props {
     activatedSkill?: ActivatedSlashSkill,
     modelOverride?: ChatModelOverride,
     replaceMessageId?: string,
-  ) => void;
+  ) => boolean | void;
   disabled?: boolean;
+  /** Current work is active, so accepted text becomes a browser-local follow-up. */
+  queueMode?: boolean;
   placeholder?: string;
   /** Runnable skills for the "/" palette. Empty/undefined = palette off. */
   skills?: SlashSkill[];
@@ -104,6 +106,7 @@ interface Props {
 export function ChatInput({
   onSubmit,
   disabled,
+  queueMode = false,
   placeholder = "Ask anything — or type / for capabilities…",
   skills = [],
   draftKey,
@@ -274,6 +277,12 @@ export function ChatInput({
   }
 
   async function addFiles(files: FileList | File[]) {
+    if (queueMode) {
+      setNotice(
+        "Files cannot be queued yet. Wait for the current run to finish, then attach them to the next message.",
+      );
+      return;
+    }
     if (editRequest?.attachmentCount) {
       setNotice(
         "This message re-sends its original files when edited — new files can't be added here. Send them in a new message.",
@@ -369,16 +378,31 @@ export function ChatInput({
     ) {
       return;
     }
+    if (queueMode && attachments.length > 0) {
+      setNotice(
+        "Files cannot be queued yet. Keep this draft, then attach the files after the current run finishes.",
+      );
+      return;
+    }
+    if (queueMode && editRequest) {
+      setNotice(
+        "A saved message cannot be edited while another run is active. This draft is still here for later.",
+      );
+      return;
+    }
 
     if (activeSkill) {
-      onSubmit(
-        buildSlashSkillDisplayMessage(activeSkill, trimmed),
-        attachments.length > 0 ? attachments : undefined,
-        buildActivatedSlashSkill(activeSkill, trimmed),
-        undefined,
-        editRequest?.messageId,
-      );
-      completeSubmission();
+      if (
+        onSubmit(
+          buildSlashSkillDisplayMessage(activeSkill, trimmed),
+          attachments.length > 0 ? attachments : undefined,
+          buildActivatedSlashSkill(activeSkill, trimmed),
+          undefined,
+          editRequest?.messageId,
+        ) !== false
+      ) {
+        completeSubmission();
+      }
       return;
     }
 
@@ -392,14 +416,17 @@ export function ChatInput({
         setNotice(modelCommandUsageMessage());
         return;
       }
-      onSubmit(
-        buildModelCommandDisplayMessage(parsed.override, parsed.body),
-        attachments.length > 0 ? attachments : undefined,
-        undefined,
-        parsed.override,
-        editRequest?.messageId,
-      );
-      completeSubmission();
+      if (
+        onSubmit(
+          buildModelCommandDisplayMessage(parsed.override, parsed.body),
+          attachments.length > 0 ? attachments : undefined,
+          undefined,
+          parsed.override,
+          editRequest?.messageId,
+        ) !== false
+      ) {
+        completeSubmission();
+      }
       return;
     }
 
@@ -416,25 +443,31 @@ export function ChatInput({
         );
         return;
       }
-      onSubmit(
-        buildSlashSkillDisplayMessage(resolved.skill, resolved.args),
-        attachments.length > 0 ? attachments : undefined,
-        buildActivatedSlashSkill(resolved.skill, resolved.args),
-        undefined,
-        editRequest?.messageId,
-      );
-      completeSubmission();
+      if (
+        onSubmit(
+          buildSlashSkillDisplayMessage(resolved.skill, resolved.args),
+          attachments.length > 0 ? attachments : undefined,
+          buildActivatedSlashSkill(resolved.skill, resolved.args),
+          undefined,
+          editRequest?.messageId,
+        ) !== false
+      ) {
+        completeSubmission();
+      }
       return;
     }
 
-    onSubmit(
-      trimmed,
-      attachments.length > 0 ? attachments : undefined,
-      undefined,
-      undefined,
-      editRequest?.messageId,
-    );
-    completeSubmission();
+    if (
+      onSubmit(
+        trimmed,
+        attachments.length > 0 ? attachments : undefined,
+        undefined,
+        undefined,
+        editRequest?.messageId,
+      ) !== false
+    ) {
+      completeSubmission();
+    }
   }
 
   function handleSubmit(e: FormEvent) {
@@ -581,6 +614,10 @@ export function ChatInput({
         </div>
       ) : notice ? (
         <p className="mb-1.5 px-1 text-xs text-muted">{notice}</p>
+      ) : queueMode ? (
+        <p className="mb-1.5 px-1 text-xs text-muted">
+          This follow-up will send automatically after the current run.
+        </p>
       ) : null}
 
       {attachments.length > 0 ? (
@@ -631,7 +668,7 @@ export function ChatInput({
           data-testid="chat-file-input"
           type="file"
           multiple
-          disabled={disabled || !uploadReady}
+          disabled={disabled || queueMode || !uploadReady}
           className="hidden"
           onChange={(e) => {
             if (e.target.files) void addFiles(e.target.files);
@@ -641,7 +678,8 @@ export function ChatInput({
         <button
           type="button"
           aria-label="Attach files"
-          disabled={disabled || !uploadReady}
+          title={queueMode ? "Files cannot be queued during an active run" : "Attach files"}
+          disabled={disabled || queueMode || !uploadReady}
           onClick={() => fileRef.current?.click()}
           className="flex h-11 w-9 shrink-0 items-center justify-center rounded-md text-muted hover:text-ink disabled:opacity-30 sm:h-7"
         >
@@ -694,7 +732,7 @@ export function ChatInput({
             disabled ||
             (!text.trim() && attachments.length === 0 && activeSkill === null)
           }
-          aria-label="Send"
+          aria-label={queueMode ? "Queue follow-up" : "Send"}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-pop text-on-pop hover:bg-pop/90 disabled:opacity-30 sm:h-7 sm:w-7"
         >
           <svg

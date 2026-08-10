@@ -23,6 +23,8 @@ export function useChatResources() {
     FALLBACK_DEFAULT_MODEL_ID,
   );
   const [runtimeV2Enabled, setRuntimeV2Enabled] = useState(false);
+  const [liveTurnSteeringSupported, setLiveTurnSteeringSupported] =
+    useState(false);
   const [user, setUser] = useState<UserResponse["user"]>();
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(true);
@@ -97,6 +99,9 @@ export function useChatResources() {
         setModels(modelsData.models);
         setDefaultModelId(modelsData.defaultModelId);
         setRuntimeV2Enabled(modelsData.runtimeV2Enabled === true);
+        setLiveTurnSteeringSupported(
+          modelsData.runtimeCapabilities?.liveTurnSteering === true,
+        );
       }
       setThreadsLoading(false);
       if (threadsResult instanceof Error) {
@@ -264,6 +269,7 @@ export function useChatResources() {
     models,
     defaultModelId,
     runtimeV2Enabled,
+    liveTurnSteeringSupported,
     user,
     setUser,
     threads,
