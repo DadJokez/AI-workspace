@@ -15,6 +15,9 @@ import {
 } from "@/components/SettingsModal";
 import { WelcomeWizard } from "@/components/WelcomeWizard";
 import { fetchJson } from "@/lib/client-api";
+import type { ChatAttachment } from "@/lib/attachments";
+import type { ChatModelOverride } from "@/lib/model-command";
+import type { ActivatedSlashSkill } from "@/lib/skill-commands";
 import { shouldShowTour } from "@/lib/tour";
 import { Sidebar } from "@/components/Sidebar";
 import { useHorizontalSwipe } from "@/components/useHorizontalSwipe";
@@ -22,7 +25,7 @@ import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import posthog from "posthog-js";
 import { signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type RightPane,
   type UiMessage,
@@ -41,6 +44,8 @@ import { useRunPolling } from "./use-run-polling";
 import { ChatHeader } from "@/components/chat/ChatHeader";
 import { ChatPaneHost } from "@/components/chat/ChatPaneHost";
 import { ChatThread } from "@/components/chat/ChatThread";
+import { ChatTurnQueue } from "@/components/chat/ChatTurnQueue";
+import { useChatTurnQueue } from "./use-chat-turn-queue";
 
 interface ChatClientProps {
   initialThreadId?: string;
@@ -54,6 +59,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     models,
     defaultModelId,
     runtimeV2Enabled,
+    liveTurnSteeringSupported,
     user,
     setUser,
     threads,
@@ -103,6 +109,9 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editRequest, setEditRequest] = useState<ChatEditRequest>();
+  const [editingQueuedTurnId, setEditingQueuedTurnId] = useState<string | null>(
+    null,
+  );
   const closeRightPane = useCallback(() => setRightPane(null), []);
   const openSidebarSwipe = useHorizontalSwipe({
     direction: "right",
@@ -131,6 +140,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
 
   useEffect(() => {
     setEditRequest(undefined);
+    setEditingQueuedTurnId(null);
   }, [activeId]);
 
   useEffect(() => {
@@ -267,6 +277,113 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     setRightPane,
     stickToBottomRef,
   });
+  const queuedTurns = useChatTurnQueue({
+    userId: user?.id,
+    tabId: activeTab?.id,
+    threadId: activeTab?.threadId,
+  });
+  const sendRef = useRef(send);
+  const queueFlushRef = useRef<string | null>(null);
+  useEffect(() => {
+    sendRef.current = send;
+  }, [send]);
+
+  const currentRunActive = Boolean(activeTab?.busy || activeHasPendingRun);
+  const queuedHead = queuedTurns.turns[0];
+  const queuedScopeKey = queuedTurns.scopeKey;
+  useEffect(() => {
+    if (
+      !queuedTurns.loaded ||
+      currentRunActive ||
+      !activeTab?.loaded ||
+      !activeTab?.threadId ||
+      !queuedScopeKey ||
+      !queuedHead ||
+      queuedHead.status !== "queued" ||
+      editingQueuedTurnId !== null ||
+      queueFlushRef.current !== null
+    ) {
+      return;
+    }
+    const turn = queuedHead;
+    const scopeKey = queuedScopeKey;
+    queueFlushRef.current = turn.id;
+    queuedTurns.markSending(turn.id, scopeKey);
+    void sendRef
+      .current(
+        turn.text,
+        undefined,
+        turn.activatedSkill,
+        turn.modelOverride,
+        undefined,
+        undefined,
+        turn.id,
+      )
+      .then((accepted) => {
+        if (accepted) {
+          queuedTurns.remove(turn.id, scopeKey);
+        } else {
+          queuedTurns.markFailed(
+            turn.id,
+            "This follow-up was not accepted. Try it again when the connection is ready.",
+            scopeKey,
+          );
+        }
+      })
+      .catch(() => {
+        queuedTurns.markFailed(
+          turn.id,
+          "This follow-up could not be sent. Check the connection and try again.",
+          scopeKey,
+        );
+      })
+      .finally(() => {
+        if (queueFlushRef.current === turn.id) queueFlushRef.current = null;
+      });
+  }, [
+    activeTab?.threadId,
+    activeTab?.loaded,
+    currentRunActive,
+    editingQueuedTurnId,
+    queuedHead,
+    queuedScopeKey,
+    queuedTurns,
+  ]);
+
+  function handleComposerSubmit(
+    text: string,
+    attachments?: ChatAttachment[],
+    activatedSkill?: ActivatedSlashSkill,
+    modelOverride?: ChatModelOverride,
+    replaceMessageId?: string,
+  ): boolean {
+    const queueMode = currentRunActive || queuedTurns.turns.length > 0;
+    if (!queueMode) {
+      void send(
+        text,
+        attachments,
+        activatedSkill,
+        modelOverride,
+        replaceMessageId,
+      );
+      return true;
+    }
+    if (replaceMessageId || attachments?.length) {
+      patchTab(activeTab!.id, {
+        error: replaceMessageId
+          ? "Saved messages cannot be edited while another run is active."
+          : "Files cannot be queued yet. Attach them after the current run finishes.",
+      });
+      return false;
+    }
+    queuedTurns.enqueue({ text, activatedSkill, modelOverride });
+    posthog.capture("chat_follow_up_queued", {
+      queue_depth: queuedTurns.turns.length + 1,
+      has_activated_skill: Boolean(activatedSkill),
+      has_model_override: Boolean(modelOverride),
+    });
+    return true;
+  }
   const {
     recommendationPendingId,
     appDraftPendingId,
@@ -340,8 +457,8 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
   });
 
   if (!activeTab) return null;
-  const { busy } = activeTab;
-  const inputDisabled = busy || activeHasPendingRun || models.length === 0;
+  const inputDisabled = models.length === 0;
+  const queueMode = currentRunActive || queuedTurns.turns.length > 0;
   const feedbackContext = buildFeedbackContext(activeTab);
 
   return (
@@ -456,10 +573,21 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
             className="kb-safe-bottom border-t border-hairline bg-canvas px-3 pt-3 sm:px-6 sm:pt-4"
           >
             <div className="mx-auto max-w-3xl">
+              <ChatTurnQueue
+                turns={queuedTurns.turns}
+                liveTurnSteeringSupported={liveTurnSteeringSupported}
+                onUpdate={queuedTurns.update}
+                onRemove={queuedTurns.remove}
+                onMove={queuedTurns.move}
+                onApplyNow={queuedTurns.applyNext}
+                onRetry={queuedTurns.retry}
+                onEditingChange={setEditingQueuedTurnId}
+              />
               <ChatInput
                 key={activeTab.id}
-                onSubmit={send}
+                onSubmit={handleComposerSubmit}
                 disabled={inputDisabled}
+                queueMode={queueMode}
                 skills={slashSkills}
                 draftKey={composerDraftKey}
                 restoreDraft={activeTab.restoreDraft !== false}
@@ -468,10 +596,8 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                 placeholder={
                   models.length === 0
                     ? "Loading models…"
-                    : busy
-                      ? "Generating…"
-                      : activeHasPendingRun
-                        ? "Run in progress…"
+                    : queueMode
+                      ? "Add a follow-up for the current run"
                       : "Ask anything (Shift+Enter for newline)"
                 }
               />

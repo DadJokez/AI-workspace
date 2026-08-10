@@ -13,7 +13,12 @@ import {
 } from "@ai-workspace/agent";
 import { createBuiltinTools } from "@ai-workspace/agent/web-fetch-tool";
 
-import type { AgentRuntime, McpServerSpec, TurnInput } from "./types";
+import {
+  NEXT_TURN_RUNTIME_CAPABILITIES,
+  type AgentRuntime,
+  type McpServerSpec,
+  type TurnInput,
+} from "./types";
 
 /**
  * Bedrock-backed implementation of `AgentRuntime`. Thin wrapper over the
@@ -31,6 +36,7 @@ import type { AgentRuntime, McpServerSpec, TurnInput } from "./types";
  */
 export class BedrockRuntime implements AgentRuntime {
   readonly name = "bedrock" as const;
+  readonly capabilities = NEXT_TURN_RUNTIME_CAPABILITIES;
 
   private readonly registry: ToolRegistry;
   private readonly client?: BedrockClient;

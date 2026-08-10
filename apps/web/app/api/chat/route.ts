@@ -8,7 +8,7 @@ import {
   runs,
   workspaceArtifacts,
 } from "@ai-workspace/db";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
 import { parseChatExecutionMode } from "@/lib/chat-execution-mode";
@@ -80,6 +80,8 @@ interface ChatRequestBody {
   attachments?: ChatAttachment[];
   attachmentCount?: number;
   replaceMessageId?: string;
+  /** Stable browser UUID for a promoted queued follow-up. */
+  clientMessageId?: string;
   /** Browser-reported IANA timezone (#432); validated server-side. */
   timeZone?: string;
 }
@@ -130,6 +132,35 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+  const clientMessageId =
+    typeof body.clientMessageId === "string" && body.clientMessageId.trim()
+      ? body.clientMessageId.trim()
+      : undefined;
+  if (
+    body.clientMessageId !== undefined &&
+    (!clientMessageId || !isChatMessageEditId(clientMessageId))
+  ) {
+    return NextResponse.json(
+      { error: "invalid_client_message_id" },
+      { status: 400 },
+    );
+  }
+  if (clientMessageId && replaceMessageId) {
+    return NextResponse.json(
+      { error: "client_message_id_conflicts_with_edit" },
+      { status: 400 },
+    );
+  }
+  if (clientMessageId && !body.threadId) {
+    return NextResponse.json(
+      {
+        error: "thread_required_for_queued_turn",
+        message:
+          "The conversation is not ready for queued follow-ups yet. Wait for the current turn to start and try again.",
+      },
+      { status: 400 },
+    );
+  }
 
   if (body.message.length > limits.maxMessageChars) {
     return NextResponse.json(
@@ -157,6 +188,16 @@ export async function POST(req: Request) {
     );
   }
   const attachments = attachmentCheck.attachments;
+  if (clientMessageId && attachments.length > 0) {
+    return NextResponse.json(
+      {
+        error: "queued_turn_attachments_unsupported",
+        message:
+          "Files cannot be queued during an active run yet. Attach them after the current run finishes.",
+      },
+      { status: 400 },
+    );
+  }
   if (modelCommand && !modelCommand.body.trim() && attachments.length === 0) {
     return NextResponse.json(
       { error: "invalid_model_command", message: modelCommandUsageMessage() },
@@ -305,6 +346,35 @@ export async function POST(req: Request) {
     thread = created[0]!;
   }
 
+  const existingQueuedMessage = clientMessageId
+    ? (
+        await db
+          .select({
+            id: chatMessages.id,
+            role: chatMessages.role,
+            content: chatMessages.content,
+          })
+          .from(chatMessages)
+          .where(
+            and(
+              eq(chatMessages.id, clientMessageId),
+              eq(chatMessages.threadId, thread.id),
+            ),
+          )
+          .limit(1)
+      )[0]
+    : undefined;
+  if (
+    existingQueuedMessage &&
+    (existingQueuedMessage.role !== "user" ||
+      existingQueuedMessage.content !== body.message)
+  ) {
+    return NextResponse.json(
+      { error: "client_message_id_conflict" },
+      { status: 409 },
+    );
+  }
+
   let editCandidateRows:
     | Array<{
         id: string;
@@ -410,6 +480,9 @@ export async function POST(req: Request) {
           and(
             eq(chatMessages.threadId, thread.id),
             eq(chatMessages.role, "user"),
+            ...(clientMessageId
+              ? [ne(chatMessages.id, clientMessageId)]
+              : []),
           ),
         )
         .orderBy(desc(chatMessages.createdAt))
@@ -576,17 +649,63 @@ export async function POST(req: Request) {
     };
   }
 
-  const userMsg = editedUserMessageId
-    ? [{ id: editedUserMessageId }]
-    : await db
-        .insert(chatMessages)
-        .values({
-          threadId: thread.id,
-          role: "user",
-          content: body.message,
+  let insertedUserMessage = false;
+  let userMsg: Array<{ id: string }>;
+  if (editedUserMessageId) {
+    userMsg = [{ id: editedUserMessageId }];
+  } else if (existingQueuedMessage) {
+    userMsg = [{ id: existingQueuedMessage.id }];
+  } else {
+    const inserted = clientMessageId
+      ? await db
+          .insert(chatMessages)
+          .values({
+            id: clientMessageId,
+            threadId: thread.id,
+            role: "user",
+            content: body.message,
+          })
+          .onConflictDoNothing({ target: chatMessages.id })
+          .returning({ id: chatMessages.id })
+      : await db
+          .insert(chatMessages)
+          .values({
+            threadId: thread.id,
+            role: "user",
+            content: body.message,
+          })
+          .returning({ id: chatMessages.id });
+    if (inserted[0]) {
+      userMsg = inserted;
+      insertedUserMessage = true;
+    } else {
+      const raced = await db
+        .select({
+          id: chatMessages.id,
+          role: chatMessages.role,
+          content: chatMessages.content,
         })
-        .returning({ id: chatMessages.id });
-  if (!editedUserMessageId) {
+        .from(chatMessages)
+        .where(
+          and(
+            eq(chatMessages.id, clientMessageId!),
+            eq(chatMessages.threadId, thread.id),
+          ),
+        )
+        .limit(1);
+      if (
+        raced[0]?.role !== "user" ||
+        raced[0]?.content !== body.message
+      ) {
+        return NextResponse.json(
+          { error: "client_message_id_conflict" },
+          { status: 409 },
+        );
+      }
+      userMsg = [{ id: raced[0].id }];
+    }
+  }
+  if (insertedUserMessage) {
     // #456: user-content mutations audit like assistant ones (references
     // only; the content lives in chat_messages).
     const sendAuditNow = new Date();
@@ -682,63 +801,101 @@ export async function POST(req: Request) {
     .where(eq(chatThreads.id, thread.id));
 
   const chatRunStartedAt = runtimeRoute.useWorker ? null : queuedAt;
-  const chatRunRows = await db
-    .insert(runs)
-    .values({
-      userId: sessionUser.id,
+  const chatRunValues: typeof runs.$inferInsert = {
+    ...(clientMessageId ? { id: clientMessageId } : {}),
+    userId: sessionUser.id,
+    threadId: thread.id,
+    skillSlug: "chat-turn",
+    ...(activatedSkill ? { skillId: activatedSkill.skill.id } : {}),
+    triggerType: "chat",
+    status: runtimeRoute.useWorker ? "queued" : "running",
+    modelId,
+    inputs: {
+      // Durable runs retain the user's instruction and resource references,
+      // never a copy of uploaded file content.
+      prompt: modelVisibleMessage,
       threadId: thread.id,
-      skillSlug: "chat-turn",
-      ...(activatedSkill ? { skillId: activatedSkill.skill.id } : {}),
-      triggerType: "chat",
-      status: runtimeRoute.useWorker ? "queued" : "running",
-      modelId,
-      inputs: {
-        // Durable runs retain the user's instruction and resource references,
-        // never a copy of uploaded file content.
-        prompt: modelVisibleMessage,
-        threadId: thread.id,
-        userMessageId: userMsg[0]!.id,
-        requestedByUserId: sessionUser.id,
-        executionMode: runtimeRoute.executionMode,
-        modelOverride,
-        modelPreferenceSource: modelPreference.source,
-        ...(modelCommand ? { modelCommand } : {}),
-        runtimeRoute,
-        uploadedFiles: storedUploadedFiles,
-        resourceResolution,
-        resourcePrompt: resourcePromptPlan.receipt,
-        routeReceipt,
-        // #432: preserved so a queued or retried execution of this turn uses
-        // the same clock context the user sent it with.
-        ...(userTimeZone ? { userTimeZone } : {}),
-        ...(replaceMessageId ? { replaceMessageId } : {}),
-        ...(activatedSkill
-          ? {
-              activatedSkills: [
-                {
-                  id: activatedSkill.skill.id,
-                  slug: activatedSkill.skill.slug,
-                  name: activatedSkill.skill.name,
-                  source: "explicit",
-                  args: activatedSkill.args,
-                },
-              ],
-              requestedProviders: activatedSkill.skill.mcpProviders,
-              activeSkillPrompt: {
+      userMessageId: userMsg[0]!.id,
+      requestedByUserId: sessionUser.id,
+      executionMode: runtimeRoute.executionMode,
+      modelOverride,
+      modelPreferenceSource: modelPreference.source,
+      ...(modelCommand ? { modelCommand } : {}),
+      runtimeRoute,
+      uploadedFiles: storedUploadedFiles,
+      resourceResolution,
+      resourcePrompt: resourcePromptPlan.receipt,
+      routeReceipt,
+      // #432: preserved so a queued or retried execution of this turn uses
+      // the same clock context the user sent it with.
+      ...(userTimeZone ? { userTimeZone } : {}),
+      ...(replaceMessageId ? { replaceMessageId } : {}),
+      ...(clientMessageId ? { clientMessageId } : {}),
+      ...(activatedSkill
+        ? {
+            activatedSkills: [
+              {
                 id: activatedSkill.skill.id,
                 slug: activatedSkill.skill.slug,
                 name: activatedSkill.skill.name,
-                systemPrompt: activatedSkill.skill.systemPrompt,
+                source: "explicit",
+                args: activatedSkill.args,
               },
-            }
-          : {}),
-      },
-      attemptCount: runtimeRoute.useWorker ? 0 : 1,
-      startedAt: chatRunStartedAt,
-      lastHeartbeatAt: chatRunStartedAt,
-      updatedAt: queuedAt,
-    })
-    .returning({ id: runs.id });
+            ],
+            requestedProviders: activatedSkill.skill.mcpProviders,
+            activeSkillPrompt: {
+              id: activatedSkill.skill.id,
+              slug: activatedSkill.skill.slug,
+              name: activatedSkill.skill.name,
+              systemPrompt: activatedSkill.skill.systemPrompt,
+            },
+          }
+        : {}),
+    },
+    attemptCount: runtimeRoute.useWorker ? 0 : 1,
+    startedAt: chatRunStartedAt,
+    lastHeartbeatAt: chatRunStartedAt,
+    updatedAt: queuedAt,
+  };
+  const chatRunRows = clientMessageId
+    ? await db
+        .insert(runs)
+        .values(chatRunValues)
+        .onConflictDoNothing({ target: runs.id })
+        .returning({ id: runs.id })
+    : await db
+        .insert(runs)
+        .values(chatRunValues)
+        .returning({ id: runs.id });
+  if (!chatRunRows[0] && clientMessageId) {
+    const matchingRun = await db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.id, clientMessageId),
+          eq(runs.userId, sessionUser.id),
+          eq(runs.threadId, thread.id),
+        ),
+      )
+      .limit(1);
+    if (!matchingRun[0]) {
+      return NextResponse.json(
+        { error: "client_message_id_conflict" },
+        { status: 409 },
+      );
+    }
+    return restoredQueuedTurnResponse({
+      threadId: thread.id,
+      runId: matchingRun[0].id,
+      userMessageId: userMsg[0]!.id,
+      modelId,
+      modelOverride,
+      runtimeRoute,
+      routeReceipt,
+      resourceResolution,
+    });
+  }
   const chatRunId = chatRunRows[0]!.id;
 
   try {
@@ -950,6 +1107,63 @@ export async function POST(req: Request) {
       "X-Accel-Buffering": "no",
     },
   });
+}
+
+function restoredQueuedTurnResponse({
+  threadId,
+  runId,
+  userMessageId,
+  modelId,
+  modelOverride,
+  runtimeRoute,
+  routeReceipt,
+  resourceResolution,
+}: {
+  threadId: string;
+  runId: string;
+  userMessageId: string;
+  modelId: string;
+  modelOverride: boolean;
+  runtimeRoute: ReturnType<typeof decideChatRuntimeRoute>;
+  routeReceipt: unknown;
+  resourceResolution: unknown;
+}) {
+  // The original request owns execution. A duplicate browser delivery adopts
+  // the durable run through polling, even when its original lane streamed
+  // inline, instead of starting a second model turn.
+  const restoredRoute = { ...runtimeRoute, useWorker: true };
+  const events = [
+    {
+      type: "meta",
+      threadId,
+      runId,
+      userMessageId,
+      modelId,
+      modelOverride,
+      executionMode: runtimeRoute.executionMode,
+      runtimeRoute: restoredRoute,
+      routeReceipt,
+      resourceResolution,
+    },
+    {
+      type: "queued",
+      threadId,
+      runId,
+      status: "Restored queued follow-up",
+    },
+    { type: "done", stopReason: "queued" },
+  ];
+  return new Response(
+    events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+    {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    },
+  );
 }
 
 const TITLE_MAX = 60;

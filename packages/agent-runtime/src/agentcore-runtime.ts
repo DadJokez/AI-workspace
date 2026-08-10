@@ -4,7 +4,11 @@ import {
 } from "@aws-sdk/client-bedrock-agentcore";
 import type { AgentEvent } from "@ai-workspace/agent";
 
-import type { AgentRuntime, TurnInput } from "./types";
+import {
+  NEXT_TURN_RUNTIME_CAPABILITIES,
+  type AgentRuntime,
+  type TurnInput,
+} from "./types";
 import { pickHttpMcpServers } from "./bedrock-runtime";
 
 /**
@@ -34,6 +38,7 @@ export interface AgentCoreRuntimeOptions {
 
 export class AgentCoreRuntime implements AgentRuntime {
   readonly name = "agentcore" as const;
+  readonly capabilities = NEXT_TURN_RUNTIME_CAPABILITIES;
 
   private readonly opts: AgentCoreRuntimeOptions;
   private readonly client: Pick<BedrockAgentCoreClient, "send">;
