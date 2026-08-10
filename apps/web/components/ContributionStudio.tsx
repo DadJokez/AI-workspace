@@ -136,13 +136,13 @@ export function ContributionStudio({
     >
       <div className="flex h-full min-h-0 flex-col bg-canvas">
         <header className="flex h-11 shrink-0 items-center gap-2 border-b border-hairline px-3">
-          <span className="text-ink">
-            <StudioMark
-              label="Contribution Studio"
-              size={22}
-              state={model.working ? "working" : "idle"}
-            />
-          </span>
+          <StudioMark
+            className="shrink-0 text-ink"
+            data-testid="contribution-studio-mark"
+            label="Contribution Studio"
+            size={24}
+            state={model.working ? "working" : "idle"}
+          />
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-medium text-ink">
               Contribution Studio
