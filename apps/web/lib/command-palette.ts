@@ -1,9 +1,45 @@
+import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+
 export type CommandPaletteGroupId =
   | "chats"
+  | "files"
+  | "vault"
   | "skills"
   | "apps"
+  | "tools"
+  | "review"
   | "admin"
   | "actions";
+
+export type CommandPaletteReadinessState =
+  | "ready"
+  | "connection_required"
+  | "approval_required"
+  | "reconnect_required"
+  | "policy_blocked"
+  | "review_required"
+  | "unavailable";
+
+export interface CommandPaletteReadiness {
+  state: CommandPaletteReadinessState;
+  label: string;
+  detail?: string;
+}
+
+export type CommandPaletteServerCommand =
+  | { type: "thread"; threadId: string; title: string }
+  | {
+      type: "artifact";
+      artifact: WorkspaceArtifactSummary;
+      threadTitle?: string;
+    }
+  | {
+      type: "settings";
+      section: "memory" | "integrations";
+      focusId?: string;
+    }
+  | { type: "run-skill"; skillId: string; skillName: string }
+  | { type: "route"; href: string };
 
 export interface CommandPaletteItem {
   id: string;
@@ -11,6 +47,20 @@ export interface CommandPaletteItem {
   label: string;
   description?: string | null;
   keywords?: readonly string[];
+  /** Small deterministic boost for current-context and recent resources. */
+  priority?: number;
+  readiness?: CommandPaletteReadiness;
+}
+
+export interface CommandPaletteServerItem extends CommandPaletteItem {
+  command: CommandPaletteServerCommand;
+}
+
+export interface CommandPaletteApiResponse {
+  items: CommandPaletteServerItem[];
+  isAdmin: boolean;
+  partialSections: CommandPaletteGroupId[];
+  durationMs: number;
 }
 
 export interface CommandPaletteGroup<T extends CommandPaletteItem> {
@@ -24,8 +74,12 @@ const GROUPS: ReadonlyArray<{
   label: string;
 }> = [
   { id: "chats", label: "Chats" },
+  { id: "files", label: "Files" },
+  { id: "vault", label: "Memory" },
   { id: "skills", label: "Skills" },
   { id: "apps", label: "Apps" },
+  { id: "tools", label: "Tools" },
+  { id: "review", label: "Review" },
   { id: "admin", label: "Admin" },
   { id: "actions", label: "Actions" },
 ];
@@ -81,7 +135,11 @@ function itemScore(item: CommandPaletteItem, query: string): number | null {
     const score = fuzzyScore(field, query);
     if (score !== null && (best === null || score > best)) best = score;
   }
-  return best;
+  if (best === null) return null;
+  // Keep match quality dominant: an exact match (1000) must always outrank a
+  // prefix (900), even when the latter is the current thread.
+  const priority = Math.max(-40, Math.min(40, item.priority ?? 0));
+  return best + priority;
 }
 
 export function groupCommandPaletteItems<T extends CommandPaletteItem>(
@@ -96,10 +154,29 @@ export function groupCommandPaletteItems<T extends CommandPaletteItem>(
     )
     .sort((a, b) => b.score - a.score || a.index - b.index);
 
-  return GROUPS.map((group) => ({
-    ...group,
-    items: ranked
-      .filter(({ item }) => item.group === group.id)
-      .map(({ item }) => item),
-  })).filter((group) => group.items.length > 0);
+  const groups = GROUPS.map((group, groupIndex) => {
+    const entries = ranked.filter(({ item }) => item.group === group.id);
+    return {
+      ...group,
+      groupIndex,
+      score: entries[0]?.score ?? Number.NEGATIVE_INFINITY,
+      items: entries.map(({ item }) => item),
+    };
+  }).filter((group) => group.items.length > 0);
+
+  // With a query, order groups by their strongest result so an exact match in
+  // Files or Tools is not hidden below a loose match in Chats. With no query,
+  // retain the familiar product grouping from #520.
+  if (normalize(query)) {
+    groups.sort(
+      (left, right) =>
+        right.score - left.score || left.groupIndex - right.groupIndex,
+    );
+  }
+
+  return groups.map((group) => ({
+    id: group.id,
+    label: group.label,
+    items: group.items,
+  }));
 }

@@ -130,6 +130,8 @@ interface Props {
   restoreDraft?: boolean;
   editRequest?: ChatEditRequest;
   onEditComplete?: () => void;
+  /** Incremented by global actions that should open the native file picker. */
+  uploadRequestId?: number;
 }
 
 /**
@@ -149,6 +151,7 @@ export function ChatInput({
   restoreDraft = true,
   editRequest,
   onEditComplete,
+  uploadRequestId = 0,
 }: Props) {
   const [text, setText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
@@ -212,6 +215,18 @@ export function ChatInput({
   useEffect(() => {
     setUploadReady(true);
   }, []);
+
+  useEffect(() => {
+    if (
+      uploadRequestId <= 0 ||
+      !uploadReady ||
+      disabled ||
+      queueMode
+    ) {
+      return;
+    }
+    fileRef.current?.click();
+  }, [disabled, queueMode, uploadReady, uploadRequestId]);
 
   const paletteActive =
     isSlashCommand(text) &&

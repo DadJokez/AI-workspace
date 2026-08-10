@@ -9,6 +9,7 @@ import { formatDateTime as formatDate } from "@/lib/format-date";
 
 interface Props {
   userName?: string;
+  focusItemId?: string;
 }
 
 interface MemoryItem {
@@ -55,7 +56,7 @@ const MEMORY_CATEGORIES = [
   { value: "personal_context", label: "Personal Context" },
 ];
 
-export function MemorySettings({ userName }: Props) {
+export function MemorySettings({ userName, focusItemId }: Props) {
   const [approvedMarkdown, setApprovedMarkdown] = useState("");
   const [approvedItems, setApprovedItems] = useState<MemoryItem[]>([]);
   const [suggestions, setSuggestions] = useState<MemoryItem[]>([]);
@@ -127,6 +128,16 @@ export function MemorySettings({ userName }: Props) {
   useEffect(() => {
     void loadVault();
   }, []);
+
+  useEffect(() => {
+    if (loading || !focusItemId) return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById(`memory-item-${focusItemId}`);
+      target?.scrollIntoView({ block: "center" });
+      target?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusItemId, loading, approvedItems.length]);
 
   function startEdit(item: MemoryItem) {
     setEditingId(item.id);
@@ -373,8 +384,10 @@ function MemoryApprovedCard({
 }) {
   return (
     <div
+      id={`memory-item-${item.id}`}
       data-testid="vault-approved-memory-card"
-      className="rounded-md border border-hairline bg-canvas px-3 py-2"
+      tabIndex={-1}
+      className="rounded-md border border-hairline bg-canvas px-3 py-2 outline-none focus:border-ink/35 focus:ring-1 focus:ring-ink/15"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">

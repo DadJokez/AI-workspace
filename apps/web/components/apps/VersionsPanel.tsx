@@ -114,6 +114,8 @@ export function VersionsPanel({
         {versions.map((version) => (
           <li
             key={version.appVersionId}
+            id={`app-version-${version.appVersionId}`}
+            tabIndex={-1}
             className="flex items-start justify-between gap-3 rounded-md border border-hairline px-3 py-2 text-xs"
           >
             <div className="min-w-0">

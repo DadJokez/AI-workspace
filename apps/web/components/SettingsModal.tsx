@@ -22,6 +22,7 @@ interface Props {
   displayName: string;
   customInstructions: string | null;
   initialSection?: SettingsSection;
+  memoryFocusId?: string;
   /** Fired after a successful PATCH so the parent can refresh its profile state. */
   onProfileUpdated: (next: {
     displayName: string;
@@ -112,6 +113,7 @@ export function SettingsModal({
   displayName,
   customInstructions,
   initialSection = "profile",
+  memoryFocusId,
   onProfileUpdated,
   models,
   defaultModelId,
@@ -605,7 +607,10 @@ export function SettingsModal({
               ) : null}
 
               {activeSection === "memory" ? (
-                <MemorySettings userName={displayName} />
+                <MemorySettings
+                  userName={displayName}
+                  focusItemId={memoryFocusId}
+                />
               ) : null}
 
               {activeSection === "integrations" ? (
