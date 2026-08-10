@@ -110,6 +110,32 @@ test.describe("command palette", () => {
     await fileChooser;
   });
 
+  test("opens each global upload request only once", async ({ page }) => {
+    await installMockComparativeApi(page);
+    await gotoE2EChat(page);
+
+    let fileChooserCount = 0;
+    page.on("filechooser", () => {
+      fileChooserCount += 1;
+    });
+
+    await page.keyboard.press("Control+K");
+    const dialog = page.getByRole("dialog", { name: "Command palette" });
+    await dialog.getByRole("combobox").fill("Upload a file");
+    const firstFileChooser = page.waitForEvent("filechooser");
+    await page.keyboard.press("Enter");
+    await firstFileChooser;
+    expect(fileChooserCount).toBe(1);
+
+    const composer = page.getByPlaceholder(/ask anything/i);
+    await composer.fill("Finish a quick response.");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Done.", { exact: true })).toBeVisible();
+    await page.waitForTimeout(300);
+
+    expect(fileChooserCount).toBe(1);
+  });
+
   test("opens files and memory from permission-filtered workspace results", async ({
     page,
   }) => {
