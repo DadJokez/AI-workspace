@@ -95,6 +95,35 @@ describe("chat turn queue", () => {
     ).toMatchObject({ mode: "model", modelId: "sonnet-4-5" });
   });
 
+  it("preserves selected context through queue persistence and edits", () => {
+    const queued = createQueuedChatTurn(
+      {
+        text: "Summarize this",
+        contextResources: [
+          {
+            reference: {
+              version: 1,
+              kind: "vault_item",
+              resourceId: "memory-1",
+            },
+            label: "Quarterly priorities",
+            description: "Approved memory",
+            sourceLabel: "Vault",
+          },
+        ],
+      },
+      { id: ids.one, createdAt: "2026-08-10T10:00:00.000Z" },
+    );
+
+    const restored = parseQueuedChatTurns(JSON.stringify([queued]));
+    expect(restored[0]?.contextResources).toEqual(queued.contextResources);
+    expect(restored[0]?.contextResources?.[0]?.description).toBe("");
+    expect(editQueuedChatTurn(restored[0]!, "Rewrite this")).toMatchObject({
+      text: "Rewrite this",
+      contextResources: queued.contextResources,
+    });
+  });
+
   it("edits, reorders, applies next, and merges persisted scopes deterministically", () => {
     const one = turn(ids.one, "One", "2026-08-10T10:00:00.000Z");
     const two = turn(ids.two, "Two", "2026-08-10T10:01:00.000Z");

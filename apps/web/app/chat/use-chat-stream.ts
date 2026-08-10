@@ -9,6 +9,10 @@ import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import type { PersistedRecommendation } from "@/lib/recommendations";
 import type { ProposalIterationTarget } from "@/lib/output-proposals";
 import {
+  parseContextResourceManifest,
+  type ContextResourceSearchResult,
+} from "@/lib/context-shelf";
+import {
   useRef,
   type Dispatch,
   type MutableRefObject,
@@ -39,6 +43,7 @@ export type SendChatMessage = (
     feedback: string;
   },
   clientMessageId?: string,
+  contextResources?: ContextResourceSearchResult[],
 ) => Promise<boolean>;
 
 interface ActiveChatStream {
@@ -89,6 +94,7 @@ export function useChatStream({
       feedback: string;
     },
     clientMessageId?: string,
+    contextResources?: ContextResourceSearchResult[],
   ) {
     if (!activeTab || activeTab.busy) return false;
     if (!text.trim() && (!attachments || attachments.length === 0)) return false;
@@ -107,6 +113,12 @@ export function useChatStream({
       return false;
     }
     const originalMessages = activeTab.messages;
+    const replacedMessage =
+      replaceIndex >= 0 ? activeTab.messages[replaceIndex] : undefined;
+    const selectedResourceReferences =
+      contextResources?.map((resource) => resource.reference) ??
+      replacedMessage?.contextResourceReferences ??
+      [];
     const existingClientMessage = clientMessageId
       ? activeTab.messages.find(
           (message) =>
@@ -169,6 +181,20 @@ export function useChatStream({
                     : {}),
                 })) ?? replaced?.attachmentPreviews,
               ...(replaced?.artifacts ? { artifacts: replaced.artifacts } : {}),
+              ...(selectedResourceReferences.length > 0
+                ? {
+                    contextResourceReferences: selectedResourceReferences,
+                    ...(contextResources?.length
+                      ? { contextResourceSelections: contextResources }
+                      : {}),
+                    ...(replaced?.contextResourceManifest
+                      ? {
+                          contextResourceManifest:
+                            replaced.contextResourceManifest,
+                        }
+                      : {}),
+                  }
+                : {}),
               persisted: Boolean(replaceMessageId),
             },
           ];
@@ -230,6 +256,9 @@ export function useChatStream({
             ...(replaceMessageId ? { replaceMessageId } : {}),
             ...(proposalIteration ? { proposalIteration } : {}),
             ...(clientMessageId ? { clientMessageId } : {}),
+            ...(selectedResourceReferences.length > 0
+              ? { resourceReferences: selectedResourceReferences }
+              : {}),
           }),
         },
       );
@@ -433,6 +462,9 @@ export function useChatStream({
             ? (event.recommendations as PersistedRecommendation[])
             : undefined;
           const sources = parsePersistedSources(event.sources);
+          const contextResourceManifest = parseContextResourceManifest(
+            event.contextResourceManifest,
+          );
           const tokensIn =
             typeof event.tokensIn === "number" ? event.tokensIn : undefined;
           const tokensOut =
@@ -448,6 +480,7 @@ export function useChatStream({
             appDraftVersions,
             recommendations,
             sources,
+            contextResourceManifest: contextResourceManifest ?? undefined,
             tokensIn,
             tokensOut,
             runId: streamRunId,

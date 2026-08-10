@@ -67,6 +67,11 @@ import {
   planChatMessageEdit,
 } from "@/lib/chat-message-edit";
 import { capturePostHogEvent } from "@/lib/posthog-server";
+import { parseContextResourceReferences } from "@/lib/context-shelf";
+import {
+  contextResourceProviderRequests,
+  explicitConversationResourceIds,
+} from "@/lib/context-shelf-server";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +89,8 @@ interface ChatRequestBody {
   clientMessageId?: string;
   /** Browser-reported IANA timezone (#432); validated server-side. */
   timeZone?: string;
+  /** Stable, untrusted resource references selected in the Context Shelf. */
+  resourceReferences?: unknown;
 }
 
 /**
@@ -205,6 +212,9 @@ export async function POST(req: Request) {
     );
   }
   const effectiveUserMessage = modelCommand?.body ?? body.message;
+  const contextResourceReferences = parseContextResourceReferences(
+    body.resourceReferences,
+  );
   // #430: max(count field, text note) — an explicit attachmentCount: 0
   // must not defeat a message that visibly declares attached files.
   const declaredAttachmentCount = resolveDeclaredAttachmentCount(
@@ -511,13 +521,20 @@ export async function POST(req: Request) {
     pendingResources.length > 0
       ? pendingResources.map((resource) => resource.id)
       : replayedArtifactIds ?? [];
+  const conversationResourceManifests = [
+    ...pendingResources.map((resource) => resource.manifest),
+    ...storedResources,
+  ];
+  const conversationResourceIds = new Set(
+    conversationResourceManifests.map((resource) => resource.resourceId),
+  );
   const resourceResolution = resolveConversationResources({
     message: effectiveUserMessage,
-    resources: [
-      ...pendingResources.map((resource) => resource.manifest),
-      ...storedResources,
-    ],
+    resources: conversationResourceManifests,
     currentResourceIds,
+    explicitResourceIds: explicitConversationResourceIds(
+      contextResourceReferences,
+    ).filter((resourceId) => conversationResourceIds.has(resourceId)),
     previousResolution: previousResourceResolution,
   });
   // Only files on THIS request need runtime content (for example native image
@@ -539,10 +556,22 @@ export async function POST(req: Request) {
     priorUserMessages,
     capabilityGraph: routingCapabilityGraph,
   });
+  const contextResourceProviders = contextResourceProviderRequests(
+    contextResourceReferences,
+  );
+  const requestedProviders = Array.from(
+    new Set([
+      ...(activatedSkill?.skill.mcpProviders ?? []),
+      ...contextResourceProviders,
+    ]),
+  );
   if (activatedSkill) {
     runtimeRoute = applyActivatedSkillRoute(runtimeRoute, {
       requiredProviders: skillMcpProviders(activatedSkill.skill.mcpProviders),
     });
+  }
+  if (contextResourceProviders.length > 0) {
+    runtimeRoute = applyContextResourceRoute(runtimeRoute);
   }
   const routeReceipt = buildChatRouteReceipt({
     route: runtimeRoute,
@@ -824,6 +853,7 @@ export async function POST(req: Request) {
       runtimeRoute,
       uploadedFiles: storedUploadedFiles,
       resourceResolution,
+      contextResourceReferences,
       resourcePrompt: resourcePromptPlan.receipt,
       routeReceipt,
       // #432: preserved so a queued or retried execution of this turn uses
@@ -842,7 +872,6 @@ export async function POST(req: Request) {
                 args: activatedSkill.args,
               },
             ],
-            requestedProviders: activatedSkill.skill.mcpProviders,
             activeSkillPrompt: {
               id: activatedSkill.skill.id,
               slug: activatedSkill.skill.slug,
@@ -851,6 +880,7 @@ export async function POST(req: Request) {
             },
           }
         : {}),
+      ...(requestedProviders.length > 0 ? { requestedProviders } : {}),
     },
     attemptCount: runtimeRoute.useWorker ? 0 : 1,
     startedAt: chatRunStartedAt,
@@ -894,6 +924,7 @@ export async function POST(req: Request) {
       runtimeRoute,
       routeReceipt,
       resourceResolution,
+      contextResourceReferences,
     });
   }
   const chatRunId = chatRunRows[0]!.id;
@@ -918,6 +949,7 @@ export async function POST(req: Request) {
         runtimeRoute,
         routeReceipt,
         resourceResolution,
+        contextResourceReferences,
         resourcePrompt: resourcePromptPlan.receipt,
         ...(replaceMessageId ? { replaceMessageId } : {}),
         ...(modelCommand ? { modelCommand } : {}),
@@ -1019,6 +1051,7 @@ export async function POST(req: Request) {
         runtimeRoute,
         routeReceipt,
         resourceResolution,
+        contextResourceReferences,
         ...(replaceMessageId ? { replaceMessageId } : {}),
       });
       if (runtimeRoute.useWorker) {
@@ -1052,6 +1085,7 @@ export async function POST(req: Request) {
           requestStartedAt,
           uploadedFiles,
           resourceResolution,
+          contextResourceReferences,
           userTimeZone,
           activatedSkills: activatedSkill
             ? [
@@ -1064,7 +1098,8 @@ export async function POST(req: Request) {
                 },
               ]
             : undefined,
-          requestedProviders: activatedSkill?.skill.mcpProviders,
+          requestedProviders:
+            requestedProviders.length > 0 ? requestedProviders : undefined,
           activeSkillPrompt: activatedSkill
             ? {
                 id: activatedSkill.skill.id,
@@ -1118,6 +1153,7 @@ function restoredQueuedTurnResponse({
   runtimeRoute,
   routeReceipt,
   resourceResolution,
+  contextResourceReferences,
 }: {
   threadId: string;
   runId: string;
@@ -1127,6 +1163,7 @@ function restoredQueuedTurnResponse({
   runtimeRoute: ReturnType<typeof decideChatRuntimeRoute>;
   routeReceipt: unknown;
   resourceResolution: unknown;
+  contextResourceReferences: unknown;
 }) {
   // The original request owns execution. A duplicate browser delivery adopts
   // the durable run through polling, even when its original lane streamed
@@ -1144,6 +1181,7 @@ function restoredQueuedTurnResponse({
       runtimeRoute: restoredRoute,
       routeReceipt,
       resourceResolution,
+      contextResourceReferences,
     },
     {
       type: "queued",
@@ -1164,6 +1202,30 @@ function restoredQueuedTurnResponse({
       },
     },
   );
+}
+
+function applyContextResourceRoute(
+  route: ReturnType<typeof decideChatRuntimeRoute>,
+): ReturnType<typeof decideChatRuntimeRoute> {
+  const reasons = Array.from(
+    new Set([...route.reasons, "selected_context_requires_tools"]),
+  );
+  if (route.useWorker) {
+    return {
+      ...route,
+      useMcp: true,
+      includeVaultContext: true,
+      reasons,
+    };
+  }
+  return {
+    ...route,
+    lane: "tool-local",
+    runtimeTarget: "bedrock-agent",
+    useMcp: true,
+    includeVaultContext: true,
+    reasons,
+  };
 }
 
 const TITLE_MAX = 60;

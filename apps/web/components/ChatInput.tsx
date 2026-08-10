@@ -39,10 +39,22 @@ import {
   parseModelCommand,
   type ChatModelOverride,
 } from "@/lib/model-command";
+import {
+  MAX_CONTEXT_RESOURCE_REFERENCES,
+  contextResourceReferenceKey,
+  contextResourceSearchResultsFromManifest,
+  contextResourceSelectionsForPersistence,
+  parseContextResourceSearchResponse,
+  type ContextResourceManifest,
+  type ContextResourceReference,
+  type ContextResourceSearchResult,
+} from "@/lib/context-shelf";
 
 const MAX_HEIGHT_PX = 200;
 const DRAFT_STORAGE_PREFIX = "comparative-chat-draft:";
+const CONTEXT_DRAFT_STORAGE_PREFIX = "comparative-chat-draft-context:v1:";
 const DRAFT_PERSIST_DELAY_MS = 250;
+const CONTEXT_SEARCH_DELAY_MS = 180;
 
 function persistComposerDraft(storageKey: string | null, text: string) {
   if (!storageKey) return;
@@ -54,6 +66,25 @@ function persistComposerDraft(storageKey: string | null, text: string) {
     }
   } catch {
     // Draft recovery is best-effort and must never block the composer.
+  }
+}
+
+function persistContextDraft(
+  storageKey: string | null,
+  resources: readonly ContextResourceSearchResult[],
+) {
+  if (!storageKey) return;
+  try {
+    if (resources.length > 0) {
+      window.localStorage.setItem(
+        storageKey,
+        JSON.stringify(contextResourceSelectionsForPersistence(resources)),
+      );
+    } else {
+      window.localStorage.removeItem(storageKey);
+    }
+  } catch {
+    // Context draft recovery is best-effort, like the text draft.
   }
 }
 
@@ -73,6 +104,8 @@ export interface ChatEditRequest {
    * `attachments_conflict_with_replay`).
    */
   attachmentCount?: number;
+  contextResourceReferences?: ContextResourceReference[];
+  contextResourceManifest?: ContextResourceManifest;
 }
 
 interface Props {
@@ -82,6 +115,7 @@ interface Props {
     activatedSkill?: ActivatedSlashSkill,
     modelOverride?: ChatModelOverride,
     replaceMessageId?: string,
+    contextResources?: ContextResourceSearchResult[],
   ) => boolean | void;
   disabled?: boolean;
   /** Current work is active, so accepted text becomes a browser-local follow-up. */
@@ -91,6 +125,7 @@ interface Props {
   skills?: SlashSkill[];
   /** Stable, user-scoped conversation key used for local draft recovery. */
   draftKey?: string;
+  threadId?: string;
   /** Explicitly starting a new chat clears the shared unsent-chat draft. */
   restoreDraft?: boolean;
   editRequest?: ChatEditRequest;
@@ -110,6 +145,7 @@ export function ChatInput({
   placeholder = "Ask anything — or type / for capabilities…",
   skills = [],
   draftKey,
+  threadId,
   restoreDraft = true,
   editRequest,
   onEditComplete,
@@ -119,20 +155,41 @@ export function ChatInput({
   const [highlight, setHighlight] = useState(0);
   const [activeSkill, setActiveSkill] = useState<SlashSkill | null>(null);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [contextResources, setContextResources] = useState<
+    ContextResourceSearchResult[]
+  >([]);
+  const [contextScope, setContextScope] = useState<"workspace" | "google_mail">(
+    "workspace",
+  );
+  const [contextResults, setContextResults] = useState<
+    ContextResourceSearchResult[]
+  >([]);
+  const [contextScopes, setContextScopes] = useState<
+    NonNullable<ReturnType<typeof parseContextResourceSearchResponse>>["scopes"]
+  >([]);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
+  const [contextHighlight, setContextHighlight] = useState(0);
+  const [cursorPosition, setCursorPosition] = useState(0);
   const [dragOver, setDragOver] = useState(false);
   const [uploadReady, setUploadReady] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const draftTimerRef = useRef<number | undefined>(undefined);
   const skipNextDraftPersistRef = useRef(true);
+  const skipNextContextDraftPersistRef = useRef(true);
   const handledEditRequestRef = useRef<string | undefined>(undefined);
   const editBackupRef = useRef<{
     text: string;
     attachments: ChatAttachment[];
     activeSkill: SlashSkill | null;
+    contextResources: ContextResourceSearchResult[];
   } | null>(null);
   const draftStorageKey = draftKey
     ? `${DRAFT_STORAGE_PREFIX}${draftKey}`
+    : null;
+  const contextDraftStorageKey = draftKey
+    ? `${CONTEXT_DRAFT_STORAGE_PREFIX}${draftKey}`
     : null;
   const draftTextForStorage = editRequest
     ? (editBackupRef.current?.text ?? text)
@@ -165,9 +222,79 @@ export function ChatInput({
     () => (paletteActive ? filterSkillsForCommand(text, skills) : []),
     [paletteActive, text, skills],
   );
+  const contextToken = useMemo(
+    () => findContextToken(text, cursorPosition),
+    [cursorPosition, text],
+  );
+  const contextPaletteActive =
+    contextToken !== null && !paletteActive && !isModelCommandInput(text);
+  const visibleContextResults = useMemo(() => {
+    const selected = new Set(
+      contextResources.map((resource) =>
+        contextResourceReferenceKey(resource.reference),
+      ),
+    );
+    return contextResults.filter(
+      (resource) => !selected.has(contextResourceReferenceKey(resource.reference)),
+    );
+  }, [contextResources, contextResults]);
+
+  useEffect(() => {
+    if (!contextPaletteActive || !contextToken) {
+      setContextScope("workspace");
+      setContextResults([]);
+      setContextError(null);
+      setContextLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams({
+        q: contextToken.query,
+        scope: contextScope,
+        ...(threadId ? { threadId } : {}),
+      });
+      setContextLoading(true);
+      setContextError(null);
+      void fetch(`/api/context/resources?${params.toString()}`, {
+        signal: controller.signal,
+        cache: "no-store",
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("search unavailable");
+          const parsed = parseContextResourceSearchResponse(
+            (await response.json()) as unknown,
+          );
+          if (!parsed) throw new Error("invalid search response");
+          setContextResults(parsed.results);
+          setContextScopes(parsed.scopes);
+        })
+        .catch((error) => {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return;
+          }
+          setContextResults([]);
+          setContextError("Context search is temporarily unavailable.");
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setContextLoading(false);
+        });
+    }, CONTEXT_SEARCH_DELAY_MS);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [contextPaletteActive, contextScope, contextToken, threadId]);
+
+  useEffect(() => {
+    if (contextHighlight >= visibleContextResults.length) {
+      setContextHighlight(0);
+    }
+  }, [contextHighlight, visibleContextResults.length]);
 
   useEffect(() => {
     skipNextDraftPersistRef.current = true;
+    skipNextContextDraftPersistRef.current = true;
     if (draftTimerRef.current !== undefined) {
       window.clearTimeout(draftTimerRef.current);
       draftTimerRef.current = undefined;
@@ -176,17 +303,25 @@ export function ChatInput({
     try {
       if (!restoreDraft) {
         window.localStorage.removeItem(draftStorageKey);
+        if (contextDraftStorageKey) {
+          window.localStorage.removeItem(contextDraftStorageKey);
+        }
         latestDraftRef.current = { storageKey: draftStorageKey, text: "" };
         setText("");
+        setContextResources([]);
         return;
       }
       const restored = window.localStorage.getItem(draftStorageKey) ?? "";
+      const restoredContext = contextDraftStorageKey
+        ? window.localStorage.getItem(contextDraftStorageKey)
+        : null;
       latestDraftRef.current = { storageKey: draftStorageKey, text: restored };
       setText(restored);
+      setContextResources(parseStoredContextResources(restoredContext));
     } catch {
       // Storage may be unavailable in private or locked-down browsers.
     }
-  }, [draftStorageKey, restoreDraft]);
+  }, [contextDraftStorageKey, draftStorageKey, restoreDraft]);
 
   useEffect(() => {
     if (
@@ -196,7 +331,12 @@ export function ChatInput({
       return;
     }
     if (!editBackupRef.current) {
-      editBackupRef.current = { text, attachments, activeSkill };
+      editBackupRef.current = {
+        text,
+        attachments,
+        activeSkill,
+        contextResources,
+      };
     }
     persistComposerDraft(draftStorageKey, text);
     latestDraftRef.current = { storageKey: draftStorageKey, text };
@@ -204,6 +344,12 @@ export function ChatInput({
     setText(editRequest.content);
     setAttachments([]);
     setActiveSkill(null);
+    setContextResources(
+      contextResourceSearchResultsFromManifest(
+        editRequest.contextResourceReferences,
+        editRequest.contextResourceManifest,
+      ),
+    );
     setNotice(null);
     window.setTimeout(() => {
       taRef.current?.focus();
@@ -212,7 +358,14 @@ export function ChatInput({
         editRequest.content.length,
       );
     }, 0);
-  }, [activeSkill, attachments, draftStorageKey, editRequest, text]);
+  }, [
+    activeSkill,
+    attachments,
+    contextResources,
+    draftStorageKey,
+    editRequest,
+    text,
+  ]);
 
   useEffect(() => {
     if (skipNextDraftPersistRef.current) {
@@ -234,6 +387,15 @@ export function ChatInput({
       }
     };
   }, [draftStorageKey, editRequest, text]);
+
+  useEffect(() => {
+    if (skipNextContextDraftPersistRef.current) {
+      skipNextContextDraftPersistRef.current = false;
+      return;
+    }
+    if (editRequest) return;
+    persistContextDraft(contextDraftStorageKey, contextResources);
+  }, [contextDraftStorageKey, contextResources, editRequest]);
 
   useEffect(() => {
     function flushLatestDraft() {
@@ -274,6 +436,59 @@ export function ChatInput({
     setText(args);
     setNotice(null);
     window.setTimeout(() => taRef.current?.focus(), 0);
+  }
+
+  function selectContextResource(resource: ContextResourceSearchResult) {
+    if (!contextToken) return;
+    const key = contextResourceReferenceKey(resource.reference);
+    const alreadySelected = contextResources.some(
+      (candidate) => contextResourceReferenceKey(candidate.reference) === key,
+    );
+    if (
+      !alreadySelected &&
+      contextResources.length >= MAX_CONTEXT_RESOURCE_REFERENCES
+    ) {
+      setNotice(
+        `You can select up to ${MAX_CONTEXT_RESOURCE_REFERENCES} resources per message.`,
+      );
+      return;
+    }
+    if (!alreadySelected) {
+      setContextResources((previous) => [...previous, resource]);
+    }
+    const nextText =
+      text.slice(0, contextToken.start) + text.slice(contextToken.end);
+    setText(nextText);
+    setCursorPosition(contextToken.start);
+    setContextResults([]);
+    setContextError(null);
+    window.setTimeout(() => {
+      taRef.current?.focus();
+      taRef.current?.setSelectionRange(contextToken.start, contextToken.start);
+    }, 0);
+  }
+
+  function removeContextResource(index: number) {
+    setContextResources((previous) =>
+      previous.filter((_, itemIndex) => itemIndex !== index),
+    );
+  }
+
+  function openContextPicker() {
+    const textarea = taRef.current;
+    const start = textarea?.selectionStart ?? text.length;
+    const end = textarea?.selectionEnd ?? start;
+    const prefix = text.slice(0, start);
+    const insertion = prefix.length > 0 && !/\s$/.test(prefix) ? " @" : "@";
+    const next = prefix + insertion + text.slice(end);
+    const cursor = prefix.length + insertion.length;
+    setText(next);
+    setCursorPosition(cursor);
+    setContextScope("workspace");
+    window.setTimeout(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(cursor, cursor);
+    }, 0);
   }
 
   async function addFiles(files: FileList | File[]) {
@@ -344,6 +559,7 @@ export function ChatInput({
     }
     latestDraftRef.current = { storageKey: draftStorageKey, text: "" };
     persistComposerDraft(draftStorageKey, "");
+    persistContextDraft(contextDraftStorageKey, []);
   }
 
   function completeSubmission() {
@@ -354,6 +570,7 @@ export function ChatInput({
     setText("");
     setActiveSkill(null);
     setAttachments([]);
+    setContextResources([]);
     setNotice(null);
     onEditComplete?.();
   }
@@ -365,6 +582,7 @@ export function ChatInput({
     setText(backup?.text ?? "");
     setAttachments(backup?.attachments ?? []);
     setActiveSkill(backup?.activeSkill ?? null);
+    setContextResources(backup?.contextResources ?? []);
     setNotice(null);
     onEditComplete?.();
     window.setTimeout(() => taRef.current?.focus(), 0);
@@ -399,6 +617,7 @@ export function ChatInput({
           buildActivatedSlashSkill(activeSkill, trimmed),
           undefined,
           editRequest?.messageId,
+          contextResources.length > 0 ? contextResources : undefined,
         ) !== false
       ) {
         completeSubmission();
@@ -423,6 +642,7 @@ export function ChatInput({
           undefined,
           parsed.override,
           editRequest?.messageId,
+          contextResources.length > 0 ? contextResources : undefined,
         ) !== false
       ) {
         completeSubmission();
@@ -450,6 +670,7 @@ export function ChatInput({
           buildActivatedSlashSkill(resolved.skill, resolved.args),
           undefined,
           editRequest?.messageId,
+          contextResources.length > 0 ? contextResources : undefined,
         ) !== false
       ) {
         completeSubmission();
@@ -464,6 +685,7 @@ export function ChatInput({
         undefined,
         undefined,
         editRequest?.messageId,
+        contextResources.length > 0 ? contextResources : undefined,
       ) !== false
     ) {
       completeSubmission();
@@ -476,6 +698,52 @@ export function ChatInput({
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (contextPaletteActive && contextToken) {
+      if (e.key === "ArrowDown" && visibleContextResults.length > 0) {
+        e.preventDefault();
+        setContextHighlight(
+          (highlighted) =>
+            (highlighted + 1) % visibleContextResults.length,
+        );
+        return;
+      }
+      if (e.key === "ArrowUp" && visibleContextResults.length > 0) {
+        e.preventDefault();
+        setContextHighlight(
+          (highlighted) =>
+            (highlighted - 1 + visibleContextResults.length) %
+            visibleContextResults.length,
+        );
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        const next =
+          text.slice(0, contextToken.start) + text.slice(contextToken.end);
+        setText(next);
+        setCursorPosition(contextToken.start);
+        return;
+      }
+      if (
+        (e.key === "Tab" ||
+          (e.key === "Enter" &&
+            !e.shiftKey &&
+            !e.nativeEvent.isComposing)) &&
+        visibleContextResults.length > 0
+      ) {
+        e.preventDefault();
+        selectContextResource(
+          visibleContextResults[
+            Math.min(contextHighlight, visibleContextResults.length - 1)
+          ]!,
+        );
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        return;
+      }
+    }
     if (paletteActive && matches.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -561,6 +829,103 @@ export function ChatInput({
           </p>
         </div>
       ) : null}
+      {contextPaletteActive ? (
+        <div
+          data-testid="context-resource-palette"
+          className="absolute bottom-full left-0 right-0 z-30 mb-2 overflow-hidden rounded-lg border border-hairline bg-canvas shadow-xl"
+        >
+          <div className="flex items-center gap-2 border-b border-hairline px-3 py-1.5">
+            {contextScope !== "workspace" ? (
+              <button
+                type="button"
+                aria-label="Back to workspace context"
+                onClick={() => setContextScope("workspace")}
+                className="text-sm text-muted hover:text-ink"
+              >
+                ‹
+              </button>
+            ) : null}
+            <p className="text-2xs uppercase tracking-wider text-muted">
+              {contextScope === "workspace" ? "Add context" : "Search Gmail"}
+            </p>
+            {contextLoading ? (
+              <span className="ml-auto text-2xs text-muted">Searching…</span>
+            ) : null}
+          </div>
+          {contextScope === "workspace" && contextScopes.length > 0 ? (
+            <div className="border-b border-hairline py-1">
+              {contextScopes.map((scope) => (
+                <button
+                  key={scope.scope}
+                  type="button"
+                  disabled={!scope.available}
+                  title={
+                    scope.available ? scope.description : scope.unavailableReason
+                  }
+                  onClick={() => {
+                    setContextScope(scope.scope);
+                    setContextHighlight(0);
+                  }}
+                  className="flex w-full items-baseline gap-2 px-3 py-2 text-left hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <span className="shrink-0 text-sm font-medium text-ink">
+                    {scope.label}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-xs text-muted">
+                    {scope.available
+                      ? scope.description
+                      : scope.unavailableReason}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {contextError ? (
+            <p className="px-3 py-3 text-sm text-danger">{contextError}</p>
+          ) : visibleContextResults.length === 0 && !contextLoading ? (
+            <p className="px-3 py-3 text-sm text-muted">
+              {contextToken?.query
+                ? "No matching resources."
+                : contextScope === "workspace"
+                  ? "Start typing to find files, Vault memory, and app versions."
+                  : "Start typing to search Gmail."}
+            </p>
+          ) : (
+            <ul className="max-h-64 overflow-y-auto py-1">
+              {visibleContextResults.map((resource, index) => (
+                <li key={contextResourceReferenceKey(resource.reference)}>
+                  <button
+                    type="button"
+                    onMouseEnter={() => setContextHighlight(index)}
+                    onClick={() => selectContextResource(resource)}
+                    className={`flex w-full min-w-0 items-baseline gap-2 px-3 py-2 text-left ${
+                      index === contextHighlight ? "bg-subtle" : ""
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
+                      {resource.label}
+                    </span>
+                    {resource.versionLabel ? (
+                      <span className="shrink-0 text-2xs text-muted">
+                        {resource.versionLabel}
+                      </span>
+                    ) : null}
+                    <span className="shrink-0 text-2xs uppercase tracking-wide text-muted">
+                      {resource.sourceLabel}
+                    </span>
+                    <span className="hidden min-w-0 max-w-64 truncate text-xs text-muted sm:block">
+                      {resource.description}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="border-t border-hairline px-3 py-1.5 text-2xs text-muted">
+            ↑↓ choose · Enter select · Tab select · Esc dismiss
+          </p>
+        </div>
+      ) : null}
 
       {dictation.listening ? (
         <p className="mb-1.5 flex items-center gap-2 px-1 text-xs text-danger/80">
@@ -620,6 +985,34 @@ export function ChatInput({
         </p>
       ) : null}
 
+      {contextResources.length > 0 ? (
+        <div
+          data-testid="selected-context-resources"
+          className="mb-1.5 flex flex-wrap gap-1.5 px-1"
+        >
+          {contextResources.map((resource, index) => (
+            <span
+              key={contextResourceReferenceKey(resource.reference)}
+              className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-info/35 bg-info/10 px-2 py-1 text-xs text-ink"
+            >
+              <span className="shrink-0 font-mono text-info">@</span>
+              <span className="max-w-48 truncate">{resource.label}</span>
+              <span className="shrink-0 text-2xs text-muted">
+                {resource.sourceLabel}
+              </span>
+              <button
+                type="button"
+                aria-label={`Remove ${resource.label}`}
+                onClick={() => removeContextResource(index)}
+                className="text-muted hover:text-ink"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       {attachments.length > 0 ? (
         <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
           {attachments.map((a, index) => (
@@ -677,6 +1070,16 @@ export function ChatInput({
         />
         <button
           type="button"
+          aria-label="Add context"
+          title="Add context"
+          disabled={disabled}
+          onClick={openContextPicker}
+          className="flex h-11 w-9 shrink-0 items-center justify-center rounded-md font-mono text-sm text-muted hover:text-ink disabled:opacity-30 sm:h-7"
+        >
+          @
+        </button>
+        <button
+          type="button"
           aria-label="Attach files"
           title={queueMode ? "Files cannot be queued during an active run" : "Attach files"}
           disabled={disabled || queueMode || !uploadReady}
@@ -707,8 +1110,12 @@ export function ChatInput({
           value={text}
           onChange={(e) => {
             setText(e.target.value);
+            setCursorPosition(e.target.selectionStart ?? e.target.value.length);
             if (notice) setNotice(null);
           }}
+          onSelect={(e) =>
+            setCursorPosition(e.currentTarget.selectionStart ?? text.length)
+          }
           onKeyDown={handleKeyDown}
           onPaste={(e) => {
             const files = Array.from(e.clipboardData.files);
@@ -752,6 +1159,35 @@ export function ChatInput({
       </form>
     </div>
   );
+}
+
+function findContextToken(
+  text: string,
+  cursor: number,
+): { start: number; end: number; query: string } | null {
+  const beforeCursor = text.slice(0, Math.max(0, Math.min(cursor, text.length)));
+  const match = /(^|\s)@([^@\n]{0,80})$/.exec(beforeCursor);
+  if (!match) return null;
+  return {
+    start: match.index + match[1]!.length,
+    end: beforeCursor.length,
+    query: match[2]!.trim(),
+  };
+}
+
+function parseStoredContextResources(
+  raw: string | null,
+): ContextResourceSearchResult[] {
+  if (!raw) return [];
+  try {
+    const parsed = parseContextResourceSearchResponse({
+      results: JSON.parse(raw) as unknown,
+      scopes: [],
+    });
+    return parsed?.results.slice(0, MAX_CONTEXT_RESOURCE_REFERENCES) ?? [];
+  } catch {
+    return [];
+  }
 }
 
 function readFileAsBase64(file: File): Promise<string> {

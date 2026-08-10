@@ -38,6 +38,7 @@ export interface ConversationResourceManifest {
 
 export type ConversationResourceResolverReason =
   | "current_upload"
+  | "explicit_selection"
   | "explicit_filename"
   | "previous_run_receipt"
   | "sole_thread_resource"
@@ -298,11 +299,14 @@ export function resolveConversationResources({
   message,
   resources,
   currentResourceIds = [],
+  explicitResourceIds = [],
   previousResolution,
 }: {
   message: string;
   resources: readonly ConversationResourceManifest[];
   currentResourceIds?: readonly string[];
+  /** Server-authorized ids explicitly selected through the Context Shelf. */
+  explicitResourceIds?: readonly string[];
   previousResolution?: ConversationResourceResolution | null;
 }): ConversationResourceResolution {
   const active = dedupeResources(resources);
@@ -310,12 +314,39 @@ export function resolveConversationResources({
   const current = active.filter((resource) =>
     currentIds.has(resource.resourceId),
   );
-  if (current.length > 0) {
-    return selectedResolution(
-      current,
-      "current_upload",
-      hasConversationResourceIntent(message),
+  const explicitIds = new Set(explicitResourceIds);
+  const explicit = active.filter((resource) =>
+    explicitIds.has(resource.resourceId),
+  );
+  if (explicit.length !== explicitIds.size) {
+    return {
+      version: 1,
+      status: "unavailable",
+      intent: true,
+      selected: [],
+      candidates: explicit.map(compactCandidate),
+      requiresCompleteFileTool: false,
+    };
+  }
+  const selectedByRequest = dedupeResources([...current, ...explicit]);
+  if (selectedByRequest.length > 0) {
+    const resolution = selectedResolution(
+      selectedByRequest,
+      explicit.length > 0 ? "explicit_selection" : "current_upload",
+      explicit.length > 0 || hasConversationResourceIntent(message),
     );
+    if (current.length > 0 && explicit.length > 0) {
+      return {
+        ...resolution,
+        selected: resolution.selected.map((resource) => ({
+          ...resource,
+          reason: explicitIds.has(resource.resourceId)
+            ? "explicit_selection"
+            : "current_upload",
+        })),
+      };
+    }
+    return resolution;
   }
 
   const intent =

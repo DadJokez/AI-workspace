@@ -18,6 +18,10 @@ import { fetchJson } from "@/lib/client-api";
 import type { ChatAttachment } from "@/lib/attachments";
 import type { ChatModelOverride } from "@/lib/model-command";
 import type { ActivatedSlashSkill } from "@/lib/skill-commands";
+import {
+  contextResourceSearchResultsFromManifest,
+  type ContextResourceSearchResult,
+} from "@/lib/context-shelf";
 import { shouldShowTour } from "@/lib/tour";
 import { Sidebar } from "@/components/Sidebar";
 import { useHorizontalSwipe } from "@/components/useHorizontalSwipe";
@@ -318,6 +322,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
         undefined,
         undefined,
         turn.id,
+        turn.contextResources,
       )
       .then((accepted) => {
         if (accepted) {
@@ -356,6 +361,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
     activatedSkill?: ActivatedSlashSkill,
     modelOverride?: ChatModelOverride,
     replaceMessageId?: string,
+    contextResources?: ContextResourceSearchResult[],
   ): boolean {
     const queueMode = currentRunActive || queuedTurns.turns.length > 0;
     if (!queueMode) {
@@ -365,6 +371,9 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
         activatedSkill,
         modelOverride,
         replaceMessageId,
+        undefined,
+        undefined,
+        contextResources,
       );
       return true;
     }
@@ -376,7 +385,12 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
       });
       return false;
     }
-    queuedTurns.enqueue({ text, activatedSkill, modelOverride });
+    queuedTurns.enqueue({
+      text,
+      activatedSkill,
+      modelOverride,
+      contextResources,
+    });
     posthog.capture("chat_follow_up_queued", {
       queue_depth: queuedTurns.turns.length + 1,
       has_activated_skill: Boolean(activatedSkill),
@@ -434,6 +448,13 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
       undefined,
       undefined,
       lastUserMessage.persisted ? lastUserMessage.id : undefined,
+      undefined,
+      undefined,
+      lastUserMessage.contextResourceSelections ??
+        contextResourceSearchResultsFromManifest(
+          lastUserMessage.contextResourceReferences,
+          lastUserMessage.contextResourceManifest,
+        ),
     );
   }
 
@@ -590,6 +611,7 @@ export function ChatClient({ initialThreadId, initialOpen }: ChatClientProps) {
                 queueMode={queueMode}
                 skills={slashSkills}
                 draftKey={composerDraftKey}
+                threadId={activeTab.threadId}
                 restoreDraft={activeTab.restoreDraft !== false}
                 editRequest={editRequest}
                 onEditComplete={() => setEditRequest(undefined)}

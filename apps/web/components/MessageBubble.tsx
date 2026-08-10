@@ -26,6 +26,12 @@ import { escapeBareOrderedListMarkers } from "@/lib/chat-markdown";
 import { parseSlashDisplayMessage } from "@/lib/skill-commands";
 import { formatMessageTimestamp } from "@/lib/message-time";
 import {
+  contextResourceReceiptSummary,
+  contextResourceStateLabel,
+  type ContextResourceManifest,
+  type ContextResourceSearchResult,
+} from "@/lib/context-shelf";
+import {
   outputProposalFromMetadata,
   PROPOSAL_ITERATION_MAX_FEEDBACK_CHARS,
   type OutputProposalDecision,
@@ -60,6 +66,8 @@ interface Props {
   recommendations?: PersistedRecommendation[];
   activityEvents?: AgentActivityEvent[];
   sources?: AssistantSource[];
+  contextResourceManifest?: ContextResourceManifest;
+  contextResourceSelections?: ContextResourceSearchResult[];
   assistantName?: string | null;
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
   onDeployAppDraft?: (version: AppDraftVersionSummary) => void;
@@ -107,6 +115,8 @@ export function MessageBubble({
   recommendations = [],
   activityEvents: persistedActivityEvents,
   sources = [],
+  contextResourceManifest,
+  contextResourceSelections = [],
   assistantName,
   onOpenArtifact,
   onDeployAppDraft,
@@ -184,6 +194,13 @@ export function MessageBubble({
           <UserAttachmentStrip
             files={attachedFiles}
             onOpenArtifact={onOpenArtifact}
+          />
+        ) : null}
+        {contextResourceSelections.length > 0 ||
+        contextResourceManifest?.items.length ? (
+          <UserContextSelectionStrip
+            selections={contextResourceSelections}
+            manifest={contextResourceManifest}
           />
         ) : null}
       </div>
@@ -335,6 +352,9 @@ export function MessageBubble({
           onAction={onRecommendationAction}
         />
       ) : null}
+      {role === "assistant" && contextResourceManifest?.items.length ? (
+        <ContextResourceReceipt manifest={contextResourceManifest} />
+      ) : null}
       {showActivity ? (
         <WorkReceipts
           events={activityEvents}
@@ -345,6 +365,88 @@ export function MessageBubble({
         />
       ) : null}
     </div>
+  );
+}
+
+function UserContextSelectionStrip({
+  selections,
+  manifest,
+}: {
+  selections: readonly ContextResourceSearchResult[];
+  manifest?: ContextResourceManifest;
+}) {
+  const items =
+    selections.length > 0
+      ? selections.map((selection) => ({
+          key: `${selection.reference.kind}:${selection.reference.containerId ?? ""}:${selection.reference.resourceId}`,
+          label: selection.label,
+          sourceLabel: selection.sourceLabel,
+        }))
+      : (manifest?.items ?? []).map((item) => ({
+          key: `${item.reference.kind}:${item.reference.containerId ?? ""}:${item.reference.resourceId}`,
+          label: item.label,
+          sourceLabel: item.sourceLabel,
+        }));
+  return (
+    <div
+      data-testid="user-context-resources"
+      className="flex max-w-[80%] flex-wrap justify-end gap-1.5"
+    >
+      {items.map((item) => (
+        <span
+          key={item.key}
+          className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-info/35 bg-info/10 px-2 py-1 text-xs text-ink"
+          title={`${item.sourceLabel}: ${item.label}`}
+        >
+          <span className="shrink-0 font-mono text-info">@</span>
+          <span className="max-w-48 truncate">{item.label}</span>
+          <span className="shrink-0 text-2xs text-muted">
+            {item.sourceLabel}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ContextResourceReceipt({
+  manifest,
+}: {
+  manifest: ContextResourceManifest;
+}) {
+  const attention = manifest.items.some((item) => item.state !== "included");
+  return (
+    <details
+      data-testid="context-resource-receipt"
+      className="group mt-2 max-w-full overflow-hidden border-t border-hairline/70 pt-2 text-xs text-muted/80"
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-2 py-0.5 marker:hidden">
+        <span
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${attention ? "bg-warning" : "bg-info"}`}
+        />
+        <span className="min-w-0 flex-1 truncate font-medium text-muted/90">
+          {contextResourceReceiptSummary(manifest)}
+        </span>
+        <span className="shrink-0 text-base leading-none text-muted/60 transition group-open:rotate-90">
+          ›
+        </span>
+      </summary>
+      <div className="mt-2 flex flex-col gap-1 pl-3">
+        {manifest.items.map((item) => (
+          <div
+            key={`${item.reference.kind}:${item.reference.containerId ?? ""}:${item.reference.resourceId}`}
+            className="flex min-w-0 items-baseline gap-2"
+          >
+            <span className="min-w-0 flex-1 truncate text-muted/90">
+              {item.label}
+            </span>
+            <span className="shrink-0 text-2xs text-muted/60">
+              {item.sourceLabel} · {contextResourceStateLabel(item)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 

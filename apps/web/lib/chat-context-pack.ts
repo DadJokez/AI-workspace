@@ -29,6 +29,11 @@ import {
   type ConversationResourceResolution,
 } from "@/lib/conversation-resources";
 import type { RecentToolEvidenceReceipt } from "@/lib/recent-tool-evidence";
+import {
+  contextResourceReceiptSummary,
+  contextResourceStateLabel,
+  type ContextResourceManifest,
+} from "@/lib/context-shelf";
 
 export interface ChatContextUser {
   displayName: string;
@@ -74,6 +79,7 @@ export interface ChatContextItem {
     | "uploaded_file"
     | "recent_tool_evidence"
     | "conversation_resource"
+    | "selected_context"
     | "capability_graph"
     | "recent_recommendation"
     | "output_contract";
@@ -140,6 +146,7 @@ export interface ChatContextReceipt {
     uploadedFiles: ChatContextUploadedFile[];
     recentToolEvidence?: RecentToolEvidenceReceipt;
     resources: ConversationResourceResolution | null;
+    selectedContext?: ContextResourceManifest;
   };
   capabilities: {
     providers: number;
@@ -199,6 +206,7 @@ export interface ChatContextPack {
     uploadedFiles: ChatContextItem[];
     toolEvidence?: ChatContextItem;
     resources: ChatContextItem[];
+    selectedContext: ChatContextItem[];
   };
   recommendations: ChatContextRecommendationPack;
   receipts: ChatContextReceipt[];
@@ -224,6 +232,8 @@ export interface BuildChatContextPackInput {
   uploadedFiles?: readonly ChatContextUploadedFile[];
   recentToolEvidenceReceipt?: RecentToolEvidenceReceipt;
   resourceResolution?: ConversationResourceResolution;
+  selectedContextManifest?: ContextResourceManifest;
+  selectedContextPrompt?: string | null;
   recommendations?: readonly RecommendationCandidate[];
   route?: ChatRuntimeRoute;
   builtinTools?: readonly string[];
@@ -253,6 +263,8 @@ export function buildChatContextPack({
   uploadedFiles = [],
   recentToolEvidenceReceipt,
   resourceResolution,
+  selectedContextManifest,
+  selectedContextPrompt,
   recommendations = [],
   route,
   builtinTools = [],
@@ -289,6 +301,7 @@ export function buildChatContextPack({
     artifacts.length > 0 ||
     recommendations.length > 0 ||
     Boolean(resourceResolution && resourceResolution.status !== "none") ||
+    Boolean(selectedContextManifest?.items.length) ||
     hasCapabilityState ||
     hasConnectedToolState;
   const visibility: ChatContextItemVisibility = shouldRenderPreamble
@@ -435,6 +448,34 @@ export function buildChatContextPack({
             }),
           )
         : [];
+  const selectedContextItems = (selectedContextManifest?.items ?? []).map(
+    (item) =>
+      contextItem({
+        id: `selected-context:${item.reference.kind}:${item.reference.resourceId}`,
+        type: "selected_context",
+        label: item.label,
+        source: item.sourceLabel,
+        owner: "user",
+        freshness:
+          item.reference.kind === "google_mail_thread"
+            ? "live_account"
+            : "durable",
+        visibility:
+          item.state === "included" ? "hidden_prompt" : "receipt_only",
+        injected: item.state === "included",
+        ...(typeof item.contentChars === "number"
+          ? { charCount: item.contentChars }
+          : {}),
+        metadata: {
+          kind: item.reference.kind,
+          state: item.state,
+          ...(item.provider ? { provider: item.provider } : {}),
+          ...(item.versionLabel ? { versionLabel: item.versionLabel } : {}),
+          ...(item.scope ? { scope: item.scope } : {}),
+          ...(item.reason ? { reason: item.reason } : {}),
+        },
+      }),
+  );
   const providerItems = buildProviderItems({
     connectedProviders: providerStatus.connectedProviders,
     approvedProviders: providerStatus.allowedProviders,
@@ -502,6 +543,7 @@ export function buildChatContextPack({
     ...uploadedFileItems,
     ...(recentToolEvidenceItem ? [recentToolEvidenceItem] : []),
     ...resourceItems,
+    ...selectedContextItems,
     ...(capabilityItem ? [capabilityItem] : []),
     ...recommendationItems,
     ...(outputContractItem ? [outputContractItem] : []),
@@ -551,6 +593,9 @@ export function buildChatContextPack({
         ? { recentToolEvidence: recentToolEvidenceReceipt }
         : {}),
       resources: resourceResolution ?? null,
+      ...(selectedContextManifest?.items.length
+        ? { selectedContext: selectedContextManifest }
+        : {}),
     },
     capabilities: capabilityReceipt,
     contextItems: contextItems.map(compactContextItem),
@@ -639,6 +684,7 @@ export function buildChatContextPack({
         ...(resourceResolution
           ? [renderConversationResourceContext(resourceResolution), ""]
           : []),
+        ...(selectedContextPrompt ? [selectedContextPrompt, ""] : []),
         ...(recommendations.length > 0
           ? [renderRecentRecommendationsForPrompt(recommendations), ""]
           : []),
@@ -679,6 +725,7 @@ export function buildChatContextPack({
         ? { toolEvidence: recentToolEvidenceItem }
         : {}),
       resources: resourceItems,
+      selectedContext: selectedContextItems,
     },
     recommendations: recommendationPack,
     receipts: [receipt],
@@ -746,6 +793,18 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
         receipt.work.resources,
       )}.`,
   );
+  if (receipt.work.selectedContext) {
+    lines.push(
+      `- Selected context: ${contextResourceReceiptSummary(receipt.work.selectedContext)}. ` +
+        receipt.work.selectedContext.items
+          .map(
+            (item) =>
+              `${contextResourcePromptSource(item.reference.kind)}: ${contextResourceStateLabel(item)}`,
+          )
+          .join("; ") +
+        ".",
+    );
+  }
   if (receipt.work.recentToolEvidence) {
     const evidence = receipt.work.recentToolEvidence;
     const succeeded = evidence.included.filter(
@@ -783,6 +842,15 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
     "If the user asks what context was available or why you knew something, answer from this receipt and the injected context above.",
   );
   return lines.join("\n");
+}
+
+function contextResourcePromptSource(
+  kind: ContextResourceManifest["items"][number]["reference"]["kind"],
+): string {
+  if (kind === "artifact") return "Artifact";
+  if (kind === "vault_item") return "Vault";
+  if (kind === "app_version") return "App version";
+  return "Gmail thread";
 }
 
 function formatList(values: readonly string[]): string {

@@ -117,4 +117,34 @@ describe("reduceAssistantStreamMessage", () => {
       pending: false,
     });
   });
+
+  it("persists the authoritative selected-context receipt", () => {
+    const contextResourceManifest = {
+      version: 1 as const,
+      items: [
+        {
+          reference: {
+            version: 1 as const,
+            kind: "artifact" as const,
+            resourceId: "artifact-1",
+          },
+          label: "Launch brief",
+          sourceLabel: "Artifact",
+          state: "included" as const,
+          contentChars: 42,
+        },
+      ],
+    };
+
+    expect(
+      reduceAssistantStreamMessage(pendingMessage(), {
+        type: "persisted",
+        messageId: "assistant-1",
+        contextResourceManifest,
+      }),
+    ).toMatchObject({
+      pending: false,
+      contextResourceManifest,
+    });
+  });
 });

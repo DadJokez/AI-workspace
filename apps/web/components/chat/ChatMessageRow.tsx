@@ -138,6 +138,8 @@ function ChatMessageRowComponent({
         recommendations={message.recommendations}
         activityEvents={message.activityEvents}
         sources={message.sources}
+        contextResourceManifest={message.contextResourceManifest}
+        contextResourceSelections={message.contextResourceSelections}
         assistantName={assistantName}
         onOpenArtifact={(artifact) =>
           actionsRef.current.openArtifact(artifact)
@@ -179,6 +181,9 @@ function ChatMessageRowComponent({
                     message.artifacts?.filter(
                       (artifact) => artifact.source === "user-upload",
                     ).length ?? 0,
+                  contextResourceReferences:
+                    message.contextResourceReferences,
+                  contextResourceManifest: message.contextResourceManifest,
                 })
             : undefined
         }

@@ -19,6 +19,11 @@ import type { AppDraftVersionSummary } from "@/lib/app-draft-versions";
 import type { ModelOption } from "@/components/ModelSelector";
 import type { ThreadSummary } from "@/components/Sidebar";
 import type { ActivatedSlashSkill } from "@/lib/skill-commands";
+import type {
+  ContextResourceManifest,
+  ContextResourceReference,
+  ContextResourceSearchResult,
+} from "@/lib/context-shelf";
 
 export const FALLBACK_DEFAULT_MODEL_ID = "sonnet-4-5";
 export const DEFAULT_MODEL_PREFIX = "ai-workspace-default-model:";
@@ -64,6 +69,10 @@ export interface UiMessage {
   attachmentPreviews?: Array<{ name: string; sizeBytes?: number }>;
   persisted?: boolean;
   providerReasoning?: LiveReasoningBlock[];
+  contextResourceReferences?: ContextResourceReference[];
+  contextResourceManifest?: ContextResourceManifest;
+  /** Browser-only labels while the server resolves the authoritative manifest. */
+  contextResourceSelections?: ContextResourceSearchResult[];
 }
 
 export interface ChatTab {
@@ -118,6 +127,8 @@ export interface ThreadMessage {
   recommendations?: PersistedRecommendation[];
   activityEvents?: AgentActivityEvent[];
   sources?: AssistantSource[];
+  contextResourceReferences?: ContextResourceReference[];
+  contextResourceManifest?: ContextResourceManifest;
   pending?: boolean;
   status?: string;
   runPhase?: string;
@@ -156,6 +167,8 @@ export function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
     recommendations: message.recommendations,
     activityEvents: message.activityEvents,
     sources: message.sources,
+    contextResourceReferences: message.contextResourceReferences,
+    contextResourceManifest: message.contextResourceManifest,
     runId: message.runId,
     runStatus: message.runStatus,
     runError: message.runError,
@@ -473,6 +486,7 @@ export type AssistantStreamAction =
       appDraftVersions?: AppDraftVersionSummary[];
       recommendations?: PersistedRecommendation[];
       sources?: AssistantSource[];
+      contextResourceManifest?: ContextResourceManifest;
       tokensIn?: number;
       tokensOut?: number;
     }
@@ -570,6 +584,7 @@ export function reduceAssistantStreamMessage(
         appDraftVersions: action.appDraftVersions,
         recommendations: action.recommendations,
         sources: action.sources,
+        contextResourceManifest: action.contextResourceManifest,
         tokensIn: action.tokensIn,
         tokensOut: action.tokensOut,
         runId: action.runId ?? message.runId,

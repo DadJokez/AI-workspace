@@ -41,6 +41,12 @@ import {
   type AppActorRole,
 } from "@/lib/apps";
 import { proposalIterationFromRunInputs } from "@/lib/proposal-iterations";
+import {
+  parseContextResourceManifest,
+  parseContextResourceReferences,
+  type ContextResourceManifest,
+  type ContextResourceReference,
+} from "@/lib/context-shelf";
 
 export interface ChatRunOutput {
   assistantMessageId?: string;
@@ -50,6 +56,8 @@ export interface ChatRunOutput {
   artifacts?: WorkspaceArtifactSummary[];
   appDraftVersions?: AppDraftVersionSummary[];
   sources?: AssistantSource[];
+  contextResourceReferences?: ContextResourceReference[];
+  contextResourceManifest?: ContextResourceManifest;
   /** Aggregate only, derived from the persisted usage object. */
   liveTokens?: number;
 }
@@ -194,6 +202,18 @@ export async function loadThreadMessagesWithRunActivity({
     AppDraftVersionSummary[]
   >();
   const artifactsByMessageId = new Map<string, WorkspaceArtifactSummary[]>();
+  const contextReferencesByUserMessageId = new Map<
+    string,
+    ContextResourceReference[]
+  >();
+  const contextManifestByAssistantMessageId = new Map<
+    string,
+    ContextResourceManifest
+  >();
+  const contextManifestByUserMessageId = new Map<
+    string,
+    ContextResourceManifest
+  >();
   const activeRunMessages: ThreadMessageWithActivity[] = [];
   const visibleMessageIds = new Set(messageIds);
   const visibleChatRunIds = latestVisibleChatRunIds(runRows, visibleMessageIds);
@@ -216,6 +236,25 @@ export async function loadThreadMessagesWithRunActivity({
       }
     }
     const output = parseChatRunOutput(run.outputs);
+    const sourceMessageId = chatRunSourceMessageId(run.inputs);
+    const contextResourceReferences = isRecord(run.inputs)
+      ? parseContextResourceReferences(run.inputs.contextResourceReferences)
+      : [];
+    if (sourceMessageId && contextResourceReferences.length > 0) {
+      contextReferencesByUserMessageId.set(
+        sourceMessageId,
+        contextResourceReferences,
+      );
+    }
+    const contextResourceManifest = isRecord(run.inputs)
+      ? parseContextResourceManifest(run.inputs.contextResourceManifest)
+      : null;
+    if (sourceMessageId && contextResourceManifest) {
+      contextManifestByUserMessageId.set(
+        sourceMessageId,
+        contextResourceManifest,
+      );
+    }
     const runtimeLane = chatRunLane(run.inputs);
     const activityEvents = runEventsToActivityEvents(
       eventsByRunId.get(run.id) ?? [],
@@ -240,6 +279,12 @@ export async function loadThreadMessagesWithRunActivity({
         sourcesByAssistantMessageId.set(
           output.assistantMessageId,
           output.sources,
+        );
+      }
+      if (contextResourceManifest) {
+        contextManifestByAssistantMessageId.set(
+          output.assistantMessageId,
+          contextResourceManifest,
         );
       }
       continue;
@@ -270,6 +315,9 @@ export async function loadThreadMessagesWithRunActivity({
       artifacts: output.artifacts,
       appDraftVersions: output.appDraftVersions,
       sources: output.sources,
+      ...(contextResourceManifest
+        ? { contextResourceManifest }
+        : {}),
       activityEvents,
       pending: run.status === "queued" || run.status === "running",
       // #359: reload reconstructs the live footer's phase from persisted
@@ -390,6 +438,10 @@ export async function loadThreadMessagesWithRunActivity({
     appDraftVersions: appDraftVersionsByAssistantMessageId.get(message.id),
     activityEvents: activityByAssistantMessageId.get(message.id),
     sources: sourcesByAssistantMessageId.get(message.id),
+    contextResourceReferences: contextReferencesByUserMessageId.get(message.id),
+    contextResourceManifest:
+      contextManifestByAssistantMessageId.get(message.id) ??
+      contextManifestByUserMessageId.get(message.id),
     recommendations: recommendationsByMessageId.get(message.id),
   }));
 

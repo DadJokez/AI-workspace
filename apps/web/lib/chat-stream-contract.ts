@@ -13,6 +13,10 @@ import type {
   PersistedToolResult,
 } from "@/lib/tool-events";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import type {
+  ContextResourceManifest,
+  ContextResourceReference,
+} from "@/lib/context-shelf";
 
 export interface ChatRunTimingMetrics {
   requestStartedAt: string;
@@ -67,6 +71,7 @@ export type ChatStreamEvent =
       runtimeRoute: ChatRuntimeRoute;
       routeReceipt: ChatRouteReceipt;
       resourceResolution: ConversationResourceResolution;
+      contextResourceReferences: ContextResourceReference[];
       replaceMessageId?: string;
     }
   | {
@@ -127,6 +132,7 @@ export type ChatStreamEvent =
       appDraftVersions: AppDraftVersionSummary[];
       recommendations: PersistedRecommendation[];
       sources: AssistantSource[];
+      contextResourceManifest: ContextResourceManifest;
       runId: string;
       threadId: string;
     }

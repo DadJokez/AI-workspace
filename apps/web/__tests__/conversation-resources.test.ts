@@ -82,6 +82,62 @@ describe("conversation resource registry and resolver (#576)", () => {
     ]);
   });
 
+  it("honors an explicit Context Shelf selection before filename heuristics", () => {
+    const first = resource("first.csv", "resource-first", "spreadsheet");
+    const second = resource("second.csv", "resource-second", "spreadsheet");
+    const result = resolveConversationResources({
+      message: "Analyze first.csv",
+      resources: [first, second],
+      explicitResourceIds: [second.resourceId],
+    });
+
+    expect(result).toMatchObject({
+      status: "selected",
+      selected: [
+        {
+          resourceId: "resource-second",
+          reason: "explicit_selection",
+        },
+      ],
+    });
+  });
+
+  it("combines current uploads with explicit Context Shelf selections", () => {
+    const current = resource("current.csv", "resource-current", "spreadsheet");
+    const pinned = resource("pinned.csv", "resource-pinned", "spreadsheet");
+    const result = resolveConversationResources({
+      message: "Compare these files",
+      resources: [current, pinned],
+      currentResourceIds: [current.resourceId],
+      explicitResourceIds: [pinned.resourceId],
+    });
+
+    expect(result.selected).toEqual([
+      expect.objectContaining({
+        resourceId: "resource-current",
+        reason: "current_upload",
+      }),
+      expect.objectContaining({
+        resourceId: "resource-pinned",
+        reason: "explicit_selection",
+      }),
+    ]);
+  });
+
+  it("reports a deleted explicit Context Shelf selection as unavailable", () => {
+    const result = resolveConversationResources({
+      message: "Use the selected report",
+      resources: [],
+      explicitResourceIds: ["resource-deleted"],
+    });
+
+    expect(result).toMatchObject({
+      status: "unavailable",
+      selected: [],
+      candidates: [],
+    });
+  });
+
   it("selects explicit filenames and can compare two named files", () => {
     const first = resource("q1-results.csv", "resource-q1", "spreadsheet");
     const second = resource("q2-results.csv", "resource-q2", "spreadsheet");

@@ -180,3 +180,60 @@ describe("user message attachments", () => {
     );
   });
 });
+
+describe("Context Shelf receipts", () => {
+  it("renders selected resources on the user message", () => {
+    const html = renderToString(
+      createElement(MessageBubble, {
+        role: "user",
+        content: "Summarize this.",
+        contextResourceSelections: [
+          {
+            reference: {
+              version: 1,
+              kind: "vault_item",
+              resourceId: "memory-1",
+            },
+            label: "Quarterly priorities",
+            description: "Approved memory",
+            sourceLabel: "Vault",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain('data-testid="user-context-resources"');
+    expect(html).toContain("Quarterly priorities");
+    expect(html).toContain("Vault");
+  });
+
+  it("renders a collapsed, honest assistant receipt", () => {
+    const html = renderToString(
+      createElement(MessageBubble, {
+        role: "assistant",
+        content: "Here is the summary.",
+        contextResourceManifest: {
+          version: 1,
+          items: [
+            {
+              reference: {
+                version: 1,
+                kind: "artifact",
+                resourceId: "artifact-1",
+              },
+              label: "Launch brief",
+              sourceLabel: "Artifact",
+              state: "included",
+              contentChars: 42,
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(html).toContain('data-testid="context-resource-receipt"');
+    expect(html).toContain("Using 1 file");
+    expect(html).toContain("Launch brief");
+    expect(html).not.toContain("open=\"\"");
+  });
+});
