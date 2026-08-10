@@ -40,6 +40,10 @@ interface MockChatOptions {
     approvedItems?: MockMemoryItem[];
     suggestions?: MockMemoryItem[];
   };
+  contextResources?: {
+    results: unknown[];
+    scopes?: unknown[];
+  };
   onChat?: (
     body: Record<string, unknown>,
     route: Route,
@@ -503,6 +507,13 @@ export async function installMockComparativeApi(
 
     if (path === "/api/threads") {
       return json(route, { threads });
+    }
+
+    if (path === "/api/context/resources") {
+      return json(route, {
+        results: options.contextResources?.results ?? [],
+        scopes: options.contextResources?.scopes ?? [],
+      });
     }
 
     const threadMessagesMatch = /^\/api\/threads\/([^/]+)\/messages$/.exec(

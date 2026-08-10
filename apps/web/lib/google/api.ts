@@ -14,6 +14,33 @@ export interface GoogleToolContext {
   turnContext: GoogleTurnContext;
 }
 
+export interface GoogleMailThreadSearchResult {
+  threadId: string;
+  messageId: string;
+  subject: string;
+  from: string;
+  date: string;
+  snippet: string;
+  link: string;
+}
+
+export interface GoogleMailThreadResource {
+  threadId: string;
+  link: string;
+  messageCount: number;
+  messages: Array<Record<string, unknown>>;
+}
+
+export interface GoogleMailMessageReference {
+  messageId: string;
+  threadId: string;
+  subject: string;
+  from: string;
+  date: string;
+  snippet: string;
+  link: string;
+}
+
 export const googleTools = [
   {
     name: "search_mail",
@@ -223,53 +250,61 @@ async function searchMail(input: unknown, context: GoogleToolContext) {
   }
   const incrementalState = sinceLastSearch ? searchState : undefined;
   const query = buildMailSearchQuery(requestedQuery, incrementalState);
-  const excludedMessageIds = new Set(
-    incrementalState?.previousMessageIds ?? [],
-  );
-  const searchedAt = new Date().toISOString();
-  const url = new URL(`${GMAIL_API_BASE}/messages`);
-  if (query) url.searchParams.set("q", query);
-  url.searchParams.set(
-    "maxResults",
-    String(Math.min(200, maxResults + excludedMessageIds.size)),
-  );
-  const mailboxLabel = googleMailboxLabel(mailbox);
-  if (mailboxLabel) url.searchParams.append("labelIds", mailboxLabel);
-  const listed = await googleJson(url, context.accessToken);
-  const ids = arrayOfRecords(listed.messages)
-    .map((message) => optionalString(message.id, 200))
-    .filter((id): id is string => Boolean(id));
-  const candidates = await Promise.all(
-    ids.map((id) => getMessageMetadata(id, context.accessToken)),
-  );
-  const messages = candidates
-    .filter((message) => {
-      if (!message.id || excludedMessageIds.has(message.id)) return false;
-      if (
-        incrementalState &&
-        (!message.internalDate ||
-          message.internalDate <= Date.parse(incrementalState.lastSearchedAt))
-      ) {
-        return false;
-      }
-      return messageMatchesMailbox(message.labelIds, mailbox);
-    })
-    .slice(0, maxResults);
+  const result = await searchMailMetadata({
+    accessToken: context.accessToken,
+    query,
+    mailbox,
+    maxResults,
+    incrementalState,
+  });
   return {
     ...frameGoogleContent("MAIL", {
-      query,
-      resultCount: messages.length,
-      nextPageToken: optionalString(listed.nextPageToken, 1000),
-      messages,
+      query: result.query,
+      resultCount: result.messages.length,
+      nextPageToken: result.nextPageToken,
+      messages: result.messages,
     }),
     searchMetadata: {
-      searchedAt,
+      searchedAt: result.searchedAt,
       mailbox,
-      messageIds: messages
+      messageIds: result.messages
         .map((message) => message.id)
         .filter((id): id is string => Boolean(id)),
     },
   };
+}
+
+export async function searchGoogleMailThreads({
+  accessToken,
+  query,
+  maxResults = 8,
+}: {
+  accessToken: string;
+  query: string;
+  maxResults?: number;
+}): Promise<GoogleMailThreadSearchResult[]> {
+  const result = await searchMailMetadata({
+    accessToken,
+    query: buildMailSearchQuery(query.slice(0, 500), undefined),
+    mailbox: "all",
+    maxResults: Math.max(1, Math.min(10, maxResults)),
+  });
+  const seen = new Set<string>();
+  return result.messages.flatMap((message) => {
+    if (!message.id || !message.threadId || seen.has(message.threadId)) return [];
+    seen.add(message.threadId);
+    return [
+      {
+        threadId: message.threadId,
+        messageId: message.id,
+        subject: message.subject ?? "No subject",
+        from: message.from ?? "Unknown sender",
+        date: message.date ?? "",
+        snippet: message.snippet ?? "",
+        link: message.link ?? gmailThreadLink(message.threadId),
+      },
+    ];
+  });
 }
 
 async function getMessage(input: unknown, context: GoogleToolContext) {
@@ -285,19 +320,67 @@ async function getMessage(input: unknown, context: GoogleToolContext) {
 async function getThread(input: unknown, context: GoogleToolContext) {
   const args = record(input);
   const threadId = requiredString(args.threadId, "threadId", 200);
+  return frameGoogleContent(
+    "MAIL",
+    await readGoogleMailThread({
+      accessToken: context.accessToken,
+      threadId,
+    }),
+  );
+}
+
+export async function readGoogleMailThread({
+  accessToken,
+  threadId,
+}: {
+  accessToken: string;
+  threadId: string;
+}): Promise<GoogleMailThreadResource> {
   const thread = await googleJson(
     `${GMAIL_API_BASE}/threads/${encodeURIComponent(threadId)}?format=full`,
-    context.accessToken,
+    accessToken,
   );
   const messages = arrayOfRecords(thread.messages)
     .slice(0, 25)
     .map(normalizeMessage);
-  return frameGoogleContent("MAIL", {
+  return {
     threadId,
     link: gmailThreadLink(threadId),
     messageCount: messages.length,
     messages,
-  });
+  };
+}
+
+/**
+ * Revalidates a search-selected Gmail message at send time without injecting
+ * its body into the request prompt. The runtime still reads the thread just
+ * in time through the mounted Google tool.
+ */
+export async function readGoogleMailMessageReference({
+  accessToken,
+  messageId,
+}: {
+  accessToken: string;
+  messageId: string;
+}): Promise<GoogleMailMessageReference> {
+  const message = normalizeMessage(
+    await googleJson(
+      `${GMAIL_API_BASE}/messages/${encodeURIComponent(messageId)}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+      accessToken,
+    ),
+  );
+  if (!message.id || !message.threadId) {
+    throw new Error("Gmail returned an incomplete message reference.");
+  }
+  return {
+    messageId: message.id,
+    threadId: message.threadId,
+    subject: message.subject ?? "No subject",
+    from: message.from ?? "Unknown sender",
+    date: message.date ?? "",
+    snippet: message.snippet ?? "",
+    link: message.link ?? gmailThreadLink(message.threadId),
+  };
 }
 
 async function createDraft(input: unknown, context: GoogleToolContext) {
@@ -538,6 +621,67 @@ async function createEvent(context: GoogleToolContext) {
     invitationsSent:
       proposal.attendees.length > 0 && proposal.sendInvitations,
     idempotentReplay,
+  };
+}
+
+interface GoogleMailMetadataResult {
+  query: string;
+  searchedAt: string;
+  nextPageToken?: string;
+  messages: Awaited<ReturnType<typeof getMessageMetadata>>[];
+}
+
+async function searchMailMetadata({
+  accessToken,
+  query,
+  mailbox,
+  maxResults,
+  incrementalState,
+}: {
+  accessToken: string;
+  query: string;
+  mailbox: GoogleMailSearchMailbox;
+  maxResults: number;
+  incrementalState?: GoogleTurnContext["mailSearchState"];
+}): Promise<GoogleMailMetadataResult> {
+  const excludedMessageIds = new Set(
+    incrementalState?.previousMessageIds ?? [],
+  );
+  const searchedAt = new Date().toISOString();
+  const url = new URL(`${GMAIL_API_BASE}/messages`);
+  if (query) url.searchParams.set("q", query);
+  url.searchParams.set(
+    "maxResults",
+    String(Math.min(200, maxResults + excludedMessageIds.size)),
+  );
+  const mailboxLabel = googleMailboxLabel(mailbox);
+  if (mailboxLabel) url.searchParams.append("labelIds", mailboxLabel);
+  const listed = await googleJson(url, accessToken);
+  const ids = arrayOfRecords(listed.messages)
+    .map((message) => optionalString(message.id, 200))
+    .filter((id): id is string => Boolean(id));
+  const candidates = await Promise.all(
+    ids.map((id) => getMessageMetadata(id, accessToken)),
+  );
+  const messages = candidates
+    .filter((message) => {
+      if (!message.id || excludedMessageIds.has(message.id)) return false;
+      if (
+        incrementalState &&
+        (!message.internalDate ||
+          message.internalDate <= Date.parse(incrementalState.lastSearchedAt))
+      ) {
+        return false;
+      }
+      return messageMatchesMailbox(message.labelIds, mailbox);
+    })
+    .slice(0, maxResults);
+  const nextPageToken = optionalString(listed.nextPageToken, 1000);
+  return {
+    query,
+    searchedAt,
+    messages,
+    ...(nextPageToken ? { nextPageToken } : {}),
   };
 }
 

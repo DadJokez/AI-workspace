@@ -16,6 +16,7 @@ import {
   type ChatRunTimingMarks,
 } from "@/lib/execute-chat-turn";
 import type { ChatStreamSend } from "@/lib/chat-stream-contract";
+import type { ContextResourceReference } from "@/lib/context-shelf";
 
 /** Cadence for the inline lane's liveness heartbeat (#443). */
 const INLINE_HEARTBEAT_INTERVAL_MS = 60_000;
@@ -39,6 +40,7 @@ export interface StreamInlineChatRunInput {
   requestedProviders?: string[];
   uploadedFiles?: ChatContextUploadedFile[];
   resourceResolution?: ConversationResourceResolution;
+  contextResourceReferences?: ContextResourceReference[];
   /** Validated browser timezone for this interactive turn (#432). */
   userTimeZone?: string;
   requestStartedAt?: Date;
@@ -75,6 +77,7 @@ export async function streamInlineChatRun({
   requestedProviders,
   uploadedFiles = [],
   resourceResolution,
+  contextResourceReferences,
   userTimeZone,
   requestStartedAt,
   signal,
@@ -135,6 +138,7 @@ export async function streamInlineChatRun({
       activeSkillPrompt,
       uploadedFiles,
       resourceResolution,
+      contextResourceReferences,
       userTimeZone,
       suppressedSkillIds:
         activatedSkills?.flatMap((skill) =>

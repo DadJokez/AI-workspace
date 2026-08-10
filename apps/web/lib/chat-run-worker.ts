@@ -30,6 +30,7 @@ import {
   proposalIterationFromRunInputs,
   releaseProposalIteration,
 } from "@/lib/proposal-iterations";
+import { parseContextResourceReferences } from "@/lib/context-shelf";
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 /**
@@ -59,6 +60,7 @@ interface ChatRunInputs {
   activeSkillPrompt?: PinnedActiveSkill;
   uploadedFiles?: ChatContextUploadedFile[];
   resourceResolution?: ConversationResourceResolution;
+  contextResourceReferences?: unknown;
   artifactContextTarget?: unknown;
   separateFromArtifact?: unknown;
   [key: string]: unknown;
@@ -579,6 +581,9 @@ async function executeClaimedChatRun({
       resourceResolution:
         parseConversationResourceResolution(inputs.resourceResolution) ??
         undefined,
+      contextResourceReferences: parseContextResourceReferences(
+        inputs.contextResourceReferences,
+      ),
       // #432: only chat turns ever store a zone; scheduled/skill runs have
       // none and stay UTC-only. Re-validated because stored JSON is not a
       // trusted prompt source either.

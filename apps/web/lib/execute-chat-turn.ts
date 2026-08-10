@@ -134,6 +134,8 @@ import type {
   ChatRunTimingMetrics,
   ChatStreamSend,
 } from "@/lib/chat-stream-contract";
+import type { ContextResourceReference } from "@/lib/context-shelf";
+import { resolveContextResources } from "@/lib/context-shelf-server";
 
 /**
  * #442 — the single chat-turn pipeline. Both execution lanes (interactive
@@ -206,6 +208,7 @@ export interface ExecuteChatTurnInput {
   activeSkillPrompt?: PinnedActiveSkill | null;
   uploadedFiles?: ChatContextUploadedFile[];
   resourceResolution?: ConversationResourceResolution;
+  contextResourceReferences?: ContextResourceReference[];
   /**
    * Validated IANA timezone of the user's browser (#432). Interactive chat
    * turns carry it (the worker lane re-validates it out of stored inputs);
@@ -236,6 +239,7 @@ export async function executeChatTurn({
   activeSkillPrompt,
   uploadedFiles = [],
   resourceResolution,
+  contextResourceReferences = [],
   userTimeZone,
   suppressedSkillIds = [],
   interactive,
@@ -249,7 +253,10 @@ export async function executeChatTurn({
   // skill all fall back to the normal model path.
   const exactOutputContract = buildExactOutputContract(userInstruction);
   const pureEchoReply =
-    uploadedFiles.length === 0 && !resourceResolution && !activeSkillPrompt
+    uploadedFiles.length === 0 &&
+    !resourceResolution &&
+    contextResourceReferences.length === 0 &&
+    !activeSkillPrompt
       ? extractPureEchoReply(userInstruction)
       : undefined;
   const timing = lane.kind === "inline" ? lane.timing : undefined;
@@ -516,6 +523,28 @@ export async function executeChatTurn({
     { id: userId, role: user.role },
     { mountedProviders },
   );
+  const activeMountedProviders = toolDiscovery
+    ? toolDiscovery.activatedProviders
+    : mountedProviders;
+  const selectedContext = await resolveContextResources({
+    db,
+    user: { id: userId, role: user.role },
+    threadId: thread.id,
+    references: contextResourceReferences,
+    conversationResources: effectiveResourceResolution,
+    conversationResourceMounted: activeMountedProviders.includes(
+      CONVERSATION_RESOURCE_PROVIDER,
+    ),
+    inlineConversationResourceIds: runtimeUploadedFiles.flatMap((file) =>
+      file.resourceId ? [file.resourceId] : [],
+    ),
+    runtimeProviders: {
+      mountedProviders: activeMountedProviders,
+      discoverableProviders,
+      blockedProviders,
+      providerAvailability: providerStatus.providerAvailability,
+    },
+  });
 
   // Denied-provider attestation audit — in the shared core so BOTH lanes
   // write it by construction (#442: the interactive lane used to skip it,
@@ -545,9 +574,7 @@ export async function executeChatTurn({
     vaultMarkdown,
     vaultContextRequested: includeVaultContext,
     providerStatus,
-    mountedProviders: toolDiscovery
-      ? toolDiscovery.activatedProviders
-      : mountedProviders,
+    mountedProviders: activeMountedProviders,
     discoverableProviders,
     deniedMcpProviders,
     capabilityGraph,
@@ -556,6 +583,8 @@ export async function executeChatTurn({
     uploadedFiles: runtimeUploadedFiles,
     recentToolEvidenceReceipt,
     resourceResolution: effectiveResourceResolution,
+    selectedContextManifest: selectedContext.manifest,
+    selectedContextPrompt: selectedContext.promptContext,
     recommendations: recentRecommendations,
     route,
     builtinTools,
@@ -594,6 +623,8 @@ export async function executeChatTurn({
     ...(effectiveResourceResolution
       ? { resourceResolution: effectiveResourceResolution }
       : {}),
+    contextResourceReferences,
+    contextResourceManifest: selectedContext.manifest,
     accountConnectedMcpProviders: providerStatus.connectedProviders,
     approvedMcpProviders: providerStatus.allowedProviders,
     deniedMcpProviders: blockedProviders,
@@ -1456,6 +1487,7 @@ export async function executeChatTurn({
       appDraftVersions: persisted.appDraftVersions,
       recommendations: persisted.recommendations,
       sources: persisted.sources,
+      contextResourceManifest: selectedContext.manifest,
       runId,
       threadId: thread.id,
       // The streamed deltas carried the wrapped answer; the reduced literal

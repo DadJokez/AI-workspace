@@ -6,6 +6,11 @@ import {
   parseModelCommand,
   type ChatModelOverride,
 } from "@/lib/model-command";
+import {
+  contextResourceSelectionsForPersistence,
+  parseContextResourceSearchResponse,
+  type ContextResourceSearchResult,
+} from "@/lib/context-shelf";
 
 export const CHAT_TURN_QUEUE_STORAGE_PREFIX = "comparative-chat-queue:v1:";
 
@@ -15,6 +20,7 @@ export interface QueuedChatTurnDraft {
   text: string;
   activatedSkill?: ActivatedSlashSkill;
   modelOverride?: ChatModelOverride;
+  contextResources?: ContextResourceSearchResult[];
 }
 
 export interface QueuedChatTurn extends QueuedChatTurnDraft {
@@ -95,6 +101,7 @@ export function editQueuedChatTurn(
       text,
       activatedSkill: turn.activatedSkill,
       modelOverride: turn.modelOverride,
+      contextResources: turn.contextResources,
     }),
     status: "queued",
   };
@@ -132,11 +139,19 @@ function normalizeQueuedTurnPayload(
   draft: QueuedChatTurnDraft,
 ): QueuedChatTurnDraft {
   const text = draft.text.trim();
+  const contextResources = draft.contextResources?.length
+    ? {
+        contextResources: contextResourceSelectionsForPersistence(
+          draft.contextResources,
+        ),
+      }
+    : {};
   if (draft.activatedSkill) {
     const parsed = parseSlashDisplayMessage(text);
     const expectedToken = `/${draft.activatedSkill.slug}`.toLowerCase();
     return {
       text,
+      ...contextResources,
       ...(parsed?.token.toLowerCase() === expectedToken
         ? {
             activatedSkill: {
@@ -151,10 +166,11 @@ function normalizeQueuedTurnPayload(
     const parsed = parseModelCommand(text);
     return {
       text,
+      ...contextResources,
       ...(parsed ? { modelOverride: parsed.override } : {}),
     };
   }
-  return { text };
+  return { text, ...contextResources };
 }
 
 function parseQueuedChatTurn(value: unknown): QueuedChatTurn | null {
@@ -164,6 +180,10 @@ function parseQueuedChatTurn(value: unknown): QueuedChatTurn | null {
   if (!text || typeof value.createdAt !== "string") return null;
   const activatedSkill = parseActivatedSkill(value.activatedSkill);
   const modelOverride = parseModelOverride(value.modelOverride);
+  const contextResources = parseContextResourceSearchResponse({
+    results: Array.isArray(value.contextResources) ? value.contextResources : [],
+    scopes: [],
+  })?.results;
   const status: QueuedChatTurnStatus =
     value.status === "failed" ? "failed" : "queued";
   return {
@@ -174,6 +194,7 @@ function parseQueuedChatTurn(value: unknown): QueuedChatTurn | null {
       text,
       ...(activatedSkill ? { activatedSkill } : {}),
       ...(modelOverride ? { modelOverride } : {}),
+      ...(contextResources?.length ? { contextResources } : {}),
     }),
     ...(status === "failed" && typeof value.error === "string"
       ? { error: value.error }
