@@ -42,6 +42,7 @@
     "start": "pnpm --filter @ai-workspace/web start",
     "eval": "pnpm --filter @ai-workspace/evals eval",
     "eval:core": "pnpm --filter @ai-workspace/evals eval:core",
+    "conformance:offline": "pnpm --filter @ai-workspace/evals conformance:offline",
     "transcripts:replay": "pnpm --filter @ai-workspace/evals transcripts:replay",
     "smoke:browser": "pnpm --filter @ai-workspace/web smoke:browser",
     "smoke:browser:auth": "pnpm --filter @ai-workspace/web smoke:browser:auth",

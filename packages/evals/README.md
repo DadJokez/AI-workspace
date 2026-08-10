@@ -131,6 +131,35 @@ resource mounting → SSE rendering and reload are product-journey tests and
 belong in the app-backed Playwright gate; structural mock mode is never evidence
 that a model behavior passes.
 
+## Runtime conformance
+
+Runtime conformance is a separate executable contract from model-quality
+evaluation. It answers whether a declared runtime lane can complete and persist
+a turn, stream multiple deltas, accept every advertised file class, finish a
+tool loop, enforce policy, cancel without later side effects, resume, recover
+from broken streams, preserve artifact integrity, and report usage. Optional
+queue, steering, context, child-run, and sandbox probes run only when the lane
+declares those capabilities.
+
+```bash
+# Free and deterministic; runs in normal CI and writes JSON + Markdown reports.
+pnpm conformance:offline
+```
+
+The report schema is `runtime-conformance.v1`. A declaration that disagrees
+with observed evidence becomes `DRIFT` and blocks the contract. Missing
+credentials stay `SKIPPED`, never `UNSUPPORTED`; product, provider, credential,
+quota, and harness failures remain distinct. Reports contain bounded metrics,
+not prompts, model output, file contents, or tool payloads.
+
+Offline reports prove the driver, probe validators, declarations, budgeting,
+and renderers without model spend. Their provenance is `offline-contract`, so
+they can never qualify a production lane. Live/pre-enable drivers use the same
+runner and may qualify a lane only when every required or declared capability
+matches. Automated live conformance remains disabled until #706 isolates eval
+quota from production; this prevents the proof system itself from starving the
+customer runtime.
+
 ## Golden transcript replay
 
 Downloaded chats that expose product bugs can be scrubbed and committed under

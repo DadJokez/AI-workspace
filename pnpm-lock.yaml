@@ -315,6 +315,9 @@ importers:
       '@ai-workspace/agent':
         specifier: workspace:*
         version: link:../agent
+      '@ai-workspace/agent-runtime':
+        specifier: workspace:*
+        version: link:../agent-runtime
       tsx:
         specifier: ^4.19.2
         version: 4.21.0
