@@ -476,7 +476,7 @@ test.describe("chat files and artifacts", () => {
     const previewBefore = page.context().pages().length;
     await page.getByRole("button", { name: /demo-artifact\.html/i }).click();
     const previewPane = page.getByRole("complementary", {
-      name: "Artifact preview",
+      name: "Contribution Studio",
     });
     await expect(
       previewPane,
@@ -492,7 +492,7 @@ test.describe("chat files and artifacts", () => {
       );
       expect(chatWidthAfter).toBeLessThan(chatWidthBefore - 100);
 
-      const resizer = page.getByTestId("artifact-preview-resizer");
+      const resizer = page.getByTestId("contribution-studio-resizer");
       await expect(resizer).toBeVisible();
       const previewWidthBefore = await previewPane.evaluate(
         (element) => element.getBoundingClientRect().width,
@@ -509,16 +509,14 @@ test.describe("chat files and artifacts", () => {
       expect(previewWidthAfter).toBeGreaterThan(previewWidthBefore + 60);
     }
 
-    await page.getByRole("button", { name: "Close preview" }).click();
+    await page.getByRole("button", { name: "Close Contribution Studio" }).click();
     if (isMobile) {
       await page.getByRole("button", { name: "Open menu" }).click();
     }
     await page.getByRole("button", { name: "Artifacts" }).click();
+    await expect(page.getByRole("heading", { name: "Artifacts" })).toBeVisible();
     await expect(
-      page.getByRole("heading", { level: 1, name: "Artifacts" }),
-    ).toBeVisible();
-    await expect(
-      page.getByTestId("artifacts-pane").getByText(/demo-artifact\.html/),
+      page.getByTestId("contribution-studio").getByText(/demo-artifact\.html/),
     ).toBeVisible();
   });
 
@@ -697,7 +695,7 @@ test.describe("chat files and artifacts", () => {
     ).toBeVisible();
     await page.getByRole("button", { name: /demo-artifact\.html/i }).click();
     const previewPane = page.getByRole("complementary", {
-      name: "Artifact preview",
+      name: "Contribution Studio",
     });
     await expect(previewPane).toBeVisible();
     await expect(
@@ -706,7 +704,7 @@ test.describe("chat files and artifacts", () => {
       }),
     ).toBeVisible();
     if (isMobile) {
-      await page.getByRole("button", { name: "Close preview" }).click();
+      await page.getByRole("button", { name: "Close Contribution Studio" }).click();
     }
 
     await page
@@ -722,7 +720,7 @@ test.describe("chat files and artifacts", () => {
       await revisedArtifactPill.click();
     }
     const revisedPreviewPane = page.getByRole("complementary", {
-      name: "Artifact preview",
+      name: "Contribution Studio",
     });
     await expect(revisedPreviewPane).toContainText("demo-artifact.html");
     await expect(revisedPreviewPane).not.toContainText("demo-artifact.html · v2");
@@ -858,7 +856,7 @@ test.describe("chat files and artifacts", () => {
     await expect(revisedArtifactPill).toBeVisible();
     await revisedArtifactPill.click();
     const previewPane = page.getByRole("complementary", {
-      name: "Artifact preview",
+      name: "Contribution Studio",
     });
     await expect(previewPane).toContainText("old-project.html");
     await expect(previewPane).not.toContainText("old-project.html · v2");

@@ -865,9 +865,9 @@ test.describe("chat workflow regressions", () => {
 
     await card.getByRole("button", { name: "Preview" }).click();
     await expect(
-      page.getByRole("complementary", { name: "Artifact preview" }),
+      page.getByRole("complementary", { name: "Contribution Studio" }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Close preview" }).click();
+    await page.getByRole("button", { name: "Close Contribution Studio" }).click();
 
     await card.getByRole("button", { name: "Accept" }).click();
     await expect.poll(() => receivedDecision).toEqual({
@@ -1684,13 +1684,13 @@ test.describe("chat workflow regressions", () => {
 
     await latestDraftCard.getByRole("button", { name: "Preview" }).click();
     const previewPane = page.getByRole("complementary", {
-      name: "Artifact preview",
+      name: "Contribution Studio",
     });
     await expect(previewPane).toContainText("Revenue Dashboard v3");
     await expect(
       previewPane.frameLocator("iframe").getByRole("cell", { name: "$42" }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Close preview" }).click();
+    await page.getByRole("button", { name: "Close Contribution Studio" }).click();
 
     await latestDraftCard
       .getByRole("button", { name: "Publish update" })

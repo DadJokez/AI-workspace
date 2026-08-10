@@ -107,7 +107,7 @@ export function RunInspectorPane({
   return (
     <SlideOverPane
       ariaLabel="Run Inspector"
-      defaultWidth={680}
+      defaultWidth={520}
       minWidth={MIN_INSPECTOR_WIDTH}
       maxWidth={MAX_INSPECTOR_WIDTH}
       onClose={onClose}

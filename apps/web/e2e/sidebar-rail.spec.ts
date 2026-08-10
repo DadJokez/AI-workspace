@@ -88,14 +88,14 @@ test.describe("desktop sidebar rail", () => {
     await expect(sidebar).toHaveAttribute("data-sidebar-state", "expanded");
     await openNavItem(page, "Artifacts", false);
 
-    await expect(page.getByTestId("artifacts-pane")).toBeVisible();
+    await expect(page.getByTestId("contribution-studio")).toBeVisible();
     await expect(sidebar).toHaveAttribute("data-sidebar-state", "rail");
     await expect(sidebar).toHaveAttribute("data-auto-collapsed", "true");
     await expectSidebarWidth(sidebar, 56);
     await expect.poll(() => readSidebarPreference(page)).toBeNull();
 
-    await page.getByRole("button", { name: "Close workspace" }).click();
-    await expect(page.getByTestId("artifacts-pane")).toHaveCount(0);
+    await page.getByRole("button", { name: "Close Contribution Studio" }).click();
+    await expect(page.getByTestId("contribution-studio")).toHaveCount(0);
     await expect(sidebar).toHaveAttribute("data-sidebar-state", "expanded");
     await expect(sidebar).not.toHaveAttribute("data-auto-collapsed", "true");
     await expectSidebarWidth(sidebar, 248);

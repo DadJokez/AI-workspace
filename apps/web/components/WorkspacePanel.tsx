@@ -9,6 +9,7 @@ import { formatDateTime as formatDate } from "@/lib/format-date";
 interface Props {
   onClose: () => void;
   onOpenArtifact: (artifact: WorkspaceArtifactSummary) => void;
+  embedded?: boolean;
 }
 
 interface WorkspaceArtifactsResponse {
@@ -18,6 +19,7 @@ interface WorkspaceArtifactsResponse {
 export function WorkspacePanel({
   onClose,
   onOpenArtifact,
+  embedded = false,
 }: Props) {
   const [artifacts, setArtifacts] = useState<WorkspaceArtifactSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,36 +50,50 @@ export function WorkspacePanel({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-11 shrink-0 touch-none items-center gap-1 border-b border-hairline bg-canvas md:touch-auto">
-        <h1 className="flex-1 truncate px-2 text-sm font-medium text-ink">
-          Artifacts
-        </h1>
-        <button
-          type="button"
-          onClick={() => void loadArtifacts()}
-          disabled={loading}
-          className="mr-1 rounded-md border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          Refresh
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close workspace"
-          className="mr-2 flex h-9 w-9 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink"
-        >
-          <CloseIcon />
-        </button>
-      </header>
+      {!embedded ? (
+        <header className="flex h-11 shrink-0 touch-none items-center gap-1 border-b border-hairline bg-canvas md:touch-auto">
+          <h1 className="flex-1 truncate px-2 text-sm font-medium text-ink">
+            Artifacts
+          </h1>
+          <button
+            type="button"
+            onClick={() => void loadArtifacts()}
+            disabled={loading}
+            className="mr-1 rounded-md border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Refresh
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close workspace"
+            className="mr-2 flex h-9 w-9 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink"
+          >
+            <CloseIcon />
+          </button>
+        </header>
+      ) : null}
 
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
-          <section className="border-b border-hairline pb-4">
-            <h2 className="text-base font-semibold text-ink">Artifacts</h2>
-            <p className="mt-1 text-xs text-muted">
-              {artifactGroups.length} artifact{artifactGroups.length === 1 ? "" : "s"} ·{" "}
-              {artifacts.length} version{artifacts.length === 1 ? "" : "s"}
-            </p>
+          <section className="flex items-end justify-between gap-3 border-b border-hairline pb-4">
+            <div>
+              <h2 className="text-base font-semibold text-ink">Artifacts</h2>
+              <p className="mt-1 text-xs text-muted">
+                {artifactGroups.length} artifact{artifactGroups.length === 1 ? "" : "s"} ·{" "}
+                {artifacts.length} version{artifacts.length === 1 ? "" : "s"}
+              </p>
+            </div>
+            {embedded ? (
+              <button
+                type="button"
+                onClick={() => void loadArtifacts()}
+                disabled={loading}
+                className="rounded-md border border-hairline px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Refresh
+              </button>
+            ) : null}
           </section>
 
           {error ? (

@@ -5,6 +5,7 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Button } from "@ai-workspace/umber/components/forms/Button";
 import { Orb } from "@ai-workspace/umber/components/media/Orb";
+import { StudioMark } from "@ai-workspace/umber/components/media/StudioMark";
 
 function declarations(css: string, selector: RegExp) {
   const values: Record<string, string> = {};
@@ -72,6 +73,30 @@ describe("umber foundation (packages/umber)", () => {
       createElement(Orb, { state: "idle", label: "Comparative" }),
     );
     expect(orb).toContain("comparative-orb");
+
+    const studioMark = renderToString(
+      createElement(StudioMark, {
+        state: "working",
+        label: "Contribution Studio",
+      }),
+    );
+    expect(studioMark).toContain("comparative-studio-mark");
+  });
+
+  it("keeps the Studio mark token-driven, one-shot, and reduced-motion safe", () => {
+    const mark = readFileSync(
+      join(
+        __dirname,
+        "../../../packages/umber/components/media/StudioMark.jsx",
+      ),
+      "utf8",
+    );
+    expect(mark).toContain("fill: currentColor");
+    expect(mark).toContain("studio-corner-arrive");
+    expect(mark).toContain("studio-corner-work");
+    expect(mark).toContain("prefers-reduced-motion: reduce");
+    expect(mark).toContain("animation: none !important");
+    expect(mark).not.toMatch(/#[\da-f]{3,8}/i);
   });
 
   it("imports the Umber decision tokens and maps app colors by reference", () => {

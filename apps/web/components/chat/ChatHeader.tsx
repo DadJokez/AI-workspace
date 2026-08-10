@@ -1,6 +1,8 @@
 import { AlphaBadge } from "@/components/AlphaBadge";
 import { ModelSelector, type ModelOption } from "@/components/ModelSelector";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Orb } from "@ai-workspace/umber/components/media/Orb";
+import { StudioMark } from "@ai-workspace/umber/components/media/StudioMark";
 import {
   compactModelName,
   runtimeLaneLabel,
@@ -12,9 +14,13 @@ interface ChatHeaderProps {
   models: ModelOption[];
   runtimeV2Enabled: boolean;
   activeHasPendingRun: boolean;
+  studioAvailable: boolean;
+  studioOpen: boolean;
+  studioWorking: boolean;
   unreadNotifications: number;
   onOpenMenu: () => void;
   onModelChange: (modelId: string) => void;
+  onToggleStudio: (open: boolean) => void;
   onToggleNotifications: () => void;
   onDownload: () => void;
   onStop: () => void;
@@ -25,9 +31,13 @@ export function ChatHeader({
   models,
   runtimeV2Enabled,
   activeHasPendingRun,
+  studioAvailable,
+  studioOpen,
+  studioWorking,
   unreadNotifications,
   onOpenMenu,
   onModelChange,
+  onToggleStudio,
   onToggleNotifications,
   onDownload,
   onStop,
@@ -75,6 +85,49 @@ export function ChatHeader({
         <AlphaBadge placement="inline" />
       </div>
       <div className="flex shrink-0 items-center gap-1 px-2 sm:gap-1.5 sm:px-3">
+        {studioAvailable ? (
+          <div
+            role="group"
+            aria-label="Chat or Studio view"
+            data-testid="chat-studio-switch"
+            className="flex h-8 items-center overflow-hidden rounded-md border border-hairline bg-canvas"
+          >
+            <button
+              type="button"
+              aria-pressed={!studioOpen}
+              aria-label="Show Chat"
+              title="Chat"
+              onClick={() => onToggleStudio(false)}
+              className={`flex h-full items-center gap-1.5 px-2 text-xs transition-colors ${
+                !studioOpen
+                  ? "bg-subtle text-ink"
+                  : "text-muted hover:text-ink"
+              }`}
+            >
+              <Orb state="idle" size={14} stroke={18} animated={false} />
+              <span className="hidden lg:inline">Chat</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={studioOpen}
+              aria-label="Show Contribution Studio"
+              title="Contribution Studio"
+              onClick={() => onToggleStudio(true)}
+              className={`flex h-full items-center gap-1.5 border-l border-hairline px-2 text-xs transition-colors ${
+                studioOpen
+                  ? "bg-subtle text-ink"
+                  : "text-muted hover:text-ink"
+              }`}
+            >
+              <StudioMark
+                state={studioWorking ? "working" : "idle"}
+                size={14}
+                animated={studioOpen || studioWorking}
+              />
+              <span className="hidden lg:inline">Studio</span>
+            </button>
+          </div>
+        ) : null}
         {!runtimeV2Enabled && models.length > 0 && activeTab.modelId ? (
           <div className="hidden min-[400px]:block">
             <ModelSelector

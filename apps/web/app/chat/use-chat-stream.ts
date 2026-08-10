@@ -486,14 +486,16 @@ export function useChatStream({
             runId: streamRunId,
           });
           setRightPane((current) => {
-            if (current?.kind !== "artifact") return current;
+            if (current?.kind !== "studio" || !current.artifact) {
+              return current;
+            }
             const nextArtifact = nextPreviewArtifactAfterPersisted(
               current.artifact,
               artifacts,
             );
             return nextArtifact
-              ? { kind: "artifact", artifact: nextArtifact }
-              : null;
+              ? { ...current, tab: "preview", artifact: nextArtifact }
+              : current;
           });
           if (persistedAssistantMessageId) {
             assistantDraftId = persistedAssistantMessageId;

@@ -4,36 +4,38 @@ export const SIDEBAR_COLLAPSED_STORAGE_KEY =
 const DESKTOP_MIN_WIDTH = 768;
 const TABLET_RAIL_MAX_WIDTH = 1_099;
 
+interface SidebarLayoutInput {
+  userCollapsed: boolean;
+  rightPaneOpen: boolean;
+  viewportWidth: number | null;
+  forceRail?: boolean;
+}
+
 export function shouldUseSidebarRail({
   userCollapsed,
   rightPaneOpen,
   viewportWidth,
-}: {
-  userCollapsed: boolean;
-  rightPaneOpen: boolean;
-  viewportWidth: number | null;
-}): boolean {
+  forceRail = false,
+}: SidebarLayoutInput): boolean {
   if (viewportWidth === null || viewportWidth < DESKTOP_MIN_WIDTH) return false;
   return (
     userCollapsed ||
+    forceRail ||
     (rightPaneOpen && viewportWidth <= TABLET_RAIL_MAX_WIDTH)
   );
 }
 
-export function isTemporaryTabletRail({
+export function isTemporarySidebarRail({
   userCollapsed,
   rightPaneOpen,
   viewportWidth,
-}: {
-  userCollapsed: boolean;
-  rightPaneOpen: boolean;
-  viewportWidth: number | null;
-}): boolean {
+  forceRail = false,
+}: SidebarLayoutInput): boolean {
   return (
     !userCollapsed &&
-    rightPaneOpen &&
     viewportWidth !== null &&
     viewportWidth >= DESKTOP_MIN_WIDTH &&
-    viewportWidth <= TABLET_RAIL_MAX_WIDTH
+    (forceRail ||
+      (rightPaneOpen && viewportWidth <= TABLET_RAIL_MAX_WIDTH))
   );
 }

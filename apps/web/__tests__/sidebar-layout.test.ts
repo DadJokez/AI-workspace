@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  isTemporaryTabletRail,
+  isTemporarySidebarRail,
   shouldUseSidebarRail,
 } from "@/lib/sidebar-layout";
 
@@ -29,12 +29,30 @@ describe("sidebar layout", () => {
       viewportWidth: 1_000,
     };
     expect(shouldUseSidebarRail(input)).toBe(true);
-    expect(isTemporaryTabletRail(input)).toBe(true);
+    expect(isTemporarySidebarRail(input)).toBe(true);
     expect(
       shouldUseSidebarRail({ ...input, rightPaneOpen: false }),
     ).toBe(false);
     expect(
       shouldUseSidebarRail({ ...input, viewportWidth: 1_100 }),
+    ).toBe(false);
+  });
+
+  it("temporarily uses the rail for a forced dense pane at wide widths", () => {
+    const input = {
+      userCollapsed: false,
+      rightPaneOpen: true,
+      viewportWidth: 1_440,
+      forceRail: true,
+    };
+
+    expect(shouldUseSidebarRail(input)).toBe(true);
+    expect(isTemporarySidebarRail(input)).toBe(true);
+    expect(
+      shouldUseSidebarRail({ ...input, forceRail: false }),
+    ).toBe(false);
+    expect(
+      shouldUseSidebarRail({ ...input, viewportWidth: 767 }),
     ).toBe(false);
   });
 });

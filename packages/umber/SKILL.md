@@ -14,6 +14,7 @@ If the user invokes this skill without any other guidance, ask them what they wa
 - **Themes.** Default is light. Set `data-theme="dark"` on `<html>` (or any scope) for the warm dark theme.
 - **Components** live in `components/<group>/` as React files. In HTML/prototypes, load the compiled bundle `_ds_bundle.js` and read `window.UmberDesignSystem_5c2597` (e.g. `const { Button, Card, Icon } = window.UmberDesignSystem_5c2597`). Each component has a `.prompt.md` with a usage example.
 - **Icons** — use the `Icon` component (`<Icon name="database" />`); names are Lucide glyphs. Extend the map in `components/media/Icon.jsx`.
+- **Comparative marks** — use `Orb` for chat and `StudioMark` for Contribution Studio. Both inherit `currentColor`; never redraw either mark in product code.
 - **Templates** — `templates/deck/` and `templates/white-paper/` are ready starting points.
 - **Reference app** — `ui_kits/console/` shows the components composed into a real product.
 
