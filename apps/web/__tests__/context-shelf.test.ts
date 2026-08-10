@@ -153,6 +153,19 @@ describe("context shelf contracts (#738)", () => {
     expect(contextResourceStateLabel(manifest.items[1]!)).toBe(
       "Reconnect required",
     );
+    expect(
+      contextResourceStateLabel({
+        reference: {
+          version: 1,
+          kind: "vault_item",
+          resourceId: "memory-large",
+        },
+        label: "Large memory",
+        sourceLabel: "Vault",
+        state: "budget-omitted",
+        reason: "oversize",
+      }),
+    ).toBe("Resource is too large");
 
     const reparsed = parseContextResourceManifest(manifest);
     expect(reparsed).toEqual(manifest);

@@ -26,6 +26,7 @@ export const CONTEXT_RESOURCE_REASONS = [
   "temporarily_unavailable",
   "stale_version",
   "oversize",
+  "context_budget_exhausted",
   "extraction_failed",
   "policy_denied",
 ] as const;
@@ -264,7 +265,11 @@ export function contextResourceStateLabel(
   if (item.state === "included") return "Included";
   if (item.state === "discoverable-not-mounted") return "Not mounted";
   if (item.state === "policy-blocked") return "Blocked by policy";
-  if (item.state === "budget-omitted") return "Omitted for context budget";
+  if (item.state === "budget-omitted") {
+    return item.reason === "oversize"
+      ? "Resource is too large"
+      : "Omitted for context budget";
+  }
   if (item.state === "generated-during-run") return "Generated during run";
   if (item.reason === "missing_connection") return "Connection missing";
   if (item.reason === "reconnect_required") return "Reconnect required";

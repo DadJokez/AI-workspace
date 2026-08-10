@@ -28,6 +28,7 @@ import {
 import { resolveGoogleConnection } from "@/lib/oauth/google-token";
 import { artifactPromptContent } from "@/lib/artifact-context";
 import {
+  canListAppVersionForActor,
   listAppVersions,
   resolveAppActorRole,
   type AppActorRole,
@@ -425,7 +426,15 @@ export async function resolveContextResources({
     if (reference.kind === "app_version") {
       const row = appsByVersionId.get(reference.resourceId);
       const role = row ? allowedAppRoles.get(row.app.id) : undefined;
-      if (!row || !role || role === "none") {
+      if (
+        !row ||
+        !role ||
+        role === "none" ||
+        !canListAppVersionForActor(row.version, {
+          actorRole: role,
+          visibleToUserId: user.id,
+        })
+      ) {
         manifestItems.push(
           unavailableItem(reference, "Selected app version", "App"),
         );
@@ -658,7 +667,10 @@ function addPromptItem({
   included: boolean;
   remainingChars: number;
   contentChars: number;
-  omissionReason?: "oversize" | "extraction_failed";
+  omissionReason?:
+    | "oversize"
+    | "context_budget_exhausted"
+    | "extraction_failed";
 } {
   if (!content.trim()) {
     return {
@@ -668,15 +680,20 @@ function addPromptItem({
       omissionReason: "extraction_failed",
     };
   }
-  if (
-    content.length > MAX_CONTEXT_ITEM_CHARS ||
-    content.length > remainingChars
-  ) {
+  if (content.length > MAX_CONTEXT_ITEM_CHARS) {
     return {
       included: false,
       remainingChars,
       contentChars: 0,
       omissionReason: "oversize",
+    };
+  }
+  if (content.length > remainingChars) {
+    return {
+      included: false,
+      remainingChars,
+      contentChars: 0,
+      omissionReason: "context_budget_exhausted",
     };
   }
   promptItems.push({ source, label, metadata, content });

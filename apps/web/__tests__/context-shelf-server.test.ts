@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   readGoogleMailMessageReference: vi.fn(),
   searchGoogleMailThreads: vi.fn(),
   artifactPromptContent: vi.fn(),
+  canListAppVersionForActor: vi.fn(),
   listAppVersions: vi.fn(),
   resolveAppActorRole: vi.fn(),
 }));
@@ -39,6 +40,7 @@ vi.mock("@/lib/artifact-context", () => ({
   artifactPromptContent: mocks.artifactPromptContent,
 }));
 vi.mock("@/lib/apps", () => ({
+  canListAppVersionForActor: mocks.canListAppVersionForActor,
   listAppVersions: mocks.listAppVersions,
   resolveAppActorRole: mocks.resolveAppActorRole,
 }));
@@ -64,6 +66,7 @@ beforeEach(() => {
   mocks.artifactPromptContent.mockImplementation(
     ({ content }: { content: string }) => ({ content }),
   );
+  mocks.canListAppVersionForActor.mockReturnValue(true);
 });
 
 describe("server-authoritative Context Shelf resolution (#738)", () => {
@@ -198,6 +201,40 @@ describe("server-authoritative Context Shelf resolution (#738)", () => {
     ]);
   });
 
+  it("distinguishes total context-budget exhaustion from an oversized item", async () => {
+    rows.set(
+      mocks.userMemoryItems,
+      ["one", "two", "three"].map((id) => ({
+        id: `memory-${id}`,
+        userId: user.id,
+        status: "approved",
+        title: `Memory ${id}`,
+        bodyMd: id[0]!.repeat(15_000),
+        category: "reference",
+      })),
+    );
+
+    const result = await resolveContextResources({
+      db: fakeDb(),
+      user,
+      threadId,
+      references: ["one", "two", "three"].map((id) => ({
+        version: 1 as const,
+        kind: "vault_item" as const,
+        resourceId: `memory-${id}`,
+      })),
+    });
+
+    expect(result.manifest.items.map((item) => item.state)).toEqual([
+      "included",
+      "included",
+      "budget-omitted",
+    ]);
+    expect(result.manifest.items[2]).toMatchObject({
+      reason: "context_budget_exhausted",
+    });
+  });
+
   it("pins the exact authorized app version selected by the user", async () => {
     rows.set(mocks.appVersions, [
       {
@@ -241,6 +278,58 @@ describe("server-authoritative Context Shelf resolution (#738)", () => {
       }),
     ]);
   });
+
+  it.each(["viewer", "editor"] as const)(
+    "rejects a hidden app version referenced by an authorized %s",
+    async (role) => {
+      rows.set(mocks.appVersions, [
+        {
+          version: {
+            id: "private-version",
+            appId: "app-1",
+            versionNumber: 3,
+            status: "draft",
+            createdByUserId: "another-editor",
+          },
+          app: { id: "app-1", name: "Private planner" },
+          artifact: {
+            id: "private-artifact",
+            source: "chat",
+            content: "another editor's private work",
+            metadata: {},
+          },
+        },
+      ]);
+      mocks.resolveAppActorRole.mockResolvedValue(role);
+      mocks.canListAppVersionForActor.mockReturnValue(false);
+
+      const result = await resolveContextResources({
+        db: fakeDb(),
+        user,
+        threadId,
+        references: [
+          {
+            version: 1,
+            kind: "app_version",
+            resourceId: "private-version",
+            containerId: "app-1",
+          },
+        ],
+      });
+
+      expect(mocks.canListAppVersionForActor).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "private-version" }),
+        { actorRole: role, visibleToUserId: user.id },
+      );
+      expect(result.promptContext).toBeNull();
+      expect(result.manifest.items).toEqual([
+        expect.objectContaining({ state: "unavailable" }),
+      ]);
+      expect(JSON.stringify(result)).not.toContain(
+        "another editor's private work",
+      );
+    },
+  );
 
   it("does not touch Gmail when provider policy blocks the selected resource", async () => {
     const result = await resolveContextResources({
