@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import {
   assistantMessage,
   defaultArtifactDetail,
@@ -146,6 +146,8 @@ test.describe("Contribution Studio", () => {
       name: "Contribution Studio",
     });
     await expect(studio).toBeVisible();
+    const studioMark = studio.getByTestId("contribution-studio-mark");
+    await expectCanonicalStudioMark(studioMark);
     await expect(studio.getByRole("button", { name: "Preview" })).toBeVisible();
     await expect(studio.getByRole("button", { name: "Files" })).toBeVisible();
     await expect(studio.getByRole("button", { name: "Browser" })).toBeVisible();
@@ -193,12 +195,18 @@ test.describe("Contribution Studio", () => {
       expect(after!.width).toBeGreaterThan(before!.width);
       expect(chatBox!.width).toBeGreaterThanOrEqual(400);
       expect(chatBox!.x + chatBox!.width).toBeLessThanOrEqual(after!.x + 1);
-      await page
-        .getByTestId("contribution-studio-resizer")
-        .press("Shift+ArrowRight");
+      await expectCanonicalStudioMark(studioMark);
+      const resizer = page.getByTestId("contribution-studio-resizer");
+      await resizer.press("Shift+ArrowRight");
       const resized = await studio.boundingBox();
       expect(resized).toBeTruthy();
       expect(resized!.width).toBeLessThan(after!.width - 60);
+      await expectCanonicalStudioMark(studioMark);
+      for (let step = 0; step < 10; step += 1) {
+        await resizer.press("Shift+ArrowRight");
+      }
+      await expect(resizer).toHaveAttribute("aria-valuenow", "380");
+      await expectCanonicalStudioMark(studioMark);
       await expect(
         studio.getByRole("button", { name: "Maximize Studio" }),
       ).toBeVisible();
@@ -213,3 +221,19 @@ test.describe("Contribution Studio", () => {
     ).toHaveAttribute("aria-current", "page");
   });
 });
+
+async function expectCanonicalStudioMark(mark: Locator) {
+  await expect(mark).toBeVisible();
+  await expect
+    .poll(() =>
+      mark.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return {
+          height: Math.round(bounds.height),
+          width: Math.round(bounds.width),
+        };
+      }),
+    )
+    .toEqual({ height: 24, width: 24 });
+  await expect(mark).toHaveCSS("flex-shrink", "0");
+}
