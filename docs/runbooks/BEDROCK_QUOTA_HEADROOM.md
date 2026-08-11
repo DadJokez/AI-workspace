@@ -32,8 +32,24 @@ metrics for the production inference-profile `ModelId` dimension:
 - `OutputTokenCount`
 - `CacheWriteInputTokenCount`
 
+The quota-weighted expression is:
+
+```text
+InputTokenCount + CacheWriteInputTokenCount + (OutputTokenCount * 5)
+```
+
+AWS applies a 5x quota burndown to output tokens for Anthropic models through
+version 4.7. `CacheReadInputTokens` is deliberately excluded: AWS states that
+cache reads do not count toward the runtime token quota. This is quota
+accounting, not billing or total-context accounting. See [How tokens are
+counted in Amazon Bedrock](https://docs.aws.amazon.com/bedrock/latest/userguide/quotas-token-burndown.html)
+and [Bedrock runtime metrics](https://docs.aws.amazon.com/bedrock/latest/userguide/monitoring-runtime-metrics.html).
+
 The metric expression treats a missing constituent metric as zero so a sparse
-cache-write series cannot suppress input/output consumption.
+cache-write series cannot suppress input/output consumption. This was checked
+against live CloudWatch on 2026-08-11 with a never-published constituent
+metric: `GetMetricData` returned a complete zero-filled series and preserved
+the real input datapoint.
 
 The alarm and its recovery notification both route to the existing
 `ai-workspace-ops-alerts` SNS topic. Missing data is non-breaching.

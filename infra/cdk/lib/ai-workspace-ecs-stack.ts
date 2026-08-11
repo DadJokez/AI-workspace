@@ -48,6 +48,7 @@ const WEB_SERVICE_NAME = "ai-workspace-web";
 const BEDROCK_SONNET_45_MODEL_ID =
   "us.anthropic.claude-sonnet-4-5-20250929-v1:0";
 const BEDROCK_SONNET_45_DAILY_TOKEN_QUOTA = 5_400_000;
+const BEDROCK_SONNET_45_OUTPUT_TOKEN_BURNDOWN_RATE = 5;
 const BEDROCK_DAILY_TOKEN_WARNING_THRESHOLD =
   BEDROCK_SONNET_45_DAILY_TOKEN_QUOTA * 0.8;
 
@@ -430,6 +431,9 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     // window, so this deliberately uses a conservative rolling 24-hour sum.
     // It can warn briefly after the UTC quota reset, but it cannot miss an
     // approaching exhaustion because of a calendar boundary.
+    // AWS excludes cache reads from quota and applies a 5x quota burndown to
+    // Sonnet 4.5 output tokens. Keep this expression aligned with the Bedrock
+    // token-burndown contract, not billing totals.
     const bedrockTokenMetric = (metricName: string) =>
       new cloudwatch.Metric({
         namespace: "AWS/Bedrock",
@@ -451,8 +455,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
         alarmDescription:
           "#706: rolling 24-hour Sonnet 4.5 token consumption reached 80% of the 5.4M account quota; CI can now starve production.",
         metric: new cloudwatch.MathExpression({
-          expression:
-            "FILL(inputTokens, 0) + FILL(outputTokens, 0) + FILL(cacheWriteTokens, 0)",
+          expression: `FILL(inputTokens, 0) + FILL(cacheWriteTokens, 0) + (FILL(outputTokens, 0) * ${BEDROCK_SONNET_45_OUTPUT_TOKEN_BURNDOWN_RATE})`,
           usingMetrics: bedrockTokenMetrics,
           period: cdk.Duration.days(1),
         }),
