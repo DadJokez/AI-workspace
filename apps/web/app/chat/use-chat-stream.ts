@@ -8,6 +8,7 @@ import { readChatSseStream } from "@/lib/sse";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import type { PersistedRecommendation } from "@/lib/recommendations";
 import type { ProposalIterationTarget } from "@/lib/output-proposals";
+import type { ArtifactReviewSelection } from "@/lib/artifact-review-client";
 import {
   parseContextResourceManifest,
   type ContextResourceSearchResult,
@@ -44,6 +45,10 @@ export type SendChatMessage = (
   },
   clientMessageId?: string,
   contextResources?: ContextResourceSearchResult[],
+  artifactReview?: {
+    artifactId: string;
+    comments: ArtifactReviewSelection[];
+  },
 ) => Promise<boolean>;
 
 interface ActiveChatStream {
@@ -95,6 +100,10 @@ export function useChatStream({
     },
     clientMessageId?: string,
     contextResources?: ContextResourceSearchResult[],
+    artifactReview?: {
+      artifactId: string;
+      comments: ArtifactReviewSelection[];
+    },
   ) {
     if (!activeTab || activeTab.busy) return false;
     if (!text.trim() && (!attachments || attachments.length === 0)) return false;
@@ -218,6 +227,7 @@ export function useChatStream({
       has_attachments: (attachments?.length ?? 0) > 0,
       is_edit: Boolean(replaceMessageId),
       has_activated_skill: Boolean(activatedSkill),
+      is_artifact_review: Boolean(artifactReview),
     });
 
     stickToBottomRef.current = true;
@@ -237,7 +247,11 @@ export function useChatStream({
     let responseAccepted = false;
     try {
       const response = await fetch(
-        proposalIteration ? "/api/output-proposals/iterate" : "/api/chat",
+        proposalIteration
+          ? "/api/output-proposals/iterate"
+          : artifactReview
+            ? `/api/workspace/artifacts/${encodeURIComponent(artifactReview.artifactId)}/review-comments/address`
+            : "/api/chat",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -255,6 +269,7 @@ export function useChatStream({
             ...(attachments && attachments.length > 0 ? { attachments } : {}),
             ...(replaceMessageId ? { replaceMessageId } : {}),
             ...(proposalIteration ? { proposalIteration } : {}),
+            ...(artifactReview ? { comments: artifactReview.comments } : {}),
             ...(clientMessageId ? { clientMessageId } : {}),
             ...(selectedResourceReferences.length > 0
               ? { resourceReferences: selectedResourceReferences }
@@ -494,7 +509,12 @@ export function useChatStream({
               artifacts,
             );
             return nextArtifact
-              ? { ...current, tab: "preview", artifact: nextArtifact }
+              ? {
+                  ...current,
+                  tab: "preview",
+                  artifact: nextArtifact,
+                  focusReviewCommentId: undefined,
+                }
               : current;
           });
           if (persistedAssistantMessageId) {
@@ -534,7 +554,10 @@ export function useChatStream({
         patchTabMessages(tabId, () => originalMessages);
         return false;
       }
-      if ((replaceMessageId || proposalIteration) && !responseAccepted) {
+      if (
+        (replaceMessageId || proposalIteration || artifactReview) &&
+        !responseAccepted
+      ) {
         patchTabMessages(tabId, () => originalMessages);
         return false;
       }

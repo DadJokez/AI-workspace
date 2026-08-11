@@ -9,6 +9,7 @@ interface Props {
     section?: string;
     focus?: string;
     artifactId?: string;
+    reviewComment?: string;
   }>;
 }
 
@@ -32,6 +33,7 @@ export default async function ChatPage({ searchParams }: Props) {
       initialSettingsSection={initialSettingsSection}
       initialMemoryId={params.focus}
       initialArtifactId={params.artifactId}
+      initialReviewCommentId={params.reviewComment}
     />
   );
 }

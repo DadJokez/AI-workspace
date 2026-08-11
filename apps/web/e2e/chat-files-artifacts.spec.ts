@@ -6,6 +6,7 @@ import {
   defaultArtifactSummary,
   fulfillSse,
   installMockComparativeApi,
+  now,
   userMessage,
 } from "./helpers/mock-comparative";
 import { gotoE2EChat, openPrimarySidebar } from "./helpers/navigation";
@@ -741,6 +742,218 @@ test.describe("chat files and artifacts", () => {
     );
     await expect(comparison).toContainText("Original version.");
     await expect(comparison).toContainText("Updated version.");
+  });
+
+  test("reviews an anchored comment, reloads it, and addresses a scoped revision", async ({
+    page,
+  }) => {
+    const threadId = "thread-artifact-review";
+    const sourceContent = [
+      "# Launch brief",
+      "",
+      "The launch is ready.",
+      "",
+      "Ship Friday.",
+    ].join("\n");
+    const revisedContent = sourceContent.replace(
+      "Ship Friday.",
+      "Ship Friday after final approval.",
+    );
+    const source = {
+      ...defaultArtifactSummary,
+      id: "artifact-review-v1",
+      title: "Launch brief",
+      filename: "launch-brief.md",
+      kind: "markdown",
+      mimeType: "text/markdown",
+      threadId,
+      artifactGroupId: "artifact-review-group",
+      sizeBytes: sourceContent.length,
+      previewUrl: "/workspace/artifacts/artifact-review-v1",
+      downloadUrl:
+        "/api/workspace/artifacts/artifact-review-v1/download",
+    };
+    const replacement = {
+      ...source,
+      id: "artifact-review-v2",
+      chatMessageId: "assistant-artifact-review",
+      runId: "run-artifact-review",
+      versionNumber: 2,
+      supersedesArtifactId: source.id,
+      versionSummary: "Applied one selected review comment.",
+      sizeBytes: revisedContent.length,
+      metadata: {
+        outputProposal: {
+          status: "proposed",
+          runId: "run-artifact-review",
+          triggerType: "artifact_review",
+          createdAt: now,
+        },
+        artifactReview: {
+          sourceArtifactId: source.id,
+          sourceArtifactVersionNumber: 1,
+          commentIds: ["review-comment-1"],
+        },
+      },
+      previewUrl: "/workspace/artifacts/artifact-review-v2",
+      downloadUrl:
+        "/api/workspace/artifacts/artifact-review-v2/download",
+    };
+    const sourceMessages = [
+      userMessage({
+        id: "user-source",
+        content: "Create the launch brief.",
+      }),
+      assistantMessage({
+        id: "assistant-source",
+        content: "The launch brief is ready.",
+        artifacts: [source],
+      }),
+    ];
+    const threadMessages: Record<string, unknown[]> = {
+      [threadId]: sourceMessages,
+    };
+    let addressBody: Record<string, unknown> | undefined;
+    let proposalDecision: Record<string, unknown> | undefined;
+
+    await installMockComparativeApi(page, {
+      threads: [threadSummary(threadId, "Review the launch brief")],
+      threadMessages,
+      artifacts: [source, replacement],
+      artifactDetails: {
+        [source.id]: { ...source, content: sourceContent },
+        [replacement.id]: { ...replacement, content: revisedContent },
+      },
+      artifactVersionSets: {
+        [source.id]: {
+          selectedArtifactId: source.id,
+          latestArtifactId: source.id,
+          staleBase: false,
+          versions: [source],
+        },
+      },
+      artifactReviewComments: { [source.id]: [] },
+      onArtifactReviewAddress: async (artifactId, body, route) => {
+        expect(artifactId).toBe(source.id);
+        addressBody = body;
+        threadMessages[threadId] = [
+          ...sourceMessages,
+          userMessage({
+            id: "user-artifact-review",
+            content: "Address 1 review comment on launch-brief.md (v1).",
+          }),
+          assistantMessage({
+            id: "assistant-artifact-review",
+            content: "The revised launch brief is ready for review.",
+            artifacts: [replacement],
+            runId: "run-artifact-review",
+          }),
+        ];
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId,
+            runId: "run-artifact-review",
+            userMessageId: "user-artifact-review",
+            modelId: "sonnet-4-6",
+            runtimeRoute: { lane: "durable-local", useWorker: true },
+          },
+          {
+            type: "queued",
+            threadId,
+            runId: "run-artifact-review",
+            status: "Addressing selected review comments",
+          },
+          { type: "done", stopReason: "queued" },
+        ]);
+      },
+      onArtifactProposal: async (artifactId, body, route) => {
+        proposalDecision = { artifactId, ...body };
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            artifact: {
+              ...replacement,
+              metadata: {
+                ...replacement.metadata,
+                outputProposal: {
+                  ...replacement.metadata.outputProposal,
+                  status: body.decision,
+                },
+              },
+            },
+          }),
+        });
+      },
+    });
+
+    await page.goto(`/e2e/chat?threadId=${threadId}`);
+    const artifactPill = page.locator(
+      `[data-testid="artifact-pill"][data-artifact-id="${source.id}"]`,
+    );
+    await expect(artifactPill).toBeVisible();
+    await artifactPill.click();
+    const studio = page.getByRole("complementary", {
+      name: "Contribution Studio",
+    });
+    await studio.getByRole("tab", { name: "Source" }).click();
+    await studio.getByRole("button", { name: "Comments" }).click();
+    const sourceView = studio.getByTestId("artifact-source-view");
+    await sourceView.evaluate((element) => {
+      const text = element.textContent ?? "";
+      const start = text.indexOf("Ship Friday.");
+      const range = document.createRange();
+      range.setStart(element.firstChild!, start);
+      range.setEnd(element.firstChild!, start + "Ship Friday.".length);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await studio.getByRole("button", { name: "Comment selection" }).click();
+    await studio
+      .getByLabel("Add comment")
+      .fill("Mention the final approval gate.");
+    await studio.getByRole("button", { name: "Add comment" }).click();
+    await expect(studio.getByText("Mention the final approval gate.")).toBeVisible();
+
+    await page.goto(
+      `/e2e/chat?threadId=${threadId}&artifactId=${source.id}&reviewComment=review-comment-1`,
+    );
+    const reopenedStudio = page.getByRole("complementary", {
+      name: "Contribution Studio",
+    });
+    await expect(reopenedStudio.getByText("Mention the final approval gate.")).toBeVisible();
+    await expect(reopenedStudio.getByRole("tab", { name: "Source" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString()))
+      .toBe("Ship Friday.");
+    await reopenedStudio
+      .getByRole("checkbox", { name: "Select comment by Rob" })
+      .check();
+    await reopenedStudio
+      .getByRole("button", { name: "Address with Comparative (1)" })
+      .click();
+
+    await expect.poll(() => addressBody).toMatchObject({
+      threadId,
+      comments: [{ id: "review-comment-1", revision: 1 }],
+    });
+    const proposalCard = page
+      .getByTestId("output-proposal-card")
+      .filter({ hasText: "launch-brief.md" });
+    await expect(proposalCard).toContainText("Needs review");
+    await expect(proposalCard).toContainText(
+      "Applied one selected review comment.",
+    );
+    await proposalCard.getByRole("button", { name: "Accept" }).click();
+    await expect.poll(() => proposalDecision).toEqual({
+      artifactId: replacement.id,
+      decision: "accepted",
+    });
   });
 
   test("#284 revises an artifact after reopening an old chat", async ({

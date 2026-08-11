@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getDb, loadWorkspaceArtifactVersionsForUser, requireSession } =
+const { getDb, loadArtifactVersionsForReview, requireSession } =
   vi.hoisted(() => ({
     getDb: vi.fn(() => ({ id: "db" })),
-    loadWorkspaceArtifactVersionsForUser: vi.fn(),
+    loadArtifactVersionsForReview: vi.fn(),
     requireSession: vi.fn(),
   }));
 
 vi.mock("@ai-workspace/db", () => ({ getDb }));
 vi.mock("@/lib/auth/requireSession", () => ({ requireSession }));
-vi.mock("@/lib/workspace-artifacts", () => ({
-  loadWorkspaceArtifactVersionsForUser,
+vi.mock("@/lib/artifact-review-access", () => ({
+  loadArtifactVersionsForReview,
 }));
 
 import { GET } from "@/app/api/workspace/artifacts/[id]/versions/route";
@@ -34,7 +34,7 @@ const versionSet = {
 beforeEach(() => {
   vi.clearAllMocks();
   requireSession.mockResolvedValue({ user });
-  loadWorkspaceArtifactVersionsForUser.mockResolvedValue(versionSet);
+  loadArtifactVersionsForReview.mockResolvedValue(versionSet);
 });
 
 describe("GET /api/workspace/artifacts/[id]/versions", () => {
@@ -44,15 +44,15 @@ describe("GET /api/workspace/artifacts/[id]/versions", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(await response.json()).toEqual(versionSet);
-    expect(loadWorkspaceArtifactVersionsForUser).toHaveBeenCalledWith({
+    expect(loadArtifactVersionsForReview).toHaveBeenCalledWith({
       db: { id: "db" },
-      userId: user.id,
+      actor: user,
       artifactId: "artifact-v1",
     });
   });
 
   it("returns 404 when the artifact is outside the user's scope", async () => {
-    loadWorkspaceArtifactVersionsForUser.mockResolvedValue(null);
+    loadArtifactVersionsForReview.mockResolvedValue(null);
 
     const response = await getVersions("artifact-foreign");
 
@@ -68,7 +68,7 @@ describe("GET /api/workspace/artifacts/[id]/versions", () => {
     const response = await getVersions("artifact-v1");
 
     expect(response.status).toBe(401);
-    expect(loadWorkspaceArtifactVersionsForUser).not.toHaveBeenCalled();
+    expect(loadArtifactVersionsForReview).not.toHaveBeenCalled();
   });
 });
 

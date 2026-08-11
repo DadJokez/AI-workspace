@@ -27,6 +27,10 @@ import { Sidebar } from "@/components/Sidebar";
 import { useHorizontalSwipe } from "@/components/useHorizontalSwipe";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import {
+  formatArtifactReviewMessage,
+  type ArtifactReviewSelection,
+} from "@/lib/artifact-review-client";
+import {
   deriveContributionStudio,
   type ContributionStudioScope,
 } from "@/lib/contribution-studio";
@@ -61,6 +65,7 @@ interface ChatClientProps {
   initialSettingsSection?: "memory" | "integrations";
   initialMemoryId?: string;
   initialArtifactId?: string;
+  initialReviewCommentId?: string;
 }
 
 export function ChatClient({
@@ -69,6 +74,7 @@ export function ChatClient({
   initialSettingsSection,
   initialMemoryId,
   initialArtifactId,
+  initialReviewCommentId,
 }: ChatClientProps) {
   const router = useRouter();
   const { openPalette } = useCommandPalette();
@@ -141,6 +147,8 @@ export function ChatClient({
   const [editingQueuedTurnId, setEditingQueuedTurnId] = useState<string | null>(
     null,
   );
+  const patchTabRef = useRef(patchTab);
+  const activeIdRef = useRef(activeId);
   const closeRightPane = useCallback(() => setRightPane(null), []);
   const openSidebarSwipe = useHorizontalSwipe({
     direction: "right",
@@ -158,6 +166,11 @@ export function ChatClient({
   const inspectedMessage = inspectedRunId
     ? activeTab?.messages.find((message) => message.runId === inspectedRunId)
     : undefined;
+
+  useEffect(() => {
+    patchTabRef.current = patchTab;
+    activeIdRef.current = activeId;
+  }, [activeId, patchTab]);
 
   useEffect(() => {
     if (user?.role !== "admin") return;
@@ -183,6 +196,7 @@ export function ChatClient({
   useEffect(() => {
     if (!initialArtifactId) return;
     let cancelled = false;
+    const errorTabId = activeIdRef.current;
     void fetchJson<{ artifact: WorkspaceArtifactSummary }>(
       `/api/workspace/artifacts/${encodeURIComponent(initialArtifactId)}`,
       undefined,
@@ -195,17 +209,41 @@ export function ChatClient({
           tab: "preview",
           artifact,
           scope: artifact.threadId ? "thread" : "workspace",
+          focusReviewCommentId: initialReviewCommentId,
         });
       })
-      .catch(() => {
-        if (!cancelled) {
-          setRightPane({ kind: "studio", tab: "files", scope: "workspace" });
+      .catch(async () => {
+        if (cancelled) return;
+        let message = "Could not open that artifact.";
+        if (initialReviewCommentId) {
+          try {
+            const response = await fetch(
+              `/api/workspace/artifact-review-comments/${encodeURIComponent(initialReviewCommentId)}`,
+              { cache: "no-store" },
+            );
+            if (response.status === 410) {
+              const body = (await response.json()) as {
+                artifact?: { filename?: string; versionNumber?: number };
+              };
+              const filename = body.artifact?.filename ?? "This artifact";
+              const version = body.artifact?.versionNumber;
+              message = `${filename}${version ? ` v${version}` : ""} was deleted. Its review history remains, but the source can no longer be opened.`;
+            } else if (response.status === 404) {
+              message =
+                "This review link is no longer available, or you no longer have permission to open it.";
+            }
+          } catch {
+            // Preserve the generic artifact error when the diagnostic lookup fails.
+          }
         }
+        if (cancelled) return;
+        if (errorTabId) patchTabRef.current(errorTabId, { error: message });
+        setRightPane({ kind: "studio", tab: "files", scope: "workspace" });
       });
     return () => {
       cancelled = true;
     };
-  }, [initialArtifactId]);
+  }, [initialArtifactId, initialReviewCommentId]);
 
   // Open settings via ⌘,/Ctrl,
   useEffect(() => {
@@ -353,6 +391,39 @@ export function ChatClient({
     setRightPane,
     stickToBottomRef,
   });
+
+  function addressArtifactReviewComments({
+    artifact,
+    comments,
+  }: {
+    artifact: WorkspaceArtifactSummary;
+    comments: ArtifactReviewSelection[];
+  }): Promise<boolean> {
+    if (!activeTab?.threadId) {
+      if (activeTab) {
+        patchTab(activeTab.id, {
+          error: "Open or create a chat before addressing review comments.",
+        });
+      }
+      return Promise.resolve(false);
+    }
+    const message = formatArtifactReviewMessage({
+      filename: artifact.filename,
+      versionNumber: artifact.versionNumber,
+      commentCount: comments.length,
+    });
+    return send(
+      message,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { artifactId: artifact.id, comments },
+    );
+  }
   const queuedTurns = useChatTurnQueue({
     userId: user?.id,
     tabId: activeTab?.id,
@@ -740,6 +811,7 @@ export function ChatClient({
             onClose={closeRightPane}
             onOpenArtifact={openArtifactPreview}
             onOpenRunInspector={openRunInspector}
+            onAddressArtifactReview={addressArtifactReviewComments}
             onOpenThread={openThread}
             onUnreadChange={setUnreadNotifications}
           />

@@ -30,6 +30,10 @@ import {
   proposalIterationFromRunInputs,
   releaseProposalIteration,
 } from "@/lib/proposal-iterations";
+import {
+  artifactReviewRequestFromRunInputs,
+  releaseArtifactReviewRequest,
+} from "@/lib/artifact-review";
 import { parseContextResourceReferences } from "@/lib/context-shelf";
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
@@ -436,6 +440,7 @@ export async function quarantineExhaustedRuns({
       })}\n`,
     );
     await releaseProposalIterationBestEffort(db, run, message, now);
+    await releaseArtifactReviewBestEffort(db, run, message, now);
     await appendRunEventBestEffort("chat-run-event-error", {
       db,
       runId: run.id,
@@ -591,7 +596,8 @@ async function executeClaimedChatRun({
       suppressedSkillIds: activatedSkillIdsFromInputs(run.inputs),
       interactive:
         run.triggerType === "chat" ||
-        run.triggerType === "proposal_iteration",
+        run.triggerType === "proposal_iteration" ||
+        run.triggerType === "artifact_review",
       lane: {
         kind: "worker",
         run,
@@ -649,6 +655,7 @@ async function markRunFailed(
   if (updatedRows.length === 0) return;
 
   await releaseProposalIterationBestEffort(db, run, message, completedAt);
+  await releaseArtifactReviewBestEffort(db, run, message, completedAt);
 
   await createProactiveRunNotification(db, { ...run, error: message }, "failed");
 
@@ -685,6 +692,31 @@ async function releaseProposalIterationBestEffort(
   } catch (error) {
     process.stderr.write(
       `[proposal-iteration-release-error] ${JSON.stringify({
+        runId: run.id,
+        message: error instanceof Error ? error.message : String(error),
+      })}\n`,
+    );
+  }
+}
+
+async function releaseArtifactReviewBestEffort(
+  db: Database,
+  run: Run,
+  message: string,
+  completedAt: Date,
+): Promise<void> {
+  const request = artifactReviewRequestFromRunInputs(run.inputs);
+  if (!request || request.runId !== run.id) return;
+  try {
+    await releaseArtifactReviewRequest({
+      db,
+      request,
+      error: message,
+      completedAt,
+    });
+  } catch (error) {
+    process.stderr.write(
+      `[artifact-review-release-error] ${JSON.stringify({
         runId: run.id,
         message: error instanceof Error ? error.message : String(error),
       })}\n`,

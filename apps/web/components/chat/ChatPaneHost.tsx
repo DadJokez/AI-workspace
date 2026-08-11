@@ -8,6 +8,7 @@ import type {
 } from "@/app/chat/chat-client-state";
 import type { ContributionStudioScope } from "@/lib/contribution-studio";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import type { ArtifactReviewSelection } from "@/lib/artifact-review-client";
 
 interface ChatPaneHostProps {
   rightPane: RightPane | null;
@@ -20,6 +21,10 @@ interface ChatPaneHostProps {
     scope: ContributionStudioScope,
   ) => void;
   onOpenRunInspector: (runId: string) => void;
+  onAddressArtifactReview: (input: {
+    artifact: WorkspaceArtifactSummary;
+    comments: ArtifactReviewSelection[];
+  }) => Promise<boolean>;
   onOpenThread: (threadId: string, title: string) => void;
   onUnreadChange: (count: number) => void;
 }
@@ -32,6 +37,7 @@ export function ChatPaneHost({
   onClose,
   onOpenArtifact,
   onOpenRunInspector,
+  onAddressArtifactReview,
   onOpenThread,
   onUnreadChange,
 }: ChatPaneHostProps) {
@@ -55,6 +61,8 @@ export function ChatPaneHost({
         onClose={onClose}
         onOpenArtifact={onOpenArtifact}
         onOpenRunInspector={onOpenRunInspector}
+        focusReviewCommentId={rightPane.focusReviewCommentId}
+        onAddressArtifactReview={onAddressArtifactReview}
       />
     );
   }

@@ -18,6 +18,11 @@ interface MockChatOptions {
   artifacts?: unknown[];
   artifactDetails?: Record<string, unknown>;
   artifactVersionSets?: Record<string, unknown>;
+  artifactReviewComments?: Record<string, Array<Record<string, unknown>>>;
+  artifactReviewPermissions?: Record<
+    string,
+    { canComment: boolean; canAddress: boolean }
+  >;
   runTraces?: Record<string, unknown>;
   runStatuses?: Record<string, Record<string, unknown>>;
   skills?: unknown[];
@@ -81,6 +86,11 @@ interface MockChatOptions {
     route: Route,
   ) => Promise<void> | void;
   onArtifactProposal?: (
+    artifactId: string,
+    body: Record<string, unknown>,
+    route: Route,
+  ) => Promise<void> | void;
+  onArtifactReviewAddress?: (
     artifactId: string,
     body: Record<string, unknown>,
     route: Route,
@@ -230,6 +240,14 @@ export async function installMockComparativeApi(
     [defaultArtifactSummary.id]: defaultArtifactDetail,
     ...(options.artifactDetails ?? {}),
   };
+  const artifactReviewComments = Object.fromEntries(
+    Object.entries(options.artifactReviewComments ?? {}).map(
+      ([artifactId, comments]) => [
+        artifactId,
+        comments.map((comment) => ({ ...comment })),
+      ],
+    ),
+  );
   const skills = options.skills ?? [defaultSkill];
   const apps = options.apps ?? [];
   let threads = (options.threads ?? []) as Array<Record<string, unknown>>;
@@ -666,6 +684,135 @@ export async function installMockComparativeApi(
 
     if (path === "/api/workspace/artifacts") {
       return json(route, { artifacts });
+    }
+
+    const artifactReviewAddressMatch =
+      /^\/api\/workspace\/artifacts\/([^/]+)\/review-comments\/address$/.exec(
+        path,
+      );
+    if (artifactReviewAddressMatch && request.method() === "POST") {
+      const artifactId = decodeURIComponent(artifactReviewAddressMatch[1]!);
+      const body = await postJson(request);
+      const selected = Array.isArray(body.comments) ? body.comments : [];
+      const selectedIds = new Set(
+        selected
+          .filter(isRecord)
+          .map((comment) => comment.id)
+          .filter((id): id is string => typeof id === "string"),
+      );
+      artifactReviewComments[artifactId] = (
+        artifactReviewComments[artifactId] ?? []
+      ).map((comment) =>
+        selectedIds.has(String(comment.id))
+          ? {
+              ...comment,
+              status: "addressing",
+              revision: Number(comment.revision ?? 1) + 1,
+              addressingRunId: "run-artifact-review",
+              permissions: {
+                canEdit: false,
+                canResolve: false,
+                canReopen: false,
+              },
+              updatedAt: now,
+            }
+          : comment,
+      );
+      if (options.onArtifactReviewAddress) {
+        return options.onArtifactReviewAddress(artifactId, body, route);
+      }
+      return fulfillSse(route, [
+        {
+          type: "meta",
+          threadId: body.threadId,
+          runId: "run-artifact-review",
+          userMessageId: "user-artifact-review",
+          modelId: "sonnet-4-6",
+          runtimeRoute: { lane: "durable-local", useWorker: true },
+        },
+        {
+          type: "queued",
+          threadId: body.threadId,
+          runId: "run-artifact-review",
+          status: "Addressing selected review comments",
+        },
+        { type: "done", stopReason: "queued" },
+      ]);
+    }
+
+    const artifactReviewCommentMatch =
+      /^\/api\/workspace\/artifacts\/([^/]+)\/review-comments\/([^/]+)$/.exec(
+        path,
+      );
+    if (artifactReviewCommentMatch && request.method() === "PATCH") {
+      const artifactId = decodeURIComponent(artifactReviewCommentMatch[1]!);
+      const commentId = decodeURIComponent(artifactReviewCommentMatch[2]!);
+      const body = await postJson(request);
+      const comments = artifactReviewComments[artifactId] ?? [];
+      const current = comments.find((comment) => comment.id === commentId);
+      if (!current) {
+        return json(route, { error: "review_comment_not_found" }, 404);
+      }
+      const next = {
+        ...current,
+        ...(typeof body.body === "string" ? { body: body.body } : {}),
+        ...(body.status === "open" || body.status === "addressed"
+          ? { status: body.status }
+          : {}),
+        revision: Number(current.revision ?? 1) + 1,
+        updatedAt: now,
+      };
+      artifactReviewComments[artifactId] = comments.map((comment) =>
+        comment.id === commentId ? next : comment,
+      );
+      return json(route, { comment: next });
+    }
+
+    const artifactReviewCommentsMatch =
+      /^\/api\/workspace\/artifacts\/([^/]+)\/review-comments$/.exec(path);
+    if (artifactReviewCommentsMatch) {
+      const artifactId = decodeURIComponent(artifactReviewCommentsMatch[1]!);
+      const selected = artifacts
+        .filter(isRecord)
+        .find((item) => item.id === artifactId);
+      const permissions = options.artifactReviewPermissions?.[artifactId] ?? {
+        canComment: true,
+        canAddress: true,
+      };
+      if (request.method() === "POST") {
+        const body = await postJson(request);
+        const comments = artifactReviewComments[artifactId] ?? [];
+        const comment = {
+          id: `review-comment-${comments.length + 1}`,
+          artifactId,
+          artifactGroupId: selected?.artifactGroupId ?? "artifact-group",
+          artifactVersionNumber: Number(selected?.versionNumber ?? 1),
+          artifactFilename: String(selected?.filename ?? "artifact"),
+          body: body.body,
+          anchor: body.anchor,
+          status: "open",
+          revision: 1,
+          author: { id: user.id, displayName: user.displayName },
+          addressingRunId: null,
+          addressedAt: null,
+          resultArtifactId: null,
+          createdAt: now,
+          updatedAt: now,
+          permissions: {
+            canEdit: true,
+            canResolve: true,
+            canReopen: false,
+          },
+        };
+        artifactReviewComments[artifactId] = [...comments, comment];
+        return json(route, { comment }, 201);
+      }
+      return json(route, {
+        artifactId,
+        artifactVersionNumber: Number(selected?.versionNumber ?? 1),
+        permissions,
+        comments: artifactReviewComments[artifactId] ?? [],
+      });
     }
 
     const artifactVersionsMatch =

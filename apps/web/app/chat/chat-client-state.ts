@@ -41,6 +41,7 @@ export type RightPane =
       tab?: ContributionStudioTab;
       artifact?: WorkspaceArtifactSummary;
       scope?: ContributionStudioScope;
+      focusReviewCommentId?: string;
     }
   | { kind: "notifications" }
   | { kind: "inspector"; runId: string };

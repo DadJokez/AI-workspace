@@ -8,6 +8,7 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
+import { resolveArtifactReviewAccess } from "@/lib/artifact-review-access";
 import {
   decideOutputProposalMetadata,
   normalizeProposalReason,
@@ -30,17 +31,17 @@ export async function GET(
     if ("error" in session) return session.error;
     const sessionUser = session.user;
 
-    const artifact = await loadWorkspaceArtifactForUser({
+    const access = await resolveArtifactReviewAccess({
       db: getDb(),
-      userId: sessionUser.id,
+      actor: sessionUser,
       artifactId: id,
     });
-    if (!artifact) {
+    if (!access) {
       return NextResponse.json({ error: "artifact_not_found" }, { status: 404 });
     }
 
     return NextResponse.json({
-      artifact: serializeWorkspaceArtifactDetail(artifact),
+      artifact: serializeWorkspaceArtifactDetail(access.artifact),
     });
   } catch (err) {
     if (err instanceof UnauthorizedError) {
