@@ -48,6 +48,15 @@ const CLUSTER_NAME = "ai-workspace-prod";
 const WEB_SERVICE_NAME = "ai-workspace-web";
 const BROWSER_PROXY_SERVICE_NAME = "ai-workspace-browser-proxy";
 const BROWSER_PROXY_PORT = 3128;
+// AgentCore Browser currently supports physical AZs use1-az1, use1-az2, and
+// use1-az4 in us-east-1. In Comparative's production account those map to the
+// following names. Passing all six default-VPC subnets makes BrowserCustom
+// fail creation, so keep its subnet selection narrower than the ECS services.
+const STUDIO_BROWSER_AVAILABILITY_ZONES = [
+  "us-east-1a",
+  "us-east-1b",
+  "us-east-1c",
+];
 const BEDROCK_SONNET_45_MODEL_ID =
   "us.anthropic.claude-sonnet-4-5-20250929-v1:0";
 const BEDROCK_SONNET_45_DAILY_TOKEN_QUOTA = 5_400_000;
@@ -447,7 +456,10 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
           this,
           {
             vpc,
-            vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+            vpcSubnets: {
+              subnetType: ec2.SubnetType.PUBLIC,
+              availabilityZones: STUDIO_BROWSER_AVAILABILITY_ZONES,
+            },
             securityGroups: [browserSecurityGroup],
           },
         ),
