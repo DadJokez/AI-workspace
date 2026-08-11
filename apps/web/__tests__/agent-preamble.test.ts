@@ -53,12 +53,16 @@ describe("buildAgentPreamble model grounding", () => {
     "%s: states the real branded model and forbids claiming an older one",
     (modelId) => {
       const preamble = minimalPreamble({ modelId });
-      const { displayName } = MODELS[modelId];
+      // Expectations derive from the registry's identity fields — the test
+      // pins that the preamble uses them, not any particular vendor (#797 P1).
+      const { brandedName, providerDisplayName, olderModelExample } =
+        MODELS[modelId];
       expect(preamble).toContain(
-        `You are powered by Claude ${displayName}, made by Anthropic.`,
+        `You are powered by ${brandedName}, made by ${providerDisplayName}.`,
       );
+      expect(olderModelExample).toBeTruthy();
       expect(preamble).toContain(
-        `answer "Claude ${displayName}" — never claim to be an older model such as "Claude 3.5"`,
+        `answer "${brandedName}" — never claim to be a different vendor's model or an older model such as "${olderModelExample}"`,
       );
       // And never any OTHER registry model's name.
       for (const otherId of MODEL_IDS) {

@@ -57,6 +57,21 @@ export interface ModelMetadata {
   /** Model family within the provider (e.g. "claude", "nova", "llama"). */
   family: string;
   displayName: string;
+  /**
+   * Identity-honesty fields (#797 P1). The runtime-injected identity line is
+   * built ONLY from these — durable/prompt text must never hardcode a vendor
+   * (#304). `brandedName` is the full name the assistant answers with when
+   * asked what model it is; `providerDisplayName` is the vendor's brand name
+   * (capitalizing `provider` breaks on e.g. "openai" → "OpenAI").
+   */
+  brandedName: string;
+  providerDisplayName: string;
+  /**
+   * Optional older-model name this family is known to misclaim from training
+   * priors (Claude models answered "Claude 3.5" — the original identity bug).
+   * When set, the identity line names it as the explicit anti-example.
+   */
+  olderModelExample?: string;
   blurb: string;
   /** USD per 1M input tokens */
   costPer1MInput: number;
@@ -92,6 +107,9 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     provider: "anthropic",
     family: "claude",
     displayName: "Haiku 4.5",
+    brandedName: "Claude Haiku 4.5",
+    providerDisplayName: "Anthropic",
+    olderModelExample: "Claude 3.5",
     blurb: "Fast and cheap. Routing, classification, simple Q&A.",
     costPer1MInput: 1.1,
     costPer1MOutput: 5.5,
@@ -112,6 +130,9 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     provider: "anthropic",
     family: "claude",
     displayName: "Sonnet 4.5",
+    brandedName: "Claude Sonnet 4.5",
+    providerDisplayName: "Anthropic",
+    olderModelExample: "Claude 3.5",
     blurb: "Balanced agent model for chat, writing, analysis, and tool use.",
     costPer1MInput: 3.3,
     costPer1MOutput: 16.5,
@@ -132,6 +153,9 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     provider: "anthropic",
     family: "claude",
     displayName: "Sonnet 4.6",
+    brandedName: "Claude Sonnet 4.6",
+    providerDisplayName: "Anthropic",
+    olderModelExample: "Claude 3.5",
     blurb: "Balanced default. Most chat, recipes, and tool use.",
     costPer1MInput: 3.3,
     costPer1MOutput: 16.5,
@@ -152,6 +176,9 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     provider: "anthropic",
     family: "claude",
     displayName: "Opus 4.7",
+    brandedName: "Claude Opus 4.7",
+    providerDisplayName: "Anthropic",
+    olderModelExample: "Claude 3.5",
     blurb: "Heavy reasoning. Planning, complex analysis, recipe authoring.",
     costPer1MInput: 5.5,
     costPer1MOutput: 27.5,
