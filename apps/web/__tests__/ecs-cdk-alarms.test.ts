@@ -92,12 +92,13 @@ describe("AiWorkspaceEcsStack alarms", () => {
       expect.arrayContaining([
         expect.objectContaining({
           Expression:
-            "FILL(inputTokens, 0) + FILL(cacheWriteTokens, 0) + (FILL(outputTokens, 0) * 5)",
+            "FILL(inputTokens, 0) + MAX([FILL(cacheWriteTokens, 0), FILL(cacheWriteTokenCount, 0)]) + (FILL(outputTokens, 0) * 5)",
           ReturnData: true,
         }),
         metricQuery("inputTokens", "InputTokenCount"),
         metricQuery("outputTokens", "OutputTokenCount"),
-        metricQuery("cacheWriteTokens", "CacheWriteInputTokenCount"),
+        metricQuery("cacheWriteTokens", "CacheWriteInputTokens"),
+        metricQuery("cacheWriteTokenCount", "CacheWriteInputTokenCount"),
       ]),
     );
   });

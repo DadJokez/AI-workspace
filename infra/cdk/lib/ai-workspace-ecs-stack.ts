@@ -445,7 +445,13 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     const bedrockTokenMetrics = {
       inputTokens: bedrockTokenMetric("InputTokenCount"),
       outputTokens: bedrockTokenMetric("OutputTokenCount"),
-      cacheWriteTokens: bedrockTokenMetric("CacheWriteInputTokenCount"),
+      // AWS documents CacheWriteInputTokens, while this account currently
+      // publishes CacheWriteInputTokenCount. MAX keeps the alarm correct
+      // during that service-side naming transition without double-counting.
+      cacheWriteTokens: bedrockTokenMetric("CacheWriteInputTokens"),
+      cacheWriteTokenCount: bedrockTokenMetric(
+        "CacheWriteInputTokenCount",
+      ),
     };
     const bedrockDailyTokenHeadroomAlarm = new cloudwatch.Alarm(
       this,
@@ -455,7 +461,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
         alarmDescription:
           "#706: rolling 24-hour Sonnet 4.5 token consumption reached 80% of the 5.4M account quota; CI can now starve production.",
         metric: new cloudwatch.MathExpression({
-          expression: `FILL(inputTokens, 0) + FILL(cacheWriteTokens, 0) + (FILL(outputTokens, 0) * ${BEDROCK_SONNET_45_OUTPUT_TOKEN_BURNDOWN_RATE})`,
+          expression: `FILL(inputTokens, 0) + MAX([FILL(cacheWriteTokens, 0), FILL(cacheWriteTokenCount, 0)]) + (FILL(outputTokens, 0) * ${BEDROCK_SONNET_45_OUTPUT_TOKEN_BURNDOWN_RATE})`,
           usingMetrics: bedrockTokenMetrics,
           period: cdk.Duration.days(1),
         }),

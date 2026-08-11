@@ -30,12 +30,15 @@ metrics for the production inference-profile `ModelId` dimension:
 
 - `InputTokenCount`
 - `OutputTokenCount`
-- `CacheWriteInputTokenCount`
+- `CacheWriteInputTokens` (the name in the AWS runtime-metrics contract)
+- `CacheWriteInputTokenCount` (the name currently emitted in this account)
 
 The quota-weighted expression is:
 
 ```text
-InputTokenCount + CacheWriteInputTokenCount + (OutputTokenCount * 5)
+InputTokenCount
+ MAX(CacheWriteInputTokens, CacheWriteInputTokenCount)
+ (OutputTokenCount * 5)
 ```
 
 AWS applies a 5x quota burndown to output tokens for Anthropic models through
@@ -45,11 +48,19 @@ accounting, not billing or total-context accounting. See [How tokens are
 counted in Amazon Bedrock](https://docs.aws.amazon.com/bedrock/latest/userguide/quotas-token-burndown.html)
 and [Bedrock runtime metrics](https://docs.aws.amazon.com/bedrock/latest/userguide/monitoring-runtime-metrics.html).
 
+AWS currently has a naming discrepancy between that documentation and this
+account's live `AWS/Bedrock` metrics. On 2026-08-11, `ListMetrics` and
+`GetMetricData` showed real nonzero `CacheWriteInputTokenCount` datapoints for
+the active inference profile, while the documented `CacheWriteInputTokens`
+series was empty. The expression takes the per-period maximum of both aliases
+so either service-side spelling is counted without double-counting if AWS
+changes the emitted name.
+
 The metric expression treats a missing constituent metric as zero so a sparse
 cache-write series cannot suppress input/output consumption. This was checked
-against live CloudWatch on 2026-08-11 with a never-published constituent
-metric: `GetMetricData` returned a complete zero-filled series and preserved
-the real input datapoint.
+against live CloudWatch on 2026-08-11 with both cache-write aliases:
+`GetMetricData` returned a complete zero-filled series, selected the real
+`CacheWriteInputTokenCount` values, and preserved the other token series.
 
 The alarm and its recovery notification both route to the existing
 `ai-workspace-ops-alerts` SNS topic. Missing data is non-breaching.
@@ -64,7 +75,7 @@ UTC day.
 ## Responding to an alarm
 
 1. Pause live evaluation runs before customer traffic.
-2. Check the current UTC-day token totals for the three metrics above.
+2. Check the current UTC-day token totals for the metrics above.
 3. Confirm production health at `/api/health` and run a small authenticated
    chat probe if quota remains.
 4. Record which live eval jobs ran and their model usage.
@@ -83,6 +94,6 @@ aws cloudwatch describe-alarms \
   --alarm-names ai-workspace-bedrock-sonnet-4-5-token-headroom
 ```
 
-Verify that `Threshold` is `4320000`, the three metric queries use the active
+Verify that `Threshold` is `4320000`, all four metric queries use the active
 Sonnet 4.5 profile, and both `AlarmActions` and `OKActions` point to
 `ai-workspace-ops-alerts`.
