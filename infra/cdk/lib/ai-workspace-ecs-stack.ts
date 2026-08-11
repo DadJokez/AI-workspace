@@ -427,8 +427,8 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     memoryCaptureFailureAlarm.addAlarmAction(opsAlertAction);
 
     // #706: CI evals and production currently share this account/model quota.
-    // CloudFormation does not yet expose CloudWatch's wall-clock evaluation
-    // window, so this deliberately uses a conservative rolling 24-hour sum.
+    // EvaluationWindow is intentionally absent: CloudWatch defaults to a
+    // sliding window, so this is a rolling 24-hour sum evaluated every minute.
     // It can warn briefly after the UTC quota reset, but it cannot miss an
     // approaching exhaustion because of a calendar boundary.
     // AWS excludes cache reads from quota and applies a 5x quota burndown to

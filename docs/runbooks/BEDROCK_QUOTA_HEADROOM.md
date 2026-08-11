@@ -65,12 +65,24 @@ against live CloudWatch on 2026-08-11 with both cache-write aliases:
 The alarm and its recovery notification both route to the existing
 `ai-workspace-ops-alerts` SNS topic. Missing data is non-breaching.
 
-The alarm uses a rolling 24-hour sum. CloudWatch supports calendar-aligned
-evaluation windows through `PutMetricAlarm`, but the deployed CDK and
-CloudFormation resource do not yet expose that property. The rolling window is
-conservative: after the UTC quota reset it can remain in alarm while prior-day
-usage ages out. Do not read it as the exact remaining balance for the current
-UTC day.
+The alarm uses a rolling 24-hour sum. Its synthesized definition deliberately
+omits `EvaluationWindow`, which CloudWatch defines as the default
+`SlidingWindow`; a one-day period does not itself align the data to midnight.
+With one 86,400-second period and one evaluation period, the total window is
+exactly one day, so CloudWatch evaluates it every minute. Only windows longer
+than one day fall back to hourly evaluation. This means the alarm includes the
+current partial period and can transition as usage crosses the threshold,
+rather than waiting until midnight.
+
+This was checked against live CloudWatch on 2026-08-11. A `GetMetricData`
+query with `Period=86400` and `StartTime=12:34 UTC` returned buckets anchored
+at `12:34 UTC`, including the in-progress bucket; it did not realign to
+`00:00 UTC`. See [Alarm evaluation window](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/alarm-evaluation-window.html)
+and [Alarm evaluation](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/alarm-evaluation.html).
+
+The rolling window is conservative for a UTC-calendar-day quota: after AWS
+resets the quota it can remain in alarm while prior-day usage ages out. Do not
+read it as the exact remaining balance for the current UTC day.
 
 ## Responding to an alarm
 

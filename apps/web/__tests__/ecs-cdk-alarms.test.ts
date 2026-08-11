@@ -87,6 +87,8 @@ describe("AiWorkspaceEcsStack alarms", () => {
       Threshold: 4_320_000,
       TreatMissingData: "notBreaching",
     });
+    // An absent EvaluationWindow is CloudWatch's rolling SlidingWindow.
+    expect(properties).not.toHaveProperty("EvaluationWindow");
     expect(properties.AlarmDescription).toContain("rolling 24-hour");
     expect(properties.Metrics).toEqual(
       expect.arrayContaining([
