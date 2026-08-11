@@ -14,6 +14,7 @@ first execution should not also be the first draft.
 | [AGENTCORE_ROLLBACK.md](./AGENTCORE_ROLLBACK.md) | Roll the Bedrock AgentCore runtime back to a previously deployed image | **No** |
 | [DSAR_RIGHT_TO_DELETE.md](./DSAR_RIGHT_TO_DELETE.md) | Answer a data-subject access or deletion request | **No** |
 | [RDS_NETWORK_PERIMETER.md](./RDS_NETWORK_PERIMETER.md) | Verify and recover the non-public RDS network boundary | **Yes, through the production deployment gate** |
+| [BEDROCK_QUOTA_HEADROOM.md](./BEDROCK_QUOTA_HEADROOM.md) | Respond before shared Sonnet quota exhaustion can starve production | **No** |
 
 Related:
 
