@@ -5,6 +5,10 @@ import { FALLBACK_EMPTY_STATE_SUGGESTIONS } from "../../lib/empty-state";
 export const now = "2026-06-14T20:00:00.000Z";
 
 interface MockChatOptions {
+  runtimeCapabilities?: {
+    liveTurnSteering?: boolean;
+    studioBrowser?: boolean;
+  };
   threads?: unknown[];
   threadMessages?: Record<string, unknown[]>;
   threadLineages?: Record<string, unknown>;
@@ -99,6 +103,23 @@ interface MockChatOptions {
   onArtifactReviewAddress?: (
     artifactId: string,
     body: Record<string, unknown>,
+    route: Route,
+  ) => Promise<void> | void;
+  onStudioBrowserStart?: (
+    body: Record<string, unknown>,
+    route: Route,
+  ) => Promise<void> | void;
+  onStudioBrowserAction?: (
+    sessionId: string,
+    body: Record<string, unknown>,
+    route: Route,
+  ) => Promise<void> | void;
+  onStudioBrowserScreenshot?: (
+    sessionId: string,
+    route: Route,
+  ) => Promise<void> | void;
+  onStudioBrowserStop?: (
+    sessionId: string,
     route: Route,
   ) => Promise<void> | void;
 }
@@ -299,7 +320,11 @@ export async function installMockComparativeApi(
       return json(route, {
         defaultModelId: "sonnet-4-6",
         runtimeV2Enabled: true,
-        runtimeCapabilities: { liveTurnSteering: false },
+        runtimeCapabilities: {
+          liveTurnSteering: false,
+          studioBrowser: false,
+          ...options.runtimeCapabilities,
+        },
         models: [
           {
             id: "sonnet-4-6",
@@ -944,6 +969,52 @@ export async function installMockComparativeApi(
         },
         { type: "done", stopReason: "completed" },
       ]);
+    }
+
+    if (
+      path === "/api/studio/browser/sessions" &&
+      request.method() === "POST"
+    ) {
+      const body = await postJson(request);
+      if (options.onStudioBrowserStart) {
+        return options.onStudioBrowserStart(body, route);
+      }
+      return json(route, { error: "studio_browser_not_configured" }, 501);
+    }
+
+    if (
+      /^\/api\/studio\/browser\/sessions\/[^/]+\/actions$/.test(path) &&
+      request.method() === "POST"
+    ) {
+      const sessionId = decodeURIComponent(path.split("/").at(-2)!);
+      const body = await postJson(request);
+      if (options.onStudioBrowserAction) {
+        return options.onStudioBrowserAction(sessionId, body, route);
+      }
+      return json(route, { ok: true });
+    }
+
+    if (
+      /^\/api\/studio\/browser\/sessions\/[^/]+\/screenshot$/.test(path) &&
+      request.method() === "GET"
+    ) {
+      const sessionId = decodeURIComponent(path.split("/").at(-2)!);
+      if (options.onStudioBrowserScreenshot) {
+        return options.onStudioBrowserScreenshot(sessionId, route);
+      }
+      return json(route, { error: "browser_snapshot_unavailable" }, 404);
+    }
+
+    if (
+      /^\/api\/studio\/browser\/sessions\/[^/]+$/.test(path) &&
+      request.method() === "DELETE"
+    ) {
+      const sessionId = decodeURIComponent(path.split("/").at(-1)!);
+      if (options.onStudioBrowserStop) {
+        return options.onStudioBrowserStop(sessionId, route);
+      }
+      await route.fulfill({ status: 204, body: "" });
+      return;
     }
 
     if (path === "/api/output-proposals/iterate") {

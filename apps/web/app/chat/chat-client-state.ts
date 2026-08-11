@@ -32,6 +32,7 @@ import type {
   ThreadAlternativeLink,
   ThreadBranchLineage,
 } from "@/lib/thread-branch-types";
+import type { StudioBrowserTargetRequest } from "@/lib/studio-browser-contract";
 
 export const FALLBACK_DEFAULT_MODEL_ID = "sonnet-4-5";
 export const DEFAULT_MODEL_PREFIX = "ai-workspace-default-model:";
@@ -46,6 +47,7 @@ export type RightPane =
       artifact?: WorkspaceArtifactSummary;
       scope?: ContributionStudioScope;
       focusReviewCommentId?: string;
+      browserTarget?: StudioBrowserTargetRequest;
     }
   | { kind: "notifications" }
   | { kind: "inspector"; runId: string };
@@ -107,7 +109,10 @@ export interface ModelsResponse {
   defaultModelId: string;
   models: ModelOption[];
   runtimeV2Enabled?: boolean;
-  runtimeCapabilities?: { liveTurnSteering?: boolean };
+  runtimeCapabilities?: {
+    liveTurnSteering?: boolean;
+    studioBrowser?: boolean;
+  };
 }
 
 export interface UserResponse {

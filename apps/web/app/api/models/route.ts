@@ -13,6 +13,7 @@ import {
   enabledModelsForPurpose,
   resolveModelForPurpose,
 } from "@/lib/model-registry";
+import { studioBrowserCapabilityFromEnv } from "@/lib/studio-browser";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,9 @@ interface ModelsBody {
   defaultModelId: string;
   models: ApiModel[];
   runtimeV2Enabled: boolean;
-  runtimeCapabilities: typeof NEXT_TURN_RUNTIME_CAPABILITIES;
+  runtimeCapabilities: typeof NEXT_TURN_RUNTIME_CAPABILITIES & {
+    studioBrowser: boolean;
+  };
 }
 
 export async function GET() {
@@ -55,7 +58,10 @@ export async function GET() {
   const body: ModelsBody = {
     defaultModelId,
     runtimeV2Enabled: runtimeV2EnabledFromEnv(),
-    runtimeCapabilities: NEXT_TURN_RUNTIME_CAPABILITIES,
+    runtimeCapabilities: {
+      ...NEXT_TURN_RUNTIME_CAPABILITIES,
+      studioBrowser: studioBrowserCapabilityFromEnv(),
+    },
     models: enabledIds.map((id) => {
       const model = MODELS[id];
       return {

@@ -2,12 +2,17 @@ import { randomUUID } from "node:crypto";
 import { lookup as dnsLookup } from "node:dns/promises";
 import * as http from "node:http";
 import * as https from "node:https";
-import { isIP } from "node:net";
 import type { Tool } from "./types";
 import {
   assertWebEgressAllowed,
   type WebEgressPolicy,
 } from "./web-egress-policy";
+import {
+  createPublicLookup,
+  parsePublicHttpUrl,
+  resolvePublicAddresses,
+  type PublicLookup,
+} from "./public-url-policy";
 import {
   WEB_SEARCH_TOOL_NAME,
   createWebSearchTool,
@@ -40,11 +45,9 @@ interface WebFetchOptions {
   egressPolicy?: WebEgressPolicy;
 }
 
-type GuardedLookup = NonNullable<http.RequestOptions["lookup"]>;
-
 interface RequestUrlOptions {
   maxBytes: number;
-  lookup: GuardedLookup;
+  lookup: PublicLookup;
 }
 
 interface WebFetchResponse {
@@ -143,7 +146,7 @@ async function fetchPublicUrl({
   lookupImpl: typeof dnsLookup;
   egressPolicy?: WebEgressPolicy;
 }) {
-  let current = parseAndValidateUrl(rawUrl);
+  let current = parseWebFetchUrl(rawUrl);
   const fetchedHosts: string[] = [];
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
     assertWebEgressAllowed(current.hostname, egressPolicy);
@@ -155,7 +158,7 @@ async function fetchPublicUrl({
     try {
       response = await requestImpl(current, {
         maxBytes,
-        lookup: createGuardedLookup(lookupImpl),
+        lookup: createPublicLookup(lookupImpl, webFetchGuardError),
       });
     } catch (err) {
       throw new Error(
@@ -175,7 +178,7 @@ async function fetchPublicUrl({
           `URL fetch failed for ${current.toString()}: too many redirects.`,
         );
       }
-      current = parseAndValidateUrl(new URL(location, current).toString());
+      current = parseWebFetchUrl(new URL(location, current).toString());
       continue;
     }
 
@@ -249,137 +252,49 @@ function requireUrl(value: unknown): string {
   return value.trim();
 }
 
-function parseAndValidateUrl(rawUrl: string): URL {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    throw new Error(`URL fetch requires a valid URL; received "${rawUrl}".`);
-  }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error(
-      `URL fetch only supports http(s) URLs; received protocol "${url.protocol}".`,
-    );
-  }
-  if (url.username || url.password) {
-    throw new Error("URL fetch does not allow embedded credentials in URLs.");
-  }
-  return url;
+async function assertPublicHostname(
+  hostname: string,
+  lookupImpl: typeof dnsLookup,
+): Promise<void> {
+  await resolvePublicAddresses(hostname, lookupImpl).catch((error) => {
+    throw webFetchGuardError(error);
+  });
 }
 
 const LOCAL_GUARD_NOTE =
   "This failed locally inside Comparative's fetch guard before any request reached the site — it is not evidence the site blocked the request.";
 
-async function assertPublicHostname(
-  hostname: string,
-  lookupImpl: typeof dnsLookup,
-): Promise<void> {
-  await resolvePublicAddresses(hostname, lookupImpl);
+function parseWebFetchUrl(rawUrl: string): URL {
+  try {
+    return parsePublicHttpUrl(rawUrl);
+  } catch (error) {
+    const message = errorText(error);
+    if (message.includes("Embedded credentials")) {
+      throw new Error("URL fetch does not allow embedded credentials in URLs.");
+    }
+    if (message.includes("Only public http(s)")) {
+      throw new Error(message.replace("Only public", "URL fetch only supports"));
+    }
+    if (message.includes("valid public URL")) {
+      throw new Error(
+        message.replace(
+          "A valid public URL is required",
+          "URL fetch requires a valid URL",
+        ),
+      );
+    }
+    throw new Error(`URL fetch ${lowercaseFirst(message)}`);
+  }
 }
 
-function createGuardedLookup(lookupImpl: typeof dnsLookup): GuardedLookup {
-  return ((hostname, options, callback) => {
-    // Node may invoke lookup(hostname, callback) with the options argument omitted.
-    const done = (typeof options === "function" ? options : callback) as (
-      err: NodeJS.ErrnoException | null,
-      address?: string | { address: string; family: number }[],
-      family?: number,
-    ) => void;
-    const wantsAll =
-      typeof options === "object" && options !== null && Boolean(options.all);
-    resolvePublicAddresses(hostname, lookupImpl)
-      .then((addresses) => {
-        if (wantsAll) {
-          done(null, addresses);
-          return;
-        }
-        const first = addresses[0]!;
-        done(null, first.address, first.family);
-      })
-      .catch((err) => done(toErrnoException(err)));
-  }) as GuardedLookup;
+function webFetchGuardError(error: unknown): Error {
+  return new Error(
+    `URL fetch ${lowercaseFirst(errorText(error))} ${LOCAL_GUARD_NOTE}`,
+  );
 }
 
-async function resolvePublicAddresses(
-  hostname: string,
-  lookupImpl: typeof dnsLookup,
-): Promise<{ address: string; family: number }[]> {
-  const normalized = hostname.toLowerCase().replace(/\.$/, "");
-  if (
-    normalized === "localhost" ||
-    normalized.endsWith(".localhost") ||
-    normalized.endsWith(".local")
-  ) {
-    throw new Error(
-      `URL fetch blocked private hostname "${hostname}". ${LOCAL_GUARD_NOTE}`,
-    );
-  }
-
-  const literalIpVersion = isIP(normalized);
-  const addresses = literalIpVersion
-    ? [{ address: normalized, family: literalIpVersion }]
-    : await lookupImpl(normalized, { all: true, verbatim: true }).catch((err) => {
-        throw new Error(
-          `URL fetch could not resolve "${hostname}": ${errorText(err)}. ${LOCAL_GUARD_NOTE}`,
-        );
-      });
-
-  if (addresses.length === 0) {
-    throw new Error(
-      `URL fetch could not resolve "${hostname}": no addresses returned. ${LOCAL_GUARD_NOTE}`,
-    );
-  }
-
-  const guarded = addresses.map((entry) => ({
-    address: entry.address,
-    family:
-      typeof entry.family === "number" ? entry.family : isIP(entry.address),
-  }));
-  const blocked = guarded.find((entry) => isBlockedIp(entry.address));
-  if (blocked) {
-    throw new Error(
-      `URL fetch blocked private or reserved address "${blocked.address}" for "${hostname}". ${LOCAL_GUARD_NOTE}`,
-    );
-  }
-  return guarded;
-}
-
-function isBlockedIp(address: string): boolean {
-  if (address.includes(":")) return isBlockedIpv6(address);
-  return isBlockedIpv4(address);
-}
-
-function isBlockedIpv4(address: string): boolean {
-  const parts = address.split(".").map((part) => Number.parseInt(part, 10));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part))) {
-    return true;
-  }
-  const [a, b] = parts as [number, number, number, number];
-  if (a === 0 || a === 10 || a === 127 || a >= 224) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 192 && b === 0 && parts[2] === 0) return true;
-  if (a === 192 && b === 0 && parts[2] === 2) return true;
-  if (a === 198 && (b === 18 || b === 19)) return true;
-  if (a === 198 && b === 51 && parts[2] === 100) return true;
-  if (a === 203 && b === 0 && parts[2] === 113) return true;
-  if (a === 255) return true;
-  return false;
-}
-
-function isBlockedIpv6(address: string): boolean {
-  const normalized = address.toLowerCase();
-  if (normalized === "::1" || normalized === "::") return true;
-  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
-  if (/^fe[89ab]/.test(normalized)) return true;
-  if (normalized.startsWith("::ffff:")) {
-    const mapped = normalized.slice("::ffff:".length);
-    if (mapped.includes(".")) return isBlockedIpv4(mapped);
-    return true;
-  }
-  return false;
+function lowercaseFirst(value: string): string {
+  return value ? `${value[0]!.toLowerCase()}${value.slice(1)}` : value;
 }
 
 function normalizeMaxBytes(value: unknown): number {
@@ -507,9 +422,4 @@ function errorText(err: unknown): string {
     return err.message;
   }
   return String(err);
-}
-
-function toErrnoException(err: unknown): NodeJS.ErrnoException {
-  if (err instanceof Error) return err as NodeJS.ErrnoException;
-  return new Error(String(err)) as NodeJS.ErrnoException;
 }

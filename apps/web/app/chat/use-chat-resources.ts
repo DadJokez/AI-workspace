@@ -25,6 +25,7 @@ export function useChatResources() {
   const [runtimeV2Enabled, setRuntimeV2Enabled] = useState(false);
   const [liveTurnSteeringSupported, setLiveTurnSteeringSupported] =
     useState(false);
+  const [studioBrowserSupported, setStudioBrowserSupported] = useState(false);
   const [user, setUser] = useState<UserResponse["user"]>();
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(true);
@@ -101,6 +102,9 @@ export function useChatResources() {
         setRuntimeV2Enabled(modelsData.runtimeV2Enabled === true);
         setLiveTurnSteeringSupported(
           modelsData.runtimeCapabilities?.liveTurnSteering === true,
+        );
+        setStudioBrowserSupported(
+          modelsData.runtimeCapabilities?.studioBrowser === true,
         );
       }
       setThreadsLoading(false);
@@ -270,6 +274,7 @@ export function useChatResources() {
     defaultModelId,
     runtimeV2Enabled,
     liveTurnSteeringSupported,
+    studioBrowserSupported,
     user,
     setUser,
     threads,

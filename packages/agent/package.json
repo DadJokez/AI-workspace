@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./models": "./src/models.ts",
     "./registry": "./src/registry.ts",
+    "./public-url-policy": "./src/public-url-policy.ts",
     "./sources": "./src/sources.ts",
     "./web-egress-policy": "./src/web-egress-policy.ts",
     "./web-fetch-tool": "./src/web-fetch-tool.ts",

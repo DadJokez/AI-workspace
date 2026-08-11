@@ -1584,6 +1584,147 @@ export const auditLog = pgTable(
   }),
 );
 
+/**
+ * Short-lived, user-owned AgentCore Browser sessions used by Contribution
+ * Studio. Provider identifiers are never accepted as authorization: every API
+ * lookup also matches the owning user and thread.
+ */
+export const studioBrowserSessions = pgTable(
+  "studio_browser_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => chatThreads.id, { onDelete: "cascade" }),
+    runId: uuid("run_id").references(() => runs.id, { onDelete: "set null" }),
+    providerSessionId: text("provider_session_id").notNull(),
+    browserIdentifier: text("browser_identifier").notNull(),
+    targetKind: text("target_kind").notNull(),
+    targetResourceId: text("target_resource_id"),
+    displayUrl: text("display_url").notNull(),
+    origin: text("origin").notNull(),
+    status: text("status").notNull().default("starting"),
+    viewportWidth: integer("viewport_width").notNull().default(1440),
+    viewportHeight: integer("viewport_height").notNull().default(900),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    providerSessionUnique: uniqueIndex(
+      "studio_browser_sessions_provider_session_idx",
+    ).on(t.providerSessionId),
+    activeUserThreadUnique: uniqueIndex(
+      "studio_browser_sessions_active_user_thread_idx",
+    )
+      .on(t.userId, t.threadId)
+      .where(sql`${t.status} IN ('starting', 'ready')`),
+    userCreatedIdx: index("studio_browser_sessions_user_created_idx").on(
+      t.userId,
+      sql`${t.createdAt} DESC`,
+    ),
+    threadCreatedIdx: index("studio_browser_sessions_thread_created_idx").on(
+      t.threadId,
+      sql`${t.createdAt} DESC`,
+    ),
+    statusExpiryIdx: index("studio_browser_sessions_status_expiry_idx").on(
+      t.status,
+      t.expiresAt,
+    ),
+  }),
+);
+
+/**
+ * Server-registered task sandbox endpoints. No public route writes these rows;
+ * a sandbox runtime records its VPC hostname and explicit loopback port set,
+ * then Studio can mint one short-lived grant for an owned endpoint.
+ */
+export const studioSandboxEndpoints = pgTable(
+  "studio_sandbox_endpoints",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => chatThreads.id, { onDelete: "cascade" }),
+    runId: uuid("run_id").references(() => runs.id, { onDelete: "cascade" }),
+    hostname: text("hostname").notNull(),
+    allowedPorts: jsonb("allowed_ports").$type<number[]>().notNull(),
+    status: text("status").notNull().default("active"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userThreadIdx: index("studio_sandbox_endpoints_user_thread_idx").on(
+      t.userId,
+      t.threadId,
+      t.status,
+    ),
+    expiryIdx: index("studio_sandbox_endpoints_expiry_idx").on(t.expiresAt),
+  }),
+);
+
+/**
+ * Expiring bearer grants used only by the isolated browser to read one
+ * Comparative-owned artifact/app target. Raw tokens are never persisted.
+ */
+export const studioBrowserGrants = pgTable(
+  "studio_browser_grants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    browserSessionId: uuid("browser_session_id")
+      .notNull()
+      .references(() => studioBrowserSessions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => chatThreads.id, { onDelete: "cascade" }),
+    runId: uuid("run_id").references(() => runs.id, { onDelete: "set null" }),
+    targetKind: text("target_kind").notNull(),
+    targetResourceId: text("target_resource_id").notNull(),
+    targetPath: text("target_path").notNull(),
+    sandboxPort: integer("sandbox_port"),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    tokenHashUnique: uniqueIndex("studio_browser_grants_token_hash_idx").on(
+      t.tokenHash,
+    ),
+    sessionIdx: index("studio_browser_grants_session_idx").on(
+      t.browserSessionId,
+      t.expiresAt,
+    ),
+    userThreadIdx: index("studio_browser_grants_user_thread_idx").on(
+      t.userId,
+      t.threadId,
+    ),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type ChatThread = typeof chatThreads.$inferSelect;
@@ -1638,6 +1779,13 @@ export type McpServer = typeof mcpServers.$inferSelect;
 export type NewMcpServer = typeof mcpServers.$inferInsert;
 export type AuditLog = typeof auditLog.$inferSelect;
 export type NewAuditLog = typeof auditLog.$inferInsert;
+export type StudioBrowserSession = typeof studioBrowserSessions.$inferSelect;
+export type NewStudioBrowserSession = typeof studioBrowserSessions.$inferInsert;
+export type StudioBrowserGrant = typeof studioBrowserGrants.$inferSelect;
+export type NewStudioBrowserGrant = typeof studioBrowserGrants.$inferInsert;
+export type StudioSandboxEndpoint = typeof studioSandboxEndpoints.$inferSelect;
+export type NewStudioSandboxEndpoint =
+  typeof studioSandboxEndpoints.$inferInsert;
 export type ToolCatalogEntry = typeof toolsCatalog.$inferSelect;
 export type NewToolCatalogEntry = typeof toolsCatalog.$inferInsert;
 export type UserToolAttestation = typeof userToolAttestations.$inferSelect;

@@ -4,6 +4,7 @@ import {
   defaultArtifactDetail,
   defaultArtifactSummary,
   installMockComparativeApi,
+  json,
   now,
   userMessage,
 } from "./helpers/mock-comparative";
@@ -34,7 +35,60 @@ test.describe("Contribution Studio", () => {
     page,
     isMobile,
   }) => {
+    let browserStartBody: Record<string, unknown> | undefined;
+    const browserActions: Array<Record<string, unknown>> = [];
+    const stoppedBrowserSessions: string[] = [];
     await installMockComparativeApi(page, {
+      runtimeCapabilities: { studioBrowser: true },
+      onStudioBrowserStart: async (body, route) => {
+        browserStartBody = body;
+        const target = body.target as { sourceNumber?: number } | undefined;
+        if (target?.sourceNumber === 3) {
+          await json(
+            route,
+            {
+              error: "browser_target_blocked",
+              message: "This site is blocked by the workspace web policy.",
+            },
+            403,
+          );
+          return;
+        }
+        await json(route, {
+          session: {
+            id: "00000000-0000-4000-8000-000000000741",
+            threadId,
+            status: "ready",
+            targetKind: "public",
+            displayUrl: "https://example.com/evidence",
+            origin: "https://example.com",
+            expiresAt: "2026-08-10T12:15:00.000Z",
+            viewport: { width: 1440, height: 900 },
+            fallback: {
+              title: "Live Browser unavailable",
+              detail: "Use the persisted source receipt.",
+            },
+          },
+        }, 201);
+      },
+      onStudioBrowserAction: async (sessionId, body, route) => {
+        browserActions.push({ sessionId, ...body });
+        await json(route, { ok: true });
+      },
+      onStudioBrowserScreenshot: async (_sessionId, route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "image/png",
+          body: Buffer.from(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+            "base64",
+          ),
+        });
+      },
+      onStudioBrowserStop: async (sessionId, route) => {
+        stoppedBrowserSessions.push(sessionId);
+        await route.fulfill({ status: 204, body: "" });
+      },
       threads: [
         {
           id: threadId,
@@ -86,6 +140,13 @@ test.describe("Contribution Studio", () => {
                 kind: "web",
                 url: "javascript:alert(1)",
                 toolCallId: "search-2",
+              },
+              {
+                n: 3,
+                title: "Denied evidence",
+                kind: "web",
+                url: "https://blocked.example/private",
+                toolCallId: "search-3",
               },
             ],
             activityEvents: [
@@ -159,17 +220,10 @@ test.describe("Contribution Studio", () => {
     await expect(studio.getByText("other-thread.md")).toHaveCount(0);
 
     await studio.getByRole("button", { name: "Browser" }).click();
-    const publicEvidence = studio.getByRole("link", {
-      name: "Open Public evidence",
-    });
-    await expect(publicEvidence).toHaveAttribute(
-      "href",
-      "https://example.com/evidence",
-    );
-    await expect(publicEvidence).toHaveAttribute("target", "_blank");
     await expect(
-      studio.getByRole("link", { name: "Open Blocked scheme" }),
-    ).toHaveCount(0);
+      studio.getByRole("button", { name: /Public evidence/ }),
+    ).toBeVisible();
+    await expect(studio.getByText("Blocked scheme")).toHaveCount(0);
 
     await studio.getByRole("button", { name: "Activity" }).click();
     const workMap = page.getByTestId("studio-work-map");
@@ -215,6 +269,59 @@ test.describe("Contribution Studio", () => {
     await studio
       .getByRole("button", { name: "Close Contribution Studio" })
       .click();
+
+    await page.getByTestId("source-chip-1").click();
+    await expect(studio).toBeVisible();
+    await expect(studio.getByTestId("studio-browser-location")).toHaveText(
+      "https://example.com/evidence",
+    );
+    await expect(studio.getByText("Live Browser unavailable")).toBeVisible();
+    await studio.getByRole("button", { name: "Show snapshot" }).click();
+    const snapshot = studio.getByTestId("studio-browser-snapshot");
+    await expect(snapshot).toBeVisible();
+    await expect
+      .poll(() =>
+        snapshot.evaluate((element) =>
+          (element as HTMLImageElement).naturalWidth,
+        ),
+      )
+      .toBeGreaterThan(0);
+    expect(browserStartBody).toEqual({
+      threadId,
+      target: {
+        kind: "evidence",
+        messageId: "studio-assistant",
+        sourceNumber: 1,
+      },
+    });
+
+    for (const [label] of [
+      ["Back", "back"],
+      ["Forward", "forward"],
+      ["Reload", "reload"],
+    ] as const) {
+      await studio.getByRole("button", { name: label, exact: true }).click();
+    }
+    expect(browserActions).toEqual(
+      ["back", "forward", "reload"].map((action) => ({
+        sessionId: "00000000-0000-4000-8000-000000000741",
+        action,
+      })),
+    );
+
+    await studio.getByRole("button", { name: "Browser targets" }).click();
+    await expect(studio.getByText("Browser targets", { exact: true })).toBeVisible();
+    await expect.poll(() => stoppedBrowserSessions).toEqual([
+      "00000000-0000-4000-8000-000000000741",
+    ]);
+    await studio.getByRole("button", { name: /Denied evidence/ }).click();
+    await expect(studio.getByRole("alert")).toHaveText(
+      "This site is blocked by the workspace web policy.",
+    );
+    await studio
+      .getByRole("button", { name: "Close Contribution Studio" })
+      .click();
+
     await page.getByRole("button", { name: "Show Contribution Studio" }).click();
     await expect(
       page.getByRole("button", { name: "Activity" }),
