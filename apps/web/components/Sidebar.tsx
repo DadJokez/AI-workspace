@@ -165,6 +165,7 @@ export function Sidebar({
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [userCollapsed, setUserCollapsed] = useState(false);
+  const [temporaryOverlayOpen, setTemporaryOverlayOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState<number | null>(null);
 
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -183,7 +184,7 @@ export function Sidebar({
     return [...groups.slice(0, -1), adminGroup, groups[groups.length - 1]!];
   }, [isAdmin]);
 
-  const rail = shouldUseSidebarRail({
+  const layoutRail = shouldUseSidebarRail({
     userCollapsed,
     rightPaneOpen: autoCollapse,
     viewportWidth,
@@ -195,6 +196,7 @@ export function Sidebar({
     viewportWidth,
     forceRail,
   });
+  const rail = layoutRail && !temporaryOverlayOpen;
   const visibleNavGroups = useMemo(() => {
     if (!rail) return navGroups;
     return navGroups
@@ -223,7 +225,10 @@ export function Sidebar({
   const historyLabel = "Chats";
 
   const toggleCollapsed = useCallback(() => {
-    if (temporaryRail) return;
+    if (temporaryRail) {
+      setTemporaryOverlayOpen((current) => !current);
+      return;
+    }
     setUserCollapsed((current) => {
       const next = !current;
       try {
@@ -236,6 +241,10 @@ export function Sidebar({
       }
       return next;
     });
+  }, [temporaryRail]);
+
+  useEffect(() => {
+    if (!temporaryRail) setTemporaryOverlayOpen(false);
   }, [temporaryRail]);
 
   useEffect(() => {
@@ -302,7 +311,26 @@ export function Sidebar({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose, renamingId, pendingDeleteId, openMenuId, userMenuOpen]);
+  }, [
+    open,
+    onClose,
+    renamingId,
+    pendingDeleteId,
+    openMenuId,
+    userMenuOpen,
+  ]);
+
+  useEffect(() => {
+    if (!temporaryOverlayOpen) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setTemporaryOverlayOpen(false);
+    };
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [temporaryOverlayOpen]);
 
   // Close the user dropdown / thread popover on outside click.
   useEffect(() => {
@@ -329,18 +357,21 @@ export function Sidebar({
   }, [userMenuOpen, openMenuId]);
 
   function handleNewChat() {
+    setTemporaryOverlayOpen(false);
     onNewChat();
     onClose();
   }
 
   function handleNavClick(item: NavItem) {
     if (item.disabled) return;
+    setTemporaryOverlayOpen(false);
     onNavSelect?.(item.id);
     onClose();
   }
 
   function handleThreadClick(threadId: string, title: string) {
     if (renamingId === threadId) return;
+    setTemporaryOverlayOpen(false);
     onOpenThread(threadId, title);
     onClose();
   }
@@ -408,6 +439,21 @@ export function Sidebar({
           open ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
       />
+      {temporaryOverlayOpen ? (
+        <div
+          aria-hidden="true"
+          data-testid="sidebar-temporary-backdrop"
+          onClick={() => setTemporaryOverlayOpen(false)}
+          className="fixed inset-0 z-30 hidden md:block"
+        />
+      ) : null}
+      {temporaryOverlayOpen ? (
+        <div
+          aria-hidden="true"
+          data-testid="sidebar-rail-spacer"
+          className="hidden w-14 shrink-0 md:block"
+        />
+      ) : null}
       <aside
         id="primary-sidebar"
         aria-label="Primary"
@@ -415,7 +461,12 @@ export function Sidebar({
         data-density="nav"
         data-sidebar-state={rail ? "rail" : "expanded"}
         data-auto-collapsed={temporaryRail || undefined}
-        className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] touch-pan-y flex-col overflow-hidden border-r border-hairline bg-sidebar transition-[transform,width] ease-umber-out md:static md:z-auto md:w-[var(--active-sidebar-w)] md:max-w-none md:shrink-0 md:translate-x-0 ${
+        data-temporary-overlay={temporaryOverlayOpen || undefined}
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] touch-pan-y flex-col overflow-hidden border-r border-hairline bg-sidebar transition-[transform,width] ease-umber-out md:max-w-none md:translate-x-0 ${
+          temporaryOverlayOpen
+            ? "md:fixed md:z-40 md:w-[var(--sidebar-w)] md:shadow-lg"
+            : "md:static md:z-auto md:w-[var(--active-sidebar-w)] md:shrink-0"
+        } ${
           temporaryRail ? "duration-0" : "duration-base"
         } ${
           open ? "translate-x-0" : "-translate-x-full"
@@ -447,10 +498,11 @@ export function Sidebar({
           <button
             type="button"
             onClick={toggleCollapsed}
-            disabled={temporaryRail}
             aria-label={
               temporaryRail
-                ? "Sidebar temporarily collapsed while panel is open"
+                ? temporaryOverlayOpen
+                  ? "Collapse sidebar"
+                  : "Expand sidebar"
                 : rail
                   ? "Expand sidebar"
                   : "Collapse sidebar"
@@ -460,12 +512,14 @@ export function Sidebar({
             aria-pressed={rail}
             title={
               temporaryRail
-                ? "Sidebar restores when the panel closes"
+                ? temporaryOverlayOpen
+                  ? "Collapse sidebar (⌘\\)"
+                  : "Expand sidebar temporarily (⌘\\)"
                 : rail
                   ? "Expand sidebar (⌘\\)"
                   : "Collapse sidebar (⌘\\)"
             }
-            className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-subtle hover:text-ink disabled:cursor-default disabled:opacity-50 md:flex"
+            className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-subtle hover:text-ink md:flex"
           >
             <IconSidebarToggle collapsed={rail} />
           </button>
@@ -495,6 +549,7 @@ export function Sidebar({
             <button
               type="button"
               onClick={() => {
+                setTemporaryOverlayOpen(false);
                 onSearch();
                 onClose();
               }}
