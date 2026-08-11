@@ -37,8 +37,8 @@ The quota-weighted expression is:
 
 ```text
 InputTokenCount
- MAX(CacheWriteInputTokens, CacheWriteInputTokenCount)
- (OutputTokenCount * 5)
++ MAX(CacheWriteInputTokens, CacheWriteInputTokenCount)
++ (OutputTokenCount * 5)
 ```
 
 AWS applies a 5x quota burndown to output tokens for Anthropic models through
@@ -58,9 +58,13 @@ changes the emitted name.
 
 The metric expression treats a missing constituent metric as zero so a sparse
 cache-write series cannot suppress input/output consumption. This was checked
-against live CloudWatch on 2026-08-11 with both cache-write aliases:
-`GetMetricData` returned a complete zero-filled series, selected the real
-`CacheWriteInputTokenCount` values, and preserved the other token series.
+against live CloudWatch on 2026-08-11 in both relevant states. With one alias
+populated, `GetMetricData` selected the real `CacheWriteInputTokenCount` values
+without double-counting. With both cache-write inputs pointed at never-published
+metrics, both inputs returned zero datapoints while the exact deployed
+expression returned 352 datapoints. Its newest value was `13,457`, exactly
+`11,222 + (447 * 5)`, proving that fully absent cache inputs contribute zero
+without suppressing the populated input and output series.
 
 The alarm and its recovery notification both route to the existing
 `ai-workspace-ops-alerts` SNS topic. Missing data is non-breaching.
