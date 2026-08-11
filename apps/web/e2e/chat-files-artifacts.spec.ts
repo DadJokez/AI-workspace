@@ -729,6 +729,18 @@ test.describe("chat files and artifacts", () => {
         name: "Revised Demo Artifact",
       }),
     ).toBeVisible();
+
+    await revisedPreviewPane.getByRole("tab", { name: "Source" }).click();
+    await expect(
+      revisedPreviewPane.getByTestId("artifact-source-view"),
+    ).toContainText("Updated version.");
+
+    await revisedPreviewPane.getByRole("tab", { name: "Compare" }).click();
+    const comparison = revisedPreviewPane.getByTestId(
+      "artifact-version-comparison",
+    );
+    await expect(comparison).toContainText("Original version.");
+    await expect(comparison).toContainText("Updated version.");
   });
 
   test("#284 revises an artifact after reopening an old chat", async ({

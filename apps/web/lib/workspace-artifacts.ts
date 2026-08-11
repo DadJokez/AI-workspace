@@ -4,7 +4,7 @@ import {
   workspaceArtifacts,
   type WorkspaceArtifact,
 } from "@ai-workspace/db";
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
 import {
   planArtifactVersionsForExistingArtifacts,
   sanitizeArtifactFilename as sanitizeFilename,
@@ -50,6 +50,13 @@ export interface WorkspaceArtifactSummary {
 
 export interface WorkspaceArtifactDetail extends WorkspaceArtifactSummary {
   content: string;
+}
+
+export interface WorkspaceArtifactVersionSet {
+  selectedArtifactId: string;
+  latestArtifactId: string;
+  staleBase: boolean;
+  versions: WorkspaceArtifactSummary[];
 }
 
 interface CreateArtifactsInput {
@@ -327,6 +334,59 @@ export async function loadWorkspaceArtifactForUser({
     .limit(1);
 
   return rows[0] ?? null;
+}
+
+export async function loadWorkspaceArtifactVersionsForUser({
+  db,
+  userId,
+  artifactId,
+}: {
+  db: Database;
+  userId: string;
+  artifactId: string;
+}): Promise<WorkspaceArtifactVersionSet | null> {
+  const selected = await loadWorkspaceArtifactForUser({
+    db,
+    userId,
+    artifactId,
+  });
+  if (!selected) return null;
+
+  const rows = await db
+    .select()
+    .from(workspaceArtifacts)
+    .where(
+      and(
+        eq(workspaceArtifacts.userId, userId),
+        eq(workspaceArtifacts.artifactGroupId, selected.artifactGroupId),
+      ),
+    )
+    .orderBy(
+      asc(workspaceArtifacts.versionNumber),
+      asc(workspaceArtifacts.createdAt),
+    );
+  return buildWorkspaceArtifactVersionSet(selected, rows);
+}
+
+export function buildWorkspaceArtifactVersionSet(
+  selected: WorkspaceArtifact,
+  versions: readonly WorkspaceArtifact[],
+): WorkspaceArtifactVersionSet {
+  const byId = new Map(versions.map((version) => [version.id, version]));
+  byId.set(selected.id, selected);
+  const ordered = [...byId.values()].sort((left, right) => {
+    const versionOrder = left.versionNumber - right.versionNumber;
+    if (versionOrder !== 0) return versionOrder;
+    const createdOrder = left.createdAt.getTime() - right.createdAt.getTime();
+    return createdOrder !== 0 ? createdOrder : left.id.localeCompare(right.id);
+  });
+  const latest = ordered.at(-1) ?? selected;
+  return {
+    selectedArtifactId: selected.id,
+    latestArtifactId: latest.id,
+    staleBase: latest.id !== selected.id,
+    versions: ordered.map(serializeWorkspaceArtifact),
+  };
 }
 
 export async function loadWorkspaceArtifactById({

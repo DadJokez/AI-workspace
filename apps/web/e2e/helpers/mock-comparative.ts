@@ -17,6 +17,7 @@ interface MockChatOptions {
   threadMessagesDelayMs?: number;
   artifacts?: unknown[];
   artifactDetails?: Record<string, unknown>;
+  artifactVersionSets?: Record<string, unknown>;
   runTraces?: Record<string, unknown>;
   runStatuses?: Record<string, Record<string, unknown>>;
   skills?: unknown[];
@@ -667,6 +668,34 @@ export async function installMockComparativeApi(
       return json(route, { artifacts });
     }
 
+    const artifactVersionsMatch =
+      /^\/api\/workspace\/artifacts\/([^/]+)\/versions$/.exec(path);
+    if (artifactVersionsMatch) {
+      const artifactId = decodeURIComponent(artifactVersionsMatch[1]!);
+      const configured = options.artifactVersionSets?.[artifactId];
+      if (configured) return json(route, configured);
+      const artifactRows = artifacts.filter(isRecord);
+      const selected = artifactRows.find((item) => item.id === artifactId);
+      const versions = selected
+        ? artifactRows
+            .filter(
+              (item) => item.artifactGroupId === selected.artifactGroupId,
+            )
+            .sort(
+              (left, right) =>
+                Number(left.versionNumber ?? 1) -
+                Number(right.versionNumber ?? 1),
+            )
+        : [];
+      const latest = versions.at(-1) ?? selected;
+      return json(route, {
+        selectedArtifactId: artifactId,
+        latestArtifactId: latest?.id ?? artifactId,
+        staleBase: latest?.id !== artifactId,
+        versions,
+      });
+    }
+
     const artifactMatch = /^\/api\/workspace\/artifacts\/([^/]+)$/.exec(path);
     if (artifactMatch) {
       const artifactId = decodeURIComponent(artifactMatch[1]!);
@@ -906,4 +935,8 @@ async function postJson(request: Request): Promise<Record<string, unknown>> {
   } catch {
     return {};
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

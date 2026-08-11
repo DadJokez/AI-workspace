@@ -1,10 +1,14 @@
 import { MAX_TOKENS_TRUNCATION_NOTICE } from "@ai-workspace/agent";
+import type { WorkspaceArtifact } from "@ai-workspace/db";
 import { describe, expect, it } from "vitest";
 import {
   planArtifactVersionsForExistingArtifacts,
   type WorkspaceArtifactVersionTarget,
 } from "@/lib/artifact-revisions";
-import { parseAssistantArtifacts } from "@/lib/workspace-artifacts";
+import {
+  buildWorkspaceArtifactVersionSet,
+  parseAssistantArtifacts,
+} from "@/lib/workspace-artifacts";
 
 describe("parseAssistantArtifacts", () => {
   it("extracts explicit filename code fences as workspace artifacts", () => {
@@ -600,3 +604,63 @@ describe("#685 review — the short-block gate is scoped to prose fences", () =>
     expect(parsed.map((a) => a.filename)).toContain("Pilot-Plan.md");
   });
 });
+
+describe("buildWorkspaceArtifactVersionSet", () => {
+  it("sorts immutable versions and marks an older selected version stale", () => {
+    const v1 = artifactVersion({ id: "artifact-v1", versionNumber: 1 });
+    const v2 = artifactVersion({
+      id: "artifact-v2",
+      versionNumber: 2,
+      supersedesArtifactId: v1.id,
+      createdAt: new Date("2026-08-11T13:00:00.000Z"),
+    });
+
+    expect(buildWorkspaceArtifactVersionSet(v1, [v2, v1])).toMatchObject({
+      selectedArtifactId: v1.id,
+      latestArtifactId: v2.id,
+      staleBase: true,
+      versions: [
+        { id: v1.id, versionNumber: 1 },
+        { id: v2.id, versionNumber: 2 },
+      ],
+    });
+  });
+
+  it("keeps the selected artifact when an incomplete query omits it", () => {
+    const selected = artifactVersion({ id: "artifact-only", versionNumber: 1 });
+
+    expect(buildWorkspaceArtifactVersionSet(selected, [])).toMatchObject({
+      selectedArtifactId: selected.id,
+      latestArtifactId: selected.id,
+      staleBase: false,
+      versions: [{ id: selected.id }],
+    });
+  });
+});
+
+function artifactVersion(
+  overrides: Partial<WorkspaceArtifact> = {},
+): WorkspaceArtifact {
+  return {
+    id: "artifact-v1",
+    userId: "user-1",
+    threadId: "thread-1",
+    chatMessageId: "message-1",
+    runId: "run-1",
+    title: "Quarterly brief",
+    filename: "quarterly-brief.md",
+    artifactGroupId: "artifact-group-1",
+    versionNumber: 1,
+    supersedesArtifactId: null,
+    versionSummary: null,
+    kind: "markdown",
+    mimeType: "text/markdown",
+    content: "# Quarterly brief",
+    sizeBytes: 17,
+    source: "assistant-code-block",
+    metadata: {},
+    createdAt: new Date("2026-08-11T12:00:00.000Z"),
+    updatedAt: new Date("2026-08-11T12:00:00.000Z"),
+    ...overrides,
+  };
+}
