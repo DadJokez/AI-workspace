@@ -35,6 +35,7 @@ interface ChatCommandActions {
     focusId?: string,
   ) => void;
   openStudio: () => void;
+  branchCurrentThread: () => void;
   openThread: (threadId: string, title: string) => void;
   uploadFile: () => void;
 }
@@ -45,6 +46,7 @@ type PaletteCommand =
   | { type: "open-artifacts" }
   | { type: "open-settings" }
   | { type: "open-studio" }
+  | { type: "branch-work" }
   | { type: "upload-file" }
   | { type: "toggle-theme" }
   | { type: "route"; href: string };
@@ -218,6 +220,10 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
           if (chatActions) chatActions.openStudio();
           else router.push("/chat?open=studio");
           return;
+        case "branch-work":
+          closePalette();
+          chatActions?.branchCurrentThread();
+          return;
         case "upload-file":
           closePalette();
           if (chatActions) chatActions.uploadFile();
@@ -327,6 +333,9 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
 
   const items = useMemo<PaletteItem[]>(() => {
     const dynamic: PaletteItem[] = data.items.map((item) => ({ ...item }));
+    const currentThreadId = open
+      ? chatActionsRef.current?.current.currentThreadId
+      : undefined;
     if (data.isAdmin) dynamic.push(...ADMIN_ITEMS);
     dynamic.push(
       {
@@ -381,8 +390,18 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
         command: { type: "settings", section: "integrations" },
       },
     );
+    if (currentThreadId) {
+      dynamic.push({
+        id: "action:branch-work",
+        group: "actions",
+        label: "Try another approach",
+        description: "Start an independent chat from the current work",
+        keywords: ["branch", "alternate", "fork", "experiment"],
+        command: { type: "branch-work" },
+      });
+    }
     return dynamic;
-  }, [data]);
+  }, [data, open]);
 
   const context = useMemo(
     () => ({ openPalette, registerChatActions }),

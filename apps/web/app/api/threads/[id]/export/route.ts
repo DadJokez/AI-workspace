@@ -12,6 +12,7 @@ import {
   chatTranscriptFilename,
 } from "@/lib/chat-export";
 import { loadThreadMessagesWithRunActivity } from "@/lib/thread-messages";
+import { loadThreadBranchLineage } from "@/lib/thread-branches";
 
 export const dynamic = "force-dynamic";
 
@@ -61,15 +62,19 @@ export async function GET(req: Request, { params }: RouteContext) {
     },
   });
 
-  const messages = await loadThreadMessagesWithRunActivity({
-    db,
-    threadId,
-    actor: sessionUser,
-  });
+  const [messages, lineage] = await Promise.all([
+    loadThreadMessagesWithRunActivity({
+      db,
+      threadId,
+      actor: sessionUser,
+    }),
+    loadThreadBranchLineage({ db, threadId, actor: sessionUser }),
+  ]);
   const title = thread.title ?? "Chat transcript";
   const markdown = buildChatTranscriptMarkdown({
     title,
     threadId,
+    lineage,
     messages: messages.map((message) => ({
       role: message.role,
       content: message.content,

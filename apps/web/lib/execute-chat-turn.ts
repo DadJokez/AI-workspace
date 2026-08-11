@@ -1,13 +1,12 @@
 import {
   type ChatThread,
   auditLog,
-  chatMessages,
   type Database,
   type Run,
   runs,
   users,
 } from "@ai-workspace/db";
-import { eq, ne, and, asc } from "drizzle-orm";
+import { eq, ne, and } from "drizzle-orm";
 import type {
   AgentRuntime,
   McpServerSpec,
@@ -142,6 +141,10 @@ import type {
 } from "@/lib/chat-stream-contract";
 import type { ContextResourceReference } from "@/lib/context-shelf";
 import { resolveContextResources } from "@/lib/context-shelf-server";
+import {
+  loadThreadBranchArtifactContext,
+  loadThreadPromptHistory,
+} from "@/lib/thread-branches";
 
 /**
  * #442 — the single chat-turn pipeline. Both execution lanes (interactive
@@ -318,11 +321,7 @@ export async function executeChatTurn({
         .from(users)
         .where(eq(users.id, userId))
         .limit(1),
-      db
-        .select()
-        .from(chatMessages)
-        .where(eq(chatMessages.threadId, thread.id))
-        .orderBy(asc(chatMessages.createdAt)),
+      loadThreadPromptHistory({ db, threadId: thread.id }),
       includeVaultContext
         ? loadApprovedVaultMarkdown(db, userId)
         : Promise.resolve(null),
@@ -347,10 +346,21 @@ export async function executeChatTurn({
       })
     : undefined;
 
+  const user = userRows[0] ?? {
+    displayName: "User",
+    assistantName: null,
+    customInstructions: null,
+    role: "user" as const,
+  };
+
   // Match artifacts against recent RAW user messages, not the
   // attachment-folded prompt — so uploaded file bytes can't pull in an
   // unrelated artifact, while "it/that one" follow-ups still have context.
-  const [artifactContextPayload, appEditContextResult] = await Promise.all([
+  const [
+    artifactContextPayload,
+    appEditContextResult,
+    branchArtifactContext,
+  ] = await Promise.all([
     buildArtifactContextPayload({
       db,
       userId,
@@ -363,8 +373,13 @@ export async function executeChatTurn({
           : buildArtifactLookupMessage(history, userInstruction),
     }),
     buildAppEditContext({ db, userId, threadId: thread.id }),
+    loadThreadBranchArtifactContext({
+      db,
+      threadId: thread.id,
+      actor: { id: userId, role: user.role },
+    }),
   ]);
-  const { artifactContextTarget, separateFromArtifact } =
+  let { artifactContextTarget, separateFromArtifact } =
     resolveArtifactContextTargets(
       lane.kind === "worker"
         ? {
@@ -374,10 +389,27 @@ export async function executeChatTurn({
           }
         : { payload: artifactContextPayload },
     );
-  const artifactContext = artifactContextTextForTurn({
-    payload: artifactContextPayload,
-    uploadedFiles,
-  });
+  const branchSourceMatched =
+    Boolean(branchArtifactContext) &&
+    artifactContextPayload?.matchedArtifact?.id ===
+      branchArtifactContext?.sourceArtifactId;
+  const useBranchArtifactContext =
+    Boolean(branchArtifactContext) &&
+    (!artifactContextPayload?.matchedArtifact || branchSourceMatched);
+  if (
+    useBranchArtifactContext &&
+    (!artifactContextTarget || branchSourceMatched) &&
+    (!separateFromArtifact || branchSourceMatched)
+  ) {
+    artifactContextTarget = null;
+    separateFromArtifact = branchArtifactContext?.separateFromArtifact ?? null;
+  }
+  const artifactContext = useBranchArtifactContext
+    ? null
+    : artifactContextTextForTurn({
+        payload: artifactContextPayload,
+        uploadedFiles,
+      });
   const parsedArtifactReviewRequest =
     lane.kind === "worker"
       ? artifactReviewRequestFromRunInputs(lane.storedInputs)
@@ -394,18 +426,13 @@ export async function executeChatTurn({
     appEditContextResult?.sourceContentOmitted ?? false;
   const combinedArtifactContext = [
     appEditContext,
+    useBranchArtifactContext ? branchArtifactContext?.text : null,
     artifactContext,
     artifactReviewContext,
   ]
     .filter(Boolean)
     .join("\n\n");
 
-  const user = userRows[0] ?? {
-    displayName: "User",
-    assistantName: null,
-    customInstructions: null,
-    role: "user" as const,
-  };
   let recentToolEvidenceReceipt: RecentToolEvidenceReceipt | undefined;
   const selectedResourceImages = effectiveResourceResolution
     ? await loadSelectedResourceImages({

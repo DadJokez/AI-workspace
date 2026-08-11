@@ -19,6 +19,7 @@ import {
   type ConversationResourceResolution,
 } from "@/lib/conversation-resources";
 import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
+import { threadBranchHasPinnedResource } from "@/lib/thread-branches";
 
 export const CONVERSATION_RESOURCE_PROVIDER = "resources";
 export const CONVERSATION_RESOURCE_QUERY_TOOL = mcpToolName(
@@ -80,6 +81,7 @@ export async function loadSelectedResourceImages({
   const rows = await db
     .select({
       id: workspaceArtifacts.id,
+      threadId: workspaceArtifacts.threadId,
       filename: workspaceArtifacts.filename,
       mimeType: workspaceArtifacts.mimeType,
       content: workspaceArtifacts.content,
@@ -91,11 +93,23 @@ export async function loadSelectedResourceImages({
       and(
         inArray(workspaceArtifacts.id, ids),
         eq(workspaceArtifacts.userId, userId),
-        eq(workspaceArtifacts.threadId, threadId),
         eq(workspaceArtifacts.source, "user-upload"),
       ),
     );
-  const byId = new Map(rows.map((row) => [row.id, row]));
+  const authorizedRows = [];
+  for (const row of rows) {
+    if (
+      row.threadId === threadId ||
+      (await threadBranchHasPinnedResource({
+        db,
+        threadId,
+        artifactId: row.id,
+      }))
+    ) {
+      authorizedRows.push(row);
+    }
+  }
+  const byId = new Map(authorizedRows.map((row) => [row.id, row]));
   return selectedImages.flatMap((selected) => {
     const row = byId.get(selected.resourceId);
     const metadata = asRecord(row?.metadata);

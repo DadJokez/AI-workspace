@@ -1,5 +1,6 @@
 import type { AgentActivityEvent } from "@/lib/activity-events";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import type { ThreadBranchLineage } from "@/lib/thread-branch-types";
 
 export interface ChatExportMessage {
   role: "user" | "assistant" | "tool";
@@ -16,6 +17,7 @@ export interface ChatExportMessage {
 export interface ChatExportInput {
   title: string;
   threadId?: string;
+  lineage?: ThreadBranchLineage | null;
   messages: ChatExportMessage[];
   exportedAt?: Date;
 }
@@ -23,6 +25,7 @@ export interface ChatExportInput {
 export function buildChatTranscriptMarkdown({
   title,
   threadId,
+  lineage,
   messages,
   exportedAt = new Date(),
 }: ChatExportInput): string {
@@ -34,6 +37,35 @@ export function buildChatTranscriptMarkdown({
     `- Messages: ${messages.length}`,
     "",
   ];
+
+  if (lineage) {
+    lines.push("## Branch lineage", "");
+    lines.push(`- Source type: ${lineage.sourceType}`);
+    lines.push(`- Source: ${lineage.sourceTitle}`);
+    if (lineage.parentThreadIdSnapshot) {
+      lines.push(`- Parent thread ID: ${lineage.parentThreadIdSnapshot}`);
+    }
+    if (lineage.branchPointMessageIdSnapshot) {
+      lines.push(
+        `- Branch point message ID: ${lineage.branchPointMessageIdSnapshot}`,
+      );
+    }
+    if (lineage.sourceArtifactIdSnapshot) {
+      const source = lineage.resources.find(
+        (resource) =>
+          resource.artifactIdSnapshot === lineage.sourceArtifactIdSnapshot,
+      );
+      lines.push(
+        `- Pinned source: ${source?.filename ?? lineage.sourceArtifactIdSnapshot} (${source?.status ?? "unavailable"})`,
+      );
+    }
+    if (lineage.sourceAppVersionIdSnapshot) {
+      lines.push(
+        `- Pinned app version ID: ${lineage.sourceAppVersionIdSnapshot}`,
+      );
+    }
+    lines.push("");
+  }
 
   messages.forEach((message, index) => {
     lines.push("---", "");

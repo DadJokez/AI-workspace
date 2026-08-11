@@ -176,6 +176,8 @@ export function useChatTabs({
               ? {
                   ...tab,
                   messages: mergeLoadedMessages(messages, tab.messages),
+                  lineage: data.lineage ?? null,
+                  alternatives: data.alternatives ?? [],
                   loaded: true,
                 }
               : tab,

@@ -14,6 +14,7 @@ import {
   verifyConversationResourceTurnContext,
 } from "@/lib/conversation-resource-authorization";
 import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
+import { threadBranchHasPinnedResource } from "@/lib/thread-branches";
 
 const MCP_PROTOCOL_VERSION = "2025-11-25";
 const SUPPORTED_MCP_PROTOCOL_VERSIONS = new Set([
@@ -336,13 +337,22 @@ async function callTool(
       and(
         eq(workspaceArtifacts.id, input.resourceId),
         eq(workspaceArtifacts.userId, turnContext.userId),
-        eq(workspaceArtifacts.threadId, turnContext.threadId),
         eq(workspaceArtifacts.source, "user-upload"),
       ),
     )
     .limit(1);
   const resource = rows[0];
-  if (!resource) {
+  const pinned = resource
+    ? await threadBranchHasPinnedResource({
+        db,
+        threadId: turnContext.threadId,
+        artifactId: resource.id,
+      })
+    : false;
+  if (
+    !resource ||
+    (resource.threadId !== turnContext.threadId && !pinned)
+  ) {
     throw new Error(
       "The conversation resource is unavailable or has been deleted.",
     );

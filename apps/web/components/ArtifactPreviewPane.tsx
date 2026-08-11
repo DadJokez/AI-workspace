@@ -26,6 +26,8 @@ import remarkGfm from "remark-gfm";
 interface ArtifactPreviewContentProps {
   artifact: WorkspaceArtifactSummary;
   onClose?: () => void;
+  onBranch?: (artifact: WorkspaceArtifactSummary) => void;
+  branchPending?: boolean;
   focusReviewCommentId?: string;
   onAddressComments?: (
     comments: ArtifactReviewSelection[],
@@ -53,6 +55,8 @@ interface ArtifactReviewCommentsResponse {
 export function ArtifactPreviewContent({
   artifact,
   onClose,
+  onBranch,
+  branchPending,
   focusReviewCommentId,
   onAddressComments,
 }: ArtifactPreviewContentProps) {
@@ -284,6 +288,24 @@ export function ArtifactPreviewContent({
             {activeArtifact.filename} · {formatBytes(activeArtifact.sizeBytes)}
           </p>
         </div>
+        {onBranch ? (
+          <button
+            type="button"
+            aria-label="Try another approach from this file"
+            title={
+              branchPending
+                ? "Creating an alternative chat"
+                : "Try another approach"
+            }
+            data-testid="branch-artifact-button"
+            disabled={branchPending}
+            onClick={() => onBranch(activeArtifact)}
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-hairline px-2 text-xs font-medium text-ink hover:bg-subtle disabled:cursor-wait disabled:opacity-40"
+          >
+            <BranchIcon />
+            <span className="hidden xl:inline">Try another approach</span>
+          </button>
+        ) : null}
         <a
           href={activeArtifact.downloadUrl}
           className="rounded-md border border-hairline px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-subtle"
@@ -411,6 +433,27 @@ export function ArtifactPreviewContent({
         ) : null}
       </div>
     </div>
+  );
+}
+
+function BranchIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="4" cy="3" r="1.25" />
+      <circle cx="12" cy="6" r="1.25" />
+      <circle cx="4" cy="13" r="1.25" />
+      <path d="M4 4.25v5.5M5.25 6h5.5M4 9.75c0-2.1 1.35-3.75 3.35-3.75" />
+    </svg>
   );
 }
 

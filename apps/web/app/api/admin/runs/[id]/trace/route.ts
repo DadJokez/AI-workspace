@@ -8,6 +8,7 @@ import {
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { redactTracePayload } from "@/lib/tool-redaction";
 import { expandProviderContextSnapshotOutput } from "@/lib/run-trace";
+import { loadThreadBranchLineage } from "@/lib/thread-branches";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ export async function GET(
   const runRows = await db
     .select({
       id: runs.id,
+      threadId: runs.threadId,
       userId: runs.userId,
       skillSlug: runs.skillSlug,
       status: runs.status,
@@ -73,7 +75,7 @@ export async function GET(
     now,
   });
 
-  const [eventRows, auditRows] = await Promise.all([
+  const [eventRows, auditRows, lineage] = await Promise.all([
     db
       .select({
         id: runEvents.id,
@@ -114,6 +116,13 @@ export async function GET(
       .where(eq(auditLog.runId, run.id))
       .orderBy(desc(auditLog.createdAt))
       .limit(250),
+    run.threadId
+      ? loadThreadBranchLineage({
+          db,
+          threadId: run.threadId,
+          actor: auth.user,
+        })
+      : Promise.resolve(null),
   ]);
 
   const trace = {
@@ -121,6 +130,7 @@ export async function GET(
     generatedAt: now.toISOString(),
     run: redactTracePayload({
       ...run,
+      lineage,
       startedAt: run.startedAt?.toISOString() ?? null,
       completedAt: run.completedAt?.toISOString() ?? null,
       createdAt: run.createdAt.toISOString(),

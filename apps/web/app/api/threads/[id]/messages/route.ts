@@ -8,6 +8,10 @@ import {
 import { requireSession } from "@/lib/auth/requireSession";
 import { userScope } from "@/lib/auth/scope";
 import { loadThreadMessagesWithRunActivity } from "@/lib/thread-messages";
+import {
+  loadThreadAlternativeLinks,
+  loadThreadBranchLineage,
+} from "@/lib/thread-branches";
 
 export const dynamic = "force-dynamic";
 
@@ -59,11 +63,15 @@ export async function GET(
     },
   });
 
-  const rows = await loadThreadMessagesWithRunActivity({
-    db,
-    threadId,
-    actor: sessionUser,
-  });
+  const [rows, lineage, alternatives] = await Promise.all([
+    loadThreadMessagesWithRunActivity({
+      db,
+      threadId,
+      actor: sessionUser,
+    }),
+    loadThreadBranchLineage({ db, threadId, actor: sessionUser }),
+    loadThreadAlternativeLinks({ db, threadId, actor: sessionUser }),
+  ]);
 
-  return NextResponse.json({ messages: rows });
+  return NextResponse.json({ messages: rows, lineage, alternatives });
 }
