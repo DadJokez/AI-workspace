@@ -177,6 +177,9 @@ test.describe("command palette", () => {
     await page.keyboard.press("Control+K");
     let dialog = page.getByRole("dialog", { name: "Command palette" });
     await dialog.getByRole("combobox").fill("Demo Artifact");
+    await expect(
+      dialog.getByRole("option", { name: /Demo Artifact/ }),
+    ).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Enter");
 
     const studio = page.getByRole("complementary", {
@@ -188,6 +191,9 @@ test.describe("command palette", () => {
     await page.keyboard.press("Control+K");
     dialog = page.getByRole("dialog", { name: "Command palette" });
     await dialog.getByRole("combobox").fill("Preferred answer style");
+    await expect(
+      dialog.getByRole("option", { name: /Preferred answer style/ }),
+    ).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Enter");
 
     const settings = page.getByRole("dialog", { name: "Settings" });

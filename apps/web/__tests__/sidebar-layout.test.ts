@@ -31,6 +31,9 @@ describe("sidebar layout", () => {
     expect(shouldUseSidebarRail(input)).toBe(true);
     expect(isTemporarySidebarRail(input)).toBe(true);
     expect(
+      isTemporarySidebarRail({ ...input, userCollapsed: true }),
+    ).toBe(true);
+    expect(
       shouldUseSidebarRail({ ...input, rightPaneOpen: false }),
     ).toBe(false);
     expect(

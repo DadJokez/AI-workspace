@@ -94,12 +94,76 @@ test.describe("desktop sidebar rail", () => {
     await expectSidebarWidth(sidebar, 56);
     await expect.poll(() => readSidebarPreference(page)).toBeNull();
 
+    const chat = page.getByTestId("chat-workspace-pane");
+    const chatBeforeOverlay = await chat.boundingBox();
+    expect(chatBeforeOverlay).toBeTruthy();
+
+    await sidebar.getByRole("button", { name: "Expand sidebar" }).click();
+    await expect(sidebar).toHaveAttribute("data-sidebar-state", "expanded");
+    await expect(sidebar).toHaveAttribute("data-temporary-overlay", "true");
+    await expectSidebarWidth(sidebar, 248);
+    await expect(page.getByTestId("sidebar-rail-spacer")).toHaveCSS(
+      "width",
+      "56px",
+    );
+    const chatWithOverlay = await chat.boundingBox();
+    expect(chatWithOverlay).toEqual(chatBeforeOverlay);
+    await expect.poll(() => readSidebarPreference(page)).toBeNull();
+
+    await page.getByTestId("sidebar-temporary-backdrop").click({
+      position: { x: 500, y: 400 },
+    });
+    await expect(sidebar).toHaveAttribute("data-sidebar-state", "rail");
+    await expect(sidebar).not.toHaveAttribute("data-temporary-overlay", "true");
+    await expectSidebarWidth(sidebar, 56);
+
+    await sidebar.getByRole("button", { name: "Expand sidebar" }).click();
+    await expect(sidebar).toHaveAttribute("data-temporary-overlay", "true");
+    await page.keyboard.press("Escape");
+    await expect(sidebar).toHaveAttribute("data-sidebar-state", "rail");
+    await expect(sidebar).not.toHaveAttribute("data-temporary-overlay", "true");
+
     await page.getByRole("button", { name: "Close Contribution Studio" }).click();
     await expect(page.getByTestId("contribution-studio")).toHaveCount(0);
     await expect(sidebar).toHaveAttribute("data-sidebar-state", "expanded");
     await expect(sidebar).not.toHaveAttribute("data-auto-collapsed", "true");
     await expectSidebarWidth(sidebar, 248);
     await expect.poll(() => readSidebarPreference(page)).toBeNull();
+  });
+
+  test("temporarily expands a saved rail without changing the preference", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name.includes("mobile"), "desktop-only layout");
+
+    await page.setViewportSize({ width: 1_000, height: 800 });
+    await installMockComparativeApi(page, { threads: [sidebarThread] });
+    await gotoE2EChat(page);
+    await page.evaluate(
+      (key) => window.localStorage.setItem(key, "true"),
+      SIDEBAR_COLLAPSED_STORAGE_KEY,
+    );
+    await page.reload();
+
+    const sidebar = page.locator("#primary-sidebar");
+    await expect(sidebar).toHaveAttribute("data-sidebar-state", "rail");
+    await page.keyboard.press("Control+K");
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await palette.getByRole("combobox").fill("Open Contribution Studio");
+    await expect(
+      palette.getByRole("option", { name: /Open Contribution Studio/ }),
+    ).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("Enter");
+    await sidebar.getByRole("button", { name: "Expand sidebar" }).click();
+
+    await expect(sidebar).toHaveAttribute("data-temporary-overlay", "true");
+    await expectSidebarWidth(sidebar, 248);
+    await expect.poll(() => readSidebarPreference(page)).toBe("true");
+
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Close Contribution Studio" }).click();
+    await expect(sidebar).toHaveAttribute("data-sidebar-state", "rail");
+    await expect.poll(() => readSidebarPreference(page)).toBe("true");
   });
 });
 

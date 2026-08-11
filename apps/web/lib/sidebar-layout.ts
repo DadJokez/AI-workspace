@@ -26,13 +26,11 @@ export function shouldUseSidebarRail({
 }
 
 export function isTemporarySidebarRail({
-  userCollapsed,
   rightPaneOpen,
   viewportWidth,
   forceRail = false,
 }: SidebarLayoutInput): boolean {
   return (
-    !userCollapsed &&
     viewportWidth !== null &&
     viewportWidth >= DESKTOP_MIN_WIDTH &&
     (forceRail ||
