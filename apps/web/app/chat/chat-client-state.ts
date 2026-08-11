@@ -28,6 +28,10 @@ import type {
   ContributionStudioScope,
   ContributionStudioTab,
 } from "@/lib/contribution-studio";
+import type {
+  ThreadAlternativeLink,
+  ThreadBranchLineage,
+} from "@/lib/thread-branch-types";
 
 export const FALLBACK_DEFAULT_MODEL_ID = "sonnet-4-5";
 export const DEFAULT_MODEL_PREFIX = "ai-workspace-default-model:";
@@ -77,6 +81,7 @@ export interface UiMessage {
   /** Browser-local filenames shown while the persisted artifact row is loading. */
   attachmentPreviews?: Array<{ name: string; sizeBytes?: number }>;
   persisted?: boolean;
+  branchSnapshot?: boolean;
   providerReasoning?: LiveReasoningBlock[];
   contextResourceReferences?: ContextResourceReference[];
   contextResourceManifest?: ContextResourceManifest;
@@ -94,6 +99,8 @@ export interface ChatTab {
   busy: boolean;
   error?: string;
   loaded: boolean;
+  lineage?: ThreadBranchLineage | null;
+  alternatives?: ThreadAlternativeLink[];
 }
 
 export interface ModelsResponse {
@@ -149,10 +156,13 @@ export interface ThreadMessage {
   canRetry?: boolean;
   canResume?: boolean;
   createdAt: string;
+  branchSnapshot?: boolean;
 }
 
 export interface ThreadMessagesResponse {
   messages: ThreadMessage[];
+  lineage?: ThreadBranchLineage | null;
+  alternatives?: ThreadAlternativeLink[];
 }
 
 export function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
@@ -189,6 +199,7 @@ export function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
     ),
     attachmentsReplayable: messageUploadsReplayable(message.artifacts),
     persisted: true,
+    branchSnapshot: message.branchSnapshot,
   };
 }
 

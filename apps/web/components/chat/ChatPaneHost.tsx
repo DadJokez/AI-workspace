@@ -21,6 +21,8 @@ interface ChatPaneHostProps {
     scope: ContributionStudioScope,
   ) => void;
   onOpenRunInspector: (runId: string) => void;
+  onBranchArtifact: (artifact: WorkspaceArtifactSummary) => void;
+  branchPending: boolean;
   onAddressArtifactReview: (input: {
     artifact: WorkspaceArtifactSummary;
     comments: ArtifactReviewSelection[];
@@ -37,6 +39,8 @@ export function ChatPaneHost({
   onClose,
   onOpenArtifact,
   onOpenRunInspector,
+  onBranchArtifact,
+  branchPending,
   onAddressArtifactReview,
   onOpenThread,
   onUnreadChange,
@@ -61,6 +65,8 @@ export function ChatPaneHost({
         onClose={onClose}
         onOpenArtifact={onOpenArtifact}
         onOpenRunInspector={onOpenRunInspector}
+        onBranchArtifact={onBranchArtifact}
+        branchPending={branchPending}
         focusReviewCommentId={rightPane.focusReviewCommentId}
         onAddressArtifactReview={onAddressArtifactReview}
       />

@@ -33,6 +33,8 @@ interface ContributionStudioProps {
     scope: ContributionStudioScope,
   ) => void;
   onOpenRunInspector: (runId: string) => void;
+  onBranchArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+  branchPending?: boolean;
   focusReviewCommentId?: string;
   onAddressArtifactReview?: (input: {
     artifact: WorkspaceArtifactSummary;
@@ -60,6 +62,8 @@ export function ContributionStudio({
   onClose,
   onOpenArtifact,
   onOpenRunInspector,
+  onBranchArtifact,
+  branchPending,
   focusReviewCommentId,
   onAddressArtifactReview,
 }: ContributionStudioProps) {
@@ -216,6 +220,8 @@ export function ContributionStudio({
           {currentTab === "preview" && model.previewArtifact ? (
             <ArtifactPreviewContent
               artifact={model.previewArtifact}
+              onBranch={onBranchArtifact}
+              branchPending={branchPending}
               focusReviewCommentId={focusReviewCommentId}
               onAddressComments={
                 onAddressArtifactReview ? addressArtifactReview : undefined

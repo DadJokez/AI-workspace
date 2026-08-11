@@ -216,6 +216,7 @@ describe("conversation resource MCP authorization (#576)", () => {
           where: async () => [
             {
               id: "resource-image",
+              threadId: "thread-1",
               filename: "screen.png",
               mimeType: "image/png",
               content: Buffer.from("native-image-bytes").toString("base64"),

@@ -17,6 +17,10 @@ import type {
 } from "@/lib/recommendations";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import type { OutputProposalDecision } from "@/lib/output-proposals";
+import type {
+  ThreadAlternativeLink,
+  ThreadBranchLineage,
+} from "@/lib/thread-branch-types";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 
 const STICK_BOTTOM_THRESHOLD = 100;
@@ -34,6 +38,7 @@ interface ChatThreadProps {
   appDraftPendingId?: string;
   artifactProposalPendingId?: string;
   runActionPendingId?: string;
+  branchPending?: boolean;
   stickToBottomRef: MutableRefObject<boolean>;
   onPickSuggestion: (suggestion: string) => void;
   onOpenIntegrations: () => void;
@@ -61,6 +66,10 @@ interface ChatThreadProps {
     action: "cancel" | "retry" | "resume",
   ) => void;
   onOpenRunInspector: (runId: string) => void;
+  onBranchMessage: (messageId: string) => void;
+  onBranchAppVersion: (version: AppDraftVersionSummary) => void;
+  onBranchProposal: (artifact: WorkspaceArtifactSummary) => void;
+  onOpenBranchSource: (threadId: string, title: string) => void;
   onRegenerate: () => void;
   onEdit: (request: ChatEditRequest) => void;
   onRetry: () => void;
@@ -78,6 +87,7 @@ export function ChatThread({
   appDraftPendingId,
   artifactProposalPendingId,
   runActionPendingId,
+  branchPending,
   stickToBottomRef,
   onPickSuggestion,
   onOpenIntegrations,
@@ -90,6 +100,10 @@ export function ChatThread({
   onRecommendationAction,
   onRunAction,
   onOpenRunInspector,
+  onBranchMessage,
+  onBranchAppVersion,
+  onBranchProposal,
+  onOpenBranchSource,
   onRegenerate,
   onEdit,
   onRetry,
@@ -109,6 +123,9 @@ export function ChatThread({
     recommendationAction: onRecommendationAction,
     runAction: onRunAction,
     openRunInspector: onOpenRunInspector,
+    branchMessage: onBranchMessage,
+    branchAppVersion: onBranchAppVersion,
+    branchProposal: onBranchProposal,
     regenerate: onRegenerate,
     edit: onEdit,
   });
@@ -122,6 +139,7 @@ export function ChatThread({
   const canRegenerate =
     !busy &&
     !activeHasPendingRun &&
+    !lastAssistantMessage?.branchSnapshot &&
     messages.some((message) => message.role === "assistant" && !message.pending);
   const deferOffscreenRendering =
     messages.length >= OFFSCREEN_VIRTUALIZATION_THRESHOLD;
@@ -137,6 +155,9 @@ export function ChatThread({
       recommendationAction: onRecommendationAction,
       runAction: onRunAction,
       openRunInspector: onOpenRunInspector,
+      branchMessage: onBranchMessage,
+      branchAppVersion: onBranchAppVersion,
+      branchProposal: onBranchProposal,
       regenerate: onRegenerate,
       edit: onEdit,
     };
@@ -148,6 +169,9 @@ export function ChatThread({
     onIterateArtifactProposal,
     onEdit,
     onOpenArtifact,
+    onBranchAppVersion,
+    onBranchMessage,
+    onBranchProposal,
     onOpenRunInspector,
     onRecommendationAction,
     onRegenerate,
@@ -251,7 +275,20 @@ export function ChatThread({
         >
           {!activeTab.loaded ? (
             <ThreadLoadingSkeleton />
-          ) : messages.length === 0 ? (
+          ) : null}
+          {activeTab.loaded && activeTab.lineage ? (
+            <BranchLineageBanner
+              lineage={activeTab.lineage}
+              onOpenSource={onOpenBranchSource}
+            />
+          ) : null}
+          {activeTab.loaded && activeTab.alternatives?.length ? (
+            <ThreadAlternatives
+              alternatives={activeTab.alternatives}
+              onOpen={onOpenBranchSource}
+            />
+          ) : null}
+          {activeTab.loaded && messages.length === 0 ? (
             <ChatEmptyState
               onPick={onPickSuggestion}
               onOpenIntegrations={onOpenIntegrations}
@@ -259,7 +296,7 @@ export function ChatThread({
               connectedProviders={connectedProviders}
               suggestions={suggestions}
             />
-          ) : (
+          ) : activeTab.loaded ? (
             messages.map((message) => (
               <ChatMessageRow
                 key={message.id}
@@ -276,6 +313,7 @@ export function ChatThread({
                 }
                 editable={
                   message.role === "user" &&
+                  !message.branchSnapshot &&
                   !busy &&
                   !activeHasPendingRun &&
                   (!message.hasAttachments ||
@@ -286,11 +324,12 @@ export function ChatThread({
                 appDraftPendingId={appDraftPendingId}
                 artifactProposalPendingId={artifactProposalPendingId}
                 runActionPendingId={runActionPendingId}
+                branchPending={branchPending}
                 deferOffscreenRendering={deferOffscreenRendering}
                 actionsRef={messageActionsRef}
               />
             ))
-          )}
+          ) : null}
           {messages.length > 0 ? (
             <ThreadOrb messages={messages} />
           ) : null}
@@ -346,6 +385,122 @@ export function ChatThread({
         </button>
       ) : null}
     </div>
+  );
+}
+
+function BranchLineageBanner({
+  lineage,
+  onOpenSource,
+}: {
+  lineage: ThreadBranchLineage;
+  onOpenSource: (threadId: string, title: string) => void;
+}) {
+  const unavailableResources = lineage.resources.filter(
+    (resource) => resource.status === "unavailable",
+  ).length;
+  const detail = [
+    branchSourceLabel(lineage.sourceType),
+    `${lineage.messageCount} ${lineage.messageCount === 1 ? "message" : "messages"}`,
+    lineage.resources.length > 0
+      ? `${lineage.resources.length} ${lineage.resources.length === 1 ? "file" : "files"}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <aside
+      data-testid="branch-lineage-banner"
+      className="border-l-2 border-info/60 pl-3 text-xs text-muted"
+    >
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+        <BranchLineageIcon />
+        <span>Alternative from</span>
+        {lineage.parentThreadId ? (
+          <button
+            type="button"
+            onClick={() =>
+              onOpenSource(lineage.parentThreadId!, lineage.sourceTitle)
+            }
+            className="max-w-full truncate font-medium text-ink underline decoration-hairline underline-offset-2 hover:decoration-ink"
+          >
+            {lineage.sourceTitle}
+          </button>
+        ) : (
+          <span className="font-medium text-ink">{lineage.sourceTitle}</span>
+        )}
+        <span aria-hidden="true">·</span>
+        <span>{detail}</span>
+      </div>
+      {unavailableResources > 0 ? (
+        <p className="mt-1 text-danger">
+          {unavailableResources} pinned {unavailableResources === 1 ? "file is" : "files are"} unavailable.
+        </p>
+      ) : null}
+    </aside>
+  );
+}
+
+function ThreadAlternatives({
+  alternatives,
+  onOpen,
+}: {
+  alternatives: ThreadAlternativeLink[];
+  onOpen: (threadId: string, title: string) => void;
+}) {
+  return (
+    <aside
+      data-testid="thread-alternatives"
+      className="border-l-2 border-info/35 pl-3 text-xs text-muted"
+    >
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <BranchLineageIcon />
+        <span>
+          {alternatives.length}{" "}
+          {alternatives.length === 1 ? "alternative" : "alternatives"}
+        </span>
+        {alternatives.map((alternative) => (
+          <button
+            key={alternative.threadId}
+            type="button"
+            onClick={() => onOpen(alternative.threadId, alternative.title)}
+            className="max-w-52 truncate font-medium text-ink underline decoration-hairline underline-offset-2 hover:decoration-ink"
+          >
+            {alternative.title}
+          </button>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+function branchSourceLabel(sourceType: ThreadBranchLineage["sourceType"]) {
+  if (sourceType === "message") return "Message snapshot";
+  if (sourceType === "thread") return "Chat snapshot";
+  if (sourceType === "app_version") return "App version";
+  if (sourceType === "proposal") return "Proposal";
+  return "File";
+}
+
+function BranchLineageIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="shrink-0"
+    >
+      <circle cx="4" cy="3" r="1.25" />
+      <circle cx="12" cy="6" r="1.25" />
+      <circle cx="4" cy="13" r="1.25" />
+      <path d="M4 4.25v5.5M5.25 6h5.5M4 9.75c0-2.1 1.35-3.75 3.35-3.75" />
+    </svg>
   );
 }
 

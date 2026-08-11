@@ -302,6 +302,13 @@
       "when": 1786473874000,
       "tag": "0042_artifact_review_comments",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1786478400000,
+      "tag": "0043_chat_thread_branches",
+      "breakpoints": true
     }
   ]
 }

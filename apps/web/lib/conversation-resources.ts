@@ -5,9 +5,10 @@ import {
   runs,
   workspaceArtifacts,
 } from "@ai-workspace/db";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import type { PreparedChatAttachment } from "@/lib/attachments";
+import { loadThreadBranchSnapshot } from "@/lib/thread-branches";
 
 export const CONVERSATION_RESOURCE_MCP_PATH = "/api/mcp/resources";
 
@@ -158,26 +159,78 @@ export async function loadThreadConversationResources({
   userId: string;
   threadId: string;
 }): Promise<ConversationResourceManifest[]> {
-  const rows = await db
-    .select({
-      id: workspaceArtifacts.id,
-      filename: workspaceArtifacts.filename,
-      mimeType: workspaceArtifacts.mimeType,
-      kind: workspaceArtifacts.kind,
-      sizeBytes: workspaceArtifacts.sizeBytes,
-      chatMessageId: workspaceArtifacts.chatMessageId,
-      metadata: workspaceArtifacts.metadata,
-      createdAt: workspaceArtifacts.createdAt,
-    })
-    .from(workspaceArtifacts)
-    .where(
-      and(
-        eq(workspaceArtifacts.userId, userId),
-        eq(workspaceArtifacts.threadId, threadId),
-        eq(workspaceArtifacts.source, "user-upload"),
-      ),
-    )
-    .orderBy(desc(workspaceArtifacts.createdAt), desc(workspaceArtifacts.id));
+  const [directRows, branchSnapshot] = await Promise.all([
+    db
+      .select({
+        id: workspaceArtifacts.id,
+        filename: workspaceArtifacts.filename,
+        mimeType: workspaceArtifacts.mimeType,
+        kind: workspaceArtifacts.kind,
+        sizeBytes: workspaceArtifacts.sizeBytes,
+        chatMessageId: workspaceArtifacts.chatMessageId,
+        metadata: workspaceArtifacts.metadata,
+        createdAt: workspaceArtifacts.createdAt,
+      })
+      .from(workspaceArtifacts)
+      .where(
+        and(
+          eq(workspaceArtifacts.userId, userId),
+          eq(workspaceArtifacts.threadId, threadId),
+          eq(workspaceArtifacts.source, "user-upload"),
+        ),
+      )
+      .orderBy(desc(workspaceArtifacts.createdAt), desc(workspaceArtifacts.id)),
+    loadThreadBranchSnapshot({ db, threadId }),
+  ]);
+  const pinnedUploads = (branchSnapshot?.resources ?? []).filter(
+    (resource) => resource.source === "user-upload",
+  );
+  const pinnedRows = pinnedUploads.length
+    ? await db
+        .select({
+          id: workspaceArtifacts.id,
+          filename: workspaceArtifacts.filename,
+          mimeType: workspaceArtifacts.mimeType,
+          kind: workspaceArtifacts.kind,
+          sizeBytes: workspaceArtifacts.sizeBytes,
+          chatMessageId: workspaceArtifacts.chatMessageId,
+          metadata: workspaceArtifacts.metadata,
+          createdAt: workspaceArtifacts.createdAt,
+        })
+        .from(workspaceArtifacts)
+        .where(
+          and(
+            inArray(
+              workspaceArtifacts.id,
+              pinnedUploads.map((resource) => resource.artifactIdSnapshot),
+            ),
+            eq(workspaceArtifacts.userId, userId),
+            eq(workspaceArtifacts.source, "user-upload"),
+          ),
+        )
+    : [];
+  const pinnedMessageIdByArtifactId = new Map(
+    pinnedUploads.map((resource) => [
+      resource.artifactIdSnapshot,
+      resource.messageId,
+    ]),
+  );
+  const rows = Array.from(
+    new Map(
+      [
+        ...directRows,
+        ...pinnedRows.map((row) => ({
+          ...row,
+          chatMessageId:
+            pinnedMessageIdByArtifactId.get(row.id) ?? row.chatMessageId,
+        })),
+      ].map((row) => [row.id, row]),
+    ).values(),
+  ).sort(
+    (left, right) =>
+      right.createdAt.getTime() - left.createdAt.getTime() ||
+      right.id.localeCompare(left.id),
+  );
 
   return rows.flatMap((row) => {
     const kind = parseResourceKind(row.kind);

@@ -26,6 +26,10 @@ import { shouldShowTour } from "@/lib/tour";
 import { Sidebar } from "@/components/Sidebar";
 import { useHorizontalSwipe } from "@/components/useHorizontalSwipe";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import type {
+  ThreadBranchRequest,
+  ThreadBranchResponse,
+} from "@/lib/thread-branch-types";
 import {
   formatArtifactReviewMessage,
   type ArtifactReviewSelection,
@@ -142,6 +146,7 @@ export function ChatClient({
     initialOpen === "upload" ? 1 : 0,
   );
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [branchPending, setBranchPending] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editRequest, setEditRequest] = useState<ChatEditRequest>();
   const [editingQueuedTurnId, setEditingQueuedTurnId] = useState<string | null>(
@@ -436,6 +441,51 @@ export function ChatClient({
   }, [send]);
 
   const currentRunActive = Boolean(activeTab?.busy || activeHasPendingRun);
+
+  async function branchWork(request: ThreadBranchRequest) {
+    if (!activeTab || branchPending) return;
+    const sourceTabId = activeTab.id;
+    if (currentRunActive) {
+      patchTab(sourceTabId, {
+        error: "Wait for the current response to finish before trying another approach.",
+      });
+      return;
+    }
+    setBranchPending(true);
+    patchTab(sourceTabId, { error: undefined });
+    try {
+      const result = await fetchJson<ThreadBranchResponse>(
+        "/api/threads/branch",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+        },
+        "Could not create an alternative chat.",
+      );
+      setSettingsSection(null);
+      openThread(
+        result.thread.id,
+        result.thread.title?.trim() || "Alternative approach",
+      );
+      void refreshThreads();
+      posthog.capture("chat_branch_created", {
+        source_type: request.sourceType,
+        snapshot_messages: result.lineage.messageCount,
+        pinned_resources: result.lineage.resources.length,
+      });
+    } catch (error) {
+      patchTab(sourceTabId, {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not create an alternative chat.",
+      });
+    } finally {
+      setBranchPending(false);
+    }
+  }
+
   const queuedHead = queuedTurns.turns[0];
   const queuedScopeKey = queuedTurns.scopeKey;
   useEffect(() => {
@@ -621,6 +671,13 @@ export function ChatClient({
       setSettingsSection(null);
       setRightPane({ kind: "studio", scope: "thread" });
     },
+    branchCurrentThread: () => {
+      if (!activeTab?.threadId) return;
+      void branchWork({
+        sourceType: "thread",
+        sourceThreadId: activeTab.threadId,
+      });
+    },
     openThread: (threadId, title) => {
       setSettingsSection(null);
       openThread(threadId, title);
@@ -704,6 +761,7 @@ export function ChatClient({
               studioOpen={studioOpen}
               studioWorking={studioModel.working || currentRunActive}
               unreadNotifications={unreadNotifications}
+              branchPending={branchPending}
               onOpenMenu={() => setSidebarOpen(true)}
               onModelChange={handleModelChange}
               onToggleStudio={(open) =>
@@ -722,6 +780,12 @@ export function ChatClient({
                 )
               }
               onDownload={handleDownloadTranscript}
+              onBranchThread={() =>
+                void branchWork({
+                  sourceType: "thread",
+                  sourceThreadId: activeTab.threadId!,
+                })
+              }
               onStop={stopStreaming}
             />
 
@@ -737,6 +801,7 @@ export function ChatClient({
             appDraftPendingId={appDraftPendingId}
             artifactProposalPendingId={artifactProposalPendingId}
             runActionPendingId={runActionPendingId}
+            branchPending={branchPending || currentRunActive}
             stickToBottomRef={stickToBottomRef}
             onPickSuggestion={(suggestion) => void send(suggestion)}
             onOpenIntegrations={() => setSettingsSection("integrations")}
@@ -759,6 +824,33 @@ export function ChatClient({
             }
             onRunAction={(runId, action) => void runAction(runId, action)}
             onOpenRunInspector={openRunInspector}
+            onBranchMessage={(sourceMessageId) =>
+              void branchWork({
+                sourceType: "message",
+                sourceThreadId: activeTab.threadId!,
+                sourceMessageId,
+              })
+            }
+            onBranchAppVersion={(version) =>
+              void branchWork({
+                sourceType: "app_version",
+                ...(activeTab.threadId
+                  ? { sourceThreadId: activeTab.threadId }
+                  : {}),
+                artifactId: version.artifactId,
+                appVersionId: version.id,
+              })
+            }
+            onBranchProposal={(artifact) =>
+              void branchWork({
+                sourceType: "proposal",
+                ...(activeTab.threadId
+                  ? { sourceThreadId: activeTab.threadId }
+                  : {}),
+                artifactId: artifact.id,
+              })
+            }
+            onOpenBranchSource={openThread}
             onRegenerate={regenerate}
             onEdit={setEditRequest}
             onRetry={retry}
@@ -811,6 +903,16 @@ export function ChatClient({
             onClose={closeRightPane}
             onOpenArtifact={openArtifactPreview}
             onOpenRunInspector={openRunInspector}
+            onBranchArtifact={(artifact) =>
+              void branchWork({
+                sourceType: "artifact",
+                ...(activeTab.threadId
+                  ? { sourceThreadId: activeTab.threadId }
+                  : {}),
+                artifactId: artifact.id,
+              })
+            }
+            branchPending={branchPending || currentRunActive}
             onAddressArtifactReview={addressArtifactReviewComments}
             onOpenThread={openThread}
             onUnreadChange={setUnreadNotifications}

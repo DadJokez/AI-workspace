@@ -9,6 +9,10 @@ import {
 import { requireSession } from "@/lib/auth/requireSession";
 import { userScope } from "@/lib/auth/scope";
 import { loadThreadMessagesWithRunActivity } from "@/lib/thread-messages";
+import {
+  loadThreadAlternativeLinks,
+  loadThreadBranchLineage,
+} from "@/lib/thread-branches";
 
 export const dynamic = "force-dynamic";
 
@@ -50,13 +54,22 @@ export async function GET(
       },
     });
 
-    const messages = await loadThreadMessagesWithRunActivity({
-      db,
-      threadId: id,
-      actor: sessionUser,
-    });
+    const [messages, lineage, alternatives] = await Promise.all([
+      loadThreadMessagesWithRunActivity({
+        db,
+        threadId: id,
+        actor: sessionUser,
+      }),
+      loadThreadBranchLineage({ db, threadId: id, actor: sessionUser }),
+      loadThreadAlternativeLinks({ db, threadId: id, actor: sessionUser }),
+    ]);
 
-    return NextResponse.json({ thread: owned[0], messages });
+    return NextResponse.json({
+      thread: owned[0],
+      messages,
+      lineage,
+      alternatives,
+    });
   } catch (err) {
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });

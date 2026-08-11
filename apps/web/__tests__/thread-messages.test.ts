@@ -294,7 +294,8 @@ describe("reconcileAppDraftVersionSummaries (#344)", () => {
 describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () => {
   // Fluent thenable mock: every chained method returns the query; awaiting it
   // resolves the next queue slot. Select order in the loader: messages, runs,
-  // runEvents, workspaceArtifacts, then the appVersions truth join.
+  // branch snapshot, runEvents, workspaceArtifacts, then the appVersions truth
+  // join.
   function fluentDb(queues: unknown[][]) {
     let calls = 0;
     const make = (slot: number) => {
@@ -397,6 +398,7 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
       ],
       [],
       [],
+      [],
       [
         // vA deployed and live; vB still "draft" but IS the live pointer;
         // vC missing (hard-deleted); vD draft on an archived app.
@@ -459,8 +461,9 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
     ]);
 
     await loadThreadMessagesWithRunActivity({ db, threadId: "thread-1" });
-    // messages, runs, artifacts — no runEvents (no runs) and no truth join.
-    expect(selectCalls()).toBe(3);
+    // messages, runs, branch snapshot, artifacts — no runEvents (no runs) and
+    // no truth join.
+    expect(selectCalls()).toBe(4);
   });
 
   it("drops app-version telemetry after the caller's share is revoked", async () => {
@@ -499,6 +502,7 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
           createdAt: new Date(2),
         },
       ],
+      [],
       [],
       [],
       [

@@ -7,6 +7,8 @@ export const now = "2026-06-14T20:00:00.000Z";
 interface MockChatOptions {
   threads?: unknown[];
   threadMessages?: Record<string, unknown[]>;
+  threadLineages?: Record<string, unknown>;
+  threadAlternatives?: Record<string, unknown[]>;
   threadExports?: Record<
     string,
     {
@@ -54,6 +56,10 @@ interface MockChatOptions {
     scopes?: unknown[];
   };
   onChat?: (
+    body: Record<string, unknown>,
+    route: Route,
+  ) => Promise<void> | void;
+  onThreadBranch?: (
     body: Record<string, unknown>,
     route: Route,
   ) => Promise<void> | void;
@@ -252,6 +258,8 @@ export async function installMockComparativeApi(
   const apps = options.apps ?? [];
   let threads = (options.threads ?? []) as Array<Record<string, unknown>>;
   const threadMessages = options.threadMessages ?? {};
+  const threadLineages = options.threadLineages ?? {};
+  const threadAlternatives = options.threadAlternatives ?? {};
   const oauthStatus = options.oauthStatus ?? { github: false };
   const recommendationPrompts = options.recommendationPrompts ?? {
     suggestions: [...FALLBACK_EMPTY_STATE_SUGGESTIONS],
@@ -549,6 +557,14 @@ export async function installMockComparativeApi(
       return json(route, { threads });
     }
 
+    if (path === "/api/threads/branch" && request.method() === "POST") {
+      const body = await postJson(request);
+      if (options.onThreadBranch) {
+        return options.onThreadBranch(body, route);
+      }
+      return json(route, { error: "thread_branch_not_configured" }, 501);
+    }
+
     if (path === "/api/context/resources") {
       return json(route, {
         results: options.contextResources?.results ?? [],
@@ -566,7 +582,11 @@ export async function installMockComparativeApi(
           setTimeout(resolve, options.threadMessagesDelayMs),
         );
       }
-      return json(route, { messages: threadMessages[threadId] ?? [] });
+      return json(route, {
+        messages: threadMessages[threadId] ?? [],
+        lineage: threadLineages[threadId] ?? null,
+        alternatives: threadAlternatives[threadId] ?? [],
+      });
     }
 
     const threadExportMatch = /^\/api\/threads\/([^/]+)\/export$/.exec(path);

@@ -70,6 +70,14 @@ export const artifactReviewCommentStatusEnum = pgEnum(
 export type ArtifactReviewCommentStatus =
   (typeof artifactReviewCommentStatusEnum.enumValues)[number];
 
+export const chatThreadBranchSourceTypeEnum = pgEnum(
+  "chat_thread_branch_source_type",
+  ["message", "thread", "artifact", "app_version", "proposal"],
+);
+
+export type ChatThreadBranchSourceType =
+  (typeof chatThreadBranchSourceTypeEnum.enumValues)[number];
+
 export const auditLogStatusEnum = pgEnum("audit_log_status", [
   "started",
   "succeeded",
@@ -1303,6 +1311,68 @@ export const appEditSessions = pgTable(
 );
 
 /**
+ * Immutable branch-point snapshots for alternate approaches. The child thread
+ * owns its copied message text; live foreign keys are retained only so current
+ * authorization can be rechecked. Snapshot ids preserve provenance after a
+ * source thread, message, artifact, or app version is deleted.
+ */
+export const chatThreadBranches = pgTable(
+  "chat_thread_branches",
+  {
+    threadId: uuid("thread_id")
+      .primaryKey()
+      .references(() => chatThreads.id, { onDelete: "cascade" }),
+    parentThreadId: uuid("parent_thread_id").references(
+      () => chatThreads.id,
+      { onDelete: "set null" },
+    ),
+    parentThreadIdSnapshot: uuid("parent_thread_id_snapshot"),
+    branchPointMessageId: uuid("branch_point_message_id").references(
+      () => chatMessages.id,
+      { onDelete: "set null" },
+    ),
+    branchPointMessageIdSnapshot: uuid("branch_point_message_id_snapshot"),
+    sourceType: chatThreadBranchSourceTypeEnum("source_type").notNull(),
+    sourceArtifactId: uuid("source_artifact_id").references(
+      () => workspaceArtifacts.id,
+      { onDelete: "set null" },
+    ),
+    sourceArtifactIdSnapshot: uuid("source_artifact_id_snapshot"),
+    sourceAppVersionId: uuid("source_app_version_id").references(
+      () => appVersions.id,
+      { onDelete: "set null" },
+    ),
+    sourceAppVersionIdSnapshot: uuid("source_app_version_id_snapshot"),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    snapshot: jsonb("snapshot").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    parentIdx: index("chat_thread_branches_parent_idx").on(
+      t.parentThreadId,
+      t.createdAt,
+    ),
+    branchPointIdx: index("chat_thread_branches_point_idx").on(
+      t.branchPointMessageId,
+    ),
+    sourceArtifactIdx: index("chat_thread_branches_artifact_idx").on(
+      t.sourceArtifactId,
+    ),
+    sourceAppVersionIdx: index("chat_thread_branches_app_version_idx").on(
+      t.sourceAppVersionId,
+    ),
+    actorIdx: index("chat_thread_branches_actor_idx").on(
+      t.createdByUserId,
+      t.createdAt,
+    ),
+  }),
+);
+
+/**
  * Shared fixed-window request-limit buckets. These replace the old
  * process-local Map so multiple ECS web tasks enforce one consistent quota
  * per logical key (for example `chat:<user-id>`).
@@ -1542,6 +1612,8 @@ export type AppVersion = typeof appVersions.$inferSelect;
 export type NewAppVersion = typeof appVersions.$inferInsert;
 export type AppEditSession = typeof appEditSessions.$inferSelect;
 export type NewAppEditSession = typeof appEditSessions.$inferInsert;
+export type ChatThreadBranch = typeof chatThreadBranches.$inferSelect;
+export type NewChatThreadBranch = typeof chatThreadBranches.$inferInsert;
 export type RunEvent = typeof runEvents.$inferSelect;
 export type NewRunEvent = typeof runEvents.$inferInsert;
 export type Notification = typeof notifications.$inferSelect;
