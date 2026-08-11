@@ -43,6 +43,7 @@ interface ChatThreadProps {
   onPickSuggestion: (suggestion: string) => void;
   onOpenIntegrations: () => void;
   onOpenArtifact: (artifact: WorkspaceArtifactSummary) => void;
+  onOpenBrowserEvidence?: (messageId: string, sourceNumber: number) => void;
   onDeployAppDraft: (version: AppDraftVersionSummary) => void;
   onDiscardAppProposal: (version: AppDraftVersionSummary) => void;
   onIterateAppProposal: (
@@ -92,6 +93,7 @@ export function ChatThread({
   onPickSuggestion,
   onOpenIntegrations,
   onOpenArtifact,
+  onOpenBrowserEvidence,
   onDeployAppDraft,
   onDiscardAppProposal,
   onIterateAppProposal,
@@ -115,6 +117,7 @@ export function ChatThread({
   const jumpScrollResetRef = useRef<number | undefined>(undefined);
   const messageActionsRef = useRef<ChatMessageRowActions>({
     openArtifact: onOpenArtifact,
+    openBrowserEvidence: onOpenBrowserEvidence,
     deployAppDraft: onDeployAppDraft,
     discardAppProposal: onDiscardAppProposal,
     iterateAppProposal: onIterateAppProposal,
@@ -147,6 +150,7 @@ export function ChatThread({
   useEffect(() => {
     messageActionsRef.current = {
       openArtifact: onOpenArtifact,
+      openBrowserEvidence: onOpenBrowserEvidence,
       deployAppDraft: onDeployAppDraft,
       discardAppProposal: onDiscardAppProposal,
       iterateAppProposal: onIterateAppProposal,
@@ -169,6 +173,7 @@ export function ChatThread({
     onIterateArtifactProposal,
     onEdit,
     onOpenArtifact,
+    onOpenBrowserEvidence,
     onBranchAppVersion,
     onBranchMessage,
     onBranchProposal,

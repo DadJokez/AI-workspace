@@ -70,6 +70,7 @@ interface Props {
   contextResourceSelections?: ContextResourceSearchResult[];
   assistantName?: string | null;
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+  onOpenSource?: (source: AssistantSource) => void;
   onDeployAppDraft?: (version: AppDraftVersionSummary) => void;
   onDiscardAppProposal?: (version: AppDraftVersionSummary) => void;
   onIterateAppProposal?: (
@@ -123,6 +124,7 @@ export function MessageBubble({
   contextResourceSelections = [],
   assistantName,
   onOpenArtifact,
+  onOpenSource,
   onDeployAppDraft,
   onDiscardAppProposal,
   onIterateAppProposal,
@@ -337,6 +339,7 @@ export function MessageBubble({
           sources={sources}
           artifacts={artifacts}
           onOpenArtifact={onOpenArtifact}
+          onOpenSource={onOpenSource}
         />
       ) : null}
       {role === "assistant" && standaloneProposalArtifacts.length > 0 ? (
@@ -1152,10 +1155,12 @@ function SourceStrip({
   sources,
   artifacts,
   onOpenArtifact,
+  onOpenSource,
 }: {
   sources: AssistantSource[];
   artifacts: WorkspaceArtifactSummary[];
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+  onOpenSource?: (source: AssistantSource) => void;
 }) {
   return (
     <div
@@ -1192,6 +1197,18 @@ function SourceStrip({
           source.url &&
           (source.kind === "web" || source.kind === "repo")
         ) {
+          if (onOpenSource) {
+            return (
+              <button
+                key={source.n}
+                type="button"
+                {...sharedProps}
+                onClick={() => onOpenSource(source)}
+              >
+                {content}
+              </button>
+            );
+          }
           return (
             <a
               key={source.n}

@@ -24,6 +24,7 @@ const OFFSCREEN_MESSAGE_STYLE = {
 
 export interface ChatMessageRowActions {
   openArtifact: (artifact: WorkspaceArtifactSummary) => void;
+  openBrowserEvidence?: (messageId: string, sourceNumber: number) => void;
   deployAppDraft: (version: AppDraftVersionSummary) => void;
   discardAppProposal: (version: AppDraftVersionSummary) => void;
   iterateAppProposal: (
@@ -149,6 +150,12 @@ function ChatMessageRowComponent({
         assistantName={assistantName}
         onOpenArtifact={(artifact) =>
           actionsRef.current.openArtifact(artifact)
+        }
+        onOpenSource={
+          actionsRef.current.openBrowserEvidence
+            ? (source) =>
+                actionsRef.current.openBrowserEvidence?.(message.id, source.n)
+            : undefined
         }
         onDeployAppDraft={(version) =>
           actionsRef.current.deployAppDraft(version)

@@ -73,6 +73,14 @@ describe("reconcile-rds-perimeter.sh", () => {
     expect(commands).not.toContain("rds wait");
   });
 
+  it("accepts the pre-deploy perimeter before the optional browser proxy exists", () => {
+    const result = runScript("--check", { browserProxyMissing: true });
+
+    expect(result.status, result.stderr).toBe(0);
+    const commands = readFileSync(result.capturePath, "utf8");
+    expect(commands).not.toContain("sg-browser-proxy");
+  });
+
   it("fails closed without mutating an unknown CIDR rule", () => {
     const result = runScript("--apply", { unknownCidr: true });
 
@@ -124,12 +132,14 @@ describe("reconcile-rds-perimeter.sh", () => {
 function runScript(
   mode: "--apply" | "--check",
   {
+    browserProxyMissing = false,
     broadPublicRule = false,
     privateWaitAttempts = 5,
     publicState = false,
     stalePrivateReads = 0,
     unknownCidr = false,
   }: {
+    browserProxyMissing?: boolean;
     broadPublicRule?: boolean;
     privateWaitAttempts?: number;
     publicState?: boolean;
@@ -141,6 +151,15 @@ function runScript(
   tempDirs.push(dir);
   const capturePath = join(dir, "commands.txt");
   const awsPath = join(dir, "aws");
+  const browserProxyResource = browserProxyMissing
+    ? ""
+    : ',{"LogicalResourceId":"BrowserProxySecurityGroup9E3BD606","PhysicalResourceId":"sg-browser-proxy","ResourceType":"AWS::EC2::SecurityGroup"}';
+  const browserProxyPair = browserProxyMissing
+    ? ""
+    : ',{"GroupId":"sg-browser-proxy"}';
+  const browserProxyGroup = browserProxyMissing
+    ? ""
+    : ',{"GroupId":"sg-browser-proxy","VpcId":"vpc-test","IpPermissions":[]}';
 
   writeFileSync(
     awsPath,
@@ -153,7 +172,7 @@ printf '\\n' >> "$FAKE_CAPTURE_PATH"
 case "$1 $2" in
   "cloudformation list-stack-resources")
     cat <<'JSON'
-{"StackResourceSummaries":[{"LogicalResourceId":"WebSecurityGroup73AF7387","PhysicalResourceId":"sg-web","ResourceType":"AWS::EC2::SecurityGroup"},{"LogicalResourceId":"WorkerSecurityGroup5529CF0B","PhysicalResourceId":"sg-worker","ResourceType":"AWS::EC2::SecurityGroup"}]}
+{"StackResourceSummaries":[{"LogicalResourceId":"WebSecurityGroup73AF7387","PhysicalResourceId":"sg-web","ResourceType":"AWS::EC2::SecurityGroup"},{"LogicalResourceId":"WorkerSecurityGroup5529CF0B","PhysicalResourceId":"sg-worker","ResourceType":"AWS::EC2::SecurityGroup"}${browserProxyResource}]}
 JSON
     ;;
   "cloudformation describe-stacks")
@@ -191,7 +210,7 @@ JSON
     if [[ "$FAKE_BROAD_PUBLIC_RULE" == "1" ]]; then
       broad_ip_ranges='[{"CidrIp":"0.0.0.0/0"}]'
     fi
-    printf '{"SecurityGroups":[{"GroupId":"sg-019e87b5938a295a4","VpcId":"vpc-test","IpPermissions":[{"IpProtocol":"tcp","FromPort":5432,"ToPort":5432,"UserIdGroupPairs":[{"GroupId":"sg-web"},{"GroupId":"sg-worker"},{"GroupId":"sg-deploy"}],"IpRanges":%s,"Ipv6Ranges":[],"PrefixListIds":[]},{"IpProtocol":"-1","UserIdGroupPairs":[{"GroupId":"sg-019e87b5938a295a4"}],"IpRanges":%s,"Ipv6Ranges":[],"PrefixListIds":[]}]},{"GroupId":"sg-web","VpcId":"vpc-test","IpPermissions":[]},{"GroupId":"sg-worker","VpcId":"vpc-test","IpPermissions":[]},{"GroupId":"sg-deploy","VpcId":"vpc-test","IpPermissions":[]}]}\\n' "$ip_ranges" "$broad_ip_ranges"
+    printf '{"SecurityGroups":[{"GroupId":"sg-019e87b5938a295a4","VpcId":"vpc-test","IpPermissions":[{"IpProtocol":"tcp","FromPort":5432,"ToPort":5432,"UserIdGroupPairs":[{"GroupId":"sg-web"},{"GroupId":"sg-worker"},{"GroupId":"sg-deploy"}${browserProxyPair}],"IpRanges":%s,"Ipv6Ranges":[],"PrefixListIds":[]},{"IpProtocol":"-1","UserIdGroupPairs":[{"GroupId":"sg-019e87b5938a295a4"}],"IpRanges":%s,"Ipv6Ranges":[],"PrefixListIds":[]}]},{"GroupId":"sg-web","VpcId":"vpc-test","IpPermissions":[]},{"GroupId":"sg-worker","VpcId":"vpc-test","IpPermissions":[]},{"GroupId":"sg-deploy","VpcId":"vpc-test","IpPermissions":[]}${browserProxyGroup}]}\\n' "$ip_ranges" "$broad_ip_ranges"
     ;;
   "ec2 revoke-security-group-ingress")
     touch "$FAKE_STATE_DIR/revoked"

@@ -14,6 +14,8 @@ interface ChatPaneHostProps {
   rightPane: RightPane | null;
   isAdmin: boolean;
   messages: readonly UiMessage[];
+  threadId?: string;
+  studioBrowserSupported: boolean;
   inspectedMessage?: UiMessage;
   onClose: () => void;
   onOpenArtifact: (
@@ -35,6 +37,8 @@ export function ChatPaneHost({
   rightPane,
   isAdmin,
   messages,
+  threadId,
+  studioBrowserSupported,
   inspectedMessage,
   onClose,
   onOpenArtifact,
@@ -58,10 +62,13 @@ export function ChatPaneHost({
     return (
       <ContributionStudio
         messages={messages}
+        threadId={threadId}
         artifact={rightPane.artifact}
         requestedTab={rightPane.tab}
         scope={rightPane.scope}
         isAdmin={isAdmin}
+        browserSupported={studioBrowserSupported}
+        requestedBrowserTarget={rightPane.browserTarget}
         onClose={onClose}
         onOpenArtifact={onOpenArtifact}
         onOpenRunInspector={onOpenRunInspector}

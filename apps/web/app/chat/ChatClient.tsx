@@ -87,6 +87,7 @@ export function ChatClient({
     defaultModelId,
     runtimeV2Enabled,
     liveTurnSteeringSupported,
+    studioBrowserSupported,
     user,
     setUser,
     threads,
@@ -693,7 +694,9 @@ export function ChatClient({
   const inputDisabled = models.length === 0;
   const queueMode = currentRunActive || queuedTurns.turns.length > 0;
   const feedbackContext = buildFeedbackContext(activeTab);
-  const studioModel = deriveContributionStudio(activeTab.messages);
+  const studioModel = deriveContributionStudio(activeTab.messages, {
+    capabilities: { browser: studioBrowserSupported },
+  });
   const studioOpen = rightPane?.kind === "studio";
 
   return (
@@ -806,6 +809,21 @@ export function ChatClient({
             onPickSuggestion={(suggestion) => void send(suggestion)}
             onOpenIntegrations={() => setSettingsSection("integrations")}
             onOpenArtifact={openArtifactPreview}
+            onOpenBrowserEvidence={
+              studioBrowserSupported
+                ? (messageId, sourceNumber) =>
+                    setRightPane({
+                      kind: "studio",
+                      tab: "browser",
+                      scope: "thread",
+                      browserTarget: {
+                        kind: "evidence",
+                        messageId,
+                        sourceNumber,
+                      },
+                    })
+                : undefined
+            }
             onDeployAppDraft={(version) => void handleAppDraftDeploy(version)}
             onDiscardAppProposal={(version) =>
               void handleAppProposalDiscard(version)
@@ -899,6 +917,8 @@ export function ChatClient({
             rightPane={rightPane}
             isAdmin={user?.role === "admin"}
             messages={activeTab.messages}
+            threadId={activeTab.threadId}
+            studioBrowserSupported={studioBrowserSupported}
             inspectedMessage={inspectedMessage}
             onClose={closeRightPane}
             onOpenArtifact={openArtifactPreview}

@@ -11,6 +11,7 @@ import {
   type ActivityReceipt,
 } from "@/lib/activity-receipts";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import type { StudioBrowserTargetRequest } from "@/lib/studio-browser-contract";
 
 export const CONTRIBUTION_STUDIO_TABS = [
   "preview",
@@ -32,6 +33,8 @@ export type StudioWorkState =
   | "canceled";
 
 export interface StudioCapabilities {
+  /** Browser is deny-by-default until the AgentCore runtime is provisioned. */
+  browser?: boolean;
   /** Console is deny-by-default and only appears for a task-owned sandbox. */
   console?: boolean;
 }
@@ -49,10 +52,21 @@ export interface StudioFileResource {
 
 export interface StudioBrowserEvidence {
   id: string;
+  messageId: string;
+  sourceNumber: number;
   title: string;
   kind: AssistantSource["kind"];
   url?: string;
   toolCallId?: string;
+}
+
+export interface StudioBrowserResource {
+  id: string;
+  title: string;
+  detail: string;
+  kind: "web" | "repo" | "artifact" | "app" | "sandbox";
+  displayUrl?: string;
+  target: StudioBrowserTargetRequest;
 }
 
 export interface StudioWorkStep {
@@ -75,6 +89,7 @@ export interface ContributionStudioModel {
   tabs: ContributionStudioTab[];
   files: StudioFileResource[];
   browserEvidence: StudioBrowserEvidence[];
+  browserResources: StudioBrowserResource[];
   workSteps: StudioWorkStep[];
   previewArtifact?: WorkspaceArtifactSummary;
   working: boolean;
@@ -96,6 +111,11 @@ export function deriveContributionStudio(
 ): ContributionStudioModel {
   const files = collectStudioFiles(messages, options.artifact);
   const browserEvidence = collectBrowserEvidence(messages);
+  const browserResources = collectBrowserResources(
+    messages,
+    files,
+    browserEvidence,
+  );
   const workSteps = collectWorkSteps(messages, browserEvidence);
   const previewArtifact =
     options.artifact ?? files.find((file) => file.artifact)?.artifact;
@@ -103,7 +123,9 @@ export function deriveContributionStudio(
 
   if (previewArtifact) tabs.push("preview");
   if (options.scope === "workspace" || files.length > 0) tabs.push("files");
-  if (browserEvidence.length > 0) tabs.push("browser");
+  if (options.capabilities?.browser === true && browserResources.length > 0) {
+    tabs.push("browser");
+  }
   if (workSteps.length > 0) tabs.push("activity");
   if (options.capabilities?.console === true) tabs.push("console");
 
@@ -111,6 +133,7 @@ export function deriveContributionStudio(
     tabs,
     files,
     browserEvidence,
+    browserResources,
     workSteps,
     previewArtifact,
     working: messages.some(
@@ -224,6 +247,8 @@ function collectBrowserEvidence(
       if (evidence.has(key)) continue;
       evidence.set(key, {
         id: key,
+        messageId: message.id,
+        sourceNumber: source.n,
         title: source.title,
         kind: source.kind,
         ...(safeUrl ? { url: safeUrl } : {}),
@@ -232,6 +257,64 @@ function collectBrowserEvidence(
     }
   }
   return [...evidence.values()];
+}
+
+function collectBrowserResources(
+  messages: readonly UiMessage[],
+  files: readonly StudioFileResource[],
+  evidence: readonly StudioBrowserEvidence[],
+): StudioBrowserResource[] {
+  const resources = new Map<string, StudioBrowserResource>();
+
+  for (const item of evidence) {
+    if (!item.url) continue;
+    resources.set(item.id, {
+      id: item.id,
+      title: item.title,
+      detail: item.kind === "repo" ? "Repository evidence" : "Web evidence",
+      kind: item.kind === "repo" ? "repo" : "web",
+      displayUrl: item.url,
+      target: {
+        kind: "evidence",
+        messageId: item.messageId,
+        sourceNumber: item.sourceNumber,
+      },
+    });
+  }
+
+  for (const file of files) {
+    if (!file.artifact) continue;
+    resources.set(`artifact:${file.artifact.id}`, {
+      id: `artifact:${file.artifact.id}`,
+      title: file.filename,
+      detail: `Artifact v${file.artifact.versionNumber}`,
+      kind: "artifact",
+      displayUrl: `comparative://artifact/${file.filename}`,
+      target: { kind: "artifact", artifactId: file.artifact.id },
+    });
+  }
+
+  const latestApps = new Map<string, NonNullable<UiMessage["appDraftVersions"]>[number]>();
+  for (const message of messages) {
+    for (const version of message.appDraftVersions ?? []) {
+      const current = latestApps.get(version.appId);
+      if (!current || version.versionNumber > current.versionNumber) {
+        latestApps.set(version.appId, version);
+      }
+    }
+  }
+  for (const version of latestApps.values()) {
+    resources.set(`app:${version.id}`, {
+      id: `app:${version.id}`,
+      title: version.appName,
+      detail: `App v${version.versionNumber}`,
+      kind: "app",
+      displayUrl: `comparative://app/${version.appSlug}`,
+      target: { kind: "app", appVersionId: version.id },
+    });
+  }
+
+  return [...resources.values()];
 }
 
 function collectWorkSteps(
