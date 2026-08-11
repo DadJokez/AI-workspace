@@ -28,6 +28,10 @@ import {
   proposalIterationFromRunInputs,
   releaseProposalIteration,
 } from "@/lib/proposal-iterations";
+import {
+  artifactReviewRequestFromRunInputs,
+  releaseArtifactReviewRequest,
+} from "@/lib/artifact-review";
 
 type RunActionResult =
   | { ok: true; run: Pick<Run, "id" | "status"> }
@@ -174,6 +178,27 @@ export async function cancelRun({
       );
     }
   }
+  const artifactReviewRequest = artifactReviewRequestFromRunInputs(run.inputs);
+  if (artifactReviewRequest?.runId === run.id) {
+    try {
+      await releaseArtifactReviewRequest({
+        db,
+        request: artifactReviewRequest,
+        error,
+        completedAt: now,
+      });
+    } catch (releaseError) {
+      process.stderr.write(
+        `[artifact-review-release-error] ${JSON.stringify({
+          runId: run.id,
+          message:
+            releaseError instanceof Error
+              ? releaseError.message
+              : String(releaseError),
+        })}\n`,
+      );
+    }
+  }
 
   await appendRunEventWithNextSequence({
     db,
@@ -239,6 +264,15 @@ export async function retryChatRun({
       error: "proposal_iteration_retry_from_card",
       message:
         "The original proposal is pending again. Add feedback from its Iterate action to retry.",
+    };
+  }
+  if (artifactReviewRequestFromRunInputs(run.inputs)) {
+    return {
+      ok: false,
+      status: 409,
+      error: "artifact_review_retry_from_review",
+      message:
+        "The selected comments are open again. Retry from Address with Comparative after reloading the review.",
     };
   }
 

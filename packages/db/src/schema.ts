@@ -62,6 +62,14 @@ export const userMemoryStatusEnum = pgEnum("user_memory_status", [
 
 export type UserMemoryStatus = (typeof userMemoryStatusEnum.enumValues)[number];
 
+export const artifactReviewCommentStatusEnum = pgEnum(
+  "artifact_review_comment_status",
+  ["open", "addressing", "addressed"],
+);
+
+export type ArtifactReviewCommentStatus =
+  (typeof artifactReviewCommentStatusEnum.enumValues)[number];
+
 export const auditLogStatusEnum = pgEnum("audit_log_status", [
   "started",
   "succeeded",
@@ -937,6 +945,81 @@ export const workspaceArtifacts = pgTable(
 );
 
 /**
+ * Review comments are pinned to one immutable artifact version. Snapshot
+ * columns keep a deleted version visibly unavailable instead of silently
+ * moving its feedback to a newer file. `revision` fences concurrent edits and
+ * `addressing_run_id` reserves exactly the comments included in one scoped
+ * Comparative follow-up.
+ */
+export const artifactReviewComments = pgTable(
+  "artifact_review_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    artifactId: uuid("artifact_id").references(() => workspaceArtifacts.id, {
+      onDelete: "set null",
+    }),
+    artifactOwnerUserId: uuid("artifact_owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    artifactGroupId: uuid("artifact_group_id").notNull(),
+    artifactVersionNumber: integer("artifact_version_number").notNull(),
+    artifactFilename: text("artifact_filename").notNull(),
+    threadId: uuid("thread_id").references(() => chatThreads.id, {
+      onDelete: "set null",
+    }),
+    authorUserId: uuid("author_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    authorDisplayName: text("author_display_name").notNull(),
+    body: text("body").notNull(),
+    anchor: jsonb("anchor").notNull(),
+    status: artifactReviewCommentStatusEnum("status")
+      .notNull()
+      .default("open"),
+    revision: integer("revision").notNull().default(1),
+    addressingRunId: uuid("addressing_run_id").references(() => runs.id, {
+      onDelete: "set null",
+    }),
+    addressedByUserId: uuid("addressed_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    addressedAt: timestamp("addressed_at", { withTimezone: true }),
+    resultArtifactId: uuid("result_artifact_id").references(
+      () => workspaceArtifacts.id,
+      { onDelete: "set null" },
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    artifactStatusCreatedIdx: index(
+      "artifact_review_comments_artifact_status_created_idx",
+    ).on(t.artifactId, t.status, t.createdAt),
+    versionCreatedIdx: index(
+      "artifact_review_comments_version_created_idx",
+    ).on(
+      t.artifactOwnerUserId,
+      t.artifactGroupId,
+      t.artifactVersionNumber,
+      t.createdAt,
+    ),
+    authorCreatedIdx: index(
+      "artifact_review_comments_author_created_idx",
+    ).on(t.authorUserId, t.createdAt),
+    addressingRunIdx: index(
+      "artifact_review_comments_addressing_run_idx",
+    ).on(t.addressingRunId),
+    resultArtifactIdx: index(
+      "artifact_review_comments_result_artifact_idx",
+    ).on(t.resultArtifactId),
+  }),
+);
+
+/**
  * Lightweight, dismissible suggestions generated from user/job context and
  * recent work. These stay explicit: Comparative can recommend a tool, skill,
  * app, or schedule, but acceptance is always user-driven and audited through
@@ -1471,6 +1554,10 @@ export type UserMemoryItem = typeof userMemoryItems.$inferSelect;
 export type NewUserMemoryItem = typeof userMemoryItems.$inferInsert;
 export type WorkspaceArtifact = typeof workspaceArtifacts.$inferSelect;
 export type NewWorkspaceArtifact = typeof workspaceArtifacts.$inferInsert;
+export type ArtifactReviewComment =
+  typeof artifactReviewComments.$inferSelect;
+export type NewArtifactReviewComment =
+  typeof artifactReviewComments.$inferInsert;
 export type Recommendation = typeof recommendations.$inferSelect;
 export type NewRecommendation = typeof recommendations.$inferInsert;
 export type FeedbackReport = typeof feedbackReports.$inferSelect;

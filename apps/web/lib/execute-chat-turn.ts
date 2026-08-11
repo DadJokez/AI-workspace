@@ -56,6 +56,12 @@ import {
   resolveArtifactContextTargets,
   type WorkspaceArtifactVersionTarget,
 } from "@/lib/artifact-revisions";
+import {
+  artifactReviewContextForRequest,
+  artifactReviewRequestFromRunInputs,
+  completeArtifactReviewRequest,
+  releaseArtifactReviewRequest,
+} from "@/lib/artifact-review";
 import type { AppDraftVersionSummary } from "@/lib/app-draft-versions";
 import {
   buildAppEditContext,
@@ -372,10 +378,25 @@ export async function executeChatTurn({
     payload: artifactContextPayload,
     uploadedFiles,
   });
+  const parsedArtifactReviewRequest =
+    lane.kind === "worker"
+      ? artifactReviewRequestFromRunInputs(lane.storedInputs)
+      : null;
+  const artifactReviewRequest =
+    parsedArtifactReviewRequest?.runId === runId
+      ? parsedArtifactReviewRequest
+      : null;
+  const artifactReviewContext = artifactReviewRequest
+    ? artifactReviewContextForRequest(artifactReviewRequest)
+    : null;
   const appEditContext = appEditContextResult?.context ?? null;
   const appEditSourceOmitted =
     appEditContextResult?.sourceContentOmitted ?? false;
-  const combinedArtifactContext = [appEditContext, artifactContext]
+  const combinedArtifactContext = [
+    appEditContext,
+    artifactContext,
+    artifactReviewContext,
+  ]
     .filter(Boolean)
     .join("\n\n");
 
@@ -1600,6 +1621,14 @@ async function persistChatTurnResult({
     lane.kind === "worker"
       ? proposalIterationFromRunInputs(lane.storedInputs)
       : null;
+  const parsedArtifactReviewRequest =
+    lane.kind === "worker"
+      ? artifactReviewRequestFromRunInputs(lane.storedInputs)
+      : null;
+  const artifactReviewRequest =
+    parsedArtifactReviewRequest?.runId === runId
+      ? parsedArtifactReviewRequest
+      : null;
   const proposal =
     lane.kind === "worker"
       ? proposalIteration
@@ -1832,6 +1861,101 @@ async function persistChatTurnResult({
         metadata: {
           sourceArtifactId: proposalIteration.sourceArtifactId,
           replacementArtifactIds: artifacts.map((artifact) => artifact.id),
+        },
+      });
+    }
+  }
+
+  if (artifactReviewRequest) {
+    let reviewError =
+      terminalStatus === "failed"
+        ? error ?? "The artifact review run failed."
+        : null;
+    const replacementArtifact = artifacts.find(
+      (artifact) =>
+        artifact.artifactGroupId ===
+          artifactReviewRequest.sourceArtifactGroupId &&
+        artifact.supersedesArtifactId ===
+          artifactReviewRequest.sourceArtifactId,
+    );
+    if (!reviewError && !replacementArtifact) {
+      reviewError =
+        "The run finished without creating a revision from the reviewed version.";
+    }
+    if (!reviewError && replacementArtifact) {
+      const completed = await completeArtifactReviewRequest({
+        db,
+        request: artifactReviewRequest,
+        replacementArtifact,
+        completedAt,
+        expectedWorkerId:
+          lane.kind === "worker" ? lane.workerId : undefined,
+      });
+      if (!completed) {
+        reviewError =
+          "The reviewed version or selected comments changed before the revision could be saved.";
+      } else {
+        replacementArtifact.metadata = {
+          ...(replacementArtifact.metadata ?? {}),
+          artifactReview: {
+            sourceArtifactId: artifactReviewRequest.sourceArtifactId,
+            sourceArtifactVersionNumber:
+              artifactReviewRequest.sourceArtifactVersionNumber,
+            commentIds: artifactReviewRequest.comments.map(
+              (comment) => comment.id,
+            ),
+            requestedAt: artifactReviewRequest.requestedAt,
+            requestedByUserId: artifactReviewRequest.requestedByUserId,
+            completedAt: completedAt.toISOString(),
+          },
+        };
+      }
+    }
+
+    if (reviewError) {
+      const failedArtifactIds = artifacts.map((artifact) => artifact.id);
+      await releaseArtifactReviewRequest({
+        db,
+        request: artifactReviewRequest,
+        error: reviewError,
+        completedAt,
+        expectedWorkerId:
+          lane.kind === "worker" ? lane.workerId : undefined,
+        replacementArtifactIds: failedArtifactIds,
+      });
+      artifacts = [];
+      appDraftVersions = [];
+      sources = [];
+      terminalStatus = "failed";
+      error = reviewError;
+      await appendTurnRunEvent(lane, {
+        db,
+        runId,
+        eventType: "artifact_review_failed",
+        status: "failed",
+        label: "Artifact review revision failed",
+        error: reviewError,
+        metadata: {
+          sourceArtifactId: artifactReviewRequest.sourceArtifactId,
+          commentIds: artifactReviewRequest.comments.map(
+            (comment) => comment.id,
+          ),
+          failedArtifactIds,
+        },
+      });
+    } else {
+      await appendTurnRunEvent(lane, {
+        db,
+        runId,
+        eventType: "artifact_review_completed",
+        status: "succeeded",
+        label: "Addressed selected review comments",
+        metadata: {
+          sourceArtifactId: artifactReviewRequest.sourceArtifactId,
+          commentIds: artifactReviewRequest.comments.map(
+            (comment) => comment.id,
+          ),
+          replacementArtifactId: replacementArtifact?.id,
         },
       });
     }

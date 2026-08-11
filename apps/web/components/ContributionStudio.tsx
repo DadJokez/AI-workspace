@@ -4,6 +4,7 @@ import { StudioMark } from "@ai-workspace/umber/components/media/StudioMark";
 import { Icon } from "@ai-workspace/umber/components/media/Icon";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArtifactPreviewContent } from "@/components/ArtifactPreviewPane";
+import type { ArtifactReviewSelection } from "@/lib/artifact-review-client";
 import { SlideOverPane } from "@/components/SlideOverPane";
 import { WorkspacePanel } from "@/components/WorkspacePanel";
 import type { UiMessage } from "@/app/chat/chat-client-state";
@@ -32,6 +33,11 @@ interface ContributionStudioProps {
     scope: ContributionStudioScope,
   ) => void;
   onOpenRunInspector: (runId: string) => void;
+  focusReviewCommentId?: string;
+  onAddressArtifactReview?: (input: {
+    artifact: WorkspaceArtifactSummary;
+    comments: ArtifactReviewSelection[];
+  }) => Promise<boolean>;
 }
 
 const TAB_STORAGE_KEY = "comparative.contribution-studio.tab";
@@ -54,6 +60,8 @@ export function ContributionStudio({
   onClose,
   onOpenArtifact,
   onOpenRunInspector,
+  focusReviewCommentId,
+  onAddressArtifactReview,
 }: ContributionStudioProps) {
   const model = useMemo(
     () => deriveContributionStudio(messages, { artifact, scope }),
@@ -106,6 +114,18 @@ export function ContributionStudio({
   function updateMaximized(next: boolean) {
     setMaximized(next);
     window.localStorage.setItem(MAXIMIZED_STORAGE_KEY, String(next));
+  }
+
+  async function addressArtifactReview(comments: ArtifactReviewSelection[]) {
+    if (!onAddressArtifactReview || !model.previewArtifact) return false;
+    const accepted = await onAddressArtifactReview({
+      artifact: model.previewArtifact,
+      comments,
+    });
+    if (accepted && window.matchMedia("(max-width: 767px)").matches) {
+      onClose();
+    }
+    return accepted;
   }
 
   const currentTab =
@@ -194,7 +214,13 @@ export function ContributionStudio({
 
         <div className="min-h-0 flex-1" data-testid="studio-active-view">
           {currentTab === "preview" && model.previewArtifact ? (
-            <ArtifactPreviewContent artifact={model.previewArtifact} />
+            <ArtifactPreviewContent
+              artifact={model.previewArtifact}
+              focusReviewCommentId={focusReviewCommentId}
+              onAddressComments={
+                onAddressArtifactReview ? addressArtifactReview : undefined
+              }
+            />
           ) : currentTab === "files" && scope === "workspace" ? (
             <WorkspacePanel
               embedded

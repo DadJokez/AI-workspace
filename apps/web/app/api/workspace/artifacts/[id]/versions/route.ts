@@ -1,7 +1,7 @@
 import { getDb } from "@ai-workspace/db";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
-import { loadWorkspaceArtifactVersionsForUser } from "@/lib/workspace-artifacts";
+import { loadArtifactVersionsForReview } from "@/lib/artifact-review-access";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +12,9 @@ export async function GET(
   const session = await requireSession();
   if ("error" in session) return session.error;
   const { id } = await params;
-  const versionSet = await loadWorkspaceArtifactVersionsForUser({
+  const versionSet = await loadArtifactVersionsForReview({
     db: getDb(),
-    userId: session.user.id,
+    actor: session.user,
     artifactId: id,
   });
   if (!versionSet) {
