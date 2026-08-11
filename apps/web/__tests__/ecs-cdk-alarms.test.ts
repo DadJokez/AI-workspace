@@ -50,6 +50,7 @@ describe("AiWorkspaceEcsStack alarms", () => {
     expect(names).toEqual(
       expect.arrayContaining([
         "ai-workspace-memory-capture-failures",
+        "ai-workspace-bedrock-sonnet-4-5-token-headroom",
         "ai-workspace-web-unhealthy-hosts",
         "ai-workspace-web-below-task-floor",
       ]),
@@ -71,6 +72,34 @@ describe("AiWorkspaceEcsStack alarms", () => {
       Threshold: 1,
       TreatMissingData: "notBreaching",
     });
+  });
+
+  it("warns before shared Sonnet 4.5 quota exhaustion (#706)", () => {
+    const properties = alarm(
+      "ai-workspace-bedrock-sonnet-4-5-token-headroom",
+    );
+
+    expect(properties).toMatchObject({
+      AlarmActions: [opsTopicArn],
+      OKActions: [opsTopicArn],
+      ComparisonOperator: "GreaterThanOrEqualToThreshold",
+      EvaluationPeriods: 1,
+      Threshold: 4_320_000,
+      TreatMissingData: "notBreaching",
+    });
+    expect(properties.AlarmDescription).toContain("rolling 24-hour");
+    expect(properties.Metrics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          Expression:
+            "FILL(inputTokens, 0) + FILL(outputTokens, 0) + FILL(cacheWriteTokens, 0)",
+          ReturnData: true,
+        }),
+        metricQuery("inputTokens", "InputTokenCount"),
+        metricQuery("outputTokens", "OutputTokenCount"),
+        metricQuery("cacheWriteTokens", "CacheWriteInputTokenCount"),
+      ]),
+    );
   });
 
   it("alarms below the two-task web availability floor with missing data breaching (#568)", () => {
@@ -184,4 +213,25 @@ interface CloudFormationResource {
     Threshold?: number;
     [key: string]: unknown;
   };
+}
+
+function metricQuery(id: string, metricName: string) {
+  return expect.objectContaining({
+    Id: id,
+    MetricStat: {
+      Metric: {
+        Dimensions: [
+          {
+            Name: "ModelId",
+            Value: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          },
+        ],
+        MetricName: metricName,
+        Namespace: "AWS/Bedrock",
+      },
+      Period: 86_400,
+      Stat: "Sum",
+    },
+    ReturnData: false,
+  });
 }

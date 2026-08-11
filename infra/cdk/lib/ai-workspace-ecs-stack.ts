@@ -45,6 +45,11 @@ const WORKER_TASK_SIZE = {
 const WEB_MIN_TASK_COUNT = 2;
 const CLUSTER_NAME = "ai-workspace-prod";
 const WEB_SERVICE_NAME = "ai-workspace-web";
+const BEDROCK_SONNET_45_MODEL_ID =
+  "us.anthropic.claude-sonnet-4-5-20250929-v1:0";
+const BEDROCK_SONNET_45_DAILY_TOKEN_QUOTA = 5_400_000;
+const BEDROCK_DAILY_TOKEN_WARNING_THRESHOLD =
+  BEDROCK_SONNET_45_DAILY_TOKEN_QUOTA * 0.8;
 
 export class AiWorkspaceEcsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -419,6 +424,47 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     );
     // #509 class: an alarm with no action is an alarm nobody receives.
     memoryCaptureFailureAlarm.addAlarmAction(opsAlertAction);
+
+    // #706: CI evals and production currently share this account/model quota.
+    // CloudFormation does not yet expose CloudWatch's wall-clock evaluation
+    // window, so this deliberately uses a conservative rolling 24-hour sum.
+    // It can warn briefly after the UTC quota reset, but it cannot miss an
+    // approaching exhaustion because of a calendar boundary.
+    const bedrockTokenMetric = (metricName: string) =>
+      new cloudwatch.Metric({
+        namespace: "AWS/Bedrock",
+        metricName,
+        dimensionsMap: { ModelId: BEDROCK_SONNET_45_MODEL_ID },
+        statistic: "Sum",
+        period: cdk.Duration.days(1),
+      });
+    const bedrockTokenMetrics = {
+      inputTokens: bedrockTokenMetric("InputTokenCount"),
+      outputTokens: bedrockTokenMetric("OutputTokenCount"),
+      cacheWriteTokens: bedrockTokenMetric("CacheWriteInputTokenCount"),
+    };
+    const bedrockDailyTokenHeadroomAlarm = new cloudwatch.Alarm(
+      this,
+      "BedrockDailyTokenHeadroomAlarm",
+      {
+        alarmName: "ai-workspace-bedrock-sonnet-4-5-token-headroom",
+        alarmDescription:
+          "#706: rolling 24-hour Sonnet 4.5 token consumption reached 80% of the 5.4M account quota; CI can now starve production.",
+        metric: new cloudwatch.MathExpression({
+          expression:
+            "FILL(inputTokens, 0) + FILL(outputTokens, 0) + FILL(cacheWriteTokens, 0)",
+          usingMetrics: bedrockTokenMetrics,
+          period: cdk.Duration.days(1),
+        }),
+        threshold: BEDROCK_DAILY_TOKEN_WARNING_THRESHOLD,
+        evaluationPeriods: 1,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      },
+    );
+    bedrockDailyTokenHeadroomAlarm.addAlarmAction(opsAlertAction);
+    bedrockDailyTokenHeadroomAlarm.addOkAction(opsAlertAction);
 
     if (codeBuildRoleArn) {
       const codeBuildRole = iam.Role.fromRoleArn(
