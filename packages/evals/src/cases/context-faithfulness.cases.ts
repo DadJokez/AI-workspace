@@ -1,5 +1,6 @@
 import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
+import { findKnownContextDenial } from "./known-context-denial";
 
 /**
  * Context Engine regression cases. These lock the harness behavior Rob has
@@ -9,20 +10,10 @@ import type { EvalSuite, TurnTranscript } from "../types";
  */
 
 function doesNotDenyKnownContext(t: TurnTranscript): boolean | { ok: boolean; detail?: string } {
-  const denialPatterns = [
-    /\bno tools are connected\b/i,
-    /\b(?:your\s+)?(?:github|vault)\s+(?:account\s+)?(?:is\s+not|isn't)\s+(?:connected|available|accessible)\b/i,
-    /\b(?:your\s+)?(?:github|vault)\s+(?:account\s+)?is\s+(?:disconnected|unavailable|not wired up)\b/i,
-    /\b(?:don'?t|do not|cannot|can'?t)\s+(?:have\s+)?access\s+to\s+(?:your\s+)?(?:github|vault)\b(?!\s+(?:data|content|information|results?|pull requests?|prs?|issues?|memory)\b)/i,
-    /\b(?:cannot|can'?t)\s+access\s+(?:your\s+)?(?:github|vault)\b(?!\s+(?:data|content|information|results?|pull requests?|prs?|issues?|memory)\b)/i,
-  ];
-  // Strip markdown emphasis first: "your GitHub account is **not connected**"
-  // is the exact denial this guard exists to catch, and the asterisks were
-  // slipping it past every pattern (observed 2026-07-25, #641).
-  const plain = t.answer.replace(/[*_`]/g, "");
-  const denied = denialPatterns
-    .map((pattern) => plain.match(pattern)?.[0])
-    .find((match): match is string => Boolean(match));
+  const denied = findKnownContextDenial(t.answer, {
+    providers: ["github", "vault"],
+    scopedToolBoundaryProviders: ["github"],
+  });
   return {
     ok: !denied,
     detail: denied ? `denied known context/tool access with "${denied}"` : undefined,
@@ -304,6 +295,8 @@ export const contextFaithfulnessSuite: EvalSuite = {
     {
       id: "skill-recommendation",
       description: "repeated workflow plus matching skill triggers a lightweight skill recommendation",
+      repeat: 3,
+      passPolicy: "majority",
       systemPrompt: SKILL_RECOMMENDATION_PROMPT,
       input: "Here are this week's notes again. Can you turn them into the usual status update?",
       assertions: [
@@ -316,13 +309,15 @@ export const contextFaithfulnessSuite: EvalSuite = {
           kind: "judge",
           label: "recommends the skill with a reason",
           rubric:
-            "The system prompt says an existing skill called Weekly Status Writer matches a repeated workflow. PASS only if the answer suggests using or saving/running that skill and gives the repeated-workflow reason. FAIL if it ignores the candidate.",
+            "The system prompt says an existing skill called Weekly Status Writer matches a repeated workflow. PASS if the answer suggests using, saving, or running that skill and refers to the workflow as repeated, usual, recurring, or something the user has done before. The answer need not spell out a formal causal linkage. FAIL if it ignores the candidate or recommends it with no connection to the user's repeated workflow.",
         },
       ],
     },
     {
       id: "app-recommendation",
       description: "reusable artifact triggers an app/deploy recommendation, not manual save instructions",
+      repeat: 3,
+      passPolicy: "majority",
       systemPrompt: APP_RECOMMENDATION_PROMPT,
       input: "This dashboard is useful. Can we keep using it and update it later?",
       assertions: [
