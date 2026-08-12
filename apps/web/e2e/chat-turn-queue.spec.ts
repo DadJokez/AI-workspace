@@ -22,16 +22,18 @@ test("keeps send disabled until profile-backed composer state is ready", async (
 
   await page.goto("/e2e/chat");
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
-  const composer = page.getByRole("textbox");
+  const composer = page.getByTestId("chat-composer-input");
   await expect(composer).toHaveAttribute(
     "placeholder",
     "Starting Comparative...",
   );
-  await expect(composer).toBeDisabled();
+  await expect(composer).toBeEnabled();
+  await composer.fill("Freshly ready follow-up");
+  await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
 
   userGate.resolve();
   await expect(composer).toBeEnabled();
-  await composer.fill("Freshly ready follow-up");
+  await expect(composer).toHaveValue("Freshly ready follow-up");
   await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
 });
 

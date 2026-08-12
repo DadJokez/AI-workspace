@@ -696,7 +696,7 @@ export function ChatClient({
   if (!activeTab) return null;
   const chatStarting = modelsLoading || user === undefined;
   const inputDisabled =
-    chatStarting || modelsError !== undefined || models.length === 0;
+    modelsLoading || modelsError !== undefined || models.length === 0;
   const queueMode = currentRunActive || queuedTurns.turns.length > 0;
   const feedbackContext = buildFeedbackContext(activeTab);
   const studioModel = deriveContributionStudio(activeTab.messages, {
@@ -915,6 +915,7 @@ export function ChatClient({
                 key={activeTab.id}
                 onSubmit={handleComposerSubmit}
                 disabled={inputDisabled}
+                submitDisabled={user === undefined}
                 queueMode={queueMode}
                 skills={slashSkills}
                 draftKey={composerDraftKey}

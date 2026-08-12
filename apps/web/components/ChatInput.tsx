@@ -118,6 +118,8 @@ interface Props {
     contextResources?: ContextResourceSearchResult[],
   ) => boolean | void;
   disabled?: boolean;
+  /** Hold submission while profile-backed draft state is still hydrating. */
+  submitDisabled?: boolean;
   /** Current work is active, so accepted text becomes a browser-local follow-up. */
   queueMode?: boolean;
   placeholder?: string;
@@ -143,6 +145,7 @@ interface Props {
 export function ChatInput({
   onSubmit,
   disabled,
+  submitDisabled = false,
   queueMode = false,
   placeholder = "Ask anything — or type / for capabilities…",
   skills = [],
@@ -329,12 +332,17 @@ export function ChatInput({
         setContextResources([]);
         return;
       }
+      const pendingText = latestDraftRef.current.text;
       const restored = window.localStorage.getItem(draftStorageKey) ?? "";
+      const nextText = pendingText || restored;
       const restoredContext = contextDraftStorageKey
         ? window.localStorage.getItem(contextDraftStorageKey)
         : null;
-      latestDraftRef.current = { storageKey: draftStorageKey, text: restored };
-      setText(restored);
+      latestDraftRef.current = { storageKey: draftStorageKey, text: nextText };
+      setText(nextText);
+      if (pendingText) {
+        persistComposerDraft(draftStorageKey, pendingText);
+      }
       setContextResources(parseStoredContextResources(restoredContext));
     } catch {
       // Storage may be unavailable in private or locked-down browsers.
@@ -610,7 +618,8 @@ export function ChatInput({
     const trimmed = text.trim();
     if (
       (!trimmed && attachments.length === 0 && activeSkill === null) ||
-      disabled
+      disabled ||
+      submitDisabled
     ) {
       return;
     }
@@ -1156,6 +1165,7 @@ export function ChatInput({
           type="submit"
           disabled={
             disabled ||
+            submitDisabled ||
             (!text.trim() && attachments.length === 0 && activeSkill === null)
           }
           aria-label={queueMode ? "Queue follow-up" : "Send"}
