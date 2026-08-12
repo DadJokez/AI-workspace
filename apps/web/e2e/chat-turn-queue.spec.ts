@@ -12,6 +12,88 @@ test.skip(
   "mocked queue tests run only against the local e2e harness",
 );
 
+test("keeps send disabled until profile-backed composer state is ready", async ({
+  page,
+}) => {
+  const userGate = deferred();
+  await installMockComparativeApi(page, {
+    beforeUserGet: () => userGate.promise,
+  });
+
+  await page.goto("/e2e/chat");
+  await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+  const composer = page.getByTestId("chat-composer-input");
+  await expect(composer).toHaveAttribute(
+    "placeholder",
+    "Starting Comparative...",
+  );
+  await expect(composer).toBeEnabled();
+  await expect(composer).toHaveAttribute("data-composer-ready", "false");
+  await composer.fill("Freshly ready follow-up");
+  await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
+
+  userGate.resolve();
+  await expect(composer).toBeEnabled();
+  await expect(composer).toHaveAttribute("data-composer-ready", "true");
+  await expect(composer).toHaveValue("Freshly ready follow-up");
+  await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
+});
+
+test("surfaces a profile bootstrap failure and retries without losing the draft", async ({
+  page,
+}) => {
+  await installMockComparativeApi(page, { userGetFailureCount: 1 });
+
+  await page.goto("/e2e/chat");
+  const composer = page.getByTestId("chat-composer-input");
+  await expect(page.getByTestId("user-load-error")).toContainText(
+    "Could not load your profile.",
+  );
+  await composer.fill("Keep this while the profile retries");
+  await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
+
+  await page.getByTestId("user-load-error").getByRole("button", {
+    name: "Retry",
+  }).click();
+  await expect(page.getByTestId("user-load-error")).toHaveCount(0);
+  await expect(composer).toHaveValue("Keep this while the profile retries");
+  await expect(composer).toHaveAttribute("data-composer-ready", "true");
+  await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
+});
+
+test("preserves both a saved draft and text entered during profile bootstrap", async ({
+  page,
+}) => {
+  const userGate = deferred();
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "comparative-chat-draft:user-e2e:new",
+      "Saved earlier draft",
+    );
+  });
+  await installMockComparativeApi(page, {
+    beforeUserGet: () => userGate.promise,
+  });
+
+  await page.goto("/e2e/chat");
+  const composer = page.getByTestId("chat-composer-input");
+  await composer.fill("Typed during startup");
+  userGate.resolve();
+
+  await expect(composer).toHaveValue(
+    "Saved earlier draft\n\nTyped during startup",
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        window.localStorage.getItem(
+          "comparative-chat-draft:user-e2e:new",
+        ),
+      ),
+    )
+    .toBe("Saved earlier draft\n\nTyped during startup");
+});
+
 test("queues editable follow-ups and promotes exactly one turn at a time", async ({
   page,
 }) => {

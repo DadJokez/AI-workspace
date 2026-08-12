@@ -107,7 +107,7 @@ test.describe("chat shell guardrails", () => {
       await route.fallback();
     });
 
-    await gotoE2EChat(page);
+    await gotoE2EChat(page, { waitForComposer: false });
 
     const alert = page.getByTestId("models-load-error");
     await expect(alert).toContainText("Comparative couldn't start.");
