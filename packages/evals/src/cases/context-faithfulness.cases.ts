@@ -78,9 +78,14 @@ const SKILL_RECOMMENDATION_PROMPT = [
 ].join("\n");
 
 function doesNotOfferDuplicateSkill(t: TurnTranscript) {
-  const duplicateOffer = t.answer.match(
-    /\b(?:create|build|save|set\s*up|make|add)\b.{0,80}\b(?:new\s+)?(?:reusable\s+)?(?:skill|workflow)\b|\b(?:save|set\s*up)\b.{0,80}\bweekly status writer\b/is,
-  )?.[0];
+  const duplicatePatterns = [
+    /\b(?:create|build|make|add|set\s*up)\s+(?:(?:a|an|another|new|reusable|custom|dedicated)\s+)*(?:(?!using\b|with\b|via\b|through\b)[\w'-]+\s+){0,4}(?:skill|workflow)\b/i,
+    /\bsave\s+(?:this|that|it)\s+as\s+(?:(?:a|an|another|new|reusable|custom)\s+)*(?:skill|workflow)\b/i,
+    /\b(?:save|set\s*up)\b.{0,60}\bweekly status writer\b/is,
+  ];
+  const duplicateOffer = duplicatePatterns
+    .map((pattern) => t.answer.match(pattern)?.[0])
+    .find((match): match is string => Boolean(match));
   return {
     ok: !duplicateOffer,
     detail: duplicateOffer
