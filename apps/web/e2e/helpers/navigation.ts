@@ -7,7 +7,10 @@ export async function gotoE2EChat(
   await page.goto("/e2e/chat");
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
   if (options.waitForComposer !== false) {
-    await expect(page.getByTestId("chat-composer-input")).toBeEnabled();
+    await expect(page.getByTestId("chat-composer-input")).toHaveAttribute(
+      "data-composer-ready",
+      "true",
+    );
   }
 }
 

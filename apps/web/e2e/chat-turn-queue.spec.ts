@@ -28,11 +28,13 @@ test("keeps send disabled until profile-backed composer state is ready", async (
     "Starting Comparative...",
   );
   await expect(composer).toBeEnabled();
+  await expect(composer).toHaveAttribute("data-composer-ready", "false");
   await composer.fill("Freshly ready follow-up");
   await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
 
   userGate.resolve();
   await expect(composer).toBeEnabled();
+  await expect(composer).toHaveAttribute("data-composer-ready", "true");
   await expect(composer).toHaveValue("Freshly ready follow-up");
   await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
 });

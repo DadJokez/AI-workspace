@@ -185,6 +185,7 @@ export function ChatInput({
   const draftTimerRef = useRef<number | undefined>(undefined);
   const skipNextDraftPersistRef = useRef(true);
   const skipNextContextDraftPersistRef = useRef(true);
+  const hydratedDraftStorageKeyRef = useRef<string | null>(null);
   const handledEditRequestRef = useRef<string | undefined>(undefined);
   const editBackupRef = useRef<{
     text: string;
@@ -314,6 +315,8 @@ export function ChatInput({
   }, [contextHighlight, visibleContextResults.length]);
 
   useEffect(() => {
+    const previousDraftStorageKey = hydratedDraftStorageKeyRef.current;
+    hydratedDraftStorageKeyRef.current = draftStorageKey;
     skipNextDraftPersistRef.current = true;
     skipNextContextDraftPersistRef.current = true;
     if (draftTimerRef.current !== undefined) {
@@ -332,7 +335,8 @@ export function ChatInput({
         setContextResources([]);
         return;
       }
-      const pendingText = latestDraftRef.current.text;
+      const pendingText =
+        previousDraftStorageKey === null ? latestDraftRef.current.text : "";
       const restored = window.localStorage.getItem(draftStorageKey) ?? "";
       const nextText = pendingText || restored;
       const restoredContext = contextDraftStorageKey
@@ -1134,6 +1138,7 @@ export function ChatInput({
         ) : null}
         <textarea
           data-testid="chat-composer-input"
+          data-composer-ready={!disabled && !submitDisabled ? "true" : "false"}
           ref={taRef}
           value={text}
           onChange={(e) => {
