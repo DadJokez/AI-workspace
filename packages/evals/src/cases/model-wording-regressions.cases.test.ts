@@ -299,6 +299,13 @@ describe("model wording regression guards", () => {
         "I have Vault access, but I cannot determine your name.",
       ),
     ).toBe(false);
+    expect(
+      deterministicResult(
+        contextVaultCase,
+        "does not deny Vault access",
+        "I don't have Vault access, but your name is Rob Lindmark.",
+      ),
+    ).toBe(false);
   });
 
   it("accepts running an existing recommended skill", () => {
