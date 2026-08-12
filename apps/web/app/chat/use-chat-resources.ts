@@ -14,11 +14,14 @@ import {
   type ThreadsResponse,
   type UserResponse,
 } from "./chat-client-state";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import posthog from "posthog-js";
 
 export function useChatResources() {
   const [models, setModels] = useState<ModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsError, setModelsError] = useState<string>();
+  const modelsRequestIdRef = useRef(0);
   const [defaultModelId, setDefaultModelId] = useState(
     FALLBACK_DEFAULT_MODEL_ID,
   );
@@ -43,7 +46,41 @@ export function useChatResources() {
   const [slashSkills, setSlashSkills] = useState<SlashSkill[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
-  async function refreshThreads() {
+  const refreshModels = useCallback(async () => {
+    const requestId = ++modelsRequestIdRef.current;
+    setModelsLoading(true);
+    try {
+      const data = await fetchJson<ModelsResponse>(
+        "/api/models",
+        { cache: "no-store" },
+        "Comparative couldn't start.",
+      );
+      if (!Array.isArray(data.models) || data.models.length === 0) {
+        throw new Error("Comparative couldn't start.");
+      }
+      if (requestId !== modelsRequestIdRef.current) return;
+      setModels(data.models);
+      setDefaultModelId(data.defaultModelId);
+      setRuntimeV2Enabled(data.runtimeV2Enabled === true);
+      setLiveTurnSteeringSupported(
+        data.runtimeCapabilities?.liveTurnSteering === true,
+      );
+      setStudioBrowserSupported(
+        data.runtimeCapabilities?.studioBrowser === true,
+      );
+      setModelsError(undefined);
+    } catch {
+      if (requestId !== modelsRequestIdRef.current) return;
+      setModels([]);
+      setModelsError("Comparative couldn't start.");
+    } finally {
+      if (requestId === modelsRequestIdRef.current) {
+        setModelsLoading(false);
+      }
+    }
+  }, []);
+
+  const refreshThreads = useCallback(async () => {
     try {
       const data = await fetchJson<ThreadsResponse>(
         `/api/threads?limit=${THREADS_LIMIT}&scope=mine`,
@@ -58,7 +95,7 @@ export function useChatResources() {
     } finally {
       setThreadsLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,45 +118,15 @@ export function useChatResources() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    Promise.all([
-      fetch("/api/models")
-        .then((response) =>
-          response.ok ? (response.json() as Promise<ModelsResponse>) : null,
-        )
-        .catch(() => null),
-      fetchJson<ThreadsResponse>(
-        `/api/threads?limit=${THREADS_LIMIT}&scope=mine`,
-        undefined,
-        "Could not load chats.",
-      )
-        .catch((error) => error as Error),
-    ]).then(([modelsData, threadsResult]) => {
-      if (cancelled) return;
-      if (modelsData) {
-        setModels(modelsData.models);
-        setDefaultModelId(modelsData.defaultModelId);
-        setRuntimeV2Enabled(modelsData.runtimeV2Enabled === true);
-        setLiveTurnSteeringSupported(
-          modelsData.runtimeCapabilities?.liveTurnSteering === true,
-        );
-        setStudioBrowserSupported(
-          modelsData.runtimeCapabilities?.studioBrowser === true,
-        );
-      }
-      setThreadsLoading(false);
-      if (threadsResult instanceof Error) {
-        setThreadsError(threadsResult.message);
-      } else {
-        const nextThreads = sortThreadHistory(threadsResult?.threads ?? []);
-        setThreads(nextThreads);
-        setThreadsError(undefined);
-      }
-    });
+    void refreshModels();
     return () => {
-      cancelled = true;
+      modelsRequestIdRef.current += 1;
     };
-  }, []);
+  }, [refreshModels]);
+
+  useEffect(() => {
+    void refreshThreads();
+  }, [refreshThreads]);
 
   useEffect(() => {
     let cancelled = false;
@@ -271,6 +278,8 @@ export function useChatResources() {
 
   return {
     models,
+    modelsLoading,
+    modelsError,
     defaultModelId,
     runtimeV2Enabled,
     liveTurnSteeringSupported,
@@ -288,6 +297,7 @@ export function useChatResources() {
     slashSkills,
     unreadNotifications,
     setUnreadNotifications,
+    refreshModels,
     refreshThreads,
     handleProfileUpdated,
     updateUserDefaultModel,
