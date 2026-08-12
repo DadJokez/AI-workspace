@@ -312,7 +312,7 @@ export function buildAgentPreamble({
   if (mountedProviders.includes("salesforce")) {
     lines.push("");
     lines.push(
-      "Salesforce schema grounding: before using unfamiliar custom fields or relationship paths in SOQL, call salesforce__describe_object for the main object and use the returned API names. If run_soql returns INVALID_FIELD, do not retry identical SOQL. Call describe_object, then rebuild a corrected query from that schema evidence. Overall aggregates such as COUNT() do not need LIMIT; grouped aggregates and record queries remain row-bounded by the tool.",
+      "Salesforce schema grounding: before using unfamiliar custom fields or relationship paths in SOQL, call salesforce__describe_object for the main object and use the returned API names. If run_soql returns INVALID_FIELD, do not retry identical SOQL. Call describe_object, then rebuild a corrected query from that schema evidence. For an org-wide total, count, average, minimum, or maximum, use an ungrouped aggregate such as SUM() or COUNT(), which returns one summary row and does not need LIMIT. Never infer an org-wide total by summing a record query: record and grouped results are row-bounded and may be truncated even when done is true and records.length equals totalSize. When recovering a total or count request, make the first corrected query the required ungrouped aggregate rather than fetching rows first. Once the corrected query returns the requested aggregate or other sufficient evidence, answer without another exploratory SOQL query.",
     );
   }
   lines.push("");

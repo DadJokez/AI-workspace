@@ -176,6 +176,16 @@ describe("buildAgentPreamble Salesforce schema grounding", () => {
     expect(preamble).toContain("Salesforce schema grounding");
     expect(preamble).toContain("salesforce__describe_object");
     expect(preamble).toContain("do not retry identical SOQL");
+    expect(preamble).toContain("use an ungrouped aggregate such as SUM() or COUNT()");
+    expect(preamble).toContain(
+      "Never infer an org-wide total by summing a record query",
+    );
+    expect(preamble).toContain(
+      "may be truncated even when done is true and records.length equals totalSize",
+    );
+    expect(preamble).toContain(
+      "make the first corrected query the required ungrouped aggregate",
+    );
   });
 });
 
