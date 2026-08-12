@@ -15,10 +15,11 @@ afterAll(() => {
 });
 
 describe("AiWorkspaceEcsStack AgentCore Browser", () => {
+  let resources: CloudFormationResource[];
   let browser: CloudFormationResource;
 
   beforeAll(() => {
-    const resources = synthResources();
+    resources = synthResources();
     const browsers = resources.filter(
       (resource) => resource.Type === "AWS::BedrockAgentCore::BrowserCustom",
     );
@@ -37,6 +38,21 @@ describe("AiWorkspaceEcsStack AgentCore Browser", () => {
         ],
       },
     });
+  });
+
+  it("lets the web caller read the configured proxy credentials", () => {
+    const webBrowserPolicy = resources.find((resource) => {
+      if (resource.Type !== "AWS::IAM::Policy") return false;
+      const document = JSON.stringify(resource.Properties?.PolicyDocument);
+      return document.includes("bedrock-agentcore:StartBrowserSession");
+    });
+
+    expect(webBrowserPolicy).toBeDefined();
+    const document = JSON.stringify(
+      webBrowserPolicy?.Properties?.PolicyDocument,
+    );
+    expect(document).toContain("secretsmanager:GetSecretValue");
+    expect(document).toContain("BrowserProxySecret");
   });
 });
 
