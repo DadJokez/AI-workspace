@@ -20,7 +20,10 @@ old or the queue is empty.
   superseded; #301/#302 remain open under #295 and are re-tiered below.
 - **Disposition of the July queue's human-gated Tier C:** both gates resolved
   and closed completed — **#297** (Gmail + Calendar integration) on
-  2026-07-10 and **#291** (SES production invites, AWS case
+  2026-07-10 (closed as completed by Rob per the issue record; the July
+  queue's Gmail-API gate on GCP project `327348890968` is therefore treated
+  as resolved — Rob, flag if that's wrong) and **#291** (SES production
+  invites, AWS case
   178191850800335) on 2026-07-11; PR #272 closed unmerged on 2026-07-08.
   Neither carries forward as queue work. **Guard note:** the
   `.claude/commands/goal.md` guard "Do not touch PR #272 or issue #291
@@ -81,8 +84,11 @@ old or the queue is empty.
     itself must be reviewed by Rob before merge** (CLAUDE.md §7). An
     overnight session may implement and open the PR, flagged for that review.
 15. **#803 — default flip + snapshot interstitial + no-public-link invariant.**
+    **Human-owned caveat: changes the data-sharing default (§7 data-scoping
+    spine) — flag the default flip prominently in the PR body for Rob.**
 16. **#804 — authoring loop: never silently bake connected data.**
-17. **#805 — per-widget tri-state + "Live · as you" chip.**
+17. **#805 — per-widget tri-state + "Live · as you" chip.** **Human-owned
+    caveat: viewer-identity presentation (§7 spine) — flag in the PR body.**
 18. **#806 — per-viewer caching/rate limits.** Before broad view traffic.
 19. **#807 — token-handler verification.** Anytime; good IT-review artifact.
 
@@ -100,13 +106,19 @@ old or the queue is empty.
 ### Security spine — one per cycle, interleave with tiers above
 
 - **#701 + #410 (enforce mode) — close the prompt-only write boundary.**
-  Highest-value security item; gates #435 and #810.
-- **#692 — OAuth disconnect route.** Small, compliance-visible.
+  Highest-value security item; gates #435 and #810. **Human-owned caveat:
+  this is a permissions-enforcement change (CLAUDE.md §7) — build behind the
+  observe→enforce flag, describe the enforcement flip in the PR body, Rob
+  approves the flip.**
+- **#692 — OAuth disconnect route.** Small, compliance-visible. **Human-owned
+  caveat: auth-surface change (§7) — implement + tests, flag for Rob's review
+  in the PR body.**
 - **#443 / #448 — run-lifecycle fencing + concurrency > 1.** Before scheduled
   load grows.
 - **#449 — ops floor.** Alerting + immutable deploys.
-- **#455, #457, #691, #697, #706** — remaining #453 Track A items, in the
-  epic's own order.
+- **#455, #457, #691, #706** — remaining #453 Track A items, in the epic's
+  own order. (#697 staging lives under Human-gated below — it is an infra
+  spend decision, not spine work.)
 
 ### Human-gated / Rob-decision items (skip during unattended work)
 
