@@ -203,28 +203,6 @@ export async function POST(
         })),
       };
 
-      for (const { row } of selected) {
-        const reserved = await tx
-          .update(artifactReviewComments)
-          .set({
-            status: "addressing",
-            revision: row.revision + 1,
-            addressingRunId: runId,
-            updatedAt: now,
-          })
-          .where(
-            and(
-              eq(artifactReviewComments.id, row.id),
-              eq(artifactReviewComments.status, "open"),
-              eq(artifactReviewComments.revision, row.revision),
-            ),
-          )
-          .returning({ id: artifactReviewComments.id });
-        if (!reserved[0]) {
-          throw new ArtifactReviewRequestConflict("comment_changed");
-        }
-      }
-
       await tx.insert(chatMessages).values({
         id: requestMessageId,
         threadId: thread.id,
@@ -256,6 +234,28 @@ export async function POST(
         attemptCount: 0,
         updatedAt: now,
       });
+
+      for (const { row } of selected) {
+        const reserved = await tx
+          .update(artifactReviewComments)
+          .set({
+            status: "addressing",
+            revision: row.revision + 1,
+            addressingRunId: runId,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(artifactReviewComments.id, row.id),
+              eq(artifactReviewComments.status, "open"),
+              eq(artifactReviewComments.revision, row.revision),
+            ),
+          )
+          .returning({ id: artifactReviewComments.id });
+        if (!reserved[0]) {
+          throw new ArtifactReviewRequestConflict("comment_changed");
+        }
+      }
       await tx
         .update(chatThreads)
         .set({
