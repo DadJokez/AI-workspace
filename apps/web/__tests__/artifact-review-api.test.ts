@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTextReviewAnchor } from "@/lib/artifact-diff";
 
 const mocks = vi.hoisted(() => ({
+  checkRateLimit: vi.fn(),
   getDb: vi.fn(),
   requireSession: vi.fn(),
   resolveArtifactReviewAccess: vi.fn(),
@@ -19,6 +20,9 @@ vi.mock("@/lib/auth/requireSession", () => ({
 }));
 vi.mock("@/lib/artifact-review-access", () => ({
   resolveArtifactReviewAccess: mocks.resolveArtifactReviewAccess,
+}));
+vi.mock("@/lib/request-limits", () => ({
+  checkRateLimit: mocks.checkRateLimit,
 }));
 
 import {
@@ -46,6 +50,13 @@ beforeEach(() => {
     canAddress: true,
     app: null,
     appVersion: null,
+  });
+  mocks.checkRateLimit.mockResolvedValue({
+    allowed: true,
+    limit: 30,
+    remaining: 29,
+    resetAt: new Date("2026-08-11T12:01:00.000Z"),
+    retryAfterSeconds: 60,
   });
 });
 
@@ -93,6 +104,11 @@ describe("artifact review comment API", () => {
     );
 
     expect(response.status).toBe(201);
+    expect(mocks.checkRateLimit).toHaveBeenCalledWith(
+      db,
+      `artifact-review-comment:${user.id}`,
+      expect.objectContaining({ windowMs: 60_000, maxRequests: 30 }),
+    );
     expect(inserted[0]).toMatchObject({
       artifactId: artifact.id,
       artifactOwnerUserId: artifact.userId,
@@ -107,6 +123,87 @@ describe("artifact review comment API", () => {
       actionType: "artifact_review_comment_created",
       status: "succeeded",
     });
+  });
+
+  it("uses the reviewer's own bucket for authorized shared comments", async () => {
+    const reviewer = { ...user, id: "reviewer-2", displayName: "Avery" };
+    const inserted: unknown[] = [];
+    const tx = {
+      insert: vi
+        .fn()
+        .mockReturnValueOnce(mutationQuery([reviewComment({
+          authorUserId: reviewer.id,
+          authorDisplayName: reviewer.displayName,
+        })], inserted))
+        .mockReturnValueOnce(mutationQuery([], inserted)),
+    };
+    const db = {
+      transaction: vi.fn(async (callback: (value: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    };
+    mocks.requireSession.mockResolvedValue({ user: reviewer });
+    mocks.resolveArtifactReviewAccess.mockResolvedValue({
+      artifact,
+      role: "viewer",
+      canComment: true,
+      canAddress: false,
+      app: { id: "app-1" },
+      appVersion: { id: "version-1" },
+    });
+    mocks.getDb.mockReturnValue(db);
+
+    const response = await createComment(
+      jsonRequest({ body: "Shared review note", anchor: { kind: "artifact" } }),
+      { params: Promise.resolve({ id: artifact.id }) },
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.checkRateLimit).toHaveBeenCalledWith(
+      db,
+      `artifact-review-comment:${reviewer.id}`,
+      expect.any(Object),
+    );
+  });
+
+  it("returns 429 without comment or audit writes when the bucket is exhausted", async () => {
+    const db = { transaction: vi.fn() };
+    mocks.getDb.mockReturnValue(db);
+    mocks.checkRateLimit.mockResolvedValue({
+      allowed: false,
+      limit: 30,
+      remaining: 0,
+      resetAt: new Date("2026-08-11T12:00:42.000Z"),
+      retryAfterSeconds: 42,
+    });
+
+    const response = await createComment(
+      jsonRequest({ body: "One too many", anchor: { kind: "artifact" } }),
+      { params: Promise.resolve({ id: artifact.id }) },
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("42");
+    expect(await response.json()).toMatchObject({
+      error: "rate_limited",
+      retryAfterSeconds: 42,
+    });
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before touching the limiter for unauthorized actors", async () => {
+    const db = { transaction: vi.fn() };
+    mocks.getDb.mockReturnValue(db);
+    mocks.resolveArtifactReviewAccess.mockResolvedValue(null);
+
+    const response = await createComment(
+      jsonRequest({ body: "Probe", anchor: { kind: "artifact" } }),
+      { params: Promise.resolve({ id: "hidden-artifact" }) },
+    );
+
+    expect(response.status).toBe(404);
+    expect(mocks.checkRateLimit).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
   });
 
   it("returns a visible 409 when optimistic comment revision changed", async () => {

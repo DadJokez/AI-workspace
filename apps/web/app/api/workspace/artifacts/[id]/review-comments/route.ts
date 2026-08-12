@@ -12,10 +12,20 @@ import {
   parseArtifactReviewAnchorForArtifact,
   serializeArtifactReviewComment,
 } from "@/lib/artifact-review";
+import {
+  checkRateLimit,
+  type RequestLimitConfig,
+} from "@/lib/request-limits";
 
 export const dynamic = "force-dynamic";
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store" };
+const REVIEW_COMMENT_RATE_LIMIT = {
+  maxRequestBytes: 32 * 1024,
+  maxMessageChars: 2_000,
+  windowMs: 60_000,
+  maxRequests: 30,
+} satisfies RequestLimitConfig;
 
 export async function GET(
   _req: Request,
@@ -64,15 +74,6 @@ export async function POST(
   const session = await requireSession();
   if ("error" in session) return session.error;
   const { id } = await params;
-  let body: Record<string, unknown>;
-  try {
-    const parsed = (await req.json()) as unknown;
-    if (!isRecord(parsed)) throw new Error("invalid");
-    body = parsed;
-  } catch {
-    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
-  }
-
   const db = getDb();
   const access = await resolveArtifactReviewAccess({
     db,
@@ -81,6 +82,39 @@ export async function POST(
   });
   if (!access) return notFound();
   if (!access.canComment) return notFound();
+  const rate = await checkRateLimit(
+    db,
+    `artifact-review-comment:${session.user.id}`,
+    REVIEW_COMMENT_RATE_LIMIT,
+  );
+  if (!rate.allowed) {
+    return NextResponse.json(
+      {
+        error: "rate_limited",
+        message: "Too many review comments. Please wait a moment and try again.",
+        retryAfterSeconds: rate.retryAfterSeconds,
+      },
+      {
+        status: 429,
+        headers: {
+          ...PRIVATE_HEADERS,
+          "Retry-After": String(rate.retryAfterSeconds),
+          "X-RateLimit-Limit": String(rate.limit),
+          "X-RateLimit-Remaining": String(rate.remaining),
+          "X-RateLimit-Reset": rate.resetAt.toISOString(),
+        },
+      },
+    );
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    const parsed = (await req.json()) as unknown;
+    if (!isRecord(parsed)) throw new Error("invalid");
+    body = parsed;
+  } catch {
+    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
   const commentBody = normalizeArtifactReviewCommentBody(body.body);
   const anchor = parseArtifactReviewAnchorForArtifact(
     body.anchor,
