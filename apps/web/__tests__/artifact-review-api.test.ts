@@ -203,7 +203,7 @@ describe("artifact review comment API", () => {
     const response = await createComment(
       jsonRequest(
         { body: "Oversized", anchor: { kind: "artifact" } },
-        { "Content-Length": String(32 * 1024 + 1) },
+        { "Content-Length": String(128 * 1024 + 1) },
       ),
       { params: Promise.resolve({ id: artifact.id }) },
     );
@@ -212,10 +212,61 @@ describe("artifact review comment API", () => {
     expect(await response.json()).toEqual({ error: "request_too_large" });
     expect(mocks.contentLengthTooLarge).toHaveBeenCalledWith(
       expect.any(Headers),
-      32 * 1024,
+      128 * 1024,
     );
     expect(mocks.checkRateLimit).not.toHaveBeenCalled();
     expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it("accepts the largest valid multibyte review payload", async () => {
+    const quote = "\u754c".repeat(10_000);
+    const commentBody = "\u8a55".repeat(2_000);
+    const largeArtifact = {
+      ...artifact,
+      content: quote,
+      sizeBytes: new TextEncoder().encode(quote).byteLength,
+    };
+    const anchor = createTextReviewAnchor(quote, 0, quote.length);
+    const payload = { body: commentBody, anchor };
+    const contentLength = new TextEncoder().encode(
+      JSON.stringify(payload),
+    ).byteLength;
+    const inserted: unknown[] = [];
+    const tx = {
+      insert: vi
+        .fn()
+        .mockReturnValueOnce(mutationQuery([reviewComment()], inserted))
+        .mockReturnValueOnce(mutationQuery([], inserted)),
+    };
+    const db = {
+      transaction: vi.fn(async (callback: (value: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    };
+    mocks.getDb.mockReturnValue(db);
+    mocks.resolveArtifactReviewAccess.mockResolvedValue({
+      artifact: largeArtifact,
+      role: "owner",
+      canComment: true,
+      canAddress: true,
+      app: null,
+      appVersion: null,
+    });
+
+    expect(contentLength).toBeGreaterThan(32 * 1024);
+    expect(contentLength).toBeLessThan(128 * 1024);
+
+    const response = await createComment(
+      jsonRequest(payload, { "Content-Length": String(contentLength) }),
+      { params: Promise.resolve({ id: artifact.id }) },
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.contentLengthTooLarge).toHaveBeenCalledWith(
+      expect.any(Headers),
+      128 * 1024,
+    );
+    expect(inserted[0]).toMatchObject({ body: commentBody, anchor });
   });
 
   it("fails closed before touching the limiter for unauthorized actors", async () => {

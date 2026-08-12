@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store" };
 const REVIEW_COMMENT_RATE_LIMIT = {
-  maxRequestBytes: 32 * 1024,
+  maxRequestBytes: 128 * 1024,
   maxMessageChars: ARTIFACT_REVIEW_COMMENT_MAX_CHARS,
   windowMs: 60_000,
   maxRequests: 30,
@@ -90,7 +90,10 @@ export async function POST(
       REVIEW_COMMENT_RATE_LIMIT.maxRequestBytes,
     )
   ) {
-    return NextResponse.json({ error: "request_too_large" }, { status: 413 });
+    return NextResponse.json(
+      { error: "request_too_large" },
+      { status: 413, headers: PRIVATE_HEADERS },
+    );
   }
   const rate = await checkRateLimit(
     db,
@@ -123,7 +126,10 @@ export async function POST(
     if (!isRecord(parsed)) throw new Error("invalid");
     body = parsed;
   } catch {
-    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+    return NextResponse.json(
+      { error: "invalid_json" },
+      { status: 400, headers: PRIVATE_HEADERS },
+    );
   }
   const commentBody = normalizeArtifactReviewCommentBody(body.body);
   const anchor = parseArtifactReviewAnchorForArtifact(
@@ -136,7 +142,7 @@ export async function POST(
         error: "invalid_review_comment",
         message: "Add a comment and choose a valid location in this version.",
       },
-      { status: 400 },
+      { status: 400, headers: PRIVATE_HEADERS },
     );
   }
 
