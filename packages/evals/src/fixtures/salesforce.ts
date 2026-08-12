@@ -192,6 +192,8 @@ export function createSalesforceFixtureTools(
         typeof input === "object" && input !== null && "soql" in input
           ? String((input as { soql: unknown }).soql)
           : "";
+      // WHERE semantics are intentionally not modeled; add explicit filtering
+      // before introducing fixture cases whose expected aggregate depends on it.
       const records = /\bopportunity\b/i.test(soql) ? opportunities : accounts;
       const resultRecords = aggregateRows(soql, records) ?? records;
       return {

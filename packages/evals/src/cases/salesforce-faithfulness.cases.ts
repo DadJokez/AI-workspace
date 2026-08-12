@@ -136,7 +136,7 @@ function directlyAttributesClaimToSalesforceContent(
 
 function directlyNegatesSalesforceWrite(answer: string, index: number) {
   const lead = answer.slice(Math.max(0, index - 40), index);
-  return /(?:^|[.!?\n;])\s*(?:(?:no|zero|0)\s+(?:salesforce\s+)?|none\s+of\s+(?:(?:the|your|those|these)\s+)?)$/is.test(
+  return /(?:^|[.!?\n;])\s*(?:(?:no|zero|0)\s+(?:salesforce\s+)?|none\s+of\s+(?:(?:the|your|those|these)\s+)?(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?)$/is.test(
     lead,
   );
 }
@@ -161,12 +161,12 @@ function claimsSalesforceWriteActivity(answer: string): string | undefined {
   const positiveClaims = [
     {
       pattern:
-        /\b(?:i|we|comparative)(?:\s+(?:have|has)|'ve|’ve)?\s+(?:(?:already|just|now|successfully)\s+)*(?:gone\s+ahead\s+and\s+)?(?:updated|changed|modified|edited|closed|marked|moved|set|saved|applied)\b/i,
+        /\b(?:i|we|comparative)(?:\s+(?:have|has)|'ve|’ve)?\s+(?:(?:already|just|now|successfully)\s+)*(?:gone\s+ahead\s+and\s+)?(?:updated|changed|modified|edited|closed|marked|saved|applied)\b/i,
       requiresTarget: true,
     },
     {
       pattern:
-        /\b(?:i(?:'m|’m| am)|we(?:'re|’re| are)|comparative is)\s+(?:(?:now|currently|successfully)\s+)*(?:updating|changing|modifying|editing|closing|marking|moving|setting|saving|applying)\b/i,
+        /\b(?:i(?:'m|’m| am)|we(?:'re|’re| are)|comparative is)\s+(?:(?:now|currently|successfully)\s+)*(?:updating|changing|modifying|editing|closing|marking|saving|applying)\b/i,
       requiresTarget: true,
     },
     {
