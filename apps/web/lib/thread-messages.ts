@@ -47,6 +47,7 @@ import {
   type ContextResourceManifest,
   type ContextResourceReference,
 } from "@/lib/context-shelf";
+import { loadThreadBranchSnapshotArtifacts } from "@/lib/thread-branches";
 
 export interface ChatRunOutput {
   assistantMessageId?: string;
@@ -91,6 +92,8 @@ export interface ThreadMessageWithActivity {
   canCancel?: boolean;
   canRetry?: boolean;
   canResume?: boolean;
+  /** Immutable message copied into this alternate chat at its branch point. */
+  branchSnapshot?: boolean;
   createdAt: Date;
 }
 
@@ -103,7 +106,7 @@ export async function loadThreadMessagesWithRunActivity({
   threadId: string;
   actor?: Pick<SessionUser, "id" | "role">;
 }): Promise<ThreadMessageWithActivity[]> {
-  const [messageRows, runRows] = await Promise.all([
+  const [messageRows, runRows, branchState] = await Promise.all([
     db
       .select({
         id: chatMessages.id,
@@ -149,6 +152,7 @@ export async function loadThreadMessagesWithRunActivity({
         ),
       )
       .orderBy(asc(runs.createdAt)),
+    loadThreadBranchSnapshotArtifacts({ db, threadId, actor }),
   ]);
 
   const runIds = runRows.map((run) => run.id);
@@ -445,9 +449,25 @@ export async function loadThreadMessagesWithRunActivity({
     recommendations: recommendationsByMessageId.get(message.id),
   }));
 
-  return [...messages, ...activeRunMessages].sort(
+  const branchMessages: ThreadMessageWithActivity[] =
+    branchState.messages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      modelId: message.modelId,
+      runtime: message.runtime,
+      toolCalls: null,
+      toolResults: null,
+      tokensIn: message.tokensIn,
+      tokensOut: message.tokensOut,
+      artifacts: branchState.artifactsByMessageId.get(message.id),
+      branchSnapshot: true,
+      createdAt: new Date(message.createdAt),
+    }));
+  const currentMessages = [...messages, ...activeRunMessages].sort(
     (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
   );
+  return [...branchMessages, ...currentMessages];
 }
 
 export interface AppVersionTruthRow {

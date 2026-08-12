@@ -85,6 +85,49 @@ describe("buildChatTranscriptMarkdown", () => {
 
     expect(transcript).toContain(content);
   });
+
+  it("records immutable branch lineage and unavailable pinned sources", () => {
+    const transcript = buildChatTranscriptMarkdown({
+      title: "Alternative launch plan",
+      threadId: "branch-thread",
+      lineage: {
+        sourceType: "artifact",
+        sourceTitle: "Launch plan",
+        parentThreadId: null,
+        parentThreadIdSnapshot: "source-thread",
+        branchPointMessageId: null,
+        branchPointMessageIdSnapshot: "source-message",
+        sourceArtifactId: null,
+        sourceArtifactIdSnapshot: "source-artifact",
+        sourceAppVersionId: null,
+        sourceAppVersionIdSnapshot: null,
+        messageCount: 2,
+        resources: [
+          {
+            artifactIdSnapshot: "source-artifact",
+            title: "Launch plan",
+            filename: "launch-plan.md",
+            kind: "markdown",
+            versionNumber: 3,
+            status: "unavailable",
+          },
+        ],
+        createdAt: "2026-08-11T12:00:00.000Z",
+      },
+      messages: [{ role: "user", content: "Try a customer-led angle." }],
+      exportedAt: new Date("2026-08-11T12:30:00.000Z"),
+    });
+
+    expect(transcript).toContain("## Branch lineage");
+    expect(transcript).toContain("- Source type: artifact");
+    expect(transcript).toContain("- Parent thread ID: source-thread");
+    expect(transcript).toContain(
+      "- Branch point message ID: source-message",
+    );
+    expect(transcript).toContain(
+      "- Pinned source: launch-plan.md (unavailable)",
+    );
+  });
 });
 
 describe("chatTranscriptFilename", () => {

@@ -18,11 +18,13 @@ interface ChatHeaderProps {
   studioOpen: boolean;
   studioWorking: boolean;
   unreadNotifications: number;
+  branchPending: boolean;
   onOpenMenu: () => void;
   onModelChange: (modelId: string) => void;
   onToggleStudio: (open: boolean) => void;
   onToggleNotifications: () => void;
   onDownload: () => void;
+  onBranchThread: () => void;
   onStop: () => void;
 }
 
@@ -35,11 +37,13 @@ export function ChatHeader({
   studioOpen,
   studioWorking,
   unreadNotifications,
+  branchPending,
   onOpenMenu,
   onModelChange,
   onToggleStudio,
   onToggleNotifications,
   onDownload,
+  onBranchThread,
   onStop,
 }: ChatHeaderProps) {
   const lastAssistantMessage = [...activeTab.messages]
@@ -202,6 +206,25 @@ export function ChatHeader({
             </span>
           ) : null}
         </button>
+        {activeTab.threadId && activeTab.messages.length > 0 ? (
+          <button
+            type="button"
+            aria-label="Try another approach"
+            title={
+              branchPending
+                ? "Creating an alternative chat"
+                : "Try another approach"
+            }
+            data-testid="branch-thread-button"
+            disabled={
+              branchPending || activeTab.busy || activeHasPendingRun
+            }
+            onClick={onBranchThread}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-muted hover:bg-subtle hover:text-ink disabled:cursor-wait disabled:opacity-40"
+          >
+            <BranchIcon />
+          </button>
+        ) : null}
         <button
           type="button"
           aria-label="Download chat transcript"
@@ -227,6 +250,27 @@ export function ChatHeader({
         <ThemeToggle />
       </div>
     </header>
+  );
+}
+
+function BranchIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.4"
+      aria-hidden="true"
+    >
+      <circle cx="4" cy="3" r="1.25" />
+      <circle cx="12" cy="6" r="1.25" />
+      <circle cx="4" cy="13" r="1.25" />
+      <path d="M4 4.25v5.5M5.25 6h5.5M4 9.75c0-2.1 1.35-3.75 3.35-3.75" />
+    </svg>
   );
 }
 

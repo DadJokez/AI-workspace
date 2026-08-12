@@ -65,6 +65,39 @@ print(matches[0])
 PY
 }
 
+resolve_optional_stack_security_group() {
+  local stack_name="$1"
+  local logical_id_prefix="$2"
+  local resources_json
+  resources_json=$(aws cloudformation list-stack-resources \
+    --region "$AWS_DEFAULT_REGION" \
+    --stack-name "$stack_name" \
+    --output json)
+
+  STACK_RESOURCES_JSON="$resources_json" \
+    LOGICAL_ID_PREFIX="$logical_id_prefix" \
+    python3 <<'PY'
+import json
+import os
+
+resources = json.loads(os.environ["STACK_RESOURCES_JSON"])
+prefix = os.environ["LOGICAL_ID_PREFIX"]
+matches = [
+    item.get("PhysicalResourceId")
+    for item in resources.get("StackResourceSummaries", [])
+    if item.get("ResourceType") == "AWS::EC2::SecurityGroup"
+    and str(item.get("LogicalResourceId", "")).startswith(prefix)
+    and item.get("PhysicalResourceId")
+]
+if len(matches) > 1:
+    raise SystemExit(
+        f"Expected at most one {prefix} security group in the stack; found {len(matches)}"
+    )
+if matches:
+    print(matches[0])
+PY
+}
+
 resolve_stack_output() {
   local stack_name="$1"
   local output_key="$2"
@@ -125,29 +158,34 @@ wait_for_rds_private() {
 
 WEB_SECURITY_GROUP_ID="${RDS_WEB_SECURITY_GROUP_ID:-$(resolve_stack_security_group "$ECS_STACK_NAME" "WebSecurityGroup")}"
 WORKER_SECURITY_GROUP_ID="${RDS_WORKER_SECURITY_GROUP_ID:-$(resolve_stack_security_group "$ECS_STACK_NAME" "WorkerSecurityGroup")}"
+BROWSER_PROXY_SECURITY_GROUP_ID="${RDS_BROWSER_PROXY_SECURITY_GROUP_ID:-$(resolve_optional_stack_security_group "$ECS_STACK_NAME" "BrowserProxySecurityGroup")}"
 DEPLOY_SECURITY_GROUP_ID="${RDS_DEPLOY_SECURITY_GROUP_ID:-$(resolve_stack_output "$ECS_DEPLOY_TASK_STACK_NAME" "DeployTaskSecurityGroupId")}"
 
 inspect_perimeter() {
   local phase="$1"
   local db_json groups_json
+  local source_group_ids=(
+    "$WEB_SECURITY_GROUP_ID"
+    "$WORKER_SECURITY_GROUP_ID"
+    "$DEPLOY_SECURITY_GROUP_ID"
+  )
+  if [[ -n "$BROWSER_PROXY_SECURITY_GROUP_ID" ]]; then
+    source_group_ids+=("$BROWSER_PROXY_SECURITY_GROUP_ID")
+  fi
   db_json=$(aws rds describe-db-instances \
     --region "$AWS_DEFAULT_REGION" \
     --db-instance-identifier "$RDS_INSTANCE_ID" \
     --output json)
   groups_json=$(aws ec2 describe-security-groups \
     --region "$AWS_DEFAULT_REGION" \
-    --group-ids \
-      "$RDS_SECURITY_GROUP_ID" \
-      "$WEB_SECURITY_GROUP_ID" \
-      "$WORKER_SECURITY_GROUP_ID" \
-      "$DEPLOY_SECURITY_GROUP_ID" \
+    --group-ids "$RDS_SECURITY_GROUP_ID" "${source_group_ids[@]}" \
     --output json)
 
   DB_JSON="$db_json" \
     GROUPS_JSON="$groups_json" \
     RDS_INSTANCE_ID="$RDS_INSTANCE_ID" \
     RDS_SECURITY_GROUP_ID="$RDS_SECURITY_GROUP_ID" \
-    EXPECTED_SOURCE_GROUP_IDS="$WEB_SECURITY_GROUP_ID $WORKER_SECURITY_GROUP_ID $DEPLOY_SECURITY_GROUP_ID" \
+    EXPECTED_SOURCE_GROUP_IDS="${source_group_ids[*]}" \
     INSPECTION_PHASE="$phase" \
     python3 <<'PY'
 import json

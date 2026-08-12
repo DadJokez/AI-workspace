@@ -6,6 +6,7 @@ node_modules/
 .next/
 out/
 next-env.d.ts
+apps/web/public/nice-dcv-web-client-sdk/
 
 # build
 dist/

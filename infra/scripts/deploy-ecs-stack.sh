@@ -9,10 +9,12 @@ ECS_CLUSTER_NAME="${ECS_CLUSTER_NAME:-ai-workspace-prod}"
 ECS_WEB_SERVICE_NAME="${ECS_WEB_SERVICE_NAME:-ai-workspace-web}"
 ECS_CHAT_WORKER_SERVICE_NAME="${ECS_CHAT_WORKER_SERVICE_NAME:-ai-workspace-chat-worker}"
 ECS_MEMORY_WORKER_SERVICE_NAME="${ECS_MEMORY_WORKER_SERVICE_NAME:-ai-workspace-memory-worker}"
+ECS_BROWSER_PROXY_SERVICE_NAME="${ECS_BROWSER_PROXY_SERVICE_NAME:-ai-workspace-browser-proxy}"
 SERVICES=(
   "$ECS_WEB_SERVICE_NAME"
   "$ECS_CHAT_WORKER_SERVICE_NAME"
   "$ECS_MEMORY_WORKER_SERVICE_NAME"
+  "$ECS_BROWSER_PROXY_SERVICE_NAME"
 )
 
 echo "Reconciling $ECS_STACK_NAME and pinning images to commit $COMMIT_TAG..."
@@ -23,6 +25,7 @@ CDK_DEFAULT_REGION="$AWS_DEFAULT_REGION" \
   pnpm --filter @ai-workspace/infra exec cdk deploy "$ECS_STACK_NAME" \
   --require-approval never \
   --parameters "ImageTag=$COMMIT_TAG" \
+  --parameters "BrowserProxyImageTag=worker-$COMMIT_TAG" \
   --exclusively
 
 echo "Waiting for ECS services to stabilize..."

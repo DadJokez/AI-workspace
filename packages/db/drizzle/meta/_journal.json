@@ -295,6 +295,27 @@
       "when": 1785170136000,
       "tag": "0041_invitations_google_test_user",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1786473874000,
+      "tag": "0042_artifact_review_comments",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1786478400000,
+      "tag": "0043_chat_thread_branches",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1786564800000,
+      "tag": "0044_studio_browser_sessions",
+      "breakpoints": true
     }
   ]
 }

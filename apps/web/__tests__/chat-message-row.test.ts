@@ -6,6 +6,7 @@ import type { UiMessage } from "@/app/chat/chat-client-state";
 import { MessageBubble } from "@/components/MessageBubble";
 import {
   areChatMessageRowPropsEqual,
+  ChatMessageRow,
   type ChatMessageRowActions,
   type ChatMessageRowProps,
 } from "@/components/chat/ChatMessageRow";
@@ -30,6 +31,9 @@ function actionRef(): MutableRefObject<ChatMessageRowActions> {
       recommendationAction: () => undefined,
       runAction: () => undefined,
       openRunInspector: () => undefined,
+      branchMessage: () => undefined,
+      branchAppVersion: () => undefined,
+      branchProposal: () => undefined,
       regenerate: () => undefined,
       edit: () => undefined,
     },
@@ -82,6 +86,7 @@ describe("chat message row memoization", () => {
     "appDraftPendingId",
     "artifactProposalPendingId",
     "runActionPendingId",
+    "branchPending",
     "deferOffscreenRendering",
     "actionsRef",
   ])("rerenders when %s changes", (property) => {
@@ -100,6 +105,7 @@ describe("chat message row memoization", () => {
       appDraftPendingId: "draft-1",
       artifactProposalPendingId: "artifact-1",
       runActionPendingId: "cancel:run-1",
+      branchPending: true,
       deferOffscreenRendering: false,
       actionsRef: actionRef(),
     };
@@ -109,6 +115,32 @@ describe("chat message row memoization", () => {
     };
 
     expect(areChatMessageRowPropsEqual(previous, next)).toBe(false);
+  });
+});
+
+describe("message branch controls", () => {
+  it("offers branching for persisted messages but not immutable snapshots", () => {
+    const persisted = renderToString(
+      createElement(
+        ChatMessageRow,
+        rowProps({ message: { ...message, persisted: true } }),
+      ),
+    );
+    const snapshot = renderToString(
+      createElement(
+        ChatMessageRow,
+        rowProps({
+          message: { ...message, persisted: true, branchSnapshot: true },
+        }),
+      ),
+    );
+
+    expect(persisted).toContain(
+      'aria-label="Try another approach from here"',
+    );
+    expect(snapshot).not.toContain(
+      'aria-label="Try another approach from here"',
+    );
   });
 });
 

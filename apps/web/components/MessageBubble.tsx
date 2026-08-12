@@ -70,6 +70,7 @@ interface Props {
   contextResourceSelections?: ContextResourceSearchResult[];
   assistantName?: string | null;
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+  onOpenSource?: (source: AssistantSource) => void;
   onDeployAppDraft?: (version: AppDraftVersionSummary) => void;
   onDiscardAppProposal?: (version: AppDraftVersionSummary) => void;
   onIterateAppProposal?: (
@@ -93,6 +94,10 @@ interface Props {
   artifactProposalPendingId?: string;
   onEdit?: () => void;
   onRegenerate?: () => void;
+  onBranch?: () => void;
+  onBranchAppVersion?: (version: AppDraftVersionSummary) => void;
+  onBranchProposal?: (artifact: WorkspaceArtifactSummary) => void;
+  branchPending?: boolean;
 }
 
 export function MessageBubble({
@@ -119,6 +124,7 @@ export function MessageBubble({
   contextResourceSelections = [],
   assistantName,
   onOpenArtifact,
+  onOpenSource,
   onDeployAppDraft,
   onDiscardAppProposal,
   onIterateAppProposal,
@@ -130,6 +136,10 @@ export function MessageBubble({
   artifactProposalPendingId,
   onEdit,
   onRegenerate,
+  onBranch,
+  onBranchAppVersion,
+  onBranchProposal,
+  branchPending,
 }: Props) {
   const timestamp =
     typeof nowMs === "number"
@@ -165,6 +175,12 @@ export function MessageBubble({
             >
               <PencilIcon />
             </button>
+          ) : null}
+          {onBranch ? (
+            <MessageBranchButton
+              onClick={onBranch}
+              pending={branchPending}
+            />
           ) : null}
           <div
             data-testid="user-message-content"
@@ -299,6 +315,12 @@ export function MessageBubble({
         {role === "assistant" && !pending && onRegenerate ? (
           <MessageRegenerateButton onClick={onRegenerate} />
         ) : null}
+        {role === "assistant" && !pending && onBranch ? (
+          <MessageBranchButton
+            onClick={onBranch}
+            pending={branchPending}
+          />
+        ) : null}
       </div>
       <div
         data-testid={
@@ -317,6 +339,7 @@ export function MessageBubble({
           sources={sources}
           artifacts={artifacts}
           onOpenArtifact={onOpenArtifact}
+          onOpenSource={onOpenSource}
         />
       ) : null}
       {role === "assistant" && standaloneProposalArtifacts.length > 0 ? (
@@ -326,6 +349,8 @@ export function MessageBubble({
           onOpenArtifact={onOpenArtifact}
           onAction={onArtifactProposalAction}
           onIterate={onIterateArtifactProposal}
+          onBranch={onBranchProposal}
+          branchPending={branchPending}
         />
       ) : null}
       {role === "assistant" && normalArtifacts.length > 0 ? (
@@ -343,6 +368,8 @@ export function MessageBubble({
           onDeploy={onDeployAppDraft}
           onDiscard={onDiscardAppProposal}
           onIterate={onIterateAppProposal}
+          onBranch={onBranchAppVersion}
+          branchPending={branchPending}
         />
       ) : null}
       {role === "assistant" && recommendations.length > 0 ? (
@@ -592,6 +619,48 @@ function MessageRegenerateButton({ onClick }: { onClick: () => void }) {
   );
 }
 
+function MessageBranchButton({
+  onClick,
+  pending,
+}: {
+  onClick: () => void;
+  pending?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={pending}
+      aria-label="Try another approach from here"
+      title="Try another approach from here"
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted opacity-70 transition-[color,opacity,background-color] hover:bg-subtle hover:text-ink focus-visible:bg-subtle focus-visible:text-ink focus-visible:opacity-100 disabled:cursor-wait disabled:opacity-40 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
+    >
+      <BranchIcon />
+    </button>
+  );
+}
+
+function BranchIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="4" cy="3" r="1.4" />
+      <circle cx="12" cy="6" r="1.4" />
+      <circle cx="4" cy="13" r="1.4" />
+      <path d="M4 4.4v5.2M5.4 6h5.2M4 9.6c0-2 1.3-3.6 3.2-3.6" />
+    </svg>
+  );
+}
+
 function AppDraftStrip({
   versions,
   artifacts,
@@ -600,6 +669,8 @@ function AppDraftStrip({
   onDeploy,
   onDiscard,
   onIterate,
+  onBranch,
+  branchPending,
 }: {
   versions: AppDraftVersionSummary[];
   artifacts: WorkspaceArtifactSummary[];
@@ -611,6 +682,8 @@ function AppDraftStrip({
     version: AppDraftVersionSummary,
     feedback: string,
   ) => void;
+  onBranch?: (version: AppDraftVersionSummary) => void;
+  branchPending?: boolean;
 }) {
   return (
     <div className="mt-2 flex flex-col gap-2">
@@ -688,6 +761,16 @@ function AppDraftStrip({
               >
                 Preview
               </button>
+              {onBranch ? (
+                <button
+                  type="button"
+                  disabled={branchPending}
+                  onClick={() => onBranch(version)}
+                  className="rounded-md border border-hairline px-2 py-1 text-2xs font-medium text-ink hover:bg-subtle disabled:cursor-wait disabled:opacity-40"
+                >
+                  Try another approach
+                </button>
+              ) : null}
               {deployed ? (
                 <a
                   href={version.liveUrl}
@@ -746,6 +829,8 @@ function ArtifactProposalStrip({
   onOpenArtifact,
   onAction,
   onIterate,
+  onBranch,
+  branchPending,
 }: {
   artifacts: WorkspaceArtifactSummary[];
   pendingId?: string;
@@ -758,6 +843,8 @@ function ArtifactProposalStrip({
     artifact: WorkspaceArtifactSummary,
     feedback: string,
   ) => void;
+  onBranch?: (artifact: WorkspaceArtifactSummary) => void;
+  branchPending?: boolean;
 }) {
   return (
     <div className="mt-2 flex flex-col gap-2">
@@ -817,6 +904,16 @@ function ArtifactProposalStrip({
               >
                 Preview
               </button>
+              {onBranch ? (
+                <button
+                  type="button"
+                  disabled={branchPending}
+                  onClick={() => onBranch(artifact)}
+                  className="rounded-md border border-hairline px-2 py-1 text-2xs font-medium text-ink hover:bg-subtle disabled:cursor-wait disabled:opacity-40"
+                >
+                  Try another approach
+                </button>
+              ) : null}
               {proposal.status === "proposed" ? (
                 <>
                   <button
@@ -1058,10 +1155,12 @@ function SourceStrip({
   sources,
   artifacts,
   onOpenArtifact,
+  onOpenSource,
 }: {
   sources: AssistantSource[];
   artifacts: WorkspaceArtifactSummary[];
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+  onOpenSource?: (source: AssistantSource) => void;
 }) {
   return (
     <div
@@ -1098,6 +1197,18 @@ function SourceStrip({
           source.url &&
           (source.kind === "web" || source.kind === "repo")
         ) {
+          if (onOpenSource) {
+            return (
+              <button
+                key={source.n}
+                type="button"
+                {...sharedProps}
+                onClick={() => onOpenSource(source)}
+              >
+                {content}
+              </button>
+            );
+          }
           return (
             <a
               key={source.n}

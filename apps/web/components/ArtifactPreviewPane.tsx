@@ -4,20 +4,34 @@ import { Icon } from "@ai-workspace/umber/components/media/Icon";
 import { fetchJson } from "@/lib/client-api";
 import {
   computeArtifactLineDiff,
+  createTextReviewAnchor,
+  resolveTextReviewAnchor,
   type ArtifactLineDiff,
 } from "@/lib/artifact-diff";
+import type {
+  ArtifactReviewAnchor,
+  ArtifactReviewCommentView,
+  ArtifactReviewPermissions,
+  ArtifactReviewSelection,
+} from "@/lib/artifact-review-client";
 import type {
   WorkspaceArtifactDetail,
   WorkspaceArtifactSummary,
   WorkspaceArtifactVersionSet,
 } from "@/lib/workspace-artifacts";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 interface ArtifactPreviewContentProps {
   artifact: WorkspaceArtifactSummary;
   onClose?: () => void;
+  onBranch?: (artifact: WorkspaceArtifactSummary) => void;
+  branchPending?: boolean;
+  focusReviewCommentId?: string;
+  onAddressComments?: (
+    comments: ArtifactReviewSelection[],
+  ) => Promise<boolean>;
 }
 
 interface ArtifactDetailResponse {
@@ -31,9 +45,20 @@ interface ArtifactComparison {
   to: WorkspaceArtifactDetail;
 }
 
+interface ArtifactReviewCommentsResponse {
+  artifactId: string;
+  artifactVersionNumber: number;
+  permissions: ArtifactReviewPermissions;
+  comments: ArtifactReviewCommentView[];
+}
+
 export function ArtifactPreviewContent({
   artifact,
   onClose,
+  onBranch,
+  branchPending,
+  focusReviewCommentId,
+  onAddressComments,
 }: ArtifactPreviewContentProps) {
   const [detail, setDetail] = useState<WorkspaceArtifactDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,6 +73,17 @@ export function ArtifactPreviewContent({
   const [comparison, setComparison] = useState<ArtifactComparison | null>(null);
   const [comparisonLoading, setComparisonLoading] = useState(false);
   const [comparisonError, setComparisonError] = useState<string | undefined>();
+  const [reviewOpen, setReviewOpen] = useState(Boolean(focusReviewCommentId));
+  const [reviewComments, setReviewComments] =
+    useState<ArtifactReviewCommentsResponse | null>(null);
+  const [reviewCommentsError, setReviewCommentsError] = useState<string>();
+  const [reviewReloadKey, setReviewReloadKey] = useState(0);
+  const [anchorToReveal, setAnchorToReveal] =
+    useState<ArtifactReviewAnchor>();
+  const sourceRef = useRef<HTMLPreElement>(null);
+  const activeArtifact = detail ?? artifact;
+  const content = detail ? displayContent(detail) : "";
+  const sourceAvailable = isTextReviewFormat(activeArtifact);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,6 +115,80 @@ export function ArtifactPreviewContent({
 
   useEffect(() => {
     let cancelled = false;
+    setReviewComments(null);
+    setReviewCommentsError(undefined);
+    fetchJson<ArtifactReviewCommentsResponse>(
+      `/api/workspace/artifacts/${artifact.id}/review-comments`,
+      undefined,
+      "Could not load review comments.",
+    )
+      .then((data) => {
+        if (!cancelled) setReviewComments(data);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setReviewCommentsError(
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [artifact.id, reviewReloadKey]);
+
+  useEffect(() => {
+    if (!focusReviewCommentId || !reviewComments) return;
+    setReviewOpen(true);
+    const focusedComment = reviewComments.comments.find(
+      (comment) => comment.id === focusReviewCommentId,
+    );
+    if (!focusedComment) {
+      setReviewCommentsError(
+        "This review comment is no longer available on this artifact version.",
+      );
+      return;
+    }
+    setReviewCommentsError(undefined);
+    if (focusedComment?.anchor.kind === "text-range" && sourceAvailable) {
+      setReviewMode("source");
+      setAnchorToReveal(focusedComment.anchor);
+    }
+    const frame = window.requestAnimationFrame(() => {
+      document
+        .getElementById(`artifact-review-comment-${focusReviewCommentId}`)
+        ?.scrollIntoView({ block: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusReviewCommentId, reviewComments, sourceAvailable]);
+
+  useEffect(() => {
+    if (
+      reviewMode !== "source" ||
+      anchorToReveal?.kind !== "text-range" ||
+      !sourceRef.current
+    ) {
+      return;
+    }
+    const resolved = resolveTextReviewAnchor(content, anchorToReveal);
+    if (!resolved) {
+      setReviewCommentsError(
+        "This comment's source selection is no longer available.",
+      );
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      revealTextRangeWithin(
+        sourceRef.current!,
+        resolved.startOffset,
+        resolved.endOffset,
+      );
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [anchorToReveal, content, reviewMode]);
+
+  useEffect(() => {
+    let cancelled = false;
     setReviewMode("preview");
     setVersionSet(null);
     setVersionError(undefined);
@@ -86,6 +196,7 @@ export function ArtifactPreviewContent({
     setComparisonError(undefined);
     setFromVersionId(artifact.id);
     setToVersionId(artifact.id);
+    setAnchorToReveal(undefined);
 
     fetchJson<WorkspaceArtifactVersionSet>(
       `/api/workspace/artifacts/${artifact.id}/versions`,
@@ -144,13 +255,10 @@ export function ArtifactPreviewContent({
     };
   }, [fromVersionId, reviewMode, toVersionId]);
 
-  const activeArtifact = detail ?? artifact;
-  const content = detail ? displayContent(detail) : "";
   const previewKind = useMemo(
     () => detectPreviewKind(activeArtifact, content),
     [activeArtifact, content],
   );
-  const sourceAvailable = isTextReviewFormat(activeArtifact);
   const compareAvailable = (versionSet?.versions.length ?? 0) > 1;
   const comparisonDiff = useMemo<ArtifactLineDiff | null>(() => {
     if (
@@ -180,6 +288,24 @@ export function ArtifactPreviewContent({
             {activeArtifact.filename} · {formatBytes(activeArtifact.sizeBytes)}
           </p>
         </div>
+        {onBranch ? (
+          <button
+            type="button"
+            aria-label="Try another approach from this file"
+            title={
+              branchPending
+                ? "Creating an alternative chat"
+                : "Try another approach"
+            }
+            data-testid="branch-artifact-button"
+            disabled={branchPending}
+            onClick={() => onBranch(activeArtifact)}
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-hairline px-2 text-xs font-medium text-ink hover:bg-subtle disabled:cursor-wait disabled:opacity-40"
+          >
+            <BranchIcon />
+            <span className="hidden xl:inline">Try another approach</span>
+          </button>
+        ) : null}
         <a
           href={activeArtifact.downloadUrl}
           className="rounded-md border border-hairline px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-subtle"
@@ -213,6 +339,9 @@ export function ArtifactPreviewContent({
         versionSet={versionSet}
         versionError={versionError}
         onModeChange={setReviewMode}
+        commentCount={reviewComments?.comments.length ?? 0}
+        reviewOpen={reviewOpen}
+        onReviewOpenChange={setReviewOpen}
         onCompareLatest={() => {
           if (!versionSet) return;
           setFromVersionId(versionSet.selectedArtifactId);
@@ -221,12 +350,13 @@ export function ArtifactPreviewContent({
         }}
       />
 
-      <div
-        id="artifact-review-panel"
-        role="tabpanel"
-        aria-labelledby={`artifact-review-tab-${reviewMode}`}
-        className="min-h-0 flex-1 overflow-auto bg-canvas"
-      >
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <div
+          id="artifact-review-panel"
+          role="tabpanel"
+          aria-labelledby={`artifact-review-tab-${reviewMode}`}
+          className="min-h-0 flex-1 overflow-auto bg-canvas"
+        >
         {reviewMode === "compare" ? (
           <ArtifactVersionComparison
             versionSet={versionSet}
@@ -249,6 +379,7 @@ export function ArtifactPreviewContent({
           </div>
         ) : reviewMode === "source" ? (
           <pre
+            ref={sourceRef}
             data-testid="artifact-source-view"
             className="min-h-full whitespace-pre-wrap px-4 py-4 font-mono text-xs leading-relaxed text-ink [overflow-wrap:anywhere]"
           >
@@ -281,8 +412,48 @@ export function ArtifactPreviewContent({
             {content}
           </pre>
         )}
+        </div>
+        {reviewOpen ? (
+          <ArtifactReviewCommentsPane
+            artifact={activeArtifact}
+            content={content}
+            sourceRef={sourceRef}
+            sourceSelectionAvailable={reviewMode === "source" && sourceAvailable}
+            data={reviewComments}
+            loadError={reviewCommentsError}
+            staleBase={Boolean(versionSet?.staleBase)}
+            focusCommentId={focusReviewCommentId}
+            onReload={() => setReviewReloadKey((value) => value + 1)}
+            onAddressComments={onAddressComments}
+            onRevealAnchor={(anchor) => {
+              setAnchorToReveal(anchor);
+              setReviewMode("source");
+            }}
+          />
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function BranchIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="4" cy="3" r="1.25" />
+      <circle cx="12" cy="6" r="1.25" />
+      <circle cx="4" cy="13" r="1.25" />
+      <path d="M4 4.25v5.5M5.25 6h5.5M4 9.75c0-2.1 1.35-3.75 3.35-3.75" />
+    </svg>
   );
 }
 
@@ -295,6 +466,9 @@ function ArtifactReviewToolbar({
   versionError,
   onModeChange,
   onCompareLatest,
+  commentCount,
+  reviewOpen,
+  onReviewOpenChange,
 }: {
   artifact: WorkspaceArtifactSummary | WorkspaceArtifactDetail;
   mode: ArtifactReviewMode;
@@ -304,6 +478,9 @@ function ArtifactReviewToolbar({
   versionError?: string;
   onModeChange: (mode: ArtifactReviewMode) => void;
   onCompareLatest: () => void;
+  commentCount: number;
+  reviewOpen: boolean;
+  onReviewOpenChange: (open: boolean) => void;
 }) {
   const modes: Array<{ id: ArtifactReviewMode; label: string }> = [
     { id: "preview", label: "Preview" },
@@ -360,6 +537,20 @@ function ArtifactReviewToolbar({
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          aria-expanded={reviewOpen}
+          aria-controls="artifact-review-comments"
+          onClick={() => onReviewOpenChange(!reviewOpen)}
+          className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors ${
+            reviewOpen
+              ? "border-ink bg-ink text-canvas"
+              : "border-hairline text-muted hover:bg-subtle hover:text-ink"
+          }`}
+        >
+          <Icon name="message-square" size={13} strokeWidth={1.6} />
+          Comments{commentCount > 0 ? ` ${commentCount}` : ""}
+        </button>
         <span className="ml-auto font-mono text-2xs text-muted">
           v{artifact.versionNumber}
           {latest ? ` of ${latest.versionNumber}` : ""}
@@ -490,6 +681,497 @@ function ArtifactVersionComparison({
       )}
     </div>
   );
+}
+
+function ArtifactReviewCommentsPane({
+  artifact,
+  content,
+  sourceRef,
+  sourceSelectionAvailable,
+  data,
+  loadError,
+  staleBase,
+  focusCommentId,
+  onReload,
+  onAddressComments,
+  onRevealAnchor,
+}: {
+  artifact: WorkspaceArtifactSummary | WorkspaceArtifactDetail;
+  content: string;
+  sourceRef: React.RefObject<HTMLPreElement | null>;
+  sourceSelectionAvailable: boolean;
+  data: ArtifactReviewCommentsResponse | null;
+  loadError?: string;
+  staleBase: boolean;
+  focusCommentId?: string;
+  onReload: () => void;
+  onAddressComments?: (
+    comments: ArtifactReviewSelection[],
+  ) => Promise<boolean>;
+  onRevealAnchor: (anchor: ArtifactReviewAnchor) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const [draftAnchor, setDraftAnchor] = useState<ArtifactReviewAnchor>({
+    kind: "artifact",
+  });
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [editingId, setEditingId] = useState<string>();
+  const [editingBody, setEditingBody] = useState("");
+  const [pendingAction, setPendingAction] = useState<string>();
+  const [actionError, setActionError] = useState<string>();
+  const [linkCopiedId, setLinkCopiedId] = useState<string>();
+  const comments = data?.comments ?? [];
+  const openComments = comments.filter((comment) => comment.status === "open");
+  const selected = openComments
+    .filter((comment) => selectedIds.includes(comment.id))
+    .map((comment) => ({ id: comment.id, revision: comment.revision }));
+
+  useEffect(() => {
+    setDraft("");
+    setDraftAnchor({ kind: "artifact" });
+    setSelectedIds([]);
+    setEditingId(undefined);
+    setActionError(undefined);
+  }, [artifact.id]);
+
+  useEffect(() => {
+    const openIds = new Set(
+      (data?.comments ?? [])
+        .filter((comment) => comment.status === "open")
+        .map((comment) => comment.id),
+    );
+    setSelectedIds((current) => current.filter((id) => openIds.has(id)));
+  }, [data?.comments]);
+
+  function captureSourceSelection() {
+    const offsets = sourceRef.current
+      ? selectionOffsetsWithin(sourceRef.current)
+      : null;
+    if (!offsets) {
+      setActionError("Select text in Source, then choose Comment selection.");
+      return;
+    }
+    try {
+      setDraftAnchor(
+        createTextReviewAnchor(content, offsets.startOffset, offsets.endOffset),
+      );
+      setActionError(undefined);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function createComment() {
+    if (!draft.trim() || pendingAction) return;
+    setPendingAction("create");
+    setActionError(undefined);
+    try {
+      await fetchJson(
+        `/api/workspace/artifacts/${artifact.id}/review-comments`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body: draft, anchor: draftAnchor }),
+        },
+        "Could not add the review comment.",
+      );
+      setDraft("");
+      setDraftAnchor({ kind: "artifact" });
+      onReload();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPendingAction(undefined);
+    }
+  }
+
+  async function updateComment(
+    comment: ArtifactReviewCommentView,
+    update: { body?: string; status?: "open" | "addressed" },
+  ) {
+    if (pendingAction) return;
+    setPendingAction(comment.id);
+    setActionError(undefined);
+    try {
+      await fetchJson(
+        `/api/workspace/artifacts/${artifact.id}/review-comments/${comment.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            expectedRevision: comment.revision,
+            ...update,
+          }),
+        },
+        "Could not update the review comment.",
+      );
+      setEditingId(undefined);
+      onReload();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPendingAction(undefined);
+    }
+  }
+
+  async function addressSelected() {
+    if (!onAddressComments || selected.length === 0 || pendingAction) return;
+    setPendingAction("address");
+    setActionError(undefined);
+    try {
+      const accepted = await onAddressComments(selected);
+      if (accepted) {
+        setSelectedIds([]);
+        onReload();
+      } else {
+        setActionError("Comparative did not accept the review request.");
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPendingAction(undefined);
+    }
+  }
+
+  async function copyCommentLink(commentId: string) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("open", "studio");
+    url.searchParams.set("artifactId", artifact.id);
+    url.searchParams.set("reviewComment", commentId);
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      setLinkCopiedId(commentId);
+      window.setTimeout(() => setLinkCopiedId(undefined), 1_500);
+    } catch {
+      setActionError("Could not copy the review link.");
+    }
+  }
+
+  return (
+    <aside
+      id="artifact-review-comments"
+      aria-label="Artifact review comments"
+      className="flex max-h-[46%] min-h-0 shrink-0 flex-col border-t border-hairline bg-canvas lg:h-full lg:max-h-none lg:w-[min(22rem,42%)] lg:border-l lg:border-t-0"
+      data-testid="artifact-review-comments"
+    >
+      <header className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b border-hairline px-3">
+        <div>
+          <h3 className="text-xs font-semibold text-ink">Review</h3>
+          <p className="font-mono text-2xs text-muted">
+            v{artifact.versionNumber} · {comments.length} comment
+            {comments.length === 1 ? "" : "s"}
+          </p>
+        </div>
+        {sourceSelectionAvailable ? (
+          <button
+            type="button"
+            onClick={captureSourceSelection}
+            className="rounded-md border border-hairline px-2 py-1 text-2xs font-medium text-muted hover:bg-subtle hover:text-ink"
+          >
+            Comment selection
+          </button>
+        ) : null}
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {data?.permissions.canComment ? (
+          <div className="border-b border-hairline px-3 py-3">
+            <label
+              htmlFor="artifact-review-comment-body"
+              className="text-xs font-medium text-ink"
+            >
+              Add comment
+            </label>
+            {draftAnchor.kind === "text-range" ? (
+              <div className="mt-1 flex items-start gap-2 border-l-2 border-ink pl-2 text-2xs leading-relaxed text-muted">
+                <span className="min-w-0 flex-1 line-clamp-2">
+                  “{draftAnchor.quote}”
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setDraftAnchor({ kind: "artifact" })}
+                  className="shrink-0 underline underline-offset-2 hover:text-ink"
+                >
+                  Clear
+                </button>
+              </div>
+            ) : (
+              <p className="mt-1 text-2xs text-muted">Whole artifact</p>
+            )}
+            <textarea
+              id="artifact-review-comment-body"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              rows={3}
+              maxLength={2_000}
+              placeholder="What should change?"
+              className="mt-2 w-full resize-y rounded-md border border-hairline bg-canvas px-2.5 py-2 text-xs leading-relaxed text-ink outline-none placeholder:text-muted focus:border-muted"
+            />
+            <div className="mt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => void createComment()}
+                disabled={!draft.trim() || Boolean(pendingAction)}
+                className="rounded-md bg-ink px-2.5 py-1.5 text-xs font-medium text-canvas disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Add comment
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {loadError ? (
+          <p className="border-b border-hairline px-3 py-2 text-xs text-danger">
+            {loadError}
+          </p>
+        ) : null}
+        {actionError ? (
+          <p
+            role="alert"
+            className="border-b border-hairline px-3 py-2 text-xs text-danger"
+          >
+            {actionError}
+          </p>
+        ) : null}
+        {staleBase ? (
+          <p className="border-b border-warning/30 bg-warning-bg px-3 py-2 text-xs text-ink">
+            A newer version exists. Compare it before addressing feedback.
+          </p>
+        ) : null}
+
+        {!data && !loadError ? (
+          <p className="px-3 py-6 text-center text-xs text-muted">
+            Loading comments...
+          </p>
+        ) : comments.length === 0 ? (
+          <p className="px-3 py-6 text-center text-xs text-muted">
+            No review comments on this version.
+          </p>
+        ) : (
+          <div className="divide-y divide-hairline">
+            {comments.map((comment) => {
+              const focused = focusCommentId === comment.id;
+              const editing = editingId === comment.id;
+              return (
+                <article
+                  id={`artifact-review-comment-${comment.id}`}
+                  key={comment.id}
+                  className={`px-3 py-3 ${focused ? "bg-subtle" : ""}`}
+                >
+                  <div className="flex items-start gap-2">
+                    {data?.permissions.canAddress && comment.status === "open" ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(comment.id)}
+                        onChange={(event) =>
+                          setSelectedIds((current) =>
+                            event.target.checked
+                              ? [...current, comment.id]
+                              : current.filter((id) => id !== comment.id),
+                          )
+                        }
+                        aria-label={`Select comment by ${comment.author.displayName}`}
+                        className="mt-0.5 h-3.5 w-3.5 accent-current"
+                      />
+                    ) : null}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                        <span className="text-xs font-medium text-ink">
+                          {comment.author.displayName}
+                        </span>
+                        <span className="font-mono text-2xs uppercase text-muted">
+                          {comment.status === "addressing"
+                            ? "Addressing"
+                            : comment.status}
+                        </span>
+                        <span className="text-2xs text-muted">
+                          {formatShortDate(comment.createdAt)}
+                        </span>
+                      </div>
+                      {comment.anchor.kind === "text-range" ? (
+                        <button
+                          type="button"
+                          onClick={() => onRevealAnchor(comment.anchor)}
+                          aria-label={`Show source selection for comment by ${comment.author.displayName}`}
+                          className="mt-1 line-clamp-2 w-full border-l-2 border-hairline pl-2 text-left text-2xs leading-relaxed text-muted hover:border-muted hover:text-ink"
+                        >
+                          “{comment.anchor.quote}”
+                        </button>
+                      ) : null}
+                      {editing ? (
+                        <div className="mt-2">
+                          <textarea
+                            aria-label="Edit review comment"
+                            value={editingBody}
+                            onChange={(event) => setEditingBody(event.target.value)}
+                            rows={3}
+                            maxLength={2_000}
+                            className="w-full resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-xs text-ink outline-none focus:border-muted"
+                          />
+                          <div className="mt-1.5 flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEditingId(undefined)}
+                              className="text-2xs text-muted hover:text-ink"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!editingBody.trim() || Boolean(pendingAction)}
+                              onClick={() =>
+                                void updateComment(comment, { body: editingBody })
+                              }
+                              className="text-2xs font-medium text-ink disabled:opacity-40"
+                            >
+                              Save
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-ink">
+                          {comment.body}
+                        </p>
+                      )}
+                      {!editing ? (
+                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-2xs">
+                          {comment.permissions.canEdit ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingId(comment.id);
+                                setEditingBody(comment.body);
+                              }}
+                              className="text-muted hover:text-ink"
+                            >
+                              Edit
+                            </button>
+                          ) : null}
+                          {comment.permissions.canResolve ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void updateComment(comment, { status: "addressed" })
+                              }
+                              className="text-muted hover:text-ink"
+                            >
+                              Resolve
+                            </button>
+                          ) : null}
+                          {comment.permissions.canReopen ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void updateComment(comment, { status: "open" })
+                              }
+                              className="text-muted hover:text-ink"
+                            >
+                              Reopen
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => void copyCommentLink(comment.id)}
+                            className="text-muted hover:text-ink"
+                          >
+                            {linkCopiedId === comment.id ? "Copied" : "Copy link"}
+                          </button>
+                          {comment.resultArtifactId ? (
+                            <a
+                              href={`/chat?open=studio&artifactId=${encodeURIComponent(comment.resultArtifactId)}`}
+                              className="text-muted underline underline-offset-2 hover:text-ink"
+                            >
+                              Open revision
+                            </a>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {data?.permissions.canAddress && onAddressComments ? (
+        <div className="shrink-0 border-t border-hairline px-3 py-2.5">
+          <button
+            type="button"
+            onClick={() => void addressSelected()}
+            disabled={
+              selected.length === 0 ||
+              staleBase ||
+              Boolean(pendingAction)
+            }
+            className="w-full rounded-md bg-ink px-3 py-2 text-xs font-medium text-canvas disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Address with Comparative
+            {selected.length > 0 ? ` (${selected.length})` : ""}
+          </button>
+        </div>
+      ) : null}
+    </aside>
+  );
+}
+
+export function selectionOffsetsWithin(
+  element: HTMLElement,
+  selection: Selection | null = window.getSelection(),
+): { startOffset: number; endOffset: number } | null {
+  if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) {
+    return null;
+  }
+  const range = selection.getRangeAt(0);
+  if (
+    !element.contains(range.startContainer) ||
+    !element.contains(range.endContainer)
+  ) {
+    return null;
+  }
+  const beforeStart = document.createRange();
+  beforeStart.selectNodeContents(element);
+  beforeStart.setEnd(range.startContainer, range.startOffset);
+  const beforeEnd = document.createRange();
+  beforeEnd.selectNodeContents(element);
+  beforeEnd.setEnd(range.endContainer, range.endOffset);
+  const startOffset = beforeStart.toString().length;
+  const endOffset = beforeEnd.toString().length;
+  return endOffset > startOffset ? { startOffset, endOffset } : null;
+}
+
+export function revealTextRangeWithin(
+  element: HTMLElement,
+  startOffset: number,
+  endOffset: number,
+  selection: Selection | null = window.getSelection(),
+): boolean {
+  if (!selection || startOffset < 0 || endOffset <= startOffset) return false;
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  let cursor = 0;
+  let start: { node: Text; offset: number } | undefined;
+  let end: { node: Text; offset: number } | undefined;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node as Text;
+    const nextCursor = cursor + text.data.length;
+    if (!start && startOffset >= cursor && startOffset <= nextCursor) {
+      start = { node: text, offset: startOffset - cursor };
+    }
+    if (endOffset >= cursor && endOffset <= nextCursor) {
+      end = { node: text, offset: endOffset - cursor };
+      break;
+    }
+    cursor = nextCursor;
+  }
+  if (!start || !end) return false;
+  const range = document.createRange();
+  range.setStart(start.node, start.offset);
+  range.setEnd(end.node, end.offset);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  element.scrollIntoView({ block: "nearest" });
+  return true;
 }
 
 function VersionSelect({

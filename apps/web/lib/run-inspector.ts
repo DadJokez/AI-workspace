@@ -1,5 +1,6 @@
 export interface RunInspectorRun {
   id: string;
+  threadId?: string | null;
   status: string;
   skillSlug?: string | null;
   triggerType?: string;
@@ -15,6 +16,14 @@ export interface RunInspectorRun {
   completedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+  lineage?: {
+    sourceType: string;
+    sourceTitle: string;
+    parentThreadIdSnapshot?: string | null;
+    branchPointMessageIdSnapshot?: string | null;
+    sourceArtifactIdSnapshot?: string | null;
+    sourceAppVersionIdSnapshot?: string | null;
+  } | null;
 }
 
 export interface RunInspectorEvent {
@@ -96,6 +105,7 @@ function parseRun(value: Record<string, unknown>): RunInspectorRun | null {
   }
   return {
     id: value.id,
+    threadId: nullableString(value.threadId),
     status: value.status,
     skillSlug: nullableString(value.skillSlug),
     triggerType: optionalString(value.triggerType),
@@ -112,6 +122,30 @@ function parseRun(value: Record<string, unknown>): RunInspectorRun | null {
     completedAt: nullableString(value.completedAt),
     createdAt: optionalString(value.createdAt),
     updatedAt: optionalString(value.updatedAt),
+    lineage: parseLineage(value.lineage),
+  };
+}
+
+function parseLineage(value: unknown): RunInspectorRun["lineage"] {
+  if (value === null) return null;
+  if (
+    !isRecord(value) ||
+    typeof value.sourceType !== "string" ||
+    typeof value.sourceTitle !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    sourceType: value.sourceType,
+    sourceTitle: value.sourceTitle,
+    parentThreadIdSnapshot: nullableString(value.parentThreadIdSnapshot),
+    branchPointMessageIdSnapshot: nullableString(
+      value.branchPointMessageIdSnapshot,
+    ),
+    sourceArtifactIdSnapshot: nullableString(value.sourceArtifactIdSnapshot),
+    sourceAppVersionIdSnapshot: nullableString(
+      value.sourceAppVersionIdSnapshot,
+    ),
   };
 }
 

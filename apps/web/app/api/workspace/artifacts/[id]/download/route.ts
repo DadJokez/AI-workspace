@@ -2,7 +2,7 @@ import { UnauthorizedError } from "@ai-workspace/auth";
 import { getDb } from "@ai-workspace/db";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
-import { loadWorkspaceArtifactForUser } from "@/lib/workspace-artifacts";
+import { resolveArtifactReviewAccess } from "@/lib/artifact-review-access";
 
 export const dynamic = "force-dynamic";
 
@@ -16,14 +16,15 @@ export async function GET(
     if ("error" in session) return session.error;
     const sessionUser = session.user;
 
-    const artifact = await loadWorkspaceArtifactForUser({
+    const access = await resolveArtifactReviewAccess({
       db: getDb(),
-      userId: sessionUser.id,
+      actor: sessionUser,
       artifactId: id,
     });
-    if (!artifact) {
+    if (!access) {
       return NextResponse.json({ error: "artifact_not_found" }, { status: 404 });
     }
+    const artifact = access.artifact;
 
     const metadata = normalizeMetadata(artifact.metadata);
     const isBase64 = metadata?.storageEncoding === "base64";

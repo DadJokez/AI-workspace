@@ -72,8 +72,10 @@ describe("security headers", () => {
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
       "media-src 'self' data: blob:",
-      // PostHog is proxied same-origin through the /ingest rewrites.
-      "connect-src 'self'",
+      // PostHog is same-origin; the Studio live viewer signs AgentCore HTTPS
+      // requests and upgrades its display channel to WSS in the browser.
+      "connect-src 'self' https://bedrock-agentcore.us-east-1.amazonaws.com wss://bedrock-agentcore.us-east-1.amazonaws.com",
+      "worker-src 'self' blob:",
       "form-action 'self'",
       "frame-src 'self' blob:",
       "frame-ancestors 'none'",

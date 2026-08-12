@@ -26,6 +26,14 @@ import { shouldShowTour } from "@/lib/tour";
 import { Sidebar } from "@/components/Sidebar";
 import { useHorizontalSwipe } from "@/components/useHorizontalSwipe";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import type {
+  ThreadBranchRequest,
+  ThreadBranchResponse,
+} from "@/lib/thread-branch-types";
+import {
+  formatArtifactReviewMessage,
+  type ArtifactReviewSelection,
+} from "@/lib/artifact-review-client";
 import {
   deriveContributionStudio,
   type ContributionStudioScope,
@@ -61,6 +69,7 @@ interface ChatClientProps {
   initialSettingsSection?: "memory" | "integrations";
   initialMemoryId?: string;
   initialArtifactId?: string;
+  initialReviewCommentId?: string;
 }
 
 export function ChatClient({
@@ -69,6 +78,7 @@ export function ChatClient({
   initialSettingsSection,
   initialMemoryId,
   initialArtifactId,
+  initialReviewCommentId,
 }: ChatClientProps) {
   const router = useRouter();
   const { openPalette } = useCommandPalette();
@@ -77,6 +87,7 @@ export function ChatClient({
     defaultModelId,
     runtimeV2Enabled,
     liveTurnSteeringSupported,
+    studioBrowserSupported,
     user,
     setUser,
     threads,
@@ -136,11 +147,14 @@ export function ChatClient({
     initialOpen === "upload" ? 1 : 0,
   );
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [branchPending, setBranchPending] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editRequest, setEditRequest] = useState<ChatEditRequest>();
   const [editingQueuedTurnId, setEditingQueuedTurnId] = useState<string | null>(
     null,
   );
+  const patchTabRef = useRef(patchTab);
+  const activeIdRef = useRef(activeId);
   const closeRightPane = useCallback(() => setRightPane(null), []);
   const openSidebarSwipe = useHorizontalSwipe({
     direction: "right",
@@ -158,6 +172,11 @@ export function ChatClient({
   const inspectedMessage = inspectedRunId
     ? activeTab?.messages.find((message) => message.runId === inspectedRunId)
     : undefined;
+
+  useEffect(() => {
+    patchTabRef.current = patchTab;
+    activeIdRef.current = activeId;
+  }, [activeId, patchTab]);
 
   useEffect(() => {
     if (user?.role !== "admin") return;
@@ -183,6 +202,7 @@ export function ChatClient({
   useEffect(() => {
     if (!initialArtifactId) return;
     let cancelled = false;
+    const errorTabId = activeIdRef.current;
     void fetchJson<{ artifact: WorkspaceArtifactSummary }>(
       `/api/workspace/artifacts/${encodeURIComponent(initialArtifactId)}`,
       undefined,
@@ -195,17 +215,41 @@ export function ChatClient({
           tab: "preview",
           artifact,
           scope: artifact.threadId ? "thread" : "workspace",
+          focusReviewCommentId: initialReviewCommentId,
         });
       })
-      .catch(() => {
-        if (!cancelled) {
-          setRightPane({ kind: "studio", tab: "files", scope: "workspace" });
+      .catch(async () => {
+        if (cancelled) return;
+        let message = "Could not open that artifact.";
+        if (initialReviewCommentId) {
+          try {
+            const response = await fetch(
+              `/api/workspace/artifact-review-comments/${encodeURIComponent(initialReviewCommentId)}`,
+              { cache: "no-store" },
+            );
+            if (response.status === 410) {
+              const body = (await response.json()) as {
+                artifact?: { filename?: string; versionNumber?: number };
+              };
+              const filename = body.artifact?.filename ?? "This artifact";
+              const version = body.artifact?.versionNumber;
+              message = `${filename}${version ? ` v${version}` : ""} was deleted. Its review history remains, but the source can no longer be opened.`;
+            } else if (response.status === 404) {
+              message =
+                "This review link is no longer available, or you no longer have permission to open it.";
+            }
+          } catch {
+            // Preserve the generic artifact error when the diagnostic lookup fails.
+          }
         }
+        if (cancelled) return;
+        if (errorTabId) patchTabRef.current(errorTabId, { error: message });
+        setRightPane({ kind: "studio", tab: "files", scope: "workspace" });
       });
     return () => {
       cancelled = true;
     };
-  }, [initialArtifactId]);
+  }, [initialArtifactId, initialReviewCommentId]);
 
   // Open settings via ⌘,/Ctrl,
   useEffect(() => {
@@ -353,6 +397,39 @@ export function ChatClient({
     setRightPane,
     stickToBottomRef,
   });
+
+  function addressArtifactReviewComments({
+    artifact,
+    comments,
+  }: {
+    artifact: WorkspaceArtifactSummary;
+    comments: ArtifactReviewSelection[];
+  }): Promise<boolean> {
+    if (!activeTab?.threadId) {
+      if (activeTab) {
+        patchTab(activeTab.id, {
+          error: "Open or create a chat before addressing review comments.",
+        });
+      }
+      return Promise.resolve(false);
+    }
+    const message = formatArtifactReviewMessage({
+      filename: artifact.filename,
+      versionNumber: artifact.versionNumber,
+      commentCount: comments.length,
+    });
+    return send(
+      message,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { artifactId: artifact.id, comments },
+    );
+  }
   const queuedTurns = useChatTurnQueue({
     userId: user?.id,
     tabId: activeTab?.id,
@@ -365,6 +442,51 @@ export function ChatClient({
   }, [send]);
 
   const currentRunActive = Boolean(activeTab?.busy || activeHasPendingRun);
+
+  async function branchWork(request: ThreadBranchRequest) {
+    if (!activeTab || branchPending) return;
+    const sourceTabId = activeTab.id;
+    if (currentRunActive) {
+      patchTab(sourceTabId, {
+        error: "Wait for the current response to finish before trying another approach.",
+      });
+      return;
+    }
+    setBranchPending(true);
+    patchTab(sourceTabId, { error: undefined });
+    try {
+      const result = await fetchJson<ThreadBranchResponse>(
+        "/api/threads/branch",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+        },
+        "Could not create an alternative chat.",
+      );
+      setSettingsSection(null);
+      openThread(
+        result.thread.id,
+        result.thread.title?.trim() || "Alternative approach",
+      );
+      void refreshThreads();
+      posthog.capture("chat_branch_created", {
+        source_type: request.sourceType,
+        snapshot_messages: result.lineage.messageCount,
+        pinned_resources: result.lineage.resources.length,
+      });
+    } catch (error) {
+      patchTab(sourceTabId, {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not create an alternative chat.",
+      });
+    } finally {
+      setBranchPending(false);
+    }
+  }
+
   const queuedHead = queuedTurns.turns[0];
   const queuedScopeKey = queuedTurns.scopeKey;
   useEffect(() => {
@@ -550,6 +672,13 @@ export function ChatClient({
       setSettingsSection(null);
       setRightPane({ kind: "studio", scope: "thread" });
     },
+    branchCurrentThread: () => {
+      if (!activeTab?.threadId) return;
+      void branchWork({
+        sourceType: "thread",
+        sourceThreadId: activeTab.threadId,
+      });
+    },
     openThread: (threadId, title) => {
       setSettingsSection(null);
       openThread(threadId, title);
@@ -565,7 +694,9 @@ export function ChatClient({
   const inputDisabled = models.length === 0;
   const queueMode = currentRunActive || queuedTurns.turns.length > 0;
   const feedbackContext = buildFeedbackContext(activeTab);
-  const studioModel = deriveContributionStudio(activeTab.messages);
+  const studioModel = deriveContributionStudio(activeTab.messages, {
+    capabilities: { browser: studioBrowserSupported },
+  });
   const studioOpen = rightPane?.kind === "studio";
 
   return (
@@ -633,6 +764,7 @@ export function ChatClient({
               studioOpen={studioOpen}
               studioWorking={studioModel.working || currentRunActive}
               unreadNotifications={unreadNotifications}
+              branchPending={branchPending}
               onOpenMenu={() => setSidebarOpen(true)}
               onModelChange={handleModelChange}
               onToggleStudio={(open) =>
@@ -651,6 +783,12 @@ export function ChatClient({
                 )
               }
               onDownload={handleDownloadTranscript}
+              onBranchThread={() =>
+                void branchWork({
+                  sourceType: "thread",
+                  sourceThreadId: activeTab.threadId!,
+                })
+              }
               onStop={stopStreaming}
             />
 
@@ -666,10 +804,26 @@ export function ChatClient({
             appDraftPendingId={appDraftPendingId}
             artifactProposalPendingId={artifactProposalPendingId}
             runActionPendingId={runActionPendingId}
+            branchPending={branchPending || currentRunActive}
             stickToBottomRef={stickToBottomRef}
             onPickSuggestion={(suggestion) => void send(suggestion)}
             onOpenIntegrations={() => setSettingsSection("integrations")}
             onOpenArtifact={openArtifactPreview}
+            onOpenBrowserEvidence={
+              studioBrowserSupported
+                ? (messageId, sourceNumber) =>
+                    setRightPane({
+                      kind: "studio",
+                      tab: "browser",
+                      scope: "thread",
+                      browserTarget: {
+                        kind: "evidence",
+                        messageId,
+                        sourceNumber,
+                      },
+                    })
+                : undefined
+            }
             onDeployAppDraft={(version) => void handleAppDraftDeploy(version)}
             onDiscardAppProposal={(version) =>
               void handleAppProposalDiscard(version)
@@ -688,6 +842,33 @@ export function ChatClient({
             }
             onRunAction={(runId, action) => void runAction(runId, action)}
             onOpenRunInspector={openRunInspector}
+            onBranchMessage={(sourceMessageId) =>
+              void branchWork({
+                sourceType: "message",
+                sourceThreadId: activeTab.threadId!,
+                sourceMessageId,
+              })
+            }
+            onBranchAppVersion={(version) =>
+              void branchWork({
+                sourceType: "app_version",
+                ...(activeTab.threadId
+                  ? { sourceThreadId: activeTab.threadId }
+                  : {}),
+                artifactId: version.artifactId,
+                appVersionId: version.id,
+              })
+            }
+            onBranchProposal={(artifact) =>
+              void branchWork({
+                sourceType: "proposal",
+                ...(activeTab.threadId
+                  ? { sourceThreadId: activeTab.threadId }
+                  : {}),
+                artifactId: artifact.id,
+              })
+            }
+            onOpenBranchSource={openThread}
             onRegenerate={regenerate}
             onEdit={setEditRequest}
             onRetry={retry}
@@ -736,10 +917,23 @@ export function ChatClient({
             rightPane={rightPane}
             isAdmin={user?.role === "admin"}
             messages={activeTab.messages}
+            threadId={activeTab.threadId}
+            studioBrowserSupported={studioBrowserSupported}
             inspectedMessage={inspectedMessage}
             onClose={closeRightPane}
             onOpenArtifact={openArtifactPreview}
             onOpenRunInspector={openRunInspector}
+            onBranchArtifact={(artifact) =>
+              void branchWork({
+                sourceType: "artifact",
+                ...(activeTab.threadId
+                  ? { sourceThreadId: activeTab.threadId }
+                  : {}),
+                artifactId: artifact.id,
+              })
+            }
+            branchPending={branchPending || currentRunActive}
+            onAddressArtifactReview={addressArtifactReviewComments}
             onOpenThread={openThread}
             onUnreadChange={setUnreadNotifications}
           />

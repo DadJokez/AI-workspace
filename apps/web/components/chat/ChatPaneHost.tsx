@@ -8,11 +8,14 @@ import type {
 } from "@/app/chat/chat-client-state";
 import type { ContributionStudioScope } from "@/lib/contribution-studio";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import type { ArtifactReviewSelection } from "@/lib/artifact-review-client";
 
 interface ChatPaneHostProps {
   rightPane: RightPane | null;
   isAdmin: boolean;
   messages: readonly UiMessage[];
+  threadId?: string;
+  studioBrowserSupported: boolean;
   inspectedMessage?: UiMessage;
   onClose: () => void;
   onOpenArtifact: (
@@ -20,6 +23,12 @@ interface ChatPaneHostProps {
     scope: ContributionStudioScope,
   ) => void;
   onOpenRunInspector: (runId: string) => void;
+  onBranchArtifact: (artifact: WorkspaceArtifactSummary) => void;
+  branchPending: boolean;
+  onAddressArtifactReview: (input: {
+    artifact: WorkspaceArtifactSummary;
+    comments: ArtifactReviewSelection[];
+  }) => Promise<boolean>;
   onOpenThread: (threadId: string, title: string) => void;
   onUnreadChange: (count: number) => void;
 }
@@ -28,10 +37,15 @@ export function ChatPaneHost({
   rightPane,
   isAdmin,
   messages,
+  threadId,
+  studioBrowserSupported,
   inspectedMessage,
   onClose,
   onOpenArtifact,
   onOpenRunInspector,
+  onBranchArtifact,
+  branchPending,
+  onAddressArtifactReview,
   onOpenThread,
   onUnreadChange,
 }: ChatPaneHostProps) {
@@ -48,13 +62,20 @@ export function ChatPaneHost({
     return (
       <ContributionStudio
         messages={messages}
+        threadId={threadId}
         artifact={rightPane.artifact}
         requestedTab={rightPane.tab}
         scope={rightPane.scope}
         isAdmin={isAdmin}
+        browserSupported={studioBrowserSupported}
+        requestedBrowserTarget={rightPane.browserTarget}
         onClose={onClose}
         onOpenArtifact={onOpenArtifact}
         onOpenRunInspector={onOpenRunInspector}
+        onBranchArtifact={onBranchArtifact}
+        branchPending={branchPending}
+        focusReviewCommentId={rightPane.focusReviewCommentId}
+        onAddressArtifactReview={onAddressArtifactReview}
       />
     );
   }

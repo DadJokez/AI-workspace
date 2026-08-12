@@ -6,8 +6,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AlphaBadge } from "@/components/AlphaBadge";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { resolveArtifactReviewAccess } from "@/lib/artifact-review-access";
 import {
-  loadWorkspaceArtifactForUser,
   serializeWorkspaceArtifact,
 } from "@/lib/workspace-artifacts";
 
@@ -37,12 +37,13 @@ export default async function WorkspaceArtifactPage({
   }
   if (!sessionUser) redirect("/login");
 
-  const artifact = await loadWorkspaceArtifactForUser({
+  const access = await resolveArtifactReviewAccess({
     db: getDb(),
-    userId: sessionUser.id,
+    actor: sessionUser,
     artifactId: id,
   });
-  if (!artifact) notFound();
+  if (!access) notFound();
+  const artifact = access.artifact;
 
   const summary = serializeWorkspaceArtifact(artifact);
   const content = displayContent(artifact);

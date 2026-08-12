@@ -214,6 +214,20 @@ function OverviewTab({ trace }: { trace: RunInspectorTrace }) {
         />
         <Metric
           variant="grid"
+          label="Thread"
+          value={trace.run.threadId}
+        />
+        <Metric
+          variant="grid"
+          label="Branch source"
+          value={
+            trace.run.lineage
+              ? `${trace.run.lineage.sourceTitle} · ${trace.run.lineage.sourceType}`
+              : undefined
+          }
+        />
+        <Metric
+          variant="grid"
           label="Requested model"
           value={stringValue(outputs.requestedModelId) ?? trace.run.modelId}
         />

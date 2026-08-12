@@ -50,8 +50,8 @@ afterEach(cleanup);
 
 describe("Contribution Studio model", () => {
   it("derives capability tabs and thread-scoped resources from messages", () => {
-    const model = deriveContributionStudio([
-      assistant({
+    const model = deriveContributionStudio(
+      [assistant({
         artifacts: [artifact],
         sources: [
           {
@@ -77,18 +77,35 @@ describe("Contribution Studio model", () => {
             at: "2026-08-10T12:00:01.000Z",
           },
         ],
-      }),
-    ]);
+      })],
+      { capabilities: { browser: true } },
+    );
 
     expect(model.tabs).toEqual(["preview", "files", "browser", "activity"]);
     expect(model.tabs).not.toContain("console");
     expect(model.files.map((file) => file.id)).toEqual(["artifact-1"]);
     expect(model.browserEvidence[0]).toMatchObject({
+      messageId: "assistant-1",
+      sourceNumber: 1,
       title: "Primary evidence",
       url: "https://example.com/evidence",
     });
     expect(model.browserEvidence[1]).toMatchObject({ title: "Unsafe evidence" });
     expect(model.browserEvidence[1]).not.toHaveProperty("url");
+    expect(model.browserResources).toEqual([
+      expect.objectContaining({
+        title: "Primary evidence",
+        target: {
+          kind: "evidence",
+          messageId: "assistant-1",
+          sourceNumber: 1,
+        },
+      }),
+      expect.objectContaining({
+        title: "quarterly-brief.md",
+        target: { kind: "artifact", artifactId: "artifact-1" },
+      }),
+    ]);
     expect(model.workSteps[0]).toMatchObject({
       state: "completed",
       runId: "run-1",
@@ -174,6 +191,26 @@ describe("Contribution Studio model", () => {
       capabilities: { console: true },
     });
     expect(sandboxed.tabs).toContain("console");
+  });
+
+  it("never exposes Browser before its runtime capability is live", () => {
+    const message = assistant({
+      sources: [
+        {
+          n: 1,
+          title: "Public evidence",
+          kind: "web",
+          url: "https://example.com",
+        },
+      ],
+    });
+
+    expect(deriveContributionStudio([message]).tabs).not.toContain("browser");
+    expect(
+      deriveContributionStudio([message], {
+        capabilities: { browser: true },
+      }).tabs,
+    ).toContain("browser");
   });
 
   it("resolves requested, contextual, remembered, and fallback tabs", () => {

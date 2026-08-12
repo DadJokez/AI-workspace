@@ -8,9 +8,18 @@ describe("parseRunInspectorTrace", () => {
       generatedAt: "2026-07-15T01:00:03.000Z",
       run: {
         id: "11111111-1111-4111-8111-111111111361",
+        threadId: "branch-thread",
         status: "succeeded",
         inputs: { prompt: "Inspect this run" },
         outputs: { assistantText: "Done." },
+        lineage: {
+          sourceType: "message",
+          sourceTitle: "Quarterly launch plan",
+          parentThreadIdSnapshot: "source-thread",
+          branchPointMessageIdSnapshot: "source-message",
+          sourceArtifactIdSnapshot: null,
+          sourceAppVersionIdSnapshot: null,
+        },
       },
       events: [
         {
@@ -29,6 +38,15 @@ describe("parseRunInspectorTrace", () => {
 
     expect(trace).not.toBeNull();
     expect(trace?.run.outputs).toEqual({ assistantText: "Done." });
+    expect(trace?.run.threadId).toBe("branch-thread");
+    expect(trace?.run.lineage).toEqual({
+      sourceType: "message",
+      sourceTitle: "Quarterly launch plan",
+      parentThreadIdSnapshot: "source-thread",
+      branchPointMessageIdSnapshot: "source-message",
+      sourceArtifactIdSnapshot: null,
+      sourceAppVersionIdSnapshot: null,
+    });
     expect(trace?.events).toHaveLength(1);
     expect(trace?.events[0]?.eventType).toBe("provider_reasoning");
   });

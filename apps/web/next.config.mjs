@@ -1,3 +1,6 @@
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 const pdfRuntimeTraceIncludes = [
   "../../node_modules/.pnpm/@napi-rs+canvas*/node_modules/@napi-rs/canvas*/**/*",
   "../../node_modules/.pnpm/pdfjs-dist@*/node_modules/pdfjs-dist/**/*",
@@ -7,6 +10,11 @@ const pdfRuntimeTraceIncludes = [
 // that isn't explicitly development gets the tighter policy — an unset
 // NODE_ENV must not silently hand out 'unsafe-eval'.
 const isDevServer = process.env.NODE_ENV === "development";
+const agentCoreLiveViewDir = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "node_modules/bedrock-agentcore/dist/src/tools/browser/live-view",
+);
+const agentCoreEndpoint = `bedrock-agentcore.${process.env.AWS_REGION ?? "us-east-1"}.amazonaws.com`;
 
 /**
  * Content-Security-Policy derived from what this app actually loads:
@@ -34,7 +42,8 @@ function contentSecurityPolicy(frameAncestors) {
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
     "media-src 'self' data: blob:",
-    "connect-src 'self'",
+    `connect-src 'self' https://${agentCoreEndpoint} wss://${agentCoreEndpoint}`,
+    "worker-src 'self' blob:",
     "form-action 'self'",
     "frame-src 'self' blob:",
     `frame-ancestors ${frameAncestors}`,
@@ -100,6 +109,24 @@ const nextConfig = {
     "/api/mcp/resources": pdfRuntimeTraceIncludes,
   },
   serverExternalPackages: ["pdf-parse", "postgres"],
+  webpack(config) {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "bedrock-agentcore/browser/live-view": join(
+        agentCoreLiveViewDir,
+        "index.js",
+      ),
+      dcv: join(
+        agentCoreLiveViewDir,
+        "nice-dcv-web-client-sdk/dcvjs-esm/dcv.js",
+      ),
+      "dcv-ui": join(
+        agentCoreLiveViewDir,
+        "nice-dcv-web-client-sdk/dcv-ui/dcv-ui.js",
+      ),
+    };
+    return config;
+  },
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },

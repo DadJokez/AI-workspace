@@ -4,8 +4,10 @@ import { StudioMark } from "@ai-workspace/umber/components/media/StudioMark";
 import { Icon } from "@ai-workspace/umber/components/media/Icon";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArtifactPreviewContent } from "@/components/ArtifactPreviewPane";
+import type { ArtifactReviewSelection } from "@/lib/artifact-review-client";
 import { SlideOverPane } from "@/components/SlideOverPane";
 import { WorkspacePanel } from "@/components/WorkspacePanel";
+import { StudioBrowserPanel } from "@/components/StudioBrowserPanel";
 import type { UiMessage } from "@/app/chat/chat-client-state";
 import {
   deriveContributionStudio,
@@ -13,25 +15,38 @@ import {
   resolveContributionStudioTab,
   type ContributionStudioScope,
   type ContributionStudioTab,
-  type StudioBrowserEvidence,
   type StudioFileResource,
   type StudioWorkState,
   type StudioWorkStep,
 } from "@/lib/contribution-studio";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import {
+  studioBrowserTargetKey,
+  type StudioBrowserTargetRequest,
+} from "@/lib/studio-browser-contract";
 
 interface ContributionStudioProps {
   messages: readonly UiMessage[];
+  threadId?: string;
   artifact?: WorkspaceArtifactSummary;
   requestedTab?: ContributionStudioTab;
   scope?: ContributionStudioScope;
   isAdmin: boolean;
+  browserSupported?: boolean;
+  requestedBrowserTarget?: StudioBrowserTargetRequest;
   onClose: () => void;
   onOpenArtifact: (
     artifact: WorkspaceArtifactSummary,
     scope: ContributionStudioScope,
   ) => void;
   onOpenRunInspector: (runId: string) => void;
+  onBranchArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+  branchPending?: boolean;
+  focusReviewCommentId?: string;
+  onAddressArtifactReview?: (input: {
+    artifact: WorkspaceArtifactSummary;
+    comments: ArtifactReviewSelection[];
+  }) => Promise<boolean>;
 }
 
 const TAB_STORAGE_KEY = "comparative.contribution-studio.tab";
@@ -47,17 +62,29 @@ const TAB_LABELS: Record<ContributionStudioTab, string> = {
 
 export function ContributionStudio({
   messages,
+  threadId,
   artifact,
   requestedTab,
   scope = "thread",
   isAdmin,
+  browserSupported = false,
+  requestedBrowserTarget,
   onClose,
   onOpenArtifact,
   onOpenRunInspector,
+  onBranchArtifact,
+  branchPending,
+  focusReviewCommentId,
+  onAddressArtifactReview,
 }: ContributionStudioProps) {
   const model = useMemo(
-    () => deriveContributionStudio(messages, { artifact, scope }),
-    [artifact, messages, scope],
+    () =>
+      deriveContributionStudio(messages, {
+        artifact,
+        scope,
+        capabilities: { browser: browserSupported },
+      }),
+    [artifact, browserSupported, messages, scope],
   );
   const [activeTab, setActiveTab] = useState<ContributionStudioTab | null>(() =>
     resolveContributionStudioTab({
@@ -69,7 +96,11 @@ export function ContributionStudio({
     }),
   );
   const [maximized, setMaximized] = useState(false);
-  const contextKey = `${scope}:${requestedTab ?? ""}:${artifact?.id ?? ""}`;
+  const contextKey = `${scope}:${requestedTab ?? ""}:${artifact?.id ?? ""}:${
+    requestedBrowserTarget
+      ? studioBrowserTargetKey(requestedBrowserTarget)
+      : ""
+  }`;
   const previousContextKey = useRef<string | null>(null);
 
   useEffect(() => {
@@ -106,6 +137,18 @@ export function ContributionStudio({
   function updateMaximized(next: boolean) {
     setMaximized(next);
     window.localStorage.setItem(MAXIMIZED_STORAGE_KEY, String(next));
+  }
+
+  async function addressArtifactReview(comments: ArtifactReviewSelection[]) {
+    if (!onAddressArtifactReview || !model.previewArtifact) return false;
+    const accepted = await onAddressArtifactReview({
+      artifact: model.previewArtifact,
+      comments,
+    });
+    if (accepted && window.matchMedia("(max-width: 767px)").matches) {
+      onClose();
+    }
+    return accepted;
   }
 
   const currentTab =
@@ -194,7 +237,15 @@ export function ContributionStudio({
 
         <div className="min-h-0 flex-1" data-testid="studio-active-view">
           {currentTab === "preview" && model.previewArtifact ? (
-            <ArtifactPreviewContent artifact={model.previewArtifact} />
+            <ArtifactPreviewContent
+              artifact={model.previewArtifact}
+              onBranch={onBranchArtifact}
+              branchPending={branchPending}
+              focusReviewCommentId={focusReviewCommentId}
+              onAddressComments={
+                onAddressArtifactReview ? addressArtifactReview : undefined
+              }
+            />
           ) : currentTab === "files" && scope === "workspace" ? (
             <WorkspacePanel
               embedded
@@ -211,7 +262,12 @@ export function ContributionStudio({
               }
             />
           ) : currentTab === "browser" ? (
-            <StudioBrowserPanel evidence={model.browserEvidence} />
+            <StudioBrowserPanel
+              threadId={threadId}
+              resources={model.browserResources}
+              requestedTarget={requestedBrowserTarget}
+              onRequestMaximize={() => updateMaximized(true)}
+            />
           ) : currentTab === "activity" ? (
             <StudioActivityPanel
               steps={model.workSteps}
@@ -282,58 +338,6 @@ function StudioFilesPanel({
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink"
                 >
                   <Icon name="download" size={15} strokeWidth={1.6} />
-                </a>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StudioBrowserPanel({
-  evidence,
-}: {
-  evidence: readonly StudioBrowserEvidence[];
-}) {
-  return (
-    <div className="h-full overflow-y-auto px-3 py-3 sm:px-4">
-      <div className="mx-auto max-w-4xl">
-        <div className="flex items-baseline justify-between gap-3 border-b border-hairline pb-3">
-          <h3 className="text-sm font-semibold text-ink">Evidence</h3>
-          <span className="font-mono text-2xs text-muted">
-            {evidence.length} {evidence.length === 1 ? "source" : "sources"}
-          </span>
-        </div>
-        <div className="divide-y divide-hairline">
-          {evidence.map((item) => (
-            <div key={item.id} className="flex min-w-0 items-center gap-3 py-3">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-subtle text-muted">
-                <Icon
-                  name={item.kind === "repo" ? "git-branch" : "globe"}
-                  size={16}
-                  strokeWidth={1.6}
-                />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-ink">
-                  {item.title}
-                </p>
-                <p className="mt-0.5 font-mono text-2xs uppercase text-muted">
-                  {item.kind === "repo" ? "Repository" : "Web"}
-                </p>
-              </div>
-              {item.url ? (
-                <a
-                  href={item.url}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  aria-label={`Open ${item.title}`}
-                  title={`Open ${item.title}`}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-subtle hover:text-ink"
-                >
-                  <Icon name="external-link" size={15} strokeWidth={1.6} />
                 </a>
               ) : null}
             </div>

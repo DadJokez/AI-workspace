@@ -1,6 +1,7 @@
 export const UNATTENDED_OUTPUT_TRIGGER_TYPES = [
   "scheduled",
   "github_event",
+  "artifact_review",
 ] as const;
 
 export type UnattendedOutputTriggerType =
@@ -96,7 +97,11 @@ export function formatProposalIterationMessage({
 export function unattendedOutputTriggerType(
   value: unknown,
 ): UnattendedOutputTriggerType | null {
-  return value === "scheduled" || value === "github_event" ? value : null;
+  return value === "scheduled" ||
+    value === "github_event" ||
+    value === "artifact_review"
+    ? value
+    : null;
 }
 
 export function outputProposalContext({

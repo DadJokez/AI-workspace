@@ -24,6 +24,7 @@ const OFFSCREEN_MESSAGE_STYLE = {
 
 export interface ChatMessageRowActions {
   openArtifact: (artifact: WorkspaceArtifactSummary) => void;
+  openBrowserEvidence?: (messageId: string, sourceNumber: number) => void;
   deployAppDraft: (version: AppDraftVersionSummary) => void;
   discardAppProposal: (version: AppDraftVersionSummary) => void;
   iterateAppProposal: (
@@ -47,6 +48,9 @@ export interface ChatMessageRowActions {
     action: "cancel" | "retry" | "resume",
   ) => void;
   openRunInspector: (runId: string) => void;
+  branchMessage: (messageId: string) => void;
+  branchAppVersion: (version: AppDraftVersionSummary) => void;
+  branchProposal: (artifact: WorkspaceArtifactSummary) => void;
   regenerate: () => void;
   edit: (request: ChatEditRequest) => void;
 }
@@ -63,6 +67,7 @@ export interface ChatMessageRowProps {
   appDraftPendingId?: string;
   artifactProposalPendingId?: string;
   runActionPendingId?: string;
+  branchPending?: boolean;
   deferOffscreenRendering: boolean;
   actionsRef: MutableRefObject<ChatMessageRowActions>;
 }
@@ -83,6 +88,7 @@ export function areChatMessageRowPropsEqual(
     previous.appDraftPendingId === next.appDraftPendingId &&
     previous.artifactProposalPendingId === next.artifactProposalPendingId &&
     previous.runActionPendingId === next.runActionPendingId &&
+    previous.branchPending === next.branchPending &&
     previous.deferOffscreenRendering === next.deferOffscreenRendering &&
     previous.actionsRef === next.actionsRef
   );
@@ -100,6 +106,7 @@ function ChatMessageRowComponent({
   appDraftPendingId,
   artifactProposalPendingId,
   runActionPendingId,
+  branchPending,
   deferOffscreenRendering,
   actionsRef,
 }: ChatMessageRowProps) {
@@ -144,6 +151,12 @@ function ChatMessageRowComponent({
         onOpenArtifact={(artifact) =>
           actionsRef.current.openArtifact(artifact)
         }
+        onOpenSource={
+          actionsRef.current.openBrowserEvidence
+            ? (source) =>
+                actionsRef.current.openBrowserEvidence?.(message.id, source.n)
+            : undefined
+        }
         onDeployAppDraft={(version) =>
           actionsRef.current.deployAppDraft(version)
         }
@@ -165,6 +178,21 @@ function ChatMessageRowComponent({
         recommendationPendingId={recommendationPendingId}
         appDraftPendingId={appDraftPendingId}
         artifactProposalPendingId={artifactProposalPendingId}
+        branchPending={branchPending}
+        onBranch={
+          !message.pending &&
+          message.role !== "tool" &&
+          message.persisted &&
+          !message.branchSnapshot
+            ? () => actionsRef.current.branchMessage(message.id)
+            : undefined
+        }
+        onBranchAppVersion={(version) =>
+          actionsRef.current.branchAppVersion(version)
+        }
+        onBranchProposal={(artifact) =>
+          actionsRef.current.branchProposal(artifact)
+        }
         onRegenerate={
           showRegenerate
             ? () => actionsRef.current.regenerate()
