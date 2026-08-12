@@ -21,11 +21,12 @@ old or the queue is empty.
 - **Disposition of the July queue's human-gated Tier C:** both gates resolved
   and closed completed — **#297** (Gmail + Calendar integration) on
   2026-07-10 and **#291** (SES production invites, AWS case
-  178191850800335) on 2026-07-11. Neither carries forward. **Stale-guard
-  note:** `.claude/commands/goal.md` still hard-codes "Do not touch PR #272
-  or issue #291 (SES)" — that guard now references a closed issue and should
-  be removed in the next goal.md touch-up; until then it is harmless (it only
-  over-protects).
+  178191850800335) on 2026-07-11; PR #272 closed unmerged on 2026-07-08.
+  Neither carries forward as queue work. **Guard note:** the
+  `.claude/commands/goal.md` guard "Do not touch PR #272 or issue #291
+  (SES)" **stays in place** — it protects a production email path, so any
+  change to it is Rob's call under CLAUDE.md §7, not a queue to-do.
+  Unattended sessions continue to honor it as written.
 
 ## Triage principles this cycle
 
