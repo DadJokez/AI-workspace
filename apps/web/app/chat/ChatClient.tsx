@@ -91,6 +91,8 @@ export function ChatClient({
     liveTurnSteeringSupported,
     studioBrowserSupported,
     user,
+    userLoading,
+    userError,
     setUser,
     threads,
     setThreads,
@@ -103,6 +105,7 @@ export function ChatClient({
     unreadNotifications,
     setUnreadNotifications,
     refreshModels,
+    refreshUser,
     refreshThreads,
     handleProfileUpdated,
     updateUserDefaultModel,
@@ -694,7 +697,7 @@ export function ChatClient({
   });
 
   if (!activeTab) return null;
-  const chatStarting = modelsLoading || user === undefined;
+  const chatStarting = modelsLoading || userLoading;
   const inputDisabled =
     modelsLoading || modelsError !== undefined || models.length === 0;
   const queueMode = currentRunActive || queuedTurns.turns.length > 0;
@@ -911,11 +914,28 @@ export function ChatClient({
                   </button>
                 </div>
               ) : null}
+              {userError ? (
+                <div
+                  role="alert"
+                  data-testid="user-load-error"
+                  className="mb-3 flex items-center justify-between gap-3 rounded-md border border-danger/25 bg-danger-bg px-3 py-2 text-sm text-danger"
+                >
+                  <span>{userError}</span>
+                  <button
+                    type="button"
+                    onClick={() => void refreshUser()}
+                    disabled={userLoading}
+                    className="shrink-0 rounded-sm border border-danger/30 px-2.5 py-1 text-xs font-medium hover:bg-danger/10 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {userLoading ? "Retrying..." : "Retry"}
+                  </button>
+                </div>
+              ) : null}
               <ChatInput
                 key={activeTab.id}
                 onSubmit={handleComposerSubmit}
                 disabled={inputDisabled}
-                submitDisabled={user === undefined}
+                submitDisabled={userLoading || userError !== undefined}
                 queueMode={queueMode}
                 skills={slashSkills}
                 draftKey={composerDraftKey}
@@ -929,6 +949,8 @@ export function ChatClient({
                     ? "Starting Comparative..."
                     : modelsError
                       ? "Comparative is unavailable"
+                      : userError
+                        ? "Profile unavailable"
                       : queueMode
                         ? "Add a follow-up for the current run"
                         : "Ask anything (Shift+Enter for newline)"

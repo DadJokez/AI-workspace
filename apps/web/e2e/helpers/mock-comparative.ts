@@ -35,6 +35,7 @@ interface MockChatOptions {
   apps?: unknown[];
   user?: Record<string, unknown>;
   beforeUserGet?: () => Promise<void> | void;
+  userGetFailureCount?: number;
   oauthStatus?: Record<string, unknown>;
   commandPalette?: Record<string, unknown>;
   commandPaletteDelayMs?: number;
@@ -301,6 +302,7 @@ export async function installMockComparativeApi(
     tourCompletedAt: now,
     ...(options.user ?? {}),
   } as MockUser;
+  let userGetCount = 0;
   let approvedItems = [
     ...(options.vault?.approvedItems ?? [defaultVaultApproved]),
   ];
@@ -381,6 +383,10 @@ export async function installMockComparativeApi(
         return json(route, { user });
       }
       await options.beforeUserGet?.();
+      userGetCount += 1;
+      if (userGetCount <= (options.userGetFailureCount ?? 0)) {
+        return json(route, { error: "profile_unavailable" }, 500);
+      }
       return json(route, { user });
     }
 

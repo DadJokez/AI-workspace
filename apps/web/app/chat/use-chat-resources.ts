@@ -30,6 +30,9 @@ export function useChatResources() {
     useState(false);
   const [studioBrowserSupported, setStudioBrowserSupported] = useState(false);
   const [user, setUser] = useState<UserResponse["user"]>();
+  const [userLoading, setUserLoading] = useState(true);
+  const [userError, setUserError] = useState<string>();
+  const userRequestIdRef = useRef(0);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(true);
   const [threadsError, setThreadsError] = useState<string>();
@@ -97,6 +100,36 @@ export function useChatResources() {
     }
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const requestId = ++userRequestIdRef.current;
+    setUserLoading(true);
+    setUserError(undefined);
+    try {
+      const response = await fetch("/api/user");
+      if (response.status === 401) {
+        window.location.assign("/login");
+        return;
+      }
+      if (!response.ok) {
+        await throwApiError(response, "Could not load your profile.");
+      }
+      const data = (await response.json()) as UserResponse;
+      if (requestId !== userRequestIdRef.current || !data.user) return;
+      setUser(data.user);
+      setUserDefaultModelId(data.user.defaultModelId ?? undefined);
+      setUserError(undefined);
+      posthog.identify(data.user.id, { role: data.user.role });
+    } catch (error) {
+      if (requestId !== userRequestIdRef.current) return;
+      console.error("failed to load /api/user", error);
+      setUserError("Could not load your profile.");
+    } finally {
+      if (requestId === userRequestIdRef.current) {
+        setUserLoading(false);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     async function poll() {
@@ -129,33 +162,11 @@ export function useChatResources() {
   }, [refreshThreads]);
 
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/user")
-      .then(async (response) => {
-        if (response.status === 401) {
-          window.location.assign("/login");
-          return null;
-        }
-        if (!response.ok) {
-          await throwApiError(response, "Could not load your profile.");
-        }
-        return (await response.json()) as UserResponse;
-      })
-      .then((data) => {
-        if (cancelled || !data?.user) return;
-        setUser(data.user);
-        if (data.user.defaultModelId) {
-          setUserDefaultModelId(data.user.defaultModelId);
-        }
-        posthog.identify(data.user.id, { role: data.user.role });
-      })
-      .catch((error) => {
-        if (!cancelled) console.error("failed to load /api/user", error);
-      });
+    void refreshUser();
     return () => {
-      cancelled = true;
+      userRequestIdRef.current += 1;
     };
-  }, []);
+  }, [refreshUser]);
 
   useEffect(() => {
     if (!user?.id || typeof window === "undefined" || user.defaultModelId) {
@@ -285,6 +296,8 @@ export function useChatResources() {
     liveTurnSteeringSupported,
     studioBrowserSupported,
     user,
+    userLoading,
+    userError,
     setUser,
     threads,
     setThreads,
@@ -298,6 +311,7 @@ export function useChatResources() {
     unreadNotifications,
     setUnreadNotifications,
     refreshModels,
+    refreshUser,
     refreshThreads,
     handleProfileUpdated,
     updateUserDefaultModel,

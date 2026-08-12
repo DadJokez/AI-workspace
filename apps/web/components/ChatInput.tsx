@@ -338,14 +338,17 @@ export function ChatInput({
       const pendingText =
         previousDraftStorageKey === null ? latestDraftRef.current.text : "";
       const restored = window.localStorage.getItem(draftStorageKey) ?? "";
-      const nextText = pendingText || restored;
+      const nextText =
+        pendingText && restored && pendingText !== restored
+          ? `${restored}\n\n${pendingText}`
+          : pendingText || restored;
       const restoredContext = contextDraftStorageKey
         ? window.localStorage.getItem(contextDraftStorageKey)
         : null;
       latestDraftRef.current = { storageKey: draftStorageKey, text: nextText };
       setText(nextText);
       if (pendingText) {
-        persistComposerDraft(draftStorageKey, pendingText);
+        persistComposerDraft(draftStorageKey, nextText);
       }
       setContextResources(parseStoredContextResources(restoredContext));
     } catch {
