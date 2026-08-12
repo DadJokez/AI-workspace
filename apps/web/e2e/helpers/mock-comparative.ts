@@ -34,6 +34,7 @@ interface MockChatOptions {
   skills?: unknown[];
   apps?: unknown[];
   user?: Record<string, unknown>;
+  beforeUserGet?: () => Promise<void> | void;
   oauthStatus?: Record<string, unknown>;
   commandPalette?: Record<string, unknown>;
   commandPaletteDelayMs?: number;
@@ -379,6 +380,7 @@ export async function installMockComparativeApi(
         }
         return json(route, { user });
       }
+      await options.beforeUserGet?.();
       return json(route, { user });
     }
 

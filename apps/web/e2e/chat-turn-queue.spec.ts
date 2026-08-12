@@ -12,6 +12,29 @@ test.skip(
   "mocked queue tests run only against the local e2e harness",
 );
 
+test("keeps send disabled until profile-backed composer state is ready", async ({
+  page,
+}) => {
+  const userGate = deferred();
+  await installMockComparativeApi(page, {
+    beforeUserGet: () => userGate.promise,
+  });
+
+  await page.goto("/e2e/chat");
+  await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+  const composer = page.getByRole("textbox");
+  await expect(composer).toHaveAttribute(
+    "placeholder",
+    "Starting Comparative...",
+  );
+  await expect(composer).toBeDisabled();
+
+  userGate.resolve();
+  await expect(composer).toBeEnabled();
+  await composer.fill("Freshly ready follow-up");
+  await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
+});
+
 test("queues editable follow-ups and promotes exactly one turn at a time", async ({
   page,
 }) => {

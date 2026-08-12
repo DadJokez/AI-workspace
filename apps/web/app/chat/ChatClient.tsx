@@ -694,8 +694,9 @@ export function ChatClient({
   });
 
   if (!activeTab) return null;
+  const chatStarting = modelsLoading || user === undefined;
   const inputDisabled =
-    modelsLoading || modelsError !== undefined || models.length === 0;
+    chatStarting || modelsError !== undefined || models.length === 0;
   const queueMode = currentRunActive || queuedTurns.turns.length > 0;
   const feedbackContext = buildFeedbackContext(activeTab);
   const studioModel = deriveContributionStudio(activeTab.messages, {
@@ -923,7 +924,7 @@ export function ChatClient({
                 onEditComplete={() => setEditRequest(undefined)}
                 uploadRequestId={uploadRequestId}
                 placeholder={
-                  modelsLoading
+                  chatStarting
                     ? "Starting Comparative..."
                     : modelsError
                       ? "Comparative is unavailable"

@@ -1124,6 +1124,7 @@ export function ChatInput({
           </button>
         ) : null}
         <textarea
+          data-testid="chat-composer-input"
           ref={taRef}
           value={text}
           onChange={(e) => {
