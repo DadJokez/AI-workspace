@@ -126,10 +126,23 @@ function doesNotDenyConnectedTool(t: TurnTranscript) {
     /\b(?:(?:don'?t|do not|cannot|can'?t)\s+(?:have\s+)?access\s+to|(?:cannot|can'?t)\s+access)\s+(?:your\s+)?github(?:\s+(data|content|information|results?|pull requests?|prs?|issues?|tools?))?\b/i,
   );
   const boundaryTarget = accessDenial?.[1]?.toLowerCase();
+  const denialClause = accessDenial
+    ? t.answer
+        .slice(
+          accessDenial.index,
+          (accessDenial.index ?? 0) + accessDenial[0].length + 120,
+        )
+        .split(/[.!?\n]/, 1)[0] ?? ""
+    : "";
+  const affirmsConnection =
+    /\b(?:your\s+)?github\s+(?:is\s+)?(?:connected|available)\b/i.test(
+      t.answer,
+    );
   const scopedToolBoundary =
     boundaryTarget?.startsWith("tool") === true &&
+    affirmsConnection &&
     /\b(?:this|current)\s+(?:(?:lightweight|fast(?:-chat)?|tool-backed)\s+)?(?:turn|lane|chat|response)\b/i.test(
-      t.answer,
+      denialClause,
     );
   const limitedDataBoundary =
     boundaryTarget !== undefined && !boundaryTarget.startsWith("tool");

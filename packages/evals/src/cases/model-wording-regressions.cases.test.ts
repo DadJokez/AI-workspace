@@ -185,6 +185,7 @@ describe("model wording regression guards", () => {
     "I don't have access to your GitHub.",
     "I don't have access to GitHub tools.",
     "I cannot access GitHub.",
+    "I don't have access to GitHub tools. In this chat I can still help.",
   ])("rejects a real connected-GitHub denial: %s", (answer) => {
     expect(
       deterministicResult(
