@@ -751,6 +751,7 @@ function renderRecentRecommendationsForPrompt(
     begin,
     JSON.stringify(data),
     end,
+    "Action semantics are authoritative: run_existing_skill/run_skill and open_existing_app/open_app refer to resources that already exist. Recommend running or opening those resources; never offer to create, save, or set up a duplicate. save_as_skill, deploy_artifact_as_app, and schedule_skill propose creating a new resource.",
     "If the user asks about a displayed recommendation, acknowledge it accurately and explain it from this data. Do not deny that the card appeared merely because it was absent from prior assistant text. A card is not permission to run its action; act only when the user asks and any required approval is satisfied.",
   ].join("\n");
 }

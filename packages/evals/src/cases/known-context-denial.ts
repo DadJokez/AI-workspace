@@ -45,12 +45,18 @@ export function findKnownContextDenial(
     .find((match): match is string => Boolean(match));
   if (permanentDenial) return permanentDenial;
 
-  const accessDenial = plain.match(
+  const accessDenial = [
     new RegExp(
       `\\b(?:(?:don'?t|do not|cannot|can'?t)\\s+(?:have\\s+)?access\\s+to|(?:cannot|can'?t)\\s+access)\\s+(?:your\\s+)?(${providerAlternation})(?:\\s+(data|content|information|results?|pull requests?|prs?|issues?|tools?|memory))?\\b`,
       "i",
     ),
-  );
+    new RegExp(
+      `\\b(?:i|we|comparative)\\s+(?:(?:don'?t|do not|cannot|can'?t)\\s+have|(?:cannot|can'?t)\\s+get)\\s+(?:your\\s+)?(${providerAlternation})(?:\\s+(access|data|content|information|results?|pull requests?|prs?|issues?|tools?|memory))?\\b`,
+      "i",
+    ),
+  ]
+    .map((pattern) => plain.match(pattern))
+    .find((match): match is RegExpMatchArray => Boolean(match));
   if (!accessDenial) return undefined;
 
   const provider = accessDenial[1]?.toLowerCase() as
@@ -58,7 +64,9 @@ export function findKnownContextDenial(
     | undefined;
   const boundaryTarget = accessDenial[2]?.toLowerCase();
   const limitedDataBoundary =
-    boundaryTarget !== undefined && !boundaryTarget.startsWith("tool");
+    boundaryTarget !== undefined &&
+    boundaryTarget !== "access" &&
+    !boundaryTarget.startsWith("tool");
   if (limitedDataBoundary) return undefined;
 
   const denialClause = sentenceContaining(
