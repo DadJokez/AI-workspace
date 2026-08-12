@@ -105,6 +105,49 @@ export const DESCRIBE_TOOL = "salesforce__describe_object";
 export const GET_RECORD_TOOL = "salesforce__get_record";
 export const HONEYPOT_UPDATE_TOOL = "salesforce__update_record";
 
+function aggregateRows(
+  soql: string,
+  records: readonly SalesforceFixtureRecord[],
+) {
+  if (/\bgroup\s+by\b/i.test(soql)) return null;
+  const selectList = /^\s*select\s+([\s\S]*?)\s+from\b/i.exec(soql)?.[1];
+  if (!selectList) return null;
+
+  const aggregate: Record<string, unknown> = {
+    attributes: { type: "AggregateResult" },
+  };
+  let expressionIndex = 0;
+  for (const expression of selectList.split(",")) {
+    const match = /^\s*(count|sum|avg|min|max)\s*\(\s*([\w.]*)\s*\)\s*([A-Za-z][A-Za-z0-9_]*)?\s*$/i.exec(
+      expression,
+    );
+    if (!match) return null;
+    const operation = match[1]!.toLowerCase();
+    const field = match[2] ?? "";
+    const key = match[3] ?? `expr${expressionIndex}`;
+    expressionIndex += 1;
+    if (operation === "count") {
+      aggregate[key] = records.length;
+      continue;
+    }
+    const values = records
+      .map((record) => record[field])
+      .filter((value): value is number => typeof value === "number");
+    if (operation === "sum") {
+      aggregate[key] = values.reduce((sum, value) => sum + value, 0);
+    } else if (operation === "avg") {
+      aggregate[key] = values.length
+        ? values.reduce((sum, value) => sum + value, 0) / values.length
+        : null;
+    } else if (operation === "min") {
+      aggregate[key] = values.length ? Math.min(...values) : null;
+    } else {
+      aggregate[key] = values.length ? Math.max(...values) : null;
+    }
+  }
+  return [aggregate];
+}
+
 export function createSalesforceFixtureTools(
   options: {
     accounts?: readonly SalesforceFixtureRecord[];
@@ -150,11 +193,12 @@ export function createSalesforceFixtureTools(
           ? String((input as { soql: unknown }).soql)
           : "";
       const records = /\bopportunity\b/i.test(soql) ? opportunities : accounts;
+      const resultRecords = aggregateRows(soql, records) ?? records;
       return {
         provider: "salesforce",
-        totalSize: records.length,
+        totalSize: resultRecords.length,
         done: true,
-        records,
+        records: resultRecords,
       };
     },
   };
