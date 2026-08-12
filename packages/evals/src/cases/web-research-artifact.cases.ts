@@ -185,6 +185,103 @@ function gatesOfficialCompletenessClaims(transcript: TurnTranscript) {
   };
 }
 
+function extractCompleteHtmlArtifact(answer: string) {
+  const fenced = /```html[^\n]*\n([\s\S]*?)```/i.exec(answer)?.[1];
+  if (!fenced || !/<html\b[^>]*>[\s\S]*<\/html>/i.test(fenced)) {
+    return undefined;
+  }
+  return fenced;
+}
+
+function rowText(row: string) {
+  return row
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function dateVariants(isoDate: string) {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  const date = new Date(Date.UTC(year!, month! - 1, day!));
+  const formats = [
+    new Intl.DateTimeFormat("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+      timeZone: "UTC",
+    }),
+    new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      timeZone: "UTC",
+    }),
+    new Intl.DateTimeFormat("en-GB", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    }),
+    new Intl.DateTimeFormat("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "UTC",
+    }),
+  ];
+  return [
+    isoDate,
+    `${String(month).padStart(2, "0")}/${String(day).padStart(2, "0")}/${year}`,
+    ...formats.map((format) => format.format(date)),
+  ];
+}
+
+function buildsAuditableOfficialCalendar(transcript: TurnTranscript) {
+  const html = extractCompleteHtmlArtifact(transcript.answer);
+  if (!html) {
+    return {
+      ok: false,
+      detail: "answer did not contain a complete fenced HTML artifact",
+    };
+  }
+  if (!html.includes(OFFICIAL_URL)) {
+    return {
+      ok: false,
+      detail: "HTML artifact did not include the official source URL",
+    };
+  }
+
+  const rows = Array.from(html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi))
+    .map((match) => rowText(match[1]!))
+    .filter((row) => /\b2026\b/.test(row));
+  if (rows.length !== OFFICIAL_FIXTURES.length) {
+    return {
+      ok: false,
+      detail: `expected ${OFFICIAL_FIXTURES.length} dated fixture rows, found ${rows.length}`,
+    };
+  }
+
+  const missing = OFFICIAL_FIXTURES.filter((fixture) => {
+    const [date, opponent, kickoff, venue] = fixture.split(" | ");
+    return !rows.some(
+      (row) =>
+        dateVariants(date!).some((variant) => row.includes(variant)) &&
+        row.includes(opponent!) &&
+        row.includes(kickoff!) &&
+        row.includes(venue!),
+    );
+  });
+  return {
+    ok: missing.length === 0,
+    detail:
+      missing.length > 0
+        ? `missing or incorrect official rows: ${missing.join("; ")}`
+        : undefined,
+  };
+}
+
 export const webResearchArtifactSuite: EvalSuite = {
   capability: "web-research-artifact",
   defaultModelId: DEFAULT_MODEL_ID,
@@ -238,15 +335,9 @@ export const webResearchArtifactSuite: EvalSuite = {
           check: gatesOfficialCompletenessClaims,
         },
         {
-          kind: "judge",
+          kind: "deterministic",
           label: "builds an auditable calendar from authoritative evidence",
-          referenceEvidence: [
-            `Official source URL: ${OFFICIAL_URL}`,
-            "Official Bournemouth fixture: 2026-08-15 at 15:00, Etihad Stadium",
-            "Secondary conflict: 2026-08-15 at 17:30, Vitality Stadium",
-          ],
-          rubric:
-            "The user explicitly requires every fixture field to be checked against the named official source. The fixture can return complete official evidence immediately when the model requests a sufficiently large maxBytes, or partial evidence that requires a larger same-URL retry; deterministic assertions separately enforce that evidence state. Judge the delivered calendar and claims, not whether the answer narrates tool mechanics. PASS if the answer produces a usable calendar whose rows match the ten supplied official fixtures, includes the official source URL, and clearly marks or omits unresolved fields if any remain. A fully verified claim is valid when all ten official rows are reproduced accurately. The secondary conflict applies ONLY to Bournemouth: 17:30 or Vitality Stadium is wrong for Bournemouth. The official West Ham and Chelsea rows legitimately use 17:30 and must not be treated as conflicts. FAIL if it gives Bournemouth 17:30 or Vitality Stadium as official, silently substitutes the secondary schedule, omits verification gaps when rows are genuinely unresolved, invents unsupported fields, or returns an incomplete artifact. Do not infer unresolved fields merely because a secondary source exists, and do not require a truncation disclaimer when complete official evidence was obtained.",
+          check: buildsAuditableOfficialCalendar,
         },
       ],
     },
