@@ -88,14 +88,21 @@ old or the queue is empty.
     itself must be reviewed by Rob before merge** (CLAUDE.md §7). An
     overnight session may implement and open the PR, flagged for that review.
 15. **#803 — default flip + snapshot interstitial + no-public-link invariant.**
-    **Human-owned caveat: changes the data-sharing default (§7 data-scoping
-    spine) — flag the default flip prominently in the PR body for Rob.**
+    **Human-owned caveat (§7 data-scoping spine): unattended sessions build
+    the interstitial, invariant, and migration machinery behind an
+    off-by-default flag only — the data-sharing default flip itself is
+    DESCRIBED in the PR body for Rob to flip, never made unattended (same
+    pattern as #701/#410 observe→enforce).**
 16. **#804 — authoring loop: never silently bake connected data.**
-    **Human-owned caveat: same §7 data-scoping spine as #803 — changes what
-    connected data can leave a thread; flag the detection/blocking behavior
-    in the PR body for Rob.**
-17. **#805 — per-widget tri-state + "Live · as you" chip.** **Human-owned
-    caveat: viewer-identity presentation (§7 spine) — flag in the PR body.**
+    **Human-owned caveat (§7 data-scoping spine, same as #803): unattended
+    sessions build detection + the warning UX only; any behavior that BLOCKS
+    or changes what connected data can leave a thread is DESCRIBED in the PR
+    body for Rob, not enabled unattended.**
+17. **#805 — per-widget tri-state + "Live · as you" chip.** **Caveat (§7
+    spine adjacency): presentation and API response shape only — it must not
+    alter which data a viewer can fetch; if implementation would touch
+    scoping/fallback logic, that part is DESCRIBED in the PR body for Rob,
+    not made unattended.**
 18. **#806 — per-viewer caching/rate limits.** Before broad view traffic.
 19. **#807 — token-handler verification.** Anytime; good IT-review artifact.
     **Caveat: verification + tests only — it touches the token/auth surface,
@@ -121,8 +128,10 @@ old or the queue is empty.
   observe→enforce flag, describe the enforcement flip in the PR body, Rob
   approves the flip.**
 - **#692 — OAuth disconnect route.** Small, compliance-visible. **Human-owned
-  caveat: auth-surface change (§7) — implement + tests, flag for Rob's review
-  in the PR body.**
+  caveat: auth-surface change (§7; goal.md "no auth changes") — unattended
+  sessions may build the non-auth plumbing (UI, route scaffold, tests with
+  the deletion mocked); the token-deletion/revocation wiring itself is
+  DESCRIBED in the PR body for Rob, not made unattended.**
 - **#443 / #448 — run-lifecycle fencing + concurrency > 1.** Before scheduled
   load grows. **Caveat: the concurrency default flip is env/ops-affecting —
   build + tests, flag the flip in the PR body for Rob.**
