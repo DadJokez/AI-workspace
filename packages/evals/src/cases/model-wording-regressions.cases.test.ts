@@ -219,14 +219,33 @@ describe("model wording regression guards", () => {
     ).toBe(false);
   });
 
-  it("applies the same distinction in the broader context suite", () => {
+  it.each([
+    "GitHub is connected, but I can't access live PR data until I run a tool-backed check.",
+    "Yes, your GitHub is connected. I don't have access to GitHub tools in this lightweight turn, so this needs a tool-backed lane.",
+  ])("accepts an honest GitHub boundary in the broader context suite: %s", (answer) => {
     expect(
       deterministicResult(
         contextGitHubCase,
         "does not deny connected GitHub access",
-        "GitHub is connected, but I can't access live PR data until I run a tool-backed check.",
+        answer,
       ),
     ).toBe(true);
+  });
+
+  it.each([
+    "I don't have access to GitHub tools.",
+    "I don't have access to GitHub tools. In this chat I can still help.",
+  ])("rejects a flat GitHub denial in the broader context suite: %s", (answer) => {
+    expect(
+      deterministicResult(
+        contextGitHubCase,
+        "does not deny connected GitHub access",
+        answer,
+      ),
+    ).toBe(false);
+  });
+
+  it("preserves Vault denial behavior in the broader context suite", () => {
     expect(
       deterministicResult(
         contextVaultCase,

@@ -8,6 +8,7 @@ import {
   githubFixturePullRequests,
   githubFixtureRepo,
 } from "../fixtures/github";
+import { findKnownContextDenial } from "./known-context-denial";
 
 const GITHUB_PR_TOOL = "github__list_pull_requests";
 const GITHUB_ISSUE_TOOL = "github__search_issues";
@@ -114,43 +115,10 @@ function hasGitHubToolError(t: TurnTranscript) {
 }
 
 function doesNotDenyConnectedTool(t: TurnTranscript) {
-  const permanentDenialPatterns = [
-    /\bno tools are connected\b/i,
-    /\b(?:your\s+)?github\s+(?:is\s+not|isn't)\s+connected\b/i,
-    /\b(?:your\s+)?github\s+is\s+(?:disconnected|unavailable|not wired up)\b/i,
-  ];
-  const permanentDenial = permanentDenialPatterns
-    .map((pattern) => t.answer.match(pattern)?.[0])
-    .find((match): match is string => Boolean(match));
-  const accessDenial = t.answer.match(
-    /\b(?:(?:don'?t|do not|cannot|can'?t)\s+(?:have\s+)?access\s+to|(?:cannot|can'?t)\s+access)\s+(?:your\s+)?github(?:\s+(data|content|information|results?|pull requests?|prs?|issues?|tools?))?\b/i,
-  );
-  const boundaryTarget = accessDenial?.[1]?.toLowerCase();
-  const denialClause = accessDenial
-    ? t.answer
-        .slice(
-          accessDenial.index,
-          (accessDenial.index ?? 0) + accessDenial[0].length + 120,
-        )
-        .split(/[.!?\n]/, 1)[0] ?? ""
-    : "";
-  const affirmsConnection =
-    /\b(?:your\s+)?github\s+(?:is\s+)?(?:connected|available)\b/i.test(
-      t.answer,
-    );
-  const scopedToolBoundary =
-    boundaryTarget?.startsWith("tool") === true &&
-    affirmsConnection &&
-    /\b(?:this|current)\s+(?:(?:lightweight|fast(?:-chat)?|tool-backed)\s+)?(?:turn|lane|chat|response)\b/i.test(
-      denialClause,
-    );
-  const limitedDataBoundary =
-    boundaryTarget !== undefined && !boundaryTarget.startsWith("tool");
-  const denial =
-    permanentDenial ??
-    (accessDenial && !limitedDataBoundary && !scopedToolBoundary
-      ? accessDenial[0]
-      : "");
+  const denial = findKnownContextDenial(t.answer, {
+    providers: ["github"],
+    scopedToolBoundaryProviders: ["github"],
+  });
   return {
     ok: !denial,
     detail: denial ? `denied connected GitHub with "${denial}"` : undefined,

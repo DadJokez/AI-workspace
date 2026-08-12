@@ -1,5 +1,6 @@
 import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
+import { findKnownContextDenial } from "./known-context-denial";
 
 /**
  * Context Engine regression cases. These lock the harness behavior Rob has
@@ -9,20 +10,10 @@ import type { EvalSuite, TurnTranscript } from "../types";
  */
 
 function doesNotDenyKnownContext(t: TurnTranscript): boolean | { ok: boolean; detail?: string } {
-  const denialPatterns = [
-    /\bno tools are connected\b/i,
-    /\b(?:your\s+)?(?:github|vault)\s+(?:account\s+)?(?:is\s+not|isn't)\s+(?:connected|available|accessible)\b/i,
-    /\b(?:your\s+)?(?:github|vault)\s+(?:account\s+)?is\s+(?:disconnected|unavailable|not wired up)\b/i,
-    /\b(?:don'?t|do not|cannot|can'?t)\s+(?:have\s+)?access\s+to\s+(?:your\s+)?(?:github|vault)\b(?!\s+(?:data|content|information|results?|pull requests?|prs?|issues?|memory)\b)/i,
-    /\b(?:cannot|can'?t)\s+access\s+(?:your\s+)?(?:github|vault)\b(?!\s+(?:data|content|information|results?|pull requests?|prs?|issues?|memory)\b)/i,
-  ];
-  // Strip markdown emphasis first: "your GitHub account is **not connected**"
-  // is the exact denial this guard exists to catch, and the asterisks were
-  // slipping it past every pattern (observed 2026-07-25, #641).
-  const plain = t.answer.replace(/[*_`]/g, "");
-  const denied = denialPatterns
-    .map((pattern) => plain.match(pattern)?.[0])
-    .find((match): match is string => Boolean(match));
+  const denied = findKnownContextDenial(t.answer, {
+    providers: ["github", "vault"],
+    scopedToolBoundaryProviders: ["github"],
+  });
   return {
     ok: !denied,
     detail: denied ? `denied known context/tool access with "${denied}"` : undefined,
