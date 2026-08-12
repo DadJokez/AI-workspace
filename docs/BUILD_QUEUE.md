@@ -18,6 +18,14 @@ old or the queue is empty.
   ECS cutover, security perimeter fixes (#727–#732 series).
 - The July queue's Tier A (#344, #330, #301-adjacent, #349, #348) is done or
   superseded; #301/#302 remain open under #295 and are re-tiered below.
+- **Disposition of the July queue's human-gated Tier C:** both gates resolved
+  and closed completed — **#297** (Gmail + Calendar integration) on
+  2026-07-10 and **#291** (SES production invites, AWS case
+  178191850800335) on 2026-07-11. Neither carries forward. **Stale-guard
+  note:** `.claude/commands/goal.md` still hard-codes "Do not touch PR #272
+  or issue #291 (SES)" — that guard now references a closed issue and should
+  be removed in the next goal.md touch-up; until then it is harmless (it only
+  over-protects).
 
 ## Triage principles this cycle
 
@@ -67,8 +75,10 @@ old or the queue is empty.
 
 ### Tier C — the strategic swing: viewer-identity apps (#801), in order
 
-14. **#802 — generic read-tool bindings.** The mechanism. Rob-gated only on
-    the schema migration review.
+14. **#802 — generic read-tool bindings.** The mechanism. **Buildable
+    unattended up to and including the schema migration draft; the migration
+    itself must be reviewed by Rob before merge** (CLAUDE.md §7). An
+    overnight session may implement and open the PR, flagged for that review.
 15. **#803 — default flip + snapshot interstitial + no-public-link invariant.**
 16. **#804 — authoring loop: never silently bake connected data.**
 17. **#805 — per-widget tri-state + "Live · as you" chip.**
@@ -99,7 +109,6 @@ old or the queue is empty.
 
 ### Human-gated / Rob-decision items (skip during unattended work)
 
-- **#802 schema migration** — Rob reviews before merge (per CLAUDE.md §7).
 - **#305 / #295 / #797 (models)** — enablement decisions are Rob's; #797
   (swappable brains epic) needs a scoping conversation before build.
 - **#810 — actions-run-as-viewer** — decision ticket, not build work; blocked
