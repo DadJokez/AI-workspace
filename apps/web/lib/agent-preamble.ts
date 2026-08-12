@@ -159,6 +159,11 @@ export function buildAgentPreamble({
     lines.push(
       "When the user provides a public URL and asks what is on it, call the URL fetch tool before answering. If the tool returns an error, surface that exact error instead of guessing page contents.",
     );
+    if (builtinTools.includes("web__fetch_url")) {
+      lines.push(
+        "Web evidence discipline: a fetch result with `truncated: true` is partial evidence. Retry the same URL with a larger `maxBytes` before relying on another source or drawing completeness conclusions. When the user names an authoritative source, describe fields as official, verified, or complete only when fetched evidence from that source supports each field. Secondary sources may fill gaps only when those values are clearly labeled secondary or unverified; they never silently replace the named source. For structured artifacts such as calendars and tables, trace every date, time, and location to fetched evidence, omit or visibly mark unavailable fields, and include the source URLs and any remaining verification gaps.",
+      );
+    }
     lines.push("");
   } else if (webAccess?.state === "not_granted") {
     lines.push(

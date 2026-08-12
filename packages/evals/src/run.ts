@@ -12,6 +12,7 @@ import { skillFaithfulnessSuite } from "./cases/skill-faithfulness.cases";
 import { toolGroundingSuite } from "./cases/tool-grounding.cases";
 import { webSearchFaithfulnessSuite } from "./cases/web-search-faithfulness.cases";
 import { webFetchFaithfulnessSuite } from "./cases/web-fetch-faithfulness.cases";
+import { webResearchArtifactSuite } from "./cases/web-research-artifact.cases";
 import { modelRoutingSuite } from "./cases/model-routing.cases";
 import { toolDiscoverySuite } from "./cases/tool-discovery.cases";
 import { attachmentInjectionSuite } from "./cases/attachment-injection.cases";
@@ -39,6 +40,7 @@ export const SUITES: EvalSuite[] = [
   salesforceFaithfulnessSuite,
   webSearchFaithfulnessSuite,
   webFetchFaithfulnessSuite,
+  webResearchArtifactSuite,
   modelRoutingSuite,
   toolDiscoverySuite,
   attachmentInjectionSuite,
