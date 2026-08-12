@@ -114,20 +114,56 @@ function hasGitHubToolError(t: TurnTranscript) {
 }
 
 function doesNotDenyConnectedTool(t: TurnTranscript) {
-  const denialPatterns = [
+  const permanentDenialPatterns = [
     /\bno tools are connected\b/i,
     /\b(?:your\s+)?github\s+(?:is\s+not|isn't)\s+connected\b/i,
     /\b(?:your\s+)?github\s+is\s+(?:disconnected|unavailable|not wired up)\b/i,
-    /\b(?:don'?t|do not|cannot|can'?t)\s+(?:have\s+)?access\s+to\s+(?:your\s+)?github\b(?!\s+(?:data|content|information|results?|pull requests?|prs?|issues?)\b)/i,
-    /\b(?:cannot|can'?t)\s+access\s+(?:your\s+)?github\b(?!\s+(?:data|content|information|results?|pull requests?|prs?|issues?)\b)/i,
   ];
+  const permanentDenial = permanentDenialPatterns
+    .map((pattern) => t.answer.match(pattern)?.[0])
+    .find((match): match is string => Boolean(match));
+  const accessDenial = t.answer.match(
+    /\b(?:(?:don'?t|do not|cannot|can'?t)\s+(?:have\s+)?access\s+to|(?:cannot|can'?t)\s+access)\s+(?:your\s+)?github(?:\s+(data|content|information|results?|pull requests?|prs?|issues?|tools?))?\b/i,
+  );
+  const boundaryTarget = accessDenial?.[1]?.toLowerCase();
+  const scopedToolBoundary =
+    boundaryTarget?.startsWith("tool") === true &&
+    /\b(?:this|current)\s+(?:(?:lightweight|fast(?:-chat)?|tool-backed)\s+)?(?:turn|lane|chat|response)\b/i.test(
+      t.answer,
+    );
+  const limitedDataBoundary =
+    boundaryTarget !== undefined && !boundaryTarget.startsWith("tool");
   const denial =
-    denialPatterns
-      .map((pattern) => t.answer.match(pattern)?.[0])
-      .find((match): match is string => Boolean(match)) ?? "";
+    permanentDenial ??
+    (accessDenial && !limitedDataBoundary && !scopedToolBoundary
+      ? accessDenial[0]
+      : "");
   return {
     ok: !denial,
     detail: denial ? `denied connected GitHub with "${denial}"` : undefined,
+  };
+}
+
+function answerCitesFixtureIssue(t: TurnTranscript) {
+  const issue = githubFixtureIssues[0]!;
+  const plain = t.answer.replace(/[*_`]/g, "");
+  const citesNumber = new RegExp(
+    `(?:#|number\\s*:\\s*)${issue.number}\\b`,
+    "i",
+  ).test(plain);
+  const missingLabels = issue.labels.filter(
+    (label) => !new RegExp(`\\b${label}\\b`, "i").test(plain),
+  );
+  const missing = [
+    ...(citesNumber ? [] : [`issue number ${issue.number}`]),
+    ...(plain.toLowerCase().includes(issue.title.toLowerCase())
+      ? []
+      : [`title ${issue.title}`]),
+    ...missingLabels.map((label) => `label ${label}`),
+  ];
+  return {
+    ok: missing.length === 0,
+    detail: missing.length ? `missing fixture facts: ${missing.join(", ")}` : undefined,
   };
 }
 
@@ -223,11 +259,7 @@ export const toolGroundingSuite: EvalSuite = {
         {
           kind: "deterministic",
           label: "answer cites the exact issue and labels",
-          check: (t) =>
-            t.answer.includes("#88") &&
-            t.answer.includes("Document smoke user data retention") &&
-            /\bops\b/i.test(t.answer) &&
-            /\bsecurity\b/i.test(t.answer),
+          check: answerCitesFixtureIssue,
         },
       ],
     },

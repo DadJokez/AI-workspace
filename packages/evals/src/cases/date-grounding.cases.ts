@@ -7,6 +7,31 @@ import type { EvalSuite } from "../types";
 
 const CURRENT_YEAR = new Date().getFullYear();
 const STALE_TRAINING_YEARS = ["2023", "2024", "2025"];
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function statesPlausibleDaysUntilNextYear(
+  answer: string,
+  now = new Date(),
+): boolean | { ok: boolean; detail?: string } {
+  const expected = Math.round(
+    (Date.UTC(now.getUTCFullYear() + 1, 0, 1) -
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())) /
+      DAY_MS,
+  );
+  const candidates = [
+    ...answer.matchAll(/\b(\d{1,3})\s+(?:calendar\s+)?days?\b/gi),
+    ...answer.matchAll(/\bdays?\s+(?:until|remaining|left)?\s*[:=-]?\s*(\d{1,3})\b/gi),
+  ].map((match) => Number(match[1]));
+  const plausible = candidates.some(
+    (candidate) => Math.abs(candidate - expected) <= 7,
+  );
+  return {
+    ok: plausible,
+    detail: plausible
+      ? undefined
+      : `expected about ${expected} days; extracted: ${candidates.join(", ") || "none"}`,
+  };
+}
 
 /**
  * Capability A — temporal grounding (the Christmas class).
@@ -93,17 +118,10 @@ export const dateGroundingSuite: EvalSuite = {
         {
           kind: "deterministic",
           label: "states a plausible day count (grounded in the real date, not mental-math-perfect)",
-          check: (t) => {
-            // The capability under test is grounding, not arithmetic: any
-            // count in a sane window proves it reasoned from 'now', not a
-            // hallucinated date. (LLM mental math is its own known weakness.)
-            const nums = (t.answer.match(/\b\d{1,3}\b/g) ?? []).map(Number);
-            const plausible = nums.some((n) => n >= 150 && n <= 366);
-            return {
-              ok: plausible,
-              detail: plausible ? undefined : `no plausible day count in: ${nums.join(",")}`,
-            };
-          },
+          // This measures date grounding, not perfect arithmetic. Extract only
+          // numbers attached to "days" so a stated date's day-of-month cannot
+          // masquerade as the countdown, then compare with the live calendar.
+          check: (t) => statesPlausibleDaysUntilNextYear(t.answer),
         },
       ],
     },

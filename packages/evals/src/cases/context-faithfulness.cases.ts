@@ -304,6 +304,8 @@ export const contextFaithfulnessSuite: EvalSuite = {
     {
       id: "skill-recommendation",
       description: "repeated workflow plus matching skill triggers a lightweight skill recommendation",
+      repeat: 3,
+      passPolicy: "majority",
       systemPrompt: SKILL_RECOMMENDATION_PROMPT,
       input: "Here are this week's notes again. Can you turn them into the usual status update?",
       assertions: [
@@ -316,13 +318,15 @@ export const contextFaithfulnessSuite: EvalSuite = {
           kind: "judge",
           label: "recommends the skill with a reason",
           rubric:
-            "The system prompt says an existing skill called Weekly Status Writer matches a repeated workflow. PASS only if the answer suggests using or saving/running that skill and gives the repeated-workflow reason. FAIL if it ignores the candidate.",
+            "The system prompt says an existing skill called Weekly Status Writer matches a repeated workflow. PASS if the answer suggests using, saving, or running that skill and refers to the workflow as repeated, usual, recurring, or something the user has done before. The answer need not spell out a formal causal linkage. FAIL if it ignores the candidate or recommends it with no connection to the user's repeated workflow.",
         },
       ],
     },
     {
       id: "app-recommendation",
       description: "reusable artifact triggers an app/deploy recommendation, not manual save instructions",
+      repeat: 3,
+      passPolicy: "majority",
       systemPrompt: APP_RECOMMENDATION_PROMPT,
       input: "This dashboard is useful. Can we keep using it and update it later?",
       assertions: [

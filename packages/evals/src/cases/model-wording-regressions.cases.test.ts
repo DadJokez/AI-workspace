@@ -52,6 +52,10 @@ describe("model wording regression guards", () => {
     toolGroundingSuite.cases,
     "github-empty-issue-search",
   );
+  const fixtureGitHubIssueCase = evalCase(
+    toolGroundingSuite.cases,
+    "github-issue-selects-issue-tool",
+  );
   const contextGitHubCase = evalCase(
     contextFaithfulnessSuite.cases,
     "tool-truthfulness",
@@ -164,6 +168,7 @@ describe("model wording regression guards", () => {
   it.each([
     "Your GitHub is connected. I don't have access to the actual PR data in this lightweight chat, so I need a tool-backed check.",
     "Yes, your GitHub is connected and available to this account. However, I don't have access to your GitHub data in this lightweight fast-chat turn.",
+    "Yes, your GitHub is connected. I don't have access to GitHub tools in this lightweight turn, so this needs a tool-backed lane.",
   ])("accepts the honest live-data boundary for connected GitHub", (answer) => {
     expect(
       deterministicResult(
@@ -178,6 +183,7 @@ describe("model wording regression guards", () => {
     "No tools are connected.",
     "Your GitHub is not connected.",
     "I don't have access to your GitHub.",
+    "I don't have access to GitHub tools.",
     "I cannot access GitHub.",
   ])("rejects a real connected-GitHub denial: %s", (answer) => {
     expect(
@@ -185,6 +191,29 @@ describe("model wording regression guards", () => {
         lightweightGitHubCase,
         "does not deny connected GitHub access",
         answer,
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    "#88 Document smoke user data retention — labels: ops, security",
+    "Number: 88\nTitle: Document smoke user data retention\nLabels: ops, security",
+  ])("accepts equivalent fixture issue-number formatting: %s", (answer) => {
+    expect(
+      deterministicResult(
+        fixtureGitHubIssueCase,
+        "answer cites the exact issue and labels",
+        answer,
+      ),
+    ).toBe(true);
+  });
+
+  it("still rejects an issue answer with a missing fixture label", () => {
+    expect(
+      deterministicResult(
+        fixtureGitHubIssueCase,
+        "answer cites the exact issue and labels",
+        "Number: 88\nTitle: Document smoke user data retention\nLabels: security",
       ),
     ).toBe(false);
   });
