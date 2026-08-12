@@ -220,10 +220,19 @@ export const contextFaithfulnessSuite: EvalSuite = {
         {
           kind: "deterministic",
           label: "answers from approved Vault memory",
-          check: (t) => ({
-            ok: /\bvault\b/i.test(t.answer) && /\brob\s+lindmark\b/i.test(t.answer),
-            detail: `answer: ${t.answer.slice(0, 160)}`,
-          }),
+          check: (t) => {
+            const affirmsVaultUse = [
+              /\b(?:i|we|comparative)\s+(?:do\s+)?have\s+(?:approved\s+)?vault access\b/i,
+              /\b(?:i|we|comparative)\s+can\s+(?:access|use|read)\s+(?:your\s+)?(?:approved\s+)?vault\b/i,
+              /\b(?:from|according to|using)\s+(?:your\s+)?(?:approved\s+)?vault\b/i,
+              /\b(?:your\s+)?(?:approved\s+)?vault\s+(?:memory\s+)?(?:says|shows|lists|confirms|identifies|records|contains)\b/i,
+              /\byes\b.{0,80}\bvault\b/is,
+            ].some((pattern) => pattern.test(t.answer));
+            return {
+              ok: affirmsVaultUse && /\brob\s+lindmark\b/i.test(t.answer),
+              detail: `answer: ${t.answer.slice(0, 160)}`,
+            };
+          },
         },
       ],
     },
