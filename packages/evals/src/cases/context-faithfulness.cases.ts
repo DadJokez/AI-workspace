@@ -71,10 +71,23 @@ const ROUTE_RECEIPT_PROMPT = [
 const SKILL_RECOMMENDATION_PROMPT = [
   "You are Comparative, Rob's internal assistant.",
   "Recommendation candidates for this turn:",
-  "- Existing skill available: Weekly Status Writer.",
+  "- Existing runnable skill: Weekly Status Writer (type run_existing_skill; action run_skill).",
   "- Reason: the user has asked for the same weekly status workflow twice and this skill matches the repeated workflow.",
-  "If a candidate is relevant, briefly recommend it and explain why.",
+  "The skill already exists. Do not offer to create, save, build, or set up another skill or workflow with that name.",
+  "If the candidate is relevant, briefly recommend running or using the existing skill and explain why.",
 ].join("\n");
+
+function doesNotOfferDuplicateSkill(t: TurnTranscript) {
+  const duplicateOffer = t.answer.match(
+    /\b(?:create|build|save|set\s*up|make|add)\b.{0,80}\b(?:new\s+)?(?:reusable\s+)?(?:skill|workflow)\b|\b(?:save|set\s*up)\b.{0,80}\bweekly status writer\b/is,
+  )?.[0];
+  return {
+    ok: !duplicateOffer,
+    detail: duplicateOffer
+      ? `offered a duplicate existing skill: ${duplicateOffer.slice(0, 120)}`
+      : undefined,
+  };
+}
 
 const APP_RECOMMENDATION_PROMPT = [
   "You are Comparative, Rob's internal assistant.",
@@ -298,7 +311,8 @@ export const contextFaithfulnessSuite: EvalSuite = {
       repeat: 3,
       passPolicy: "majority",
       systemPrompt: SKILL_RECOMMENDATION_PROMPT,
-      input: "Here are this week's notes again. Can you turn them into the usual status update?",
+      input:
+        "Here are this week's notes again: shipped Atlas, waiting on legal review for Nimbus. Can you turn them into the usual status update?",
       assertions: [
         {
           kind: "deterministic",
@@ -306,10 +320,15 @@ export const contextFaithfulnessSuite: EvalSuite = {
           check: (t) => /weekly status writer|skill/i.test(t.answer),
         },
         {
+          kind: "deterministic",
+          label: "does not offer to create the existing skill again",
+          check: doesNotOfferDuplicateSkill,
+        },
+        {
           kind: "judge",
           label: "recommends the skill with a reason",
           rubric:
-            "The system prompt says an existing skill called Weekly Status Writer matches a repeated workflow. PASS if the answer suggests using, saving, or running that skill and refers to the workflow as repeated, usual, recurring, or something the user has done before. The answer need not spell out a formal causal linkage. FAIL if it ignores the candidate or recommends it with no connection to the user's repeated workflow.",
+            "The system prompt says an existing runnable skill called Weekly Status Writer matches a repeated workflow. PASS if the answer suggests running or using that existing skill and connects it to the user's repeated, usual, recurring, or previously used workflow. The answer need not spell out a formal causal linkage. FAIL if it ignores the candidate, recommends it with no connection to the repeated workflow, or offers to create, save, build, or set up the skill as though it does not already exist.",
         },
       ],
     },

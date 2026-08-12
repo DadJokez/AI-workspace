@@ -555,6 +555,12 @@ describe("chat context pack", () => {
     expect(pack.prompt.volatileSystemSuffix).toContain(
       "Do not deny that the card appeared",
     );
+    expect(pack.prompt.volatileSystemSuffix).toContain(
+      "run_existing_skill/run_skill and open_existing_app/open_app refer to resources that already exist",
+    );
+    expect(pack.prompt.volatileSystemSuffix).toContain(
+      "never offer to create, save, or set up a duplicate",
+    );
   });
 
   it("keeps hostile shared recommendation text inside nonce markers", () => {
