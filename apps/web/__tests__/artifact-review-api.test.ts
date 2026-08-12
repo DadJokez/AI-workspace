@@ -4,6 +4,10 @@ import { createTextReviewAnchor } from "@/lib/artifact-diff";
 
 const mocks = vi.hoisted(() => ({
   checkRateLimit: vi.fn(),
+  contentLengthTooLarge: vi.fn((headers: Headers, maxBytes: number) => {
+    const contentLength = Number(headers.get("content-length"));
+    return Number.isFinite(contentLength) && contentLength > maxBytes;
+  }),
   getDb: vi.fn(),
   requireSession: vi.fn(),
   resolveArtifactReviewAccess: vi.fn(),
@@ -23,6 +27,7 @@ vi.mock("@/lib/artifact-review-access", () => ({
 }));
 vi.mock("@/lib/request-limits", () => ({
   checkRateLimit: mocks.checkRateLimit,
+  contentLengthTooLarge: mocks.contentLengthTooLarge,
 }));
 
 import {
@@ -191,6 +196,28 @@ describe("artifact review comment API", () => {
     expect(db.transaction).not.toHaveBeenCalled();
   });
 
+  it("returns 413 without rate-limit or database writes for an oversized body", async () => {
+    const db = { transaction: vi.fn() };
+    mocks.getDb.mockReturnValue(db);
+
+    const response = await createComment(
+      jsonRequest(
+        { body: "Oversized", anchor: { kind: "artifact" } },
+        { "Content-Length": String(32 * 1024 + 1) },
+      ),
+      { params: Promise.resolve({ id: artifact.id }) },
+    );
+
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ error: "request_too_large" });
+    expect(mocks.contentLengthTooLarge).toHaveBeenCalledWith(
+      expect.any(Headers),
+      32 * 1024,
+    );
+    expect(mocks.checkRateLimit).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
   it("fails closed before touching the limiter for unauthorized actors", async () => {
     const db = { transaction: vi.fn() };
     mocks.getDb.mockReturnValue(db);
@@ -304,10 +331,10 @@ describe("artifact review deep links", () => {
   });
 });
 
-function jsonRequest(body: unknown) {
+function jsonRequest(body: unknown, headers: Record<string, string> = {}) {
   return new Request("http://localhost", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
 }

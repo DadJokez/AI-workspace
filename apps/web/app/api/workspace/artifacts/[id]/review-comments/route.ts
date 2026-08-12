@@ -8,12 +8,14 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
 import { resolveArtifactReviewAccess } from "@/lib/artifact-review-access";
 import {
+  ARTIFACT_REVIEW_COMMENT_MAX_CHARS,
   normalizeArtifactReviewCommentBody,
   parseArtifactReviewAnchorForArtifact,
   serializeArtifactReviewComment,
 } from "@/lib/artifact-review";
 import {
   checkRateLimit,
+  contentLengthTooLarge,
   type RequestLimitConfig,
 } from "@/lib/request-limits";
 
@@ -22,7 +24,7 @@ export const dynamic = "force-dynamic";
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store" };
 const REVIEW_COMMENT_RATE_LIMIT = {
   maxRequestBytes: 32 * 1024,
-  maxMessageChars: 2_000,
+  maxMessageChars: ARTIFACT_REVIEW_COMMENT_MAX_CHARS,
   windowMs: 60_000,
   maxRequests: 30,
 } satisfies RequestLimitConfig;
@@ -82,6 +84,14 @@ export async function POST(
   });
   if (!access) return notFound();
   if (!access.canComment) return notFound();
+  if (
+    contentLengthTooLarge(
+      req.headers,
+      REVIEW_COMMENT_RATE_LIMIT.maxRequestBytes,
+    )
+  ) {
+    return NextResponse.json({ error: "request_too_large" }, { status: 413 });
+  }
   const rate = await checkRateLimit(
     db,
     `artifact-review-comment:${session.user.id}`,
