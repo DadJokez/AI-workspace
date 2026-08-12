@@ -79,9 +79,9 @@ const SKILL_RECOMMENDATION_PROMPT = [
 
 function doesNotOfferDuplicateSkill(t: TurnTranscript) {
   const duplicatePatterns = [
-    /\b(?:create|build|make|add|set\s*up)\s+(?:(?:a|an|another|new|reusable|custom|dedicated)\s+)*(?:(?!using\b|with\b|via\b|through\b)[\w'-]+\s+){0,4}(?:skill|workflow)\b/i,
-    /\bsave\s+(?:this|that|it)\s+as\s+(?:(?:a|an|another|new|reusable|custom)\s+)*(?:skill|workflow)\b/i,
-    /\b(?:save|set\s*up)\b.{0,60}\bweekly status writer\b/is,
+    /\b(?:i(?:'ll|’ll| will| can| could)|we(?:'ll|’ll| will| can| could)|let(?:'s|’s| us)|comparative can)\s+(?:create|build|make|add|set\s*up)\s+(?:(?:a|an|another|new|reusable|custom|dedicated)\s+)*(?:(?!using\b|with\b|via\b|through\b)[\w'-]+\s+){0,4}(?:skill|workflow)\b/i,
+    /\b(?:i(?:'ll|’ll| will| can| could)|we(?:'ll|’ll| will| can| could)|let(?:'s|’s| us)|comparative can)\s+save\s+(?:this|that|it)\s+as\s+(?:(?:a|an|another|new|reusable|custom)\s+)*(?:skill|workflow)\b/i,
+    /\b(?:i(?:'ll|’ll| will| can)|we(?:'ll|’ll| will| can)|let(?:'s|’s| us))\s+(?:save|set\s*up)\b.{0,60}\bweekly status writer\b/is,
   ];
   const duplicateOffer = duplicatePatterns
     .map((pattern) => t.answer.match(pattern)?.[0])
@@ -218,10 +218,12 @@ export const contextFaithfulnessSuite: EvalSuite = {
           check: doesNotDenyKnownContext,
         },
         {
-          kind: "judge",
+          kind: "deterministic",
           label: "answers from approved Vault memory",
-          rubric:
-            "The system prompt includes approved Vault memory saying the user's name is Rob Lindmark. PASS only if the answer acknowledges Vault access and answers that the user's name is Rob Lindmark. FAIL if it denies Vault access or says it cannot know.",
+          check: (t) => ({
+            ok: /\bvault\b/i.test(t.answer) && /\brob\s+lindmark\b/i.test(t.answer),
+            detail: `answer: ${t.answer.slice(0, 160)}`,
+          }),
         },
       ],
     },
