@@ -58,6 +58,10 @@ old or the queue is empty.
    nights. Restores the canary that gates everything else.
 5. **#783 — clear the 11 Dependabot alerts.** 30–60 min of pnpm overrides +
    MCP SDK minor bump; "zero open alerts" for the next IT conversation.
+   **Human-owned caveat: these are production-dependency changes (§7;
+   goal.md "no new production dependencies") — NOT for unattended sessions.
+   Rob applies or pairs on the bumps; an unattended session may at most
+   restate the fix plan in an issue comment, never open the dependency PR.**
 6. **#759 — flaky Playwright turn-queue test.** Unblocks clean CI on every PR.
 7. **#785 — rate-limit artifact review comment creation.** Small security
    follow-up to #761.
@@ -87,10 +91,16 @@ old or the queue is empty.
     **Human-owned caveat: changes the data-sharing default (§7 data-scoping
     spine) — flag the default flip prominently in the PR body for Rob.**
 16. **#804 — authoring loop: never silently bake connected data.**
+    **Human-owned caveat: same §7 data-scoping spine as #803 — changes what
+    connected data can leave a thread; flag the detection/blocking behavior
+    in the PR body for Rob.**
 17. **#805 — per-widget tri-state + "Live · as you" chip.** **Human-owned
     caveat: viewer-identity presentation (§7 spine) — flag in the PR body.**
 18. **#806 — per-viewer caching/rate limits.** Before broad view traffic.
 19. **#807 — token-handler verification.** Anytime; good IT-review artifact.
+    **Caveat: verification + tests only — it touches the token/auth surface,
+    so any *behavior* change it uncovers is described in the PR body for Rob,
+    not made unattended.**
 
 ### Tier D — harness wave 2 picks (highest leverage first)
 
@@ -114,7 +124,8 @@ old or the queue is empty.
   caveat: auth-surface change (§7) — implement + tests, flag for Rob's review
   in the PR body.**
 - **#443 / #448 — run-lifecycle fencing + concurrency > 1.** Before scheduled
-  load grows.
+  load grows. **Caveat: the concurrency default flip is env/ops-affecting —
+  build + tests, flag the flip in the PR body for Rob.**
 - **#449 — ops floor.** Alerting + immutable deploys.
 - **#455, #457, #691, #706** — remaining #453 Track A items, in the epic's
   own order. (#697 staging lives under Human-gated below — it is an infra
