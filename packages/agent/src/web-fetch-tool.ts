@@ -98,7 +98,7 @@ export function createWebFetchTool({
   return {
     name: WEB_FETCH_TOOL_NAME,
     description:
-      "Fetch a public http(s) URL and return readable page text or HTML. Use this when the user asks to inspect, read, summarize, or extract the HTML/source/content of a public web page. Never use it for localhost, private network, link-local, metadata, or credentialed URLs.",
+      "Fetch a public http(s) URL and return readable page text or HTML. Use this when the user asks to inspect, read, summarize, or extract the HTML/source/content of a public web page. A result with truncated=true is partial evidence: retry the same URL with a larger maxBytes before drawing completeness conclusions. Never use it for localhost, private network, link-local, metadata, or credentialed URLs.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -113,7 +113,7 @@ export function createWebFetchTool({
           minimum: 1024,
           maximum: MAX_BYTES_CAP,
           description:
-            "Optional maximum response bytes to read before truncating.",
+            "Optional maximum response bytes to read before truncating. If a result is truncated, retry the same URL with a higher value before treating the page as complete.",
         },
       },
     },

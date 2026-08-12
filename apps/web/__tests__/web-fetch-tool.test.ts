@@ -25,6 +25,20 @@ const publicLookup = (async () => [
 ]) as unknown as LookupImpl;
 
 describe("web fetch built-in tool", () => {
+  it("describes truncation as partial evidence with a same-URL recovery path", () => {
+    const tool = createWebFetchTool();
+
+    expect(tool.description).toContain(
+      "truncated=true is partial evidence",
+    );
+    expect(tool.description).toContain(
+      "retry the same URL with a larger maxBytes",
+    );
+    expect(JSON.stringify(tool.inputSchema)).toContain(
+      "retry the same URL with a higher value",
+    );
+  });
+
   it("fetches public HTML and returns bounded readable content", async () => {
     const tool = createWebFetchTool({
       lookupImpl: publicLookup,
