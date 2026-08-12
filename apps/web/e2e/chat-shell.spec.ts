@@ -91,6 +91,37 @@ test.describe("chat shell guardrails", () => {
     ).toBeVisible();
   });
 
+  test("recovers the composer when model bootstrap fails", async ({ page }) => {
+    await installMockComparativeApi(page);
+    let modelRequests = 0;
+    await page.route("**/api/models", async (route) => {
+      modelRequests += 1;
+      if (modelRequests === 1) {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "temporarily_unavailable" }),
+        });
+        return;
+      }
+      await route.fallback();
+    });
+
+    await gotoE2EChat(page);
+
+    const alert = page.getByTestId("models-load-error");
+    await expect(alert).toContainText("Comparative couldn't start.");
+    await expect(
+      page.getByPlaceholder("Comparative is unavailable"),
+    ).toBeDisabled();
+
+    await alert.getByRole("button", { name: "Retry" }).click();
+
+    await expect(alert).toHaveCount(0);
+    await expect(page.getByPlaceholder(/ask anything/i)).toBeEnabled();
+    expect(modelRequests).toBe(2);
+  });
+
   test("shows conversation-shaped skeletons while saved messages load", async ({
     page,
     isMobile,

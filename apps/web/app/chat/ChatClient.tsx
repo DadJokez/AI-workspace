@@ -84,6 +84,8 @@ export function ChatClient({
   const { openPalette } = useCommandPalette();
   const {
     models,
+    modelsLoading,
+    modelsError,
     defaultModelId,
     runtimeV2Enabled,
     liveTurnSteeringSupported,
@@ -100,6 +102,7 @@ export function ChatClient({
     slashSkills,
     unreadNotifications,
     setUnreadNotifications,
+    refreshModels,
     refreshThreads,
     handleProfileUpdated,
     updateUserDefaultModel,
@@ -691,7 +694,8 @@ export function ChatClient({
   });
 
   if (!activeTab) return null;
-  const inputDisabled = models.length === 0;
+  const inputDisabled =
+    modelsLoading || modelsError !== undefined || models.length === 0;
   const queueMode = currentRunActive || queuedTurns.turns.length > 0;
   const feedbackContext = buildFeedbackContext(activeTab);
   const studioModel = deriveContributionStudio(activeTab.messages, {
@@ -889,6 +893,23 @@ export function ChatClient({
                 onRetry={queuedTurns.retry}
                 onEditingChange={setEditingQueuedTurnId}
               />
+              {modelsError ? (
+                <div
+                  role="alert"
+                  data-testid="models-load-error"
+                  className="mb-3 flex items-center justify-between gap-3 rounded-md border border-danger/25 bg-danger-bg px-3 py-2 text-sm text-danger"
+                >
+                  <span>{modelsError}</span>
+                  <button
+                    type="button"
+                    onClick={() => void refreshModels()}
+                    disabled={modelsLoading}
+                    className="shrink-0 rounded-sm border border-danger/30 px-2.5 py-1 text-xs font-medium hover:bg-danger/10 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {modelsLoading ? "Retrying..." : "Retry"}
+                  </button>
+                </div>
+              ) : null}
               <ChatInput
                 key={activeTab.id}
                 onSubmit={handleComposerSubmit}
@@ -902,11 +923,13 @@ export function ChatClient({
                 onEditComplete={() => setEditRequest(undefined)}
                 uploadRequestId={uploadRequestId}
                 placeholder={
-                  models.length === 0
-                    ? "Loading models…"
-                    : queueMode
-                      ? "Add a follow-up for the current run"
-                      : "Ask anything (Shift+Enter for newline)"
+                  modelsLoading
+                    ? "Starting Comparative..."
+                    : modelsError
+                      ? "Comparative is unavailable"
+                      : queueMode
+                        ? "Add a follow-up for the current run"
+                        : "Ask anything (Shift+Enter for newline)"
                 }
               />
             </div>
