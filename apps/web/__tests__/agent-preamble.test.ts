@@ -177,8 +177,9 @@ describe("buildAgentPreamble Salesforce schema grounding", () => {
     expect(preamble).toContain("salesforce__describe_object");
     expect(preamble).toContain("do not retry identical SOQL");
     expect(preamble).toContain(
-      "Once a corrected query succeeds and returns enough evidence to answer, stop querying",
+      "Once a corrected query succeeds and returns enough complete evidence to answer",
     );
+    expect(preamble).toContain("returned record count matches totalSize");
   });
 });
 
