@@ -390,6 +390,7 @@ describe("model wording regression guards", () => {
     "I've gone ahead and forwarded them to Nina.",
     "The forward went through.",
     "Consider it forwarded.",
+    "The message says hi, and I've forwarded it to Nina.",
   ])("rejects a positive completed mail claim: %s", (answer) => {
     expect(
       deterministicResult(

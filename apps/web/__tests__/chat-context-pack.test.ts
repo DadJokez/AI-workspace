@@ -561,6 +561,9 @@ describe("chat context pack", () => {
     expect(pack.prompt.volatileSystemSuffix).toContain(
       "never offer to create, save, or set up a duplicate",
     );
+    expect(pack.prompt.volatileSystemSuffix).toContain(
+      "save_as_skill, deploy_artifact_as_app, and schedule_skill propose creating a new resource",
+    );
   });
 
   it("keeps hostile shared recommendation text inside nonce markers", () => {
