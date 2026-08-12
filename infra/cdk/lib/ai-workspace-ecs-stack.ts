@@ -473,6 +473,10 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       cpu: 512,
       memoryLimitMiB: 1024,
     });
+    // StartBrowserSession validates that its caller may read credentials for
+    // every configured proxy, even though the Browser execution role also
+    // needs access when the managed session starts.
+    browserProxySecret.grantRead(webTask.taskRole);
     grantBedrockInvoke(webTask);
     grantSesSendEmail(webTask, inviteEmailIdentityName, inviteEmailAwsRegion);
     studioBrowser.grant(
