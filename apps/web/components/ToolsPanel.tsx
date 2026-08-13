@@ -414,7 +414,13 @@ function IntegrationCard({
               </span>
               <a
                 href={`/api/oauth/${integration.id}/start`}
-                className="text-2xs text-warning underline-offset-2 hover:underline"
+                className={`text-2xs underline-offset-2 hover:underline ${
+                  needsReconnect ||
+                  temporarilyUnavailable ||
+                  (executionPending && !comingSoon)
+                    ? "text-warning"
+                    : "text-muted hover:text-ink"
+                }`}
               >
                 Reconnect
               </a>

@@ -64,9 +64,11 @@ describe("async failure legibility", () => {
       }),
     );
 
-    expect(screen.getByRole("alert").textContent).toContain(
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain(
       "Could not save the change.",
     );
+    expect(alert.className).toContain("z-[100]");
     fireEvent.click(screen.getByRole("button", { name: "Dismiss error" }));
     expect(onDismiss).toHaveBeenCalledOnce();
   });
@@ -142,6 +144,11 @@ describe("async failure legibility", () => {
               toolAvailable: false,
               status: "reconnect_required",
             },
+            notion: {
+              connected: true,
+              toolAvailable: true,
+              status: "ready",
+            },
           },
         }),
       }),
@@ -158,6 +165,16 @@ describe("async failure legibility", () => {
     expect(
       (await screen.findByText("Reconnect", { selector: "span" })).className,
     ).toContain("text-warning");
+    expect(
+      within(screen.getByTestId("tool-card-github")).getByRole("link", {
+        name: "Reconnect",
+      }).className,
+    ).toContain("text-warning");
+    expect(
+      within(screen.getByTestId("tool-card-notion")).getByRole("link", {
+        name: "Reconnect",
+      }).className,
+    ).not.toContain("text-warning");
     expect(
       screen.getAllByRole("button", { name: "Learn more" }).length,
     ).toBeGreaterThan(0);

@@ -19,7 +19,7 @@ export function AsyncStatusNotice({
       role="alert"
       className={
         floating
-          ? "fixed bottom-4 left-1/2 z-[80] flex w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 items-start gap-3 rounded-md border border-danger/30 border-l-2 border-l-danger bg-danger-bg px-3 py-2 text-sm text-danger shadow-md"
+          ? "fixed bottom-4 left-1/2 z-[100] flex w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 items-start gap-3 rounded-md border border-danger/30 border-l-2 border-l-danger bg-danger-bg px-3 py-2 text-sm text-danger shadow-md"
           : "flex items-start gap-3 rounded-md border border-danger/30 border-l-2 border-l-danger bg-danger-bg px-3 py-2 text-sm text-danger"
       }
     >
