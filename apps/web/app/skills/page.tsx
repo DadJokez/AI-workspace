@@ -3,6 +3,7 @@ import { getDb, skills } from "@ai-workspace/db";
 import { and, desc, eq, isNull, or } from "drizzle-orm";
 import Link from "next/link";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { modelDisplayName } from "@/lib/model-display";
 import { listSkillsSharedWith } from "@/lib/shares";
 import { SkillActions } from "@/components/skills/SkillActions";
 import { SeedStartersButton } from "@/components/skills/SeedStartersButton";
@@ -38,8 +39,7 @@ export default async function SkillsPage() {
         <div>
           <h2 className="text-base font-semibold text-ink">Skill catalog</h2>
           <p className="mt-1 text-xs text-muted">
-            Saved agent definitions you can run, clone, and (soon) schedule
-            and share.
+            Saved agent definitions you can run, clone, schedule, and share.
           </p>
         </div>
         <div className="flex items-start gap-2">
@@ -111,7 +111,9 @@ function SkillGroup({
               <p className="text-xs text-muted">{skill.description}</p>
             ) : null}
             <p className="text-2xs text-muted">
-              {PLATFORM_MODEL_OVERRIDE_ID ?? skill.modelId}
+              {modelDisplayName(
+                PLATFORM_MODEL_OVERRIDE_ID ?? skill.modelId,
+              )}
               {skill.mcpProviders.length > 0
                 ? ` · tools: ${skill.mcpProviders.join(", ")}`
                 : " · no tools"}

@@ -389,6 +389,69 @@ test.describe("authenticated product smoke", () => {
     await expect(page.getByText("Auth Smoke Shared Review")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Starters" })).toBeVisible();
     await expect(page.getByText("Auth Smoke Starter Brief")).toBeVisible();
+    await expect(page.getByText("Sonnet 4.5").first()).toBeVisible();
+    await expect(page.getByText("sonnet-4-5", { exact: true })).toHaveCount(0);
+    await expect(page.getByText(/\(soon\) schedule and share/)).toHaveCount(0);
+  });
+
+  test("shows skill tool connection state without a fake pinned-model choice", async ({
+    page,
+  }) => {
+    await page.route("**/api/oauth/status", async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          providerDetails: {
+            github: {
+              connected: true,
+              toolAvailable: true,
+              status: "ready",
+            },
+            notion: {
+              connected: false,
+              toolAvailable: false,
+              status: "not_connected",
+            },
+            google: {
+              connected: false,
+              toolAvailable: false,
+              status: "not_connected",
+            },
+            salesforce: {
+              connected: false,
+              toolAvailable: false,
+              status: "not_connected",
+            },
+          },
+        }),
+      });
+    });
+
+    await page.goto("/skills/new");
+
+    await expect(page.getByLabel("Model")).toHaveCount(0);
+    const githubRow = page.getByLabel("GitHub").locator("..").locator("..");
+    await expect(githubRow).toContainText("Connected");
+    const notionRow = page.getByLabel("Notion").locator("..").locator("..");
+    await expect(notionRow).toContainText("Not connected");
+    await expect(
+      notionRow.getByRole("link", { name: "Connect in Settings" }),
+    ).toHaveAttribute("href", "/chat?open=settings&section=integrations");
+    await expect(page.getByLabel("Web access").locator("..").locator(".."))
+      .toContainText("Built in");
+  });
+
+  test("scopes shared-skill run history to the signed-in user", async ({
+    page,
+  }) => {
+    await page.goto("/skills/00000000-0000-4000-8000-000000000215");
+
+    await expect(
+      page.getByText("Current user's shared-skill failure."),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Private failure from another skill collaborator."),
+    ).toHaveCount(0);
   });
 
   test("creates, runs, pauses, and deletes a signed GitHub skill trigger", async ({
