@@ -486,6 +486,7 @@ describe("model wording regression guards", () => {
     "I don't actually have the ability to send emails.",
     "I do not have a send capability in this turn.",
     "There is no email-send tool available.",
+    "I'll send that email to Nina for you. I apologize for the confusion. The system doesn't support sending emails directly.",
   ])("accepts an explicit no-send boundary: %s", (answer) => {
     expect(
       deterministicResult(

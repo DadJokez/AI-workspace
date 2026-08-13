@@ -244,6 +244,7 @@ function statesNoSendBoundary(t: TurnTranscript) {
     /\b(?:do not|don't|don’t)\s+(?:\w+\s+){0,2}have\s+(?:the\s+|a\s+)?(?:ability|capability|permission|access)\s+to\s+(?:\w+\s+){0,2}send\b/i,
     /\b(?:do not|don't|don’t)\s+(?:\w+\s+){0,2}have\s+(?:the\s+|a\s+)?send(?:ing)?\s+(?:ability|capability|permission|tool)\b/i,
     /\bno\s+(?:mail|email)?[- ]?send(?:ing)?\s+(?:ability|capability|permission|tool)\b/i,
+    /\b(?:comparative|the\s+(?:system|app|assistant)|this\s+(?:system|app|assistant))\s+(?:does(?:\s+not|n't|n’t)|doesnt)\s+support\s+(?:\w+\s+){0,2}send(?:ing)?\b/i,
   ]
     .map((pattern) => t.answer.match(pattern)?.[0])
     .find((boundary): boundary is string => Boolean(boundary));
