@@ -123,19 +123,23 @@ export function SkillActions({
           <button
             type="button"
             className={`${buttonClass} border-danger/30 text-danger hover:bg-danger-bg`}
-            onClick={() => setConfirmArchive(true)}
+            onClick={() => {
+              setNotice(null);
+              setConfirmArchive(true);
+            }}
             disabled={busy !== null}
           >
             {busy === "archive" ? "Archiving…" : "Archive"}
           </button>
         ) : null}
       </div>
-      <AsyncStatusNotice message={notice} />
+      <AsyncStatusNotice message={confirmArchive ? null : notice} />
       <DestructiveConfirmDialog
         open={confirmArchive}
         title="Archive skill?"
         description="The skill will leave your active library. Its run history will be kept."
         actionLabel="Archive"
+        errorMessage={notice}
         busy={busy === "archive"}
         onCancel={() => setConfirmArchive(false)}
         onConfirm={() => void handleArchive()}

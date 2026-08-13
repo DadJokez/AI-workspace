@@ -10,6 +10,7 @@ import {
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AsyncStatusNotice } from "@/components/AsyncStatusNotice";
+import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
 import { Sidebar, type ThreadSummary } from "@/components/Sidebar";
 import { IntegrationsSettings } from "@/components/ToolsPanel";
 import { SkillActions } from "@/components/skills/SkillActions";
@@ -121,10 +122,33 @@ describe("async failure legibility", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Archive" }));
 
     await waitFor(() => expect(fetchJson).toHaveBeenCalledOnce());
-    expect((await screen.findByRole("alert")).textContent).toContain(
+    dialog = screen.getByRole("alertdialog", { name: "Archive skill?" });
+    expect(within(dialog).getByRole("alert").textContent).toContain(
       "Archive failed.",
     );
     expect(nativeConfirm).not.toHaveBeenCalled();
+  });
+
+  it("keeps a busy destructive dialog open when Escape is pressed", () => {
+    const onCancel = vi.fn();
+    render(
+      createElement(DestructiveConfirmDialog, {
+        open: true,
+        title: "Delete chat?",
+        description: "This cannot be undone.",
+        actionLabel: "Delete",
+        busy: true,
+        onCancel,
+        onConfirm: vi.fn(),
+      }),
+    );
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(
+      screen.getByRole("alertdialog", { name: "Delete chat?" }),
+    ).toBeTruthy();
+    expect(onCancel).not.toHaveBeenCalled();
   });
 
   it("uses danger and warning states for integration failures", async () => {

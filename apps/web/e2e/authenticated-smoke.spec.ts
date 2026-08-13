@@ -513,11 +513,30 @@ test.describe("authenticated product smoke", () => {
 
     await activeRow.getByRole("button", { name: "Resume" }).click();
     await expect(activeRow).not.toContainText("paused");
+
+    const deleteRoute = "**/api/event-triggers/*";
+    await page.route(deleteRoute, async (route) => {
+      if (route.request().method() !== "DELETE") {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Temporary delete failure." }),
+      });
+    });
     await activeRow.getByRole("button", { name: "Delete" }).click();
     const deleteDialog = page.getByRole("alertdialog", {
       name: "Delete trigger?",
     });
     await expect(deleteDialog).toBeVisible();
+    await deleteDialog.getByRole("button", { name: "Delete" }).click();
+    await expect(deleteDialog.getByRole("alert")).toContainText(
+      "Temporary delete failure.",
+    );
+
+    await page.unroute(deleteRoute);
     const [deleteResponse] = await Promise.all([
       page.waitForResponse(
         (response) =>

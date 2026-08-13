@@ -11,6 +11,7 @@ interface DestructiveConfirmDialogProps {
   title: string;
   description: string;
   actionLabel: string;
+  errorMessage?: string | null;
   busy?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -21,6 +22,7 @@ export function DestructiveConfirmDialog({
   title,
   description,
   actionLabel,
+  errorMessage = null,
   busy = false,
   onCancel,
   onConfirm,
@@ -40,10 +42,10 @@ export function DestructiveConfirmDialog({
     window.requestAnimationFrame(() => cancelRef.current?.focus());
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busyRef.current) {
+      if (event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
-        onCancelRef.current();
+        if (!busyRef.current) onCancelRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -102,6 +104,14 @@ export function DestructiveConfirmDialog({
         <p id={descriptionId} className="mt-2 text-sm text-muted">
           {description}
         </p>
+        {errorMessage ? (
+          <div
+            role="alert"
+            className="mt-3 rounded-md border border-danger/30 border-l-2 border-l-danger bg-danger-bg px-3 py-2 text-sm text-danger [overflow-wrap:anywhere]"
+          >
+            {errorMessage}
+          </div>
+        ) : null}
         <div className="mt-5 flex justify-end gap-2">
           <button
             ref={cancelRef}

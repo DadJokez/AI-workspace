@@ -181,7 +181,10 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
                 <button
                   type="button"
                   className="text-danger hover:underline"
-                  onClick={() => setPendingDelete(schedule)}
+                  onClick={() => {
+                    setNotice(null);
+                    setPendingDelete(schedule);
+                  }}
                 >
                   Delete
                 </button>
@@ -261,7 +264,7 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
           {busy ? "Scheduling…" : "Add schedule"}
         </button>
       </form>
-      <AsyncStatusNotice message={notice} />
+      <AsyncStatusNotice message={pendingDelete ? null : notice} />
       <DestructiveConfirmDialog
         open={pendingDelete !== null}
         title="Delete schedule?"
@@ -271,6 +274,7 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
             : "Past runs will be kept."
         }
         actionLabel="Delete"
+        errorMessage={notice}
         busy={busy && pendingDelete !== null}
         onCancel={() => setPendingDelete(null)}
         onConfirm={() => {
