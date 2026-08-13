@@ -1873,6 +1873,29 @@ function ActivityDot({
   );
 }
 
+function markdownTableColumnCount(node: unknown): number {
+  if (!node || typeof node !== "object") return 0;
+
+  const current = node as {
+    type?: unknown;
+    tagName?: unknown;
+    children?: unknown;
+  };
+  const children = Array.isArray(current.children) ? current.children : [];
+  if (current.type === "element" && current.tagName === "tr") {
+    return children.filter((child) => {
+      if (!child || typeof child !== "object") return false;
+      const tagName = (child as { tagName?: unknown }).tagName;
+      return tagName === "th" || tagName === "td";
+    }).length;
+  }
+
+  return children.reduce(
+    (maximum, child) => Math.max(maximum, markdownTableColumnCount(child)),
+    0,
+  );
+}
+
 const MARKDOWN_COMPONENTS: Components = {
   p: (props) => <p className="my-2 first:mt-0 last:mb-0" {...props} />,
   h1: (props) => (
@@ -1903,15 +1926,25 @@ const MARKDOWN_COMPONENTS: Components = {
   a: (props) => (
     <a className="underline" target="_blank" rel="noreferrer" {...props} />
   ),
-  // GFM tables wrap ordinary cell content at a readable width. The outer
-  // scroller remains as a fallback for tables with many columns.
-  table: ({ children }) => (
-    <div className="my-2 w-full overflow-x-auto first:mt-0 last:mb-0">
-      <table className="w-full table-fixed border-collapse text-sm">
-        {children}
-      </table>
-    </div>
-  ),
+  // Ordinary GFM tables wrap within the message column. Wide tables get a
+  // stable per-column width so the outer scroller remains useful.
+  table: ({ children, node }) => {
+    const columnCount = markdownTableColumnCount(node);
+    const isWide = columnCount >= 7;
+    return (
+      <div
+        className="my-2 w-full overflow-x-auto first:mt-0 last:mb-0"
+        data-table-layout={isWide ? "scroll" : "wrap"}
+      >
+        <table
+          className={`${isWide ? "table-fixed" : "w-full table-fixed"} border-collapse text-sm`}
+          style={isWide ? { width: `${columnCount * 10}rem` } : undefined}
+        >
+          {children}
+        </table>
+      </div>
+    );
+  },
   thead: (props) => <thead className="bg-subtle" {...props} />,
   tbody: (props) => <tbody {...props} />,
   tr: (props) => (

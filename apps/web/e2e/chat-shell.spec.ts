@@ -982,6 +982,63 @@ test.describe("chat shell guardrails", () => {
     expect(metrics.height).toBeGreaterThan(metrics.lineHeight * 2);
   });
 
+  test("keeps wide assistant tables horizontally scrollable", async ({
+    page,
+    isMobile,
+  }) => {
+    const headings = Array.from(
+      { length: 8 },
+      (_, index) => `Column ${index + 1}`,
+    );
+    const values = Array.from(
+      { length: 8 },
+      (_, index) => `Value ${index + 1}`,
+    );
+    await installMockComparativeApi(page, {
+      threads: [
+        {
+          id: "thread-wide-table",
+          title: "Wide table",
+          defaultModelId: "sonnet-4-6",
+          summary: null,
+          summaryUpdatedAt: null,
+          previewSummary: null,
+          previewSummaryUpdatedAt: null,
+          titleSource: "generated",
+          createdAt: "2026-07-21T12:00:00.000Z",
+          updatedAt: "2026-07-21T12:00:00.000Z",
+        },
+      ],
+      threadMessages: {
+        "thread-wide-table": [
+          assistantMessage({
+            id: "assistant-wide-table",
+            content: `| ${headings.join(" | ")} |\n| ${headings.map(() => "---").join(" | ")} |\n| ${values.join(" | ")} |`,
+          }),
+        ],
+      },
+    });
+
+    await gotoE2EChat(page);
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: "Wide table" }).click();
+
+    const scroller = page
+      .getByTestId("assistant-message-content")
+      .locator('[data-table-layout="scroll"]');
+    await expect(scroller).toBeVisible();
+    const metrics = await scroller.evaluate((element) => {
+      const firstCell = element.querySelector("th")?.getBoundingClientRect();
+      return {
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        firstCellWidth: firstCell?.width ?? 0,
+      };
+    });
+    expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth);
+    expect(metrics.firstCellWidth).toBeGreaterThanOrEqual(150);
+  });
+
   test("keeps top-bar controls and theme persistence stable without chat tabs", async ({
     page,
   }, testInfo) => {
