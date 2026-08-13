@@ -513,8 +513,20 @@ test.describe("authenticated product smoke", () => {
 
     await activeRow.getByRole("button", { name: "Resume" }).click();
     await expect(activeRow).not.toContainText("paused");
-    page.once("dialog", (dialog) => dialog.accept());
     await activeRow.getByRole("button", { name: "Delete" }).click();
+    const deleteDialog = page.getByRole("alertdialog", {
+      name: "Delete trigger?",
+    });
+    await expect(deleteDialog).toBeVisible();
+    const [deleteResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().includes("/api/event-triggers/") &&
+          response.request().method() === "DELETE",
+      ),
+      deleteDialog.getByRole("button", { name: "Delete" }).click(),
+    ]);
+    expect(deleteResponse.ok()).toBe(true);
     await expect(activeRow).toHaveCount(0);
     const deletedResponse = await sendWebhook();
     expect(deletedResponse.status()).toBe(202);
