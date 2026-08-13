@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AsyncStatusNotice } from "@/components/AsyncStatusNotice";
+import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
 import { fetchJson } from "@/lib/client-api";
 import { formatDateTime } from "@/lib/format-date";
 
@@ -46,6 +48,8 @@ export function EventTriggerPanel({
   );
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] =
+    useState<EventTriggerRow | null>(null);
   const inputClass =
     "rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink";
 
@@ -109,7 +113,6 @@ export function EventTriggerPanel({
   }
 
   async function handleDelete(trigger: EventTriggerRow) {
-    if (!window.confirm("Delete this trigger? Past runs are kept.")) return;
     setBusyId(trigger.id);
     setNotice(null);
     try {
@@ -118,6 +121,7 @@ export function EventTriggerPanel({
         { method: "DELETE" },
         "Could not delete the trigger.",
       );
+      setPendingDelete(null);
       router.refresh();
     } catch (err) {
       setNotice(
@@ -150,7 +154,7 @@ export function EventTriggerPanel({
                   {!trigger.enabled ? " · paused" : ""}
                 </span>
                 {trigger.lastError ? (
-                  <span className="block truncate text-muted">
+                  <span className="block truncate text-danger">
                     Last error: {trigger.lastError}
                   </span>
                 ) : null}
@@ -172,8 +176,8 @@ export function EventTriggerPanel({
                 <button
                   type="button"
                   disabled={busyId === trigger.id}
-                  className="text-muted hover:text-ink disabled:opacity-50"
-                  onClick={() => handleDelete(trigger)}
+                  className="text-danger hover:underline disabled:opacity-50"
+                  onClick={() => setPendingDelete(trigger)}
                 >
                   Delete
                 </button>
@@ -250,7 +254,22 @@ export function EventTriggerPanel({
           {busyId === "create" ? "Adding…" : "Add trigger"}
         </button>
       </form>
-      {notice ? <p className="text-xs text-muted">{notice}</p> : null}
+      <AsyncStatusNotice message={notice} />
+      <DestructiveConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete trigger?"
+        description={
+          pendingDelete
+            ? `${describeKind(pendingDelete.kind)} for ${pendingDelete.repository} will stop running. Past runs will be kept.`
+            : "Past runs will be kept."
+        }
+        actionLabel="Delete"
+        busy={pendingDelete !== null && busyId === pendingDelete.id}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (pendingDelete) void handleDelete(pendingDelete);
+        }}
+      />
     </div>
   );
 }

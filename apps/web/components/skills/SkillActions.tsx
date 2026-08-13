@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AsyncStatusNotice } from "@/components/AsyncStatusNotice";
+import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
 import { fetchJson } from "@/lib/client-api";
 
 interface SkillActionsProps {
@@ -23,6 +25,7 @@ export function SkillActions({
   const router = useRouter();
   const [busy, setBusy] = useState<"run" | "clone" | "archive" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [confirmArchive, setConfirmArchive] = useState(false);
 
   async function handleRun() {
     setBusy("run");
@@ -74,7 +77,6 @@ export function SkillActions({
   }
 
   async function handleArchive() {
-    if (!window.confirm("Archive this skill? Run history is kept.")) return;
     setBusy("archive");
     setNotice(null);
     try {
@@ -83,6 +85,7 @@ export function SkillActions({
         { method: "DELETE" },
         "The skill could not be archived.",
       );
+      setConfirmArchive(false);
       router.push("/skills");
       router.refresh();
     } catch (err) {
@@ -119,15 +122,24 @@ export function SkillActions({
         {showArchive && isOwner ? (
           <button
             type="button"
-            className={`${buttonClass} text-muted`}
-            onClick={handleArchive}
+            className={`${buttonClass} border-danger/30 text-danger hover:bg-danger-bg`}
+            onClick={() => setConfirmArchive(true)}
             disabled={busy !== null}
           >
             {busy === "archive" ? "Archiving…" : "Archive"}
           </button>
         ) : null}
       </div>
-      {notice ? <p className="text-xs text-muted">{notice}</p> : null}
+      <AsyncStatusNotice message={notice} />
+      <DestructiveConfirmDialog
+        open={confirmArchive}
+        title="Archive skill?"
+        description="The skill will leave your active library. Its run history will be kept."
+        actionLabel="Archive"
+        busy={busy === "archive"}
+        onCancel={() => setConfirmArchive(false)}
+        onConfirm={() => void handleArchive()}
+      />
     </div>
   );
 }

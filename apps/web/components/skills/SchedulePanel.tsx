@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AsyncStatusNotice } from "@/components/AsyncStatusNotice";
+import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
 import { fetchJson } from "@/lib/client-api";
 import { formatDateTime } from "@/lib/format-date";
 
@@ -65,6 +67,7 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
   const [monthDay, setMonthDay] = useState(1);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ScheduleRow | null>(null);
 
   const timezone =
     Intl.DateTimeFormat().resolvedOptions().timeZone ?? "America/New_York";
@@ -121,7 +124,6 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
   }
 
   async function handleDelete(schedule: ScheduleRow) {
-    if (!window.confirm("Delete this schedule? Past runs are kept.")) return;
     setBusy(true);
     setNotice(null);
     try {
@@ -130,6 +132,7 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
         { method: "DELETE" },
         "Could not delete the schedule.",
       );
+      setPendingDelete(null);
       router.refresh();
     } catch (err) {
       setNotice(
@@ -158,7 +161,7 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
                   <span className="text-muted"> · paused</span>
                 ) : null}
                 {schedule.lastError ? (
-                  <span className="text-muted">
+                  <span className="text-danger">
                     {" "}
                     · last error: {schedule.lastError.slice(0, 60)}
                   </span>
@@ -177,8 +180,8 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
                 </button>
                 <button
                   type="button"
-                  className="text-muted hover:text-ink"
-                  onClick={() => handleDelete(schedule)}
+                  className="text-danger hover:underline"
+                  onClick={() => setPendingDelete(schedule)}
                 >
                   Delete
                 </button>
@@ -258,7 +261,22 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
           {busy ? "Scheduling…" : "Add schedule"}
         </button>
       </form>
-      {notice ? <p className="text-xs text-muted">{notice}</p> : null}
+      <AsyncStatusNotice message={notice} />
+      <DestructiveConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete schedule?"
+        description={
+          pendingDelete
+            ? `${describeCadence(pendingDelete.cadence, pendingDelete.timezone)} will stop running. Past runs will be kept.`
+            : "Past runs will be kept."
+        }
+        actionLabel="Delete"
+        busy={busy && pendingDelete !== null}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (pendingDelete) void handleDelete(pendingDelete);
+        }}
+      />
     </div>
   );
 }

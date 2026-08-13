@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { COMPARATIVE_VERSION_LABEL } from "@/lib/product-version";
+import { AsyncStatusNotice } from "./AsyncStatusNotice";
+import { DestructiveConfirmDialog } from "./DestructiveConfirmDialog";
 import {
   isTemporarySidebarRail,
   shouldUseSidebarRail,
@@ -164,6 +166,7 @@ export function Sidebar({
   const [renameSaving, setRenameSaving] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [userCollapsed, setUserCollapsed] = useState(false);
   const [temporaryOverlayOpen, setTemporaryOverlayOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState<number | null>(null);
@@ -377,6 +380,7 @@ export function Sidebar({
   }
 
   function startRename(t: ThreadSummary) {
+    setMutationError(null);
     setOpenMenuId(null);
     setRenamingId(t.id);
     setRenameDraft(t.title?.trim() || "");
@@ -389,14 +393,16 @@ export function Sidebar({
       setRenameDraft("");
       return;
     }
+    setMutationError(null);
     setRenameSaving(true);
     try {
       await onRenameThread(threadId, next);
       setRenamingId(null);
       setRenameDraft("");
-    } catch {
-      // Keep the editor open so the user can retry; visible failure is the
-      // unsaved input. Parent surfaces toast/log if it wants to.
+    } catch (error) {
+      setMutationError(
+        error instanceof Error ? error.message : "Could not rename the chat.",
+      );
     } finally {
       setRenameSaving(false);
     }
@@ -408,12 +414,15 @@ export function Sidebar({
       setPendingDeleteId(null);
       return;
     }
+    setMutationError(null);
     setDeleting(true);
     try {
       await onDeleteThread(id);
       setPendingDeleteId(null);
-    } catch {
-      // Leave the dialog open on failure; parent decides how to surface.
+    } catch (error) {
+      setMutationError(
+        error instanceof Error ? error.message : "Could not delete the chat.",
+      );
     } finally {
       setDeleting(false);
     }
@@ -421,10 +430,14 @@ export function Sidebar({
 
   async function togglePin(thread: ThreadSummary) {
     if (!onPinThread) return;
+    setMutationError(null);
     setOpenMenuId(null);
     try {
       await onPinThread(thread.id, !thread.pinned);
-    } catch {
+    } catch (error) {
+      setMutationError(
+        error instanceof Error ? error.message : "Could not update the pin.",
+      );
       setOpenMenuId(thread.id);
     }
   }
@@ -642,7 +655,6 @@ export function Sidebar({
                         const title = t.title?.trim() || "Untitled";
                         const isRenaming = renamingId === t.id;
                         const isMenuOpen = openMenuId === t.id;
-                        const isPendingDelete = pendingDeleteId === t.id;
                         const preview = threadPreviewText(t);
                         return (
                             <li
@@ -782,14 +794,6 @@ export function Sidebar({
                                     </button>
                                   ) : null}
                                 </div>
-                              ) : null}
-                              {isPendingDelete ? (
-                                <DeleteConfirm
-                                  title={title}
-                                  busy={deleting}
-                                  onCancel={() => setPendingDeleteId(null)}
-                                  onConfirm={confirmDelete}
-                                />
                               ) : null}
                             </li>
                         );
@@ -989,50 +993,24 @@ export function Sidebar({
           ) : null}
         </div>
       </aside>
+      <AsyncStatusNotice
+        message={mutationError}
+        onDismiss={() => setMutationError(null)}
+        floating
+      />
+      <DestructiveConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Delete chat?"
+        description={`Delete "${
+          threads.find((thread) => thread.id === pendingDeleteId)?.title ||
+          "Untitled"
+        }"? This cannot be undone.`}
+        actionLabel="Delete"
+        busy={deleting}
+        onCancel={() => setPendingDeleteId(null)}
+        onConfirm={() => void confirmDelete()}
+      />
     </>
-  );
-}
-
-function DeleteConfirm({
-  title,
-  busy,
-  onCancel,
-  onConfirm,
-}: {
-  title: string;
-  busy: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div
-      role="dialog"
-      aria-modal="false"
-      className="absolute left-1 right-1 top-full z-30 mt-1 rounded-md border border-hairline bg-surface p-2 shadow-md"
-    >
-      <p className="px-1 pb-2 text-xs text-ink">
-        Delete <span className="font-medium">{title}</span>? This can&apos;t be
-        undone.
-      </p>
-      <div className="flex justify-end gap-1.5">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={busy}
-          className="rounded border border-hairline bg-canvas px-2 py-1 text-2xs text-ink hover:bg-subtle disabled:opacity-60"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={busy}
-          className="rounded border border-hairline bg-ink px-2 py-1 text-2xs font-medium text-canvas hover:opacity-90 disabled:opacity-60"
-        >
-          {busy ? "Deleting…" : "Delete"}
-        </button>
-      </div>
-    </div>
   );
 }
 
