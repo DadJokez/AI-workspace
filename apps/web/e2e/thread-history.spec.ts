@@ -115,3 +115,47 @@ test("pins a chat in the flat newest-first history and persists after reload", a
     reloadedNewest.getByRole("menuitem", { name: "Unpin", exact: true }),
   ).toBeVisible();
 });
+
+test("shows a persistent error when a chat history mutation fails", async ({
+  page,
+  isMobile,
+}) => {
+  await installMockComparativeApi(page, {
+    threads: [
+      {
+        id: "thread-pin-error",
+        title: "Pin failure example",
+        pinned: false,
+        defaultModelId: "sonnet-4-6",
+        previewSummary: null,
+        previewSummaryUpdatedAt: null,
+        titleSource: "auto",
+        createdAt: "2026-08-12T12:00:00.000Z",
+        updatedAt: "2026-08-12T12:00:00.000Z",
+      },
+    ],
+  });
+  await page.route("**/api/threads/thread-pin-error", async (route) => {
+    if (route.request().method() !== "PATCH") return route.fallback();
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message: "Pinning is temporarily unavailable.",
+      }),
+    });
+  });
+
+  await gotoE2EChat(page);
+  const sidebar = await openPrimarySidebar(page, isMobile);
+  const row = sidebar.locator('[data-thread-id="thread-pin-error"]');
+  await row.getByRole("button", { name: "Thread actions" }).click();
+  await row.getByRole("menuitem", { name: "Pin", exact: true }).click();
+
+  const alert = page
+    .getByRole("alert")
+    .filter({ hasText: "Pinning is temporarily unavailable." });
+  await expect(alert).toContainText("Pinning is temporarily unavailable.");
+  await alert.getByRole("button", { name: "Dismiss error" }).click();
+  await expect(alert).toHaveCount(0);
+});
