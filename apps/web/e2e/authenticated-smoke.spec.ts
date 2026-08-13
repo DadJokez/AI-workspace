@@ -441,6 +441,19 @@ test.describe("authenticated product smoke", () => {
       .toContainText("Built in");
   });
 
+  test("scopes shared-skill run history to the signed-in user", async ({
+    page,
+  }) => {
+    await page.goto("/skills/00000000-0000-4000-8000-000000000215");
+
+    await expect(
+      page.getByText("Current user's shared-skill failure."),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Private failure from another skill collaborator."),
+    ).toHaveCount(0);
+  });
+
   test("creates, runs, pauses, and deletes a signed GitHub skill trigger", async ({
     page,
   }) => {

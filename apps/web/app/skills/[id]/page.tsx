@@ -73,7 +73,9 @@ export default async function SkillDetailPage({
       completedAt: runs.completedAt,
     })
     .from(runs)
-    .where(eq(runs.skillId, skill.id))
+    .where(
+      and(eq(runs.skillId, skill.id), eq(runs.userId, sessionUser.id)),
+    )
     .orderBy(desc(runs.createdAt))
     .limit(20);
 
