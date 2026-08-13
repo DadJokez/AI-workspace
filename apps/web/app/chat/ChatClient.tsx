@@ -953,7 +953,7 @@ export function ChatClient({
                         ? "Profile unavailable"
                       : queueMode
                         ? "Add a follow-up for the current run"
-                        : "Ask anything (Shift+Enter for newline)"
+                        : "Ask anything — / for skills, @ to add context"
                 }
               />
             </div>

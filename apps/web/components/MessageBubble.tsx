@@ -1371,7 +1371,9 @@ function ArtifactCodePreview({
       <div className="border-t border-hairline">
         <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-2xs text-muted">
           <span className="min-w-0 truncate">{label}</span>
-          <span className="shrink-0">{formatBytes(code.length)}</span>
+          <span className="shrink-0">
+            {formatBytes(new TextEncoder().encode(code).byteLength)}
+          </span>
         </div>
         <pre
           data-testid="artifact-code-preview-scroll"
@@ -1901,17 +1903,11 @@ const MARKDOWN_COMPONENTS: Components = {
   a: (props) => (
     <a className="underline" target="_blank" rel="noreferrer" {...props} />
   ),
-  // GFM tables. The outer div gives mobile a horizontal scroll. The table
-  // itself uses `width: min-content` so columns expand to their natural
-  // width instead of squishing — wide tables overflow into the scroller
-  // rather than wrapping cell text. `whitespace-nowrap` on cells keeps
-  // each cell on a single line; readers scroll horizontally to see more.
+  // GFM tables wrap ordinary cell content at a readable width. The outer
+  // scroller remains as a fallback for tables with many columns.
   table: ({ children }) => (
     <div className="my-2 w-full overflow-x-auto first:mt-0 last:mb-0">
-      <table
-        className="border-collapse text-sm"
-        style={{ width: "min-content", minWidth: "100%" }}
-      >
+      <table className="w-full table-fixed border-collapse text-sm">
         {children}
       </table>
     </div>
@@ -1923,13 +1919,13 @@ const MARKDOWN_COMPONENTS: Components = {
   ),
   th: (props) => (
     <th
-      className="whitespace-nowrap border-b border-hairline px-3 py-2 text-left align-top font-semibold text-ink"
+      className="max-w-[24rem] whitespace-normal border-b border-hairline px-3 py-2 text-left align-top font-semibold text-ink [overflow-wrap:anywhere]"
       {...props}
     />
   ),
   td: (props) => (
     <td
-      className="whitespace-nowrap px-3 py-2 align-top text-ink"
+      className="max-w-[24rem] whitespace-normal px-3 py-2 align-top text-ink [overflow-wrap:anywhere]"
       {...props}
     />
   ),

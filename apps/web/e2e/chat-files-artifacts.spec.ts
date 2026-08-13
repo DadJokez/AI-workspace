@@ -403,7 +403,9 @@ test.describe("chat files and artifacts", () => {
       "<!doctype html>",
       "<html>",
       "<head><title>Demo Artifact</title></head>",
-      `<body><h1>Demo Artifact</h1><ul>${repeatedRows}</ul></body>`,
+      `<body><h1>Demo Artifact</h1><p>${"é".repeat(
+        400,
+      )}</p><ul>${repeatedRows}</ul></body>`,
       "</html>",
     ].join("\n");
 
@@ -462,6 +464,14 @@ test.describe("chat files and artifacts", () => {
     const codePreview = page.getByTestId("artifact-code-preview-scroll");
     await expect(codePreview).toBeVisible();
     await expect(codePreview).toContainText("Demo row 240");
+    const expectedSize = `${(Buffer.byteLength(htmlDoc, "utf8") / 1024).toFixed(1)} KB`;
+    const characterCountSize = `${(htmlDoc.length / 1024).toFixed(1)} KB`;
+    expect(expectedSize).not.toBe(characterCountSize);
+    await expect(
+      codePreview
+        .locator("xpath=preceding-sibling::div[1]")
+        .getByText(expectedSize),
+    ).toBeVisible();
     const codeMetrics = await codePreview.evaluate((element) => ({
       clientHeight: element.clientHeight,
       scrollHeight: element.scrollHeight,
