@@ -147,7 +147,7 @@ export function ChatInput({
   disabled,
   submitDisabled = false,
   queueMode = false,
-  placeholder = "Ask anything — or type / for capabilities…",
+  placeholder = "Ask anything — / for skills, @ to add context",
   skills = [],
   draftKey,
   threadId,
@@ -1108,9 +1108,10 @@ export function ChatInput({
           title="Add context"
           disabled={disabled}
           onClick={openContextPicker}
-          className="flex h-11 w-9 shrink-0 items-center justify-center rounded-md font-mono text-sm text-muted hover:text-ink disabled:opacity-30 sm:h-7"
+          className="flex h-11 w-9 shrink-0 items-center justify-center gap-1 rounded-md font-mono text-sm text-muted hover:text-ink disabled:opacity-30 sm:h-7 sm:w-auto sm:px-2"
         >
-          @
+          <span aria-hidden="true">@</span>
+          <span className="hidden font-sans text-xs sm:inline">Context</span>
         </button>
         <button
           type="button"

@@ -29,6 +29,18 @@ test.describe("chat shell guardrails", () => {
     await expect(
       page.locator("main").getByText(COMPARATIVE_VERSION_LABEL),
     ).toBeVisible();
+    await expect(
+      page.getByPlaceholder("Ask anything — / for skills, @ to add context"),
+    ).toBeVisible();
+    const contextButton = page.getByRole("button", { name: "Add context" });
+    await expect(contextButton).toBeVisible();
+    const contextLabel = contextButton.getByText("Context", { exact: true });
+    if (testInfo.project.name.includes("mobile")) {
+      await expect(contextLabel).toBeHidden();
+    } else {
+      await expect(contextLabel).toBeVisible();
+    }
+    await expect(page.getByTestId("resolved-model-chip")).toBeVisible();
     if (!testInfo.project.name.includes("mobile")) {
       await expect(
         page
@@ -911,6 +923,122 @@ test.describe("chat shell guardrails", () => {
     expect(paintBounds.left).toBeGreaterThan(paintBounds.columnLeft);
   });
 
+  test("wraps assistant table cells inside the message column", async ({
+    page,
+    isMobile,
+  }) => {
+    const longCell =
+      "A detailed comparison belongs inside the readable message column instead of forcing the whole answer off screen.";
+    await installMockComparativeApi(page, {
+      threads: [
+        {
+          id: "thread-wrapping-table",
+          title: "Wrapping table",
+          defaultModelId: "sonnet-4-6",
+          summary: null,
+          summaryUpdatedAt: null,
+          previewSummary: null,
+          previewSummaryUpdatedAt: null,
+          titleSource: "generated",
+          createdAt: "2026-07-21T12:00:00.000Z",
+          updatedAt: "2026-07-21T12:00:00.000Z",
+        },
+      ],
+      threadMessages: {
+        "thread-wrapping-table": [
+          assistantMessage({
+            id: "assistant-wrapping-table",
+            content: `| Option | Detail |\n| --- | --- |\n| Recommended | ${longCell} |`,
+          }),
+        ],
+      },
+    });
+
+    await gotoE2EChat(page);
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: "Wrapping table" }).click();
+
+    const cell = page
+      .getByTestId("assistant-message-content")
+      .locator("td")
+      .filter({ hasText: longCell });
+    await expect(cell).toBeVisible();
+    const metrics = await cell.evaluate((element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return {
+        whiteSpace: style.whiteSpace,
+        overflowWrap: style.overflowWrap,
+        maxWidth: Number.parseFloat(style.maxWidth),
+        width: rect.width,
+        height: rect.height,
+        lineHeight: Number.parseFloat(style.lineHeight),
+      };
+    });
+    expect(metrics.whiteSpace).toBe("normal");
+    expect(metrics.overflowWrap).toBe("anywhere");
+    expect(metrics.maxWidth).toBe(384);
+    expect(metrics.width).toBeLessThanOrEqual(385);
+    expect(metrics.height).toBeGreaterThan(metrics.lineHeight * 2);
+  });
+
+  test("keeps wide assistant tables horizontally scrollable", async ({
+    page,
+    isMobile,
+  }) => {
+    const headings = Array.from(
+      { length: 8 },
+      (_, index) => `Column ${index + 1}`,
+    );
+    const values = Array.from(
+      { length: 8 },
+      (_, index) => `Value ${index + 1}`,
+    );
+    await installMockComparativeApi(page, {
+      threads: [
+        {
+          id: "thread-wide-table",
+          title: "Wide table",
+          defaultModelId: "sonnet-4-6",
+          summary: null,
+          summaryUpdatedAt: null,
+          previewSummary: null,
+          previewSummaryUpdatedAt: null,
+          titleSource: "generated",
+          createdAt: "2026-07-21T12:00:00.000Z",
+          updatedAt: "2026-07-21T12:00:00.000Z",
+        },
+      ],
+      threadMessages: {
+        "thread-wide-table": [
+          assistantMessage({
+            id: "assistant-wide-table",
+            content: `| ${headings.join(" | ")} |\n| ${headings.map(() => "---").join(" | ")} |\n| ${values.join(" | ")} |`,
+          }),
+        ],
+      },
+    });
+
+    await gotoE2EChat(page);
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: "Wide table" }).click();
+
+    const scroller = page
+      .getByTestId("assistant-message-content")
+      .locator('[data-table-layout="scroll"]');
+    await expect(scroller).toBeVisible();
+    const metrics = await scroller.evaluate((element) => {
+      const firstCell = element.querySelector("th")?.getBoundingClientRect();
+      return {
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        firstCellWidth: firstCell?.width ?? 0,
+      };
+    });
+    expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth);
+    expect(metrics.firstCellWidth).toBeGreaterThanOrEqual(150);
+  });
+
   test("keeps top-bar controls and theme persistence stable without chat tabs", async ({
     page,
   }, testInfo) => {
@@ -977,11 +1105,7 @@ test.describe("chat shell guardrails", () => {
     await expect(
       header.getByRole("combobox", { name: "Model", exact: true }),
     ).toHaveCount(0);
-    if (isMobile) {
-      await expect(header.getByTestId("resolved-model-chip")).toBeHidden();
-    } else {
-      await expect(header.getByTestId("resolved-model-chip")).toBeVisible();
-    }
+    await expect(header.getByTestId("resolved-model-chip")).toBeVisible();
     await expect(page.locator("html")).not.toHaveClass(/dark/);
 
     await header.getByRole("button", { name: "Switch to dark mode" }).click();
@@ -1281,18 +1405,31 @@ test.describe("chat shell guardrails", () => {
       const badge = header.locator('[data-alpha-badge="inline"]');
       await expect(badge).toBeVisible();
       await expect(page.locator('[data-alpha-badge="global"]')).toBeHidden();
-      if (width < 400) {
-        await expect(page.getByTestId("resolved-model-chip")).toBeHidden();
-      } else {
-        await expect(page.getByTestId("resolved-model-chip")).toBeVisible();
-      }
+      await expect(page.getByTestId("resolved-model-chip")).toBeVisible();
       const title = page.getByTestId("active-chat-title");
       await expect(title).toContainText("New chat");
-      expect(
-        await title.evaluate(
-          (element) => element.scrollWidth <= element.clientWidth + 1,
-        ),
-      ).toBe(true);
+      await expect(title).toBeVisible();
+      if (width < 400) {
+        const titleStyle = await title.evaluate((element) => {
+          const style = window.getComputedStyle(element);
+          return {
+            overflow: style.overflow,
+            textOverflow: style.textOverflow,
+            whiteSpace: style.whiteSpace,
+          };
+        });
+        expect(titleStyle).toEqual({
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        });
+      } else {
+        expect(
+          await title.evaluate(
+            (element) => element.scrollWidth <= element.clientWidth + 1,
+          ),
+        ).toBe(true);
+      }
 
       const badgeBox = await badge.boundingBox();
       const headerBox = await header.boundingBox();
