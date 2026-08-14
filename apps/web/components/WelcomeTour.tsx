@@ -1,6 +1,7 @@
 "use client";
 
 import { TOUR_STEPS } from "@/lib/tour";
+import { useDialogFocusTrap } from "@/lib/use-dialog-focus-trap";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 interface WelcomeTourProps {
@@ -29,10 +30,18 @@ const SPOTLIGHT_PADDING = 6;
 export function WelcomeTour({ open, onClose }: WelcomeTourProps) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<AnchorRect | null>(null);
-  const cardRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const primaryActionRef = useRef<HTMLButtonElement>(null);
 
   const step = TOUR_STEPS[stepIndex] ?? TOUR_STEPS[0]!;
   const isLast = stepIndex === TOUR_STEPS.length - 1;
+
+  useDialogFocusTrap({
+    active: open,
+    dialogRef,
+    initialFocusRef: primaryActionRef,
+    onEscape: onClose,
+  });
 
   const measure = useCallback(() => {
     if (!step.anchor) {
@@ -73,13 +82,20 @@ export function WelcomeTour({ open, onClose }: WelcomeTourProps) {
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
       if (e.key === "ArrowRight" && !isLast) setStepIndex((i) => i + 1);
       if (e.key === "ArrowLeft" && stepIndex > 0) setStepIndex((i) => i - 1);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, isLast, stepIndex, onClose]);
+  }, [open, isLast, stepIndex]);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
+      primaryActionRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, stepIndex]);
 
   // Reset to the first step whenever the tour is (re)opened.
   useEffect(() => {
@@ -99,10 +115,12 @@ export function WelcomeTour({ open, onClose }: WelcomeTourProps) {
 
   return (
     <div
+      ref={dialogRef}
       className="fixed inset-0 z-[90]"
       role="dialog"
       aria-modal="true"
       aria-label="Welcome tour"
+      tabIndex={-1}
     >
       {/* Backdrop. With a spotlight, the dark layer is the cutout's shadow. */}
       {spotlight ? (
@@ -122,15 +140,13 @@ export function WelcomeTour({ open, onClose }: WelcomeTourProps) {
       {/* Click-away on the backdrop advances rather than closes — first-run
           users dismiss accidentally otherwise. Explicit close stays in the
           card. */}
-      <button
-        type="button"
-        aria-label={isLast ? "Finish tour" : "Next step"}
+      <div
+        aria-hidden="true"
         className="fixed inset-0 cursor-default"
         onClick={() => (isLast ? onClose() : setStepIndex((i) => i + 1))}
       />
 
       <div
-        ref={cardRef}
         className="fixed left-1/2 w-[min(92vw,420px)] -translate-x-1/2 rounded-md border border-hairline bg-canvas p-5 text-ink shadow-lg"
         style={cardPosition(spotlight)}
       >
@@ -160,6 +176,7 @@ export function WelcomeTour({ open, onClose }: WelcomeTourProps) {
               </button>
             ) : null}
             <button
+              ref={primaryActionRef}
               type="button"
               onClick={() => (isLast ? onClose() : setStepIndex((i) => i + 1))}
               className="rounded-md bg-ink px-3.5 py-1.5 text-sm font-medium text-canvas hover:opacity-90"

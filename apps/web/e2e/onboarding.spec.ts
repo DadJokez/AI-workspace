@@ -34,10 +34,23 @@ test.describe("first-run onboarding", () => {
     await expect(page.getByText("Connect your tools")).toHaveCount(0);
     await expect(page.getByText("About your work")).toHaveCount(0);
 
-    await setup.getByPlaceholder("Atlas").fill("June");
-    await setup.getByRole("button", { name: "Continue" }).click();
+    const nameInput = setup.getByRole("textbox", { name: "Assistant name" });
+    await expect(nameInput).toBeFocused();
+    await expect(page.locator('[data-app-shell="true"]')).toHaveAttribute(
+      "inert",
+      "",
+    );
+    await nameInput.fill("June");
+    await page.keyboard.press("Shift+Tab");
+    await expect(setup.getByRole("button", { name: "Continue" })).toBeFocused();
+    await page.keyboard.press("Enter");
 
     const tour = page.getByRole("dialog", { name: "Welcome tour" });
+    await expect(tour.getByRole("button", { name: "Next", exact: true }))
+      .toBeFocused();
+    await expect(tour.locator('button[aria-label="Next step"]')).toHaveCount(0);
+    await page.keyboard.press("Tab");
+    await expect(tour.getByRole("button", { name: "Skip tour" })).toBeFocused();
     const expectedSteps = [
       "Start in chat",
       "Find created files in Artifacts",
@@ -53,6 +66,9 @@ test.describe("first-run onboarding", () => {
     }
     await tour.getByRole("button", { name: "Get started" }).click();
     await expect(tour).toHaveCount(0);
+    await expect(
+      page.locator('[data-app-shell="true"][inert]'),
+    ).toHaveCount(0);
 
     await expect.poll(() => userPatches).toEqual([
       { assistantName: "June" },
