@@ -32,6 +32,7 @@ test.describe("chat shell guardrails", () => {
     await expect(
       page.getByPlaceholder("Ask anything — / for skills, @ to add context"),
     ).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
     const contextButton = page.getByRole("button", { name: "Add context" });
     await expect(contextButton).toBeVisible();
     const contextLabel = contextButton.getByText("Context", { exact: true });
@@ -48,6 +49,31 @@ test.describe("chat shell guardrails", () => {
           .getByText(COMPARATIVE_VERSION_LABEL),
       ).toBeVisible();
     }
+  });
+
+  test("navigates the account menu with arrow keys and restores focus", async ({
+    page,
+    isMobile,
+  }) => {
+    await installMockComparativeApi(page);
+    await gotoE2EChat(page);
+
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    const trigger = sidebar.getByRole("button", { name: "Account menu" });
+    await trigger.click();
+    const menu = sidebar.getByRole("menu", { name: "Account actions" });
+    const settings = menu.getByRole("menuitem", { name: "Settings" });
+    const signOut = menu.getByRole("menuitem", { name: "Sign out" });
+    await expect(settings).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(signOut).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(settings).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(signOut).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(trigger).toBeFocused();
   });
 
   test("personalizes the greeting, connected tools, and role-aware prompts", async ({

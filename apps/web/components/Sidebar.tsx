@@ -33,6 +33,41 @@ interface NavGroup {
   items: NavItem[];
 }
 
+const MENU_ITEM_SELECTOR = '[role="menuitem"]:not([disabled])';
+
+function handleMenuKeyDown(
+  event: React.KeyboardEvent<HTMLElement>,
+  dismiss: () => void,
+) {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    dismiss();
+    return;
+  }
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+    return;
+  }
+  const items = Array.from(
+    event.currentTarget.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR),
+  ).filter((item) => item.getClientRects().length > 0);
+  if (items.length === 0) return;
+
+  event.preventDefault();
+  const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+  if (event.key === "Home") {
+    items[0]!.focus();
+  } else if (event.key === "End") {
+    items[items.length - 1]!.focus();
+  } else if (event.key === "ArrowDown") {
+    items[(currentIndex + 1 + items.length) % items.length]!.focus();
+  } else {
+    const previousIndex =
+      currentIndex < 0 ? items.length - 1 : currentIndex - 1;
+    items[(previousIndex + items.length) % items.length]!.focus();
+  }
+}
+
 /**
  * Nav layout maps to journeys J2-J5 — chat (J1) is the whole app, so it
  * doesn't appear as a nav item. New chats start from the "+" next to the
@@ -174,6 +209,9 @@ export function Sidebar({
   const userMenuRef = useRef<HTMLDivElement>(null);
   const accountButtonRef = useRef<HTMLButtonElement>(null);
   const threadMenuRef = useRef<HTMLLIElement>(null);
+  const threadMenuPanelRef = useRef<HTMLDivElement>(null);
+  const threadMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const accountMenuPanelRef = useRef<HTMLDivElement>(null);
 
   const navGroups = useMemo<NavGroup[]>(() => {
     if (!isAdmin) return groups;
@@ -303,10 +341,12 @@ export function Sidebar({
         }
         if (openMenuId) {
           setOpenMenuId(null);
+          threadMenuTriggerRef.current?.focus();
           return;
         }
         if (userMenuOpen) {
           setUserMenuOpen(false);
+          accountButtonRef.current?.focus();
           return;
         }
         onClose();
@@ -358,6 +398,26 @@ export function Sidebar({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [userMenuOpen, openMenuId]);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    const frame = window.requestAnimationFrame(() => {
+      threadMenuPanelRef.current
+        ?.querySelector<HTMLElement>(MENU_ITEM_SELECTOR)
+        ?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [openMenuId]);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const frame = window.requestAnimationFrame(() => {
+      accountMenuPanelRef.current
+        ?.querySelector<HTMLElement>(MENU_ITEM_SELECTOR)
+        ?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [userMenuOpen]);
 
   function handleNewChat() {
     setTemporaryOverlayOpen(false);
@@ -432,6 +492,7 @@ export function Sidebar({
     if (!onPinThread) return;
     setMutationError(null);
     setOpenMenuId(null);
+    window.requestAnimationFrame(() => threadMenuTriggerRef.current?.focus());
     try {
       await onPinThread(thread.id, !thread.pinned);
     } catch (error) {
@@ -734,6 +795,8 @@ export function Sidebar({
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
+                                        threadMenuTriggerRef.current =
+                                          e.currentTarget;
                                         setOpenMenuId((v) =>
                                           v === t.id ? null : t.id,
                                         );
@@ -741,6 +804,11 @@ export function Sidebar({
                                       aria-label="Thread actions"
                                       aria-haspopup="menu"
                                       aria-expanded={isMenuOpen}
+                                      aria-controls={
+                                        isMenuOpen
+                                          ? `thread-actions-menu-${t.id}`
+                                          : undefined
+                                      }
                                       className={`mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-canvas/60 hover:text-ink md:h-5 md:w-5 ${
                                         isMenuOpen
                                           ? "opacity-100"
@@ -754,13 +822,23 @@ export function Sidebar({
                               )}
                               {isMenuOpen ? (
                                 <div
+                                  ref={threadMenuPanelRef}
+                                  id={`thread-actions-menu-${t.id}`}
                                   role="menu"
+                                  aria-label={`Actions for ${title}`}
+                                  onKeyDown={(event) =>
+                                    handleMenuKeyDown(event, () => {
+                                      setOpenMenuId(null);
+                                      threadMenuTriggerRef.current?.focus();
+                                    })
+                                  }
                                   className="absolute right-1 top-full z-20 mt-0.5 w-40 overflow-hidden rounded-md border border-hairline bg-surface shadow-md"
                                 >
                                   {onPinThread ? (
                                     <button
                                       type="button"
                                       role="menuitem"
+                                      tabIndex={-1}
                                       onClick={() => void togglePin(t)}
                                       className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-subtle"
                                     >
@@ -772,6 +850,7 @@ export function Sidebar({
                                     <button
                                       type="button"
                                       role="menuitem"
+                                      tabIndex={-1}
                                       onClick={() => startRename(t)}
                                       className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-subtle"
                                     >
@@ -783,6 +862,7 @@ export function Sidebar({
                                     <button
                                       type="button"
                                       role="menuitem"
+                                      tabIndex={-1}
                                       onClick={() => {
                                         setOpenMenuId(null);
                                         setPendingDeleteId(t.id);
@@ -910,6 +990,9 @@ export function Sidebar({
             disabled={!hasAccountMenu}
             aria-haspopup={hasAccountMenu ? "menu" : undefined}
             aria-expanded={hasAccountMenu ? userMenuOpen : undefined}
+            aria-controls={
+              hasAccountMenu && userMenuOpen ? "account-actions-menu" : undefined
+            }
             aria-label={hasAccountMenu ? "Account menu" : undefined}
             title={rail ? userName ?? userEmail ?? "Account" : undefined}
             className={`flex w-full items-center rounded-md py-1 ${
@@ -953,7 +1036,16 @@ export function Sidebar({
 
           {userMenuOpen && hasAccountMenu ? (
             <div
+              ref={accountMenuPanelRef}
+              id="account-actions-menu"
               role="menu"
+              aria-label="Account actions"
+              onKeyDown={(event) =>
+                handleMenuKeyDown(event, () => {
+                  setUserMenuOpen(false);
+                  accountButtonRef.current?.focus();
+                })
+              }
               className={`absolute z-10 overflow-hidden rounded-md border border-hairline bg-surface shadow-md ${
                 rail
                   ? "bottom-2 left-full ml-2 w-44"
@@ -964,6 +1056,7 @@ export function Sidebar({
                 <button
                   type="button"
                   role="menuitem"
+                  tabIndex={-1}
                   onClick={() => {
                     setUserMenuOpen(false);
                     accountButtonRef.current?.focus();
@@ -979,6 +1072,7 @@ export function Sidebar({
                 <button
                   type="button"
                   role="menuitem"
+                  tabIndex={-1}
                   onClick={() => {
                     setUserMenuOpen(false);
                     onSignOut();

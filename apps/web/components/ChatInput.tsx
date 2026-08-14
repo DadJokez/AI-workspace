@@ -1143,6 +1143,7 @@ export function ChatInput({
         <textarea
           data-testid="chat-composer-input"
           data-composer-ready={!disabled && !submitDisabled ? "true" : "false"}
+          aria-label="Message"
           ref={taRef}
           value={text}
           onChange={(e) => {
