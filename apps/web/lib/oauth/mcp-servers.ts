@@ -526,6 +526,13 @@ export async function buildUserMcpServers(
       url: endpoint.url,
       headers,
       ...resolvedToolPolicy,
+      toolPolicies: runtimeToolPoliciesForProvider(
+        status.toolPolicyDecisions ?? {},
+        row.provider,
+      ),
+      // The endpoint may add a tool after this catalog snapshot. Keep that
+      // tool usable during this transition, but never classify it as allowed.
+      defaultToolPolicy: "needs_approval",
       ...(providerConfig.usageNotesByTool
         ? { usageNotesByTool: providerConfig.usageNotesByTool }
         : {}),
@@ -541,6 +548,19 @@ export async function buildUserMcpServers(
     writeAuthorizationReceipts,
     ...(requiredToolName ? { requiredToolName } : {}),
   };
+}
+
+export function runtimeToolPoliciesForProvider(
+  decisions: Record<string, ToolPolicyDecision>,
+  provider: string,
+): Record<string, ToolPolicyDecision> {
+  const prefix = `${provider}__`;
+  return Object.fromEntries(
+    Object.entries(decisions).flatMap(([key, policy]) => {
+      if (!key.startsWith(prefix) || key.length === prefix.length) return [];
+      return [[key.slice(prefix.length), policy]];
+    }),
+  );
 }
 
 function buildProviderAvailability({

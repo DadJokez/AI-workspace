@@ -1,3 +1,4 @@
+import type { ToolPolicyAuditDecision } from "@ai-workspace/agent";
 import type {
   PersistedToolCall,
   PersistedToolResult,
@@ -24,10 +25,10 @@ export interface BuildToolAuditRowsInput {
   calls: readonly PersistedToolCall[];
   results: readonly PersistedToolResult[];
   /**
-   * Catalog policy per `provider__toolName` (#410 P1, observe mode). When
-   * present, every MCP row records what the policy WOULD have decided —
-   * nothing is enforced yet. Built-in web tools use their separate egress
-   * policy and keep this column null; uncataloged MCP tools fail cautious.
+   * Catalog policy per `provider__toolName` (#410). Current executor results
+   * carry the actual decision; this map preserves observe-mode fallback for
+   * started rows, old results, and rolling deployments. Built-in web tools use
+   * their separate egress policy and keep this column null.
    */
   toolPolicyDecisions?: Record<string, ToolPolicyDecision>;
 }
@@ -45,7 +46,7 @@ export interface ToolAuditRow {
   input: Record<string, unknown> | null;
   output: unknown;
   error: string | null;
-  policyDecision: ObservedPolicyDecision | null;
+  policyDecision: ToolPolicyAuditDecision | null;
   metadata: {
     rawToolName?: string;
     modelId: string;
@@ -175,11 +176,12 @@ function buildRow({
       ? redactProviderToolError(provider, result.output)
       : null,
     policyDecision:
-      toolPolicyDecisions && provider && provider !== "web"
-        ? observedPolicyDecision(
-            toolPolicyDecisions[toolActionKey(provider, toolName)],
-          )
-        : null,
+      result?.policyDecision ??
+      observedCatalogPolicyDecision({
+        provider,
+        toolName,
+        toolPolicyDecisions,
+      }),
     metadata: {
       ...(rawToolName ? { rawToolName } : {}),
       modelId,
@@ -189,6 +191,22 @@ function buildRow({
     startedAt: call ? new Date(call.startedAt) : null,
     completedAt: result ? new Date(result.completedAt) : null,
   };
+}
+
+function observedCatalogPolicyDecision({
+  provider,
+  toolName,
+  toolPolicyDecisions,
+}: {
+  provider: string | null;
+  toolName: string;
+  toolPolicyDecisions?: Record<string, ToolPolicyDecision>;
+}): ObservedPolicyDecision | null {
+  return toolPolicyDecisions && provider && provider !== "web"
+    ? observedPolicyDecision(
+        toolPolicyDecisions[toolActionKey(provider, toolName)],
+      )
+    : null;
 }
 
 function buildWebEgressAuditMetadata(

@@ -211,6 +211,7 @@ const EVENT_TYPES = new Set([
   "provider-reasoning-redacted",
   "provider-response-metadata",
   "tool-call",
+  "tool-approval-required",
   "tool-result",
   "usage",
   "error",

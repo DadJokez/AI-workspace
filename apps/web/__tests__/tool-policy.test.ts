@@ -6,6 +6,7 @@ import {
 } from "@/lib/tool-policy";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import { filterAttestedProviders } from "@/lib/tool-attestations";
+import { runtimeToolPoliciesForProvider } from "@/lib/oauth/mcp-servers";
 
 describe("resolveToolPolicy (#410 action-level defaults)", () => {
   it("maps the three action levels deterministically", () => {
@@ -76,6 +77,24 @@ describe("filterAttestedProviders policy surface", () => {
 
   it("returns an empty map with no catalog", () => {
     expect(filterAttestedProviders([], [], []).toolPolicyDecisions).toEqual({});
+  });
+});
+
+describe("runtimeToolPoliciesForProvider", () => {
+  it("maps only exact provider keys back to native MCP tool names", () => {
+    expect(
+      runtimeToolPoliciesForProvider(
+        {
+          github__list_pull_requests: "always_allow",
+          github__create_issue: "needs_approval",
+          google__search_mail: "always_allow",
+        },
+        "github",
+      ),
+    ).toEqual({
+      list_pull_requests: "always_allow",
+      create_issue: "needs_approval",
+    });
   });
 });
 

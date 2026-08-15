@@ -94,6 +94,42 @@ describe("buildToolAuditRows", () => {
     });
   });
 
+  it("prefers the executor's actual policy decision over observe fallback", () => {
+    const rows = buildToolAuditRows({
+      ...base,
+      toolPolicyDecisions: {
+        github__delete_repository: "blocked",
+      },
+      calls: [
+        {
+          id: "call_blocked",
+          name: "github__delete_repository",
+          provider: "github",
+          toolName: "delete_repository",
+          input: { owner: "example", repo: "private" },
+          startedAt: "2026-05-15T12:00:00.000Z",
+        },
+      ],
+      results: [
+        {
+          toolCallId: "call_blocked",
+          output: {
+            error: "tool_policy_blocked",
+            message:
+              "Tool github__delete_repository is blocked by runtime policy.",
+            tool: "github__delete_repository",
+          },
+          isError: true,
+          policyDecision: "blocked",
+          completedAt: "2026-05-15T12:00:00.001Z",
+        },
+      ],
+    });
+
+    expect(rows[0]?.policyDecision).toBe("blocked");
+    expect(rows[0]?.status).toBe("failed");
+  });
+
   it("stamps domain-policy denials and successful fetched hosts", () => {
     const denied = buildToolAuditRows({
       ...base,

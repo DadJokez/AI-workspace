@@ -1,4 +1,8 @@
-import type { ToolCall, ToolResult } from "@ai-workspace/agent";
+import type {
+  ToolCall,
+  ToolPolicyAuditDecision,
+  ToolResult,
+} from "@ai-workspace/agent";
 import {
   redactProviderToolError,
   redactProviderToolPayload,
@@ -22,6 +26,7 @@ export interface PersistedToolResult {
   toolName?: string;
   output: unknown;
   isError: boolean;
+  policyDecision?: ToolPolicyAuditDecision;
   usageNotesDelivered?: boolean;
   completedAt: string;
 }
@@ -89,6 +94,9 @@ export function createToolEventAccumulator(
                   })
               : result.output,
           isError: result.isError === true,
+          ...(result.policyDecision
+            ? { policyDecision: result.policyDecision }
+            : {}),
           ...(result.usageNotesDelivered
             ? { usageNotesDelivered: true }
             : {}),

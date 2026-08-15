@@ -320,6 +320,125 @@ describe("runAgentLoop usage telemetry", () => {
   });
 });
 
+class PolicyToolClient implements BedrockClient {
+  readonly captured: ConverseStreamParams[] = [];
+
+  async *converseStream(
+    params: ConverseStreamParams,
+  ): AsyncIterable<BedrockStreamEvent> {
+    this.captured.push(params);
+    if (this.captured.length === 1) {
+      yield {
+        type: "tool-use",
+        id: "blocked-call",
+        name: "crm__delete_account",
+        input: { accountId: "sensitive-account" },
+      };
+      yield {
+        type: "tool-use",
+        id: "allowed-call",
+        name: "crm__get_account",
+        input: { accountId: "a1" },
+      };
+      yield {
+        type: "tool-use",
+        id: "approval-call",
+        name: "crm__update_account",
+        input: { accountId: "a1" },
+      };
+      yield { type: "stop", reason: "tool_use" };
+      return;
+    }
+    yield { type: "text-delta", text: "Policy results received." };
+    yield { type: "stop", reason: "end_turn" };
+  }
+}
+
+describe("runAgentLoop runtime tool policy (#410)", () => {
+  it("blocks denied handlers and stamps actual or transitional decisions", async () => {
+    const client = new PolicyToolClient();
+    const registry = new ToolRegistry();
+    const blockedHandler = vi.fn(async () => ({ deleted: true }));
+    const allowedHandler = vi.fn(async () => ({ accountId: "a1" }));
+    const approvalHandler = vi.fn(async () => ({ updated: true }));
+    registry.registerAll([
+      {
+        name: "crm__delete_account",
+        description: "Delete an account.",
+        inputSchema: { type: "object", properties: {} },
+        policy: "blocked",
+        handler: blockedHandler,
+      },
+      {
+        name: "crm__get_account",
+        description: "Read an account.",
+        inputSchema: { type: "object", properties: {} },
+        policy: "always_allow",
+        handler: allowedHandler,
+      },
+      {
+        name: "crm__update_account",
+        description: "Update an account.",
+        inputSchema: { type: "object", properties: {} },
+        policy: "needs_approval",
+        handler: approvalHandler,
+      },
+    ]);
+
+    const events = [];
+    for await (const event of runAgentLoop({
+      modelId: "haiku-4-5",
+      messages: [{ role: "user", content: "Update my account." }],
+      registry,
+      context: { userId: "u1" },
+      client,
+    })) {
+      events.push(event);
+    }
+
+    expect(blockedHandler).not.toHaveBeenCalled();
+    expect(allowedHandler).toHaveBeenCalledOnce();
+    expect(approvalHandler).toHaveBeenCalledOnce();
+    expect(events).toContainEqual({
+      type: "tool-result",
+      result: {
+        toolCallId: "blocked-call",
+        output: {
+          error: "tool_policy_blocked",
+          message: "Tool crm__delete_account is blocked by runtime policy.",
+          tool: "crm__delete_account",
+        },
+        isError: true,
+        policyDecision: "blocked",
+      },
+    });
+    expect(events).toContainEqual({
+      type: "tool-result",
+      result: {
+        toolCallId: "allowed-call",
+        output: { accountId: "a1" },
+        policyDecision: "auto_allowed",
+      },
+    });
+    expect(events).toContainEqual({
+      type: "tool-result",
+      result: {
+        toolCallId: "approval-call",
+        output: { updated: true },
+        policyDecision: "would_need_approval",
+      },
+    });
+    const blockedResult = client.captured[1]?.messages
+      .flatMap((message) => message.content)
+      .find(
+        (block) =>
+          block.kind === "tool-result" &&
+          block.toolUseId === "blocked-call",
+      );
+    expect(JSON.stringify(blockedResult)).not.toContain("sensitive-account");
+  });
+});
+
 class RequiredToolClient implements BedrockClient {
   readonly captured: ConverseStreamParams[] = [];
 

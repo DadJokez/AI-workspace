@@ -118,6 +118,14 @@ describe("AgentCoreRuntime", () => {
       runtime.runTurn({
         ...baseInput,
         requiredToolName: "google__create_event",
+        mcpServers: {
+          github: {
+            type: "http",
+            url: "https://mcp.example.test/github",
+            toolPolicies: { list_pull_requests: "always_allow" },
+            defaultToolPolicy: "needs_approval",
+          },
+        },
         userTimeZone: "America/New_York",
         webEgressPolicy: {
           name: "admin_domain_denylist",
@@ -144,6 +152,11 @@ describe("AgentCoreRuntime", () => {
     expect(payload.modelId).toBe("sonnet-4-6");
     expect(payload.userId).toBe("u1");
     expect(payload.requiredToolName).toBe("google__create_event");
+    expect(payload.mcpServers.github).toMatchObject({
+      url: "https://mcp.example.test/github",
+      toolPolicies: { list_pull_requests: "always_allow" },
+      defaultToolPolicy: "needs_approval",
+    });
     expect(payload.webEgressPolicy).toEqual({
       name: "admin_domain_denylist",
       deniedDomains: ["blocked.example"],
