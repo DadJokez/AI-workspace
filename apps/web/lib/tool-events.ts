@@ -27,6 +27,7 @@ export interface PersistedToolResult {
   output: unknown;
   isError: boolean;
   policyDecision?: ToolPolicyAuditDecision;
+  approvalId?: string;
   usageNotesDelivered?: boolean;
   completedAt: string;
 }
@@ -97,6 +98,7 @@ export function createToolEventAccumulator(
           ...(result.policyDecision
             ? { policyDecision: result.policyDecision }
             : {}),
+          ...(result.approvalId ? { approvalId: result.approvalId } : {}),
           ...(result.usageNotesDelivered
             ? { usageNotesDelivered: true }
             : {}),

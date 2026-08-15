@@ -99,6 +99,15 @@ vi.mock("@/lib/tool-events", () => ({
     results: () => [],
   })),
 }));
+vi.mock("@/lib/tool-approvals", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tool-approvals")>();
+  return {
+    ...actual,
+    loadToolApprovalGrants: vi.fn(async () => []),
+    pauseRunForToolApprovals: vi.fn(async () => []),
+    consumeToolApproval: vi.fn(async () => undefined),
+  };
+});
 vi.mock("@/lib/thread-metadata", () => ({
   refreshThreadPresentationMetadata: vi.fn(async () => undefined),
 }));
@@ -179,6 +188,10 @@ import {
   type ExecuteChatTurnInput,
 } from "@/lib/execute-chat-turn";
 import { createToolEventAccumulator } from "@/lib/tool-events";
+import {
+  consumeToolApproval,
+  pauseRunForToolApprovals,
+} from "@/lib/tool-approvals";
 import { appendRunEventBestEffort } from "@/lib/run-events";
 import { createProactiveRunNotification } from "@/lib/notifications";
 import { buildChatContextPack } from "@/lib/chat-context-pack";
@@ -761,6 +774,134 @@ describe("executeChatTurn — timezone grounding (#432)", () => {
     await executeChatTurn(input);
 
     expect(captured.turnInput?.userTimeZone).toBe("Europe/Stockholm");
+  });
+});
+
+describe("executeChatTurn — interactive tool approvals (#410)", () => {
+  it("persists a redacted pause and emits a durable inline approval card", async () => {
+    const calls = [
+      {
+        id: "call-approval",
+        name: "gmail__draft_email",
+        provider: "gmail",
+        toolName: "draft_email",
+        input: { body: "[REDACTED]" },
+        startedAt: "2026-08-15T12:00:00.000Z",
+      },
+    ];
+    vi.mocked(createToolEventAccumulator).mockReturnValueOnce({
+      recordCall: vi.fn(),
+      recordResult: vi.fn(),
+      calls: () => calls,
+      results: () => [],
+    });
+    const approval = {
+      id: "00000000-0000-4000-8000-000000000410",
+      batchId: "00000000-0000-4000-8000-000000000411",
+      toolCallId: "call-approval",
+      toolName: "gmail__draft_email",
+      provider: "gmail",
+      nativeToolName: "draft_email",
+      redactedInput: { body: "[REDACTED]" },
+      status: "pending" as const,
+      requestedAt: "2026-08-15T12:00:00.000Z",
+    };
+    vi.mocked(pauseRunForToolApprovals).mockResolvedValueOnce([approval]);
+    const { input, sent, state } = inlineInput();
+    input.runtime = {
+      name: "agentcore",
+      runTurn: async function* () {
+        yield {
+          type: "tool-call",
+          call: {
+            id: "call-approval",
+            name: "gmail__draft_email",
+            input: { body: "secret draft body" },
+          },
+        };
+        yield {
+          type: "tool-approval-required",
+          requests: [
+            {
+              schema: "comparative.tool-approval-request.v1",
+              toolCallId: "call-approval",
+              toolName: "gmail__draft_email",
+              fingerprint: "a".repeat(64),
+            },
+          ],
+        };
+        yield {
+          type: "usage",
+          tokensIn: 11,
+          tokensOut: 7,
+          inputTokens: 11,
+          cacheReadInputTokens: 0,
+          cacheWriteInputTokens: 0,
+        };
+        yield { type: "done" };
+      },
+    } as unknown as AgentRuntime;
+
+    await executeChatTurn(input);
+
+    expect(pauseRunForToolApprovals).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run-1",
+        userId: "user-1",
+        calls,
+        requests: [
+          expect.objectContaining({
+            toolCallId: "call-approval",
+            fingerprint: "a".repeat(64),
+          }),
+        ],
+      }),
+    );
+    expect(sent).toContainEqual({
+      type: "tool-approval-required",
+      requests: [approval],
+    });
+    expect(sent).toContainEqual({
+      type: "done",
+      stopReason: "approval_required",
+    });
+    expect(
+      state.inserts.find((insert) => insert.table === chatMessages),
+    ).toBeUndefined();
+    expect(JSON.stringify(sent)).not.toContain("secret draft body");
+  });
+
+  it("records the exact approval receipt before accepting a tool result", async () => {
+    const { input } = inlineInput();
+    input.runtime = {
+      name: "agentcore",
+      runTurn: async function* () {
+        yield {
+          type: "tool-approval-consumed",
+          approvalId: "approval-1",
+          toolCallId: "call-1",
+        };
+        yield { type: "text-delta", delta: "The draft is saved." };
+        yield {
+          type: "usage",
+          tokensIn: 11,
+          tokensOut: 7,
+          inputTokens: 11,
+          cacheReadInputTokens: 0,
+          cacheWriteInputTokens: 0,
+        };
+        yield { type: "done" };
+      },
+    } as unknown as AgentRuntime;
+
+    await executeChatTurn(input);
+
+    expect(consumeToolApproval).toHaveBeenCalledWith({
+      db: input.db,
+      approvalId: "approval-1",
+      runId: "run-1",
+      userId: "user-1",
+    });
   });
 });
 

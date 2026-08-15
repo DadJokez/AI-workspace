@@ -603,6 +603,7 @@ export function ChatClient({
     appDraftPendingId,
     artifactProposalPendingId,
     runActionPendingId,
+    toolApprovalPendingRunId,
     handleRecommendationAction,
     handleAppDraftDeploy,
     handleAppProposalDiscard,
@@ -610,6 +611,7 @@ export function ChatClient({
     handleArtifactProposalAction,
     handleArtifactProposalIteration,
     runAction,
+    handleToolApprovalDecision,
   } = useChatActions({
     activeTab,
     slashSkills,
@@ -812,6 +814,7 @@ export function ChatClient({
             appDraftPendingId={appDraftPendingId}
             artifactProposalPendingId={artifactProposalPendingId}
             runActionPendingId={runActionPendingId}
+            toolApprovalPendingRunId={toolApprovalPendingRunId}
             branchPending={branchPending || currentRunActive}
             stickToBottomRef={stickToBottomRef}
             onPickSuggestion={(suggestion) => void send(suggestion)}
@@ -849,6 +852,9 @@ export function ChatClient({
               void handleRecommendationAction(recommendation, status)
             }
             onRunAction={(runId, action) => void runAction(runId, action)}
+            onToolApprovalDecision={(runId, approvalIds, decision) =>
+              void handleToolApprovalDecision(runId, approvalIds, decision)
+            }
             onOpenRunInspector={openRunInspector}
             onBranchMessage={(sourceMessageId) =>
               void branchWork({

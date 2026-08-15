@@ -196,7 +196,11 @@ export default async function AdminRunDetailPage({ params }: Props) {
           {run.skillSlug === "chat-turn" ? (
             <ChatRunActionButtons
               runId={run.id}
-              canCancel={run.status === "queued" || run.status === "running"}
+              canCancel={
+                run.status === "queued" ||
+                run.status === "running" ||
+                run.status === "waiting_for_approval"
+              }
               canRetry={run.status === "failed" || run.status === "canceled"}
               canResume={run.status === "queued" || run.status === "running"}
             />

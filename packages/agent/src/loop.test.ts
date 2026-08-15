@@ -12,6 +12,7 @@ import {
 } from "./loop";
 import { MODELS } from "./models";
 import { ToolRegistry } from "./registry";
+import { toolCallFingerprint } from "./tool-approval";
 
 /** Records every ConverseStreamParams and replies with an empty turn. */
 class CaptureClient implements BedrockClient {
@@ -355,8 +356,7 @@ class PolicyToolClient implements BedrockClient {
 }
 
 describe("runAgentLoop runtime tool policy (#410)", () => {
-  it("blocks denied handlers and stamps actual or transitional decisions", async () => {
-    const client = new PolicyToolClient();
+  function policyRegistry() {
     const registry = new ToolRegistry();
     const blockedHandler = vi.fn(async () => ({ deleted: true }));
     const allowedHandler = vi.fn(async () => ({ accountId: "a1" }));
@@ -384,6 +384,13 @@ describe("runAgentLoop runtime tool policy (#410)", () => {
         handler: approvalHandler,
       },
     ]);
+    return { registry, blockedHandler, allowedHandler, approvalHandler };
+  }
+
+  it("pauses the whole tool batch before any handler runs", async () => {
+    const client = new PolicyToolClient();
+    const { registry, blockedHandler, allowedHandler, approvalHandler } =
+      policyRegistry();
 
     const events = [];
     for await (const event of runAgentLoop({
@@ -397,35 +404,69 @@ describe("runAgentLoop runtime tool policy (#410)", () => {
     }
 
     expect(blockedHandler).not.toHaveBeenCalled();
+    expect(allowedHandler).not.toHaveBeenCalled();
+    expect(approvalHandler).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool-approval-required",
+        requests: [
+          expect.objectContaining({
+            toolCallId: "approval-call",
+            toolName: "crm__update_account",
+            fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+          }),
+        ],
+      }),
+    );
+    expect(
+      events.find((event) => event.type === "tool-approval-required"),
+    ).not.toHaveProperty("requests.0.redactedInput");
+    expect(client.captured).toHaveLength(1);
+  });
+
+  it("executes an exact approved call and stamps its receipt", async () => {
+    const client = new PolicyToolClient();
+    const { registry, blockedHandler, allowedHandler, approvalHandler } =
+      policyRegistry();
+    const approvalId = "approval-1";
+    const events = [];
+    for await (const event of runAgentLoop({
+      modelId: "haiku-4-5",
+      messages: [{ role: "user", content: "Update my account." }],
+      registry,
+      context: { userId: "u1" },
+      client,
+      toolApprovalGrants: [
+        {
+          schema: "comparative.tool-approval-grant.v1",
+          approvalId,
+          toolCallId: "approval-call",
+          fingerprint: await toolCallFingerprint({
+            toolName: "crm__update_account",
+            input: { accountId: "a1" },
+          }),
+          decision: "approved",
+        },
+      ],
+    })) {
+      events.push(event);
+    }
+
+    expect(blockedHandler).not.toHaveBeenCalled();
     expect(allowedHandler).toHaveBeenCalledOnce();
     expect(approvalHandler).toHaveBeenCalledOnce();
     expect(events).toContainEqual({
-      type: "tool-result",
-      result: {
-        toolCallId: "blocked-call",
-        output: {
-          error: "tool_policy_blocked",
-          message: "Tool crm__delete_account is blocked by runtime policy.",
-          tool: "crm__delete_account",
-        },
-        isError: true,
-        policyDecision: "blocked",
-      },
-    });
-    expect(events).toContainEqual({
-      type: "tool-result",
-      result: {
-        toolCallId: "allowed-call",
-        output: { accountId: "a1" },
-        policyDecision: "auto_allowed",
-      },
+      type: "tool-approval-consumed",
+      approvalId,
+      toolCallId: "approval-call",
     });
     expect(events).toContainEqual({
       type: "tool-result",
       result: {
         toolCallId: "approval-call",
         output: { updated: true },
-        policyDecision: "would_need_approval",
+        policyDecision: "approved_by_user",
+        approvalId,
       },
     });
     const blockedResult = client.captured[1]?.messages
@@ -436,6 +477,178 @@ describe("runAgentLoop runtime tool policy (#410)", () => {
           block.toolUseId === "blocked-call",
       );
     expect(JSON.stringify(blockedResult)).not.toContain("sensitive-account");
+  });
+
+  it("turns a denial into a tool result without calling the handler", async () => {
+    const client = new PolicyToolClient();
+    const { registry, approvalHandler } = policyRegistry();
+    const events = [];
+    for await (const event of runAgentLoop({
+      modelId: "haiku-4-5",
+      messages: [{ role: "user", content: "Update my account." }],
+      registry,
+      context: { userId: "u1" },
+      client,
+      toolApprovalGrants: [
+        {
+          schema: "comparative.tool-approval-grant.v1",
+          approvalId: "denial-1",
+          toolCallId: "approval-call",
+          fingerprint: await toolCallFingerprint({
+            toolName: "crm__update_account",
+            input: { accountId: "a1" },
+          }),
+          decision: "denied",
+        },
+      ],
+    })) {
+      events.push(event);
+    }
+
+    expect(approvalHandler).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "tool-result",
+      result: expect.objectContaining({
+        toolCallId: "approval-call",
+        isError: true,
+        policyDecision: "denied",
+        approvalId: "denial-1",
+      }),
+    });
+  });
+
+  it("replays a consumed approval without repeating its side effect", async () => {
+    const client = new PolicyToolClient();
+    const { registry, approvalHandler } = policyRegistry();
+    const events = [];
+    for await (const event of runAgentLoop({
+      modelId: "haiku-4-5",
+      messages: [{ role: "user", content: "Update my account." }],
+      registry,
+      context: { userId: "u1" },
+      client,
+      toolApprovalGrants: [
+        {
+          schema: "comparative.tool-approval-grant.v1",
+          approvalId: "approval-1",
+          toolCallId: "approval-call",
+          fingerprint: await toolCallFingerprint({
+            toolName: "crm__update_account",
+            input: { accountId: "a1" },
+          }),
+          decision: "approved",
+          consumed: true,
+          replayOutput: { updated: true, id: "a1" },
+        },
+      ],
+    })) {
+      events.push(event);
+    }
+
+    expect(approvalHandler).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "tool-result",
+      result: {
+        toolCallId: "approval-call",
+        output: { updated: true, id: "a1" },
+        policyDecision: "approved_by_user",
+        approvalId: "approval-1",
+      },
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "tool-approval-consumed" }),
+    );
+  });
+
+  it("requires a fresh approval when regenerated arguments change", async () => {
+    const client = new PolicyToolClient();
+    const { registry, approvalHandler } = policyRegistry();
+    const events = [];
+    for await (const event of runAgentLoop({
+      modelId: "haiku-4-5",
+      messages: [{ role: "user", content: "Update my account." }],
+      registry,
+      context: { userId: "u1" },
+      client,
+      toolApprovalGrants: [
+        {
+          schema: "comparative.tool-approval-grant.v1",
+          approvalId: "approval-stale",
+          toolCallId: "approval-call",
+          fingerprint: await toolCallFingerprint({
+            toolName: "crm__update_account",
+            input: { accountId: "different-account" },
+          }),
+          decision: "approved",
+        },
+      ],
+    })) {
+      events.push(event);
+    }
+
+    expect(approvalHandler).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "tool-approval-required" }),
+    );
+  });
+
+  it("never shares one approval receipt across duplicate calls", async () => {
+    const client: BedrockClient = {
+      converseStream: async function* () {
+        yield {
+          type: "tool-use",
+          id: "duplicate-1",
+          name: "crm__update_account",
+          input: { accountId: "a1" },
+        };
+        yield {
+          type: "tool-use",
+          id: "duplicate-2",
+          name: "crm__update_account",
+          input: { accountId: "a1" },
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const registry = new ToolRegistry();
+    const handler = vi.fn(async () => ({ updated: true }));
+    registry.register({
+      name: "crm__update_account",
+      description: "Update an account.",
+      inputSchema: { type: "object", properties: {} },
+      policy: "needs_approval",
+      handler,
+    });
+    const events = [];
+    for await (const event of runAgentLoop({
+      modelId: "haiku-4-5",
+      messages: [{ role: "user", content: "Update twice." }],
+      registry,
+      context: { userId: "u1" },
+      client,
+      toolApprovalGrants: [
+        {
+          schema: "comparative.tool-approval-grant.v1",
+          approvalId: "approval-only-one",
+          toolCallId: "duplicate-1",
+          fingerprint: await toolCallFingerprint({
+            toolName: "crm__update_account",
+            input: { accountId: "a1" },
+          }),
+          decision: "approved",
+        },
+      ],
+    })) {
+      events.push(event);
+    }
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool-approval-required",
+        requests: [expect.objectContaining({ toolCallId: "duplicate-2" })],
+      }),
+    );
   });
 });
 

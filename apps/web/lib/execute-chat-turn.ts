@@ -21,6 +21,7 @@ import {
   serializeActivation,
   type AssistantSource,
   type ModelId,
+  type ToolApprovalRequest as AgentToolApprovalRequest,
 } from "@ai-workspace/agent";
 import {
   buildChatContextPack,
@@ -87,6 +88,11 @@ import {
   type ModelFailoverTransition,
 } from "@/lib/model-failover";
 import { createToolEventAccumulator } from "@/lib/tool-events";
+import {
+  consumeToolApproval,
+  loadToolApprovalGrants,
+  pauseRunForToolApprovals,
+} from "@/lib/tool-approvals";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
 import type { RecentToolEvidenceReceipt } from "@/lib/recent-tool-evidence";
@@ -271,6 +277,12 @@ export async function executeChatTurn({
   const timing = lane.kind === "inline" ? lane.timing : undefined;
   const priorOutputs =
     lane.kind === "worker" ? parseStoredOutputs(lane.run.outputs) : {};
+  const toolApprovalGrants = await loadToolApprovalGrants({
+    db,
+    runId,
+    userId,
+    runOutputs: priorOutputs,
+  });
   const webAccessDeclared = skillDeclaresWebAccess(requestedProviders);
   const webAccessState = interactive || webAccessDeclared
     ? "granted"
@@ -846,6 +858,7 @@ export async function executeChatTurn({
   );
   let providerTerminalSeen = false;
   let providerStreamTruncated = false;
+  let pendingToolApprovalRequests: AgentToolApprovalRequest[] = [];
   const failoverCandidates = [
     ...new Set<ModelId>([modelId, ...modelCandidates]),
   ];
@@ -1049,6 +1062,7 @@ export async function executeChatTurn({
         webEgressPolicy,
         ...(requiredToolName ? { requiredToolName } : {}),
         ...(toolDiscovery ? { toolDiscovery } : {}),
+        ...(toolApprovalGrants.length > 0 ? { toolApprovalGrants } : {}),
       },
     })) {
       if (providerTerminalSeen) {
@@ -1180,6 +1194,15 @@ export async function executeChatTurn({
           // would have scrubbed.
           lane.send({ type: "tool-call", call: persistedCall });
         }
+      } else if (ev.type === "tool-approval-required") {
+        pendingToolApprovalRequests = ev.requests;
+      } else if (ev.type === "tool-approval-consumed") {
+        await consumeToolApproval({
+          db,
+          approvalId: ev.approvalId,
+          runId,
+          userId,
+        });
       } else if (ev.type === "tool-result") {
         toolEvents.recordResult(ev.result);
         const persistedResult = toolEvents
@@ -1314,6 +1337,70 @@ export async function executeChatTurn({
         },
       });
     }
+  }
+
+  if (pendingToolApprovalRequests.length > 0) {
+    const pauseOutputs =
+      lane.kind === "worker"
+        ? buildWorkerOutput()
+        : {
+            assistantText,
+            toolCalls: toolEvents.calls(),
+            toolResults: toolEvents.results(),
+            tokensIn,
+            tokensOut,
+            usage: {
+              tokensIn,
+              tokensOut,
+              inputTokens,
+              cacheReadInputTokens,
+              cacheWriteInputTokens,
+            },
+            requestedModelId: lane.requestedModelId,
+            modelId,
+            providerModelId: lane.modelSelection.providerModelId,
+            modelSelection: lane.modelSelection,
+            runtime: runtime.name,
+            runtimeTarget: route.runtimeTarget,
+            ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
+            metrics: buildTimingMetrics(lane.timing),
+          };
+    const approvals = await pauseRunForToolApprovals({
+      db,
+      runId,
+      userId,
+      threadId: thread.id,
+      requests: pendingToolApprovalRequests,
+      calls: toolEvents.calls(),
+      outputs: pauseOutputs,
+      ...(lane.kind === "worker" ? { expectedWorkerId: lane.workerId } : {}),
+    });
+    await persistProviderTraceCapture({
+      db,
+      runId,
+      capture: providerTrace.snapshot(),
+      metadata: { lifecycle: "waiting_for_approval" },
+    });
+    await appendTurnRunEvent(lane, {
+      db,
+      runId,
+      eventType: "tool_approval_required",
+      status: "pending",
+      label: `Waiting for approval to run ${approvals.length} tool ${approvals.length === 1 ? "action" : "actions"}`,
+      metadata: {
+        batchId: approvals[0]?.batchId,
+        approvalIds: approvals.map((approval) => approval.id),
+        tools: approvals.map((approval) => ({
+          provider: approval.provider,
+          toolName: approval.nativeToolName ?? approval.toolName,
+        })),
+      },
+    });
+    if (lane.kind === "inline") {
+      lane.send({ type: "tool-approval-required", requests: approvals });
+      lane.send({ type: "done", stopReason: "approval_required" });
+    }
+    return;
   }
 
   if (

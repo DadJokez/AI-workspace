@@ -11,6 +11,10 @@ import {
   frameUntrustedToolResult,
 } from "./tool-result-framing";
 import {
+  buildToolApprovalRequest,
+  matchingToolApprovalGrant,
+} from "./tool-approval";
+import {
   renderResolvedDateReferences,
   resolveRelativeDateReferences,
 } from "./temporal";
@@ -20,6 +24,8 @@ import type {
   AgentMessage,
   ProviderRequestSnapshot,
   ToolContext,
+  ToolApprovalGrant,
+  ToolApprovalRequest,
   ToolPolicyAuditDecision,
   ToolRuntimePolicy,
 } from "./types";
@@ -68,6 +74,8 @@ export interface RunAgentLoopParams {
   /** Optional sampling temperature. Omitted for normal product defaults. */
   temperature?: number;
   context: ToolContext;
+  /** Durable exact-call approvals supplied by Comparative's policy gate. */
+  toolApprovalGrants?: readonly ToolApprovalGrant[];
   /** Aborts the loop. */
   signal?: AbortSignal;
   /** Override the resolved Bedrock client. Tests pass a fake here. */
@@ -206,6 +214,7 @@ export async function* runAgentLoop(
     agentMessageToBedrock,
   );
   const toolsWithDeliveredUsageNotes = new Set<string>();
+  const consumedApprovalIds = new Set<string>();
 
   let totalTokensIn = 0;
   let totalTokensOut = 0;
@@ -413,6 +422,54 @@ export async function* runAgentLoop(
       return;
     }
 
+    const approvalRequests: ToolApprovalRequest[] = [];
+    for (const call of pendingToolCalls) {
+      const tool = params.registry.get(call.name);
+      if (tool?.policy === "needs_approval") {
+        approvalRequests.push(
+          await buildToolApprovalRequest({
+            call,
+            identity: tool.executionIdentity,
+          }),
+        );
+      }
+    }
+    const approvalRequestsByToolCallId = new Map(
+      approvalRequests.map((request) => [request.toolCallId, request]),
+    );
+    const reservedApprovalIds = new Set(consumedApprovalIds);
+    const approvalGrantsByToolCallId = new Map<string, ToolApprovalGrant>();
+    const ungrantedApprovalRequests = approvalRequests.filter((request) => {
+      const grant = matchingToolApprovalGrant({
+        request,
+        grants: params.toolApprovalGrants ?? [],
+        consumedApprovalIds: reservedApprovalIds,
+      });
+      if (!grant) return true;
+      reservedApprovalIds.add(grant.approvalId);
+      approvalGrantsByToolCallId.set(request.toolCallId, grant);
+      return false;
+    });
+    if (ungrantedApprovalRequests.length > 0) {
+      // Pause the whole tool round before any handler runs. This keeps a batch
+      // atomic: an auto-allowed sibling cannot run twice when the durable run
+      // is resumed after the user decides on the write calls.
+      yield {
+        type: "tool-approval-required",
+        requests: ungrantedApprovalRequests,
+      };
+      yield {
+        type: "usage",
+        tokensIn: totalTokensIn,
+        tokensOut: totalTokensOut,
+        inputTokens: totalInputTokens,
+        cacheReadInputTokens: totalCacheReadInputTokens,
+        cacheWriteInputTokens: totalCacheWriteInputTokens,
+      };
+      yield { type: "done" };
+      return;
+    }
+
     // Execute tool calls and feed the results back as a user-role message.
     const resultBlocks: BedrockContentBlock[] = [];
     for (const call of pendingToolCalls) {
@@ -431,7 +488,35 @@ export async function* runAgentLoop(
         });
         continue;
       }
-      const policyDecision = runtimePolicyAuditDecision(tool.policy);
+      const approvalRequest =
+        tool.policy === "needs_approval"
+          ? approvalRequestsByToolCallId.get(call.id)
+          : undefined;
+      const approvalGrant = approvalRequest
+        ? approvalGrantsByToolCallId.get(call.id)
+        : undefined;
+      if (approvalRequest && !approvalGrant) {
+        yield {
+          type: "error",
+          message: `Approval grant reservation missing for ${tool.name}.`,
+        };
+        return;
+      }
+      if (approvalGrant) consumedApprovalIds.add(approvalGrant.approvalId);
+      if (approvalGrant && !approvalGrant.consumed) {
+        // The application atomically claimed this receipt before invoking the
+        // runtime. This event records which exact tool call consumed it.
+        yield {
+          type: "tool-approval-consumed",
+          approvalId: approvalGrant.approvalId,
+          toolCallId: call.id,
+        };
+      }
+      const policyDecision = approvalGrant
+        ? approvalGrant.decision === "approved"
+          ? "approved_by_user"
+          : "denied"
+        : runtimePolicyAuditDecision(tool.policy);
       if (tool.policy === "blocked") {
         const output = {
           error: TOOL_POLICY_BLOCKED_CODE,
@@ -458,6 +543,60 @@ export async function* runAgentLoop(
         });
         continue;
       }
+      if (approvalGrant?.decision === "denied") {
+        const output = {
+          error: "tool_approval_denied",
+          message: `Permission to run ${tool.name} was denied by the user.`,
+          tool: tool.name,
+        };
+        const text = JSON.stringify(output);
+        yield {
+          type: "tool-result",
+          result: {
+            toolCallId: call.id,
+            output,
+            isError: true,
+            policyDecision: "denied",
+            approvalId: approvalGrant.approvalId,
+          },
+        };
+        resultBlocks.push({
+          kind: "tool-result",
+          toolUseId: call.id,
+          content: tool.untrustedOutput
+            ? frameUntrustedToolResult(tool.name, text)
+            : text,
+          isError: true,
+        });
+        continue;
+      }
+      if (approvalGrant?.consumed) {
+        const output =
+          approvalGrant.replayOutput ??
+          {
+            status: "already_executed",
+            message: `${tool.name} already ran successfully in this run.`,
+          };
+        const text =
+          typeof output === "string" ? output : JSON.stringify(output);
+        yield {
+          type: "tool-result",
+          result: {
+            toolCallId: call.id,
+            output,
+            policyDecision: "approved_by_user",
+            approvalId: approvalGrant.approvalId,
+          },
+        };
+        resultBlocks.push({
+          kind: "tool-result",
+          toolUseId: call.id,
+          content: tool.untrustedOutput
+            ? frameUntrustedToolResult(tool.name, text)
+            : text,
+        });
+        continue;
+      }
       // #497: tools flagged `untrustedOutput` (every MCP-backed tool) get
       // their serialized output nonce-framed as DATA here — the model-visible
       // boundary — while the yielded `tool-result` event keeps the raw output
@@ -480,6 +619,7 @@ export async function* runAgentLoop(
             toolCallId: call.id,
             output,
             ...(policyDecision ? { policyDecision } : {}),
+            ...(approvalGrant ? { approvalId: approvalGrant.approvalId } : {}),
             ...(deliverUsageNotes ? { usageNotesDelivered: true } : {}),
           },
         };
@@ -508,6 +648,7 @@ export async function* runAgentLoop(
             output: msg,
             isError: true,
             ...(policyDecision ? { policyDecision } : {}),
+            ...(approvalGrant ? { approvalId: approvalGrant.approvalId } : {}),
             ...(deliverUsageNotes ? { usageNotesDelivered: true } : {}),
           },
         };
@@ -544,9 +685,7 @@ function runtimePolicyAuditDecision(
     case "always_allow":
       return "auto_allowed";
     case "needs_approval":
-      // The next #410 slice replaces this transitional observation with a
-      // durable approval pause before the handler can execute.
-      return "would_need_approval";
+      return undefined;
     case "blocked":
       return "blocked";
     default:

@@ -4,6 +4,7 @@ import {
   type Database,
   runs,
   type Run,
+  toolApprovalRequests,
 } from "@ai-workspace/db";
 import { and, eq, inArray } from "drizzle-orm";
 
@@ -103,7 +104,11 @@ export async function cancelRun({
       if (run.status === "canceled") {
         return { kind: "kept", outcome: "already_canceled", run };
       }
-      if (run.status !== "queued" && run.status !== "running") {
+      if (
+        run.status !== "queued" &&
+        run.status !== "running" &&
+        run.status !== "waiting_for_approval"
+      ) {
         return { kind: "kept", outcome: "already_terminal", run };
       }
       const committedMessageId = isRecord(run.outputs)
@@ -126,8 +131,26 @@ export async function cancelRun({
         })
         // Defense in depth: the lock already pinned the status, but never let
         // this write stomp a terminal row even if the guards above drift.
-        .where(and(eq(runs.id, run.id), inArray(runs.status, ["queued", "running"])))
+        .where(
+          and(
+            eq(runs.id, run.id),
+            inArray(runs.status, [
+              "queued",
+              "running",
+              "waiting_for_approval",
+            ]),
+          ),
+        )
         .returning({ id: runs.id, status: runs.status });
+      await tx
+        .update(toolApprovalRequests)
+        .set({ status: "expired", decidedAt: now, updatedAt: now })
+        .where(
+          and(
+            eq(toolApprovalRequests.runId, run.id),
+            eq(toolApprovalRequests.status, "pending"),
+          ),
+        );
       return { kind: "canceled", run, updated: updated[0]! };
     },
   );
