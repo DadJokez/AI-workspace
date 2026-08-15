@@ -21,17 +21,19 @@ describe("resolveToolPolicy (#410 action-level defaults)", () => {
 
 describe("observedPolicyDecision", () => {
   it("uses would_* naming so observation cannot read as enforcement", () => {
-    expect(observedPolicyDecision("read")).toBe("auto_allowed");
-    expect(observedPolicyDecision("write")).toBe("would_need_approval");
-    expect(observedPolicyDecision("admin")).toBe("would_block");
+    expect(observedPolicyDecision("always_allow")).toBe("auto_allowed");
+    expect(observedPolicyDecision("needs_approval")).toBe(
+      "would_need_approval",
+    );
+    expect(observedPolicyDecision("blocked")).toBe("would_block");
     expect(observedPolicyDecision(undefined)).toBe(
       "uncataloged_would_need_approval",
     );
   });
 });
 
-describe("filterAttestedProviders toolActions surface", () => {
-  it("exposes the catalog action per provider__tool key", () => {
+describe("filterAttestedProviders policy surface", () => {
+  it("exposes persisted policy per provider__tool key", () => {
     const result = filterAttestedProviders(
       ["github"],
       [
@@ -50,6 +52,7 @@ describe("filterAttestedProviders toolActions surface", () => {
           toolName: "list_pull_requests",
           category: "repos",
           action: "read",
+          policy: "always_allow",
           requiresAttestation: true,
           enabled: true,
         },
@@ -59,19 +62,20 @@ describe("filterAttestedProviders toolActions surface", () => {
           toolName: "create_issue",
           category: "repos",
           action: "write",
+          policy: "blocked",
           requiresAttestation: true,
           enabled: true,
         },
       ],
     );
-    expect(result.toolActions).toEqual({
-      github__list_pull_requests: "read",
-      github__create_issue: "write",
+    expect(result.toolPolicyDecisions).toEqual({
+      github__list_pull_requests: "always_allow",
+      github__create_issue: "blocked",
     });
   });
 
   it("returns an empty map with no catalog", () => {
-    expect(filterAttestedProviders([], [], []).toolActions).toEqual({});
+    expect(filterAttestedProviders([], [], []).toolPolicyDecisions).toEqual({});
   });
 });
 
@@ -102,12 +106,12 @@ describe("buildToolAuditRows policy stamping (observe mode)", () => {
         call("github__ghost_tool", "github", "ghost_tool"),
       ],
       results: [],
-      toolActions: {
-        [toolActionKey("github", "list_pull_requests")]: "read",
-        [toolActionKey("github", "create_issue")]: "write",
+      toolPolicyDecisions: {
+        [toolActionKey("github", "list_pull_requests")]: "always_allow",
+        [toolActionKey("github", "create_issue")]: "needs_approval",
       },
     });
-    expect(rows.map((row) => row.metadata.policyDecision)).toEqual([
+    expect(rows.map((row) => row.policyDecision)).toEqual([
       "auto_allowed",
       "would_need_approval",
       "uncataloged_would_need_approval",
@@ -120,6 +124,6 @@ describe("buildToolAuditRows policy stamping (observe mode)", () => {
       calls: [call("github__list_pull_requests", "github", "list_pull_requests")],
       results: [],
     });
-    expect(rows[0]!.metadata.policyDecision).toBeUndefined();
+    expect(rows[0]!.policyDecision).toBeNull();
   });
 });

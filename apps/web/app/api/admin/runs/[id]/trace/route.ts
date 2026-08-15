@@ -107,6 +107,7 @@ export async function GET(
         input: auditLog.input,
         output: auditLog.output,
         error: auditLog.error,
+        policyDecision: auditLog.policyDecision,
         metadata: auditLog.metadata,
         startedAt: auditLog.startedAt,
         completedAt: auditLog.completedAt,

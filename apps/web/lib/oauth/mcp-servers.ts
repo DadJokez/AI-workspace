@@ -12,7 +12,7 @@ import {
   NOTION_MCP_RELAY_HEADER,
   notionMcpRelayToken,
 } from "@/lib/notion/mcp";
-import type { ToolActionLevel } from "@/lib/tool-policy";
+import type { ToolPolicyDecision } from "@/lib/tool-policy";
 import {
   GOOGLE_MCP_CONTEXT_HEADER,
   GOOGLE_MCP_PATH,
@@ -171,8 +171,8 @@ export interface UserMcpProviderStatus {
     string,
     { allowedTools?: string[]; blockedTools?: string[] }
   >;
-  /** Catalog action per `provider__toolName` for policy audit stamps (#410). */
-  toolActions?: Record<string, ToolActionLevel>;
+  /** Persisted policy per `provider__toolName` for audit stamps (#410). */
+  toolPolicyDecisions?: Record<string, ToolPolicyDecision>;
   providerAvailability?: Record<
     string,
     {
@@ -232,7 +232,7 @@ export async function loadUserMcpProviderStatus(
       executionUnavailableProviders: [],
       comingSoonProviders: [],
       toolPolicies: {},
-      toolActions: {},
+      toolPolicyDecisions: {},
       providerAvailability: {},
     };
   }
@@ -285,7 +285,7 @@ export async function loadUserMcpProviderStatus(
     allowedProviders: attestedProviders,
     deniedProviders,
     toolPolicies: attestedToolPolicies,
-    toolActions,
+    toolPolicyDecisions,
   } =
     await resolveAttestedProviders(db, userId, connectedProviders);
   const credentialUnavailableProviders = attestedProviders.filter(
@@ -324,7 +324,7 @@ export async function loadUserMcpProviderStatus(
     reconnectRequiredProviders,
     comingSoonProviders,
     toolPolicies,
-    toolActions,
+    toolPolicyDecisions,
     providerAvailability: buildProviderAvailability({
       connectedProviders,
       attestedProviders,
@@ -362,6 +362,7 @@ export async function buildUserMcpServers(
 ): Promise<{
   mcpServers: Record<string, McpServerSpec> | undefined;
   deniedProviders: string[];
+  toolPolicyDecisions: Record<string, ToolPolicyDecision>;
   requiredToolName?: string;
   writeAuthorizationReceipts: McpWriteAuthorizationReceipt[];
 }> {
@@ -402,6 +403,7 @@ export async function buildUserMcpServers(
     return {
       mcpServers: undefined,
       deniedProviders: [],
+      toolPolicyDecisions: {},
       writeAuthorizationReceipts,
       ...(requiredToolName ? { requiredToolName } : {}),
     };
@@ -535,6 +537,7 @@ export async function buildUserMcpServers(
   return {
     mcpServers: Object.keys(out).length > 0 ? out : undefined,
     deniedProviders,
+    toolPolicyDecisions: status.toolPolicyDecisions ?? {},
     writeAuthorizationReceipts,
     ...(requiredToolName ? { requiredToolName } : {}),
   };
@@ -754,14 +757,14 @@ async function resolveAttestedProviders(
     string,
     { allowedTools?: string[]; blockedTools?: string[] }
   >;
-  toolActions: Record<string, ToolActionLevel>;
+  toolPolicyDecisions: Record<string, ToolPolicyDecision>;
 }> {
   if (requestedProviders.length === 0) {
     return {
       allowedProviders: [],
       deniedProviders: [],
       toolPolicies: {},
-      toolActions: {},
+      toolPolicyDecisions: {},
     };
   }
   try {
@@ -776,7 +779,7 @@ async function resolveAttestedProviders(
       allowedProviders: [],
       deniedProviders: requestedProviders,
       toolPolicies: {},
-      toolActions: {},
+      toolPolicyDecisions: {},
     };
   }
 }

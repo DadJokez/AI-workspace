@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_WEB_EGRESS_POLICY,
   parseDeniedDomainInput,
+  saveWebEgressPolicy,
 } from "@/lib/web-egress-policy";
 
 describe("web egress policy", () => {
@@ -37,6 +38,24 @@ describe("web egress policy", () => {
     expect(DEFAULT_WEB_EGRESS_POLICY).toEqual({
       name: "admin_domain_denylist",
       deniedDomains: [],
+    });
+  });
+
+  it("persists its admin catalog row with the blocked default policy", async () => {
+    let inserted: Record<string, unknown> | undefined;
+    const query: Record<string, unknown> = {};
+    query.values = (values: Record<string, unknown>) => {
+      inserted = values;
+      return query;
+    };
+    query.onConflictDoUpdate = async () => undefined;
+    const db = { insert: () => query } as never;
+
+    await saveWebEgressPolicy(db, []);
+
+    expect(inserted).toMatchObject({
+      action: "admin",
+      policy: "blocked",
     });
   });
 });

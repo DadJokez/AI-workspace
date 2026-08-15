@@ -316,6 +316,13 @@
       "when": 1786564800000,
       "tag": "0044_studio_browser_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1786752000000,
+      "tag": "0045_tool_policy_persistence",
+      "breakpoints": true
     }
   ]
 }

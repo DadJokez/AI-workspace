@@ -96,6 +96,30 @@ export const toolCatalogActionEnum = pgEnum("tool_catalog_action", [
 export type ToolCatalogAction =
   (typeof toolCatalogActionEnum.enumValues)[number];
 
+export const toolPolicyEnum = pgEnum("tool_policy", [
+  "always_allow",
+  "needs_approval",
+  "blocked",
+]);
+
+export type ToolPolicy = (typeof toolPolicyEnum.enumValues)[number];
+
+export const toolPolicyAuditDecisionEnum = pgEnum(
+  "tool_policy_audit_decision",
+  [
+    "auto_allowed",
+    "approved_by_user",
+    "denied",
+    "blocked",
+    "would_need_approval",
+    "would_block",
+    "uncataloged_would_need_approval",
+  ],
+);
+
+export type ToolPolicyAuditDecision =
+  (typeof toolPolicyAuditDecisionEnum.enumValues)[number];
+
 export const userToolAttestationScopeEnum = pgEnum(
   "user_tool_attestation_scope",
   ["provider", "category", "tool"],
@@ -1440,6 +1464,7 @@ export const toolsCatalog = pgTable(
     description: text("description"),
     category: text("category").notNull().default("general"),
     action: toolCatalogActionEnum("action").notNull().default("read"),
+    policy: toolPolicyEnum("policy").notNull().default("needs_approval"),
     requiresAttestation: boolean("requires_attestation")
       .notNull()
       .default(true),
@@ -1558,6 +1583,7 @@ export const auditLog = pgTable(
     input: jsonb("input"),
     output: jsonb("output"),
     error: text("error"),
+    policyDecision: toolPolicyAuditDecisionEnum("policy_decision"),
     metadata: jsonb("metadata"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),

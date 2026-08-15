@@ -365,6 +365,7 @@ export async function POST(req: Request) {
       runtime: runtime.name,
       calls: toolEvents.calls(),
       results: toolEvents.results(),
+      toolPolicyDecisions: mcpAccess.toolPolicyDecisions,
     });
     if (auditRows.length > 0) {
       await db.insert(auditLog).values(auditRows);
