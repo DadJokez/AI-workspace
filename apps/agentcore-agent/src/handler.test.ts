@@ -154,6 +154,38 @@ describe("parseInvocationPayload just-in-time tool guidance", () => {
     });
   });
 
+  it("keeps valid runtime policies and drops invalid policy values", () => {
+    const payload = parseInvocationPayload({
+      ...BASE_PAYLOAD,
+      mcpServers: {
+        github: {
+          url: "https://mcp.example.test",
+          toolPolicies: {
+            list_pull_requests: "always_allow",
+            create_issue: "needs_approval",
+            delete_repository: "blocked",
+            invalid: "allow_everything",
+          },
+          defaultToolPolicy: "needs_approval",
+        },
+        junk: {
+          url: "https://junk.example.test",
+          defaultToolPolicy: "anything",
+        },
+      },
+    });
+
+    expect(payload.mcpServers?.github?.toolPolicies).toEqual({
+      list_pull_requests: "always_allow",
+      create_issue: "needs_approval",
+      delete_repository: "blocked",
+    });
+    expect(payload.mcpServers?.github?.defaultToolPolicy).toBe(
+      "needs_approval",
+    );
+    expect(payload.mcpServers?.junk?.defaultToolPolicy).toBeUndefined();
+  });
+
   it("keeps the canonical displayName and drops junk values (#713)", () => {
     const payload = parseInvocationPayload({
       ...BASE_PAYLOAD,

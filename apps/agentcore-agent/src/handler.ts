@@ -134,6 +134,8 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
           headers?: Record<string, string>;
           allowedTools?: unknown;
           blockedTools?: unknown;
+          toolPolicies?: unknown;
+          defaultToolPolicy?: unknown;
           usageNotesByTool?: unknown;
           displayName?: unknown;
         };
@@ -150,6 +152,8 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
                 (tool): tool is string => typeof tool === "string",
               )
             : undefined,
+          toolPolicies: parseToolPolicies(s.toolPolicies),
+          defaultToolPolicy: parseToolPolicy(s.defaultToolPolicy),
           usageNotesByTool: parseUsageNotesByTool(s.usageNotesByTool),
           displayName:
             typeof s.displayName === "string" && s.displayName.trim()
@@ -317,6 +321,29 @@ function parseUsageNotesByTool(
     (entry): entry is [string, string] =>
       typeof entry[1] === "string" && entry[1].trim().length > 0,
   );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function parseToolPolicy(
+  raw: unknown,
+): "always_allow" | "needs_approval" | "blocked" | undefined {
+  return raw === "always_allow" ||
+    raw === "needs_approval" ||
+    raw === "blocked"
+    ? raw
+    : undefined;
+}
+
+function parseToolPolicies(
+  raw: unknown,
+): McpHttpServerSpec["toolPolicies"] {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const entries = Object.entries(raw).flatMap(([toolName, policy]) => {
+    const parsed = parseToolPolicy(policy);
+    return parsed ? [[toolName, parsed] as const] : [];
+  });
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 

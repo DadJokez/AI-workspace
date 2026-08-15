@@ -1,3 +1,5 @@
+import type { ToolRuntimePolicy } from "@ai-workspace/agent";
+
 /**
  * Tri-state runtime tool policy (#410 P1, from
  * docs/specs/connector-governance-architecture.md).
@@ -11,17 +13,16 @@
  *   write → needs_approval
  *   admin → blocked
  *
- * P1 runs in OBSERVE mode only: nothing is enforced, and every
- * mcp_tool_execution audit row records what the policy WOULD have decided
- * ("would_*" values), so the enforcement flip (P2: paused-run approval
- * queue + blocked refusals) lands against measured reality instead of
- * guesses. Tools missing from the catalog observe as needs_approval —
- * fail toward caution, never toward silence.
+ * Blocked MCP tools are refused in the shared runtime loop. Until the durable
+ * approval queue lands, needs_approval remains a "would_need_approval" audit
+ * observation and keeps the existing provider-specific write controls. Tools
+ * missing from the catalog also observe as needs_approval — fail toward
+ * caution, never toward silence.
  */
 
 export type ToolActionLevel = "read" | "write" | "admin";
 
-export type ToolPolicyDecision = "always_allow" | "needs_approval" | "blocked";
+export type ToolPolicyDecision = ToolRuntimePolicy;
 
 /** Stable key shape shared by catalog policy maps across runtime lanes. */
 export function toolActionKey(provider: string, toolName: string): string {

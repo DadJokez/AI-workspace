@@ -175,6 +175,8 @@ export function pickHttpMcpServers(
         headers: spec.headers,
         allowedTools: spec.allowedTools,
         blockedTools: spec.blockedTools,
+        toolPolicies: spec.toolPolicies,
+        defaultToolPolicy: spec.defaultToolPolicy,
         usageNotesByTool: spec.usageNotesByTool,
         displayName: spec.displayName,
       };

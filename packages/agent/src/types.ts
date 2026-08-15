@@ -13,6 +13,38 @@ export type ToolHandler<TInput = unknown, TOutput = unknown> = (
   ctx: ToolContext,
 ) => Promise<TOutput>;
 
+export type ToolRuntimePolicy =
+  | "always_allow"
+  | "needs_approval"
+  | "blocked";
+
+export type ToolPolicyAuditDecision =
+  | "auto_allowed"
+  | "approved_by_user"
+  | "denied"
+  | "blocked"
+  | "would_need_approval"
+  | "would_block"
+  | "uncataloged_would_need_approval";
+
+/** Endpoint-bound identity for a tool mounted from a trusted MCP server. */
+export interface McpToolExecutionIdentity {
+  kind: "mcp";
+  provider: string;
+  endpoint: string;
+  nativeToolName: string;
+}
+
+/** Serializable pause payload used by both runtime lanes in the approval slice. */
+export interface ToolApprovalRequest {
+  schema: "comparative.tool-approval-request.v1";
+  toolCallId: string;
+  toolName: string;
+  identity?: McpToolExecutionIdentity;
+  /** Must be redacted before this request is persisted or shown to a user. */
+  redactedInput: unknown;
+}
+
 /**
  * Standard tool shape. Same interface whether the handler hits Microsoft Graph,
  * an internal API, a future MCP server, or pure compute. Bedrock's converse API
@@ -23,6 +55,10 @@ export interface Tool<TInput = unknown, TOutput = unknown> {
   description: string;
   inputSchema: JSONSchema7;
   handler: ToolHandler<TInput, TOutput>;
+  /** Deterministic runtime policy resolved before the tool reaches the loop. */
+  policy?: ToolRuntimePolicy;
+  /** Exact trusted endpoint/tool identity used to resolve MCP policy. */
+  executionIdentity?: McpToolExecutionIdentity;
   /**
    * Trusted application guidance delivered with this tool's first completed
    * result in an agent turn. It is intentionally omitted from the mounted
@@ -69,6 +105,8 @@ export interface ToolResult {
   toolCallId: string;
   output: unknown;
   isError?: boolean;
+  /** Actual runtime decision when enforcement metadata reached the executor. */
+  policyDecision?: ToolPolicyAuditDecision;
   /** True only when this result carried the tool's JIT usage guidance. */
   usageNotesDelivered?: boolean;
 }
@@ -157,6 +195,7 @@ export type AgentEvent =
     }
   | ({ type: "provider-response-metadata" } & ProviderResponseMetadata)
   | { type: "tool-call"; call: ToolCall }
+  | { type: "tool-approval-required"; request: ToolApprovalRequest }
   | { type: "tool-result"; result: ToolResult }
   | ({ type: "usage" } & TokenUsage)
   | {

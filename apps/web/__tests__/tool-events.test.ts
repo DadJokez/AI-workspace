@@ -55,6 +55,7 @@ describe("createToolEventAccumulator", () => {
     acc.recordResult({
       toolCallId: "call_1",
       output: [{ number: 50 }],
+      policyDecision: "auto_allowed",
       usageNotesDelivered: true,
     });
 
@@ -76,6 +77,7 @@ describe("createToolEventAccumulator", () => {
         toolName: "list_pull_requests",
         output: [{ number: 50 }],
         isError: false,
+        policyDecision: "auto_allowed",
         usageNotesDelivered: true,
         completedAt: "2026-05-15T10:00:01.000Z",
       },

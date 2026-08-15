@@ -2,15 +2,19 @@ export type {
   AgentEvent,
   AgentMessage,
   AgentMessageAttachment,
+  McpToolExecutionIdentity,
   ProviderRequestContentBlock,
   ProviderRequestSnapshot,
   ProviderResponseMetadata,
   Role,
   Tool,
+  ToolApprovalRequest,
   ToolCall,
   ToolContext,
   ToolHandler,
+  ToolPolicyAuditDecision,
   ToolResult,
+  ToolRuntimePolicy,
   TokenUsage,
 } from "./types";
 
@@ -66,6 +70,7 @@ export type {
 export {
   DEFAULT_MAX_TOOL_ITERATIONS,
   MAX_TOKENS_TRUNCATION_NOTICE,
+  TOOL_POLICY_BLOCKED_CODE,
   runAgentLoop,
 } from "./loop";
 export type { RunAgentLoopParams } from "./loop";

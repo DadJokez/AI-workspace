@@ -20,6 +20,8 @@ import type {
   AgentMessage,
   ProviderRequestSnapshot,
   ToolContext,
+  ToolPolicyAuditDecision,
+  ToolRuntimePolicy,
 } from "./types";
 
 export interface RunAgentLoopParams {
@@ -73,6 +75,8 @@ export interface RunAgentLoopParams {
 }
 
 export const DEFAULT_MAX_TOOL_ITERATIONS = 8;
+
+export const TOOL_POLICY_BLOCKED_CODE = "tool_policy_blocked";
 
 const TOOL_LIMIT_SYNTHESIS_INSTRUCTION =
   "You have reached this turn's tool-step limit. Use the tool results already in context to provide the best complete answer now. Do not request more tools. Clearly state any remaining unknowns.";
@@ -427,6 +431,33 @@ export async function* runAgentLoop(
         });
         continue;
       }
+      const policyDecision = runtimePolicyAuditDecision(tool.policy);
+      if (tool.policy === "blocked") {
+        const output = {
+          error: TOOL_POLICY_BLOCKED_CODE,
+          message: `Tool ${tool.name} is blocked by runtime policy.`,
+          tool: tool.name,
+        };
+        const text = JSON.stringify(output);
+        yield {
+          type: "tool-result",
+          result: {
+            toolCallId: call.id,
+            output,
+            isError: true,
+            policyDecision: "blocked",
+          },
+        };
+        resultBlocks.push({
+          kind: "tool-result",
+          toolUseId: call.id,
+          content: tool.untrustedOutput
+            ? frameUntrustedToolResult(tool.name, text)
+            : text,
+          isError: true,
+        });
+        continue;
+      }
       // #497: tools flagged `untrustedOutput` (every MCP-backed tool) get
       // their serialized output nonce-framed as DATA here — the model-visible
       // boundary — while the yielded `tool-result` event keeps the raw output
@@ -448,6 +479,7 @@ export async function* runAgentLoop(
           result: {
             toolCallId: call.id,
             output,
+            ...(policyDecision ? { policyDecision } : {}),
             ...(deliverUsageNotes ? { usageNotesDelivered: true } : {}),
           },
         };
@@ -475,6 +507,7 @@ export async function* runAgentLoop(
             toolCallId: call.id,
             output: msg,
             isError: true,
+            ...(policyDecision ? { policyDecision } : {}),
             ...(deliverUsageNotes ? { usageNotesDelivered: true } : {}),
           },
         };
@@ -502,6 +535,23 @@ export async function* runAgentLoop(
     cacheWriteInputTokens: totalCacheWriteInputTokens,
   };
   yield { type: "done" };
+}
+
+function runtimePolicyAuditDecision(
+  policy: ToolRuntimePolicy | undefined,
+): ToolPolicyAuditDecision | undefined {
+  switch (policy) {
+    case "always_allow":
+      return "auto_allowed";
+    case "needs_approval":
+      // The next #410 slice replaces this transitional observation with a
+      // durable approval pause before the handler can execute.
+      return "would_need_approval";
+    case "blocked":
+      return "blocked";
+    default:
+      return undefined;
+  }
 }
 
 function buildProviderRequestSnapshot({

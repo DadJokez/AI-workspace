@@ -3,6 +3,7 @@ import type {
   AgentMessage,
   DiscoveryCatalogEntry,
   ToolContext,
+  ToolRuntimePolicy,
 } from "@ai-workspace/agent";
 import type { WebEgressPolicy } from "@ai-workspace/agent/web-egress-policy";
 
@@ -25,6 +26,8 @@ export type McpServerSpec =
       headers?: Record<string, string>;
       allowedTools?: string[];
       blockedTools?: string[];
+      toolPolicies?: Record<string, ToolRuntimePolicy>;
+      defaultToolPolicy?: ToolRuntimePolicy;
       /** Provider-native tool name -> trusted first-result usage guidance. */
       usageNotesByTool?: Record<string, string>;
       /**
