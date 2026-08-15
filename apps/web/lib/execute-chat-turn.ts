@@ -29,7 +29,7 @@ import {
 } from "@/lib/chat-context-pack";
 import { loadUserCapabilityGraph } from "@/lib/capability-graph";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
-import type { ToolActionLevel } from "@/lib/tool-policy";
+import type { ToolPolicyDecision } from "@/lib/tool-policy";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 import type { ChatExecutionMode } from "@/lib/chat-execution-mode";
 import { persistActivationFromEvent } from "@/lib/thread-activation";
@@ -1486,7 +1486,7 @@ export async function executeChatTurn({
     modelId,
     runtimeName: runtime.name,
     runtimeTarget: route.runtimeTarget,
-    toolActions: providerStatus.toolActions,
+    toolPolicyDecisions: providerStatus.toolPolicyDecisions,
     assistantText,
     tokensIn,
     tokensOut,
@@ -1555,7 +1555,7 @@ async function persistChatTurnResult({
   modelId,
   runtimeName,
   runtimeTarget,
-  toolActions,
+  toolPolicyDecisions,
   assistantText,
   tokensIn,
   tokensOut,
@@ -1589,7 +1589,7 @@ async function persistChatTurnResult({
   modelId: string;
   runtimeName: string;
   runtimeTarget: ChatRuntimeRoute["runtimeTarget"];
-  toolActions?: Record<string, ToolActionLevel>;
+  toolPolicyDecisions?: Record<string, ToolPolicyDecision>;
   assistantText: string;
   tokensIn: number;
   tokensOut: number;
@@ -1706,7 +1706,7 @@ async function persistChatTurnResult({
       runtime: runtimeName,
       calls: toolCalls,
       results: toolResults,
-      toolActions,
+      toolPolicyDecisions,
     });
     if (toolAuditRows.length > 0) {
       await db.insert(auditLog).values(toolAuditRows);

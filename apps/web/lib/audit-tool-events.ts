@@ -11,7 +11,7 @@ import {
   observedPolicyDecision,
   toolActionKey,
   type ObservedPolicyDecision,
-  type ToolActionLevel,
+  type ToolPolicyDecision,
 } from "@/lib/tool-policy";
 
 export interface BuildToolAuditRowsInput {
@@ -24,12 +24,12 @@ export interface BuildToolAuditRowsInput {
   calls: readonly PersistedToolCall[];
   results: readonly PersistedToolResult[];
   /**
-   * Catalog action per `provider__toolName` (#410 P1, observe mode). When
-   * present, every row records what the tri-state policy WOULD have decided
-   * — nothing is enforced yet. Absent (e.g. builtin web tools with no
-   * catalog rows), the stamp is omitted rather than guessed.
+   * Catalog policy per `provider__toolName` (#410 P1, observe mode). When
+   * present, every MCP row records what the policy WOULD have decided —
+   * nothing is enforced yet. Absent (e.g. builtin web tools), the column is
+   * null rather than guessed.
    */
-  toolActions?: Record<string, ToolActionLevel>;
+  toolPolicyDecisions?: Record<string, ToolPolicyDecision>;
 }
 
 export interface ToolAuditRow {
@@ -45,11 +45,11 @@ export interface ToolAuditRow {
   input: Record<string, unknown> | null;
   output: unknown;
   error: string | null;
+  policyDecision: ObservedPolicyDecision | null;
   metadata: {
     rawToolName?: string;
     modelId: string;
     runtime: string;
-    policyDecision?: ObservedPolicyDecision;
     webEgress?: {
       outcome: "allowed" | "denied";
       reason?: "denied_domain_policy";
@@ -72,7 +72,7 @@ export function buildToolAuditRows({
   runtime,
   calls,
   results,
-  toolActions,
+  toolPolicyDecisions,
 }: BuildToolAuditRowsInput): ToolAuditRow[] {
   const resultsById = new Map(results.map((result) => [result.toolCallId, result]));
   const callsById = new Map(calls.map((call) => [call.id, call]));
@@ -90,7 +90,7 @@ export function buildToolAuditRows({
         runtime,
         call,
         result,
-        toolActions,
+        toolPolicyDecisions,
       }),
     );
   }
@@ -106,7 +106,7 @@ export function buildToolAuditRows({
         modelId,
         runtime,
         result,
-        toolActions,
+        toolPolicyDecisions,
       }),
     );
   }
@@ -123,7 +123,7 @@ function buildRow({
   runtime,
   call,
   result,
-  toolActions,
+  toolPolicyDecisions,
 }: {
   actorUserId: string;
   chatThreadId?: string | null;
@@ -133,7 +133,7 @@ function buildRow({
   runtime: string;
   call?: PersistedToolCall;
   result?: PersistedToolResult;
-  toolActions?: Record<string, ToolActionLevel>;
+  toolPolicyDecisions?: Record<string, ToolPolicyDecision>;
 }): ToolAuditRow {
   const status = !result
     ? "started"
@@ -174,18 +174,16 @@ function buildRow({
     error: result?.isError
       ? redactProviderToolError(provider, result.output)
       : null,
+    policyDecision:
+      toolPolicyDecisions && provider
+        ? observedPolicyDecision(
+            toolPolicyDecisions[toolActionKey(provider, toolName)],
+          )
+        : null,
     metadata: {
       ...(rawToolName ? { rawToolName } : {}),
       modelId,
       runtime,
-      // #410 P1 observe mode: what the tri-state policy WOULD have decided.
-      ...(toolActions && provider
-        ? {
-            policyDecision: observedPolicyDecision(
-              toolActions[toolActionKey(provider, toolName)],
-            ),
-          }
-        : {}),
       ...(webEgress ? { webEgress } : {}),
     },
     startedAt: call ? new Date(call.startedAt) : null,

@@ -50,6 +50,7 @@ describe("buildToolAuditRows", () => {
         input: { state: "open" },
         output: [{ number: 53 }],
         error: null,
+        policyDecision: null,
         metadata: {
           rawToolName: "github_list_pull_requests",
           modelId: "sonnet-4-6",

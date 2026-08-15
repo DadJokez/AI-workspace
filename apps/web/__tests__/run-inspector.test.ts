@@ -33,7 +33,15 @@ describe("parseRunInspectorTrace", () => {
         },
         { id: "invalid-event" },
       ],
-      auditEvents: [],
+      auditEvents: [
+        {
+          id: "audit-1",
+          actionType: "mcp_tool_execution",
+          status: "succeeded",
+          policyDecision: "would_need_approval",
+          createdAt: "2026-07-15T01:00:02.000Z",
+        },
+      ],
     });
 
     expect(trace).not.toBeNull();
@@ -49,6 +57,9 @@ describe("parseRunInspectorTrace", () => {
     });
     expect(trace?.events).toHaveLength(1);
     expect(trace?.events[0]?.eventType).toBe("provider_reasoning");
+    expect(trace?.auditEvents[0]?.policyDecision).toBe(
+      "would_need_approval",
+    );
   });
 
   it("rejects an unknown trace schema", () => {

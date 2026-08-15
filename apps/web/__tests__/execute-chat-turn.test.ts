@@ -59,7 +59,7 @@ vi.mock("@/lib/oauth/mcp-servers", () => ({
     connectedProviders: ["github", "salesforce"],
     allowedProviders: ["github"],
     deniedProviders: ["salesforce"],
-    toolActions: {},
+    toolPolicyDecisions: {},
   })),
 }));
 vi.mock("@/lib/artifact-context", () => ({
