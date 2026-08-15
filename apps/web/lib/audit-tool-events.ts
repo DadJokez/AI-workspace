@@ -26,8 +26,8 @@ export interface BuildToolAuditRowsInput {
   /**
    * Catalog policy per `provider__toolName` (#410 P1, observe mode). When
    * present, every MCP row records what the policy WOULD have decided —
-   * nothing is enforced yet. Absent (e.g. builtin web tools), the column is
-   * null rather than guessed.
+   * nothing is enforced yet. Built-in web tools use their separate egress
+   * policy and keep this column null; uncataloged MCP tools fail cautious.
    */
   toolPolicyDecisions?: Record<string, ToolPolicyDecision>;
 }
@@ -175,7 +175,7 @@ function buildRow({
       ? redactProviderToolError(provider, result.output)
       : null,
     policyDecision:
-      toolPolicyDecisions && provider
+      toolPolicyDecisions && provider && provider !== "web"
         ? observedPolicyDecision(
             toolPolicyDecisions[toolActionKey(provider, toolName)],
           )

@@ -4,6 +4,7 @@ import {
 } from "@ai-workspace/agent/web-egress-policy";
 import { type Database, toolsCatalog } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
+import { resolveToolPolicy } from "@/lib/tool-policy";
 
 export const WEB_EGRESS_SETTINGS_PROVIDER = "builtin";
 export const WEB_EGRESS_SETTINGS_TOOL = "__web_egress_policy__";
@@ -49,6 +50,7 @@ export async function saveWebEgressPolicy(
         "Admin-global deny-wins domain policy for built-in web tools.",
       category: "policy",
       action: "admin",
+      policy: resolveToolPolicy("admin"),
       requiresAttestation: false,
       enabled: true,
       metadata: policy,

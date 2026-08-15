@@ -97,6 +97,7 @@ describe("buildToolAuditRows", () => {
   it("stamps domain-policy denials and successful fetched hosts", () => {
     const denied = buildToolAuditRows({
       ...base,
+      toolPolicyDecisions: {},
       calls: [
         {
           id: "call_denied",
@@ -129,9 +130,11 @@ describe("buildToolAuditRows", () => {
       hostname: "blocked.example",
       matchedDomain: "blocked.example",
     });
+    expect(denied[0]?.policyDecision).toBeNull();
 
     const allowed = buildToolAuditRows({
       ...base,
+      toolPolicyDecisions: {},
       calls: [
         {
           id: "call_allowed",
@@ -155,6 +158,7 @@ describe("buildToolAuditRows", () => {
       outcome: "allowed",
       fetchedHosts: ["one.example", "two.example"],
     });
+    expect(allowed[0]?.policyDecision).toBeNull();
   });
 
   it("redacts sensitive audit inputs, outputs, and errors", () => {
