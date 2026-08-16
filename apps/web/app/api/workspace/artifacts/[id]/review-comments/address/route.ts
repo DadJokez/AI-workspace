@@ -29,6 +29,7 @@ import {
   requestLimitConfig,
 } from "@/lib/request-limits";
 import { appendRunEvent } from "@/lib/run-events";
+import { resolveAutonomyPreset } from "@/lib/autonomy-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -222,6 +223,7 @@ export async function POST(
           threadId: thread.id,
           userMessageId: requestMessageId,
           requestedByUserId: session.user.id,
+          autonomyPreset: resolveAutonomyPreset("artifact_review").name,
           executionMode: "local",
           modelOverride: false,
           runtimeRoute: ARTIFACT_REVIEW_ROUTE,

@@ -14,6 +14,7 @@ import {
   type ObservedPolicyDecision,
   type ToolPolicyDecision,
 } from "@/lib/tool-policy";
+import type { AutonomyPresetName } from "@/lib/autonomy-presets";
 
 export interface BuildToolAuditRowsInput {
   actorUserId: string;
@@ -22,6 +23,7 @@ export interface BuildToolAuditRowsInput {
   runId?: string | null;
   modelId: string;
   runtime: string;
+  autonomyPreset?: AutonomyPresetName;
   calls: readonly PersistedToolCall[];
   results: readonly PersistedToolResult[];
   /**
@@ -52,6 +54,7 @@ export interface ToolAuditRow {
     approvalId?: string;
     modelId: string;
     runtime: string;
+    autonomyPreset: AutonomyPresetName;
     webEgress?: {
       outcome: "allowed" | "denied";
       reason?: "denied_domain_policy";
@@ -72,6 +75,7 @@ export function buildToolAuditRows({
   runId = null,
   modelId,
   runtime,
+  autonomyPreset = "interactive",
   calls,
   results,
   toolPolicyDecisions,
@@ -90,6 +94,7 @@ export function buildToolAuditRows({
         runId,
         modelId,
         runtime,
+        autonomyPreset,
         call,
         result,
         toolPolicyDecisions,
@@ -107,6 +112,7 @@ export function buildToolAuditRows({
         runId,
         modelId,
         runtime,
+        autonomyPreset,
         result,
         toolPolicyDecisions,
       }),
@@ -123,6 +129,7 @@ function buildRow({
   runId,
   modelId,
   runtime,
+  autonomyPreset,
   call,
   result,
   toolPolicyDecisions,
@@ -133,6 +140,7 @@ function buildRow({
   runId?: string | null;
   modelId: string;
   runtime: string;
+  autonomyPreset: AutonomyPresetName;
   call?: PersistedToolCall;
   result?: PersistedToolResult;
   toolPolicyDecisions?: Record<string, ToolPolicyDecision>;
@@ -188,6 +196,7 @@ function buildRow({
       ...(result?.approvalId ? { approvalId: result.approvalId } : {}),
       modelId,
       runtime,
+      autonomyPreset,
       ...(webEgress ? { webEgress } : {}),
     },
     startedAt: call ? new Date(call.startedAt) : null,

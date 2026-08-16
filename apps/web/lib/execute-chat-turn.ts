@@ -30,6 +30,12 @@ import {
 } from "@/lib/chat-context-pack";
 import { loadUserCapabilityGraph } from "@/lib/capability-graph";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
+import {
+  buildAutonomyReceipt,
+  countUnattendedWriteDenials,
+  resolveAutonomyPreset,
+  type AutonomyPresetName,
+} from "@/lib/autonomy-presets";
 import type { ToolPolicyDecision } from "@/lib/tool-policy";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 import type { ChatExecutionMode } from "@/lib/chat-execution-mode";
@@ -277,10 +283,10 @@ export async function executeChatTurn({
   const timing = lane.kind === "inline" ? lane.timing : undefined;
   const priorOutputs =
     lane.kind === "worker" ? parseStoredOutputs(lane.run.outputs) : {};
-  const unattended =
-    lane.kind === "worker" &&
-    (lane.run.triggerType === "scheduled" ||
-      lane.run.triggerType === "github_event");
+  const autonomyPreset = resolveAutonomyPreset(
+    lane.kind === "worker" ? lane.run.triggerType : "chat",
+  );
+  const unattended = autonomyPreset.name === "unattended";
   const skillId =
     lane.kind === "worker" ? lane.run.skillId ?? undefined : activeSkillPrompt?.id;
   const exactToolApprovalGrants = unattended
@@ -668,6 +674,7 @@ export async function executeChatTurn({
       policy: webEgressPolicy.name,
       deniedDomainCount: webEgressPolicy.deniedDomains.length,
     },
+    autonomyPreset: autonomyPreset.name,
     ...(lane.kind === "worker" ? { forcePreamble: true } : {}),
     activeSkill: activeSkillPrompt ?? null,
   });
@@ -726,6 +733,7 @@ export async function executeChatTurn({
               modelSelection: lane.modelSelection,
               runtimeTarget: route.runtimeTarget,
               executionMode: route.executionMode,
+              autonomyPreset: autonomyPreset.name,
               runtimeRoute: route,
               ...(lane.activatedSkills
                 ? { activatedSkills: lane.activatedSkills }
@@ -737,7 +745,11 @@ export async function executeChatTurn({
               ...mountInputs,
               metrics: buildTimingMetrics(lane.timing),
             }
-          : { ...lane.storedInputs, ...mountInputs },
+          : {
+              ...lane.storedInputs,
+              ...mountInputs,
+              autonomyPreset: autonomyPreset.name,
+            },
       updatedAt: new Date(),
     })
     .where(eq(runs.id, runId));
@@ -1611,6 +1623,7 @@ export async function executeChatTurn({
     priorOutputs,
     lane,
     abortReason: workerAbortReason ?? undefined,
+    autonomyPreset: autonomyPreset.name,
   });
 
   if (lane.kind === "inline") {
@@ -1677,6 +1690,7 @@ async function persistChatTurnResult({
   priorOutputs,
   lane,
   abortReason,
+  autonomyPreset,
 }: {
   db: Database;
   runId: string;
@@ -1715,6 +1729,7 @@ async function persistChatTurnResult({
   priorOutputs: StoredChatRunOutputs;
   lane: ChatTurnLane;
   abortReason?: ChatWorkerAbortReason;
+  autonomyPreset: AutonomyPresetName;
 }): Promise<{
   assistantMessageId: string | undefined;
   artifacts: WorkspaceArtifactSummary[];
@@ -1741,6 +1756,11 @@ async function persistChatTurnResult({
     terminalStatus === "succeeded"
       ? extractAssistantSources({ toolCalls, toolResults })
       : [];
+  const skippedWriteCount = countUnattendedWriteDenials(toolResults);
+  const autonomyReceipt = buildAutonomyReceipt(
+    autonomyPreset,
+    skippedWriteCount,
+  );
   const proposalIteration =
     lane.kind === "worker"
       ? proposalIterationFromRunInputs(lane.storedInputs)
@@ -1801,6 +1821,7 @@ async function persistChatTurnResult({
       runId,
       modelId,
       runtime: runtimeName,
+      autonomyPreset,
       calls: toolCalls,
       results: toolResults,
       toolPolicyDecisions,
@@ -2125,6 +2146,17 @@ async function persistChatTurnResult({
     now: completedAt,
   });
 
+  if (skippedWriteCount > 0) {
+    await appendTurnRunEvent(lane, {
+      db,
+      runId,
+      eventType: "autonomy_writes_skipped",
+      status: "info",
+      label: `Skipped ${skippedWriteCount} write action${skippedWriteCount === 1 ? "" : "s"} (approval required)`,
+      metadata: { ...autonomyReceipt },
+    });
+  }
+
   const usage = {
     tokensIn,
     tokensOut,
@@ -2143,6 +2175,7 @@ async function persistChatTurnResult({
     usage,
     modelId,
     runtime: runtimeName,
+    autonomy: autonomyReceipt,
     ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
     ...(abortReason ? { abortReason } : {}),
     ...(runtimeErrors.length > 0 ? { errorDetails: runtimeErrors } : {}),
@@ -2204,7 +2237,10 @@ async function persistChatTurnResult({
       lane.run,
       terminalStatus,
       threadId,
-      { hasProposal: proposal !== null && artifacts.length > 0 },
+      {
+        hasProposal: proposal !== null && artifacts.length > 0,
+        ...(skippedWriteCount > 0 ? { skippedWriteCount } : {}),
+      },
     );
   }
 
@@ -2246,6 +2282,7 @@ async function persistChatTurnResult({
       modelId,
       runtime: runtimeName,
       runtimeTarget,
+      autonomy: autonomyReceipt,
       ...(lane.kind === "inline"
         ? {
             requestedModelId: lane.requestedModelId,

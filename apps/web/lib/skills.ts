@@ -21,6 +21,7 @@ import {
   skillMcpProviders,
 } from "@/lib/skill-tool-declarations";
 import { canonicalizeStarterSkill } from "@/lib/starter-skills";
+import { resolveAutonomyPreset } from "@/lib/autonomy-presets";
 
 export interface SkillInput {
   name: string;
@@ -413,6 +414,7 @@ export async function createSkillRun({
         threadId: targetThreadId,
         userMessageId,
         requestedByUserId: actorUserId,
+        autonomyPreset: resolveAutonomyPreset(triggerType).name,
         executionMode: "local",
         requestedProviders: skill.mcpProviders,
         skillId: skill.id,
@@ -481,6 +483,7 @@ export async function createSkillRun({
       modelId: runModelId,
       mcpProviders: skill.mcpProviders,
       triggerType,
+      autonomyPreset: resolveAutonomyPreset(triggerType).name,
       ...(scheduleId ? { scheduleId } : {}),
       ...(githubEvent
         ? {
