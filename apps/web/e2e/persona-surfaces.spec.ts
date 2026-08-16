@@ -111,6 +111,34 @@ test.describe("persona and workspace surfaces", () => {
     await expect(githubCard.getByText("Ready in chat")).toBeVisible();
   });
 
+  test("disconnects a connected integration and moves it back to available", async ({
+    page,
+    isMobile,
+  }) => {
+    let disconnectedProvider: string | undefined;
+    await installMockComparativeApi(page, {
+      oauthStatus: { github: true },
+      onOAuthDisconnect: async (provider, route) => {
+        disconnectedProvider = provider;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ provider, revoked: true, attestations: 1 }),
+        });
+      },
+    });
+    await gotoE2EChat(page);
+    await openSettingsSection(page, "Integrations", isMobile);
+
+    const githubCard = page.getByTestId("tool-card-github");
+    page.once("dialog", (dialog) => void dialog.accept());
+    await githubCard.getByRole("button", { name: "Disconnect" }).click();
+
+    await expect(githubCard.getByText("Not connected")).toBeVisible();
+    await expect(githubCard.getByRole("link", { name: "Connect" })).toBeVisible();
+    expect(disconnectedProvider).toBe("github");
+  });
+
   test("shows a connect link for disconnected GitHub", async ({
     page,
     isMobile,
@@ -219,6 +247,34 @@ test.describe("persona and workspace surfaces", () => {
     ).toBeVisible();
     await expect(googleCard.getByRole("link", { name: "Reconnect" }))
       .toHaveAttribute("href", "/api/oauth/google/start");
+  });
+
+  test("labels an organization-disabled connector without suggesting reconnect", async ({
+    page,
+    isMobile,
+  }) => {
+    await installMockComparativeApi(page, {
+      oauthStatus: {
+        github: true,
+        providerDetails: {
+          github: {
+            connected: true,
+            executionConfigured: true,
+            toolAvailable: false,
+            status: "connector_disabled",
+            reason: "connector_disabled",
+          },
+        },
+      },
+    });
+    await gotoE2EChat(page);
+
+    await openSettingsSection(page, "Integrations", isMobile);
+    const githubCard = page.getByTestId("tool-card-github");
+    await expect(githubCard.getByText("Admin disabled")).toBeVisible();
+    await expect(githubCard.getByText("Disabled by workspace admin")).toBeVisible();
+    await expect(githubCard.getByRole("link", { name: "Reconnect" })).toHaveCount(0);
+    await expect(githubCard.getByRole("button", { name: "Disconnect" })).toBeVisible();
   });
 
   test("prioritizes connected tools above disconnected tools", async ({

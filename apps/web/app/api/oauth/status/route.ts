@@ -12,6 +12,7 @@ type Provider = "github" | "notion" | "google" | "salesforce";
 type ProviderConnectionStatus =
   | "not_connected"
   | "ready"
+  | "connector_disabled"
   | "pending_approval"
   | "reconnect_required"
   | "temporarily_unavailable"
@@ -65,7 +66,9 @@ function providerDetails(
     ? "not_connected"
     : toolAvailable
       ? "ready"
-      : availability?.status === "reconnect_required"
+      : availability?.status === "connector_disabled"
+        ? "connector_disabled"
+        : availability?.status === "reconnect_required"
         ? "reconnect_required"
         : availability?.status === "temporarily_unavailable"
           ? "temporarily_unavailable"

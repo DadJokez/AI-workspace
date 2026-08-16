@@ -4,13 +4,20 @@ import type { Database } from "@ai-workspace/db";
 
 const RELAY_HMAC_MESSAGE = "comparative:notion-mcp-relay:v1";
 
-function mockAttestations(provider = "notion") {
+function mockAttestations(
+  provider = "notion",
+  activeProviders?: readonly string[],
+) {
   vi.doMock("@/lib/tool-attestations", async () => {
     const actual = await vi.importActual<
       typeof import("@/lib/tool-attestations")
     >("@/lib/tool-attestations");
     return {
       ...actual,
+      loadActiveMcpProviders: async (
+        _db: Database,
+        providers: readonly string[],
+      ) => activeProviders ? [...activeProviders] : [...providers],
       loadActiveToolAttestations: async () => [
         {
           provider,
@@ -163,6 +170,31 @@ describe("MCP provider status", () => {
     expect(status.providerAvailability?.notion).toMatchObject({
       executionConfigured: false,
       status: "execution_not_configured",
+    });
+  });
+
+  it("keeps a connected grant visible but refuses to mount a disabled connector", async () => {
+    mockAttestations("notion", []);
+    const { loadUserMcpProviderStatus } = await import(
+      "@/lib/oauth/mcp-servers"
+    );
+
+    const status = await loadUserMcpProviderStatus(
+      dbWithOauthRows([
+        { provider: "notion", expiresAt: new Date(Date.now() + 60_000) },
+      ]),
+      "user-1",
+    );
+
+    expect(status.connectedProviders).toEqual(["notion"]);
+    expect(status.allowedProviders).toEqual([]);
+    expect(status.disabledProviders).toEqual(["notion"]);
+    expect(status.providerAvailability?.notion).toMatchObject({
+      connected: true,
+      toolMountable: false,
+      modelAvailable: false,
+      status: "connector_disabled",
+      reason: "connector_disabled",
     });
   });
 

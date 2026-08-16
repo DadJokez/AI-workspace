@@ -1,6 +1,6 @@
 import type { Database } from "@ai-workspace/db";
 import { oauthTokens } from "@ai-workspace/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { decryptSecret, encryptSecret } from "./crypto";
 import {
@@ -77,6 +77,7 @@ export async function resolveSalesforceConnection(
       and(
         eq(oauthTokens.userId, userId),
         eq(oauthTokens.provider, SALESFORCE_PROVIDER),
+        isNull(oauthTokens.revokedAt),
       ),
     )
     .limit(1);

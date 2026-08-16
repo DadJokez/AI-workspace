@@ -11,7 +11,10 @@ import {
 } from "@ai-workspace/db";
 import type { SessionUser } from "@ai-workspace/auth";
 import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
-import { storeOAuthConnection } from "@/lib/oauth/connection";
+import {
+  revokeOAuthConnection,
+  storeOAuthConnection,
+} from "@/lib/oauth/connection";
 
 /**
  * #456: audit completeness against real Postgres — every asserted surface
@@ -235,7 +238,7 @@ suite("audit completeness (real Postgres, real handlers)", () => {
       attestationSource: "audit.integration.test",
     });
 
-    const rows = await auditRows("mcp_connection_create", alice.id);
+    const rows = await auditRows("connection.granted", alice.id);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       actorUserId: alice.id,
@@ -243,6 +246,29 @@ suite("audit completeness (real Postgres, real handlers)", () => {
       status: "succeeded",
     });
     expect(JSON.stringify(rows[0])).not.toContain("super-secret-token");
+
+    const revoked = await revokeOAuthConnection({
+      db,
+      userId: alice.id,
+      provider: "github",
+      actorUserId: admin.id,
+      reason: "Offboarding test",
+      source: "audit.integration.test",
+    });
+    expect(revoked).toEqual({ revoked: true, attestations: 1 });
+
+    const revocationRows = await auditRows("connection.revoked", admin.id);
+    expect(revocationRows).toHaveLength(1);
+    expect(revocationRows[0]).toMatchObject({
+      actorUserId: admin.id,
+      provider: "github",
+      status: "succeeded",
+      metadata: {
+        reason: "Offboarding test",
+        source: "audit.integration.test",
+      },
+    });
+    expect(JSON.stringify(revocationRows[0])).not.toContain("super-secret-token");
   });
 
   it("audits and deduplicates an admin reading another user's thread", async () => {

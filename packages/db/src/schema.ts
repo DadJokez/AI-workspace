@@ -360,6 +360,14 @@ export const oauthTokens = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     scope: text("scope"),
     providerMetadata: jsonb("provider_metadata"),
+    grantedAt: timestamp("granted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: uuid("revoked_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    revocationReason: text("revocation_reason"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -372,6 +380,7 @@ export const oauthTokens = pgTable(
       t.userId,
       t.provider,
     ),
+    activeIdx: index("oauth_tokens_active_idx").on(t.userId, t.revokedAt),
   }),
 );
 
@@ -1560,6 +1569,21 @@ export const mcpServers = pgTable(
     status: mcpServerStatusEnum("status").notNull().default("active"),
     endpointUrl: text("endpoint_url"),
     authMode: text("auth_mode"),
+    ownerUserId: uuid("owner_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    credentialType: text("credential_type"),
+    credentialTtlSeconds: integer("credential_ttl_seconds"),
+    lastRotatedAt: timestamp("last_rotated_at", { withTimezone: true }),
+    enabledAt: timestamp("enabled_at", { withTimezone: true }),
+    enabledBy: uuid("enabled_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    disabledBy: uuid("disabled_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    statusReason: text("status_reason"),
     metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -1572,6 +1596,7 @@ export const mcpServers = pgTable(
     slugUnique: uniqueIndex("mcp_servers_slug_idx").on(t.slug),
     statusIdx: index("mcp_servers_status_idx").on(t.status),
     transportIdx: index("mcp_servers_transport_idx").on(t.transport),
+    ownerIdx: index("mcp_servers_owner_idx").on(t.ownerUserId),
   }),
 );
 
@@ -1649,6 +1674,7 @@ export const userToolAttestations = pgTable(
       onDelete: "set null",
     }),
     reason: text("reason"),
+    revocationReason: text("revocation_reason"),
     metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
