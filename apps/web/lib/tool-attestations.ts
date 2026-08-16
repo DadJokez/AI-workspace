@@ -156,7 +156,10 @@ export async function loadToolCatalogForProviders(
     .where(inArray(toolsCatalog.provider, [...providers]));
 }
 
-/** Org-level connector state is part of the runtime gate, not presentation. */
+/**
+ * Org-level connector state is part of the runtime gate, not presentation.
+ * Missing registry rows fail closed, so seed a row before shipping a provider.
+ */
 export async function loadActiveMcpProviders(
   db: Database,
   providers: readonly string[],

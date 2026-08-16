@@ -1,4 +1,4 @@
-import { auditLog, getDb, mcpServers } from "@ai-workspace/db";
+import { auditLog, getDb, mcpServers, users } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
@@ -41,6 +41,23 @@ export async function PATCH(
   const prior = priorRows[0];
   if (!prior) {
     return NextResponse.json({ error: "connector_not_found" }, { status: 404 });
+  }
+
+  if (parsed.values.ownerUserId) {
+    const ownerRows = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, parsed.values.ownerUserId))
+      .limit(1);
+    if (!ownerRows[0]) {
+      return NextResponse.json(
+        {
+          error: "invalid_connector_update",
+          message: "Choose an existing connector owner.",
+        },
+        { status: 400 },
+      );
+    }
   }
 
   const now = new Date();

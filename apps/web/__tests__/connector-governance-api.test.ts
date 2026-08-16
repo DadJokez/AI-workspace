@@ -34,6 +34,7 @@ describe("connector governance APIs", () => {
     };
     const db = mockDb({
       selectRows: [prior],
+      selectResponses: [[prior], [{ id: user.id }]],
       updatedRows: [{ ...prior, status: "disabled" }],
       updates,
       audits,
@@ -70,6 +71,44 @@ describe("connector governance APIs", () => {
       provider: "github",
       metadata: expect.objectContaining({ reason: "Vendor incident" }),
     });
+  });
+
+  it("rejects a connector owner that does not exist", async () => {
+    const updates: Array<Record<string, unknown>> = [];
+    const prior = {
+      id: "00000000-0000-4000-8000-000000000410",
+      slug: "github",
+      status: "active",
+      ownerUserId: null,
+      credentialType: "delegated_oauth",
+      credentialTtlSeconds: null,
+      lastRotatedAt: null,
+    };
+    const db = mockDb({
+      selectRows: [prior],
+      selectResponses: [[prior], []],
+      updatedRows: [],
+      updates,
+      audits: [],
+    });
+    installAdminMocks(db);
+
+    const { PATCH } = await import("@/app/api/admin/connectors/[id]/route");
+    const response = await PATCH(
+      new Request("http://test.local/api/admin/connectors/connector", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ownerUserId: crypto.randomUUID() }),
+      }),
+      { params: Promise.resolve({ id: prior.id }) },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "invalid_connector_update",
+      message: "Choose an existing connector owner.",
+    });
+    expect(updates).toEqual([]);
   });
 
   it("requires a reason before a connector can be disabled", async () => {
@@ -212,22 +251,28 @@ function installAdminMocks(db: ReturnType<typeof mockDb>) {
 
 function mockDb({
   selectRows,
+  selectResponses,
   updatedRows,
   updates,
   audits,
 }: {
   selectRows: Array<Record<string, unknown>>;
+  selectResponses?: Array<Array<Record<string, unknown>>>;
   updatedRows: Array<Record<string, unknown>>;
   updates: Array<Record<string, unknown>>;
   audits: Array<Record<string, unknown>>;
 }) {
-  const selectChain: Record<string, unknown> = {};
-  selectChain.from = () => selectChain;
-  selectChain.where = () => selectChain;
-  selectChain.limit = async () => selectRows;
+  let selectCall = 0;
 
   return {
-    select: () => selectChain,
+    select: () => {
+      const rows = selectResponses?.[selectCall++] ?? selectRows;
+      const selectChain: Record<string, unknown> = {};
+      selectChain.from = () => selectChain;
+      selectChain.where = () => selectChain;
+      selectChain.limit = async () => rows;
+      return selectChain;
+    },
     update: () => ({
       set: (value: Record<string, unknown>) => {
         updates.push(value);

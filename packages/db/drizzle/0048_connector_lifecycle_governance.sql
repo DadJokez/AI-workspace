@@ -1,8 +1,10 @@
-ALTER TABLE "oauth_tokens" ADD COLUMN IF NOT EXISTS "granted_at" timestamp with time zone DEFAULT now() NOT NULL;--> statement-breakpoint
+ALTER TABLE "oauth_tokens" ADD COLUMN IF NOT EXISTS "granted_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "oauth_tokens" ADD COLUMN IF NOT EXISTS "revoked_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "oauth_tokens" ADD COLUMN IF NOT EXISTS "revoked_by" uuid;--> statement-breakpoint
 ALTER TABLE "oauth_tokens" ADD COLUMN IF NOT EXISTS "revocation_reason" text;--> statement-breakpoint
 UPDATE "oauth_tokens" SET "granted_at" = "created_at" WHERE "granted_at" IS NULL;--> statement-breakpoint
+ALTER TABLE "oauth_tokens" ALTER COLUMN "granted_at" SET DEFAULT now();--> statement-breakpoint
+ALTER TABLE "oauth_tokens" ALTER COLUMN "granted_at" SET NOT NULL;--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "oauth_tokens" ADD CONSTRAINT "oauth_tokens_revoked_by_users_id_fk" FOREIGN KEY ("revoked_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;
 EXCEPTION
