@@ -30,6 +30,10 @@ import {
 } from "@/lib/request-limits";
 import { appendRunEvent } from "@/lib/run-events";
 import { resolveAutonomyPreset } from "@/lib/autonomy-presets";
+import {
+  resolveNewRunBudget,
+  runBudgetEnvelopeForEvent,
+} from "@/lib/run-budget-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -104,6 +108,10 @@ export async function POST(
   if (!thread) {
     return NextResponse.json({ error: "thread_not_found" }, { status: 404 });
   }
+  const runBudget = resolveNewRunBudget({
+    lane: ARTIFACT_REVIEW_ROUTE.lane,
+    triggerType: "artifact_review",
+  });
   const rate = await checkRateLimit(db, `chat:${session.user.id}`, limits);
   if (!rate.allowed) {
     return NextResponse.json(
@@ -227,6 +235,7 @@ export async function POST(
           executionMode: "local",
           modelOverride: false,
           runtimeRoute: ARTIFACT_REVIEW_ROUTE,
+          runBudget,
           artifactContextTarget: toWorkspaceArtifactVersionTarget(
             access.artifact,
           ),
@@ -283,6 +292,7 @@ export async function POST(
           sourceArtifactVersionNumber: access.artifact.versionNumber,
           selectedCommentCount: stored.comments.length,
           transition: "open_to_addressing",
+          runBudget: runBudgetEnvelopeForEvent(runBudget),
         },
         startedAt: now,
         completedAt: now,
@@ -320,6 +330,7 @@ export async function POST(
         runtimeRoute: ARTIFACT_REVIEW_ROUTE,
         sourceArtifactId: access.artifact.id,
         commentIds: reviewRequest.comments.map((comment) => comment.id),
+        runBudget: runBudgetEnvelopeForEvent(runBudget),
       },
       occurredAt: now,
     });

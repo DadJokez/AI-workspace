@@ -4,6 +4,7 @@ import { estimateUsageCostUsd } from "./models";
 import {
   RUN_BUDGET_SCHEMA,
   RunBudgetTracker,
+  parseRunBudgetReceipt,
   parseRunBudgetState,
   type RunBudgetState,
 } from "./run-budget";
@@ -55,6 +56,30 @@ describe("run budget contract", () => {
         ...STATE,
         consumed: { toolIterations: 0.5 },
       }),
+    ).toBeUndefined();
+  });
+
+  it("strictly parses terminal receipts for persistence and resume", () => {
+    const receipt = new RunBudgetTracker(
+      {
+        ...STATE,
+        consumed: { tokens: 20, usd: 0.01, wallClockMs: 50, toolIterations: 1 },
+      },
+      "sonnet-4-6",
+      () => 1_000,
+    ).receipt(false);
+
+    expect(
+      parseRunBudgetReceipt({ ...receipt, untrusted: "drop-me" }),
+    ).toEqual(receipt);
+    expect(
+      parseRunBudgetReceipt({
+        ...receipt,
+        consumed: { ...receipt.consumed, tokens: 1.5 },
+      }),
+    ).toBeUndefined();
+    expect(
+      parseRunBudgetReceipt({ ...receipt, reached: "unlimited" }),
     ).toBeUndefined();
   });
 

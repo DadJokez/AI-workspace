@@ -140,6 +140,53 @@ describe("processQueuedChatRun", () => {
     });
   });
 
+  it("carries authoritative consumption into an approval resume", async () => {
+    const envelope = {
+      schema: "comparative.run-budget.v1" as const,
+      version: 1 as const,
+      governingLayer: "organization" as const,
+      limits: {
+        tokens: 1_000_000,
+        usd: 10,
+        wallClockMs: 3_600_000,
+        toolIterations: 8,
+      },
+    };
+    const consumed = {
+      tokens: 42_000,
+      usd: 0.42,
+      wallClockMs: 9_000,
+      toolIterations: 1,
+    };
+    const run = claimedRun({
+      status: "waiting_for_approval",
+      inputs: {
+        prompt: "continue",
+        threadId: "thread-1",
+        userMessageId: "user-msg-1",
+        executionMode: "local",
+        runBudget: { envelope },
+      },
+      outputs: {
+        budgetReceipt: {
+          schema: "comparative.run-budget-receipt.v1",
+          version: 1,
+          governingLayer: "organization",
+          limits: envelope.limits,
+          consumed,
+          partial: false,
+        },
+      },
+    } as Partial<Run>);
+
+    await processQueuedChatRun({ db: fakeDb(run), runId: "run-1" });
+
+    expect(vi.mocked(executeChatTurn).mock.calls[0]![0].runBudget).toEqual({
+      envelope,
+      consumed,
+    });
+  });
+
   it("carries a real timeout reason into a blocked provider turn", async () => {
     vi.mocked(numberFromEnv).mockImplementation((name: string) =>
       name === "CHAT_WORKER_RUNTIME_TIMEOUT_MS" ? 5 : undefined,

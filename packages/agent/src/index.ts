@@ -45,6 +45,7 @@ export {
   RUN_BUDGET_RECEIPT_SCHEMA,
   RUN_BUDGET_SCHEMA,
   RunBudgetTracker,
+  parseRunBudgetReceipt,
   parseRunBudgetState,
 } from "./run-budget";
 export type {

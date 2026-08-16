@@ -406,6 +406,19 @@ describe("runAgentLoop runtime tool policy (#410)", () => {
       modelId: "haiku-4-5",
       messages: [{ role: "user", content: "Update my account." }],
       registry,
+      budget: {
+        envelope: {
+          schema: RUN_BUDGET_SCHEMA,
+          version: 1,
+          governingLayer: "organization",
+          limits: {
+            tokens: 100_000,
+            usd: 10,
+            wallClockMs: 60_000,
+            toolIterations: 8,
+          },
+        },
+      },
       context: { userId: "u1" },
       client,
     })) {
@@ -430,6 +443,13 @@ describe("runAgentLoop runtime tool policy (#410)", () => {
     expect(
       events.find((event) => event.type === "tool-approval-required"),
     ).not.toHaveProperty("requests.0.redactedInput");
+    expect(events).toContainEqual({
+      type: "budget",
+      receipt: expect.objectContaining({
+        partial: false,
+        consumed: expect.objectContaining({ toolIterations: 0 }),
+      }),
+    });
     expect(client.captured).toHaveLength(1);
   });
 

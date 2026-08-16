@@ -22,6 +22,10 @@ import {
 } from "@/lib/skill-tool-declarations";
 import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 import { resolveAutonomyPreset } from "@/lib/autonomy-presets";
+import {
+  resolveNewRunBudget,
+  runBudgetEnvelopeForEvent,
+} from "@/lib/run-budget-policy";
 
 export interface SkillInput {
   name: string;
@@ -395,6 +399,10 @@ export async function createSkillRun({
     })
     .returning({ id: chatMessages.id });
   const userMessageId = messageRows[0]!.id;
+  const runBudget = resolveNewRunBudget({
+    lane: "durable-local",
+    triggerType,
+  });
 
   const runRows = await db
     .insert(runs)
@@ -417,6 +425,7 @@ export async function createSkillRun({
         autonomyPreset: resolveAutonomyPreset(triggerType).name,
         executionMode: "local",
         requestedProviders: skill.mcpProviders,
+        runBudget,
         skillId: skill.id,
         skillSlug: skill.slug,
         ...(scheduleId ? { scheduleId } : {}),
@@ -462,6 +471,7 @@ export async function createSkillRun({
             repository: githubEvent.repository,
           }
         : {}),
+      runBudget: runBudgetEnvelopeForEvent(runBudget),
     },
   });
 
@@ -484,6 +494,7 @@ export async function createSkillRun({
       mcpProviders: skill.mcpProviders,
       triggerType,
       autonomyPreset: resolveAutonomyPreset(triggerType).name,
+      runBudget: runBudgetEnvelopeForEvent(runBudget),
       ...(scheduleId ? { scheduleId } : {}),
       ...(githubEvent
         ? {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatThread, Database } from "@ai-workspace/db";
+import { RUN_BUDGET_SCHEMA } from "@ai-workspace/agent";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 
 /**
@@ -60,6 +61,19 @@ function inlineArgs(db: Database) {
     userMessageId: "user-msg-1",
     prompt: "hi",
     modelId: "sonnet-4-6",
+    runBudget: {
+      envelope: {
+        schema: RUN_BUDGET_SCHEMA,
+        version: 1 as const,
+        governingLayer: "organization" as const,
+        limits: {
+          tokens: 400_000,
+          usd: 4,
+          wallClockMs: 900_000,
+          toolIterations: 8,
+        },
+      },
+    },
     route: {
       lane: "tool-local",
       routingMode: "regex",

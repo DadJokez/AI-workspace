@@ -223,6 +223,23 @@ test.describe("Contribution Studio", () => {
                   },
                 },
               ],
+              budget: {
+                governingLayer: "organization",
+                limits: {
+                  tokens: 400_000,
+                  usd: 4,
+                  wallClockMs: 900_000,
+                  toolIterations: 8,
+                },
+                consumed: {
+                  tokens: 400_000,
+                  usd: 2.5,
+                  wallClockMs: 12_000,
+                  toolIterations: 2,
+                },
+                reached: "tokens",
+                partial: true,
+              },
             },
             artifacts: [defaultArtifactSummary],
             providerReasoning: [
@@ -351,6 +368,11 @@ test.describe("Contribution Studio", () => {
     await expect(guardrails.getByText("Allowed · Agent or Skill")).toBeVisible();
     await expect(guardrails.getByText("Notion · Update Page")).toBeVisible();
     await expect(guardrails.getByText("Approved · Action")).toBeVisible();
+    await expect(guardrails.getByText("Run budget")).toBeVisible();
+    await expect(guardrails.getByText("Stopped at tokens")).toBeVisible();
+    await expect(
+      guardrails.getByText("400K of 400K tokens", { exact: false }),
+    ).toBeVisible();
     await expect(
       guardrails.getByText("This Skill's Notion update authority", {
         exact: false,
@@ -373,6 +395,9 @@ test.describe("Contribution Studio", () => {
     await studio.getByRole("button", { name: "Activity" }).click();
     await expect(
       studio.getByTestId("studio-guardrails").getByText("Skipped · Session"),
+    ).toBeVisible();
+    await expect(
+      studio.getByTestId("studio-guardrails").getByText("Stopped at tokens"),
     ).toBeVisible();
 
     if (!isMobile) {

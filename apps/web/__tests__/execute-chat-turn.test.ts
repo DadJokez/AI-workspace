@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatThread, Database, Run } from "@ai-workspace/db";
 import { auditLog, chatMessages, runs, users } from "@ai-workspace/db";
 import type { AgentRuntime } from "@ai-workspace/agent-runtime";
+import { RUN_BUDGET_SCHEMA, type RunBudgetState } from "@ai-workspace/agent";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 import type { ChatStreamEvent } from "@/lib/chat-stream-contract";
 import type { RuntimeModelSelection } from "@/lib/runtime-model-policy";
@@ -347,6 +348,20 @@ const modelSelection: RuntimeModelSelection = {
   reason: "requested_model_supported",
 };
 
+const runBudget: RunBudgetState = {
+  envelope: {
+    schema: RUN_BUDGET_SCHEMA,
+    version: 1,
+    governingLayer: "organization",
+    limits: {
+      tokens: 400_000,
+      usd: 4,
+      wallClockMs: 900_000,
+      toolIterations: 8,
+    },
+  },
+};
+
 function inlineInput(
   overrides: Partial<ExecuteChatTurnInput> = {},
   sent: ChatStreamEvent[] = [],
@@ -365,6 +380,7 @@ function inlineInput(
     prompt: "hi",
     userMessageId: "user-msg-1",
     route,
+    runBudget,
     runtime: fakeRuntime(captured),
     runtimeAbort: new AbortController(),
     modelId: "sonnet-4-6",
@@ -407,6 +423,7 @@ function workerInput(
     prompt: "hi",
     userMessageId: "user-msg-1",
     route,
+    runBudget,
     runtime: fakeRuntime(captured),
     runtimeAbort: new AbortController(),
     modelId: "sonnet-4-6",
@@ -945,6 +962,22 @@ describe("executeChatTurn — interactive tool approvals (#410)", () => {
           ],
         };
         yield {
+          type: "budget",
+          receipt: {
+            schema: "comparative.run-budget-receipt.v1",
+            version: 1,
+            governingLayer: "organization",
+            limits: runBudget.envelope.limits,
+            consumed: {
+              tokens: 18,
+              usd: 0.001,
+              wallClockMs: 125,
+              toolIterations: 0,
+            },
+            partial: false,
+          },
+        };
+        yield {
           type: "usage",
           tokensIn: 11,
           tokensOut: 7,
@@ -1003,6 +1036,14 @@ describe("executeChatTurn — interactive tool approvals (#410)", () => {
     expect(state.runOutputs?.guardrails).toMatchObject({
       schema: "comparative.guardrails.v1",
       actions: [expect.objectContaining({ state: "approval_required" })],
+      budget: {
+        consumed: expect.objectContaining({ tokens: 18 }),
+        partial: false,
+      },
+    });
+    expect(state.runOutputs?.budgetReceipt).toMatchObject({
+      consumed: expect.objectContaining({ tokens: 18 }),
+      partial: false,
     });
     expect(JSON.stringify(sent)).not.toContain("secret draft body");
   });
@@ -1061,6 +1102,70 @@ describe("executeChatTurn — persist tail", () => {
     expect(eventTypes).toContain("context_pack_assembled");
     expect(eventTypes).toContain("inline_runtime_started");
     expect(eventTypes).toContain("run_completed");
+  });
+
+  it("persists one authoritative partial budget receipt and streams its guardrail projection", async () => {
+    const runtime = {
+      name: "bedrock",
+      runTurn: async function* () {
+        yield { type: "text-delta", delta: "Partial result." };
+        yield {
+          type: "budget",
+          receipt: {
+            schema: "comparative.run-budget-receipt.v1",
+            version: 1,
+            governingLayer: "organization",
+            limits: runBudget.envelope.limits,
+            consumed: {
+              tokens: 400_000,
+              usd: 3.25,
+              wallClockMs: 2_000,
+              toolIterations: 2,
+            },
+            reached: "tokens",
+            partial: true,
+          },
+        };
+        yield { type: "usage", tokensIn: 399_000, tokensOut: 1_000 };
+        yield { type: "done" };
+      },
+    } as unknown as AgentRuntime;
+    const { input, sent, state } = inlineInput({ runtime });
+
+    await executeChatTurn(input);
+
+    expect(
+      state.runUpdates.find((update) => update.status === "succeeded")?.outputs,
+    ).toMatchObject({
+      budgetReceipt: {
+        reached: "tokens",
+        partial: true,
+        consumed: expect.objectContaining({ tokens: 400_000 }),
+      },
+      guardrails: {
+        budget: {
+          reached: "tokens",
+          partial: true,
+          consumed: expect.objectContaining({ tokens: 400_000 }),
+        },
+      },
+    });
+    expect(sent).toContainEqual({
+      type: "guardrail-receipt",
+      receipt: expect.objectContaining({
+        budget: expect.objectContaining({ reached: "tokens", partial: true }),
+      }),
+    });
+    expect(vi.mocked(appendRunEventBestEffort)).toHaveBeenCalledWith(
+      "chat-inline-event-error",
+      expect.objectContaining({
+        eventType: "run_budget_measured",
+        status: "info",
+        metadata: expect.objectContaining({
+          budget: expect.objectContaining({ reached: "tokens", partial: true }),
+        }),
+      }),
+    );
   });
 
   it("#713: a degraded provider mount is recorded on the run but does not fail it", async () => {

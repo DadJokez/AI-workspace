@@ -34,6 +34,11 @@ import {
   releaseArtifactReviewRequest,
 } from "@/lib/artifact-review";
 import { resolveAutonomyPreset } from "@/lib/autonomy-presets";
+import {
+  resolveRetryRunBudget,
+  runBudgetEnvelopeForEvent,
+  runBudgetLaneFromRoute,
+} from "@/lib/run-budget-policy";
 
 type RunActionResult =
   | { ok: true; run: Pick<Run, "id" | "status"> }
@@ -313,6 +318,11 @@ export async function retryChatRun({
   const now = new Date();
   const retryTriggerType =
     run.skillSlug === "chat-turn" ? "chat_retry" : "skill_retry";
+  const runBudget = resolveRetryRunBudget({
+    source: inputs.runBudget,
+    lane: runBudgetLaneFromRoute(inputs.runtimeRoute),
+    triggerType: retryTriggerType,
+  });
   const rows = await db
     .insert(runs)
     .values({
@@ -334,6 +344,7 @@ export async function retryChatRun({
         retryOfError: run.error,
         retryRequestedAt: now.toISOString(),
         retryRequestedByUserId: actor.id,
+        runBudget,
       },
       updatedAt: now,
     })
@@ -351,6 +362,7 @@ export async function retryChatRun({
       threadId: inputs.threadId,
       userMessageId: inputs.userMessageId,
       modelId: run.modelId,
+      runBudget: runBudgetEnvelopeForEvent(runBudget),
     },
   });
   await db.insert(auditLog).values({
@@ -362,7 +374,10 @@ export async function retryChatRun({
     chatThreadId: inputs.threadId,
     runId: nextRun.id,
     input: { retryOfRunId: run.id },
-    metadata: { sourceStatus: run.status },
+    metadata: {
+      sourceStatus: run.status,
+      runBudget: runBudgetEnvelopeForEvent(runBudget),
+    },
     startedAt: now,
     completedAt: now,
   });

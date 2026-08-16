@@ -17,6 +17,7 @@ import {
 } from "@/lib/execute-chat-turn";
 import type { ChatStreamSend } from "@/lib/chat-stream-contract";
 import type { ContextResourceReference } from "@/lib/context-shelf";
+import type { RunBudgetState } from "@ai-workspace/agent";
 
 /** Cadence for the inline lane's liveness heartbeat (#443). */
 const INLINE_HEARTBEAT_INTERVAL_MS = 60_000;
@@ -35,6 +36,7 @@ export interface StreamInlineChatRunInput {
   /** User override or skill pin; both outrank automatic model policy. */
   forceRequestedModel?: boolean;
   route: ChatRuntimeRoute;
+  runBudget: RunBudgetState;
   activatedSkills?: Array<Record<string, unknown>>;
   activeSkillPrompt?: PinnedActiveSkill;
   requestedProviders?: string[];
@@ -72,6 +74,7 @@ export async function streamInlineChatRun({
   modelOverride = false,
   forceRequestedModel = modelOverride,
   route,
+  runBudget,
   activatedSkills,
   activeSkillPrompt,
   requestedProviders,
@@ -130,6 +133,7 @@ export async function streamInlineChatRun({
       persistedPrompt,
       userMessageId,
       route,
+      runBudget,
       runtime,
       runtimeAbort,
       modelId: modelSelection.modelId,

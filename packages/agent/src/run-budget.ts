@@ -161,6 +161,35 @@ export function parseRunBudgetState(value: unknown): RunBudgetState | undefined 
   };
 }
 
+export function parseRunBudgetReceipt(
+  value: unknown,
+): RunBudgetReceipt | undefined {
+  if (
+    !isRecord(value) ||
+    value.schema !== RUN_BUDGET_RECEIPT_SCHEMA ||
+    value.version !== 1 ||
+    !isGoverningLayer(value.governingLayer) ||
+    !isRecord(value.limits) ||
+    !isRecord(value.consumed) ||
+    typeof value.partial !== "boolean" ||
+    (value.reached !== undefined && !isBudgetDimension(value.reached))
+  ) {
+    return undefined;
+  }
+  const limits = parseLimits(value.limits);
+  const consumed = parseConsumption(value.consumed);
+  if (!limits || !consumed) return undefined;
+  return {
+    schema: RUN_BUDGET_RECEIPT_SCHEMA,
+    version: 1,
+    governingLayer: value.governingLayer,
+    limits,
+    consumed,
+    ...(value.reached ? { reached: value.reached } : {}),
+    partial: value.partial,
+  };
+}
+
 function parseLimits(value: Record<string, unknown>): RunBudgetLimits | null {
   const tokens = positiveInteger(value.tokens);
   const usd = positiveNumber(value.usd);
@@ -243,6 +272,15 @@ function isGoverningLayer(value: unknown): value is RunBudgetGoverningLayer {
     value === "organization" ||
     value === "agent_skill" ||
     value === "session"
+  );
+}
+
+function isBudgetDimension(value: unknown): value is RunBudgetDimension {
+  return (
+    value === "tokens" ||
+    value === "usd" ||
+    value === "wall_clock" ||
+    value === "tool_iterations"
   );
 }
 
