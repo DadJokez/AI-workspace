@@ -137,7 +137,7 @@ Current behavior is not an approved retention policy:
 | Audit log | Persists; destructive cleanup requires an explicit `AUDIT_LOG_RETENTION_DAYS` | Window, legal hold, and DB enforcement pending #460/#457 |
 | Runs, events, and traces | Persist until manual cleanup | Output/metadata windows pending #460/#381 |
 | Runtime debug logs | CDK log groups retain 30 days | Confirm with security/privacy before enterprise rollout |
-| OAuth tokens | Indefinite — there is no disconnect route (#692) | Disconnect route is #692; deprovisioning and provider rotation policy pending #460 |
+| OAuth tokens | Active credentials persist until owner/admin disconnect; disconnect scrubs local token material and retains lifecycle metadata | Provider-side revocation is pending #692; deprovisioning and rotation policy pending #460/#836 |
 | Authentication events | Not recorded anywhere | No sign-in, denial, sign-out, or account-linking event reaches `audit_log` (#694) |
 | Future S3/Athena Agent Wire | Not live | Classification and lifecycle policy required before launch |
 

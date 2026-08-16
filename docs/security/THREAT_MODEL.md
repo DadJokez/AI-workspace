@@ -69,14 +69,14 @@ end state.
 | T2 | Spoofing / Repudiation | Forge or replay an event-trigger webhook | GitHub HMAC validation, delivery-id uniqueness, durable delivery receipt, trigger rate limit | Add source-specific controls before accepting another webhook provider |
 | T3 | Elevation / Information disclosure | Change a resource id to read or write another user's data | Canonical `getSessionUser`, owner-scoped queries, 404-style non-disclosure, app/share role resolvers, real-Postgres scoping tests | Coarse admin bypass remains; every new route needs positive and negative scope tests |
 | T4 | Elevation | A shared skill/app uses the owner's credential for another user | Execution re-resolves the acting user's OAuth token and attestations; shares do not copy credentials | Preserve this invariant when adding app live-data writes or shared scheduled runs |
-| T5 | Tampering / Elevation | Uploaded/provider/web content tells the model to ignore policy or call a dangerous tool | Nonce-delimited untrusted-content framing, attachment secret scan, tool catalog/attestation gate, eight-iteration cap, result redaction | Universal enforce-mode write policy and Bedrock Guardrails/DLP are pending #410/#492 |
+| T5 | Tampering / Elevation | Uploaded/provider/web content tells the model to ignore policy or call a dangerous tool | Nonce-delimited untrusted-content framing, attachment secret scan, deterministic tri-state catalog policy, durable approvals, eight-iteration cap, and result redaction | Unknown or externally mounted write-shaped tools still need a universal boundary (#701); Bedrock Guardrails/DLP remain pending #492 |
 | T6 | Information disclosure | Secret appears in a prompt, tool result, log, trace, or artifact | Secrets live outside prompts, OAuth ciphertext at rest, payload redaction, trace byte/redaction limits, secret scan for uploads/artifacts, credentialed URLs rejected | Application log coverage must be reviewed continuously; RDS storage itself is unencrypted |
 | T7 | Information disclosure / SSRF | Web fetch reaches metadata, localhost, or a private service | Scheme validation, credential rejection, DNS resolution and guarded lookup, redirect revalidation, private/link-local/metadata blocking, byte/time/redirect caps | Public-host egress is broad and HTTP is allowed; private subnet + egress controls pending #492 |
 | T8 | Tampering / Repudiation | Modify or delete audit history after misuse | Application writes append-only audit rows, redacted receipts, run events, commit-tagged deploy receipts | DB credential can still update/delete rows; DB grants or tamper evidence pending #457; **authentication events are absent from the ledger entirely** (#694), so sign-in, denied sign-in, sign-out, and identity linking leave no trail |
 | T9 | Tampering | Alter an app or artifact while claiming it is an older version | Immutable artifact version rows, app version pointers, ownership/share checks, restrictive deployed-app CSP | Concurrent edit/version integrity must remain covered by unique constraints and tests |
 | T10 | Denial of service / Cost | Flood chat, uploads, web fetches, or tool loops | Shared Postgres fixed-window limits, 16 MiB request cap, per-file/type limits, response caps, eight tool iterations, worker leases, ECS circuit breaker | No WAF, team budget, provider quota, or autoscaling policy; one task per service |
 | T11 | Information disclosure | Admin support access is invisible or excessive | Role gate, cross-owner `admin_data_access` receipts with target/resource/surface, five-minute noise dedupe, Audit UI | No JIT admin elevation, approval workflow, or SIEM export; receipt dedupe is best-effort |
-| T12 | Information disclosure / Tampering | Compromised OAuth token performs provider actions | Per-user encrypted storage, minimum configured scopes, provider-specific validation, connect-time audit event | **There is no disconnect or revoke path (#692)** — `apps/web/app/api/oauth/*` exposes only `start`, `callback`, and `status`, so a user cannot withdraw access from inside Comparative and the encrypted token row survives provider-side revocation. Token rotation is provider-dependent; tri-state approval and connection-lifecycle audit pending #410 |
+| T12 | Information disclosure / Tampering | Compromised OAuth token performs provider actions | Per-user encrypted storage, minimum configured scopes, provider-specific validation, owner/admin disconnect with local token scrubbing, audited connection/attestation lifecycle, and an organization-wide connector kill switch | Disconnect does not yet call provider-side revocation APIs, credential rotation is provider-dependent, and IdP deprovisioning is not wired (#692, #836) |
 | T13 | Supply chain / Elevation | Malicious dependency, image, or CI identity reaches production | Lockfile, required `dependency CVE audit` check, PR CI/browser gate, independent Claude review, commit-tagged images, scoped CodeBuild role, CDK deployment | Known dependency findings require release triage; pipeline IaC gap is tracked in #467; image tags are mutable and both buildspecs push `latest` (#449). CI-specific threats are broken out as T16-T18 below |
 | T14 | Availability / Data loss | RDS or an ECS service fails or is deleted | Health endpoint, ALB health checks, ECS circuit breaker, worker/5xx/run alarms, one-command commit-tag rollback, one-day RDS backups | Single-AZ, no deletion protection, no restore drill (procedure now written: `docs/runbooks/DB_RESTORE_REHEARSAL.md`), no staging environment to rehearse in (#697), and one memory alarm lacks SNS action |
 | T15 | Repudiation / Residency | Inference leaves the expected region without a clear decision | AWS-only runtime and `us.*` Bedrock profiles | `us.*` is US cross-region, not `us-east-1` only; formal acceptance or single-region routing pending #492 |
@@ -188,9 +188,10 @@ is the weakest part of this decision and is tracked in #694.
    (interim ingress reconciler and live close),
    [#691](https://github.com/DadJokez/AI-workspace/issues/691) (WAF),
    [#492](https://github.com/DadJokez/AI-workspace/issues/492) (perimeter epic).
-2. **Tool-side-effect policy:** provider attestations exist, but universal
-   allow/approval/block enforcement is not live. Track:
-   [#410](https://github.com/DadJokez/AI-workspace/issues/410).
+2. **Tool-side-effect policy:** catalog-backed tools now enforce persisted
+   allow/approval/block policy with durable receipts. Unknown or externally
+   mounted write-shaped tools still need a universal boundary. Track:
+   [#701](https://github.com/DadJokez/AI-workspace/issues/701).
 3. **Audit tamper resistance:** append-only is an application convention, not
    a database guarantee. Track:
    [#457](https://github.com/DadJokez/AI-workspace/issues/457).
@@ -203,11 +204,11 @@ is the weakest part of this decision and is tracked in #694.
    or restore in. Track:
    [#467](https://github.com/DadJokez/AI-workspace/issues/467),
    [#697](https://github.com/DadJokez/AI-workspace/issues/697).
-6. **Provider access withdrawal:** a user cannot disconnect a connected
-   provider from inside Comparative, and no authentication event reaches the
-   audit ledger. Track:
+6. **Provider access withdrawal:** owner/admin disconnect now scrubs local
+   credentials and writes lifecycle receipts. Provider-side token revocation
+   and authoritative IdP deprovisioning remain. Track:
    [#692](https://github.com/DadJokez/AI-workspace/issues/692),
-   [#694](https://github.com/DadJokez/AI-workspace/issues/694).
+   [#836](https://github.com/DadJokez/AI-workspace/issues/836).
 7. **Merge-gate integrity:** the required `Claude verdict` status is
    forgeable by any holder of repo `statuses: write`, and workflow actions are
    pinned to mutable tags. Track:
