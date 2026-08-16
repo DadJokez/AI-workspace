@@ -628,17 +628,17 @@ function buildProviderAvailability({
         ? "ready"
         : connectorDisabled.has(provider)
           ? "connector_disabled"
-        : credentialState?.status === "reconnect_required"
-          ? "reconnect_required"
-          : credentialState?.status === "temporarily_unavailable"
-            ? "temporarily_unavailable"
-        : denied.has(provider)
-          ? "pending_approval"
-          : unavailable.has(provider)
-            ? "execution_not_configured"
-            : execution.reason === "unsupported_provider"
-              ? "unsupported_provider"
-              : "pending_approval";
+          : credentialState?.status === "reconnect_required"
+            ? "reconnect_required"
+            : credentialState?.status === "temporarily_unavailable"
+              ? "temporarily_unavailable"
+              : denied.has(provider)
+                ? "pending_approval"
+                : unavailable.has(provider)
+                  ? "execution_not_configured"
+                  : execution.reason === "unsupported_provider"
+                    ? "unsupported_provider"
+                    : "pending_approval";
       return [
         provider,
         {
@@ -649,13 +649,13 @@ function buildProviderAvailability({
           toolMountable: modelAvailable,
           modelAvailable,
           status,
-          ...(credentialState && "reason" in credentialState
-            ? { reason: credentialState.reason }
-            : connectorDisabled.has(provider)
-              ? { reason: "connector_disabled" }
-            : execution.reason
-              ? { reason: execution.reason }
-              : {}),
+          ...(connectorDisabled.has(provider)
+            ? { reason: "connector_disabled" }
+            : credentialState && "reason" in credentialState
+              ? { reason: credentialState.reason }
+              : execution.reason
+                ? { reason: execution.reason }
+                : {}),
         },
       ];
     }),

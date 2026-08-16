@@ -198,6 +198,35 @@ describe("MCP provider status", () => {
     });
   });
 
+  it("reports connector disablement before stale credential state", async () => {
+    mockAttestations("google", []);
+    const { loadUserMcpProviderStatus } = await import(
+      "@/lib/oauth/mcp-servers"
+    );
+
+    const status = await loadUserMcpProviderStatus(
+      dbWithOauthRows([
+        {
+          provider: "google",
+          expiresAt: new Date(Date.now() + 60_000),
+          scope: "https://www.googleapis.com/auth/gmail.readonly",
+        },
+      ]),
+      "user-1",
+    );
+
+    expect(status.reconnectRequiredProviders).toEqual(["google"]);
+    expect(status.disabledProviders).toEqual(["google"]);
+    expect(status.providerAvailability?.google).toMatchObject({
+      connected: true,
+      tokenValid: false,
+      toolMountable: false,
+      modelAvailable: false,
+      status: "connector_disabled",
+      reason: "connector_disabled",
+    });
+  });
+
   it("mounts sufficiently scoped Google through the governed first-party MCP surface", async () => {
     vi.stubEnv("NEXTAUTH_URL", "https://comparative.example");
     vi.stubEnv(
