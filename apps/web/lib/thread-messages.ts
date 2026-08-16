@@ -52,6 +52,10 @@ import {
   parsePublicToolApprovalRequests,
   type PublicToolApprovalRequest,
 } from "@/lib/tool-approvals";
+import {
+  parseGuardrailReceipt,
+  type GuardrailReceipt,
+} from "@/lib/guardrail-receipts";
 
 export interface ChatRunOutput {
   assistantMessageId?: string;
@@ -64,6 +68,7 @@ export interface ChatRunOutput {
   sources?: AssistantSource[];
   contextResourceReferences?: ContextResourceReference[];
   contextResourceManifest?: ContextResourceManifest;
+  guardrails?: GuardrailReceipt;
   /** Aggregate only, derived from the persisted usage object. */
   liveTokens?: number;
 }
@@ -78,6 +83,7 @@ export interface ThreadMessageWithActivity {
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
   approvalRequests?: PublicToolApprovalRequest[];
+  guardrails?: GuardrailReceipt;
   /** Persisted per-turn usage for the cost meter (#330); null pre-#330 rows. */
   tokensIn?: number | null;
   tokensOut?: number | null;
@@ -224,6 +230,7 @@ export async function loadThreadMessagesWithRunActivity({
     string,
     ContextResourceManifest
   >();
+  const guardrailsByAssistantMessageId = new Map<string, GuardrailReceipt>();
   const activeRunMessages: ThreadMessageWithActivity[] = [];
   const visibleMessageIds = new Set(messageIds);
   const visibleChatRunIds = latestVisibleChatRunIds(runRows, visibleMessageIds);
@@ -297,6 +304,12 @@ export async function loadThreadMessagesWithRunActivity({
           contextResourceManifest,
         );
       }
+      if (output.guardrails) {
+        guardrailsByAssistantMessageId.set(
+          output.assistantMessageId,
+          output.guardrails,
+        );
+      }
       continue;
     }
     if (
@@ -324,6 +337,7 @@ export async function loadThreadMessagesWithRunActivity({
       toolCalls: output.toolCalls ?? null,
       toolResults: output.toolResults ?? null,
       approvalRequests: output.approvalRequests,
+      guardrails: output.guardrails,
       artifacts: output.artifacts,
       appDraftVersions: output.appDraftVersions,
       sources: output.sources,
@@ -459,6 +473,7 @@ export async function loadThreadMessagesWithRunActivity({
     contextResourceManifest:
       contextManifestByAssistantMessageId.get(message.id) ??
       contextManifestByUserMessageId.get(message.id),
+    guardrails: guardrailsByAssistantMessageId.get(message.id),
     recommendations: recommendationsByMessageId.get(message.id),
   }));
 
@@ -612,6 +627,7 @@ function parseChatRunOutput(value: unknown): ChatRunOutput {
       ? (value.toolResults as PersistedToolResult[])
       : undefined,
     approvalRequests: parsePublicToolApprovalRequests(value.approvalRequests),
+    guardrails: parseGuardrailReceipt(value.guardrails) ?? undefined,
     artifacts: Array.isArray(value.artifacts)
       ? (value.artifacts as WorkspaceArtifactSummary[])
       : undefined,

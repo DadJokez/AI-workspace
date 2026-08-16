@@ -19,6 +19,11 @@ import {
   type StudioWorkState,
   type StudioWorkStep,
 } from "@/lib/contribution-studio";
+import type {
+  GuardrailActionReceipt,
+  GuardrailProviderReceipt,
+  GuardrailReceipt,
+} from "@/lib/guardrail-receipts";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import {
   studioBrowserTargetKey,
@@ -271,6 +276,7 @@ export function ContributionStudio({
           ) : currentTab === "activity" ? (
             <StudioActivityPanel
               steps={model.workSteps}
+              guardrails={model.guardrails}
               isAdmin={isAdmin}
               onOpenRunInspector={onOpenRunInspector}
             />
@@ -350,10 +356,12 @@ function StudioFilesPanel({
 
 function StudioActivityPanel({
   steps,
+  guardrails,
   isAdmin,
   onOpenRunInspector,
 }: {
   steps: readonly StudioWorkStep[];
+  guardrails: readonly GuardrailReceipt[];
   isAdmin: boolean;
   onOpenRunInspector: (runId: string) => void;
 }) {
@@ -367,6 +375,7 @@ function StudioActivityPanel({
   return (
     <div className="h-full overflow-y-auto px-3 py-3 sm:px-4">
       <div className="mx-auto max-w-4xl">
+        <StudioGuardrailsPanel receipts={guardrails} />
         <div className="flex items-baseline justify-between gap-3 border-b border-hairline pb-3">
           <h3 className="text-sm font-semibold text-ink">Live Work Map</h3>
           <span className="font-mono text-2xs text-muted">
@@ -404,6 +413,255 @@ function StudioActivityPanel({
       </div>
     </div>
   );
+}
+
+function StudioGuardrailsPanel({
+  receipts,
+}: {
+  receipts: readonly GuardrailReceipt[];
+}) {
+  const current = receipts.at(-1);
+  if (!current) return null;
+  const earlier = receipts.slice(0, -1).reverse();
+
+  return (
+    <section
+      aria-labelledby="studio-guardrails-heading"
+      className="mb-5 border-b border-hairline pb-4"
+      data-testid="studio-guardrails"
+    >
+      <div className="flex items-baseline justify-between gap-3 border-b border-hairline pb-3">
+        <div>
+          <h3
+            id="studio-guardrails-heading"
+            className="text-sm font-semibold text-ink"
+          >
+            Guardrails
+          </h3>
+          <p className="mt-0.5 text-xs text-muted">
+            Runtime-enforced policy for this work
+          </p>
+        </div>
+        <span className="rounded-md border border-hairline bg-subtle px-2 py-1 font-mono text-2xs text-muted">
+          {current.autonomy.label}
+        </span>
+      </div>
+      <GuardrailReceiptRows receipt={current} />
+      {earlier.length > 0 ? (
+        <details className="border-t border-hairline pt-2">
+          <summary className="cursor-pointer list-none py-1 text-xs font-medium text-muted marker:hidden hover:text-ink">
+            Previous run policies · {earlier.length}
+          </summary>
+          <div className="mt-1 divide-y divide-hairline border-t border-hairline">
+            {earlier.map((receipt) => (
+              <GuardrailReceiptRows key={receipt.runId} receipt={receipt} />
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
+function GuardrailReceiptRows({ receipt }: { receipt: GuardrailReceipt }) {
+  return (
+    <div className="divide-y divide-hairline">
+      <div className="flex min-w-0 gap-3 py-3">
+        <GuardrailDot state="allowed" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <p className="text-sm font-medium text-ink">
+              {receipt.autonomy.label} autonomy
+            </p>
+            <span className="font-mono text-2xs text-muted">Session</span>
+          </div>
+          <p className="mt-0.5 text-xs text-muted">{receipt.autonomy.reason}</p>
+        </div>
+      </div>
+      {receipt.providers.map((provider) => (
+        <GuardrailProviderRow
+          key={`provider:${provider.provider}`}
+          provider={provider}
+        />
+      ))}
+      {receipt.actions.map((action) => (
+        <GuardrailActionRow
+          key={`action:${action.toolCallId}`}
+          action={action}
+        />
+      ))}
+      {receipt.budget ? (
+        <div className="flex min-w-0 gap-3 py-3">
+          <GuardrailDot state={receipt.budget.reached ? "blocked" : "allowed"} />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <p className="text-sm font-medium text-ink">Run budget</p>
+              <span className="font-mono text-2xs text-muted">
+                {receipt.budget.reached
+                  ? `Reached ${budgetDimensionLabel(receipt.budget.reached)}`
+                  : "Within limits"}
+              </span>
+            </div>
+            <p className="mt-0.5 text-xs text-muted">
+              {formatBudgetReceipt(receipt.budget)}
+            </p>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function GuardrailProviderRow({
+  provider,
+}: {
+  provider: GuardrailProviderReceipt;
+}) {
+  return (
+    <div className="flex min-w-0 gap-3 py-3" data-guardrail-state={provider.state}>
+      <GuardrailDot state={provider.state === "ready" ? "allowed" : "blocked"} />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <p className="text-sm font-medium text-ink">
+            {formatGuardrailName(provider.provider)}
+          </p>
+          <span className="font-mono text-2xs text-muted">
+            {providerStateLabel(provider.state)}
+          </span>
+        </div>
+        <p className="mt-0.5 text-xs text-muted">{provider.reason}</p>
+        {provider.remediation ? (
+          <p className="mt-1 text-xs font-medium text-ink">
+            {remediationLabel(provider.remediation)}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function GuardrailActionRow({
+  action,
+}: {
+  action: GuardrailActionReceipt;
+}) {
+  return (
+    <div className="flex min-w-0 gap-3 py-3" data-guardrail-state={action.state}>
+      <GuardrailDot state={action.state} />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <p className="text-sm font-medium text-ink">
+            {action.provider ? `${formatGuardrailName(action.provider)} · ` : ""}
+            {formatGuardrailName(action.action)}
+          </p>
+          <span className="font-mono text-2xs text-muted">
+            {actionStateLabel(action.state)} · {layerLabel(action.governingLayer)}
+          </span>
+        </div>
+        <p className="mt-0.5 text-xs text-muted">{action.reason}</p>
+        {action.approval ? (
+          <p className="mt-1 text-xs text-muted">
+            Scope: {action.approval.resourceLabel}
+            {action.approval.expiresAt
+              ? ` · Expires ${formatGuardrailDate(action.approval.expiresAt)}`
+              : ""}
+          </p>
+        ) : null}
+        {action.state === "approval_required" ? (
+          <p className="mt-1 text-xs font-medium text-ink">
+            Approve or deny this action in chat.
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function GuardrailDot({
+  state,
+}: {
+  state: GuardrailActionReceipt["state"];
+}) {
+  const color =
+    state === "allowed" || state === "approved"
+      ? "bg-success"
+      : state === "approval_required"
+        ? "bg-warning"
+        : state === "skipped"
+          ? "bg-muted"
+          : "bg-danger";
+  return <span aria-hidden className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${color}`} />;
+}
+
+function providerStateLabel(state: GuardrailProviderReceipt["state"]): string {
+  if (state === "ready") return "Available";
+  if (state === "not_connected") return "Not connected";
+  if (state === "attestation_required") return "Attestation required";
+  if (state === "reconnect_required") return "Reconnect required";
+  return "Execution unavailable";
+}
+
+function actionStateLabel(state: GuardrailActionReceipt["state"]): string {
+  if (state === "approval_required") return "Approval required";
+  return state.charAt(0).toUpperCase() + state.slice(1);
+}
+
+function layerLabel(layer: GuardrailActionReceipt["governingLayer"]): string {
+  if (layer === "agent_skill") return "Agent or Skill";
+  return layer.charAt(0).toUpperCase() + layer.slice(1);
+}
+
+function remediationLabel(
+  remediation: NonNullable<GuardrailProviderReceipt["remediation"]>,
+): string {
+  if (remediation === "connect") return "Connect this provider in Tools.";
+  if (remediation === "attest") return "Approve this provider in Tools.";
+  if (remediation === "reconnect") return "Reconnect this provider in Tools.";
+  return "Ask a workspace admin to enable execution.";
+}
+
+function formatGuardrailName(value: string): string {
+  if (value.toLowerCase() === "github") return "GitHub";
+  return value
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function formatGuardrailDate(value: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function budgetDimensionLabel(
+  dimension: NonNullable<GuardrailReceipt["budget"]>["reached"],
+): string {
+  if (dimension === "wall_clock") return "time limit";
+  if (dimension === "tool_iterations") return "tool limit";
+  return dimension ?? "budget";
+}
+
+function formatBudgetReceipt(
+  budget: NonNullable<GuardrailReceipt["budget"]>,
+): string {
+  const parts: string[] = [];
+  if (budget.consumed.tokens !== undefined && budget.limits.tokens !== undefined) {
+    parts.push(`${formatNumber(budget.consumed.tokens)} of ${formatNumber(budget.limits.tokens)} tokens`);
+  }
+  if (budget.consumed.usd !== undefined && budget.limits.usd !== undefined) {
+    parts.push(`$${budget.consumed.usd.toFixed(3)} of $${budget.limits.usd.toFixed(3)}`);
+  }
+  if (
+    budget.consumed.wallClockMs !== undefined &&
+    budget.limits.wallClockMs !== undefined
+  ) {
+    parts.push(`${formatDuration(budget.consumed.wallClockMs)} of ${formatDuration(budget.limits.wallClockMs)}`);
+  }
+  return parts.join(" · ") || "Measured runtime usage";
 }
 
 function StudioWorkStepRow({

@@ -18,6 +18,7 @@ import type {
   ContextResourceManifest,
   ContextResourceReference,
 } from "@/lib/context-shelf";
+import type { GuardrailReceipt } from "@/lib/guardrail-receipts";
 
 export interface ChatRunTimingMetrics {
   requestStartedAt: string;
@@ -103,6 +104,10 @@ export type ChatStreamEvent =
       requests: PublicToolApprovalRequest[];
     }
   | {
+      type: "guardrail-receipt";
+      receipt: GuardrailReceipt;
+    }
+  | {
       type: "usage";
       tokensIn: number;
       tokensOut: number;
@@ -142,6 +147,7 @@ export type ChatStreamEvent =
       recommendations: PersistedRecommendation[];
       sources: AssistantSource[];
       contextResourceManifest: ContextResourceManifest;
+      guardrails: GuardrailReceipt;
       runId: string;
       threadId: string;
     }
@@ -159,6 +165,7 @@ const CHAT_STREAM_EVENT_TYPES: ReadonlySet<ChatStreamEvent["type"]> = new Set([
   "tool-call",
   "tool-result",
   "tool-approval-required",
+  "guardrail-receipt",
   "usage",
   "heartbeat",
   "metrics",

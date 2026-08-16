@@ -97,8 +97,13 @@ import { createToolEventAccumulator } from "@/lib/tool-events";
 import {
   loadStandingToolApprovalGrants,
   loadToolApprovalGrants,
+  parsePublicToolApprovalRequests,
   pauseRunForToolApprovals,
 } from "@/lib/tool-approvals";
+import {
+  buildGuardrailReceipt,
+  type GuardrailReceipt,
+} from "@/lib/guardrail-receipts";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
 import { buildTurnContext } from "@/lib/turn-context";
 import type { RecentToolEvidenceReceipt } from "@/lib/recent-tool-evidence";
@@ -679,6 +684,12 @@ export async function executeChatTurn({
     activeSkill: activeSkillPrompt ?? null,
   });
   const contextReceipt = contextPack.receipts[0]!;
+  const initialGuardrailReceipt = buildGuardrailReceipt({
+    runId,
+    autonomyPreset: autonomyPreset.name,
+    contextReceipt,
+    requestedProviders: requestedMcpProviders,
+  });
   if (timing) timing.contextReadyAt = new Date();
 
   const mountInputs = {
@@ -711,6 +722,7 @@ export async function executeChatTurn({
     approvedMcpProviders: providerStatus.allowedProviders,
     deniedMcpProviders: blockedProviders,
     contextReceipt,
+    guardrails: initialGuardrailReceipt,
     ...(artifactContextTarget ? { artifactContextTarget } : {}),
     ...(separateFromArtifact ? { separateFromArtifact } : {}),
   };
@@ -760,7 +772,11 @@ export async function executeChatTurn({
     eventType: "context_pack_assembled",
     status: "succeeded",
     label: "Assembled context pack",
-    metadata: { contextReceipt, writeAuthorizationReceipts },
+    metadata: {
+      contextReceipt,
+      guardrails: initialGuardrailReceipt,
+      writeAuthorizationReceipts,
+    },
   });
 
   if (lane.kind === "inline") {
@@ -803,6 +819,10 @@ export async function executeChatTurn({
       runtime: runtime.name,
       runtimeTarget: route.runtimeTarget,
     });
+    lane.send({
+      type: "guardrail-receipt",
+      receipt: initialGuardrailReceipt,
+    });
   } else {
     await appendTurnRunEvent(lane, {
       db,
@@ -828,6 +848,27 @@ export async function executeChatTurn({
     lane.kind === "worker" ? (priorOutputs.providerRun ?? null) : null;
   const runtimeErrors: NormalizedRuntimeError[] = [];
   const toolEvents = createToolEventAccumulator(mountedProviders);
+  const priorApprovalRequests = parsePublicToolApprovalRequests(
+    priorOutputs.approvalRequests,
+  );
+  const currentGuardrailReceipt = ({
+    approvalRequests = priorApprovalRequests,
+    generatedAt,
+  }: {
+    approvalRequests?: ReturnType<typeof parsePublicToolApprovalRequests>;
+    generatedAt?: Date;
+  } = {}) =>
+    buildGuardrailReceipt({
+      runId,
+      autonomyPreset: autonomyPreset.name,
+      contextReceipt,
+      requestedProviders: requestedMcpProviders,
+      toolCalls: toolEvents.calls(),
+      toolResults: toolEvents.results(),
+      approvalRequests,
+      approvalGrants: toolApprovalGrants,
+      ...(generatedAt ? { generatedAt } : {}),
+    });
   const providerTrace = createProviderTraceAccumulator();
   const currentErrorContext = () => ({
     runtime: runtime.name,
@@ -857,6 +898,7 @@ export async function executeChatTurn({
     },
     modelId,
     runtime: runtime.name,
+    guardrails: currentGuardrailReceipt(),
     ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
     ...extra,
   });
@@ -873,6 +915,7 @@ export async function executeChatTurn({
     },
     modelId,
     runtime: runtime.name,
+    guardrails: currentGuardrailReceipt(),
     ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
     lifecycle: "provider_running",
   });
@@ -1042,6 +1085,7 @@ export async function executeChatTurn({
                   runtime: runtime.name,
                   runtimeTarget: route.runtimeTarget,
                   providerRun: metadata,
+                  guardrails: currentGuardrailReceipt(),
                   metrics,
                 },
                 updatedAt: new Date(),
@@ -1249,6 +1293,10 @@ export async function executeChatTurn({
             type: "tool-result",
             result: persistedResult,
           });
+          lane.send({
+            type: "guardrail-receipt",
+            receipt: currentGuardrailReceipt(),
+          });
         }
       } else if (ev.type === "error") {
         if (ev.degradedProvider) {
@@ -1397,6 +1445,21 @@ export async function executeChatTurn({
       standingApprovalEligible: Boolean(skillId && !unattended),
       ...(lane.kind === "worker" ? { expectedWorkerId: lane.workerId } : {}),
     });
+    const approvalGuardrails = currentGuardrailReceipt({
+      approvalRequests: approvals,
+    });
+    await db
+      .update(runs)
+      .set({
+        outputs: {
+          ...pauseOutputs,
+          lifecycle: "waiting_for_approval",
+          approvalRequests: approvals,
+          guardrails: approvalGuardrails,
+        },
+        updatedAt: new Date(),
+      })
+      .where(and(eq(runs.id, runId), eq(runs.status, "waiting_for_approval")));
     await persistProviderTraceCapture({
       db,
       runId,
@@ -1412,6 +1475,7 @@ export async function executeChatTurn({
       metadata: {
         batchId: approvals[0]?.batchId,
         approvalIds: approvals.map((approval) => approval.id),
+        guardrails: approvalGuardrails,
         tools: approvals.map((approval) => ({
           provider: approval.provider,
           toolName: approval.nativeToolName ?? approval.toolName,
@@ -1419,6 +1483,10 @@ export async function executeChatTurn({
       },
     });
     if (lane.kind === "inline") {
+      lane.send({
+        type: "guardrail-receipt",
+        receipt: approvalGuardrails,
+      });
       lane.send({ type: "tool-approval-required", requests: approvals });
       lane.send({ type: "done", stopReason: "approval_required" });
     }
@@ -1585,6 +1653,7 @@ export async function executeChatTurn({
       ? { metadata: { abortReason: workerAbortReason } }
       : {}),
   });
+  const finalGuardrails = currentGuardrailReceipt({ generatedAt: completedAt });
 
   const persisted = await persistChatTurnResult({
     db,
@@ -1624,6 +1693,7 @@ export async function executeChatTurn({
     lane,
     abortReason: workerAbortReason ?? undefined,
     autonomyPreset: autonomyPreset.name,
+    guardrails: finalGuardrails,
   });
 
   if (lane.kind === "inline") {
@@ -1646,6 +1716,7 @@ export async function executeChatTurn({
       recommendations: persisted.recommendations,
       sources: persisted.sources,
       contextResourceManifest: selectedContext.manifest,
+      guardrails: persisted.guardrails,
       runId,
       threadId: thread.id,
       // The streamed deltas carried the wrapped answer; the reduced literal
@@ -1691,6 +1762,7 @@ async function persistChatTurnResult({
   lane,
   abortReason,
   autonomyPreset,
+  guardrails,
 }: {
   db: Database;
   runId: string;
@@ -1730,12 +1802,14 @@ async function persistChatTurnResult({
   lane: ChatTurnLane;
   abortReason?: ChatWorkerAbortReason;
   autonomyPreset: AutonomyPresetName;
+  guardrails: GuardrailReceipt;
 }): Promise<{
   assistantMessageId: string | undefined;
   artifacts: WorkspaceArtifactSummary[];
   appDraftVersions: AppDraftVersionSummary[];
   recommendations: PersistedRecommendation[];
   sources: AssistantSource[];
+  guardrails: GuardrailReceipt;
 }> {
   const empty = {
     assistantMessageId: undefined,
@@ -1743,6 +1817,7 @@ async function persistChatTurnResult({
     appDraftVersions: [],
     recommendations: [],
     sources: [],
+    guardrails,
   };
   if (lane.kind === "worker" && (await isRunCanceled(db, runId))) return empty;
 
@@ -2137,6 +2212,7 @@ async function persistChatTurnResult({
       appDraftVersions,
       recommendations,
       sources,
+      guardrails,
     };
   }
 
@@ -2176,6 +2252,7 @@ async function persistChatTurnResult({
     modelId,
     runtime: runtimeName,
     autonomy: autonomyReceipt,
+    guardrails,
     ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
     ...(abortReason ? { abortReason } : {}),
     ...(runtimeErrors.length > 0 ? { errorDetails: runtimeErrors } : {}),
@@ -2230,6 +2307,7 @@ async function persistChatTurnResult({
         appDraftVersions,
         recommendations,
         sources,
+        guardrails,
       };
     }
     await createProactiveRunNotification(
@@ -2283,6 +2361,7 @@ async function persistChatTurnResult({
       runtime: runtimeName,
       runtimeTarget,
       autonomy: autonomyReceipt,
+      guardrails,
       ...(lane.kind === "inline"
         ? {
             requestedModelId: lane.requestedModelId,
@@ -2307,6 +2386,7 @@ async function persistChatTurnResult({
     appDraftVersions,
     recommendations,
     sources,
+    guardrails,
   };
 }
 

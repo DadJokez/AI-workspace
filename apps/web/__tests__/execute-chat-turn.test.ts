@@ -23,7 +23,13 @@ vi.mock("@/lib/chat-context-pack", () => ({
       volatileSystemSuffix: "VOLATILE",
       messages: [{ role: "user", content: "hi" }],
     },
-    receipts: [{ id: "receipt-1" }],
+    receipts: [
+      {
+        schema: "context-pack.v2",
+        version: 1,
+        tools: { providers: [] },
+      },
+    ],
   })),
 }));
 vi.mock("@/lib/capability-graph", () => ({
@@ -970,12 +976,34 @@ describe("executeChatTurn — interactive tool approvals (#410)", () => {
       requests: [approval],
     });
     expect(sent).toContainEqual({
+      type: "guardrail-receipt",
+      receipt: expect.objectContaining({
+        schema: "comparative.guardrails.v1",
+        runId: "run-1",
+        actions: [
+          expect.objectContaining({
+            action: "draft_email",
+            state: "approval_required",
+            governingLayer: "action",
+            approval: expect.objectContaining({
+              resourceScope: "exact_request",
+              expiresAt: approval.expiresAt,
+            }),
+          }),
+        ],
+      }),
+    });
+    expect(sent).toContainEqual({
       type: "done",
       stopReason: "approval_required",
     });
     expect(
       state.inserts.find((insert) => insert.table === chatMessages),
     ).toBeUndefined();
+    expect(state.runOutputs?.guardrails).toMatchObject({
+      schema: "comparative.guardrails.v1",
+      actions: [expect.objectContaining({ state: "approval_required" })],
+    });
     expect(JSON.stringify(sent)).not.toContain("secret draft body");
   });
 
@@ -1002,6 +1030,13 @@ describe("executeChatTurn — persist tail", () => {
     );
     expect(terminal).toBeDefined();
     expect(terminal).toMatchObject({ error: null, workerId: null });
+    expect(terminal?.outputs).toMatchObject({
+      guardrails: {
+        schema: "comparative.guardrails.v1",
+        runId: "run-1",
+        autonomy: { preset: "interactive" },
+      },
+    });
 
     const types = sent.map((event) => event.type);
     expect(types[0]).toBe("model");
@@ -1014,6 +1049,10 @@ describe("executeChatTurn — persist tail", () => {
       tokensOut: 7,
       runId: "run-1",
       threadId: "thread-1",
+      guardrails: expect.objectContaining({
+        schema: "comparative.guardrails.v1",
+        runId: "run-1",
+      }),
     });
 
     const eventTypes = vi
