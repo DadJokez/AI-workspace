@@ -12,6 +12,7 @@ import {
 } from "@/lib/activity-receipts";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import type { StudioBrowserTargetRequest } from "@/lib/studio-browser-contract";
+import type { GuardrailReceipt } from "@/lib/guardrail-receipts";
 
 export const CONTRIBUTION_STUDIO_TABS = [
   "preview",
@@ -91,6 +92,7 @@ export interface ContributionStudioModel {
   browserEvidence: StudioBrowserEvidence[];
   browserResources: StudioBrowserResource[];
   workSteps: StudioWorkStep[];
+  guardrails: GuardrailReceipt[];
   previewArtifact?: WorkspaceArtifactSummary;
   working: boolean;
 }
@@ -117,6 +119,7 @@ export function deriveContributionStudio(
     browserEvidence,
   );
   const workSteps = collectWorkSteps(messages, browserEvidence);
+  const guardrails = collectGuardrailReceipts(messages);
   const previewArtifact =
     options.artifact ?? files.find((file) => file.artifact)?.artifact;
   const tabs: ContributionStudioTab[] = [];
@@ -126,7 +129,7 @@ export function deriveContributionStudio(
   if (options.capabilities?.browser === true && browserResources.length > 0) {
     tabs.push("browser");
   }
-  if (workSteps.length > 0) tabs.push("activity");
+  if (workSteps.length > 0 || guardrails.length > 0) tabs.push("activity");
   if (options.capabilities?.console === true) tabs.push("console");
 
   return {
@@ -135,6 +138,7 @@ export function deriveContributionStudio(
     browserEvidence,
     browserResources,
     workSteps,
+    guardrails,
     previewArtifact,
     working: messages.some(
       (message) =>
@@ -147,6 +151,18 @@ export function deriveContributionStudio(
         ),
     ),
   };
+}
+
+function collectGuardrailReceipts(
+  messages: readonly UiMessage[],
+): GuardrailReceipt[] {
+  const receipts = new Map<string, GuardrailReceipt>();
+  for (const message of messages) {
+    if (message.guardrails) {
+      receipts.set(message.guardrails.runId, message.guardrails);
+    }
+  }
+  return [...receipts.values()];
 }
 
 export function resolveContributionStudioTab({

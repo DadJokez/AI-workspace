@@ -117,6 +117,113 @@ test.describe("Contribution Studio", () => {
             id: "studio-assistant",
             content: "The brief is ready.",
             runId,
+            guardrails: {
+              schema: "comparative.guardrails.v1",
+              version: 1,
+              generatedAt: "2026-08-10T12:00:00.000Z",
+              runId,
+              autonomy: {
+                preset: "interactive",
+                label: "Interactive",
+                governingLayer: "session",
+                reason:
+                  "Reads run immediately. Writes pause for approval. Admin actions stay blocked.",
+              },
+              providers: [
+                {
+                  provider: "google",
+                  state: "reconnect_required",
+                  governingLayer: "connection",
+                  reason:
+                    "google must be reconnected before its tools can run.",
+                  remediation: "reconnect",
+                  mounted: false,
+                },
+                {
+                  provider: "notion",
+                  state: "attestation_required",
+                  governingLayer: "connection",
+                  reason:
+                    "notion is connected but has not been approved for agent use.",
+                  remediation: "attest",
+                  mounted: false,
+                },
+                {
+                  provider: "github",
+                  state: "execution_unavailable",
+                  governingLayer: "organization",
+                  reason:
+                    "github is connected, but tool execution is unavailable in this deployment.",
+                  remediation: "contact_admin",
+                  mounted: false,
+                },
+              ],
+              actions: [
+                {
+                  toolCallId: "approval-1",
+                  provider: "salesforce",
+                  action: "update_opportunity",
+                  state: "blocked",
+                  governingLayer: "organization",
+                  reason: "Blocked by organization policy.",
+                  outcome: "not_run",
+                },
+                {
+                  toolCallId: "approval-2",
+                  provider: "google",
+                  action: "draft_email",
+                  state: "approval_required",
+                  governingLayer: "action",
+                  reason: "Approval is required before this action can run.",
+                  outcome: "pending",
+                  approval: {
+                    kind: "exact_call",
+                    provider: "google",
+                    action: "draft_email",
+                    resourceScope: "exact_request",
+                    resourceLabel: "Only this exact request",
+                    expiresAt: "2026-08-11T12:00:00.000Z",
+                    approvalId: "approval-request-2",
+                  },
+                },
+                {
+                  toolCallId: "approval-3",
+                  provider: "google",
+                  action: "create_event",
+                  state: "skipped",
+                  governingLayer: "session",
+                  reason: "Skipped by unattended policy.",
+                  outcome: "not_run",
+                },
+                {
+                  toolCallId: "approval-4",
+                  provider: "github",
+                  action: "search_issues",
+                  state: "allowed",
+                  governingLayer: "agent_skill",
+                  reason: "Allowed by the active Skill policy.",
+                  outcome: "succeeded",
+                },
+                {
+                  toolCallId: "approval-5",
+                  provider: "notion",
+                  action: "update_page",
+                  state: "approved",
+                  governingLayer: "action",
+                  reason: "Approved for this action.",
+                  outcome: "succeeded",
+                  approval: {
+                    kind: "skill_tool",
+                    provider: "notion",
+                    action: "update_page",
+                    resourceScope: "tool_authority",
+                    resourceLabel: "This Skill's Notion update authority",
+                    expiresAt: "2026-09-10T12:00:00.000Z",
+                    approvalId: "standing-approval-5",
+                  },
+                },
+              ],
+            },
             artifacts: [defaultArtifactSummary],
             providerReasoning: [
               {
@@ -226,6 +333,29 @@ test.describe("Contribution Studio", () => {
     await expect(studio.getByText("Blocked scheme")).toHaveCount(0);
 
     await studio.getByRole("button", { name: "Activity" }).click();
+    const guardrails = studio.getByTestId("studio-guardrails");
+    await expect(guardrails.getByText("Interactive autonomy")).toBeVisible();
+    await expect(guardrails.getByText("Reconnect required")).toBeVisible();
+    await expect(guardrails.getByText("Attestation required")).toBeVisible();
+    await expect(guardrails.getByText("Execution unavailable")).toBeVisible();
+    await expect(
+      guardrails.getByText("Salesforce · Update Opportunity"),
+    ).toBeVisible();
+    await expect(guardrails.getByText("Blocked · Organization")).toBeVisible();
+    await expect(guardrails.getByText("Google · Draft Email")).toBeVisible();
+    await expect(guardrails.getByText("Approval required · Action")).toBeVisible();
+    await expect(guardrails.getByText("Only this exact request", { exact: false })).toBeVisible();
+    await expect(guardrails.getByText("Google · Create Event")).toBeVisible();
+    await expect(guardrails.getByText("Skipped · Session")).toBeVisible();
+    await expect(guardrails.getByText("GitHub · Search Issues")).toBeVisible();
+    await expect(guardrails.getByText("Allowed · Agent or Skill")).toBeVisible();
+    await expect(guardrails.getByText("Notion · Update Page")).toBeVisible();
+    await expect(guardrails.getByText("Approved · Action")).toBeVisible();
+    await expect(
+      guardrails.getByText("This Skill's Notion update authority", {
+        exact: false,
+      }),
+    ).toBeVisible();
     const workMap = page.getByTestId("studio-work-map");
     for (const state of ["planned", "active", "waiting", "failed", "canceled"]) {
       await expect(workMap.locator(`[data-state="${state}"]`)).toHaveCount(1);
@@ -235,6 +365,14 @@ test.describe("Contribution Studio", () => {
     await expect(studio.getByText("private chain of thought")).toHaveCount(0);
     await expect(
       studio.getByRole("button", { name: "Inspect run" }).first(),
+    ).toBeVisible();
+
+    await page.reload();
+    await page.getByRole("button", { name: "Show Contribution Studio" }).click();
+    await expect(studio).toBeVisible();
+    await studio.getByRole("button", { name: "Activity" }).click();
+    await expect(
+      studio.getByTestId("studio-guardrails").getByText("Skipped · Session"),
     ).toBeVisible();
 
     if (!isMobile) {

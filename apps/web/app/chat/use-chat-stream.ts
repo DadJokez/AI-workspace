@@ -13,6 +13,7 @@ import {
   parseContextResourceManifest,
   type ContextResourceSearchResult,
 } from "@/lib/context-shelf";
+import { parseGuardrailReceipt } from "@/lib/guardrail-receipts";
 import {
   useRef,
   type Dispatch,
@@ -464,6 +465,11 @@ export function useChatStream({
             requests: event.requests,
             runId: streamRunId,
           });
+        } else if (event.type === "guardrail-receipt") {
+          const receipt = parseGuardrailReceipt(event.receipt);
+          if (receipt) {
+            patchDraft({ type: "guardrail-receipt", receipt });
+          }
         } else if (
           event.type === "error" &&
           typeof event.message === "string"
@@ -491,6 +497,7 @@ export function useChatStream({
           const contextResourceManifest = parseContextResourceManifest(
             event.contextResourceManifest,
           );
+          const guardrails = parseGuardrailReceipt(event.guardrails);
           const tokensIn =
             typeof event.tokensIn === "number" ? event.tokensIn : undefined;
           const tokensOut =
@@ -507,6 +514,7 @@ export function useChatStream({
             recommendations,
             sources,
             contextResourceManifest: contextResourceManifest ?? undefined,
+            guardrails: guardrails ?? undefined,
             tokensIn,
             tokensOut,
             runId: streamRunId,

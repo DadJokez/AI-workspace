@@ -34,6 +34,7 @@ import type {
 } from "@/lib/thread-branch-types";
 import type { StudioBrowserTargetRequest } from "@/lib/studio-browser-contract";
 import type { PublicToolApprovalRequest } from "@/lib/tool-approvals";
+import type { GuardrailReceipt } from "@/lib/guardrail-receipts";
 
 export const FALLBACK_DEFAULT_MODEL_ID = "sonnet-4-5";
 export const DEFAULT_MODEL_PREFIX = "ai-workspace-default-model:";
@@ -69,6 +70,7 @@ export interface UiMessage {
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
   approvalRequests?: PublicToolApprovalRequest[];
+  guardrails?: GuardrailReceipt;
   artifacts?: WorkspaceArtifactSummary[];
   appDraftVersions?: AppDraftVersionSummary[];
   recommendations?: PersistedRecommendation[];
@@ -144,6 +146,7 @@ export interface ThreadMessage {
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
   approvalRequests?: PublicToolApprovalRequest[];
+  guardrails?: GuardrailReceipt;
   tokensIn?: number | null;
   tokensOut?: number | null;
   artifacts?: WorkspaceArtifactSummary[];
@@ -190,6 +193,7 @@ export function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
     toolCalls: message.toolCalls ?? undefined,
     toolResults: message.toolResults ?? undefined,
     approvalRequests: message.approvalRequests,
+    guardrails: message.guardrails,
     artifacts: message.artifacts,
     appDraftVersions: message.appDraftVersions,
     recommendations: message.recommendations,
@@ -501,6 +505,7 @@ export type AssistantStreamAction =
       requests: PublicToolApprovalRequest[];
       runId?: string;
     }
+  | { type: "guardrail-receipt"; receipt: GuardrailReceipt }
   | {
       type: "queued";
       status: string;
@@ -521,6 +526,7 @@ export type AssistantStreamAction =
       recommendations?: PersistedRecommendation[];
       sources?: AssistantSource[];
       contextResourceManifest?: ContextResourceManifest;
+      guardrails?: GuardrailReceipt;
       tokensIn?: number;
       tokensOut?: number;
     }
@@ -611,6 +617,8 @@ export function reduceAssistantStreamMessage(
         canResume: false,
         approvalRequests: action.requests,
       };
+    case "guardrail-receipt":
+      return { ...message, guardrails: action.receipt };
     case "queued":
       return {
         ...message,
@@ -637,6 +645,7 @@ export function reduceAssistantStreamMessage(
         recommendations: action.recommendations,
         sources: action.sources,
         contextResourceManifest: action.contextResourceManifest,
+        guardrails: action.guardrails ?? message.guardrails,
         tokensIn: action.tokensIn,
         tokensOut: action.tokensOut,
         runId: action.runId ?? message.runId,

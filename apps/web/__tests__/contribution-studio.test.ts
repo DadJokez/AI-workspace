@@ -10,6 +10,7 @@ import {
   resolveContributionStudioTab,
 } from "@/lib/contribution-studio";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import { buildGuardrailReceipt } from "@/lib/guardrail-receipts";
 
 const artifact: WorkspaceArtifactSummary = {
   id: "artifact-1",
@@ -282,5 +283,68 @@ describe("Contribution Studio model", () => {
           .getAttribute("aria-current"),
       ).toBe("page"),
     );
+  });
+
+  it("renders the authoritative guardrail receipt instead of resolving policy in the UI", () => {
+    const guardrails = buildGuardrailReceipt({
+      runId: "run-guardrails",
+      autonomyPreset: "interactive",
+      toolCalls: [
+        {
+          id: "call-approval",
+          name: "mcp__google__draft_email",
+          provider: "google",
+          toolName: "draft_email",
+          input: { hidden: "payload" },
+          startedAt: "2026-08-16T11:59:58.000Z",
+        },
+      ],
+      approvalRequests: [
+        {
+          id: "approval-1",
+          batchId: "batch-1",
+          toolCallId: "call-approval",
+          toolName: "mcp__google__draft_email",
+          provider: "google",
+          nativeToolName: "draft_email",
+          redactedInput: { to: ["redacted@example.com"] },
+          status: "pending",
+          requestedAt: "2026-08-16T12:00:00.000Z",
+          expiresAt: "2026-08-17T12:00:00.000Z",
+        },
+      ],
+      generatedAt: new Date("2026-08-16T12:00:00.000Z"),
+    });
+    const message = assistant({
+      runId: "run-guardrails",
+      guardrails,
+      approvalRequests: [],
+    });
+    const model = deriveContributionStudio([message]);
+
+    expect(model.guardrails).toEqual([guardrails]);
+    expect(model.tabs).toContain("activity");
+
+    render(
+      createElement(ContributionStudio, {
+        messages: [message],
+        requestedTab: "activity",
+        isAdmin: false,
+        onClose: vi.fn(),
+        onOpenArtifact: vi.fn(),
+        onOpenRunInspector: vi.fn(),
+      }),
+    );
+
+    expect(screen.getByTestId("studio-guardrails")).toBeTruthy();
+    expect(screen.getByText("Interactive autonomy")).toBeTruthy();
+    expect(screen.getByText("Google · Draft Email")).toBeTruthy();
+    expect(
+      screen
+        .getByTestId("studio-guardrails")
+        .querySelector('[data-guardrail-state="approval_required"]'),
+    ).toBeTruthy();
+    expect(screen.getByText(/Only this exact request/)).toBeTruthy();
+    expect(screen.queryByText("payload")).toBeNull();
   });
 });

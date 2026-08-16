@@ -7,6 +7,7 @@ import type {
   PersistedToolCall,
   PersistedToolResult,
 } from "@/lib/tool-events";
+import { buildGuardrailReceipt } from "@/lib/guardrail-receipts";
 
 const pendingMessage = (): UiMessage => ({
   id: "assistant-draft",
@@ -181,6 +182,30 @@ describe("reduceAssistantStreamMessage", () => {
     ).toMatchObject({
       pending: false,
       contextResourceManifest,
+    });
+  });
+
+  it("uses the streamed and persisted authoritative guardrail receipt", () => {
+    const guardrails = buildGuardrailReceipt({
+      runId: "run-guardrails",
+      autonomyPreset: "unattended",
+      generatedAt: new Date("2026-08-16T12:00:00.000Z"),
+    });
+    const streamed = reduceAssistantStreamMessage(pendingMessage(), {
+      type: "guardrail-receipt",
+      receipt: guardrails,
+    });
+    const persisted = reduceAssistantStreamMessage(streamed, {
+      type: "persisted",
+      messageId: "assistant-guardrails",
+      guardrails,
+    });
+
+    expect(streamed.guardrails).toEqual(guardrails);
+    expect(persisted).toMatchObject({
+      id: "assistant-guardrails",
+      pending: false,
+      guardrails,
     });
   });
 });
