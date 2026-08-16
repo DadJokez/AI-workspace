@@ -34,11 +34,28 @@ export {
   MODELS,
   PLATFORM_MODEL_OVERRIDE_ID,
   estimateCostUsd,
+  estimateUsageCostUsd,
   getModel,
   isValidModelId,
   isValidModelPurpose,
 } from "./models";
 export type { ModelId, ModelMetadata, ModelPurpose } from "./models";
+
+export {
+  RUN_BUDGET_RECEIPT_SCHEMA,
+  RUN_BUDGET_SCHEMA,
+  RunBudgetTracker,
+  parseRunBudgetState,
+} from "./run-budget";
+export type {
+  RunBudgetConsumption,
+  RunBudgetDimension,
+  RunBudgetEnvelope,
+  RunBudgetGoverningLayer,
+  RunBudgetLimits,
+  RunBudgetReceipt,
+  RunBudgetState,
+} from "./run-budget";
 
 export { normalizeToolInputSchema, ToolRegistry } from "./registry";
 export type { BedrockToolConfig } from "./registry";

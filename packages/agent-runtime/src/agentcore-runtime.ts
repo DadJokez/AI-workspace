@@ -86,6 +86,7 @@ export class AgentCoreRuntime implements AgentRuntime {
       toolDiscovery: input.toolDiscovery,
       toolApprovalGrants: input.toolApprovalGrants,
       toolApprovalMode: input.toolApprovalMode,
+      budget: input.budget,
       userId: input.context.userId,
     });
 
@@ -216,6 +217,7 @@ const EVENT_TYPES = new Set([
   "tool-approval-required",
   "tool-result",
   "usage",
+  "budget",
   "error",
   "done",
 ]);

@@ -12,9 +12,11 @@ import {
   renderMcpMountFailureGuidance,
   resolveMountedToolNames,
   runAgentLoop,
+  parseRunBudgetState,
   type DiscoveryCatalogEntry,
   type ToolApprovalGrant,
   type ToolApprovalMode,
+  type RunBudgetState,
 } from "@ai-workspace/agent";
 import { createBuiltinTools } from "@ai-workspace/agent/web-fetch-tool";
 import {
@@ -50,6 +52,7 @@ export interface InvocationPayload {
   toolApprovalMode?: ToolApprovalMode;
   userId?: string;
   maxToolIterations?: number;
+  budget?: RunBudgetState;
 }
 
 function parseToolDiscovery(
@@ -152,6 +155,11 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
     throw new Error("Invocation payload must include a non-empty messages array.");
   }
 
+  const budget = parseRunBudgetState(body.budget);
+  if (body.budget !== undefined && !budget) {
+    throw new Error("Invocation payload contains an invalid run budget.");
+  }
+
   const mcpServers: Record<string, McpHttpServerSpec> = {};
   if (
     typeof body.mcpServers === "object" &&
@@ -233,6 +241,7 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
       typeof body.maxToolIterations === "number"
         ? body.maxToolIterations
         : undefined,
+    budget,
   };
 }
 
@@ -327,6 +336,7 @@ export async function runInvocation(
       context: { userId: payload.userId ?? "agentcore" },
       toolApprovalGrants: payload.toolApprovalGrants,
       toolApprovalMode: payload.toolApprovalMode,
+      budget: payload.budget,
       signal: opts.signal,
       ...(payload.requiredToolName
         ? { requiredToolName: payload.requiredToolName }

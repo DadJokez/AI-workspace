@@ -132,6 +132,7 @@ export class BedrockRuntime implements AgentRuntime {
         context: input.context,
         toolApprovalGrants: input.toolApprovalGrants,
         toolApprovalMode: input.toolApprovalMode,
+        budget: input.budget,
         signal: input.signal,
         ...(input.requiredToolName
           ? { requiredToolName: input.requiredToolName }
