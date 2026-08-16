@@ -13,11 +13,10 @@ import type { ToolRuntimePolicy } from "@ai-workspace/agent";
  *   write → needs_approval
  *   admin → blocked
  *
- * Blocked MCP tools are refused in the shared runtime loop. Until the durable
- * approval queue lands, needs_approval remains a "would_need_approval" audit
- * observation and keeps the existing provider-specific write controls. Tools
- * missing from the catalog also observe as needs_approval — fail toward
- * caution, never toward silence.
+ * Blocked MCP tools are refused in the shared runtime loop. Needs-approval
+ * calls use the durable approval lifecycle for attended runs and deny with a
+ * receipt for unattended runs. Tools missing from the catalog fail toward
+ * needs-approval, never toward silence.
  */
 
 export type ToolActionLevel = "read" | "write" | "admin";
@@ -44,8 +43,9 @@ export function resolveToolPolicy(
 }
 
 /**
- * Observe-mode audit stamp: "would_*" naming keeps observation impossible
- * to misread as enforcement when the audit log is reviewed.
+ * Fallback stamp for legacy/started rows that do not yet carry the executor's
+ * final policy receipt. "would_*" keeps that observation distinct from an
+ * enforced result when the audit log is reviewed.
  */
 export type ObservedPolicyDecision =
   | "auto_allowed"

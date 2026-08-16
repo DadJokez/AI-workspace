@@ -2,7 +2,7 @@ import {
   type Database,
   oauthTokens,
 } from "@ai-workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { decryptSecret } from "@/lib/oauth/crypto";
 import { integrationConnectPath } from "@/lib/settings-navigation";
 import { loadActiveToolAttestations } from "@/lib/tool-attestations";
@@ -58,6 +58,7 @@ export async function ensureGitHubRepositoryWebhook({
         and(
           eq(oauthTokens.userId, userId),
           eq(oauthTokens.provider, "github"),
+          isNull(oauthTokens.revokedAt),
         ),
       )
       .limit(1),

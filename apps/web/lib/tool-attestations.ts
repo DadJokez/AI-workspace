@@ -1,5 +1,9 @@
 import type { Database } from "@ai-workspace/db";
-import { toolsCatalog, userToolAttestations } from "@ai-workspace/db";
+import {
+  mcpServers,
+  toolsCatalog,
+  userToolAttestations,
+} from "@ai-workspace/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   toolActionKey,
@@ -150,6 +154,27 @@ export async function loadToolCatalogForProviders(
     })
     .from(toolsCatalog)
     .where(inArray(toolsCatalog.provider, [...providers]));
+}
+
+/**
+ * Org-level connector state is part of the runtime gate, not presentation.
+ * Missing registry rows fail closed, so seed a row before shipping a provider.
+ */
+export async function loadActiveMcpProviders(
+  db: Database,
+  providers: readonly string[],
+): Promise<string[]> {
+  if (providers.length === 0) return [];
+  const rows = await db
+    .select({ slug: mcpServers.slug })
+    .from(mcpServers)
+    .where(
+      and(
+        inArray(mcpServers.slug, [...providers]),
+        eq(mcpServers.status, "active"),
+      ),
+    );
+  return rows.map((row) => row.slug);
 }
 
 function groupCatalogByProvider(

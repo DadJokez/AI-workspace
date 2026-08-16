@@ -122,16 +122,15 @@ old or the queue is empty.
 
 ### Security spine — one per cycle, interleave with tiers above
 
-- **#701 + #410 (enforce mode) — close the prompt-only write boundary.**
-  Highest-value security item; gates #435 and #810. **Human-owned caveat:
-  this is a permissions-enforcement change (CLAUDE.md §7) — build behind the
-  observe→enforce flag, describe the enforcement flip in the PR body, Rob
-  approves the flip.**
-- **#692 — OAuth disconnect route.** Small, compliance-visible. **Human-owned
-  caveat: auth-surface change (§7; goal.md "no auth changes") — unattended
-  sessions may build the non-auth plumbing (UI, route scaffold, tests with
-  the deletion mocked); the token-deletion/revocation wiring itself is
-  DESCRIBED in the PR body for Rob, not made unattended.**
+- **#701 — close the remaining unknown/write-shaped tool boundary.** #410's
+  persisted tri-state policy, runtime enforcement, durable approvals, standing
+  approvals, and lifecycle governance ship in #831-#835. #701 retains the
+  honeypot/externally mounted tool case that is not solved by catalog policy.
+- **#692 — complete OAuth disconnect with provider-side revocation.** Local
+  owner/admin disconnect, token scrubbing, UI, and lifecycle audit ship with
+  #835. Add best-effort provider revocation without making local withdrawal
+  depend on provider availability. **Human-owned caveat: auth-surface change
+  (§7); describe provider-specific permissions and failure behavior for Rob.**
 - **#443 / #448 — run-lifecycle fencing + concurrency > 1.** Before scheduled
   load grows. **Caveat: the concurrency default flip is env/ops-affecting —
   build + tests, flag the flip in the PR body for Rob.**

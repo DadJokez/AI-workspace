@@ -82,6 +82,10 @@ interface MockChatOptions {
     body: Record<string, unknown>,
     route: Route,
   ) => Promise<void> | void;
+  onOAuthDisconnect?: (
+    provider: string,
+    route: Route,
+  ) => Promise<void> | void;
   onFeedback?: (
     body: Record<string, unknown>,
     route: Route,
@@ -419,6 +423,15 @@ export async function installMockComparativeApi(
 
     if (path === "/api/oauth/status") {
       return json(route, oauthStatus);
+    }
+
+    const oauthDisconnect = path.match(/^\/api\/oauth\/connections\/([^/]+)$/);
+    if (oauthDisconnect && request.method() === "DELETE") {
+      const provider = decodeURIComponent(oauthDisconnect[1]!);
+      if (options.onOAuthDisconnect) {
+        return options.onOAuthDisconnect(provider, route);
+      }
+      return json(route, { provider, revoked: true, attestations: 1 });
     }
 
     if (path === "/api/notifications") {

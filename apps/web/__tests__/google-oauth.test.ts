@@ -28,27 +28,34 @@ function installMocks() {
     selectQuery.where = () => selectQuery;
     selectQuery.limit = async () => selectRows;
 
+    const mockDb: Record<string, unknown> = {
+      select: () => selectQuery,
+      insert: (table: unknown) => {
+        const insertQuery: Record<string, unknown> = {};
+        insertQuery.values = (values: Record<string, unknown>) => {
+          if (table === actual.oauthTokens) {
+            capturedTokenValues = values;
+          } else if (table === actual.userToolAttestations) {
+            capturedAttestationValues = values;
+          }
+          return insertQuery;
+        };
+        insertQuery.onConflictDoUpdate = () => insertQuery;
+        insertQuery.returning = async () =>
+          table === actual.oauthTokens
+            ? [{ id: "google-connection" }]
+            : [{ id: "google-attestation" }];
+        insertQuery.then = (resolve: (value: unknown) => void) => resolve([]);
+        return insertQuery;
+      },
+    };
+    mockDb.transaction = async (
+      callback: (tx: Record<string, unknown>) => Promise<unknown>,
+    ) => callback(mockDb);
+
     return {
       ...actual,
-      getDb: () =>
-        ({
-          select: () => selectQuery,
-          insert: (table: unknown) => {
-            const insertQuery: Record<string, unknown> = {};
-            insertQuery.values = (values: Record<string, unknown>) => {
-              if (table === actual.oauthTokens) {
-                capturedTokenValues = values;
-              } else if (table === actual.userToolAttestations) {
-                capturedAttestationValues = values;
-              }
-              return insertQuery;
-            };
-            insertQuery.onConflictDoUpdate = async () => undefined;
-            insertQuery.then = (resolve: (value: unknown) => void) =>
-              resolve([]);
-            return insertQuery;
-          },
-        }) as never,
+      getDb: () => mockDb as never,
     };
   });
 }
