@@ -7,6 +7,18 @@ import type { UserMcpProviderStatus } from "@/lib/oauth/mcp-servers";
 const NOW = new Date("2026-06-14T00:00:00.000Z");
 
 describe("chat context pack", () => {
+  it("records the context-bound autonomy preset in the receipt and prompt", () => {
+    const pack = buildChatContextPack({
+      ...baseInput(),
+      autonomyPreset: "unattended",
+    });
+
+    expect(pack.receipts[0]?.autonomy).toEqual({ preset: "unattended" });
+    expect(pack.prompt.volatileSystemSuffix).toContain(
+      "- Autonomy: unattended.",
+    );
+  });
+
   it("records a checked-but-empty Vault receipt without claiming memory was injected", () => {
     const pack = buildChatContextPack({
       ...baseInput(),

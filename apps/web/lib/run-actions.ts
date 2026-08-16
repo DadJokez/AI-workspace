@@ -33,6 +33,7 @@ import {
   artifactReviewRequestFromRunInputs,
   releaseArtifactReviewRequest,
 } from "@/lib/artifact-review";
+import { resolveAutonomyPreset } from "@/lib/autonomy-presets";
 
 type RunActionResult =
   | { ok: true; run: Pick<Run, "id" | "status"> }
@@ -310,6 +311,8 @@ export async function retryChatRun({
   }
 
   const now = new Date();
+  const retryTriggerType =
+    run.skillSlug === "chat-turn" ? "chat_retry" : "skill_retry";
   const rows = await db
     .insert(runs)
     .values({
@@ -320,11 +323,12 @@ export async function retryChatRun({
       scheduleId: run.scheduleId,
       eventTriggerId: run.eventTriggerId,
       eventDeliveryId: null,
-      triggerType: run.skillSlug === "chat-turn" ? "chat_retry" : "skill_retry",
+      triggerType: retryTriggerType,
       status: "queued",
       modelId: run.modelId,
       inputs: {
         ...inputs,
+        autonomyPreset: resolveAutonomyPreset(retryTriggerType).name,
         retryOfRunId: run.id,
         retryOfStatus: run.status,
         retryOfError: run.error,

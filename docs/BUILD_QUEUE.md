@@ -122,6 +122,11 @@ old or the queue is empty.
 
 ### Security spine — one per cycle, interleave with tiers above
 
+- **#436 — context-bound autonomy presets.** P0 ships the centralized
+  `interactive`, `unattended`, and `restricted` vocabulary on top of #410.
+  Chat/manual work binds to interactive; schedules and event triggers bind to
+  unattended, where writes deny-and-report without pausing the run. Per-skill
+  tightening and granular exceptions remain deferred P1/P2 work.
 - **#701 — close the remaining unknown/write-shaped tool boundary.** #410's
   persisted tri-state policy, runtime enforcement, durable approvals, standing
   approvals, and lifecycle governance ship in #831-#835. #701 retains the

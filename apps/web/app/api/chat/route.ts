@@ -67,6 +67,7 @@ import {
   planChatMessageEdit,
 } from "@/lib/chat-message-edit";
 import { capturePostHogEvent } from "@/lib/posthog-server";
+import { resolveAutonomyPreset } from "@/lib/autonomy-presets";
 import { parseContextResourceReferences } from "@/lib/context-shelf";
 import {
   contextResourceProviderRequests,
@@ -846,6 +847,7 @@ export async function POST(req: Request) {
       threadId: thread.id,
       userMessageId: userMsg[0]!.id,
       requestedByUserId: sessionUser.id,
+      autonomyPreset: resolveAutonomyPreset("chat").name,
       executionMode: runtimeRoute.executionMode,
       modelOverride,
       modelPreferenceSource: modelPreference.source,

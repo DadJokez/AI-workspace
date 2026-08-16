@@ -676,17 +676,90 @@ describe("executeChatTurn — unattended web egress governance (#439)", () => {
       const fixture = workerInput();
       fixture.run.triggerType = triggerType;
       fixture.run.skillId = "skill-1";
+      if (fixture.input.lane.kind !== "worker") {
+        throw new Error("Expected worker");
+      }
+      fixture.input.lane.storedInputs = {
+        ...fixture.input.lane.storedInputs,
+        autonomyPreset: "interactive",
+      };
 
       await executeChatTurn(fixture.input);
 
       expect(fixture.captured.turnInput?.toolApprovalMode).toBe(
         "deny_unattended",
       );
+      expect(buildChatContextPack).toHaveBeenCalledWith(
+        expect.objectContaining({ autonomyPreset: "unattended" }),
+      );
+      expect(
+        fixture.state.runUpdates.find(
+          (update) =>
+            (update.inputs as Record<string, unknown> | undefined)
+              ?.autonomyPreset === "unattended",
+        ),
+      ).toBeDefined();
       expect(loadToolApprovalGrants).not.toHaveBeenCalled();
       expect(loadStandingToolApprovalGrants).not.toHaveBeenCalled();
       expect(pauseRunForToolApprovals).not.toHaveBeenCalled();
     },
   );
+
+  it("reports skipped unattended writes while keeping the run successful", async () => {
+    vi.mocked(createToolEventAccumulator).mockReturnValueOnce({
+      recordCall: vi.fn(),
+      recordResult: vi.fn(),
+      calls: () => [],
+      results: () => [
+        {
+          toolCallId: "call-skipped",
+          name: "gmail__draft_email",
+          provider: "gmail",
+          toolName: "draft_email",
+          output: { error: "tool_approval_unattended_denied" },
+          isError: true,
+          completedAt: "2026-08-16T12:00:00.000Z",
+        },
+      ],
+    });
+    const fixture = workerInput();
+    fixture.run.triggerType = "scheduled";
+    fixture.run.skillId = "skill-1";
+
+    await executeChatTurn(fixture.input);
+
+    const terminal = fixture.state.runUpdates.find(
+      (update) => update.status === "succeeded",
+    );
+    expect(terminal?.outputs).toMatchObject({
+      autonomy: {
+        preset: "unattended",
+        skippedWriteCount: 1,
+        reason: "denied_unattended",
+      },
+    });
+    expect(appendRunEventBestEffort).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        db: fixture.input.db,
+        runId: "run-1",
+        eventType: "autonomy_writes_skipped",
+        status: "info",
+        metadata: {
+          preset: "unattended",
+          skippedWriteCount: 1,
+          reason: "denied_unattended",
+        },
+      }),
+    );
+    expect(createProactiveRunNotification).toHaveBeenCalledWith(
+      fixture.input.db,
+      fixture.run,
+      "succeeded",
+      "thread-1",
+      { hasProposal: false, skippedWriteCount: 1 },
+    );
+  });
 
   it("loads endpoint-bound Skill grants for an attended manual run", async () => {
     const fixture = workerInput();

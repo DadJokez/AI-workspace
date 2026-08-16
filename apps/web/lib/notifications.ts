@@ -37,7 +37,7 @@ export async function createProactiveRunNotification(
   run: Run,
   terminalStatus: "succeeded" | "failed",
   threadId?: string | null,
-  options: { hasProposal?: boolean } = {},
+  options: { hasProposal?: boolean; skippedWriteCount?: number } = {},
 ): Promise<void> {
   const chatRun =
     run.triggerType === "chat" || run.triggerType === "chat_retry";
@@ -63,6 +63,20 @@ export async function createProactiveRunNotification(
       ? "Chat"
       : (skillName ?? run.skillSlug ?? "Proactive run");
     const eventTriggered = run.triggerType === "github_event";
+    const skippedWriteCount = Math.max(
+      0,
+      Math.floor(options.skippedWriteCount ?? 0),
+    );
+    const skippedWriteSummary = skippedWriteCount > 0
+      ? ` ${skippedWriteCount} write action${skippedWriteCount === 1 ? " was" : "s were"} skipped because approval is required.`
+      : "";
+    const succeededBody = chatRun
+      ? "Your background chat run finished. Open the thread to see the answer."
+      : options.hasProposal
+        ? "New work is ready for review. Open the thread to preview the proposal and accept or discard it."
+        : eventTriggered
+          ? "A GitHub event triggered this run while you were away. Open it to see the result."
+          : "A scheduled run completed while you were away. Open it to see the result.";
 
     await db
       .insert(notifications)
@@ -76,13 +90,7 @@ export async function createProactiveRunNotification(
             : `${label} failed`,
         body:
           terminalStatus === "succeeded"
-            ? chatRun
-              ? "Your background chat run finished. Open the thread to see the answer."
-              : options.hasProposal
-                ? "New work is ready for review. Open the thread to preview the proposal and accept or discard it."
-                : eventTriggered
-                ? "A GitHub event triggered this run while you were away. Open it to see the result."
-                : "A scheduled run completed while you were away. Open it to see the result."
+            ? `${succeededBody}${skippedWriteSummary}`
             : (run.error ??
               (chatRun
                 ? "Your background chat run ended with an error."

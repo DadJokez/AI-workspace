@@ -4,6 +4,7 @@ import { auditLog, getDb, runs } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
+import { resolveAutonomyPreset } from "@/lib/autonomy-presets";
 import { requireSession } from "@/lib/auth/requireSession";
 import {
   buildDeveloperBriefingPrompt,
@@ -141,20 +142,25 @@ export async function POST(req: Request) {
   }
 
   const now = new Date();
+  const triggerType = retrySource ? "manual_retry" : "manual";
+  const autonomyPreset = resolveAutonomyPreset(triggerType);
   const inserted = await db
     .insert(runs)
     .values({
       userId: sessionUser.id,
       skillSlug: SKILL_SLUG,
-      triggerType: retrySource ? "manual_retry" : "manual",
+      triggerType,
       status: "running",
       runtime: runtime.name,
       modelId,
-      inputs: buildWorkflowRunInputs({
-        prompt: briefingPrompt,
-        retrySource,
-        retryRequestedAt: now,
-      }),
+      inputs: {
+        ...buildWorkflowRunInputs({
+          prompt: briefingPrompt,
+          retrySource,
+          retryRequestedAt: now,
+        }),
+        autonomyPreset: autonomyPreset.name,
+      },
       startedAt: now,
       updatedAt: now,
     })
@@ -363,6 +369,7 @@ export async function POST(req: Request) {
       runId: run.id,
       modelId,
       runtime: runtime.name,
+      autonomyPreset: autonomyPreset.name,
       calls: toolEvents.calls(),
       results: toolEvents.results(),
       toolPolicyDecisions: mcpAccess.toolPolicyDecisions,

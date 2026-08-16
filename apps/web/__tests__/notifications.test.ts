@@ -161,6 +161,25 @@ describe("createProactiveRunNotification", () => {
     });
   });
 
+  it("reports skipped unattended writes without turning a successful run red", async () => {
+    const { db, captured } = fakeDb([[{ name: "Weekly Status" }]]);
+
+    await createProactiveRunNotification(
+      db,
+      scheduledRun(),
+      "succeeded",
+      THREAD_ID,
+      { skippedWriteCount: 2 },
+    );
+
+    expect(captured.inserts[0]).toMatchObject({
+      type: "run_succeeded",
+      title: "Weekly Status finished",
+      body:
+        "A scheduled run completed while you were away. Open it to see the result. 2 write actions were skipped because approval is required.",
+    });
+  });
+
   it("notifies the owner when a durable chat run finishes", async () => {
     for (const triggerType of ["chat", "chat_retry"]) {
       const { db, captured } = fakeDb();

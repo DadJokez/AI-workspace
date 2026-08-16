@@ -763,6 +763,7 @@ async function agentCoreDurableLaneCheck(db: ReturnType<typeof getDb>) {
         userMessageId,
         requestedByUserId: SMOKE_USER_ID,
         executionMode: "local",
+        autonomyPreset: "interactive",
         runtimeRoute: {
           lane: "durable-local",
           executionMode: "local",

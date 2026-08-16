@@ -290,6 +290,7 @@ describe("legal-transition matrix", () => {
         userId: owner.id,
         inputs: expect.objectContaining({
           prompt: "original prompt",
+          autonomyPreset: "interactive",
           retryOfRunId: "run-1",
           retryOfStatus: status,
           retryRequestedByUserId: owner.id,

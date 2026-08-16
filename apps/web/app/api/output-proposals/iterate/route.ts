@@ -46,6 +46,7 @@ import {
 import { appendRunEvent } from "@/lib/run-events";
 import { toWorkspaceArtifactVersionTarget } from "@/lib/artifact-revisions";
 import { loadWorkspaceArtifactForUser } from "@/lib/workspace-artifacts";
+import { resolveAutonomyPreset } from "@/lib/autonomy-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -282,6 +283,7 @@ export async function POST(req: Request) {
           threadId: thread.id,
           userMessageId: feedbackMessageId,
           requestedByUserId: sessionUser.id,
+          autonomyPreset: resolveAutonomyPreset("proposal_iteration").name,
           executionMode: "local",
           modelOverride: false,
           runtimeRoute: PROPOSAL_ITERATION_ROUTE,

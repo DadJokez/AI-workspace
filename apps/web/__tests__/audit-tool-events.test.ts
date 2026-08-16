@@ -55,6 +55,7 @@ describe("buildToolAuditRows", () => {
           rawToolName: "github_list_pull_requests",
           modelId: "sonnet-4-6",
           runtime: "bedrock",
+          autonomyPreset: "interactive",
         },
         startedAt: new Date("2026-05-15T12:00:00.000Z"),
         completedAt: new Date("2026-05-15T12:00:01.000Z"),
@@ -128,6 +129,37 @@ describe("buildToolAuditRows", () => {
 
     expect(rows[0]?.policyDecision).toBe("blocked");
     expect(rows[0]?.status).toBe("failed");
+  });
+
+  it("stamps the active autonomy preset beside the policy decision", () => {
+    const rows = buildToolAuditRows({
+      ...base,
+      autonomyPreset: "unattended",
+      calls: [
+        {
+          id: "call_unattended",
+          name: "google__create_event",
+          provider: "google",
+          toolName: "create_event",
+          input: { summary: "Planning" },
+          startedAt: "2026-05-15T12:00:00.000Z",
+        },
+      ],
+      results: [
+        {
+          toolCallId: "call_unattended",
+          output: { error: "tool_approval_unattended_denied" },
+          isError: true,
+          policyDecision: "denied",
+          completedAt: "2026-05-15T12:00:00.001Z",
+        },
+      ],
+    });
+
+    expect(rows[0]).toMatchObject({
+      policyDecision: "denied",
+      metadata: { autonomyPreset: "unattended" },
+    });
   });
 
   it("stamps domain-policy denials and successful fetched hosts", () => {
