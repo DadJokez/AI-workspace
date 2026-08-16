@@ -422,6 +422,7 @@ export function useChatActions({
     runId: string,
     approvalIds: string[],
     decision: "approve" | "deny",
+    rememberForSkill: boolean,
   ) {
     if (!activeTab?.threadId) return;
     setToolApprovalPendingRunId(runId);
@@ -432,7 +433,11 @@ export function useChatActions({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ decision, approvalIds }),
+          body: JSON.stringify({
+            decision,
+            approvalIds,
+            rememberForSkill,
+          }),
         },
         decision === "approve"
           ? "Could not approve that action."

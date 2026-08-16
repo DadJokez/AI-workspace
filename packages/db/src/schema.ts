@@ -785,6 +785,7 @@ export const toolApprovalRequests = pgTable(
     requestedAt: timestamp("requested_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     decidedByUserId: uuid("decided_by_user_id").references(() => users.id, {
       onDelete: "set null",
@@ -807,10 +808,68 @@ export const toolApprovalRequests = pgTable(
       t.status,
       t.requestedAt,
     ),
+    expiryIdx: index("tool_approval_requests_expiry_idx").on(
+      t.status,
+      t.expiresAt,
+    ),
     batchIdx: index("tool_approval_requests_batch_idx").on(t.batchId),
     runToolCallUnique: uniqueIndex(
       "tool_approval_requests_run_tool_call_idx",
     ).on(t.runId, t.toolCallId, t.callFingerprint),
+  }),
+);
+
+/**
+ * Expiring permission for one user to let one saved Skill invoke one exact
+ * endpoint-bound write tool without pausing on every attended run. The user id
+ * is the credential owner and approval authority; a shared Skill owner never
+ * grants permission on another user's behalf.
+ */
+export const skillToolStandingApprovals = pgTable(
+  "skill_tool_standing_approvals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    skillId: uuid("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    endpoint: text("endpoint").notNull(),
+    nativeToolName: text("native_tool_name").notNull(),
+    grantedAt: timestamp("granted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    grantedByUserId: uuid("granted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedByUserId: uuid("revoked_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    revocationReason: text("revocation_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    scopeUnique: uniqueIndex("skill_tool_standing_approvals_scope_idx").on(
+      t.userId,
+      t.skillId,
+      t.provider,
+      t.endpoint,
+      t.nativeToolName,
+    ),
+    activeIdx: index("skill_tool_standing_approvals_active_idx").on(
+      t.userId,
+      t.skillId,
+      t.expiresAt,
+    ),
   }),
 );
 
@@ -1855,6 +1914,10 @@ export type RunEvent = typeof runEvents.$inferSelect;
 export type NewRunEvent = typeof runEvents.$inferInsert;
 export type ToolApprovalRequestRow = typeof toolApprovalRequests.$inferSelect;
 export type NewToolApprovalRequestRow = typeof toolApprovalRequests.$inferInsert;
+export type SkillToolStandingApproval =
+  typeof skillToolStandingApprovals.$inferSelect;
+export type NewSkillToolStandingApproval =
+  typeof skillToolStandingApprovals.$inferInsert;
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
 export type ModelEnablement = typeof modelEnablement.$inferSelect;

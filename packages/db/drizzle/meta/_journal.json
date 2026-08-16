@@ -330,6 +330,13 @@
       "when": 1786834800000,
       "tag": "0046_tool_approval_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1786842000000,
+      "tag": "0047_standing_tool_approvals",
+      "breakpoints": true
     }
   ]
 }

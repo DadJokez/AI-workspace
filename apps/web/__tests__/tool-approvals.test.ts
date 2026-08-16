@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { ToolApprovalRequest } from "@ai-workspace/agent";
 import type { Database } from "@ai-workspace/db";
-import { auditLog, runs, toolApprovalRequests } from "@ai-workspace/db";
+import {
+  auditLog,
+  runs,
+  skillToolStandingApprovals,
+  toolApprovalRequests,
+} from "@ai-workspace/db";
 import {
   decideToolApprovals,
+  expirePendingToolApprovals,
+  loadStandingToolApprovalGrants,
   loadToolApprovalGrants,
   pauseRunForToolApprovals,
+  revokeStandingToolApproval,
 } from "@/lib/tool-approvals";
 
 type Row = Record<string, unknown>;
@@ -56,6 +64,7 @@ function fakeDb(overrides: Partial<FakeDbState> = {}) {
         const promise = Promise.resolve(undefined);
         return Object.assign(promise, {
           returning: async () => state.insertResults?.shift() ?? [],
+          onConflictDoUpdate: async () => undefined,
         });
       },
     }),
@@ -95,7 +104,7 @@ function approvalRow(overrides: Row = {}) {
     decidedAt: null,
     decidedByUserId: null,
     consumedAt: null,
-    expiresAt: null,
+    expiresAt: new Date("2026-08-16T12:00:00.000Z"),
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -175,6 +184,81 @@ describe("loadToolApprovalGrants", () => {
       }),
     ).resolves.toEqual([]);
     expect(state.transactionCount).toBe(0);
+  });
+});
+
+describe("standing Skill approvals", () => {
+  it("loads only current grants for the executing user and Skill", async () => {
+    const { db } = fakeDb({
+      selectResults: [
+        [
+          {
+            id: "standing-1",
+            provider: "gmail",
+            endpoint: "https://mcp.example.test",
+            nativeToolName: "draft_email",
+            expiresAt: new Date("2026-09-14T12:00:00.000Z"),
+          },
+        ],
+      ],
+    });
+
+    await expect(
+      loadStandingToolApprovalGrants({
+        db,
+        userId: "user-1",
+        skillId: "skill-1",
+        now: new Date("2026-08-15T12:00:00.000Z"),
+      }),
+    ).resolves.toEqual([
+      {
+        schema: "comparative.tool-approval-grant.v1",
+        approvalId: "standing-1",
+        scope: "skill_tool",
+        identity: {
+          kind: "mcp",
+          provider: "gmail",
+          endpoint: "https://mcp.example.test",
+          nativeToolName: "draft_email",
+        },
+        expiresAt: "2026-09-14T12:00:00.000Z",
+        decision: "approved",
+      },
+    ]);
+  });
+
+  it("revokes only the user's scoped grant and records an audit receipt", async () => {
+    const standing = {
+      id: "standing-1",
+      provider: "gmail",
+      endpoint: "https://mcp.example.test",
+      nativeToolName: "draft_email",
+    };
+    const { db, state } = fakeDb({ updateResults: [[standing]] });
+
+    await expect(
+      revokeStandingToolApproval({
+        db,
+        userId: "user-1",
+        skillId: "skill-1",
+        approvalId: "standing-1",
+      }),
+    ).resolves.toBe(true);
+
+    expect(
+      state.updates.find(
+        (entry) => entry.table === skillToolStandingApprovals,
+      )?.values,
+    ).toMatchObject({
+      revokedAt: expect.any(Date),
+      revokedByUserId: "user-1",
+    });
+    expect(
+      state.inserts.find((entry) => entry.table === auditLog)?.values,
+    ).toMatchObject({
+      actionType: "skill_tool_standing_approval_revoked",
+      actorUserId: "user-1",
+    });
   });
 });
 
@@ -367,5 +451,150 @@ describe("decideToolApprovals", () => {
     });
     expect(state.inserts).toEqual([]);
     expect(state.updates).toEqual([]);
+  });
+
+  it("creates an expiring endpoint-bound grant for an attended Skill", async () => {
+    const pending = approvalRow();
+    const approved = approvalRow({
+      status: "approved",
+      decidedAt: new Date("2026-08-15T12:10:00.000Z"),
+      decidedByUserId: "user-1",
+    });
+    const { db, state } = fakeDb({
+      selectResults: [
+        [
+          {
+            id: "run-1",
+            userId: "user-1",
+            skillId: "skill-1",
+            triggerType: "skill",
+            status: "waiting_for_approval",
+            outputs: {},
+          },
+        ],
+        [pending],
+        [approved],
+      ],
+    });
+
+    const result = await decideToolApprovals({
+      db,
+      runId: "run-1",
+      userId: "user-1",
+      approvalIds: ["approval-1"],
+      decision: "approve",
+      rememberForSkill: true,
+    });
+
+    expect(result).toMatchObject({ ok: true, queued: true });
+    expect(
+      state.inserts.find(
+        (entry) => entry.table === skillToolStandingApprovals,
+      )?.values,
+    ).toMatchObject({
+      userId: "user-1",
+      skillId: "skill-1",
+      provider: "gmail",
+      endpoint: "https://mcp.example.test",
+      nativeToolName: "draft_email",
+      expiresAt: expect.any(Date),
+    });
+    expect(
+      state.inserts.filter((entry) => entry.table === auditLog),
+    ).toHaveLength(2);
+  });
+
+  it("refuses remembered permission for an unattended Skill run", async () => {
+    const { db, state } = fakeDb({
+      selectResults: [
+        [
+          {
+            id: "run-1",
+            userId: "user-1",
+            skillId: "skill-1",
+            triggerType: "scheduled",
+            status: "waiting_for_approval",
+            outputs: {},
+          },
+        ],
+        [approvalRow()],
+      ],
+    });
+
+    const result = await decideToolApprovals({
+      db,
+      runId: "run-1",
+      userId: "user-1",
+      approvalIds: ["approval-1"],
+      decision: "approve",
+      rememberForSkill: true,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: "standing_approval_not_allowed",
+    });
+    expect(state.inserts).toEqual([]);
+    expect(state.updates).toEqual([]);
+  });
+});
+
+describe("expirePendingToolApprovals", () => {
+  it("expires stale requests, cancels the waiting run, and audits the denial", async () => {
+    const expiredAt = new Date("2026-08-16T12:00:00.000Z");
+    const expired = approvalRow({ expiresAt: expiredAt });
+    const { db, state } = fakeDb({
+      selectResults: [
+        [expired],
+        [
+          {
+            id: "run-1",
+            status: "waiting_for_approval",
+            outputs: {
+              approvalRequests: [
+                {
+                  id: "approval-1",
+                  batchId: "batch-1",
+                  toolCallId: "call-1",
+                  toolName: "gmail__draft_email",
+                  provider: "gmail",
+                  nativeToolName: "draft_email",
+                  redactedInput: { body: "[REDACTED]" },
+                  status: "pending",
+                  requestedAt: "2026-08-15T12:00:00.000Z",
+                  expiresAt: expiredAt.toISOString(),
+                },
+              ],
+            },
+          },
+        ],
+      ],
+    });
+
+    await expect(
+      expirePendingToolApprovals({
+        db,
+        now: new Date("2026-08-16T12:01:00.000Z"),
+      }),
+    ).resolves.toBe(1);
+
+    expect(
+      state.updates.find((entry) => entry.table === toolApprovalRequests)
+        ?.values,
+    ).toMatchObject({ status: "expired" });
+    expect(
+      state.updates.find((entry) => entry.table === runs)?.values,
+    ).toMatchObject({
+      status: "canceled",
+      outputs: expect.objectContaining({ lifecycle: "approval_expired" }),
+    });
+    expect(
+      state.inserts.find((entry) => entry.table === auditLog)?.values,
+    ).toEqual([
+      expect.objectContaining({
+        actionType: "tool_approval_expired",
+        policyDecision: "denied",
+      }),
+    ]);
   });
 });

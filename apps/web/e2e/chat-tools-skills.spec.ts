@@ -49,6 +49,8 @@ test.describe("chat tools and skills", () => {
               },
               status: "pending",
               requestedAt: now,
+              expiresAt: "2026-08-16T00:00:00.000Z",
+              standingApprovalEligible: true,
             },
           ],
         }),
@@ -109,10 +111,17 @@ test.describe("chat tools and skills", () => {
     await expect(card).toContainText("[REDACTED]");
     await expect(card).not.toContainText("secret launch plan");
 
+    await card
+      .getByRole("checkbox", { name: /Allow this Skill/ })
+      .check();
     await card.getByRole("button", { name: "Approve" }).click();
     await expect.poll(() => submitted).toEqual({
       runId,
-      body: { decision: "approve", approvalIds: [approvalId] },
+      body: {
+        decision: "approve",
+        approvalIds: [approvalId],
+        rememberForSkill: true,
+      },
     });
     await expect(page.getByTestId("tool-approval-card")).toHaveCount(0);
     await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();

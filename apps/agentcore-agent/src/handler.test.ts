@@ -56,6 +56,58 @@ describe("parseInvocationPayload tool approvals", () => {
       },
     ]);
   });
+
+  it("keeps current endpoint-bound standing grants and unattended mode", () => {
+    const payload = parseInvocationPayload({
+      ...BASE_PAYLOAD,
+      toolApprovalMode: "deny_unattended",
+      toolApprovalGrants: [
+        {
+          schema: "comparative.tool-approval-grant.v1",
+          approvalId: "standing-1",
+          scope: "skill_tool",
+          identity: {
+            kind: "mcp",
+            provider: "google",
+            endpoint: "https://mcp.example.test/google",
+            nativeToolName: "draft_email",
+          },
+          expiresAt: "2099-08-15T00:00:00.000Z",
+          decision: "approved",
+        },
+        {
+          schema: "comparative.tool-approval-grant.v1",
+          approvalId: "expired",
+          scope: "skill_tool",
+          identity: {
+            kind: "mcp",
+            provider: "google",
+            endpoint: "https://mcp.example.test/google",
+            nativeToolName: "draft_email",
+          },
+          expiresAt: "2020-08-15T00:00:00.000Z",
+          decision: "approved",
+        },
+      ],
+    });
+
+    expect(payload.toolApprovalMode).toBe("deny_unattended");
+    expect(payload.toolApprovalGrants).toEqual([
+      expect.objectContaining({
+        approvalId: "standing-1",
+        scope: "skill_tool",
+      }),
+    ]);
+  });
+
+  it("defaults malformed approval mode to attended request behavior", () => {
+    expect(
+      parseInvocationPayload({
+        ...BASE_PAYLOAD,
+        toolApprovalMode: "allow_all",
+      }).toolApprovalMode,
+    ).toBe("request");
+  });
 });
 
 describe("parseInvocationPayload toolDiscovery", () => {

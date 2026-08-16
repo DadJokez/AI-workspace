@@ -167,6 +167,8 @@ describe("tool approval card", () => {
               redactedInput: { to: "[REDACTED]", subject: "Quarterly plan" },
               status: "pending",
               requestedAt: "2026-08-15T00:00:00.000Z",
+              expiresAt: "2026-08-16T00:00:00.000Z",
+              standingApprovalEligible: true,
             },
           ],
         },
@@ -178,6 +180,7 @@ describe("tool approval card", () => {
     expect(html).toContain("[REDACTED]");
     expect(html).toContain("Approve");
     expect(html).toContain("Deny");
+    expect(html).toContain("Allow this Skill to use these actions for 30 days");
   });
 });
 

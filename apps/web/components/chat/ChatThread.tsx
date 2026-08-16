@@ -71,6 +71,7 @@ interface ChatThreadProps {
     runId: string,
     approvalIds: string[],
     decision: "approve" | "deny",
+    rememberForSkill: boolean,
   ) => void;
   onOpenRunInspector: (runId: string) => void;
   onBranchMessage: (messageId: string) => void;

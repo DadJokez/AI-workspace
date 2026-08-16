@@ -60,9 +60,44 @@ export function matchingToolApprovalGrant({
   consumedApprovalIds: ReadonlySet<string>;
 }): ToolApprovalGrant | undefined {
   return grants.find(
-    (grant) =>
-      grant.fingerprint === request.fingerprint &&
-      !consumedApprovalIds.has(grant.approvalId),
+    (grant) => {
+      if (grant.scope === "skill_tool") {
+        return (
+          grant.decision === "approved" &&
+          standingGrantIsCurrent(grant) &&
+          sameExecutionIdentity(grant.identity, request.identity)
+        );
+      }
+      return (
+        grant.fingerprint === request.fingerprint &&
+        !consumedApprovalIds.has(grant.approvalId)
+      );
+    },
+  );
+}
+
+export function isStandingToolApprovalGrant(
+  grant: ToolApprovalGrant,
+): boolean {
+  return grant.scope === "skill_tool";
+}
+
+function standingGrantIsCurrent(grant: ToolApprovalGrant): boolean {
+  if (!grant.expiresAt) return false;
+  const expiresAt = Date.parse(grant.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
+}
+
+function sameExecutionIdentity(
+  left: McpToolExecutionIdentity | undefined,
+  right: McpToolExecutionIdentity | undefined,
+): boolean {
+  return Boolean(
+    left &&
+      right &&
+      left.provider === right.provider &&
+      left.endpoint === right.endpoint &&
+      left.nativeToolName === right.nativeToolName,
   );
 }
 

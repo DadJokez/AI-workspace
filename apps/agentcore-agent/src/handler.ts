@@ -14,6 +14,7 @@ import {
   runAgentLoop,
   type DiscoveryCatalogEntry,
   type ToolApprovalGrant,
+  type ToolApprovalMode,
 } from "@ai-workspace/agent";
 import { createBuiltinTools } from "@ai-workspace/agent/web-fetch-tool";
 import {
@@ -46,6 +47,7 @@ export interface InvocationPayload {
     catalog?: DiscoveryCatalogEntry[];
   };
   toolApprovalGrants?: ToolApprovalGrant[];
+  toolApprovalMode?: ToolApprovalMode;
   userId?: string;
   maxToolIterations?: number;
 }
@@ -109,12 +111,25 @@ function parseToolApprovalGrants(raw: unknown): ToolApprovalGrant[] | undefined 
       return false;
     }
     const grant = value as Record<string, unknown>;
+    const exactGrant =
+      typeof grant.fingerprint === "string" &&
+      /^[a-f0-9]{64}$/.test(grant.fingerprint) &&
+      (grant.scope === undefined || grant.scope === "exact_call");
+    const identity = grant.identity as Record<string, unknown> | undefined;
+    const standingGrant =
+      grant.scope === "skill_tool" &&
+      typeof grant.expiresAt === "string" &&
+      Number.isFinite(Date.parse(grant.expiresAt)) &&
+      Date.parse(grant.expiresAt) > Date.now() &&
+      identity?.kind === "mcp" &&
+      typeof identity.provider === "string" &&
+      typeof identity.endpoint === "string" &&
+      typeof identity.nativeToolName === "string";
     const valid =
       grant.schema === "comparative.tool-approval-grant.v1" &&
       typeof grant.approvalId === "string" &&
       grant.approvalId.length > 0 &&
-      typeof grant.fingerprint === "string" &&
-      /^[a-f0-9]{64}$/.test(grant.fingerprint) &&
+      (exactGrant || standingGrant) &&
       (grant.decision === "approved" || grant.decision === "denied") &&
       (grant.consumed === undefined || typeof grant.consumed === "boolean");
     return valid;
@@ -211,6 +226,8 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
         : undefined,
     toolDiscovery: parseToolDiscovery(body.toolDiscovery),
     toolApprovalGrants: parseToolApprovalGrants(body.toolApprovalGrants),
+    toolApprovalMode:
+      body.toolApprovalMode === "deny_unattended" ? "deny_unattended" : "request",
     userId: typeof body.userId === "string" ? body.userId : undefined,
     maxToolIterations:
       typeof body.maxToolIterations === "number"
@@ -309,6 +326,7 @@ export async function runInvocation(
       registry,
       context: { userId: payload.userId ?? "agentcore" },
       toolApprovalGrants: payload.toolApprovalGrants,
+      toolApprovalMode: payload.toolApprovalMode,
       signal: opts.signal,
       ...(payload.requiredToolName
         ? { requiredToolName: payload.requiredToolName }

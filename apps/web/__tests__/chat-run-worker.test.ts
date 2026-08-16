@@ -31,6 +31,9 @@ vi.mock("@/lib/run-events", () => ({
 vi.mock("@/lib/notifications", () => ({
   createProactiveRunNotification: vi.fn(async () => undefined),
 }));
+vi.mock("@/lib/tool-approvals", () => ({
+  expirePendingToolApprovals: vi.fn(async () => 0),
+}));
 
 import {
   heartbeatRunLease,
@@ -44,6 +47,7 @@ import { resolveModelCandidatesForPurpose } from "@/lib/model-registry";
 import { appendRunEventBestEffort } from "@/lib/run-events";
 import { createProactiveRunNotification } from "@/lib/notifications";
 import { chatWorkerAbortReason } from "@/lib/chat-worker-abort";
+import { expirePendingToolApprovals } from "@/lib/tool-approvals";
 
 function claimedRun(overrides: Partial<Run> = {}): Run {
   return {
@@ -783,6 +787,7 @@ describe("poison-pill attempt ceiling (#464)", () => {
         ),
       ).toBe(true),
     );
+    expect(expirePendingToolApprovals).toHaveBeenCalledWith({ db });
 
     controller.abort();
     await loop;

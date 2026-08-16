@@ -49,13 +49,21 @@ export interface ToolApprovalGrant {
   schema: "comparative.tool-approval-grant.v1";
   approvalId: string;
   /** Durable identity + canonical arguments; provider tool-call ids regenerate. */
-  fingerprint: string;
+  fingerprint?: string;
+  /** Skill-scoped grants match only this trusted endpoint/tool identity. */
+  identity?: McpToolExecutionIdentity;
+  scope?: "exact_call" | "skill_tool";
+  /** ISO timestamp; runtimes reject an expired standing grant fail-closed. */
+  expiresAt?: string;
   decision: "approved" | "denied";
   /** Once consumed, the receipt may replay its result but never execute again. */
   consumed?: boolean;
   /** Redacted persisted output used to resume a multi-approval turn safely. */
   replayOutput?: unknown;
 }
+
+/** What the runtime does when a write lacks an applicable approval grant. */
+export type ToolApprovalMode = "request" | "deny_unattended";
 
 /**
  * Standard tool shape. Same interface whether the handler hits Microsoft Graph,
