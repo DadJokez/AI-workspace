@@ -1,4 +1,5 @@
 import type { JSONSchema7 } from "json-schema";
+import type { RunBudgetReceipt } from "./run-budget";
 
 /**
  * Per-request context passed to every tool handler.
@@ -220,6 +221,7 @@ export type AgentEvent =
   | { type: "tool-approval-required"; requests: ToolApprovalRequest[] }
   | { type: "tool-result"; result: ToolResult }
   | ({ type: "usage" } & TokenUsage)
+  | { type: "budget"; receipt: RunBudgetReceipt }
   | {
       type: "error";
       message: string;

@@ -62,6 +62,10 @@ export interface ModelMetadata {
   costPer1MInput: number;
   /** USD per 1M output tokens */
   costPer1MOutput: number;
+  /** Prompt-cache input rate relative to normal input. */
+  cacheReadInputMultiplier: number;
+  /** Prompt-cache write rate relative to normal input. */
+  cacheWriteInputMultiplier: number;
   supportsToolUse: boolean;
   supportsStreaming: boolean;
   supportsVision: boolean;
@@ -95,6 +99,8 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     blurb: "Fast and cheap. Routing, classification, simple Q&A.",
     costPer1MInput: 1.1,
     costPer1MOutput: 5.5,
+    cacheReadInputMultiplier: 0.1,
+    cacheWriteInputMultiplier: 1.25,
     supportsToolUse: true,
     supportsStreaming: true,
     supportsVision: true,
@@ -115,6 +121,8 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     blurb: "Balanced agent model for chat, writing, analysis, and tool use.",
     costPer1MInput: 3.3,
     costPer1MOutput: 16.5,
+    cacheReadInputMultiplier: 0.1,
+    cacheWriteInputMultiplier: 1.25,
     supportsToolUse: true,
     supportsStreaming: true,
     supportsVision: true,
@@ -135,6 +143,8 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     blurb: "Balanced default. Most chat, recipes, and tool use.",
     costPer1MInput: 3.3,
     costPer1MOutput: 16.5,
+    cacheReadInputMultiplier: 0.1,
+    cacheWriteInputMultiplier: 1.25,
     supportsToolUse: true,
     supportsStreaming: true,
     supportsVision: true,
@@ -155,6 +165,8 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     blurb: "Heavy reasoning. Planning, complex analysis, recipe authoring.",
     costPer1MInput: 5.5,
     costPer1MOutput: 27.5,
+    cacheReadInputMultiplier: 0.1,
+    cacheWriteInputMultiplier: 1.25,
     supportsToolUse: true,
     supportsStreaming: true,
     supportsVision: true,
@@ -203,5 +215,31 @@ export function estimateCostUsd(
   return (
     (tokensIn / 1_000_000) * m.costPer1MInput +
     (tokensOut / 1_000_000) * m.costPer1MOutput
+  );
+}
+
+/**
+ * Cache-aware provider cost for one usage event. The registry owns each
+ * model's billing multipliers so budget enforcement stays provider-portable.
+ */
+export function estimateUsageCostUsd(
+  modelId: ModelId,
+  usage: {
+    inputTokens: number;
+    cacheReadInputTokens: number;
+    cacheWriteInputTokens: number;
+    tokensOut: number;
+  },
+): number {
+  const model = MODELS[modelId];
+  return (
+    (usage.inputTokens / 1_000_000) * model.costPer1MInput +
+    (usage.cacheReadInputTokens / 1_000_000) *
+      model.costPer1MInput *
+      model.cacheReadInputMultiplier +
+    (usage.cacheWriteInputTokens / 1_000_000) *
+      model.costPer1MInput *
+      model.cacheWriteInputMultiplier +
+    (usage.tokensOut / 1_000_000) * model.costPer1MOutput
   );
 }

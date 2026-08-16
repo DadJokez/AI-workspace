@@ -12,6 +12,7 @@ import {
 } from "./loop";
 import { MODELS } from "./models";
 import { ToolRegistry } from "./registry";
+import { RUN_BUDGET_SCHEMA } from "./run-budget";
 import { toolCallFingerprint } from "./tool-approval";
 
 /** Records every ConverseStreamParams and replies with an empty turn. */
@@ -988,6 +989,19 @@ describe("runAgentLoop tool iteration limit", () => {
       messages: [{ role: "user", content: "Analyze all pages." }],
       registry,
       maxToolIterations: 2,
+      budget: {
+        envelope: {
+          schema: RUN_BUDGET_SCHEMA,
+          version: 1,
+          governingLayer: "organization",
+          limits: {
+            tokens: 100_000,
+            usd: 10,
+            wallClockMs: 60_000,
+            toolIterations: 2,
+          },
+        },
+      },
       context: { userId: "u1" },
       client,
     })) {
@@ -1008,7 +1022,133 @@ describe("runAgentLoop tool iteration limit", () => {
     expect(events.filter((event) => event.type === "tool-result")).toHaveLength(
       2,
     );
+    expect(events).toContainEqual({
+      type: "budget",
+      receipt: expect.objectContaining({
+        reached: "tool_iterations",
+        partial: false,
+        consumed: expect.objectContaining({ toolIterations: 2 }),
+      }),
+    });
     expect(events.at(-1)).toEqual({ type: "done" });
+  });
+});
+
+class BudgetStopClient implements BedrockClient {
+  readonly captured: ConverseStreamParams[] = [];
+
+  async *converseStream(
+    params: ConverseStreamParams,
+  ): AsyncIterable<BedrockStreamEvent> {
+    this.captured.push(params);
+    yield {
+      type: "tool-use",
+      id: "lookup-call",
+      name: "lookup",
+      input: { page: 1 },
+    };
+    yield {
+      type: "usage",
+      tokensIn: 90,
+      tokensOut: 10,
+      inputTokens: 90,
+      cacheReadInputTokens: 0,
+      cacheWriteInputTokens: 0,
+    };
+    yield { type: "stop", reason: "tool_use" };
+  }
+}
+
+describe("runAgentLoop provider budgets", () => {
+  it("stops before another provider call at token equality", async () => {
+    const client = new BudgetStopClient();
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "lookup",
+      description: "Look up one page.",
+      inputSchema: { type: "object", properties: {} },
+      handler: async () => ({ value: "result" }),
+    });
+
+    const events = [];
+    for await (const event of runAgentLoop({
+      modelId: "haiku-4-5",
+      messages: [{ role: "user", content: "Analyze all pages." }],
+      registry,
+      budget: {
+        envelope: {
+          schema: RUN_BUDGET_SCHEMA,
+          version: 1,
+          governingLayer: "organization",
+          limits: {
+            tokens: 100,
+            usd: 10,
+            wallClockMs: 60_000,
+            toolIterations: 8,
+          },
+        },
+      },
+      context: { userId: "u1" },
+      client,
+    })) {
+      events.push(event);
+    }
+
+    expect(client.captured).toHaveLength(1);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "tool-result" }),
+    );
+    expect(events).toContainEqual({
+      type: "budget",
+      receipt: expect.objectContaining({
+        reached: "tokens",
+        partial: true,
+        consumed: expect.objectContaining({ tokens: 100 }),
+      }),
+    });
+    expect(events).toContainEqual({
+      type: "text-delta",
+      delta: expect.stringContaining("token budget"),
+    });
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("honors prior wall-clock consumption before the first provider call", async () => {
+    const client = new CaptureClient();
+    const events = [];
+    for await (const event of runAgentLoop({
+      modelId: "haiku-4-5",
+      messages: [{ role: "user", content: "Continue." }],
+      registry: new ToolRegistry(),
+      budget: {
+        envelope: {
+          schema: RUN_BUDGET_SCHEMA,
+          version: 1,
+          governingLayer: "organization",
+          limits: {
+            tokens: 100_000,
+            usd: 10,
+            wallClockMs: 1_000,
+            toolIterations: 8,
+          },
+        },
+        consumed: { wallClockMs: 1_000 },
+      },
+      nowMs: () => 5_000,
+      context: { userId: "u1" },
+      client,
+    })) {
+      events.push(event);
+    }
+
+    expect(client.captured).toHaveLength(0);
+    expect(events).toContainEqual({
+      type: "budget",
+      receipt: expect.objectContaining({
+        reached: "wall_clock",
+        partial: true,
+      }),
+    });
   });
 });
 

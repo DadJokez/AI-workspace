@@ -2,6 +2,7 @@ import type {
   AgentEvent,
   AgentMessage,
   DiscoveryCatalogEntry,
+  RunBudgetState,
   ToolApprovalGrant,
   ToolApprovalMode,
   ToolContext,
@@ -137,6 +138,8 @@ export interface TurnInput {
   toolApprovalGrants?: readonly ToolApprovalGrant[];
   /** Request in attended contexts; deny-and-report in unattended contexts. */
   toolApprovalMode?: ToolApprovalMode;
+  /** Server-resolved cumulative budget. Clients cannot loosen this value. */
+  budget?: RunBudgetState;
   /**
    * Steering text for user identity, connected tools, Vault memory, artifact
    * context, and custom instructions. Bedrock and AgentCore fold it into the

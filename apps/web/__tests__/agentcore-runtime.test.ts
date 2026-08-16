@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { AgentEvent } from "@ai-workspace/agent";
+import {
+  RUN_BUDGET_SCHEMA,
+  type AgentEvent,
+} from "@ai-workspace/agent";
 import {
   AgentCoreRuntime,
   parseAgentEventSse,
@@ -107,7 +110,7 @@ describe("AgentCoreRuntime", () => {
           return {
             contentType: "text/event-stream",
             response: bytes(
-              'data: {"type":"text-delta","delta":"hi"}\n\ndata: {"type":"done"}\n\n',
+              'data: {"type":"text-delta","delta":"hi"}\n\ndata: {"type":"budget","receipt":{"schema":"comparative.run-budget-receipt.v1","version":1,"governingLayer":"organization","limits":{"tokens":100000,"usd":1,"wallClockMs":120000,"toolIterations":8},"consumed":{"tokens":10,"usd":0.001,"wallClockMs":50,"toolIterations":0},"partial":false}}\n\ndata: {"type":"done"}\n\n',
             ),
           };
         },
@@ -142,10 +145,44 @@ describe("AgentCoreRuntime", () => {
           },
         ],
         toolApprovalMode: "deny_unattended",
+        budget: {
+          envelope: {
+            schema: RUN_BUDGET_SCHEMA,
+            version: 1,
+            governingLayer: "organization",
+            limits: {
+              tokens: 100_000,
+              usd: 1,
+              wallClockMs: 120_000,
+              toolIterations: 8,
+            },
+          },
+        },
       }),
     );
     expect(events).toEqual([
       { type: "text-delta", delta: "hi" },
+      {
+        type: "budget",
+        receipt: {
+          schema: "comparative.run-budget-receipt.v1",
+          version: 1,
+          governingLayer: "organization",
+          limits: {
+            tokens: 100_000,
+            usd: 1,
+            wallClockMs: 120_000,
+            toolIterations: 8,
+          },
+          consumed: {
+            tokens: 10,
+            usd: 0.001,
+            wallClockMs: 50,
+            toolIterations: 0,
+          },
+          partial: false,
+        },
+      },
       { type: "done" },
     ]);
 
@@ -185,6 +222,19 @@ describe("AgentCoreRuntime", () => {
       },
     ]);
     expect(payload.toolApprovalMode).toBe("deny_unattended");
+    expect(payload.budget).toEqual({
+      envelope: {
+        schema: RUN_BUDGET_SCHEMA,
+        version: 1,
+        governingLayer: "organization",
+        limits: {
+          tokens: 100_000,
+          usd: 1,
+          wallClockMs: 120_000,
+          toolIterations: 8,
+        },
+      },
+    });
   });
 
   it("yields an error event when the invoke call throws", async () => {

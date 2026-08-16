@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createDiscoveryTools,
+  RUN_BUDGET_SCHEMA,
   resolveMountedToolNames,
   ToolRegistry,
   type AgentEvent,
@@ -107,6 +108,64 @@ describe("parseInvocationPayload tool approvals", () => {
         toolApprovalMode: "allow_all",
       }).toolApprovalMode,
     ).toBe("request");
+  });
+});
+
+describe("parseInvocationPayload run budget", () => {
+  it("keeps a valid versioned budget and drops untrusted fields", () => {
+    expect(
+      parseInvocationPayload({
+        ...BASE_PAYLOAD,
+        budget: {
+          envelope: {
+            schema: RUN_BUDGET_SCHEMA,
+            version: 1,
+            governingLayer: "organization",
+            limits: {
+              tokens: 100_000,
+              usd: 1,
+              wallClockMs: 120_000,
+              toolIterations: 8,
+              ignored: "value",
+            },
+          },
+          promptOverride: "unlimited",
+        },
+      }).budget,
+    ).toEqual({
+      envelope: {
+        schema: RUN_BUDGET_SCHEMA,
+        version: 1,
+        governingLayer: "organization",
+        limits: {
+          tokens: 100_000,
+          usd: 1,
+          wallClockMs: 120_000,
+          toolIterations: 8,
+        },
+      },
+    });
+  });
+
+  it("rejects a malformed wire budget instead of dropping enforcement", () => {
+    expect(() =>
+      parseInvocationPayload({
+        ...BASE_PAYLOAD,
+        budget: {
+          envelope: {
+            schema: RUN_BUDGET_SCHEMA,
+            version: 1,
+            governingLayer: "organization",
+            limits: {
+              tokens: -1,
+              usd: 1,
+              wallClockMs: 120_000,
+              toolIterations: 8,
+            },
+          },
+        },
+      }),
+    ).toThrow("invalid run budget");
   });
 });
 

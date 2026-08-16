@@ -5,6 +5,11 @@ import {
   getBedrockClient,
 } from "./clients";
 import { MODELS, type ModelId } from "./models";
+import {
+  RunBudgetTracker,
+  type RunBudgetDimension,
+  type RunBudgetState,
+} from "./run-budget";
 import type { ToolRegistry } from "./registry";
 import {
   appendToolUsageNotes,
@@ -71,6 +76,8 @@ export interface RunAgentLoopParams {
   requiredToolName?: string;
   /** Hard cap on tool-use round trips per turn. Defaults to 8. */
   maxToolIterations?: number;
+  /** Trusted cumulative run budget. Absent preserves the legacy loop limits. */
+  budget?: RunBudgetState;
   /** Per-output-message token cap. Defaults to the model's `defaultMaxTokens`. */
   maxTokens?: number;
   /** Optional sampling temperature. Omitted for normal product defaults. */
@@ -84,6 +91,8 @@ export interface RunAgentLoopParams {
   signal?: AbortSignal;
   /** Override the resolved Bedrock client. Tests pass a fake here. */
   client?: BedrockClient;
+  /** Injectable wall clock for deterministic budget boundary tests. */
+  nowMs?: () => number;
 }
 
 export const DEFAULT_MAX_TOOL_ITERATIONS = 8;
@@ -92,6 +101,9 @@ export const TOOL_POLICY_BLOCKED_CODE = "tool_policy_blocked";
 
 const TOOL_LIMIT_SYNTHESIS_INSTRUCTION =
   "You have reached this turn's tool-step limit. Use the tool results already in context to provide the best complete answer now. Do not request more tools. Clearly state any remaining unknowns.";
+
+const RUN_BUDGET_REACHED_NOTICE =
+  "\n\nI reached this run's {dimension} budget before I could finish. The work above is partial; send a follow-up to continue.";
 
 export const PLATFORM_EVIDENCE_DISCIPLINE = [
   "Platform evidence rules (higher priority than task or skill instructions):",
@@ -192,8 +204,13 @@ export async function* runAgentLoop(
   ]
     .filter(Boolean)
     .join("\n\n");
-  const maxToolIterations =
-    params.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
+  const budgetTracker = params.budget
+    ? new RunBudgetTracker(params.budget, params.modelId, params.nowMs)
+    : null;
+  const maxToolIterations = Math.min(
+    params.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS,
+    budgetTracker?.remainingToolIterations() ?? Number.POSITIVE_INFINITY,
+  );
   let mountedAllowed = params.resolveAllowedTools
     ? params.resolveAllowedTools()
     : params.allowedTools;
@@ -232,6 +249,28 @@ export async function* runAgentLoop(
   for (let iter = 0; iter <= maxToolIterations; iter++) {
     if (params.signal?.aborted) {
       yield { type: "error", message: "aborted" };
+      return;
+    }
+
+    const blockingBudget = budgetTracker?.blockingProviderInvocation();
+    if (blockingBudget && budgetTracker) {
+      yield {
+        type: "text-delta",
+        delta: RUN_BUDGET_REACHED_NOTICE.replace(
+          "{dimension}",
+          budgetDimensionLabel(blockingBudget),
+        ),
+      };
+      yield { type: "budget", receipt: budgetTracker.receipt(true) };
+      yield {
+        type: "usage",
+        tokensIn: totalTokensIn,
+        tokensOut: totalTokensOut,
+        inputTokens: totalInputTokens,
+        cacheReadInputTokens: totalCacheReadInputTokens,
+        cacheWriteInputTokens: totalCacheWriteInputTokens,
+      };
+      yield { type: "done" };
       return;
     }
 
@@ -355,6 +394,13 @@ export async function* runAgentLoop(
         totalInputTokens += ev.inputTokens ?? ev.tokensIn;
         totalCacheReadInputTokens += ev.cacheReadInputTokens ?? 0;
         totalCacheWriteInputTokens += ev.cacheWriteInputTokens ?? 0;
+        budgetTracker?.recordUsage({
+          tokensIn: ev.tokensIn,
+          tokensOut: ev.tokensOut,
+          inputTokens: ev.inputTokens ?? ev.tokensIn,
+          cacheReadInputTokens: ev.cacheReadInputTokens ?? 0,
+          cacheWriteInputTokens: ev.cacheWriteInputTokens ?? 0,
+        });
       } else if (ev.type === "stop") {
         stopReason = ev.reason;
         yield {
@@ -467,6 +513,9 @@ export async function* runAgentLoop(
         type: "tool-approval-required",
         requests: ungrantedApprovalRequests,
       };
+      if (budgetTracker) {
+        yield { type: "budget", receipt: budgetTracker.receipt(false) };
+      }
       yield {
         type: "usage",
         tokensIn: totalTokensIn,
@@ -701,8 +750,12 @@ export async function* runAgentLoop(
       }
     }
     bedrockMessages.push({ role: "user", content: resultBlocks });
+    budgetTracker?.recordToolIteration();
   }
 
+  if (budgetTracker) {
+    yield { type: "budget", receipt: budgetTracker.receipt(false) };
+  }
   yield {
     type: "usage",
     tokensIn: totalTokensIn,
@@ -712,6 +765,19 @@ export async function* runAgentLoop(
     cacheWriteInputTokens: totalCacheWriteInputTokens,
   };
   yield { type: "done" };
+}
+
+function budgetDimensionLabel(
+  dimension: Exclude<RunBudgetDimension, "tool_iterations">,
+): string {
+  switch (dimension) {
+    case "tokens":
+      return "token";
+    case "usd":
+      return "cost";
+    case "wall_clock":
+      return "time";
+  }
 }
 
 function runtimePolicyAuditDecision(
