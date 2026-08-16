@@ -298,6 +298,40 @@ describe("Contribution Studio model", () => {
           input: { hidden: "payload" },
           startedAt: "2026-08-16T11:59:58.000Z",
         },
+        {
+          id: "call-success",
+          name: "mcp__notion__update_page",
+          provider: "notion",
+          toolName: "update_page",
+          input: { hidden: "successful-payload" },
+          startedAt: "2026-08-16T11:59:59.000Z",
+        },
+        {
+          id: "call-failure",
+          name: "mcp__workfront__create_task",
+          provider: "workfront",
+          toolName: "create_task",
+          input: { hidden: "failed-payload" },
+          startedAt: "2026-08-16T12:00:00.000Z",
+        },
+      ],
+      toolResults: [
+        {
+          toolCallId: "call-success",
+          output: { pageId: "page-1" },
+          isError: false,
+          policyDecision: "approved_by_user",
+          approvalId: "approval-success",
+          completedAt: "2026-08-16T12:00:01.000Z",
+        },
+        {
+          toolCallId: "call-failure",
+          output: { error: "upstream_failure" },
+          isError: true,
+          policyDecision: "approved_by_user",
+          approvalId: "approval-failure",
+          completedAt: "2026-08-16T12:00:02.000Z",
+        },
       ],
       approvalRequests: [
         {
@@ -339,12 +373,18 @@ describe("Contribution Studio model", () => {
     expect(screen.getByTestId("studio-guardrails")).toBeTruthy();
     expect(screen.getByText("Interactive autonomy")).toBeTruthy();
     expect(screen.getByText("Google · Draft Email")).toBeTruthy();
+    expect(screen.getByText("Notion · Update Page")).toBeTruthy();
+    expect(screen.getByText("Approved · Action · Succeeded")).toBeTruthy();
+    expect(screen.getByText("Workfront · Create Task")).toBeTruthy();
+    expect(screen.getByText("Approved · Action · Failed")).toBeTruthy();
     expect(
       screen
         .getByTestId("studio-guardrails")
         .querySelector('[data-guardrail-state="approval_required"]'),
     ).toBeTruthy();
-    expect(screen.getByText(/Only this exact request/)).toBeTruthy();
+    expect(screen.getAllByText(/Only this exact request/)).toHaveLength(3);
     expect(screen.queryByText("payload")).toBeNull();
+    expect(screen.queryByText("successful-payload")).toBeNull();
+    expect(screen.queryByText("failed-payload")).toBeNull();
   });
 });

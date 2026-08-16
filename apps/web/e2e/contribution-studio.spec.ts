@@ -222,6 +222,23 @@ test.describe("Contribution Studio", () => {
                     approvalId: "standing-approval-5",
                   },
                 },
+                {
+                  toolCallId: "approval-6",
+                  provider: "workfront",
+                  action: "create_task",
+                  state: "approved",
+                  governingLayer: "action",
+                  reason: "Approved for this action.",
+                  outcome: "failed",
+                  approval: {
+                    kind: "exact_call",
+                    provider: "workfront",
+                    action: "create_task",
+                    resourceScope: "exact_request",
+                    resourceLabel: "Only this exact request",
+                    approvalId: "approval-request-6",
+                  },
+                },
               ],
               budget: {
                 governingLayer: "organization",
@@ -361,13 +378,19 @@ test.describe("Contribution Studio", () => {
     await expect(guardrails.getByText("Blocked · Organization")).toBeVisible();
     await expect(guardrails.getByText("Google · Draft Email")).toBeVisible();
     await expect(guardrails.getByText("Approval required · Action")).toBeVisible();
-    await expect(guardrails.getByText("Only this exact request", { exact: false })).toBeVisible();
+    await expect(
+      guardrails.getByText("Scope: Only this exact request · Expires", {
+        exact: false,
+      }),
+    ).toBeVisible();
     await expect(guardrails.getByText("Google · Create Event")).toBeVisible();
     await expect(guardrails.getByText("Skipped · Session")).toBeVisible();
     await expect(guardrails.getByText("GitHub · Search Issues")).toBeVisible();
     await expect(guardrails.getByText("Allowed · Agent or Skill")).toBeVisible();
     await expect(guardrails.getByText("Notion · Update Page")).toBeVisible();
-    await expect(guardrails.getByText("Approved · Action")).toBeVisible();
+    await expect(guardrails.getByText("Approved · Action · Succeeded")).toBeVisible();
+    await expect(guardrails.getByText("Workfront · Create Task")).toBeVisible();
+    await expect(guardrails.getByText("Approved · Action · Failed")).toBeVisible();
     await expect(guardrails.getByText("Run budget")).toBeVisible();
     await expect(guardrails.getByText("Stopped at tokens")).toBeVisible();
     await expect(

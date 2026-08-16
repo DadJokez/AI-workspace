@@ -562,8 +562,13 @@ function GuardrailActionRow({
             {action.provider ? `${formatGuardrailName(action.provider)} · ` : ""}
             {formatGuardrailName(action.action)}
           </p>
-          <span className="font-mono text-2xs text-muted">
-            {actionStateLabel(action.state)} · {layerLabel(action.governingLayer)}
+          <span
+            className={`font-mono text-2xs ${
+              action.outcome === "failed" ? "text-danger" : "text-muted"
+            }`}
+          >
+            {actionStateLabel(action.state)} · {layerLabel(action.governingLayer)} ·{" "}
+            {actionOutcomeLabel(action.outcome)}
           </span>
         </div>
         <p className="mt-0.5 text-xs text-muted">{action.reason}</p>
@@ -612,6 +617,13 @@ function providerStateLabel(state: GuardrailProviderReceipt["state"]): string {
 function actionStateLabel(state: GuardrailActionReceipt["state"]): string {
   if (state === "approval_required") return "Approval required";
   return state.charAt(0).toUpperCase() + state.slice(1);
+}
+
+function actionOutcomeLabel(
+  outcome: GuardrailActionReceipt["outcome"],
+): string {
+  if (outcome === "not_run") return "Not run";
+  return outcome[0]!.toUpperCase() + outcome.slice(1);
 }
 
 function layerLabel(layer: GuardrailActionReceipt["governingLayer"]): string {
