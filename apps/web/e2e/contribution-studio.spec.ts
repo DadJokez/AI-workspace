@@ -391,6 +391,9 @@ test.describe("Contribution Studio", () => {
     await expect(guardrails.getByText("Approved · Action · Succeeded")).toBeVisible();
     await expect(guardrails.getByText("Workfront · Create Task")).toBeVisible();
     await expect(guardrails.getByText("Approved · Action · Failed")).toBeVisible();
+    await expect(
+      guardrails.locator('[data-guardrail-outcome="failed"] > .bg-danger'),
+    ).toBeVisible();
     await expect(guardrails.getByText("Run budget")).toBeVisible();
     await expect(guardrails.getByText("Stopped at tokens")).toBeVisible();
     await expect(

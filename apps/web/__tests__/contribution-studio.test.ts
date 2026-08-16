@@ -380,6 +380,11 @@ describe("Contribution Studio model", () => {
     expect(
       screen
         .getByTestId("studio-guardrails")
+        .querySelector('[data-guardrail-outcome="failed"] > .bg-danger'),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByTestId("studio-guardrails")
         .querySelector('[data-guardrail-state="approval_required"]'),
     ).toBeTruthy();
     expect(screen.getAllByText(/Only this exact request/)).toHaveLength(3);

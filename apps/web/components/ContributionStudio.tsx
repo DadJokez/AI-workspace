@@ -554,8 +554,12 @@ function GuardrailActionRow({
   action: GuardrailActionReceipt;
 }) {
   return (
-    <div className="flex min-w-0 gap-3 py-3" data-guardrail-state={action.state}>
-      <GuardrailDot state={action.state} />
+    <div
+      className="flex min-w-0 gap-3 py-3"
+      data-guardrail-outcome={action.outcome}
+      data-guardrail-state={action.state}
+    >
+      <GuardrailDot state={action.state} outcome={action.outcome} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <p className="text-sm font-medium text-ink">
@@ -591,18 +595,22 @@ function GuardrailActionRow({
 }
 
 function GuardrailDot({
+  outcome,
   state,
 }: {
+  outcome?: GuardrailActionReceipt["outcome"];
   state: GuardrailActionReceipt["state"];
 }) {
   const color =
-    state === "allowed" || state === "approved"
-      ? "bg-success"
-      : state === "approval_required"
-        ? "bg-warning"
-        : state === "skipped"
-          ? "bg-muted"
-          : "bg-danger";
+    outcome === "failed"
+      ? "bg-danger"
+      : state === "allowed" || state === "approved"
+        ? "bg-success"
+        : state === "approval_required"
+          ? "bg-warning"
+          : state === "skipped"
+            ? "bg-muted"
+            : "bg-danger";
   return <span aria-hidden className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${color}`} />;
 }
 
