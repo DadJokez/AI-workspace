@@ -503,15 +503,6 @@ export async function* runAgentLoop(
         return;
       }
       if (approvalGrant) consumedApprovalIds.add(approvalGrant.approvalId);
-      if (approvalGrant && !approvalGrant.consumed) {
-        // The application atomically claimed this receipt before invoking the
-        // runtime. This event records which exact tool call consumed it.
-        yield {
-          type: "tool-approval-consumed",
-          approvalId: approvalGrant.approvalId,
-          toolCallId: call.id,
-        };
-      }
       const policyDecision = approvalGrant
         ? approvalGrant.decision === "approved"
           ? "approved_by_user"

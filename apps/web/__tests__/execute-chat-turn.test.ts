@@ -105,7 +105,6 @@ vi.mock("@/lib/tool-approvals", async (importOriginal) => {
     ...actual,
     loadToolApprovalGrants: vi.fn(async () => []),
     pauseRunForToolApprovals: vi.fn(async () => []),
-    consumeToolApproval: vi.fn(async () => undefined),
   };
 });
 vi.mock("@/lib/thread-metadata", () => ({
@@ -189,7 +188,6 @@ import {
 } from "@/lib/execute-chat-turn";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import {
-  consumeToolApproval,
   pauseRunForToolApprovals,
 } from "@/lib/tool-approvals";
 import { appendRunEventBestEffort } from "@/lib/run-events";
@@ -871,38 +869,6 @@ describe("executeChatTurn — interactive tool approvals (#410)", () => {
     expect(JSON.stringify(sent)).not.toContain("secret draft body");
   });
 
-  it("records the exact approval receipt before accepting a tool result", async () => {
-    const { input } = inlineInput();
-    input.runtime = {
-      name: "agentcore",
-      runTurn: async function* () {
-        yield {
-          type: "tool-approval-consumed",
-          approvalId: "approval-1",
-          toolCallId: "call-1",
-        };
-        yield { type: "text-delta", delta: "The draft is saved." };
-        yield {
-          type: "usage",
-          tokensIn: 11,
-          tokensOut: 7,
-          inputTokens: 11,
-          cacheReadInputTokens: 0,
-          cacheWriteInputTokens: 0,
-        };
-        yield { type: "done" };
-      },
-    } as unknown as AgentRuntime;
-
-    await executeChatTurn(input);
-
-    expect(consumeToolApproval).toHaveBeenCalledWith({
-      db: input.db,
-      approvalId: "approval-1",
-      runId: "run-1",
-      userId: "user-1",
-    });
-  });
 });
 
 describe("executeChatTurn — persist tail", () => {

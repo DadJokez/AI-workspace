@@ -424,6 +424,91 @@ describe("runAgentLoop runtime tool policy (#410)", () => {
     expect(client.captured).toHaveLength(1);
   });
 
+  it("resumes an approved call when the model regenerates a new tool-use id", async () => {
+    function toolClient(toolCallId: string): BedrockClient {
+      let step = 0;
+      return {
+        converseStream: async function* () {
+          step += 1;
+          if (step === 1) {
+            yield {
+              type: "tool-use",
+              id: toolCallId,
+              name: "crm__update_account",
+              input: { accountId: "a1" },
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield { type: "text-delta", text: "Account updated." };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+    }
+
+    const registry = new ToolRegistry();
+    const handler = vi.fn(async () => ({ updated: true }));
+    registry.register({
+      name: "crm__update_account",
+      description: "Update an account.",
+      inputSchema: { type: "object", properties: {} },
+      policy: "needs_approval",
+      handler,
+    });
+
+    const pausedEvents = [];
+    for await (const event of runAgentLoop({
+      modelId: "haiku-4-5",
+      messages: [{ role: "user", content: "Update my account." }],
+      registry,
+      context: { userId: "u1" },
+      client: toolClient("toolu-before-pause"),
+    })) {
+      pausedEvents.push(event);
+    }
+    const pause = pausedEvents.find(
+      (event) => event.type === "tool-approval-required",
+    );
+    if (!pause || pause.type !== "tool-approval-required") {
+      throw new Error("Expected the first invocation to request approval.");
+    }
+    expect(pause.requests[0]?.toolCallId).toBe("toolu-before-pause");
+    expect(handler).not.toHaveBeenCalled();
+
+    const resumedEvents = [];
+    for await (const event of runAgentLoop({
+      modelId: "haiku-4-5",
+      messages: [{ role: "user", content: "Update my account." }],
+      registry,
+      context: { userId: "u1" },
+      client: toolClient("toolu-after-resume"),
+      toolApprovalGrants: [
+        {
+          schema: "comparative.tool-approval-grant.v1",
+          approvalId: "approval-1",
+          fingerprint: pause.requests[0]?.fingerprint ?? "",
+          decision: "approved",
+        },
+      ],
+    })) {
+      resumedEvents.push(event);
+    }
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(resumedEvents).toContainEqual({
+      type: "tool-result",
+      result: {
+        toolCallId: "toolu-after-resume",
+        output: { updated: true },
+        policyDecision: "approved_by_user",
+        approvalId: "approval-1",
+      },
+    });
+    expect(resumedEvents).not.toContainEqual(
+      expect.objectContaining({ type: "tool-approval-required" }),
+    );
+  });
+
   it("executes an exact approved call and stamps its receipt", async () => {
     const client = new PolicyToolClient();
     const { registry, blockedHandler, allowedHandler, approvalHandler } =
@@ -440,7 +525,6 @@ describe("runAgentLoop runtime tool policy (#410)", () => {
         {
           schema: "comparative.tool-approval-grant.v1",
           approvalId,
-          toolCallId: "approval-call",
           fingerprint: await toolCallFingerprint({
             toolName: "crm__update_account",
             input: { accountId: "a1" },
@@ -455,11 +539,6 @@ describe("runAgentLoop runtime tool policy (#410)", () => {
     expect(blockedHandler).not.toHaveBeenCalled();
     expect(allowedHandler).toHaveBeenCalledOnce();
     expect(approvalHandler).toHaveBeenCalledOnce();
-    expect(events).toContainEqual({
-      type: "tool-approval-consumed",
-      approvalId,
-      toolCallId: "approval-call",
-    });
     expect(events).toContainEqual({
       type: "tool-result",
       result: {
@@ -493,7 +572,6 @@ describe("runAgentLoop runtime tool policy (#410)", () => {
         {
           schema: "comparative.tool-approval-grant.v1",
           approvalId: "denial-1",
-          toolCallId: "approval-call",
           fingerprint: await toolCallFingerprint({
             toolName: "crm__update_account",
             input: { accountId: "a1" },
@@ -531,7 +609,6 @@ describe("runAgentLoop runtime tool policy (#410)", () => {
         {
           schema: "comparative.tool-approval-grant.v1",
           approvalId: "approval-1",
-          toolCallId: "approval-call",
           fingerprint: await toolCallFingerprint({
             toolName: "crm__update_account",
             input: { accountId: "a1" },
@@ -555,9 +632,6 @@ describe("runAgentLoop runtime tool policy (#410)", () => {
         approvalId: "approval-1",
       },
     });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "tool-approval-consumed" }),
-    );
   });
 
   it("requires a fresh approval when regenerated arguments change", async () => {
@@ -574,7 +648,6 @@ describe("runAgentLoop runtime tool policy (#410)", () => {
         {
           schema: "comparative.tool-approval-grant.v1",
           approvalId: "approval-stale",
-          toolCallId: "approval-call",
           fingerprint: await toolCallFingerprint({
             toolName: "crm__update_account",
             input: { accountId: "different-account" },
@@ -630,7 +703,6 @@ describe("runAgentLoop runtime tool policy (#410)", () => {
         {
           schema: "comparative.tool-approval-grant.v1",
           approvalId: "approval-only-one",
-          toolCallId: "duplicate-1",
           fingerprint: await toolCallFingerprint({
             toolName: "crm__update_account",
             input: { accountId: "a1" },

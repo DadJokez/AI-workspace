@@ -113,8 +113,6 @@ function parseToolApprovalGrants(raw: unknown): ToolApprovalGrant[] | undefined 
       grant.schema === "comparative.tool-approval-grant.v1" &&
       typeof grant.approvalId === "string" &&
       grant.approvalId.length > 0 &&
-      typeof grant.toolCallId === "string" &&
-      grant.toolCallId.length > 0 &&
       typeof grant.fingerprint === "string" &&
       /^[a-f0-9]{64}$/.test(grant.fingerprint) &&
       (grant.decision === "approved" || grant.decision === "denied") &&

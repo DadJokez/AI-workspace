@@ -48,7 +48,7 @@ export interface ToolApprovalRequest {
 export interface ToolApprovalGrant {
   schema: "comparative.tool-approval-grant.v1";
   approvalId: string;
-  toolCallId: string;
+  /** Durable identity + canonical arguments; provider tool-call ids regenerate. */
   fingerprint: string;
   decision: "approved" | "denied";
   /** Once consumed, the receipt may replay its result but never execute again. */
@@ -210,11 +210,6 @@ export type AgentEvent =
   | ({ type: "provider-response-metadata" } & ProviderResponseMetadata)
   | { type: "tool-call"; call: ToolCall }
   | { type: "tool-approval-required"; requests: ToolApprovalRequest[] }
-  | {
-      type: "tool-approval-consumed";
-      approvalId: string;
-      toolCallId: string;
-    }
   | { type: "tool-result"; result: ToolResult }
   | ({ type: "usage" } & TokenUsage)
   | {

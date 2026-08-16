@@ -135,7 +135,6 @@ describe("AgentCoreRuntime", () => {
           {
             schema: "comparative.tool-approval-grant.v1",
             approvalId: "approval-1",
-            toolCallId: "call-1",
             fingerprint: "a".repeat(64),
             decision: "approved",
             consumed: true,
@@ -178,7 +177,6 @@ describe("AgentCoreRuntime", () => {
       {
         schema: "comparative.tool-approval-grant.v1",
         approvalId: "approval-1",
-        toolCallId: "call-1",
         fingerprint: "a".repeat(64),
         decision: "approved",
         consumed: true,

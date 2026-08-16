@@ -9,7 +9,7 @@ import {
   runs,
   toolApprovalRequests,
 } from "@ai-workspace/db";
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { PersistedToolCall, PersistedToolResult } from "@/lib/tool-events";
 
 export type PublicToolApprovalStatus =
@@ -60,6 +60,7 @@ export async function loadToolApprovalGrants({
   ) {
     return [];
   }
+  const persistedApprovalRequests = runOutputs.approvalRequests as unknown[];
   // Claim every newly decided receipt in the same transaction that reads it.
   // The returned grant preserves the pre-claim state so this invocation may
   // execute once; a retry observes consumedAt and replays instead.
@@ -67,7 +68,6 @@ export async function loadToolApprovalGrants({
     const rows = await tx
       .select({
         id: toolApprovalRequests.id,
-        toolCallId: toolApprovalRequests.toolCallId,
         callFingerprint: toolApprovalRequests.callFingerprint,
         status: toolApprovalRequests.status,
         consumedAt: toolApprovalRequests.consumedAt,
@@ -98,15 +98,29 @@ export async function loadToolApprovalGrants({
           ),
         );
     }
+    // Provider tool-call ids regenerate when a paused run resumes. Preserve
+    // the original batch order so duplicate fingerprints still consume one
+    // distinct receipt each without depending on those ephemeral ids.
+    const approvalOrder = new Map<string, number>(
+      persistedApprovalRequests.flatMap((request, index) =>
+        isRecord(request) && typeof request.id === "string"
+          ? [[request.id, index] as const]
+          : [],
+      ),
+    );
+    const orderedRows = [...rows].sort(
+      (left, right) =>
+        (approvalOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+        (approvalOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+    );
     const results = toolResultsFromOutputs(runOutputs);
-    return rows.map((row) => {
+    return orderedRows.map((row) => {
       const replayResult = results.find(
         (result) => result.approvalId === row.id,
       );
       return {
         schema: "comparative.tool-approval-grant.v1",
         approvalId: row.id,
-        toolCallId: row.toolCallId,
         fingerprint: row.callFingerprint,
         decision: row.status === "approved" ? "approved" : "denied",
         ...(row.consumedAt ? { consumed: true } : {}),
@@ -207,50 +221,6 @@ export async function pauseRunForToolApprovals({
     }
     return approvals;
   });
-}
-
-export async function consumeToolApproval({
-  db,
-  approvalId,
-  runId,
-  userId,
-}: {
-  db: Database;
-  approvalId: string;
-  runId: string;
-  userId: string;
-}): Promise<void> {
-  const now = new Date();
-  const updated = await db
-    .update(toolApprovalRequests)
-    .set({ consumedAt: now, updatedAt: now })
-    .where(
-      and(
-        eq(toolApprovalRequests.id, approvalId),
-        eq(toolApprovalRequests.runId, runId),
-        eq(toolApprovalRequests.userId, userId),
-        inArray(toolApprovalRequests.status, ["approved", "denied"]),
-        isNull(toolApprovalRequests.consumedAt),
-      ),
-    )
-    .returning({ id: toolApprovalRequests.id });
-  if (updated.length === 0) {
-    const existing = await db
-      .select({ id: toolApprovalRequests.id })
-      .from(toolApprovalRequests)
-      .where(
-        and(
-          eq(toolApprovalRequests.id, approvalId),
-          eq(toolApprovalRequests.runId, runId),
-          eq(toolApprovalRequests.userId, userId),
-          isNotNull(toolApprovalRequests.consumedAt),
-        ),
-      )
-      .limit(1);
-    if (existing.length === 0) {
-      throw new Error(`Approval receipt ${approvalId} could not be consumed.`);
-    }
-  }
 }
 
 export async function decideToolApprovals({

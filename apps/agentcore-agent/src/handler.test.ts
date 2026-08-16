@@ -31,7 +31,6 @@ describe("parseInvocationPayload tool approvals", () => {
         {
           schema: "comparative.tool-approval-grant.v1",
           approvalId: "approval-1",
-          toolCallId: "call-1",
           fingerprint: "a".repeat(64),
           decision: "approved",
           consumed: true,
@@ -40,7 +39,6 @@ describe("parseInvocationPayload tool approvals", () => {
         {
           schema: "comparative.tool-approval-grant.v1",
           approvalId: "bad",
-          toolCallId: "call-2",
           fingerprint: "not-a-fingerprint",
           decision: "approved",
         },
@@ -51,7 +49,6 @@ describe("parseInvocationPayload tool approvals", () => {
       {
         schema: "comparative.tool-approval-grant.v1",
         approvalId: "approval-1",
-        toolCallId: "call-1",
         fingerprint: "a".repeat(64),
         decision: "approved",
         consumed: true,

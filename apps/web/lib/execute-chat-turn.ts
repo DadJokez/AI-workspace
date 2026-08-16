@@ -89,7 +89,6 @@ import {
 } from "@/lib/model-failover";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import {
-  consumeToolApproval,
   loadToolApprovalGrants,
   pauseRunForToolApprovals,
 } from "@/lib/tool-approvals";
@@ -1196,13 +1195,6 @@ export async function executeChatTurn({
         }
       } else if (ev.type === "tool-approval-required") {
         pendingToolApprovalRequests = ev.requests;
-      } else if (ev.type === "tool-approval-consumed") {
-        await consumeToolApproval({
-          db,
-          approvalId: ev.approvalId,
-          runId,
-          userId,
-        });
       } else if (ev.type === "tool-result") {
         toolEvents.recordResult(ev.result);
         const persistedResult = toolEvents

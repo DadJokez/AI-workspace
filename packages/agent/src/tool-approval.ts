@@ -61,7 +61,6 @@ export function matchingToolApprovalGrant({
 }): ToolApprovalGrant | undefined {
   return grants.find(
     (grant) =>
-      grant.toolCallId === request.toolCallId &&
       grant.fingerprint === request.fingerprint &&
       !consumedApprovalIds.has(grant.approvalId),
   );

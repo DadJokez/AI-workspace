@@ -109,18 +109,16 @@ describe("loadToolApprovalGrants", () => {
       selectResults: [
         [
           {
-            id: "approval-fresh",
-            toolCallId: "call-fresh",
-            callFingerprint: "a".repeat(64),
-            status: "approved",
-            consumedAt: null,
-          },
-          {
             id: "approval-old",
-            toolCallId: "call-old",
             callFingerprint: "b".repeat(64),
             status: "denied",
             consumedAt,
+          },
+          {
+            id: "approval-fresh",
+            callFingerprint: "a".repeat(64),
+            status: "approved",
+            consumedAt: null,
           },
         ],
       ],
@@ -131,7 +129,10 @@ describe("loadToolApprovalGrants", () => {
       runId: "run-1",
       userId: "user-1",
       runOutputs: {
-        approvalRequests: [{ id: "approval-fresh" }],
+        approvalRequests: [
+          { id: "approval-fresh" },
+          { id: "approval-old" },
+        ],
         toolResults: [
           { approvalId: "approval-old", output: { error: "denied" } },
         ],
@@ -148,14 +149,12 @@ describe("loadToolApprovalGrants", () => {
       {
         schema: "comparative.tool-approval-grant.v1",
         approvalId: "approval-fresh",
-        toolCallId: "call-fresh",
         fingerprint: "a".repeat(64),
         decision: "approved",
       },
       {
         schema: "comparative.tool-approval-grant.v1",
         approvalId: "approval-old",
-        toolCallId: "call-old",
         fingerprint: "b".repeat(64),
         decision: "denied",
         consumed: true,
