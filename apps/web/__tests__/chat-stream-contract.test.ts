@@ -49,4 +49,10 @@ describe("chat stream server contract (#465)", () => {
       at: "2026-07-23T00:00:00.000Z",
     });
   });
+
+  it("treats an approval wait as a successful terminal handoff", () => {
+    const writer = createChatStreamWriter(() => undefined);
+    writer.send({ type: "done", stopReason: "approval_required" });
+    expect(writer.hasTerminal()).toBe(true);
+  });
 });

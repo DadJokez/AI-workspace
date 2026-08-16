@@ -131,6 +131,16 @@ describe("AgentCoreRuntime", () => {
           name: "admin_domain_denylist",
           deniedDomains: ["blocked.example"],
         },
+        toolApprovalGrants: [
+          {
+            schema: "comparative.tool-approval-grant.v1",
+            approvalId: "approval-1",
+            fingerprint: "a".repeat(64),
+            decision: "approved",
+            consumed: true,
+            replayOutput: { drafted: true },
+          },
+        ],
       }),
     );
     expect(events).toEqual([
@@ -163,6 +173,16 @@ describe("AgentCoreRuntime", () => {
     });
     // #432: the clock context rides the payload into the container.
     expect(payload.userTimeZone).toBe("America/New_York");
+    expect(payload.toolApprovalGrants).toEqual([
+      {
+        schema: "comparative.tool-approval-grant.v1",
+        approvalId: "approval-1",
+        fingerprint: "a".repeat(64),
+        decision: "approved",
+        consumed: true,
+        replayOutput: { drafted: true },
+      },
+    ]);
   });
 
   it("yields an error event when the invoke call throws", async () => {

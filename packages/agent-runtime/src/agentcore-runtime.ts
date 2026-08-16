@@ -84,6 +84,7 @@ export class AgentCoreRuntime implements AgentRuntime {
       webEgressPolicy: input.webEgressPolicy,
       requiredToolName: input.requiredToolName,
       toolDiscovery: input.toolDiscovery,
+      toolApprovalGrants: input.toolApprovalGrants,
       userId: input.context.userId,
     });
 

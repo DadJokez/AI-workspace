@@ -246,6 +246,10 @@ export async function appendToolResultRunEvent({
       ...(call?.name || result.name
         ? { rawToolName: call?.name ?? result.name }
         : {}),
+      ...(result.approvalId ? { approvalId: result.approvalId } : {}),
+      ...(result.policyDecision
+        ? { policyDecision: result.policyDecision }
+        : {}),
     },
     occurredAt: new Date(result.completedAt),
   });

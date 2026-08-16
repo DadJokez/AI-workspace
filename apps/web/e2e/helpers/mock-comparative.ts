@@ -107,6 +107,11 @@ interface MockChatOptions {
     body: Record<string, unknown>,
     route: Route,
   ) => Promise<void> | void;
+  onToolApprovalDecision?: (
+    runId: string,
+    body: Record<string, unknown>,
+    route: Route,
+  ) => Promise<void> | void;
   onStudioBrowserStart?: (
     body: Record<string, unknown>,
     route: Route,
@@ -673,6 +678,17 @@ export async function installMockComparativeApi(
       return run
         ? json(route, { run })
         : json(route, { error: "run_not_found" }, 404);
+    }
+
+    const toolApprovalMatch =
+      /^\/api\/runs\/([^/]+)\/tool-approvals$/.exec(path);
+    if (toolApprovalMatch && request.method() === "POST") {
+      const runId = decodeURIComponent(toolApprovalMatch[1]!);
+      const body = await postJson(request);
+      if (options.onToolApprovalDecision) {
+        return options.onToolApprovalDecision(runId, body, route);
+      }
+      return json(route, { error: "tool_approval_not_configured" }, 501);
     }
 
     if (path === "/api/skills") {

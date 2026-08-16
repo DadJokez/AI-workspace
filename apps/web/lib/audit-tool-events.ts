@@ -49,6 +49,7 @@ export interface ToolAuditRow {
   policyDecision: ToolPolicyAuditDecision | null;
   metadata: {
     rawToolName?: string;
+    approvalId?: string;
     modelId: string;
     runtime: string;
     webEgress?: {
@@ -184,6 +185,7 @@ function buildRow({
       }),
     metadata: {
       ...(rawToolName ? { rawToolName } : {}),
+      ...(result?.approvalId ? { approvalId: result.approvalId } : {}),
       modelId,
       runtime,
       ...(webEgress ? { webEgress } : {}),

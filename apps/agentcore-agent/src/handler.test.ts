@@ -23,6 +23,41 @@ const BASE_PAYLOAD = {
   messages: [{ role: "user", content: "check my PRs" }],
 };
 
+describe("parseInvocationPayload tool approvals", () => {
+  it("keeps valid exact-call grants and drops malformed grants", () => {
+    const payload = parseInvocationPayload({
+      ...BASE_PAYLOAD,
+      toolApprovalGrants: [
+        {
+          schema: "comparative.tool-approval-grant.v1",
+          approvalId: "approval-1",
+          fingerprint: "a".repeat(64),
+          decision: "approved",
+          consumed: true,
+          replayOutput: { drafted: true },
+        },
+        {
+          schema: "comparative.tool-approval-grant.v1",
+          approvalId: "bad",
+          fingerprint: "not-a-fingerprint",
+          decision: "approved",
+        },
+      ],
+    });
+
+    expect(payload.toolApprovalGrants).toEqual([
+      {
+        schema: "comparative.tool-approval-grant.v1",
+        approvalId: "approval-1",
+        fingerprint: "a".repeat(64),
+        decision: "approved",
+        consumed: true,
+        replayOutput: { drafted: true },
+      },
+    ]);
+  });
+});
+
 describe("parseInvocationPayload toolDiscovery", () => {
   it("round-trips activation and catalog into mounted names", () => {
     const payload = parseInvocationPayload({

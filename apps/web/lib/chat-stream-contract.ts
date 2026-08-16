@@ -13,6 +13,7 @@ import type {
   PersistedToolResult,
 } from "@/lib/tool-events";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import type { PublicToolApprovalRequest } from "@/lib/tool-approvals";
 import type {
   ContextResourceManifest,
   ContextResourceReference,
@@ -36,6 +37,7 @@ export interface ChatRunTimingMetrics {
 export type ChatStreamStopReason =
   | "completed"
   | "queued"
+  | "approval_required"
   | "runtime_error"
   | "request_aborted"
   | "stream_error";
@@ -43,7 +45,10 @@ export type ChatStreamStopReason =
 export type ChatStreamTerminalEvent =
   | {
       type: "done";
-      stopReason: Extract<ChatStreamStopReason, "completed" | "queued">;
+      stopReason: Extract<
+        ChatStreamStopReason,
+        "completed" | "queued" | "approval_required"
+      >;
     }
   | {
       type: "failed";
@@ -92,6 +97,10 @@ export type ChatStreamEvent =
   | {
       type: "tool-result";
       result: PersistedToolResult;
+    }
+  | {
+      type: "tool-approval-required";
+      requests: PublicToolApprovalRequest[];
     }
   | {
       type: "usage";
@@ -149,6 +158,7 @@ const CHAT_STREAM_EVENT_TYPES: ReadonlySet<ChatStreamEvent["type"]> = new Set([
   "provider-response-metadata",
   "tool-call",
   "tool-result",
+  "tool-approval-required",
   "usage",
   "heartbeat",
   "metrics",
@@ -179,7 +189,8 @@ export function isChatStreamTerminalEvent(
   if (candidate.type === "done") {
     return (
       candidate.stopReason === "completed" ||
-      candidate.stopReason === "queued"
+      candidate.stopReason === "queued" ||
+      candidate.stopReason === "approval_required"
     );
   }
   return (

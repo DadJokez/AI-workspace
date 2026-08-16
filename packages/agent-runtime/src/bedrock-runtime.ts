@@ -130,6 +130,7 @@ export class BedrockRuntime implements AgentRuntime {
         messages: input.messages,
         registry,
         context: input.context,
+        toolApprovalGrants: input.toolApprovalGrants,
         signal: input.signal,
         ...(input.requiredToolName
           ? { requiredToolName: input.requiredToolName }

@@ -38,6 +38,7 @@ interface ChatThreadProps {
   appDraftPendingId?: string;
   artifactProposalPendingId?: string;
   runActionPendingId?: string;
+  toolApprovalPendingRunId?: string;
   branchPending?: boolean;
   stickToBottomRef: MutableRefObject<boolean>;
   onPickSuggestion: (suggestion: string) => void;
@@ -66,6 +67,11 @@ interface ChatThreadProps {
     runId: string,
     action: "cancel" | "retry" | "resume",
   ) => void;
+  onToolApprovalDecision: (
+    runId: string,
+    approvalIds: string[],
+    decision: "approve" | "deny",
+  ) => void;
   onOpenRunInspector: (runId: string) => void;
   onBranchMessage: (messageId: string) => void;
   onBranchAppVersion: (version: AppDraftVersionSummary) => void;
@@ -88,6 +94,7 @@ export function ChatThread({
   appDraftPendingId,
   artifactProposalPendingId,
   runActionPendingId,
+  toolApprovalPendingRunId,
   branchPending,
   stickToBottomRef,
   onPickSuggestion,
@@ -101,6 +108,7 @@ export function ChatThread({
   onIterateArtifactProposal,
   onRecommendationAction,
   onRunAction,
+  onToolApprovalDecision,
   onOpenRunInspector,
   onBranchMessage,
   onBranchAppVersion,
@@ -125,6 +133,7 @@ export function ChatThread({
     iterateArtifactProposal: onIterateArtifactProposal,
     recommendationAction: onRecommendationAction,
     runAction: onRunAction,
+    toolApprovalDecision: onToolApprovalDecision,
     openRunInspector: onOpenRunInspector,
     branchMessage: onBranchMessage,
     branchAppVersion: onBranchAppVersion,
@@ -158,6 +167,7 @@ export function ChatThread({
       iterateArtifactProposal: onIterateArtifactProposal,
       recommendationAction: onRecommendationAction,
       runAction: onRunAction,
+      toolApprovalDecision: onToolApprovalDecision,
       openRunInspector: onOpenRunInspector,
       branchMessage: onBranchMessage,
       branchAppVersion: onBranchAppVersion,
@@ -181,6 +191,7 @@ export function ChatThread({
     onRecommendationAction,
     onRegenerate,
     onRunAction,
+    onToolApprovalDecision,
   ]);
 
   useEffect(() => {
@@ -329,6 +340,7 @@ export function ChatThread({
                 appDraftPendingId={appDraftPendingId}
                 artifactProposalPendingId={artifactProposalPendingId}
                 runActionPendingId={runActionPendingId}
+                toolApprovalPendingRunId={toolApprovalPendingRunId}
                 branchPending={branchPending}
                 deferOffscreenRendering={deferOffscreenRendering}
                 actionsRef={messageActionsRef}

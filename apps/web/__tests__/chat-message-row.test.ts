@@ -30,6 +30,7 @@ function actionRef(): MutableRefObject<ChatMessageRowActions> {
       iterateArtifactProposal: () => undefined,
       recommendationAction: () => undefined,
       runAction: () => undefined,
+      toolApprovalDecision: () => undefined,
       openRunInspector: () => undefined,
       branchMessage: () => undefined,
       branchAppVersion: () => undefined,
@@ -86,6 +87,7 @@ describe("chat message row memoization", () => {
     "appDraftPendingId",
     "artifactProposalPendingId",
     "runActionPendingId",
+    "toolApprovalPendingRunId",
     "branchPending",
     "deferOffscreenRendering",
     "actionsRef",
@@ -105,6 +107,7 @@ describe("chat message row memoization", () => {
       appDraftPendingId: "draft-1",
       artifactProposalPendingId: "artifact-1",
       runActionPendingId: "cancel:run-1",
+      toolApprovalPendingRunId: "run-1",
       branchPending: true,
       deferOffscreenRendering: false,
       actionsRef: actionRef(),
@@ -141,6 +144,40 @@ describe("message branch controls", () => {
     expect(snapshot).not.toContain(
       'aria-label="Try another approach from here"',
     );
+  });
+});
+
+describe("tool approval card", () => {
+  it("shows redacted call details and explicit approve/deny actions", () => {
+    const html = renderToString(
+      createElement(ChatMessageRow, {
+        ...rowProps(),
+        message: {
+          ...message,
+          runId: "run-1",
+          runStatus: "waiting_for_approval",
+          approvalRequests: [
+            {
+              id: "00000000-0000-4000-8000-000000000001",
+              batchId: "00000000-0000-4000-8000-000000000002",
+              toolCallId: "call-1",
+              toolName: "mcp__google__draft_email",
+              provider: "google",
+              nativeToolName: "draft_email",
+              redactedInput: { to: "[REDACTED]", subject: "Quarterly plan" },
+              status: "pending",
+              requestedAt: "2026-08-15T00:00:00.000Z",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(html).toContain("Approval required");
+    expect(html).toContain("draft_email");
+    expect(html).toContain("[REDACTED]");
+    expect(html).toContain("Approve");
+    expect(html).toContain("Deny");
   });
 });
 

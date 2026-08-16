@@ -285,6 +285,7 @@ export function useChatStream({
       let assistantModel: string | undefined;
       let assistantLane: ChatTab["messages"][number]["runtimeLane"];
       let queuedRun = false;
+      let approvalRequired = false;
       let queuedRunMessageId: string | undefined;
       let streamRunId: string | undefined;
       let streamErrorMessage: string | undefined;
@@ -454,6 +455,16 @@ export function useChatStream({
             ),
           );
         } else if (
+          event.type === "tool-approval-required" &&
+          Array.isArray(event.requests)
+        ) {
+          approvalRequired = true;
+          patchDraft({
+            type: "tool-approval-required",
+            requests: event.requests,
+            runId: streamRunId,
+          });
+        } else if (
           event.type === "error" &&
           typeof event.message === "string"
         ) {
@@ -531,6 +542,7 @@ export function useChatStream({
             ? reduceAssistantStreamMessage(message, {
                 type: "complete",
                 queued: queuedRun,
+                waitingForApproval: approvalRequired,
                 runId: streamRunId,
               })
             : message,

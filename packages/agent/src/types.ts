@@ -41,8 +41,20 @@ export interface ToolApprovalRequest {
   toolCallId: string;
   toolName: string;
   identity?: McpToolExecutionIdentity;
-  /** Must be redacted before this request is persisted or shown to a user. */
-  redactedInput: unknown;
+  /** Canonical SHA-256 identity + argument fingerprint for exact-call grants. */
+  fingerprint: string;
+}
+
+export interface ToolApprovalGrant {
+  schema: "comparative.tool-approval-grant.v1";
+  approvalId: string;
+  /** Durable identity + canonical arguments; provider tool-call ids regenerate. */
+  fingerprint: string;
+  decision: "approved" | "denied";
+  /** Once consumed, the receipt may replay its result but never execute again. */
+  consumed?: boolean;
+  /** Redacted persisted output used to resume a multi-approval turn safely. */
+  replayOutput?: unknown;
 }
 
 /**
@@ -107,6 +119,8 @@ export interface ToolResult {
   isError?: boolean;
   /** Actual runtime decision when enforcement metadata reached the executor. */
   policyDecision?: ToolPolicyAuditDecision;
+  /** Durable approval receipt consumed by this exact tool call. */
+  approvalId?: string;
   /** True only when this result carried the tool's JIT usage guidance. */
   usageNotesDelivered?: boolean;
 }
@@ -195,7 +209,7 @@ export type AgentEvent =
     }
   | ({ type: "provider-response-metadata" } & ProviderResponseMetadata)
   | { type: "tool-call"; call: ToolCall }
-  | { type: "tool-approval-required"; request: ToolApprovalRequest }
+  | { type: "tool-approval-required"; requests: ToolApprovalRequest[] }
   | { type: "tool-result"; result: ToolResult }
   | ({ type: "usage" } & TokenUsage)
   | {

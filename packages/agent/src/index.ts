@@ -8,6 +8,7 @@ export type {
   ProviderResponseMetadata,
   Role,
   Tool,
+  ToolApprovalGrant,
   ToolApprovalRequest,
   ToolCall,
   ToolContext,
@@ -17,6 +18,12 @@ export type {
   ToolRuntimePolicy,
   TokenUsage,
 } from "./types";
+
+export {
+  buildToolApprovalRequest,
+  matchingToolApprovalGrant,
+  toolCallFingerprint,
+} from "./tool-approval";
 
 export {
   DEFAULT_MODEL_ID,

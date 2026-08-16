@@ -48,12 +48,17 @@ import {
   type ContextResourceReference,
 } from "@/lib/context-shelf";
 import { loadThreadBranchSnapshotArtifacts } from "@/lib/thread-branches";
+import {
+  parsePublicToolApprovalRequests,
+  type PublicToolApprovalRequest,
+} from "@/lib/tool-approvals";
 
 export interface ChatRunOutput {
   assistantMessageId?: string;
   assistantText?: string;
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
+  approvalRequests?: PublicToolApprovalRequest[];
   artifacts?: WorkspaceArtifactSummary[];
   appDraftVersions?: AppDraftVersionSummary[];
   sources?: AssistantSource[];
@@ -72,6 +77,7 @@ export interface ThreadMessageWithActivity {
   runtimeLane?: ChatRuntimeLane;
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
+  approvalRequests?: PublicToolApprovalRequest[];
   /** Persisted per-turn usage for the cost meter (#330); null pre-#330 rows. */
   tokensIn?: number | null;
   tokensOut?: number | null;
@@ -296,6 +302,7 @@ export async function loadThreadMessagesWithRunActivity({
     if (
       run.status !== "queued" &&
       run.status !== "running" &&
+      run.status !== "waiting_for_approval" &&
       run.status !== "failed" &&
       run.status !== "canceled"
     ) {
@@ -316,6 +323,7 @@ export async function loadThreadMessagesWithRunActivity({
       ...(runtimeLane ? { runtimeLane } : {}),
       toolCalls: output.toolCalls ?? null,
       toolResults: output.toolResults ?? null,
+      approvalRequests: output.approvalRequests,
       artifacts: output.artifacts,
       appDraftVersions: output.appDraftVersions,
       sources: output.sources,
@@ -335,16 +343,21 @@ export async function loadThreadMessagesWithRunActivity({
           }
         : {}),
       status:
-        latestActivityLabel(activityEvents) ??
-        (run.status === "queued"
-          ? "Queued..."
-          : run.status === "running"
-            ? "Working..."
-            : undefined),
+        run.status === "waiting_for_approval"
+          ? "Approval required"
+          : latestActivityLabel(activityEvents) ??
+            (run.status === "queued"
+              ? "Queued..."
+              : run.status === "running"
+                ? "Working..."
+                : undefined),
       runId: run.id,
       runStatus: run.status,
       runError: run.error,
-      canCancel: run.status === "queued" || run.status === "running",
+      canCancel:
+        run.status === "queued" ||
+        run.status === "running" ||
+        run.status === "waiting_for_approval",
       canRetry:
         (run.status === "failed" || run.status === "canceled") &&
         !proposalIterationFromRunInputs(run.inputs),
@@ -598,6 +611,7 @@ function parseChatRunOutput(value: unknown): ChatRunOutput {
     toolResults: Array.isArray(value.toolResults)
       ? (value.toolResults as PersistedToolResult[])
       : undefined,
+    approvalRequests: parsePublicToolApprovalRequests(value.approvalRequests),
     artifacts: Array.isArray(value.artifacts)
       ? (value.artifacts as WorkspaceArtifactSummary[])
       : undefined,

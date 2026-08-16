@@ -35,6 +35,7 @@ export type UserRole = (typeof userRoleEnum.enumValues)[number];
 export const runStatusEnum = pgEnum("run_status", [
   "queued",
   "running",
+  "waiting_for_approval",
   "succeeded",
   "failed",
   "canceled",
@@ -119,6 +120,16 @@ export const toolPolicyAuditDecisionEnum = pgEnum(
 
 export type ToolPolicyAuditDecision =
   (typeof toolPolicyAuditDecisionEnum.enumValues)[number];
+
+export const toolApprovalStatusEnum = pgEnum("tool_approval_status", [
+  "pending",
+  "approved",
+  "denied",
+  "expired",
+]);
+
+export type ToolApprovalStatus =
+  (typeof toolApprovalStatusEnum.enumValues)[number];
 
 export const userToolAttestationScopeEnum = pgEnum(
   "user_tool_attestation_scope",
@@ -741,6 +752,65 @@ export const runEvents = pgTable(
     ),
     typeIdx: index("run_events_type_idx").on(t.eventType),
     toolCallIdx: index("run_events_tool_call_idx").on(t.toolCallId),
+  }),
+);
+
+/**
+ * One durable receipt per policy-gated tool call. Public surfaces read only
+ * `redacted_input`; the exact-call fingerprint is matched against the model's
+ * regenerated call before the executor can consume an approval.
+ */
+export const toolApprovalRequests = pgTable(
+  "tool_approval_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    batchId: uuid("batch_id").notNull(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => chatThreads.id, { onDelete: "cascade" }),
+    toolCallId: text("tool_call_id").notNull(),
+    toolName: text("tool_name").notNull(),
+    provider: text("provider"),
+    endpoint: text("endpoint"),
+    nativeToolName: text("native_tool_name"),
+    callFingerprint: text("call_fingerprint").notNull(),
+    redactedInput: jsonb("redacted_input").notNull(),
+    status: toolApprovalStatusEnum("status").notNull().default("pending"),
+    requestedAt: timestamp("requested_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedByUserId: uuid("decided_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    runStatusIdx: index("tool_approval_requests_run_status_idx").on(
+      t.runId,
+      t.status,
+    ),
+    userStatusIdx: index("tool_approval_requests_user_status_idx").on(
+      t.userId,
+      t.status,
+      t.requestedAt,
+    ),
+    batchIdx: index("tool_approval_requests_batch_idx").on(t.batchId),
+    runToolCallUnique: uniqueIndex(
+      "tool_approval_requests_run_tool_call_idx",
+    ).on(t.runId, t.toolCallId, t.callFingerprint),
   }),
 );
 
@@ -1783,6 +1853,8 @@ export type ChatThreadBranch = typeof chatThreadBranches.$inferSelect;
 export type NewChatThreadBranch = typeof chatThreadBranches.$inferInsert;
 export type RunEvent = typeof runEvents.$inferSelect;
 export type NewRunEvent = typeof runEvents.$inferInsert;
+export type ToolApprovalRequestRow = typeof toolApprovalRequests.$inferSelect;
+export type NewToolApprovalRequestRow = typeof toolApprovalRequests.$inferInsert;
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
 export type ModelEnablement = typeof modelEnablement.$inferSelect;

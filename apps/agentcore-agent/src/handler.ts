@@ -13,6 +13,7 @@ import {
   resolveMountedToolNames,
   runAgentLoop,
   type DiscoveryCatalogEntry,
+  type ToolApprovalGrant,
 } from "@ai-workspace/agent";
 import { createBuiltinTools } from "@ai-workspace/agent/web-fetch-tool";
 import {
@@ -44,6 +45,7 @@ export interface InvocationPayload {
     activatedProviders: string[];
     catalog?: DiscoveryCatalogEntry[];
   };
+  toolApprovalGrants?: ToolApprovalGrant[];
   userId?: string;
   maxToolIterations?: number;
 }
@@ -98,6 +100,26 @@ function parseWebEgressPolicy(raw: unknown): WebEgressPolicy | undefined {
       (domain): domain is string => typeof domain === "string",
     ),
   };
+}
+
+function parseToolApprovalGrants(raw: unknown): ToolApprovalGrant[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const grants = raw.filter((value): value is ToolApprovalGrant => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return false;
+    }
+    const grant = value as Record<string, unknown>;
+    const valid =
+      grant.schema === "comparative.tool-approval-grant.v1" &&
+      typeof grant.approvalId === "string" &&
+      grant.approvalId.length > 0 &&
+      typeof grant.fingerprint === "string" &&
+      /^[a-f0-9]{64}$/.test(grant.fingerprint) &&
+      (grant.decision === "approved" || grant.decision === "denied") &&
+      (grant.consumed === undefined || typeof grant.consumed === "boolean");
+    return valid;
+  });
+  return grants.length > 0 ? grants : undefined;
 }
 
 export function parseInvocationPayload(raw: unknown): InvocationPayload {
@@ -188,6 +210,7 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
         ? body.requiredToolName
         : undefined,
     toolDiscovery: parseToolDiscovery(body.toolDiscovery),
+    toolApprovalGrants: parseToolApprovalGrants(body.toolApprovalGrants),
     userId: typeof body.userId === "string" ? body.userId : undefined,
     maxToolIterations:
       typeof body.maxToolIterations === "number"
@@ -285,6 +308,7 @@ export async function runInvocation(
       messages: payload.messages,
       registry,
       context: { userId: payload.userId ?? "agentcore" },
+      toolApprovalGrants: payload.toolApprovalGrants,
       signal: opts.signal,
       ...(payload.requiredToolName
         ? { requiredToolName: payload.requiredToolName }
