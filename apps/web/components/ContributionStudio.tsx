@@ -554,16 +554,25 @@ function GuardrailActionRow({
   action: GuardrailActionReceipt;
 }) {
   return (
-    <div className="flex min-w-0 gap-3 py-3" data-guardrail-state={action.state}>
-      <GuardrailDot state={action.state} />
+    <div
+      className="flex min-w-0 gap-3 py-3"
+      data-guardrail-outcome={action.outcome}
+      data-guardrail-state={action.state}
+    >
+      <GuardrailDot state={action.state} outcome={action.outcome} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <p className="text-sm font-medium text-ink">
             {action.provider ? `${formatGuardrailName(action.provider)} · ` : ""}
             {formatGuardrailName(action.action)}
           </p>
-          <span className="font-mono text-2xs text-muted">
-            {actionStateLabel(action.state)} · {layerLabel(action.governingLayer)}
+          <span
+            className={`font-mono text-2xs ${
+              action.outcome === "failed" ? "text-danger" : "text-muted"
+            }`}
+          >
+            {actionStateLabel(action.state)} · {layerLabel(action.governingLayer)} ·{" "}
+            {actionOutcomeLabel(action.outcome)}
           </span>
         </div>
         <p className="mt-0.5 text-xs text-muted">{action.reason}</p>
@@ -586,18 +595,22 @@ function GuardrailActionRow({
 }
 
 function GuardrailDot({
+  outcome,
   state,
 }: {
+  outcome?: GuardrailActionReceipt["outcome"];
   state: GuardrailActionReceipt["state"];
 }) {
   const color =
-    state === "allowed" || state === "approved"
-      ? "bg-success"
-      : state === "approval_required"
-        ? "bg-warning"
-        : state === "skipped"
-          ? "bg-muted"
-          : "bg-danger";
+    outcome === "failed"
+      ? "bg-danger"
+      : state === "allowed" || state === "approved"
+        ? "bg-success"
+        : state === "approval_required"
+          ? "bg-warning"
+          : state === "skipped"
+            ? "bg-muted"
+            : "bg-danger";
   return <span aria-hidden className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${color}`} />;
 }
 
@@ -612,6 +625,13 @@ function providerStateLabel(state: GuardrailProviderReceipt["state"]): string {
 function actionStateLabel(state: GuardrailActionReceipt["state"]): string {
   if (state === "approval_required") return "Approval required";
   return state.charAt(0).toUpperCase() + state.slice(1);
+}
+
+function actionOutcomeLabel(
+  outcome: GuardrailActionReceipt["outcome"],
+): string {
+  if (outcome === "not_run") return "Not run";
+  return outcome[0]!.toUpperCase() + outcome.slice(1);
 }
 
 function layerLabel(layer: GuardrailActionReceipt["governingLayer"]): string {
