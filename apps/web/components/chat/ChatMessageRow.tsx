@@ -16,6 +16,7 @@ import {
   memo,
   type CSSProperties,
   type MutableRefObject,
+  useState,
 } from "react";
 
 const OFFSCREEN_MESSAGE_STYLE = {
@@ -52,6 +53,7 @@ export interface ChatMessageRowActions {
     runId: string,
     approvalIds: string[],
     decision: "approve" | "deny",
+    rememberForSkill: boolean,
   ) => void;
   openRunInspector: (runId: string) => void;
   branchMessage: (messageId: string) => void;
@@ -229,11 +231,12 @@ function ChatMessageRowComponent({
         <ToolApprovalCard
           requests={message.approvalRequests}
           pending={toolApprovalPendingRunId === message.runId}
-          onDecision={(approvalIds, decision) =>
+          onDecision={(approvalIds, decision, rememberForSkill) =>
             actionsRef.current.toolApprovalDecision(
               message.runId!,
               approvalIds,
               decision,
+              rememberForSkill,
             )
           }
         />
@@ -279,13 +282,21 @@ function ToolApprovalCard({
 }: {
   requests: PublicToolApprovalRequest[];
   pending: boolean;
-  onDecision: (approvalIds: string[], decision: "approve" | "deny") => void;
+  onDecision: (
+    approvalIds: string[],
+    decision: "approve" | "deny",
+    rememberForSkill: boolean,
+  ) => void;
 }) {
+  const [rememberForSkill, setRememberForSkill] = useState(false);
   const pendingRequests = requests.filter(
     (request) => request.status === "pending",
   );
   if (pendingRequests.length === 0) return null;
   const approvalIds = pendingRequests.map((request) => request.id);
+  const canRememberForSkill = pendingRequests.every(
+    (request) => request.standingApprovalEligible === true,
+  );
   return (
     <section
       data-testid="tool-approval-card"
@@ -315,11 +326,32 @@ function ToolApprovalCard({
           </details>
         ))}
       </div>
+      {canRememberForSkill ? (
+        <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs text-muted">
+          <input
+            type="checkbox"
+            checked={rememberForSkill}
+            disabled={pending}
+            onChange={(event) => setRememberForSkill(event.target.checked)}
+            className="mt-0.5 h-3.5 w-3.5 accent-pop"
+          />
+          <span>
+            Allow this Skill to use these actions for 30 days. Scheduled runs
+            still cannot make changes.
+          </span>
+        </label>
+      ) : null}
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           type="button"
           disabled={pending}
-          onClick={() => onDecision(approvalIds, "approve")}
+          onClick={() =>
+            onDecision(
+              approvalIds,
+              "approve",
+              canRememberForSkill && rememberForSkill,
+            )
+          }
           className="rounded-md bg-pop px-3 py-1.5 text-xs font-medium text-on-pop hover:bg-pop/90 disabled:cursor-wait disabled:opacity-50"
         >
           {pending ? "Saving..." : "Approve"}
@@ -327,7 +359,7 @@ function ToolApprovalCard({
         <button
           type="button"
           disabled={pending}
-          onClick={() => onDecision(approvalIds, "deny")}
+          onClick={() => onDecision(approvalIds, "deny", false)}
           className="rounded-md border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-subtle disabled:cursor-wait disabled:opacity-50"
         >
           Deny

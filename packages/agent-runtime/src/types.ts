@@ -3,6 +3,7 @@ import type {
   AgentMessage,
   DiscoveryCatalogEntry,
   ToolApprovalGrant,
+  ToolApprovalMode,
   ToolContext,
   ToolRuntimePolicy,
 } from "@ai-workspace/agent";
@@ -134,6 +135,8 @@ export interface TurnInput {
   };
   /** Exact-call decisions loaded from Comparative's durable approval ledger. */
   toolApprovalGrants?: readonly ToolApprovalGrant[];
+  /** Request in attended contexts; deny-and-report in unattended contexts. */
+  toolApprovalMode?: ToolApprovalMode;
   /**
    * Steering text for user identity, connected tools, Vault memory, artifact
    * context, and custom instructions. Bedrock and AgentCore fold it into the

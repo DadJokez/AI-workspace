@@ -89,6 +89,7 @@ import {
 } from "@/lib/model-failover";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import {
+  loadStandingToolApprovalGrants,
   loadToolApprovalGrants,
   pauseRunForToolApprovals,
 } from "@/lib/tool-approvals";
@@ -276,12 +277,27 @@ export async function executeChatTurn({
   const timing = lane.kind === "inline" ? lane.timing : undefined;
   const priorOutputs =
     lane.kind === "worker" ? parseStoredOutputs(lane.run.outputs) : {};
-  const toolApprovalGrants = await loadToolApprovalGrants({
-    db,
-    runId,
-    userId,
-    runOutputs: priorOutputs,
-  });
+  const unattended =
+    lane.kind === "worker" &&
+    (lane.run.triggerType === "scheduled" ||
+      lane.run.triggerType === "github_event");
+  const skillId =
+    lane.kind === "worker" ? lane.run.skillId ?? undefined : activeSkillPrompt?.id;
+  const exactToolApprovalGrants = unattended
+    ? []
+    : await loadToolApprovalGrants({
+        db,
+        runId,
+        userId,
+        runOutputs: priorOutputs,
+      });
+  const standingToolApprovalGrants = unattended
+    ? []
+    : await loadStandingToolApprovalGrants({ db, userId, skillId });
+  const toolApprovalGrants = [
+    ...exactToolApprovalGrants,
+    ...standingToolApprovalGrants,
+  ];
   const webAccessDeclared = skillDeclaresWebAccess(requestedProviders);
   const webAccessState = interactive || webAccessDeclared
     ? "granted"
@@ -1062,6 +1078,7 @@ export async function executeChatTurn({
         ...(requiredToolName ? { requiredToolName } : {}),
         ...(toolDiscovery ? { toolDiscovery } : {}),
         ...(toolApprovalGrants.length > 0 ? { toolApprovalGrants } : {}),
+        toolApprovalMode: unattended ? "deny_unattended" : "request",
       },
     })) {
       if (providerTerminalSeen) {
@@ -1365,6 +1382,7 @@ export async function executeChatTurn({
       requests: pendingToolApprovalRequests,
       calls: toolEvents.calls(),
       outputs: pauseOutputs,
+      standingApprovalEligible: Boolean(skillId && !unattended),
       ...(lane.kind === "worker" ? { expectedWorkerId: lane.workerId } : {}),
     });
     await persistProviderTraceCapture({

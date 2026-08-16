@@ -85,7 +85,8 @@ describe("reduceAssistantStreamMessage", () => {
         nativeToolName: "draft_email",
         redactedInput: { to: ["recipient@example.com"] },
         status: "pending" as const,
-        requestedAt: "2026-08-15T00:00:00.000Z",
+      requestedAt: "2026-08-15T00:00:00.000Z",
+      expiresAt: "2026-08-16T00:00:00.000Z",
       },
     ];
     const waiting = reduceAssistantStreamMessage(pendingMessage(), {

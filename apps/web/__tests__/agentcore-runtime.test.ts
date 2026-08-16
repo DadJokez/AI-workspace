@@ -141,6 +141,7 @@ describe("AgentCoreRuntime", () => {
             replayOutput: { drafted: true },
           },
         ],
+        toolApprovalMode: "deny_unattended",
       }),
     );
     expect(events).toEqual([
@@ -183,6 +184,7 @@ describe("AgentCoreRuntime", () => {
         replayOutput: { drafted: true },
       },
     ]);
+    expect(payload.toolApprovalMode).toBe("deny_unattended");
   });
 
   it("yields an error event when the invoke call throws", async () => {

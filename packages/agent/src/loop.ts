@@ -12,6 +12,7 @@ import {
 } from "./tool-result-framing";
 import {
   buildToolApprovalRequest,
+  isStandingToolApprovalGrant,
   matchingToolApprovalGrant,
 } from "./tool-approval";
 import {
@@ -25,6 +26,7 @@ import type {
   ProviderRequestSnapshot,
   ToolContext,
   ToolApprovalGrant,
+  ToolApprovalMode,
   ToolApprovalRequest,
   ToolPolicyAuditDecision,
   ToolRuntimePolicy,
@@ -76,6 +78,8 @@ export interface RunAgentLoopParams {
   context: ToolContext;
   /** Durable exact-call approvals supplied by Comparative's policy gate. */
   toolApprovalGrants?: readonly ToolApprovalGrant[];
+  /** Unattended work denies unapproved writes instead of pausing forever. */
+  toolApprovalMode?: ToolApprovalMode;
   /** Aborts the loop. */
   signal?: AbortSignal;
   /** Override the resolved Bedrock client. Tests pass a fake here. */
@@ -446,11 +450,16 @@ export async function* runAgentLoop(
         consumedApprovalIds: reservedApprovalIds,
       });
       if (!grant) return true;
-      reservedApprovalIds.add(grant.approvalId);
+      if (!isStandingToolApprovalGrant(grant)) {
+        reservedApprovalIds.add(grant.approvalId);
+      }
       approvalGrantsByToolCallId.set(request.toolCallId, grant);
       return false;
     });
-    if (ungrantedApprovalRequests.length > 0) {
+    if (
+      ungrantedApprovalRequests.length > 0 &&
+      params.toolApprovalMode !== "deny_unattended"
+    ) {
       // Pause the whole tool round before any handler runs. This keeps a batch
       // atomic: an auto-allowed sibling cannot run twice when the durable run
       // is resumed after the user decides on the write calls.
@@ -495,14 +504,20 @@ export async function* runAgentLoop(
       const approvalGrant = approvalRequest
         ? approvalGrantsByToolCallId.get(call.id)
         : undefined;
-      if (approvalRequest && !approvalGrant) {
+      if (
+        approvalRequest &&
+        !approvalGrant &&
+        params.toolApprovalMode !== "deny_unattended"
+      ) {
         yield {
           type: "error",
           message: `Approval grant reservation missing for ${tool.name}.`,
         };
         return;
       }
-      if (approvalGrant) consumedApprovalIds.add(approvalGrant.approvalId);
+      if (approvalGrant && !isStandingToolApprovalGrant(approvalGrant)) {
+        consumedApprovalIds.add(approvalGrant.approvalId);
+      }
       const policyDecision = approvalGrant
         ? approvalGrant.decision === "approved"
           ? "approved_by_user"
@@ -522,6 +537,36 @@ export async function* runAgentLoop(
             output,
             isError: true,
             policyDecision: "blocked",
+          },
+        };
+        resultBlocks.push({
+          kind: "tool-result",
+          toolUseId: call.id,
+          content: tool.untrustedOutput
+            ? frameUntrustedToolResult(tool.name, text)
+            : text,
+          isError: true,
+        });
+        continue;
+      }
+      if (
+        approvalRequest &&
+        !approvalGrant &&
+        params.toolApprovalMode === "deny_unattended"
+      ) {
+        const output = {
+          error: "tool_approval_unattended_denied",
+          message: `Unattended runs cannot pause for permission to run ${tool.name}. The write was skipped.`,
+          tool: tool.name,
+        };
+        const text = JSON.stringify(output);
+        yield {
+          type: "tool-result",
+          result: {
+            toolCallId: call.id,
+            output,
+            isError: true,
+            policyDecision: "denied",
           },
         };
         resultBlocks.push({

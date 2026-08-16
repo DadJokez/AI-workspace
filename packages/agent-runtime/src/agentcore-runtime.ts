@@ -85,6 +85,7 @@ export class AgentCoreRuntime implements AgentRuntime {
       requiredToolName: input.requiredToolName,
       toolDiscovery: input.toolDiscovery,
       toolApprovalGrants: input.toolApprovalGrants,
+      toolApprovalMode: input.toolApprovalMode,
       userId: input.context.userId,
     });
 

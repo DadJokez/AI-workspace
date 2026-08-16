@@ -852,8 +852,18 @@ export function ChatClient({
               void handleRecommendationAction(recommendation, status)
             }
             onRunAction={(runId, action) => void runAction(runId, action)}
-            onToolApprovalDecision={(runId, approvalIds, decision) =>
-              void handleToolApprovalDecision(runId, approvalIds, decision)
+            onToolApprovalDecision={(
+              runId,
+              approvalIds,
+              decision,
+              rememberForSkill,
+            ) =>
+              void handleToolApprovalDecision(
+                runId,
+                approvalIds,
+                decision,
+                rememberForSkill,
+              )
             }
             onOpenRunInspector={openRunInspector}
             onBranchMessage={(sourceMessageId) =>

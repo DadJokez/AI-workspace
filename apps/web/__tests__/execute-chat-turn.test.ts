@@ -104,6 +104,7 @@ vi.mock("@/lib/tool-approvals", async (importOriginal) => {
   return {
     ...actual,
     loadToolApprovalGrants: vi.fn(async () => []),
+    loadStandingToolApprovalGrants: vi.fn(async () => []),
     pauseRunForToolApprovals: vi.fn(async () => []),
   };
 });
@@ -188,6 +189,8 @@ import {
 } from "@/lib/execute-chat-turn";
 import { createToolEventAccumulator } from "@/lib/tool-events";
 import {
+  loadStandingToolApprovalGrants,
+  loadToolApprovalGrants,
   pauseRunForToolApprovals,
 } from "@/lib/tool-approvals";
 import { appendRunEventBestEffort } from "@/lib/run-events";
@@ -666,6 +669,39 @@ describe("executeChatTurn — unattended web egress governance (#439)", () => {
       deniedDomains: ["blocked.example"],
     });
   });
+
+  it.each(["scheduled", "github_event"])(
+    "denies writes without loading approvals or pausing for a %s run",
+    async (triggerType) => {
+      const fixture = workerInput();
+      fixture.run.triggerType = triggerType;
+      fixture.run.skillId = "skill-1";
+
+      await executeChatTurn(fixture.input);
+
+      expect(fixture.captured.turnInput?.toolApprovalMode).toBe(
+        "deny_unattended",
+      );
+      expect(loadToolApprovalGrants).not.toHaveBeenCalled();
+      expect(loadStandingToolApprovalGrants).not.toHaveBeenCalled();
+      expect(pauseRunForToolApprovals).not.toHaveBeenCalled();
+    },
+  );
+
+  it("loads endpoint-bound Skill grants for an attended manual run", async () => {
+    const fixture = workerInput();
+    fixture.run.triggerType = "skill";
+    fixture.run.skillId = "skill-1";
+
+    await executeChatTurn(fixture.input);
+
+    expect(fixture.captured.turnInput?.toolApprovalMode).toBe("request");
+    expect(loadStandingToolApprovalGrants).toHaveBeenCalledWith({
+      db: fixture.input.db,
+      userId: "user-1",
+      skillId: "skill-1",
+    });
+  });
 });
 
 describe("executeChatTurn — durable conversation resources (#576)", () => {
@@ -802,7 +838,8 @@ describe("executeChatTurn — interactive tool approvals (#410)", () => {
       nativeToolName: "draft_email",
       redactedInput: { body: "[REDACTED]" },
       status: "pending" as const,
-      requestedAt: "2026-08-15T12:00:00.000Z",
+        requestedAt: "2026-08-15T12:00:00.000Z",
+        expiresAt: "2026-08-16T12:00:00.000Z",
     };
     vi.mocked(pauseRunForToolApprovals).mockResolvedValueOnce([approval]);
     const { input, sent, state } = inlineInput();

@@ -34,6 +34,7 @@ const requestRow = {
   redactedInput: { to: "[REDACTED]" },
   status: "approved",
   requestedAt: "2026-08-15T00:00:00.000Z",
+  expiresAt: "2026-08-16T00:00:00.000Z",
   decidedAt: "2026-08-15T00:01:00.000Z",
 };
 
@@ -65,6 +66,7 @@ describe("POST /api/runs/[id]/tool-approvals", () => {
     const response = await post({
       decision: "approve",
       approvalIds: [approvalId],
+      rememberForSkill: true,
     });
 
     expect(response.status).toBe(200);
@@ -77,6 +79,7 @@ describe("POST /api/runs/[id]/tool-approvals", () => {
         userId: "user-1",
         decision: "approve",
         approvalIds: [approvalId],
+        rememberForSkill: true,
       }),
     );
     expect(startInProcessChatRunWorker).toHaveBeenCalledWith(
@@ -100,6 +103,20 @@ describe("POST /api/runs/[id]/tool-approvals", () => {
     expect(decideToolApprovals).not.toHaveBeenCalled();
   });
 
+  it("rejects a non-boolean remembered approval flag", async () => {
+    const response = await post({
+      decision: "approve",
+      approvalIds: [approvalId],
+      rememberForSkill: "yes",
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: "invalid_remember_for_skill",
+    });
+    expect(decideToolApprovals).not.toHaveBeenCalled();
+  });
+
   it("does not start a worker while another request in the batch is pending", async () => {
     decideToolApprovals.mockResolvedValue({
       ok: true,
@@ -111,6 +128,7 @@ describe("POST /api/runs/[id]/tool-approvals", () => {
     const response = await post({
       decision: "approve",
       approvalIds: [approvalId],
+      rememberForSkill: false,
     });
 
     expect(response.status).toBe(200);

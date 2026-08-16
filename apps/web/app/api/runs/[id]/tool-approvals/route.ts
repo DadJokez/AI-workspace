@@ -38,6 +38,7 @@ export async function POST(
       userId: session.user.id,
       approvalIds: parsed.approvalIds,
       decision: parsed.decision,
+      rememberForSkill: parsed.rememberForSkill,
     });
     if (!result.ok) {
       return NextResponse.json(
@@ -63,6 +64,7 @@ export async function POST(
           approvalId: approval.id,
           batchId: approval.batchId,
           decision: parsed.decision,
+          rememberForSkill: parsed.rememberForSkill,
         },
       });
     }
@@ -97,6 +99,7 @@ async function parseDecisionBody(req: Request): Promise<
       ok: true;
       decision: ToolApprovalDecision;
       approvalIds: string[];
+      rememberForSkill: boolean;
     }
   | { ok: false; error: string; message: string }
 > {
@@ -138,7 +141,22 @@ async function parseDecisionBody(req: Request): Promise<
       message: "Approval request IDs must be unique.",
     };
   }
-  return { ok: true, decision: body.decision, approvalIds };
+  if (
+    body.rememberForSkill !== undefined &&
+    typeof body.rememberForSkill !== "boolean"
+  ) {
+    return {
+      ok: false,
+      error: "invalid_remember_for_skill",
+      message: "rememberForSkill must be a boolean.",
+    };
+  }
+  return {
+    ok: true,
+    decision: body.decision,
+    approvalIds,
+    rememberForSkill: body.rememberForSkill === true,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

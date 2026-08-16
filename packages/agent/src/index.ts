@@ -9,6 +9,7 @@ export type {
   Role,
   Tool,
   ToolApprovalGrant,
+  ToolApprovalMode,
   ToolApprovalRequest,
   ToolCall,
   ToolContext,
@@ -21,6 +22,7 @@ export type {
 
 export {
   buildToolApprovalRequest,
+  isStandingToolApprovalGrant,
   matchingToolApprovalGrant,
   toolCallFingerprint,
 } from "./tool-approval";

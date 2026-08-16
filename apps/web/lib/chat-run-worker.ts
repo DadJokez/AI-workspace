@@ -35,6 +35,7 @@ import {
   releaseArtifactReviewRequest,
 } from "@/lib/artifact-review";
 import { parseContextResourceReferences } from "@/lib/context-shelf";
+import { expirePendingToolApprovals } from "@/lib/tool-approvals";
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 /**
@@ -188,6 +189,9 @@ export async function runChatRunWorkerLoop({
       // sitting `queued`/`running` forever with nobody willing to take them.
       await sweepBestEffort("chat-run-quarantine-sweep-error", () =>
         quarantineExhaustedRuns({ db }),
+      );
+      await sweepBestEffort("tool-approval-expiry-sweep-error", () =>
+        expirePendingToolApprovals({ db }),
       );
     }
     const claimed =
