@@ -18,9 +18,12 @@ import {
   extractAssistantSources,
   extractPureEchoReply,
   MODELS,
+  RunBudgetTracker,
   serializeActivation,
   type AssistantSource,
   type ModelId,
+  type RunBudgetReceipt,
+  type RunBudgetState,
   type ToolApprovalRequest as AgentToolApprovalRequest,
 } from "@ai-workspace/agent";
 import {
@@ -223,6 +226,7 @@ export interface ExecuteChatTurnInput {
   persistedPrompt?: string;
   userMessageId: string;
   route: ChatRuntimeRoute;
+  runBudget: RunBudgetState;
   runtime: AgentRuntime;
   /** Aborted by the lane shell (browser disconnect, worker timeout/SIGTERM). */
   runtimeAbort: AbortController;
@@ -257,6 +261,7 @@ export async function executeChatTurn({
   persistedPrompt,
   userMessageId,
   route,
+  runBudget,
   runtime,
   runtimeAbort,
   modelId: initialModelId,
@@ -288,6 +293,8 @@ export async function executeChatTurn({
   const timing = lane.kind === "inline" ? lane.timing : undefined;
   const priorOutputs =
     lane.kind === "worker" ? parseStoredOutputs(lane.run.outputs) : {};
+  const budgetFallback = new RunBudgetTracker(runBudget, initialModelId);
+  let budgetReceipt: RunBudgetReceipt = budgetFallback.receipt(false);
   const autonomyPreset = resolveAutonomyPreset(
     lane.kind === "worker" ? lane.run.triggerType : "chat",
   );
@@ -689,6 +696,7 @@ export async function executeChatTurn({
     autonomyPreset: autonomyPreset.name,
     contextReceipt,
     requestedProviders: requestedMcpProviders,
+    budget: budgetReceipt,
   });
   if (timing) timing.contextReadyAt = new Date();
 
@@ -723,6 +731,7 @@ export async function executeChatTurn({
     deniedMcpProviders: blockedProviders,
     contextReceipt,
     guardrails: initialGuardrailReceipt,
+    runBudget,
     ...(artifactContextTarget ? { artifactContextTarget } : {}),
     ...(separateFromArtifact ? { separateFromArtifact } : {}),
   };
@@ -867,6 +876,7 @@ export async function executeChatTurn({
       toolResults: toolEvents.results(),
       approvalRequests,
       approvalGrants: toolApprovalGrants,
+      budget: budgetReceipt,
       ...(generatedAt ? { generatedAt } : {}),
     });
   const providerTrace = createProviderTraceAccumulator();
@@ -899,6 +909,7 @@ export async function executeChatTurn({
     modelId,
     runtime: runtime.name,
     guardrails: currentGuardrailReceipt(),
+    budgetReceipt,
     ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
     ...extra,
   });
@@ -916,6 +927,7 @@ export async function executeChatTurn({
     modelId,
     runtime: runtime.name,
     guardrails: currentGuardrailReceipt(),
+    budgetReceipt,
     ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
     lifecycle: "provider_running",
   });
@@ -1135,6 +1147,7 @@ export async function executeChatTurn({
         ...(toolDiscovery ? { toolDiscovery } : {}),
         ...(toolApprovalGrants.length > 0 ? { toolApprovalGrants } : {}),
         toolApprovalMode: unattended ? "deny_unattended" : "request",
+        budget: runBudget,
       },
     })) {
       if (providerTerminalSeen) {
@@ -1245,6 +1258,22 @@ export async function executeChatTurn({
                 eq(runs.workerId, lane.workerId),
               ),
             );
+        }
+      } else if (ev.type === "budget") {
+        budgetReceipt = ev.receipt;
+        const guardrails = currentGuardrailReceipt();
+        await appendTurnRunEvent(lane, {
+          db,
+          runId,
+          eventType: "run_budget_measured",
+          status: budgetReceipt.partial ? "info" : "succeeded",
+          label: budgetReceipt.partial
+            ? `Stopped after reaching the ${budgetDimensionLabel(budgetReceipt.reached)} budget`
+            : "Measured run budget",
+          metadata: { budget: budgetReceipt, guardrails },
+        });
+        if (lane.kind === "inline") {
+          lane.send({ type: "guardrail-receipt", receipt: guardrails });
         }
       } else if (ev.type === "tool-call") {
         toolEvents.recordCall(ev.call);
@@ -1432,6 +1461,7 @@ export async function executeChatTurn({
             runtime: runtime.name,
             runtimeTarget: route.runtimeTarget,
             ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
+            budgetReceipt,
             metrics: buildTimingMetrics(lane.timing),
           };
     const approvals = await pauseRunForToolApprovals({
@@ -1694,6 +1724,7 @@ export async function executeChatTurn({
     abortReason: workerAbortReason ?? undefined,
     autonomyPreset: autonomyPreset.name,
     guardrails: finalGuardrails,
+    budgetReceipt,
   });
 
   if (lane.kind === "inline") {
@@ -1763,6 +1794,7 @@ async function persistChatTurnResult({
   abortReason,
   autonomyPreset,
   guardrails,
+  budgetReceipt,
 }: {
   db: Database;
   runId: string;
@@ -1803,6 +1835,7 @@ async function persistChatTurnResult({
   abortReason?: ChatWorkerAbortReason;
   autonomyPreset: AutonomyPresetName;
   guardrails: GuardrailReceipt;
+  budgetReceipt: RunBudgetReceipt;
 }): Promise<{
   assistantMessageId: string | undefined;
   artifacts: WorkspaceArtifactSummary[];
@@ -2253,6 +2286,7 @@ async function persistChatTurnResult({
     runtime: runtimeName,
     autonomy: autonomyReceipt,
     guardrails,
+    budgetReceipt,
     ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
     ...(abortReason ? { abortReason } : {}),
     ...(runtimeErrors.length > 0 ? { errorDetails: runtimeErrors } : {}),
@@ -2318,6 +2352,9 @@ async function persistChatTurnResult({
       {
         hasProposal: proposal !== null && artifacts.length > 0,
         ...(skippedWriteCount > 0 ? { skippedWriteCount } : {}),
+        ...(budgetReceipt.partial && budgetReceipt.reached
+          ? { budgetReceipt }
+          : {}),
       },
     );
   }
@@ -2452,7 +2489,25 @@ interface StoredChatRunOutputs {
   assistantText?: string;
   assistantMessageId?: string;
   providerRun?: RuntimeRunMetadata;
+  budgetReceipt?: RunBudgetReceipt;
   [key: string]: unknown;
+}
+
+function budgetDimensionLabel(
+  dimension: RunBudgetReceipt["reached"],
+): string {
+  switch (dimension) {
+    case "tokens":
+      return "token";
+    case "usd":
+      return "cost";
+    case "wall_clock":
+      return "time";
+    case "tool_iterations":
+      return "tool-step";
+    default:
+      return "configured";
+  }
 }
 
 function parseStoredOutputs(value: unknown): StoredChatRunOutputs {

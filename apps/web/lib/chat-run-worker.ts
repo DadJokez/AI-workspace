@@ -36,6 +36,7 @@ import {
 } from "@/lib/artifact-review";
 import { parseContextResourceReferences } from "@/lib/context-shelf";
 import { expirePendingToolApprovals } from "@/lib/tool-approvals";
+import { resolveStoredRunBudget } from "@/lib/run-budget-policy";
 
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 /**
@@ -480,6 +481,13 @@ async function executeClaimedChatRun({
   const runtimeRoute =
     parseStoredRuntimeRoute(inputs.runtimeRoute) ??
     defaultWorkerRuntimeRoute(inputs);
+  const priorOutputs = isRecord(run.outputs) ? run.outputs : {};
+  const runBudget = resolveStoredRunBudget({
+    stored: inputs.runBudget,
+    priorReceipt: priorOutputs.budgetReceipt,
+    lane: runtimeRoute.lane,
+    triggerType: run.triggerType,
+  });
 
   await appendRunEventBestEffort("chat-run-event-error", {
     db,
@@ -580,6 +588,7 @@ async function executeClaimedChatRun({
       prompt: inputs.prompt,
       userMessageId: inputs.userMessageId,
       route: runtimeRoute,
+      runBudget,
       runtime,
       runtimeAbort,
       modelId,

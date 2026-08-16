@@ -1,4 +1,9 @@
-import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
+import {
+  DEFAULT_MODEL_ID,
+  RunBudgetTracker,
+  isValidModelId,
+  type RunBudgetReceipt,
+} from "@ai-workspace/agent";
 import { getRuntime } from "@ai-workspace/agent-runtime";
 import { auditLog, getDb, runs } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
@@ -29,6 +34,11 @@ import {
   buildWorkflowRunInputs,
   canRetryWorkflowRun,
 } from "@/lib/workflow-retry";
+import {
+  resolveNewRunBudget,
+  resolveRetryRunBudget,
+  runBudgetEnvelopeForEvent,
+} from "@/lib/run-budget-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +76,12 @@ export async function POST(req: Request) {
       : null;
 
   const db = getDb();
-  const modelId = (await isModelEnabled(db, requestedModelId, "durable-local"))
+  const requestedModelEnabled = await isModelEnabled(
+    db,
+    requestedModelId,
+    "durable-local",
+  );
+  const modelId = isValidModelId(requestedModelId) && requestedModelEnabled
     ? requestedModelId
     : await resolveModelForPurpose(db, "durable-local");
   const runtime = getRuntime();
@@ -144,6 +159,14 @@ export async function POST(req: Request) {
   const now = new Date();
   const triggerType = retrySource ? "manual_retry" : "manual";
   const autonomyPreset = resolveAutonomyPreset(triggerType);
+  const sourceInputs = isRecord(retrySource?.inputs) ? retrySource.inputs : {};
+  const runBudget = retrySource
+    ? resolveRetryRunBudget({
+        source: sourceInputs.runBudget,
+        lane: "durable-local",
+        triggerType,
+      })
+    : resolveNewRunBudget({ lane: "durable-local", triggerType });
   const inserted = await db
     .insert(runs)
     .values({
@@ -160,6 +183,7 @@ export async function POST(req: Request) {
           retryRequestedAt: now,
         }),
         autonomyPreset: autonomyPreset.name,
+        runBudget,
       },
       startedAt: now,
       updatedAt: now,
@@ -200,6 +224,7 @@ export async function POST(req: Request) {
       skillSlug: SKILL_SLUG,
       modelId,
       runtime: runtime.name,
+      runBudget: runBudgetEnvelopeForEvent(runBudget),
       ...(retrySource ? { retryOfRunId: retrySource.id } : {}),
     },
   });
@@ -266,6 +291,10 @@ export async function POST(req: Request) {
     let inputTokens = 0;
     let cacheReadInputTokens = 0;
     let cacheWriteInputTokens = 0;
+    let budgetReceipt: RunBudgetReceipt = new RunBudgetTracker(
+      runBudget,
+      modelId,
+    ).receipt(false);
     const errors: string[] = [];
     const toolEvents = createToolEventAccumulator(["github"]);
 
@@ -277,6 +306,7 @@ export async function POST(req: Request) {
       firstTurnPreamble:
         "You are running a saved workflow, not an open-ended chat. Use the connected GitHub tools and produce the requested briefing.",
       mcpServers: { github: githubServer },
+      budget: runBudget,
     })) {
       if (ev.type === "text-delta") {
         briefingMarkdown += ev.delta;
@@ -287,6 +317,16 @@ export async function POST(req: Request) {
         inputTokens = usage.inputTokens;
         cacheReadInputTokens = usage.cacheReadInputTokens;
         cacheWriteInputTokens = usage.cacheWriteInputTokens;
+      } else if (ev.type === "budget") {
+        budgetReceipt = ev.receipt;
+        await appendWorkflowEvent({
+          eventType: "run_budget_measured",
+          status: budgetReceipt.partial ? "info" : "succeeded",
+          label: budgetReceipt.partial
+            ? "Developer Briefing reached its run budget"
+            : "Measured Developer Briefing run budget",
+          metadata: { budget: budgetReceipt },
+        });
       } else if (ev.type === "tool-call") {
         toolEvents.recordCall(ev.call);
         const persistedCall = toolEvents
@@ -337,6 +377,7 @@ export async function POST(req: Request) {
       },
       modelId,
       runtime: runtime.name,
+      budgetReceipt,
     };
 
     if (errors.length > 0) {
@@ -487,4 +528,8 @@ function serializeRun(row: typeof runs.$inferSelect) {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

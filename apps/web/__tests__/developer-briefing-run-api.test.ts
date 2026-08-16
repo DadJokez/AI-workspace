@@ -117,6 +117,21 @@ describe("developer briefing run route model gating", () => {
     expect(registryCalls).toContain("resolve:durable-local");
     expect(insertedRuns).toHaveLength(1);
     expect(insertedRuns[0]!.modelId).toBe("haiku-4-5");
+    expect(insertedRuns[0]!.inputs).toMatchObject({
+      runBudget: {
+        envelope: {
+          schema: "comparative.run-budget.v1",
+          version: 1,
+          governingLayer: "organization",
+          limits: {
+            tokens: 1_000_000,
+            usd: 10,
+            wallClockMs: 3_600_000,
+            toolIterations: 8,
+          },
+        },
+      },
+    });
   });
 
   it("keeps an enabled requested model", async () => {

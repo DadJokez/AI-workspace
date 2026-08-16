@@ -47,6 +47,10 @@ import { appendRunEvent } from "@/lib/run-events";
 import { toWorkspaceArtifactVersionTarget } from "@/lib/artifact-revisions";
 import { loadWorkspaceArtifactForUser } from "@/lib/workspace-artifacts";
 import { resolveAutonomyPreset } from "@/lib/autonomy-presets";
+import {
+  resolveNewRunBudget,
+  runBudgetEnvelopeForEvent,
+} from "@/lib/run-budget-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -235,6 +239,10 @@ export async function POST(req: Request) {
       : {}),
   };
   const userTimeZone = normalizeUserTimeZone(body.timeZone);
+  const runBudget = resolveNewRunBudget({
+    lane: PROPOSAL_ITERATION_ROUTE.lane,
+    triggerType: "proposal_iteration",
+  });
 
   try {
     await db.transaction(async (tx) => {
@@ -287,6 +295,7 @@ export async function POST(req: Request) {
           executionMode: "local",
           modelOverride: false,
           runtimeRoute: PROPOSAL_ITERATION_ROUTE,
+          runBudget,
           artifactContextTarget: toWorkspaceArtifactVersionTarget(
             candidate.artifact,
           ),
@@ -328,6 +337,7 @@ export async function POST(req: Request) {
           sourceRunId: candidate.proposal.runId,
           sourceTriggerType: candidate.proposal.triggerType,
           transition: "proposed_to_iterating",
+          runBudget: runBudgetEnvelopeForEvent(runBudget),
         },
         startedAt: now,
         completedAt: now,
@@ -357,6 +367,7 @@ export async function POST(req: Request) {
         userMessageId: feedbackMessageId,
         runtimeRoute: PROPOSAL_ITERATION_ROUTE,
         sourceArtifactId: candidate.artifact.id,
+        runBudget: runBudgetEnvelopeForEvent(runBudget),
         ...(candidate.app && candidate.appVersion
           ? {
               sourceAppId: candidate.app.id,

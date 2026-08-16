@@ -492,13 +492,21 @@ function GuardrailReceiptRows({ receipt }: { receipt: GuardrailReceipt }) {
       ))}
       {receipt.budget ? (
         <div className="flex min-w-0 gap-3 py-3">
-          <GuardrailDot state={receipt.budget.reached ? "blocked" : "allowed"} />
+          <GuardrailDot
+            state={
+              receipt.budget.partial && receipt.budget.reached
+                ? "blocked"
+                : "allowed"
+            }
+          />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
               <p className="text-sm font-medium text-ink">Run budget</p>
               <span className="font-mono text-2xs text-muted">
-                {receipt.budget.reached
-                  ? `Reached ${budgetDimensionLabel(receipt.budget.reached)}`
+                {receipt.budget.partial && receipt.budget.reached
+                  ? `Stopped at ${budgetDimensionLabel(receipt.budget.reached)}`
+                  : receipt.budget.reached
+                    ? `Completed at ${budgetDimensionLabel(receipt.budget.reached)} limit`
                   : "Within limits"}
               </span>
             </div>
