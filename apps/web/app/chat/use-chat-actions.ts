@@ -47,6 +47,8 @@ export function useChatActions({
   const [artifactProposalPendingId, setArtifactProposalPendingId] =
     useState<string>();
   const [runActionPendingId, setRunActionPendingId] = useState<string>();
+  const [toolApprovalPendingRunId, setToolApprovalPendingRunId] =
+    useState<string>();
 
   function patchRecommendation(
     recommendation: PersistedRecommendation,
@@ -416,11 +418,51 @@ export function useChatActions({
     }
   }
 
+  async function handleToolApprovalDecision(
+    runId: string,
+    approvalIds: string[],
+    decision: "approve" | "deny",
+    rememberForSkill: boolean,
+  ) {
+    if (!activeTab?.threadId) return;
+    setToolApprovalPendingRunId(runId);
+    patchTab(activeTab.id, { error: undefined });
+    try {
+      await fetchJson(
+        `/api/runs/${runId}/tool-approvals`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            decision,
+            approvalIds,
+            rememberForSkill,
+          }),
+        },
+        decision === "approve"
+          ? "Could not approve that action."
+          : "Could not deny that action.",
+      );
+      await refreshActiveThreadMessages(activeTab.id, activeTab.threadId);
+      void refreshThreads();
+    } catch (error) {
+      patchTab(activeTab.id, {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not save the approval decision.",
+      });
+    } finally {
+      setToolApprovalPendingRunId(undefined);
+    }
+  }
+
   return {
     recommendationPendingId,
     appDraftPendingId,
     artifactProposalPendingId,
     runActionPendingId,
+    toolApprovalPendingRunId,
     handleRecommendationAction,
     handleAppDraftDeploy,
     handleAppProposalDiscard,
@@ -428,5 +470,6 @@ export function useChatActions({
     handleArtifactProposalAction,
     handleArtifactProposalIteration,
     runAction,
+    handleToolApprovalDecision,
   };
 }

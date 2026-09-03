@@ -52,6 +52,7 @@ export interface RunInspectorAuditEvent {
   input?: unknown;
   output?: unknown;
   error?: string | null;
+  policyDecision?: string | null;
   metadata?: unknown;
   startedAt?: string | null;
   completedAt?: string | null;
@@ -198,6 +199,7 @@ function parseAuditEvent(value: unknown): RunInspectorAuditEvent | null {
     input: value.input,
     output: value.output,
     error: nullableString(value.error),
+    policyDecision: nullableString(value.policyDecision),
     metadata: value.metadata,
     startedAt: nullableString(value.startedAt),
     completedAt: nullableString(value.completedAt),

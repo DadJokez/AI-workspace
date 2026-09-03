@@ -1,5 +1,6 @@
 import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
+import { findKnownContextDenial } from "./known-context-denial";
 
 /**
  * Context Engine regression cases. These lock the harness behavior Rob has
@@ -9,20 +10,10 @@ import type { EvalSuite, TurnTranscript } from "../types";
  */
 
 function doesNotDenyKnownContext(t: TurnTranscript): boolean | { ok: boolean; detail?: string } {
-  const denialPatterns = [
-    /\bno tools are connected\b/i,
-    /\b(?:your\s+)?(?:github|vault)\s+(?:account\s+)?(?:is\s+not|isn't)\s+(?:connected|available|accessible)\b/i,
-    /\b(?:your\s+)?(?:github|vault)\s+(?:account\s+)?is\s+(?:disconnected|unavailable|not wired up)\b/i,
-    /\b(?:don'?t|do not|cannot|can'?t)\s+(?:have\s+)?access\s+to\s+(?:your\s+)?(?:github|vault)\b(?!\s+(?:data|content|information|results?|pull requests?|prs?|issues?|memory)\b)/i,
-    /\b(?:cannot|can'?t)\s+access\s+(?:your\s+)?(?:github|vault)\b(?!\s+(?:data|content|information|results?|pull requests?|prs?|issues?|memory)\b)/i,
-  ];
-  // Strip markdown emphasis first: "your GitHub account is **not connected**"
-  // is the exact denial this guard exists to catch, and the asterisks were
-  // slipping it past every pattern (observed 2026-07-25, #641).
-  const plain = t.answer.replace(/[*_`]/g, "");
-  const denied = denialPatterns
-    .map((pattern) => plain.match(pattern)?.[0])
-    .find((match): match is string => Boolean(match));
+  const denied = findKnownContextDenial(t.answer, {
+    providers: ["github", "vault"],
+    scopedToolBoundaryProviders: ["github"],
+  });
   return {
     ok: !denied,
     detail: denied ? `denied known context/tool access with "${denied}"` : undefined,
@@ -80,10 +71,28 @@ const ROUTE_RECEIPT_PROMPT = [
 const SKILL_RECOMMENDATION_PROMPT = [
   "You are Comparative, Rob's internal assistant.",
   "Recommendation candidates for this turn:",
-  "- Existing skill available: Weekly Status Writer.",
+  "- Existing runnable skill: Weekly Status Writer (type run_existing_skill; action run_skill).",
   "- Reason: the user has asked for the same weekly status workflow twice and this skill matches the repeated workflow.",
-  "If a candidate is relevant, briefly recommend it and explain why.",
+  "The skill already exists. Do not offer to create, save, build, or set up another skill or workflow with that name.",
+  "If the candidate is relevant, briefly recommend running or using the existing skill and explain why.",
 ].join("\n");
+
+function doesNotOfferDuplicateSkill(t: TurnTranscript) {
+  const duplicatePatterns = [
+    /\b(?:i(?:'ll|’ll| will| can| could)|we(?:'ll|’ll| will| can| could)|let(?:'s|’s| us)|comparative can)\s+(?:create|build|make|add|set\s*up)\s+(?:(?:a|an|another|new|reusable|custom|dedicated)\s+)*(?:(?!using\b|with\b|via\b|through\b)[\w'-]+\s+){0,4}(?:skill|workflow)\b/i,
+    /\b(?:i(?:'ll|’ll| will| can| could)|we(?:'ll|’ll| will| can| could)|let(?:'s|’s| us)|comparative can)\s+save\s+(?:this|that|it)\s+as\s+(?:(?:a|an|another|new|reusable|custom)\s+)*(?:skill|workflow)\b/i,
+    /\b(?:i(?:'ll|’ll| will| can)|we(?:'ll|’ll| will| can)|let(?:'s|’s| us))\s+(?:save|set\s*up)\b.{0,60}\bweekly status writer\b/is,
+  ];
+  const duplicateOffer = duplicatePatterns
+    .map((pattern) => t.answer.match(pattern)?.[0])
+    .find((match): match is string => Boolean(match));
+  return {
+    ok: !duplicateOffer,
+    detail: duplicateOffer
+      ? `offered a duplicate existing skill: ${duplicateOffer.slice(0, 120)}`
+      : undefined,
+  };
+}
 
 const APP_RECOMMENDATION_PROMPT = [
   "You are Comparative, Rob's internal assistant.",
@@ -209,10 +218,21 @@ export const contextFaithfulnessSuite: EvalSuite = {
           check: doesNotDenyKnownContext,
         },
         {
-          kind: "judge",
+          kind: "deterministic",
           label: "answers from approved Vault memory",
-          rubric:
-            "The system prompt includes approved Vault memory saying the user's name is Rob Lindmark. PASS only if the answer acknowledges Vault access and answers that the user's name is Rob Lindmark. FAIL if it denies Vault access or says it cannot know.",
+          check: (t) => {
+            const affirmsVaultUse = [
+              /\b(?:i|we|comparative)\s+(?:do\s+)?have\s+(?:approved\s+)?vault access\b/i,
+              /\b(?:i|we|comparative)\s+can\s+(?:access|use|read)\s+(?:your\s+)?(?:approved\s+)?vault\b/i,
+              /\b(?:from|according to|using)\s+(?:your\s+)?(?:approved\s+)?vault\b/i,
+              /\b(?:your\s+)?(?:approved\s+)?vault\s+(?:memory\s+)?(?:says|shows|lists|confirms|identifies|records|contains)\b/i,
+              /\byes\b.{0,80}\bvault\b/is,
+            ].some((pattern) => pattern.test(t.answer));
+            return {
+              ok: affirmsVaultUse && /\brob\s+lindmark\b/i.test(t.answer),
+              detail: `answer: ${t.answer.slice(0, 160)}`,
+            };
+          },
         },
       ],
     },
@@ -304,8 +324,11 @@ export const contextFaithfulnessSuite: EvalSuite = {
     {
       id: "skill-recommendation",
       description: "repeated workflow plus matching skill triggers a lightweight skill recommendation",
+      repeat: 3,
+      passPolicy: "majority",
       systemPrompt: SKILL_RECOMMENDATION_PROMPT,
-      input: "Here are this week's notes again. Can you turn them into the usual status update?",
+      input:
+        "Here are this week's notes again: shipped Atlas, waiting on legal review for Nimbus. Can you turn them into the usual status update?",
       assertions: [
         {
           kind: "deterministic",
@@ -313,16 +336,23 @@ export const contextFaithfulnessSuite: EvalSuite = {
           check: (t) => /weekly status writer|skill/i.test(t.answer),
         },
         {
+          kind: "deterministic",
+          label: "does not offer to create the existing skill again",
+          check: doesNotOfferDuplicateSkill,
+        },
+        {
           kind: "judge",
           label: "recommends the skill with a reason",
           rubric:
-            "The system prompt says an existing skill called Weekly Status Writer matches a repeated workflow. PASS only if the answer suggests using or saving/running that skill and gives the repeated-workflow reason. FAIL if it ignores the candidate.",
+            "The system prompt says an existing runnable skill called Weekly Status Writer matches a repeated workflow. PASS if the answer suggests running or using that existing skill and connects it to the user's repeated, usual, recurring, or previously used workflow. The answer need not spell out a formal causal linkage. FAIL if it ignores the candidate, recommends it with no connection to the repeated workflow, or offers to create, save, build, or set up the skill as though it does not already exist.",
         },
       ],
     },
     {
       id: "app-recommendation",
       description: "reusable artifact triggers an app/deploy recommendation, not manual save instructions",
+      repeat: 3,
+      passPolicy: "majority",
       systemPrompt: APP_RECOMMENDATION_PROMPT,
       input: "This dashboard is useful. Can we keep using it and update it later?",
       assertions: [

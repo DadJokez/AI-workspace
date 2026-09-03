@@ -1,29 +1,29 @@
+import type { ToolRuntimePolicy } from "@ai-workspace/agent";
+
 /**
  * Tri-state runtime tool policy (#410 P1, from
  * docs/specs/connector-governance-architecture.md).
  *
  * The policy is deterministic shell code, never a prompt instruction (the
  * spec's evidence: prompt-only gating fails at a 26.67% violation rate).
- * P1 derives the decision purely from the catalog's action level — no
- * per-tool override column yet, so no migration:
+ * The catalog persists the effective per-tool policy. Existing rows were
+ * backfilled from their action level:
  *
  *   read  → always_allow   (with attestation, unchanged from today)
  *   write → needs_approval
  *   admin → blocked
  *
- * P1 runs in OBSERVE mode only: nothing is enforced, and every
- * mcp_tool_execution audit row records what the policy WOULD have decided
- * ("would_*" values), so the enforcement flip (P2: paused-run approval
- * queue + blocked refusals) lands against measured reality instead of
- * guesses. Tools missing from the catalog observe as needs_approval —
- * fail toward caution, never toward silence.
+ * Blocked MCP tools are refused in the shared runtime loop. Needs-approval
+ * calls use the durable approval lifecycle for attended runs and deny with a
+ * receipt for unattended runs. Tools missing from the catalog fail toward
+ * needs-approval, never toward silence.
  */
 
 export type ToolActionLevel = "read" | "write" | "admin";
 
-export type ToolPolicyDecision = "always_allow" | "needs_approval" | "blocked";
+export type ToolPolicyDecision = ToolRuntimePolicy;
 
-/** Key shape shared with the runners' toolActions map. */
+/** Stable key shape shared by catalog policy maps across runtime lanes. */
 export function toolActionKey(provider: string, toolName: string): string {
   return `${provider}__${toolName}`;
 }
@@ -43,8 +43,9 @@ export function resolveToolPolicy(
 }
 
 /**
- * Observe-mode audit stamp: "would_*" naming keeps observation impossible
- * to misread as enforcement when the audit log is reviewed.
+ * Fallback stamp for legacy/started rows that do not yet carry the executor's
+ * final policy receipt. "would_*" keeps that observation distinct from an
+ * enforced result when the audit log is reviewed.
  */
 export type ObservedPolicyDecision =
   | "auto_allowed"
@@ -53,10 +54,10 @@ export type ObservedPolicyDecision =
   | "uncataloged_would_need_approval";
 
 export function observedPolicyDecision(
-  action: ToolActionLevel | undefined,
+  policy: ToolPolicyDecision | undefined,
 ): ObservedPolicyDecision {
-  if (action === undefined) return "uncataloged_would_need_approval";
-  switch (resolveToolPolicy(action)) {
+  if (policy === undefined) return "uncataloged_would_need_approval";
+  switch (policy) {
     case "always_allow":
       return "auto_allowed";
     case "blocked":

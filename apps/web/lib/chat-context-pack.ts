@@ -29,6 +29,7 @@ import {
   type ConversationResourceResolution,
 } from "@/lib/conversation-resources";
 import type { RecentToolEvidenceReceipt } from "@/lib/recent-tool-evidence";
+import type { AutonomyPresetName } from "@/lib/autonomy-presets";
 import {
   contextResourceReceiptSummary,
   contextResourceStateLabel,
@@ -119,6 +120,9 @@ export interface ChatContextReceipt {
   version: 1;
   schema: "context-pack.v2";
   generatedAt: string;
+  autonomy: {
+    preset: AutonomyPresetName;
+  };
   vault: {
     checked: boolean;
     injected: boolean;
@@ -238,6 +242,7 @@ export interface BuildChatContextPackInput {
   route?: ChatRuntimeRoute;
   builtinTools?: readonly string[];
   webAccess?: ChatContextWebAccessReceipt;
+  autonomyPreset?: AutonomyPresetName;
   forcePreamble?: boolean;
   now?: Date;
   /**
@@ -274,6 +279,7 @@ export function buildChatContextPack({
     policy: "admin_domain_denylist",
     deniedDomainCount: 0,
   },
+  autonomyPreset = "interactive",
   activeSkill,
   forcePreamble = false,
   now = new Date(),
@@ -553,6 +559,7 @@ export function buildChatContextPack({
     version: 1,
     schema: "context-pack.v2",
     generatedAt: now.toISOString(),
+    autonomy: { preset: autonomyPreset },
     vault: {
       checked: vaultContextRequested,
       injected: shouldRenderPreamble && vault.length > 0,
@@ -751,6 +758,7 @@ function renderRecentRecommendationsForPrompt(
     begin,
     JSON.stringify(data),
     end,
+    "Action semantics are authoritative: run_existing_skill/run_skill and open_existing_app/open_app refer to resources that already exist. Recommend running or opening those resources; never offer to create, save, or set up a duplicate. save_as_skill, deploy_artifact_as_app, and schedule_skill propose creating a new resource.",
     "If the user asks about a displayed recommendation, acknowledge it accurately and explain it from this data. Do not deny that the card appeared merely because it was absent from prior assistant text. A card is not permission to run its action; act only when the user asks and any required approval is satisfied.",
   ].join("\n");
 }
@@ -765,6 +773,7 @@ function promptDataString(value: string, maxLength: number): string {
 
 function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
   const lines = ["Context receipt for this turn:"];
+  lines.push(`- Autonomy: ${receipt.autonomy.preset}.`);
   lines.push(
     `- Vault: ${receipt.vault.checked ? "checked" : "not checked"}; ` +
       `${receipt.vault.injected ? "approved memory injected" : "no approved memory injected"}.`,

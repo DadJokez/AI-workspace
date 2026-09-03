@@ -9,6 +9,7 @@ describe("filterAttestedProviders", () => {
       toolName: "get_file_contents",
       category: "repos",
       action: "read" as const,
+      policy: "always_allow" as const,
       requiresAttestation: true,
       enabled: true,
     },
@@ -18,6 +19,7 @@ describe("filterAttestedProviders", () => {
       toolName: "create_or_update_file",
       category: "repos",
       action: "write" as const,
+      policy: "needs_approval" as const,
       requiresAttestation: true,
       enabled: true,
     },
@@ -27,6 +29,7 @@ describe("filterAttestedProviders", () => {
       toolName: "delete_file",
       category: "repos",
       action: "write" as const,
+      policy: "blocked" as const,
       requiresAttestation: true,
       enabled: false,
     },
@@ -47,8 +50,7 @@ describe("filterAttestedProviders", () => {
       allowedProviders: ["github"],
       deniedProviders: [],
       toolPolicies: { github: {} },
-    
-      toolActions: {},
+      toolPolicyDecisions: {},
     });
   });
 
@@ -57,7 +59,7 @@ describe("filterAttestedProviders", () => {
       allowedProviders: [],
       deniedProviders: ["github"],
       toolPolicies: {},
-      toolActions: {},
+      toolPolicyDecisions: {},
     });
   });
 
@@ -92,10 +94,10 @@ describe("filterAttestedProviders", () => {
           blockedTools: ["delete_file"],
         },
       },
-      toolActions: {
-        github__get_file_contents: "read",
-        github__create_or_update_file: "write",
-        github__delete_file: "write",
+      toolPolicyDecisions: {
+        github__get_file_contents: "always_allow",
+        github__create_or_update_file: "needs_approval",
+        github__delete_file: "blocked",
       },
     });
   });
@@ -124,10 +126,10 @@ describe("filterAttestedProviders", () => {
           blockedTools: ["delete_file"],
         },
       },
-      toolActions: {
-        github__get_file_contents: "read",
-        github__create_or_update_file: "write",
-        github__delete_file: "write",
+      toolPolicyDecisions: {
+        github__get_file_contents: "always_allow",
+        github__create_or_update_file: "needs_approval",
+        github__delete_file: "blocked",
       },
     });
   });
@@ -151,10 +153,10 @@ describe("filterAttestedProviders", () => {
       allowedProviders: ["github"],
       deniedProviders: [],
       toolPolicies: { github: { blockedTools: ["delete_file"] } },
-      toolActions: {
-        github__get_file_contents: "read",
-        github__create_or_update_file: "write",
-        github__delete_file: "write",
+      toolPolicyDecisions: {
+        github__get_file_contents: "always_allow",
+        github__create_or_update_file: "needs_approval",
+        github__delete_file: "blocked",
       },
     });
   });
@@ -171,6 +173,7 @@ describe("filterAttestedProviders", () => {
             toolName: "get_me",
             category: "context",
             action: "read",
+            policy: "always_allow",
             requiresAttestation: false,
             enabled: true,
           },
@@ -180,7 +183,7 @@ describe("filterAttestedProviders", () => {
       allowedProviders: [],
       deniedProviders: ["github"],
       toolPolicies: {},
-      toolActions: { github__get_me: "read" },
+      toolPolicyDecisions: { github__get_me: "always_allow" },
     });
   });
 
@@ -204,6 +207,7 @@ describe("filterAttestedProviders", () => {
             toolName: "get_me",
             category: "context",
             action: "read",
+            policy: "always_allow",
             requiresAttestation: false,
             enabled: true,
           },
@@ -213,7 +217,7 @@ describe("filterAttestedProviders", () => {
       allowedProviders: ["github"],
       deniedProviders: [],
       toolPolicies: { github: { allowedTools: ["get_me"] } },
-      toolActions: { github__get_me: "read" },
+      toolPolicyDecisions: { github__get_me: "always_allow" },
     });
   });
 
@@ -237,6 +241,7 @@ describe("filterAttestedProviders", () => {
             toolName: "get_me",
             category: "context",
             action: "read",
+            policy: "always_allow",
             requiresAttestation: false,
             enabled: true,
           },
@@ -246,6 +251,7 @@ describe("filterAttestedProviders", () => {
             toolName: "update_profile",
             category: "context",
             action: "write",
+            policy: "needs_approval",
             requiresAttestation: false,
             enabled: true,
           },
@@ -255,9 +261,9 @@ describe("filterAttestedProviders", () => {
       allowedProviders: ["github"],
       deniedProviders: [],
       toolPolicies: { github: { allowedTools: ["get_me"] } },
-      toolActions: {
-        github__get_me: "read",
-        github__update_profile: "write",
+      toolPolicyDecisions: {
+        github__get_me: "always_allow",
+        github__update_profile: "needs_approval",
       },
     });
   });

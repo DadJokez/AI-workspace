@@ -130,6 +130,9 @@ export class BedrockRuntime implements AgentRuntime {
         messages: input.messages,
         registry,
         context: input.context,
+        toolApprovalGrants: input.toolApprovalGrants,
+        toolApprovalMode: input.toolApprovalMode,
+        budget: input.budget,
         signal: input.signal,
         ...(input.requiredToolName
           ? { requiredToolName: input.requiredToolName }
@@ -175,6 +178,8 @@ export function pickHttpMcpServers(
         headers: spec.headers,
         allowedTools: spec.allowedTools,
         blockedTools: spec.blockedTools,
+        toolPolicies: spec.toolPolicies,
+        defaultToolPolicy: spec.defaultToolPolicy,
         usageNotesByTool: spec.usageNotesByTool,
         displayName: spec.displayName,
       };

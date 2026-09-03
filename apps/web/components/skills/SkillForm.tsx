@@ -1,8 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { fetchJson } from "@/lib/client-api";
+import { modelDisplayName } from "@/lib/model-display";
+import { INTEGRATION_DISPLAY_NAMES } from "@/lib/settings-navigation";
 
 interface SkillFormProps {
   mode: "create" | "edit";
@@ -26,6 +29,18 @@ const EMPTY = {
   mcpProviders: [] as string[],
 };
 
+interface OAuthProviderDetail {
+  connected?: boolean;
+  toolAvailable?: boolean;
+  status?: string;
+}
+
+interface OAuthStatusPayload extends Record<string, unknown> {
+  providerDetails?: Record<string, OAuthProviderDetail>;
+}
+
+type ConnectionLoadState = "loading" | "loaded" | "failed";
+
 export function SkillForm({
   mode,
   skillId,
@@ -39,6 +54,31 @@ export function SkillForm({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connectionState, setConnectionState] = useState<ConnectionLoadState>(
+    "loading",
+  );
+  const [oauthStatus, setOauthStatus] = useState<OAuthStatusPayload>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/oauth/status", { credentials: "include" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        if (data && typeof data === "object") {
+          setOauthStatus(data as OAuthStatusPayload);
+          setConnectionState("loaded");
+        } else {
+          setConnectionState("failed");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setConnectionState("failed");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function toggleProvider(provider: string) {
     setForm((prev) => ({
@@ -135,40 +175,70 @@ export function SkillForm({
       </div>
 
       <div className="flex flex-wrap gap-6">
-        <div>
-          <label className={labelClass} htmlFor="skill-model">
-            Model
-          </label>
-          <select
-            id="skill-model"
-            className={`mt-1 ${inputClass}`}
-            value={form.modelId}
-            onChange={(e) => setForm({ ...form, modelId: e.target.value })}
-          >
-            {modelOptions.map((id) => (
-              <option key={id} value={id}>
-                {id}
-              </option>
-            ))}
-          </select>
-        </div>
+        {modelOptions.length > 1 ? (
+          <div>
+            <label className={labelClass} htmlFor="skill-model">
+              Model
+            </label>
+            <select
+              id="skill-model"
+              className={`mt-1 ${inputClass}`}
+              value={form.modelId}
+              onChange={(e) => setForm({ ...form, modelId: e.target.value })}
+            >
+              {modelOptions.map((id) => (
+                <option key={id} value={id}>
+                  {modelDisplayName(id)}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
 
-        <div>
+        <div className="min-w-[280px] flex-1">
           <span className={labelClass}>Tools</span>
-          <div className="mt-2 flex flex-wrap gap-3">
-            {providerOptions.map((provider) => (
-              <label
-                key={provider}
-                className="flex items-center gap-2 text-sm text-ink"
-              >
-                <input
-                  type="checkbox"
-                  checked={form.mcpProviders.includes(provider)}
-                  onChange={() => toggleProvider(provider)}
-                />
-                {provider === "web" ? "Web access" : provider}
-              </label>
-            ))}
+          <div className="mt-2 flex flex-col gap-2">
+            {providerOptions.map((provider) => {
+              const connection = providerConnection(
+                provider,
+                connectionState,
+                oauthStatus,
+              );
+              return (
+                <div
+                  key={provider}
+                  className="flex min-h-8 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-hairline pb-2 last:border-b-0"
+                >
+                  <label className="flex items-center gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      checked={form.mcpProviders.includes(provider)}
+                      onChange={() => toggleProvider(provider)}
+                    />
+                    {providerDisplayName(provider)}
+                  </label>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span
+                      className={`flex items-center gap-1.5 ${connection.textClass}`}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={`h-1.5 w-1.5 rounded-full ${connection.dotClass}`}
+                      />
+                      {connection.label}
+                    </span>
+                    {connection.showConnectLink ? (
+                      <Link
+                        href="/chat?open=settings&section=integrations"
+                        className="text-ink underline underline-offset-2 hover:text-muted"
+                      >
+                        Connect in Settings
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
             {providerOptions.length === 0 ? (
               <span className="text-xs text-muted">
                 No tool providers available yet.
@@ -195,4 +265,69 @@ export function SkillForm({
       </div>
     </form>
   );
+}
+
+function providerDisplayName(provider: string): string {
+  if (provider === "web") return "Web access";
+  return (
+    INTEGRATION_DISPLAY_NAMES[
+      provider as keyof typeof INTEGRATION_DISPLAY_NAMES
+    ] ?? "Work tool"
+  );
+}
+
+function providerConnection(
+  provider: string,
+  loadState: ConnectionLoadState,
+  status: OAuthStatusPayload,
+) {
+  if (provider === "web") {
+    return {
+      label: "Built in",
+      textClass: "text-muted",
+      dotClass: "bg-success",
+      showConnectLink: false,
+    };
+  }
+  if (loadState === "loading") {
+    return {
+      label: "Checking connection…",
+      textClass: "text-muted",
+      dotClass: "bg-muted",
+      showConnectLink: false,
+    };
+  }
+
+  const detail = status.providerDetails?.[provider];
+  const connected = detail?.connected === true || status[provider] === true;
+  if (detail?.status === "reconnect_required") {
+    return {
+      label: "Reconnect required",
+      textClass: "text-warning",
+      dotClass: "bg-warning",
+      showConnectLink: true,
+    };
+  }
+  if (connected && detail?.toolAvailable !== false) {
+    return {
+      label: "Connected",
+      textClass: "text-success",
+      dotClass: "bg-success",
+      showConnectLink: false,
+    };
+  }
+  if (connected) {
+    return {
+      label: "Unavailable",
+      textClass: "text-warning",
+      dotClass: "bg-warning",
+      showConnectLink: true,
+    };
+  }
+  return {
+    label: loadState === "failed" ? "Connection unknown" : "Not connected",
+    textClass: "text-muted",
+    dotClass: "bg-muted",
+    showConnectLink: true,
+  };
 }

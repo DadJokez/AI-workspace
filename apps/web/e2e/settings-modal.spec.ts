@@ -246,7 +246,7 @@ test.describe("settings modal", () => {
       dialog.getByRole("heading", { name: "Integrations" }),
     ).toBeVisible();
     const microsoft = dialog.getByTestId("tool-card-microsoft-365");
-    await microsoft.getByRole("button", { name: "Connect" }).click();
+    await microsoft.getByRole("button", { name: "Learn more" }).click();
     const integrationDialog = page.getByRole("dialog", {
       name: "Microsoft 365",
     });

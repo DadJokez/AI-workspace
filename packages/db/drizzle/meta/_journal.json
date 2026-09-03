@@ -309,6 +309,41 @@
       "when": 1786478400000,
       "tag": "0043_chat_thread_branches",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1786564800000,
+      "tag": "0044_studio_browser_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1786752000000,
+      "tag": "0045_tool_policy_persistence",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1786834800000,
+      "tag": "0046_tool_approval_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1786842000000,
+      "tag": "0047_standing_tool_approvals",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1786856400000,
+      "tag": "0048_connector_lifecycle_governance",
+      "breakpoints": true
     }
   ]
 }

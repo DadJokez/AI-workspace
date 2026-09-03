@@ -14,6 +14,9 @@ import { afterEach, describe, expect, it } from "vitest";
 const SCRIPT_PATH = fileURLToPath(
   new URL("../../../infra/scripts/deploy-ecs-stack.sh", import.meta.url),
 );
+const ROLLBACK_SCRIPT_PATH = fileURLToPath(
+  new URL("../../../infra/scripts/rollback-ecs.sh", import.meta.url),
+);
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 const tempDirs: string[] = [];
 
@@ -24,20 +27,21 @@ afterEach(() => {
 });
 
 describe("deploy-ecs-stack.sh", () => {
-  it("applies CDK before waiting for and recording all three services", () => {
+  it("applies CDK before waiting for and recording all four services", () => {
     const result = runScript();
 
     expect(result.status).toBe(0);
     const commands = readFileSync(result.capturePath, "utf8");
     expect(commands).toContain(
       // #449: deploys pin the commit-SHA tag via the ImageTag parameter.
-      "pnpm --filter @ai-workspace/infra exec cdk deploy AiWorkspaceEcsStack --require-approval never --parameters ImageTag=commit-sha --exclusively",
+      "pnpm --filter @ai-workspace/infra exec cdk deploy AiWorkspaceEcsStack --require-approval never --parameters ImageTag=commit-sha --parameters BrowserProxyImageTag=worker-commit-sha --exclusively",
     );
     expect(commands).not.toContain("ecs update-service");
     const services = [
       "ai-workspace-web",
       "ai-workspace-chat-worker",
       "ai-workspace-memory-worker",
+      "ai-workspace-browser-proxy",
     ];
     expect(commands).toContain(`--services ${services.join(" ")}`);
     for (const service of services) {
@@ -116,6 +120,16 @@ describe("deploy-ecs-stack.sh", () => {
     expect(buildspec).not.toContain("APP_SECRET_JSON");
     expect(buildspec).not.toContain('docker run --rm -e DATABASE_URL');
   });
+
+  it("preserves the compatible Browser proxy image during app rollback", () => {
+    const rollback = readFileSync(ROLLBACK_SCRIPT_PATH, "utf8");
+
+    expect(rollback).toContain("ParameterKey=='BrowserProxyImageTag'");
+    expect(rollback).toContain(
+      '--parameters "BrowserProxyImageTag=$browser_proxy_image_tag"',
+    );
+    expect(rollback).not.toContain("BrowserProxyImageTag=worker-$TARGET_TAG");
+  });
 });
 
 function runScript({
@@ -165,7 +179,8 @@ if [[ "$1 $2" == "ecs describe-services" ]]; then
 [
   {"service":"ai-workspace-web","taskDefinition":"arn:task/ai-workspace-web:42"},
   {"service":"ai-workspace-chat-worker","taskDefinition":"arn:task/ai-workspace-chat-worker:31"},
-  {"service":"ai-workspace-memory-worker","taskDefinition":"arn:task/ai-workspace-memory-worker:27"}
+  {"service":"ai-workspace-memory-worker","taskDefinition":"arn:task/ai-workspace-memory-worker:27"},
+  {"service":"ai-workspace-browser-proxy","taskDefinition":"arn:task/ai-workspace-browser-proxy:1"}
 ]
 JSON
 fi

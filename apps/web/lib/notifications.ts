@@ -10,6 +10,7 @@ import {
   users,
 } from "@ai-workspace/db";
 import { and, count, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import type { RunBudgetReceipt } from "@ai-workspace/agent";
 
 /**
  * Notification inbox + daily digest (issue #292). Everything here is strictly
@@ -37,7 +38,11 @@ export async function createProactiveRunNotification(
   run: Run,
   terminalStatus: "succeeded" | "failed",
   threadId?: string | null,
-  options: { hasProposal?: boolean } = {},
+  options: {
+    hasProposal?: boolean;
+    skippedWriteCount?: number;
+    budgetReceipt?: RunBudgetReceipt;
+  } = {},
 ): Promise<void> {
   const chatRun =
     run.triggerType === "chat" || run.triggerType === "chat_retry";
@@ -63,6 +68,28 @@ export async function createProactiveRunNotification(
       ? "Chat"
       : (skillName ?? run.skillSlug ?? "Proactive run");
     const eventTriggered = run.triggerType === "github_event";
+    const skippedWriteCount = Math.max(
+      0,
+      Math.floor(options.skippedWriteCount ?? 0),
+    );
+    const skippedWriteSummary = skippedWriteCount > 0
+      ? ` ${skippedWriteCount} write action${skippedWriteCount === 1 ? " was" : "s were"} skipped because approval is required.`
+      : "";
+    const succeededBody = chatRun
+      ? "Your background chat run finished. Open the thread to see the answer."
+      : options.hasProposal
+        ? "New work is ready for review. Open the thread to preview the proposal and accept or discard it."
+        : eventTriggered
+          ? "A GitHub event triggered this run while you were away. Open it to see the result."
+          : "A scheduled run completed while you were away. Open it to see the result.";
+    const budgetStopped =
+      terminalStatus === "succeeded" &&
+      options.budgetReceipt?.partial === true &&
+      options.budgetReceipt.reached !== undefined;
+    const reachedBudgetDimension = options.budgetReceipt?.reached;
+    const budgetDimension = budgetStopped && reachedBudgetDimension
+      ? budgetDimensionLabel(reachedBudgetDimension)
+      : null;
 
     await db
       .insert(notifications)
@@ -72,17 +99,15 @@ export async function createProactiveRunNotification(
           terminalStatus === "succeeded" ? "run_succeeded" : "run_failed",
         title:
           terminalStatus === "succeeded"
-            ? `${label} finished`
+            ? budgetStopped
+              ? `${label} reached its budget`
+              : `${label} finished`
             : `${label} failed`,
         body:
           terminalStatus === "succeeded"
-            ? chatRun
-              ? "Your background chat run finished. Open the thread to see the answer."
-              : options.hasProposal
-                ? "New work is ready for review. Open the thread to preview the proposal and accept or discard it."
-                : eventTriggered
-                ? "A GitHub event triggered this run while you were away. Open it to see the result."
-                : "A scheduled run completed while you were away. Open it to see the result."
+            ? budgetStopped
+              ? `The run stopped after reaching its ${budgetDimension} budget. Partial work is ready in the thread; open it to review or continue.${skippedWriteSummary}`
+              : `${succeededBody}${skippedWriteSummary}`
             : (run.error ??
               (chatRun
                 ? "Your background chat run ended with an error."
@@ -101,6 +126,15 @@ export async function createProactiveRunNotification(
       })}\n`,
     );
   }
+}
+
+function budgetDimensionLabel(
+  dimension: NonNullable<RunBudgetReceipt["reached"]>,
+): string {
+  if (dimension === "wall_clock") return "time";
+  if (dimension === "tool_iterations") return "tool-step";
+  if (dimension === "usd") return "cost";
+  return "token";
 }
 
 /** The caller's notifications, newest first, plus their unread count. */

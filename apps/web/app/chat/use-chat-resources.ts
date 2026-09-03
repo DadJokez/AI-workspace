@@ -14,18 +14,25 @@ import {
   type ThreadsResponse,
   type UserResponse,
 } from "./chat-client-state";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import posthog from "posthog-js";
 
 export function useChatResources() {
   const [models, setModels] = useState<ModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsError, setModelsError] = useState<string>();
+  const modelsRequestIdRef = useRef(0);
   const [defaultModelId, setDefaultModelId] = useState(
     FALLBACK_DEFAULT_MODEL_ID,
   );
   const [runtimeV2Enabled, setRuntimeV2Enabled] = useState(false);
   const [liveTurnSteeringSupported, setLiveTurnSteeringSupported] =
     useState(false);
+  const [studioBrowserSupported, setStudioBrowserSupported] = useState(false);
   const [user, setUser] = useState<UserResponse["user"]>();
+  const [userLoading, setUserLoading] = useState(true);
+  const [userError, setUserError] = useState<string>();
+  const userRequestIdRef = useRef(0);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(true);
   const [threadsError, setThreadsError] = useState<string>();
@@ -42,7 +49,41 @@ export function useChatResources() {
   const [slashSkills, setSlashSkills] = useState<SlashSkill[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
-  async function refreshThreads() {
+  const refreshModels = useCallback(async () => {
+    const requestId = ++modelsRequestIdRef.current;
+    setModelsLoading(true);
+    try {
+      const data = await fetchJson<ModelsResponse>(
+        "/api/models",
+        { cache: "no-store" },
+        "Comparative couldn't start.",
+      );
+      if (!Array.isArray(data.models) || data.models.length === 0) {
+        throw new Error("Comparative couldn't start.");
+      }
+      if (requestId !== modelsRequestIdRef.current) return;
+      setModels(data.models);
+      setDefaultModelId(data.defaultModelId);
+      setRuntimeV2Enabled(data.runtimeV2Enabled === true);
+      setLiveTurnSteeringSupported(
+        data.runtimeCapabilities?.liveTurnSteering === true,
+      );
+      setStudioBrowserSupported(
+        data.runtimeCapabilities?.studioBrowser === true,
+      );
+      setModelsError(undefined);
+    } catch {
+      if (requestId !== modelsRequestIdRef.current) return;
+      setModels([]);
+      setModelsError("Comparative couldn't start.");
+    } finally {
+      if (requestId === modelsRequestIdRef.current) {
+        setModelsLoading(false);
+      }
+    }
+  }, []);
+
+  const refreshThreads = useCallback(async () => {
     try {
       const data = await fetchJson<ThreadsResponse>(
         `/api/threads?limit=${THREADS_LIMIT}&scope=mine`,
@@ -57,7 +98,37 @@ export function useChatResources() {
     } finally {
       setThreadsLoading(false);
     }
-  }
+  }, []);
+
+  const refreshUser = useCallback(async () => {
+    const requestId = ++userRequestIdRef.current;
+    setUserLoading(true);
+    setUserError(undefined);
+    try {
+      const response = await fetch("/api/user");
+      if (response.status === 401) {
+        window.location.assign("/login");
+        return;
+      }
+      if (!response.ok) {
+        await throwApiError(response, "Could not load your profile.");
+      }
+      const data = (await response.json()) as UserResponse;
+      if (requestId !== userRequestIdRef.current || !data.user) return;
+      setUser(data.user);
+      setUserDefaultModelId(data.user.defaultModelId ?? undefined);
+      setUserError(undefined);
+      posthog.identify(data.user.id, { role: data.user.role });
+    } catch (error) {
+      if (requestId !== userRequestIdRef.current) return;
+      console.error("failed to load /api/user", error);
+      setUserError("Could not load your profile.");
+    } finally {
+      if (requestId === userRequestIdRef.current) {
+        setUserLoading(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,71 +151,22 @@ export function useChatResources() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    Promise.all([
-      fetch("/api/models")
-        .then((response) =>
-          response.ok ? (response.json() as Promise<ModelsResponse>) : null,
-        )
-        .catch(() => null),
-      fetchJson<ThreadsResponse>(
-        `/api/threads?limit=${THREADS_LIMIT}&scope=mine`,
-        undefined,
-        "Could not load chats.",
-      )
-        .catch((error) => error as Error),
-    ]).then(([modelsData, threadsResult]) => {
-      if (cancelled) return;
-      if (modelsData) {
-        setModels(modelsData.models);
-        setDefaultModelId(modelsData.defaultModelId);
-        setRuntimeV2Enabled(modelsData.runtimeV2Enabled === true);
-        setLiveTurnSteeringSupported(
-          modelsData.runtimeCapabilities?.liveTurnSteering === true,
-        );
-      }
-      setThreadsLoading(false);
-      if (threadsResult instanceof Error) {
-        setThreadsError(threadsResult.message);
-      } else {
-        const nextThreads = sortThreadHistory(threadsResult?.threads ?? []);
-        setThreads(nextThreads);
-        setThreadsError(undefined);
-      }
-    });
+    void refreshModels();
     return () => {
-      cancelled = true;
+      modelsRequestIdRef.current += 1;
     };
-  }, []);
+  }, [refreshModels]);
 
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/user")
-      .then(async (response) => {
-        if (response.status === 401) {
-          window.location.assign("/login");
-          return null;
-        }
-        if (!response.ok) {
-          await throwApiError(response, "Could not load your profile.");
-        }
-        return (await response.json()) as UserResponse;
-      })
-      .then((data) => {
-        if (cancelled || !data?.user) return;
-        setUser(data.user);
-        if (data.user.defaultModelId) {
-          setUserDefaultModelId(data.user.defaultModelId);
-        }
-        posthog.identify(data.user.id, { role: data.user.role });
-      })
-      .catch((error) => {
-        if (!cancelled) console.error("failed to load /api/user", error);
-      });
+    void refreshThreads();
+  }, [refreshThreads]);
+
+  useEffect(() => {
+    void refreshUser();
     return () => {
-      cancelled = true;
+      userRequestIdRef.current += 1;
     };
-  }, []);
+  }, [refreshUser]);
 
   useEffect(() => {
     if (!user?.id || typeof window === "undefined" || user.defaultModelId) {
@@ -267,10 +289,15 @@ export function useChatResources() {
 
   return {
     models,
+    modelsLoading,
+    modelsError,
     defaultModelId,
     runtimeV2Enabled,
     liveTurnSteeringSupported,
+    studioBrowserSupported,
     user,
+    userLoading,
+    userError,
     setUser,
     threads,
     setThreads,
@@ -283,6 +310,8 @@ export function useChatResources() {
     slashSkills,
     unreadNotifications,
     setUnreadNotifications,
+    refreshModels,
+    refreshUser,
     refreshThreads,
     handleProfileUpdated,
     updateUserDefaultModel,

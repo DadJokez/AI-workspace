@@ -118,6 +118,8 @@ interface Props {
     contextResources?: ContextResourceSearchResult[],
   ) => boolean | void;
   disabled?: boolean;
+  /** Hold submission while profile-backed draft state is still hydrating. */
+  submitDisabled?: boolean;
   /** Current work is active, so accepted text becomes a browser-local follow-up. */
   queueMode?: boolean;
   placeholder?: string;
@@ -143,8 +145,9 @@ interface Props {
 export function ChatInput({
   onSubmit,
   disabled,
+  submitDisabled = false,
   queueMode = false,
-  placeholder = "Ask anything — or type / for capabilities…",
+  placeholder = "Ask anything — / for skills, @ to add context",
   skills = [],
   draftKey,
   threadId,
@@ -182,6 +185,7 @@ export function ChatInput({
   const draftTimerRef = useRef<number | undefined>(undefined);
   const skipNextDraftPersistRef = useRef(true);
   const skipNextContextDraftPersistRef = useRef(true);
+  const hydratedDraftStorageKeyRef = useRef<string | null>(null);
   const handledEditRequestRef = useRef<string | undefined>(undefined);
   const editBackupRef = useRef<{
     text: string;
@@ -311,6 +315,8 @@ export function ChatInput({
   }, [contextHighlight, visibleContextResults.length]);
 
   useEffect(() => {
+    const previousDraftStorageKey = hydratedDraftStorageKeyRef.current;
+    hydratedDraftStorageKeyRef.current = draftStorageKey;
     skipNextDraftPersistRef.current = true;
     skipNextContextDraftPersistRef.current = true;
     if (draftTimerRef.current !== undefined) {
@@ -329,12 +335,21 @@ export function ChatInput({
         setContextResources([]);
         return;
       }
+      const pendingText =
+        previousDraftStorageKey === null ? latestDraftRef.current.text : "";
       const restored = window.localStorage.getItem(draftStorageKey) ?? "";
+      const nextText =
+        pendingText && restored && pendingText !== restored
+          ? `${restored}\n\n${pendingText}`
+          : pendingText || restored;
       const restoredContext = contextDraftStorageKey
         ? window.localStorage.getItem(contextDraftStorageKey)
         : null;
-      latestDraftRef.current = { storageKey: draftStorageKey, text: restored };
-      setText(restored);
+      latestDraftRef.current = { storageKey: draftStorageKey, text: nextText };
+      setText(nextText);
+      if (pendingText) {
+        persistComposerDraft(draftStorageKey, nextText);
+      }
       setContextResources(parseStoredContextResources(restoredContext));
     } catch {
       // Storage may be unavailable in private or locked-down browsers.
@@ -610,7 +625,8 @@ export function ChatInput({
     const trimmed = text.trim();
     if (
       (!trimmed && attachments.length === 0 && activeSkill === null) ||
-      disabled
+      disabled ||
+      submitDisabled
     ) {
       return;
     }
@@ -1092,9 +1108,10 @@ export function ChatInput({
           title="Add context"
           disabled={disabled}
           onClick={openContextPicker}
-          className="flex h-11 w-9 shrink-0 items-center justify-center rounded-md font-mono text-sm text-muted hover:text-ink disabled:opacity-30 sm:h-7"
+          className="flex h-11 w-9 shrink-0 items-center justify-center gap-1 rounded-md font-mono text-sm text-muted hover:text-ink disabled:opacity-30 sm:h-7 sm:w-auto sm:px-2"
         >
-          @
+          <span aria-hidden="true">@</span>
+          <span className="hidden font-sans text-xs sm:inline">Context</span>
         </button>
         <button
           type="button"
@@ -1124,6 +1141,9 @@ export function ChatInput({
           </button>
         ) : null}
         <textarea
+          data-testid="chat-composer-input"
+          data-composer-ready={!disabled && !submitDisabled ? "true" : "false"}
+          aria-label="Message"
           ref={taRef}
           value={text}
           onChange={(e) => {
@@ -1155,6 +1175,7 @@ export function ChatInput({
           type="submit"
           disabled={
             disabled ||
+            submitDisabled ||
             (!text.trim() && attachments.length === 0 && activeSkill === null)
           }
           aria-label={queueMode ? "Queue follow-up" : "Send"}

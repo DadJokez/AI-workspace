@@ -11,6 +11,7 @@ import {
   reconcileAppDraftVersionSummaries,
   type AppVersionTruthRow,
 } from "@/lib/thread-messages";
+import { buildGuardrailReceipt } from "@/lib/guardrail-receipts";
 
 describe("chatRunLane", () => {
   it("reads only known lanes from stored run metadata", () => {
@@ -336,6 +337,16 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
     const { loadThreadMessagesWithRunActivity } = await import(
       "@/lib/thread-messages"
     );
+    const persistedGuardrails = buildGuardrailReceipt({
+      runId: "r1",
+      autonomyPreset: "interactive",
+      generatedAt: new Date("2026-08-16T12:00:00.000Z"),
+    });
+    const activeGuardrails = buildGuardrailReceipt({
+      runId: "r2",
+      autonomyPreset: "unattended",
+      generatedAt: new Date("2026-08-16T12:01:00.000Z"),
+    });
     const { db } = fluentDb([
       [
         {
@@ -362,6 +373,7 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
           inputs: {},
           outputs: {
             assistantMessageId: "m1",
+            guardrails: persistedGuardrails,
             sources: [
               {
                 n: 1,
@@ -391,6 +403,7 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
           outputs: {
             appDraftVersions: [summary("vD", 5)],
             usage: { tokensIn: 8_000, tokensOut: 400 },
+            guardrails: activeGuardrails,
           },
           startedAt: new Date(3),
           createdAt: new Date(3),
@@ -430,12 +443,14 @@ describe("loadThreadMessagesWithRunActivity reconciliation wiring (#344)", () =>
       expect.objectContaining({ id: "vA", status: "deployed", canDeploy: false }),
       expect.objectContaining({ id: "vB", status: "draft", canDeploy: false }),
     ]);
+    expect(persisted?.guardrails).toEqual(persistedGuardrails);
 
     const active = messages.find((message) => message.id === "run:r2");
     expect(active?.appDraftVersions).toEqual([
       expect.objectContaining({ id: "vD", status: "draft", canDeploy: false }),
     ]);
     expect(active?.liveTokens).toBe(8_400);
+    expect(active?.guardrails).toEqual(activeGuardrails);
   });
 
   it("skips the truth query when no summaries rehydrated", async () => {

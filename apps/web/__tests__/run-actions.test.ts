@@ -183,13 +183,24 @@ describe("ownership scoping", () => {
 });
 
 describe("legal-transition matrix", () => {
-  const statuses = ["queued", "running", "succeeded", "failed", "canceled"] as const;
+  const statuses = [
+    "queued",
+    "running",
+    "waiting_for_approval",
+    "succeeded",
+    "failed",
+    "canceled",
+  ] as const;
 
   it.each(statuses)("cancelRun from %s", async (status) => {
     const { db, captured } = fakeDb([[chatRun({ status })]]);
     const result = await cancelRun({ db, actor: owner, runId: "run-1" });
 
-    if (status === "queued" || status === "running") {
+    if (
+      status === "queued" ||
+      status === "running" ||
+      status === "waiting_for_approval"
+    ) {
       expect(result).toMatchObject({
         ok: true,
         outcome: "canceled",
@@ -200,6 +211,7 @@ describe("legal-transition matrix", () => {
         workerId: null,
         leaseExpiresAt: null,
       });
+      expect(captured.updateSets[1]).toMatchObject({ status: "expired" });
       expect(vi.mocked(appendRunEventWithNextSequence)).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: "run_canceled",
@@ -278,6 +290,7 @@ describe("legal-transition matrix", () => {
         userId: owner.id,
         inputs: expect.objectContaining({
           prompt: "original prompt",
+          autonomyPreset: "interactive",
           retryOfRunId: "run-1",
           retryOfStatus: status,
           retryRequestedByUserId: owner.id,

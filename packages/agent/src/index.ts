@@ -2,17 +2,30 @@ export type {
   AgentEvent,
   AgentMessage,
   AgentMessageAttachment,
+  McpToolExecutionIdentity,
   ProviderRequestContentBlock,
   ProviderRequestSnapshot,
   ProviderResponseMetadata,
   Role,
   Tool,
+  ToolApprovalGrant,
+  ToolApprovalMode,
+  ToolApprovalRequest,
   ToolCall,
   ToolContext,
   ToolHandler,
+  ToolPolicyAuditDecision,
   ToolResult,
+  ToolRuntimePolicy,
   TokenUsage,
 } from "./types";
+
+export {
+  buildToolApprovalRequest,
+  isStandingToolApprovalGrant,
+  matchingToolApprovalGrant,
+  toolCallFingerprint,
+} from "./tool-approval";
 
 export {
   DEFAULT_MODEL_ID,
@@ -21,11 +34,29 @@ export {
   MODELS,
   PLATFORM_MODEL_OVERRIDE_ID,
   estimateCostUsd,
+  estimateUsageCostUsd,
   getModel,
   isValidModelId,
   isValidModelPurpose,
 } from "./models";
 export type { ModelId, ModelMetadata, ModelPurpose } from "./models";
+
+export {
+  RUN_BUDGET_RECEIPT_SCHEMA,
+  RUN_BUDGET_SCHEMA,
+  RunBudgetTracker,
+  parseRunBudgetReceipt,
+  parseRunBudgetState,
+} from "./run-budget";
+export type {
+  RunBudgetConsumption,
+  RunBudgetDimension,
+  RunBudgetEnvelope,
+  RunBudgetGoverningLayer,
+  RunBudgetLimits,
+  RunBudgetReceipt,
+  RunBudgetState,
+} from "./run-budget";
 
 export { normalizeToolInputSchema, ToolRegistry } from "./registry";
 export type { BedrockToolConfig } from "./registry";
@@ -66,6 +97,7 @@ export type {
 export {
   DEFAULT_MAX_TOOL_ITERATIONS,
   MAX_TOKENS_TRUNCATION_NOTICE,
+  TOOL_POLICY_BLOCKED_CODE,
   runAgentLoop,
 } from "./loop";
 export type { RunAgentLoopParams } from "./loop";

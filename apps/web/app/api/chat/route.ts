@@ -67,11 +67,16 @@ import {
   planChatMessageEdit,
 } from "@/lib/chat-message-edit";
 import { capturePostHogEvent } from "@/lib/posthog-server";
+import { resolveAutonomyPreset } from "@/lib/autonomy-presets";
 import { parseContextResourceReferences } from "@/lib/context-shelf";
 import {
   contextResourceProviderRequests,
   explicitConversationResourceIds,
 } from "@/lib/context-shelf-server";
+import {
+  resolveNewRunBudget,
+  runBudgetEnvelopeForEvent,
+} from "@/lib/run-budget-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -578,6 +583,10 @@ export async function POST(req: Request) {
     contextSignals,
     capabilityGraph: routingCapabilityGraph,
   });
+  const runBudget = resolveNewRunBudget({
+    lane: runtimeRoute.lane,
+    triggerType: "chat",
+  });
 
   let editedUserMessageId: string | undefined;
   if (replaceMessageId) {
@@ -846,6 +855,7 @@ export async function POST(req: Request) {
       threadId: thread.id,
       userMessageId: userMsg[0]!.id,
       requestedByUserId: sessionUser.id,
+      autonomyPreset: resolveAutonomyPreset("chat").name,
       executionMode: runtimeRoute.executionMode,
       modelOverride,
       modelPreferenceSource: modelPreference.source,
@@ -856,6 +866,7 @@ export async function POST(req: Request) {
       contextResourceReferences,
       resourcePrompt: resourcePromptPlan.receipt,
       routeReceipt,
+      runBudget,
       // #432: preserved so a queued or retried execution of this turn uses
       // the same clock context the user sent it with.
       ...(userTimeZone ? { userTimeZone } : {}),
@@ -948,6 +959,7 @@ export async function POST(req: Request) {
         modelPreferenceSource: modelPreference.source,
         runtimeRoute,
         routeReceipt,
+        runBudget: runBudgetEnvelopeForEvent(runBudget),
         resourceResolution,
         contextResourceReferences,
         resourcePrompt: resourcePromptPlan.receipt,
@@ -1082,6 +1094,7 @@ export async function POST(req: Request) {
           modelOverride,
           forceRequestedModel: modelPreference.source !== "request_default",
           route: runtimeRoute,
+          runBudget,
           requestStartedAt,
           uploadedFiles,
           resourceResolution,

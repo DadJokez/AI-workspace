@@ -1,123 +1,176 @@
-# Build Queue — re-triaged 2026-07-10
+# Build Queue — re-triaged 2026-08-12
 
 Prioritized, dependency-ordered queue of open work. Re-triaged after the
-AgentCore deployment fixes and the overnight product tranche landed.
+August research wave (UI/UX epic #762, harness wave 2 #770, viewer-identity
+apps #801) and the Contribution Studio tranche (#749–#761) landing on `main`.
 
 **Consumed by `/goal`** (`.claude/commands/goal.md`): an overnight session works
 this queue top-down, skipping anything whose dependencies aren't merged to
 `main` or that is human-gated. Re-triage when this file is more than ~2 weeks
 old or the queue is empty.
 
-## Completed in this tranche
+## Completed since the 2026-07-10 triage
 
-- AgentCore deployment hardening landed in PRs #335 and #339; production now
-  builds the runtime on native ARM and deploys it through the normal pipeline.
-- Gmail + Calendar execution (#297) is implemented. Calendar read was proven
-  live; final Gmail acceptance is human-gated because the Gmail API is disabled
-  in Google Cloud project `327348890968`.
-- Meeting Prep + Weekly Status skills (#298), artifact revision consolidation
-  (#321), conversational app iteration (#322), and GitHub event triggers (#293)
-  shipped to `main`.
-- Chat completion notifications (#331), durable drafts (#333), raw Markdown
-  copy (#334), and edit-and-resend (#332) shipped to `main`.
-- Scheduled-agents epic #27 is closed.
+- Contribution Studio first slices: queued follow-ups (#750), Context Shelf
+  (#751), Studio shell (#752), conformance contracts (#753), Studio launcher
+  palette (#754), artifact review modes (#761).
+- Hardening tranche items from #453 Track A/B, AgentCore substrate deployment,
+  ECS cutover, security perimeter fixes (#727–#732 series).
+- The July queue's Tier A (#344, #330, #301-adjacent, #349, #348) is done or
+  superseded; #301/#302 remain open under #295 and are re-tiered below.
+- **Disposition of the July queue's human-gated Tier C:** both gates resolved
+  and closed completed — **#297** (Gmail + Calendar integration) on
+  2026-07-10 (closed as completed by Rob per the issue record; the July
+  queue's Gmail-API gate on GCP project `327348890968` is therefore treated
+  as resolved — Rob, flag if that's wrong) and **#291** (SES production
+  invites, AWS case
+  178191850800335) on 2026-07-11; PR #272 closed unmerged on 2026-07-08.
+  Neither carries forward as queue work. **Guard note:** the
+  `.claude/commands/goal.md` guard "Do not touch PR #272 or issue #291
+  (SES)" **stays in place** — it protects a production email path, so any
+  change to it is Rob's call under CLAUDE.md §7, not a queue to-do.
+  Unattended sessions continue to honor it as written.
 
-## Triage summary
+## Triage principles this cycle
 
-| Issue | Title (short) | Verdict | Blocked by |
-|---|---|---|---|
-| #344 | Reconcile conversational app drafts after reload | **Ready — P0 bug** | — |
-| #330 | Per-turn token and cost meter | **Ready** | — |
-| #301 | Model qualification pipeline | **Ready** | — (#300 merged) |
-| #303 | Router model selection in lanes | **Ready** | — (#300 merged) |
-| #349 | Suppress legacy orphaned run receipts | **Ready** | — |
-| #348 | Edit-and-resend for uploaded-file prompts | **Ready** | — |
-| #302 | Admin model page | Ready after dependency | #301 merged |
-| #305 | Enable first non-Anthropic models | Rob-gated | #301–#303 + Rob's enablement click |
-| #297 | Gmail + Calendar Gateway integration | **Human-gated acceptance** | enable Gmail API, then live Gmail/draft and Calendar write smoke |
-| #291 | SES production invite email | **Human-gated acceptance** | send and confirm a real production invite |
-| #295 | Model qualification epic | Tracking only | children #301–#305 |
-| #294 | Integration factory epic | Tracking only | close after #297 live acceptance |
-| #78 | Shared AI work cards | Deferred | team/org entity does not exist — see G4 |
+1. **Fix what's broken and visible before building new** — the work demo
+   created an audience; regressions burn trust fastest.
+2. **Restore the quality signals** — the nightly eval red (#733/#782) masks
+   real regressions; a permanently red canary is worse than none.
+3. **Finish the in-flight epic before opening the next** — Contribution Studio
+   (#735) has open tracks; Governed Custom Agents (#736) stays parked.
+4. **Then the strategic swing:** viewer-identity apps (#801) is the sharing
+   growth surface, sequenced #802 → #803/#804 → #805/#806.
+5. Security spine items ride one-per-cycle as always.
 
 ## Prioritized queue
 
-### Tier A — unblocked and locally verifiable
+### Tier A — now: broken, visible, or signal-restoring (all unblocked, S/M)
 
-1. **#344 — app-draft reload hardening.** Fix the correctness regression before
-   adding more app-building behavior. Reconcile historical cards against the
-   live app version and structurally block draft creation when oversized source
-   content was omitted.
-2. **#330 — per-turn token and cost meter.** Surface usage already persisted by
-   the runtime in the chat receipt; no new provider or infrastructure needed.
-3. **#301 — model qualification pipeline.** Run the eval gauntlet against a
-   candidate model and persist a versioned scorecard. This unlocks #302 and
-   supplies the evidence required by #305.
-4. **#303 — router model selection within lanes.** Select among enabled,
-   qualified models by task class, policy, and availability while preserving
-   truthful provenance.
-5. **#349 — legacy receipt suppression.** Close the small edit-history edge
-   case identified during PR #347 review.
-6. **#348 — edit uploaded-file turns.** Extend edit-and-resend only after file
-   payload replay is explicit and test-covered.
+1. **#795 — "Address with Comparative" FK ordering bug.** A just-shipped
+   flagship interaction (#761) fails every time. Highest embarrassment-per-day.
+2. **#763 — composer bricks when /api/models blips.** P1: one transient error
+   = dead product with no retry for a non-technical user.
+3. **#796 — false "official verification" claims on calendar artifacts.**
+   Honesty is the product spine; this is a direct spine violation (HIGH).
+4. **#782 — nightly eval false reds.** Fix the day-count extractor first
+   (deterministic red), then the three flaky graders. Acceptance: three green
+   nights. Restores the canary that gates everything else.
+5. **#783 — clear the 11 Dependabot alerts.** 30–60 min of pnpm overrides +
+   MCP SDK minor bump; "zero open alerts" for the next IT conversation.
+   **Human-owned caveat: these are production-dependency changes (§7;
+   goal.md "no new production dependencies") — NOT for unattended sessions.
+   Rob applies or pairs on the bumps; an unattended session may at most
+   restate the fix plan in an issue comment, never open the dependency PR.**
+6. **#759 — flaky Playwright turn-queue test.** Unblocks clean CI on every PR.
+7. **#785 — rate-limit artifact review comment creation.** Small security
+   follow-up to #761.
 
-### Tier B — dependency ordered
+### Tier B — next: finish Contribution Studio + trust-critical UX (M)
 
-7. **#302 — admin model page** — after #301.
-8. **#305 — qualify and enable non-Anthropic models** — after #301–#303 and
-   Rob's explicit enablement decision.
+8. **#739 — deliverable review mode: anchored comments, version diff.**
+   Completes the Studio review loop started by #761.
+9. **#741 — branch this work.** The remaining Studio track with the clearest
+   user story.
+10. **#764 — error legibility + shared toast.** The biggest systemic UX gap
+    from the August review; danger tokens exist, failures are invisible.
+11. **#766 + #767 — Skills/chat polish S-items.** Stale "(soon)" copy, raw
+    model IDs, "/" and "@" discoverability — trust and adoption for pennies.
+12. **#743 — layered guardrails visibility in Studio.** Last Studio track;
+    pairs with #775 later.
+13. **#768 — accessibility wave (tour focus trap first).** The first thing
+    every new user meets.
 
-### Tier C — human-gated acceptance, skip during unattended work
+### Tier C — the strategic swing: viewer-identity apps (#801), in order
 
-- **#297 (Google)** — open the Gmail API page for project `327348890968`,
-  enable the API, then prove Gmail search/read + native draft creation and the
-  Calendar proposal/confirmation/idempotency flow. Calendar read is already
-  live-proven. Do not rebuild the integration while this external gate remains.
-- **#291 (SES)** — send a production invite to a real inbox and confirm receipt.
-- **#305** — the final model enablement decision remains Rob's even after the
-  qualification and routing code is ready.
+14. **#802 — generic read-tool bindings.** The mechanism. **Buildable
+    unattended up to and including the schema migration draft; the migration
+    itself must be reviewed by Rob before merge** (CLAUDE.md §7). An
+    overnight session may implement and open the PR, flagged for that review.
+15. **#803 — default flip + snapshot interstitial + no-public-link invariant.**
+    **Human-owned caveat (§7 data-scoping spine): unattended sessions build
+    the interstitial, invariant, and migration machinery behind an
+    off-by-default flag only — the data-sharing default flip itself is
+    DESCRIBED in the PR body for Rob to flip, never made unattended (same
+    pattern as #701/#410 observe→enforce).**
+16. **#804 — authoring loop: never silently bake connected data.**
+    **Human-owned caveat (§7 data-scoping spine, same as #803): unattended
+    sessions build detection + the warning UX only; any behavior that BLOCKS
+    or changes what connected data can leave a thread is DESCRIBED in the PR
+    body for Rob, not enabled unattended.**
+17. **#805 — per-widget tri-state + "Live · as you" chip.** **Caveat (§7
+    spine adjacency): presentation and API response shape only — it must not
+    alter which data a viewer can fetch; if implementation would touch
+    scoping/fallback logic, that part is DESCRIBED in the PR body for Rob,
+    not made unattended.**
+18. **#806 — per-viewer caching/rate limits.** Before broad view traffic.
+19. **#807 — token-handler verification.** Anytime; good IT-review artifact.
+    **Caveat: verification + tests only — it touches the token/auth surface,
+    so any *behavior* change it uncovers is described in the PR body for Rob,
+    not made unattended.**
 
-### Housekeeping
+### Tier D — harness wave 2 picks (highest leverage first)
 
-- Keep #295 open until #301–#305 are resolved.
-- Keep #294 open until #297 passes live acceptance; #298 is complete.
+20. **#771 — context lifecycle (rolling summaries + tool-result clearing).**
+    The oldest pending gap in PLAN.md and the enabler for durable runs.
+21. **#780 — harness quick wins (parallel tool calls; schedule Run-now +
+    model override).** Day-scale each.
+22. **#773 — durable approvals + delegated authority.** What the next
+    security review will ask about; prerequisite thinking for #810.
+23. **#772 — run checkpoints & rewind.** The trust lever for autonomy.
+24. **#774 — verifier pass for unattended runs.**
 
----
+### Security spine — one per cycle, interleave with tiers above
 
-## Grooming specs — unfiled or under-specified work
+- **#436 — context-bound autonomy presets.** P0 ships the centralized
+  `interactive`, `unattended`, and `restricted` vocabulary on top of #410.
+  Chat/manual work binds to interactive; schedules and event triggers bind to
+  unattended, where writes deny-and-report without pausing the run. Per-skill
+  tightening and granular exceptions remain deferred P1/P2 work.
+- **#701 — close the remaining unknown/write-shaped tool boundary.** #410's
+  persisted tri-state policy, runtime enforcement, durable approvals, standing
+  approvals, and lifecycle governance ship in #831-#835. #701 retains the
+  honeypot/externally mounted tool case that is not solved by catalog policy.
+- **#692 — complete OAuth disconnect with provider-side revocation.** Local
+  owner/admin disconnect, token scrubbing, UI, and lifecycle audit ship with
+  #835. Add best-effort provider revocation without making local withdrawal
+  depend on provider availability. **Human-owned caveat: auth-surface change
+  (§7); describe provider-specific permissions and failure behavior for Rob.**
+- **#443 / #448 — run-lifecycle fencing + concurrency > 1.** Before scheduled
+  load grows. **Caveat: the concurrency default flip is env/ops-affecting —
+  build + tests, flag the flip in the PR body for Rob.**
+- **#449 — ops floor.** Alerting + immutable deploys.
+- **#455, #457, #691, #706** — remaining #453 Track A items, in the epic's
+  own order. (#697 staging lives under Human-gated below — it is an infra
+  spend decision, not spine work.)
 
-G1 (web search), G2 (artifact revision consolidation), and G3 (conversational
-app iteration) are shipped. Remaining:
+### Human-gated / Rob-decision items (skip during unattended work)
 
-### G4. #78 shared work cards — prerequisite gap (keep deferred)
+- **#305 / #295 / #797 (models)** — enablement decisions are Rob's; #797
+  (swappable brains epic) needs a scoping conversation before build.
+- **#810 — actions-run-as-viewer** — decision ticket, not build work; blocked
+  on #701/#410 anyway.
+- **#697 — staging environment** — infra spend decision.
 
-The issue body is already close to a spec (data shape, guardrails, acceptance
-criteria all present). Two real gaps keep it **not ready**:
+### Deliberately parked (do not start without a conscious call)
 
-1. **No team/org entity exists.** Every visibility level (`anonymous_team`,
-   `named_team`, `org`) references tables that don't exist. Prerequisite
-   issue to file when the time comes: `teams` + `team_members` (+ org
-   singleton or `orgs` if multi-tenant shape is decided), with the
-   brainstorm's "tenant-shape three things when touched" rule applied. This
-   prerequisite also gates stretch goals #6 (org brain) and #8 (channel
-   scoping), so it should be designed once, deliberately — not as a side
-   effect of share cards.
-2. **"Useful work detection" is unspecified.** V1 lean: no detection — a
-   manual "Share this as a card" action on completed runs/threads, drafted by
-   the assistant on request. Detection heuristics are a follow-on once cards
-   exist.
+- **#736 Governed Custom Agents (+#745–#748)** — big new surface; start after
+  Contribution Studio tracks close and #801 Tier C is underway, not before.
+- **#491–#493 perimeter/identity/accountable-runtime epics** — enterprise
+  gates; pull items only when an IT-review date makes them concrete.
+- **#494 / #495 / #78** — habit loop, flywheel, share cards: wait for the
+  team/org entity design and real usage signal.
+- **#765 unified shell, #769 Button migration** — structural UI; after the
+  Tier B polish lands and stabilizes.
+- **#660 / #302 / #301** — model-substrate work rides behind #295 decisions.
+- **#808 — in-thread artifact viewer-identity** — rides on J5 timing.
 
-Correctly sequenced after real usage exists (Horizon 3). No action tonight.
+## Notes
 
-### G5. Backlog items pending from PLAN.md (unfiled, one-liners)
-
-- **Rolling summary generation** — the summary schema/helper shipped; the
-  generator never did. Scope: on-threshold background summarization on the
-  memory-worker lane writing `chat_threads.summary`, honesty-eval case that
-  summaries never inject fabricated facts. Medium value (long-thread quality +
-  token cost) — worth filing.
-- **Shared quota store + daily token budgets** — enterprise-gate track
-  ("one gate item per cycle"). Rate limits are process-local today; quotas
-  need a shared store. File when its gate slot comes up.
-- **Dependency audit clean state** — `pnpm audit --prod` transitive findings;
-  recheck before IT review. Ops chore, not a build item.
+- UI/UX epic #762 and harness epic #770 are tracking umbrellas; their
+  actionable children are tiered individually above.
+- #733 stays open as the alert thread; #782 is the fix ticket. Close both on
+  three consecutive green nights.
+- The August research record (sources for tiers C/D) lives in
+  `docs/research/HARNESS_RESEARCH_2026-08.md`; viewer-identity decisions are
+  on #801.

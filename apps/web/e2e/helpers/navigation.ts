@@ -1,8 +1,17 @@
 import { expect, type Page } from "@playwright/test";
 
-export async function gotoE2EChat(page: Page) {
+export async function gotoE2EChat(
+  page: Page,
+  options: { waitForComposer?: boolean } = {},
+) {
   await page.goto("/e2e/chat");
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+  if (options.waitForComposer !== false) {
+    await expect(page.getByTestId("chat-composer-input")).toHaveAttribute(
+      "data-composer-ready",
+      "true",
+    );
+  }
 }
 
 export async function openPrimarySidebar(page: Page, isMobile: boolean) {

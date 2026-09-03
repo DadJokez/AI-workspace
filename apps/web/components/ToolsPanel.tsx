@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
+import { fetchJson } from "@/lib/client-api";
 import { connectErrorNotice } from "@/lib/connect-error-copy";
 import {
   INTEGRATION_DISPLAY_NAMES,
@@ -41,6 +42,7 @@ interface IntegrationCardState {
   integration: Integration;
   connected: boolean;
   executionPending: boolean;
+  connectorDisabled: boolean;
   /** Connected, but the chat integration hasn't shipped yet (vs. a setup issue). */
   comingSoon: boolean;
   needsReconnect: boolean;
@@ -154,6 +156,8 @@ export function IntegrationsSettings() {
   const [oauthStatus, setOauthStatus] = useState<OAuthStatusPayload>({});
   const [loading, setLoading] = useState(true);
   const [oauthNotice, setOauthNotice] = useState<OAuthNotice | undefined>();
+  const [disconnectingId, setDisconnectingId] = useState<string>();
+  const [disconnectError, setDisconnectError] = useState<string>();
   const [activeIntegration, setActiveIntegration] = useState<
     Integration | undefined
   >();
@@ -161,6 +165,37 @@ export function IntegrationsSettings() {
     () => setActiveIntegration(undefined),
     [],
   );
+
+  const disconnectIntegration = useCallback(async (integration: Integration) => {
+    if (!window.confirm(`Disconnect ${integration.name}? Comparative will no longer be able to use it.`)) return;
+    setDisconnectingId(integration.id);
+    setDisconnectError(undefined);
+    try {
+      await fetchJson(
+        `/api/oauth/connections/${integration.id}`,
+        { method: "DELETE" },
+        `Could not disconnect ${integration.name}.`,
+      );
+      setOauthStatus((current) => ({
+        ...current,
+        [integration.id]: false,
+        providerDetails: {
+          ...current.providerDetails,
+          [integration.id]: {
+            connected: false,
+            toolAvailable: false,
+            status: "not_connected",
+          },
+        },
+      }));
+    } catch (error) {
+      setDisconnectError(
+        error instanceof Error ? error.message : `Could not disconnect ${integration.name}.`,
+      );
+    } finally {
+      setDisconnectingId(undefined);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -204,6 +239,7 @@ export function IntegrationsSettings() {
       integration,
       connected,
       executionPending: connected && !toolAvailable,
+      connectorDisabled: detail?.status === "connector_disabled",
       comingSoon:
         connected &&
         !toolAvailable &&
@@ -236,9 +272,15 @@ export function IntegrationsSettings() {
       {bounceNotice ? (
         <div
           data-testid="oauth-bounce-notice"
-          className="rounded-md border border-hairline bg-subtle/40 px-3 py-2 text-sm text-ink"
+          role="alert"
+          className="rounded-md border border-danger/30 border-l-2 border-l-danger bg-danger-bg px-3 py-2 text-sm text-danger"
         >
           {bounceNotice}
+        </div>
+      ) : null}
+      {disconnectError ? (
+        <div role="alert" className="rounded-md border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger">
+          {disconnectError}
         </div>
       ) : null}
 
@@ -257,6 +299,8 @@ export function IntegrationsSettings() {
             testId="tools-section-connected"
             cards={connectedCards}
             onOpenComingSoon={setActiveIntegration}
+            onDisconnect={disconnectIntegration}
+            disconnectingId={disconnectingId}
           />
         ) : null}
         <ToolsSection
@@ -264,12 +308,16 @@ export function IntegrationsSettings() {
           testId="tools-section-available"
           cards={availableCards}
           onOpenComingSoon={setActiveIntegration}
+          onDisconnect={disconnectIntegration}
+          disconnectingId={disconnectingId}
         />
         <ToolsSection
           title="Coming soon"
           testId="tools-section-coming-soon"
           cards={comingSoonCards}
           onOpenComingSoon={setActiveIntegration}
+          onDisconnect={disconnectIntegration}
+          disconnectingId={disconnectingId}
         />
       </div>
 
@@ -288,11 +336,15 @@ function ToolsSection({
   testId,
   cards,
   onOpenComingSoon,
+  onDisconnect,
+  disconnectingId,
 }: {
   title: string;
   testId: string;
   cards: IntegrationCardState[];
   onOpenComingSoon: (integration: Integration) => void;
+  onDisconnect: (integration: Integration) => Promise<void>;
+  disconnectingId?: string;
 }) {
   if (cards.length === 0) return null;
   return (
@@ -306,6 +358,8 @@ function ToolsSection({
             key={card.integration.id}
             card={card}
             onOpenComingSoon={onOpenComingSoon}
+            onDisconnect={onDisconnect}
+            disconnecting={disconnectingId === card.integration.id}
           />
         ))}
       </div>
@@ -316,27 +370,35 @@ function ToolsSection({
 function IntegrationCard({
   card,
   onOpenComingSoon,
+  onDisconnect,
+  disconnecting,
 }: {
   card: IntegrationCardState;
   onOpenComingSoon: (integration: Integration) => void;
+  onDisconnect: (integration: Integration) => Promise<void>;
+  disconnecting: boolean;
 }) {
   const {
     integration,
     connected,
     executionPending,
+    connectorDisabled,
     comingSoon,
     needsReconnect,
     temporarilyUnavailable,
     failed,
   } = card;
+  const cardTone = failed
+    ? "border-danger/35 bg-danger-bg"
+    : connectorDisabled || needsReconnect || temporarilyUnavailable || executionPending
+      ? "border-warning/35 bg-warning-bg"
+      : connected
+        ? "border-success/35 bg-success-bg"
+        : "border-hairline";
   return (
     <div
       data-testid={`tool-card-${integration.id}`}
-      className={`flex flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-subtle ${
-        connected
-          ? "border-success/35 bg-success-bg"
-          : "border-hairline"
-      }`}
+      className={`flex flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-subtle ${cardTone}`}
     >
       <div className="flex items-start gap-3">
         <div
@@ -357,19 +419,23 @@ function IntegrationCard({
       </div>
       <div className="flex items-center justify-between gap-2">
         {failed ? (
-          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-2xs uppercase tracking-wider text-muted">
+          <span className="inline-flex items-center gap-1 rounded bg-danger-bg px-2 py-0.5 text-2xs uppercase tracking-wider text-danger ring-1 ring-danger/25">
             Auth failed
           </span>
+        ) : connectorDisabled ? (
+          <span className="inline-flex items-center gap-1 rounded bg-danger-bg px-2 py-0.5 text-2xs uppercase tracking-wider text-danger ring-1 ring-danger/25">
+            Admin disabled
+          </span>
         ) : needsReconnect ? (
-          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-2xs uppercase tracking-wider text-muted">
+          <span className="inline-flex items-center gap-1 rounded bg-warning-bg px-2 py-0.5 text-2xs uppercase tracking-wider text-warning ring-1 ring-warning/25">
             Reconnect
           </span>
         ) : temporarilyUnavailable ? (
-          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-2xs uppercase tracking-wider text-muted">
+          <span className="inline-flex items-center gap-1 rounded bg-warning-bg px-2 py-0.5 text-2xs uppercase tracking-wider text-warning ring-1 ring-warning/25">
             Unavailable
           </span>
         ) : executionPending ? (
-          <span className="inline-flex items-center gap-1 rounded bg-subtle px-2 py-0.5 text-2xs uppercase tracking-wider text-muted">
+          <span className="inline-flex items-center gap-1 rounded bg-warning-bg px-2 py-0.5 text-2xs uppercase tracking-wider text-warning ring-1 ring-warning/25">
             Linked
           </span>
         ) : connected ? (
@@ -400,6 +466,8 @@ function IntegrationCard({
               <span className="text-2xs text-muted">
                 {comingSoon
                   ? "Chat actions coming soon"
+                  : connectorDisabled
+                    ? "Disabled by workspace admin"
                   : needsReconnect
                     ? `Renew ${integration.name} access`
                     : temporarilyUnavailable
@@ -408,12 +476,28 @@ function IntegrationCard({
                     ? "Setup needed for chat"
                     : "Ready in chat"}
               </span>
-              <a
-                href={`/api/oauth/${integration.id}/start`}
-                className="text-2xs text-muted underline-offset-2 hover:text-ink hover:underline"
+              {!connectorDisabled ? (
+                <a
+                  href={`/api/oauth/${integration.id}/start`}
+                  className={`text-2xs underline-offset-2 hover:underline ${
+                    needsReconnect ||
+                    temporarilyUnavailable ||
+                    (executionPending && !comingSoon)
+                      ? "text-warning"
+                      : "text-muted hover:text-ink"
+                  }`}
+                >
+                  Reconnect
+                </a>
+              ) : null}
+              <button
+                type="button"
+                disabled={disconnecting}
+                onClick={() => void onDisconnect(integration)}
+                className="text-2xs text-muted underline-offset-2 hover:text-danger hover:underline disabled:opacity-50"
               >
-                Reconnect
-              </a>
+                {disconnecting ? "Disconnecting..." : "Disconnect"}
+              </button>
             </div>
           ) : (
             <a
@@ -429,7 +513,7 @@ function IntegrationCard({
             onClick={() => onOpenComingSoon(integration)}
             className="rounded-md border border-hairline bg-canvas px-3 py-1 text-xs font-medium text-ink hover:bg-subtle"
           >
-            Connect
+            Learn more
           </button>
         )}
       </div>

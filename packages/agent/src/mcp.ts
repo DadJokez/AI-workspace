@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { JSONSchema7 } from "json-schema";
-import type { Tool } from "./types";
+import type { Tool, ToolRuntimePolicy } from "./types";
 
 /**
  * MCP-backed tools for the Bedrock agent loop.
@@ -28,6 +28,10 @@ export interface McpHttpServerSpec {
   allowedTools?: string[];
   /** Provider-native MCP tool names that must not be exposed. */
   blockedTools?: string[];
+  /** Provider-native tool name -> deterministic runtime execution policy. */
+  toolPolicies?: Record<string, ToolRuntimePolicy>;
+  /** Cautious fallback for tools added after the trusted catalog snapshot. */
+  defaultToolPolicy?: ToolRuntimePolicy;
   /** Provider-native tool name -> trusted first-result usage guidance. */
   usageNotesByTool?: Record<string, string>;
   /**
@@ -198,6 +202,14 @@ async function connectMcpProvider(
             name: mcpToolName(provider, remoteName),
             description: tool.description ?? `${provider} tool ${remoteName}`,
             inputSchema: (tool.inputSchema ?? { type: "object" }) as JSONSchema7,
+            policy:
+              spec.toolPolicies?.[remoteName] ?? spec.defaultToolPolicy,
+            executionIdentity: {
+              kind: "mcp",
+              provider,
+              endpoint: spec.url,
+              nativeToolName: remoteName,
+            },
             usageNotes: spec.usageNotesByTool?.[remoteName]?.trim() || undefined,
             // #497: MCP results are third-party content — the loop nonce-frames
             // the serialized output as DATA before the model sees it. Set here,

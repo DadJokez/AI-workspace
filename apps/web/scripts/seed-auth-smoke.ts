@@ -7,6 +7,7 @@ import {
   feedbackReports,
   getDb,
   rateLimitBuckets,
+  runs,
   shares,
   skills,
   users,
@@ -64,6 +65,7 @@ async function main() {
   await db
     .delete(shares)
     .where(inArray(shares.subjectId, [...fixtureSkillIds, ...fixtureAppIds]));
+  await db.delete(runs).where(inArray(runs.skillId, fixtureSkillIds));
   await db.delete(appEditSessions).where(inArray(appEditSessions.appId, fixtureAppIds));
   await db.delete(appVersions).where(inArray(appVersions.appId, fixtureAppIds));
   await db.delete(apps).where(inArray(apps.id, fixtureAppIds));
@@ -211,6 +213,25 @@ async function main() {
     grantedToUserId: smokeUserId,
     grantedByUserId: sharedOwnerId,
   });
+
+  await db.insert(runs).values([
+    {
+      userId: smokeUserId,
+      skillId: sharedSkillId,
+      skillSlug: "auth-smoke-shared-review",
+      triggerType: "skill",
+      status: "failed",
+      error: "Current user's shared-skill failure.",
+    },
+    {
+      userId: sharedOwnerId,
+      skillId: sharedSkillId,
+      skillSlug: "auth-smoke-shared-review",
+      triggerType: "skill",
+      status: "failed",
+      error: "Private failure from another skill collaborator.",
+    },
+  ]);
 
   await db.insert(workspaceArtifacts).values([
     appArtifact({

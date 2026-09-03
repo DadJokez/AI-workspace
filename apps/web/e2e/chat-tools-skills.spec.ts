@@ -4,6 +4,7 @@ import {
   fulfillSse,
   installMockComparativeApi,
   json,
+  now,
   userMessage,
 } from "./helpers/mock-comparative";
 import { gotoE2EChat, openPrimarySidebar } from "./helpers/navigation";
@@ -14,6 +15,118 @@ test.skip(
 );
 
 test.describe("chat tools and skills", () => {
+  test("restores a durable tool approval after reload and continues in the same chat", async ({
+    page,
+  }, testInfo) => {
+    const isMobile = testInfo.project.name.includes("mobile");
+    const threadId = "thread-tool-approval";
+    const runId = "run-tool-approval";
+    const approvalId = "00000000-0000-4000-8000-000000000410";
+    const messages: Record<string, unknown[]> = {
+      [threadId]: [
+        userMessage({
+          id: "user-tool-approval",
+          content: "Draft an email to the launch team.",
+        }),
+        assistantMessage({
+          id: `run:${runId}`,
+          content: "I have the draft ready and need permission to save it.",
+          runId,
+          runStatus: "waiting_for_approval",
+          status: "Approval required",
+          canCancel: true,
+          approvalRequests: [
+            {
+              id: approvalId,
+              batchId: "00000000-0000-4000-8000-000000000411",
+              toolCallId: "gmail-draft-1",
+              toolName: "gmail__draft_email",
+              provider: "gmail",
+              nativeToolName: "draft_email",
+              redactedInput: {
+                to: "launch@example.com",
+                body: "[REDACTED]",
+              },
+              status: "pending",
+              requestedAt: now,
+              expiresAt: "2026-08-16T00:00:00.000Z",
+              standingApprovalEligible: true,
+            },
+          ],
+        }),
+      ],
+    };
+    let submitted: { runId: string; body: Record<string, unknown> } | undefined;
+
+    await installMockComparativeApi(page, {
+      threads: [
+        {
+          id: threadId,
+          title: "Launch email draft",
+          defaultModelId: "sonnet-4-6",
+          summary: null,
+          summaryUpdatedAt: null,
+          previewSummary: null,
+          previewSummaryUpdatedAt: null,
+          titleSource: "generated",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+      threadMessages: messages,
+      onToolApprovalDecision: async (submittedRunId, body, route) => {
+        submitted = { runId: submittedRunId, body };
+        messages[threadId] = [
+          messages[threadId]![0]!,
+          assistantMessage({
+            id: `run:${runId}`,
+            content: "",
+            pending: true,
+            status: "Queued...",
+            runId,
+            runStatus: "queued",
+            canCancel: true,
+          }),
+        ];
+        await json(route, {
+          run: { id: runId, status: "queued" },
+          approvals: [],
+        });
+      },
+    });
+
+    await gotoE2EChat(page);
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: "Launch email draft" }).click();
+    await expect(page.getByTestId("tool-approval-card")).toBeVisible();
+
+    await page.reload();
+    const restoredSidebar = await openPrimarySidebar(page, isMobile);
+    await restoredSidebar
+      .getByRole("button", { name: "Launch email draft" })
+      .click();
+    const card = page.getByTestId("tool-approval-card");
+    await expect(card).toBeVisible();
+    await card.getByText("draft_email", { exact: true }).click();
+    await expect(card).toContainText("[REDACTED]");
+    await expect(card).not.toContainText("secret launch plan");
+
+    await card
+      .getByRole("checkbox", { name: /Allow this Skill/ })
+      .check();
+    await card.getByRole("button", { name: "Approve" }).click();
+    await expect.poll(() => submitted).toEqual({
+      runId,
+      body: {
+        decision: "approve",
+        approvalIds: [approvalId],
+        rememberForSkill: true,
+      },
+    });
+    await expect(page.getByTestId("tool-approval-card")).toHaveCount(0);
+    await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
+  });
+
   test("surfaces connected-tool activity as collapsed work receipts", async ({
     page,
   }) => {

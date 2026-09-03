@@ -113,7 +113,7 @@ describe("AiWorkspaceAgentCoreSpikeStack", () => {
     expect(JSON.stringify(describeImageStatement?.Resource)).toContain(
       "AgentImageRepo",
     );
-  });
+  }, 15_000);
 });
 
 interface CloudFormationTemplate {

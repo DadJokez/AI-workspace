@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createDiscoveryTools,
+  RUN_BUDGET_SCHEMA,
   resolveMountedToolNames,
   ToolRegistry,
   type AgentEvent,
@@ -22,6 +23,151 @@ const BASE_PAYLOAD = {
   modelId: "sonnet-4-6",
   messages: [{ role: "user", content: "check my PRs" }],
 };
+
+describe("parseInvocationPayload tool approvals", () => {
+  it("keeps valid exact-call grants and drops malformed grants", () => {
+    const payload = parseInvocationPayload({
+      ...BASE_PAYLOAD,
+      toolApprovalGrants: [
+        {
+          schema: "comparative.tool-approval-grant.v1",
+          approvalId: "approval-1",
+          fingerprint: "a".repeat(64),
+          decision: "approved",
+          consumed: true,
+          replayOutput: { drafted: true },
+        },
+        {
+          schema: "comparative.tool-approval-grant.v1",
+          approvalId: "bad",
+          fingerprint: "not-a-fingerprint",
+          decision: "approved",
+        },
+      ],
+    });
+
+    expect(payload.toolApprovalGrants).toEqual([
+      {
+        schema: "comparative.tool-approval-grant.v1",
+        approvalId: "approval-1",
+        fingerprint: "a".repeat(64),
+        decision: "approved",
+        consumed: true,
+        replayOutput: { drafted: true },
+      },
+    ]);
+  });
+
+  it("keeps current endpoint-bound standing grants and unattended mode", () => {
+    const payload = parseInvocationPayload({
+      ...BASE_PAYLOAD,
+      toolApprovalMode: "deny_unattended",
+      toolApprovalGrants: [
+        {
+          schema: "comparative.tool-approval-grant.v1",
+          approvalId: "standing-1",
+          scope: "skill_tool",
+          identity: {
+            kind: "mcp",
+            provider: "google",
+            endpoint: "https://mcp.example.test/google",
+            nativeToolName: "draft_email",
+          },
+          expiresAt: "2099-08-15T00:00:00.000Z",
+          decision: "approved",
+        },
+        {
+          schema: "comparative.tool-approval-grant.v1",
+          approvalId: "expired",
+          scope: "skill_tool",
+          identity: {
+            kind: "mcp",
+            provider: "google",
+            endpoint: "https://mcp.example.test/google",
+            nativeToolName: "draft_email",
+          },
+          expiresAt: "2020-08-15T00:00:00.000Z",
+          decision: "approved",
+        },
+      ],
+    });
+
+    expect(payload.toolApprovalMode).toBe("deny_unattended");
+    expect(payload.toolApprovalGrants).toEqual([
+      expect.objectContaining({
+        approvalId: "standing-1",
+        scope: "skill_tool",
+      }),
+    ]);
+  });
+
+  it("defaults malformed approval mode to attended request behavior", () => {
+    expect(
+      parseInvocationPayload({
+        ...BASE_PAYLOAD,
+        toolApprovalMode: "allow_all",
+      }).toolApprovalMode,
+    ).toBe("request");
+  });
+});
+
+describe("parseInvocationPayload run budget", () => {
+  it("keeps a valid versioned budget and drops untrusted fields", () => {
+    expect(
+      parseInvocationPayload({
+        ...BASE_PAYLOAD,
+        budget: {
+          envelope: {
+            schema: RUN_BUDGET_SCHEMA,
+            version: 1,
+            governingLayer: "organization",
+            limits: {
+              tokens: 100_000,
+              usd: 1,
+              wallClockMs: 120_000,
+              toolIterations: 8,
+              ignored: "value",
+            },
+          },
+          promptOverride: "unlimited",
+        },
+      }).budget,
+    ).toEqual({
+      envelope: {
+        schema: RUN_BUDGET_SCHEMA,
+        version: 1,
+        governingLayer: "organization",
+        limits: {
+          tokens: 100_000,
+          usd: 1,
+          wallClockMs: 120_000,
+          toolIterations: 8,
+        },
+      },
+    });
+  });
+
+  it("rejects a malformed wire budget instead of dropping enforcement", () => {
+    expect(() =>
+      parseInvocationPayload({
+        ...BASE_PAYLOAD,
+        budget: {
+          envelope: {
+            schema: RUN_BUDGET_SCHEMA,
+            version: 1,
+            governingLayer: "organization",
+            limits: {
+              tokens: -1,
+              usd: 1,
+              wallClockMs: 120_000,
+              toolIterations: 8,
+            },
+          },
+        },
+      }),
+    ).toThrow("invalid run budget");
+  });
+});
 
 describe("parseInvocationPayload toolDiscovery", () => {
   it("round-trips activation and catalog into mounted names", () => {
@@ -152,6 +298,38 @@ describe("parseInvocationPayload just-in-time tool guidance", () => {
     expect(payload.mcpServers?.github?.usageNotesByTool).toEqual({
       create_issue: "Report the exact issue URL.",
     });
+  });
+
+  it("keeps valid runtime policies and drops invalid policy values", () => {
+    const payload = parseInvocationPayload({
+      ...BASE_PAYLOAD,
+      mcpServers: {
+        github: {
+          url: "https://mcp.example.test",
+          toolPolicies: {
+            list_pull_requests: "always_allow",
+            create_issue: "needs_approval",
+            delete_repository: "blocked",
+            invalid: "allow_everything",
+          },
+          defaultToolPolicy: "needs_approval",
+        },
+        junk: {
+          url: "https://junk.example.test",
+          defaultToolPolicy: "anything",
+        },
+      },
+    });
+
+    expect(payload.mcpServers?.github?.toolPolicies).toEqual({
+      list_pull_requests: "always_allow",
+      create_issue: "needs_approval",
+      delete_repository: "blocked",
+    });
+    expect(payload.mcpServers?.github?.defaultToolPolicy).toBe(
+      "needs_approval",
+    );
+    expect(payload.mcpServers?.junk?.defaultToolPolicy).toBeUndefined();
   });
 
   it("keeps the canonical displayName and drops junk values (#713)", () => {

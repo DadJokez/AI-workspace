@@ -10,6 +10,7 @@ import {
   resolveContributionStudioTab,
 } from "@/lib/contribution-studio";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import { buildGuardrailReceipt } from "@/lib/guardrail-receipts";
 
 const artifact: WorkspaceArtifactSummary = {
   id: "artifact-1",
@@ -50,8 +51,8 @@ afterEach(cleanup);
 
 describe("Contribution Studio model", () => {
   it("derives capability tabs and thread-scoped resources from messages", () => {
-    const model = deriveContributionStudio([
-      assistant({
+    const model = deriveContributionStudio(
+      [assistant({
         artifacts: [artifact],
         sources: [
           {
@@ -77,18 +78,35 @@ describe("Contribution Studio model", () => {
             at: "2026-08-10T12:00:01.000Z",
           },
         ],
-      }),
-    ]);
+      })],
+      { capabilities: { browser: true } },
+    );
 
     expect(model.tabs).toEqual(["preview", "files", "browser", "activity"]);
     expect(model.tabs).not.toContain("console");
     expect(model.files.map((file) => file.id)).toEqual(["artifact-1"]);
     expect(model.browserEvidence[0]).toMatchObject({
+      messageId: "assistant-1",
+      sourceNumber: 1,
       title: "Primary evidence",
       url: "https://example.com/evidence",
     });
     expect(model.browserEvidence[1]).toMatchObject({ title: "Unsafe evidence" });
     expect(model.browserEvidence[1]).not.toHaveProperty("url");
+    expect(model.browserResources).toEqual([
+      expect.objectContaining({
+        title: "Primary evidence",
+        target: {
+          kind: "evidence",
+          messageId: "assistant-1",
+          sourceNumber: 1,
+        },
+      }),
+      expect.objectContaining({
+        title: "quarterly-brief.md",
+        target: { kind: "artifact", artifactId: "artifact-1" },
+      }),
+    ]);
     expect(model.workSteps[0]).toMatchObject({
       state: "completed",
       runId: "run-1",
@@ -176,6 +194,26 @@ describe("Contribution Studio model", () => {
     expect(sandboxed.tabs).toContain("console");
   });
 
+  it("never exposes Browser before its runtime capability is live", () => {
+    const message = assistant({
+      sources: [
+        {
+          n: 1,
+          title: "Public evidence",
+          kind: "web",
+          url: "https://example.com",
+        },
+      ],
+    });
+
+    expect(deriveContributionStudio([message]).tabs).not.toContain("browser");
+    expect(
+      deriveContributionStudio([message], {
+        capabilities: { browser: true },
+      }).tabs,
+    ).toContain("browser");
+  });
+
   it("resolves requested, contextual, remembered, and fallback tabs", () => {
     const available = ["preview", "files", "activity"] as const;
     expect(
@@ -245,5 +283,113 @@ describe("Contribution Studio model", () => {
           .getAttribute("aria-current"),
       ).toBe("page"),
     );
+  });
+
+  it("renders the authoritative guardrail receipt instead of resolving policy in the UI", () => {
+    const guardrails = buildGuardrailReceipt({
+      runId: "run-guardrails",
+      autonomyPreset: "interactive",
+      toolCalls: [
+        {
+          id: "call-approval",
+          name: "mcp__google__draft_email",
+          provider: "google",
+          toolName: "draft_email",
+          input: { hidden: "payload" },
+          startedAt: "2026-08-16T11:59:58.000Z",
+        },
+        {
+          id: "call-success",
+          name: "mcp__notion__update_page",
+          provider: "notion",
+          toolName: "update_page",
+          input: { hidden: "successful-payload" },
+          startedAt: "2026-08-16T11:59:59.000Z",
+        },
+        {
+          id: "call-failure",
+          name: "mcp__workfront__create_task",
+          provider: "workfront",
+          toolName: "create_task",
+          input: { hidden: "failed-payload" },
+          startedAt: "2026-08-16T12:00:00.000Z",
+        },
+      ],
+      toolResults: [
+        {
+          toolCallId: "call-success",
+          output: { pageId: "page-1" },
+          isError: false,
+          policyDecision: "approved_by_user",
+          approvalId: "approval-success",
+          completedAt: "2026-08-16T12:00:01.000Z",
+        },
+        {
+          toolCallId: "call-failure",
+          output: { error: "upstream_failure" },
+          isError: true,
+          policyDecision: "approved_by_user",
+          approvalId: "approval-failure",
+          completedAt: "2026-08-16T12:00:02.000Z",
+        },
+      ],
+      approvalRequests: [
+        {
+          id: "approval-1",
+          batchId: "batch-1",
+          toolCallId: "call-approval",
+          toolName: "mcp__google__draft_email",
+          provider: "google",
+          nativeToolName: "draft_email",
+          redactedInput: { to: ["redacted@example.com"] },
+          status: "pending",
+          requestedAt: "2026-08-16T12:00:00.000Z",
+          expiresAt: "2026-08-17T12:00:00.000Z",
+        },
+      ],
+      generatedAt: new Date("2026-08-16T12:00:00.000Z"),
+    });
+    const message = assistant({
+      runId: "run-guardrails",
+      guardrails,
+      approvalRequests: [],
+    });
+    const model = deriveContributionStudio([message]);
+
+    expect(model.guardrails).toEqual([guardrails]);
+    expect(model.tabs).toContain("activity");
+
+    render(
+      createElement(ContributionStudio, {
+        messages: [message],
+        requestedTab: "activity",
+        isAdmin: false,
+        onClose: vi.fn(),
+        onOpenArtifact: vi.fn(),
+        onOpenRunInspector: vi.fn(),
+      }),
+    );
+
+    expect(screen.getByTestId("studio-guardrails")).toBeTruthy();
+    expect(screen.getByText("Interactive autonomy")).toBeTruthy();
+    expect(screen.getByText("Google · Draft Email")).toBeTruthy();
+    expect(screen.getByText("Notion · Update Page")).toBeTruthy();
+    expect(screen.getByText("Approved · Action · Succeeded")).toBeTruthy();
+    expect(screen.getByText("Workfront · Create Task")).toBeTruthy();
+    expect(screen.getByText("Approved · Action · Failed")).toBeTruthy();
+    expect(
+      screen
+        .getByTestId("studio-guardrails")
+        .querySelector('[data-guardrail-outcome="failed"] > .bg-danger'),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByTestId("studio-guardrails")
+        .querySelector('[data-guardrail-state="approval_required"]'),
+    ).toBeTruthy();
+    expect(screen.getAllByText(/Only this exact request/)).toHaveLength(3);
+    expect(screen.queryByText("payload")).toBeNull();
+    expect(screen.queryByText("successful-payload")).toBeNull();
+    expect(screen.queryByText("failed-payload")).toBeNull();
   });
 });

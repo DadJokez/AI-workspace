@@ -29,6 +29,19 @@ test.describe("chat shell guardrails", () => {
     await expect(
       page.locator("main").getByText(COMPARATIVE_VERSION_LABEL),
     ).toBeVisible();
+    await expect(
+      page.getByPlaceholder("Ask anything — / for skills, @ to add context"),
+    ).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
+    const contextButton = page.getByRole("button", { name: "Add context" });
+    await expect(contextButton).toBeVisible();
+    const contextLabel = contextButton.getByText("Context", { exact: true });
+    if (testInfo.project.name.includes("mobile")) {
+      await expect(contextLabel).toBeHidden();
+    } else {
+      await expect(contextLabel).toBeVisible();
+    }
+    await expect(page.getByTestId("resolved-model-chip")).toBeVisible();
     if (!testInfo.project.name.includes("mobile")) {
       await expect(
         page
@@ -36,6 +49,31 @@ test.describe("chat shell guardrails", () => {
           .getByText(COMPARATIVE_VERSION_LABEL),
       ).toBeVisible();
     }
+  });
+
+  test("navigates the account menu with arrow keys and restores focus", async ({
+    page,
+    isMobile,
+  }) => {
+    await installMockComparativeApi(page);
+    await gotoE2EChat(page);
+
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    const trigger = sidebar.getByRole("button", { name: "Account menu" });
+    await trigger.click();
+    const menu = sidebar.getByRole("menu", { name: "Account actions" });
+    const settings = menu.getByRole("menuitem", { name: "Settings" });
+    const signOut = menu.getByRole("menuitem", { name: "Sign out" });
+    await expect(settings).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(signOut).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(settings).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(signOut).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(trigger).toBeFocused();
   });
 
   test("personalizes the greeting, connected tools, and role-aware prompts", async ({
@@ -89,6 +127,37 @@ test.describe("chat shell guardrails", () => {
     await expect(
       page.getByText("No work tools are connected yet."),
     ).toBeVisible();
+  });
+
+  test("recovers the composer when model bootstrap fails", async ({ page }) => {
+    await installMockComparativeApi(page);
+    let modelRequests = 0;
+    await page.route("**/api/models", async (route) => {
+      modelRequests += 1;
+      if (modelRequests === 1) {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "temporarily_unavailable" }),
+        });
+        return;
+      }
+      await route.fallback();
+    });
+
+    await gotoE2EChat(page, { waitForComposer: false });
+
+    const alert = page.getByTestId("models-load-error");
+    await expect(alert).toContainText("Comparative couldn't start.");
+    await expect(
+      page.getByPlaceholder("Comparative is unavailable"),
+    ).toBeDisabled();
+
+    await alert.getByRole("button", { name: "Retry" }).click();
+
+    await expect(alert).toHaveCount(0);
+    await expect(page.getByPlaceholder(/ask anything/i)).toBeEnabled();
+    expect(modelRequests).toBe(2);
   });
 
   test("shows conversation-shaped skeletons while saved messages load", async ({
@@ -880,6 +949,122 @@ test.describe("chat shell guardrails", () => {
     expect(paintBounds.left).toBeGreaterThan(paintBounds.columnLeft);
   });
 
+  test("wraps assistant table cells inside the message column", async ({
+    page,
+    isMobile,
+  }) => {
+    const longCell =
+      "A detailed comparison belongs inside the readable message column instead of forcing the whole answer off screen.";
+    await installMockComparativeApi(page, {
+      threads: [
+        {
+          id: "thread-wrapping-table",
+          title: "Wrapping table",
+          defaultModelId: "sonnet-4-6",
+          summary: null,
+          summaryUpdatedAt: null,
+          previewSummary: null,
+          previewSummaryUpdatedAt: null,
+          titleSource: "generated",
+          createdAt: "2026-07-21T12:00:00.000Z",
+          updatedAt: "2026-07-21T12:00:00.000Z",
+        },
+      ],
+      threadMessages: {
+        "thread-wrapping-table": [
+          assistantMessage({
+            id: "assistant-wrapping-table",
+            content: `| Option | Detail |\n| --- | --- |\n| Recommended | ${longCell} |`,
+          }),
+        ],
+      },
+    });
+
+    await gotoE2EChat(page);
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: "Wrapping table" }).click();
+
+    const cell = page
+      .getByTestId("assistant-message-content")
+      .locator("td")
+      .filter({ hasText: longCell });
+    await expect(cell).toBeVisible();
+    const metrics = await cell.evaluate((element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return {
+        whiteSpace: style.whiteSpace,
+        overflowWrap: style.overflowWrap,
+        maxWidth: Number.parseFloat(style.maxWidth),
+        width: rect.width,
+        height: rect.height,
+        lineHeight: Number.parseFloat(style.lineHeight),
+      };
+    });
+    expect(metrics.whiteSpace).toBe("normal");
+    expect(metrics.overflowWrap).toBe("anywhere");
+    expect(metrics.maxWidth).toBe(384);
+    expect(metrics.width).toBeLessThanOrEqual(385);
+    expect(metrics.height).toBeGreaterThan(metrics.lineHeight * 2);
+  });
+
+  test("keeps wide assistant tables horizontally scrollable", async ({
+    page,
+    isMobile,
+  }) => {
+    const headings = Array.from(
+      { length: 8 },
+      (_, index) => `Column ${index + 1}`,
+    );
+    const values = Array.from(
+      { length: 8 },
+      (_, index) => `Value ${index + 1}`,
+    );
+    await installMockComparativeApi(page, {
+      threads: [
+        {
+          id: "thread-wide-table",
+          title: "Wide table",
+          defaultModelId: "sonnet-4-6",
+          summary: null,
+          summaryUpdatedAt: null,
+          previewSummary: null,
+          previewSummaryUpdatedAt: null,
+          titleSource: "generated",
+          createdAt: "2026-07-21T12:00:00.000Z",
+          updatedAt: "2026-07-21T12:00:00.000Z",
+        },
+      ],
+      threadMessages: {
+        "thread-wide-table": [
+          assistantMessage({
+            id: "assistant-wide-table",
+            content: `| ${headings.join(" | ")} |\n| ${headings.map(() => "---").join(" | ")} |\n| ${values.join(" | ")} |`,
+          }),
+        ],
+      },
+    });
+
+    await gotoE2EChat(page);
+    const sidebar = await openPrimarySidebar(page, isMobile);
+    await sidebar.getByRole("button", { name: "Wide table" }).click();
+
+    const scroller = page
+      .getByTestId("assistant-message-content")
+      .locator('[data-table-layout="scroll"]');
+    await expect(scroller).toBeVisible();
+    const metrics = await scroller.evaluate((element) => {
+      const firstCell = element.querySelector("th")?.getBoundingClientRect();
+      return {
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        firstCellWidth: firstCell?.width ?? 0,
+      };
+    });
+    expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth);
+    expect(metrics.firstCellWidth).toBeGreaterThanOrEqual(150);
+  });
+
   test("keeps top-bar controls and theme persistence stable without chat tabs", async ({
     page,
   }, testInfo) => {
@@ -946,11 +1131,7 @@ test.describe("chat shell guardrails", () => {
     await expect(
       header.getByRole("combobox", { name: "Model", exact: true }),
     ).toHaveCount(0);
-    if (isMobile) {
-      await expect(header.getByTestId("resolved-model-chip")).toBeHidden();
-    } else {
-      await expect(header.getByTestId("resolved-model-chip")).toBeVisible();
-    }
+    await expect(header.getByTestId("resolved-model-chip")).toBeVisible();
     await expect(page.locator("html")).not.toHaveClass(/dark/);
 
     await header.getByRole("button", { name: "Switch to dark mode" }).click();
@@ -1250,18 +1431,31 @@ test.describe("chat shell guardrails", () => {
       const badge = header.locator('[data-alpha-badge="inline"]');
       await expect(badge).toBeVisible();
       await expect(page.locator('[data-alpha-badge="global"]')).toBeHidden();
-      if (width < 400) {
-        await expect(page.getByTestId("resolved-model-chip")).toBeHidden();
-      } else {
-        await expect(page.getByTestId("resolved-model-chip")).toBeVisible();
-      }
+      await expect(page.getByTestId("resolved-model-chip")).toBeVisible();
       const title = page.getByTestId("active-chat-title");
       await expect(title).toContainText("New chat");
-      expect(
-        await title.evaluate(
-          (element) => element.scrollWidth <= element.clientWidth + 1,
-        ),
-      ).toBe(true);
+      await expect(title).toBeVisible();
+      if (width < 400) {
+        const titleStyle = await title.evaluate((element) => {
+          const style = window.getComputedStyle(element);
+          return {
+            overflow: style.overflow,
+            textOverflow: style.textOverflow,
+            whiteSpace: style.whiteSpace,
+          };
+        });
+        expect(titleStyle).toEqual({
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        });
+      } else {
+        expect(
+          await title.evaluate(
+            (element) => element.scrollWidth <= element.clientWidth + 1,
+          ),
+        ).toBe(true);
+      }
 
       const badgeBox = await badge.boundingBox();
       const headerBox = await header.boundingBox();

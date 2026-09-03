@@ -84,6 +84,9 @@ export class AgentCoreRuntime implements AgentRuntime {
       webEgressPolicy: input.webEgressPolicy,
       requiredToolName: input.requiredToolName,
       toolDiscovery: input.toolDiscovery,
+      toolApprovalGrants: input.toolApprovalGrants,
+      toolApprovalMode: input.toolApprovalMode,
+      budget: input.budget,
       userId: input.context.userId,
     });
 
@@ -211,8 +214,10 @@ const EVENT_TYPES = new Set([
   "provider-reasoning-redacted",
   "provider-response-metadata",
   "tool-call",
+  "tool-approval-required",
   "tool-result",
   "usage",
+  "budget",
   "error",
   "done",
 ]);

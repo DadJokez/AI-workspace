@@ -4,6 +4,7 @@ import {
   defaultArtifactDetail,
   defaultArtifactSummary,
   installMockComparativeApi,
+  json,
   now,
   userMessage,
 } from "./helpers/mock-comparative";
@@ -34,7 +35,60 @@ test.describe("Contribution Studio", () => {
     page,
     isMobile,
   }) => {
+    let browserStartBody: Record<string, unknown> | undefined;
+    const browserActions: Array<Record<string, unknown>> = [];
+    const stoppedBrowserSessions: string[] = [];
     await installMockComparativeApi(page, {
+      runtimeCapabilities: { studioBrowser: true },
+      onStudioBrowserStart: async (body, route) => {
+        browserStartBody = body;
+        const target = body.target as { sourceNumber?: number } | undefined;
+        if (target?.sourceNumber === 3) {
+          await json(
+            route,
+            {
+              error: "browser_target_blocked",
+              message: "This site is blocked by the workspace web policy.",
+            },
+            403,
+          );
+          return;
+        }
+        await json(route, {
+          session: {
+            id: "00000000-0000-4000-8000-000000000741",
+            threadId,
+            status: "ready",
+            targetKind: "public",
+            displayUrl: "https://example.com/evidence",
+            origin: "https://example.com",
+            expiresAt: "2026-08-10T12:15:00.000Z",
+            viewport: { width: 1440, height: 900 },
+            fallback: {
+              title: "Live Browser unavailable",
+              detail: "Use the persisted source receipt.",
+            },
+          },
+        }, 201);
+      },
+      onStudioBrowserAction: async (sessionId, body, route) => {
+        browserActions.push({ sessionId, ...body });
+        await json(route, { ok: true });
+      },
+      onStudioBrowserScreenshot: async (_sessionId, route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "image/png",
+          body: Buffer.from(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+            "base64",
+          ),
+        });
+      },
+      onStudioBrowserStop: async (sessionId, route) => {
+        stoppedBrowserSessions.push(sessionId);
+        await route.fulfill({ status: 204, body: "" });
+      },
       threads: [
         {
           id: threadId,
@@ -63,6 +117,147 @@ test.describe("Contribution Studio", () => {
             id: "studio-assistant",
             content: "The brief is ready.",
             runId,
+            guardrails: {
+              schema: "comparative.guardrails.v1",
+              version: 1,
+              generatedAt: "2026-08-10T12:00:00.000Z",
+              runId,
+              autonomy: {
+                preset: "interactive",
+                label: "Interactive",
+                governingLayer: "session",
+                reason:
+                  "Reads run immediately. Writes pause for approval. Admin actions stay blocked.",
+              },
+              providers: [
+                {
+                  provider: "google",
+                  state: "reconnect_required",
+                  governingLayer: "connection",
+                  reason:
+                    "google must be reconnected before its tools can run.",
+                  remediation: "reconnect",
+                  mounted: false,
+                },
+                {
+                  provider: "notion",
+                  state: "attestation_required",
+                  governingLayer: "connection",
+                  reason:
+                    "notion is connected but has not been approved for agent use.",
+                  remediation: "attest",
+                  mounted: false,
+                },
+                {
+                  provider: "github",
+                  state: "execution_unavailable",
+                  governingLayer: "organization",
+                  reason:
+                    "github is connected, but tool execution is unavailable in this deployment.",
+                  remediation: "contact_admin",
+                  mounted: false,
+                },
+              ],
+              actions: [
+                {
+                  toolCallId: "approval-1",
+                  provider: "salesforce",
+                  action: "update_opportunity",
+                  state: "blocked",
+                  governingLayer: "organization",
+                  reason: "Blocked by organization policy.",
+                  outcome: "not_run",
+                },
+                {
+                  toolCallId: "approval-2",
+                  provider: "google",
+                  action: "draft_email",
+                  state: "approval_required",
+                  governingLayer: "action",
+                  reason: "Approval is required before this action can run.",
+                  outcome: "pending",
+                  approval: {
+                    kind: "exact_call",
+                    provider: "google",
+                    action: "draft_email",
+                    resourceScope: "exact_request",
+                    resourceLabel: "Only this exact request",
+                    expiresAt: "2026-08-11T12:00:00.000Z",
+                    approvalId: "approval-request-2",
+                  },
+                },
+                {
+                  toolCallId: "approval-3",
+                  provider: "google",
+                  action: "create_event",
+                  state: "skipped",
+                  governingLayer: "session",
+                  reason: "Skipped by unattended policy.",
+                  outcome: "not_run",
+                },
+                {
+                  toolCallId: "approval-4",
+                  provider: "github",
+                  action: "search_issues",
+                  state: "allowed",
+                  governingLayer: "agent_skill",
+                  reason: "Allowed by the active Skill policy.",
+                  outcome: "succeeded",
+                },
+                {
+                  toolCallId: "approval-5",
+                  provider: "notion",
+                  action: "update_page",
+                  state: "approved",
+                  governingLayer: "action",
+                  reason: "Approved for this action.",
+                  outcome: "succeeded",
+                  approval: {
+                    kind: "skill_tool",
+                    provider: "notion",
+                    action: "update_page",
+                    resourceScope: "tool_authority",
+                    resourceLabel: "This Skill's Notion update authority",
+                    expiresAt: "2026-09-10T12:00:00.000Z",
+                    approvalId: "standing-approval-5",
+                  },
+                },
+                {
+                  toolCallId: "approval-6",
+                  provider: "workfront",
+                  action: "create_task",
+                  state: "approved",
+                  governingLayer: "action",
+                  reason: "Approved for this action.",
+                  outcome: "failed",
+                  approval: {
+                    kind: "exact_call",
+                    provider: "workfront",
+                    action: "create_task",
+                    resourceScope: "exact_request",
+                    resourceLabel: "Only this exact request",
+                    approvalId: "approval-request-6",
+                  },
+                },
+              ],
+              budget: {
+                governingLayer: "organization",
+                limits: {
+                  tokens: 400_000,
+                  usd: 4,
+                  wallClockMs: 900_000,
+                  toolIterations: 8,
+                },
+                consumed: {
+                  tokens: 400_000,
+                  usd: 2.5,
+                  wallClockMs: 12_000,
+                  toolIterations: 2,
+                },
+                reached: "tokens",
+                partial: true,
+              },
+            },
             artifacts: [defaultArtifactSummary],
             providerReasoning: [
               {
@@ -86,6 +281,13 @@ test.describe("Contribution Studio", () => {
                 kind: "web",
                 url: "javascript:alert(1)",
                 toolCallId: "search-2",
+              },
+              {
+                n: 3,
+                title: "Denied evidence",
+                kind: "web",
+                url: "https://blocked.example/private",
+                toolCallId: "search-3",
               },
             ],
             activityEvents: [
@@ -159,19 +361,49 @@ test.describe("Contribution Studio", () => {
     await expect(studio.getByText("other-thread.md")).toHaveCount(0);
 
     await studio.getByRole("button", { name: "Browser" }).click();
-    const publicEvidence = studio.getByRole("link", {
-      name: "Open Public evidence",
-    });
-    await expect(publicEvidence).toHaveAttribute(
-      "href",
-      "https://example.com/evidence",
-    );
-    await expect(publicEvidence).toHaveAttribute("target", "_blank");
     await expect(
-      studio.getByRole("link", { name: "Open Blocked scheme" }),
-    ).toHaveCount(0);
+      studio.getByRole("button", { name: /Public evidence/ }),
+    ).toBeVisible();
+    await expect(studio.getByText("Blocked scheme")).toHaveCount(0);
 
     await studio.getByRole("button", { name: "Activity" }).click();
+    const guardrails = studio.getByTestId("studio-guardrails");
+    await expect(guardrails.getByText("Interactive autonomy")).toBeVisible();
+    await expect(guardrails.getByText("Reconnect required")).toBeVisible();
+    await expect(guardrails.getByText("Attestation required")).toBeVisible();
+    await expect(guardrails.getByText("Execution unavailable")).toBeVisible();
+    await expect(
+      guardrails.getByText("Salesforce · Update Opportunity"),
+    ).toBeVisible();
+    await expect(guardrails.getByText("Blocked · Organization")).toBeVisible();
+    await expect(guardrails.getByText("Google · Draft Email")).toBeVisible();
+    await expect(guardrails.getByText("Approval required · Action")).toBeVisible();
+    await expect(
+      guardrails.getByText("Scope: Only this exact request · Expires", {
+        exact: false,
+      }),
+    ).toBeVisible();
+    await expect(guardrails.getByText("Google · Create Event")).toBeVisible();
+    await expect(guardrails.getByText("Skipped · Session")).toBeVisible();
+    await expect(guardrails.getByText("GitHub · Search Issues")).toBeVisible();
+    await expect(guardrails.getByText("Allowed · Agent or Skill")).toBeVisible();
+    await expect(guardrails.getByText("Notion · Update Page")).toBeVisible();
+    await expect(guardrails.getByText("Approved · Action · Succeeded")).toBeVisible();
+    await expect(guardrails.getByText("Workfront · Create Task")).toBeVisible();
+    await expect(guardrails.getByText("Approved · Action · Failed")).toBeVisible();
+    await expect(
+      guardrails.locator('[data-guardrail-outcome="failed"] > .bg-danger'),
+    ).toBeVisible();
+    await expect(guardrails.getByText("Run budget")).toBeVisible();
+    await expect(guardrails.getByText("Stopped at tokens")).toBeVisible();
+    await expect(
+      guardrails.getByText("400K of 400K tokens", { exact: false }),
+    ).toBeVisible();
+    await expect(
+      guardrails.getByText("This Skill's Notion update authority", {
+        exact: false,
+      }),
+    ).toBeVisible();
     const workMap = page.getByTestId("studio-work-map");
     for (const state of ["planned", "active", "waiting", "failed", "canceled"]) {
       await expect(workMap.locator(`[data-state="${state}"]`)).toHaveCount(1);
@@ -181,6 +413,17 @@ test.describe("Contribution Studio", () => {
     await expect(studio.getByText("private chain of thought")).toHaveCount(0);
     await expect(
       studio.getByRole("button", { name: "Inspect run" }).first(),
+    ).toBeVisible();
+
+    await page.reload();
+    await page.getByRole("button", { name: "Show Contribution Studio" }).click();
+    await expect(studio).toBeVisible();
+    await studio.getByRole("button", { name: "Activity" }).click();
+    await expect(
+      studio.getByTestId("studio-guardrails").getByText("Skipped · Session"),
+    ).toBeVisible();
+    await expect(
+      studio.getByTestId("studio-guardrails").getByText("Stopped at tokens"),
     ).toBeVisible();
 
     if (!isMobile) {
@@ -215,6 +458,59 @@ test.describe("Contribution Studio", () => {
     await studio
       .getByRole("button", { name: "Close Contribution Studio" })
       .click();
+
+    await page.getByTestId("source-chip-1").click();
+    await expect(studio).toBeVisible();
+    await expect(studio.getByTestId("studio-browser-location")).toHaveText(
+      "https://example.com/evidence",
+    );
+    await expect(studio.getByText("Live Browser unavailable")).toBeVisible();
+    await studio.getByRole("button", { name: "Show snapshot" }).click();
+    const snapshot = studio.getByTestId("studio-browser-snapshot");
+    await expect(snapshot).toBeVisible();
+    await expect
+      .poll(() =>
+        snapshot.evaluate((element) =>
+          (element as HTMLImageElement).naturalWidth,
+        ),
+      )
+      .toBeGreaterThan(0);
+    expect(browserStartBody).toEqual({
+      threadId,
+      target: {
+        kind: "evidence",
+        messageId: "studio-assistant",
+        sourceNumber: 1,
+      },
+    });
+
+    for (const [label] of [
+      ["Back", "back"],
+      ["Forward", "forward"],
+      ["Reload", "reload"],
+    ] as const) {
+      await studio.getByRole("button", { name: label, exact: true }).click();
+    }
+    expect(browserActions).toEqual(
+      ["back", "forward", "reload"].map((action) => ({
+        sessionId: "00000000-0000-4000-8000-000000000741",
+        action,
+      })),
+    );
+
+    await studio.getByRole("button", { name: "Browser targets" }).click();
+    await expect(studio.getByText("Browser targets", { exact: true })).toBeVisible();
+    await expect.poll(() => stoppedBrowserSessions).toEqual([
+      "00000000-0000-4000-8000-000000000741",
+    ]);
+    await studio.getByRole("button", { name: /Denied evidence/ }).click();
+    await expect(studio.getByRole("alert")).toHaveText(
+      "This site is blocked by the workspace web policy.",
+    );
+    await studio
+      .getByRole("button", { name: "Close Contribution Studio" })
+      .click();
+
     await page.getByRole("button", { name: "Show Contribution Studio" }).click();
     await expect(
       page.getByRole("button", { name: "Activity" }),

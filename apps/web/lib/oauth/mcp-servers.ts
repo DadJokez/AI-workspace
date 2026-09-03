@@ -2,7 +2,7 @@ import { mcpToolName } from "@ai-workspace/agent";
 import type { Database } from "@ai-workspace/db";
 import { oauthTokens } from "@ai-workspace/db";
 import type { McpServerSpec } from "@ai-workspace/agent-runtime";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { decryptSecret } from "./crypto";
 import { INTEGRATION_DISPLAY_NAMES } from "@/lib/settings-navigation";
@@ -12,7 +12,7 @@ import {
   NOTION_MCP_RELAY_HEADER,
   notionMcpRelayToken,
 } from "@/lib/notion/mcp";
-import type { ToolActionLevel } from "@/lib/tool-policy";
+import type { ToolPolicyDecision } from "@/lib/tool-policy";
 import {
   GOOGLE_MCP_CONTEXT_HEADER,
   GOOGLE_MCP_PATH,
@@ -42,6 +42,7 @@ import {
 } from "@/lib/oauth/salesforce-token";
 import {
   filterAttestedProviders,
+  loadActiveMcpProviders,
   loadActiveToolAttestations,
   loadToolCatalogForProviders,
 } from "@/lib/tool-attestations";
@@ -156,6 +157,8 @@ export interface UserMcpProviderStatus {
   allowedProviders: string[];
   /** Connected but blocked by user/tool attestation. */
   deniedProviders: string[];
+  /** Connected, but disabled at the organization connector registry. */
+  disabledProviders?: string[];
   /** Connected + attested, but this deployment cannot mount the provider yet. */
   executionUnavailableProviders?: string[];
   /** Connected Google grants that must be renewed before tools can mount. */
@@ -171,8 +174,8 @@ export interface UserMcpProviderStatus {
     string,
     { allowedTools?: string[]; blockedTools?: string[] }
   >;
-  /** Catalog action per `provider__toolName` for policy audit stamps (#410). */
-  toolActions?: Record<string, ToolActionLevel>;
+  /** Persisted policy per `provider__toolName` for audit stamps (#410). */
+  toolPolicyDecisions?: Record<string, ToolPolicyDecision>;
   providerAvailability?: Record<
     string,
     {
@@ -184,6 +187,7 @@ export interface UserMcpProviderStatus {
       modelAvailable: boolean;
       status:
         | "ready"
+        | "connector_disabled"
         | "pending_approval"
         | "reconnect_required"
         | "temporarily_unavailable"
@@ -222,17 +226,20 @@ export async function loadUserMcpProviderStatus(
         expiresAt: oauthTokens.expiresAt,
       })
       .from(oauthTokens)
-      .where(eq(oauthTokens.userId, userId));
+      .where(
+        and(eq(oauthTokens.userId, userId), isNull(oauthTokens.revokedAt)),
+      );
   } catch (err) {
     console.warn("[mcp] oauth_tokens provider lookup failed:", err);
     return {
       connectedProviders: [],
       allowedProviders: [],
       deniedProviders: [],
+      disabledProviders: [],
       executionUnavailableProviders: [],
       comingSoonProviders: [],
       toolPolicies: {},
-      toolActions: {},
+      toolPolicyDecisions: {},
       providerAvailability: {},
     };
   }
@@ -281,13 +288,29 @@ export async function loadUserMcpProviderStatus(
     googleConnection,
     salesforceConnection,
   );
+  let activeRegisteredProviders: string[] = [];
+  try {
+    activeRegisteredProviders = await loadActiveMcpProviders(
+      db,
+      connectedProviders,
+    );
+  } catch (err) {
+    console.warn(
+      "[mcp] connector registry lookup failed; denying providers:",
+      err,
+    );
+  }
+  const activeProviderSet = new Set(activeRegisteredProviders);
+  const disabledProviders = connectedProviders.filter(
+    (provider) => !activeProviderSet.has(provider),
+  );
   const {
     allowedProviders: attestedProviders,
     deniedProviders,
     toolPolicies: attestedToolPolicies,
-    toolActions,
+    toolPolicyDecisions,
   } =
-    await resolveAttestedProviders(db, userId, connectedProviders);
+    await resolveAttestedProviders(db, userId, activeRegisteredProviders);
   const credentialUnavailableProviders = attestedProviders.filter(
     (provider) =>
       (provider === "google" && googleConnection?.ready !== true) ||
@@ -319,18 +342,20 @@ export async function loadUserMcpProviderStatus(
   return {
     connectedProviders,
     allowedProviders,
-    deniedProviders,
+    deniedProviders: [...deniedProviders, ...disabledProviders],
+    disabledProviders,
     executionUnavailableProviders,
     reconnectRequiredProviders,
     comingSoonProviders,
     toolPolicies,
-    toolActions,
+    toolPolicyDecisions,
     providerAvailability: buildProviderAvailability({
       connectedProviders,
       attestedProviders,
       allowedProviders,
       deniedProviders,
       executionUnavailableProviders,
+      disabledProviders,
       googleConnection,
       salesforceConnection,
     }),
@@ -362,6 +387,7 @@ export async function buildUserMcpServers(
 ): Promise<{
   mcpServers: Record<string, McpServerSpec> | undefined;
   deniedProviders: string[];
+  toolPolicyDecisions: Record<string, ToolPolicyDecision>;
   requiredToolName?: string;
   writeAuthorizationReceipts: McpWriteAuthorizationReceipt[];
 }> {
@@ -396,12 +422,15 @@ export async function buildUserMcpServers(
         expiresAt: oauthTokens.expiresAt,
       })
       .from(oauthTokens)
-      .where(eq(oauthTokens.userId, userId));
+      .where(
+        and(eq(oauthTokens.userId, userId), isNull(oauthTokens.revokedAt)),
+      );
   } catch (err) {
     console.warn("[mcp] oauth_tokens lookup failed:", err);
     return {
       mcpServers: undefined,
       deniedProviders: [],
+      toolPolicyDecisions: {},
       writeAuthorizationReceipts,
       ...(requiredToolName ? { requiredToolName } : {}),
     };
@@ -524,6 +553,13 @@ export async function buildUserMcpServers(
       url: endpoint.url,
       headers,
       ...resolvedToolPolicy,
+      toolPolicies: runtimeToolPoliciesForProvider(
+        status.toolPolicyDecisions ?? {},
+        row.provider,
+      ),
+      // The endpoint may add a tool after this catalog snapshot. Keep that
+      // tool usable during this transition, but never classify it as allowed.
+      defaultToolPolicy: "needs_approval",
       ...(providerConfig.usageNotesByTool
         ? { usageNotesByTool: providerConfig.usageNotesByTool }
         : {}),
@@ -535,9 +571,23 @@ export async function buildUserMcpServers(
   return {
     mcpServers: Object.keys(out).length > 0 ? out : undefined,
     deniedProviders,
+    toolPolicyDecisions: status.toolPolicyDecisions ?? {},
     writeAuthorizationReceipts,
     ...(requiredToolName ? { requiredToolName } : {}),
   };
+}
+
+export function runtimeToolPoliciesForProvider(
+  decisions: Record<string, ToolPolicyDecision>,
+  provider: string,
+): Record<string, ToolPolicyDecision> {
+  const prefix = `${provider}__`;
+  return Object.fromEntries(
+    Object.entries(decisions).flatMap(([key, policy]) => {
+      if (!key.startsWith(prefix) || key.length === prefix.length) return [];
+      return [[key.slice(prefix.length), policy]];
+    }),
+  );
 }
 
 function buildProviderAvailability({
@@ -546,6 +596,7 @@ function buildProviderAvailability({
   allowedProviders,
   deniedProviders,
   executionUnavailableProviders,
+  disabledProviders,
   googleConnection,
   salesforceConnection,
 }: {
@@ -554,6 +605,7 @@ function buildProviderAvailability({
   allowedProviders: readonly string[];
   deniedProviders: readonly string[];
   executionUnavailableProviders: readonly string[];
+  disabledProviders: readonly string[];
   googleConnection: GoogleConnectionState | null;
   salesforceConnection: SalesforceConnectionState | null;
 }): UserMcpProviderStatus["providerAvailability"] {
@@ -561,6 +613,7 @@ function buildProviderAvailability({
   const allowed = new Set(allowedProviders);
   const denied = new Set(deniedProviders);
   const unavailable = new Set(executionUnavailableProviders);
+  const connectorDisabled = new Set(disabledProviders);
   return Object.fromEntries(
     connectedProviders.map((provider) => {
       const execution = getMcpProviderExecutionStatus(provider);
@@ -573,17 +626,19 @@ function buildProviderAvailability({
             : null;
       const status = modelAvailable
         ? "ready"
-        : credentialState?.status === "reconnect_required"
-          ? "reconnect_required"
-          : credentialState?.status === "temporarily_unavailable"
-            ? "temporarily_unavailable"
-        : denied.has(provider)
-          ? "pending_approval"
-          : unavailable.has(provider)
-            ? "execution_not_configured"
-            : execution.reason === "unsupported_provider"
-              ? "unsupported_provider"
-              : "pending_approval";
+        : connectorDisabled.has(provider)
+          ? "connector_disabled"
+          : credentialState?.status === "reconnect_required"
+            ? "reconnect_required"
+            : credentialState?.status === "temporarily_unavailable"
+              ? "temporarily_unavailable"
+              : denied.has(provider)
+                ? "pending_approval"
+                : unavailable.has(provider)
+                  ? "execution_not_configured"
+                  : execution.reason === "unsupported_provider"
+                    ? "unsupported_provider"
+                    : "pending_approval";
       return [
         provider,
         {
@@ -594,11 +649,13 @@ function buildProviderAvailability({
           toolMountable: modelAvailable,
           modelAvailable,
           status,
-          ...(credentialState && "reason" in credentialState
-            ? { reason: credentialState.reason }
-            : execution.reason
-              ? { reason: execution.reason }
-              : {}),
+          ...(connectorDisabled.has(provider)
+            ? { reason: "connector_disabled" }
+            : credentialState && "reason" in credentialState
+              ? { reason: credentialState.reason }
+              : execution.reason
+                ? { reason: execution.reason }
+                : {}),
         },
       ];
     }),
@@ -754,14 +811,14 @@ async function resolveAttestedProviders(
     string,
     { allowedTools?: string[]; blockedTools?: string[] }
   >;
-  toolActions: Record<string, ToolActionLevel>;
+  toolPolicyDecisions: Record<string, ToolPolicyDecision>;
 }> {
   if (requestedProviders.length === 0) {
     return {
       allowedProviders: [],
       deniedProviders: [],
       toolPolicies: {},
-      toolActions: {},
+      toolPolicyDecisions: {},
     };
   }
   try {
@@ -776,7 +833,7 @@ async function resolveAttestedProviders(
       allowedProviders: [],
       deniedProviders: requestedProviders,
       toolPolicies: {},
-      toolActions: {},
+      toolPolicyDecisions: {},
     };
   }
 }

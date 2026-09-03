@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Database, Run } from "@ai-workspace/db";
+import { RUN_BUDGET_RECEIPT_SCHEMA } from "@ai-workspace/agent";
 import {
   buildDigest,
   createProactiveRunNotification,
@@ -158,6 +159,65 @@ describe("createProactiveRunNotification", () => {
     expect(captured.inserts[0]).toMatchObject({
       body:
         "New work is ready for review. Open the thread to preview the proposal and accept or discard it.",
+    });
+  });
+
+  it("reports skipped unattended writes without turning a successful run red", async () => {
+    const { db, captured } = fakeDb([[{ name: "Weekly Status" }]]);
+
+    await createProactiveRunNotification(
+      db,
+      scheduledRun(),
+      "succeeded",
+      THREAD_ID,
+      { skippedWriteCount: 2 },
+    );
+
+    expect(captured.inserts[0]).toMatchObject({
+      type: "run_succeeded",
+      title: "Weekly Status finished",
+      body:
+        "A scheduled run completed while you were away. Open it to see the result. 2 write actions were skipped because approval is required.",
+    });
+  });
+
+  it("labels a partial unattended result truthfully when a budget stops it", async () => {
+    const { db, captured } = fakeDb([[{ name: "Weekly Status" }]]);
+
+    await createProactiveRunNotification(
+      db,
+      scheduledRun(),
+      "succeeded",
+      THREAD_ID,
+      {
+        budgetReceipt: {
+          schema: RUN_BUDGET_RECEIPT_SCHEMA,
+          version: 1,
+          governingLayer: "organization",
+          limits: {
+            tokens: 750_000,
+            usd: 8,
+            wallClockMs: 2_700_000,
+            toolIterations: 8,
+          },
+          consumed: {
+            tokens: 750_000,
+            usd: 2,
+            wallClockMs: 60_000,
+            toolIterations: 2,
+          },
+          reached: "tokens",
+          partial: true,
+        },
+      },
+    );
+
+    expect(captured.inserts[0]).toMatchObject({
+      type: "run_succeeded",
+      title: "Weekly Status reached its budget",
+      body: expect.stringContaining(
+        "stopped after reaching its token budget. Partial work is ready",
+      ),
     });
   });
 

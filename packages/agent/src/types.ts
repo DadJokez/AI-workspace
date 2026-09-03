@@ -1,4 +1,5 @@
 import type { JSONSchema7 } from "json-schema";
+import type { RunBudgetReceipt } from "./run-budget";
 
 /**
  * Per-request context passed to every tool handler.
@@ -13,6 +14,58 @@ export type ToolHandler<TInput = unknown, TOutput = unknown> = (
   ctx: ToolContext,
 ) => Promise<TOutput>;
 
+export type ToolRuntimePolicy =
+  | "always_allow"
+  | "needs_approval"
+  | "blocked";
+
+export type ToolPolicyAuditDecision =
+  | "auto_allowed"
+  | "approved_by_user"
+  | "denied"
+  | "blocked"
+  | "would_need_approval"
+  | "would_block"
+  | "uncataloged_would_need_approval";
+
+/** Endpoint-bound identity for a tool mounted from a trusted MCP server. */
+export interface McpToolExecutionIdentity {
+  kind: "mcp";
+  provider: string;
+  endpoint: string;
+  nativeToolName: string;
+}
+
+/** Serializable pause payload used by both runtime lanes in the approval slice. */
+export interface ToolApprovalRequest {
+  schema: "comparative.tool-approval-request.v1";
+  toolCallId: string;
+  toolName: string;
+  identity?: McpToolExecutionIdentity;
+  /** Canonical SHA-256 identity + argument fingerprint for exact-call grants. */
+  fingerprint: string;
+}
+
+export interface ToolApprovalGrant {
+  schema: "comparative.tool-approval-grant.v1";
+  approvalId: string;
+  /** Durable identity + canonical arguments; provider tool-call ids regenerate. */
+  fingerprint?: string;
+  /** Skill-scoped grants match only this trusted endpoint/tool identity. */
+  identity?: McpToolExecutionIdentity;
+  scope?: "exact_call" | "skill_tool";
+  /** ISO timestamp; runtimes reject an expired standing grant fail-closed. */
+  expiresAt?: string;
+  decision: "approved" | "denied";
+  /** Once consumed, the receipt may replay its result but never execute again. */
+  consumed?: boolean;
+  /** Redacted persisted output used to resume a multi-approval turn safely. */
+  replayOutput?: unknown;
+}
+
+/** What the runtime does when a write lacks an applicable approval grant. */
+export type ToolApprovalMode = "request" | "deny_unattended";
+
 /**
  * Standard tool shape. Same interface whether the handler hits Microsoft Graph,
  * an internal API, a future MCP server, or pure compute. Bedrock's converse API
@@ -23,6 +76,10 @@ export interface Tool<TInput = unknown, TOutput = unknown> {
   description: string;
   inputSchema: JSONSchema7;
   handler: ToolHandler<TInput, TOutput>;
+  /** Deterministic runtime policy resolved before the tool reaches the loop. */
+  policy?: ToolRuntimePolicy;
+  /** Exact trusted endpoint/tool identity used to resolve MCP policy. */
+  executionIdentity?: McpToolExecutionIdentity;
   /**
    * Trusted application guidance delivered with this tool's first completed
    * result in an agent turn. It is intentionally omitted from the mounted
@@ -69,6 +126,10 @@ export interface ToolResult {
   toolCallId: string;
   output: unknown;
   isError?: boolean;
+  /** Actual runtime decision when enforcement metadata reached the executor. */
+  policyDecision?: ToolPolicyAuditDecision;
+  /** Durable approval receipt consumed by this exact tool call. */
+  approvalId?: string;
   /** True only when this result carried the tool's JIT usage guidance. */
   usageNotesDelivered?: boolean;
 }
@@ -157,8 +218,10 @@ export type AgentEvent =
     }
   | ({ type: "provider-response-metadata" } & ProviderResponseMetadata)
   | { type: "tool-call"; call: ToolCall }
+  | { type: "tool-approval-required"; requests: ToolApprovalRequest[] }
   | { type: "tool-result"; result: ToolResult }
   | ({ type: "usage" } & TokenUsage)
+  | { type: "budget"; receipt: RunBudgetReceipt }
   | {
       type: "error";
       message: string;

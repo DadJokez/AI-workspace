@@ -70,6 +70,7 @@ interface Props {
   contextResourceSelections?: ContextResourceSearchResult[];
   assistantName?: string | null;
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+  onOpenSource?: (source: AssistantSource) => void;
   onDeployAppDraft?: (version: AppDraftVersionSummary) => void;
   onDiscardAppProposal?: (version: AppDraftVersionSummary) => void;
   onIterateAppProposal?: (
@@ -123,6 +124,7 @@ export function MessageBubble({
   contextResourceSelections = [],
   assistantName,
   onOpenArtifact,
+  onOpenSource,
   onDeployAppDraft,
   onDiscardAppProposal,
   onIterateAppProposal,
@@ -337,6 +339,7 @@ export function MessageBubble({
           sources={sources}
           artifacts={artifacts}
           onOpenArtifact={onOpenArtifact}
+          onOpenSource={onOpenSource}
         />
       ) : null}
       {role === "assistant" && standaloneProposalArtifacts.length > 0 ? (
@@ -1152,10 +1155,12 @@ function SourceStrip({
   sources,
   artifacts,
   onOpenArtifact,
+  onOpenSource,
 }: {
   sources: AssistantSource[];
   artifacts: WorkspaceArtifactSummary[];
   onOpenArtifact?: (artifact: WorkspaceArtifactSummary) => void;
+  onOpenSource?: (source: AssistantSource) => void;
 }) {
   return (
     <div
@@ -1192,6 +1197,18 @@ function SourceStrip({
           source.url &&
           (source.kind === "web" || source.kind === "repo")
         ) {
+          if (onOpenSource) {
+            return (
+              <button
+                key={source.n}
+                type="button"
+                {...sharedProps}
+                onClick={() => onOpenSource(source)}
+              >
+                {content}
+              </button>
+            );
+          }
           return (
             <a
               key={source.n}
@@ -1354,7 +1371,9 @@ function ArtifactCodePreview({
       <div className="border-t border-hairline">
         <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-2xs text-muted">
           <span className="min-w-0 truncate">{label}</span>
-          <span className="shrink-0">{formatBytes(code.length)}</span>
+          <span className="shrink-0">
+            {formatBytes(new TextEncoder().encode(code).byteLength)}
+          </span>
         </div>
         <pre
           data-testid="artifact-code-preview-scroll"
@@ -1854,6 +1873,29 @@ function ActivityDot({
   );
 }
 
+function markdownTableColumnCount(node: unknown): number {
+  if (!node || typeof node !== "object") return 0;
+
+  const current = node as {
+    type?: unknown;
+    tagName?: unknown;
+    children?: unknown;
+  };
+  const children = Array.isArray(current.children) ? current.children : [];
+  if (current.type === "element" && current.tagName === "tr") {
+    return children.filter((child) => {
+      if (!child || typeof child !== "object") return false;
+      const tagName = (child as { tagName?: unknown }).tagName;
+      return tagName === "th" || tagName === "td";
+    }).length;
+  }
+
+  return children.reduce(
+    (maximum, child) => Math.max(maximum, markdownTableColumnCount(child)),
+    0,
+  );
+}
+
 const MARKDOWN_COMPONENTS: Components = {
   p: (props) => <p className="my-2 first:mt-0 last:mb-0" {...props} />,
   h1: (props) => (
@@ -1884,21 +1926,25 @@ const MARKDOWN_COMPONENTS: Components = {
   a: (props) => (
     <a className="underline" target="_blank" rel="noreferrer" {...props} />
   ),
-  // GFM tables. The outer div gives mobile a horizontal scroll. The table
-  // itself uses `width: min-content` so columns expand to their natural
-  // width instead of squishing — wide tables overflow into the scroller
-  // rather than wrapping cell text. `whitespace-nowrap` on cells keeps
-  // each cell on a single line; readers scroll horizontally to see more.
-  table: ({ children }) => (
-    <div className="my-2 w-full overflow-x-auto first:mt-0 last:mb-0">
-      <table
-        className="border-collapse text-sm"
-        style={{ width: "min-content", minWidth: "100%" }}
+  // Ordinary GFM tables wrap within the message column. Wide tables get a
+  // stable per-column width so the outer scroller remains useful.
+  table: ({ children, node }) => {
+    const columnCount = markdownTableColumnCount(node);
+    const isWide = columnCount >= 7;
+    return (
+      <div
+        className="my-2 w-full overflow-x-auto first:mt-0 last:mb-0"
+        data-table-layout={isWide ? "scroll" : "wrap"}
       >
-        {children}
-      </table>
-    </div>
-  ),
+        <table
+          className={`${isWide ? "table-fixed" : "w-full table-fixed"} border-collapse text-sm`}
+          style={isWide ? { width: `${columnCount * 10}rem` } : undefined}
+        >
+          {children}
+        </table>
+      </div>
+    );
+  },
   thead: (props) => <thead className="bg-subtle" {...props} />,
   tbody: (props) => <tbody {...props} />,
   tr: (props) => (
@@ -1906,13 +1952,13 @@ const MARKDOWN_COMPONENTS: Components = {
   ),
   th: (props) => (
     <th
-      className="whitespace-nowrap border-b border-hairline px-3 py-2 text-left align-top font-semibold text-ink"
+      className="max-w-[24rem] whitespace-normal border-b border-hairline px-3 py-2 text-left align-top font-semibold text-ink [overflow-wrap:anywhere]"
       {...props}
     />
   ),
   td: (props) => (
     <td
-      className="whitespace-nowrap px-3 py-2 align-top text-ink"
+      className="max-w-[24rem] whitespace-normal px-3 py-2 align-top text-ink [overflow-wrap:anywhere]"
       {...props}
     />
   ),

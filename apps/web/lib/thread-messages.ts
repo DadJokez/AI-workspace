@@ -48,17 +48,27 @@ import {
   type ContextResourceReference,
 } from "@/lib/context-shelf";
 import { loadThreadBranchSnapshotArtifacts } from "@/lib/thread-branches";
+import {
+  parsePublicToolApprovalRequests,
+  type PublicToolApprovalRequest,
+} from "@/lib/tool-approvals";
+import {
+  parseGuardrailReceipt,
+  type GuardrailReceipt,
+} from "@/lib/guardrail-receipts";
 
 export interface ChatRunOutput {
   assistantMessageId?: string;
   assistantText?: string;
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
+  approvalRequests?: PublicToolApprovalRequest[];
   artifacts?: WorkspaceArtifactSummary[];
   appDraftVersions?: AppDraftVersionSummary[];
   sources?: AssistantSource[];
   contextResourceReferences?: ContextResourceReference[];
   contextResourceManifest?: ContextResourceManifest;
+  guardrails?: GuardrailReceipt;
   /** Aggregate only, derived from the persisted usage object. */
   liveTokens?: number;
 }
@@ -72,6 +82,8 @@ export interface ThreadMessageWithActivity {
   runtimeLane?: ChatRuntimeLane;
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
+  approvalRequests?: PublicToolApprovalRequest[];
+  guardrails?: GuardrailReceipt;
   /** Persisted per-turn usage for the cost meter (#330); null pre-#330 rows. */
   tokensIn?: number | null;
   tokensOut?: number | null;
@@ -218,6 +230,7 @@ export async function loadThreadMessagesWithRunActivity({
     string,
     ContextResourceManifest
   >();
+  const guardrailsByAssistantMessageId = new Map<string, GuardrailReceipt>();
   const activeRunMessages: ThreadMessageWithActivity[] = [];
   const visibleMessageIds = new Set(messageIds);
   const visibleChatRunIds = latestVisibleChatRunIds(runRows, visibleMessageIds);
@@ -291,11 +304,18 @@ export async function loadThreadMessagesWithRunActivity({
           contextResourceManifest,
         );
       }
+      if (output.guardrails) {
+        guardrailsByAssistantMessageId.set(
+          output.assistantMessageId,
+          output.guardrails,
+        );
+      }
       continue;
     }
     if (
       run.status !== "queued" &&
       run.status !== "running" &&
+      run.status !== "waiting_for_approval" &&
       run.status !== "failed" &&
       run.status !== "canceled"
     ) {
@@ -316,6 +336,8 @@ export async function loadThreadMessagesWithRunActivity({
       ...(runtimeLane ? { runtimeLane } : {}),
       toolCalls: output.toolCalls ?? null,
       toolResults: output.toolResults ?? null,
+      approvalRequests: output.approvalRequests,
+      guardrails: output.guardrails,
       artifacts: output.artifacts,
       appDraftVersions: output.appDraftVersions,
       sources: output.sources,
@@ -335,16 +357,21 @@ export async function loadThreadMessagesWithRunActivity({
           }
         : {}),
       status:
-        latestActivityLabel(activityEvents) ??
-        (run.status === "queued"
-          ? "Queued..."
-          : run.status === "running"
-            ? "Working..."
-            : undefined),
+        run.status === "waiting_for_approval"
+          ? "Approval required"
+          : latestActivityLabel(activityEvents) ??
+            (run.status === "queued"
+              ? "Queued..."
+              : run.status === "running"
+                ? "Working..."
+                : undefined),
       runId: run.id,
       runStatus: run.status,
       runError: run.error,
-      canCancel: run.status === "queued" || run.status === "running",
+      canCancel:
+        run.status === "queued" ||
+        run.status === "running" ||
+        run.status === "waiting_for_approval",
       canRetry:
         (run.status === "failed" || run.status === "canceled") &&
         !proposalIterationFromRunInputs(run.inputs),
@@ -446,6 +473,7 @@ export async function loadThreadMessagesWithRunActivity({
     contextResourceManifest:
       contextManifestByAssistantMessageId.get(message.id) ??
       contextManifestByUserMessageId.get(message.id),
+    guardrails: guardrailsByAssistantMessageId.get(message.id),
     recommendations: recommendationsByMessageId.get(message.id),
   }));
 
@@ -598,6 +626,8 @@ function parseChatRunOutput(value: unknown): ChatRunOutput {
     toolResults: Array.isArray(value.toolResults)
       ? (value.toolResults as PersistedToolResult[])
       : undefined,
+    approvalRequests: parsePublicToolApprovalRequests(value.approvalRequests),
+    guardrails: parseGuardrailReceipt(value.guardrails) ?? undefined,
     artifacts: Array.isArray(value.artifacts)
       ? (value.artifacts as WorkspaceArtifactSummary[])
       : undefined,

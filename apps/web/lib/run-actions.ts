@@ -4,6 +4,7 @@ import {
   type Database,
   runs,
   type Run,
+  toolApprovalRequests,
 } from "@ai-workspace/db";
 import { and, eq, inArray } from "drizzle-orm";
 
@@ -32,6 +33,12 @@ import {
   artifactReviewRequestFromRunInputs,
   releaseArtifactReviewRequest,
 } from "@/lib/artifact-review";
+import { resolveAutonomyPreset } from "@/lib/autonomy-presets";
+import {
+  resolveRetryRunBudget,
+  runBudgetEnvelopeForEvent,
+  runBudgetLaneFromRoute,
+} from "@/lib/run-budget-policy";
 
 type RunActionResult =
   | { ok: true; run: Pick<Run, "id" | "status"> }
@@ -103,7 +110,11 @@ export async function cancelRun({
       if (run.status === "canceled") {
         return { kind: "kept", outcome: "already_canceled", run };
       }
-      if (run.status !== "queued" && run.status !== "running") {
+      if (
+        run.status !== "queued" &&
+        run.status !== "running" &&
+        run.status !== "waiting_for_approval"
+      ) {
         return { kind: "kept", outcome: "already_terminal", run };
       }
       const committedMessageId = isRecord(run.outputs)
@@ -126,8 +137,26 @@ export async function cancelRun({
         })
         // Defense in depth: the lock already pinned the status, but never let
         // this write stomp a terminal row even if the guards above drift.
-        .where(and(eq(runs.id, run.id), inArray(runs.status, ["queued", "running"])))
+        .where(
+          and(
+            eq(runs.id, run.id),
+            inArray(runs.status, [
+              "queued",
+              "running",
+              "waiting_for_approval",
+            ]),
+          ),
+        )
         .returning({ id: runs.id, status: runs.status });
+      await tx
+        .update(toolApprovalRequests)
+        .set({ status: "expired", decidedAt: now, updatedAt: now })
+        .where(
+          and(
+            eq(toolApprovalRequests.runId, run.id),
+            eq(toolApprovalRequests.status, "pending"),
+          ),
+        );
       return { kind: "canceled", run, updated: updated[0]! };
     },
   );
@@ -287,6 +316,13 @@ export async function retryChatRun({
   }
 
   const now = new Date();
+  const retryTriggerType =
+    run.skillSlug === "chat-turn" ? "chat_retry" : "skill_retry";
+  const runBudget = resolveRetryRunBudget({
+    source: inputs.runBudget,
+    lane: runBudgetLaneFromRoute(inputs.runtimeRoute),
+    triggerType: retryTriggerType,
+  });
   const rows = await db
     .insert(runs)
     .values({
@@ -297,16 +333,18 @@ export async function retryChatRun({
       scheduleId: run.scheduleId,
       eventTriggerId: run.eventTriggerId,
       eventDeliveryId: null,
-      triggerType: run.skillSlug === "chat-turn" ? "chat_retry" : "skill_retry",
+      triggerType: retryTriggerType,
       status: "queued",
       modelId: run.modelId,
       inputs: {
         ...inputs,
+        autonomyPreset: resolveAutonomyPreset(retryTriggerType).name,
         retryOfRunId: run.id,
         retryOfStatus: run.status,
         retryOfError: run.error,
         retryRequestedAt: now.toISOString(),
         retryRequestedByUserId: actor.id,
+        runBudget,
       },
       updatedAt: now,
     })
@@ -324,6 +362,7 @@ export async function retryChatRun({
       threadId: inputs.threadId,
       userMessageId: inputs.userMessageId,
       modelId: run.modelId,
+      runBudget: runBudgetEnvelopeForEvent(runBudget),
     },
   });
   await db.insert(auditLog).values({
@@ -335,7 +374,10 @@ export async function retryChatRun({
     chatThreadId: inputs.threadId,
     runId: nextRun.id,
     input: { retryOfRunId: run.id },
-    metadata: { sourceStatus: run.status },
+    metadata: {
+      sourceStatus: run.status,
+      runBudget: runBudgetEnvelopeForEvent(runBudget),
+    },
     startedAt: now,
     completedAt: now,
   });

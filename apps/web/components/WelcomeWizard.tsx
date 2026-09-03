@@ -8,6 +8,7 @@ import {
   WIZARD_STEP_STORAGE_KEY,
 } from "@/lib/local-storage-migrations";
 import { resolveWelcomeStep, type WelcomeStep } from "@/lib/tour";
+import { useDialogFocusTrap } from "@/lib/use-dialog-focus-trap";
 
 /**
  * First-login setup (specs/005): name the assistant, then show the factual
@@ -39,6 +40,18 @@ export function WelcomeWizard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const openedRef = useRef(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  useDialogFocusTrap({
+    active: open && step === "name",
+    dialogRef,
+    initialFocusRef: nameInputRef,
+    onEscape: () => {
+      clearWizardState();
+      onComplete();
+    },
+  });
 
   // Restore a drafted name and carry users stranded on a retired setup step
   // directly into the tour. Only initialize once per open/close cycle so the
@@ -100,10 +113,12 @@ export function WelcomeWizard({
 
   return (
     <div
+      ref={dialogRef}
       className="fixed inset-0 z-[95] flex items-center justify-center bg-black/55 p-4"
       role="dialog"
       aria-modal="true"
       aria-label="Welcome setup"
+      tabIndex={-1}
     >
       <div className="w-[min(94vw,460px)] rounded-md border border-hairline bg-canvas p-5 text-ink shadow-lg">
         <p className="text-xs font-medium text-muted">
@@ -115,7 +130,8 @@ export function WelcomeWizard({
           Settings.
         </p>
         <input
-          autoFocus
+          ref={nameInputRef}
+          aria-label="Assistant name"
           value={name}
           onChange={(e) => {
             setName(e.target.value);

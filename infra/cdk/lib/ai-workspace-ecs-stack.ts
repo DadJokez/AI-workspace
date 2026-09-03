@@ -1,5 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
+import * as agentcore from "aws-cdk-lib/aws-bedrockagentcore";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecr from "aws-cdk-lib/aws-ecr";
@@ -45,6 +46,17 @@ const WORKER_TASK_SIZE = {
 const WEB_MIN_TASK_COUNT = 2;
 const CLUSTER_NAME = "ai-workspace-prod";
 const WEB_SERVICE_NAME = "ai-workspace-web";
+const BROWSER_PROXY_SERVICE_NAME = "ai-workspace-browser-proxy";
+const BROWSER_PROXY_PORT = 3128;
+// AgentCore Browser currently supports physical AZs use1-az1, use1-az2, and
+// use1-az4 in us-east-1. In Comparative's production account those map to the
+// following names. Passing all six default-VPC subnets makes BrowserCustom
+// fail creation, so keep its subnet selection narrower than the ECS services.
+const STUDIO_BROWSER_AVAILABILITY_ZONES = [
+  "us-east-1a",
+  "us-east-1b",
+  "us-east-1c",
+];
 const BEDROCK_SONNET_45_MODEL_ID =
   "us.anthropic.claude-sonnet-4-5-20250929-v1:0";
 const BEDROCK_SONNET_45_DAILY_TOKEN_QUOTA = 5_400_000;
@@ -66,6 +78,16 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       description:
         "ECR image tag suffix to deploy (commit SHA in CI; 'latest' only for manual deploys). Workers use worker-<tag>/memory-worker-<tag>.",
     });
+    const browserProxyImageTag = new cdk.CfnParameter(
+      this,
+      "BrowserProxyImageTag",
+      {
+        type: "String",
+        default: "worker-latest",
+        description:
+          "Exact worker image tag for the Browser proxy. Rollbacks preserve the currently deployed proxy so pre-Browser app images remain valid rollback targets.",
+      },
+    );
 
     const domainName = contextString(
       this,
@@ -173,6 +195,9 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       vpc,
       containerInsightsV2: ecs.ContainerInsights.DISABLED,
     });
+    cluster.addDefaultCloudMapNamespace({
+      name: "comparative.internal",
+    });
 
     const webSecurityGroup = new ec2.SecurityGroup(this, "WebSecurityGroup", {
       vpc,
@@ -187,6 +212,64 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
         description: "AI Workspace background workers",
         allowAllOutbound: true,
       },
+    );
+    const browserProxySecurityGroup = new ec2.SecurityGroup(
+      this,
+      "BrowserProxySecurityGroup",
+      {
+        vpc,
+        description: "Comparative governed AgentCore Browser egress proxy",
+        allowAllOutbound: false,
+      },
+    );
+    const browserSecurityGroup = new ec2.SecurityGroup(
+      this,
+      "StudioBrowserSecurityGroup",
+      {
+        vpc,
+        description: "AgentCore Browser restricted to proxy and VPC DNS",
+        allowAllOutbound: false,
+      },
+    );
+    browserProxySecurityGroup.addIngressRule(
+      browserSecurityGroup,
+      ec2.Port.tcp(BROWSER_PROXY_PORT),
+      "AgentCore Browser reaches only the governed proxy",
+    );
+    browserSecurityGroup.addEgressRule(
+      browserProxySecurityGroup,
+      ec2.Port.tcp(BROWSER_PROXY_PORT),
+      "Browser egress through Comparative proxy",
+    );
+    browserSecurityGroup.addEgressRule(
+      ec2.Peer.ipv4(vpc.vpcCidrBlock),
+      ec2.Port.udp(53),
+      "VPC DNS resolution",
+    );
+    browserSecurityGroup.addEgressRule(
+      ec2.Peer.ipv4(vpc.vpcCidrBlock),
+      ec2.Port.tcp(53),
+      "VPC DNS resolution over TCP",
+    );
+    browserProxySecurityGroup.addEgressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(80),
+      "Public HTTP targets",
+    );
+    browserProxySecurityGroup.addEgressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(443),
+      "Public HTTPS and AWS APIs",
+    );
+    browserProxySecurityGroup.addEgressRule(
+      ec2.Peer.ipv4(vpc.vpcCidrBlock),
+      ec2.Port.udp(53),
+      "VPC DNS resolution",
+    );
+    browserProxySecurityGroup.addEgressRule(
+      ec2.Peer.ipv4(vpc.vpcCidrBlock),
+      ec2.Port.tcp(53),
+      "VPC DNS resolution over TCP",
     );
     const databaseSecurityGroup = ec2.SecurityGroup.fromSecurityGroupId(
       this,
@@ -203,6 +286,34 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       workerSecurityGroup,
       ec2.Port.tcp(5432),
       "AI Workspace worker tasks access Postgres",
+    );
+    databaseSecurityGroup.addIngressRule(
+      browserProxySecurityGroup,
+      ec2.Port.tcp(5432),
+      "Comparative Browser proxy reads governed egress policy",
+    );
+    browserProxySecurityGroup.addEgressRule(
+      databaseSecurityGroup,
+      ec2.Port.tcp(5432),
+      "Read governed egress policy from Postgres",
+    );
+    const browserProxySecret = new secretsmanager.Secret(
+      this,
+      "BrowserProxySecret",
+      {
+        secretName: "ai-workspace/production/browser-proxy",
+        description:
+          "Basic auth used only between AgentCore Browser and the governed egress proxy",
+        generateSecretString: {
+          secretStringTemplate: JSON.stringify({
+            username: "comparative-browser",
+          }),
+          generateStringKey: "password",
+          passwordLength: 48,
+          excludePunctuation: true,
+        },
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+      },
     );
 
     const commonEnvironment = {
@@ -254,14 +365,128 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
         removalPolicy: cdk.RemovalPolicy.RETAIN,
       },
     );
+    const browserProxyLogGroup = new logs.LogGroup(
+      this,
+      "BrowserProxyLogGroup",
+      {
+        logGroupName: "/ecs/ai-workspace/browser-proxy",
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+      },
+    );
+
+    const browserProxyTask = new ecs.FargateTaskDefinition(
+      this,
+      "BrowserProxyTask",
+      {
+        family: "ai-workspace-browser-proxy",
+        cpu: WORKER_TASK_SIZE.cpu,
+        memoryLimitMiB: WORKER_TASK_SIZE.memoryLimitMiB,
+      },
+    );
+    browserProxyTask.addContainer("browser-proxy", {
+      image: ecs.ContainerImage.fromEcrRepository(
+        repository,
+        browserProxyImageTag.valueAsString,
+      ),
+      containerName: "browser-proxy",
+      command: [
+        "pnpm",
+        "--filter",
+        "@ai-workspace/web",
+        "browser:egress-proxy",
+      ],
+      portMappings: [{ containerPort: BROWSER_PROXY_PORT }],
+      logging: ecs.LogDrivers.awsLogs({
+        streamPrefix: "browser-proxy",
+        logGroup: browserProxyLogGroup,
+      }),
+      healthCheck: {
+        command: [
+          "CMD-SHELL",
+          `node -e "const s=require('net').connect(${BROWSER_PROXY_PORT},'127.0.0.1');s.setTimeout(2000);s.on('connect',()=>{s.destroy();process.exit(0)});s.on('error',()=>process.exit(1));s.on('timeout',()=>process.exit(1))"`,
+        ],
+        interval: cdk.Duration.seconds(30),
+        timeout: cdk.Duration.seconds(5),
+        retries: 3,
+        startPeriod: cdk.Duration.seconds(15),
+      },
+      environment: {
+        NODE_ENV: "production",
+        AWS_REGION: cdk.Stack.of(this).region,
+        BROWSER_PROXY_PORT: String(BROWSER_PROXY_PORT),
+      },
+      secrets: {
+        DATABASE_URL: ecs.Secret.fromSecretsManager(appSecret, "DATABASE_URL"),
+        BROWSER_PROXY_USERNAME: ecs.Secret.fromSecretsManager(
+          browserProxySecret,
+          "username",
+        ),
+        BROWSER_PROXY_PASSWORD: ecs.Secret.fromSecretsManager(
+          browserProxySecret,
+          "password",
+        ),
+      },
+    });
+    const browserProxyService = new ecs.FargateService(
+      this,
+      "BrowserProxyService",
+      {
+        cluster,
+        serviceName: BROWSER_PROXY_SERVICE_NAME,
+        taskDefinition: browserProxyTask,
+        desiredCount: 1,
+        assignPublicIp: true,
+        securityGroups: [browserProxySecurityGroup],
+        vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+        cloudMapOptions: { name: "browser-proxy" },
+        minHealthyPercent: 100,
+        maxHealthyPercent: 200,
+        circuitBreaker: { rollback: true },
+      },
+    );
+
+    const studioBrowser = new agentcore.BrowserCustom(
+      this,
+      "StudioBrowser",
+      {
+        browserCustomName: "comparative_studio_browser",
+        description: "Isolated browser for Comparative Contribution Studio",
+        networkConfiguration: agentcore.BrowserNetworkConfiguration.usingVpc(
+          this,
+          {
+            vpc,
+            vpcSubnets: {
+              subnetType: ec2.SubnetType.PUBLIC,
+              availabilityZones: STUDIO_BROWSER_AVAILABILITY_ZONES,
+            },
+            securityGroups: [browserSecurityGroup],
+          },
+        ),
+        browserSigning: agentcore.BrowserSigning.ENABLED,
+      },
+    );
+    browserProxySecret.grantRead(studioBrowser.executionRole);
 
     const webTask = new ecs.FargateTaskDefinition(this, "WebTask", {
       family: "ai-workspace-web",
       cpu: 512,
       memoryLimitMiB: 1024,
     });
+    // StartBrowserSession validates that its caller may read credentials for
+    // every configured proxy, even though the Browser execution role also
+    // needs access when the managed session starts.
+    browserProxySecret.grantRead(webTask.taskRole);
     grantBedrockInvoke(webTask);
     grantSesSendEmail(webTask, inviteEmailIdentityName, inviteEmailAwsRegion);
+    studioBrowser.grant(
+      webTask.taskRole,
+      "bedrock-agentcore:StartBrowserSession",
+      "bedrock-agentcore:GetBrowserSession",
+      "bedrock-agentcore:StopBrowserSession",
+      "bedrock-agentcore:InvokeBrowser",
+      "bedrock-agentcore:ConnectBrowserLiveViewStream",
+    );
     webTask.addContainer("web", {
       image: ecs.ContainerImage.fromEcrRepository(repository, imageTag.valueAsString),
       containerName: "web",
@@ -277,6 +502,13 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
         INVITE_EMAIL_PROVIDER: inviteEmailProvider,
         INVITE_EMAIL_FROM: inviteEmailFrom,
         INVITE_EMAIL_AWS_REGION: inviteEmailAwsRegion,
+        AGENTCORE_BROWSER_ENABLED: "1",
+        AGENTCORE_BROWSER_ID: studioBrowser.browserId,
+        AGENTCORE_BROWSER_PROXY_HOST:
+          "browser-proxy.comparative.internal",
+        AGENTCORE_BROWSER_PROXY_PORT: String(BROWSER_PROXY_PORT),
+        AGENTCORE_BROWSER_PROXY_SECRET_ARN: browserProxySecret.secretArn,
+        STUDIO_SANDBOX_DNS_SUFFIX: ".comparative.internal",
       },
       secrets: webSecrets,
     });
@@ -426,6 +658,33 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     // #509 class: an alarm with no action is an alarm nobody receives.
     memoryCaptureFailureAlarm.addAlarmAction(opsAlertAction);
 
+    const browserProxyTaskAlarm = new cloudwatch.Alarm(
+      this,
+      "BrowserProxyTaskAlarm",
+      {
+        alarmName: "ai-workspace-browser-proxy-unavailable",
+        alarmDescription:
+          "The governed AgentCore Browser egress proxy has no live ECS task.",
+        metric: new cloudwatch.Metric({
+          namespace: "AWS/ECS",
+          metricName: "LiveTaskCount",
+          dimensionsMap: {
+            ClusterName: CLUSTER_NAME,
+            ServiceName: BROWSER_PROXY_SERVICE_NAME,
+          },
+          statistic: "Minimum",
+          period: cdk.Duration.minutes(1),
+        }),
+        threshold: 1,
+        evaluationPeriods: 3,
+        datapointsToAlarm: 3,
+        comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+      },
+    );
+    browserProxyTaskAlarm.addAlarmAction(opsAlertAction);
+    browserProxyTaskAlarm.addOkAction(opsAlertAction);
+
     // #706: CI evals and production currently share this account/model quota.
     // EvaluationWindow is intentionally absent: CloudWatch defaults to a
     // sliding window, so this is a rolling 24-hour sum evaluated every minute.
@@ -489,6 +748,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
             webService.service.serviceArn,
             chatWorkerService.serviceArn,
             memoryWorkerService.serviceArn,
+            browserProxyService.serviceArn,
           ],
         }),
       );
@@ -577,6 +837,12 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, "MemoryWorkerServiceName", {
       value: memoryWorkerService.serviceName,
+    });
+    new cdk.CfnOutput(this, "BrowserProxyServiceName", {
+      value: browserProxyService.serviceName,
+    });
+    new cdk.CfnOutput(this, "StudioBrowserId", {
+      value: studioBrowser.browserId,
     });
     new cdk.CfnOutput(this, "AppSecretName", {
       value: appSecretName,

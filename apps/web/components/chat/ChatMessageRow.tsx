@@ -11,10 +11,12 @@ import type {
 } from "@/lib/recommendations";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
 import type { OutputProposalDecision } from "@/lib/output-proposals";
+import type { PublicToolApprovalRequest } from "@/lib/tool-approvals";
 import {
   memo,
   type CSSProperties,
   type MutableRefObject,
+  useState,
 } from "react";
 
 const OFFSCREEN_MESSAGE_STYLE = {
@@ -24,6 +26,7 @@ const OFFSCREEN_MESSAGE_STYLE = {
 
 export interface ChatMessageRowActions {
   openArtifact: (artifact: WorkspaceArtifactSummary) => void;
+  openBrowserEvidence?: (messageId: string, sourceNumber: number) => void;
   deployAppDraft: (version: AppDraftVersionSummary) => void;
   discardAppProposal: (version: AppDraftVersionSummary) => void;
   iterateAppProposal: (
@@ -46,6 +49,12 @@ export interface ChatMessageRowActions {
     runId: string,
     action: "cancel" | "retry" | "resume",
   ) => void;
+  toolApprovalDecision: (
+    runId: string,
+    approvalIds: string[],
+    decision: "approve" | "deny",
+    rememberForSkill: boolean,
+  ) => void;
   openRunInspector: (runId: string) => void;
   branchMessage: (messageId: string) => void;
   branchAppVersion: (version: AppDraftVersionSummary) => void;
@@ -66,6 +75,7 @@ export interface ChatMessageRowProps {
   appDraftPendingId?: string;
   artifactProposalPendingId?: string;
   runActionPendingId?: string;
+  toolApprovalPendingRunId?: string;
   branchPending?: boolean;
   deferOffscreenRendering: boolean;
   actionsRef: MutableRefObject<ChatMessageRowActions>;
@@ -87,6 +97,7 @@ export function areChatMessageRowPropsEqual(
     previous.appDraftPendingId === next.appDraftPendingId &&
     previous.artifactProposalPendingId === next.artifactProposalPendingId &&
     previous.runActionPendingId === next.runActionPendingId &&
+    previous.toolApprovalPendingRunId === next.toolApprovalPendingRunId &&
     previous.branchPending === next.branchPending &&
     previous.deferOffscreenRendering === next.deferOffscreenRendering &&
     previous.actionsRef === next.actionsRef
@@ -105,6 +116,7 @@ function ChatMessageRowComponent({
   appDraftPendingId,
   artifactProposalPendingId,
   runActionPendingId,
+  toolApprovalPendingRunId,
   branchPending,
   deferOffscreenRendering,
   actionsRef,
@@ -149,6 +161,12 @@ function ChatMessageRowComponent({
         assistantName={assistantName}
         onOpenArtifact={(artifact) =>
           actionsRef.current.openArtifact(artifact)
+        }
+        onOpenSource={
+          actionsRef.current.openBrowserEvidence
+            ? (source) =>
+                actionsRef.current.openBrowserEvidence?.(message.id, source.n)
+            : undefined
         }
         onDeployAppDraft={(version) =>
           actionsRef.current.deployAppDraft(version)
@@ -209,6 +227,20 @@ function ChatMessageRowComponent({
             : undefined
         }
       />
+      {message.runId && message.approvalRequests?.length ? (
+        <ToolApprovalCard
+          requests={message.approvalRequests}
+          pending={toolApprovalPendingRunId === message.runId}
+          onDecision={(approvalIds, decision, rememberForSkill) =>
+            actionsRef.current.toolApprovalDecision(
+              message.runId!,
+              approvalIds,
+              decision,
+              rememberForSkill,
+            )
+          }
+        />
+      ) : null}
       {message.runId &&
       (message.canCancel || message.canRetry || message.canResume) ? (
         <RunControls
@@ -242,6 +274,100 @@ export const ChatMessageRow = memo(
   areChatMessageRowPropsEqual,
 );
 ChatMessageRow.displayName = "ChatMessageRow";
+
+function ToolApprovalCard({
+  requests,
+  pending,
+  onDecision,
+}: {
+  requests: PublicToolApprovalRequest[];
+  pending: boolean;
+  onDecision: (
+    approvalIds: string[],
+    decision: "approve" | "deny",
+    rememberForSkill: boolean,
+  ) => void;
+}) {
+  const [rememberForSkill, setRememberForSkill] = useState(false);
+  const pendingRequests = requests.filter(
+    (request) => request.status === "pending",
+  );
+  if (pendingRequests.length === 0) return null;
+  const approvalIds = pendingRequests.map((request) => request.id);
+  const canRememberForSkill = pendingRequests.every(
+    (request) => request.standingApprovalEligible === true,
+  );
+  return (
+    <section
+      data-testid="tool-approval-card"
+      aria-label="Tool approval required"
+      className="rounded-md border border-hairline bg-canvas p-3"
+    >
+      <div className="text-sm font-medium text-ink">Approval required</div>
+      <p className="mt-1 text-xs text-muted">
+        Comparative is ready to run {pendingRequests.length === 1 ? "this action" : "these actions"}.
+      </p>
+      <div className="mt-3 divide-y divide-hairline border-y border-hairline">
+        {pendingRequests.map((request) => (
+          <details key={request.id} className="group py-2">
+            <summary className="cursor-pointer list-none text-sm text-ink">
+              <span className="font-medium">
+                {request.nativeToolName ?? request.toolName}
+              </span>
+              {request.provider ? (
+                <span className="ml-2 text-xs text-muted">
+                  {request.provider}
+                </span>
+              ) : null}
+            </summary>
+            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-sm bg-subtle p-2 text-xs text-muted">
+              {JSON.stringify(request.redactedInput, null, 2)}
+            </pre>
+          </details>
+        ))}
+      </div>
+      {canRememberForSkill ? (
+        <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs text-muted">
+          <input
+            type="checkbox"
+            checked={rememberForSkill}
+            disabled={pending}
+            onChange={(event) => setRememberForSkill(event.target.checked)}
+            className="mt-0.5 h-3.5 w-3.5 accent-pop"
+          />
+          <span>
+            Allow this Skill to use these actions for 30 days. Scheduled runs
+            still cannot make changes.
+          </span>
+        </label>
+      ) : null}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() =>
+            onDecision(
+              approvalIds,
+              "approve",
+              canRememberForSkill && rememberForSkill,
+            )
+          }
+          className="rounded-md bg-pop px-3 py-1.5 text-xs font-medium text-on-pop hover:bg-pop/90 disabled:cursor-wait disabled:opacity-50"
+        >
+          {pending ? "Saving..." : "Approve"}
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => onDecision(approvalIds, "deny", false)}
+          className="rounded-md border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-subtle disabled:cursor-wait disabled:opacity-50"
+        >
+          Deny
+        </button>
+      </div>
+    </section>
+  );
+}
 
 function RunControls({
   runId,

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { COMPARATIVE_VERSION_LABEL } from "@/lib/product-version";
+import { AsyncStatusNotice } from "./AsyncStatusNotice";
+import { DestructiveConfirmDialog } from "./DestructiveConfirmDialog";
 import {
   isTemporarySidebarRail,
   shouldUseSidebarRail,
@@ -29,6 +31,41 @@ interface NavItem {
 interface NavGroup {
   label?: string;
   items: NavItem[];
+}
+
+const MENU_ITEM_SELECTOR = '[role="menuitem"]:not([disabled])';
+
+function handleMenuKeyDown(
+  event: React.KeyboardEvent<HTMLElement>,
+  dismiss: () => void,
+) {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    dismiss();
+    return;
+  }
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+    return;
+  }
+  const items = Array.from(
+    event.currentTarget.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR),
+  ).filter((item) => item.getClientRects().length > 0);
+  if (items.length === 0) return;
+
+  event.preventDefault();
+  const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+  if (event.key === "Home") {
+    items[0]!.focus();
+  } else if (event.key === "End") {
+    items[items.length - 1]!.focus();
+  } else if (event.key === "ArrowDown") {
+    items[(currentIndex + 1 + items.length) % items.length]!.focus();
+  } else {
+    const previousIndex =
+      currentIndex < 0 ? items.length - 1 : currentIndex - 1;
+    items[(previousIndex + items.length) % items.length]!.focus();
+  }
 }
 
 /**
@@ -164,6 +201,7 @@ export function Sidebar({
   const [renameSaving, setRenameSaving] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [userCollapsed, setUserCollapsed] = useState(false);
   const [temporaryOverlayOpen, setTemporaryOverlayOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState<number | null>(null);
@@ -171,6 +209,9 @@ export function Sidebar({
   const userMenuRef = useRef<HTMLDivElement>(null);
   const accountButtonRef = useRef<HTMLButtonElement>(null);
   const threadMenuRef = useRef<HTMLLIElement>(null);
+  const threadMenuPanelRef = useRef<HTMLDivElement>(null);
+  const threadMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const accountMenuPanelRef = useRef<HTMLDivElement>(null);
 
   const navGroups = useMemo<NavGroup[]>(() => {
     if (!isAdmin) return groups;
@@ -300,10 +341,12 @@ export function Sidebar({
         }
         if (openMenuId) {
           setOpenMenuId(null);
+          threadMenuTriggerRef.current?.focus();
           return;
         }
         if (userMenuOpen) {
           setUserMenuOpen(false);
+          accountButtonRef.current?.focus();
           return;
         }
         onClose();
@@ -356,6 +399,26 @@ export function Sidebar({
     return () => document.removeEventListener("mousedown", handler);
   }, [userMenuOpen, openMenuId]);
 
+  useEffect(() => {
+    if (!openMenuId) return;
+    const frame = window.requestAnimationFrame(() => {
+      threadMenuPanelRef.current
+        ?.querySelector<HTMLElement>(MENU_ITEM_SELECTOR)
+        ?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [openMenuId]);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const frame = window.requestAnimationFrame(() => {
+      accountMenuPanelRef.current
+        ?.querySelector<HTMLElement>(MENU_ITEM_SELECTOR)
+        ?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [userMenuOpen]);
+
   function handleNewChat() {
     setTemporaryOverlayOpen(false);
     onNewChat();
@@ -377,6 +440,7 @@ export function Sidebar({
   }
 
   function startRename(t: ThreadSummary) {
+    setMutationError(null);
     setOpenMenuId(null);
     setRenamingId(t.id);
     setRenameDraft(t.title?.trim() || "");
@@ -389,14 +453,16 @@ export function Sidebar({
       setRenameDraft("");
       return;
     }
+    setMutationError(null);
     setRenameSaving(true);
     try {
       await onRenameThread(threadId, next);
       setRenamingId(null);
       setRenameDraft("");
-    } catch {
-      // Keep the editor open so the user can retry; visible failure is the
-      // unsaved input. Parent surfaces toast/log if it wants to.
+    } catch (error) {
+      setMutationError(
+        error instanceof Error ? error.message : "Could not rename the chat.",
+      );
     } finally {
       setRenameSaving(false);
     }
@@ -408,12 +474,15 @@ export function Sidebar({
       setPendingDeleteId(null);
       return;
     }
+    setMutationError(null);
     setDeleting(true);
     try {
       await onDeleteThread(id);
       setPendingDeleteId(null);
-    } catch {
-      // Leave the dialog open on failure; parent decides how to surface.
+    } catch (error) {
+      setMutationError(
+        error instanceof Error ? error.message : "Could not delete the chat.",
+      );
     } finally {
       setDeleting(false);
     }
@@ -421,10 +490,15 @@ export function Sidebar({
 
   async function togglePin(thread: ThreadSummary) {
     if (!onPinThread) return;
+    setMutationError(null);
     setOpenMenuId(null);
+    window.requestAnimationFrame(() => threadMenuTriggerRef.current?.focus());
     try {
       await onPinThread(thread.id, !thread.pinned);
-    } catch {
+    } catch (error) {
+      setMutationError(
+        error instanceof Error ? error.message : "Could not update the pin.",
+      );
       setOpenMenuId(thread.id);
     }
   }
@@ -642,7 +716,6 @@ export function Sidebar({
                         const title = t.title?.trim() || "Untitled";
                         const isRenaming = renamingId === t.id;
                         const isMenuOpen = openMenuId === t.id;
-                        const isPendingDelete = pendingDeleteId === t.id;
                         const preview = threadPreviewText(t);
                         return (
                             <li
@@ -722,6 +795,8 @@ export function Sidebar({
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
+                                        threadMenuTriggerRef.current =
+                                          e.currentTarget;
                                         setOpenMenuId((v) =>
                                           v === t.id ? null : t.id,
                                         );
@@ -729,6 +804,11 @@ export function Sidebar({
                                       aria-label="Thread actions"
                                       aria-haspopup="menu"
                                       aria-expanded={isMenuOpen}
+                                      aria-controls={
+                                        isMenuOpen
+                                          ? `thread-actions-menu-${t.id}`
+                                          : undefined
+                                      }
                                       className={`mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-canvas/60 hover:text-ink md:h-5 md:w-5 ${
                                         isMenuOpen
                                           ? "opacity-100"
@@ -742,13 +822,23 @@ export function Sidebar({
                               )}
                               {isMenuOpen ? (
                                 <div
+                                  ref={threadMenuPanelRef}
+                                  id={`thread-actions-menu-${t.id}`}
                                   role="menu"
+                                  aria-label={`Actions for ${title}`}
+                                  onKeyDown={(event) =>
+                                    handleMenuKeyDown(event, () => {
+                                      setOpenMenuId(null);
+                                      threadMenuTriggerRef.current?.focus();
+                                    })
+                                  }
                                   className="absolute right-1 top-full z-20 mt-0.5 w-40 overflow-hidden rounded-md border border-hairline bg-surface shadow-md"
                                 >
                                   {onPinThread ? (
                                     <button
                                       type="button"
                                       role="menuitem"
+                                      tabIndex={-1}
                                       onClick={() => void togglePin(t)}
                                       className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-subtle"
                                     >
@@ -760,6 +850,7 @@ export function Sidebar({
                                     <button
                                       type="button"
                                       role="menuitem"
+                                      tabIndex={-1}
                                       onClick={() => startRename(t)}
                                       className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-subtle"
                                     >
@@ -771,6 +862,7 @@ export function Sidebar({
                                     <button
                                       type="button"
                                       role="menuitem"
+                                      tabIndex={-1}
                                       onClick={() => {
                                         setOpenMenuId(null);
                                         setPendingDeleteId(t.id);
@@ -782,14 +874,6 @@ export function Sidebar({
                                     </button>
                                   ) : null}
                                 </div>
-                              ) : null}
-                              {isPendingDelete ? (
-                                <DeleteConfirm
-                                  title={title}
-                                  busy={deleting}
-                                  onCancel={() => setPendingDeleteId(null)}
-                                  onConfirm={confirmDelete}
-                                />
                               ) : null}
                             </li>
                         );
@@ -906,6 +990,9 @@ export function Sidebar({
             disabled={!hasAccountMenu}
             aria-haspopup={hasAccountMenu ? "menu" : undefined}
             aria-expanded={hasAccountMenu ? userMenuOpen : undefined}
+            aria-controls={
+              hasAccountMenu && userMenuOpen ? "account-actions-menu" : undefined
+            }
             aria-label={hasAccountMenu ? "Account menu" : undefined}
             title={rail ? userName ?? userEmail ?? "Account" : undefined}
             className={`flex w-full items-center rounded-md py-1 ${
@@ -949,7 +1036,16 @@ export function Sidebar({
 
           {userMenuOpen && hasAccountMenu ? (
             <div
+              ref={accountMenuPanelRef}
+              id="account-actions-menu"
               role="menu"
+              aria-label="Account actions"
+              onKeyDown={(event) =>
+                handleMenuKeyDown(event, () => {
+                  setUserMenuOpen(false);
+                  accountButtonRef.current?.focus();
+                })
+              }
               className={`absolute z-10 overflow-hidden rounded-md border border-hairline bg-surface shadow-md ${
                 rail
                   ? "bottom-2 left-full ml-2 w-44"
@@ -960,6 +1056,7 @@ export function Sidebar({
                 <button
                   type="button"
                   role="menuitem"
+                  tabIndex={-1}
                   onClick={() => {
                     setUserMenuOpen(false);
                     accountButtonRef.current?.focus();
@@ -975,6 +1072,7 @@ export function Sidebar({
                 <button
                   type="button"
                   role="menuitem"
+                  tabIndex={-1}
                   onClick={() => {
                     setUserMenuOpen(false);
                     onSignOut();
@@ -989,50 +1087,24 @@ export function Sidebar({
           ) : null}
         </div>
       </aside>
+      <AsyncStatusNotice
+        message={mutationError}
+        onDismiss={() => setMutationError(null)}
+        floating
+      />
+      <DestructiveConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Delete chat?"
+        description={`Delete "${
+          threads.find((thread) => thread.id === pendingDeleteId)?.title ||
+          "Untitled"
+        }"? This cannot be undone.`}
+        actionLabel="Delete"
+        busy={deleting}
+        onCancel={() => setPendingDeleteId(null)}
+        onConfirm={() => void confirmDelete()}
+      />
     </>
-  );
-}
-
-function DeleteConfirm({
-  title,
-  busy,
-  onCancel,
-  onConfirm,
-}: {
-  title: string;
-  busy: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div
-      role="dialog"
-      aria-modal="false"
-      className="absolute left-1 right-1 top-full z-30 mt-1 rounded-md border border-hairline bg-surface p-2 shadow-md"
-    >
-      <p className="px-1 pb-2 text-xs text-ink">
-        Delete <span className="font-medium">{title}</span>? This can&apos;t be
-        undone.
-      </p>
-      <div className="flex justify-end gap-1.5">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={busy}
-          className="rounded border border-hairline bg-canvas px-2 py-1 text-2xs text-ink hover:bg-subtle disabled:opacity-60"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={busy}
-          className="rounded border border-hairline bg-ink px-2 py-1 text-2xs font-medium text-canvas hover:opacity-90 disabled:opacity-60"
-        >
-          {busy ? "Deleting…" : "Delete"}
-        </button>
-      </div>
-    </div>
   );
 }
 

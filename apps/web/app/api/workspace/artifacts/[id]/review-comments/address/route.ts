@@ -29,6 +29,11 @@ import {
   requestLimitConfig,
 } from "@/lib/request-limits";
 import { appendRunEvent } from "@/lib/run-events";
+import { resolveAutonomyPreset } from "@/lib/autonomy-presets";
+import {
+  resolveNewRunBudget,
+  runBudgetEnvelopeForEvent,
+} from "@/lib/run-budget-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -103,6 +108,10 @@ export async function POST(
   if (!thread) {
     return NextResponse.json({ error: "thread_not_found" }, { status: 404 });
   }
+  const runBudget = resolveNewRunBudget({
+    lane: ARTIFACT_REVIEW_ROUTE.lane,
+    triggerType: "artifact_review",
+  });
   const rate = await checkRateLimit(db, `chat:${session.user.id}`, limits);
   if (!rate.allowed) {
     return NextResponse.json(
@@ -203,6 +212,40 @@ export async function POST(
         })),
       };
 
+      await tx.insert(chatMessages).values({
+        id: requestMessageId,
+        threadId: thread.id,
+        role: "user",
+        content: message,
+      });
+      await tx.insert(runs).values({
+        id: runId,
+        userId: session.user.id,
+        threadId: thread.id,
+        skillSlug: "chat-turn",
+        triggerType: "artifact_review",
+        status: "queued",
+        modelId,
+        inputs: {
+          prompt: message,
+          threadId: thread.id,
+          userMessageId: requestMessageId,
+          requestedByUserId: session.user.id,
+          autonomyPreset: resolveAutonomyPreset("artifact_review").name,
+          executionMode: "local",
+          modelOverride: false,
+          runtimeRoute: ARTIFACT_REVIEW_ROUTE,
+          runBudget,
+          artifactContextTarget: toWorkspaceArtifactVersionTarget(
+            access.artifact,
+          ),
+          artifactReviewRequest: stored,
+          ...(userTimeZone ? { userTimeZone } : {}),
+        },
+        attemptCount: 0,
+        updatedAt: now,
+      });
+
       for (const { row } of selected) {
         const reserved = await tx
           .update(artifactReviewComments)
@@ -224,38 +267,6 @@ export async function POST(
           throw new ArtifactReviewRequestConflict("comment_changed");
         }
       }
-
-      await tx.insert(chatMessages).values({
-        id: requestMessageId,
-        threadId: thread.id,
-        role: "user",
-        content: message,
-      });
-      await tx.insert(runs).values({
-        id: runId,
-        userId: session.user.id,
-        threadId: thread.id,
-        skillSlug: "chat-turn",
-        triggerType: "artifact_review",
-        status: "queued",
-        modelId,
-        inputs: {
-          prompt: message,
-          threadId: thread.id,
-          userMessageId: requestMessageId,
-          requestedByUserId: session.user.id,
-          executionMode: "local",
-          modelOverride: false,
-          runtimeRoute: ARTIFACT_REVIEW_ROUTE,
-          artifactContextTarget: toWorkspaceArtifactVersionTarget(
-            access.artifact,
-          ),
-          artifactReviewRequest: stored,
-          ...(userTimeZone ? { userTimeZone } : {}),
-        },
-        attemptCount: 0,
-        updatedAt: now,
-      });
       await tx
         .update(chatThreads)
         .set({
@@ -281,6 +292,7 @@ export async function POST(
           sourceArtifactVersionNumber: access.artifact.versionNumber,
           selectedCommentCount: stored.comments.length,
           transition: "open_to_addressing",
+          runBudget: runBudgetEnvelopeForEvent(runBudget),
         },
         startedAt: now,
         completedAt: now,
@@ -318,6 +330,7 @@ export async function POST(
         runtimeRoute: ARTIFACT_REVIEW_ROUTE,
         sourceArtifactId: access.artifact.id,
         commentIds: reviewRequest.comments.map((comment) => comment.id),
+        runBudget: runBudgetEnvelopeForEvent(runBudget),
       },
       occurredAt: now,
     });

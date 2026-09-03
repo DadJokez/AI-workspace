@@ -115,3 +115,91 @@ test("pins a chat in the flat newest-first history and persists after reload", a
     reloadedNewest.getByRole("menuitem", { name: "Unpin", exact: true }),
   ).toBeVisible();
 });
+
+test("shows a persistent error when a chat history mutation fails", async ({
+  page,
+  isMobile,
+}) => {
+  await installMockComparativeApi(page, {
+    threads: [
+      {
+        id: "thread-pin-error",
+        title: "Pin failure example",
+        pinned: false,
+        defaultModelId: "sonnet-4-6",
+        previewSummary: null,
+        previewSummaryUpdatedAt: null,
+        titleSource: "auto",
+        createdAt: "2026-08-12T12:00:00.000Z",
+        updatedAt: "2026-08-12T12:00:00.000Z",
+      },
+    ],
+  });
+  await page.route("**/api/threads/thread-pin-error", async (route) => {
+    if (route.request().method() !== "PATCH") return route.fallback();
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message: "Pinning is temporarily unavailable.",
+      }),
+    });
+  });
+
+  await gotoE2EChat(page);
+  const sidebar = await openPrimarySidebar(page, isMobile);
+  const row = sidebar.locator('[data-thread-id="thread-pin-error"]');
+  await row.getByRole("button", { name: "Thread actions" }).click();
+  await row.getByRole("menuitem", { name: "Pin", exact: true }).click();
+
+  const alert = page
+    .getByRole("alert")
+    .filter({ hasText: "Pinning is temporarily unavailable." });
+  await expect(alert).toContainText("Pinning is temporarily unavailable.");
+  await alert.getByRole("button", { name: "Dismiss error" }).click();
+  await expect(alert).toHaveCount(0);
+});
+
+test("navigates thread actions with menu arrow keys and restores focus", async ({
+  page,
+  isMobile,
+}) => {
+  await installMockComparativeApi(page, {
+    threads: [
+      {
+        id: "thread-keyboard-menu",
+        title: "Keyboard menu",
+        pinned: false,
+        defaultModelId: "sonnet-4-6",
+        previewSummary: null,
+        previewSummaryUpdatedAt: null,
+        titleSource: "auto",
+        createdAt: "2026-08-12T12:00:00.000Z",
+        updatedAt: "2026-08-12T12:00:00.000Z",
+      },
+    ],
+  });
+  await gotoE2EChat(page);
+
+  const sidebar = await openPrimarySidebar(page, isMobile);
+  const row = sidebar.locator('[data-thread-id="thread-keyboard-menu"]');
+  const trigger = row.getByRole("button", { name: "Thread actions" });
+  await trigger.click();
+
+  const menu = row.getByRole("menu", { name: "Actions for Keyboard menu" });
+  const pin = menu.getByRole("menuitem", { name: "Pin", exact: true });
+  const rename = menu.getByRole("menuitem", { name: "Rename" });
+  const remove = menu.getByRole("menuitem", { name: "Delete" });
+  await expect(pin).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(rename).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(remove).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(pin).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(remove).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});

@@ -13,10 +13,12 @@ import type {
   PersistedToolResult,
 } from "@/lib/tool-events";
 import type { WorkspaceArtifactSummary } from "@/lib/workspace-artifacts";
+import type { PublicToolApprovalRequest } from "@/lib/tool-approvals";
 import type {
   ContextResourceManifest,
   ContextResourceReference,
 } from "@/lib/context-shelf";
+import type { GuardrailReceipt } from "@/lib/guardrail-receipts";
 
 export interface ChatRunTimingMetrics {
   requestStartedAt: string;
@@ -36,6 +38,7 @@ export interface ChatRunTimingMetrics {
 export type ChatStreamStopReason =
   | "completed"
   | "queued"
+  | "approval_required"
   | "runtime_error"
   | "request_aborted"
   | "stream_error";
@@ -43,7 +46,10 @@ export type ChatStreamStopReason =
 export type ChatStreamTerminalEvent =
   | {
       type: "done";
-      stopReason: Extract<ChatStreamStopReason, "completed" | "queued">;
+      stopReason: Extract<
+        ChatStreamStopReason,
+        "completed" | "queued" | "approval_required"
+      >;
     }
   | {
       type: "failed";
@@ -94,6 +100,14 @@ export type ChatStreamEvent =
       result: PersistedToolResult;
     }
   | {
+      type: "tool-approval-required";
+      requests: PublicToolApprovalRequest[];
+    }
+  | {
+      type: "guardrail-receipt";
+      receipt: GuardrailReceipt;
+    }
+  | {
       type: "usage";
       tokensIn: number;
       tokensOut: number;
@@ -133,6 +147,7 @@ export type ChatStreamEvent =
       recommendations: PersistedRecommendation[];
       sources: AssistantSource[];
       contextResourceManifest: ContextResourceManifest;
+      guardrails: GuardrailReceipt;
       runId: string;
       threadId: string;
     }
@@ -149,6 +164,8 @@ const CHAT_STREAM_EVENT_TYPES: ReadonlySet<ChatStreamEvent["type"]> = new Set([
   "provider-response-metadata",
   "tool-call",
   "tool-result",
+  "tool-approval-required",
+  "guardrail-receipt",
   "usage",
   "heartbeat",
   "metrics",
@@ -179,7 +196,8 @@ export function isChatStreamTerminalEvent(
   if (candidate.type === "done") {
     return (
       candidate.stopReason === "completed" ||
-      candidate.stopReason === "queued"
+      candidate.stopReason === "queued" ||
+      candidate.stopReason === "approval_required"
     );
   }
   return (

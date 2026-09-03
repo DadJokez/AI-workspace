@@ -1,7 +1,14 @@
 import type { Database } from "@ai-workspace/db";
-import { toolsCatalog, userToolAttestations } from "@ai-workspace/db";
+import {
+  mcpServers,
+  toolsCatalog,
+  userToolAttestations,
+} from "@ai-workspace/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { toolActionKey, type ToolActionLevel } from "@/lib/tool-policy";
+import {
+  toolActionKey,
+  type ToolPolicyDecision,
+} from "@/lib/tool-policy";
 
 export interface ProviderAttestation {
   provider: string;
@@ -18,6 +25,7 @@ export interface ToolCatalogPolicyEntry {
   toolName: string;
   category: string;
   action: "read" | "write" | "admin";
+  policy: ToolPolicyDecision;
   requiresAttestation: boolean;
   enabled: boolean;
 }
@@ -30,11 +38,10 @@ export interface ProviderGateResult {
     { allowedTools?: string[]; blockedTools?: string[] }
   >;
   /**
-   * Catalog action level per `provider__toolName` (#410): the input to the
-   * tool-policy decision stamped on every execution audit row. Built from
-   * the same catalog rows the attestation gate already loads.
+   * Persisted catalog policy per `provider__toolName` (#410), loaded from the
+   * same rows as the attestation gate so audit and execution share one truth.
    */
-  toolActions: Record<string, ToolActionLevel>;
+  toolPolicyDecisions: Record<string, ToolPolicyDecision>;
 }
 
 /**
@@ -53,9 +60,10 @@ export function filterAttestedProviders(
   const allowedProviders: string[] = [];
   const deniedProviders: string[] = [];
   const toolPolicies: ProviderGateResult["toolPolicies"] = {};
-  const toolActions: ProviderGateResult["toolActions"] = {};
+  const toolPolicyDecisions: ProviderGateResult["toolPolicyDecisions"] = {};
   for (const entry of catalog) {
-    toolActions[toolActionKey(entry.provider, entry.toolName)] = entry.action;
+    toolPolicyDecisions[toolActionKey(entry.provider, entry.toolName)] =
+      entry.policy;
   }
 
   for (const provider of requestedProviders) {
@@ -98,7 +106,12 @@ export function filterAttestedProviders(
     }
   }
 
-  return { allowedProviders, deniedProviders, toolPolicies, toolActions };
+  return {
+    allowedProviders,
+    deniedProviders,
+    toolPolicies,
+    toolPolicyDecisions,
+  };
 }
 
 export async function loadActiveToolAttestations(
@@ -135,11 +148,33 @@ export async function loadToolCatalogForProviders(
       toolName: toolsCatalog.toolName,
       category: toolsCatalog.category,
       action: toolsCatalog.action,
+      policy: toolsCatalog.policy,
       requiresAttestation: toolsCatalog.requiresAttestation,
       enabled: toolsCatalog.enabled,
     })
     .from(toolsCatalog)
     .where(inArray(toolsCatalog.provider, [...providers]));
+}
+
+/**
+ * Org-level connector state is part of the runtime gate, not presentation.
+ * Missing registry rows fail closed, so seed a row before shipping a provider.
+ */
+export async function loadActiveMcpProviders(
+  db: Database,
+  providers: readonly string[],
+): Promise<string[]> {
+  if (providers.length === 0) return [];
+  const rows = await db
+    .select({ slug: mcpServers.slug })
+    .from(mcpServers)
+    .where(
+      and(
+        inArray(mcpServers.slug, [...providers]),
+        eq(mcpServers.status, "active"),
+      ),
+    );
+  return rows.map((row) => row.slug);
 }
 
 function groupCatalogByProvider(

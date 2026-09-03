@@ -12,7 +12,11 @@ import {
   renderMcpMountFailureGuidance,
   resolveMountedToolNames,
   runAgentLoop,
+  parseRunBudgetState,
   type DiscoveryCatalogEntry,
+  type ToolApprovalGrant,
+  type ToolApprovalMode,
+  type RunBudgetState,
 } from "@ai-workspace/agent";
 import { createBuiltinTools } from "@ai-workspace/agent/web-fetch-tool";
 import {
@@ -44,8 +48,11 @@ export interface InvocationPayload {
     activatedProviders: string[];
     catalog?: DiscoveryCatalogEntry[];
   };
+  toolApprovalGrants?: ToolApprovalGrant[];
+  toolApprovalMode?: ToolApprovalMode;
   userId?: string;
   maxToolIterations?: number;
+  budget?: RunBudgetState;
 }
 
 function parseToolDiscovery(
@@ -100,6 +107,39 @@ function parseWebEgressPolicy(raw: unknown): WebEgressPolicy | undefined {
   };
 }
 
+function parseToolApprovalGrants(raw: unknown): ToolApprovalGrant[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const grants = raw.filter((value): value is ToolApprovalGrant => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return false;
+    }
+    const grant = value as Record<string, unknown>;
+    const exactGrant =
+      typeof grant.fingerprint === "string" &&
+      /^[a-f0-9]{64}$/.test(grant.fingerprint) &&
+      (grant.scope === undefined || grant.scope === "exact_call");
+    const identity = grant.identity as Record<string, unknown> | undefined;
+    const standingGrant =
+      grant.scope === "skill_tool" &&
+      typeof grant.expiresAt === "string" &&
+      Number.isFinite(Date.parse(grant.expiresAt)) &&
+      Date.parse(grant.expiresAt) > Date.now() &&
+      identity?.kind === "mcp" &&
+      typeof identity.provider === "string" &&
+      typeof identity.endpoint === "string" &&
+      typeof identity.nativeToolName === "string";
+    const valid =
+      grant.schema === "comparative.tool-approval-grant.v1" &&
+      typeof grant.approvalId === "string" &&
+      grant.approvalId.length > 0 &&
+      (exactGrant || standingGrant) &&
+      (grant.decision === "approved" || grant.decision === "denied") &&
+      (grant.consumed === undefined || typeof grant.consumed === "boolean");
+    return valid;
+  });
+  return grants.length > 0 ? grants : undefined;
+}
+
 export function parseInvocationPayload(raw: unknown): InvocationPayload {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new Error("Invocation payload must be a JSON object.");
@@ -113,6 +153,11 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
 
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
     throw new Error("Invocation payload must include a non-empty messages array.");
+  }
+
+  const budget = parseRunBudgetState(body.budget);
+  if (body.budget !== undefined && !budget) {
+    throw new Error("Invocation payload contains an invalid run budget.");
   }
 
   const mcpServers: Record<string, McpHttpServerSpec> = {};
@@ -134,6 +179,8 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
           headers?: Record<string, string>;
           allowedTools?: unknown;
           blockedTools?: unknown;
+          toolPolicies?: unknown;
+          defaultToolPolicy?: unknown;
           usageNotesByTool?: unknown;
           displayName?: unknown;
         };
@@ -150,6 +197,8 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
                 (tool): tool is string => typeof tool === "string",
               )
             : undefined,
+          toolPolicies: parseToolPolicies(s.toolPolicies),
+          defaultToolPolicy: parseToolPolicy(s.defaultToolPolicy),
           usageNotesByTool: parseUsageNotesByTool(s.usageNotesByTool),
           displayName:
             typeof s.displayName === "string" && s.displayName.trim()
@@ -184,11 +233,15 @@ export function parseInvocationPayload(raw: unknown): InvocationPayload {
         ? body.requiredToolName
         : undefined,
     toolDiscovery: parseToolDiscovery(body.toolDiscovery),
+    toolApprovalGrants: parseToolApprovalGrants(body.toolApprovalGrants),
+    toolApprovalMode:
+      body.toolApprovalMode === "deny_unattended" ? "deny_unattended" : "request",
     userId: typeof body.userId === "string" ? body.userId : undefined,
     maxToolIterations:
       typeof body.maxToolIterations === "number"
         ? body.maxToolIterations
         : undefined,
+    budget,
   };
 }
 
@@ -281,6 +334,9 @@ export async function runInvocation(
       messages: payload.messages,
       registry,
       context: { userId: payload.userId ?? "agentcore" },
+      toolApprovalGrants: payload.toolApprovalGrants,
+      toolApprovalMode: payload.toolApprovalMode,
+      budget: payload.budget,
       signal: opts.signal,
       ...(payload.requiredToolName
         ? { requiredToolName: payload.requiredToolName }
@@ -317,6 +373,29 @@ function parseUsageNotesByTool(
     (entry): entry is [string, string] =>
       typeof entry[1] === "string" && entry[1].trim().length > 0,
   );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function parseToolPolicy(
+  raw: unknown,
+): "always_allow" | "needs_approval" | "blocked" | undefined {
+  return raw === "always_allow" ||
+    raw === "needs_approval" ||
+    raw === "blocked"
+    ? raw
+    : undefined;
+}
+
+function parseToolPolicies(
+  raw: unknown,
+): McpHttpServerSpec["toolPolicies"] {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const entries = Object.entries(raw).flatMap(([toolName, policy]) => {
+    const parsed = parseToolPolicy(policy);
+    return parsed ? [[toolName, parsed] as const] : [];
+  });
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 

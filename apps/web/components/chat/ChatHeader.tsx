@@ -81,7 +81,7 @@ export function ChatHeader({
       <div className="flex min-w-0 flex-1 items-center gap-2 px-3">
         <div
           data-testid="active-chat-title"
-          className="min-w-0 truncate text-sm font-medium text-muted"
+          className="min-w-6 truncate text-sm font-medium text-muted"
           title={activeTab.title}
         >
           {activeTab.threadId ? activeTab.title : "New chat"}
@@ -155,7 +155,7 @@ export function ChatHeader({
                 ? `Resolved model: ${resolvedModelName}${resolvedLaneName ? ` · ${resolvedLaneName} lane` : ""}`
                 : "Comparative selects the model automatically for each turn"
             }
-            className="hidden h-7 min-w-0 max-w-20 shrink items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 text-2xs text-muted min-[400px]:flex sm:max-w-56"
+            className="flex h-7 min-w-0 max-w-14 shrink items-center gap-1.5 rounded-full border border-hairline bg-subtle px-2 text-2xs text-muted sm:max-w-56"
           >
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-info" />
             <span className="min-w-0 truncate sm:hidden">

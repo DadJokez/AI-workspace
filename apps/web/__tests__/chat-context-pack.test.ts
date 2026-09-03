@@ -7,6 +7,18 @@ import type { UserMcpProviderStatus } from "@/lib/oauth/mcp-servers";
 const NOW = new Date("2026-06-14T00:00:00.000Z");
 
 describe("chat context pack", () => {
+  it("records the context-bound autonomy preset in the receipt and prompt", () => {
+    const pack = buildChatContextPack({
+      ...baseInput(),
+      autonomyPreset: "unattended",
+    });
+
+    expect(pack.receipts[0]?.autonomy).toEqual({ preset: "unattended" });
+    expect(pack.prompt.volatileSystemSuffix).toContain(
+      "- Autonomy: unattended.",
+    );
+  });
+
   it("records a checked-but-empty Vault receipt without claiming memory was injected", () => {
     const pack = buildChatContextPack({
       ...baseInput(),
@@ -554,6 +566,15 @@ describe("chat context pack", () => {
     expect(pack.prompt.volatileSystemSuffix).toContain("Open Sales Dashboard");
     expect(pack.prompt.volatileSystemSuffix).toContain(
       "Do not deny that the card appeared",
+    );
+    expect(pack.prompt.volatileSystemSuffix).toContain(
+      "run_existing_skill/run_skill and open_existing_app/open_app refer to resources that already exist",
+    );
+    expect(pack.prompt.volatileSystemSuffix).toContain(
+      "never offer to create, save, or set up a duplicate",
+    );
+    expect(pack.prompt.volatileSystemSuffix).toContain(
+      "save_as_skill, deploy_artifact_as_app, and schedule_skill propose creating a new resource",
     );
   });
 

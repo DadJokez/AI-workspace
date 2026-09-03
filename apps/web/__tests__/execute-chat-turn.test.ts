@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatThread, Database, Run } from "@ai-workspace/db";
 import { auditLog, chatMessages, runs, users } from "@ai-workspace/db";
 import type { AgentRuntime } from "@ai-workspace/agent-runtime";
+import { RUN_BUDGET_SCHEMA, type RunBudgetState } from "@ai-workspace/agent";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
 import type { ChatStreamEvent } from "@/lib/chat-stream-contract";
 import type { RuntimeModelSelection } from "@/lib/runtime-model-policy";
@@ -23,7 +24,13 @@ vi.mock("@/lib/chat-context-pack", () => ({
       volatileSystemSuffix: "VOLATILE",
       messages: [{ role: "user", content: "hi" }],
     },
-    receipts: [{ id: "receipt-1" }],
+    receipts: [
+      {
+        schema: "context-pack.v2",
+        version: 1,
+        tools: { providers: [] },
+      },
+    ],
   })),
 }));
 vi.mock("@/lib/capability-graph", () => ({
@@ -59,7 +66,7 @@ vi.mock("@/lib/oauth/mcp-servers", () => ({
     connectedProviders: ["github", "salesforce"],
     allowedProviders: ["github"],
     deniedProviders: ["salesforce"],
-    toolActions: {},
+    toolPolicyDecisions: {},
   })),
 }));
 vi.mock("@/lib/artifact-context", () => ({
@@ -99,6 +106,15 @@ vi.mock("@/lib/tool-events", () => ({
     results: () => [],
   })),
 }));
+vi.mock("@/lib/tool-approvals", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tool-approvals")>();
+  return {
+    ...actual,
+    loadToolApprovalGrants: vi.fn(async () => []),
+    loadStandingToolApprovalGrants: vi.fn(async () => []),
+    pauseRunForToolApprovals: vi.fn(async () => []),
+  };
+});
 vi.mock("@/lib/thread-metadata", () => ({
   refreshThreadPresentationMetadata: vi.fn(async () => undefined),
 }));
@@ -179,6 +195,11 @@ import {
   type ExecuteChatTurnInput,
 } from "@/lib/execute-chat-turn";
 import { createToolEventAccumulator } from "@/lib/tool-events";
+import {
+  loadStandingToolApprovalGrants,
+  loadToolApprovalGrants,
+  pauseRunForToolApprovals,
+} from "@/lib/tool-approvals";
 import { appendRunEventBestEffort } from "@/lib/run-events";
 import { createProactiveRunNotification } from "@/lib/notifications";
 import { buildChatContextPack } from "@/lib/chat-context-pack";
@@ -327,6 +348,20 @@ const modelSelection: RuntimeModelSelection = {
   reason: "requested_model_supported",
 };
 
+const runBudget: RunBudgetState = {
+  envelope: {
+    schema: RUN_BUDGET_SCHEMA,
+    version: 1,
+    governingLayer: "organization",
+    limits: {
+      tokens: 400_000,
+      usd: 4,
+      wallClockMs: 900_000,
+      toolIterations: 8,
+    },
+  },
+};
+
 function inlineInput(
   overrides: Partial<ExecuteChatTurnInput> = {},
   sent: ChatStreamEvent[] = [],
@@ -345,6 +380,7 @@ function inlineInput(
     prompt: "hi",
     userMessageId: "user-msg-1",
     route,
+    runBudget,
     runtime: fakeRuntime(captured),
     runtimeAbort: new AbortController(),
     modelId: "sonnet-4-6",
@@ -387,6 +423,7 @@ function workerInput(
     prompt: "hi",
     userMessageId: "user-msg-1",
     route,
+    runBudget,
     runtime: fakeRuntime(captured),
     runtimeAbort: new AbortController(),
     modelId: "sonnet-4-6",
@@ -655,6 +692,112 @@ describe("executeChatTurn — unattended web egress governance (#439)", () => {
       deniedDomains: ["blocked.example"],
     });
   });
+
+  it.each(["scheduled", "github_event"])(
+    "denies writes without loading approvals or pausing for a %s run",
+    async (triggerType) => {
+      const fixture = workerInput();
+      fixture.run.triggerType = triggerType;
+      fixture.run.skillId = "skill-1";
+      if (fixture.input.lane.kind !== "worker") {
+        throw new Error("Expected worker");
+      }
+      fixture.input.lane.storedInputs = {
+        ...fixture.input.lane.storedInputs,
+        autonomyPreset: "interactive",
+      };
+
+      await executeChatTurn(fixture.input);
+
+      expect(fixture.captured.turnInput?.toolApprovalMode).toBe(
+        "deny_unattended",
+      );
+      expect(buildChatContextPack).toHaveBeenCalledWith(
+        expect.objectContaining({ autonomyPreset: "unattended" }),
+      );
+      expect(
+        fixture.state.runUpdates.find(
+          (update) =>
+            (update.inputs as Record<string, unknown> | undefined)
+              ?.autonomyPreset === "unattended",
+        ),
+      ).toBeDefined();
+      expect(loadToolApprovalGrants).not.toHaveBeenCalled();
+      expect(loadStandingToolApprovalGrants).not.toHaveBeenCalled();
+      expect(pauseRunForToolApprovals).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reports skipped unattended writes while keeping the run successful", async () => {
+    vi.mocked(createToolEventAccumulator).mockReturnValueOnce({
+      recordCall: vi.fn(),
+      recordResult: vi.fn(),
+      calls: () => [],
+      results: () => [
+        {
+          toolCallId: "call-skipped",
+          name: "gmail__draft_email",
+          provider: "gmail",
+          toolName: "draft_email",
+          output: { error: "tool_approval_unattended_denied" },
+          isError: true,
+          completedAt: "2026-08-16T12:00:00.000Z",
+        },
+      ],
+    });
+    const fixture = workerInput();
+    fixture.run.triggerType = "scheduled";
+    fixture.run.skillId = "skill-1";
+
+    await executeChatTurn(fixture.input);
+
+    const terminal = fixture.state.runUpdates.find(
+      (update) => update.status === "succeeded",
+    );
+    expect(terminal?.outputs).toMatchObject({
+      autonomy: {
+        preset: "unattended",
+        skippedWriteCount: 1,
+        reason: "denied_unattended",
+      },
+    });
+    expect(appendRunEventBestEffort).toHaveBeenCalledWith(
+      "chat-run-event-error",
+      expect.objectContaining({
+        db: fixture.input.db,
+        runId: "run-1",
+        eventType: "autonomy_writes_skipped",
+        status: "info",
+        metadata: {
+          preset: "unattended",
+          skippedWriteCount: 1,
+          reason: "denied_unattended",
+        },
+      }),
+    );
+    expect(createProactiveRunNotification).toHaveBeenCalledWith(
+      fixture.input.db,
+      fixture.run,
+      "succeeded",
+      "thread-1",
+      { hasProposal: false, skippedWriteCount: 1 },
+    );
+  });
+
+  it("loads endpoint-bound Skill grants for an attended manual run", async () => {
+    const fixture = workerInput();
+    fixture.run.triggerType = "skill";
+    fixture.run.skillId = "skill-1";
+
+    await executeChatTurn(fixture.input);
+
+    expect(fixture.captured.turnInput?.toolApprovalMode).toBe("request");
+    expect(loadStandingToolApprovalGrants).toHaveBeenCalledWith({
+      db: fixture.input.db,
+      userId: "user-1",
+      skillId: "skill-1",
+    });
+  });
 });
 
 describe("executeChatTurn — durable conversation resources (#576)", () => {
@@ -764,6 +907,149 @@ describe("executeChatTurn — timezone grounding (#432)", () => {
   });
 });
 
+describe("executeChatTurn — interactive tool approvals (#410)", () => {
+  it("persists a redacted pause and emits a durable inline approval card", async () => {
+    const calls = [
+      {
+        id: "call-approval",
+        name: "gmail__draft_email",
+        provider: "gmail",
+        toolName: "draft_email",
+        input: { body: "[REDACTED]" },
+        startedAt: "2026-08-15T12:00:00.000Z",
+      },
+    ];
+    vi.mocked(createToolEventAccumulator).mockReturnValueOnce({
+      recordCall: vi.fn(),
+      recordResult: vi.fn(),
+      calls: () => calls,
+      results: () => [],
+    });
+    const approval = {
+      id: "00000000-0000-4000-8000-000000000410",
+      batchId: "00000000-0000-4000-8000-000000000411",
+      toolCallId: "call-approval",
+      toolName: "gmail__draft_email",
+      provider: "gmail",
+      nativeToolName: "draft_email",
+      redactedInput: { body: "[REDACTED]" },
+      status: "pending" as const,
+        requestedAt: "2026-08-15T12:00:00.000Z",
+        expiresAt: "2026-08-16T12:00:00.000Z",
+    };
+    vi.mocked(pauseRunForToolApprovals).mockResolvedValueOnce([approval]);
+    const { input, sent, state } = inlineInput();
+    input.runtime = {
+      name: "agentcore",
+      runTurn: async function* () {
+        yield {
+          type: "tool-call",
+          call: {
+            id: "call-approval",
+            name: "gmail__draft_email",
+            input: { body: "secret draft body" },
+          },
+        };
+        yield {
+          type: "tool-approval-required",
+          requests: [
+            {
+              schema: "comparative.tool-approval-request.v1",
+              toolCallId: "call-approval",
+              toolName: "gmail__draft_email",
+              fingerprint: "a".repeat(64),
+            },
+          ],
+        };
+        yield {
+          type: "budget",
+          receipt: {
+            schema: "comparative.run-budget-receipt.v1",
+            version: 1,
+            governingLayer: "organization",
+            limits: runBudget.envelope.limits,
+            consumed: {
+              tokens: 18,
+              usd: 0.001,
+              wallClockMs: 125,
+              toolIterations: 0,
+            },
+            partial: false,
+          },
+        };
+        yield {
+          type: "usage",
+          tokensIn: 11,
+          tokensOut: 7,
+          inputTokens: 11,
+          cacheReadInputTokens: 0,
+          cacheWriteInputTokens: 0,
+        };
+        yield { type: "done" };
+      },
+    } as unknown as AgentRuntime;
+
+    await executeChatTurn(input);
+
+    expect(pauseRunForToolApprovals).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run-1",
+        userId: "user-1",
+        calls,
+        requests: [
+          expect.objectContaining({
+            toolCallId: "call-approval",
+            fingerprint: "a".repeat(64),
+          }),
+        ],
+      }),
+    );
+    expect(sent).toContainEqual({
+      type: "tool-approval-required",
+      requests: [approval],
+    });
+    expect(sent).toContainEqual({
+      type: "guardrail-receipt",
+      receipt: expect.objectContaining({
+        schema: "comparative.guardrails.v1",
+        runId: "run-1",
+        actions: [
+          expect.objectContaining({
+            action: "draft_email",
+            state: "approval_required",
+            governingLayer: "action",
+            approval: expect.objectContaining({
+              resourceScope: "exact_request",
+              expiresAt: approval.expiresAt,
+            }),
+          }),
+        ],
+      }),
+    });
+    expect(sent).toContainEqual({
+      type: "done",
+      stopReason: "approval_required",
+    });
+    expect(
+      state.inserts.find((insert) => insert.table === chatMessages),
+    ).toBeUndefined();
+    expect(state.runOutputs?.guardrails).toMatchObject({
+      schema: "comparative.guardrails.v1",
+      actions: [expect.objectContaining({ state: "approval_required" })],
+      budget: {
+        consumed: expect.objectContaining({ tokens: 18 }),
+        partial: false,
+      },
+    });
+    expect(state.runOutputs?.budgetReceipt).toMatchObject({
+      consumed: expect.objectContaining({ tokens: 18 }),
+      partial: false,
+    });
+    expect(JSON.stringify(sent)).not.toContain("secret draft body");
+  });
+
+});
+
 describe("executeChatTurn — persist tail", () => {
   it("stores the assistant answer and finishes the run on the inline lane", async () => {
     const { input, sent, state } = inlineInput();
@@ -785,6 +1071,13 @@ describe("executeChatTurn — persist tail", () => {
     );
     expect(terminal).toBeDefined();
     expect(terminal).toMatchObject({ error: null, workerId: null });
+    expect(terminal?.outputs).toMatchObject({
+      guardrails: {
+        schema: "comparative.guardrails.v1",
+        runId: "run-1",
+        autonomy: { preset: "interactive" },
+      },
+    });
 
     const types = sent.map((event) => event.type);
     expect(types[0]).toBe("model");
@@ -797,6 +1090,10 @@ describe("executeChatTurn — persist tail", () => {
       tokensOut: 7,
       runId: "run-1",
       threadId: "thread-1",
+      guardrails: expect.objectContaining({
+        schema: "comparative.guardrails.v1",
+        runId: "run-1",
+      }),
     });
 
     const eventTypes = vi
@@ -805,6 +1102,70 @@ describe("executeChatTurn — persist tail", () => {
     expect(eventTypes).toContain("context_pack_assembled");
     expect(eventTypes).toContain("inline_runtime_started");
     expect(eventTypes).toContain("run_completed");
+  });
+
+  it("persists one authoritative partial budget receipt and streams its guardrail projection", async () => {
+    const runtime = {
+      name: "bedrock",
+      runTurn: async function* () {
+        yield { type: "text-delta", delta: "Partial result." };
+        yield {
+          type: "budget",
+          receipt: {
+            schema: "comparative.run-budget-receipt.v1",
+            version: 1,
+            governingLayer: "organization",
+            limits: runBudget.envelope.limits,
+            consumed: {
+              tokens: 400_000,
+              usd: 3.25,
+              wallClockMs: 2_000,
+              toolIterations: 2,
+            },
+            reached: "tokens",
+            partial: true,
+          },
+        };
+        yield { type: "usage", tokensIn: 399_000, tokensOut: 1_000 };
+        yield { type: "done" };
+      },
+    } as unknown as AgentRuntime;
+    const { input, sent, state } = inlineInput({ runtime });
+
+    await executeChatTurn(input);
+
+    expect(
+      state.runUpdates.find((update) => update.status === "succeeded")?.outputs,
+    ).toMatchObject({
+      budgetReceipt: {
+        reached: "tokens",
+        partial: true,
+        consumed: expect.objectContaining({ tokens: 400_000 }),
+      },
+      guardrails: {
+        budget: {
+          reached: "tokens",
+          partial: true,
+          consumed: expect.objectContaining({ tokens: 400_000 }),
+        },
+      },
+    });
+    expect(sent).toContainEqual({
+      type: "guardrail-receipt",
+      receipt: expect.objectContaining({
+        budget: expect.objectContaining({ reached: "tokens", partial: true }),
+      }),
+    });
+    expect(vi.mocked(appendRunEventBestEffort)).toHaveBeenCalledWith(
+      "chat-inline-event-error",
+      expect.objectContaining({
+        eventType: "run_budget_measured",
+        status: "info",
+        metadata: expect.objectContaining({
+          budget: expect.objectContaining({ reached: "tokens", partial: true }),
+        }),
+      }),
+    );
   });
 
   it("#713: a degraded provider mount is recorded on the run but does not fail it", async () => {

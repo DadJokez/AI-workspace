@@ -90,11 +90,11 @@ change). Deletion is manual SQL, and it is irreversible.
 ### Order of operations
 
 1. **Confirm approval and absence of legal hold.** Again, in writing.
-2. **Revoke provider access first.** Delete the subject's `oauth_tokens` rows
-   and — because there is no in-product disconnect (#692) — tell the subject to
-   revoke Comparative at each provider (GitHub, Google, Notion, Salesforce)
-   themselves. Deleting the row removes Comparative's copy; it does not revoke
-   the grant at the provider.
+2. **Revoke provider access first.** Use Admin > Connectors to disconnect each
+   subject connection. This scrubs Comparative's token material and records the
+   actor/reason. Revoke Comparative at each provider (GitHub, Google, Notion,
+   Salesforce) separately because local disconnect does not yet call the
+   provider revocation API (#692).
 3. **Take a snapshot** of `ai-workspace-db` before the delete. This is your
    only undo, and automated backups retain **one day**
    (`docs/runbooks/DB_RESTORE_REHEARSAL.md`).
@@ -143,8 +143,9 @@ an honest one:
 - **No legal hold** mechanism (#460).
 - **No deprovisioning hook.** Removing someone from an IdP does nothing here;
   enterprise IdP/SCIM is not live (#491).
-- **No OAuth disconnect** in the product (#692) — provider revocation is the
-  subject's own action.
+- **No automated provider-side OAuth revocation.** Comparative can disconnect
+  and scrub its local credentials, but provider revocation remains a separate
+  operator or subject action (#692).
 - **No cascade to CloudWatch or PostHog.** Log-group retention expires the data
   on its own 30-day schedule; PostHog deletion is a separate manual request
   through PostHog. Neither is triggered by the database delete.
@@ -155,7 +156,7 @@ an honest one:
 
 - #460 — data lifecycle: retention, right-to-delete, deprovisioning. The issue
   that makes most of this runbook obsolete when it lands.
-- #692 — OAuth disconnect route.
+- #692 — complete disconnect with provider-side token revocation.
 - #694 — authentication events are not audited, so "when did this account last
   sign in" cannot be answered from the ledger.
 - #457 — tamper-evident audit log (interacts with the deletion caveat above).

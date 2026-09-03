@@ -35,6 +35,7 @@ export type UserRole = (typeof userRoleEnum.enumValues)[number];
 export const runStatusEnum = pgEnum("run_status", [
   "queued",
   "running",
+  "waiting_for_approval",
   "succeeded",
   "failed",
   "canceled",
@@ -95,6 +96,40 @@ export const toolCatalogActionEnum = pgEnum("tool_catalog_action", [
 
 export type ToolCatalogAction =
   (typeof toolCatalogActionEnum.enumValues)[number];
+
+export const toolPolicyEnum = pgEnum("tool_policy", [
+  "always_allow",
+  "needs_approval",
+  "blocked",
+]);
+
+export type ToolPolicy = (typeof toolPolicyEnum.enumValues)[number];
+
+export const toolPolicyAuditDecisionEnum = pgEnum(
+  "tool_policy_audit_decision",
+  [
+    "auto_allowed",
+    "approved_by_user",
+    "denied",
+    "blocked",
+    "would_need_approval",
+    "would_block",
+    "uncataloged_would_need_approval",
+  ],
+);
+
+export type ToolPolicyAuditDecision =
+  (typeof toolPolicyAuditDecisionEnum.enumValues)[number];
+
+export const toolApprovalStatusEnum = pgEnum("tool_approval_status", [
+  "pending",
+  "approved",
+  "denied",
+  "expired",
+]);
+
+export type ToolApprovalStatus =
+  (typeof toolApprovalStatusEnum.enumValues)[number];
 
 export const userToolAttestationScopeEnum = pgEnum(
   "user_tool_attestation_scope",
@@ -325,6 +360,14 @@ export const oauthTokens = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     scope: text("scope"),
     providerMetadata: jsonb("provider_metadata"),
+    grantedAt: timestamp("granted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: uuid("revoked_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    revocationReason: text("revocation_reason"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -337,6 +380,7 @@ export const oauthTokens = pgTable(
       t.userId,
       t.provider,
     ),
+    activeIdx: index("oauth_tokens_active_idx").on(t.userId, t.revokedAt),
   }),
 );
 
@@ -717,6 +761,124 @@ export const runEvents = pgTable(
     ),
     typeIdx: index("run_events_type_idx").on(t.eventType),
     toolCallIdx: index("run_events_tool_call_idx").on(t.toolCallId),
+  }),
+);
+
+/**
+ * One durable receipt per policy-gated tool call. Public surfaces read only
+ * `redacted_input`; the exact-call fingerprint is matched against the model's
+ * regenerated call before the executor can consume an approval.
+ */
+export const toolApprovalRequests = pgTable(
+  "tool_approval_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    batchId: uuid("batch_id").notNull(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => chatThreads.id, { onDelete: "cascade" }),
+    toolCallId: text("tool_call_id").notNull(),
+    toolName: text("tool_name").notNull(),
+    provider: text("provider"),
+    endpoint: text("endpoint"),
+    nativeToolName: text("native_tool_name"),
+    callFingerprint: text("call_fingerprint").notNull(),
+    redactedInput: jsonb("redacted_input").notNull(),
+    status: toolApprovalStatusEnum("status").notNull().default("pending"),
+    requestedAt: timestamp("requested_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedByUserId: uuid("decided_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    runStatusIdx: index("tool_approval_requests_run_status_idx").on(
+      t.runId,
+      t.status,
+    ),
+    userStatusIdx: index("tool_approval_requests_user_status_idx").on(
+      t.userId,
+      t.status,
+      t.requestedAt,
+    ),
+    expiryIdx: index("tool_approval_requests_expiry_idx").on(
+      t.status,
+      t.expiresAt,
+    ),
+    batchIdx: index("tool_approval_requests_batch_idx").on(t.batchId),
+    runToolCallUnique: uniqueIndex(
+      "tool_approval_requests_run_tool_call_idx",
+    ).on(t.runId, t.toolCallId, t.callFingerprint),
+  }),
+);
+
+/**
+ * Expiring permission for one user to let one saved Skill invoke one exact
+ * endpoint-bound write tool without pausing on every attended run. The user id
+ * is the credential owner and approval authority; a shared Skill owner never
+ * grants permission on another user's behalf.
+ */
+export const skillToolStandingApprovals = pgTable(
+  "skill_tool_standing_approvals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    skillId: uuid("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    endpoint: text("endpoint").notNull(),
+    nativeToolName: text("native_tool_name").notNull(),
+    grantedAt: timestamp("granted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    grantedByUserId: uuid("granted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedByUserId: uuid("revoked_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    revocationReason: text("revocation_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    scopeUnique: uniqueIndex("skill_tool_standing_approvals_scope_idx").on(
+      t.userId,
+      t.skillId,
+      t.provider,
+      t.endpoint,
+      t.nativeToolName,
+    ),
+    activeIdx: index("skill_tool_standing_approvals_active_idx").on(
+      t.userId,
+      t.skillId,
+      t.expiresAt,
+    ),
   }),
 );
 
@@ -1407,6 +1569,21 @@ export const mcpServers = pgTable(
     status: mcpServerStatusEnum("status").notNull().default("active"),
     endpointUrl: text("endpoint_url"),
     authMode: text("auth_mode"),
+    ownerUserId: uuid("owner_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    credentialType: text("credential_type"),
+    credentialTtlSeconds: integer("credential_ttl_seconds"),
+    lastRotatedAt: timestamp("last_rotated_at", { withTimezone: true }),
+    enabledAt: timestamp("enabled_at", { withTimezone: true }),
+    enabledBy: uuid("enabled_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    disabledBy: uuid("disabled_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    statusReason: text("status_reason"),
     metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -1419,6 +1596,7 @@ export const mcpServers = pgTable(
     slugUnique: uniqueIndex("mcp_servers_slug_idx").on(t.slug),
     statusIdx: index("mcp_servers_status_idx").on(t.status),
     transportIdx: index("mcp_servers_transport_idx").on(t.transport),
+    ownerIdx: index("mcp_servers_owner_idx").on(t.ownerUserId),
   }),
 );
 
@@ -1440,6 +1618,7 @@ export const toolsCatalog = pgTable(
     description: text("description"),
     category: text("category").notNull().default("general"),
     action: toolCatalogActionEnum("action").notNull().default("read"),
+    policy: toolPolicyEnum("policy").notNull().default("needs_approval"),
     requiresAttestation: boolean("requires_attestation")
       .notNull()
       .default(true),
@@ -1495,6 +1674,7 @@ export const userToolAttestations = pgTable(
       onDelete: "set null",
     }),
     reason: text("reason"),
+    revocationReason: text("revocation_reason"),
     metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -1558,6 +1738,7 @@ export const auditLog = pgTable(
     input: jsonb("input"),
     output: jsonb("output"),
     error: text("error"),
+    policyDecision: toolPolicyAuditDecisionEnum("policy_decision"),
     metadata: jsonb("metadata"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -1581,6 +1762,147 @@ export const auditLog = pgTable(
     ),
     chatMessageIdx: index("audit_log_chat_message_idx").on(t.chatMessageId),
     runIdx: index("audit_log_run_idx").on(t.runId),
+  }),
+);
+
+/**
+ * Short-lived, user-owned AgentCore Browser sessions used by Contribution
+ * Studio. Provider identifiers are never accepted as authorization: every API
+ * lookup also matches the owning user and thread.
+ */
+export const studioBrowserSessions = pgTable(
+  "studio_browser_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => chatThreads.id, { onDelete: "cascade" }),
+    runId: uuid("run_id").references(() => runs.id, { onDelete: "set null" }),
+    providerSessionId: text("provider_session_id").notNull(),
+    browserIdentifier: text("browser_identifier").notNull(),
+    targetKind: text("target_kind").notNull(),
+    targetResourceId: text("target_resource_id"),
+    displayUrl: text("display_url").notNull(),
+    origin: text("origin").notNull(),
+    status: text("status").notNull().default("starting"),
+    viewportWidth: integer("viewport_width").notNull().default(1440),
+    viewportHeight: integer("viewport_height").notNull().default(900),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    providerSessionUnique: uniqueIndex(
+      "studio_browser_sessions_provider_session_idx",
+    ).on(t.providerSessionId),
+    activeUserThreadUnique: uniqueIndex(
+      "studio_browser_sessions_active_user_thread_idx",
+    )
+      .on(t.userId, t.threadId)
+      .where(sql`${t.status} IN ('starting', 'ready')`),
+    userCreatedIdx: index("studio_browser_sessions_user_created_idx").on(
+      t.userId,
+      sql`${t.createdAt} DESC`,
+    ),
+    threadCreatedIdx: index("studio_browser_sessions_thread_created_idx").on(
+      t.threadId,
+      sql`${t.createdAt} DESC`,
+    ),
+    statusExpiryIdx: index("studio_browser_sessions_status_expiry_idx").on(
+      t.status,
+      t.expiresAt,
+    ),
+  }),
+);
+
+/**
+ * Server-registered task sandbox endpoints. No public route writes these rows;
+ * a sandbox runtime records its VPC hostname and explicit loopback port set,
+ * then Studio can mint one short-lived grant for an owned endpoint.
+ */
+export const studioSandboxEndpoints = pgTable(
+  "studio_sandbox_endpoints",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => chatThreads.id, { onDelete: "cascade" }),
+    runId: uuid("run_id").references(() => runs.id, { onDelete: "cascade" }),
+    hostname: text("hostname").notNull(),
+    allowedPorts: jsonb("allowed_ports").$type<number[]>().notNull(),
+    status: text("status").notNull().default("active"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userThreadIdx: index("studio_sandbox_endpoints_user_thread_idx").on(
+      t.userId,
+      t.threadId,
+      t.status,
+    ),
+    expiryIdx: index("studio_sandbox_endpoints_expiry_idx").on(t.expiresAt),
+  }),
+);
+
+/**
+ * Expiring bearer grants used only by the isolated browser to read one
+ * Comparative-owned artifact/app target. Raw tokens are never persisted.
+ */
+export const studioBrowserGrants = pgTable(
+  "studio_browser_grants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    browserSessionId: uuid("browser_session_id")
+      .notNull()
+      .references(() => studioBrowserSessions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => chatThreads.id, { onDelete: "cascade" }),
+    runId: uuid("run_id").references(() => runs.id, { onDelete: "set null" }),
+    targetKind: text("target_kind").notNull(),
+    targetResourceId: text("target_resource_id").notNull(),
+    targetPath: text("target_path").notNull(),
+    sandboxPort: integer("sandbox_port"),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    tokenHashUnique: uniqueIndex("studio_browser_grants_token_hash_idx").on(
+      t.tokenHash,
+    ),
+    sessionIdx: index("studio_browser_grants_session_idx").on(
+      t.browserSessionId,
+      t.expiresAt,
+    ),
+    userThreadIdx: index("studio_browser_grants_user_thread_idx").on(
+      t.userId,
+      t.threadId,
+    ),
   }),
 );
 
@@ -1616,6 +1938,12 @@ export type ChatThreadBranch = typeof chatThreadBranches.$inferSelect;
 export type NewChatThreadBranch = typeof chatThreadBranches.$inferInsert;
 export type RunEvent = typeof runEvents.$inferSelect;
 export type NewRunEvent = typeof runEvents.$inferInsert;
+export type ToolApprovalRequestRow = typeof toolApprovalRequests.$inferSelect;
+export type NewToolApprovalRequestRow = typeof toolApprovalRequests.$inferInsert;
+export type SkillToolStandingApproval =
+  typeof skillToolStandingApprovals.$inferSelect;
+export type NewSkillToolStandingApproval =
+  typeof skillToolStandingApprovals.$inferInsert;
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
 export type ModelEnablement = typeof modelEnablement.$inferSelect;
@@ -1638,6 +1966,13 @@ export type McpServer = typeof mcpServers.$inferSelect;
 export type NewMcpServer = typeof mcpServers.$inferInsert;
 export type AuditLog = typeof auditLog.$inferSelect;
 export type NewAuditLog = typeof auditLog.$inferInsert;
+export type StudioBrowserSession = typeof studioBrowserSessions.$inferSelect;
+export type NewStudioBrowserSession = typeof studioBrowserSessions.$inferInsert;
+export type StudioBrowserGrant = typeof studioBrowserGrants.$inferSelect;
+export type NewStudioBrowserGrant = typeof studioBrowserGrants.$inferInsert;
+export type StudioSandboxEndpoint = typeof studioSandboxEndpoints.$inferSelect;
+export type NewStudioSandboxEndpoint =
+  typeof studioSandboxEndpoints.$inferInsert;
 export type ToolCatalogEntry = typeof toolsCatalog.$inferSelect;
 export type NewToolCatalogEntry = typeof toolsCatalog.$inferInsert;
 export type UserToolAttestation = typeof userToolAttestations.$inferSelect;

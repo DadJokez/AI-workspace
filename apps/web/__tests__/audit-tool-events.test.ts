@@ -50,10 +50,12 @@ describe("buildToolAuditRows", () => {
         input: { state: "open" },
         output: [{ number: 53 }],
         error: null,
+        policyDecision: null,
         metadata: {
           rawToolName: "github_list_pull_requests",
           modelId: "sonnet-4-6",
           runtime: "bedrock",
+          autonomyPreset: "interactive",
         },
         startedAt: new Date("2026-05-15T12:00:00.000Z"),
         completedAt: new Date("2026-05-15T12:00:01.000Z"),
@@ -93,9 +95,77 @@ describe("buildToolAuditRows", () => {
     });
   });
 
+  it("prefers the executor's actual policy decision over observe fallback", () => {
+    const rows = buildToolAuditRows({
+      ...base,
+      toolPolicyDecisions: {
+        github__delete_repository: "blocked",
+      },
+      calls: [
+        {
+          id: "call_blocked",
+          name: "github__delete_repository",
+          provider: "github",
+          toolName: "delete_repository",
+          input: { owner: "example", repo: "private" },
+          startedAt: "2026-05-15T12:00:00.000Z",
+        },
+      ],
+      results: [
+        {
+          toolCallId: "call_blocked",
+          output: {
+            error: "tool_policy_blocked",
+            message:
+              "Tool github__delete_repository is blocked by runtime policy.",
+            tool: "github__delete_repository",
+          },
+          isError: true,
+          policyDecision: "blocked",
+          completedAt: "2026-05-15T12:00:00.001Z",
+        },
+      ],
+    });
+
+    expect(rows[0]?.policyDecision).toBe("blocked");
+    expect(rows[0]?.status).toBe("failed");
+  });
+
+  it("stamps the active autonomy preset beside the policy decision", () => {
+    const rows = buildToolAuditRows({
+      ...base,
+      autonomyPreset: "unattended",
+      calls: [
+        {
+          id: "call_unattended",
+          name: "google__create_event",
+          provider: "google",
+          toolName: "create_event",
+          input: { summary: "Planning" },
+          startedAt: "2026-05-15T12:00:00.000Z",
+        },
+      ],
+      results: [
+        {
+          toolCallId: "call_unattended",
+          output: { error: "tool_approval_unattended_denied" },
+          isError: true,
+          policyDecision: "denied",
+          completedAt: "2026-05-15T12:00:00.001Z",
+        },
+      ],
+    });
+
+    expect(rows[0]).toMatchObject({
+      policyDecision: "denied",
+      metadata: { autonomyPreset: "unattended" },
+    });
+  });
+
   it("stamps domain-policy denials and successful fetched hosts", () => {
     const denied = buildToolAuditRows({
       ...base,
+      toolPolicyDecisions: {},
       calls: [
         {
           id: "call_denied",
@@ -128,9 +198,11 @@ describe("buildToolAuditRows", () => {
       hostname: "blocked.example",
       matchedDomain: "blocked.example",
     });
+    expect(denied[0]?.policyDecision).toBeNull();
 
     const allowed = buildToolAuditRows({
       ...base,
+      toolPolicyDecisions: {},
       calls: [
         {
           id: "call_allowed",
@@ -154,6 +226,7 @@ describe("buildToolAuditRows", () => {
       outcome: "allowed",
       fetchedHosts: ["one.example", "two.example"],
     });
+    expect(allowed[0]?.policyDecision).toBeNull();
   });
 
   it("redacts sensitive audit inputs, outputs, and errors", () => {

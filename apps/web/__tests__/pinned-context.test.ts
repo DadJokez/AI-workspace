@@ -23,7 +23,7 @@ const providerStatus: UserMcpProviderStatus = {
   reconnectRequiredProviders: [],
   comingSoonProviders: [],
   toolPolicies: {},
-  toolActions: {},
+  toolPolicyDecisions: {},
   providerAvailability: {},
 };
 

@@ -7,6 +7,7 @@ import type {
   PersistedToolCall,
   PersistedToolResult,
 } from "@/lib/tool-events";
+import { buildGuardrailReceipt } from "@/lib/guardrail-receipts";
 
 const pendingMessage = (): UiMessage => ({
   id: "assistant-draft",
@@ -71,6 +72,42 @@ describe("reduceAssistantStreamMessage", () => {
     expect(completed).toMatchObject({
       status: "Working…",
       toolResults: [result],
+    });
+  });
+
+  it("settles the stream into a reloadable approval wait", () => {
+    const requests = [
+      {
+        id: "00000000-0000-4000-8000-000000000001",
+        batchId: "00000000-0000-4000-8000-000000000002",
+        toolCallId: "call-1",
+        toolName: "mcp__google__draft_email",
+        provider: "google",
+        nativeToolName: "draft_email",
+        redactedInput: { to: ["recipient@example.com"] },
+        status: "pending" as const,
+      requestedAt: "2026-08-15T00:00:00.000Z",
+      expiresAt: "2026-08-16T00:00:00.000Z",
+      },
+    ];
+    const waiting = reduceAssistantStreamMessage(pendingMessage(), {
+      type: "tool-approval-required",
+      requests,
+      runId: "run-1",
+    });
+    const terminal = reduceAssistantStreamMessage(waiting, {
+      type: "complete",
+      queued: false,
+      waitingForApproval: true,
+      runId: "run-1",
+    });
+
+    expect(terminal).toMatchObject({
+      pending: false,
+      runId: "run-1",
+      runStatus: "waiting_for_approval",
+      canCancel: true,
+      approvalRequests: requests,
     });
   });
 
@@ -145,6 +182,30 @@ describe("reduceAssistantStreamMessage", () => {
     ).toMatchObject({
       pending: false,
       contextResourceManifest,
+    });
+  });
+
+  it("uses the streamed and persisted authoritative guardrail receipt", () => {
+    const guardrails = buildGuardrailReceipt({
+      runId: "run-guardrails",
+      autonomyPreset: "unattended",
+      generatedAt: new Date("2026-08-16T12:00:00.000Z"),
+    });
+    const streamed = reduceAssistantStreamMessage(pendingMessage(), {
+      type: "guardrail-receipt",
+      receipt: guardrails,
+    });
+    const persisted = reduceAssistantStreamMessage(streamed, {
+      type: "persisted",
+      messageId: "assistant-guardrails",
+      guardrails,
+    });
+
+    expect(streamed.guardrails).toEqual(guardrails);
+    expect(persisted).toMatchObject({
+      id: "assistant-guardrails",
+      pending: false,
+      guardrails,
     });
   });
 });

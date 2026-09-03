@@ -32,6 +32,9 @@ import type {
   ThreadAlternativeLink,
   ThreadBranchLineage,
 } from "@/lib/thread-branch-types";
+import type { StudioBrowserTargetRequest } from "@/lib/studio-browser-contract";
+import type { PublicToolApprovalRequest } from "@/lib/tool-approvals";
+import type { GuardrailReceipt } from "@/lib/guardrail-receipts";
 
 export const FALLBACK_DEFAULT_MODEL_ID = "sonnet-4-5";
 export const DEFAULT_MODEL_PREFIX = "ai-workspace-default-model:";
@@ -46,6 +49,7 @@ export type RightPane =
       artifact?: WorkspaceArtifactSummary;
       scope?: ContributionStudioScope;
       focusReviewCommentId?: string;
+      browserTarget?: StudioBrowserTargetRequest;
     }
   | { kind: "notifications" }
   | { kind: "inspector"; runId: string };
@@ -65,6 +69,8 @@ export interface UiMessage {
   liveTokens?: number;
   toolCalls?: PersistedToolCall[];
   toolResults?: PersistedToolResult[];
+  approvalRequests?: PublicToolApprovalRequest[];
+  guardrails?: GuardrailReceipt;
   artifacts?: WorkspaceArtifactSummary[];
   appDraftVersions?: AppDraftVersionSummary[];
   recommendations?: PersistedRecommendation[];
@@ -107,7 +113,10 @@ export interface ModelsResponse {
   defaultModelId: string;
   models: ModelOption[];
   runtimeV2Enabled?: boolean;
-  runtimeCapabilities?: { liveTurnSteering?: boolean };
+  runtimeCapabilities?: {
+    liveTurnSteering?: boolean;
+    studioBrowser?: boolean;
+  };
 }
 
 export interface UserResponse {
@@ -136,6 +145,8 @@ export interface ThreadMessage {
   runtime: "bedrock" | "agentcore" | string | null;
   toolCalls: PersistedToolCall[] | null;
   toolResults: PersistedToolResult[] | null;
+  approvalRequests?: PublicToolApprovalRequest[];
+  guardrails?: GuardrailReceipt;
   tokensIn?: number | null;
   tokensOut?: number | null;
   artifacts?: WorkspaceArtifactSummary[];
@@ -181,6 +192,8 @@ export function threadMessageToUiMessage(message: ThreadMessage): UiMessage {
     liveTokens: message.liveTokens,
     toolCalls: message.toolCalls ?? undefined,
     toolResults: message.toolResults ?? undefined,
+    approvalRequests: message.approvalRequests,
+    guardrails: message.guardrails,
     artifacts: message.artifacts,
     appDraftVersions: message.appDraftVersions,
     recommendations: message.recommendations,
@@ -488,6 +501,12 @@ export type AssistantStreamAction =
   | { type: "tool-call"; call: PersistedToolCall | null }
   | { type: "tool-result"; result: PersistedToolResult | null }
   | {
+      type: "tool-approval-required";
+      requests: PublicToolApprovalRequest[];
+      runId?: string;
+    }
+  | { type: "guardrail-receipt"; receipt: GuardrailReceipt }
+  | {
       type: "queued";
       status: string;
       modelId?: string;
@@ -507,10 +526,16 @@ export type AssistantStreamAction =
       recommendations?: PersistedRecommendation[];
       sources?: AssistantSource[];
       contextResourceManifest?: ContextResourceManifest;
+      guardrails?: GuardrailReceipt;
       tokensIn?: number;
       tokensOut?: number;
     }
-  | { type: "complete"; queued: boolean; runId?: string }
+  | {
+      type: "complete";
+      queued: boolean;
+      waitingForApproval?: boolean;
+      runId?: string;
+    }
   | { type: "abort" | "error" };
 
 export function reduceAssistantStreamMessage(
@@ -579,6 +604,21 @@ export function reduceAssistantStreamMessage(
           ? upsertToolResult(message.toolResults, action.result)
           : message.toolResults,
       };
+    case "tool-approval-required":
+      return {
+        ...message,
+        pending: false,
+        status: undefined,
+        livePhase: undefined,
+        runId: action.runId ?? message.runId,
+        runStatus: "waiting_for_approval",
+        canCancel: true,
+        canRetry: false,
+        canResume: false,
+        approvalRequests: action.requests,
+      };
+    case "guardrail-receipt":
+      return { ...message, guardrails: action.receipt };
     case "queued":
       return {
         ...message,
@@ -605,6 +645,7 @@ export function reduceAssistantStreamMessage(
         recommendations: action.recommendations,
         sources: action.sources,
         contextResourceManifest: action.contextResourceManifest,
+        guardrails: action.guardrails ?? message.guardrails,
         tokensIn: action.tokensIn,
         tokensOut: action.tokensOut,
         runId: action.runId ?? message.runId,
@@ -617,8 +658,11 @@ export function reduceAssistantStreamMessage(
       return {
         ...message,
         pending: action.queued,
-        status: action.queued ? message.status : undefined,
-        ...(action.queued
+        status:
+          action.queued || action.waitingForApproval
+            ? message.status
+            : undefined,
+        ...(action.queued || action.waitingForApproval
           ? {}
           : {
               runId: action.runId ?? message.runId,

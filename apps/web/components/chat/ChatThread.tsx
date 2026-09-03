@@ -38,11 +38,13 @@ interface ChatThreadProps {
   appDraftPendingId?: string;
   artifactProposalPendingId?: string;
   runActionPendingId?: string;
+  toolApprovalPendingRunId?: string;
   branchPending?: boolean;
   stickToBottomRef: MutableRefObject<boolean>;
   onPickSuggestion: (suggestion: string) => void;
   onOpenIntegrations: () => void;
   onOpenArtifact: (artifact: WorkspaceArtifactSummary) => void;
+  onOpenBrowserEvidence?: (messageId: string, sourceNumber: number) => void;
   onDeployAppDraft: (version: AppDraftVersionSummary) => void;
   onDiscardAppProposal: (version: AppDraftVersionSummary) => void;
   onIterateAppProposal: (
@@ -64,6 +66,12 @@ interface ChatThreadProps {
   onRunAction: (
     runId: string,
     action: "cancel" | "retry" | "resume",
+  ) => void;
+  onToolApprovalDecision: (
+    runId: string,
+    approvalIds: string[],
+    decision: "approve" | "deny",
+    rememberForSkill: boolean,
   ) => void;
   onOpenRunInspector: (runId: string) => void;
   onBranchMessage: (messageId: string) => void;
@@ -87,11 +95,13 @@ export function ChatThread({
   appDraftPendingId,
   artifactProposalPendingId,
   runActionPendingId,
+  toolApprovalPendingRunId,
   branchPending,
   stickToBottomRef,
   onPickSuggestion,
   onOpenIntegrations,
   onOpenArtifact,
+  onOpenBrowserEvidence,
   onDeployAppDraft,
   onDiscardAppProposal,
   onIterateAppProposal,
@@ -99,6 +109,7 @@ export function ChatThread({
   onIterateArtifactProposal,
   onRecommendationAction,
   onRunAction,
+  onToolApprovalDecision,
   onOpenRunInspector,
   onBranchMessage,
   onBranchAppVersion,
@@ -115,6 +126,7 @@ export function ChatThread({
   const jumpScrollResetRef = useRef<number | undefined>(undefined);
   const messageActionsRef = useRef<ChatMessageRowActions>({
     openArtifact: onOpenArtifact,
+    openBrowserEvidence: onOpenBrowserEvidence,
     deployAppDraft: onDeployAppDraft,
     discardAppProposal: onDiscardAppProposal,
     iterateAppProposal: onIterateAppProposal,
@@ -122,6 +134,7 @@ export function ChatThread({
     iterateArtifactProposal: onIterateArtifactProposal,
     recommendationAction: onRecommendationAction,
     runAction: onRunAction,
+    toolApprovalDecision: onToolApprovalDecision,
     openRunInspector: onOpenRunInspector,
     branchMessage: onBranchMessage,
     branchAppVersion: onBranchAppVersion,
@@ -147,6 +160,7 @@ export function ChatThread({
   useEffect(() => {
     messageActionsRef.current = {
       openArtifact: onOpenArtifact,
+      openBrowserEvidence: onOpenBrowserEvidence,
       deployAppDraft: onDeployAppDraft,
       discardAppProposal: onDiscardAppProposal,
       iterateAppProposal: onIterateAppProposal,
@@ -154,6 +168,7 @@ export function ChatThread({
       iterateArtifactProposal: onIterateArtifactProposal,
       recommendationAction: onRecommendationAction,
       runAction: onRunAction,
+      toolApprovalDecision: onToolApprovalDecision,
       openRunInspector: onOpenRunInspector,
       branchMessage: onBranchMessage,
       branchAppVersion: onBranchAppVersion,
@@ -169,6 +184,7 @@ export function ChatThread({
     onIterateArtifactProposal,
     onEdit,
     onOpenArtifact,
+    onOpenBrowserEvidence,
     onBranchAppVersion,
     onBranchMessage,
     onBranchProposal,
@@ -176,6 +192,7 @@ export function ChatThread({
     onRecommendationAction,
     onRegenerate,
     onRunAction,
+    onToolApprovalDecision,
   ]);
 
   useEffect(() => {
@@ -324,6 +341,7 @@ export function ChatThread({
                 appDraftPendingId={appDraftPendingId}
                 artifactProposalPendingId={artifactProposalPendingId}
                 runActionPendingId={runActionPendingId}
+                toolApprovalPendingRunId={toolApprovalPendingRunId}
                 branchPending={branchPending}
                 deferOffscreenRendering={deferOffscreenRendering}
                 actionsRef={messageActionsRef}

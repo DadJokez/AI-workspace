@@ -267,6 +267,18 @@ describe("tool-use honesty grounding", () => {
 
     expect(preamble).toContain("Built-in tools mounted for this turn");
     expect(preamble).toContain("Public URL fetch");
+    expect(preamble).toContain(
+      "Retry the same URL with a larger `maxBytes`",
+    );
+    expect(preamble).toContain(
+      "describe fields as official, verified, or complete only when fetched evidence from that source supports each field",
+    );
+    expect(preamble).toContain(
+      "Secondary sources may fill gaps only when those values are clearly labeled secondary or unverified",
+    );
+    expect(preamble).toContain(
+      "include the source URLs and any remaining verification gaps",
+    );
     expect(preamble).toContain("No connected account tools are mounted");
     expect(preamble).not.toContain("No external tools are connected yet");
   });

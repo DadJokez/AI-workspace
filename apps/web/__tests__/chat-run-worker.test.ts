@@ -31,6 +31,9 @@ vi.mock("@/lib/run-events", () => ({
 vi.mock("@/lib/notifications", () => ({
   createProactiveRunNotification: vi.fn(async () => undefined),
 }));
+vi.mock("@/lib/tool-approvals", () => ({
+  expirePendingToolApprovals: vi.fn(async () => 0),
+}));
 
 import {
   heartbeatRunLease,
@@ -44,6 +47,7 @@ import { resolveModelCandidatesForPurpose } from "@/lib/model-registry";
 import { appendRunEventBestEffort } from "@/lib/run-events";
 import { createProactiveRunNotification } from "@/lib/notifications";
 import { chatWorkerAbortReason } from "@/lib/chat-worker-abort";
+import { expirePendingToolApprovals } from "@/lib/tool-approvals";
 
 function claimedRun(overrides: Partial<Run> = {}): Run {
   return {
@@ -133,6 +137,53 @@ describe("processQueuedChatRun", () => {
       preferArtifactFallback: true,
       storedArtifactTarget: null,
       storedSeparateFromArtifact: null,
+    });
+  });
+
+  it("carries authoritative consumption into an approval resume", async () => {
+    const envelope = {
+      schema: "comparative.run-budget.v1" as const,
+      version: 1 as const,
+      governingLayer: "organization" as const,
+      limits: {
+        tokens: 1_000_000,
+        usd: 10,
+        wallClockMs: 3_600_000,
+        toolIterations: 8,
+      },
+    };
+    const consumed = {
+      tokens: 42_000,
+      usd: 0.42,
+      wallClockMs: 9_000,
+      toolIterations: 1,
+    };
+    const run = claimedRun({
+      status: "waiting_for_approval",
+      inputs: {
+        prompt: "continue",
+        threadId: "thread-1",
+        userMessageId: "user-msg-1",
+        executionMode: "local",
+        runBudget: { envelope },
+      },
+      outputs: {
+        budgetReceipt: {
+          schema: "comparative.run-budget-receipt.v1",
+          version: 1,
+          governingLayer: "organization",
+          limits: envelope.limits,
+          consumed,
+          partial: false,
+        },
+      },
+    } as Partial<Run>);
+
+    await processQueuedChatRun({ db: fakeDb(run), runId: "run-1" });
+
+    expect(vi.mocked(executeChatTurn).mock.calls[0]![0].runBudget).toEqual({
+      envelope,
+      consumed,
     });
   });
 
@@ -783,6 +834,7 @@ describe("poison-pill attempt ceiling (#464)", () => {
         ),
       ).toBe(true),
     );
+    expect(expirePendingToolApprovals).toHaveBeenCalledWith({ db });
 
     controller.abort();
     await loop;

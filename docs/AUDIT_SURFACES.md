@@ -38,7 +38,9 @@ unit suites.
 | Runs cancel/retry/resume | `run_cancel`, `run_retry`, `run_resume` | `lib/run-actions.ts` |
 | Admin invitations create/send/revoke/resend/accept | `invite.*` | admin routes + `lib/admin-invitations.ts`, `lib/users.ts` |
 | Admin user role change ⚙ | `admin_user_role_update` | `app/api/admin/users/[id]/route.ts` |
-| Provider (OAuth) connection ⚙ | `mcp_connection_create` | `lib/oauth/connection.ts` (every callback flows through it) — connect only; there is no disconnect route to audit (#692) |
+| Provider (OAuth) connection lifecycle ⚙ | `connection.granted`, `connection.revoked`, `attestation.granted`, `attestation.revoked` | `lib/oauth/connection.ts`; provider callbacks, the owner-scoped connection route, and the admin connection route all flow through it |
+| Connector registry lifecycle | `connector.enabled`, `connector.disabled`, `connector.updated` | `app/api/admin/connectors/[id]/route.ts` |
+| Connector tool policy | `connector.tool_policy_updated` | `app/api/admin/connectors/tools/[id]/route.ts` |
 | Admin trace access (all inspector reads) | `run_trace_viewed` | admin trace route |
 
 ## Authentication

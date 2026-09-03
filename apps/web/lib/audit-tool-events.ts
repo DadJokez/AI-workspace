@@ -1,3 +1,4 @@
+import type { ToolPolicyAuditDecision } from "@ai-workspace/agent";
 import type {
   PersistedToolCall,
   PersistedToolResult,
@@ -11,8 +12,9 @@ import {
   observedPolicyDecision,
   toolActionKey,
   type ObservedPolicyDecision,
-  type ToolActionLevel,
+  type ToolPolicyDecision,
 } from "@/lib/tool-policy";
+import type { AutonomyPresetName } from "@/lib/autonomy-presets";
 
 export interface BuildToolAuditRowsInput {
   actorUserId: string;
@@ -21,15 +23,16 @@ export interface BuildToolAuditRowsInput {
   runId?: string | null;
   modelId: string;
   runtime: string;
+  autonomyPreset?: AutonomyPresetName;
   calls: readonly PersistedToolCall[];
   results: readonly PersistedToolResult[];
   /**
-   * Catalog action per `provider__toolName` (#410 P1, observe mode). When
-   * present, every row records what the tri-state policy WOULD have decided
-   * — nothing is enforced yet. Absent (e.g. builtin web tools with no
-   * catalog rows), the stamp is omitted rather than guessed.
+   * Catalog policy per `provider__toolName` (#410). Current executor results
+   * carry the actual decision; this map preserves observe-mode fallback for
+   * started rows, old results, and rolling deployments. Built-in web tools use
+   * their separate egress policy and keep this column null.
    */
-  toolActions?: Record<string, ToolActionLevel>;
+  toolPolicyDecisions?: Record<string, ToolPolicyDecision>;
 }
 
 export interface ToolAuditRow {
@@ -45,11 +48,13 @@ export interface ToolAuditRow {
   input: Record<string, unknown> | null;
   output: unknown;
   error: string | null;
+  policyDecision: ToolPolicyAuditDecision | null;
   metadata: {
     rawToolName?: string;
+    approvalId?: string;
     modelId: string;
     runtime: string;
-    policyDecision?: ObservedPolicyDecision;
+    autonomyPreset: AutonomyPresetName;
     webEgress?: {
       outcome: "allowed" | "denied";
       reason?: "denied_domain_policy";
@@ -70,9 +75,10 @@ export function buildToolAuditRows({
   runId = null,
   modelId,
   runtime,
+  autonomyPreset = "interactive",
   calls,
   results,
-  toolActions,
+  toolPolicyDecisions,
 }: BuildToolAuditRowsInput): ToolAuditRow[] {
   const resultsById = new Map(results.map((result) => [result.toolCallId, result]));
   const callsById = new Map(calls.map((call) => [call.id, call]));
@@ -88,9 +94,10 @@ export function buildToolAuditRows({
         runId,
         modelId,
         runtime,
+        autonomyPreset,
         call,
         result,
-        toolActions,
+        toolPolicyDecisions,
       }),
     );
   }
@@ -105,8 +112,9 @@ export function buildToolAuditRows({
         runId,
         modelId,
         runtime,
+        autonomyPreset,
         result,
-        toolActions,
+        toolPolicyDecisions,
       }),
     );
   }
@@ -121,9 +129,10 @@ function buildRow({
   runId,
   modelId,
   runtime,
+  autonomyPreset,
   call,
   result,
-  toolActions,
+  toolPolicyDecisions,
 }: {
   actorUserId: string;
   chatThreadId?: string | null;
@@ -131,9 +140,10 @@ function buildRow({
   runId?: string | null;
   modelId: string;
   runtime: string;
+  autonomyPreset: AutonomyPresetName;
   call?: PersistedToolCall;
   result?: PersistedToolResult;
-  toolActions?: Record<string, ToolActionLevel>;
+  toolPolicyDecisions?: Record<string, ToolPolicyDecision>;
 }): ToolAuditRow {
   const status = !result
     ? "started"
@@ -174,23 +184,40 @@ function buildRow({
     error: result?.isError
       ? redactProviderToolError(provider, result.output)
       : null,
+    policyDecision:
+      result?.policyDecision ??
+      observedCatalogPolicyDecision({
+        provider,
+        toolName,
+        toolPolicyDecisions,
+      }),
     metadata: {
       ...(rawToolName ? { rawToolName } : {}),
+      ...(result?.approvalId ? { approvalId: result.approvalId } : {}),
       modelId,
       runtime,
-      // #410 P1 observe mode: what the tri-state policy WOULD have decided.
-      ...(toolActions && provider
-        ? {
-            policyDecision: observedPolicyDecision(
-              toolActions[toolActionKey(provider, toolName)],
-            ),
-          }
-        : {}),
+      autonomyPreset,
       ...(webEgress ? { webEgress } : {}),
     },
     startedAt: call ? new Date(call.startedAt) : null,
     completedAt: result ? new Date(result.completedAt) : null,
   };
+}
+
+function observedCatalogPolicyDecision({
+  provider,
+  toolName,
+  toolPolicyDecisions,
+}: {
+  provider: string | null;
+  toolName: string;
+  toolPolicyDecisions?: Record<string, ToolPolicyDecision>;
+}): ObservedPolicyDecision | null {
+  return toolPolicyDecisions && provider && provider !== "web"
+    ? observedPolicyDecision(
+        toolPolicyDecisions[toolActionKey(provider, toolName)],
+      )
+    : null;
 }
 
 function buildWebEgressAuditMetadata(

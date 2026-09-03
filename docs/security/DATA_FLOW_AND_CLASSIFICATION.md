@@ -78,7 +78,7 @@ flowchart LR
 | Vault memory and capture queue | Confidential | Postgres `user_memory_items`, `memory_capture_queue` | DB TLS; AWS API TLS | RDS storage encryption disabled | User can review/archive; purge window pending #460 | Bedrock memory-capture turn; owner browser |
 | Run inputs, outputs, events, and standard trace snapshots | Confidential | Postgres `runs`, `run_events`, related JSON | DB TLS; AWS API TLS | RDS storage encryption disabled; persisted traces are redacted and byte-bounded | Policy pending #460/#381 | Bedrock/AgentCore; owner/admin browser |
 | Tool inputs, results, and receipts | Confidential | Postgres messages/runs/audit rows after redaction | Provider HTTPS; DB TLS | RDS storage encryption disabled | Audit/product windows pending #460 | Connected provider; Bedrock/AgentCore |
-| OAuth access and refresh tokens | Restricted | Postgres `oauth_tokens` | Provider HTTPS; DB TLS | AES-256-GCM application ciphertext; RDS storage encryption disabled | **Indefinite. There is no disconnect route** — see #692 — and no automated rotation | Connected provider only; model never receives raw token |
+| OAuth access and refresh tokens | Restricted | Postgres `oauth_tokens` | Provider HTTPS; DB TLS | AES-256-GCM application ciphertext; RDS storage encryption disabled | Active until owner/admin disconnect; disconnect scrubs the access token, removes the refresh token, and retains revocation metadata. Automated provider-side revocation and rotation remain pending #692 | Connected provider only; model never receives raw token |
 | App/runtime secrets | Restricted | Secrets Manager JSON secret; injected into ECS tasks | AWS API/TLS | AWS-managed Secrets Manager key; no automatic rotation | Versioned by Secrets Manager; rotation runbook required | ECS task environment only |
 | Feedback text, context, and screenshots | Confidential | Postgres `feedback_reports` | HTTPS; DB TLS | RDS storage encryption disabled | Admin triage state; policy pending #460 | Reporter and authorized admins |
 | Audit ledger | Internal metadata plus redacted Confidential payloads | Postgres `audit_log` | DB TLS | RDS storage encryption disabled; append-only by application convention | Window pending #460; DB enforcement pending #457 | Authorized admins; no SIEM export yet |
@@ -95,10 +95,10 @@ flowchart LR
 |---|---|---|---|---|
 | AWS Bedrock / AgentCore | Model inference and durable agent execution | Prompt/context, selected attachments, tool schemas/results | ECS task IAM | User initiates chat/skill/schedule; admin controls model enablement |
 | Amazon SES | Magic-link and invitation delivery | Recipient address and transactional content | Web task IAM scoped to verified identity | Admin invite or user sign-in request |
-| GitHub | OAuth, source-control tools, webhook events | Scoped tool arguments; repository data returned | Per-user OAuth; webhook HMAC for inbound events | User connects and attests; **no in-product disconnect** (#692) |
-| Google Gmail/Calendar | Mail/calendar read and user-authorized writes | Scoped query/draft/event data | Per-user OAuth; write authorization bound to the turn | User connects; write intent is explicit; **no in-product disconnect** (#692) |
-| Notion | Page/database search and reads | Scoped tool arguments and returned workspace data | Per-user OAuth | User connects and attests; **no in-product disconnect** (#692) |
-| Salesforce | Read-only CRM queries in the current tool surface | SOQL/search arguments and returned records | Per-user OAuth; instance URL validated | User connects and attests; **no in-product disconnect** (#692) |
+| GitHub | OAuth, source-control tools, webhook events | Scoped tool arguments; repository data returned | Per-user OAuth; webhook HMAC for inbound events | User connects/attests and can disconnect in Settings; provider-side grant revocation remains separate (#692) |
+| Google Gmail/Calendar | Mail/calendar read and user-authorized writes | Scoped query/draft/event data | Per-user OAuth; write authorization bound to the turn | User connects, authorizes writes per turn, and can disconnect in Settings; provider-side grant revocation remains separate (#692) |
+| Notion | Page/database search and reads | Scoped tool arguments and returned workspace data | Per-user OAuth | User connects/attests and can disconnect in Settings; provider-side grant revocation remains separate (#692) |
+| Salesforce | Read-only CRM queries in the current tool surface | SOQL/search arguments and returned records | Per-user OAuth; instance URL validated | User connects and can disconnect in Settings; provider-side grant revocation remains separate (#692) |
 | Brave Search | Public web search | Search query and result pagination | Server API key | Model invokes only when web capability is granted |
 | Public web host | Read a user-requested public URL | URL, normal HTTP headers; response body enters bounded context | No credentials; credentialed URLs rejected | Admin denylist; private/link-local/metadata addresses blocked |
 | PostHog Cloud | Product usage analytics | Stable user ID and role, sanitized route template, event name, model/resource IDs, and bounded status/boolean properties | Public project token; no provider or application credentials | Browser tracking disables autocapture, session replay, and exception capture; custom events contain no user content |
@@ -142,10 +142,10 @@ lands:
 - product records generally persist until an existing user/admin lifecycle
   action removes or archives them;
 - CloudWatch ECS log groups retain 30 days;
-- OAuth tokens persist indefinitely — there is no disconnect route and no
-  automated rotation (#692). A user who wants Comparative's access to their
-  mailbox, calendar, repositories, or CRM withdrawn must revoke it at the
-  provider, and the encrypted token row survives that;
+- active OAuth credentials persist until an owner or admin disconnects them.
+  Disconnect immediately scrubs local token material and leaves revocation
+  metadata for audit, but does not yet revoke the grant at the provider or
+  rotate credentials automatically (#692);
 - RDS automated backups retain one day in the pilot;
 - a user deletion or legal-hold request requires a documented, reviewed
   operator procedure and privacy/legal approval. The manual procedure is

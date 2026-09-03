@@ -102,12 +102,11 @@ rollout.
 
 1. Revoke the credential at its authority first: connected provider, database,
    AWS IAM, or application session.
-2. For one user's provider token, cancel active affected runs and destroy the
-   stored token. **There is no disconnect route in the product (#692)**, so
-   this is two manual actions: revoke the grant at the provider (their own
-   console, or the user's), and `DELETE FROM oauth_tokens` for that
-   user/provider against production. Neither is self-service and neither is
-   scripted — budget for that in the response timeline. Do not rotate the
+2. For one user's provider token, cancel active affected runs, disconnect the
+   connection from Settings or Admin > Connectors, and revoke the grant at the
+   provider. Comparative's disconnect immediately scrubs local token material
+   and records the actor/reason, but provider-side revocation is still a
+   separate manual action (#692). Do not rotate the
    shared OAuth encryption key as a first response; changing it without
    re-encryption makes every stored token unreadable.
 3. For a provider OAuth client-secret exposure, rotate the client secret,
@@ -138,10 +137,9 @@ rollout.
 ### Prompt injection or unauthorized tool side effect
 
 1. Cancel the run and prevent another attempt.
-2. Disable the tool/provider in the governed catalog or remove the user's
-   attestation — these are the fast, in-product levers. Destroying the token
-   itself is the manual two-step in "Restricted credential or session
-   exposure" above, because no disconnect route exists (#692).
+2. Disable the tool/provider in Admin > Connectors for immediate organization-
+   wide containment, or disconnect the affected user's connection to scrub
+   local credentials. Revoke the provider-side grant separately (#692).
 3. Preserve the untrusted source, framed prompt evidence, tool call/result,
    write-authorization receipt, provider-side object ID, and audit row.
 4. Reverse the provider-side change only after preserving evidence and

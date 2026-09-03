@@ -5,11 +5,21 @@ import {
   getBedrockClient,
 } from "./clients";
 import { MODELS, type ModelId } from "./models";
+import {
+  RunBudgetTracker,
+  type RunBudgetDimension,
+  type RunBudgetState,
+} from "./run-budget";
 import type { ToolRegistry } from "./registry";
 import {
   appendToolUsageNotes,
   frameUntrustedToolResult,
 } from "./tool-result-framing";
+import {
+  buildToolApprovalRequest,
+  isStandingToolApprovalGrant,
+  matchingToolApprovalGrant,
+} from "./tool-approval";
 import {
   renderResolvedDateReferences,
   resolveRelativeDateReferences,
@@ -20,6 +30,11 @@ import type {
   AgentMessage,
   ProviderRequestSnapshot,
   ToolContext,
+  ToolApprovalGrant,
+  ToolApprovalMode,
+  ToolApprovalRequest,
+  ToolPolicyAuditDecision,
+  ToolRuntimePolicy,
 } from "./types";
 
 export interface RunAgentLoopParams {
@@ -61,21 +76,34 @@ export interface RunAgentLoopParams {
   requiredToolName?: string;
   /** Hard cap on tool-use round trips per turn. Defaults to 8. */
   maxToolIterations?: number;
+  /** Trusted cumulative run budget. Absent preserves the legacy loop limits. */
+  budget?: RunBudgetState;
   /** Per-output-message token cap. Defaults to the model's `defaultMaxTokens`. */
   maxTokens?: number;
   /** Optional sampling temperature. Omitted for normal product defaults. */
   temperature?: number;
   context: ToolContext;
+  /** Durable exact-call approvals supplied by Comparative's policy gate. */
+  toolApprovalGrants?: readonly ToolApprovalGrant[];
+  /** Unattended work denies unapproved writes instead of pausing forever. */
+  toolApprovalMode?: ToolApprovalMode;
   /** Aborts the loop. */
   signal?: AbortSignal;
   /** Override the resolved Bedrock client. Tests pass a fake here. */
   client?: BedrockClient;
+  /** Injectable wall clock for deterministic budget boundary tests. */
+  nowMs?: () => number;
 }
 
 export const DEFAULT_MAX_TOOL_ITERATIONS = 8;
 
+export const TOOL_POLICY_BLOCKED_CODE = "tool_policy_blocked";
+
 const TOOL_LIMIT_SYNTHESIS_INSTRUCTION =
   "You have reached this turn's tool-step limit. Use the tool results already in context to provide the best complete answer now. Do not request more tools. Clearly state any remaining unknowns.";
+
+const RUN_BUDGET_REACHED_NOTICE =
+  "\n\nI reached this run's {dimension} budget before I could finish. The work above is partial; send a follow-up to continue.";
 
 export const PLATFORM_EVIDENCE_DISCIPLINE = [
   "Platform evidence rules (higher priority than task or skill instructions):",
@@ -176,8 +204,13 @@ export async function* runAgentLoop(
   ]
     .filter(Boolean)
     .join("\n\n");
-  const maxToolIterations =
-    params.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
+  const budgetTracker = params.budget
+    ? new RunBudgetTracker(params.budget, params.modelId, params.nowMs)
+    : null;
+  const maxToolIterations = Math.min(
+    params.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS,
+    budgetTracker?.remainingToolIterations() ?? Number.POSITIVE_INFINITY,
+  );
   let mountedAllowed = params.resolveAllowedTools
     ? params.resolveAllowedTools()
     : params.allowedTools;
@@ -202,6 +235,7 @@ export async function* runAgentLoop(
     agentMessageToBedrock,
   );
   const toolsWithDeliveredUsageNotes = new Set<string>();
+  const consumedApprovalIds = new Set<string>();
 
   let totalTokensIn = 0;
   let totalTokensOut = 0;
@@ -215,6 +249,28 @@ export async function* runAgentLoop(
   for (let iter = 0; iter <= maxToolIterations; iter++) {
     if (params.signal?.aborted) {
       yield { type: "error", message: "aborted" };
+      return;
+    }
+
+    const blockingBudget = budgetTracker?.blockingProviderInvocation();
+    if (blockingBudget && budgetTracker) {
+      yield {
+        type: "text-delta",
+        delta: RUN_BUDGET_REACHED_NOTICE.replace(
+          "{dimension}",
+          budgetDimensionLabel(blockingBudget),
+        ),
+      };
+      yield { type: "budget", receipt: budgetTracker.receipt(true) };
+      yield {
+        type: "usage",
+        tokensIn: totalTokensIn,
+        tokensOut: totalTokensOut,
+        inputTokens: totalInputTokens,
+        cacheReadInputTokens: totalCacheReadInputTokens,
+        cacheWriteInputTokens: totalCacheWriteInputTokens,
+      };
+      yield { type: "done" };
       return;
     }
 
@@ -338,6 +394,13 @@ export async function* runAgentLoop(
         totalInputTokens += ev.inputTokens ?? ev.tokensIn;
         totalCacheReadInputTokens += ev.cacheReadInputTokens ?? 0;
         totalCacheWriteInputTokens += ev.cacheWriteInputTokens ?? 0;
+        budgetTracker?.recordUsage({
+          tokensIn: ev.tokensIn,
+          tokensOut: ev.tokensOut,
+          inputTokens: ev.inputTokens ?? ev.tokensIn,
+          cacheReadInputTokens: ev.cacheReadInputTokens ?? 0,
+          cacheWriteInputTokens: ev.cacheWriteInputTokens ?? 0,
+        });
       } else if (ev.type === "stop") {
         stopReason = ev.reason;
         yield {
@@ -409,6 +472,62 @@ export async function* runAgentLoop(
       return;
     }
 
+    const approvalRequests: ToolApprovalRequest[] = [];
+    for (const call of pendingToolCalls) {
+      const tool = params.registry.get(call.name);
+      if (tool?.policy === "needs_approval") {
+        approvalRequests.push(
+          await buildToolApprovalRequest({
+            call,
+            identity: tool.executionIdentity,
+          }),
+        );
+      }
+    }
+    const approvalRequestsByToolCallId = new Map(
+      approvalRequests.map((request) => [request.toolCallId, request]),
+    );
+    const reservedApprovalIds = new Set(consumedApprovalIds);
+    const approvalGrantsByToolCallId = new Map<string, ToolApprovalGrant>();
+    const ungrantedApprovalRequests = approvalRequests.filter((request) => {
+      const grant = matchingToolApprovalGrant({
+        request,
+        grants: params.toolApprovalGrants ?? [],
+        consumedApprovalIds: reservedApprovalIds,
+      });
+      if (!grant) return true;
+      if (!isStandingToolApprovalGrant(grant)) {
+        reservedApprovalIds.add(grant.approvalId);
+      }
+      approvalGrantsByToolCallId.set(request.toolCallId, grant);
+      return false;
+    });
+    if (
+      ungrantedApprovalRequests.length > 0 &&
+      params.toolApprovalMode !== "deny_unattended"
+    ) {
+      // Pause the whole tool round before any handler runs. This keeps a batch
+      // atomic: an auto-allowed sibling cannot run twice when the durable run
+      // is resumed after the user decides on the write calls.
+      yield {
+        type: "tool-approval-required",
+        requests: ungrantedApprovalRequests,
+      };
+      if (budgetTracker) {
+        yield { type: "budget", receipt: budgetTracker.receipt(false) };
+      }
+      yield {
+        type: "usage",
+        tokensIn: totalTokensIn,
+        tokensOut: totalTokensOut,
+        inputTokens: totalInputTokens,
+        cacheReadInputTokens: totalCacheReadInputTokens,
+        cacheWriteInputTokens: totalCacheWriteInputTokens,
+      };
+      yield { type: "done" };
+      return;
+    }
+
     // Execute tool calls and feed the results back as a user-role message.
     const resultBlocks: BedrockContentBlock[] = [];
     for (const call of pendingToolCalls) {
@@ -424,6 +543,142 @@ export async function* runAgentLoop(
           toolUseId: call.id,
           content: errMsg,
           isError: true,
+        });
+        continue;
+      }
+      const approvalRequest =
+        tool.policy === "needs_approval"
+          ? approvalRequestsByToolCallId.get(call.id)
+          : undefined;
+      const approvalGrant = approvalRequest
+        ? approvalGrantsByToolCallId.get(call.id)
+        : undefined;
+      if (
+        approvalRequest &&
+        !approvalGrant &&
+        params.toolApprovalMode !== "deny_unattended"
+      ) {
+        yield {
+          type: "error",
+          message: `Approval grant reservation missing for ${tool.name}.`,
+        };
+        return;
+      }
+      if (approvalGrant && !isStandingToolApprovalGrant(approvalGrant)) {
+        consumedApprovalIds.add(approvalGrant.approvalId);
+      }
+      const policyDecision = approvalGrant
+        ? approvalGrant.decision === "approved"
+          ? "approved_by_user"
+          : "denied"
+        : runtimePolicyAuditDecision(tool.policy);
+      if (tool.policy === "blocked") {
+        const output = {
+          error: TOOL_POLICY_BLOCKED_CODE,
+          message: `Tool ${tool.name} is blocked by runtime policy.`,
+          tool: tool.name,
+        };
+        const text = JSON.stringify(output);
+        yield {
+          type: "tool-result",
+          result: {
+            toolCallId: call.id,
+            output,
+            isError: true,
+            policyDecision: "blocked",
+          },
+        };
+        resultBlocks.push({
+          kind: "tool-result",
+          toolUseId: call.id,
+          content: tool.untrustedOutput
+            ? frameUntrustedToolResult(tool.name, text)
+            : text,
+          isError: true,
+        });
+        continue;
+      }
+      if (
+        approvalRequest &&
+        !approvalGrant &&
+        params.toolApprovalMode === "deny_unattended"
+      ) {
+        const output = {
+          error: "tool_approval_unattended_denied",
+          message: `Unattended runs cannot pause for permission to run ${tool.name}. The write was skipped.`,
+          tool: tool.name,
+        };
+        const text = JSON.stringify(output);
+        yield {
+          type: "tool-result",
+          result: {
+            toolCallId: call.id,
+            output,
+            isError: true,
+            policyDecision: "denied",
+          },
+        };
+        resultBlocks.push({
+          kind: "tool-result",
+          toolUseId: call.id,
+          content: tool.untrustedOutput
+            ? frameUntrustedToolResult(tool.name, text)
+            : text,
+          isError: true,
+        });
+        continue;
+      }
+      if (approvalGrant?.decision === "denied") {
+        const output = {
+          error: "tool_approval_denied",
+          message: `Permission to run ${tool.name} was denied by the user.`,
+          tool: tool.name,
+        };
+        const text = JSON.stringify(output);
+        yield {
+          type: "tool-result",
+          result: {
+            toolCallId: call.id,
+            output,
+            isError: true,
+            policyDecision: "denied",
+            approvalId: approvalGrant.approvalId,
+          },
+        };
+        resultBlocks.push({
+          kind: "tool-result",
+          toolUseId: call.id,
+          content: tool.untrustedOutput
+            ? frameUntrustedToolResult(tool.name, text)
+            : text,
+          isError: true,
+        });
+        continue;
+      }
+      if (approvalGrant?.consumed) {
+        const output =
+          approvalGrant.replayOutput ??
+          {
+            status: "already_executed",
+            message: `${tool.name} already ran successfully in this run.`,
+          };
+        const text =
+          typeof output === "string" ? output : JSON.stringify(output);
+        yield {
+          type: "tool-result",
+          result: {
+            toolCallId: call.id,
+            output,
+            policyDecision: "approved_by_user",
+            approvalId: approvalGrant.approvalId,
+          },
+        };
+        resultBlocks.push({
+          kind: "tool-result",
+          toolUseId: call.id,
+          content: tool.untrustedOutput
+            ? frameUntrustedToolResult(tool.name, text)
+            : text,
         });
         continue;
       }
@@ -448,6 +703,8 @@ export async function* runAgentLoop(
           result: {
             toolCallId: call.id,
             output,
+            ...(policyDecision ? { policyDecision } : {}),
+            ...(approvalGrant ? { approvalId: approvalGrant.approvalId } : {}),
             ...(deliverUsageNotes ? { usageNotesDelivered: true } : {}),
           },
         };
@@ -475,6 +732,8 @@ export async function* runAgentLoop(
             toolCallId: call.id,
             output: msg,
             isError: true,
+            ...(policyDecision ? { policyDecision } : {}),
+            ...(approvalGrant ? { approvalId: approvalGrant.approvalId } : {}),
             ...(deliverUsageNotes ? { usageNotesDelivered: true } : {}),
           },
         };
@@ -491,8 +750,12 @@ export async function* runAgentLoop(
       }
     }
     bedrockMessages.push({ role: "user", content: resultBlocks });
+    budgetTracker?.recordToolIteration();
   }
 
+  if (budgetTracker) {
+    yield { type: "budget", receipt: budgetTracker.receipt(false) };
+  }
   yield {
     type: "usage",
     tokensIn: totalTokensIn,
@@ -502,6 +765,34 @@ export async function* runAgentLoop(
     cacheWriteInputTokens: totalCacheWriteInputTokens,
   };
   yield { type: "done" };
+}
+
+function budgetDimensionLabel(
+  dimension: Exclude<RunBudgetDimension, "tool_iterations">,
+): string {
+  switch (dimension) {
+    case "tokens":
+      return "token";
+    case "usd":
+      return "cost";
+    case "wall_clock":
+      return "time";
+  }
+}
+
+function runtimePolicyAuditDecision(
+  policy: ToolRuntimePolicy | undefined,
+): ToolPolicyAuditDecision | undefined {
+  switch (policy) {
+    case "always_allow":
+      return "auto_allowed";
+    case "needs_approval":
+      return undefined;
+    case "blocked":
+      return "blocked";
+    default:
+      return undefined;
+  }
 }
 
 function buildProviderRequestSnapshot({

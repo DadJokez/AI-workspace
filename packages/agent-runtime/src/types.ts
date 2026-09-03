@@ -2,7 +2,11 @@ import type {
   AgentEvent,
   AgentMessage,
   DiscoveryCatalogEntry,
+  RunBudgetState,
+  ToolApprovalGrant,
+  ToolApprovalMode,
   ToolContext,
+  ToolRuntimePolicy,
 } from "@ai-workspace/agent";
 import type { WebEgressPolicy } from "@ai-workspace/agent/web-egress-policy";
 
@@ -25,6 +29,8 @@ export type McpServerSpec =
       headers?: Record<string, string>;
       allowedTools?: string[];
       blockedTools?: string[];
+      toolPolicies?: Record<string, ToolRuntimePolicy>;
+      defaultToolPolicy?: ToolRuntimePolicy;
       /** Provider-native tool name -> trusted first-result usage guidance. */
       usageNotesByTool?: Record<string, string>;
       /**
@@ -128,6 +134,12 @@ export interface TurnInput {
     activatedProviders: readonly string[];
     catalog?: readonly DiscoveryCatalogEntry[];
   };
+  /** Exact-call decisions loaded from Comparative's durable approval ledger. */
+  toolApprovalGrants?: readonly ToolApprovalGrant[];
+  /** Request in attended contexts; deny-and-report in unattended contexts. */
+  toolApprovalMode?: ToolApprovalMode;
+  /** Server-resolved cumulative budget. Clients cannot loosen this value. */
+  budget?: RunBudgetState;
   /**
    * Steering text for user identity, connected tools, Vault memory, artifact
    * context, and custom instructions. Bedrock and AgentCore fold it into the

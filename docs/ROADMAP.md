@@ -25,7 +25,7 @@ The five journeys above are the **product** axis. This section is the **platform
 
 Two tracks, sequenced by safety-per-effort.
 
-**Track A — Security & Auditability to 5/5** (the explicit target: the areas an enterprise security team scores). Authz correctness + tests (#445, #444), zero unframed injection channels (#454), zero high/critical CVEs behind a CI gate (#446, #459), key separation (#455), governed egress (#439), runtime policy *enforcement* (#410 P2, #436), **audit completeness by construction regardless of lane** (#456, blocked by #442), a **tamper-evident audit log** (#457), privileged-access logging (#458), a documented data lifecycle (#460), and the readiness packet — threat model + incident runbook + data-flow sheet (#461).
+**Track A — Security & Auditability to 5/5** (the explicit target: the areas an enterprise security team scores). Authz correctness + tests (#445, #444), zero unframed injection channels (#454), zero high/critical CVEs behind a CI gate (#446, #459), key separation (#455), governed egress (#439), runtime policy *enforcement* and context-bound autonomy presets (#410 and #436 shipped), **audit completeness by construction regardless of lane** (#456, blocked by #442), a **tamper-evident audit log** (#457), privileged-access logging (#458), a documented data lifecycle (#460), and the readiness packet — threat model + incident runbook + data-flow sheet (#461).
 
 **Track B — Scorecard lift** (every dimension that scored under 4 → 4+): architecture via the `executeChatTurn` extraction (#442), run-lifecycle + resiliency (#443, #464), SSE-contract hardening (#465), the ops floor (#449), performance (#447, #448, #466), concurrency integrity (#463, #462), consistency + dead-code cleanup (#468, #469), release engineering (#467), and the doc/ADR re-baseline (#450, ADRs).
 
@@ -34,7 +34,7 @@ Two tracks, sequenced by safety-per-effort.
 ### Architecture research → build (the vendored spec series)
 
 Five research specs in [`docs/specs/`](specs/) are now broken into tracked build tracks:
-- **Connector governance** → tri-state policy + connection-lifecycle audit + `/admin/connectors` (#410, P1 shipped observe-mode).
+- **Connector governance** → deterministic tri-state policy, durable approvals, connection-lifecycle audit, `/admin/connectors`, and context-bound `interactive`/`unattended`/`restricted` autonomy presets (#410 and #436; shipped in #831-#835 and the #436 follow-on).
 - **Publish tier** → SSO-gated `/apps/{slug}` with tri-mode data badges (#411); live-via-viewer already shipped as #407.
 - **Skills extensibility** → versioning + vetting + namespacing (#412, day-one rails shipped).
 - **Memory scopes** → four-scope Vault + constraint pinning (#413; pinning shipped as #416).
