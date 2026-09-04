@@ -4,7 +4,7 @@ import {
   buildPinnedContextReceipt,
   renderPinnedActiveSkill,
 } from "@/lib/pinned-context";
-import { buildSummarizerInput } from "@/lib/summarizer-input";
+import { buildSummarizerInput } from "@ai-workspace/agent";
 import { buildChatContextPack } from "@/lib/chat-context-pack";
 import type { UserMcpProviderStatus } from "@/lib/oauth/mcp-servers";
 
