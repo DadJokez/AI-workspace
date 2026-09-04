@@ -56,8 +56,25 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
-        run: pnpm test
+      # #695: the same unit lane as `pnpm test`, instrumented with v8 coverage.
+      # Report-only — no thresholds, so a coverage drop never turns this
+      # required check red. The per-package table lands on the run summary
+      # page; the raw json-summary/lcov files go up as an artifact below.
+      - name: Test (with coverage)
+        run: pnpm test:coverage
+
+      - name: Upload coverage summary
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-summary
+          path: |
+            apps/*/coverage/coverage-summary.json
+            apps/*/coverage/lcov.info
+            packages/*/coverage/coverage-summary.json
+            packages/*/coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 14
 
       # Free, deterministic eval lane: exercise every suite/case definition
       # and replay every scrubbed alpha failure transcript on every required
@@ -92,7 +109,13 @@ jobs:
   dependency-audit:
     name: dependency CVE audit
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 12, not 5: scripts/audit-prod-deps.sh retries the npm advisory endpoint
+    # with backoff, and on a slow registry night (2026-09-03) the 5-minute cap
+    # expired mid-retry. GitHub reports a job-timeout as "cancelled", which
+    # reads as a failed required check (#862). The cap must cover the
+    # script's worst-case retry envelope so the script - not the runner -
+    # decides between "finding" and "registry unreachable".
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:

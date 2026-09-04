@@ -27,10 +27,10 @@ export interface BuildToolAuditRowsInput {
   calls: readonly PersistedToolCall[];
   results: readonly PersistedToolResult[];
   /**
-   * Catalog policy per `provider__toolName` (#410). Current executor results
-   * carry the actual decision; this map preserves observe-mode fallback for
-   * started rows, old results, and rolling deployments. Built-in web tools use
-   * their separate egress policy and keep this column null.
+   * Catalog policy per `provider__toolName` (#410). The loop stamps every
+   * executed result with its actual decision (`result.policyDecision`, #701);
+   * this map remains only the observe-mode fallback for `started` rows and
+   * pre-#701 persisted results.
    */
   toolPolicyDecisions?: Record<string, ToolPolicyDecision>;
 }

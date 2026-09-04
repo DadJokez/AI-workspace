@@ -243,6 +243,7 @@ function resourceCanaryParams(
 ): ConverseStreamParams {
   return {
     bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+    supportsPromptCaching: true,
     messages: [
       {
         role: "user",
@@ -257,11 +258,11 @@ function resourceCanaryParams(
 
 describe("toAwsToolConfiguration", () => {
   it("returns undefined when no tool config is given", () => {
-    expect(toAwsToolConfiguration(undefined)).toBeUndefined();
+    expect(toAwsToolConfiguration(undefined, true)).toBeUndefined();
   });
 
   it("appends a cachePoint after the tool definitions", () => {
-    const cfg = toAwsToolConfiguration(TOOL_CONFIG);
+    const cfg = toAwsToolConfiguration(TOOL_CONFIG, true);
     expect(cfg?.tools).toHaveLength(2);
     expect(cfg?.tools?.[0]).toMatchObject({
       toolSpec: { name: "top_song" },
@@ -269,11 +270,17 @@ describe("toAwsToolConfiguration", () => {
     expect(cfg?.tools?.[1]).toEqual({ cachePoint: { type: "default" } });
   });
 
+  it("omits the tool cachePoint for a model without prompt caching (#797)", () => {
+    const cfg = toAwsToolConfiguration(TOOL_CONFIG, false);
+    expect(cfg?.tools).toHaveLength(1);
+    expect(cfg?.tools?.[0]).toMatchObject({ toolSpec: { name: "top_song" } });
+  });
+
   it("passes a specific tool choice to the AWS configuration", () => {
-    const cfg = toAwsToolConfiguration({
-      ...TOOL_CONFIG,
-      toolChoice: { tool: { name: "top_song" } },
-    });
+    const cfg = toAwsToolConfiguration(
+      { ...TOOL_CONFIG, toolChoice: { tool: { name: "top_song" } } },
+      true,
+    );
     expect(cfg?.toolChoice).toEqual({ tool: { name: "top_song" } });
   });
 });
@@ -294,6 +301,7 @@ describe("RealBedrockClient prompt caching", () => {
     await collect(
       client.converseStream({
         bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        supportsPromptCaching: true,
         systemPrompt: "You are a helpful assistant.",
         messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
         maxTokens: 100,
@@ -307,12 +315,41 @@ describe("RealBedrockClient prompt caching", () => {
     ]);
   });
 
+  it("emits no cachePoint anywhere for a model without prompt caching (#797)", async () => {
+    const inputs = stubSend();
+    const client = new RealBedrockClient();
+    await collect(
+      client.converseStream({
+        bedrockModelId: "us.amazon.nova-lite-v1:0",
+        supportsPromptCaching: false,
+        systemPrompt: "You are a helpful assistant.",
+        volatileSystemSuffix: "Current date and time (UTC): 2026-07-09T01:00:00.000Z.",
+        messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
+        toolConfig: TOOL_CONFIG,
+        maxTokens: 100,
+      }),
+    );
+
+    expect(inputs).toHaveLength(1);
+    // The stable-prefix / volatile-suffix layering survives; only the
+    // checkpoints go.
+    expect(inputs[0]?.system).toEqual([
+      { text: "You are a helpful assistant." },
+      { text: "Current date and time (UTC): 2026-07-09T01:00:00.000Z." },
+    ]);
+    expect(inputs[0]?.toolConfig?.tools).toEqual([
+      expect.objectContaining({ toolSpec: expect.anything() }),
+    ]);
+    expect(JSON.stringify(inputs[0])).not.toContain("cachePoint");
+  });
+
   it("forwards an explicit sampling temperature to Bedrock", async () => {
     const inputs = stubSend();
     const client = new RealBedrockClient();
     await collect(
       client.converseStream({
         bedrockModelId: "us.anthropic.claude-haiku-4-5",
+        supportsPromptCaching: true,
         messages: [{ role: "user", content: [{ kind: "text", text: "judge" }] }],
         maxTokens: 200,
         temperature: 0,
@@ -334,6 +371,7 @@ describe("RealBedrockClient prompt caching", () => {
     await collect(
       client.converseStream({
         bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        supportsPromptCaching: true,
         messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
         maxTokens: 100,
         signal: controller.signal,
@@ -349,6 +387,7 @@ describe("RealBedrockClient prompt caching", () => {
     await collect(
       client.converseStream({
         bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        supportsPromptCaching: true,
         systemPrompt: "You are a helpful assistant.",
         volatileSystemSuffix: "Current date and time (UTC): 2026-07-09T01:00:00.000Z.",
         messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
@@ -369,6 +408,7 @@ describe("RealBedrockClient prompt caching", () => {
     await collect(
       client.converseStream({
         bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        supportsPromptCaching: true,
         volatileSystemSuffix: "Current date and time (UTC): 2026-07-09T01:00:00.000Z.",
         messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
         maxTokens: 100,
@@ -386,6 +426,7 @@ describe("RealBedrockClient prompt caching", () => {
     await collect(
       client.converseStream({
         bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        supportsPromptCaching: true,
         messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
         maxTokens: 100,
       }),
@@ -401,6 +442,7 @@ describe("RealBedrockClient prompt caching", () => {
     await collect(
       client.converseStream({
         bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        supportsPromptCaching: true,
         systemPrompt: "s",
         messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
         toolConfig: TOOL_CONFIG,
@@ -435,6 +477,7 @@ describe("RealBedrockClient prompt caching", () => {
     const events = await collect(
       client.converseStream({
         bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        supportsPromptCaching: true,
         messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
         maxTokens: 100,
       }),
@@ -459,6 +502,7 @@ describe("RealBedrockClient prompt caching", () => {
     const events = await collect(
       client.converseStream({
         bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        supportsPromptCaching: true,
         messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
         maxTokens: 100,
       }),
@@ -516,6 +560,7 @@ describe("RealBedrockClient prompt caching", () => {
     const events = await collect(
       client.converseStream({
         bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        supportsPromptCaching: true,
         messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
         maxTokens: 100,
       }),
@@ -557,6 +602,7 @@ describe("RealBedrockClient prompt caching", () => {
     await collect(
       client.converseStream({
         bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+        supportsPromptCaching: true,
         messages: [
           {
             role: "assistant",

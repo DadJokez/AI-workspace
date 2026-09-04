@@ -229,6 +229,34 @@ describe("buildToolAuditRows", () => {
     expect(allowed[0]?.policyDecision).toBeNull();
   });
 
+  it("keeps the loop's auto_allowed stamp on builtin web results (#701)", () => {
+    const rows = buildToolAuditRows({
+      ...base,
+      toolPolicyDecisions: {},
+      calls: [
+        {
+          id: "call_stamped",
+          name: "web__fetch_url",
+          provider: "web",
+          toolName: "fetch_url",
+          input: { url: "https://one.example/" },
+          startedAt: "2026-05-15T12:00:00.000Z",
+        },
+      ],
+      results: [
+        {
+          toolCallId: "call_stamped",
+          output: { fetchedHosts: ["one.example"] },
+          isError: false,
+          policyDecision: "auto_allowed",
+          completedAt: "2026-05-15T12:00:01.000Z",
+        },
+      ],
+    });
+    expect(rows[0]?.policyDecision).toBe("auto_allowed");
+    expect(rows[0]?.status).toBe("succeeded");
+  });
+
   it("redacts sensitive audit inputs, outputs, and errors", () => {
     const rows = buildToolAuditRows({
       ...base,

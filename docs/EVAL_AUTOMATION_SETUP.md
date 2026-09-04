@@ -79,7 +79,8 @@ merges.
   merges exhausted the quota and blocked merges on an infrastructure limit
   rather than on code (#706).
 - Nightly evals allow only one active workflow run. The independent behavior
-  and browser lanes time out after 35 and 20 minutes respectively. The behavior
+  and browser lanes time out after 50 and 30 minutes respectively, and the
+  browser lane's Chromium install step is capped at 10 minutes. The behavior
   report trips above an estimated `$5.00` per completed suite; the additional
   two-turn app-backed canary is intentionally outside that report estimate and
   adds only its actual Bedrock turn usage.

@@ -28,6 +28,7 @@ describe("web fetch built-in tool", () => {
   it("describes truncation as partial evidence with a same-URL recovery path", () => {
     const tool = createWebFetchTool();
 
+    expect(tool.policy).toBe("always_allow");
     expect(tool.description).toContain(
       "truncated=true is partial evidence",
     );

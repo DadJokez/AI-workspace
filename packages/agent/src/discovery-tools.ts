@@ -49,6 +49,7 @@ export function createDiscoveryTools(options: DiscoveryToolsOptions): Tool[] {
 
   const searchTool: Tool = {
     name: SEARCH_TOOLS_NAME,
+    policy: "always_allow",
     description:
       "Search the user's connected-tool catalog. Returns matching tools grouped by provider, with whether each provider's tools are currently mounted. Use this when the user's request might need a connected tool you don't see mounted.",
     inputSchema: {
@@ -94,6 +95,10 @@ export function createDiscoveryTools(options: DiscoveryToolsOptions): Tool[] {
 
   const activateTool: Tool = {
     name: ACTIVATE_TOOLS_NAME,
+    // always_allow despite mutating in-run mount state: it only mounts
+    // providers the user already granted, and every mounted tool carries its
+    // own catalog policy. A pause here would break #384 discovery.
+    policy: "always_allow",
     description:
       "Activate a connected provider's tools for this conversation. Activation is sticky and additive: the provider's tools mount from your next step onward and stay mounted. Only providers the user has connected can be activated.",
     inputSchema: {

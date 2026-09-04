@@ -19,6 +19,9 @@ export type ToolRuntimePolicy =
   | "needs_approval"
   | "blocked";
 
+/** #701: a tool that reaches the loop without a declared policy is treated as a write. */
+export const UNDECLARED_TOOL_POLICY: ToolRuntimePolicy = "needs_approval";
+
 export type ToolPolicyAuditDecision =
   | "auto_allowed"
   | "approved_by_user"
@@ -76,8 +79,12 @@ export interface Tool<TInput = unknown, TOutput = unknown> {
   description: string;
   inputSchema: JSONSchema7;
   handler: ToolHandler<TInput, TOutput>;
-  /** Deterministic runtime policy resolved before the tool reaches the loop. */
-  policy?: ToolRuntimePolicy;
+  /**
+   * Required. Read tools declare `always_allow`; anything write-shaped
+   * declares `needs_approval` or `blocked`. The loop fails closed to
+   * `UNDECLARED_TOOL_POLICY` if a value is missing at runtime.
+   */
+  policy: ToolRuntimePolicy;
   /** Exact trusted endpoint/tool identity used to resolve MCP policy. */
   executionIdentity?: McpToolExecutionIdentity;
   /**
