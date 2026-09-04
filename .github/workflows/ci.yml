@@ -16,8 +16,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # #812: the docs-only fast lane's decision, computed from git alone in the
+  # reusable workflow. Every heavy job below needs it and runs unless it
+  # reports docs_only == 'true'. `!cancelled()` keeps them running when the
+  # classifier job itself errors: a classifier failure is the full lane,
+  # never a skip. The required-check names live on the summary jobs at the
+  # bottom of this file; the heavy jobs carry a "[full lane]" suffix.
+  classify:
+    uses: ./.github/workflows/classify-changed-paths.yml
+
   ci:
-    name: lint + typecheck + build
+    name: lint + typecheck + build [full lane]
+    needs: [classify]
+    if: ${{ !cancelled() && needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -107,7 +118,9 @@ jobs:
   # production dependency graph (xlsx's CVEs reached prod because nothing
   # looked). Moderate/low findings report but do not block.
   dependency-audit:
-    name: dependency CVE audit
+    name: dependency CVE audit [full lane]
+    needs: [classify]
+    if: ${{ !cancelled() && needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     # 12, not 5: scripts/audit-prod-deps.sh retries the npm advisory endpoint
     # with backoff, and on a slow registry night (2026-09-03) the 5-minute cap
@@ -158,7 +171,9 @@ jobs:
         run: bash scripts/audit-prod-deps.sh
 
   scoping-integration:
-    name: scoping integration (real Postgres)
+    name: scoping integration (real Postgres) [full lane]
+    needs: [classify]
+    if: ${{ !cancelled() && needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -211,6 +226,8 @@ jobs:
   # PR instead. No continue-on-error: when it breaks, it should fail loudly.
   infra-synth:
     name: infra synth
+    needs: [classify]
+    if: ${{ !cancelled() && needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -245,3 +262,65 @@ jobs:
           CDK_DEFAULT_REGION: us-east-1
           AWS_EC2_METADATA_DISABLED: "true"
         run: pnpm --filter @ai-workspace/infra exec cdk synth --quiet --no-lookups
+
+  # ---------------------------------------------------------------------------
+  # Required-check summaries (#812). Branch protection requires the contexts
+  # named below, unchanged. Each name now belongs to exactly ONE job — its
+  # summary — so no second check run with a required name can ever exist to
+  # collide with it; the heavy jobs above carry a "[full lane]" suffix. A
+  # summary passes on a real success of its heavy job, or on a skip the
+  # classifier explicitly asked for. A skip without that verdict, a failure,
+  # or a cancellation is red: the summaries run on failure (never skip) and
+  # exit non-zero, because a skipped required check satisfies branch
+  # protection and would fail the gate open.
+  # ---------------------------------------------------------------------------
+  ci-summary:
+    name: lint + typecheck + build
+    needs: [classify, ci]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report lint + typecheck + build
+        env:
+          LABEL: lint + typecheck + build
+          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+          RESULT: ${{ needs.ci.result }}
+        run: |
+          if [ "$RESULT" = "success" ]; then echo "$LABEL passed"; exit 0; fi
+          if [ "$RESULT" = "skipped" ] && [ "$DOCS_ONLY" = "true" ]; then echo "docs-only: skipped"; exit 0; fi
+          echo "$LABEL did not pass (result=$RESULT, docs_only=$DOCS_ONLY)"; exit 1
+
+  dependency-audit-summary:
+    name: dependency CVE audit
+    needs: [classify, dependency-audit]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report dependency CVE audit
+        env:
+          LABEL: dependency CVE audit
+          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+          RESULT: ${{ needs.dependency-audit.result }}
+        run: |
+          if [ "$RESULT" = "success" ]; then echo "$LABEL passed"; exit 0; fi
+          if [ "$RESULT" = "skipped" ] && [ "$DOCS_ONLY" = "true" ]; then echo "docs-only: skipped"; exit 0; fi
+          echo "$LABEL did not pass (result=$RESULT, docs_only=$DOCS_ONLY)"; exit 1
+
+  scoping-integration-summary:
+    name: scoping integration (real Postgres)
+    needs: [classify, scoping-integration]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report scoping integration (real Postgres)
+        env:
+          LABEL: scoping integration (real Postgres)
+          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+          RESULT: ${{ needs.scoping-integration.result }}
+        run: |
+          if [ "$RESULT" = "success" ]; then echo "$LABEL passed"; exit 0; fi
+          if [ "$RESULT" = "skipped" ] && [ "$DOCS_ONLY" = "true" ]; then echo "docs-only: skipped"; exit 0; fi
+          echo "$LABEL did not pass (result=$RESULT, docs_only=$DOCS_ONLY)"; exit 1

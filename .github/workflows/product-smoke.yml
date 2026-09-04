@@ -35,13 +35,26 @@ env:
   PR_EVAL_MAX_COST_USD: "1.50"
 
 jobs:
+  # #812: the docs-only fast lane's decision, computed from git alone in the
+  # reusable workflow. Every PR-lane job below needs it and runs unless it
+  # reports docs_only == 'true'. `!cancelled()` keeps them running when the
+  # classifier job itself errors: a classifier failure is the full lane,
+  # never a skip. The required-check names live on the summary jobs at the
+  # bottom of this file; the heavy jobs carry a "[full lane]" suffix.
+  classify:
+    uses: ./.github/workflows/classify-changed-paths.yml
+
   # The full smoke suite runs 73 tests per Playwright project with a single
   # worker; running the two projects as parallel matrix legs roughly halves
-  # the wall clock. Branch protection does NOT point at these legs — it points
-  # at the `local browser smoke` summary job below, which fans in the results.
+  # the wall clock. Branch protection requires both leg names AND the `local
+  # browser smoke` fan-in; all three are reported by the summary jobs below.
   browser-smoke-shard:
-    name: browser smoke (${{ matrix.project }})
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+    name: browser smoke (${{ matrix.project }}) [full lane]
+    needs: [classify]
+    if: >-
+      ${{ !cancelled() &&
+          (github.event_name == 'pull_request' || github.event_name == 'push') &&
+          needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -102,6 +115,8 @@ jobs:
   # plus the six-hour scheduled/manual production-smoke cadence.
   core-pipeline-smoke:
     name: core chat + CSV pipeline
+    needs: [classify]
+    if: ${{ !cancelled() && needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -290,33 +305,13 @@ jobs:
           path: packages/evals/eval-reports/
           if-no-files-found: warn
 
-  # Branch protection requires a check literally named `local browser smoke`.
-  # This job preserves that name over the sharded matrix and the real pipeline
-  # canary. It must run on failure (not be skipped) and exit non-zero: a
-  # skipped required check would satisfy branch protection, silently failing
-  # the gate open.
-  browser-smoke:
-    name: local browser smoke
-    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
-    needs: [browser-smoke-shard, core-pipeline-smoke]
-    runs-on: ubuntu-latest
-    timeout-minutes: 6
-    steps:
-      - name: Check browser and pipeline results
-        run: |
-          if [ "${{ needs.browser-smoke-shard.result }}" != "success" ]; then
-            echo "browser smoke shards did not all pass: ${{ needs.browser-smoke-shard.result }}"
-            exit 1
-          fi
-          if [ "${{ needs.core-pipeline-smoke.result }}" != "success" ]; then
-            echo "core chat + CSV pipeline did not pass: ${{ needs.core-pipeline-smoke.result }}"
-            exit 1
-          fi
-          echo "all browser smoke shards and the core chat + CSV pipeline passed"
-
   authenticated-browser-smoke:
-    name: authenticated browser smoke
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+    name: authenticated browser smoke [full lane]
+    needs: [classify]
+    if: >-
+      ${{ !cancelled() &&
+          (github.event_name == 'pull_request' || github.event_name == 'push') &&
+          needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -411,3 +406,78 @@ jobs:
         env:
           SMOKE_BASE_URL: ${{ github.event.inputs.base_url || 'https://comparative.builtwithrobot.link' }}
         run: node scripts/production-smoke.mjs
+
+  # ---------------------------------------------------------------------------
+  # Required-check summaries (#812). Branch protection requires the contexts
+  # named below, unchanged. Each name now belongs to exactly ONE job — its
+  # summary — so no second check run with a required name can ever exist to
+  # collide with it; the heavy jobs above carry a "[full lane]" suffix. A
+  # summary passes on a real success of its heavy job, or on a skip the
+  # classifier explicitly asked for. A skip without that verdict, a failure,
+  # or a cancellation is red: the summaries run on failure (never skip) and
+  # exit non-zero, because a skipped required check satisfies branch
+  # protection and would fail the gate open.
+  # ---------------------------------------------------------------------------
+  browser-smoke-shard-summary:
+    name: browser smoke (${{ matrix.project }})
+    needs: [classify, browser-smoke-shard]
+    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        project: [desktop-chromium, mobile-chromium]
+    steps:
+      # `needs.<matrix job>.result` is the aggregate over both legs, so a red
+      # leg turns both summaries red. Both are required, so the merge decision
+      # is unchanged; the leg's own "[full lane]" check and its Playwright
+      # report artifact name the failing project.
+      - name: Report browser smoke (${{ matrix.project }})
+        env:
+          LABEL: browser smoke (${{ matrix.project }})
+          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+          RESULT: ${{ needs.browser-smoke-shard.result }}
+        run: |
+          if [ "$RESULT" = "success" ]; then echo "$LABEL passed"; exit 0; fi
+          if [ "$RESULT" = "skipped" ] && [ "$DOCS_ONLY" = "true" ]; then echo "docs-only: skipped"; exit 0; fi
+          echo "$LABEL did not pass (result=$RESULT, docs_only=$DOCS_ONLY)"; exit 1
+
+  # Fans the sharded matrix and the real pipeline canary into the one check
+  # branch protection has always required under this name.
+  browser-smoke:
+    name: local browser smoke
+    needs: [classify, browser-smoke-shard, core-pipeline-smoke]
+    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Check browser and pipeline results
+        env:
+          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+          SHARDS: ${{ needs.browser-smoke-shard.result }}
+          CORE: ${{ needs.core-pipeline-smoke.result }}
+        run: |
+          if [ "$SHARDS" = "success" ] && [ "$CORE" = "success" ]; then
+            echo "all browser smoke shards and the core chat + CSV pipeline passed"; exit 0
+          fi
+          if [ "$SHARDS" = "skipped" ] && [ "$CORE" = "skipped" ] && [ "$DOCS_ONLY" = "true" ]; then
+            echo "docs-only: skipped"; exit 0
+          fi
+          echo "local browser smoke did not pass (shards=$SHARDS, core pipeline=$CORE, docs_only=$DOCS_ONLY)"; exit 1
+
+  authenticated-browser-smoke-summary:
+    name: authenticated browser smoke
+    needs: [classify, authenticated-browser-smoke]
+    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report authenticated browser smoke
+        env:
+          LABEL: authenticated browser smoke
+          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+          RESULT: ${{ needs.authenticated-browser-smoke.result }}
+        run: |
+          if [ "$RESULT" = "success" ]; then echo "$LABEL passed"; exit 0; fi
+          if [ "$RESULT" = "skipped" ] && [ "$DOCS_ONLY" = "true" ]; then echo "docs-only: skipped"; exit 0; fi
+          echo "$LABEL did not pass (result=$RESULT, docs_only=$DOCS_ONLY)"; exit 1
