@@ -20,6 +20,7 @@ import {
   SKILL_WEB_ACCESS_DECLARATION,
   skillMcpProviders,
 } from "@/lib/skill-tool-declarations";
+import type { ScheduleFire } from "@/lib/run-status-presentation";
 import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 import { resolveAutonomyPreset } from "@/lib/autonomy-presets";
 import {
@@ -337,9 +338,11 @@ export function buildGitHubSkillDisplayMessage(
 /**
  * Enqueue one execution of a skill on the shared worker pipeline. Used by
  * the run-now API (`triggerType: "skill"`) and the scheduler
- * (`triggerType: "scheduled"`). Creates the target thread when none is
- * given, inserts the materialized prompt as the user message, and queues a
- * `runs` row whose inputs satisfy the worker's chat-run contract.
+ * (`triggerType: "scheduled"`, on cadence or from the schedule's "Run now"
+ * action — `scheduleFire` records which, on the run's inputs/event/audit
+ * metadata; #780). Creates the target thread when none is given, inserts the
+ * materialized prompt as the user message, and queues a `runs` row whose
+ * inputs satisfy the worker's chat-run contract.
  */
 export async function createSkillRun({
   db,
@@ -347,6 +350,7 @@ export async function createSkillRun({
   skill,
   triggerType,
   scheduleId,
+  scheduleFire,
   githubEvent,
   threadId,
 }: {
@@ -355,6 +359,7 @@ export async function createSkillRun({
   skill: Skill;
   triggerType: "skill" | "scheduled" | "github_event";
   scheduleId?: string | null;
+  scheduleFire?: ScheduleFire;
   githubEvent?: GitHubSkillTriggerContext;
   threadId?: string | null;
 }): Promise<CreateSkillRunResult> {
@@ -363,6 +368,9 @@ export async function createSkillRun({
   if (triggerType === "github_event" && !githubEvent) {
     throw new Error("GitHub event context is required for an event-triggered run.");
   }
+  const scheduleMarker = scheduleId
+    ? { scheduleId, scheduleFire: scheduleFire ?? "cadence" }
+    : {};
 
   // #300: a pinned model that has since been disabled for the durable lane
   // cannot serve the run — resolve to the enabled default instead.
@@ -428,7 +436,7 @@ export async function createSkillRun({
         runBudget,
         skillId: skill.id,
         skillSlug: skill.slug,
-        ...(scheduleId ? { scheduleId } : {}),
+        ...scheduleMarker,
         ...(githubEvent
           ? {
               eventTriggerId: githubEvent.triggerId,
@@ -462,7 +470,7 @@ export async function createSkillRun({
       skillId: skill.id,
       skillSlug: skill.slug,
       threadId: targetThreadId,
-      ...(scheduleId ? { scheduleId } : {}),
+      ...scheduleMarker,
       ...(githubEvent
         ? {
             eventTriggerId: githubEvent.triggerId,
@@ -495,7 +503,7 @@ export async function createSkillRun({
       triggerType,
       autonomyPreset: resolveAutonomyPreset(triggerType).name,
       runBudget: runBudgetEnvelopeForEvent(runBudget),
-      ...(scheduleId ? { scheduleId } : {}),
+      ...scheduleMarker,
       ...(githubEvent
         ? {
             eventTriggerId: githubEvent.triggerId,
