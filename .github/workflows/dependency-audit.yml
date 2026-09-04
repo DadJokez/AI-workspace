@@ -20,7 +20,11 @@ jobs:
   audit:
     name: scheduled production CVE audit
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 15, not 10: scripts/audit-prod-deps.sh's bounded retry envelope is up to
+    # ~8 min (3 x AUDIT_ATTEMPT_TIMEOUT + backoff, #876) and pnpm setup takes
+    # 1-2 min on a slow runner; the first dispatch (run 33850962869) was
+    # cancelled at 10m16s inside the audit step.
+    timeout-minutes: 15
     permissions:
       contents: read
       issues: write
