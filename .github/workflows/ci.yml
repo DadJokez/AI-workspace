@@ -184,7 +184,8 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:16-alpine
+        # ECR Public mirror: no auth needed and not subject to Docker Hub anonymous pull rate limits (#708)
+        image: public.ecr.aws/docker/library/postgres:16-alpine
         env:
           POSTGRES_PASSWORD: ci
           POSTGRES_DB: scoping

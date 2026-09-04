@@ -19,6 +19,7 @@ an IT reviewer) understands the reasoning without archaeology.
 | [0011](./0011-tool-policy-observe-before-enforce.md) | Tri-state tool policy, observe before enforce | Accepted — amended 2026-09-02 (enforcement landed, #831–#835) |
 | [0012](./0012-two-execution-lanes.md) | Two execution lanes (inline + durable worker) | Accepted — mechanism under revision ([#442](https://github.com/DadJokez/AI-workspace/issues/442)) |
 | [0013](./0013-durable-conversation-resources.md) | Uploaded files are durable, thread-scoped conversation resources | Accepted |
+| [0014](./0014-tamper-evident-audit-log.md) | Tamper-evident `audit_log` via a per-row hash chain | Proposed — design only ([#457](https://github.com/DadJokez/AI-workspace/issues/457)) |
 
 0007–0012 were added 2026-07-19, promoting shipped decisions that had lived
 only in specs/memory (prompted by the [self-review](../reviews/REPO-SELF-REVIEW-2026-07-19.md)
