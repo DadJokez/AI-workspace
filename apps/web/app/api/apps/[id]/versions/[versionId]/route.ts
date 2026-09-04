@@ -65,6 +65,7 @@ export async function PATCH(
 
   const artifactRows = await db
     .select()
+    // scoping-guard-allow: reached only after canAppRoleEdit and loadAppVersion above
     .from(workspaceArtifacts)
     .where(eq(workspaceArtifacts.id, version.artifactId))
     .limit(1);
