@@ -14,6 +14,10 @@ import {
 } from "@/lib/admin/run-reporting";
 import { FilterPill, Metric, StatusBadge, StatusDot } from "@/app/admin/ui";
 import { EmptyState } from "@/components/EmptyState";
+import {
+  budgetDimensionLabel,
+  budgetTruncation,
+} from "@/lib/run-budget-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +99,9 @@ export default async function AdminRunsPage({ searchParams }: Props) {
   const running = rows.filter((row) => row.status === "running").length;
   const failed = rows.filter((row) => row.status === "failed").length;
   const succeeded = rows.filter((row) => row.status === "succeeded").length;
+  const budgetStopped = rows.filter(
+    (row) => row.status === "succeeded" && budgetTruncation(row.outputs),
+  ).length;
   const runtimeReport = buildRuntimeV2Report(rows);
 
   return (
@@ -107,9 +114,10 @@ export default async function AdminRunsPage({ searchParams }: Props) {
         </p>
       </div>
 
-      <div className="grid gap-3 px-6 pb-5 md:grid-cols-4">
+      <div className="grid gap-3 px-6 pb-5 md:grid-cols-5">
         <Metric label="Shown" value={rows.length} />
         <Metric label="Succeeded" value={succeeded} />
+        <Metric label="Stopped at budget" value={budgetStopped} />
         <Metric label="Running" value={running} />
         <Metric label="Failed" value={failed} />
       </div>
@@ -322,6 +330,7 @@ export default async function AdminRunsPage({ searchParams }: Props) {
             ) : (
               rows.map((row) => {
                 const output = parseRunOutput(row.outputs);
+                const truncatedBy = budgetTruncation(row.outputs);
                 return (
                   <tr key={row.id} className="hover:bg-subtle/40">
                     <td className="border-b border-hairline px-6 py-3 align-top">
@@ -337,8 +346,14 @@ export default async function AdminRunsPage({ searchParams }: Props) {
                           <div className="mt-1 font-mono text-xs text-muted">
                             {shortId(row.id)}
                           </div>
-                          <div className="mt-1">
+                          <div className="mt-1 flex flex-wrap gap-1">
                             <StatusBadge status={row.status} />
+                            {truncatedBy ? (
+                              <StatusBadge
+                                status="warning"
+                                label={`budget: ${budgetDimensionLabel(truncatedBy)}`}
+                              />
+                            ) : null}
                           </div>
                         </div>
                       </div>

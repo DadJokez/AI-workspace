@@ -18,6 +18,10 @@ import {
 } from "@/lib/admin/run-reporting";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { runEventsToActivityEvents } from "@/lib/run-events";
+import {
+  budgetDimensionLabel,
+  budgetTruncation,
+} from "@/lib/run-budget-policy";
 import type { PersistedRecommendation } from "@/lib/recommendations";
 import type {
   PersistedToolCall,
@@ -164,6 +168,7 @@ export default async function AdminRunDetailPage({ params }: Props) {
     .limit(250);
 
   const output = parseRunOutput(run.outputs);
+  const truncatedBy = budgetTruncation(run.outputs);
   const prompt = parsePrompt(run.inputs);
   const contextDebug = parseRunContextDebug(run.inputs);
   const retryInfo = parseRetryInfo(run.inputs);
@@ -193,6 +198,12 @@ export default async function AdminRunDetailPage({ params }: Props) {
             {formatSkill(run.skillSlug)}
           </h2>
           <StatusBadge status={run.status} />
+          {truncatedBy ? (
+            <StatusBadge
+              status="warning"
+              label={`budget: ${budgetDimensionLabel(truncatedBy)}`}
+            />
+          ) : null}
           {run.skillSlug === "chat-turn" ? (
             <ChatRunActionButtons
               runId={run.id}
