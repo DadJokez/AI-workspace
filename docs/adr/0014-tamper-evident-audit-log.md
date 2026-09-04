@@ -229,14 +229,22 @@ stdout, non-zero exit on failure, `getDb()`/`closeDb()`):
      non-transactional, so every rolled-back transaction burns a value (about
      half the writers insert inside callers' transactions, which roll back on
      constraint violations, retries, and ordinary business-logic failures).
-     Deletion of any row is detected purely by `prev_hash` linkage — the next
-     surviving row's stored `prev_hash` will not equal the actual previous
-     surviving row's `row_hash` — which is unaffected by burned sequence
-     values because `prev_hash` is read from the *committed* head;
+     Deletion of an interior row is detected purely by `prev_hash` linkage —
+     the next surviving row's stored `prev_hash` will not equal the actual
+     previous surviving row's `row_hash` — which is unaffected by burned
+     sequence values because `prev_hash` is read from the *committed* head.
+     Deletion of the *tail* (the most recent N rows) has no next surviving
+     row and is **not** detected by the walk; see Consequences;
    - `prev_hash` equals the previous row's `row_hash`;
    - `row_hash` equals `audit_log_row_hash(row, prev_hash)` recomputed by the
      database;
-   - each non-null FK column equals its hashed copy in `metadata.chain`.
+   - each non-null FK column equals its hashed copy in `metadata.chain`;
+   - **suspicious, not failing:** an FK column is null but `metadata.chain`
+     still carries a value for it *and* the referenced row still exists (for
+     `actor_user_id`, the user is present in `users`). A legitimate cascade
+     only nulls the column when the referenced row is gone, so this pattern
+     is reported as `warnings: [{ seq, column, reason: 'fk-nulled-target-exists' }]`
+     in the output rather than a chain break.
 3. Stop at the **first** failure and print
    `{ ok: false, brokenAt: { seq, id, createdAt }, reason, rowsChecked }`;
    otherwise `{ ok: true, rowsChecked, head: { seq, rowHash } }`.
@@ -248,8 +256,11 @@ writes.
 
 Unit coverage (vitest): a pure `findFirstBrokenLink(rows, expectedHead)`
 over fixture rows — pristine chain, edited field, deleted middle row,
-deleted head with and without a prune receipt, nulled-FK-with-matching-copy
-(passes) and nulled-FK-with-mismatched-copy (fails). The hash recipe itself
+deleted head with a prune receipt (passes), deleted head *without* a prune
+receipt (passes — this fixture pins the head-truncation gap named in
+Consequences so nobody later mistakes it for coverage),
+nulled-FK-with-matching-copy (passes), nulled-FK-with-mismatched-copy
+(fails), and nulled-FK-with-copy-present-and-target-alive (warns). The hash recipe itself
 is exercised by an integration test that inserts through drizzle and then
 runs the verifier against a real PostgreSQL.
 
@@ -309,10 +320,13 @@ gives a reviewer a false sense of assurance. Both are tracked on #457.
 
 ## Consequences
 
-- **Buys:** a reviewer-legible answer — "any edit or deletion of a row is
-  detectable by `pnpm audit:verify`, and with the restricted role the app
-  cannot make one" — using core PostgreSQL only, no extension, no new
-  dependency, no change to ~60 writers.
+- **Buys:** a reviewer-legible answer — "any edit to a hashed field, and any
+  deletion of an interior row, is detectable by `pnpm audit:verify`; with the
+  restricted role the app cannot make one" — using core PostgreSQL only, no
+  extension, no new dependency, no change to ~60 writers. The two things the
+  chain alone does *not* buy are named below (head truncation, attribution
+  erasure); the honest claim is "edits and interior deletions", not "any
+  deletion".
 - **Buys:** an order. `seq` gives the admin audit page and trace views a
   stable sort that `created_at` never did.
 - **Costs:** all audit inserts serialize on one advisory lock; bulk inserts
@@ -329,13 +343,45 @@ gives a reviewer a false sense of assurance. Both are tracked on #457.
   operational decision to prune; the original bytes stay until retention
   removes them. This is the right property for an audit log and the wrong
   one for anything else — do not reuse the pattern for `run_events`.
+- **Residual gap — head truncation is not detected by the chain alone.** An
+  attacker with DELETE who removes the most-recent N rows leaves a chain that
+  is internally consistent: every surviving `prev_hash` → `row_hash` link
+  still verifies, `max(seq)` is not anchored anywhere trusted, no prune
+  receipt is written (the attacker does not write one), and `--head-only`
+  passes because it compares the surviving head to its predecessor. The
+  verifier returns `{ ok: true }` and the deletion is invisible. Suppression
+  of the tail is therefore **out of scope for the chain alone**. It is covered
+  by two mitigations, both listed under "Not in this ADR": option (a)'s
+  removal of DELETE from the app role (so only the retention prune, running
+  as a separate identity, can delete), and external head-anchoring (a
+  scheduled job publishing `{ seq, rowHash }` of the head to a store the DB
+  role cannot write, which turns a missing tail into a head mismatch).
+- **Residual gap — attribution erasure via FK-nulling.** The exclude-and-copy
+  rule (§2) must *allow* `actor_user_id`, `chat_thread_id`, `chat_message_id`
+  and `run_id` to be nulled so legitimate `ON DELETE SET NULL` cascades pass.
+  Those columns are not in `row_hash`, so an attacker with UPDATE can set
+  `actor_user_id = NULL` on a row to strip *who did it*, and the result is
+  byte-for-byte indistinguishable from a user-deletion cascade: the hash is
+  unchanged, and the verifier only compares *non-null* FK columns against
+  `metadata.chain`, so the nulled column is skipped. For an audit log, silent
+  de-attribution is a meaningful tamper. Mitigations: option (a) removes
+  UPDATE from the app role entirely, which closes the app-credential case;
+  and the verifier flags "FK column null, but `metadata.chain` still carries
+  the value and the referenced row still exists" as suspicious (§5) — a real
+  cascade only nulls the column once the referenced row is gone, so a
+  surviving `users` row with a nulled `actor_user_id` has no innocent
+  explanation. An admin with DML who also deletes the user is not caught by
+  this check; that is the DDL/superuser tier below.
 - **Threat model, honestly:** the chain has no secret. A party with DDL on
   the database (superuser, the migration role, anyone who can `CREATE OR
   REPLACE` the hash function) can rewrite the whole chain consistently and the
   verifier will pass. Detecting *that* needs the head hash anchored outside
   the database (see "Not in this ADR"). What the chain does defeat is the
   realistic case: a compromised app credential or an admin with DML editing
-  or deleting individual rows.
+  hashed fields or deleting interior rows. It does not, by itself, defeat
+  the same party truncating the tail or nulling an excluded FK column; those
+  two cases rest on option (a)'s DELETE/UPDATE revocation, external
+  head-anchoring, and the verifier's null-FK warning, as described above.
 
 ## Alternatives considered
 
@@ -368,8 +414,9 @@ gives a reviewer a false sense of assurance. Both are tracked on #457.
   here creates it.
 - **External anchoring** of the chain head (periodic `{seq, row_hash}`
   export to CloudWatch Logs / S3 Object Lock / a signed release note) that
-  would detect a whole-chain rewrite by a DDL-holder. Follow-up issue once
-  the chain exists.
+  would detect a whole-chain rewrite by a DDL-holder and, because a missing
+  tail becomes a head mismatch, head truncation (Consequences). Follow-up
+  issue once the chain exists.
 - **The retention window, legal hold, and `AUDIT_LOG_RETENTION_DAYS`
   policy** — #460. This ADR only fixes the *mechanics* of a prune so it does
   not break the chain.
