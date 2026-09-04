@@ -59,6 +59,7 @@ export function buildConversationResourceMcpServer({
         signConversationResourceTurnContext(context),
     },
     allowedTools: ["query"],
+    toolPolicies: { query: "always_allow" },
   };
 }
 

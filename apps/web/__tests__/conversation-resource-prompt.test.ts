@@ -59,6 +59,7 @@ describe("conversation resource prompt planning (#609, #613)", () => {
     const registry = new ToolRegistry();
     registry.register({
       name: "resources__query",
+      policy: "always_allow",
       description: "Query the selected conversation resource.",
       inputSchema: {
         type: "object",
