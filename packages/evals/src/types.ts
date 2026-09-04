@@ -108,6 +108,18 @@ export interface AssertionResult {
   detail?: string;
   /** Carried from the assertion definition; see Assertion.knownIssue. */
   knownIssue?: string;
+  /**
+   * #895 (judge assertions only): a judge response hit the judge's output
+   * cap. `ok` is still authoritative when a verdict was read.
+   */
+  judgeTruncated?: boolean;
+  /**
+   * #895 (judge assertions only): no verdict was readable in a truncated
+   * judge response even after the one bounded re-sample. `ok` is false —
+   * never a silent PASS — but this is not a rubric FAIL; reports render it
+   * as "inconclusive (judge truncated)".
+   */
+  inconclusive?: boolean;
 }
 
 /**
@@ -183,6 +195,14 @@ export interface CaseResult extends TokenUsage {
   runs?: number;
   passCount?: number;
   passPolicy?: "all" | "majority";
+  /**
+   * #895: how many runs had a judge assertion that was inconclusive (judge
+   * output cut at the cap with no readable verdict, twice). Those runs count
+   * as not-passed, but the summary line, the report, the scorecard and the
+   * nightly `failing_cases` output say "inconclusive (judge truncated)" so a
+   * judge-capacity miss is never mistaken for a rubric FAIL. Omitted when 0.
+   */
+  inconclusiveRuns?: number;
   /**
    * Set by the harness ONLY when this case's failure is wholly explained by
    * known-flaky assertions (see Assertion.knownIssue): every failing

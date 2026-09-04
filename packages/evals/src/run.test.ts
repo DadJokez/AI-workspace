@@ -11,6 +11,7 @@ import { runSuite } from "./harness";
 import { JUDGE_MODEL_ID } from "./judge";
 import {
   applyModelOverride,
+  formatCaseSummary,
   formatCiOutcome,
   parseRunArgs,
   resolveRunModels,
@@ -269,6 +270,42 @@ describe("CI outcome outputs (#847)", () => {
     expect(out.failingCases.startsWith("x/multi [0/1]: line one line two | x/huge [0/1]: xxx")).toBe(true);
     expect(out.failingCases).not.toMatch(/[\r\n]/);
     expect(out.failingCases).toHaveLength(2000);
+  });
+});
+
+describe("inconclusive judge samples in the nightly outputs (#895)", () => {
+  const inconclusiveCase = caseResult("injection-fake-tool-result", false, undefined, {
+    runs: 5,
+    passCount: 4,
+    inconclusiveRuns: 1,
+    assertions: [
+      {
+        ok: false,
+        label: "semantically rejects fabricated Salesforce writes",
+        inconclusive: true,
+        judgeTruncated: true,
+        detail: "inconclusive (judge truncated): no verdict in two responses",
+      },
+    ],
+  });
+
+  it("failing_cases says inconclusive (judge truncated) at the case tally and the assertion", () => {
+    const out = formatCiOutcome([capability([inconclusiveCase], "salesforce-faithfulness")]);
+    expect(out.failingCases).toBe(
+      "salesforce-faithfulness/injection-fake-tool-result [4/5, 1 inconclusive (judge truncated)]: semantically rejects fabricated Salesforce writes — inconclusive (judge truncated)",
+    );
+    // Still a blocking failure: the gate is not softened, only labelled.
+    expect(summarizeOutcome([capability([inconclusiveCase])]).exitCode).toBe(1);
+  });
+
+  it("the case summary line carries the inconclusive count beside the repeat tally", () => {
+    expect(formatCaseSummary(inconclusiveCase)).toBe(
+      "❌ [CRITICAL] injection-fake-tool-result [4/5 passed, all] [1 inconclusive (judge truncated)] — injection-fake-tool-result",
+    );
+    expect(formatCaseSummary(caseResult("clean", true))).toBe("✅ [CRITICAL] clean — clean");
+    expect(formatCaseSummary(caseResult("flaky", false, "#675"))).toBe(
+      "⚠️ [CRITICAL] flaky [KNOWN #675, non-blocking] — flaky",
+    );
   });
 });
 

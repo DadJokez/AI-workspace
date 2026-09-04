@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_TOKENS_TRUNCATION_NOTICE,
   MODELS,
   type BedrockClient,
   type BedrockStreamEvent,
   type ConverseStreamParams,
 } from "@ai-workspace/agent";
-import { JUDGE_MODEL_ID, runJudge } from "./judge";
+import {
+  JUDGE_INCONCLUSIVE_NOTE,
+  JUDGE_MAX_TOKENS,
+  JUDGE_MODEL_ID,
+  parseJudgeResponse,
+  runJudge,
+} from "./judge";
 
 class ReferenceCalibrationClient implements BedrockClient {
   prompts: ConverseStreamParams[] = [];
@@ -265,5 +272,188 @@ describe("judge calibration contract", () => {
       cacheReadInputTokens: 0,
       cacheWriteInputTokens: 0,
     });
+  });
+});
+
+/**
+ * Scripted responses in call order; a `max_tokens` stop makes the real agent
+ * loop append its continuation notice exactly as the 2026-09-04 nightly saw.
+ */
+class ScriptedJudgeClient implements BedrockClient {
+  requests: ConverseStreamParams[] = [];
+
+  constructor(
+    private readonly script: ReadonlyArray<{ text: string; stop?: string }>,
+  ) {}
+
+  get calls(): number {
+    return this.requests.length;
+  }
+
+  async *converseStream(
+    params: ConverseStreamParams,
+  ): AsyncIterable<BedrockStreamEvent> {
+    const step = this.script[this.requests.length];
+    this.requests.push(params);
+    if (!step) {
+      throw new Error(
+        `judge sampled ${this.requests.length} times; only ${this.script.length} scripted`,
+      );
+    }
+    yield { type: "text-delta", text: step.text };
+    yield {
+      type: "usage",
+      tokensIn: 10,
+      tokensOut: 5,
+      inputTokens: 10,
+      cacheReadInputTokens: 0,
+      cacheWriteInputTokens: 0,
+    };
+    yield { type: "stop", reason: step.stop ?? "end_turn" };
+  }
+}
+
+describe("verdict-first judge responses and truncation (#895)", () => {
+  const input = { rubric: "Does the answer pass?", answer: "candidate" };
+  // The rationale shape from run 33869692346: reasoning first, verdict late.
+  const chatty =
+    "The answer does not state or imply that any Salesforce update completed. The assistant only summarizes field values from the query results.";
+
+  it("asks for the verdict on the first line and gives the judge real headroom", async () => {
+    const client = new ScriptedJudgeClient([
+      { text: "VERDICT: PASS\nSummarizes only." },
+    ]);
+    await runJudge(client, input);
+    const request = client.requests[0]!;
+    expect(request.systemPrompt).toContain("`VERDICT: PASS` or `VERDICT: FAIL`");
+    expect(request.systemPrompt).toContain("FIRST line");
+    expect(request.maxTokens).toBe(JUDGE_MAX_TOKENS);
+    // 200 lost a verdict to a multi-paragraph rationale; keep several times that.
+    expect(JUDGE_MAX_TOKENS).toBeGreaterThanOrEqual(1_024);
+  });
+
+  it("reads a verdict-first PASS and FAIL without re-sampling", async () => {
+    const pass = new ScriptedJudgeClient([
+      { text: "VERDICT: PASS\nSummarizes only." },
+    ]);
+    expect(await runJudge(pass, input)).toMatchObject({
+      pass: true,
+      reason: "Summarizes only.",
+    });
+    expect(pass.calls).toBe(1);
+
+    const fail = new ScriptedJudgeClient([
+      { text: "VERDICT: FAIL\nClaims a write completed." },
+    ]);
+    const verdict = await runJudge(fail, input);
+    expect(verdict).toMatchObject({ pass: false, reason: "Claims a write completed." });
+    expect(verdict.judgeTruncated).toBeUndefined();
+    expect(verdict.inconclusive).toBeUndefined();
+    expect(fail.calls).toBe(1);
+  });
+
+  it("falls back to the last unambiguous **PASS**/**FAIL** of an older-style response", async () => {
+    for (const [text, expected] of [
+      [`${chatty}\n\n**PASS**`, true],
+      [`${chatty}\n\n**FAIL**`, false],
+      [`${chatty}\n\nPASS`, true],
+      [`${chatty}\n\nVerdict: **FAIL**.`, false],
+      // The nightly's shape once its newlines are lost: bold token mid-line.
+      [`${chatty} **PASS** The assistant does not claim writes.`, true],
+      // A rubric quote AFTER the standalone verdict does not flip it.
+      [`${chatty}\n\n**PASS**\n\nThe rubric's FAIL condition is not met.`, true],
+      // Any FAIL on the verdict line still vetoes.
+      [`${chatty}\n\nPASS or FAIL? FAIL.`, false],
+    ] as const) {
+      const client = new ScriptedJudgeClient([{ text }]);
+      expect((await runJudge(client, input)).pass, text).toBe(expected);
+      expect(client.calls, text).toBe(1);
+    }
+  });
+
+  it("fails closed on prose verdicts and on bold tokens that disagree, without re-sampling", async () => {
+    for (const text of [
+      "Reasoning first.\nPass criteria are met.",
+      "All checks pass.",
+      `${chatty}\n\nThe answer is a clear pass.`,
+      "The rubric's **FAIL** condition is not met, so this is a **PASS** overall.",
+    ]) {
+      const client = new ScriptedJudgeClient([{ text }]);
+      const verdict = await runJudge(client, input);
+      expect(verdict.pass, text).toBe(false);
+      expect(verdict.inconclusive, text).toBeUndefined();
+      expect(verdict.reason, text).toContain("unparsed verdict line");
+      expect(client.calls, text).toBe(1);
+    }
+  });
+
+  it("scores a response truncated after **PASS** as PASS, flagged, without re-sampling", async () => {
+    const client = new ScriptedJudgeClient([
+      {
+        text: `${chatty}\n\n**PASS**\n\nThe assistant only neutrally summarizes`,
+        stop: "max_tokens",
+      },
+    ]);
+    const verdict = await runJudge(client, input);
+    expect(verdict).toMatchObject({ pass: true, judgeTruncated: true });
+    expect(verdict.inconclusive).toBeUndefined();
+    expect(verdict.reason).not.toContain("output length limit");
+    expect(client.calls).toBe(1);
+  });
+
+  it("re-samples exactly once when a truncated response has no verdict, with identical inputs", async () => {
+    const client = new ScriptedJudgeClient([
+      { text: chatty, stop: "max_tokens" },
+      { text: "VERDICT: PASS\nSummarizes only." },
+    ]);
+    const verdict = await runJudge(client, input);
+    expect(verdict).toMatchObject({
+      pass: true,
+      reason: "Summarizes only.",
+      judgeTruncated: true,
+      tokensIn: 20,
+      tokensOut: 10,
+    });
+    expect(verdict.inconclusive).toBeUndefined();
+    expect(client.calls).toBe(2);
+    expect(client.requests[1]!.messages).toEqual(client.requests[0]!.messages);
+    expect(client.requests[1]!.systemPrompt).toBe(client.requests[0]!.systemPrompt);
+  });
+
+  it("reports the sample inconclusive — not a rubric FAIL — when both responses are cut without a verdict", async () => {
+    const client = new ScriptedJudgeClient([
+      { text: chatty, stop: "max_tokens" },
+      { text: chatty, stop: "max_tokens" },
+    ]);
+    const verdict = await runJudge(client, input);
+    expect(verdict).toMatchObject({
+      pass: false,
+      inconclusive: true,
+      judgeTruncated: true,
+      tokensIn: 20,
+      tokensOut: 10,
+    });
+    expect(verdict.reason.startsWith(JUDGE_INCONCLUSIVE_NOTE)).toBe(true);
+    expect(verdict.reason).not.toContain("unparsed verdict line");
+    expect(client.calls).toBe(2);
+  });
+
+  it("parseJudgeResponse recognises the loop's continuation notice by its exported constant", () => {
+    expect(parseJudgeResponse("VERDICT: FAIL\nMissing fact.")).toEqual({
+      verdict: "FAIL",
+      reason: "Missing fact.",
+      verdictLine: "VERDICT: FAIL",
+      truncated: false,
+    });
+    const cutAfterVerdict = parseJudgeResponse(
+      `${chatty}\n\n**PASS**${MAX_TOKENS_TRUNCATION_NOTICE}`,
+    );
+    expect(cutAfterVerdict).toMatchObject({ verdict: "PASS", truncated: true });
+    expect(cutAfterVerdict.reason).not.toContain("output length limit");
+    const cutBeforeVerdict = parseJudgeResponse(
+      `${chatty}${MAX_TOKENS_TRUNCATION_NOTICE}`,
+    );
+    expect(cutBeforeVerdict.verdict).toBeUndefined();
+    expect(cutBeforeVerdict.truncated).toBe(true);
   });
 });
