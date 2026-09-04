@@ -30,7 +30,13 @@ jobs:
     needs: [classify]
     if: ${{ !cancelled() && needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 15, not 10: the job's own work is ~5 min, but #869's coverage lane took
+    # the healthy total to ~9 min, and on the slow-registry night of
+    # 2026-09-04 `Setup pnpm` alone stalled for 3-7 min (main run 33842828436,
+    # PR #877 attempts 1-2), so the 10-minute cap fired after every real step
+    # had passed. Same rule as the CVE audit's cap (#864): the cap covers the
+    # observed worst-case envelope so the steps, not the runner, decide.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
