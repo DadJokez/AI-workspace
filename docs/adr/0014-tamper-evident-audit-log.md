@@ -156,6 +156,24 @@ END $$ LANGUAGE plpgsql;
   single-writer by construction: concurrent transactions queue, each sees the
   committed head, and `seq` order equals chain order. Array inserts inside one
   transaction take the lock once.
+- **Isolation requirement.** The lock only serializes writers; the post-lock
+  head read (`SELECT row_hash … ORDER BY seq DESC LIMIT 1`) sees the
+  just-committed head only if the statement takes a fresh snapshot, which is
+  true under READ COMMITTED. Under REPEATABLE READ or SERIALIZABLE the
+  trigger's snapshot predates the concurrent writer's commit, so two rows
+  chain off the same stale `prev_hash` and the verifier (§5) correctly flags
+  a fork. Because audit inserts run inside callers' transactions whose
+  isolation level the callers choose, the trigger must read the head with a
+  fresh snapshot regardless of that level. Two options: (i) make the head read
+  snapshot-independent (a single-row `audit_log_head` table updated with
+  `UPDATE … RETURNING`, which under REPEATABLE READ raises a serialization
+  error rather than reading stale data), or (ii) make READ COMMITTED a hard
+  requirement on every audit writer's transaction, enforced by the trigger
+  raising if `current_setting('transaction_isolation') <> 'read committed'`.
+  **Recommendation: (ii).** No writer in the tree sets a non-default isolation
+  level today, so (ii) costs nothing, adds no second table to the migration
+  and the verifier, and turns a silent chain fork into an immediate, loud
+  error at the first misuse.
 - Writers stay as they are. `buildToolAuditRows` keeps building rows; drizzle
   inserts keep omitting `seq`/`prev_hash`/`row_hash` (the schema marks them
   as DB-generated). The fail-open auth writer stays fail-open.
@@ -206,7 +224,15 @@ stdout, non-zero exit on failure, `getDb()`/`closeDb()`):
    expected `prev_hash` of the surviving head; otherwise expect genesis.
 2. Walk `audit_log ORDER BY seq` in batches of 1000 with a keyset cursor.
    For each row check, in order:
-   - `seq` is exactly previous `seq + 1` (no gaps — a gap is a deleted row);
+   - `seq` is strictly greater than the previous row's `seq`. **Gaps are
+     expected and carry no signal**: `nextval('audit_log_seq')` is
+     non-transactional, so every rolled-back transaction burns a value (about
+     half the writers insert inside callers' transactions, which roll back on
+     constraint violations, retries, and ordinary business-logic failures).
+     Deletion of any row is detected purely by `prev_hash` linkage — the next
+     surviving row's stored `prev_hash` will not equal the actual previous
+     surviving row's `row_hash` — which is unaffected by burned sequence
+     values because `prev_hash` is read from the *committed* head;
    - `prev_hash` equals the previous row's `row_hash`;
    - `row_hash` equals `audit_log_row_hash(row, prev_hash)` recomputed by the
      database;
