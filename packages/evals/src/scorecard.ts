@@ -145,13 +145,20 @@ export function buildScorecard(input: ScorecardInput): Scorecard {
         : `missed: ${criticalMisses.join(", ")}`,
   });
 
+  // HIGH holds repeat-sampled cases to HIGH_PASS_RATIO independent of the
+  // case's passPolicy, as CRITICAL does above: a "majority" case reports
+  // passed=true at 2/3, which is below the bar. The ratio alone is the guard —
+  // repeatedPassRatio() already falls back to `passed` for single-sample
+  // cases, and an `!c.passed ||` term would wrongly fail a 4/5 under
+  // passPolicy "all" (passed=false, ratio 0.8), which the doc tolerates.
+  const highBelowBar = cases.filter(
+    ([, c]) => c.severity === "high" && repeatedPassRatio(c) < HIGH_PASS_RATIO,
+  );
   // A HIGH known-red is excused only when the incumbent shares it; without a
   // baseline that cannot be checked, so it is reported as unverified (➖)
-  // rather than as a miss — consistent with the parity check below.
-  const highBelowBar = cases.filter(
-    ([, c]) =>
-      c.severity === "high" && !c.passed && repeatedPassRatio(c) < HIGH_PASS_RATIO,
-  );
+  // rather than as a miss — consistent with the parity check below. The
+  // harness tags knownIssue only on a failed case, so a passed-by-majority
+  // case below the ratio never carries one and is always a miss.
   const highMisses = highBelowBar
     .filter(
       ([r, c]) =>

@@ -194,6 +194,42 @@ describe("qualification bar", () => {
     expect(high(3)).toBe(false);
   });
 
+  // The real pack has HIGH cases on repeat + passPolicy "majority" (e.g.
+  // context-faithfulness/skill-recommendation), which report passed=true at
+  // 2/3 — below HIGH_PASS_RATIO. The bar must read the ratio, not `passed`.
+  const highMajority = (runs: number, passCount: number) =>
+    buildScorecard({
+      ...base,
+      results: [
+        capability("context-faithfulness", [
+          caseResult("skill-recommendation", "high", true, {
+            runs,
+            passCount,
+            passPolicy: "majority",
+          }),
+        ]),
+      ],
+      baseline: { modelId: "sonnet-4-6", knownRedCaseIds: [], generationCostUsd: 1 },
+    });
+
+  it("a HIGH case passed by majority at 2/3 is still below the ratio", () => {
+    const card = highMajority(3, 2);
+    expect(card.verdict).toBe("not-qualified");
+    expect(card.bar.find((b) => b.id === "high-pass-ratio")).toMatchObject({
+      ok: false,
+      detail: "missed: context-faithfulness/skill-recommendation [2/3]",
+    });
+  });
+
+  it("a HIGH case passed by majority at exactly 4/5 meets the ratio", () => {
+    const card = highMajority(5, 4);
+    expect(card.verdict).toBe("qualified");
+    expect(card.bar.find((b) => b.id === "high-pass-ratio")).toMatchObject({
+      ok: true,
+      detail: "1 high cases within tolerance",
+    });
+  });
+
   it("a HIGH known-red is excused only when the incumbent shares it", () => {
     const results = [
       capability("g", [caseResult("h", "high", false, { knownIssue: "#9" })]),
