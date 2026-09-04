@@ -1,11 +1,30 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AsyncStatusNotice } from "@/components/AsyncStatusNotice";
 import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
+import { formatDuration } from "@/lib/admin/run-reporting";
 import { fetchJson } from "@/lib/client-api";
 import { formatDateTime } from "@/lib/format-date";
+import {
+  isInFlightRunStatus,
+  runStatusPresentation,
+  type ScheduleFire,
+} from "@/lib/run-status-presentation";
+
+interface ScheduleRunRow {
+  id: string;
+  status: string;
+  scheduleFire: ScheduleFire | null;
+  threadId: string | null;
+  error: string | null;
+  budgetLabel: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+}
 
 interface ScheduleRow {
   id: string;
@@ -16,6 +35,8 @@ interface ScheduleRow {
   nextRunAt: string;
   lastError: string | null;
   targetThreadId: string | null;
+  /** Newest first; the page loads the last few runs this schedule produced. */
+  runs: ScheduleRunRow[];
 }
 
 interface SchedulePanelProps {
@@ -66,6 +87,9 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
   const [weekday, setWeekday] = useState("MON");
   const [monthDay, setMonthDay] = useState(1);
   const [busy, setBusy] = useState(false);
+  const [startingScheduleId, setStartingScheduleId] = useState<string | null>(
+    null,
+  );
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ScheduleRow | null>(null);
 
@@ -97,6 +121,33 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
       );
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * #780: fire the cadence off-cycle. The schedule itself is untouched — the
+   * next occurrence stays where it is — and the run lands in the schedule's
+   * thread like any cadence fire, so the page refreshes to show it in the
+   * row's history rather than navigating away.
+   */
+  async function handleRunNow(schedule: ScheduleRow) {
+    setBusy(true);
+    setStartingScheduleId(schedule.id);
+    setNotice(null);
+    try {
+      await fetchJson(
+        `/api/schedules/${schedule.id}/run`,
+        { method: "POST" },
+        "Could not run the schedule.",
+      );
+      router.refresh();
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Could not run the schedule.",
+      );
+    } finally {
+      setBusy(false);
+      setStartingScheduleId(null);
     }
   }
 
@@ -150,47 +201,72 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
     <div className="flex flex-col gap-3">
       {schedules.length > 0 ? (
         <ul className="flex flex-col gap-1">
-          {schedules.map((schedule) => (
-            <li
-              key={schedule.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-hairline px-3 py-2 text-xs"
-            >
-              <span className="text-ink">
-                {describeCadence(schedule.cadence, schedule.timezone)}
-                {!schedule.enabled ? (
-                  <span className="text-muted"> · paused</span>
-                ) : null}
-                {schedule.lastError ? (
-                  <span className="text-danger">
-                    {" "}
-                    · last error: {schedule.lastError.slice(0, 60)}
+          {schedules.map((schedule) => {
+            const inFlight = schedule.runs.some((run) =>
+              isInFlightRunStatus(run.status),
+            );
+            return (
+              <li
+                key={schedule.id}
+                className="flex flex-col gap-2 rounded-md border border-hairline px-3 py-2 text-xs"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-ink">
+                    {describeCadence(schedule.cadence, schedule.timezone)}
+                    {!schedule.enabled ? (
+                      <span className="text-muted"> · paused</span>
+                    ) : null}
+                    {schedule.lastError ? (
+                      <span className="text-danger">
+                        {" "}
+                        · last error: {schedule.lastError.slice(0, 60)}
+                      </span>
+                    ) : null}
                   </span>
-                ) : null}
-              </span>
-              <span className="flex items-center gap-3">
-                <span className="text-muted">
-                  next {formatDateTime(schedule.nextRunAt)}
-                </span>
-                <button
-                  type="button"
-                  className="text-ink hover:underline"
-                  onClick={() => handleToggle(schedule)}
-                >
-                  {schedule.enabled ? "Pause" : "Resume"}
-                </button>
-                <button
-                  type="button"
-                  className="text-danger hover:underline"
-                  onClick={() => {
-                    setNotice(null);
-                    setPendingDelete(schedule);
-                  }}
-                >
-                  Delete
-                </button>
-              </span>
-            </li>
-          ))}
+                  <span className="flex items-center gap-3">
+                    <span className="text-muted">
+                      next {formatDateTime(schedule.nextRunAt)}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-ink hover:underline disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:no-underline"
+                      disabled={busy || inFlight}
+                      title={
+                        inFlight
+                          ? "A run for this schedule is already queued or running."
+                          : "Run this schedule now; its next scheduled time stays the same."
+                      }
+                      onClick={() => handleRunNow(schedule)}
+                    >
+                      {startingScheduleId === schedule.id
+                        ? "Starting…"
+                        : inFlight
+                          ? "Running…"
+                          : "Run now"}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-ink hover:underline"
+                      onClick={() => handleToggle(schedule)}
+                    >
+                      {schedule.enabled ? "Pause" : "Resume"}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-danger hover:underline"
+                      onClick={() => {
+                        setNotice(null);
+                        setPendingDelete(schedule);
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </span>
+                </div>
+                <ScheduleRunHistory runs={schedule.runs} />
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className="text-xs text-muted">
@@ -282,5 +358,62 @@ export function SchedulePanel({ skillId, schedules }: SchedulePanelProps) {
         }}
       />
     </div>
+  );
+}
+
+/** The last few runs this schedule produced, newest first (#780). */
+function ScheduleRunHistory({ runs }: { runs: ScheduleRunRow[] }) {
+  if (runs.length === 0) {
+    return <p className="text-2xs text-muted">No runs yet.</p>;
+  }
+  return (
+    <ul
+      aria-label="Recent runs for this schedule"
+      className="flex flex-col gap-1 border-t border-hairline pt-2 text-2xs"
+    >
+      {runs.map((run) => {
+        const presentation = runStatusPresentation(run.status);
+        const startedAt = run.startedAt ?? run.createdAt;
+        return (
+          <li
+            key={run.id}
+            className="flex flex-wrap items-center justify-between gap-2"
+          >
+            <span className="flex min-w-0 flex-wrap items-center gap-2">
+              <span
+                aria-hidden="true"
+                className={`h-1.5 w-1.5 shrink-0 rounded-full ${presentation.dotClass}`}
+              />
+              <span className="font-medium text-ink">{presentation.label}</span>
+              {run.scheduleFire === "manual" ? (
+                <span className="text-muted">run now</span>
+              ) : null}
+              {run.budgetLabel ? (
+                <span className="text-warning">budget: {run.budgetLabel}</span>
+              ) : null}
+              {run.error ? (
+                <span className="text-danger">{run.error.slice(0, 80)}</span>
+              ) : null}
+            </span>
+            <span className="flex shrink-0 items-center gap-3 text-muted">
+              <time dateTime={startedAt}>{formatDateTime(startedAt)}</time>
+              {run.completedAt ? (
+                <span>
+                  {formatDuration(new Date(startedAt), new Date(run.completedAt))}
+                </span>
+              ) : null}
+              {run.threadId ? (
+                <Link
+                  href={`/chat?threadId=${run.threadId}`}
+                  className="text-ink hover:underline"
+                >
+                  Open thread
+                </Link>
+              ) : null}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

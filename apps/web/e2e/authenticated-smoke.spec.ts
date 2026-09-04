@@ -454,6 +454,78 @@ test.describe("authenticated product smoke", () => {
     ).toHaveCount(0);
   });
 
+  test("fires a schedule off-cycle with Run now and lists the run beside it", async ({
+    page,
+  }) => {
+    const skillId = "00000000-0000-4000-8000-000000000213";
+    await page.goto(`/skills/${skillId}`);
+    await expect(page.getByRole("heading", { name: "Schedule" })).toBeVisible();
+
+    const [createResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/api/schedules") &&
+          response.request().method() === "POST",
+      ),
+      page.getByRole("button", { name: "Add schedule" }).click(),
+    ]);
+    expect(createResponse.status()).toBe(201);
+    const { schedule } = (await createResponse.json()) as {
+      schedule: { id: string };
+    };
+
+    const scheduleRow = page.locator("li").filter({ hasText: "Weekly on MON" });
+    await expect(scheduleRow).toContainText("No runs yet.");
+    const nextFire = await scheduleRow.getByText(/^next /).textContent();
+    expect(nextFire).toBeTruthy();
+
+    const [runResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().endsWith(`/api/schedules/${schedule.id}/run`) &&
+          response.request().method() === "POST",
+      ),
+      scheduleRow.getByRole("button", { name: "Run now" }).click(),
+    ]);
+    expect(runResponse.status()).toBe(202);
+    const { runId, threadId } = (await runResponse.json()) as {
+      runId: string;
+      threadId: string;
+    };
+    expect(threadId).toBeTruthy();
+
+    // #780: the manual fire never edits the schedule — same next occurrence
+    // after the refresh — and the run shows up in the row's own history.
+    const history = scheduleRow.getByRole("list", {
+      name: "Recent runs for this schedule",
+    });
+    await expect(history).toContainText("run now");
+    await expect(scheduleRow.getByText(/^next /)).toHaveText(nextFire!);
+    await expect(
+      history.getByRole("link", { name: "Open thread" }),
+    ).toHaveAttribute("href", `/chat?threadId=${threadId}`);
+
+    // The in-process worker (fake model) finishes the run; the row settles.
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get(`/api/runs/${runId}/status`);
+          const body = (await response.json()) as { run?: { status?: string } };
+          return body.run?.status ?? null;
+        },
+        { timeout: 20_000 },
+      )
+      .toBe("succeeded");
+    await page.reload();
+    await expect(history).toContainText("Succeeded");
+    await expect(scheduleRow.getByRole("button", { name: "Run now" })).toBeEnabled();
+
+    const deleteResponse = await page.request.delete(
+      `/api/schedules/${schedule.id}`,
+    );
+    expect(deleteResponse.ok()).toBe(true);
+  });
+
   test("creates, runs, pauses, and deletes a signed GitHub skill trigger", async ({
     page,
   }) => {
