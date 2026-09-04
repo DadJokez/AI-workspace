@@ -6,10 +6,15 @@ import { eventTriggers, getDb, runs, schedules, skills } from "@ai-workspace/db"
 import { and, desc, eq, isNull } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { StatusBadge } from "@/app/admin/ui";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { formatDateTime } from "@/lib/format-date";
 import { SUPPORTED_MCP_PROVIDERS } from "@/lib/oauth/mcp-servers";
 import { modelDisplayName } from "@/lib/model-display";
+import {
+  budgetDimensionLabel,
+  budgetTruncation,
+} from "@/lib/run-budget-policy";
 import { SKILL_WEB_ACCESS_DECLARATION } from "@/lib/skill-tool-declarations";
 import { canActorAccessSkill, listSharesForSubject } from "@/lib/shares";
 import { eventTriggerKind } from "@/lib/github-event-triggers";
@@ -68,6 +73,7 @@ export default async function SkillDetailPage({
       status: runs.status,
       triggerType: runs.triggerType,
       threadId: runs.threadId,
+      outputs: runs.outputs,
       error: runs.error,
       createdAt: runs.createdAt,
       completedAt: runs.completedAt,
@@ -227,6 +233,7 @@ export default async function SkillDetailPage({
           <ul className="flex flex-col gap-1">
             {history.map((run) => {
               const statusPresentation = runStatusPresentation(run.status);
+              const truncatedBy = budgetTruncation(run.outputs);
               return (
                 <li
                   key={run.id}
@@ -241,6 +248,12 @@ export default async function SkillDetailPage({
                       <span className="font-medium text-ink">
                         {statusPresentation.label}
                       </span>
+                      {truncatedBy ? (
+                        <StatusBadge
+                          status="warning"
+                          label={`budget: ${budgetDimensionLabel(truncatedBy)}`}
+                        />
+                      ) : null}
                       <span className="text-muted">
                         {runTriggerLabel(run.triggerType)}
                       </span>
