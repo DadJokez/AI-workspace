@@ -17,7 +17,7 @@ import {
   buildScorecard,
   renderScorecard,
 } from "./scorecard";
-import type { CapabilityResult, EvalSuite } from "./types";
+import type { AssertionResult, CapabilityResult, CaseResult, EvalSuite } from "./types";
 import { contextFaithfulnessSuite } from "./cases/context-faithfulness.cases";
 import { dateGroundingSuite } from "./cases/date-grounding.cases";
 import { gmailCalendarFaithfulnessSuite } from "./cases/gmail-calendar-faithfulness.cases";
@@ -41,7 +41,7 @@ import { exactOutputSuite } from "./cases/exact-output.cases";
 import { threadSummaryInjectionSuite } from "./cases/thread-summary-injection.cases";
 import { threadSummaryPrecedenceSuite } from "./cases/thread-summary-precedence.cases";
 import { estimateUsageCostUsd } from "./benchmarks/model-routing";
-import { JUDGE_MODEL_ID } from "./judge";
+import { JUDGE_INCONCLUSIVE_NOTE, JUDGE_MODEL_ID } from "./judge";
 
 export const SUITES: EvalSuite[] = [
   foundationalChatSuite,
@@ -222,6 +222,35 @@ export function summarizeOutcome(results: readonly CapabilityResult[]): {
 }
 
 /**
+ * A failed assertion's label, saying so when the failure is an inconclusive
+ * judge sample rather than a rubric FAIL (#895). Shared by every rendering so
+ * the wording is identical in the summary, the report and the CI output.
+ */
+function failedAssertionLabel(a: AssertionResult): string {
+  return a.inconclusive ? `${a.label} — ${JUDGE_INCONCLUSIVE_NOTE}` : a.label;
+}
+
+/** The `✗` line for a failed assertion: label, known-issue marker, detail. */
+function describeFailedAssertion(a: AssertionResult): string {
+  return `${failedAssertionLabel(a)}${a.knownIssue ? ` [known ${a.knownIssue}]` : ""}${a.detail ? ` — ${a.detail}` : ""}`;
+}
+
+/** The per-case summary line printed as the run progresses. */
+export function formatCaseSummary(c: CaseResult): string {
+  const icon = c.errored ? "💥" : c.passed ? "✅" : c.knownIssue ? "⚠️" : "❌";
+  const repeatNote =
+    c.runs && c.runs > 1
+      ? ` [${c.passCount ?? 0}/${c.runs} passed, ${c.passPolicy ?? "all"}]`
+      : "";
+  const inconclusiveNote = c.inconclusiveRuns
+    ? ` [${c.inconclusiveRuns} ${JUDGE_INCONCLUSIVE_NOTE}]`
+    : "";
+  const knownNote =
+    !c.passed && c.knownIssue ? ` [KNOWN ${c.knownIssue}, non-blocking]` : "";
+  return `${icon} [${c.severity.toUpperCase()}] ${c.caseId}${repeatNote}${inconclusiveNote}${knownNote} — ${c.description}`;
+}
+
+/**
  * One-line CI outputs (#847) so the nightly regression comment can name the
  * failing case instead of just "failure". `failingCases` lists blocking
  * failures as `capability/caseId [passCount/runs]: <failing labels>`;
@@ -238,9 +267,12 @@ export function formatCiOutcome(results: readonly CapabilityResult[]): {
       r.results
         .filter((c) => !c.passed && !c.knownIssue)
         .map((c) => {
-          const labels = c.assertions.filter((a) => !a.ok).map((a) => a.label);
+          const labels = c.assertions.filter((a) => !a.ok).map(failedAssertionLabel);
           if (c.errored) labels.push(`error: ${c.errored}`);
-          return `${r.capability}/${c.caseId} [${c.passCount ?? 0}/${c.runs ?? 1}]: ${labels.join("; ")}`;
+          const inconclusive = c.inconclusiveRuns
+            ? `, ${c.inconclusiveRuns} ${JUDGE_INCONCLUSIVE_NOTE}`
+            : "";
+          return `${r.capability}/${c.caseId} [${c.passCount ?? 0}/${c.runs ?? 1}${inconclusive}]: ${labels.join("; ")}`;
         }),
     )
     .join(" | ");
@@ -354,24 +386,13 @@ async function main() {
       totalOut += c.tokensOut;
       totalJudgeIn += c.judgeUsage.tokensIn;
       totalJudgeOut += c.judgeUsage.tokensOut;
-      const icon = c.errored ? "💥" : c.passed ? "✅" : c.knownIssue ? "⚠️" : "❌";
-      const repeatNote =
-        c.runs && c.runs > 1
-          ? ` [${c.passCount ?? 0}/${c.runs} passed, ${c.passPolicy ?? "all"}]`
-          : "";
-      const knownNote =
-        !c.passed && c.knownIssue ? ` [KNOWN ${c.knownIssue}, non-blocking]` : "";
-      process.stdout.write(
-        `  ${icon} [${c.severity.toUpperCase()}] ${c.caseId}${repeatNote}${knownNote} — ${c.description}\n`,
-      );
+      process.stdout.write(`  ${formatCaseSummary(c)}\n`);
       if (c.errored) {
         process.stdout.write(`       error: ${c.errored}\n`);
       } else if (!c.passed) {
         process.stdout.write(`       debug: thread=${c.threadId} run=${c.runId}\n`);
         for (const a of c.assertions.filter((x) => !x.ok)) {
-          process.stdout.write(
-            `       ✗ ${a.label}${a.knownIssue ? ` [known ${a.knownIssue}]` : ""}${a.detail ? ` — ${a.detail}` : ""}\n`,
-          );
+          process.stdout.write(`       ✗ ${describeFailedAssertion(a)}\n`);
         }
         process.stdout.write(`       answer: ${c.answerPreview}\n`);
       }
@@ -535,6 +556,11 @@ function writeReport(
           `  - Repeats: ${c.passCount ?? 0}/${c.runs} runs passed (policy: ${c.passPolicy ?? "all"})`,
         );
       }
+      if (c.inconclusiveRuns) {
+        md.push(
+          `  - ⚠️ ${c.inconclusiveRuns} run(s) ${JUDGE_INCONCLUSIVE_NOTE}: scored not-passed, not a rubric FAIL`,
+        );
+      }
       md.push(`  - Debug IDs: thread=${c.threadId}; run=${c.runId}`);
       if (c.toolCalls.length > 0) {
         md.push(`  - Tool calls: ${c.toolCalls.join(", ")}`);
@@ -567,9 +593,7 @@ function writeReport(
       }
       if (!c.passed && !c.errored) {
         for (const a of c.assertions.filter((x) => !x.ok)) {
-          md.push(
-            `  - ✗ ${a.label}${a.knownIssue ? ` [known ${a.knownIssue}]` : ""}${a.detail ? ` — ${a.detail}` : ""}`,
-          );
+          md.push(`  - ✗ ${describeFailedAssertion(a)}`);
         }
         md.push(
           `  - Answer preview: ${c.answerPreview.replace(/\s+/g, " ").trim() || "(empty)"}`,

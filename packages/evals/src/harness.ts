@@ -17,7 +17,7 @@ import type {
   EvalSuite,
   TurnTranscript,
 } from "./types";
-import { runJudge } from "./judge";
+import { EMPTY_USAGE, addUsage, runJudge } from "./judge";
 
 const EVAL_MAX_TOKENS = 4_096;
 
@@ -134,14 +134,6 @@ interface SingleRunResult {
   errored?: string;
 }
 
-const EMPTY_USAGE: TokenUsage = {
-  tokensIn: 0,
-  tokensOut: 0,
-  inputTokens: 0,
-  cacheReadInputTokens: 0,
-  cacheWriteInputTokens: 0,
-};
-
 /**
  * A failed case is excused (non-blocking, see summarizeOutcome) only when its
  * failure is wholly explained by known-flaky assertions: every failing
@@ -208,6 +200,8 @@ async function runOnce(
         ok: verdict.pass,
         label: assertion.label,
         detail: verdict.reason,
+        ...(verdict.judgeTruncated ? { judgeTruncated: true } : {}),
+        ...(verdict.inconclusive ? { inconclusive: true } : {}),
         ...(assertion.knownIssue ? { knownIssue: assertion.knownIssue } : {}),
       });
     }
@@ -218,18 +212,6 @@ async function runOnce(
     assertions,
     passed: assertions.every((a) => a.ok),
     judgeUsage,
-  };
-}
-
-function addUsage(left: TokenUsage, right: TokenUsage): TokenUsage {
-  return {
-    tokensIn: left.tokensIn + right.tokensIn,
-    tokensOut: left.tokensOut + right.tokensOut,
-    inputTokens: left.inputTokens + right.inputTokens,
-    cacheReadInputTokens:
-      left.cacheReadInputTokens + right.cacheReadInputTokens,
-    cacheWriteInputTokens:
-      left.cacheWriteInputTokens + right.cacheWriteInputTokens,
   };
 }
 
@@ -334,11 +316,17 @@ async function evaluateCase(
     passPolicy === "majority" ? passCount * 2 > repeat : passCount === repeat;
 
   // Debug should show a losing run: prefer the first error, then the first
-  // failure. If the case passed overall, the first run is representative.
+  // rubric failure, then an inconclusive (#895: truncated-judge) run, which
+  // says nothing about the answer. If the case passed overall, the first run
+  // is representative.
+  const isInconclusive = (run: SingleRunResult) =>
+    run.assertions.some((a) => a.inconclusive);
   const representative =
     (!passed && runs.find((run) => run.errored)) ||
+    (!passed && runs.find((run) => !run.passed && !isInconclusive(run))) ||
     (!passed && runs.find((run) => !run.passed)) ||
     runs[0]!;
+  const inconclusiveRuns = runs.filter(isInconclusive).length;
   const usage = sumUsage(runs);
   const judgeUsage = sumJudgeUsage(runs);
   const transcript = representative.transcript;
@@ -373,6 +361,7 @@ async function evaluateCase(
       ? { errored: representative.errored ?? firstErrored }
       : {}),
     ...repeatMeta,
+    ...(inconclusiveRuns > 0 ? { inconclusiveRuns } : {}),
   };
 }
 

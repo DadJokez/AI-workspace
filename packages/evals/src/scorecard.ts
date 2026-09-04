@@ -1,3 +1,4 @@
+import { JUDGE_INCONCLUSIVE_NOTE } from "./judge";
 import type { CapabilityResult, CaseResult, EvalSeverity } from "./types";
 
 /**
@@ -93,8 +94,12 @@ function caseKey(r: CapabilityResult, c: CaseResult): string {
 }
 
 function caseRef(r: CapabilityResult, c: CaseResult): string {
-  const tally = c.runs && c.runs > 1 ? ` [${c.passCount ?? 0}/${c.runs}]` : "";
-  return `${caseKey(r, c)}${tally}`;
+  const notes = [
+    c.runs && c.runs > 1 ? `${c.passCount ?? 0}/${c.runs}` : "",
+    // #895: a miss made of truncated-judge samples is not a rubric FAIL.
+    c.inconclusiveRuns ? `${c.inconclusiveRuns} ${JUDGE_INCONCLUSIVE_NOTE}` : "",
+  ].filter(Boolean);
+  return notes.length > 0 ? `${caseKey(r, c)} [${notes.join(", ")}]` : caseKey(r, c);
 }
 
 export function scoreSuites(results: readonly CapabilityResult[]): SuiteScore[] {
