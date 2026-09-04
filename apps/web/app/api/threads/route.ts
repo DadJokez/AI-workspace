@@ -50,6 +50,7 @@ export async function GET(req: Request) {
       updatedAt: chatThreads.updatedAt,
       userId: chatThreads.userId,
     })
+    // scoping-guard-allow: predicate is the `scope` variable built from userScope() above and applied in the .where() below
     .from(chatThreads)
     .where(and(scope))
     .orderBy(
