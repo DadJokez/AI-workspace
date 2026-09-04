@@ -711,10 +711,17 @@ test.describe("authenticated product smoke", () => {
     ).toBeVisible();
     await expect(table.getByText("Auth Smoke Triaged Feedback")).toHaveCount(0);
 
+    // History navigation on this force-dynamic page re-fetches the server
+    // render; let the navigation settle before asserting so slow runners do
+    // not race the RSC fetch (#813).
     await page.goBack();
+    await page.waitForURL(/\/admin\/feedback\?status=all$/);
+    await page.waitForLoadState("networkidle");
     await expect(page.getByText("showing 3 reports")).toBeVisible();
     await expect(table.getByText("Auth Smoke Triaged Feedback")).toBeVisible();
     await page.goForward();
+    await page.waitForURL(/\/admin\/feedback\?status=fixed$/);
+    await page.waitForLoadState("networkidle");
     await expect(page.getByText("showing 2 reports")).toBeVisible();
 
     await page.goto("/admin/feedback?status=all");

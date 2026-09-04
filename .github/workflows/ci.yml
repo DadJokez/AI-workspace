@@ -19,7 +19,10 @@ jobs:
   ci:
     name: lint + typecheck + build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 15, not 10: #869 made the Test step run with coverage (+~75 s) and on a
+    # slow-runner night the job lands at 9-10 min, so the cap cancels it
+    # ("Test (with coverage)=cancelled") and a docs-only PR reads as red (#862).
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -56,8 +59,25 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
-        run: pnpm test
+      # #695: the same unit lane as `pnpm test`, instrumented with v8 coverage.
+      # Report-only — no thresholds, so a coverage drop never turns this
+      # required check red. The per-package table lands on the run summary
+      # page; the raw json-summary/lcov files go up as an artifact below.
+      - name: Test (with coverage)
+        run: pnpm test:coverage
+
+      - name: Upload coverage summary
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-summary
+          path: |
+            apps/*/coverage/coverage-summary.json
+            apps/*/coverage/lcov.info
+            packages/*/coverage/coverage-summary.json
+            packages/*/coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 14
 
       # Free, deterministic eval lane: exercise every suite/case definition
       # and replay every scrubbed alpha failure transcript on every required

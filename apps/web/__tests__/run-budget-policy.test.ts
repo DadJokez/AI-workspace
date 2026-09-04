@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   RUN_BUDGET_DEFAULTS,
+  budgetDimensionLabel,
+  budgetTruncation,
   resolveNewRunBudget,
   resolveRetryRunBudget,
   resolveStoredRunBudget,
@@ -104,5 +106,64 @@ describe("run budget policy", () => {
       triggerType: "chat",
     });
     expect(resumed).toEqual({ envelope: stored.envelope });
+  });
+});
+
+describe("budgetTruncation (#848)", () => {
+  const receipt = (overrides: Record<string, unknown> = {}) => ({
+    schema: RUN_BUDGET_RECEIPT_SCHEMA,
+    version: 1,
+    governingLayer: "organization",
+    limits: RUN_BUDGET_DEFAULTS["tool-local"],
+    consumed: { tokens: 400_000, usd: 1, wallClockMs: 10, toolIterations: 0 },
+    partial: false,
+    ...overrides,
+  });
+
+  it("names the dimension that truncated a partial run", () => {
+    expect(
+      budgetTruncation({
+        budgetReceipt: receipt({ partial: true, reached: "tokens" }),
+      }),
+    ).toBe("tokens");
+    expect(
+      budgetTruncation({
+        budgetReceipt: receipt({ partial: true, reached: "wall_clock" }),
+      }),
+    ).toBe("wall_clock");
+  });
+
+  it("is null when the run finished its work", () => {
+    expect(
+      budgetTruncation({
+        budgetReceipt: receipt({ partial: false, reached: "tokens" }),
+      }),
+    ).toBeNull();
+    expect(budgetTruncation({ budgetReceipt: receipt() })).toBeNull();
+  });
+
+  it("is null for a missing or malformed receipt", () => {
+    expect(budgetTruncation(null)).toBeNull();
+    expect(budgetTruncation({})).toBeNull();
+    expect(budgetTruncation({ budgetReceipt: "partial" })).toBeNull();
+    expect(
+      budgetTruncation({ budgetReceipt: { partial: true, reached: "tokens" } }),
+    ).toBeNull();
+  });
+
+  it("is null for a partial receipt with no dimension", () => {
+    expect(
+      budgetTruncation({ budgetReceipt: receipt({ partial: true }) }),
+    ).toBeNull();
+  });
+});
+
+describe("budgetDimensionLabel", () => {
+  it("labels every dimension and falls back to 'configured'", () => {
+    expect(budgetDimensionLabel("tokens")).toBe("token");
+    expect(budgetDimensionLabel("usd")).toBe("cost");
+    expect(budgetDimensionLabel("wall_clock")).toBe("time");
+    expect(budgetDimensionLabel("tool_iterations")).toBe("tool-step");
+    expect(budgetDimensionLabel(undefined)).toBe("configured");
   });
 });
