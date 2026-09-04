@@ -315,6 +315,8 @@ async function runPlanItem(
 
   const stream = client.converseStream({
     bedrockModelId: MODELS[DISCOVERY_BENCHMARK_MODEL].bedrockModelId,
+    supportsPromptCaching:
+      MODELS[DISCOVERY_BENCHMARK_MODEL].supportsPromptCaching,
     systemPrompt: stableSystemPrompt,
     volatileSystemSuffix: `Benchmark phase: ${phase}.`,
     messages: [
