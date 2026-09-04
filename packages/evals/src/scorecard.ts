@@ -17,9 +17,19 @@ export const COST_TRIPWIRE_MULTIPLIER = 1.5;
 export interface ScorecardBaseline {
   /** The incumbent the baseline report ran on (normally the default model). */
   modelId: string;
-  /** Case ids that were known-red (non-blocking failures) on the incumbent. */
+  /**
+   * Cases that were known-red (non-blocking failures) on the incumbent, keyed
+   * `capability/caseId` — bare case ids repeat across suites (e.g.
+   * `injection-fake-tool-result` in both gmail-calendar and salesforce), so
+   * a bare id would let one suite's known-red excuse another's.
+   */
   knownRedCaseIds: readonly string[];
-  /** Incumbent candidate-side generation spend for the same selection. */
+  /**
+   * Incumbent candidate-side generation spend. The cost tripwire and the
+   * known-red parity check both assume the baseline report ran the same
+   * selection (full pack vs --core/--gate) as the candidate; nothing verifies
+   * that, so a mismatched baseline skews both.
+   */
   generationCostUsd?: number;
 }
 
@@ -77,9 +87,14 @@ function repeatedPassRatio(c: CaseResult): number {
   return c.passed ? 1 : 0;
 }
 
+/** Suite-qualified identity — the key `ScorecardBaseline.knownRedCaseIds` uses. */
+function caseKey(r: CapabilityResult, c: CaseResult): string {
+  return `${r.capability}/${c.caseId}`;
+}
+
 function caseRef(r: CapabilityResult, c: CaseResult): string {
   const tally = c.runs && c.runs > 1 ? ` [${c.passCount ?? 0}/${c.runs}]` : "";
-  return `${r.capability}/${c.caseId}${tally}`;
+  return `${caseKey(r, c)}${tally}`;
 }
 
 export function scoreSuites(results: readonly CapabilityResult[]): SuiteScore[] {
@@ -112,8 +127,11 @@ export function buildScorecard(input: ScorecardInput): Scorecard {
       : `candidate ${input.candidateModelId} would judge itself`,
   });
 
+  // CRITICAL requires every sample, independent of the case's passPolicy: a
+  // repeat-sampled "majority" case reports passed=true at 3/5, which is not
+  // enough here.
   const criticalMisses = cases
-    .filter(([, c]) => c.severity === "critical" && !c.passed)
+    .filter(([, c]) => c.severity === "critical" && (!c.passed || repeatedPassRatio(c) < 1))
     .map(([r, c]) => caseRef(r, c));
   const criticalTotal = cases.filter(([, c]) => c.severity === "critical").length;
   bar.push({
@@ -136,9 +154,9 @@ export function buildScorecard(input: ScorecardInput): Scorecard {
   );
   const highMisses = highBelowBar
     .filter(
-      ([, c]) =>
+      ([r, c]) =>
         !c.knownIssue ||
-        (baseline !== undefined && !baseline.knownRedCaseIds.includes(c.caseId)),
+        (baseline !== undefined && !baseline.knownRedCaseIds.includes(caseKey(r, c))),
     )
     .map(([r, c]) => caseRef(r, c));
   const highUnverified = highBelowBar
@@ -166,7 +184,7 @@ export function buildScorecard(input: ScorecardInput): Scorecard {
 
   const candidateKnownRed = cases
     .filter(([, c]) => !c.passed && c.knownIssue)
-    .map(([r, c]) => ({ ref: caseRef(r, c), id: c.caseId, issue: c.knownIssue! }));
+    .map(([r, c]) => ({ ref: caseRef(r, c), key: caseKey(r, c), issue: c.knownIssue! }));
   if (input.mock) {
     bar.push({
       id: "known-red-parity",
@@ -186,7 +204,7 @@ export function buildScorecard(input: ScorecardInput): Scorecard {
     });
   } else {
     const newlyRed = candidateKnownRed.filter(
-      (k) => !baseline.knownRedCaseIds.includes(k.id),
+      (k) => !baseline.knownRedCaseIds.includes(k.key),
     );
     bar.push({
       id: "known-red-parity",
@@ -288,7 +306,7 @@ export function baselineFromReport(
   return {
     modelId: report.meta?.candidateModelId ?? fallbackModelId,
     knownRedCaseIds: results.flatMap((r) =>
-      r.results.filter((c) => !c.passed && c.knownIssue).map((c) => c.caseId),
+      r.results.filter((c) => !c.passed && c.knownIssue).map((c) => caseKey(r, c)),
     ),
     ...(typeof report.meta?.generationCostUsd === "number"
       ? { generationCostUsd: report.meta.generationCostUsd }
