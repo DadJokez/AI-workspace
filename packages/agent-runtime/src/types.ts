@@ -165,7 +165,7 @@ export interface TurnInput {
  */
 export interface AgentRuntime {
   /** Stable identifier — useful for logs, telemetry, the model selector tooltip. */
-  readonly name: "bedrock" | "agentcore";
+  readonly name: RuntimeName;
   readonly capabilities: AgentRuntimeCapabilities;
 
   /**
@@ -175,5 +175,14 @@ export interface AgentRuntime {
   runTurn(input: TurnInput): AsyncIterable<AgentEvent>;
 }
 
-/** Env-derived runtime selection. */
-export type RuntimeName = "bedrock" | "agentcore";
+/**
+ * Runtime selection (`RUNTIME=<name>` or a per-run override). The two AWS
+ * lanes are built in; any further adapter registers itself with
+ * `registerRuntime` and becomes selectable by name without editing this
+ * union or the SSE relay (#797 P1). The `string & Record<never, never>`
+ * member keeps the built-in literals for narrowing and autocomplete while
+ * admitting registered names.
+ */
+export const BUILT_IN_RUNTIME_NAMES = ["bedrock", "agentcore"] as const;
+export type BuiltInRuntimeName = (typeof BUILT_IN_RUNTIME_NAMES)[number];
+export type RuntimeName = BuiltInRuntimeName | (string & Record<never, never>);
