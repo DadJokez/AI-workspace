@@ -35,6 +35,8 @@ import {
   canRetryWorkflowRun,
 } from "@/lib/workflow-retry";
 import {
+  budgetDimensionLabel,
+  budgetTruncation,
   resolveNewRunBudget,
   resolveRetryRunBudget,
   runBudgetEnvelopeForEvent,
@@ -291,10 +293,13 @@ export async function POST(req: Request) {
     let inputTokens = 0;
     let cacheReadInputTokens = 0;
     let cacheWriteInputTokens = 0;
-    let budgetReceipt: RunBudgetReceipt = new RunBudgetTracker(
-      runBudget,
-      modelId,
-    ).receipt(false);
+    // #848: same seam as execute-chat-turn — the loop's `budget` event is
+    // authoritative, and the fallback tracker mirrors cumulative usage deltas
+    // so a failed briefing still persists a receipt that agrees with usage.
+    const budgetFallback = new RunBudgetTracker(runBudget, modelId);
+    let loopReceipt: RunBudgetReceipt | undefined;
+    const currentBudgetReceipt = () =>
+      loopReceipt ?? budgetFallback.receipt(false);
     const errors: string[] = [];
     const toolEvents = createToolEventAccumulator(["github"]);
 
@@ -312,20 +317,30 @@ export async function POST(req: Request) {
         briefingMarkdown += ev.delta;
       } else if (ev.type === "usage") {
         const usage = normalizeRuntimeUsage(ev);
+        // Loop usage events are cumulative, so the delta is exact.
+        budgetFallback.recordUsage({
+          tokensIn: usage.tokensIn - tokensIn,
+          tokensOut: usage.tokensOut - tokensOut,
+          inputTokens: usage.inputTokens - inputTokens,
+          cacheReadInputTokens:
+            usage.cacheReadInputTokens - cacheReadInputTokens,
+          cacheWriteInputTokens:
+            usage.cacheWriteInputTokens - cacheWriteInputTokens,
+        });
         tokensIn = usage.tokensIn;
         tokensOut = usage.tokensOut;
         inputTokens = usage.inputTokens;
         cacheReadInputTokens = usage.cacheReadInputTokens;
         cacheWriteInputTokens = usage.cacheWriteInputTokens;
       } else if (ev.type === "budget") {
-        budgetReceipt = ev.receipt;
+        loopReceipt = ev.receipt;
         await appendWorkflowEvent({
           eventType: "run_budget_measured",
-          status: budgetReceipt.partial ? "info" : "succeeded",
-          label: budgetReceipt.partial
+          status: ev.receipt.partial ? "info" : "succeeded",
+          label: ev.receipt.partial
             ? "Developer Briefing reached its run budget"
             : "Measured Developer Briefing run budget",
-          metadata: { budget: budgetReceipt },
+          metadata: { budget: ev.receipt },
         });
       } else if (ev.type === "tool-call") {
         toolEvents.recordCall(ev.call);
@@ -377,7 +392,7 @@ export async function POST(req: Request) {
       },
       modelId,
       runtime: runtime.name,
-      budgetReceipt,
+      budgetReceipt: currentBudgetReceipt(),
     };
 
     if (errors.length > 0) {
@@ -430,11 +445,19 @@ export async function POST(req: Request) {
       })
       .where(eq(runs.id, run.id))
       .returning();
+    const truncatedBy = budgetTruncation(output);
     await appendWorkflowEvent({
       eventType: "run_completed",
       status: "succeeded",
-      label: "Stored Developer Briefing",
-      metadata: { outputChars: briefingMarkdown.length },
+      label: truncatedBy
+        ? `Stored a partial Developer Briefing (reached the ${budgetDimensionLabel(truncatedBy)} budget)`
+        : "Stored Developer Briefing",
+      metadata: {
+        outputChars: briefingMarkdown.length,
+        ...(truncatedBy
+          ? { budget: { partial: true, reached: truncatedBy } }
+          : {}),
+      },
     });
 
     return NextResponse.json({
