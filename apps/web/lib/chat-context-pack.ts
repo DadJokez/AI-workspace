@@ -239,7 +239,6 @@ export interface BuildChatContextPackInput {
   discoverableProviders?: readonly string[];
   deniedMcpProviders?: readonly string[];
   capabilityGraph?: CapabilityGraph;
-  modelId?: string;
   artifactContext?: string | null;
   uploadedFiles?: readonly ChatContextUploadedFile[];
   recentToolEvidenceReceipt?: RecentToolEvidenceReceipt;
@@ -273,7 +272,6 @@ export function buildChatContextPack({
   discoverableProviders = [],
   deniedMcpProviders = [],
   capabilityGraph,
-  modelId,
   artifactContext,
   uploadedFiles = [],
   recentToolEvidenceReceipt,
@@ -693,7 +691,6 @@ export function buildChatContextPack({
           reconnectRequiredProviders: receipt.tools.reconnectRequired,
           builtinTools: receipt.tools.builtinMounted,
           webAccess: receipt.tools.webAccess,
-          modelId,
           artifactContext: artifacts || null,
           vaultContextRequested,
         }),
