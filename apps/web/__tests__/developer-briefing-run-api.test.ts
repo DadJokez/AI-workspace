@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "@ai-workspace/auth";
+import {
+  estimateUsageCostUsd,
+  type RunBudgetReceipt,
+  type TokenUsage,
+} from "@ai-workspace/agent";
 
 const sessionUser: SessionUser = {
   id: "user-uuid",
@@ -9,7 +14,12 @@ const sessionUser: SessionUser = {
 };
 
 let insertedRuns: Array<Record<string, unknown>> = [];
+let runUpdates: Array<Record<string, unknown>> = [];
 let registryCalls: string[] = [];
+// Read lazily by the mock factories so a test can mount GitHub and script the
+// runtime without re-registering the module mocks.
+let githubServer: unknown;
+let runtime: unknown = { name: "local" };
 
 function makeReq(body: unknown) {
   return new Request("http://localhost/api/workflows/developer-briefing/run", {
@@ -55,7 +65,11 @@ function installMocks() {
   // No GitHub server: the handler persists the run, then fails before the
   // model is ever invoked — the earliest observable point for the gate.
   vi.doMock("@/lib/oauth/mcp-servers", () => ({
-    buildUserMcpServers: async () => ({ mcpServers: {}, deniedProviders: [] }),
+    buildUserMcpServers: async () => ({
+      mcpServers: githubServer ? { github: githubServer } : {},
+      deniedProviders: [],
+      toolPolicyDecisions: {},
+    }),
   }));
 
   vi.doMock("@/lib/run-events", () => ({
@@ -65,7 +79,7 @@ function installMocks() {
   }));
 
   vi.doMock("@ai-workspace/agent-runtime", () => ({
-    getRuntime: () => ({ name: "local" }),
+    getRuntime: () => runtime,
   }));
 
   vi.doMock("@ai-workspace/db", async () => {
@@ -84,7 +98,12 @@ function installMocks() {
           return result;
         },
       }),
-      update: () => ({ set: () => ({ where: async () => undefined }) }),
+      update: (table: unknown) => ({
+        set: (values: Record<string, unknown>) => {
+          if (table === actual.runs) runUpdates.push(values);
+          return { where: async () => undefined };
+        },
+      }),
     };
     return { ...actual, getDb: () => db };
   });
@@ -101,7 +120,10 @@ describe("developer briefing run route model gating", () => {
   beforeEach(() => {
     vi.resetModules();
     insertedRuns = [];
+    runUpdates = [];
     registryCalls = [];
+    githubServer = undefined;
+    runtime = { name: "local" };
     installMocks();
   });
 
@@ -141,5 +163,42 @@ describe("developer briefing run route model gating", () => {
     expect(registryCalls).not.toContain("resolve:durable-local");
     expect(insertedRuns).toHaveLength(1);
     expect(insertedRuns[0]!.modelId).toBe("sonnet-4-6");
+  });
+
+  it("#848: a failed briefing persists a receipt consistent with its usage", async () => {
+    const usage: TokenUsage = {
+      tokensIn: 1_200,
+      tokensOut: 300,
+      inputTokens: 1_200,
+      cacheReadInputTokens: 0,
+      cacheWriteInputTokens: 0,
+    };
+    githubServer = { url: "https://example.test/mcp" };
+    runtime = {
+      name: "local",
+      runTurn: async function* () {
+        yield { type: "text-delta", delta: "partial briefing" };
+        yield { type: "usage", ...usage };
+        yield { type: "error", message: "provider exploded" };
+      },
+    };
+
+    const res = await postRun({ modelId: "sonnet-4-6" });
+
+    expect(res.status).toBe(500);
+    const failed = runUpdates.find((update) => update.status === "failed");
+    const outputs = failed?.outputs as {
+      usage: TokenUsage;
+      budgetReceipt: RunBudgetReceipt;
+    };
+    expect(outputs.usage).toEqual(usage);
+    expect(outputs.budgetReceipt.partial).toBe(false);
+    expect(outputs.budgetReceipt.consumed.tokens).toBe(
+      usage.tokensIn + usage.tokensOut,
+    );
+    expect(outputs.budgetReceipt.consumed.usd).toBeCloseTo(
+      estimateUsageCostUsd("sonnet-4-6", usage),
+      12,
+    );
   });
 });

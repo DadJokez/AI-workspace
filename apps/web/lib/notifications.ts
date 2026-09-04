@@ -11,6 +11,7 @@ import {
 } from "@ai-workspace/db";
 import { and, count, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import type { RunBudgetReceipt } from "@ai-workspace/agent";
+import { budgetDimensionLabel } from "@/lib/run-budget-policy";
 
 /**
  * Notification inbox + daily digest (issue #292). Everything here is strictly
@@ -126,15 +127,6 @@ export async function createProactiveRunNotification(
       })}\n`,
     );
   }
-}
-
-function budgetDimensionLabel(
-  dimension: NonNullable<RunBudgetReceipt["reached"]>,
-): string {
-  if (dimension === "wall_clock") return "time";
-  if (dimension === "tool_iterations") return "tool-step";
-  if (dimension === "usd") return "cost";
-  return "token";
 }
 
 /** The caller's notifications, newest first, plus their unread count. */
