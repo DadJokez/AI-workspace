@@ -12,6 +12,13 @@
 #   JSON with advisories / high|critical  -> FINDING, fail closed
 #   JSON carrying an `error` key          -> audit could not run, retry/warn
 #   unparseable body                      -> audit could not run, retry/warn
+#   attempt exceeds AUDIT_ATTEMPT_TIMEOUT -> audit could not run, retry/warn
+#
+# Each attempt is wall-clock bounded so a hung registry (#862, #875) resolves
+# here, on the outage path, instead of at the CI job cap — GitHub reports a
+# job timeout as "cancelled", which reads as a failed required check. Worst
+# case with defaults is ATTEMPTS * AUDIT_ATTEMPT_TIMEOUT + backoff
+# (3 * 150s + 10s + 20s = 8 min), inside ci.yml's 12-minute cap.
 #
 # AUDIT_CMD is overridable so scripts/audit-prod-deps.test.sh can exercise
 # every branch without a network.
@@ -20,6 +27,26 @@ set -uo pipefail
 AUDIT_CMD=${AUDIT_CMD:-"pnpm audit --prod --audit-level high --json"}
 ATTEMPTS=${ATTEMPTS:-3}
 SLEEP_BASE=${SLEEP_BASE:-10}
+AUDIT_ATTEMPT_TIMEOUT=${AUDIT_ATTEMPT_TIMEOUT:-150}
+
+# coreutils `timeout` on Linux runners, `gtimeout` on macOS with coreutils
+# installed; neither is a reason to fail the gate, so fall back to unbounded.
+timeout_bin=""
+if command -v timeout >/dev/null 2>&1; then
+  timeout_bin="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+  timeout_bin="gtimeout"
+else
+  echo "::notice::no timeout/gtimeout helper found; audit attempts run unbounded"
+fi
+
+run_attempt() {
+  if [ -n "$timeout_bin" ]; then
+    "$timeout_bin" "$AUDIT_ATTEMPT_TIMEOUT" $AUDIT_CMD
+  else
+    $AUDIT_CMD
+  fi
+}
 
 classify() {
   node -e '
@@ -68,9 +95,19 @@ for attempt in $(seq 1 "$ATTEMPTS"); do
   # stdout carries the report and is the ONLY thing parsed; folding stderr in
   # would let one stray warning break JSON.parse next to a real finding and
   # silently downgrade it to "registry unreachable" (review).
-  raw="$($AUDIT_CMD 2>"$err_file")"
+  raw="$(run_attempt 2>"$err_file")"
   code=$?
   err="$(cat "$err_file")"
+
+  # timeout(1) exits 124 when it killed the command: the registry never
+  # answered, which is the same information as "unreachable".
+  if [ -n "$timeout_bin" ] && [ $code -eq 124 ]; then
+    echo "::notice::audit attempt $attempt exceeded ${AUDIT_ATTEMPT_TIMEOUT}s; treating as registry unreachable"
+    if [ "$attempt" -lt "$ATTEMPTS" ]; then
+      sleep $((attempt * SLEEP_BASE))
+    fi
+    continue
+  fi
 
   if [ $code -eq 0 ]; then
     echo "No known high/critical CVEs in the production dependency tree."
