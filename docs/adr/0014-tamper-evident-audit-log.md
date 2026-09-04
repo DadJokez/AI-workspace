@@ -59,8 +59,8 @@ Two facts about the current shape drive the design:
 There is **no single writer**. `grep -rn 'insert(auditLog)'` over `apps/web`
 finds ~60 call sites across route handlers and libs, half of them inside
 callers' transactions (`tx.insert(auditLog)`), several inserting arrays
-(`execute-chat-turn.ts:1938` bulk-inserts the per-turn tool rows built by
-`buildToolAuditRows`, `apps/web/lib/audit-tool-events.ts:72`;
+(`execute-chat-turn.ts:1962` bulk-inserts the per-turn tool rows built by
+`buildToolAuditRows`, `apps/web/lib/audit-tool-events.ts:71`;
 `tool-approvals.ts`, `workspace-artifacts.ts`, `admin-data-access.ts`,
 `oauth/connection.ts` do the same). `apps/web/lib/audit-tool-events.ts` is a
 pure row *builder* — it shapes `mcp_tool_execution` rows (status from the
@@ -68,7 +68,7 @@ result, redacted input/output, executor policy decision, metadata) but does
 not write. `apps/web/lib/auth/auth-audit.ts:152` is a writer that deliberately
 fails open (a ledger outage must not lock everyone out of sign-in).
 
-The only `UPDATE`/`DELETE` paths are `apps/web/lib/audit-retention.ts:82`
+The only `UPDATE`/`DELETE` paths are `apps/web/lib/audit-retention.ts:83`
 (`pruneAuditLog`, `DELETE … WHERE created_at < cutoff`, run by
 `pnpm audit:retention`, destructive only with `AUDIT_LOG_RETENTION_DAYS` set)
 and integration-test teardown. No production code updates an audit row.
@@ -160,7 +160,7 @@ END $$ LANGUAGE plpgsql VOLATILE;   -- VOLATILE is load-bearing: STABLE would fo
   until the transaction ends.
 - **Multi-row inserts chain sibling-by-sibling, and the reason is the
   function's volatility.** The hot path is a single `INSERT` of N rows —
-  `execute-chat-turn.ts:1938` writes the whole `buildToolAuditRows` array in
+  `execute-chat-turn.ts:1962` writes the whole `buildToolAuditRows` array in
   one statement, and `workspace-artifacts.ts`, `oauth/connection.ts`,
   `tool-approvals.ts` do the same — so row *i*'s head read must see rows
   1..*i*−1 that the *same statement* has already written, not just the
@@ -222,7 +222,7 @@ Cost: every audit row takes the (re-entrant) advisory lock and does one
 index-backed `ORDER BY seq DESC LIMIT 1`; an N-row array insert is N index
 probes and one lock wait inside one statement. Audit writes are per tool
 call / per admin action, not per token; this is well inside budget. The
-implementation PR measures the p99 of `execute-chat-turn.ts:1938` (the bulk
+implementation PR measures the p99 of `execute-chat-turn.ts:1962` (the bulk
 insert) before and after.
 
 ### 4. Retention becomes the checkpoint
@@ -304,7 +304,7 @@ trigger function would produce (§3) — which must fail at the second sibling.
 The hash recipe and the sibling rule are exercised together by an
 integration test that inserts through drizzle — one single-row insert, then
 one array insert of at least three rows in a single statement (the
-`buildToolAuditRows` shape at `execute-chat-turn.ts:1938`), then another
+`buildToolAuditRows` shape at `execute-chat-turn.ts:1962`), then another
 single row — and runs the verifier against a real PostgreSQL. That test is
 the tripwire for the `VOLATILE` dependency in §3.
 
