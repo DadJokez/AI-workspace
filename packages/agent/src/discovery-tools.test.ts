@@ -46,6 +46,13 @@ function tools(activated: Set<string>) {
 }
 
 describe("createDiscoveryTools", () => {
+  it("declares always_allow on both discovery tools (#701)", () => {
+    expect(tools(new Set()).map((tool) => tool.policy)).toEqual([
+      "always_allow",
+      "always_allow",
+    ]);
+  });
+
   it("search ranks matches and reports mounted state per provider", async () => {
     const [search] = tools(new Set(["notion"]));
     const output = (await search!.handler(
@@ -146,6 +153,7 @@ describe("mid-turn activation through the loop (#384 P2)", () => {
     const dynamicToolNames = new Set(["github__list_pull_requests"]);
     registry.register({
       name: "github__list_pull_requests",
+      policy: "always_allow",
       description: "List pull requests.",
       inputSchema: { type: "object", properties: {} },
       handler: async () => ({ pullRequests: 2 }),
@@ -183,6 +191,7 @@ describe("mid-turn activation through the loop (#384 P2)", () => {
       result: {
         toolCallId: "list-1",
         output: { pullRequests: 2 },
+        policyDecision: "auto_allowed",
       },
     });
     expect(events.some((event) => event.type === "error")).toBe(false);

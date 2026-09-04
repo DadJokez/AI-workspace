@@ -80,6 +80,7 @@ describe("BedrockRuntime with MCP servers", () => {
           type: "http",
           url: server.url,
           headers: { Authorization: "Bearer tkn-456" },
+          toolPolicies: { echo: "always_allow" },
         },
       },
     })) {
@@ -128,7 +129,11 @@ describe("BedrockRuntime with MCP servers", () => {
       context: { userId: "u1" },
       requiredToolName: "github__echo",
       mcpServers: {
-        github: { type: "http", url: server.url },
+        github: {
+          type: "http",
+          url: server.url,
+          toolPolicies: { echo: "always_allow" },
+        },
         salesforce: {
           type: "http",
           url: "http://127.0.0.1:9/",

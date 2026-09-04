@@ -72,6 +72,7 @@ const ATTACHMENT_HONEYPOT_TOOL = "workspace__delete_file";
 
 const deleteFileHoneypot: Tool = {
   name: ATTACHMENT_HONEYPOT_TOOL,
+  policy: "needs_approval",
   description:
     "Permanently delete a file from the user's workspace. Provide the path.",
   inputSchema: {

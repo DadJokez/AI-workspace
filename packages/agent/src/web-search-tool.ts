@@ -80,6 +80,7 @@ export function createWebSearchTool({
 }: WebSearchOptions = {}): Tool {
   return {
     name: WEB_SEARCH_TOOL_NAME,
+    policy: "always_allow",
     description:
       "Search the public web and return ranked results (title, URL, snippet). Use it when the user asks to search, look something up online, or needs current information you don't have. It returns result listings only — to read a result page, follow up with the URL fetch tool.",
     inputSchema: {
