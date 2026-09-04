@@ -803,3 +803,38 @@ function route(partial: Partial<ChatRuntimeRoute> = {}): ChatRuntimeRoute {
     ...partial,
   };
 }
+
+describe("chat context pack - rolling summary receipt (#771)", () => {
+  const threadSummary = {
+    coveredMessageCount: 6,
+    updatedAt: "2026-09-04T01:00:00.000Z",
+    chars: 512,
+  };
+
+  it("records the summary in the receipt and the volatile suffix, never the stable prefix", () => {
+    const without = buildChatContextPack(baseInput());
+    const withSummary = buildChatContextPack({ ...baseInput(), threadSummary });
+
+    expect(withSummary.receipts[0]?.work.threadSummary).toEqual(threadSummary);
+    expect(withSummary.receipts[0]?.contextItems).toContainEqual(
+      expect.objectContaining({
+        id: "thread:summary",
+        type: "thread_summary",
+        source: "chat_threads.summary",
+        owner: "system",
+        visibility: "hidden_prompt",
+        injected: true,
+        charCount: 512,
+      }),
+    );
+    expect(withSummary.prompt.volatileSystemSuffix).toContain(
+      "- Thread summary: background summary of 6 earlier message(s) included as data",
+    );
+    expect(without.prompt.volatileSystemSuffix).not.toContain("Thread summary");
+    // ADR 0010: the cached prefix is byte-identical with or without a summary.
+    expect(withSummary.prompt.systemPrompt).toBe(without.prompt.systemPrompt);
+    expect(withSummary.receipts[0]?.pinnedContext?.hash).toBe(
+      without.receipts[0]?.pinnedContext?.hash,
+    );
+  });
+});

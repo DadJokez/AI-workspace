@@ -237,12 +237,12 @@ enforces rather than observes, so #802's execution path binds to real policy.
 
 ### Tier D — harness wave 2 (#770), re-scoped
 
-17. **#771 — context lifecycle.** Still the oldest pending gap: rolling
-    summary generation is `❌ pending` (`PLAN.md:142`) on a schema that exists
-    (`docs/ARCHITECTURE.md:218`). Order per the issue: clear stale tool results
-    first, then compact with structured carry-over; compaction boundaries
-    align with ADR-0010 cache breakpoints. Unblocked; the enabler for #772/#774
-    and for durable runs living inside #841's wall-clock/token envelope.
+17. **#771 — context lifecycle.** Shipped (PR `goal/771-context-lifecycle`):
+    stale tool-result clearing in `runAgentLoop`, rolling `thread-summary.v1`
+    generation via the `summaries` purpose after each successful turn, and
+    both edits confined to the messages region behind the ADR-0010
+    checkpoints. Still open under the issue: mid-run compaction of a single
+    very long durable run (today bounded by clearing + #841's envelope).
 18. **#780 — quick wins.** Both still open on `main`: tool calls in
     `packages/agent/src/loop.ts` execute serially, and schedules have no
     Run-now or per-schedule model override. Parallel execution must preserve

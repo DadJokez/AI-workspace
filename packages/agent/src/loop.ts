@@ -4,6 +4,10 @@ import {
   type BedrockMessage,
   getBedrockClient,
 } from "./clients";
+import {
+  clearStaleToolResults,
+  type ClearStaleToolResultsOptions,
+} from "./context-lifecycle";
 import { MODELS, type ModelId } from "./models";
 import {
   RunBudgetTracker,
@@ -95,6 +99,12 @@ export interface RunAgentLoopParams {
   client?: BedrockClient;
   /** Injectable wall clock for deterministic budget boundary tests. */
   nowMs?: () => number;
+  /**
+   * Stale tool-result clearing thresholds (#771). Defaults keep the two most
+   * recent tool rounds intact and only engage past ~40K tokens of transcript;
+   * tests lower them to exercise the placeholder path.
+   */
+  contextLifecycle?: ClearStaleToolResultsOptions;
 }
 
 export const DEFAULT_MAX_TOOL_ITERATIONS = 8;
@@ -303,12 +313,20 @@ export async function* runAgentLoop(
           .filter(Boolean)
           .join("\n\n")
       : volatileSystemSuffix;
+    // #771: the model sees stale tool payloads as short placeholders once the
+    // transcript grows; the loop's own `bedrockMessages` keeps every raw
+    // result, and only the messages region (behind the cache checkpoints) is
+    // rewritten — never the stable system prefix.
+    const lifecycle = clearStaleToolResults(
+      bedrockMessages,
+      params.contextLifecycle,
+    );
     const stream = client.converseStream({
       bedrockModelId: model.bedrockModelId,
       supportsPromptCaching: model.supportsPromptCaching,
       systemPrompt,
       volatileSystemSuffix: iterationVolatileSystemSuffix,
-      messages: bedrockMessages,
+      messages: lifecycle.messages,
       toolConfig,
       maxTokens: params.maxTokens ?? model.defaultMaxTokens,
       temperature: params.temperature,
@@ -322,8 +340,11 @@ export async function* runAgentLoop(
         providerModelId: model.bedrockModelId,
         systemPrompt,
         volatileSystemSuffix: iterationVolatileSystemSuffix,
-        messages: bedrockMessages,
+        messages: lifecycle.messages,
         tools: synthesisOnly ? [] : tools,
+        ...(lifecycle.receipt.cleared.length > 0
+          ? { contextLifecycle: lifecycle.receipt }
+          : {}),
       }),
     };
 
@@ -817,17 +838,20 @@ function buildProviderRequestSnapshot({
   volatileSystemSuffix,
   messages,
   tools,
+  contextLifecycle,
 }: {
   providerModelId: string;
   systemPrompt?: string;
   volatileSystemSuffix?: string;
   messages: BedrockMessage[];
   tools: ReturnType<ToolRegistry["list"]>;
+  contextLifecycle?: ProviderRequestSnapshot["contextLifecycle"];
 }): ProviderRequestSnapshot {
   return {
     providerModelId,
     systemPrompt,
     volatileSystemSuffix,
+    ...(contextLifecycle ? { contextLifecycle } : {}),
     messages: messages.map((message) => ({
       role: message.role,
       content: message.content.map((block) => {
