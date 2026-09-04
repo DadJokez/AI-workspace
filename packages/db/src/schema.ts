@@ -274,13 +274,15 @@ export const chatThreads = pgTable(
      */
     mcpSignature: text("mcp_signature"),
     /**
-     * Reserved for a rolling summary of durable thread context. No writer has
-     * shipped (#413/#416 territory), so this is NULL for every thread today;
-     * nothing reads it. Columns kept so a future summarizer needs no
-     * migration.
+     * Rolling summary of history older than the recent-message window (#771):
+     * a `thread-summary.v1` JSON document (facts, open items, decisions,
+     * referenced resources by id, plus the covered-through message id).
+     * Written by `refreshThreadSummary` (apps/web/lib/thread-summary.ts)
+     * after a successful turn; read by `executeChatTurn` and rendered as
+     * layer-7 background data. NULL until a thread outgrows the window.
      */
     summary: text("summary"),
-    /** See `summary` — no writer shipped; NULL everywhere. */
+    /** When `summary` was last refreshed. */
     summaryUpdatedAt: timestamp("summary_updated_at", { withTimezone: true }),
     /**
      * Short user-facing recap for sidebar hover previews. Separate from the

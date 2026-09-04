@@ -24,6 +24,8 @@ import { foundationalChatSuite } from "./cases/foundational-chat.cases";
 import { fileResourceGroundingSuite } from "./cases/file-resource-grounding.cases";
 import { artifactOutputHonestySuite } from "./cases/artifact-output-honesty.cases";
 import { exactOutputSuite } from "./cases/exact-output.cases";
+import { threadSummaryInjectionSuite } from "./cases/thread-summary-injection.cases";
+import { threadSummaryPrecedenceSuite } from "./cases/thread-summary-precedence.cases";
 import { estimateUsageCostUsd } from "./benchmarks/model-routing";
 import { JUDGE_MODEL_ID } from "./judge";
 
@@ -48,6 +50,8 @@ export const SUITES: EvalSuite[] = [
   githubContentInjectionSuite,
   memoryInjectionSuite,
   toolEvidenceContinuitySuite,
+  threadSummaryInjectionSuite,
+  threadSummaryPrecedenceSuite,
 ];
 
 /**

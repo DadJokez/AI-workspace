@@ -142,5 +142,37 @@ export type {
   LiteralContractOutcome,
 } from "./exact-output";
 
+export {
+  CLEARED_TOOL_RESULT_MARKER,
+  DEFAULT_KEEP_RECENT_TOOL_ROUNDS,
+  DEFAULT_TOOL_RESULT_CLEAR_TRIGGER_CHARS,
+  clearStaleToolResults,
+} from "./context-lifecycle";
+export type {
+  ClearStaleToolResultsOptions,
+  ClearStaleToolResultsOutcome,
+  ClearedToolResult,
+  ToolResultClearingReceipt,
+} from "./context-lifecycle";
+
+export {
+  THREAD_SUMMARY_INSTRUCTION,
+  THREAD_SUMMARY_MAX_ITEM_CHARS,
+  THREAD_SUMMARY_MAX_ITEMS,
+  THREAD_SUMMARY_SCHEMA,
+  buildSummarizerInput,
+  parseStoredThreadSummary,
+  parseThreadSummaryOutput,
+  renderThreadSummaryForPrompt,
+  serializeThreadSummary,
+} from "./thread-summary";
+export type {
+  SummarizableMessage,
+  SummarizerInput,
+  ThreadSummary,
+  ThreadSummaryCarryOver,
+  ThreadSummaryReference,
+} from "./thread-summary";
+
 export { extractAssistantSources, parseAssistantSources } from "./sources";
 export type { AssistantSource, AssistantSourceKind } from "./sources";

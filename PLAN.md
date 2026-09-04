@@ -139,7 +139,7 @@ model fallback, metrics, and shared-rate-limit follow-up work.
 | Slash-command skill palette in chat ("/" runs skills) | ✅ |
 | 7 starter skills (2 GitHub + 5 corporate zero-provider) | ✅ |
 | CI runs the full test suite (189 tests) | ✅ |
-| Rolling summary generation | ❌ pending |
+| Rolling summary generation (#771: stale tool-result clearing + `thread-summary.v1` carry-over) | ✅ |
 | Shared quota store and daily token budgets | ❌ pending |
 | Dependency audit full clean state | ❌ upstream/transitive pending |
 
