@@ -305,6 +305,7 @@ export async function* runAgentLoop(
       : volatileSystemSuffix;
     const stream = client.converseStream({
       bedrockModelId: model.bedrockModelId,
+      supportsPromptCaching: model.supportsPromptCaching,
       systemPrompt,
       volatileSystemSuffix: iterationVolatileSystemSuffix,
       messages: bedrockMessages,
