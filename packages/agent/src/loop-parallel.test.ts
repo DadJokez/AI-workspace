@@ -303,6 +303,91 @@ describe("runAgentLoop parallel tool execution (#780)", () => {
     expect(collected.at(-1)).toEqual({ type: "done" });
   });
 
+  // A result JSON.stringify rejects (a bigint id from a DB-backed read, a
+  // cycle) must settle as that call's error row — the pre-#780 shape — on
+  // both paths, never escape the loop and abort the turn.
+  it("settles a non-serializable result as the call's error row on the sequential path", async () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "db__count",
+      description: "Returns a row with a bigint field.",
+      inputSchema: { type: "object" },
+      policy: "always_allow",
+      handler: async () => ({ big: 10n }),
+    });
+    // A single call has nothing to overlap with: the sequential path.
+    const { client, events } = runBatch({
+      registry,
+      calls: [{ id: "c1", name: "db__count", input: {} }],
+    });
+    const collected = await events;
+
+    expect(toolResults(collected)).toEqual([
+      {
+        toolCallId: "c1",
+        output: "Do not know how to serialize a BigInt",
+        isError: true,
+        policyDecision: "auto_allowed",
+      },
+    ]);
+    expect(toolResultBlocks(client.captured[1])).toEqual([
+      {
+        kind: "tool-result",
+        toolUseId: "c1",
+        content: "Do not know how to serialize a BigInt",
+        isError: true,
+      },
+    ]);
+    expect(client.captured).toHaveLength(2);
+    expect(collected.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("settles a non-serializable result as its error row on the concurrent path while the sibling's result is intact", async () => {
+    const { gated, registry } = gatedFixture();
+    const { client, events } = runBatch({
+      registry,
+      calls: [gatedCall("a"), gatedCall("b")],
+    });
+
+    // b finishes first with a good result; a then returns a cyclic object.
+    await gated.started("b");
+    gated.release("b", { id: "b" });
+    await settle();
+    const cyclic: { self?: unknown } = {};
+    cyclic.self = cyclic;
+    gated.release("a", cyclic);
+    const collected = await events;
+
+    const results = toolResults(collected);
+    expect(results.map((result) => result.toolCallId)).toEqual(["a", "b"]);
+    expect(results[0]).toEqual({
+      toolCallId: "a",
+      output: expect.stringMatching(/circular/i),
+      isError: true,
+      policyDecision: "auto_allowed",
+    });
+    expect(results[1]).toEqual({
+      toolCallId: "b",
+      output: { id: "b" },
+      policyDecision: "auto_allowed",
+    });
+    const blocks = toolResultBlocks(client.captured[1]);
+    expect(blocks.map((block) => block.toolUseId)).toEqual(["a", "b"]);
+    expect(blocks[0]).toEqual({
+      kind: "tool-result",
+      toolUseId: "a",
+      content: expect.stringMatching(/circular/i),
+      isError: true,
+    });
+    expect(blocks[1]).toEqual({
+      kind: "tool-result",
+      toolUseId: "b",
+      content: '{"id":"b"}',
+    });
+    expect(client.captured).toHaveLength(2);
+    expect(collected.at(-1)).toEqual({ type: "done" });
+  });
+
   it("keeps a turn with an approval-gated call on the sequential path", async () => {
     const writeHandler = vi.fn(async () => ({ updated: true }));
     const writeTool: Tool = {

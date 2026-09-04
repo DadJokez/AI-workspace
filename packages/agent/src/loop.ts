@@ -884,17 +884,24 @@ function startBounded<T>(
 }
 
 type ToolHandlerOutcome =
-  | { ok: true; output: unknown }
+  | { ok: true; output: unknown; text: string }
   | { ok: false; message: string };
 
-/** Runs a handler and settles its throw as an error outcome, never a rejection. */
+/**
+ * Runs a handler and settles its throw as an error outcome, never a
+ * rejection. Serializing the result happens inside the same guard: a return
+ * value `JSON.stringify` rejects (a bigint field, a cycle) is this call's
+ * error row, exactly as a handler throw is — never a crashed turn.
+ */
 async function invokeToolHandler(
   tool: Tool,
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolHandlerOutcome> {
   try {
-    return { ok: true, output: await tool.handler(input, context) };
+    const output = await tool.handler(input, context);
+    const text = typeof output === "string" ? output : JSON.stringify(output);
+    return { ok: true, output, text };
   } catch (err) {
     return {
       ok: false,
@@ -928,11 +935,7 @@ function recordToolOutcome({
   approvalGrant?: ToolApprovalGrant;
   toolsWithDeliveredUsageNotes: Set<string>;
 }): { event: AgentEvent; block: BedrockContentBlock } {
-  const text = outcome.ok
-    ? typeof outcome.output === "string"
-      ? outcome.output
-      : JSON.stringify(outcome.output)
-    : outcome.message;
+  const text = outcome.ok ? outcome.text : outcome.message;
   const modelVisibleResult = tool.untrustedOutput
     ? frameUntrustedToolResult(tool.name, text)
     : text;
