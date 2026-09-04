@@ -119,27 +119,17 @@ jobs:
     if: ${{ !cancelled() && needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    services:
-      postgres:
-        # ECR Public mirror: no auth needed and not subject to Docker Hub anonymous pull rate limits (#708)
-        image: public.ecr.aws/docker/library/postgres:16-alpine
-        env:
-          POSTGRES_USER: aihub
-          POSTGRES_PASSWORD: aihub_dev
-          POSTGRES_DB: aihub_core_smoke
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U aihub -d aihub_core_smoke"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
       DATABASE_URL: postgres://aihub:aihub_dev@127.0.0.1:5432/aihub_core_smoke
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      - uses: ./.github/actions/local-postgres
+        with:
+          user: aihub
+          password: aihub_dev
+          database: aihub_core_smoke
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
@@ -315,21 +305,6 @@ jobs:
           needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    services:
-      postgres:
-        # ECR Public mirror: no auth needed and not subject to Docker Hub anonymous pull rate limits (#708)
-        image: public.ecr.aws/docker/library/postgres:16-alpine
-        env:
-          POSTGRES_USER: aihub
-          POSTGRES_PASSWORD: aihub_dev
-          POSTGRES_DB: aihub_auth_smoke
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U aihub -d aihub_auth_smoke"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
       DATABASE_URL: postgres://aihub:aihub_dev@127.0.0.1:5432/aihub_auth_smoke
       NEXTAUTH_SECRET: playwright-local-secret-with-enough-length
@@ -337,6 +312,11 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      - uses: ./.github/actions/local-postgres
+        with:
+          user: aihub
+          password: aihub_dev
+          database: aihub_auth_smoke
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
