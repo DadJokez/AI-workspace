@@ -139,6 +139,7 @@ class TokenBudgetClient implements BedrockClient {
 
 const fixtureTool: Tool = {
   name: "fixture__list_records",
+  policy: "always_allow",
   description: "Return stable eval records.",
   inputSchema: {
     type: "object",
@@ -259,6 +260,72 @@ describe("eval harness wiring", () => {
     expect(testCase.providerStatus).toEqual({ fixture: "mounted" });
     expect(testCase.contextReceipts).toEqual(["provider:fixture mounted"]);
     expect(testCase.fixtureEvidence).toEqual(["Stable fixture fact"]);
+  });
+
+  it("runs unattended: a needs_approval fixture is denied, not paused (#701)", async () => {
+    let handlerCalls = 0;
+    const writeFixture: Tool = {
+      name: "fixture__delete_records",
+      policy: "needs_approval",
+      description: "Delete eval records.",
+      inputSchema: { type: "object", properties: { limit: { type: "number" } } },
+      handler: async () => {
+        handlerCalls += 1;
+        return { deleted: true };
+      },
+    };
+    const suite: EvalSuite = {
+      capability: "unattended-write-boundary",
+      defaultModelId: "haiku-4-5",
+      cases: [
+        {
+          id: "write-fixture-denied",
+          description: "the harness denies the write and the turn continues",
+          input: "Use the fixture tool.",
+          tools: [writeFixture],
+          assertions: [
+            {
+              kind: "deterministic",
+              label: "write was requested but denied with a receipt",
+              check: (t) => {
+                const result = t.toolResults[0];
+                return {
+                  ok:
+                    t.toolCallNames.includes("fixture__delete_records") &&
+                    result?.isError === true &&
+                    result?.policyDecision === "denied",
+                  detail: JSON.stringify(result),
+                };
+              },
+            },
+            {
+              kind: "deterministic",
+              label: "the turn continued to a non-empty answer",
+              check: (t) => t.answer.length > 0,
+            },
+            {
+              kind: "deterministic",
+              label: "no approval pause was emitted",
+              check: (t) =>
+                !t.events.some((e) => e.type === "tool-approval-required"),
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = await runSuite(suite, {
+      client: new ToolCallingClient(),
+      judgeClient: new FakeBedrockClient({ delayMs: 0 }),
+    });
+
+    expect(handlerCalls).toBe(0);
+    expect(result.failed).toBe(0);
+    expect(result.results[0]?.assertions.map((a) => a.ok)).toEqual([
+      true,
+      true,
+      true,
+    ]);
   });
 
   it("preserves explicit app thread/run debug IDs for reports", async () => {

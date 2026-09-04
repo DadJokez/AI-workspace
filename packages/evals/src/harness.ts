@@ -73,6 +73,11 @@ async function runTurn(
     registry,
     ...(resolveAllowedTools ? { resolveAllowedTools } : {}),
     context: { userId: "eval" },
+    // #701: evals have no approver. A needs_approval fixture is denied with a
+    // receipt and the turn continues, instead of pausing on a
+    // tool-approval-required event (which returns `done` with an empty answer
+    // and fails every assertion).
+    toolApprovalMode: "deny_unattended",
     maxTokens: EVAL_MAX_TOKENS,
     client,
   })) {

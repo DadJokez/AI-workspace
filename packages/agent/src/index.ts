@@ -20,6 +20,8 @@ export type {
   TokenUsage,
 } from "./types";
 
+export { UNDECLARED_TOOL_POLICY } from "./types";
+
 export {
   buildToolApprovalRequest,
   isStandingToolApprovalGrant,
@@ -30,6 +32,7 @@ export {
 export {
   DEFAULT_MODEL_ID,
   MODEL_IDS,
+  MODEL_INVOCATIONS,
   MODEL_PURPOSES,
   MODELS,
   PLATFORM_MODEL_OVERRIDE_ID,
@@ -39,7 +42,12 @@ export {
   isValidModelId,
   isValidModelPurpose,
 } from "./models";
-export type { ModelId, ModelMetadata, ModelPurpose } from "./models";
+export type {
+  ModelId,
+  ModelInvocation,
+  ModelMetadata,
+  ModelPurpose,
+} from "./models";
 
 export {
   RUN_BUDGET_RECEIPT_SCHEMA,
