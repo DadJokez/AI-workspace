@@ -1,7 +1,9 @@
+import { DEFAULT_MODEL_ID, MODEL_IDS, MODELS } from "@ai-workspace/agent";
 import { describe, expect, it } from "vitest";
 import {
   buildModelCommandDisplayMessage,
   isModelCommandInput,
+  modelCommandAliases,
   modelCommandUsageMessage,
   parseModelCommand,
 } from "@/lib/model-command";
@@ -40,6 +42,66 @@ describe("model slash command", () => {
     expect(parseModelCommand("/model")).toBeNull();
     expect(parseModelCommand("/model llama hello")).toBeNull();
     expect(modelCommandUsageMessage()).toContain("/model sonnet");
+  });
+
+  describe("registry-derived aliases (#797 P1)", () => {
+    it("pins the vocabulary the former hand table offered", () => {
+      expect(modelCommandAliases()).toEqual({
+        auto: "auto",
+        autopilot: "auto",
+        default: "auto",
+        fast: "haiku-4-5",
+        haiku: "haiku-4-5",
+        "haiku-4-5": "haiku-4-5",
+        "claude-haiku": "haiku-4-5",
+        quality: "sonnet-4-5",
+        sonnet: "sonnet-4-5",
+        "sonnet-4-5": "sonnet-4-5",
+        "sonnet-4-6": "sonnet-4-6",
+        "claude-sonnet": "sonnet-4-5",
+        deep: "opus-4-7",
+        opus: "opus-4-7",
+        "opus-4-7": "opus-4-7",
+        "claude-opus": "opus-4-7",
+      });
+    });
+
+    it("reaches every registry model by id and by display-name slug", () => {
+      for (const id of MODEL_IDS) {
+        const slug = MODELS[id].displayName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        expect(parseModelCommand(`/model ${id} hi`)?.override).toEqual({
+          mode: "model",
+          modelId: id,
+          label: id,
+        });
+        expect(parseModelCommand(`/model ${slug} hi`)?.override).toMatchObject({
+          modelId: id,
+        });
+      }
+    });
+
+    it("resolves a shared short name to the app default and role words by registry cost", () => {
+      const aliases = modelCommandAliases();
+      expect(aliases.sonnet).toBe(DEFAULT_MODEL_ID);
+      expect(aliases.quality).toBe(DEFAULT_MODEL_ID);
+      const byTotalCost = [...MODEL_IDS].sort(
+        (a, b) =>
+          MODELS[a].costPer1MInput +
+          MODELS[a].costPer1MOutput -
+          (MODELS[b].costPer1MInput + MODELS[b].costPer1MOutput),
+      );
+      expect(aliases.fast).toBe(byTotalCost[0]);
+      const byOutputCost = [...MODEL_IDS].sort(
+        (a, b) => MODELS[b].costPer1MOutput - MODELS[a].costPer1MOutput,
+      );
+      expect(aliases.deep).toBe(byOutputCost[0]);
+    });
+
+    it("lists every short name in the usage message", () => {
+      expect(modelCommandUsageMessage()).toBe(
+        "Use /model haiku, /model sonnet, /model opus, or /model auto followed by a message.",
+      );
+    });
   });
 
   it("formats visible model command messages for chat history", () => {
