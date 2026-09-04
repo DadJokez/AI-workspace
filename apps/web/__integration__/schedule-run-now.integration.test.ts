@@ -11,12 +11,15 @@ import {
 } from "@ai-workspace/db";
 import type { SessionUser } from "@ai-workspace/auth";
 import { listScheduleRunHistory } from "@/lib/schedules/run-history";
+import { processDueSchedules } from "@/lib/schedules/scheduler";
 
 /**
  * #780 "Run now" against real Postgres through the REAL route handler: the
  * owner predicate (bob gets a 404 on alice's schedule), the manual trigger
  * marker on the run row / run event / audit row, the untouched schedule
- * row, the double-fire guard, and the per-schedule history scoping.
+ * row, the double-fire guard in both directions (manual → manual, and the
+ * cadence tick deferring to a queued manual run), and the per-schedule
+ * history scoping.
  */
 
 const DB_URL = process.env.DATABASE_URL;
@@ -212,6 +215,43 @@ suite("schedule Run now (real Postgres, real handler)", () => {
       .from(runs)
       .where(eq(runs.scheduleId, scheduleId));
     expect(enqueued).toHaveLength(1);
+  });
+
+  it("makes the cadence tick defer to a queued manual run and drop the occurrence", async () => {
+    currentUser = alice;
+    expect((await post(scheduleId)).status).toBe(202);
+
+    // Run now never advances next_run_at, so the very next tick after the
+    // occurrence is due claims this schedule with the manual run still queued.
+    const tick = new Date(nextRunAt.getTime() + 60_000);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const result = await processDueSchedules({
+      db,
+      workerId: "it-scheduler",
+      now: tick,
+    });
+
+    expect(result).toEqual({ fired: 0, failed: 0 });
+    const enqueued = await db
+      .select({ id: runs.id, status: runs.status, inputs: runs.inputs })
+      .from(runs)
+      .where(eq(runs.scheduleId, scheduleId));
+    expect(enqueued).toHaveLength(1);
+    expect(enqueued[0]).toMatchObject({ status: "queued" });
+    expect(enqueued[0]!.inputs).toMatchObject({ scheduleFire: "manual" });
+
+    // The occurrence is consumed exactly like a fire: claim released,
+    // next_run_at advanced past the tick, nothing recorded as an error.
+    const [schedule] = await db
+      .select()
+      .from(schedules)
+      .where(eq(schedules.id, scheduleId));
+    expect(schedule!.enabled).toBe(true);
+    expect(schedule!.claimedAt).toBeNull();
+    expect(schedule!.claimedBy).toBeNull();
+    expect(schedule!.lastError).toBeNull();
+    expect(schedule!.lastRunAt?.toISOString()).toBe(nextRunAt.toISOString());
+    expect(schedule!.nextRunAt.getTime()).toBeGreaterThan(tick.getTime());
   });
 
   it("lists the schedule's history for its owner only", async () => {
