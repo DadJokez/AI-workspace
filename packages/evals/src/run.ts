@@ -1,8 +1,22 @@
-import { appendFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { FakeBedrockClient } from "@ai-workspace/agent";
+import {
+  DEFAULT_MODEL_ID,
+  FakeBedrockClient,
+  MODEL_IDS,
+  MODELS,
+  isValidModelId,
+  type ModelId,
+} from "@ai-workspace/agent";
 import { runSuite } from "./harness";
+import {
+  type Scorecard,
+  type ScorecardBaseline,
+  baselineFromReport,
+  buildScorecard,
+  renderScorecard,
+} from "./scorecard";
 import type { CapabilityResult, EvalSuite } from "./types";
 import { contextFaithfulnessSuite } from "./cases/context-faithfulness.cases";
 import { dateGroundingSuite } from "./cases/date-grounding.cases";
@@ -50,6 +64,106 @@ export const SUITES: EvalSuite[] = [
   toolEvidenceContinuitySuite,
 ];
 
+export interface RunArgs {
+  mock: boolean;
+  gate: boolean;
+  core: boolean;
+  /** Optional capability filter (the first bare positional). */
+  filter?: string;
+  /** `--model <id>`: candidate model override for every suite (#797 P2). */
+  modelId?: string;
+  /** `--baseline <report.json>`: incumbent report the scorecard compares to. */
+  baselinePath?: string;
+}
+
+/**
+ * Parse the CLI. Value-taking flags (`--model x` / `--model=x`) consume their
+ * value so it is never mistaken for the capability filter.
+ */
+export function parseRunArgs(args: readonly string[]): RunArgs {
+  const valued = new Set(["--model", "--baseline"]);
+  const values: Record<string, string> = {};
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    const eq = arg.indexOf("=");
+    const name = arg.startsWith("--") && eq > 0 ? arg.slice(0, eq) : arg;
+    if (valued.has(name)) {
+      const value = eq > 0 ? arg.slice(eq + 1) : args[++i];
+      if (!value || value.startsWith("--")) {
+        throw new Error(
+          `${name} needs a value (e.g. ${name} ${name === "--model" ? "<registry id>" : "eval-reports/<stamp>.json"})`,
+        );
+      }
+      values[name] = value;
+    } else if (!arg.startsWith("--")) {
+      positional.push(arg);
+    }
+  }
+  return {
+    mock: args.includes("--mock"),
+    gate: args.includes("--gate"),
+    core: args.includes("--core"),
+    ...(positional[0] ? { filter: positional[0] } : {}),
+    ...(values["--model"] ? { modelId: values["--model"] } : {}),
+    ...(values["--baseline"] ? { baselinePath: values["--baseline"] } : {}),
+  };
+}
+
+/**
+ * Which model is under test and which one judges it (#797 P2). The candidate
+ * comes from `--model` (default: the product default); the judge is ALWAYS
+ * `JUDGE_MODEL_ID` — it never follows `--model`, and a candidate equal to the
+ * judge is refused outright so a scorecard can never be a model grading
+ * itself. Unknown ids are refused against the registry with the valid list.
+ */
+export function resolveRunModels(
+  args: Pick<RunArgs, "modelId">,
+): { candidateModelId: ModelId; judgeModelId: ModelId } {
+  const requested = args.modelId;
+  if (requested !== undefined && !isValidModelId(requested)) {
+    throw new Error(
+      `Unknown --model "${requested}". Registered ids: ${MODEL_IDS.join(", ")} (packages/agent/src/models.ts).`,
+    );
+  }
+  if (requested === JUDGE_MODEL_ID) {
+    throw new Error(
+      `Refusing --model ${requested}: it is the pinned judge (JUDGE_MODEL_ID). A model must never qualify itself; pick a different candidate or change the judge in packages/evals/src/judge.ts.`,
+    );
+  }
+  // No --model: the incumbent run. It is NOT refused when the default happens
+  // to equal the judge (PLATFORM_MODEL_OVERRIDE_ID pins can do that) because
+  // the nightly and CI mock lanes must keep running — the header and the
+  // scorecard's judge-independence check say so loudly instead.
+  return { candidateModelId: requested ?? DEFAULT_MODEL_ID, judgeModelId: JUDGE_MODEL_ID };
+}
+
+/**
+ * Point every suite — and every case-level `modelId` pin — at the candidate.
+ * Pins are overridden too: a qualification run that silently kept a handful
+ * of cases on the incumbent would grade the wrong model. Returns how many
+ * pins were overridden so the header can say so.
+ */
+export function applyModelOverride(
+  suites: readonly EvalSuite[],
+  candidateModelId: ModelId,
+): { suites: EvalSuite[]; overriddenPins: number } {
+  let overriddenPins = 0;
+  const overridden = suites.map((suite) => ({
+    ...suite,
+    defaultModelId: candidateModelId,
+    cases: suite.cases.map((testCase) => {
+      if (testCase.modelId === undefined || testCase.modelId === candidateModelId) {
+        return testCase;
+      }
+      overriddenPins += 1;
+      const { modelId: _pinned, ...rest } = testCase;
+      return rest;
+    }),
+  }));
+  return { suites: overridden, overriddenPins };
+}
+
 /**
  * Select a capability and/or a tag-defined pack. `--core` is the broad
  * foundational pack (nightly). `--gate` is the merge-gate pack: the
@@ -63,12 +177,8 @@ export function selectSuites(
   args: readonly string[],
   availableSuites: readonly EvalSuite[] = SUITES,
 ): EvalSuite[] {
-  const tag = args.includes("--gate")
-    ? "gate"
-    : args.includes("--core")
-      ? "core"
-      : undefined;
-  const filter = args.find((arg) => !arg.startsWith("--"));
+  const { gate, core, filter } = parseRunArgs(args);
+  const tag = gate ? "gate" : core ? "core" : undefined;
   return availableSuites
     .filter((suite) => !filter || suite.capability === filter)
     .map((suite) => {
@@ -144,16 +254,36 @@ export function formatCiOutcome(results: readonly CapabilityResult[]): {
  * against real Bedrock, prints a report, writes JSON+Markdown under
  * eval-reports/, and exits non-zero on any failure. `--mock` swaps the fake
  * client for a free structural-only pass (won't catch model-behavior bugs,
- * but proves the harness wiring in plain CI).
+ * but proves the harness wiring in plain CI). `--model <id>` runs the same
+ * pack against a candidate model and renders the qualification scorecard
+ * (#797 P2); `--baseline <report.json>` supplies the incumbent run to
+ * compare known-red and spend against.
  */
 async function main() {
   const args = process.argv.slice(2);
-  const mock = args.includes("--mock");
-  const gate = args.includes("--gate");
-  const core = args.includes("--core");
+  let parsed: RunArgs;
+  let models: ReturnType<typeof resolveRunModels>;
+  let baseline: ScorecardBaseline | undefined;
+  try {
+    parsed = parseRunArgs(args);
+    models = resolveRunModels(parsed);
+    if (parsed.baselinePath) {
+      baseline = baselineFromReport(
+        JSON.parse(readFileSync(parsed.baselinePath, "utf8")),
+        DEFAULT_MODEL_ID,
+      );
+    }
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(2);
+  }
+  const { mock, gate, core, filter } = parsed;
+  const { candidateModelId, judgeModelId } = models;
   const packName = gate ? "gate" : core ? "core" : undefined;
-  const filter = args.find((a) => !a.startsWith("--"));
-  const suites = selectSuites(args);
+  const selected = selectSuites(args);
+  const { suites, overriddenPins } = parsed.modelId
+    ? applyModelOverride(selected, candidateModelId)
+    : { suites: selected, overriddenPins: 0 };
 
   if (suites.length === 0) {
     console.error(
@@ -185,6 +315,22 @@ async function main() {
       `🎯 --${packName}: ${count} ${gate ? "merge-gate" : "foundational"} cases across ${suites.length} suites.\n`,
     );
   }
+  // Both ids in the header so a transcript can never leave it ambiguous who
+  // graded whom; the judge line is deliberately independent of --model.
+  console.log(
+    `🧠 candidate: ${candidateModelId} (${MODELS[candidateModelId].displayName}, ${MODELS[candidateModelId].provider})` +
+      (parsed.modelId
+        ? ` — --model overrides every suite default${overriddenPins > 0 ? ` and ${overriddenPins} case-level pin(s)` : ""}`
+        : "") +
+      `\n⚖️  judge: ${judgeModelId} (${MODELS[judgeModelId].displayName}; pinned, never follows --model)` +
+      (candidateModelId === judgeModelId
+        ? `\n🚨 candidate and judge are the SAME model (the default is pinned to the judge) — judge verdicts in this run are self-graded; not a qualification run`
+        : "") +
+      (baseline
+        ? `\n📐 baseline: ${baseline.modelId} from ${parsed.baselinePath} (${baseline.knownRedCaseIds.length} known-red)`
+        : "") +
+      "\n",
+  );
 
   const options = mock
     ? { client: new FakeBedrockClient({ delayMs: 0 }), structuralOnly: true }
@@ -280,10 +426,23 @@ async function main() {
     );
   }
 
-  writeReport(results, {
+  const scorecard = buildScorecard({
+    candidateModelId,
+    judgeModelId,
+    results,
+    mock,
+    generationCostUsd,
+    ...(baseline ? { baseline } : {}),
+  });
+  process.stdout.write(`\n${renderScorecard(scorecard)}\n`);
+
+  writeReport(results, scorecard, {
     mock,
     core,
     gate,
+    candidateModelId,
+    judgeModelId,
+    ...(baseline ? { baselineModelId: baseline.modelId } : {}),
     totalIn,
     totalOut,
     totalJudgeIn,
@@ -297,10 +456,16 @@ async function main() {
 
 function writeReport(
   results: CapabilityResult[],
+  scorecard: Scorecard,
   meta: {
     mock: boolean;
     core: boolean;
     gate: boolean;
+    /** Model under test (#797 P2); every case ran on it unless the run had no --model and a case pinned another. */
+    candidateModelId: ModelId;
+    /** Always JUDGE_MODEL_ID — recorded so a report can never hide who graded. */
+    judgeModelId: ModelId;
+    baselineModelId?: string;
     totalIn: number;
     totalOut: number;
     totalJudgeIn: number;
@@ -318,16 +483,23 @@ function writeReport(
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const base = `eval-reports/${stamp}${meta.mock ? "-mock" : ""}`;
 
-  writeFileSync(`${base}.json`, JSON.stringify({ meta, results }, null, 2));
+  writeFileSync(
+    `${base}.json`,
+    JSON.stringify({ meta, scorecard, results }, null, 2),
+  );
 
   const md: string[] = [
     `# Eval report ${stamp}${meta.mock ? " (mock)" : ""}`,
+    "",
+    `Candidate: ${meta.candidateModelId} · judge: ${meta.judgeModelId} (pinned)`,
     "",
     `~$${meta.approxCostUsd.toFixed(4)} total (${meta.generationCostUsd.toFixed(4)} candidate + ${meta.judgeCostUsd.toFixed(4)} judge)`,
     "",
     `Candidate tokens: ${meta.totalIn}+${meta.totalOut} · judge tokens: ${meta.totalJudgeIn}+${meta.totalJudgeOut}`,
     "",
     `Selection: ${meta.gate ? "gate-tagged merge-gate pack" : meta.core ? "core-tagged foundational cases" : "full suite"}`,
+    "",
+    renderScorecard(scorecard),
     "",
   ];
   for (const r of results) {
