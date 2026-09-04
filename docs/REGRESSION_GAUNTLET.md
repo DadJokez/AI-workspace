@@ -93,6 +93,7 @@ PR through the normal `pnpm test` CI step.
 pnpm lint
 pnpm typecheck
 pnpm test
+pnpm test:coverage   # same unit lane + per-package coverage table (report-only)
 pnpm build
 pnpm smoke:browser
 pnpm smoke:browser:auth
