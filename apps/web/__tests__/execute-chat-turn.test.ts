@@ -125,6 +125,12 @@ vi.mock("@/lib/tool-approvals", async (importOriginal) => {
 vi.mock("@/lib/thread-metadata", () => ({
   refreshThreadPresentationMetadata: vi.fn(async () => undefined),
 }));
+vi.mock("@/lib/thread-summary", () => ({
+  refreshThreadSummary: vi.fn(async () => ({
+    status: "unchanged",
+    reason: "nothing_pending",
+  })),
+}));
 vi.mock("@/lib/turn-context", () => ({
   buildTurnContext: vi.fn(({ messages }) => messages),
 }));
@@ -212,6 +218,7 @@ import { createProactiveRunNotification } from "@/lib/notifications";
 import { buildChatContextPack } from "@/lib/chat-context-pack";
 import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
 import { buildTurnContext } from "@/lib/turn-context";
+import { refreshThreadSummary } from "@/lib/thread-summary";
 import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
 import { createDraftAppVersionsForThreadArtifacts } from "@/lib/apps";
@@ -2409,5 +2416,57 @@ describe("executeChatTurn — literal output contract (#652/#644)", () => {
     expect(
       fixture.sent.find((event) => event.type === "persisted"),
     ).not.toMatchObject({ content: expect.anything() });
+  });
+});
+
+describe("executeChatTurn — rolling thread summary (#771)", () => {
+  const storedSummary = JSON.stringify({
+    schema: "thread-summary.v1",
+    coveredThroughMessageId: "m-4",
+    coveredMessageCount: 4,
+    updatedAt: "2026-09-04T01:00:00.000Z",
+    facts: ["Launch is planned for October."],
+    openItems: [],
+    decisions: [],
+    references: [],
+  });
+
+  it("hands the stored summary to the turn context and the receipt, then refreshes it user-scoped after persistence", async () => {
+    const { input } = inlineInput({
+      thread: { id: "thread-1", summary: storedSummary } as unknown as ChatThread,
+    });
+    await executeChatTurn(input);
+
+    expect(vi.mocked(buildTurnContext).mock.calls[0]?.[0]).toMatchObject({
+      threadSummary: expect.objectContaining({
+        coveredMessageCount: 4,
+        facts: ["Launch is planned for October."],
+      }),
+    });
+    expect(vi.mocked(buildChatContextPack).mock.calls[0]?.[0]).toMatchObject({
+      threadSummary: expect.objectContaining({ coveredMessageCount: 4 }),
+    });
+    expect(refreshThreadSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "user-1", threadId: "thread-1" }),
+    );
+  });
+
+  it("passes no summary for a thread without one and still schedules the refresh on the worker lane", async () => {
+    const { input } = workerInput();
+    await executeChatTurn(input);
+
+    expect(vi.mocked(buildTurnContext).mock.calls[0]?.[0]).toMatchObject({
+      threadSummary: null,
+    });
+    expect(vi.mocked(buildChatContextPack).mock.calls[0]?.[0]).toMatchObject({
+      threadSummary: null,
+    });
+    expect(refreshThreadSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not refresh the summary when the turn fails", async () => {
+    const { input } = inlineInput({ runtime: truncatedRuntime() });
+    await executeChatTurn(input);
+    expect(refreshThreadSummary).not.toHaveBeenCalled();
   });
 });
