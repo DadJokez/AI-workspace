@@ -102,7 +102,7 @@ jobs:
 
       - name: Upload Playwright report
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-report-${{ matrix.project }}
           path: apps/web/playwright-report/
@@ -186,7 +186,7 @@ jobs:
 
       - name: Upload core pipeline report
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-core-pipeline-report
           path: apps/web/playwright-report/
@@ -241,7 +241,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_EVAL_ROLE_ARN }}
           aws-region: us-east-1
@@ -300,7 +300,7 @@ jobs:
 
       - name: Upload eval report
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ondemand-eval-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: packages/evals/eval-reports/
@@ -383,7 +383,7 @@ jobs:
 
       - name: Upload authenticated Playwright report
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-auth-report
           path: apps/web/playwright-report/
