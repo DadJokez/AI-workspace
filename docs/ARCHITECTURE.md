@@ -378,11 +378,23 @@ ECS service set; image rollback redeploys an earlier commit tag through CDK.
 | Workers | Separate ECS services for chat runs and Vault memory capture | Queue-backed dispatch if DB polling becomes limiting |
 | Ingress | Application Load Balancer, ACM cert, Route 53 record at `comparative.builtwithrobot.link` with `ai-workspace.builtwithrobot.link` retained as a legacy alias | WAF/rate rules |
 | Database | Existing RDS Postgres for fast cutover | RDS Proxy/Aurora and private DB posture |
-| Secrets | AWS Secrets Manager JSON secret `ai-workspace/production/app` | KMS rotation policy |
+| Secrets | AWS Secrets Manager JSON secrets: `ai-workspace/production/app` plus per-service least-privilege secrets (below) | KMS rotation policy |
 | Networking | Default VPC for current RDS compatibility | Dedicated VPC/private subnets |
 | Observability | CloudWatch logs/metrics/alarms, ALB health check on `/api/health` | Optional tracing |
 | Edge controls | Minimal | ALB + WAF/rate rules when public enterprise traffic begins |
 | IaC | CDK TypeScript in `infra/cdk` | Broaden to DB/proxy/edge resources |
+
+Secrets are split by blast radius. `ai-workspace/production/app` holds the
+application credentials (`DATABASE_URL`, `NEXTAUTH_SECRET`, OAuth client
+secrets, `OAUTH_ENCRYPTION_KEY`) and is mounted only into the web, worker,
+migrator, and smoke tasks. The Comparative Browser egress proxy instead reads
+`ai-workspace/production/browser-proxy-db`, whose single key `DATABASE_URL`
+carries the `web_egress_policy_reader` Postgres role: created `NOLOGIN` by
+migration `0049_web_egress_policy_reader`, enabled for login by an operator out
+of band, and granted `SELECT` on exactly `provider, tool_name, metadata` of
+`tools_catalog` (the admin denylist row) and nothing else. The proxy's
+Basic-auth pair lives in `ai-workspace/production/browser-proxy`. A compromised
+proxy therefore reads one policy row, not the database.
 
 ECS/Fargate is the AWS-native deployment for worker isolation, networking, IAM
 boundaries, observability, and enterprise-scale planning.

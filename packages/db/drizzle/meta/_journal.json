@@ -344,6 +344,13 @@
       "when": 1786856400000,
       "tag": "0048_connector_lifecycle_governance",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1788505200000,
+      "tag": "0049_web_egress_policy_reader",
+      "breakpoints": true
     }
   ]
 }
