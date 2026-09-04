@@ -60,9 +60,12 @@ describe("buildAgentPreamble model grounding", () => {
       expect(preamble).toContain(
         `You are powered by ${brandedName}, made by ${providerDisplayName}.`,
       );
-      expect(olderModelExample).toBeTruthy();
+      // `olderModelExample` is optional: a family with no known misclaim
+      // omits it and gets the neutral wording — no test edit required.
       expect(preamble).toContain(
-        `answer "${brandedName}" — never claim to be a different vendor's model or an older model such as "${olderModelExample}"`,
+        olderModelExample
+          ? `answer "${brandedName}" — never claim to be a different vendor's model or an older model such as "${olderModelExample}".`
+          : `answer "${brandedName}" — never claim to be a different vendor's model or an older model version.`,
       );
       // And never any OTHER registry model's name.
       for (const otherId of MODEL_IDS) {
@@ -71,6 +74,24 @@ describe("buildAgentPreamble model grounding", () => {
       }
     },
   );
+
+  it("falls back to neutral older-model wording when the registry entry has no olderModelExample", () => {
+    // The forward-portability branch: a non-Claude family may have no
+    // training-prior misclaim to name. Stand in for such an entry by
+    // temporarily stripping the field from a real one.
+    const entry = MODELS["sonnet-4-6"];
+    const saved = entry.olderModelExample;
+    delete entry.olderModelExample;
+    try {
+      const preamble = minimalPreamble({ modelId: "sonnet-4-6" });
+      expect(preamble).toContain(
+        `answer "${entry.brandedName}" — never claim to be a different vendor's model or an older model version.`,
+      );
+      expect(preamble).not.toContain("older model such as");
+    } finally {
+      entry.olderModelExample = saved;
+    }
+  });
 
   it("gives an unknown model id a neutral identity with no hardcoded vendor (#304)", () => {
     const preamble = minimalPreamble({ modelId: "candidate-model-x" });

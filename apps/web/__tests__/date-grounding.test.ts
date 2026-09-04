@@ -47,9 +47,16 @@ describe("date grounding", () => {
     expect(client.volatileSystemSuffix).toContain(
       new Date().toISOString().slice(0, 10),
     );
-    // Identity grounding: the model must know which model it is.
-    expect(client.systemPrompt).toContain("You are Claude Haiku 4.5");
-    expect(client.systemPrompt).toContain("never claim to be an older model");
+    // Identity grounding: the model must know which model it is — derived
+    // from the registry, never a hardcoded vendor (#797 P1).
+    const { brandedName, providerDisplayName, olderModelExample } =
+      MODELS["haiku-4-5"];
+    expect(client.systemPrompt).toContain(
+      `You are powered by ${brandedName}, made by ${providerDisplayName}.`,
+    );
+    expect(client.systemPrompt).toContain(
+      `never claim to be a different vendor's model or an older model such as "${olderModelExample}"`,
+    );
     // Cache safety: the stable prefix must not carry the clock.
     expect(client.systemPrompt).not.toContain("Current date and time");
   });
