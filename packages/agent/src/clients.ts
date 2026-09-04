@@ -102,6 +102,13 @@ export interface ConverseStreamParams {
   /** The Bedrock-side model id (e.g. `us.anthropic.claude-sonnet-4-6-v1:0`). */
   bedrockModelId: string;
   /**
+   * The registry's `supportsPromptCaching` for this model (#797 P1). Every
+   * `cachePoint` block — after the stable system prompt and after the tool
+   * definitions — is emitted only when this is true; a model that does not
+   * honor checkpoints gets the same request without them.
+   */
+  supportsPromptCaching: boolean;
+  /**
    * Stable system text. Must be byte-identical across turns of a conversation
    * — it sits inside the prompt-cache prefix, and any per-request byte
    * (timestamps, request ids) makes every turn a cache miss that still pays
@@ -437,7 +444,10 @@ export class RealBedrockClient implements BedrockClient {
       }),
     }));
 
-    const toolConfig = toAwsToolConfiguration(params.toolConfig);
+    const toolConfig = toAwsToolConfiguration(
+      params.toolConfig,
+      params.supportsPromptCaching,
+    );
 
     // Prompt caching: Bedrock evaluates checkpoints in tools → system →
     // messages order, so the checkpoint after the stable system prompt covers
@@ -445,13 +455,14 @@ export class RealBedrockClient implements BedrockClient {
     // checkpoint so it can't invalidate the cached prefix. Prefixes below the
     // model's minimum (1,024 tokens on Sonnet 4.6; 4,096 on Haiku 4.5) are
     // silently left uncached — never an error — so short
-    // prompts are safe.
+    // prompts are safe. Checkpoints are only emitted for models whose
+    // registry entry says they honor them (#797 P1).
     const system: SystemContentBlock[] = [];
     if (params.systemPrompt) {
-      system.push(
-        { text: params.systemPrompt },
-        { cachePoint: { type: "default" } },
-      );
+      system.push({ text: params.systemPrompt });
+      if (params.supportsPromptCaching) {
+        system.push({ cachePoint: { type: "default" } });
+      }
     }
     if (params.volatileSystemSuffix) {
       system.push({ text: params.volatileSystemSuffix });
@@ -586,7 +597,8 @@ export class RealBedrockClient implements BedrockClient {
 }
 
 export function toAwsToolConfiguration(
-  toolConfig?: BedrockToolConfig,
+  toolConfig: BedrockToolConfig | undefined,
+  supportsPromptCaching: boolean,
 ): ToolConfiguration | undefined {
   if (!toolConfig) return undefined;
   const tools = toolConfig.tools.map(
@@ -602,7 +614,9 @@ export function toAwsToolConfiguration(
   );
   // Checkpoint after the tool definitions so a mid-conversation system-prompt
   // change doesn't also evict the (larger, more stable) tools cache.
-  tools.push({ cachePoint: { type: "default" } });
+  if (supportsPromptCaching) {
+    tools.push({ cachePoint: { type: "default" } });
+  }
   return {
     tools,
     ...(toolConfig.toolChoice ? { toolChoice: toolConfig.toolChoice } : {}),

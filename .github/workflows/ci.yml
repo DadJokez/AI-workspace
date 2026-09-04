@@ -109,7 +109,13 @@ jobs:
   dependency-audit:
     name: dependency CVE audit
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 12, not 5: scripts/audit-prod-deps.sh retries the npm advisory endpoint
+    # with backoff, and on a slow registry night (2026-09-03) the 5-minute cap
+    # expired mid-retry. GitHub reports a job-timeout as "cancelled", which
+    # reads as a failed required check (#862). The cap must cover the
+    # script's worst-case retry envelope so the script - not the runner -
+    # decides between "finding" and "registry unreachable".
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
