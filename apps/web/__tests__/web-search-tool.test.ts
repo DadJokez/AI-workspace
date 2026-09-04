@@ -37,6 +37,10 @@ describe("web search built-in tool", () => {
     vi.unstubAllEnvs();
   });
 
+  it("declares the read policy explicitly (#701)", () => {
+    expect(createWebSearchTool({ env }).policy).toBe("always_allow");
+  });
+
   it("maps provider results into ranked, nonce-framed listings", async () => {
     const requests: string[] = [];
     const tool = createWebSearchTool({

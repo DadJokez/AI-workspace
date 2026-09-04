@@ -20,6 +20,8 @@ export type {
   TokenUsage,
 } from "./types";
 
+export { UNDECLARED_TOOL_POLICY } from "./types";
+
 export {
   buildToolApprovalRequest,
   isStandingToolApprovalGrant,
