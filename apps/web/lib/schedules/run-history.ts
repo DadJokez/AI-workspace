@@ -72,10 +72,10 @@ export async function listScheduleRunHistory({
 }
 
 /**
- * Double-fire guard for "Run now": true while a run for the schedule is
- * queued or running. Stuck rows resolve themselves — the worker fails a run
- * once its attempt ceiling is reached — so the guard cannot wedge a schedule
- * permanently.
+ * Double-fire guard shared by "Run now" and the cadence tick: true while a
+ * run for the schedule is queued or running. Stuck rows resolve themselves —
+ * the worker fails a run once its attempt ceiling is reached — so the guard
+ * cannot wedge a schedule permanently.
  */
 export async function hasInFlightScheduleRun({
   db,
