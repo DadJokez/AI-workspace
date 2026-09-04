@@ -46,6 +46,7 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "test:coverage": "pnpm -r test:coverage && node scripts/coverage-summary.mjs",
     "audit:prod": "pnpm audit --prod",
     "audit:retention": "pnpm --filter @ai-workspace/web audit:retention",
     "start": "pnpm --filter @ai-workspace/web start",
