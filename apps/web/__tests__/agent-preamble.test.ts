@@ -53,12 +53,19 @@ describe("buildAgentPreamble model grounding", () => {
     "%s: states the real branded model and forbids claiming an older one",
     (modelId) => {
       const preamble = minimalPreamble({ modelId });
-      const { displayName } = MODELS[modelId];
+      // Expectations derive from the registry's identity fields — the test
+      // pins that the preamble uses them, not any particular vendor (#797 P1).
+      const { brandedName, providerDisplayName, olderModelExample } =
+        MODELS[modelId];
       expect(preamble).toContain(
-        `You are powered by Claude ${displayName}, made by Anthropic.`,
+        `You are powered by ${brandedName}, made by ${providerDisplayName}.`,
       );
+      // `olderModelExample` is optional: a family with no known misclaim
+      // omits it and gets the neutral wording — no test edit required.
       expect(preamble).toContain(
-        `answer "Claude ${displayName}" — never claim to be an older model such as "Claude 3.5"`,
+        olderModelExample
+          ? `answer "${brandedName}" — never claim to be a different vendor's model or an older model such as "${olderModelExample}".`
+          : `answer "${brandedName}" — never claim to be a different vendor's model or an older model version.`,
       );
       // And never any OTHER registry model's name.
       for (const otherId of MODEL_IDS) {
@@ -67,6 +74,24 @@ describe("buildAgentPreamble model grounding", () => {
       }
     },
   );
+
+  it("falls back to neutral older-model wording when the registry entry has no olderModelExample", () => {
+    // The forward-portability branch: a non-Claude family may have no
+    // training-prior misclaim to name. Stand in for such an entry by
+    // temporarily stripping the field from a real one.
+    const entry = MODELS["sonnet-4-6"];
+    const saved = entry.olderModelExample;
+    delete entry.olderModelExample;
+    try {
+      const preamble = minimalPreamble({ modelId: "sonnet-4-6" });
+      expect(preamble).toContain(
+        `answer "${entry.brandedName}" — never claim to be a different vendor's model or an older model version.`,
+      );
+      expect(preamble).not.toContain("older model such as");
+    } finally {
+      entry.olderModelExample = saved;
+    }
+  });
 
   it("gives an unknown model id a neutral identity with no hardcoded vendor (#304)", () => {
     const preamble = minimalPreamble({ modelId: "candidate-model-x" });
