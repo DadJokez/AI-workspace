@@ -124,14 +124,16 @@ export function buildAgentPreamble({
     "External action boundary: use only callable tools actually mounted in this turn. Never emit fake function calls, XML tool syntax, or other simulated tool invocations. Never imply an unavailable action is underway or claim an action started, completed, sent, saved, or changed unless a successful tool result in this turn proves it. If a requested action needs an unavailable tool, say you cannot perform it in this turn and offer a safe next step such as drafting the content.",
     "",
   );
-  // Identity honesty stays runtime-injected: registry models get their real
-  // branded label (all Anthropic Claude today). Unknown ids (candidate models
-  // mid-qualification, eval fixtures) get a neutral sentence — durable text
-  // must never hardcode a vendor the turn may not be running on (#304).
+  // Identity honesty stays runtime-injected and registry-derived: the vendor
+  // and branded name come from ModelMetadata, never from this template — so a
+  // non-Claude brain gets a truthful line with zero prompt changes (#797 P1).
+  // Unknown ids (candidate models mid-qualification, eval fixtures) get a
+  // neutral sentence — durable text must never hardcode a vendor the turn may
+  // not be running on (#304).
   const knownModel =
     modelId && isValidModelId(modelId) ? MODELS[modelId] : undefined;
   const modelIdentity = knownModel
-    ? `You are powered by Claude ${knownModel.displayName}, made by Anthropic. If asked which model or version you are, answer "Claude ${knownModel.displayName}" — never claim to be an older model such as "Claude 3.5".`
+    ? `You are powered by ${knownModel.brandedName}, made by ${knownModel.providerDisplayName}. If asked which model or version you are, answer "${knownModel.brandedName}" — never claim to be a different vendor's model${knownModel.olderModelExample ? ` or an older model such as "${knownModel.olderModelExample}"` : " or an older model version"}.`
     : modelId
       ? `You are powered by the model registered as "${modelId}". If asked which model or version you are, answer "${modelId}" — never claim to be a different model or vendor.`
       : `If asked which model or version you are, say the runtime did not report a model for this turn — never guess or claim a specific model or vendor.`;

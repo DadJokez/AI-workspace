@@ -27,6 +27,8 @@ const FAKE_MODEL: ModelMetadata = {
   provider: "amazon",
   family: "nova",
   displayName: "Nova Lite",
+  brandedName: "Nova Lite",
+  providerDisplayName: "Amazon",
   blurb: "Test-only non-Anthropic Converse entry (#797 P1).",
   costPer1MInput: 0.066,
   costPer1MOutput: 0.264,
@@ -216,12 +218,17 @@ describe("a non-Anthropic Converse registry entry runs a full turn (#797 P1)", (
     }
   });
 
-  // The identity sentence in the stable prompt is owned by PR #798
-  // (registry-derived "You are powered by <brandedName>, made by
-  // <providerDisplayName>") and its single-sourcing by #856; this file must
-  // not touch loop.ts identity code, so the truthful-identity half of the
-  // P1 exit test activates with those.
-  it.todo(
-    'stamps a registry-derived identity line ("…Nova Lite, made by Amazon") into the stable prompt — lands with PR #798 / #856',
-  );
+
+  it('stamps a registry-derived identity line ("…Nova Lite, made by Amazon") into the stable prompt', async () => {
+    // P1 exit criterion, second half: the cached stable prefix names the
+    // registry vendor/brand, never a hardcoded Anthropic/Claude string.
+    const { inputs } = await runFullTurn(FAKE_ID);
+    const system = (inputs[0]?.system ?? [])
+      .map((block) => ("text" in block && typeof block.text === "string" ? block.text : ""))
+      .join("\n");
+    expect(system).toContain("You are powered by Nova Lite, made by Amazon.");
+    expect(system).toContain('answer "Nova Lite"');
+    expect(system).toContain(" or an older model version");
+    expect(system).not.toMatch(/Anthropic|Claude/);
+  });
 });
