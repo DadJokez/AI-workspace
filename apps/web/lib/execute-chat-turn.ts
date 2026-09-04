@@ -699,7 +699,6 @@ export async function executeChatTurn({
     discoverableProviders,
     deniedMcpProviders,
     capabilityGraph,
-    modelId,
     artifactContext: combinedArtifactContext,
     uploadedFiles: runtimeUploadedFiles,
     recentToolEvidenceReceipt,

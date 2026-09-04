@@ -49,6 +49,8 @@ export type {
   ModelPurpose,
 } from "./models";
 
+export { modelIdentityLine } from "./model-identity";
+
 export {
   RUN_BUDGET_RECEIPT_SCHEMA,
   RUN_BUDGET_SCHEMA,
