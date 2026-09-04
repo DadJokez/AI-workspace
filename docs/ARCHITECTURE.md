@@ -390,7 +390,7 @@ secrets, `OAUTH_ENCRYPTION_KEY`) and is mounted only into the web, worker,
 migrator, and smoke tasks. The Comparative Browser egress proxy instead reads
 `ai-workspace/production/browser-proxy-db`, whose single key `DATABASE_URL`
 carries the `web_egress_policy_reader` Postgres role: created `NOLOGIN` by
-migration `0049_web_egress_policy_reader`, enabled for login by an operator out
+migration `0050_web_egress_policy_reader`, enabled for login by an operator out
 of band, and granted `SELECT` on exactly `provider, tool_name, metadata` of
 `tools_catalog` (the admin denylist row) and nothing else. The proxy's
 Basic-auth pair lives in `ai-workspace/production/browser-proxy`. A compromised
