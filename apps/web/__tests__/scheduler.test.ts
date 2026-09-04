@@ -50,6 +50,50 @@ beforeEach(() => {
 });
 
 describe("processDueSchedules", () => {
+  it("fires a due schedule on cadence with the cadence marker, then advances past the occurrence", async () => {
+    const { db, updates } = schedulerDb(
+      { ...staleMeetingPrep, mcpProviders: [] },
+      { ...schedule, targetThreadId: "thread-1" },
+    );
+    skillMocks.checkSkillProviderAccess.mockResolvedValue({
+      ready: [],
+      missingConnections: [],
+      deniedAttestations: [],
+      executionUnavailable: [],
+      reconnectRequired: [],
+      temporarilyUnavailable: [],
+    });
+    skillMocks.createSkillRun.mockResolvedValue({
+      runId: "run-1",
+      threadId: "thread-1",
+    });
+
+    const result = await processDueSchedules({ db, workerId: "worker-1", now });
+
+    expect(result).toEqual({ fired: 1, failed: 0 });
+    // #780: the cadence fire and "Run now" share this path; the marker is
+    // the one thing that tells them apart on the run.
+    expect(skillMocks.createSkillRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorUserId: schedule.userId,
+        triggerType: "scheduled",
+        scheduleId: schedule.id,
+        scheduleFire: "cadence",
+        threadId: "thread-1",
+      }),
+    );
+    expect(updates.at(-1)).toMatchObject({
+      lastRunAt: now,
+      nextRunAt: expect.any(Date),
+      claimedAt: null,
+      claimedBy: null,
+      lastError: null,
+    });
+    expect((updates.at(-1)!.nextRunAt as Date).getTime()).toBeGreaterThan(
+      now.getTime(),
+    );
+  });
+
   it("does not enqueue a stale starter when its canonical provider needs reconnecting", async () => {
     const { db, updates } = schedulerDb(staleMeetingPrep);
     skillMocks.checkSkillProviderAccess.mockResolvedValue({
@@ -78,7 +122,10 @@ describe("processDueSchedules", () => {
   });
 });
 
-function schedulerDb(skill: Skill): {
+function schedulerDb(
+  skill: Skill,
+  claimed: Schedule = schedule,
+): {
   db: Database;
   updates: Array<Record<string, unknown>>;
 } {
@@ -89,7 +136,7 @@ function schedulerDb(skill: Skill): {
   const db = {
     select: () => {
       selectCount += 1;
-      const rows = selectCount === 1 ? [{ id: schedule.id }] : [skill];
+      const rows = selectCount === 1 ? [{ id: claimed.id }] : [skill];
       const terminal = async () => rows;
       const chain = {
         from: () => chain,
@@ -103,7 +150,7 @@ function schedulerDb(skill: Skill): {
       updateCount += 1;
       let values: Record<string, unknown> = {};
       const terminal = {
-        returning: async () => (updateCount === 1 ? [schedule] : []),
+        returning: async () => (updateCount === 1 ? [claimed] : []),
         then: (
           resolve: (value: unknown[]) => unknown,
           reject: (reason: unknown) => unknown,

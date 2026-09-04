@@ -1,16 +1,20 @@
+import type { SessionUser } from "@ai-workspace/auth";
 import {
   chatThreads,
   type Database,
   type Schedule,
   schedules,
+  type Skill,
   skills,
 } from "@ai-workspace/db";
 import { and, asc, eq, isNull, lte, lt, or } from "drizzle-orm";
 import { computeNextRunAt } from "@/lib/schedules/next-run";
+import { hasInFlightScheduleRun } from "@/lib/schedules/run-history";
 import {
   checkSkillProviderAccess,
   createSkillRun,
   isSkillProviderAccessReady,
+  type SkillProviderAccess,
 } from "@/lib/skills";
 import { canonicalizeStarterSkill } from "@/lib/starter-skills";
 
@@ -107,14 +111,7 @@ async function fireSchedule({
   schedule: Schedule;
   now: Date;
 }): Promise<void> {
-  const skillRows = await db
-    .select()
-    .from(skills)
-    .where(eq(skills.id, schedule.skillId))
-    .limit(1);
-  const skill = skillRows[0]
-    ? canonicalizeStarterSkill(skillRows[0])
-    : undefined;
+  const skill = await loadScheduleSkill(db, schedule);
 
   if (!skill || skill.archivedAt) {
     // Edge case from the spec: deleted/archived skill → disable gracefully
@@ -152,23 +149,7 @@ async function fireSchedule({
     );
   }
 
-  let threadId = schedule.targetThreadId;
-  if (!threadId) {
-    const threadRows = await db
-      .insert(chatThreads)
-      .values({
-        userId: schedule.userId,
-        title: `Scheduled: ${skill.name}`,
-        defaultModelId: skill.modelId,
-        titleSource: "manual",
-      })
-      .returning({ id: chatThreads.id });
-    threadId = threadRows[0]!.id;
-    await db
-      .update(schedules)
-      .set({ targetThreadId: threadId, updatedAt: new Date() })
-      .where(eq(schedules.id, schedule.id));
-  }
+  const threadId = await ensureScheduleThread({ db, schedule, skill });
 
   await createSkillRun({
     db,
@@ -176,10 +157,146 @@ async function fireSchedule({
     skill,
     triggerType: "scheduled",
     scheduleId: schedule.id,
+    scheduleFire: "cadence",
     threadId,
   });
 
   await advanceSchedule({ db, schedule, now, lastError: null });
+}
+
+export type RunScheduleNowResult =
+  | { ok: true; runId: string; threadId: string }
+  | { ok: false; status: 404; error: "schedule_not_found" }
+  | { ok: false; status: 409; error: "skill_unavailable"; message: string }
+  | { ok: false; status: 409; error: "run_in_flight"; message: string }
+  | {
+      ok: false;
+      status: 409;
+      error: "provider_access_required";
+      access: SkillProviderAccess;
+    };
+
+/**
+ * #780 "Run now": fire a schedule's cadence off-cycle, right now, without
+ * editing it. This is the scheduler tick's own fire path — same output
+ * thread, run context, autonomy preset, budget envelope and audit rows — so
+ * the run is a scheduled run in every respect except its
+ * `scheduleFire: "manual"` marker. The schedule row is never advanced:
+ * `next_run_at`/`last_run_at` stay exactly where the cadence left them (the
+ * only write is the first-fire `target_thread_id` bind the cadence path
+ * performs too). Ownership uses the same predicate as the schedule
+ * update/delete routes; a foreign id is a 404, indistinguishable from a
+ * missing one.
+ */
+export async function runScheduleNow({
+  db,
+  actor,
+  scheduleId,
+}: {
+  db: Database;
+  actor: Pick<SessionUser, "id">;
+  scheduleId: string;
+}): Promise<RunScheduleNowResult> {
+  const rows = await db
+    .select()
+    .from(schedules)
+    .where(and(eq(schedules.id, scheduleId), eq(schedules.userId, actor.id)))
+    .limit(1);
+  const schedule = rows[0];
+  if (!schedule) {
+    return { ok: false, status: 404, error: "schedule_not_found" };
+  }
+
+  const skill = await loadScheduleSkill(db, schedule);
+  if (!skill || skill.archivedAt) {
+    return {
+      ok: false,
+      status: 409,
+      error: "skill_unavailable",
+      message: skill
+        ? "This skill is archived, so its schedule cannot run."
+        : "This skill no longer exists, so its schedule cannot run.",
+    };
+  }
+
+  if (
+    await hasInFlightScheduleRun({
+      db,
+      userId: schedule.userId,
+      scheduleId: schedule.id,
+    })
+  ) {
+    return {
+      ok: false,
+      status: 409,
+      error: "run_in_flight",
+      message: "A run for this schedule is already queued or running.",
+    };
+  }
+
+  const access = await checkSkillProviderAccess(
+    db,
+    schedule.userId,
+    skill.mcpProviders,
+  );
+  if (!isSkillProviderAccessReady(access)) {
+    return { ok: false, status: 409, error: "provider_access_required", access };
+  }
+
+  const threadId = await ensureScheduleThread({ db, schedule, skill });
+  const run = await createSkillRun({
+    db,
+    actorUserId: schedule.userId,
+    skill,
+    triggerType: "scheduled",
+    scheduleId: schedule.id,
+    scheduleFire: "manual",
+    threadId,
+  });
+  return { ok: true, runId: run.runId, threadId: run.threadId };
+}
+
+async function loadScheduleSkill(
+  db: Database,
+  schedule: Pick<Schedule, "skillId">,
+): Promise<Skill | undefined> {
+  const skillRows = await db
+    .select()
+    .from(skills)
+    .where(eq(skills.id, schedule.skillId))
+    .limit(1);
+  return skillRows[0] ? canonicalizeStarterSkill(skillRows[0]) : undefined;
+}
+
+/**
+ * Every fire of a schedule lands in one dedicated thread; the first fire
+ * creates it and binds it to the schedule.
+ */
+async function ensureScheduleThread({
+  db,
+  schedule,
+  skill,
+}: {
+  db: Database;
+  schedule: Pick<Schedule, "id" | "userId" | "targetThreadId">;
+  skill: Pick<Skill, "name" | "modelId">;
+}): Promise<string> {
+  if (schedule.targetThreadId) return schedule.targetThreadId;
+  const threadRows = await db
+    .insert(chatThreads)
+    .values({
+      userId: schedule.userId,
+      title: `Scheduled: ${skill.name}`,
+      defaultModelId: skill.modelId,
+      titleSource: "manual",
+    })
+    .returning({ id: chatThreads.id });
+  const threadId = threadRows[0]!.id;
+  await db
+    .update(schedules)
+    .set({ targetThreadId: threadId, updatedAt: new Date() })
+    .where(eq(schedules.id, schedule.id));
+  return threadId;
 }
 
 async function advanceSchedule({
