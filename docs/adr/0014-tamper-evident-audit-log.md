@@ -81,7 +81,7 @@ Three columns are added to `audit_log`; nothing existing changes shape.
 
 | Column | Type | Meaning |
 |---|---|---|
-| `seq` | `bigint` NOT NULL, UNIQUE, fed by a dedicated sequence `audit_log_seq` | the chain position. Assigned **inside the trigger under the chain lock** (§3), not by a column default — a default would draw the number before the lock and let `seq` order drift from chain order. It is the total order; `created_at` is not. |
+| `seq` | `bigint` NOT NULL, UNIQUE, fed by a dedicated sequence `audit_log_seq` (`CACHE 1`) | the chain position. Assigned **inside the trigger under the chain lock** (§3), not by a column default — a default would draw the number before the lock and let `seq` order drift from chain order. The sequence stays at `CACHE 1` (the default) for the same reason: a per-session cache would let one session hold back low numbers while another draws higher ones under the lock. It is the total order; `created_at` is not. |
 | `prev_hash` | `bytea` NOT NULL (32 bytes) | `row_hash` of the row with the greatest lower `seq`; the **genesis** value for the first row. |
 | `row_hash` | `bytea` NOT NULL (32 bytes) | `sha256(canonical(row) ‖ prev_hash)`. |
 
@@ -142,20 +142,47 @@ ROW` trigger on `audit_log`**.
 CREATE FUNCTION audit_log_chain_link() RETURNS trigger AS $$
 DECLARE prev bytea;
 BEGIN
-  PERFORM pg_advisory_xact_lock(hashtext('audit_log_chain'));   -- serialize writers
-  SELECT row_hash INTO prev FROM audit_log ORDER BY seq DESC LIMIT 1;
+  PERFORM pg_advisory_xact_lock(hashtext('audit_log_chain'));   -- serialize writers; re-entrant, held to transaction end
+  SELECT row_hash INTO prev FROM audit_log ORDER BY seq DESC LIMIT 1;   -- committed head, or the previous sibling of this statement
   IF prev IS NULL THEN prev := sha256('comparative.audit_log.genesis.v1'::bytea); END IF;
   NEW.seq      := nextval('audit_log_seq');                        -- under the lock, so seq order == chain order
   NEW.prev_hash := prev;
   NEW.row_hash  := audit_log_row_hash(NEW, prev);
   RETURN NEW;
-END $$ LANGUAGE plpgsql;
+END $$ LANGUAGE plpgsql VOLATILE;   -- VOLATILE is load-bearing: STABLE would fork every multi-row insert (next section)
 ```
 
 - The transaction-scoped advisory lock makes chain computation
   single-writer by construction: concurrent transactions queue, each sees the
-  committed head, and `seq` order equals chain order. Array inserts inside one
-  transaction take the lock once.
+  committed head, and `seq` order equals chain order. An array insert takes
+  the lock at its first row; the later rows' re-acquisitions are free
+  (advisory locks are re-entrant within a session), and the lock is held
+  until the transaction ends.
+- **Multi-row inserts chain sibling-by-sibling, and the reason is the
+  function's volatility.** The hot path is a single `INSERT` of N rows —
+  `execute-chat-turn.ts:1938` writes the whole `buildToolAuditRows` array in
+  one statement, and `workspace-artifacts.ts`, `oauth/connection.ts`,
+  `tool-approvals.ts` do the same — so row *i*'s head read must see rows
+  1..*i*−1 that the *same statement* has already written, not just the
+  pre-statement head. It does, because trigger functions are `VOLATILE`, and
+  the SQL a `VOLATILE` function runs sees every change the calling command
+  has made so far: SPI runs it in read-write mode, advancing the command
+  counter and the snapshot's command id before each command (PostgreSQL
+  docs, "Function Volatility Categories" and SPI "Visibility of Data
+  Changes"). This is own-transaction visibility, so it holds at every
+  isolation level. It is what makes the head read return the previous
+  sibling — whose `seq`, `prev_hash` and `row_hash` were set by its own
+  trigger call before it was written — and so makes `seq` order equal chain
+  order *within* a statement as well as across transactions. Checked against
+  PostgreSQL 16.14 while drafting this ADR: a 4-row `VALUES` insert and a
+  3-row `INSERT … SELECT` both chain a→b→c→d under `VOLATILE`; the identical
+  function marked `STABLE` (read-only SPI mode, which sees the table as it
+  was when the statement began) chains all three rows off the pre-statement
+  head. That fork is the failure a reviewer rightly expects from "rows
+  written by the current command are invisible to it" — which is true of the
+  command's own scan and of `STABLE`/`IMMUTABLE` functions, and false for a
+  `VOLATILE` trigger. The implementation must not relabel the function
+  `STABLE` for performance; the §5 integration test is the tripwire.
 - **Isolation requirement.** The lock only serializes writers; the post-lock
   head read (`SELECT row_hash … ORDER BY seq DESC LIMIT 1`) sees the
   just-committed head only if the statement takes a fresh snapshot, which is
@@ -173,7 +200,9 @@ END $$ LANGUAGE plpgsql;
   **Recommendation: (ii).** No writer in the tree sets a non-default isolation
   level today, so (ii) costs nothing, adds no second table to the migration
   and the verifier, and turns a silent chain fork into an immediate, loud
-  error at the first misuse.
+  error at the first misuse. This is the *inter-transaction* axis only;
+  sibling visibility inside one statement is own-transaction visibility
+  (previous bullet) and does not depend on the isolation level.
 - Writers stay as they are. `buildToolAuditRows` keeps building rows; drizzle
   inserts keep omitting `seq`/`prev_hash`/`row_hash` (the schema marks them
   as DB-generated). The fail-open auth writer stays fail-open.
@@ -184,10 +213,15 @@ END $$ LANGUAGE plpgsql;
   null the excluded columns still pass. This is *tamper-evidence with a
   speed bump*, not enforcement: the app role can still `DROP TRIGGER`. Real
   enforcement is option (a), §7.
+- The advisory-lock key `hashtext('audit_log_chain')` is **reserved**: it
+  shares the 32-bit `pg_advisory_*` keyspace with every other advisory lock
+  in the database (there are none in the tree today), and a future user of
+  the same key would serialize against audit writers.
 
-Cost: every audit insert serializes on one advisory lock and does one
-index-backed `ORDER BY seq DESC LIMIT 1`. Audit writes are per tool call /
-per admin action, not per token; this is well inside budget. The
+Cost: every audit row takes the (re-entrant) advisory lock and does one
+index-backed `ORDER BY seq DESC LIMIT 1`; an N-row array insert is N index
+probes and one lock wait inside one statement. Audit writes are per tool
+call / per admin action, not per token; this is well inside budget. The
 implementation PR measures the p99 of `execute-chat-turn.ts:1938` (the bulk
 insert) before and after.
 
@@ -232,7 +266,9 @@ stdout, non-zero exit on failure, `getDb()`/`closeDb()`):
      Deletion of an interior row is detected purely by `prev_hash` linkage —
      the next surviving row's stored `prev_hash` will not equal the actual
      previous surviving row's `row_hash` — which is unaffected by burned
-     sequence values because `prev_hash` is read from the *committed* head.
+     sequence values because `prev_hash` is copied from the head as the
+     trigger sees it (the committed head, or the previous sibling of the
+     same statement — §3), never derived from `seq`.
      Deletion of the *tail* (the most recent N rows) has no next surviving
      row and is **not** detected by the walk; see Consequences;
    - `prev_hash` equals the previous row's `row_hash`;
@@ -260,9 +296,17 @@ deleted head with a prune receipt (passes), deleted head *without* a prune
 receipt (passes — this fixture pins the head-truncation gap named in
 Consequences so nobody later mistakes it for coverage),
 nulled-FK-with-matching-copy (passes), nulled-FK-with-mismatched-copy
-(fails), and nulled-FK-with-copy-present-and-target-alive (warns). The hash recipe itself
-is exercised by an integration test that inserts through drizzle and then
-runs the verifier against a real PostgreSQL.
+(fails), nulled-FK-with-copy-present-and-target-alive (warns), and
+**single statement, N rows**: N sibling rows written by one `INSERT`, each
+linked to the sibling before it in `seq` order (passes), and the same N rows
+all carrying the *pre-statement* head as `prev_hash` — the shape a `STABLE`
+trigger function would produce (§3) — which must fail at the second sibling.
+The hash recipe and the sibling rule are exercised together by an
+integration test that inserts through drizzle — one single-row insert, then
+one array insert of at least three rows in a single statement (the
+`buildToolAuditRows` shape at `execute-chat-turn.ts:1938`), then another
+single row — and runs the verifier against a real PostgreSQL. That test is
+the tripwire for the `VOLATILE` dependency in §3.
 
 ### 6. Migration shape (proposal — Rob approves before it is written)
 
@@ -279,11 +323,14 @@ plus its `_journal.json` entry:
    needs to be fixed from here on), copy FK values into `metadata.chain`,
    then compute `prev_hash`/`row_hash` in a single `DO` block walking
    `seq` ascending from genesis.
-4. `CREATE SEQUENCE audit_log_seq OWNED BY audit_log.seq` restarted at
-   `max(seq) + 1`; add the `UNIQUE` index on `seq`. No column default — the
-   trigger draws from the sequence (§3).
+4. `CREATE SEQUENCE audit_log_seq CACHE 1 OWNED BY audit_log.seq` restarted
+   at `max(seq) + 1`; add the `UNIQUE` index on `seq`. No column default —
+   the trigger draws from the sequence (§3) — and no cache (§1).
 5. `SET NOT NULL` on the three columns; create the `BEFORE INSERT` and
-   `BEFORE UPDATE OR DELETE` triggers.
+   `BEFORE UPDATE OR DELETE` triggers; `COMMENT ON TABLE audit_log IS
+   'Hash-chained — see docs/adr/0014-tamper-evident-audit-log.md. FK columns
+   are excluded from row_hash and copied into metadata.chain (§2).'` so the
+   exclusion rule is visible from `\d+ audit_log`, not only from this file.
 6. Deploy note: the transaction blocks audit inserts for the duration of the
    backfill. Row count is checked first (`SELECT count(*) FROM audit_log`); if
    it is large enough that the exclusive lock would exceed the auth writer's
@@ -332,8 +379,15 @@ gives a reviewer a false sense of assurance. Both are tracked on #457.
 - **Costs:** all audit inserts serialize on one advisory lock; bulk inserts
   amortize it. Every audit row grows by 8 + 32 + 32 bytes plus the
   `metadata.chain` copy.
+- **Costs:** two settings the implementation must not "optimize": the
+  trigger function stays `VOLATILE` (sibling visibility, §3) and the sequence
+  stays `CACHE 1` (`seq` order == chain order, §1). Either change forks the
+  chain silently until the verifier runs. The §5 integration test pins the
+  first; the second has no deterministic test and rests on the migration
+  text and this line.
 - **Costs:** the FK-exclusion rule is subtle. It is encoded once in
-  `audit_log_row_hash`, documented here, and pinned by the verifier tests;
+  `audit_log_row_hash`, documented here and in the table's `COMMENT` (§6),
+  and pinned by the verifier tests;
   adding a future `ON DELETE SET NULL` FK to `audit_log` must add it to the
   exclusion list and the `metadata.chain` copy, or cascades will break the
   chain.
@@ -390,6 +444,27 @@ gives a reviewer a false sense of assurance. Both are tracked on #457.
   next `db.insert(auditLog)`, and TS-side JSON canonicalization must
   byte-match PostgreSQL's `jsonb::text` or the verifier lies. The trigger is
   the only place every writer already passes through.
+- **Chain in an `AFTER INSERT … FOR EACH STATEMENT` trigger over a
+  transition table (`REFERENCING NEW TABLE AS inserted`).** Considered as
+  the answer to multi-row inserts: a statement trigger is handed the
+  statement's rows by the executor, so it sees siblings by construction
+  rather than through the volatility rule in §3. It works (verified beside
+  the §3 experiment: lock and draw `seq` in a row trigger, then walk
+  `inserted ORDER BY seq` in the statement trigger), but it is strictly
+  costlier for the same property: an `AFTER` trigger cannot modify `NEW`, so
+  the hashes must be written back with an `UPDATE` per row — every audit row
+  written twice, a dead tuple per row; `prev_hash`/`row_hash` become
+  nullable at insert (`NOT NULL` is checked before `AFTER` triggers run and
+  is not deferrable), which weakens the schema a reviewer reads;
+  `INSERT … RETURNING row_hash` returns NULL; and the guard trigger needs a
+  state-keyed exception to let the fill-in through. The row trigger buys the
+  same property from one documented rule plus one test. Revisit only if that
+  rule is found not to hold on the target engine — the §5 integration test
+  is where that would surface.
+- **Route bulk writes through a set-returning append function, or unroll
+  multi-row inserts into single-row statements.** Rejected: both contradict
+  "writers stay as they are" and the ~60-site argument, for a case the row
+  trigger already handles (§3).
 - **HMAC with a server-held key instead of a plain hash.** Raises the bar
   from "DDL on the DB" to "DDL plus the key", but couples to #455 (split
   signing key, Rob-gated env change) and forces the hash out of the database
