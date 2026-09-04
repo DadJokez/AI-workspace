@@ -75,8 +75,7 @@ export async function processDueSchedules({
     if (!schedule) continue; // another worker won the claim
 
     try {
-      await fireSchedule({ db, schedule, now });
-      fired += 1;
+      if (await fireSchedule({ db, schedule, now })) fired += 1;
     } catch (err) {
       failed += 1;
       const message = err instanceof Error ? err.message : String(err);
@@ -102,6 +101,7 @@ export async function processDueSchedules({
   return { fired, failed };
 }
 
+/** Resolves true when a run was enqueued, false when the occurrence was dropped. */
 async function fireSchedule({
   db,
   schedule,
@@ -110,7 +110,7 @@ async function fireSchedule({
   db: Database;
   schedule: Schedule;
   now: Date;
-}): Promise<void> {
+}): Promise<boolean> {
   const skill = await loadScheduleSkill(db, schedule);
 
   if (!skill || skill.archivedAt) {
@@ -128,7 +128,7 @@ async function fireSchedule({
         updatedAt: new Date(),
       })
       .where(eq(schedules.id, schedule.id));
-    return;
+    return false;
   }
 
   const access = await checkSkillProviderAccess(
@@ -149,6 +149,32 @@ async function fireSchedule({
     );
   }
 
+  // Pair of the guard in runScheduleNow: manual defers to cadence, cadence
+  // defers to manual, so a schedule never has two runs live in its one
+  // thread (the worker claims per run row and executes up to
+  // WORKER_RUN_CONCURRENCY runs at once — it does not serialize per thread).
+  // Still check-then-insert: the window between this SELECT and
+  // createSkillRun's INSERT stays open until a unique partial index closes it.
+  if (
+    await hasInFlightScheduleRun({
+      db,
+      userId: schedule.userId,
+      scheduleId: schedule.id,
+    })
+  ) {
+    process.stderr.write(
+      `[schedule-fire-skipped] ${JSON.stringify({
+        scheduleId: schedule.id,
+        skillId: schedule.skillId,
+        reason: "run_in_flight",
+      })}\n`,
+    );
+    // Drop this occurrence rather than stack a second run into the thread:
+    // release the claim and let the next cadence slot fire normally.
+    await advanceSchedule({ db, schedule, now, lastError: null });
+    return false;
+  }
+
   const threadId = await ensureScheduleThread({ db, schedule, skill });
 
   await createSkillRun({
@@ -162,6 +188,7 @@ async function fireSchedule({
   });
 
   await advanceSchedule({ db, schedule, now, lastError: null });
+  return true;
 }
 
 export type RunScheduleNowResult =
@@ -219,6 +246,10 @@ export async function runScheduleNow({
     };
   }
 
+  // Pair of the guard in fireSchedule: manual defers to cadence, cadence
+  // defers to manual. Still check-then-insert — the window between this
+  // SELECT and createSkillRun's INSERT stays open until a unique partial
+  // index closes it.
   if (
     await hasInFlightScheduleRun({
       db,
