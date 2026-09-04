@@ -8,6 +8,7 @@ import {
   clearStaleToolResults,
   type ClearStaleToolResultsOptions,
 } from "./context-lifecycle";
+import { modelIdentityLine } from "./model-identity";
 import { MODELS, type ModelId } from "./models";
 import {
   RunBudgetTracker,
@@ -182,12 +183,11 @@ export async function* runAgentLoop(
   // The stable prompt must stay byte-identical across turns — it sits inside
   // the Bedrock prompt-cache prefix (see ConverseStreamParams.systemPrompt).
   //
-  // Identity honesty is registry-derived: the vendor and branded name come
-  // from ModelMetadata, never from this template, so a non-Claude brain gets
-  // a truthful line with zero prompt changes (#797 P1, #304). Same form as
-  // buildAgentPreamble's copy; single-sourcing the two is tracked in #856.
+  // Identity honesty is injected here and only here: this is the choke point
+  // every lane shares, and modelIdentityLine is the single registry-derived
+  // template (#856, #797 P1, #304). Callers' prompts must not restate it.
   const systemPrompt = [
-    `You are powered by ${model.brandedName}, made by ${model.providerDisplayName}. If asked which model or version you are, answer "${model.brandedName}" — never claim to be a different vendor's model${model.olderModelExample ? ` or an older model such as "${model.olderModelExample}"` : " or an older model version"}.`,
+    modelIdentityLine(params.modelId),
     params.systemPrompt,
     PLATFORM_EVIDENCE_DISCIPLINE,
   ]

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { modelIdentityLine } from "@ai-workspace/agent";
 import {
   checkContextPortability,
   formatPortabilityViolations,
@@ -17,9 +18,11 @@ import { buildTurnContext } from "@/lib/turn-context";
  * the existing vitest CI step.
  *
  * A neutral test model id below stands in for a future non-Anthropic model.
- * With it (or no model at all), no vendor branding may survive into the
- * preamble — the branded identity line is reserved for turns actually served
- * by a known registry model (identity honesty, which stays intact).
+ * The preamble never states a model at all (#856); the runtime loop injects
+ * the single registry-derived identity line, and for an id the registry does
+ * not know that line must stay vendor-free — the branded sentence is reserved
+ * for turns actually served by a known registry model (identity honesty,
+ * which stays intact).
  */
 
 const NEUTRAL_MODEL_ID = "neutral-eval-model-1";
@@ -43,7 +46,7 @@ describe("context portability", () => {
     );
   });
 
-  it("agent preamble is neutral for a model the registry does not know", () => {
+  it("agent preamble is provider-neutral — identity belongs to the runtime loop, never durable text", () => {
     const preamble = buildAgentPreamble({
       user: {
         displayName: "Rob",
@@ -56,25 +59,27 @@ describe("context portability", () => {
       blockedProviders: ["notion"],
       unavailableProviders: ["google"],
       builtinTools: ["web__fetch_url"],
-      modelId: NEUTRAL_MODEL_ID,
       vaultContextRequested: true,
     });
 
-    // The runtime-injected identity states the actual (neutral) model id.
-    expect(preamble).toContain(NEUTRAL_MODEL_ID);
+    // #856: no model sentence here at all, so nothing can name a vendor.
+    expect(preamble).not.toContain("You are powered by");
     expectPortable([
-      { kind: "agent-preamble", id: "buildAgentPreamble(neutral)", text: preamble },
+      { kind: "agent-preamble", id: "buildAgentPreamble", text: preamble },
     ]);
   });
 
-  it("agent preamble is neutral when the runtime reports no model", () => {
-    const preamble = buildAgentPreamble({
-      user: { displayName: "Rob", customInstructions: null },
-      connectedProviders: [],
-    });
-
+  it("runtime identity line is neutral for a model the registry does not know", () => {
+    // The loop-injected identity states the actual (neutral) model id and,
+    // with no registry entry to draw a brand from, stays vendor-free.
+    const line = modelIdentityLine(NEUTRAL_MODEL_ID);
+    expect(line).toContain(NEUTRAL_MODEL_ID);
     expectPortable([
-      { kind: "agent-preamble", id: "buildAgentPreamble(no-model)", text: preamble },
+      {
+        kind: "model-identity-line",
+        id: "modelIdentityLine(neutral)",
+        text: line,
+      },
     ]);
   });
 
