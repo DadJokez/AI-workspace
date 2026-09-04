@@ -1,13 +1,14 @@
-# Build Queue — re-triaged 2026-09-02, updated 2026-09-04
+# Build Queue — re-triaged 2026-09-02, updated 2026-09-04 (part 2, 12:40Z)
 
 Prioritized, dependency-ordered queue of open work. Re-triaged three weeks
 after the 2026-08-12 queue: its Tiers A and B shipped in full, the #410
 tool-policy series (#831–#835), autonomy presets (#837), and per-run budgets
 (#841–#843) landed on `main` on 2026-08-15/16 — and then nothing merged for
 17 days while the nightly canary went red on 10 of 18 nights. The 2026-09-03/04
-overnight session cleared that gap: 22 PRs merged, Tier 0 is done except for
-one Rob-gated item, and `main` is at `9041589` (PR #877, the #812 docs-only
-fast lane — this file is its first proof).
+overnight session cleared that gap: 32 PRs merged by 12:34Z, Tier 0 is done
+except for one Rob-gated item, #797 P1 + P2 are complete, and `main` is at
+`e6286a3` (PR #894). Part 1 of this update (#884) was the #812 docs-only fast
+lane's first proof (#877); this is its second.
 
 **Consumed by `/goal`** (`.claude/commands/goal.md`): an overnight session works
 this queue top-down, skipping anything whose dependencies aren't merged to
@@ -26,13 +27,24 @@ old or the queue is empty (goal.md Phase 2.1) — next check-in 2026-09-18.
   production dependency audit #855 (#853), smoke settle #874 (#813), and the
   #812 docs-only fast lane #877. Rob's standing §7 delegations (security-patch
   pins, tightening-only enforcement) were recorded in `CLAUDE.md` by #865.
-- **Tier E P1 complete:** #871 opened the seams (`supportsPromptCaching` /
-  `invocation` on `ModelMetadata`, conditional `cachePoint`, open runtime
-  union, registry-derived alias table) and #798 derived the identity line.
-  Leftover #856 (single `modelIdentityLine()` helper) is queued.
+- **Second wave, 2026-09-04 10:00–12:35Z (after part 1 of this update):**
+  #882 (#771 stages 1–2: stale tool-result clearing + rolling thread
+  summaries), #886 + #894 (#780 item 2: schedule Run-now, run history, and
+  the cadence-side in-flight guard), #888 (#856), #879 (#797 P2), #883 →
+  #889 (#708 and #887: CI Postgres from the runner image, no registry
+  pulls), #867 (ADR 0014), and #885 (#823 action pins — merged, then ruled
+  §7 by the review; its revert #890 is held for Rob).
+- **Tier E P1 and P2 complete:** #871 opened the seams (`supportsPromptCaching`
+  / `invocation` on `ModelMetadata`, conditional `cachePoint`, open runtime
+  union, registry-derived alias table), #798 derived the identity line, and
+  #888 closed the P1 leftover #856 (one `modelIdentityLine()` helper). P2's
+  qualification harness shipped as #879 (`pnpm eval --model`, pinned judge,
+  scorecard); the bar it proposes in `docs/REGRESSION_GAUNTLET.md` awaits
+  Rob's ratification.
 - **Security spine:** #443 / #448 verified against `main` and closed; #695
   coverage → #869; #868 proxy crash → #873. #457's hash-chain design is
-  PR #867 (in gate). Earlier: #410 closed by the five-PR series #831
+  ADR 0014, merged as #867 (the build stays Rob-gated). Earlier: #410 closed
+  by the five-PR series #831
   (persisted tri-state policy, migration 0045) → #832 (runtime refusal of
   `blocked`) → #833 (durable interactive approvals, 0046) → #834 (standing
   Skill approvals + unattended deny-and-report, 0047) → #835 (connector
@@ -61,26 +73,43 @@ old or the queue is empty (goal.md Phase 2.1) — next check-in 2026-09-18.
 4. **The strategic swing stays #801**, sequenced #802 → #803/#804 → #805 →
    #806 → #807, with every human-gated step stated inline on the item.
 5. Security spine items ride one-per-cycle as always; #701 was this cycle's
-   and shipped (#861). #457's ADR (PR #867) is the next one in the gate.
+   and shipped (#861). #457's ADR 0014 merged (#867); its two build PRs are
+   Rob-gated.
 6. **A red canary with no human triage within 48h pauses the queue.** If
    Nightly Evals is red and the alert thread (#830 or its successor) has no
    human comment within 48h of the red, an unattended session does Tier 0
    triage work only — or writes its session summary and stops. It never builds
    features on top of an untriaged red. **Status 2026-09-04:** the fix ticket
    #847 shipped as #857 (markers scoped, bot names the failing case); #830
-   stays open as the alert thread until the rejoin bar is met, and the 48h
-   rule applies unchanged to the next red on `9041589` or later.
+   stays open as the alert thread until the rejoin bar is met. The first
+   scheduled red after #857 came at 11:48Z and was triaged the same hour:
+   #895, a truncated judge response scored as FAIL, not a product regression.
+   The 48h rule applies unchanged to the next red.
 
 ## Prioritized queue
 
+**Next session — work order (tier logic unchanged; skip anything Rob-gated):**
+
+1. Land #892 (#780 item 1, in gate) and the #895 judge-truncation PR
+   (verdict-first parse, bounded re-sample; no PR open at 12:40Z).
+2. Restate the Rob decisions (Tier 0 "still open" list; "Parked / needs Rob")
+   on their issues — do not build past them.
+3. Tier E P3 — first non-Claude Converse brain (Nova), disabled by default —
+   then the P5 runbook.
+4. #438 layered instructions — unblocked by #856 (#888).
+5. Tier C #803 / #804 — only after #872 is reviewed and merged (Rob).
+6. #776 egress proxy — only after #849 / #870 is merged (Rob).
+
 ### Tier 0 — hygiene before any unattended run
 
-Gate status on 2026-09-04: `main` = `9041589`; the CVE gate is green (#852,
-#863); every scheduled Product Smoke since 08-30 is green; #857 is on `main`
-so the next nightly is the first sample toward the rejoin bar. Items 1–8 are
-done except item 6 (#849, Rob-gated). The open Tier 0 items are now the two at
-the end of this section (#862, #880); neither blocks the tiers below, but both
-are Rob decisions and sit here so they are not forgotten.
+Gate status on 2026-09-04 12:40Z: `main` = `e6286a3`; the CVE gate is green
+(#852, #863); every scheduled Product Smoke since 08-30 is green; the first
+scheduled nightly after #857 (11:48Z) went red on one sample — #895, a judge
+truncation, not a product regression (the case's honeypot assertion passed).
+Items 1–8 are done except item 6 (#849, Rob-gated). The open Tier 0 items are
+the Rob decisions at the end of this section (#862, #880, #890/#823, #891,
+CodeBuild concurrency); none blocks the tiers below, but they sit here so they
+are not forgotten.
 
 1. **#845 — CVE audit was red on every PR — done (#852, #863).** Rob
    authorized the override plan; #852 overrode `fast-uri`, `fastify`, `qs`,
@@ -139,8 +168,7 @@ are Rob decisions and sit here so they are not forgotten.
    ADR now.
 8. **PR #798 — finish #797 P1's identity seam — merged 2026-09-04.** The
    identity line is derived from registry metadata; the leftover
-   single-helper refactor is #856 (Tier E). Merged behind #871 so P1 is
-   complete.
+   single-helper refactor #856 closed with #888 (11:24Z). P1 is complete.
 
 **Tier 0 addendum — landed 2026-09-04 (CI reliability, not on the 09-02
 list):**
@@ -158,9 +186,22 @@ list):**
   navigation to settle before asserting; the 10s flake is gone.
 - **#877 (#812) — docs-only fast lane.** A classifier job decides docs-only;
   the `[full lane]` jobs skip and the summary jobs satisfy the required
-  checks. **Rob owns the branch-protection contract; this PR is the first
-  proof — confirm the classifier says docs-only and the full-lane jobs
-  skipped.**
+  checks. **Rob owns the branch-protection contract; #884 was the first
+  proof and this update is the second — confirm the classifier says docs-only
+  and the full-lane jobs skipped.**
+- **#883 → #889 (#708, #887) — no registry pulls for CI Postgres.** #883
+  moved the service container from Docker Hub to the ECR Public mirror; the
+  mirror rate-limited the same day (#887), so #889 starts the runner image's
+  preinstalled PostgreSQL 16 through a composite action
+  (`.github/actions/local-postgres`) instead — four jobs rewired, connection
+  strings unchanged.
+- **#885 (#823) — `configure-aws-credentials` v6.2.4 + `upload-artifact`
+  v7.0.1 pins — merged 11:06Z, ruled §7 by the review 37 s later.** A major
+  bump on the OIDC eval-role path is human-owned and outside #865's
+  delegations; revert #890 is OPEN and HELD, #823 re-opened. The 11:48Z
+  nightly ran both pins green with `allowed-account-ids` enforced. **Rob
+  decides: close #890 (keep the pins) or merge #890 (revert), then signs off
+  #823 on the state kept.** The gate gap itself is #891.
 
 **Tier 0 — still open (Rob decisions):**
 
@@ -180,6 +221,15 @@ list):**
   bucket — smaller blast radius) or lift `PLATFORM_MODEL_OVERRIDE_ID` (a
   production model change; a deliberate window plus one on-demand full-pack
   run).** Either way the first run after is a new baseline, not a regression.
+- **#891 — the verdict has no "clean code, human must approve" state.**
+  #885 merged on a green `Claude verdict` because only `needs-codex` keeps
+  it red. Proposed: a `needs-rob` label treated like `needs-codex` in
+  `claude-verdict.yml`, applied by the reviewer for §7 items, removed only by
+  Rob. **Workflow edit under #699's rules plus a CLAUDE.md §7 line — Rob
+  picks the shape.**
+- **CodeBuild `concurrentBuildLimit=1` drops a push that lands during a
+  running build.** Three merges tonight needed a manual build start to
+  deploy. Raise the limit or queue builds — infra (§7), Rob.
 
 **#844 — done 2026-09-02** (Rob authorized; Claude executed): `ai-workspace-db-unenc-old`
 and its unencrypted snapshots deleted; the encrypted snapshot
@@ -270,8 +320,9 @@ Update 2026-09-04: #802 is built and waiting on Rob (item 9).
 
 ### Tier D — harness wave 2 (#770), re-scoped
 
-17. **#771 — context lifecycle — PR #882 in gate.** Built in the order the
-    issue asks: stale tool-result clearing before every provider call once the
+17. **#771 — context lifecycle — stages 1–2 shipped (#882, 2026-09-04);
+    the issue stays open.** Built in the order the issue asks: stale
+    tool-result clearing before every provider call once the
     transcript exceeds ~160K chars (error results exempt, raw payloads kept in
     the persisted transcript and events, receipt in the `provider-request`
     snapshot), then a rolling `thread-summary.v1` document in
@@ -280,14 +331,23 @@ Update 2026-09-04: #802 is built and waiting on Rob (item 9).
     `(id, user_id)`-scoped) rendered as layer-7 background data on the next
     turn. No migration — the summary columns already existed and get their
     first writer. Both edits stay behind the ADR-0010 cache checkpoints.
-    Enabler for #772/#774.
-18. **#780 — quick wins — next.** Both still open on `main`: tool calls in
-    `packages/agent/src/loop.ts` execute serially, and schedules have no
-    Run-now or per-schedule model override. Parallel execution must preserve
-    #833's contract — a round containing any `needs_approval` call pauses
-    before *any* handler runs — plus per-call audit rows and #841's budget
-    checks. The per-schedule override resolves through the registry (P1 made
-    that registry-derived in #871) and never touches the judge model.
+    What remains on #771, deferred by #882: mid-run compaction of a single
+    very long durable run (summarizing rounds inside one loop) — today that
+    run is bounded by stage-1 clearing plus #841's envelope. Enabler for
+    #772/#774, now unblocked.
+18. **#780 — quick wins — item 1 in gate, item 2 mostly shipped.** Item 1,
+    parallel tool calls in `packages/agent/src/loop.ts`: PR #892 in gate —
+    the concurrent batch fires only when every call in the round resolves to
+    a registered `always_allow` tool, so #833's pause-before-any-handler
+    contract, per-call audit rows and #841's budget checks are untouched; the
+    one review blocker (serialization inside the handler guard) was fixed at
+    12:05Z and two later reviews are clean. Item 2: schedule Run-now +
+    per-schedule run history shipped (#886) with the cadence-side in-flight
+    guard (#894). Item 2c, the per-schedule model override, is NOT built: it
+    needs `schedules.model_id` — a handwritten migration DESCRIBED in #886's
+    body for Rob, not filed; it resolves through the registry and never
+    touches the judge model. #893 (one live run per thread/schedule, found by
+    #886's review) is the migration-shaped follow-on, Rob-gated.
 19. **#773 — durable approvals, re-scoped after #833/#834.** Already shipped
     there: the `waiting_for_approval` run state and `tool_approval_requests`
     receipts, owner approve/deny in chat that survives reload and resumes the
@@ -305,11 +365,12 @@ Update 2026-09-04: #802 is built and waiting on Rob (item 9).
     notification is not queue work (#291 closed; the SES guard stands).
 20. **#772 — run checkpoints & rewind.** Unchanged scope; anchors on
     `run_events` (the `(run_id, sequence)` unique index exists, migration
-    0037). External writes are not undoable and the UI must say so. After
-    #882 merges.
+    0037). External writes are not undoable and the UI must say so.
+    Unblocked (#882 merged); after Tier E P3 and #438 in the next-session
+    order.
 21. **#774 — verifier pass for unattended runs.** Unchanged; it runs as a
-    child run, so #842's child-run budget envelope already bounds it. After
-    #882 merges.
+    child run, so #842's child-run budget envelope already bounds it.
+    Unblocked (#882 merged); same sequencing as #772.
 22. **#775 — policy engine, re-scoped.** #841/#842 shipped the per-run
     token/USD/wall-clock/iteration envelope and #837 the presets. Remaining:
     per-user daily budget, downgrade gate, trivial→cheap classifier, risk
@@ -320,10 +381,11 @@ Update 2026-09-04: #802 is built and waiting on Rob (item 9).
     tests.
 24. **#777 OTel, #778 progress notes, #779 save-as-skill** — unchanged, later.
 
-### Tier E — #797 developer-swappable brains, P1 complete
+### Tier E — #797 developer-swappable brains, P1 + P2 complete
 
-P1 shipped on 2026-09-04 (#871 + #798). P2 is in the gate. Each seam is still
-its own PR; nothing here adds a model, env, or IAM unattended.
+P1 shipped on 2026-09-04 (#871 + #798 + #888) and P2 the same day (#879). P3
+is next. Each seam is still its own PR; nothing here adds a model, env, or IAM
+unattended.
 
 25. **P1 — open the seams — COMPLETE (#871, #798).** `supportsPromptCaching`
     / `invocation` on `ModelMetadata`, `cachePoint` blocks conditional, the
@@ -331,29 +393,33 @@ its own PR; nothing here adds a model, env, or IAM unattended.
     line derived from `brandedName` / `providerDisplayName` /
     `olderModelExample`. Exit test met: a fake non-Anthropic Converse registry
     entry runs a full turn with zero cache blocks and a truthful identity
-    line. **Leftover #856 (queued, S):** one exported `modelIdentityLine()`
-    helper in `packages/agent` owning the neutral fallbacks, with
-    `buildAgentPreamble` dropping its copy, plus the grep sweep.
-26. **P2 — qualification harness — PR #879 in gate.** `pnpm eval --model <id>`
-    validates against the registry, refuses the judge id, overrides every
-    case-level pin, keeps `JUDGE_MODEL_ID` pinned separately, and emits a
-    scorecard (`qualified` / `not-qualified` / `incomplete`; `--baseline`
-    against a prior nightly report). **It PROPOSES the qualification bar in
-    `docs/REGRESSION_GAUNTLET.md` — Rob edits the thresholds.** Built and
+    line. **Leftover #856 — done (#888):** one exported `modelIdentityLine()`
+    helper in `packages/agent` keyed off `MODELS` by own-property check (so
+    the fake Nova exit test keeps its truthful line), `buildAgentPreamble`
+    dropped its copy.
+26. **P2 — qualification harness — COMPLETE (#879, 2026-09-04 12:10Z).**
+    `pnpm eval --model <id>` validates against the registry, refuses the
+    judge id, overrides every case-level pin, keeps `JUDGE_MODEL_ID` pinned
+    separately, and emits a scorecard (`qualified` / `not-qualified` /
+    `incomplete`; `--baseline` against a prior nightly report). **It PROPOSES
+    the qualification bar in `docs/REGRESSION_GAUNTLET.md` (each threshold a
+    named constant in `scorecard.ts`) — ratifying it is Rob's.** Built and
     tested against `--mock` only; real-model qualification runs stay
     Rob-dispatched (shared Bedrock quota, #706). It surfaced #880 (Tier 0
-    open). #301/#302 fold in here rather than being built as separate
-    surfaces first.
+    open); the first nightly after it surfaced #895 (a truncated judge
+    response scored as FAIL — verdict-first parse, lane in flight). #301/#302
+    fold in here rather than being built as separate surfaces first.
 27. **P3 — first non-Claude Converse brain (Nova), disabled by default —
-    next after P2.** The registry entry is unattended-safe; the qualification
-    run and every enablement row are Rob's (#305: "the production enablement
-    click is Rob's").
-28. **P4 = #660** — Parked (IAM/env; see below). **P5** runbook after P3.
+    NEXT (next-session item 3).** The registry entry is unattended-safe; the
+    qualification run and every enablement row are Rob's (#305: "the
+    production enablement click is Rob's").
+28. **P4 = #660** — Parked (IAM/env; see below). **P5** runbook right after
+    P3, same session if P3 lands.
 
 ### Security spine — one per cycle, interleave with tiers above
 
 - **#701** was this cycle's spine item — shipped (#861, Tier 0 item 3).
-- **#457 — tamper-evident audit log — ADR 0014 is PR #867, in gate.**
+- **#457 — tamper-evident audit log — ADR 0014 merged (#867, 2026-09-04).**
   Design only (option (c) hash chain: additive `seq` / `prev_hash` /
   `row_hash`, a `BEFORE INSERT` trigger serialized by an advisory lock as the
   single writer, retention as a chained checkpoint, `pnpm audit:verify`).
@@ -370,6 +436,8 @@ its own PR; nothing here adds a model, env, or IAM unattended.
 - **#695 → #869 merged.** Unit test coverage is measured in CI (the reason
   for #878's cap bump).
 - **#813 → #874 merged; #853 → #855 merged** (Tier 0 addendum).
+- **#708 → #883 → #889 merged; #887 closed.** CI no longer pulls a Postgres
+  image from any registry (Tier 0 addendum).
 - **#691 — WAF** stays in count mode until #697 gives block mode a rehearsal
   target; infra, Rob.
 - **#460 data lifecycle, #381 trace retention** — later, unchanged.
@@ -383,9 +451,10 @@ its own PR; nothing here adds a model, env, or IAM unattended.
   out of scope.
 - **#455 — split encryption and signing keys.** New env var (`SIGNING_KEY` or
   an HKDF root) + rotation runbook — Rob-gated env change.
-- **#457 — tamper-evident audit log.** The hash-chain design is drafted
-  (PR #867). Option (a)'s DB role/grant change (INSERT/SELECT-only on
-  `audit_log`) and the chain migration stay Rob-gated.
+- **#457 — tamper-evident audit log.** ADR 0014 is merged (#867).
+  Implementation is Rob-gated: option (a)'s DB role/grant change
+  (INSERT/SELECT-only on `audit_log`) and the additive chain migration, each
+  its own PR.
 - **#697 — staging environment.** AWS spend + naming/DNS + its own secrets;
   synthetic data only. Unblocks #691 block mode, #696 load tests, and
   migration rehearsal (#467).
@@ -415,8 +484,23 @@ its own PR; nothing here adds a model, env, or IAM unattended.
   build work folds into Tier E P2/P3.
 - **#810** — decision ticket (Tier C item 16).
 - **PRs #870 and #872** — migrations 0050 / 0049 plus #870's secret
-  provisioning (Tier 0 item 6, Tier C item 9). Rob merges, #872 first.
-- **#862 / #880** — Tier 0 open decisions (workflow concurrency; the judge).
+  provisioning (Tier 0 item 6, Tier C item 9). Rob merges, #872 first. For
+  #870: create the LOGIN role password and the
+  `ai-workspace/production/browser-proxy-db` Secrets Manager secret BEFORE
+  merging — merge = deploy.
+- **#890 — close or merge** (close = keep #885's action pins, merge =
+  revert); #823 closes on Rob's sign-off of the state kept either way.
+- **#862 / #880 / #891** — Tier 0 open decisions (workflow concurrency; the
+  self-judged nightly; the `needs-rob` verdict gate).
+- **CodeBuild `concurrentBuildLimit=1`** — pushes during a running build are
+  dropped; three merges tonight needed a manual start. Infra, Rob.
+- **#893 — one live run per thread/schedule.** Unique partial index on
+  `runs(schedule_id) WHERE status IN ('queued','running')` plus a per-thread
+  worker fence; migration, Rob-gated. #894 guards the cadence path meanwhile.
+- **#780 item 2c — `schedules.model_id`** per-schedule model override:
+  migration described in #886's body, not filed. Rob's call.
+- **#879's qualification bar** in `docs/REGRESSION_GAUNTLET.md` — the
+  thresholds are Rob's to ratify before any real qualification run counts.
 - **Next CVE advisory** — production-dependency change; #855 files it, #865's
   delegation covers lockfile-only security pins, everything wider is Rob's.
 
@@ -434,12 +518,15 @@ its own PR; nothing here adds a model, env, or IAM unattended.
   Tier B polish has stabilized in use.
 - **#620 / #622 / #624 / #435 / #734** — proposal inbox, provenance shell,
   governed Salesforce writes, spend dashboard: behind #775 and #810.
-- **#412 / #413 / #422–#424 / #438** — GA-Pac architecture specs; unchanged.
+- **#412 / #413 / #422–#424** — GA-Pac architecture specs; unchanged.
+  **#438 layered instructions is no longer parked:** #856 (#888) cleared its
+  blocker; it is next-session item 4.
 - **#812 docs-only CI fast lane — shipped (#877).** The classifier + summary
   jobs are on `main`; the required-check contract is Rob's to confirm on the
-  first docs-only PR (this one).
-- **#744, #467, #696, #708** — conformance suite, release engineering, load
-  tests (needs #697), Docker Hub pulls: later. (#695 coverage shipped, #869.)
+  docs-only PRs (#884 was the first, this update the second).
+- **#744, #467, #696** — conformance suite, release engineering, load tests
+  (needs #697): later. (#695 coverage shipped, #869; #708 Docker Hub pulls
+  closed by #883 → #889.)
 
 ## Notes
 
@@ -448,15 +535,21 @@ its own PR; nothing here adds a model, env, or IAM unattended.
   assertion, counted from #857 — is unchanged, and Rob closes #830 and lifts
   the #847 markers together. #866's `#860` marker on
   `scope-honesty-send-email` is a separate known-red with its own fix ticket.
-- Open PRs on 2026-09-04, in merge order: #872 (Rob, migration 0049) → #870
-  (Rob, migration 0050 + secret); #867, #879, #882 are in the gate and
-  human-gate nothing.
+  The 11:48Z scheduled nightly's single red sample
+  (`salesforce-faithfulness/injection-fake-tool-result`) is #895 — the
+  judge's own rationale said PASS, then hit the output-length continuation
+  notice and the verdict was not parsed. Fix lane: verdict-first judge
+  prompt, robust parse, truncated-without-verdict → inconclusive + one
+  bounded re-sample, `judgeTruncated` flag in the nightly comment.
+- Open PRs on 2026-09-04 12:40Z, in merge order: #872 (Rob, migration 0049)
+  → #870 (Rob, migration 0050 + secret); #890 (Rob decision, held); #892 in
+  the gate and human-gating nothing. No PR for #895 yet.
 - UI/UX epic #762, harness epic #770, viewer-identity epic #801, and Studio
   epic #735 are tracking umbrellas; their actionable children are tiered
   individually above.
 - The August research record (sources for Tiers C/D) lives in
   `docs/research/HARNESS_RESEARCH_2026-08.md`; viewer-identity decisions are
   on #801; the tool-policy decision record is ADR-0011 (refreshed by #854);
-  the audit-log chain design is ADR-0014 (PR #867).
+  the audit-log chain design is ADR-0014 (merged as #867).
 - goal.md's guard on PR #272 / issue #291 (SES) is unchanged and still
   binding.
