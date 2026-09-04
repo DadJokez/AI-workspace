@@ -49,6 +49,17 @@ export const MODEL_PURPOSES = [
 ] as const;
 export type ModelPurpose = (typeof MODEL_PURPOSES)[number];
 
+/**
+ * How requests reach the model (#797 P1). `converse` is the Bedrock Converse
+ * API — the only route implemented today (`RealBedrockClient`). `responses`
+ * is reserved for the Bedrock Mantle / Responses-shaped adapter (#660);
+ * nothing dispatches on it yet, but every registry entry declares its route
+ * so the adapter that lands behind it can select by metadata instead of by
+ * model-id string matching.
+ */
+export const MODEL_INVOCATIONS = ["converse", "responses"] as const;
+export type ModelInvocation = (typeof MODEL_INVOCATIONS)[number];
+
 export interface ModelMetadata {
   id: ModelId;
   bedrockModelId: string;
@@ -69,6 +80,17 @@ export interface ModelMetadata {
   supportsToolUse: boolean;
   supportsStreaming: boolean;
   supportsVision: boolean;
+  /**
+   * Whether the provider honors Bedrock `cachePoint` blocks. Anthropic models
+   * do; most other Converse models reject them as a validation error or
+   * silently ignore them. Every cache-checkpoint emission in
+   * `packages/agent/src/clients.ts` is gated on this flag — a model that
+   * cannot cache still gets the stable-prefix / volatile-suffix layering
+   * (ADR 0010), just without the checkpoints.
+   */
+  supportsPromptCaching: boolean;
+  /** Invocation route for this model; see `ModelInvocation`. */
+  invocation: ModelInvocation;
   contextWindow: number;
   /**
    * Per-turn output cap passed to Converse. Must leave room for a complete
@@ -104,6 +126,8 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     supportsToolUse: true,
     supportsStreaming: true,
     supportsVision: true,
+    supportsPromptCaching: true,
+    invocation: "converse",
     contextWindow: 200_000,
     defaultMaxTokens: 16_000,
     recommendedFor: [
@@ -126,6 +150,8 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     supportsToolUse: true,
     supportsStreaming: true,
     supportsVision: true,
+    supportsPromptCaching: true,
+    invocation: "converse",
     contextWindow: 200_000,
     defaultMaxTokens: 32_000,
     recommendedFor: [
@@ -148,6 +174,8 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     supportsToolUse: true,
     supportsStreaming: true,
     supportsVision: true,
+    supportsPromptCaching: true,
+    invocation: "converse",
     contextWindow: 200_000,
     defaultMaxTokens: 32_000,
     recommendedFor: [
@@ -170,6 +198,8 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
     supportsToolUse: true,
     supportsStreaming: true,
     supportsVision: true,
+    supportsPromptCaching: true,
+    invocation: "converse",
     contextWindow: 200_000,
     defaultMaxTokens: 32_000,
     recommendedFor: [

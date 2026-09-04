@@ -434,6 +434,7 @@ export async function POST(req: Request) {
         metadata: workspaceArtifacts.metadata,
         source: workspaceArtifacts.source,
       })
+      // scoping-guard-allow: keys on chatMessageId, which the chatMessages lookup above proves belongs to this thread
       .from(workspaceArtifacts)
       .where(eq(workspaceArtifacts.chatMessageId, editPlan.targetId))
       .orderBy(asc(workspaceArtifacts.createdAt), asc(workspaceArtifacts.id));
@@ -604,6 +605,7 @@ export async function POST(req: Request) {
       // or disappearing means the replay payload is stale — fail closed.
       const attachedNow = await tx
         .select({ id: workspaceArtifacts.id })
+        // scoping-guard-allow: keys on chatMessageId, which the chatMessages lookup above proves belongs to this thread
         .from(workspaceArtifacts)
         .where(eq(workspaceArtifacts.chatMessageId, plan.targetId));
       const expectedArtifactIds = new Set(replayedArtifactIds ?? []);

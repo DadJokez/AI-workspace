@@ -86,7 +86,7 @@ explicitly waives them.
    bar: 20 consecutive clean scheduled samples per marked assertion; Rob
    closes. Unattended-buildable (evals + workflow YAML only; no
    `permissions:` change).
-3. **#701 — the write boundary fails closed at every registry path** (spec
+3. **#701 — the write boundary fails closed at every registry path** — **shipped 2026-09-03** (spec
    comment on the issue, 2026-09-02). #831–#834 gate only tools that carry a
    declared policy; a tool with `policy === undefined` executes with no pause
    and no audit stamp (`packages/agent/src/loop.ts:783-796`). The spec:

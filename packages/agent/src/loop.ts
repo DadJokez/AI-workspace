@@ -25,10 +25,12 @@ import {
   resolveRelativeDateReferences,
 } from "./temporal";
 import { renderClockStatement } from "./timezone";
+import { UNDECLARED_TOOL_POLICY } from "./types";
 import type {
   AgentEvent,
   AgentMessage,
   ProviderRequestSnapshot,
+  Tool,
   ToolContext,
   ToolApprovalGrant,
   ToolApprovalMode,
@@ -303,6 +305,7 @@ export async function* runAgentLoop(
       : volatileSystemSuffix;
     const stream = client.converseStream({
       bedrockModelId: model.bedrockModelId,
+      supportsPromptCaching: model.supportsPromptCaching,
       systemPrompt,
       volatileSystemSuffix: iterationVolatileSystemSuffix,
       messages: bedrockMessages,
@@ -475,7 +478,7 @@ export async function* runAgentLoop(
     const approvalRequests: ToolApprovalRequest[] = [];
     for (const call of pendingToolCalls) {
       const tool = params.registry.get(call.name);
-      if (tool?.policy === "needs_approval") {
+      if (tool && effectiveToolPolicy(tool) === "needs_approval") {
         approvalRequests.push(
           await buildToolApprovalRequest({
             call,
@@ -546,8 +549,9 @@ export async function* runAgentLoop(
         });
         continue;
       }
+      const policy = effectiveToolPolicy(tool);
       const approvalRequest =
-        tool.policy === "needs_approval"
+        policy === "needs_approval"
           ? approvalRequestsByToolCallId.get(call.id)
           : undefined;
       const approvalGrant = approvalRequest
@@ -571,8 +575,8 @@ export async function* runAgentLoop(
         ? approvalGrant.decision === "approved"
           ? "approved_by_user"
           : "denied"
-        : runtimePolicyAuditDecision(tool.policy);
-      if (tool.policy === "blocked") {
+        : runtimePolicyAuditDecision(policy);
+      if (policy === "blocked") {
         const output = {
           error: TOOL_POLICY_BLOCKED_CODE,
           message: `Tool ${tool.name} is blocked by runtime policy.`,
@@ -780,18 +784,30 @@ function budgetDimensionLabel(
   }
 }
 
+/**
+ * #701: the write boundary is deterministic shell code, never prose. A tool
+ * that reaches the loop without a policy is treated as a write — paused for
+ * approval in attended runs, denied with a receipt in unattended runs. A
+ * missing policy never executes silently.
+ */
+function effectiveToolPolicy(tool: Tool): ToolRuntimePolicy {
+  return (
+    (tool as { policy?: ToolRuntimePolicy }).policy ?? UNDECLARED_TOOL_POLICY
+  );
+}
+
 function runtimePolicyAuditDecision(
-  policy: ToolRuntimePolicy | undefined,
+  policy: ToolRuntimePolicy,
 ): ToolPolicyAuditDecision | undefined {
   switch (policy) {
     case "always_allow":
       return "auto_allowed";
     case "needs_approval":
+      // The grant supplies the decision; an ungranted needs_approval call
+      // never reaches execution (it errors or is denied above).
       return undefined;
     case "blocked":
       return "blocked";
-    default:
-      return undefined;
   }
 }
 

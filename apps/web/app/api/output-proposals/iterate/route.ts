@@ -476,6 +476,7 @@ async function loadProposalIterationCandidate({
   }
   const artifactRows = await db
     .select()
+    // scoping-guard-allow: resolves via app role (canAppRoleEdit/canAppRoleDeploy above) and the artifact.threadId !== threadId check below
     .from(workspaceArtifacts)
     .where(eq(workspaceArtifacts.id, version.artifactId))
     .limit(1);

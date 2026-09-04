@@ -15,6 +15,7 @@ const SYSTEM_PROMPT = [
 
 const irrelevantTool: Tool = {
   name: "work__search_private_data",
+  policy: "always_allow",
   description:
     "Search private work data. Do not call for self-contained writing or conversational questions.",
   inputSchema: {

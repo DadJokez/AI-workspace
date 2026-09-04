@@ -1,4 +1,4 @@
-import { writeFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FakeBedrockClient } from "@ai-workspace/agent";
@@ -108,6 +108,38 @@ export function summarizeOutcome(results: readonly CapabilityResult[]): {
 }
 
 /**
+ * One-line CI outputs (#847) so the nightly regression comment can name the
+ * failing case instead of just "failure". `failingCases` lists blocking
+ * failures as `capability/caseId [passCount/runs]: <failing labels>`;
+ * `knownCases` lists the known-red, non-blocking ones. Newlines are stripped
+ * (GITHUB_OUTPUT is line-delimited) and the blocking list is capped.
+ */
+export function formatCiOutcome(results: readonly CapabilityResult[]): {
+  failingCases: string;
+  knownCases: string;
+} {
+  const oneLine = (text: string) => text.replace(/\s*[\r\n]+\s*/g, " ").trim();
+  const failingCases = results
+    .flatMap((r) =>
+      r.results
+        .filter((c) => !c.passed && !c.knownIssue)
+        .map((c) => {
+          const labels = c.assertions.filter((a) => !a.ok).map((a) => a.label);
+          if (c.errored) labels.push(`error: ${c.errored}`);
+          return `${r.capability}/${c.caseId} [${c.passCount ?? 0}/${c.runs ?? 1}]: ${labels.join("; ")}`;
+        }),
+    )
+    .join(" | ");
+  const knownCases = summarizeOutcome(results)
+    .knownFailed.map((k) => `${k.caseId} ${k.knownIssue}`)
+    .join("; ");
+  return {
+    failingCases: oneLine(failingCases).slice(0, 2000),
+    knownCases: oneLine(knownCases),
+  };
+}
+
+/**
  * CLI entry (FR-005): `pnpm eval [capability]` runs all or one capability
  * against real Bedrock, prints a report, writes JSON+Markdown under
  * eval-reports/, and exits non-zero on any failure. `--mock` swaps the fake
@@ -200,6 +232,13 @@ async function main() {
   }
 
   const outcome = summarizeOutcome(results);
+  if (process.env.GITHUB_OUTPUT) {
+    const ci = formatCiOutcome(results);
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      `failing_cases=${ci.failingCases}\nknown_cases=${ci.knownCases}\n`,
+    );
+  }
   const totalPassed = results.reduce((n, r) => n + r.passed, 0);
   const totalFailed = results.reduce((n, r) => n + r.failed, 0);
   const generationCostUsd = results.reduce(

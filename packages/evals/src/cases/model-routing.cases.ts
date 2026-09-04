@@ -28,6 +28,8 @@ const FULL_TOOL_CONTEXT = [
 export const MODEL_ROUTING_FIXTURE_TOOLS: Tool[] =
   ROUTING_BENCHMARK_TOOL_NAMES.map((name) => ({
     name,
+    // #701: every routing fixture handler returns canned data only.
+    policy: "always_allow" as const,
     description: routingToolDescription(name),
     inputSchema: routingFixtureInputSchema(name),
     handler: async (input) => fixtureResult(name, input),

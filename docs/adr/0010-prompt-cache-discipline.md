@@ -18,4 +18,6 @@ Split system context into two fields with a hard checkpoint between them, and pi
 - **Forecloses** treating the system prompt as one free-form string: the two-field contract (`ChatContextPack.prompt`, `clients.ts:110-115`) is now the only supported shape, and future context sources must route through it rather than concatenating into a single blob.
 
 ## Status notes
+Checkpoint emission is capability-gated (#797 P1): both `cachePoint` blocks are emitted only when the model's registry entry sets `supportsPromptCaching` (`packages/agent/src/models.ts`), threaded through `ConverseStreamParams.supportsPromptCaching`. A model that cannot cache keeps the stable-prefix / volatile-suffix split — the seam is about determinism as much as cache hits — and simply pays no checkpoint.
+
 The precedence ladder reserves layers (3) organization policy and (4) team policy above the user's own layers (`pinned-context.ts:38-41`); those slots are inert until the #413 org/team scope substrate lands, at which point the pinned layer's ordering is extended (not revisited).

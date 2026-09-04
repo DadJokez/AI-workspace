@@ -69,7 +69,7 @@ end state.
 | T2 | Spoofing / Repudiation | Forge or replay an event-trigger webhook | GitHub HMAC validation, delivery-id uniqueness, durable delivery receipt, trigger rate limit | Add source-specific controls before accepting another webhook provider |
 | T3 | Elevation / Information disclosure | Change a resource id to read or write another user's data | Canonical `getSessionUser`, owner-scoped queries, 404-style non-disclosure, app/share role resolvers, real-Postgres scoping tests | Coarse admin bypass remains; every new route needs positive and negative scope tests |
 | T4 | Elevation | A shared skill/app uses the owner's credential for another user | Execution re-resolves the acting user's OAuth token and attestations; shares do not copy credentials | Preserve this invariant when adding app live-data writes or shared scheduled runs |
-| T5 | Tampering / Elevation | Uploaded/provider/web content tells the model to ignore policy or call a dangerous tool | Nonce-delimited untrusted-content framing, attachment secret scan, deterministic tri-state catalog policy, durable approvals, eight-iteration cap, and result redaction | Unknown or externally mounted write-shaped tools still need a universal boundary (#701); Bedrock Guardrails/DLP remain pending #492 |
+| T5 | Tampering / Elevation | Uploaded/provider/web content tells the model to ignore policy or call a dangerous tool | Nonce-delimited untrusted-content framing, attachment secret scan, deterministic tri-state catalog policy, durable approvals, eight-iteration cap, and result redaction | An undeclared or externally mounted tool fails closed to needs-approval (#701); Bedrock Guardrails/DLP remain pending #492 |
 | T6 | Information disclosure | Secret appears in a prompt, tool result, log, trace, or artifact | Secrets live outside prompts, OAuth ciphertext at rest, payload redaction, trace byte/redaction limits, secret scan for uploads/artifacts, credentialed URLs rejected | Application log coverage must be reviewed continuously; RDS storage itself is unencrypted |
 | T7 | Information disclosure / SSRF | Web fetch reaches metadata, localhost, or a private service | Scheme validation, credential rejection, DNS resolution and guarded lookup, redirect revalidation, private/link-local/metadata blocking, byte/time/redirect caps | Public-host egress is broad and HTTP is allowed; private subnet + egress controls pending #492 |
 | T8 | Tampering / Repudiation | Modify or delete audit history after misuse | Application writes append-only audit rows, redacted receipts, run events, commit-tagged deploy receipts | DB credential can still update/delete rows; DB grants or tamper evidence pending #457; **authentication events are absent from the ledger entirely** (#694), so sign-in, denied sign-in, sign-out, and identity linking leave no trail |
@@ -188,10 +188,10 @@ is the weakest part of this decision and is tracked in #694.
    (interim ingress reconciler and live close),
    [#691](https://github.com/DadJokez/AI-workspace/issues/691) (WAF),
    [#492](https://github.com/DadJokez/AI-workspace/issues/492) (perimeter epic).
-2. **Tool-side-effect policy:** catalog-backed tools now enforce persisted
-   allow/approval/block policy with durable receipts. Unknown or externally
-   mounted write-shaped tools still need a universal boundary. Track:
-   [#701](https://github.com/DadJokez/AI-workspace/issues/701).
+2. **Tool-side-effect policy:** catalog-backed tools enforce persisted
+   allow/approval/block policy with durable receipts, and an undeclared or
+   externally mounted tool fails closed to needs-approval
+   ([#701](https://github.com/DadJokez/AI-workspace/issues/701)).
 3. **Audit tamper resistance:** append-only is an application convention, not
    a database guarantee. Track:
    [#457](https://github.com/DadJokez/AI-workspace/issues/457).
