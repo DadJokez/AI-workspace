@@ -1434,6 +1434,42 @@ export const appVersions = pgTable(
 );
 
 /**
+ * Pinned live-data bindings per app version (#802). One row per binding an
+ * app version DECLARES: a read-only `tools_catalog` tool plus the arguments
+ * fixed at publish time. Rows are written once, inside the publish
+ * transaction, and never updated — a deployed version's data surface is
+ * immutable, and `GET /api/apps/[id]/data/[bindingId]` executes a binding
+ * only when a row exists for the live version (declaration enforcement).
+ * `pinned_args` is server-only; viewers only ever see `binding_id`.
+ */
+export const appVersionDataBindings = pgTable(
+  "app_version_data_bindings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    appVersionId: uuid("app_version_id")
+      .notNull()
+      .references(() => appVersions.id, { onDelete: "cascade" }),
+    bindingId: text("binding_id").notNull(),
+    provider: text("provider").notNull(),
+    toolName: text("tool_name").notNull(),
+    pinnedArgs: jsonb("pinned_args").notNull().default({}),
+    label: text("label"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    versionBindingUnique: uniqueIndex(
+      "app_version_data_bindings_version_binding_idx",
+    ).on(t.appVersionId, t.bindingId),
+    providerToolIdx: index("app_version_data_bindings_provider_tool_idx").on(
+      t.provider,
+      t.toolName,
+    ),
+  }),
+);
+
+/**
  * App-scoped editing sessions. They bind a chat thread to the app/version the
  * user is editing so runtime context can load the right app bytes every turn.
  */
@@ -1932,6 +1968,8 @@ export type App = typeof apps.$inferSelect;
 export type NewApp = typeof apps.$inferInsert;
 export type AppVersion = typeof appVersions.$inferSelect;
 export type NewAppVersion = typeof appVersions.$inferInsert;
+export type AppVersionDataBinding = typeof appVersionDataBindings.$inferSelect;
+export type NewAppVersionDataBinding = typeof appVersionDataBindings.$inferInsert;
 export type AppEditSession = typeof appEditSessions.$inferSelect;
 export type NewAppEditSession = typeof appEditSessions.$inferInsert;
 export type ChatThreadBranch = typeof chatThreadBranches.$inferSelect;

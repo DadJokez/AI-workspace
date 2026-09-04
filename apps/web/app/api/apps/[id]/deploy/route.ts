@@ -13,6 +13,7 @@ import {
   scanArtifactForSecrets,
 } from "@/lib/apps";
 import { parseRequestedPublicationMode } from "@/lib/app-publication";
+import { LiveBindingGateError } from "@/lib/app-binding-gate";
 import {
   loadWorkspaceArtifactById,
   loadWorkspaceArtifactForUser,
@@ -262,7 +263,12 @@ export async function POST(
       versionId: version.id,
       url: `/apps/${app.slug}`,
     });
-  } catch {
+  } catch (error) {
+    // #802: the fail-closed provider gate names the offending binding so the
+    // builder can fix it (or publish a snapshot); other failures stay generic.
+    const gateError =
+      error instanceof LiveBindingGateError ? error : null;
+    const message = gateError?.message ?? "Could not publish this app version.";
     if (artifact.runId) {
       await appendRunEventBestEffort("app-deploy-run-event-error", {
         db,
@@ -270,18 +276,21 @@ export async function POST(
         eventType: "app_version_publish_failed",
         status: "failed",
         label: "App publish failed",
-        error: "Could not publish this app version.",
+        error: message,
         metadata: {
           appVersionNumber: version.versionNumber,
           filenames: [artifact.filename],
           failed: 1,
+          ...(gateError
+            ? { bindingId: gateError.bindingId, reason: gateError.reason }
+            : {}),
         },
       });
     }
     return NextResponse.json(
       {
-        error: "deploy_failed",
-        message: "Could not publish this app version.",
+        error: gateError ? gateError.code : "deploy_failed",
+        message,
       },
       { status: 422 },
     );

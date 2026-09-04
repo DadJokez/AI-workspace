@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The route composes library functions; mocking them (rather than replaying a
 // DB select-queue) makes the per-viewer scoping assertion the center of the
-// test: the query runs under the VIEWER's connection, never the author's.
+// test: the binding executes for the VIEWER, never the author, and only when
+// the live version declares it.
 
 const getSessionUser = vi.fn();
 const canActorOpenApp = vi.fn();
@@ -10,9 +11,9 @@ const getLiveAppVersion = vi.fn();
 const auditAppMutation = vi.fn();
 const auditAdminDataAccess = vi.fn();
 const loadWorkspaceArtifactById = vi.fn();
+const loadAppVersionDataBindings = vi.fn();
+const executeAppDataBinding = vi.fn();
 const checkRateLimit = vi.fn();
-const resolveSalesforceConnection = vi.fn();
-const queryReadOnlySoql = vi.fn();
 const resolveAppPublication = vi.fn();
 const isBindingIncludedInPublication = vi.fn();
 const isPublicationManifestEnabled = vi.fn();
@@ -28,38 +29,13 @@ vi.mock("@/lib/admin-data-access", () => ({
   auditAdminDataAccess,
 }));
 vi.mock("@/lib/workspace-artifacts", () => ({ loadWorkspaceArtifactById }));
+vi.mock("@/lib/app-version-bindings", () => ({ loadAppVersionDataBindings }));
+vi.mock("@/lib/app-data-execution", () => ({ executeAppDataBinding }));
 vi.mock("@/lib/request-limits", () => ({ checkRateLimit }));
-vi.mock("@/lib/oauth/salesforce-token", () => ({ resolveSalesforceConnection }));
 vi.mock("@/lib/app-publication", () => ({
   resolveAppPublication,
   isBindingIncludedInPublication,
   isPublicationManifestEnabled,
-}));
-vi.mock("@/lib/salesforce/authorization", () => ({
-  buildSalesforceTurnContext: ({
-    userId,
-    instanceUrl,
-  }: {
-    userId: string;
-    instanceUrl: string;
-  }) => ({ userId, instanceUrl, issuedAt: "t" }),
-}));
-
-class SalesforceApiError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-vi.mock("@/lib/salesforce/api", () => ({
-  queryReadOnlySoql,
-  SalesforceApiError,
-  validateReadOnlySoql: (raw: string) => {
-    if (!/^select\s/i.test(raw.trim())) throw new Error("not read-only");
-    return raw.trim();
-  },
 }));
 
 const appRow = {
@@ -87,16 +63,16 @@ const viewer = { id: "viewer-2", email: "v@x.com", displayName: "V", role: "user
 const binding = {
   id: "pipeline",
   provider: "salesforce",
-  kind: "soql",
-  query: "SELECT Id FROM Opportunity LIMIT 10",
+  toolName: "run_soql",
+  pinnedArgs: { soql: "SELECT Id FROM Opportunity LIMIT 10" },
 };
 
-async function callRoute() {
+async function callRoute(bindingId = "pipeline") {
   const { GET } = await import(
     "@/app/api/apps/[id]/data/[bindingId]/route"
   );
-  return GET(new Request("https://c.example/api/apps/app-1/data/pipeline"), {
-    params: Promise.resolve({ id: "app-1", bindingId: "pipeline" }),
+  return GET(new Request(`https://c.example/api/apps/app-1/data/${bindingId}`), {
+    params: Promise.resolve({ id: "app-1", bindingId }),
   });
 }
 
@@ -111,22 +87,20 @@ beforeEach(() => {
     resetAt: new Date("2026-07-18T00:00:00Z"),
     retryAfterSeconds: 60,
   });
-  getLiveAppVersion.mockResolvedValue({ artifactId: "artifact-live" });
+  getLiveAppVersion.mockResolvedValue({
+    id: "version-live",
+    artifactId: "artifact-live",
+  });
   loadWorkspaceArtifactById.mockResolvedValue({
     id: "artifact-live",
     metadata: { dataBindings: [binding] },
   });
-  resolveSalesforceConnection.mockResolvedValue({
-    status: "ready",
-    ready: true,
-    accessToken: "viewer-token",
-    instanceUrl: "https://na1.salesforce.com",
-  });
-  queryReadOnlySoql.mockResolvedValue({
-    soql: binding.query,
-    totalSize: 1,
-    done: true,
-    records: [{ Id: "006xxx" }],
+  loadAppVersionDataBindings.mockResolvedValue([binding]);
+  executeAppDataBinding.mockResolvedValue({
+    kind: "ok",
+    data: { records: [{ Id: "006xxx" }], totalSize: 1, done: true },
+    rowCount: 1,
+    legacyFields: { records: [{ Id: "006xxx" }], totalSize: 1, done: true },
   });
   resolveAppPublication.mockReturnValue({
     metadata: {
@@ -157,8 +131,7 @@ describe("GET /api/apps/[id]/data/[bindingId]", () => {
     const res = await callRoute();
 
     expect(res.status).toBe(404);
-    expect(resolveSalesforceConnection).not.toHaveBeenCalled();
-    expect(queryReadOnlySoql).not.toHaveBeenCalled();
+    expect(executeAppDataBinding).not.toHaveBeenCalled();
   });
 
   it("does not expose a binding omitted from the published manifest", async () => {
@@ -167,29 +140,57 @@ describe("GET /api/apps/[id]/data/[bindingId]", () => {
     const res = await callRoute();
 
     expect(res.status).toBe(404);
-    expect(resolveSalesforceConnection).not.toHaveBeenCalled();
-    expect(queryReadOnlySoql).not.toHaveBeenCalled();
+    expect(executeAppDataBinding).not.toHaveBeenCalled();
   });
 
-  it("runs the pinned query under the VIEWER's own connection and returns rows", async () => {
+  it("404s when a manifest tool is no longer an enabled read tool", async () => {
+    isPublicationManifestEnabled.mockResolvedValueOnce(false);
+
+    const res = await callRoute();
+
+    expect(res.status).toBe(404);
+    expect(executeAppDataBinding).not.toHaveBeenCalled();
+  });
+
+  it("resolves the binding from the LIVE version's pinned declarations and executes as the viewer", async () => {
     const res = await callRoute();
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toMatchObject({ ok: true, records: [{ Id: "006xxx" }] });
+    expect(body).toMatchObject({
+      ok: true,
+      bindingId: "pipeline",
+      provider: "salesforce",
+      toolName: "run_soql",
+      records: [{ Id: "006xxx" }],
+      data: { records: [{ Id: "006xxx" }] },
+    });
 
-    // The scoping spine: the token resolves for the VIEWER, not the author.
-    expect(resolveSalesforceConnection).toHaveBeenCalledWith(
+    // Declaration enforcement: bindings come from the live version's pins.
+    expect(loadAppVersionDataBindings).toHaveBeenCalledWith(
       expect.anything(),
-      viewer.id,
+      expect.objectContaining({ appVersionId: "version-live" }),
     );
-    expect(resolveSalesforceConnection).not.toHaveBeenCalledWith(
-      expect.anything(),
-      appRow.ownerUserId,
+    // The scoping spine: execution is for the VIEWER, not the author.
+    expect(executeAppDataBinding).toHaveBeenCalledWith(
+      expect.objectContaining({ viewerUserId: viewer.id, binding }),
     );
-    // The token passed to execution is the viewer's.
-    expect(queryReadOnlySoql).toHaveBeenCalledWith(
-      binding.query,
-      expect.objectContaining({ accessToken: "viewer-token" }),
+    expect(executeAppDataBinding).not.toHaveBeenCalledWith(
+      expect.objectContaining({ viewerUserId: appRow.ownerUserId }),
+    );
+    // The response never carries the pinned arguments.
+    expect(JSON.stringify(body)).not.toContain("SELECT Id FROM Opportunity");
+    expect(auditAppMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "app_data_refresh",
+        status: "succeeded",
+        actorUserId: viewer.id,
+        metadata: expect.objectContaining({
+          bindingId: "pipeline",
+          provider: "salesforce",
+          toolName: "run_soql",
+          rowCount: 1,
+        }),
+      }),
     );
   });
 
@@ -222,23 +223,23 @@ describe("GET /api/apps/[id]/data/[bindingId]", () => {
     getSessionUser.mockResolvedValue(null);
     const res = await callRoute();
     expect(res.status).toBe(401);
-    expect(resolveSalesforceConnection).not.toHaveBeenCalled();
+    expect(executeAppDataBinding).not.toHaveBeenCalled();
   });
 
   it("404s (not 403) and audits a denial when the viewer cannot open the app", async () => {
     canActorOpenApp.mockResolvedValue(false);
     const res = await callRoute();
     expect(res.status).toBe(404);
-    expect(queryReadOnlySoql).not.toHaveBeenCalled();
+    expect(executeAppDataBinding).not.toHaveBeenCalled();
     expect(auditAppMutation).toHaveBeenCalledWith(
       expect.objectContaining({ actionType: "app_data_denied", status: "denied" }),
     );
   });
 
   it("returns an honest connect prompt (never data) when the viewer has no connection", async () => {
-    resolveSalesforceConnection.mockResolvedValue({
-      status: "not_connected",
-      ready: false,
+    executeAppDataBinding.mockResolvedValue({
+      kind: "needs_connection",
+      connectionStatus: "not_connected",
     });
     const res = await callRoute();
     expect(res.status).toBe(200);
@@ -249,59 +250,55 @@ describe("GET /api/apps/[id]/data/[bindingId]", () => {
       provider: "salesforce",
       connectionStatus: "not_connected",
     });
-    expect(queryReadOnlySoql).not.toHaveBeenCalled();
+    expect(auditAppMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "app_data_refresh",
+        metadata: expect.objectContaining({ outcome: "connection_not_connected" }),
+      }),
+    );
   });
 
   it("404s an unknown binding id", async () => {
-    loadWorkspaceArtifactById.mockResolvedValue({
-      id: "artifact-live",
-      metadata: { dataBindings: [] },
+    const res = await callRoute("missing");
+    expect(res.status).toBe(404);
+    expect(executeAppDataBinding).not.toHaveBeenCalled();
+  });
+
+  it("422s a pinned binding whose arguments fail read-only re-validation", async () => {
+    executeAppDataBinding.mockResolvedValue({ kind: "invalid_binding" });
+    const res = await callRoute();
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: "invalid_binding" });
+  });
+
+  it("404s and audits a policy denial", async () => {
+    executeAppDataBinding.mockResolvedValue({
+      kind: "denied",
+      reason: "tool_policy_not_always_allow",
     });
     const res = await callRoute();
     expect(res.status).toBe(404);
-  });
-
-  it("422s and never executes a pinned query that fails read-only re-validation", async () => {
-    loadWorkspaceArtifactById.mockResolvedValue({
-      id: "artifact-live",
-      metadata: {
-        dataBindings: [
-          { ...binding, query: "UPDATE Opportunity SET Name='x'" },
-        ],
-      },
-    });
-    const res = await callRoute();
-    expect(res.status).toBe(422);
-    expect(queryReadOnlySoql).not.toHaveBeenCalled();
-    expect(resolveSalesforceConnection).not.toHaveBeenCalled();
-  });
-
-  it("never echoes the pinned query in the 502 body or audit row (Salesforce echoes queries in errors)", async () => {
-    const secretQuery =
-      "SELECT Id, Secret_Margin__c FROM Opportunity WHERE StageName='Closed Won'";
-    loadWorkspaceArtifactById.mockResolvedValue({
-      id: "artifact-live",
-      metadata: { dataBindings: [{ ...binding, query: secretQuery }] },
-    });
-    // Salesforce INVALID_FIELD errors quote the submitted query verbatim.
-    queryReadOnlySoql.mockRejectedValue(
-      new SalesforceApiError(
-        400,
-        `${secretQuery}\n^ ERROR at Row:1:Column:12 No such column 'Secret_Margin__c' (INVALID_FIELD)`,
-      ),
+    expect(auditAppMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "app_data_denied",
+        status: "denied",
+        error: "tool_policy_not_always_allow",
+      }),
     );
+  });
 
+  it("502s a source error with only a category in the audit row", async () => {
+    executeAppDataBinding.mockResolvedValue({
+      kind: "source_error",
+      category: "salesforce_error_400",
+    });
     const res = await callRoute();
     expect(res.status).toBe(502);
-    const bodyText = JSON.stringify(await res.json());
-    for (const fragment of ["Secret_Margin__c", "StageName", "Closed Won"]) {
-      expect(bodyText).not.toContain(fragment);
-    }
-    const auditText = JSON.stringify(auditAppMutation.mock.calls);
-    for (const fragment of ["Secret_Margin__c", "StageName", "Closed Won"]) {
-      expect(auditText).not.toContain(fragment);
-    }
-    // The audit still records a useful, non-echoing category.
+    expect(await res.json()).toEqual({
+      ok: false,
+      error: "data_source_error",
+      message: "The data source could not be reached.",
+    });
     expect(auditAppMutation).toHaveBeenCalledWith(
       expect.objectContaining({ status: "failed", error: "salesforce_error_400" }),
     );
@@ -318,6 +315,6 @@ describe("GET /api/apps/[id]/data/[bindingId]", () => {
     const res = await callRoute();
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toBe("42");
-    expect(queryReadOnlySoql).not.toHaveBeenCalled();
+    expect(executeAppDataBinding).not.toHaveBeenCalled();
   });
 });

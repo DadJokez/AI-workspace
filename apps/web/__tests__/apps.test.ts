@@ -14,6 +14,7 @@ import {
   isServableArtifact,
   parseAppInput,
   RESERVED_APP_SLUGS,
+  scanArtifactForSecrets,
 } from "@/lib/apps";
 
 const owner = { id: "owner-1", role: "user" as const };
@@ -69,6 +70,24 @@ describe("findCredentialShapedContent (FR-014 no-secrets policy)", () => {
         "-----BEGIN RSA PRIVATE KEY-----\nMIIEow...",
       ),
     ).toContain("a private key block");
+  });
+
+  it("scans pinned binding arguments, not just HTML content (#802)", () => {
+    expect(
+      scanArtifactForSecrets({
+        content: "<!doctype html><html><body>clean</body></html>",
+        metadata: {
+          dataBindings: [
+            {
+              id: "issues",
+              provider: "github",
+              toolName: "list_issues",
+              pinnedArgs: { headers: { authorization: `token ghp_${"a".repeat(30)}` } },
+            },
+          ],
+        },
+      }),
+    ).toEqual(["a GitHub token"]);
   });
 
   it("passes ordinary app content mentioning auth concepts", () => {

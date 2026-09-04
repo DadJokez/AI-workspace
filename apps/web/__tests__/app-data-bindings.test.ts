@@ -1,12 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
-  bindingQueryStrings,
+  MAX_PINNED_ARGS_CHARS,
+  bindingCatalogKey,
+  bindingScanStrings,
   findDataBinding,
   parseDataBindings,
+  publicDataBinding,
   scrubBindingsForClient,
 } from "@/lib/app-data-bindings";
 
-const goodBinding = {
+const genericBinding = {
+  id: "open-prs",
+  provider: "github",
+  toolName: "list_pull_requests",
+  pinnedArgs: { owner: "DadJokez", repo: "AI-workspace", state: "open" },
+  label: "Open PRs",
+};
+
+const legacyBinding = {
   id: "pipeline",
   provider: "salesforce",
   kind: "soql",
@@ -22,65 +33,128 @@ describe("parseDataBindings", () => {
     expect(parseDataBindings({ dataBindings: "not-an-array" })).toEqual([]);
   });
 
-  it("keeps a well-formed binding and preserves its fields", () => {
-    expect(parseDataBindings({ dataBindings: [goodBinding] })).toEqual([
-      goodBinding,
+  it("keeps a well-formed generic binding and preserves its fields", () => {
+    expect(parseDataBindings({ dataBindings: [genericBinding] })).toEqual([
+      genericBinding,
+    ]);
+  });
+
+  it("reads the legacy #407 SOQL shape as salesforce/run_soql (additive compatibility)", () => {
+    expect(parseDataBindings({ dataBindings: [legacyBinding] })).toEqual([
+      {
+        id: "pipeline",
+        provider: "salesforce",
+        toolName: "run_soql",
+        pinnedArgs: { soql: legacyBinding.query },
+        label: "Pipeline",
+      },
     ]);
   });
 
   it("drops malformed entries and fails closed", () => {
     const result = parseDataBindings({
       dataBindings: [
-        goodBinding,
-        { id: "x", provider: "github", kind: "soql", query: "q" }, // unsupported provider
-        { id: "y", provider: "salesforce", kind: "graphql", query: "q" }, // wrong kind
-        { id: "z", provider: "salesforce", kind: "soql", query: "  " }, // empty query
-        { provider: "salesforce", kind: "soql", query: "q" }, // no id
-        goodBinding, // duplicate id collapses to first
+        genericBinding,
+        { id: "a", provider: "github", pinnedArgs: {} }, // no toolName
+        { id: "b", provider: "github", toolName: "get_issue" }, // no pinnedArgs
+        { id: "c", provider: "github", toolName: "get_issue", pinnedArgs: "x" }, // args not an object
+        { id: "d", provider: "github", toolName: "get_issue", pinnedArgs: [1] }, // args not an object
+        { id: "e", provider: "Git Hub", toolName: "get_issue", pinnedArgs: {} }, // bad provider slug
+        { id: "f", provider: "github", toolName: "get issue", pinnedArgs: {} }, // bad tool slug
+        { provider: "github", toolName: "get_issue", pinnedArgs: {} }, // no id
+        { id: "g", provider: "github", kind: "soql", query: "SELECT Id FROM X" }, // legacy kind on the wrong provider
+        { id: "h", provider: "salesforce", kind: "soql", query: "   " }, // empty legacy query
+        { id: "i", provider: "salesforce", kind: "graphql", query: "q" }, // unknown kind, no toolName
+        genericBinding, // duplicate id collapses to first
       ],
     });
-    expect(result).toEqual([goodBinding]);
+    expect(result).toEqual([genericBinding]);
+  });
+
+  it("rejects pinned arguments over the size bound", () => {
+    const huge = { ...genericBinding, pinnedArgs: { q: "x".repeat(MAX_PINNED_ARGS_CHARS) } };
+    expect(parseDataBindings({ dataBindings: [huge] })).toEqual([]);
   });
 
   it("truncates an over-long list", () => {
     const many = Array.from({ length: 30 }, (_, i) => ({
-      ...goodBinding,
+      ...genericBinding,
       id: `b${i}`,
     }));
     expect(parseDataBindings({ dataBindings: many })).toHaveLength(12);
   });
 });
 
-describe("findDataBinding / bindingQueryStrings", () => {
+describe("findDataBinding / bindingScanStrings / bindingCatalogKey", () => {
   it("finds by id and returns null for a miss", () => {
-    const meta = { dataBindings: [goodBinding] };
-    expect(findDataBinding(meta, "pipeline")?.query).toContain("Opportunity");
+    const meta = { dataBindings: [genericBinding, legacyBinding] };
+    expect(findDataBinding(meta, "open-prs")?.pinnedArgs).toEqual(
+      genericBinding.pinnedArgs,
+    );
+    expect(findDataBinding(meta, "pipeline")?.toolName).toBe("run_soql");
     expect(findDataBinding(meta, "missing")).toBeNull();
   });
 
-  it("collects query strings for the mint secret scan", () => {
-    expect(
-      bindingQueryStrings({
-        dataBindings: [goodBinding, { ...goodBinding, id: "b2", query: "SELECT Id FROM Account" }],
-      }),
-    ).toEqual([goodBinding.query, "SELECT Id FROM Account"]);
+  it("serializes pinned arguments (nested strings included) for the secret scan", () => {
+    const strings = bindingScanStrings({
+      dataBindings: [
+        legacyBinding,
+        {
+          ...genericBinding,
+          pinnedArgs: { headers: { authorization: "Bearer " + "t".repeat(24) } },
+        },
+      ],
+    });
+    expect(strings[0]).toContain(legacyBinding.query);
+    expect(strings[1]).toContain("Bearer tttttttttttttttttttttttt");
+  });
+
+  it("keys bindings to tools_catalog rows", () => {
+    expect(bindingCatalogKey(genericBinding)).toBe("github:list_pull_requests");
   });
 });
 
-describe("scrubBindingsForClient", () => {
-  it("strips the raw query but keeps id/provider/kind/label", () => {
+describe("scrubBindingsForClient / publicDataBinding", () => {
+  it("strips pinned arguments but keeps id/provider/toolName/label", () => {
     const scrubbed = scrubBindingsForClient({
       other: "kept",
-      dataBindings: [goodBinding],
+      dataBindings: [genericBinding, legacyBinding],
     });
     expect(scrubbed).toEqual({
       other: "kept",
       dataBindings: [
-        { id: "pipeline", provider: "salesforce", kind: "soql", label: "Pipeline" },
+        {
+          id: "open-prs",
+          provider: "github",
+          toolName: "list_pull_requests",
+          label: "Open PRs",
+        },
+        {
+          id: "pipeline",
+          provider: "salesforce",
+          toolName: "run_soql",
+          label: "Pipeline",
+        },
       ],
     });
-    // The query text must never survive serialization to a viewer.
-    expect(JSON.stringify(scrubbed)).not.toContain("Opportunity");
+    // Pinned arguments and query text must never survive serialization.
+    const text = JSON.stringify(scrubbed);
+    expect(text).not.toContain("Opportunity");
+    expect(text).not.toContain("DadJokez");
+    expect(text).not.toContain("pinnedArgs");
+  });
+
+  it("allowlists fields rather than spreading the binding", () => {
+    const withExtra = {
+      ...genericBinding,
+      secretish: "should not leak",
+    } as unknown as Parameters<typeof publicDataBinding>[0];
+    expect(publicDataBinding(withExtra)).toEqual({
+      id: "open-prs",
+      provider: "github",
+      toolName: "list_pull_requests",
+      label: "Open PRs",
+    });
   });
 
   it("passes through metadata without bindings unchanged", () => {
