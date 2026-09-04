@@ -192,8 +192,8 @@ describe("browser egress proxy", () => {
 
     const client = await openClient(proxy.port);
     client.socket.write(`CONNECT ${ALLOWED_HOST}:443 HTTP/1.1\r\nHost: ${ALLOWED_HOST}:443\r\n\r\n`);
-    const raw = await client.waitFor("\r\n\r\n");
-    expect(raw.startsWith("HTTP/1.1 407 Proxy Authentication Required\r\n")).toBe(true);
+    const { head } = await readHead(client);
+    expect(head.startsWith("HTTP/1.1 407 Proxy Authentication Required\r\n")).toBe(true);
     expect(logs.log).toEqual([]);
   });
 });
@@ -316,15 +316,31 @@ async function openClient(port: number) {
   };
 }
 
-/** Opens a CONNECT tunnel to the echo upstream and round-trips a payload. */
+/**
+ * Opens a CONNECT tunnel to the echo upstream and round-trips a payload.
+ *
+ * Only the CONNECT response head is asserted: once the proxy has spliced the
+ * sockets, anything the upstream writes on connect can coalesce onto the same
+ * TCP read as the "200 Connection Established" bytes. Those trailing bytes are
+ * tunnel data, not part of the proxy's response, so they are returned rather
+ * than compared.
+ */
 async function expectTunnel(proxyPort: number) {
   const client = await openClient(proxyPort);
   client.socket.write(connectRequest(ALLOWED_HOST));
-  const established = await client.waitFor("\r\n\r\n");
-  expect(established).toBe("HTTP/1.1 200 Connection Established\r\n\r\n");
+  const { head, rest } = await readHead(client);
+  expect(head).toBe("HTTP/1.1 200 Connection Established\r\n\r\n");
   client.socket.write("ping through the tunnel");
   await client.waitFor("ping through the tunnel");
   client.socket.end();
+  return rest;
+}
+
+/** Reads through the header terminator; `rest` is any tunnel data received with it. */
+async function readHead(client: Awaited<ReturnType<typeof openClient>>) {
+  const received = await client.waitFor("\r\n\r\n");
+  const end = received.indexOf("\r\n\r\n") + 4;
+  return { head: received.slice(0, end), rest: received.slice(end) };
 }
 
 function closed(socket: net.Socket) {
