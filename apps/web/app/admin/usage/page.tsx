@@ -58,6 +58,8 @@ export default async function AdminUsagePage({ searchParams }: Props) {
       activeUsers: sql<number>`count(distinct ${runs.userId})::int`,
       succeeded: sql<number>`(count(*) filter (where ${runs.status} = 'succeeded'))::int`,
       failed: sql<number>`(count(*) filter (where ${runs.status} = 'failed'))::int`,
+      // #848: a budget stop is a succeeded run whose receipt says partial.
+      budgetStopped: sql<number>`(count(*) filter (where ${runs.status} = 'succeeded' and (${runs.outputs} -> 'budgetReceipt' ->> 'partial')::boolean is true))::int`,
       chatTurns: sql<number>`(count(*) filter (where ${runs.triggerType} = 'chat'))::int`,
     })
     .from(runs)
@@ -67,6 +69,7 @@ export default async function AdminUsagePage({ searchParams }: Props) {
     activeUsers: 0,
     succeeded: 0,
     failed: 0,
+    budgetStopped: 0,
     chatTurns: 0,
   };
 
@@ -135,7 +138,7 @@ export default async function AdminUsagePage({ searchParams }: Props) {
         </span>
       </div>
 
-      <div className="grid gap-3 px-6 pb-5 md:grid-cols-4">
+      <div className="grid gap-3 px-6 pb-5 md:grid-cols-5">
         <Metric
           label="Total runs"
           value={totals.total.toLocaleString()}
@@ -150,7 +153,13 @@ export default async function AdminUsagePage({ searchParams }: Props) {
         <Metric
           label="Success rate"
           value={totals.total > 0 ? `${successRate}%` : "—"}
-          hint={`${totals.succeeded.toLocaleString()} ok · ${totals.failed.toLocaleString()} failed`}
+          hint={`${totals.succeeded.toLocaleString()} ok · ${totals.failed.toLocaleString()} failed · ${totals.budgetStopped.toLocaleString()} of ${totals.succeeded.toLocaleString()} succeeded runs were truncated`}
+          variant="prominent"
+        />
+        <Metric
+          label="Stopped at budget"
+          value={totals.budgetStopped.toLocaleString()}
+          hint="Succeeded, but the run budget cut the work short"
           variant="prominent"
         />
         <Metric

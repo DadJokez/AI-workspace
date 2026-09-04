@@ -2,6 +2,7 @@ import {
   RUN_BUDGET_SCHEMA,
   parseRunBudgetReceipt,
   parseRunBudgetState,
+  type RunBudgetDimension,
   type RunBudgetEnvelope,
   type RunBudgetLimits,
   type RunBudgetReceipt,
@@ -87,6 +88,38 @@ export function resolveStoredRunBudget({
     return { envelope: parsed.envelope };
   }
   return { envelope: parsed.envelope, consumed: receipt.consumed };
+}
+
+/**
+ * The budget dimension that truncated a completed run, or null when the run
+ * finished its work. `run_status` stays `succeeded` for a budget stop (#848):
+ * `outputs.budgetReceipt` is the one row-level truncation signal, and every
+ * consumer that presents run status as an outcome reads it through here.
+ */
+export function budgetTruncation(outputs: unknown): RunBudgetDimension | null {
+  if (!isRecord(outputs)) return null;
+  const receipt = parseRunBudgetReceipt(outputs.budgetReceipt);
+  return receipt?.partial === true && receipt.reached !== undefined
+    ? receipt.reached
+    : null;
+}
+
+/** Human label for a budget dimension; `undefined` reads as "configured". */
+export function budgetDimensionLabel(
+  dimension: RunBudgetDimension | undefined,
+): string {
+  switch (dimension) {
+    case "tokens":
+      return "token";
+    case "usd":
+      return "cost";
+    case "wall_clock":
+      return "time";
+    case "tool_iterations":
+      return "tool-step";
+    default:
+      return "configured";
+  }
 }
 
 export function runBudgetEnvelopeForEvent(
