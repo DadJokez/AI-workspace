@@ -38,6 +38,7 @@ describe("connectMcpTools", () => {
     const registry = new ToolRegistry();
     registry.register({
       name: "github__list_pull_requests",
+      policy: "always_allow",
       description: "List pull requests",
       inputSchema: {
         type: "object",
