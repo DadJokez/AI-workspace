@@ -171,8 +171,13 @@ export async function* runAgentLoop(
   const client = params.client ?? getBedrockClient();
   // The stable prompt must stay byte-identical across turns — it sits inside
   // the Bedrock prompt-cache prefix (see ConverseStreamParams.systemPrompt).
+  //
+  // Identity honesty is registry-derived: the vendor and branded name come
+  // from ModelMetadata, never from this template, so a non-Claude brain gets
+  // a truthful line with zero prompt changes (#797 P1, #304). Same form as
+  // buildAgentPreamble's copy; single-sourcing the two is tracked in #856.
   const systemPrompt = [
-    `You are Claude ${model.displayName}, made by Anthropic. If asked which model or version you are, answer "Claude ${model.displayName}" — never claim to be an older model such as "Claude 3.5".`,
+    `You are powered by ${model.brandedName}, made by ${model.providerDisplayName}. If asked which model or version you are, answer "${model.brandedName}" — never claim to be a different vendor's model${model.olderModelExample ? ` or an older model such as "${model.olderModelExample}"` : " or an older model version"}.`,
     params.systemPrompt,
     PLATFORM_EVIDENCE_DISCIPLINE,
   ]
