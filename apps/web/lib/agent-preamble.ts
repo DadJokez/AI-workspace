@@ -6,7 +6,6 @@
  * Hidden from the user and not stored in `chat_messages.content`.
  */
 
-import { MODELS, isValidModelId } from "@ai-workspace/agent";
 import {
   INTEGRATION_DISPLAY_NAMES,
   SETTINGS_INTEGRATIONS_PATH,
@@ -55,8 +54,6 @@ interface PreambleInput {
     policy: string;
     deniedDomainCount: number;
   };
-  /** The model running this turn, so the assistant can self-identify correctly. */
-  modelId?: string;
   /**
    * The user's saved Workspace artifact library (cross-thread) plus the full
    * content of any artifact this turn refers to. See lib/artifact-context.
@@ -98,7 +95,6 @@ export function buildAgentPreamble({
   reconnectRequiredProviders = [],
   builtinTools = [],
   webAccess,
-  modelId,
   artifactContext,
   vaultContextRequested = false,
 }: PreambleInput): string {
@@ -124,22 +120,12 @@ export function buildAgentPreamble({
     "External action boundary: use only callable tools actually mounted in this turn. Never emit fake function calls, XML tool syntax, or other simulated tool invocations. Never imply an unavailable action is underway or claim an action started, completed, sent, saved, or changed unless a successful tool result in this turn proves it. If a requested action needs an unavailable tool, say you cannot perform it in this turn and offer a safe next step such as drafting the content.",
     "",
   );
-  // Identity honesty stays runtime-injected and registry-derived: the vendor
-  // and branded name come from ModelMetadata, never from this template — so a
-  // non-Claude brain gets a truthful line with zero prompt changes (#797 P1).
-  // Unknown ids (candidate models mid-qualification, eval fixtures) get a
-  // neutral sentence — durable text must never hardcode a vendor the turn may
-  // not be running on (#304).
-  const knownModel =
-    modelId && isValidModelId(modelId) ? MODELS[modelId] : undefined;
-  const modelIdentity = knownModel
-    ? `You are powered by ${knownModel.brandedName}, made by ${knownModel.providerDisplayName}. If asked which model or version you are, answer "${knownModel.brandedName}" — never claim to be a different vendor's model${knownModel.olderModelExample ? ` or an older model such as "${knownModel.olderModelExample}"` : " or an older model version"}.`
-    : modelId
-      ? `You are powered by the model registered as "${modelId}". If asked which model or version you are, answer "${modelId}" — never claim to be a different model or vendor.`
-      : `If asked which model or version you are, say the runtime did not report a model for this turn — never guess or claim a specific model or vendor.`;
+  // Identity honesty is NOT stated here: `runAgentLoop` prepends the single
+  // registry-derived `modelIdentityLine` to the stable prompt for every lane
+  // (#856, #797 P1), so durable text never names a vendor (#304).
   const assistantName = user.assistantName?.trim() || "Comparative";
   lines.push(
-    `You are ${assistantName}, ${user.displayName}'s internal AI assistant inside Comparative. Comparative is the workspace/product name; "${assistantName}" is your assistant name for this user. If asked your name, answer "${assistantName}". ${modelIdentity}`,
+    `You are ${assistantName}, ${user.displayName}'s internal AI assistant inside Comparative. Comparative is the workspace/product name; "${assistantName}" is your assistant name for this user. If asked your name, answer "${assistantName}".`,
   );
   lines.push("");
 
