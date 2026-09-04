@@ -19,6 +19,9 @@ branch** → Rob merges.
 - Run the local gate before handing off:
   `pnpm lint && pnpm typecheck && pnpm test && pnpm build`, plus
   `pnpm smoke:browser` when the change touches the chat UI.
+- `pnpm test:coverage` runs the same unit lane with v8 coverage and prints a
+  per-package table (report-only, no thresholds) — use it to check that the
+  code you changed is actually exercised.
 - Do **not** add a new production dependency, a database migration, or any
   auth / secret / env / permissions change without Rob's explicit approval —
   call it out in the PR description instead of doing it.
