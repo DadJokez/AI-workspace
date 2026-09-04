@@ -19,7 +19,10 @@ jobs:
   ci:
     name: lint + typecheck + build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 15, not 10: #869 made the Test step run with coverage (+~75 s) and on a
+    # slow-runner night the job lands at 9-10 min, so the cap cancels it
+    # ("Test (with coverage)=cancelled") and a docs-only PR reads as red (#862).
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:

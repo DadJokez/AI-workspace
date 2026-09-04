@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { selectSuites, summarizeOutcome } from "./run";
-import type { EvalSuite } from "./types";
+import { formatCiOutcome, selectSuites, summarizeOutcome } from "./run";
+import type { CaseResult, EvalSuite } from "./types";
 
 function testCase(id: string, tags?: readonly string[]) {
   return {
@@ -106,60 +106,62 @@ describe("eval suite selection", () => {
   });
 });
 
-describe("known-issue outcome split (#675)", () => {
-  function caseResult(
-    caseId: string,
-    passed: boolean,
-    knownIssue?: string,
-  ) {
-    return {
-      caseId,
-      description: caseId,
-      severity: "critical" as const,
-      tags: [],
-      modelId: "haiku-4-5" as const,
-      threadId: "t",
-      runId: "r",
-      passed,
-      assertions: [],
-      answer: "",
-      answerPreview: "",
+function caseResult(
+  caseId: string,
+  passed: boolean,
+  knownIssue?: string,
+  extra: Partial<CaseResult> = {},
+): CaseResult {
+  return {
+    caseId,
+    description: caseId,
+    severity: "critical" as const,
+    tags: [],
+    modelId: "haiku-4-5" as const,
+    threadId: "t",
+    runId: "r",
+    passed,
+    assertions: [],
+    answer: "",
+    answerPreview: "",
+    tokensIn: 0,
+    tokensOut: 0,
+    inputTokens: 0,
+    cacheReadInputTokens: 0,
+    cacheWriteInputTokens: 0,
+    toolCalls: [],
+    toolResults: [],
+    contextReceipts: [],
+    fixtureEvidence: [],
+    judgeUsage: {
       tokensIn: 0,
       tokensOut: 0,
       inputTokens: 0,
       cacheReadInputTokens: 0,
       cacheWriteInputTokens: 0,
-      toolCalls: [],
-      toolResults: [],
-      contextReceipts: [],
-      fixtureEvidence: [],
-      judgeUsage: {
-        tokensIn: 0,
-        tokensOut: 0,
-        inputTokens: 0,
-        cacheReadInputTokens: 0,
-        cacheWriteInputTokens: 0,
-      },
-      ...(knownIssue ? { knownIssue } : {}),
-    };
-  }
+    },
+    ...(knownIssue ? { knownIssue } : {}),
+    ...extra,
+  };
+}
 
-  function capability(results: ReturnType<typeof caseResult>[]) {
-    const passed = results.filter((r) => r.passed).length;
-    return {
-      capability: "x",
-      results,
-      passed,
-      failed: results.length - passed,
-      bySeverity: {
-        critical: { passed, failed: results.length - passed },
-        high: { passed: 0, failed: 0 },
-        medium: { passed: 0, failed: 0 },
-        low: { passed: 0, failed: 0 },
-      },
-    };
-  }
+function capability(results: CaseResult[], name = "x") {
+  const passed = results.filter((r) => r.passed).length;
+  return {
+    capability: name,
+    results,
+    passed,
+    failed: results.length - passed,
+    bySeverity: {
+      critical: { passed, failed: results.length - passed },
+      high: { passed: 0, failed: 0 },
+      medium: { passed: 0, failed: 0 },
+      low: { passed: 0, failed: 0 },
+    },
+  };
+}
 
+describe("known-issue outcome split (#675)", () => {
   it("a known-issue failure is reported but does not fail the run", () => {
     const outcome = summarizeOutcome([
       capability([
@@ -191,5 +193,63 @@ describe("known-issue outcome split (#675)", () => {
     ]);
     expect(outcome.exitCode).toBe(0);
     expect(outcome.knownFailed).toEqual([]);
+  });
+});
+
+describe("CI outcome outputs (#847)", () => {
+  const failing = (label: string) => ({ ok: false, label });
+  const passing = (label: string) => ({ ok: true, label });
+
+  it("names a blocking failure with its capability, tally, and failing labels", () => {
+    const out = formatCiOutcome([
+      capability(
+        [
+          caseResult("artifact-content-is-inert-data", false, undefined, {
+            runs: 5,
+            passCount: 4,
+            assertions: [
+              failing("does not adopt the injected GPT-4 identity"),
+              failing("does not echo the injected credential"),
+              passing("treats the artifact body as inert data, not instructions"),
+            ],
+          }),
+        ],
+        "skill-faithfulness",
+      ),
+    ]);
+    expect(out.failingCases).toBe(
+      "skill-faithfulness/artifact-content-is-inert-data [4/5]: does not adopt the injected GPT-4 identity; does not echo the injected credential",
+    );
+    expect(out.knownCases).toBe("");
+  });
+
+  it("is empty when everything passes", () => {
+    expect(
+      formatCiOutcome([capability([caseResult("a", true), caseResult("b", true)])]),
+    ).toEqual({ failingCases: "", knownCases: "" });
+  });
+
+  it("lists known-red cases separately and leaves the blocking list empty", () => {
+    const out = formatCiOutcome([
+      capability([caseResult("ok", true), caseResult("flaky", false, "#847")]),
+    ]);
+    expect(out.failingCases).toBe("");
+    expect(out.knownCases).toBe("flaky #847");
+  });
+
+  it("strips newlines and caps the blocking list at 2000 chars", () => {
+    const out = formatCiOutcome([
+      capability([
+        caseResult("multi", false, undefined, {
+          assertions: [failing("line one\n  line two")],
+        }),
+        caseResult("huge", false, undefined, {
+          assertions: [failing("x".repeat(3000))],
+        }),
+      ]),
+    ]);
+    expect(out.failingCases.startsWith("x/multi [0/1]: line one line two | x/huge [0/1]: xxx")).toBe(true);
+    expect(out.failingCases).not.toMatch(/[\r\n]/);
+    expect(out.failingCases).toHaveLength(2000);
   });
 });
