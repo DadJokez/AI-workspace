@@ -54,7 +54,7 @@ describe("connectMcpTools", () => {
       json: { type: "object" },
     });
 
-    const awsConfig = toAwsToolConfiguration(registryConfig);
+    const awsConfig = toAwsToolConfiguration(registryConfig, true);
     const schema = awsConfig?.tools?.[0]?.toolSpec?.inputSchema;
     expect(schema).toMatchObject({ json: { type: "object" } });
     expect(schema).not.toMatchObject({ json: { json: expect.anything() } });
