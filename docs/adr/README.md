@@ -16,7 +16,7 @@ an IT reviewer) understands the reasoning without archaeology.
 | [0008](./0008-handwritten-sql-migrations.md) | Handwritten SQL migrations over `drizzle-kit generate` | Accepted |
 | [0009](./0009-progressive-tool-discovery.md) | Progressive tool discovery via stable bundles (succeeds 0006) | Accepted |
 | [0010](./0010-prompt-cache-discipline.md) | Prompt-cache discipline: stable prefix / volatile suffix / pinned layer | Accepted |
-| [0011](./0011-tool-policy-observe-before-enforce.md) | Tri-state tool policy, observe before enforce | Accepted |
+| [0011](./0011-tool-policy-observe-before-enforce.md) | Tri-state tool policy, observe before enforce | Accepted — amended 2026-09-02 (enforcement landed, #831–#835) |
 | [0012](./0012-two-execution-lanes.md) | Two execution lanes (inline + durable worker) | Accepted — mechanism under revision ([#442](https://github.com/DadJokez/AI-workspace/issues/442)) |
 | [0013](./0013-durable-conversation-resources.md) | Uploaded files are durable, thread-scoped conversation resources | Accepted |
 
