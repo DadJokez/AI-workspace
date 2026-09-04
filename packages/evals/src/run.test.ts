@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { formatCiOutcome, selectSuites, summarizeOutcome } from "./run";
+import {
+  DEFAULT_MODEL_ID,
+  MODEL_IDS,
+  MODELS,
+  type BedrockClient,
+  type BedrockStreamEvent,
+  type ConverseStreamParams,
+} from "@ai-workspace/agent";
+import { runSuite } from "./harness";
+import { JUDGE_MODEL_ID } from "./judge";
+import {
+  applyModelOverride,
+  formatCiOutcome,
+  parseRunArgs,
+  resolveRunModels,
+  selectSuites,
+  summarizeOutcome,
+} from "./run";
+import { buildScorecard } from "./scorecard";
 import type { CaseResult, EvalSuite } from "./types";
 
 function testCase(id: string, tags?: readonly string[]) {
@@ -251,5 +269,140 @@ describe("CI outcome outputs (#847)", () => {
     expect(out.failingCases.startsWith("x/multi [0/1]: line one line two | x/huge [0/1]: xxx")).toBe(true);
     expect(out.failingCases).not.toMatch(/[\r\n]/);
     expect(out.failingCases).toHaveLength(2000);
+  });
+});
+
+describe("--model qualification runs (#797 P2)", () => {
+  it("parses --model and --model= without eating the capability filter", () => {
+    expect(parseRunArgs(["--mock", "--model", "opus-4-7", "date-grounding"])).toEqual({
+      mock: true,
+      gate: false,
+      core: false,
+      filter: "date-grounding",
+      modelId: "opus-4-7",
+    });
+    expect(parseRunArgs(["date-grounding", "--model=haiku-4-5", "--gate"])).toMatchObject({
+      gate: true,
+      filter: "date-grounding",
+      modelId: "haiku-4-5",
+    });
+    expect(parseRunArgs(["--baseline", "eval-reports/x.json"]).baselinePath).toBe(
+      "eval-reports/x.json",
+    );
+    expect(() => parseRunArgs(["--model"])).toThrow(/--model needs a value/);
+    expect(() => parseRunArgs(["--model", "--mock"])).toThrow(/--model needs a value/);
+  });
+
+  it("the --model value is never mistaken for a capability filter in suite selection", () => {
+    expect(
+      selectSuites(["--model", "opus-4-7"], suites).map((s) => s.capability),
+    ).toEqual(["suite-core", "case-core", "advanced-only"]);
+    expect(
+      selectSuites(["--model", "opus-4-7", "case-core"], suites).map((s) => s.capability),
+    ).toEqual(["case-core"]);
+  });
+
+  it("refuses an id that is not in the registry, naming the valid ones", () => {
+    expect(() => resolveRunModels({ modelId: "gpt-5.6-terra" })).toThrow(
+      /Unknown --model "gpt-5.6-terra".*haiku-4-5, sonnet-4-5, sonnet-4-6, opus-4-7/,
+    );
+  });
+
+  it("refuses to qualify the judge model with itself", () => {
+    expect(() => resolveRunModels({ modelId: JUDGE_MODEL_ID })).toThrow(
+      /pinned judge.*never qualify itself/,
+    );
+  });
+
+  it("the judge id is pinned regardless of --model; the incumbent run is never refused", () => {
+    for (const modelId of MODEL_IDS.filter((id) => id !== JUDGE_MODEL_ID)) {
+      expect(resolveRunModels({ modelId })).toEqual({
+        candidateModelId: modelId,
+        judgeModelId: JUDGE_MODEL_ID,
+      });
+    }
+    expect(resolveRunModels({})).toEqual({
+      candidateModelId: DEFAULT_MODEL_ID,
+      judgeModelId: JUDGE_MODEL_ID,
+    });
+  });
+
+  it("overrides every suite default and every case-level pin", () => {
+    const pinned: EvalSuite[] = [
+      {
+        capability: "routing",
+        defaultModelId: "sonnet-4-6",
+        cases: [
+          { ...testCase("pinned-default"), modelId: "sonnet-4-6" },
+          { ...testCase("pinned-haiku"), modelId: "haiku-4-5" },
+          testCase("unpinned"),
+        ],
+      },
+    ];
+    const { suites: overridden, overriddenPins } = applyModelOverride(pinned, "opus-4-7");
+    expect(overriddenPins).toBe(2);
+    expect(overridden[0]!.defaultModelId).toBe("opus-4-7");
+    expect(overridden[0]!.cases.map((c) => c.modelId)).toEqual([undefined, undefined, undefined]);
+    // The input is not mutated.
+    expect(pinned[0]!.cases[1]!.modelId).toBe("haiku-4-5");
+  });
+
+  it("a --model run sends candidate turns to the candidate and judge turns to JUDGE_MODEL_ID", async () => {
+    // Hard assertion for the judge pin: every Bedrock call is recorded with
+    // the model it went to. A candidate override must move the case turns
+    // and leave the judge exactly where it was.
+    const calls: Array<{ bedrockModelId: string; judge: boolean }> = [];
+    const recording: BedrockClient = {
+      async *converseStream(params: ConverseStreamParams): AsyncIterable<BedrockStreamEvent> {
+        const text = params.messages
+          .flatMap((m) => m.content)
+          .filter((b): b is { kind: "text"; text: string } => b.kind === "text")
+          .map((b) => b.text)
+          .join("\n");
+        const judge = text.startsWith("RUBRIC:");
+        calls.push({ bedrockModelId: params.bedrockModelId, judge });
+        yield { type: "text-delta", text: judge ? "PASS\nfine" : "candidate answer" };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const suite: EvalSuite = {
+      capability: "judged",
+      defaultModelId: "sonnet-4-6",
+      cases: [
+        {
+          ...testCase("judged-case"),
+          modelId: "haiku-4-5",
+          assertions: [{ kind: "judge", label: "judged", rubric: "anything" }],
+        },
+      ],
+    };
+    const { suites: overridden } = applyModelOverride([suite], "opus-4-7");
+    const result = await runSuite(overridden[0]!, { client: recording });
+
+    expect(result.passed).toBe(1);
+    expect(result.results[0]!.modelId).toBe("opus-4-7");
+    const candidateCalls = calls.filter((c) => !c.judge).map((c) => c.bedrockModelId);
+    const judgeCalls = calls.filter((c) => c.judge).map((c) => c.bedrockModelId);
+    expect(candidateCalls).toEqual([MODELS["opus-4-7"].bedrockModelId]);
+    expect(judgeCalls).toEqual([MODELS[JUDGE_MODEL_ID].bedrockModelId]);
+    expect(MODELS["opus-4-7"].bedrockModelId).not.toBe(MODELS[JUDGE_MODEL_ID].bedrockModelId);
+  });
+
+  it("the report meta and scorecard carry both ids so a report can never hide who graded", () => {
+    const { candidateModelId, judgeModelId } = resolveRunModels({ modelId: "opus-4-7" });
+    const card = buildScorecard({
+      candidateModelId,
+      judgeModelId,
+      results: [capability([caseResult("a", true)])],
+      mock: true,
+      generationCostUsd: 0,
+    });
+    expect(card).toMatchObject({
+      candidateModelId: "opus-4-7",
+      judgeModelId: JUDGE_MODEL_ID,
+      mock: true,
+      verdict: "incomplete",
+    });
+    expect(card.bar.find((b) => b.id === "judge-independence")).toMatchObject({ ok: true });
   });
 });

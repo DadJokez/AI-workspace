@@ -1,0 +1,46 @@
+# Anonymous registry pulls (Docker Hub, then the ECR Public mirror) rate-limit per source IP, and
+# GitHub-hosted runners share egress — so CI stopped pulling a Postgres image at all (#708, #887).
+# ubuntu-latest (24.04) ships PostgreSQL 16 preinstalled as a disabled service; this starts it and
+# bootstraps the same role/database the `services: postgres:` container used to, so every
+# DATABASE_URL in the calling job stays byte-identical.
+name: Local Postgres
+description: Start the runner image's preinstalled PostgreSQL 16 and create a superuser role + database
+inputs:
+  user:
+    description: Role to create (LOGIN + SUPERUSER, matching the container's POSTGRES_USER)
+    required: true
+  password:
+    description: Password for the role
+    required: true
+  database:
+    description: Database to create, owned by the role
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Start PostgreSQL and bootstrap role + database
+      shell: bash
+      env:
+        PG_USER: ${{ inputs.user }}
+        PG_PASSWORD: ${{ inputs.password }}
+        PG_DATABASE: ${{ inputs.database }}
+      run: |
+        set -euo pipefail
+        sudo systemctl start postgresql.service
+        for _ in $(seq 1 30); do
+          pg_isready -h 127.0.0.1 -p 5432 -q && break
+          sleep 1
+        done
+        pg_isready -h 127.0.0.1 -p 5432
+        # Peer auth as the cluster superuser; psql variables keep the inputs out of the SQL text.
+        # Idempotent: the role is created only if missing (ALTER always re-applies the password so
+        # reruns converge), the database only if missing.
+        sudo -u postgres psql -v ON_ERROR_STOP=1 \
+          -v user="$PG_USER" -v password="$PG_PASSWORD" -v database="$PG_DATABASE" <<'SQL'
+        SELECT format('CREATE ROLE %I', :'user')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'user') \gexec
+        SELECT format('ALTER ROLE %I WITH LOGIN SUPERUSER PASSWORD %L', :'user', :'password') \gexec
+        SELECT format('CREATE DATABASE %I OWNER %I', :'database', :'user')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'database') \gexec
+        SQL
+        psql --version
