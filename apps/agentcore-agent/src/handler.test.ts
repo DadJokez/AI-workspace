@@ -217,6 +217,7 @@ describe("parseInvocationPayload toolDiscovery", () => {
     for (const name of dynamicToolNames) {
       registry.register({
         name,
+        policy: "always_allow",
         description: name,
         inputSchema: { type: "object", properties: {} },
         handler: async () => ({}),

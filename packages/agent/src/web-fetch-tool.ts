@@ -97,6 +97,7 @@ export function createWebFetchTool({
 }: WebFetchOptions = {}): Tool {
   return {
     name: WEB_FETCH_TOOL_NAME,
+    policy: "always_allow",
     description:
       "Fetch a public http(s) URL and return readable page text or HTML. Use this when the user asks to inspect, read, summarize, or extract the HTML/source/content of a public web page. A result with truncated=true is partial evidence: retry the same URL with a larger maxBytes before drawing completeness conclusions. Never use it for localhost, private network, link-local, metadata, or credentialed URLs.",
     inputSchema: {

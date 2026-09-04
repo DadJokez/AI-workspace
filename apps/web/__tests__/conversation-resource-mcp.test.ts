@@ -198,6 +198,7 @@ describe("conversation resource MCP authorization (#576)", () => {
       type: "http",
       url: "https://comparative.example/api/mcp/resources",
       allowedTools: ["query"],
+      toolPolicies: { query: "always_allow" },
       headers: {
         [RESOURCE_MCP_RELAY_HEADER]: expect.any(String),
         [RESOURCE_MCP_CONTEXT_HEADER]: expect.stringMatching(/\./),

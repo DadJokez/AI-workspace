@@ -457,6 +457,7 @@ function queryText(
 export function createConversationResourceFixtureTool(): Tool {
   return {
     name: RESOURCE_QUERY_TOOL,
+    policy: "always_allow",
     description:
       "Read or analyze one authorized file from this conversation. For CSV use table operations that scan every row; for documents use read or search. For a filtered total, use table_aggregate with column and aggregate plus filterColumn, filterOperator, and filterValue in the same call. If column names are unknown, call table_schema first and wait for its result instead of guessing. Never guess from a filename or preview.",
     untrustedOutput: true,
