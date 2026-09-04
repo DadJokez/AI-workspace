@@ -773,7 +773,6 @@ function baseInput(): Parameters<typeof buildChatContextPack>[0] {
     providerStatus: providerStatus({}),
     mountedProviders: [],
     deniedMcpProviders: [],
-    modelId: "haiku-4-5",
     artifactContext: null,
     route: route(),
     now: NOW,
