@@ -18,6 +18,8 @@ import {
   extractAssistantSources,
   extractPureEchoReply,
   MODELS,
+  parseStoredThreadSummary,
+  renderThreadSummaryForPrompt,
   RunBudgetTracker,
   serializeActivation,
   type AssistantSource,
@@ -112,6 +114,7 @@ import {
   type GuardrailReceipt,
 } from "@/lib/guardrail-receipts";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
+import { refreshThreadSummary } from "@/lib/thread-summary";
 import { buildTurnContext } from "@/lib/turn-context";
 import type { RecentToolEvidenceReceipt } from "@/lib/recent-tool-evidence";
 import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
@@ -505,10 +508,21 @@ export async function executeChatTurn({
     ...uploadedFiles,
     ...selectedResourceImages,
   ]);
+  // #771: the stored rolling summary (if any) leads the messages region as
+  // layer-7 background data; the receipt below tells the model it is there.
+  const threadSummary = parseStoredThreadSummary(thread.summary);
+  const threadSummaryReceipt = threadSummary
+    ? {
+        coveredMessageCount: threadSummary.coveredMessageCount,
+        updatedAt: threadSummary.updatedAt,
+        chars: renderThreadSummaryForPrompt(threadSummary).length,
+      }
+    : null;
   const agentMessages = attachUploadedFilesToLatestUserMessage(
     buildTurnContext({
       messages: history,
       currentMessageContent: prompt,
+      threadSummary,
       recentMessageLimit: numberFromEnv("CHAT_RECENT_MESSAGE_LIMIT"),
       maxContextChars: numberFromEnv("CHAT_CONTEXT_CHAR_LIMIT"),
       maxMessageChars: numberFromEnv("CHAT_CONTEXT_MESSAGE_CHAR_LIMIT"),
@@ -689,6 +703,7 @@ export async function executeChatTurn({
     artifactContext: combinedArtifactContext,
     uploadedFiles: runtimeUploadedFiles,
     recentToolEvidenceReceipt,
+    threadSummary: threadSummaryReceipt,
     resourceResolution: effectiveResourceResolution,
     selectedContextManifest: selectedContext.manifest,
     selectedContextPrompt: selectedContext.promptContext,
@@ -2278,6 +2293,27 @@ async function persistChatTurnResult({
     threadId,
     now: completedAt,
   });
+
+  // #771: fold newly aged-out history into the rolling summary. It is a
+  // background model call, so it never blocks the response or the run's
+  // terminal write; the next turn reads whatever has been persisted by then.
+  if (terminalStatus === "succeeded" && assistantMessageId) {
+    void refreshThreadSummary({
+      db,
+      userId,
+      threadId,
+      recentMessageLimit: numberFromEnv("CHAT_RECENT_MESSAGE_LIMIT"),
+    }).catch((err: unknown) => {
+      process.stderr.write(
+        `[thread-summary-error] ${JSON.stringify({
+          runId,
+          threadId,
+          userId,
+          message: err instanceof Error ? err.message : String(err),
+        })}\n`,
+      );
+    });
+  }
 
   if (skippedWriteCount > 0) {
     await appendTurnRunEvent(lane, {

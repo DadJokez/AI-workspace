@@ -1,4 +1,8 @@
-import type { AgentMessage } from "@ai-workspace/agent";
+import {
+  renderThreadSummaryForPrompt,
+  type AgentMessage,
+  type ThreadSummary,
+} from "@ai-workspace/agent";
 import type { ChatMessage } from "@ai-workspace/db";
 import {
   buildRecentToolEvidence,
@@ -25,6 +29,12 @@ interface BuildTurnContextInput {
    * content such as folded file attachments.
    */
   currentMessageContent?: string;
+  /**
+   * Rolling summary of history older than the recent window (#771). It
+   * leads the messages region as nonce-framed layer-7 background data —
+   * behind the cache checkpoints, never in the stable system prefix.
+   */
+  threadSummary?: ThreadSummary | null;
   recentMessageLimit?: number;
   maxContextChars?: number;
   maxMessageChars?: number;
@@ -55,6 +65,7 @@ export interface TurnContextGuardrailEvent {
 export function buildTurnContext({
   messages,
   currentMessageContent,
+  threadSummary,
   recentMessageLimit = DEFAULT_RECENT_MESSAGE_LIMIT,
   maxContextChars = DEFAULT_CONTEXT_CHAR_LIMIT,
   maxMessageChars = DEFAULT_MESSAGE_CHAR_LIMIT,
@@ -108,7 +119,13 @@ export function buildTurnContext({
     source: TurnContextMessage;
     message: AgentMessage;
   }> = [];
-  let retainedChars = currentChars + (evidenceMessage?.content.length ?? 0);
+  const summaryMessage: AgentMessage | null = threadSummary
+    ? { role: "user", content: renderThreadSummaryForPrompt(threadSummary) }
+    : null;
+  let retainedChars =
+    currentChars +
+    (evidenceMessage?.content.length ?? 0) +
+    (summaryMessage?.content.length ?? 0);
   let droppedMessages = usableHistory.length - recent.length;
 
   for (let i = recent.length - 1; i >= 0; i--) {
@@ -170,6 +187,7 @@ export function buildTurnContext({
   ];
 
   return coalesceAdjacentMessages([
+    ...(summaryMessage ? [summaryMessage] : []),
     ...(modelProvenanceMessage ? [modelProvenanceMessage] : []),
     ...historyWithEvidence,
     currentMessage,

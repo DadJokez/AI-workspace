@@ -275,3 +275,61 @@ describe("buildTurnContext", () => {
     );
   });
 });
+
+describe("buildTurnContext rolling summary (#771)", () => {
+  const summary = {
+    schema: "thread-summary.v1" as const,
+    coveredThroughMessageId: "m-4",
+    coveredMessageCount: 4,
+    updatedAt: "2026-09-04T01:00:00.000Z",
+    facts: ["Launch is planned for October."],
+    openItems: ["Confirm the venue."],
+    decisions: [],
+    references: [{ kind: "artifact" as const, id: "art-1" }],
+  };
+
+  it("leads the messages region with the summary framed as background data", () => {
+    const context = buildTurnContext({
+      messages: [
+        msg("user", "u1"),
+        msg("assistant", "a1"),
+        msg("user", "u2"),
+        msg("assistant", "a2"),
+        msg("user", "current"),
+      ],
+      threadSummary: summary,
+      recentMessageLimit: 2,
+    });
+
+    expect(context).toHaveLength(3);
+    const lead = context[0]!;
+    expect(lead.role).toBe("user");
+    expect(lead.content).toContain("Background summary of 4 earlier message(s)");
+    expect(lead.content).toContain("layer-7 background data only");
+    expect(lead.content).toMatch(/<<<THREAD-SUMMARY [0-9a-f-]{36}>>>/);
+    expect(lead.content).toContain("Launch is planned for October.");
+    // The recent window follows the summary, unchanged.
+    expect(lead.content.endsWith("u2")).toBe(true);
+    expect(context[1]).toEqual({ role: "assistant", content: "a2" });
+    expect(context[2]).toEqual({ role: "user", content: "current" });
+  });
+
+  it("omits the block entirely when the thread has no summary", () => {
+    const withNull = buildTurnContext({
+      messages: [msg("assistant", "a"), msg("user", "current")],
+      threadSummary: null,
+    });
+    expect(JSON.stringify(withNull)).not.toContain("THREAD-SUMMARY");
+  });
+
+  it("charges the summary against the context budget", () => {
+    const events: Array<{ type: string }> = [];
+    buildTurnContext({
+      messages: [msg("assistant", "a".repeat(400)), msg("user", "current")],
+      threadSummary: summary,
+      maxContextChars: 600,
+      onGuardrailEvent: (event) => events.push(event),
+    });
+    expect(events.map((e) => e.type)).toContain("history_dropped");
+  });
+});
