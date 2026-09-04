@@ -86,8 +86,16 @@ describe("runAgentLoop system prompt caching", () => {
 
     const params = client.captured[0];
     const stablePrompt = params?.systemPrompt ?? "";
-    expect(stablePrompt).toContain("You are Claude Sonnet 4.6");
-    expect(stablePrompt).toContain("never claim to be an older model");
+    // Expectations derive from the registry's identity fields — the test pins
+    // that the loop uses them, not any particular vendor (#797 P1, #304).
+    const { brandedName, providerDisplayName, olderModelExample } =
+      MODELS["sonnet-4-6"];
+    expect(stablePrompt).toContain(
+      `You are powered by ${brandedName}, made by ${providerDisplayName}.`,
+    );
+    expect(stablePrompt).toContain(
+      `answer "${brandedName}" — never claim to be a different vendor's model or an older model such as "${olderModelExample}"`,
+    );
     expect(stablePrompt).toContain(PLATFORM_EVIDENCE_DISCIPLINE);
     expect(stablePrompt).toContain(
       "Do not silently infer dates, owners, status, deadlines, decisions, completion, attendance, or attribution",
@@ -98,6 +106,26 @@ describe("runAgentLoop system prompt caching", () => {
     expect(params?.volatileSystemSuffix).toContain(
       "Treat this as ground truth for any date or time reasoning",
     );
+  });
+
+  it("falls back to neutral older-model wording when the registry entry has no olderModelExample", async () => {
+    // The forward-portability branch: a non-Claude family may have no
+    // training-prior misclaim to name. Stand in for such an entry by
+    // temporarily stripping the field from a real one.
+    const entry = MODELS["sonnet-4-6"];
+    const saved = entry.olderModelExample;
+    delete entry.olderModelExample;
+    try {
+      const client = new CaptureClient();
+      await runTurn(client);
+      const stablePrompt = client.captured[0]?.systemPrompt ?? "";
+      expect(stablePrompt).toContain(
+        `answer "${entry.brandedName}" — never claim to be a different vendor's model or an older model version.`,
+      );
+      expect(stablePrompt).not.toContain("older model such as");
+    } finally {
+      entry.olderModelExample = saved;
+    }
   });
 
   it("composes the caller's volatile context ahead of the clock, off the cached prefix (#385)", async () => {
