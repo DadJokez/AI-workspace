@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { JSONSchema7 } from "json-schema";
+import { UNDECLARED_TOOL_POLICY } from "./types";
 import type { Tool, ToolRuntimePolicy } from "./types";
 
 /**
@@ -203,7 +204,9 @@ async function connectMcpProvider(
             description: tool.description ?? `${provider} tool ${remoteName}`,
             inputSchema: (tool.inputSchema ?? { type: "object" }) as JSONSchema7,
             policy:
-              spec.toolPolicies?.[remoteName] ?? spec.defaultToolPolicy,
+              spec.toolPolicies?.[remoteName] ??
+              spec.defaultToolPolicy ??
+              UNDECLARED_TOOL_POLICY,
             executionIdentity: {
               kind: "mcp",
               provider,

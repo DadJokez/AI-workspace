@@ -2,7 +2,8 @@ import type { Tool } from "./types";
 
 /**
  * Holds tool definitions and resolves them by name. Each tool has a unique
- * name; registering twice is an error.
+ * name; registering twice is an error. Every tool carries a runtime policy
+ * (#701); the loop fails closed to needs-approval if one slips through.
  *
  * In v1 the registry is in-process (one per app instance, populated at boot).
  * Same shape will work for an out-of-process MCP-backed registry later.

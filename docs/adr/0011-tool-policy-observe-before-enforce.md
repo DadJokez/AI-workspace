@@ -1,6 +1,6 @@
 # ADR 0011: Tri-state tool policy, observe before enforce
 
-- **Status:** Accepted
+- **Status:** Accepted — observe phase closed; enforcement live (#832–#834), universal fail-closed default (#701)
 - **Date:** 2026-07-19
 - **Deciders:** Rob (owner), Claude/Codex (implementation)
 
@@ -13,9 +13,9 @@ Tool authorization is a tri-state — `always_allow` / `needs_approval` / `block
 ## Consequences
 - **Buys:** a deterministic authorization primitive independent of model behavior, plus an immediate audit record of what the policy *would* decide — so the eventual enforcement flip lands against measured production reality rather than guesses.
 - **Buys:** zero migration and zero user-facing change now; the `would_*` naming makes it impossible to misread an observed row as an enforced one when the audit log is reviewed (asserted in `apps/web/__tests__/tool-policy.test.ts`).
-- **Costs (deliberate debt):** the observe→enforce gap is real and open — nothing is actually blocked yet, so `admin` tools still run in P1. Closing it is scoped to #410 P2 (paused-run approval queue + blocked refusals; `apps/web/lib/tool-policy.ts:14-17`) and #436 presets.
+- **Costs (now paid):** the observe→enforce gap is closed. `blocked` refuses in the loop, `needs_approval` pauses attended runs and denies unattended ones with a receipt, and a tool that reaches the loop with no declared policy is treated as `needs_approval` (`packages/agent/src/loop.ts` `effectiveToolPolicy`, #701). `Tool.policy` is a required field, so every builtin, MCP-mounted, and fixture tool decides at compile time.
 - **Forecloses / defers:** P1 has no per-tool override column (policy is purely a function of action level) and no per-argument policy (e.g. spend limits); the spec explicitly defers an OPA/Cedar-style engine until per-argument requirements are real (`docs/specs/connector-governance-architecture.md:189`).
-- **Uncataloged tools** with no catalog rows (e.g. builtin web tools) get no stamp at all rather than a guessed one (`apps/web/lib/audit-tool-events.ts:26-31,172`).
+- **Uncataloged and builtin tools** now carry an explicit policy (builtins declare `always_allow`; an MCP tool outside the catalog falls to `needs_approval` at the mount seam), and every executed result is stamped with its actual decision. The `would_*` observe values survive only as the started-row/legacy fallback in `buildToolAuditRows` (`apps/web/lib/audit-tool-events.ts:207-221`).
 
 ## Status notes
-Enforcement is intentionally still open: the observe→enforce flip is tracked as #410 P2 (approval queue + blocked refusals) with policy presets in #436. This ADR documents only the P1 observe-mode primitive.
+2026-09-03: the observe-mode phase this ADR introduced is over. Enforcement shipped in #832–#834 and the universal fail-closed default in #701; the tri-state decision table above is unchanged and remains the source of truth.
