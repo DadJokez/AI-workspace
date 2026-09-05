@@ -145,6 +145,39 @@ export function resolveRunModels(
 }
 
 /**
+ * The candidate/judge header printed before the first suite. Both ids are
+ * named so a transcript can never leave it ambiguous who graded whom; the
+ * judge line is deliberately independent of --model. The 🚨 line fires only
+ * when the two ids coincide — #880 moved the judge so a bare run no longer
+ * trips it, and the test pins that.
+ */
+export function formatModelHeader(input: {
+  candidateModelId: ModelId;
+  judgeModelId: ModelId;
+  /** `--model` was given: every suite default (and pin) follows the candidate. */
+  modelOverride: boolean;
+  overriddenPins: number;
+  baseline?: Pick<ScorecardBaseline, "modelId" | "knownRedCaseIds">;
+  baselinePath?: string;
+}): string {
+  const { candidateModelId, judgeModelId, baseline } = input;
+  return (
+    `🧠 candidate: ${candidateModelId} (${MODELS[candidateModelId].displayName}, ${MODELS[candidateModelId].provider})` +
+    (input.modelOverride
+      ? ` — --model overrides every suite default${input.overriddenPins > 0 ? ` and ${input.overriddenPins} case-level pin(s)` : ""}`
+      : "") +
+    `\n⚖️  judge: ${judgeModelId} (${MODELS[judgeModelId].displayName}; pinned, never follows --model)` +
+    (candidateModelId === judgeModelId
+      ? `\n🚨 candidate and judge are the SAME model (the default is pinned to the judge) — judge verdicts in this run are self-graded; not a qualification run`
+      : "") +
+    (baseline
+      ? `\n📐 baseline: ${baseline.modelId} from ${input.baselinePath} (${baseline.knownRedCaseIds.length} known-red)`
+      : "") +
+    "\n"
+  );
+}
+
+/**
  * Point every suite — and every case-level `modelId` pin — at the candidate.
  * Pins are overridden too: a qualification run that silently kept a handful
  * of cases on the incumbent would grade the wrong model. Returns how many
@@ -353,21 +386,14 @@ async function main() {
       `🎯 --${packName}: ${count} ${gate ? "merge-gate" : "foundational"} cases across ${suites.length} suites.\n`,
     );
   }
-  // Both ids in the header so a transcript can never leave it ambiguous who
-  // graded whom; the judge line is deliberately independent of --model.
   console.log(
-    `🧠 candidate: ${candidateModelId} (${MODELS[candidateModelId].displayName}, ${MODELS[candidateModelId].provider})` +
-      (parsed.modelId
-        ? ` — --model overrides every suite default${overriddenPins > 0 ? ` and ${overriddenPins} case-level pin(s)` : ""}`
-        : "") +
-      `\n⚖️  judge: ${judgeModelId} (${MODELS[judgeModelId].displayName}; pinned, never follows --model)` +
-      (candidateModelId === judgeModelId
-        ? `\n🚨 candidate and judge are the SAME model (the default is pinned to the judge) — judge verdicts in this run are self-graded; not a qualification run`
-        : "") +
-      (baseline
-        ? `\n📐 baseline: ${baseline.modelId} from ${parsed.baselinePath} (${baseline.knownRedCaseIds.length} known-red)`
-        : "") +
-      "\n",
+    formatModelHeader({
+      candidateModelId,
+      judgeModelId,
+      modelOverride: parsed.modelId !== undefined,
+      overriddenPins,
+      ...(baseline ? { baseline, baselinePath: parsed.baselinePath } : {}),
+    }),
   );
 
   const options = mock

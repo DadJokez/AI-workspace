@@ -152,13 +152,20 @@ Rules the CLI enforces:
   list (exit 2). Nothing here enables a model — enablement rows stay Rob's
   (#301/#302/#305).
 - **Judge independence.** `JUDGE_MODEL_ID` (`packages/evals/src/judge.ts`)
-  is pinned and never follows `--model`; `--model <the judge>` is refused
-  outright. The run header, the JSON report `meta`
-  (`candidateModelId`, `judgeModelId`) and the scorecard all carry both ids,
-  so a report can never hide who graded whom. A bare `pnpm eval` whose
-  default happens to equal the judge (a `PLATFORM_MODEL_OVERRIDE_ID` pin can
-  do that) still runs, but prints a 🚨 line and the scorecard's independence
-  check is ❌ — that run is a regression check, not a qualification.
+  is `haiku-4-5` — a different model from the `sonnet-4-5` product default,
+  on its own Bedrock quota bucket, already in the nightly role's allow-list
+  (#880). It is pinned and never follows `--model`; `--model <the judge>` is
+  refused outright (so qualifying Haiku itself would first need a different
+  judge). The run header, the JSON report `meta` (`candidateModelId`,
+  `judgeModelId`) and the scorecard all carry both ids, so a report can never
+  hide who graded whom. A bare `pnpm eval` whose default happens to equal the
+  judge (a `PLATFORM_MODEL_OVERRIDE_ID` pin can do that) still runs, but
+  prints a 🚨 line and the scorecard's independence check is ❌ — that run is
+  a regression check, not a qualification. **Moving the judge re-baselines
+  every judge-graded case: the first nightly after a judge change is a new
+  baseline, not a regression signal** (2026-09-05: `sonnet-4-5` →
+  `haiku-4-5`; a judge-only flip on a case is a calibration shift, not a
+  model regression — read the judge's reason before filing).
 - Real-model qualification runs are **Rob-dispatched**: they draw on the
   shared Bedrock quota (#706). Unattended agents build and test against
   `--mock` only.
