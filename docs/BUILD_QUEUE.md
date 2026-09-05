@@ -1,4 +1,4 @@
-# Build Queue — re-triaged 2026-09-05 (20:56Z)
+# Build Queue — re-triaged 2026-09-05 (written 20:56Z, reconciled 21:47Z)
 
 Prioritized, dependency-ordered queue of open work. Re-triaged three days after
 the 2026-09-02 queue because that file's state moved faster than its header:
@@ -558,8 +558,9 @@ list is for Rob to pick from.** None is queue work until it has a number.
 
 ## Notes
 
-- **Open PRs on 2026-09-05 (written 20:56Z, reconciled 21:47Z).** In the gate, none §7: #901 (#438 A),
-  #903 (#807), #904 (#797 P3 + P5), #907 (#880). Rob: #872 → #870 → #905
+- **Open PRs on 2026-09-05 (written 20:56Z, reconciled 21:47Z).** Merged since the 20:56Z write, none §7: #901 (#438 A, 21:18Z), #903 (#807, 20:59Z),
+  #907 (#880, 21:35Z). Still in the gate: #904 (#797 P3 + P5), #909 (#696 pilot load
+  harness), #908 (this re-triage). Rob: #872 → #870 → #905
   (migrations 0049 / 0050 / 0051, in that order), #900 (gate), #890
   (decision; draft).
   Their `Claude verdict` statuses read "Claude review has not passed for this
