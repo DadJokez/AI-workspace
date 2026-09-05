@@ -63,6 +63,11 @@ describe("model slash command", () => {
         opus: "opus-4-7",
         "opus-4-7": "opus-4-7",
         "claude-opus": "opus-4-7",
+        // #797 P3: the first non-Claude entry adds only its own names. The
+        // role words above are unchanged — `fast` stays Haiku even though
+        // Nova Pro is cheaper — because role words never cross vendors.
+        nova: "nova-pro",
+        "nova-pro": "nova-pro",
       });
     });
 
@@ -80,26 +85,42 @@ describe("model slash command", () => {
       }
     });
 
-    it("resolves a shared short name to the app default and role words by registry cost", () => {
+    it("resolves a shared short name to the app default and role words by registry cost within the default's vendor", () => {
       const aliases = modelCommandAliases();
       expect(aliases.sonnet).toBe(DEFAULT_MODEL_ID);
       expect(aliases.quality).toBe(DEFAULT_MODEL_ID);
-      const byTotalCost = [...MODEL_IDS].sort(
+      const sameVendor = MODEL_IDS.filter(
+        (id) => MODELS[id].provider === MODELS[DEFAULT_MODEL_ID].provider,
+      );
+      expect(sameVendor.length).toBeLessThan(MODEL_IDS.length);
+      const byTotalCost = [...sameVendor].sort(
         (a, b) =>
           MODELS[a].costPer1MInput +
           MODELS[a].costPer1MOutput -
           (MODELS[b].costPer1MInput + MODELS[b].costPer1MOutput),
       );
       expect(aliases.fast).toBe(byTotalCost[0]);
-      const byOutputCost = [...MODEL_IDS].sort(
+      const byOutputCost = [...sameVendor].sort(
         (a, b) => MODELS[b].costPer1MOutput - MODELS[a].costPer1MOutput,
       );
       expect(aliases.deep).toBe(byOutputCost[0]);
+      // The cheapest model overall is the other vendor's; a role word must
+      // not reach it.
+      const cheapestOverall = [...MODEL_IDS].sort(
+        (a, b) =>
+          MODELS[a].costPer1MInput +
+          MODELS[a].costPer1MOutput -
+          (MODELS[b].costPer1MInput + MODELS[b].costPer1MOutput),
+      )[0]!;
+      expect(MODELS[cheapestOverall].provider).not.toBe(
+        MODELS[DEFAULT_MODEL_ID].provider,
+      );
+      expect(aliases.fast).not.toBe(cheapestOverall);
     });
 
     it("lists every short name in the usage message", () => {
       expect(modelCommandUsageMessage()).toBe(
-        "Use /model haiku, /model sonnet, /model opus, or /model auto followed by a message.",
+        "Use /model haiku, /model sonnet, /model opus, /model nova, or /model auto followed by a message.",
       );
     });
   });

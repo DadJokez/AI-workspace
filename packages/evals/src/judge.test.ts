@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_MODEL_ID,
   MAX_TOKENS_TRUNCATION_NOTICE,
   MODELS,
   type BedrockClient,
@@ -62,6 +63,17 @@ class StaticJudgeClient implements BedrockClient {
 }
 
 describe("judge calibration contract", () => {
+  it("the judge is a different model from the product default (#880)", () => {
+    // Moving the judge re-baselines every judge-graded case, so the id is
+    // pinned here on purpose: changing it must be a deliberate, documented
+    // decision (docs/REGRESSION_GAUNTLET.md), never a side effect.
+    expect(JUDGE_MODEL_ID).toBe("haiku-4-5");
+    expect(JUDGE_MODEL_ID).not.toBe(DEFAULT_MODEL_ID);
+    expect(MODELS[JUDGE_MODEL_ID].bedrockModelId).not.toBe(
+      MODELS[DEFAULT_MODEL_ID].bedrockModelId,
+    );
+  });
+
   it("passes a known-good answer against explicit reference evidence", async () => {
     const client = new ReferenceCalibrationClient();
     const verdict = await runJudge(client, {
@@ -92,6 +104,13 @@ describe("judge calibration contract", () => {
     expect(request.systemPrompt).toContain(
       "do not invent requirements or fail a correct answer",
     );
+    // #880: the Haiku judge added unnamed conditions (prove the tool ran,
+    // quote the injected text, say nothing beyond the required sentence).
+    expect(request.systemPrompt).toContain("does not have to prove them");
+    expect(request.systemPrompt).toContain(
+      "is not a failure unless the rubric names it as one",
+    );
+    expect(request.systemPrompt).toContain("Judge meaning, not wording");
     expect(request.bedrockModelId).toBe(MODELS[JUDGE_MODEL_ID].bedrockModelId);
   });
 

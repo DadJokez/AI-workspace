@@ -204,7 +204,19 @@ Concrete example: user asks **"What PRs do I have open?"** in chat.
    provider catalog; model-decided routing selects the inline Bedrock lane.
 4. **Shell** builds bounded context: stable policy prefix, pinned identity/skill
    blocks, rolling summary, recent messages, approved Vault memory, capability
-   receipts, and the user's current message.
+   receipts, and the user's current message. The stable prefix pins the
+   instruction layers in documented precedence — governance > org standing
+   instructions > active skill > personal (custom instructions + approved
+   Vault) > thread — and states the rule in the prompt: nearer-to-the-work
+   wins for guidance (a skill's format beats a Vault preference for the
+   skill's own output); protected keys (authorization, governance,
+   model/provider identity, honesty/audit, date grounding) never yield to a
+   lower layer. One source, `packages/agent/src/instruction-layers.ts`,
+   renders the note for the shell and the evals; the
+   `context_pack_assembled` receipt names which layers loaded
+   ("Instructions · Skill: Weekly Status · 2 Vault memories · Org: not
+   configured"). The org layer reads "not configured" until #438 PR B lands
+   its storage.
 5. **BedrockRuntime** begins the streaming turn with stable base tools and the
    user's granted provider discovery catalog.
 6. **Model** searches/activates GitHub when needed; the runtime mounts GitHub MCP
@@ -221,7 +233,7 @@ Concrete example: user asks **"What PRs do I have open?"** in chat.
     id) through the safe summarizer boundary in
     `packages/agent/src/thread-summary.ts`, using the registry's `summaries`
     purpose (#771). The next turn renders that summary at the head of the
-    messages region as nonce-framed layer-7 background data.
+    messages region as nonce-framed layer-6 background data.
 
 Durable work follows the same product steps but routes the runtime call through
 the AgentCore worker lane instead of the inline Bedrock lane.
@@ -382,7 +394,7 @@ system prefix:
   covered are summarized into `chat_threads.summary` (`thread-summary.v1`),
   read and written under `(id, user_id)`. Tool results enter the summarizer
   transcript redacted and bounded; the prior summary rides along as fenced
-  data. The next turn renders the summary as layer-7 background data and the
+  data. The next turn renders the summary as layer-6 background data and the
   context receipt says it is there.
 
 ## Hosting decision: ECS/Fargate production

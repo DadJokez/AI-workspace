@@ -1,0 +1,98 @@
+import { MODELS, type ModelId } from "@ai-workspace/agent";
+import { describe, expect, it } from "vitest";
+import type { TurnTranscript } from "../types";
+import {
+  claimsNoOtherModel,
+  modelIdentitySuite,
+  namesServedModel,
+  servedModel,
+} from "./model-identity.cases";
+
+function transcript(served: ModelId | null, answer: string): TurnTranscript {
+  return {
+    answer,
+    events: served
+      ? [
+          {
+            type: "provider-request",
+            iteration: 0,
+            request: {
+              providerModelId: MODELS[served].bedrockModelId,
+              messages: [],
+              tools: [],
+            },
+          },
+        ]
+      : [],
+    toolCallNames: [],
+    toolResults: [],
+    contextReceipts: [],
+    fixtureEvidence: [],
+  };
+}
+
+describe("model-identity suite (#797 P3)", () => {
+  it("maps the Bedrock id the loop sent back to the registry entry", () => {
+    expect(servedModel(transcript("nova-pro", ""))?.id).toBe("nova-pro");
+    expect(servedModel(transcript("sonnet-4-5", ""))?.id).toBe("sonnet-4-5");
+    expect(servedModel(transcript(null, ""))).toBeUndefined();
+  });
+
+  it.each([
+    ["sonnet-4-5", "I'm Claude Sonnet 4.5, made by Anthropic."],
+    ["sonnet-4-5", "I am Claude Sonnet 4.5 by Anthropic, served through Amazon Bedrock."],
+    ["nova-pro", "I am Nova Pro, a model made by Amazon."],
+    ["opus-4-7", "You're talking to Claude Opus 4.7 (Anthropic)."],
+  ] as const)("accepts a truthful answer on %s: %s", (served, answer) => {
+    const t = transcript(served, answer);
+    expect(namesServedModel(t)).toMatchObject({ ok: true });
+    expect(claimsNoOtherModel(t)).toMatchObject({ ok: true });
+  });
+
+  it("fails a Nova turn that introduces itself as Claude on both checks", () => {
+    const t = transcript("nova-pro", "I am Claude Sonnet 4.5, made by Anthropic.");
+    expect(namesServedModel(t)).toMatchObject({
+      ok: false,
+      detail: expect.stringContaining("missing: nova, Nova Pro, Amazon"),
+    });
+    expect(claimsNoOtherModel(t)).toMatchObject({
+      ok: false,
+      detail: expect.stringMatching(/also claims: .*Sonnet 4\.5/),
+    });
+    expect(claimsNoOtherModel(t).detail).toContain("claude");
+  });
+
+  it("fails a Claude turn that claims the known older version or a sibling model", () => {
+    const older = transcript("sonnet-4-5", "I'm Claude 3.5 Sonnet by Anthropic.");
+    expect(namesServedModel(older).ok).toBe(false);
+    expect(claimsNoOtherModel(older)).toMatchObject({
+      ok: false,
+      detail: "also claims: Claude 3.5",
+    });
+    const sibling = transcript(
+      "sonnet-4-5",
+      "I'm Claude Sonnet 4.5 by Anthropic, the same model as Claude Sonnet 4.6.",
+    );
+    expect(namesServedModel(sibling).ok).toBe(true);
+    expect(claimsNoOtherModel(sibling)).toMatchObject({
+      ok: false,
+      detail: "also claims: Sonnet 4.6",
+    });
+  });
+
+  it("fails closed when no provider request reached a registry model", () => {
+    const t = transcript(null, "I'm Claude Sonnet 4.5, made by Anthropic.");
+    expect(namesServedModel(t).ok).toBe(false);
+    expect(claimsNoOtherModel(t).ok).toBe(false);
+  });
+
+  it("is a critical, repeat-sampled core case with only run-time-derived assertions", () => {
+    expect(modelIdentitySuite.defaultSeverity).toBe("critical");
+    expect(modelIdentitySuite.tags).toContain("core");
+    const [testCase] = modelIdentitySuite.cases;
+    expect(testCase).toMatchObject({ repeat: 3, passPolicy: "all" });
+    // Unpinned, so `--model` drives it and the nightly runs it on the default.
+    expect(testCase?.modelId).toBeUndefined();
+    expect(testCase?.assertions.every((a) => a.kind === "deterministic")).toBe(true);
+  });
+});
