@@ -1,11 +1,22 @@
+import type { PinnedOrgInstructions } from "@ai-workspace/agent";
 import {
   type Database,
   type UserMemoryItem,
+  auditLog,
   userMemoryItems,
 } from "@ai-workspace/db";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, or, type SQL } from "drizzle-orm";
 
 export const VAULT_MEMORY_MAX_PROMPT_CHARS = 8_000;
+export const ORG_INSTRUCTIONS_HEADING = "# Organization Standing Instructions";
+const PERSONAL_HEADING = "# Personal Context";
+
+/**
+ * Row scope (#438): `user` rows are one person's Vault, read and written by
+ * that person; `org` rows are organization standing instructions, written
+ * by admins (user_id = the authoring admin) and read by everyone.
+ */
+export type MemoryScope = "user" | "org";
 
 export const MEMORY_CATEGORY_LABELS: Record<string, string> = {
   working_style: "Working Style",
@@ -33,6 +44,7 @@ const CATEGORY_ORDER = [
 
 export interface SerializedMemoryItem {
   id: string;
+  scope: MemoryScope;
   status: UserMemoryItem["status"];
   category: string;
   categoryLabel: string;
@@ -60,23 +72,29 @@ export async function loadApprovedVaultMarkdown(
     .select()
     .from(userMemoryItems)
     .where(
-      and(eq(userMemoryItems.userId, userId), eq(userMemoryItems.status, "approved")),
+      and(
+        eq(userMemoryItems.userId, userId),
+        eq(userMemoryItems.scope, "user"),
+        eq(userMemoryItems.status, "approved"),
+      ),
     )
     .orderBy(asc(userMemoryItems.category), asc(userMemoryItems.createdAt));
 
   const markdown = buildVaultMarkdown(rows);
   if (!markdown) return null;
-  if (markdown.length <= maxChars) return markdown;
-  return `${markdown.slice(0, Math.max(0, maxChars - 38)).trimEnd()}\n\n[Vault memory truncated for prompt budget]`;
+  return capForPrompt(markdown, maxChars);
 }
 
-export function buildVaultMarkdown(items: readonly UserMemoryItem[]): string {
+export function buildVaultMarkdown(
+  items: readonly UserMemoryItem[],
+  heading: string = PERSONAL_HEADING,
+): string {
   const approved = items
     .filter((item) => item.status === "approved")
     .sort(compareMemoryItems);
   if (approved.length === 0) return "";
 
-  const lines: string[] = ["# Personal Context"];
+  const lines: string[] = [heading];
   let currentCategory: string | null = null;
 
   for (const item of approved) {
@@ -95,6 +113,7 @@ export function serializeMemoryItem(
 ): SerializedMemoryItem {
   return {
     id: item.id,
+    scope: item.scope === "org" ? "org" : "user",
     status: item.status,
     category: item.category,
     categoryLabel: categoryLabel(item.category),
@@ -170,10 +189,101 @@ export async function loadUserMemoryItems(
     .where(
       and(
         eq(userMemoryItems.userId, userId),
+        eq(userMemoryItems.scope, "user"),
         inArray(userMemoryItems.status, statuses),
       ),
     )
     .orderBy(asc(userMemoryItems.category), asc(userMemoryItems.createdAt));
+}
+
+/** Organization rows (#438): no user filter — the org layer is shared. */
+export async function loadOrgMemoryItems(
+  db: Database,
+  statuses: UserMemoryItem["status"][] = ["approved"],
+): Promise<UserMemoryItem[]> {
+  if (statuses.length === 0) return [];
+  return db
+    .select()
+    .from(userMemoryItems)
+    .where(
+      and(
+        eq(userMemoryItems.scope, "org"),
+        inArray(userMemoryItems.status, statuses),
+      ),
+    )
+    .orderBy(asc(userMemoryItems.category), asc(userMemoryItems.createdAt));
+}
+
+/**
+ * The single approved organization document for the pinned layer (#438),
+ * or `null` when nothing is configured. Same prompt budget as the Vault.
+ */
+export async function loadApprovedOrgInstructions(
+  db: Database,
+  maxChars = VAULT_MEMORY_MAX_PROMPT_CHARS,
+): Promise<PinnedOrgInstructions | null> {
+  const rows = await loadOrgMemoryItems(db, ["approved"]);
+  const markdown = buildVaultMarkdown(rows, ORG_INSTRUCTIONS_HEADING);
+  if (!markdown) return null;
+  return { markdown: capForPrompt(markdown, maxChars), items: rows.length };
+}
+
+/**
+ * Who may edit/archive which rows (#438): a user touches only their own
+ * personal rows; an admin additionally touches every org row. Rendered
+ * into the UPDATE's WHERE so a demoted author cannot keep editing org text.
+ */
+export function memoryWriteCondition(
+  actor: { id: string; role: string },
+  id: string,
+): SQL {
+  const own = eq(userMemoryItems.userId, actor.id);
+  return actor.role === "admin"
+    ? and(eq(userMemoryItems.id, id), or(own, eq(userMemoryItems.scope, "org")))!
+    : and(eq(userMemoryItems.id, id), own, eq(userMemoryItems.scope, "user"))!;
+}
+
+/**
+ * #438 AC: an org document that tries to change protected keys loses to
+ * the pinned layer (the prompt says so) AND the attempt is logged — one
+ * denied audit row per turn that loaded the offending document, so the
+ * conflict is visible on the admin audit surface, not only in the receipt.
+ */
+export async function recordOrgInstructionConflict({
+  db,
+  runId,
+  userId,
+  threadId,
+  conflicts,
+}: {
+  db: Database;
+  runId: string;
+  userId: string;
+  threadId: string;
+  conflicts: readonly string[];
+}): Promise<void> {
+  const now = new Date();
+  await db.insert(auditLog).values({
+    actorUserId: userId,
+    actionType: "instruction_layers.protected_key_conflict",
+    status: "denied",
+    provider: "ai-hub",
+    toolName: "org-instructions",
+    runId,
+    chatThreadId: threadId,
+    input: { layer: "org", conflicts: conflicts.slice(0, 5) },
+    metadata: {
+      precedence: "governance > org > skill > personal > thread",
+      outcome: "pinned layer wins; conflicting org lines are void",
+    },
+    startedAt: now,
+    completedAt: now,
+  });
+}
+
+function capForPrompt(markdown: string, maxChars: number): string {
+  if (markdown.length <= maxChars) return markdown;
+  return `${markdown.slice(0, Math.max(0, maxChars - 38)).trimEnd()}\n\n[Vault memory truncated for prompt budget]`;
 }
 
 function compareMemoryItems(a: UserMemoryItem, b: UserMemoryItem): number {

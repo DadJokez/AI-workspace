@@ -14,6 +14,7 @@ import type {
 } from "@ai-workspace/agent-runtime";
 import {
   buildExactOutputContract,
+  detectProtectedKeyConflicts,
   evaluateLiteralContract,
   extractAssistantSources,
   extractPureEchoReply,
@@ -134,7 +135,11 @@ import {
   chatWorkerAbortReason,
   type ChatWorkerAbortReason,
 } from "@/lib/chat-worker-abort";
-import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
+import {
+  loadApprovedOrgInstructions,
+  loadApprovedVaultMarkdown,
+  recordOrgInstructionConflict,
+} from "@/lib/vault-memory";
 import {
   createArtifactsFromAssistantMessage,
   type WorkspaceArtifactSummary,
@@ -369,6 +374,7 @@ export async function executeChatTurn({
     userRows,
     history,
     vaultMarkdown,
+    orgInstructions,
     providerStatus,
     recentRecommendations,
     webEgressPolicy,
@@ -387,6 +393,9 @@ export async function executeChatTurn({
       includeVaultContext
         ? loadApprovedVaultMarkdown(db, userId)
         : Promise.resolve(null),
+      // #438: the org layer is standing context for every turn; the pack
+      // renders it only when the stable prefix renders at all.
+      loadApprovedOrgInstructions(db),
       loadUserMcpProviderStatus(
         db,
         userId,
@@ -694,6 +703,7 @@ export async function executeChatTurn({
     messages: agentMessages,
     vaultMarkdown,
     vaultContextRequested: includeVaultContext,
+    orgInstructions,
     providerStatus,
     mountedProviders: activeMountedProviders,
     discoverableProviders,
@@ -719,6 +729,25 @@ export async function executeChatTurn({
     activeSkill: activeSkillPrompt ?? null,
   });
   const contextReceipt = contextPack.receipts[0]!;
+  // #438: an org document that tries to change protected keys is void under
+  // the pinned layer (the prompt says so); make the attempt auditable too —
+  // only for turns whose receipt shows the layer actually loaded.
+  const orgLayer = contextReceipt.instructionLayers?.org;
+  const orgConflicts =
+    orgInstructions &&
+    orgLayer?.status === "loaded" &&
+    orgLayer.protectedKeyConflicts > 0
+      ? detectProtectedKeyConflicts(orgInstructions.markdown)
+      : [];
+  if (orgConflicts.length > 0) {
+    await recordOrgInstructionConflict({
+      db,
+      runId,
+      userId,
+      threadId: thread.id,
+      conflicts: orgConflicts,
+    });
+  }
   const initialGuardrailReceipt = buildGuardrailReceipt({
     runId,
     autonomyPreset: autonomyPreset.name,

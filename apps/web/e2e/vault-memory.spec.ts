@@ -149,4 +149,50 @@ test.describe("Vault memory", () => {
         .first(),
     ).toBeVisible();
   });
+
+  test("shows organization standing instructions and lets an admin add one", async ({
+    page,
+    isMobile,
+  }) => {
+    await installMockComparativeApi(page, {
+      vault: { org: { canEdit: true } },
+    });
+    await gotoE2EChat(page);
+
+    await openSettingsSection(page, "Memory", isMobile);
+    const orgSection = page.getByTestId("vault-org-instructions");
+    await expect(orgSection).toContainText("Organization standing instructions");
+    await expect(orgSection).toContainText("Our fiscal year starts in July.");
+
+    await page.getByRole("button", { name: "Add a fact" }).click();
+    await page
+      .getByRole("checkbox", { name: /organization standing instruction/i })
+      .check();
+    await page.getByPlaceholder(/Short title/i).fill("Record IDs");
+    await page
+      .getByPlaceholder(/The fact/i)
+      .fill("Always cite Salesforce record IDs.");
+    await page.getByRole("button", { name: "Save fact" }).click();
+
+    await expect(orgSection).toContainText("Always cite Salesforce record IDs.");
+    // Personal counts are untouched by an org write.
+    await expect(page.getByText("1 approved · 1 suggested")).toBeVisible();
+  });
+
+  test("hides the organization scope from non-admins", async ({
+    page,
+    isMobile,
+  }) => {
+    await installMockComparativeApi(page);
+    await gotoE2EChat(page);
+
+    await openSettingsSection(page, "Memory", isMobile);
+    await expect(page.getByTestId("vault-org-instructions")).toContainText(
+      "Our fiscal year starts in July.",
+    );
+    await page.getByRole("button", { name: "Add a fact" }).click();
+    await expect(
+      page.getByRole("checkbox", { name: /organization standing instruction/i }),
+    ).toHaveCount(0);
+  });
 });

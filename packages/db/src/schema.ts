@@ -1002,6 +1002,12 @@ export const userMemoryItems = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * #438: `user` = one person's Vault; `org` = organization standing
+     * instructions (admin-written, user_id = the authoring admin, read by
+     * everyone). CHECK ("scope" IN ('user','org')) lives in 0051.
+     */
+    scope: text("scope").notNull().default("user"),
     status: userMemoryStatusEnum("status").notNull().default("suggested"),
     category: text("category").notNull(),
     title: text("title").notNull(),
@@ -1041,6 +1047,9 @@ export const userMemoryItems = pgTable(
     sourceThreadIdx: index("user_memory_items_source_thread_idx").on(
       t.sourceThreadId,
     ),
+    orgScopeIdx: index("user_memory_items_org_scope_idx")
+      .on(t.status, t.category, t.createdAt)
+      .where(sql`${t.scope} = 'org'`),
   }),
 );
 

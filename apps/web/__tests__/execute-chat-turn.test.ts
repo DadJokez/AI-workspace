@@ -164,6 +164,8 @@ vi.mock("@/lib/run-trace", () => ({
 }));
 vi.mock("@/lib/vault-memory", () => ({
   loadApprovedVaultMarkdown: vi.fn(async () => null),
+  loadApprovedOrgInstructions: vi.fn(async () => null),
+  recordOrgInstructionConflict: vi.fn(async () => undefined),
 }));
 vi.mock("@/lib/workspace-artifacts", () => ({
   createArtifactsFromAssistantMessage: vi.fn(async () => []),

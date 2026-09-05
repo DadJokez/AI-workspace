@@ -215,8 +215,11 @@ Concrete example: user asks **"What PRs do I have open?"** in chat.
    renders the note for the shell and the evals; the
    `context_pack_assembled` receipt names which layers loaded
    ("Instructions · Skill: Weekly Status · 2 Vault memories · Org: not
-   configured"). The org layer reads "not configured" until #438 PR B lands
-   its storage.
+   configured"). The org layer is the approved `scope = 'org'` rows of
+   `user_memory_items` (admin-written through the Vault routes, read by
+   every user); an org line that tries to change a protected key stays in
+   the document but is void — the prompt carries a governance notice, the
+   receipt a conflict count, and `audit_log` a denied row.
 5. **BedrockRuntime** begins the streaming turn with stable base tools and the
    user's granted provider discovery catalog.
 6. **Model** searches/activates GitHub when needed; the runtime mounts GitHub MCP

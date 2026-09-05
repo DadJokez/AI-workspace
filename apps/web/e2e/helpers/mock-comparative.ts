@@ -56,6 +56,8 @@ interface MockChatOptions {
     approvedMarkdown?: string;
     approvedItems?: MockMemoryItem[];
     suggestions?: MockMemoryItem[];
+    /** #438 organization layer; defaults to one item, read-only. */
+    org?: { approvedItems?: MockMemoryItem[]; canEdit?: boolean };
   };
   contextResources?: {
     results: unknown[];
@@ -149,6 +151,7 @@ export interface MockNotification {
 
 interface MockMemoryItem {
   id: string;
+  scope?: "user" | "org";
   status: "suggested" | "approved" | "dismissed" | "archived";
   category: string;
   categoryLabel: string;
@@ -244,6 +247,17 @@ export const defaultVaultSuggestion = memoryItem({
   provenance: "user_cited",
 });
 
+const defaultOrgInstruction = memoryItem({
+  id: "memory-org-fiscal-year",
+  scope: "org",
+  status: "approved",
+  category: "organization",
+  categoryLabel: "Organization",
+  title: "Fiscal year",
+  bodyMd: "Our fiscal year starts in July.",
+  suggestedBy: "admin",
+});
+
 export const defaultVaultApproved = memoryItem({
   id: "memory-approved-style",
   status: "approved",
@@ -318,6 +332,12 @@ export async function installMockComparativeApi(
   let suggestions = [
     ...(options.vault?.suggestions ?? [defaultVaultSuggestion]),
   ];
+  let orgItems = [
+    ...(options.vault?.org?.approvedItems ?? [defaultOrgInstruction]),
+  ];
+  // Read-only by default so the personal-memory specs see the same cards
+  // they always did; the admin spec opts into `canEdit: true`.
+  const orgCanEdit = options.vault?.org?.canEdit ?? false;
   let approvedMarkdown =
     options.vault?.approvedMarkdown ??
     buildApprovedMarkdown(approvedItems);
@@ -521,6 +541,10 @@ export async function installMockComparativeApi(
           bodyMd: typeof body.bodyMd === "string" ? body.bodyMd : "",
           approvedAt: now,
         });
+        if (body.scope === "org") {
+          orgItems = [...orgItems, { ...item, scope: "org" }];
+          return json(route, { item }, 201);
+        }
         approvedItems = [...approvedItems, item];
         approvedMarkdown = buildApprovedMarkdown(approvedItems);
         return json(route, { memory: item }, 201);
@@ -529,6 +553,11 @@ export async function installMockComparativeApi(
         approvedMarkdown,
         approvedItems,
         suggestions,
+        org: {
+          approvedMarkdown: buildApprovedMarkdown(orgItems),
+          approvedItems: orgItems,
+          canEdit: orgCanEdit,
+        },
       });
     }
 

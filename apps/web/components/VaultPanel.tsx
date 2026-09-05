@@ -14,6 +14,7 @@ interface Props {
 
 interface MemoryItem {
   id: string;
+  scope?: "user" | "org";
   status: "suggested" | "approved" | "dismissed" | "archived";
   category: string;
   categoryLabel: string;
@@ -32,10 +33,18 @@ interface MemoryItem {
   updatedAt: string;
 }
 
+/** Organization standing instructions (#438): read by everyone, edited by admins. */
+interface OrgInstructions {
+  approvedMarkdown: string;
+  approvedItems: MemoryItem[];
+  canEdit: boolean;
+}
+
 interface VaultMemoryResponse {
   approvedMarkdown: string;
   approvedItems: MemoryItem[];
   suggestions: MemoryItem[];
+  org?: OrgInstructions;
 }
 
 interface EditDraft {
@@ -60,6 +69,7 @@ export function MemorySettings({ userName, focusItemId }: Props) {
   const [approvedMarkdown, setApprovedMarkdown] = useState("");
   const [approvedItems, setApprovedItems] = useState<MemoryItem[]>([]);
   const [suggestions, setSuggestions] = useState<MemoryItem[]>([]);
+  const [org, setOrg] = useState<OrgInstructions | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
   const [actionPendingId, setActionPendingId] = useState<string>();
@@ -74,6 +84,7 @@ export function MemorySettings({ userName, focusItemId }: Props) {
   const [addBody, setAddBody] = useState("");
   const [addBusy, setAddBusy] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [addScope, setAddScope] = useState<"user" | "org">("user");
 
   async function addFact() {
     if (!addTitle.trim() || !addBody.trim()) return;
@@ -88,13 +99,15 @@ export function MemorySettings({ userName, focusItemId }: Props) {
           body: JSON.stringify({
             title: addTitle,
             bodyMd: addBody,
-            category: "personal_context",
+            category: addScope === "org" ? "organization" : "personal_context",
+            scope: addScope,
           }),
         },
         "Could not add the fact.",
       );
       setAddTitle("");
       setAddBody("");
+      setAddScope("user");
       setAddOpen(false);
       await loadVault();
     } catch (err) {
@@ -117,6 +130,7 @@ export function MemorySettings({ userName, focusItemId }: Props) {
       setApprovedMarkdown(data.approvedMarkdown ?? "");
       setApprovedItems(data.approvedItems ?? []);
       setSuggestions(data.suggestions ?? []);
+      setOrg(data.org ?? null);
       setError(undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -206,6 +220,59 @@ export function MemorySettings({ userName, focusItemId }: Props) {
         </div>
       ) : null}
 
+      {org ? (
+        <section data-testid="vault-org-instructions">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-ink">
+                Organization standing instructions
+              </h2>
+              <p className="mt-0.5 text-xs text-muted">
+                Admin-approved context every turn loads for everyone — above
+                personal memory, below platform governance.
+              </p>
+            </div>
+            <span className="text-xs text-muted">
+              {org.approvedItems.length} approved
+            </span>
+          </div>
+          <div className="rounded-lg border border-hairline bg-canvas px-4 py-3">
+            {org.approvedMarkdown.trim() ? (
+              <div className="prose prose-sm max-w-none text-ink prose-headings:text-ink prose-p:text-ink prose-li:text-ink prose-strong:text-ink">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {org.approvedMarkdown}
+                </ReactMarkdown>
+              </div>
+            ) : (
+              <p className="text-sm text-muted">
+                Not configured.
+                {org.canEdit
+                  ? " Use “Add a fact” and choose the organization scope."
+                  : ""}
+              </p>
+            )}
+          </div>
+          {org.canEdit && org.approvedItems.length > 0 ? (
+            <div className="mt-2 grid gap-2">
+              {org.approvedItems.map((item) => (
+                <MemoryApprovedCard
+                  key={item.id}
+                  item={item}
+                  editing={editingId === item.id}
+                  draft={draft}
+                  pending={actionPendingId === item.id}
+                  onDraftChange={setDraft}
+                  onEdit={() => startEdit(item)}
+                  onCancelEdit={() => setEditingId(undefined)}
+                  onSave={() => void patchMemory(item.id, "edit", draft)}
+                  onArchive={() => void patchMemory(item.id, "archive")}
+                />
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       {nothingCaptured && !addOpen ? (
         <EmptyState
           title="No memory yet"
@@ -245,6 +312,19 @@ export function MemorySettings({ userName, focusItemId }: Props) {
                 placeholder="The fact (e.g. I'm a supply-chain analyst on the Crossett team; I prefer concise, bulleted answers.)"
                 className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-muted"
               />
+              {org?.canEdit ? (
+                <label className="flex items-center gap-2 text-xs text-ink">
+                  <input
+                    type="checkbox"
+                    checked={addScope === "org"}
+                    onChange={(e) =>
+                      setAddScope(e.target.checked ? "org" : "user")
+                    }
+                  />
+                  Save as an organization standing instruction (applies to
+                  everyone; admins only)
+                </label>
+              ) : null}
               {addError ? (
                 <p className="text-xs text-danger">{addError}</p>
               ) : null}
