@@ -215,13 +215,14 @@ list):**
   way, treat a `cancelled` required job
   as a rerun, not a red (`gh run view --json jobs` shows the conclusion;
   `gh pr checks` does not).
-- **#880 — the nightly is self-judged.** `DEFAULT_MODEL_ID` and
-  `JUDGE_MODEL_ID` are both `sonnet-4-5`, so judge assertions grade the
-  candidate with itself (found by PR #879, which warns loudly but does not
-  refuse). **Rob decision: move the judge (e.g. `haiku-4-5`, separate quota
-  bucket — smaller blast radius) or lift `PLATFORM_MODEL_OVERRIDE_ID` (a
-  production model change; a deliberate window plus one on-demand full-pack
-  run).** Either way the first run after is a new baseline, not a regression.
+- **#880 — the nightly is self-judged — RESOLVED, option 1 (2026-09-05).**
+  `DEFAULT_MODEL_ID` and `JUDGE_MODEL_ID` were both `sonnet-4-5`, so judge
+  assertions graded the candidate with itself (found by PR #879, which warns
+  loudly but does not refuse). Rob chose to move the judge: `JUDGE_MODEL_ID`
+  is now `haiku-4-5` (separate Bedrock quota bucket, already in the nightly
+  role's allow-list — evals-only, no IAM/env change; the platform pin stays).
+  **The first nightly after the merge is a new baseline, not a regression
+  signal**; the PR carries the same-answer judge A/B and the real slice run.
 - **#891 — the verdict has no "clean code, human must approve" state.**
   #885 merged on a green `Claude verdict` because only `needs-codex` keeps
   it red. Proposed: a `needs-rob` label treated like `needs-codex` in
