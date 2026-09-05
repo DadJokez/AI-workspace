@@ -78,7 +78,7 @@ flowchart LR
 | Vault memory and capture queue | Confidential | Postgres `user_memory_items`, `memory_capture_queue` | DB TLS; AWS API TLS | RDS storage encryption disabled | User can review/archive; purge window pending #460 | Bedrock memory-capture turn; owner browser |
 | Run inputs, outputs, events, and standard trace snapshots | Confidential | Postgres `runs`, `run_events`, related JSON | DB TLS; AWS API TLS | RDS storage encryption disabled; persisted traces are redacted and byte-bounded | Policy pending #460/#381 | Bedrock/AgentCore; owner/admin browser |
 | Tool inputs, results, and receipts | Confidential | Postgres messages/runs/audit rows after redaction | Provider HTTPS; DB TLS | RDS storage encryption disabled | Audit/product windows pending #460 | Connected provider; Bedrock/AgentCore |
-| OAuth access and refresh tokens | Restricted | Postgres `oauth_tokens` | Provider HTTPS; DB TLS | AES-256-GCM application ciphertext; RDS storage encryption disabled | Active until owner/admin disconnect; disconnect scrubs the access token, removes the refresh token, and retains revocation metadata. Automated provider-side revocation and rotation remain pending #692 | Connected provider only; model never receives raw token |
+| OAuth access and refresh tokens | Restricted | Postgres `oauth_tokens` | Provider HTTPS; DB TLS | AES-256-GCM application ciphertext; RDS storage encryption disabled | Active until owner/admin disconnect; disconnect scrubs the access token, removes the refresh token, and retains revocation metadata. Automated provider-side revocation and rotation remain pending #692 | Connected provider only; neither the model nor the browser receives the raw token (#807) |
 | App/runtime secrets | Restricted | Secrets Manager JSON secret; injected into ECS tasks | AWS API/TLS | AWS-managed Secrets Manager key; no automatic rotation | Versioned by Secrets Manager; rotation runbook required | ECS task environment only |
 | Feedback text, context, and screenshots | Confidential | Postgres `feedback_reports` | HTTPS; DB TLS | RDS storage encryption disabled | Admin triage state; policy pending #460 | Reporter and authorized admins |
 | Audit ledger | Internal metadata plus redacted Confidential payloads | Postgres `audit_log` | DB TLS | RDS storage encryption disabled; append-only by application convention | Window pending #460; DB enforcement pending #457 | Authorized admins; no SIEM export yet |
@@ -107,12 +107,51 @@ No provider connection grants access to another user's credentials. Shared
 skills and apps are re-authorized using the executing/viewing user's own
 identity and grants.
 
+### Delegated token path
+
+Provider credentials follow the token-handler (backend-for-frontend) pattern
+verified in #807: the browser never holds a provider token, and every provider
+call is made by the web or worker task on behalf of the signed-in user.
+
+1. **Grant.** The provider OAuth callback exchanges the authorization code
+   server-side and stores the access and refresh tokens as AES-256-GCM
+   ciphertext in `oauth_tokens`, writing a `connection.granted` audit row that
+   carries ids and scope, never token material.
+2. **Resolve.** A request that needs a provider (a chat turn mounting MCP
+   tools, the deployed-app data endpoint, the context shelf) looks up the
+   *requesting* user's row by session user id, decrypts in process, and uses
+   the stored refresh token to mint a new access token when the cached one is
+   inside its expiry window (Salesforce is refreshed on a fixed 25-minute
+   cadence because its token responses carry no lifetime). The refreshed
+   ciphertext replaces the row; the plaintext lives only for the request.
+3. **Use.** The plaintext token is placed in an `Authorization` header on the
+   server-side provider request, or on the same-origin MCP relay request the
+   agent runtime makes back into the web service. It is never written to a
+   run, audit, or trace row: persisted tool payloads pass key- and value-based
+   redaction that scrubs `authorization`, `*_token`, and bearer-shaped strings.
+4. **Serve.** A deployed app receives its document with binding ids only —
+   the pinned query and the viewer's token stay server-side — and the
+   document's enforcing CSP (`default-src 'none'`, `connect-src` limited to
+   `'self'` for live-data apps, `form-action 'none'`) leaves the page no way
+   to call a provider directly. Binding data responses carry rows only and
+   are served `no-store`.
+
+Stored per-user refresh tokens are the correct architecture for calling
+third-party SaaS as the viewer: RFC 8693 token exchange and on-behalf-of flows
+require the downstream provider to accept an exchanged token, which
+Salesforce, Google, GitHub, and Notion do not offer generically, so there is
+nothing to exchange against. The hardening target is therefore token-handler
+discipline and its proof, not a re-architecture (#807). Known gaps: token
+refreshes are not individually audited, and provider-side revocation on
+disconnect remains #692.
+
 ## Encryption and residency decisions
 
 - Browser traffic terminates at the ALB over HTTPS; HTTP redirects to HTTPS.
-  The ALB is internet-facing with no WAF in front of it (#691), and the
-  application sends no security response headers — no CSP, HSTS, `nosniff`, or
-  `frame-ancestors` outside the deployed-app sandbox routes (#693).
+  The ALB is internet-facing with no WAF in front of it (#691). The
+  application sends HSTS, `nosniff`, `Referrer-Policy`, and `X-Frame-Options`
+  on every response and a report-only CSP (#693); only the deployed-app
+  sandbox routes enforce a CSP.
 - The production database URL requires TLS. The current RDS storage volume is
   not encrypted (`StorageEncrypted: false`, verified 2026-07-25), so
   user-content-at-rest encryption is a release blocker for an enterprise data
