@@ -140,6 +140,15 @@ Consequences:
   silent one cannot. Its protection-presence canary runs unconditionally; the
   finer required-contexts and `enforce_admins` checks are best-effort, because
   `GITHUB_TOKEN` cannot be granted repo Administration read.
+- **`cancelled` is not `failure`.** GitHub reports a cancelled required job
+  as a failed check, so `gh pr checks` shows `fail` for a run that never
+  reached a verdict — a job `timeout-minutes` expiry (#864, #878, #881 widened
+  the caps) or, before #862, a superseding run on the same ref. Merge watchers
+  and humans must read the job *conclusion* from
+  `gh run view <id> --json jobs` and treat `cancelled` as "rerun the same SHA",
+  never as a red. Since #862 the `CI` and `Product Smoke` concurrency groups
+  are keyed by head SHA, so a new push queues beside an older commit's run
+  instead of cancelling it; only an identical-SHA re-trigger still dedupes.
 
 ## Docs-only fast lane (#812)
 
