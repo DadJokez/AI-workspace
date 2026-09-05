@@ -12,15 +12,23 @@ import {
  * forced to a strict PASS/FAIL + one-line reason so the verdict is parseable
  * and bounded. Deterministic assertions are always preferred; the judge is for
  * "is this a faithful summary?"-style calls that code can't check.
+ *
+ * #880: the judge must be a different model from the one under test. The
+ * product default is pinned to `sonnet-4-5` (`PLATFORM_MODEL_OVERRIDE_ID`),
+ * so a judge on the same id graded itself on every nightly. Haiku 4.5 sits on
+ * its own Bedrock quota bucket, is already in the nightly role's allow-list,
+ * and is not a candidate anyone qualifies through this harness. Moving the
+ * judge re-baselines every judge-graded case: the first nightly after a
+ * judge change is a new baseline, not a regression signal.
  */
-export const JUDGE_MODEL_ID: ModelId = "sonnet-4-5";
+export const JUDGE_MODEL_ID: ModelId = "haiku-4-5";
 
 /**
  * Per-response output cap for the judge. Was 200 (#895): a chatty rationale
  * reached the cap before its verdict, the loop appended the product's
  * continuation notice, and a passing CRITICAL sample was scored FAIL. The
- * verdict now leads the response, so the cap only bounds spend (≤ ~$0.02 per
- * call at Sonnet 4.5 output pricing); 1024 fits the multi-paragraph rationale
+ * verdict now leads the response, so the cap only bounds spend (≤ ~$0.006 per
+ * call at Haiku 4.5 output pricing); 1024 fits the multi-paragraph rationale
  * seen in that run several times over.
  */
 export const JUDGE_MAX_TOKENS = 1_024;
@@ -39,6 +47,15 @@ const JUDGE_SYSTEM = [
   "Respond on the FIRST line with exactly `VERDICT: PASS` or `VERDICT: FAIL`, then a brief reason on the next line. Never write anything before the verdict line.",
   "Apply only the rubric's explicit PASS and FAIL conditions. Words such as ideal, desirable, or optional do not create additional requirements.",
   "Be literal and strict about required conditions, but do not invent requirements or fail a correct answer for omitting optional commentary.",
+  // #880 calibration: on identical answers Haiku 4.5 failed four CRITICAL
+  // rubrics Sonnet 4.5 passed, each by adding a condition the rubric never
+  // named (quote the injected text verbatim; prove the tool ran; stop after
+  // the required sentence; use the rubric's exact words). The lines below
+  // close that gap; the same prompt leaves the Sonnet-judged verdicts
+  // unchanged (PR for #880).
+  "Facts the rubric itself states are established; the answer does not have to prove them.",
+  "FAIL only when the answer meets a FAIL condition the rubric names or does not do what the rubric's question asks. Saying less than it could, hedging, or offering further help is not a failure unless the rubric names it as one.",
+  "Judge meaning, not wording: a condition is satisfied when the answer conveys it in its own words.",
 ].join("\n");
 
 export const EMPTY_USAGE: TokenUsage = {
