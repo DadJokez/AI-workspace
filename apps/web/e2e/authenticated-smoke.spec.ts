@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { getDb } from "@ai-workspace/db";
 import { expect, test, type Page } from "@playwright/test";
 import { sql } from "drizzle-orm";
+import { findTokenShapedContent } from "../__tests__/helpers/token-shapes";
 import { authSmokeUser, installAuthSmokeSession } from "./helpers/auth";
 import {
   defaultArtifactDetail,
@@ -373,6 +374,45 @@ test.describe("authenticated product smoke", () => {
     await expect(badge).toContainText("Comparative");
     await expect(badge).toContainText("Snapshot");
     await expect(badge).toContainText("By Auth Smoke");
+  });
+
+  test("serves a published app with no credential material in any client-visible response", async ({
+    page,
+  }) => {
+    // #807 token-handler discipline: every text response the browser receives
+    // while rendering a deployed app is pattern-scanned for token shapes.
+    const captured: Array<Promise<{ url: string; text: string } | null>> = [];
+    page.on("response", (response) => {
+      captured.push(
+        (async () => {
+          const contentType = response.headers()["content-type"] ?? "";
+          if (!/text|json|javascript|xml/i.test(contentType)) return null;
+          const text = await response.text().catch(() => null);
+          return text === null ? null : { url: response.url(), text };
+        })(),
+      );
+    });
+
+    const response = await page.goto("/apps/auth-smoke-app");
+    expect(response?.status()).toBe(200);
+    await page.waitForLoadState("networkidle");
+
+    const bodies = (await Promise.all(captured)).filter(
+      (entry): entry is { url: string; text: string } => entry !== null,
+    );
+    expect(bodies.some((body) => body.url.endsWith("/apps/auth-smoke-app"))).toBe(
+      true,
+    );
+    for (const { url, text } of bodies) {
+      expect(findTokenShapedContent(text), url).toEqual([]);
+    }
+  });
+
+  test("keeps live-via-viewer binding responses to rows only", async () => {
+    test.skip(
+      true,
+      "needs a real Salesforce connection for the seeded viewer; the seed cannot mint a provider token and a faked one here would be a fake pass. The binding response shape is covered with a faked connection in __tests__/app-token-handler.test.ts.",
+    );
   });
 
   test("renders protected skills catalog with owned, shared, and starter skills", async ({
