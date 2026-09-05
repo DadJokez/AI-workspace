@@ -41,6 +41,12 @@ function shortName(modelId: ModelId): string {
  * output price, `quality` → the app default. Enablement is not this parser's
  * concern — a disabled model resolves here exactly like a raw id and is
  * refused downstream by the enablement gate.
+ *
+ * Role words range only over models sharing the default model's vendor: a
+ * role word means a cheaper or heavier lane of the brain you are on, never a
+ * silent vendor swap (#797 P3 — a registered-but-disabled Nova Pro would
+ * otherwise become `fast` by price). Crossing vendors is an explicit
+ * `/model nova`.
  */
 function buildModelAliases(): Record<string, ModelId | "auto"> {
   const aliases: Record<string, ModelId | "auto"> = {
@@ -66,9 +72,12 @@ function buildModelAliases(): Record<string, ModelId | "auto"> {
 
   const cost = (id: ModelId) =>
     MODELS[id].costPer1MInput + MODELS[id].costPer1MOutput;
-  let cheapest: ModelId = MODEL_IDS[0];
-  let deepest: ModelId = MODEL_IDS[0];
-  for (const id of MODEL_IDS) {
+  const sameVendor = MODEL_IDS.filter(
+    (id) => MODELS[id].provider === MODELS[DEFAULT_MODEL_ID].provider,
+  );
+  let cheapest: ModelId = DEFAULT_MODEL_ID;
+  let deepest: ModelId = DEFAULT_MODEL_ID;
+  for (const id of sameVendor) {
     if (cost(id) < cost(cheapest)) cheapest = id;
     if (MODELS[id].costPer1MOutput > MODELS[deepest].costPer1MOutput) {
       deepest = id;

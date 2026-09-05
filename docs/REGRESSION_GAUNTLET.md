@@ -152,16 +152,30 @@ Rules the CLI enforces:
   list (exit 2). Nothing here enables a model — enablement rows stay Rob's
   (#301/#302/#305).
 - **Judge independence.** `JUDGE_MODEL_ID` (`packages/evals/src/judge.ts`)
-  is pinned and never follows `--model`; `--model <the judge>` is refused
-  outright. The run header, the JSON report `meta`
-  (`candidateModelId`, `judgeModelId`) and the scorecard all carry both ids,
-  so a report can never hide who graded whom. A bare `pnpm eval` whose
-  default happens to equal the judge (a `PLATFORM_MODEL_OVERRIDE_ID` pin can
-  do that) still runs, but prints a 🚨 line and the scorecard's independence
-  check is ❌ — that run is a regression check, not a qualification.
+  is `haiku-4-5` — a different model from the `sonnet-4-5` product default,
+  on its own Bedrock quota bucket, already in the nightly role's allow-list
+  (#880). It is pinned and never follows `--model`; `--model <the judge>` is
+  refused outright (so qualifying Haiku itself would first need a different
+  judge). The run header, the JSON report `meta` (`candidateModelId`,
+  `judgeModelId`) and the scorecard all carry both ids, so a report can never
+  hide who graded whom. A bare `pnpm eval` whose default happens to equal the
+  judge (a `PLATFORM_MODEL_OVERRIDE_ID` pin can do that) still runs, but
+  prints a 🚨 line and the scorecard's independence check is ❌ — that run is
+  a regression check, not a qualification. **Moving the judge re-baselines
+  every judge-graded case: the first nightly after a judge change is a new
+  baseline, not a regression signal** (2026-09-05: `sonnet-4-5` →
+  `haiku-4-5`; a judge-only flip on a case is a calibration shift, not a
+  model regression — read the judge's reason before filing).
 - Real-model qualification runs are **Rob-dispatched**: they draw on the
   shared Bedrock quota (#706). Unattended agents build and test against
   `--mock` only.
+- **Identity is graded live, per candidate.** The `model-identity` suite
+  (`packages/evals/src/cases/model-identity.cases.ts`, CRITICAL, 3×) derives
+  its expected answer from the Bedrock id the loop actually sent, so the same
+  case holds every brain to "names its own family, display name and vendor;
+  claims no other registry model, vendor family, or older version". The
+  end-to-end procedure — verify on Bedrock, add the entry, qualify, flip
+  rows — is [`runbooks/ADD_A_CONVERSE_MODEL.md`](./runbooks/ADD_A_CONVERSE_MODEL.md).
 
 ### The bar (proposed)
 
