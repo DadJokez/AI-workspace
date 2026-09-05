@@ -279,7 +279,7 @@ export const chatThreads = pgTable(
      * referenced resources by id, plus the covered-through message id).
      * Written by `refreshThreadSummary` (apps/web/lib/thread-summary.ts)
      * after a successful turn; read by `executeChatTurn` and rendered as
-     * layer-7 background data. NULL until a thread outgrows the window.
+     * layer-6 background data. NULL until a thread outgrows the window.
      */
     summary: text("summary"),
     /** When `summary` was last refreshed. */

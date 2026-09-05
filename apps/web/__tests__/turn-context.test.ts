@@ -305,7 +305,7 @@ describe("buildTurnContext rolling summary (#771)", () => {
     const lead = context[0]!;
     expect(lead.role).toBe("user");
     expect(lead.content).toContain("Background summary of 4 earlier message(s)");
-    expect(lead.content).toContain("layer-7 background data only");
+    expect(lead.content).toContain("layer-6 background data only");
     expect(lead.content).toMatch(/<<<THREAD-SUMMARY [0-9a-f-]{36}>>>/);
     expect(lead.content).toContain("Launch is planned for October.");
     // The recent window follows the summary, unchanged.
