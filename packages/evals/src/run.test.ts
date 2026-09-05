@@ -418,6 +418,8 @@ describe("--model qualification runs (#797 P2)", () => {
       `📐 baseline: ${DEFAULT_MODEL_ID} from eval-reports/r.json (1 known-red)`,
     );
     expect(qualification).not.toContain("🚨");
+  });
+
   it("keeps the judge on its pinned Anthropic model when the candidate is the non-Claude brain (#797 P3)", () => {
     const models = resolveRunModels({ modelId: "nova-pro" });
     expect(models).toEqual({ candidateModelId: "nova-pro", judgeModelId: JUDGE_MODEL_ID });
