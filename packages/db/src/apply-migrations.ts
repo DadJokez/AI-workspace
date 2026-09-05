@@ -54,7 +54,15 @@ export async function applyMigrations(db: Database, migrationsFolder: string): P
   try {
     await migrate(db, { migrationsFolder });
   } catch (err) {
-    const { code, query } = err as { code?: string; query?: string };
+    // drizzle wraps the driver error in a DrizzleQueryError: the SQL text is on
+    // the wrapper, the SQLSTATE on its `cause` (the postgres-js PostgresError).
+    const failure = err as {
+      code?: string;
+      query?: string;
+      cause?: { code?: string; query?: string };
+    };
+    const code = failure.code ?? failure.cause?.code;
+    const query = failure.query ?? failure.cause?.query;
     const timeout = code === undefined ? undefined : TIMEOUT_BY_SQLSTATE[code];
     if (timeout === undefined) throw err;
     const limit = timeout === "lock_timeout" ? lockTimeout : statementTimeout;

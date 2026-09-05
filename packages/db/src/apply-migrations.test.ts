@@ -43,6 +43,13 @@ function fixtureFolder(): string {
   return folder;
 }
 
+/** The shape drizzle 0.45 actually throws: DrizzleQueryError { query, cause: PostgresError { code, query } }. */
+function drizzleQueryError(code: string, query: string) {
+  const cause = Object.assign(new Error(`canceling statement (${code})`), { code, query });
+  return Object.assign(new Error(`Failed query: ${query}`), { query, cause });
+}
+
+/** A bare postgres-js error, as seen when the driver call is not wrapped. */
 function postgresError(code: string, query: string) {
   return Object.assign(new Error(`canceling statement (${code})`), { code, query });
 }
@@ -87,14 +94,22 @@ describe("applyMigrations (#898)", () => {
     expect(migrate).not.toHaveBeenCalled();
   });
 
-  it("names the lock timeout and the migration tag when a lock wait is cancelled", async () => {
+  it("names the lock timeout and the migration tag through drizzle's error wrapper", async () => {
     const folder = fixtureFolder();
     // drizzle runs each `--> statement-breakpoint` chunk verbatim, trailing `;` included.
-    vi.mocked(migrate).mockRejectedValue(postgresError("55P03", `\n${STATEMENT};`));
+    vi.mocked(migrate).mockRejectedValue(drizzleQueryError("55P03", `\n${STATEMENT};`));
     const failure = applyMigrations(fakeDb([]), folder);
     await expect(failure).rejects.toBeInstanceOf(MigrationTimeoutError);
     await expect(failure).rejects.toThrow(
       "lock_timeout (10s) fired while applying migration 0000_widgets; the migration transaction rolled back, so nothing was applied",
+    );
+  });
+
+  it("reads the SQLSTATE off a bare driver error too", async () => {
+    const folder = fixtureFolder();
+    vi.mocked(migrate).mockRejectedValue(postgresError("55P03", `\n${STATEMENT};`));
+    await expect(applyMigrations(fakeDb([]), folder)).rejects.toThrow(
+      /lock_timeout \(10s\) fired while applying migration 0000_widgets/,
     );
   });
 
