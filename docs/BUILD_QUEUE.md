@@ -1,4 +1,4 @@
-# Build Queue — re-triaged 2026-09-05 (written 20:56Z, reconciled 21:47Z)
+# Build Queue — re-triaged 2026-09-05 (written 20:56Z, reconciled 21:59Z)
 
 Prioritized, dependency-ordered queue of open work. Re-triaged three days after
 the 2026-09-02 queue because that file's state moved faster than its header:
@@ -7,7 +7,7 @@ closed, #797 P1–P3 + P5 and #438 P0 are built, and two sessions — the
 2026-09-03/04 overnight and the 2026-09-05 day — merged 34 PRs between
 2026-09-04 00:00Z and 20:38Z today (`git log origin/main --since=2026-09-04`).
 `main` is at `0d56d73` (PR #902). What is left is a Rob-gated migration stack
-(#872 → #870 → #905), three of the day's four gate PRs merged by 21:35Z (#901, #903, #907), with #904 plus two later PRs (#909 pilot load harness, #908 this re-triage) still in the gate, one new
+(#872 → #870 → #905), three of the day's four gate PRs merged by 21:35Z (#901, #903, #907), with #909 (#696 pilot load harness) merged 21:53Z and #904 plus #908 (this re-triage) still in the gate, one new
 security item (#906), and the rails the 2026-09-04 audit asked for.
 
 **Consumed by `/goal`** (`.claude/commands/goal.md`): an overnight session works
@@ -130,8 +130,9 @@ old or the queue is empty (goal.md Phase 2.1) — next check-in 2026-09-19.
 **Next session — work order (skip anything Rob-gated):**
 
 1. Land what is still in the gate — none carries a §7 item: #904 (#797 P3 + P5),
-   #909 (#696 pilot load harness, local measurement only), #908 (this re-triage).
-   Already merged today: #901 (#438 PR A, 21:18Z), #903 (#807, 20:59Z), #907 (#880
+   #908 (this re-triage).
+   Already merged today: #901 (#438 PR A, 21:18Z), #903 (#807, 20:59Z), #909 (#696 pilot
+   load harness, 21:53Z), #907 (#880
    judge → `haiku-4-5`, 21:35Z — tonight's nightly is the new baseline). Do not touch #905 (draft, Rob) or
    the migration stack.
 2. **#906** — fail-closed enablement lookup (Security spine item; S).
@@ -558,9 +559,9 @@ list is for Rob to pick from.** None is queue work until it has a number.
 
 ## Notes
 
-- **Open PRs on 2026-09-05 (written 20:56Z, reconciled 21:47Z).** Merged since the 20:56Z write, none §7: #901 (#438 A, 21:18Z), #903 (#807, 20:59Z),
-  #907 (#880, 21:35Z). Still in the gate: #904 (#797 P3 + P5), #909 (#696 pilot load
-  harness), #908 (this re-triage). Rob: #872 → #870 → #905
+- **Open PRs on 2026-09-05 (written 20:56Z, reconciled 21:59Z).** Merged since the 20:56Z write, none §7: #901 (#438 A, 21:18Z), #903 (#807, 20:59Z),
+  #907 (#880, 21:35Z), #909 (#696 pilot load harness, 21:53Z). Still in the gate: #904 (#797 P3 + P5),
+  #908 (this re-triage). Rob: #872 → #870 → #905
   (migrations 0049 / 0050 / 0051, in that order), #900 (gate), #890
   (decision; draft).
   Their `Claude verdict` statuses read "Claude review has not passed for this
