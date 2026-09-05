@@ -1,15 +1,19 @@
 export type {
   AgentRuntimeCapabilities,
   AgentRuntime,
+  BuiltInRuntimeName,
   McpServerSpec,
   RuntimeRunMetadata,
   RuntimeName,
   TurnInput,
 } from "./types";
-export { NEXT_TURN_RUNTIME_CAPABILITIES } from "./types";
+export {
+  BUILT_IN_RUNTIME_NAMES,
+  NEXT_TURN_RUNTIME_CAPABILITIES,
+} from "./types";
 
 export { BedrockRuntime } from "./bedrock-runtime";
-export { getRuntime } from "./factory";
+export { getRuntime, registerRuntime } from "./factory";
 
 export {
   AgentCoreRuntime,

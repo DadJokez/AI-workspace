@@ -199,6 +199,21 @@ export interface ProviderRequestSnapshot {
     description: string;
     inputSchema: JSONSchema7;
   }>;
+  /**
+   * Present when stale tool results were cleared from this request's
+   * messages (#771): which calls, and the transcript size before/after.
+   */
+  contextLifecycle?: {
+    cleared: Array<{
+      toolUseId: string;
+      toolName: string;
+      originalChars: number;
+    }>;
+    transcriptCharsBefore: number;
+    transcriptCharsAfter: number;
+    keepRecentRounds: number;
+    triggerChars: number;
+  };
 }
 
 /**

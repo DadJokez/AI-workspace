@@ -215,8 +215,13 @@ Concrete example: user asks **"What PRs do I have open?"** in chat.
 10. **Shell** persists the assistant message to `chat_messages` with
     `model_id='sonnet-4-6'`, `runtime='bedrock'`, token metadata, structured
     redacted tool calls/results, run events, and one `audit_log` row per tool
-    execution. The schema and safe input boundary for rolling summaries exist;
-    summary generation is still pending.
+    execution. After a successful turn the shell folds any history that aged
+    out of the recent window into `chat_threads.summary` (schema
+    `thread-summary.v1`: facts, open items, decisions, referenced resources by
+    id) through the safe summarizer boundary in
+    `packages/agent/src/thread-summary.ts`, using the registry's `summaries`
+    purpose (#771). The next turn renders that summary at the head of the
+    messages region as nonce-framed layer-7 background data.
 
 Durable work follows the same product steps but routes the runtime call through
 the AgentCore worker lane instead of the inline Bedrock lane.
@@ -360,6 +365,25 @@ The current user message is always preserved exactly. When older history or a
 summary is dropped/truncated, `/api/chat` emits a structured
 `turn-context-guardrail` log with the thread, user, limit values, and retained
 or dropped character counts.
+
+Two further context-lifecycle edits (#771) act only on the messages region,
+behind the ADR 0010 cache checkpoints, so neither can invalidate the stable
+system prefix:
+
+- **Stale tool-result clearing** (`packages/agent/src/context-lifecycle.ts`,
+  applied by `runAgentLoop` before every provider call): once the
+  model-visible transcript exceeds ~160K characters, tool rounds older than
+  the two most recent are replaced by a placeholder carrying the tool name,
+  call id, outcome, and a one-line excerpt. Error text is kept verbatim. The
+  loop's own transcript and every emitted `tool-result` event keep the raw
+  payload; the provider-request snapshot records what was cleared.
+- **Rolling summary** (`apps/web/lib/thread-summary.ts`): after a successful
+  turn, messages that aged out of `CHAT_RECENT_MESSAGE_LIMIT` and are not yet
+  covered are summarized into `chat_threads.summary` (`thread-summary.v1`),
+  read and written under `(id, user_id)`. Tool results enter the summarizer
+  transcript redacted and bounded; the prior summary rides along as fenced
+  data. The next turn renders the summary as layer-7 background data and the
+  context receipt says it is there.
 
 ## Hosting decision: ECS/Fargate production
 

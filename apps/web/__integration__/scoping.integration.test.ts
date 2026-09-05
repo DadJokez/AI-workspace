@@ -5,11 +5,13 @@ import {
   createDb,
   runEvents,
   runs,
+  skills,
   users,
   workspaceArtifacts,
 } from "@ai-workspace/db";
 import type { SessionUser } from "@ai-workspace/auth";
 import { asc, eq, sql } from "drizzle-orm";
+import { collectText } from "../__tests__/helpers/collect-text";
 
 /**
  * #444: per-user scoping, proven against real Postgres through the REAL
@@ -52,6 +54,7 @@ suite("cross-user scoping (real Postgres, real handlers)", () => {
     aliceThreadId: string;
     aliceMessageId: string;
     aliceArtifactId: string;
+    starterSkillId: string;
   }
   let seeded: Seeded;
 
@@ -114,6 +117,37 @@ suite("cross-user scoping (real Postgres, real handlers)", () => {
       })
       .returning();
 
+    // #827: a starter skill is the widest audience the skill-history leak
+    // had (every user can open it), so it is the fixture for that regression.
+    const [starterSkill] = await db
+      .insert(skills)
+      .values({
+        slug: "it-starter-brief",
+        name: "Starter brief",
+        ownerUserId: alice!.id,
+        systemPrompt: "Summarize the day.",
+        modelId: "sonnet-4-6",
+        mcpProviders: [],
+        isStarter: true,
+      })
+      .returning();
+    await db.insert(runs).values([
+      {
+        userId: alice!.id,
+        skillId: starterSkill!.id,
+        triggerType: "skill",
+        status: "failed",
+        error: "alice-private-run-error",
+      },
+      {
+        userId: bob!.id,
+        skillId: starterSkill!.id,
+        triggerType: "skill",
+        status: "failed",
+        error: "bob-private-run-error",
+      },
+    ]);
+
     const asSession = (u: typeof alice): SessionUser =>
       ({
         id: u!.id,
@@ -129,6 +163,7 @@ suite("cross-user scoping (real Postgres, real handlers)", () => {
       aliceThreadId: thread!.id,
       aliceMessageId: message!.id,
       aliceArtifactId: artifact!.id,
+      starterSkillId: starterSkill!.id,
     };
   }
 
@@ -365,5 +400,56 @@ suite("cross-user scoping (real Postgres, real handlers)", () => {
       params: Promise.resolve({ id: seeded.aliceThreadId }),
     });
     expect(res.status).toBe(404);
+  });
+
+  // #827/#846: the skill detail page is a real server component; these drive
+  // it directly (as invite-page.test.ts does) so the runs WHERE clause at
+  // app/skills/[id]/page.tsx is under test against real Postgres.
+  const renderSkillDetail = async (skillId: string) => {
+    const { default: SkillDetailPage } = await import("@/app/skills/[id]/page");
+    return SkillDetailPage({ params: Promise.resolve({ id: skillId }) });
+  };
+
+  it("#827 regression: skill detail run history lists only the caller's runs", async () => {
+    currentUser = seeded.bob;
+    const asBob = collectText(await renderSkillDetail(seeded.starterSkillId));
+    expect(asBob).toContain("bob-private-run-error");
+    expect(asBob).not.toContain("alice-private-run-error");
+
+    currentUser = seeded.alice;
+    const asAlice = collectText(
+      await renderSkillDetail(seeded.starterSkillId),
+    );
+    expect(asAlice).toContain("alice-private-run-error");
+    expect(asAlice).not.toContain("bob-private-run-error");
+  });
+
+  it("skill detail is a personal surface: admin sees only their own runs", async () => {
+    // Deliberately no userScope() bypass here; admins use /admin/runs.
+    currentUser = seeded.admin;
+    const asAdmin = collectText(
+      await renderSkillDetail(seeded.starterSkillId),
+    );
+    expect(asAdmin).not.toContain("alice-private-run-error");
+    expect(asAdmin).not.toContain("bob-private-run-error");
+    expect(asAdmin).toContain("No runs yet.");
+  });
+
+  it("skill detail 404s for a user with no access", async () => {
+    const [privateSkill] = await db
+      .insert(skills)
+      .values({
+        slug: "it-alice-private",
+        name: "Alice's private skill",
+        ownerUserId: seeded.alice.id,
+        systemPrompt: "Private.",
+        modelId: "sonnet-4-6",
+        mcpProviders: [],
+        isStarter: false,
+      })
+      .returning();
+    currentUser = seeded.bob;
+    // Next's notFound() throws; the page never reaches the run history.
+    await expect(renderSkillDetail(privateSkill!.id)).rejects.toThrow();
   });
 });

@@ -16,10 +16,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # #812: the docs-only fast lane's decision, computed from git alone in the
+  # reusable workflow. Every heavy job below needs it and runs unless it
+  # reports docs_only == 'true'. `!cancelled()` keeps them running when the
+  # classifier job itself errors: a classifier failure is the full lane,
+  # never a skip. The required-check names live on the summary jobs at the
+  # bottom of this file; the heavy jobs carry a "[full lane]" suffix.
+  classify:
+    uses: ./.github/workflows/classify-changed-paths.yml
+
   ci:
-    name: lint + typecheck + build
+    name: lint + typecheck + build [full lane]
+    needs: [classify]
+    if: ${{ !cancelled() && needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 15, not 10: the job's own work is ~5 min, but #869's coverage lane took
+    # the healthy total to ~9 min, and on the slow-registry night of
+    # 2026-09-04 `Setup pnpm` alone stalled for 3-7 min (main run 33842828436,
+    # PR #877 attempts 1-2), so the 10-minute cap fired after every real step
+    # had passed. Same rule as the CVE audit's cap (#864): the cap covers the
+    # observed worst-case envelope so the steps, not the runner, decide.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -56,8 +73,25 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
-        run: pnpm test
+      # #695: the same unit lane as `pnpm test`, instrumented with v8 coverage.
+      # Report-only — no thresholds, so a coverage drop never turns this
+      # required check red. The per-package table lands on the run summary
+      # page; the raw json-summary/lcov files go up as an artifact below.
+      - name: Test (with coverage)
+        run: pnpm test:coverage
+
+      - name: Upload coverage summary
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-summary
+          path: |
+            apps/*/coverage/coverage-summary.json
+            apps/*/coverage/lcov.info
+            packages/*/coverage/coverage-summary.json
+            packages/*/coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 14
 
       # Free, deterministic eval lane: exercise every suite/case definition
       # and replay every scrubbed alpha failure transcript on every required
@@ -74,7 +108,7 @@ jobs:
 
       - name: Upload runtime conformance report
         if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: runtime-conformance-report
           path: packages/evals/conformance-reports/
@@ -90,9 +124,17 @@ jobs:
   # production dependency graph (xlsx's CVEs reached prod because nothing
   # looked). Moderate/low findings report but do not block.
   dependency-audit:
-    name: dependency CVE audit
+    name: dependency CVE audit [full lane]
+    needs: [classify]
+    if: ${{ !cancelled() && needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 12, not 5: scripts/audit-prod-deps.sh retries the npm advisory endpoint
+    # with backoff, and on a slow registry night (2026-09-03) the 5-minute cap
+    # expired mid-retry. GitHub reports a job-timeout as "cancelled", which
+    # reads as a failed required check (#862). The cap must cover the
+    # script's worst-case retry envelope so the script - not the runner -
+    # decides between "finding" and "registry unreachable".
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -135,26 +177,20 @@ jobs:
         run: bash scripts/audit-prod-deps.sh
 
   scoping-integration:
-    name: scoping integration (real Postgres)
+    name: scoping integration (real Postgres) [full lane]
+    needs: [classify]
+    if: ${{ !cancelled() && needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_PASSWORD: ci
-          POSTGRES_DB: scoping
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      - uses: ./.github/actions/local-postgres
+        with:
+          user: postgres
+          password: ci
+          database: scoping
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
@@ -188,6 +224,8 @@ jobs:
   # PR instead. No continue-on-error: when it breaks, it should fail loudly.
   infra-synth:
     name: infra synth
+    needs: [classify]
+    if: ${{ !cancelled() && needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -222,3 +260,65 @@ jobs:
           CDK_DEFAULT_REGION: us-east-1
           AWS_EC2_METADATA_DISABLED: "true"
         run: pnpm --filter @ai-workspace/infra exec cdk synth --quiet --no-lookups
+
+  # ---------------------------------------------------------------------------
+  # Required-check summaries (#812). Branch protection requires the contexts
+  # named below, unchanged. Each name now belongs to exactly ONE job — its
+  # summary — so no second check run with a required name can ever exist to
+  # collide with it; the heavy jobs above carry a "[full lane]" suffix. A
+  # summary passes on a real success of its heavy job, or on a skip the
+  # classifier explicitly asked for. A skip without that verdict, a failure,
+  # or a cancellation is red: the summaries run on failure (never skip) and
+  # exit non-zero, because a skipped required check satisfies branch
+  # protection and would fail the gate open.
+  # ---------------------------------------------------------------------------
+  ci-summary:
+    name: lint + typecheck + build
+    needs: [classify, ci]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report lint + typecheck + build
+        env:
+          LABEL: lint + typecheck + build
+          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+          RESULT: ${{ needs.ci.result }}
+        run: |
+          if [ "$RESULT" = "success" ]; then echo "$LABEL passed"; exit 0; fi
+          if [ "$RESULT" = "skipped" ] && [ "$DOCS_ONLY" = "true" ]; then echo "docs-only: skipped"; exit 0; fi
+          echo "$LABEL did not pass (result=$RESULT, docs_only=$DOCS_ONLY)"; exit 1
+
+  dependency-audit-summary:
+    name: dependency CVE audit
+    needs: [classify, dependency-audit]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report dependency CVE audit
+        env:
+          LABEL: dependency CVE audit
+          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+          RESULT: ${{ needs.dependency-audit.result }}
+        run: |
+          if [ "$RESULT" = "success" ]; then echo "$LABEL passed"; exit 0; fi
+          if [ "$RESULT" = "skipped" ] && [ "$DOCS_ONLY" = "true" ]; then echo "docs-only: skipped"; exit 0; fi
+          echo "$LABEL did not pass (result=$RESULT, docs_only=$DOCS_ONLY)"; exit 1
+
+  scoping-integration-summary:
+    name: scoping integration (real Postgres)
+    needs: [classify, scoping-integration]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report scoping integration (real Postgres)
+        env:
+          LABEL: scoping integration (real Postgres)
+          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+          RESULT: ${{ needs.scoping-integration.result }}
+        run: |
+          if [ "$RESULT" = "success" ]; then echo "$LABEL passed"; exit 0; fi
+          if [ "$RESULT" = "skipped" ] && [ "$DOCS_ONLY" = "true" ]; then echo "docs-only: skipped"; exit 0; fi
+          echo "$LABEL did not pass (result=$RESULT, docs_only=$DOCS_ONLY)"; exit 1

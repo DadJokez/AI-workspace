@@ -32,7 +32,7 @@ unit suites.
 | Rate-limit denials | `rate_limit` | `app/api/chat/route.ts`, briefing route |
 | Shares create/role/revoke | `share_create`, `app_share_*` | `lib/shares.ts` |
 | Skills create/update/archive/clone/seed/import | `skill_*` | skill routes + `lib/skills.ts` |
-| Schedules create/update ⚙/delete ⚙ | `skill_update`, `schedule_update`, `schedule_delete` | schedule routes |
+| Schedules create/update ⚙/delete ⚙/run now ⚙ | `skill_update`, `schedule_update`, `schedule_delete`, `schedule_fire` (run now carries `metadata.scheduleFire: "manual"`; asserted in `__integration__/schedule-run-now.integration.test.ts`) | schedule routes + `lib/schedules/scheduler.ts` |
 | Event triggers create/update/delete/fire | `event_trigger_*`, `github_webhook_receive` | trigger routes + `lib/github-event-triggers.ts` |
 | Apps register/update/archive/deploy/rollback/drafts/edit sessions | `app_*` | app routes + `lib/apps.ts` |
 | Runs cancel/retry/resume | `run_cancel`, `run_retry`, `run_resume` | `lib/run-actions.ts` |

@@ -10,6 +10,7 @@ import {
   PLATFORM_EVIDENCE_DISCIPLINE,
   runAgentLoop,
 } from "./loop";
+import { modelIdentityLine } from "./model-identity";
 import { MODELS } from "./models";
 import { ToolRegistry } from "./registry";
 import { RUN_BUDGET_SCHEMA } from "./run-budget";
@@ -86,8 +87,11 @@ describe("runAgentLoop system prompt caching", () => {
 
     const params = client.captured[0];
     const stablePrompt = params?.systemPrompt ?? "";
-    expect(stablePrompt).toContain("You are Claude Sonnet 4.6");
-    expect(stablePrompt).toContain("never claim to be an older model");
+    // The loop is the single injection point for the registry-derived
+    // identity sentence (#856, #797 P1, #304): exactly one copy, rendered by
+    // the helper — the pinned wording lives in model-identity.test.ts.
+    expect(stablePrompt).toContain(modelIdentityLine("sonnet-4-6"));
+    expect(stablePrompt.match(/You are powered by/g)).toHaveLength(1);
     expect(stablePrompt).toContain(PLATFORM_EVIDENCE_DISCIPLINE);
     expect(stablePrompt).toContain(
       "Do not silently infer dates, owners, status, deadlines, decisions, completion, attendance, or attribution",
@@ -1908,5 +1912,116 @@ describe("loop.ts source hygiene", () => {
     // A raw NUL once made git classify this hot file as binary, rendering
     // its diffs unreviewable. Delimiters must be escaped, never raw.
     expect(source.includes("\0")).toBe(false);
+  });
+});
+
+describe("runAgentLoop stale tool-result clearing (#771)", () => {
+  /** Requests three tool rounds, then answers from whatever it can still see. */
+  class MultiRoundClient implements BedrockClient {
+    readonly captured: ConverseStreamParams[] = [];
+
+    async *converseStream(
+      params: ConverseStreamParams,
+    ): AsyncIterable<BedrockStreamEvent> {
+      this.captured.push(params);
+      const round = this.captured.length;
+      if (round <= 3) {
+        yield {
+          type: "tool-use",
+          id: `call-${round}`,
+          name: "fetch_page",
+          input: { page: round },
+        };
+        yield { type: "stop", reason: "tool_use" };
+        return;
+      }
+      yield { type: "text-delta", text: "done" };
+      yield { type: "stop", reason: "end_turn" };
+    }
+  }
+
+  const fetchTool: Tool = {
+    name: "fetch_page",
+    policy: "always_allow",
+    description: "fixture",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (input) =>
+      `page ${(input as { page: number }).page} body ${"x".repeat(2000)}`,
+  };
+
+  async function run(
+    client: MultiRoundClient,
+    contextLifecycle?: { keepRecentRounds?: number; triggerChars?: number },
+  ) {
+    const registry = new ToolRegistry();
+    registry.register(fetchTool);
+    const events = [];
+    for await (const event of runAgentLoop({
+      modelId: "sonnet-4-6",
+      systemPrompt: "You are the page reader.",
+      messages: [{ role: "user", content: "read three pages" }],
+      registry,
+      context: { userId: "u1" },
+      client,
+      ...(contextLifecycle ? { contextLifecycle } : {}),
+    })) {
+      events.push(event);
+    }
+    return events;
+  }
+
+  function result(params: ConverseStreamParams | undefined, id: string) {
+    return toolResultBlocks(params).find((block) => block.toolUseId === id)
+      ?.content;
+  }
+
+  it("stubs rounds behind the keep window once the transcript exceeds the trigger, keeping the raw events and stable prefix", async () => {
+    const client = new MultiRoundClient();
+    const events = await run(client, { keepRecentRounds: 1, triggerChars: 0 });
+
+    // Final request: rounds 1-2 are placeholders, round 3 is intact.
+    const last = client.captured[3];
+    expect(result(last, "call-1")).toContain("[stale tool result cleared]");
+    expect(result(last, "call-1")).toContain("tool=fetch_page");
+    expect(result(last, "call-1")).toContain("call=call-1");
+    expect(result(last, "call-2")).toContain("[stale tool result cleared]");
+    expect(result(last, "call-3")).toContain("page 3 body");
+    // The second request (one round so far) still shows round 1 in full.
+    expect(result(client.captured[1], "call-1")).toContain("page 1 body");
+
+    // The stable prefix is byte-identical across every iteration (ADR 0010).
+    const prompts = new Set(client.captured.map((p) => p.systemPrompt));
+    expect(prompts.size).toBe(1);
+
+    // Persistence sees the raw payloads, never the placeholders.
+    const results = events.filter((e) => e.type === "tool-result");
+    expect(results).toHaveLength(3);
+    for (const event of results) {
+      if (event.type !== "tool-result") continue;
+      expect(String(event.result.output)).toContain("body");
+    }
+
+    // The provider-request snapshot carries the receipt for the inspector.
+    const snapshots = events.filter((e) => e.type === "provider-request");
+    const lastSnapshot = snapshots[3];
+    expect(
+      lastSnapshot?.type === "provider-request"
+        ? lastSnapshot.request.contextLifecycle?.cleared.map((c) => c.toolUseId)
+        : undefined,
+    ).toEqual(["call-1", "call-2"]);
+    expect(
+      snapshots[1]?.type === "provider-request"
+        ? snapshots[1].request.contextLifecycle
+        : "missing",
+    ).toBeUndefined();
+  });
+
+  it("leaves every result intact under the default trigger", async () => {
+    const client = new MultiRoundClient();
+    await run(client);
+    const last = client.captured[3];
+    expect(result(last, "call-1")).toContain("page 1 body");
+    expect(result(last, "call-2")).toContain("page 2 body");
+    expect(result(last, "call-3")).toContain("page 3 body");
   });
 });

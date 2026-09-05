@@ -6,10 +6,21 @@ import { eventTriggers, getDb, runs, schedules, skills } from "@ai-workspace/db"
 import { and, desc, eq, isNull } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { StatusBadge } from "@/app/admin/ui";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { formatDateTime } from "@/lib/format-date";
 import { SUPPORTED_MCP_PROVIDERS } from "@/lib/oauth/mcp-servers";
 import { modelDisplayName } from "@/lib/model-display";
+import {
+  budgetDimensionLabel,
+  budgetTruncation,
+} from "@/lib/run-budget-policy";
+import {
+  runStatusPresentation,
+  runTriggerLabel,
+  scheduleFireFromInputs,
+} from "@/lib/run-status-presentation";
+import { listScheduleRunHistory } from "@/lib/schedules/run-history";
 import { SKILL_WEB_ACCESS_DECLARATION } from "@/lib/skill-tool-declarations";
 import { canActorAccessSkill, listSharesForSubject } from "@/lib/shares";
 import { eventTriggerKind } from "@/lib/github-event-triggers";
@@ -51,6 +62,11 @@ export default async function SkillDetailPage({
       ),
     )
     .orderBy(desc(schedules.createdAt));
+  const scheduleHistory = await Promise.all(
+    mySchedules.map((s) =>
+      listScheduleRunHistory({ db, userId: sessionUser.id, scheduleId: s.id }),
+    ),
+  );
   const myEventTriggers = await db
     .select()
     .from(eventTriggers)
@@ -68,6 +84,8 @@ export default async function SkillDetailPage({
       status: runs.status,
       triggerType: runs.triggerType,
       threadId: runs.threadId,
+      inputs: runs.inputs,
+      outputs: runs.outputs,
       error: runs.error,
       createdAt: runs.createdAt,
       completedAt: runs.completedAt,
@@ -162,7 +180,7 @@ export default async function SkillDetailPage({
           </h3>
           <SchedulePanel
             skillId={skill.id}
-            schedules={mySchedules.map((s) => ({
+            schedules={mySchedules.map((s, index) => ({
               id: s.id,
               cadence: s.cadence,
               timezone: s.timezone,
@@ -171,6 +189,19 @@ export default async function SkillDetailPage({
               nextRunAt: s.nextRunAt.toISOString(),
               lastError: s.lastError,
               targetThreadId: s.targetThreadId,
+              runs: scheduleHistory[index]!.map((run) => ({
+                id: run.id,
+                status: run.status,
+                scheduleFire: run.scheduleFire,
+                threadId: run.threadId,
+                error: run.error,
+                budgetLabel: run.truncatedBy
+                  ? budgetDimensionLabel(run.truncatedBy)
+                  : null,
+                createdAt: run.createdAt.toISOString(),
+                startedAt: run.startedAt?.toISOString() ?? null,
+                completedAt: run.completedAt?.toISOString() ?? null,
+              })),
             }))}
           />
         </div>
@@ -227,6 +258,7 @@ export default async function SkillDetailPage({
           <ul className="flex flex-col gap-1">
             {history.map((run) => {
               const statusPresentation = runStatusPresentation(run.status);
+              const truncatedBy = budgetTruncation(run.outputs);
               return (
                 <li
                   key={run.id}
@@ -241,8 +273,17 @@ export default async function SkillDetailPage({
                       <span className="font-medium text-ink">
                         {statusPresentation.label}
                       </span>
+                      {truncatedBy ? (
+                        <StatusBadge
+                          status="warning"
+                          label={`budget: ${budgetDimensionLabel(truncatedBy)}`}
+                        />
+                      ) : null}
                       <span className="text-muted">
-                        {runTriggerLabel(run.triggerType)}
+                        {runTriggerLabel(
+                          run.triggerType,
+                          scheduleFireFromInputs(run.inputs),
+                        )}
                       </span>
                     </div>
                     {run.error ? (
@@ -275,33 +316,4 @@ export default async function SkillDetailPage({
       </div>
     </section>
   );
-}
-
-const RUN_STATUS_PRESENTATION: Record<
-  string,
-  { label: string; dotClass: string }
-> = {
-  queued: { label: "Queued", dotClass: "bg-muted" },
-  running: { label: "Running", dotClass: "bg-info" },
-  succeeded: { label: "Succeeded", dotClass: "bg-success" },
-  failed: { label: "Failed", dotClass: "bg-danger" },
-  canceled: { label: "Canceled", dotClass: "bg-muted" },
-};
-
-function runStatusPresentation(status: string) {
-  return (
-    RUN_STATUS_PRESENTATION[status] ?? {
-      label: "Unknown",
-      dotClass: "bg-muted",
-    }
-  );
-}
-
-function runTriggerLabel(triggerType: string): string {
-  const labels: Record<string, string> = {
-    skill: "Manual run",
-    scheduled: "Scheduled run",
-    github_event: "GitHub event",
-  };
-  return labels[triggerType] ?? "Skill run";
 }
