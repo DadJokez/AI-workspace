@@ -1,4 +1,4 @@
-# Build Queue — re-triaged 2026-09-05 (20:50Z)
+# Build Queue — re-triaged 2026-09-05 (20:56Z)
 
 Prioritized, dependency-ordered queue of open work. Re-triaged three days after
 the 2026-09-02 queue because that file's state moved faster than its header:
@@ -7,8 +7,8 @@ closed, #797 P1–P3 + P5 and #438 P0 are built, and two sessions — the
 2026-09-03/04 overnight and the 2026-09-05 day — merged 34 PRs between
 2026-09-04 00:00Z and 20:38Z today (`git log origin/main --since=2026-09-04`).
 `main` is at `0d56d73` (PR #902). What is left is a Rob-gated migration stack
-(#872 → #870 → #905), three review-clean PRs in the gate, one new security
-item (#906), and the rails the 2026-09-04 audit asked for.
+(#872 → #870 → #905), four PRs in the gate (#901, #903, #904, #907), one new
+security item (#906), and the rails the 2026-09-04 audit asked for.
 
 **Consumed by `/goal`** (`.claude/commands/goal.md`): an overnight session works
 this queue top-down, skipping anything whose dependencies aren't merged to
@@ -129,12 +129,14 @@ old or the queue is empty (goal.md Phase 2.1) — next check-in 2026-09-19.
 
 **Next session — work order (skip anything Rob-gated):**
 
-1. Land the three PRs in the gate — none carries a §7 item: #901 (#438 PR A),
-   #903 (#807), #904 (#797 P3 + P5; review pending at 20:52Z). Do not touch
-   #905 (draft, Rob) or the migration stack.
+1. Land the four PRs in the gate — none carries a §7 item: #901 (#438 PR A),
+   #903 (#807), #904 (#797 P3 + P5; review pending at 20:52Z), #907 (#880
+   judge → `haiku-4-5`, opened 20:55Z). Do not touch #905 (draft, Rob) or
+   the migration stack.
 2. **#906** — fail-closed enablement lookup (Security spine item; S).
-3. **#880** — move the judge to `haiku-4-5` (lane in flight at write time, no
-   PR yet — finish or restart it; see Tier 0 item 2 for the IAM caveat).
+3. **First nightly after #907 = new baseline.** Read its red as
+   judge-calibration, not regression; do not add markers for the three
+   judge-strictness cases (Tier 0 item 2) — their rubric rewording is Rob's.
 4. **#696** — pilot load test (lane in flight, no PR): local-stack measurement
    + report only; the production run is Rob's (Deliberately parked list).
 5. Tier 0 item 4 — lift the `#847` markers once the bar is met.
@@ -168,15 +170,25 @@ comes first next session.
    working), one log line, honest receipt ("model enablement unavailable —
    using the default"), one shared helper for the chat-route gate, unit tests
    both ways. No migration, no env.
-2. **#880 — the nightly is self-judged — lane in flight, no PR at 20:52Z.**
-   `DEFAULT_MODEL_ID` and `JUDGE_MODEL_ID` are both `sonnet-4-5` (found by
-   #879). The chosen shape is option 1 — judge → `haiku-4-5` (independent
-   quota bucket, smaller blast radius, no production model change); the
-   first nightly after it is a new baseline, not a regression. **Caveat: the
-   nightly eval IAM role is model-scoped (#904 confirmed only that role is) —
-   if `haiku-4-5` is not in its allow-list, that IAM edit is Rob's (§7), and
-   the lane stops at a PR that says so.** Option 2 (lift the platform pin) is
-   a production model change and stays Rob's; #906 must land before it.
+2. **#880 — the nightly is self-judged — PR #907 OPEN (20:55Z), in the
+   gate; Rob chose option 1.** `DEFAULT_MODEL_ID` and `JUDGE_MODEL_ID` were
+   both `sonnet-4-5` (found by #879). #907 moves `JUDGE_MODEL_ID` to
+   `haiku-4-5` — separate Bedrock quota bucket, already in the nightly eval
+   role's allow-list (verified read-only in the PR), so evals-only: no IAM,
+   env, runtime or enablement change; the platform pin stays. It appends
+   three calibration lines to `JUDGE_SYSTEM`, added only after a same-answer
+   A/B showed Sonnet-judged verdicts unchanged under them, and `--model
+   haiku-4-5` is now the refused id. **The first nightly after the merge is a
+   new baseline, not a regression signal.** The PR hands Rob a three-case
+   "likely red early" list — `model-routing/disconnected-calendar-stays-honest`
+   (most likely; the rubric names no concrete FAIL condition),
+   `salesforce-faithfulness/injection-record-description` (paraphrasing the
+   poisoned field as "business data": allow it, or make misdescription a
+   FAIL and it becomes a product fix), `gmail-calendar-faithfulness/calendar-confirmed-write`
+   (occasional flake) — each a judge-strictness item whose **rubric rewording
+   is Rob's; no assertion was loosened and no marker added, and an
+   unattended session adds none.** Option 2 (lift the platform pin) remains a
+   production model change and Rob's; #906 lands before it.
 3. **#823 — partially met; the rest is Rob's.** Acceptance criteria 1–3 are
    proven on `main` (#885's pins: `allowed-account-ids` enforced, no
    unexpected-input warning, green nightlies). Still unmet: the Node 20
@@ -466,6 +478,9 @@ list is for Rob to pick from.** None is queue work until it has a number.
 - **#879's qualification bar** in `docs/REGRESSION_GAUNTLET.md` — the
   thresholds are Rob's to ratify; #904's Nova run is the first real result
   against them.
+- **#907's three judge-strictness cases** (Tier 0 item 2) — rubric
+  rewording so each names its FAIL conditions concretely; Rob's, after the
+  first Haiku-judged nightlies show which stay red.
 - **#904's Rob actions** — confirm Nova Pro pricing; the enablement flip
   (recommended against; #305 / #295 / #301 / #302 enablement decisions are
   Rob's, build work folded into Tier E); IAM for a nightly Nova case.
@@ -543,9 +558,10 @@ list is for Rob to pick from.** None is queue work until it has a number.
 
 ## Notes
 
-- **Open PRs on 2026-09-05 20:52Z.** In the gate, none §7: #901 (#438 A),
-  #903 (#807), #904 (#797 P3 + P5). Rob: #872 → #870 → #905 (migrations
-  0049 / 0050 / 0051, in that order), #900 (gate), #890 (decision; draft).
+- **Open PRs on 2026-09-05 20:56Z.** In the gate, none §7: #901 (#438 A),
+  #903 (#807), #904 (#797 P3 + P5), #907 (#880). Rob: #872 → #870 → #905
+  (migrations 0049 / 0050 / 0051, in that order), #900 (gate), #890
+  (decision; draft).
   Their `Claude verdict` statuses read "Claude review has not passed for this
   commit" until CI finishes — the pending state, not a red.
 - **Known-red markers on `main`:** `#847` ×3 and `#860` ×1 — both issues are
