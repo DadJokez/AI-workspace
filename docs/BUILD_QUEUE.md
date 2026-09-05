@@ -139,7 +139,7 @@ old or the queue is empty (goal.md Phase 2.1) — next check-in 2026-09-19.
 3. **First nightly after #907 = new baseline.** Read its red as
    judge-calibration, not regression; do not add markers for the three
    judge-strictness cases (Tier 0 item 2) — their rubric rewording is Rob's.
-4. **#696** — pilot load test (lane in flight, no PR): local-stack measurement
+4. **#696** — pilot load test (PR #909, merged 21:53Z): local-stack measurement
    + report only; the production run is Rob's (Deliberately parked list).
 5. Tier 0 item 4 — lift the `#847` markers once the bar is met.
 6. **#438 P1** — per-skill standing notes + the Settings precedence explainer,
@@ -551,7 +551,7 @@ list is for Rob to pick from.** None is queue work until it has a number.
   governed Salesforce writes, spend dashboard: behind #775 and #810.
 - **#412 / #413 / #422 / #424** — GA-Pac architecture specs; unchanged. #413
   is now also #438 P2's dependency.
-- **#696 — load/perf program.** The in-flight lane measures against the
+- **#696 — load/perf program.** PR #909 (merged 21:53Z) measured against the
   local stack only and files a report; **the production run needs #697 (or an
   explicit Rob window against prod) and is Rob's.**
 - **#744, #467** — conformance suite, release engineering: later. #467
