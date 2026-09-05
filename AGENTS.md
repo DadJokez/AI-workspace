@@ -25,6 +25,9 @@ branch** → Rob merges.
 - Do **not** add a new production dependency, a database migration, or any
   auth / secret / env / permissions change without Rob's explicit approval —
   call it out in the PR description instead of doing it.
+- Migrations are additive-only and CI checks it: `pnpm --filter @ai-workspace/db migration:guard`
+  fails a new destructive statement without a `-- migration-guard-allow: <reason>` line above it,
+  and a journal `when` that does not exceed its predecessor's (`packages/db/README.md`).
 - The PR summary must include: what changed, validation notes, and risks.
 - Address Claude's review on the existing PR branch (push follow-up commits) —
   never open a duplicate PR.

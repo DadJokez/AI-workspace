@@ -207,13 +207,14 @@ list):**
 
 - **#862 — cancel-in-progress on PR refs makes merge-train timing a false
   red.** Two cases on 2026-09-03 (#857 build cancelled mid-`Build`, #858 CVE
-  audit cancelled during setup; same-SHA reruns green). Recommended option on
-  the issue: scope the `concurrency` group to the head SHA in `ci.yml` and
-  `product-smoke.yml`. **Workflow edit under #699's rules — the diff is the
-  `concurrency:` blocks only, no `permissions:` change; Rob picks the
-  option.** Until then, treat a `cancelled` required job as a rerun, not a
-  red (`gh run view --json jobs` shows the conclusion; `gh pr checks` does
-  not).
+  audit cancelled during setup; same-SHA reruns green). **PR #899 builds the
+  issue's recommended option 2** under the 2026-09-05 delegation: `ci.yml`
+  and `product-smoke.yml` key their `concurrency` group by head SHA; the diff
+  is the `concurrency:` blocks only, no `permissions:` change (#699's rules).
+  Rob's sign-off is the merge; the proof runs are in the PR body. Either
+  way, treat a `cancelled` required job
+  as a rerun, not a red (`gh run view --json jobs` shows the conclusion;
+  `gh pr checks` does not).
 - **#880 — the nightly is self-judged.** `DEFAULT_MODEL_ID` and
   `JUDGE_MODEL_ID` are both `sonnet-4-5`, so judge assertions grade the
   candidate with itself (found by PR #879, which warns loudly but does not
@@ -490,8 +491,8 @@ unattended.
   merging — merge = deploy.
 - **#890 — close or merge** (close = keep #885's action pins, merge =
   revert); #823 closes on Rob's sign-off of the state kept either way.
-- **#862 / #880 / #891** — Tier 0 open decisions (workflow concurrency; the
-  self-judged nightly; the `needs-rob` verdict gate).
+- **#880 / #891** — Tier 0 open decisions (the self-judged nightly; the
+  `needs-rob` verdict gate). #862 (workflow concurrency) is PR #899.
 - **CodeBuild `concurrentBuildLimit=1`** — pushes during a running build are
   dropped; three merges tonight needed a manual start. Infra, Rob.
 - **#893 — one live run per thread/schedule.** Unique partial index on
