@@ -1,7 +1,4 @@
-import {
-  MODEL_IDS,
-  PLATFORM_MODEL_OVERRIDE_ID,
-} from "@ai-workspace/agent";
+import { PLATFORM_MODEL_OVERRIDE_ID } from "@ai-workspace/agent";
 import { eventTriggers, getDb, runs, schedules, skills } from "@ai-workspace/db";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import Link from "next/link";
@@ -11,6 +8,7 @@ import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { formatDateTime } from "@/lib/format-date";
 import { SUPPORTED_MCP_PROVIDERS } from "@/lib/oauth/mcp-servers";
 import { modelDisplayName } from "@/lib/model-display";
+import { enabledModelsForPurpose } from "@/lib/model-registry";
 import {
   budgetDimensionLabel,
   budgetTruncation,
@@ -49,6 +47,9 @@ export default async function SkillDetailPage({
 
   const isOwner = skill.ownerUserId === sessionUser.id;
   const effectiveModelId = PLATFORM_MODEL_OVERRIDE_ID ?? skill.modelId;
+  // #300/#797 P3: offer exactly the models the save route accepts — a
+  // registered-but-disabled brain must not appear in the picker.
+  const modelOptions = await enabledModelsForPurpose(db, "chat");
   const skillShares = isOwner
     ? await listSharesForSubject(db, "skill", skill.id)
     : [];
@@ -141,11 +142,7 @@ export default async function SkillDetailPage({
           <SkillForm
             mode="edit"
             skillId={skill.id}
-            modelOptions={
-              PLATFORM_MODEL_OVERRIDE_ID
-                ? [PLATFORM_MODEL_OVERRIDE_ID]
-                : [...MODEL_IDS]
-            }
+            modelOptions={modelOptions}
             providerOptions={[
               ...SUPPORTED_MCP_PROVIDERS,
               SKILL_WEB_ACCESS_DECLARATION,

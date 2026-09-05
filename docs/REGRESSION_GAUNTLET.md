@@ -162,6 +162,13 @@ Rules the CLI enforces:
 - Real-model qualification runs are **Rob-dispatched**: they draw on the
   shared Bedrock quota (#706). Unattended agents build and test against
   `--mock` only.
+- **Identity is graded live, per candidate.** The `model-identity` suite
+  (`packages/evals/src/cases/model-identity.cases.ts`, CRITICAL, 3×) derives
+  its expected answer from the Bedrock id the loop actually sent, so the same
+  case holds every brain to "names its own family, display name and vendor;
+  claims no other registry model, vendor family, or older version". The
+  end-to-end procedure — verify on Bedrock, add the entry, qualify, flip
+  rows — is [`runbooks/ADD_A_CONVERSE_MODEL.md`](./runbooks/ADD_A_CONVERSE_MODEL.md).
 
 ### The bar (proposed)
 

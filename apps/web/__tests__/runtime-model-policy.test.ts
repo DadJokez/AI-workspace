@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { MODELS } from "@ai-workspace/agent";
 import {
   applyRuntimeModelFailover,
   resolveChatModelPreference,
+  resolveModelFailoverChain,
   resolveRuntimeModelSelection,
 } from "@/lib/runtime-model-policy";
 
@@ -128,6 +130,45 @@ describe("resolveChatModelPreference", () => {
         skillModelId: "haiku-4-5",
       }),
     ).toEqual({ modelId: "haiku-4-5", source: "skill_pin" });
+  });
+});
+
+describe("resolveModelFailoverChain (#797 P3)", () => {
+  it("passes a same-provider chain through unchanged, whatever the qualified set says", () => {
+    const chain = ["sonnet-4-6", "opus-4-7", "haiku-4-5"] as const;
+    expect(resolveModelFailoverChain(chain, new Set())).toEqual([...chain]);
+    expect(resolveModelFailoverChain(chain, new Set(["sonnet-4-6"]))).toEqual([
+      ...chain,
+    ]);
+  });
+
+  it("allows a cross-provider hop only onto a qualified model", () => {
+    expect(MODELS["nova-pro"].provider).not.toBe(MODELS["sonnet-4-6"].provider);
+    expect(
+      resolveModelFailoverChain(
+        ["sonnet-4-6", "nova-pro"],
+        new Set(["sonnet-4-6", "nova-pro"]),
+      ),
+    ).toEqual(["sonnet-4-6", "nova-pro"]);
+  });
+
+  it("rejects a chain that would fail over into an unqualified provider", () => {
+    expect(() =>
+      resolveModelFailoverChain(["sonnet-4-6", "nova-pro"], new Set(["sonnet-4-6"])),
+    ).toThrow(/crosses providers into "nova-pro" \(amazon\)/);
+    // Symmetric: a Nova-first lane may not fall back onto unqualified Claude.
+    expect(() =>
+      resolveModelFailoverChain(["nova-pro", "haiku-4-5"], new Set(["nova-pro"])),
+    ).toThrow(/crosses providers into "haiku-4-5" \(anthropic\)/);
+  });
+
+  it("checks every hop, not just the first", () => {
+    expect(() =>
+      resolveModelFailoverChain(
+        ["sonnet-4-6", "haiku-4-5", "nova-pro"],
+        new Set(["sonnet-4-6", "haiku-4-5"]),
+      ),
+    ).toThrow(/into "nova-pro"/);
   });
 });
 

@@ -1,16 +1,17 @@
-import {
-  MODEL_IDS,
-  PLATFORM_MODEL_OVERRIDE_ID,
-} from "@ai-workspace/agent";
+import { getDb } from "@ai-workspace/db";
 import Link from "next/link";
 import { ImportSkillPanel } from "@/components/skills/ImportSkillPanel";
 import { SkillForm } from "@/components/skills/SkillForm";
+import { enabledModelsForPurpose } from "@/lib/model-registry";
 import { SUPPORTED_MCP_PROVIDERS } from "@/lib/oauth/mcp-servers";
 import { SKILL_WEB_ACCESS_DECLARATION } from "@/lib/skill-tool-declarations";
 
 export const dynamic = "force-dynamic";
 
-export default function NewSkillPage() {
+export default async function NewSkillPage() {
+  // #300/#797 P3: offer exactly the models the save route accepts — a
+  // registered-but-disabled brain must not appear in the picker.
+  const modelOptions = await enabledModelsForPurpose(getDb(), "chat");
   return (
     <section className="px-6 py-6">
       <div className="pb-4">
@@ -25,11 +26,7 @@ export default function NewSkillPage() {
       </div>
       <SkillForm
         mode="create"
-        modelOptions={
-          PLATFORM_MODEL_OVERRIDE_ID
-            ? [PLATFORM_MODEL_OVERRIDE_ID]
-            : [...MODEL_IDS]
-        }
+        modelOptions={modelOptions}
         providerOptions={[
           ...SUPPORTED_MCP_PROVIDERS,
           SKILL_WEB_ACCESS_DECLARATION,

@@ -40,10 +40,12 @@ import { artifactOutputHonestySuite } from "./cases/artifact-output-honesty.case
 import { exactOutputSuite } from "./cases/exact-output.cases";
 import { threadSummaryInjectionSuite } from "./cases/thread-summary-injection.cases";
 import { threadSummaryPrecedenceSuite } from "./cases/thread-summary-precedence.cases";
+import { modelIdentitySuite } from "./cases/model-identity.cases";
 import { estimateUsageCostUsd } from "./benchmarks/model-routing";
 import { JUDGE_INCONCLUSIVE_NOTE, JUDGE_MODEL_ID } from "./judge";
 
 export const SUITES: EvalSuite[] = [
+  modelIdentitySuite,
   foundationalChatSuite,
   fileResourceGroundingSuite,
   artifactOutputHonestySuite,
