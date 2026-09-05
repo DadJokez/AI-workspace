@@ -171,8 +171,7 @@ comes first next session.
    working), one log line, honest receipt ("model enablement unavailable —
    using the default"), one shared helper for the chat-route gate, unit tests
    both ways. No migration, no env.
-2. **#880 — the nightly is self-judged — PR #907 OPEN (20:55Z), in the
-   gate; Rob chose option 1.** `DEFAULT_MODEL_ID` and `JUDGE_MODEL_ID` were
+2. **#880 — the nightly is self-judged — PR #907 merged 21:35Z; Rob chose option 1.** `DEFAULT_MODEL_ID` and `JUDGE_MODEL_ID` were
    both `sonnet-4-5` (found by #879). #907 moves `JUDGE_MODEL_ID` to
    `haiku-4-5` — separate Bedrock quota bucket, already in the nightly eval
    role's allow-list (verified read-only in the PR), so evals-only: no IAM,
@@ -559,7 +558,7 @@ list is for Rob to pick from.** None is queue work until it has a number.
 
 ## Notes
 
-- **Open PRs on 2026-09-05 20:56Z.** In the gate, none §7: #901 (#438 A),
+- **Open PRs on 2026-09-05 (written 20:56Z, reconciled 21:47Z).** In the gate, none §7: #901 (#438 A),
   #903 (#807), #904 (#797 P3 + P5), #907 (#880). Rob: #872 → #870 → #905
   (migrations 0049 / 0050 / 0051, in that order), #900 (gate), #890
   (decision; draft).
