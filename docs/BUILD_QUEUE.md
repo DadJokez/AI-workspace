@@ -7,7 +7,7 @@ closed, #797 P1–P3 + P5 and #438 P0 are built, and two sessions — the
 2026-09-03/04 overnight and the 2026-09-05 day — merged 34 PRs between
 2026-09-04 00:00Z and 20:38Z today (`git log origin/main --since=2026-09-04`).
 `main` is at `0d56d73` (PR #902). What is left is a Rob-gated migration stack
-(#872 → #870 → #905), four PRs in the gate (#901, #903, #904, #907), one new
+(#872 → #870 → #905), three of the day's four gate PRs merged by 21:35Z (#901, #903, #907; #904 still in the gate), one new
 security item (#906), and the rails the 2026-09-04 audit asked for.
 
 **Consumed by `/goal`** (`.claude/commands/goal.md`): an overnight session works
@@ -130,8 +130,8 @@ old or the queue is empty (goal.md Phase 2.1) — next check-in 2026-09-19.
 **Next session — work order (skip anything Rob-gated):**
 
 1. Land the four PRs in the gate — none carries a §7 item: #901 (#438 PR A),
-   #903 (#807), #904 (#797 P3 + P5; review pending at 20:52Z), #907 (#880
-   judge → `haiku-4-5`, opened 20:55Z). Do not touch #905 (draft, Rob) or
+   #903 (#807, merged 20:59Z), #904 (#797 P3 + P5; in the gate), #907 (#880
+   judge → `haiku-4-5`, merged 21:35Z — tonight's nightly is the new baseline). Do not touch #905 (draft, Rob) or
    the migration stack.
 2. **#906** — fail-closed enablement lookup (Security spine item; S).
 3. **First nightly after #907 = new baseline.** Read its red as
