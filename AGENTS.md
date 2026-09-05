@@ -25,6 +25,8 @@ branch** → Rob merges.
 - Do **not** add a new production dependency, a database migration, or any
   auth / secret / env / permissions change without Rob's explicit approval —
   call it out in the PR description instead of doing it.
+- Never add or remove the `needs-rob` label. It marks a change Rob must decide
+  (`CLAUDE.md` §7) and keeps `Claude verdict` red until Rob removes it himself.
 - The PR summary must include: what changed, validation notes, and risks.
 - Address Claude's review on the existing PR branch (push follow-up commits) —
   never open a duplicate PR.
