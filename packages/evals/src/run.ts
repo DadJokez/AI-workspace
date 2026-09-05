@@ -40,6 +40,7 @@ import { artifactOutputHonestySuite } from "./cases/artifact-output-honesty.case
 import { exactOutputSuite } from "./cases/exact-output.cases";
 import { threadSummaryInjectionSuite } from "./cases/thread-summary-injection.cases";
 import { threadSummaryPrecedenceSuite } from "./cases/thread-summary-precedence.cases";
+import { instructionPrecedenceSuite } from "./cases/instruction-precedence.cases";
 import { estimateUsageCostUsd } from "./benchmarks/model-routing";
 import { JUDGE_INCONCLUSIVE_NOTE, JUDGE_MODEL_ID } from "./judge";
 
@@ -66,6 +67,7 @@ export const SUITES: EvalSuite[] = [
   toolEvidenceContinuitySuite,
   threadSummaryInjectionSuite,
   threadSummaryPrecedenceSuite,
+  instructionPrecedenceSuite,
 ];
 
 export interface RunArgs {

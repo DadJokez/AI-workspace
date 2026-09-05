@@ -31,7 +31,7 @@ interface BuildTurnContextInput {
   currentMessageContent?: string;
   /**
    * Rolling summary of history older than the recent window (#771). It
-   * leads the messages region as nonce-framed layer-7 background data —
+   * leads the messages region as nonce-framed layer-6 background data —
    * behind the cache checkpoints, never in the stable system prefix.
    */
   threadSummary?: ThreadSummary | null;
