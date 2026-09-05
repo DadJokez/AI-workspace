@@ -18,6 +18,8 @@ import {
   extractAssistantSources,
   extractPureEchoReply,
   MODELS,
+  parseStoredThreadSummary,
+  renderThreadSummaryForPrompt,
   RunBudgetTracker,
   serializeActivation,
   type AssistantSource,
@@ -45,6 +47,10 @@ import type { ChatExecutionMode } from "@/lib/chat-execution-mode";
 import { persistActivationFromEvent } from "@/lib/thread-activation";
 import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
 import type { PinnedActiveSkill } from "@/lib/pinned-context";
+import {
+  budgetDimensionLabel,
+  budgetTruncation,
+} from "@/lib/run-budget-policy";
 import { resolveChatMcpProviderScope } from "@/lib/chat-mcp-provider-scope";
 import {
   enqueueMemoryCapture,
@@ -108,6 +114,7 @@ import {
   type GuardrailReceipt,
 } from "@/lib/guardrail-receipts";
 import { refreshThreadPresentationMetadata } from "@/lib/thread-metadata";
+import { refreshThreadSummary } from "@/lib/thread-summary";
 import { buildTurnContext } from "@/lib/turn-context";
 import type { RecentToolEvidenceReceipt } from "@/lib/recent-tool-evidence";
 import { attachUploadedFilesToLatestUserMessage } from "@/lib/runtime-attachments";
@@ -293,8 +300,18 @@ export async function executeChatTurn({
   const timing = lane.kind === "inline" ? lane.timing : undefined;
   const priorOutputs =
     lane.kind === "worker" ? parseStoredOutputs(lane.run.outputs) : {};
+  // #848: the loop's `budget` event is the authoritative receipt, but the
+  // early-return paths (abort, provider error, throw, truncated stream) never
+  // emit one. The shell mirrors the cumulative `usage` deltas onto this
+  // fallback tracker so every terminal write persists a receipt whose
+  // tokens/usd/wall-clock agree with `outputs.usage`. Known fallback gaps:
+  // toolIterations reflects prior consumption only, usd is estimated with
+  // `initialModelId` even after failover, and wall-clock includes pre-runtime
+  // context assembly.
   const budgetFallback = new RunBudgetTracker(runBudget, initialModelId);
-  let budgetReceipt: RunBudgetReceipt = budgetFallback.receipt(false);
+  let loopReceipt: RunBudgetReceipt | undefined;
+  const currentBudgetReceipt = () =>
+    loopReceipt ?? budgetFallback.receipt(false);
   const autonomyPreset = resolveAutonomyPreset(
     lane.kind === "worker" ? lane.run.triggerType : "chat",
   );
@@ -491,10 +508,21 @@ export async function executeChatTurn({
     ...uploadedFiles,
     ...selectedResourceImages,
   ]);
+  // #771: the stored rolling summary (if any) leads the messages region as
+  // layer-7 background data; the receipt below tells the model it is there.
+  const threadSummary = parseStoredThreadSummary(thread.summary);
+  const threadSummaryReceipt = threadSummary
+    ? {
+        coveredMessageCount: threadSummary.coveredMessageCount,
+        updatedAt: threadSummary.updatedAt,
+        chars: renderThreadSummaryForPrompt(threadSummary).length,
+      }
+    : null;
   const agentMessages = attachUploadedFilesToLatestUserMessage(
     buildTurnContext({
       messages: history,
       currentMessageContent: prompt,
+      threadSummary,
       recentMessageLimit: numberFromEnv("CHAT_RECENT_MESSAGE_LIMIT"),
       maxContextChars: numberFromEnv("CHAT_CONTEXT_CHAR_LIMIT"),
       maxMessageChars: numberFromEnv("CHAT_CONTEXT_MESSAGE_CHAR_LIMIT"),
@@ -671,10 +699,10 @@ export async function executeChatTurn({
     discoverableProviders,
     deniedMcpProviders,
     capabilityGraph,
-    modelId,
     artifactContext: combinedArtifactContext,
     uploadedFiles: runtimeUploadedFiles,
     recentToolEvidenceReceipt,
+    threadSummary: threadSummaryReceipt,
     resourceResolution: effectiveResourceResolution,
     selectedContextManifest: selectedContext.manifest,
     selectedContextPrompt: selectedContext.promptContext,
@@ -696,7 +724,7 @@ export async function executeChatTurn({
     autonomyPreset: autonomyPreset.name,
     contextReceipt,
     requestedProviders: requestedMcpProviders,
-    budget: budgetReceipt,
+    budget: currentBudgetReceipt(),
   });
   if (timing) timing.contextReadyAt = new Date();
 
@@ -876,7 +904,7 @@ export async function executeChatTurn({
       toolResults: toolEvents.results(),
       approvalRequests,
       approvalGrants: toolApprovalGrants,
-      budget: budgetReceipt,
+      budget: currentBudgetReceipt(),
       ...(generatedAt ? { generatedAt } : {}),
     });
   const providerTrace = createProviderTraceAccumulator();
@@ -909,7 +937,7 @@ export async function executeChatTurn({
     modelId,
     runtime: runtime.name,
     guardrails: currentGuardrailReceipt(),
-    budgetReceipt,
+    budgetReceipt: currentBudgetReceipt(),
     ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
     ...extra,
   });
@@ -927,7 +955,7 @@ export async function executeChatTurn({
     modelId,
     runtime: runtime.name,
     guardrails: currentGuardrailReceipt(),
-    budgetReceipt,
+    budgetReceipt: currentBudgetReceipt(),
     ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
     lifecycle: "provider_running",
   });
@@ -1232,6 +1260,16 @@ export async function executeChatTurn({
         }
       } else if (ev.type === "usage") {
         const usage = normalizeRuntimeUsage(ev);
+        // Loop usage events are cumulative, so the delta is exact.
+        budgetFallback.recordUsage({
+          tokensIn: usage.tokensIn - tokensIn,
+          tokensOut: usage.tokensOut - tokensOut,
+          inputTokens: usage.inputTokens - inputTokens,
+          cacheReadInputTokens:
+            usage.cacheReadInputTokens - cacheReadInputTokens,
+          cacheWriteInputTokens:
+            usage.cacheWriteInputTokens - cacheWriteInputTokens,
+        });
         tokensIn = usage.tokensIn;
         tokensOut = usage.tokensOut;
         inputTokens = usage.inputTokens;
@@ -1260,17 +1298,17 @@ export async function executeChatTurn({
             );
         }
       } else if (ev.type === "budget") {
-        budgetReceipt = ev.receipt;
+        loopReceipt = ev.receipt;
         const guardrails = currentGuardrailReceipt();
         await appendTurnRunEvent(lane, {
           db,
           runId,
           eventType: "run_budget_measured",
-          status: budgetReceipt.partial ? "info" : "succeeded",
-          label: budgetReceipt.partial
-            ? `Stopped after reaching the ${budgetDimensionLabel(budgetReceipt.reached)} budget`
+          status: ev.receipt.partial ? "info" : "succeeded",
+          label: ev.receipt.partial
+            ? `Stopped after reaching the ${budgetDimensionLabel(ev.receipt.reached)} budget`
             : "Measured run budget",
-          metadata: { budget: budgetReceipt, guardrails },
+          metadata: { budget: ev.receipt, guardrails },
         });
         if (lane.kind === "inline") {
           lane.send({ type: "guardrail-receipt", receipt: guardrails });
@@ -1461,7 +1499,7 @@ export async function executeChatTurn({
             runtime: runtime.name,
             runtimeTarget: route.runtimeTarget,
             ...(providerRunMetadata ? { providerRun: providerRunMetadata } : {}),
-            budgetReceipt,
+            budgetReceipt: currentBudgetReceipt(),
             metrics: buildTimingMetrics(lane.timing),
           };
     const approvals = await pauseRunForToolApprovals({
@@ -1724,7 +1762,7 @@ export async function executeChatTurn({
     abortReason: workerAbortReason ?? undefined,
     autonomyPreset: autonomyPreset.name,
     guardrails: finalGuardrails,
-    budgetReceipt,
+    budgetReceipt: currentBudgetReceipt(),
   });
 
   if (lane.kind === "inline") {
@@ -2255,6 +2293,27 @@ async function persistChatTurnResult({
     now: completedAt,
   });
 
+  // #771: fold newly aged-out history into the rolling summary. It is a
+  // background model call, so it never blocks the response or the run's
+  // terminal write; the next turn reads whatever has been persisted by then.
+  if (terminalStatus === "succeeded" && assistantMessageId) {
+    void refreshThreadSummary({
+      db,
+      userId,
+      threadId,
+      recentMessageLimit: numberFromEnv("CHAT_RECENT_MESSAGE_LIMIT"),
+    }).catch((err: unknown) => {
+      process.stderr.write(
+        `[thread-summary-error] ${JSON.stringify({
+          runId,
+          threadId,
+          userId,
+          message: err instanceof Error ? err.message : String(err),
+        })}\n`,
+      );
+    });
+  }
+
   if (skippedWriteCount > 0) {
     await appendTurnRunEvent(lane, {
       db,
@@ -2381,6 +2440,10 @@ async function persistChatTurnResult({
     }
   }
 
+  // #848: a budget stop still `succeeded` — the ledger names the dimension so
+  // the row-level truth is visible without a new status.
+  const truncatedBy =
+    terminalStatus === "succeeded" ? budgetTruncation(sharedOutputs) : null;
   await appendTurnRunEvent(lane, {
     db,
     runId,
@@ -2388,11 +2451,16 @@ async function persistChatTurnResult({
     status: terminalStatus,
     label:
       terminalStatus === "succeeded"
-        ? "Stored assistant answer"
+        ? truncatedBy
+          ? `Stored a partial answer (reached the ${budgetDimensionLabel(truncatedBy)} budget)`
+          : "Stored assistant answer"
         : "Run ended with errors",
     ...(error ? { error } : {}),
     metadata: {
       ...(assistantMessageId ? { assistantMessageId } : {}),
+      ...(truncatedBy
+        ? { budget: { partial: true, reached: truncatedBy } }
+        : {}),
       userMessageId,
       modelId,
       runtime: runtimeName,
@@ -2491,23 +2559,6 @@ interface StoredChatRunOutputs {
   providerRun?: RuntimeRunMetadata;
   budgetReceipt?: RunBudgetReceipt;
   [key: string]: unknown;
-}
-
-function budgetDimensionLabel(
-  dimension: RunBudgetReceipt["reached"],
-): string {
-  switch (dimension) {
-    case "tokens":
-      return "token";
-    case "usd":
-      return "cost";
-    case "wall_clock":
-      return "time";
-    case "tool_iterations":
-      return "tool-step";
-    default:
-      return "configured";
-  }
 }
 
 function parseStoredOutputs(value: unknown): StoredChatRunOutputs {

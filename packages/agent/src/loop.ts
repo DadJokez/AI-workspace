@@ -4,6 +4,11 @@ import {
   type BedrockMessage,
   getBedrockClient,
 } from "./clients";
+import {
+  clearStaleToolResults,
+  type ClearStaleToolResultsOptions,
+} from "./context-lifecycle";
+import { modelIdentityLine } from "./model-identity";
 import { MODELS, type ModelId } from "./models";
 import {
   RunBudgetTracker,
@@ -31,6 +36,7 @@ import type {
   AgentMessage,
   ProviderRequestSnapshot,
   Tool,
+  ToolCall,
   ToolContext,
   ToolApprovalGrant,
   ToolApprovalMode,
@@ -95,11 +101,26 @@ export interface RunAgentLoopParams {
   client?: BedrockClient;
   /** Injectable wall clock for deterministic budget boundary tests. */
   nowMs?: () => number;
+  /**
+   * Stale tool-result clearing thresholds (#771). Defaults keep the two most
+   * recent tool rounds intact and only engage past ~40K tokens of transcript;
+   * tests lower them to exercise the placeholder path.
+   */
+  contextLifecycle?: ClearStaleToolResultsOptions;
 }
 
 export const DEFAULT_MAX_TOOL_ITERATIONS = 8;
 
 export const TOOL_POLICY_BLOCKED_CODE = "tool_policy_blocked";
+
+/**
+ * #780: the tool_use blocks of one assistant message cannot reference each
+ * other's results, so they are independent by construction and run
+ * concurrently. The bound keeps a wide fan-out from stampeding a single MCP
+ * server or SaaS rate limit. It is a constant on purpose — no flag, no env
+ * var — so every lane behaves the same and the number is reviewable here.
+ */
+export const MAX_CONCURRENT_TOOL_CALLS = 4;
 
 const TOOL_LIMIT_SYNTHESIS_INSTRUCTION =
   "You have reached this turn's tool-step limit. Use the tool results already in context to provide the best complete answer now. Do not request more tools. Clearly state any remaining unknowns.";
@@ -171,8 +192,12 @@ export async function* runAgentLoop(
   const client = params.client ?? getBedrockClient();
   // The stable prompt must stay byte-identical across turns — it sits inside
   // the Bedrock prompt-cache prefix (see ConverseStreamParams.systemPrompt).
+  //
+  // Identity honesty is injected here and only here: this is the choke point
+  // every lane shares, and modelIdentityLine is the single registry-derived
+  // template (#856, #797 P1, #304). Callers' prompts must not restate it.
   const systemPrompt = [
-    `You are Claude ${model.displayName}, made by Anthropic. If asked which model or version you are, answer "Claude ${model.displayName}" — never claim to be an older model such as "Claude 3.5".`,
+    modelIdentityLine(params.modelId),
     params.systemPrompt,
     PLATFORM_EVIDENCE_DISCIPLINE,
   ]
@@ -303,11 +328,20 @@ export async function* runAgentLoop(
           .filter(Boolean)
           .join("\n\n")
       : volatileSystemSuffix;
+    // #771: the model sees stale tool payloads as short placeholders once the
+    // transcript grows; the loop's own `bedrockMessages` keeps every raw
+    // result, and only the messages region (behind the cache checkpoints) is
+    // rewritten — never the stable system prefix.
+    const lifecycle = clearStaleToolResults(
+      bedrockMessages,
+      params.contextLifecycle,
+    );
     const stream = client.converseStream({
       bedrockModelId: model.bedrockModelId,
+      supportsPromptCaching: model.supportsPromptCaching,
       systemPrompt,
       volatileSystemSuffix: iterationVolatileSystemSuffix,
-      messages: bedrockMessages,
+      messages: lifecycle.messages,
       toolConfig,
       maxTokens: params.maxTokens ?? model.defaultMaxTokens,
       temperature: params.temperature,
@@ -321,8 +355,11 @@ export async function* runAgentLoop(
         providerModelId: model.bedrockModelId,
         systemPrompt,
         volatileSystemSuffix: iterationVolatileSystemSuffix,
-        messages: bedrockMessages,
+        messages: lifecycle.messages,
         tools: synthesisOnly ? [] : tools,
+        ...(lifecycle.receipt.cleared.length > 0
+          ? { contextLifecycle: lifecycle.receipt }
+          : {}),
       }),
     };
 
@@ -332,11 +369,7 @@ export async function* runAgentLoop(
       number,
       { text: string; signature: string; redactedParts: string[] }
     >();
-    const pendingToolCalls: Array<{
-      id: string;
-      name: string;
-      input: Record<string, unknown>;
-    }> = [];
+    const pendingToolCalls: ToolCall[] = [];
     let stopReason = "end_turn";
 
     for await (const ev of stream) {
@@ -532,224 +565,206 @@ export async function* runAgentLoop(
 
     // Execute tool calls and feed the results back as a user-role message.
     const resultBlocks: BedrockContentBlock[] = [];
-    for (const call of pendingToolCalls) {
-      const tool = params.registry.get(call.name);
-      if (!tool) {
-        const errMsg = `Tool not registered: ${call.name}`;
-        yield {
-          type: "tool-result",
-          result: { toolCallId: call.id, output: errMsg, isError: true },
-        };
-        resultBlocks.push({
-          kind: "tool-result",
-          toolUseId: call.id,
-          content: errMsg,
-          isError: true,
+    const concurrentBatch = concurrentToolBatch(
+      pendingToolCalls,
+      params.registry,
+    );
+    if (concurrentBatch) {
+      // #780: every call is a registered always_allow tool, so none of the
+      // approval, denial, replay, or block outcomes below can occur. Handlers
+      // overlap up to the bound; outcomes are consumed in tool_use order so
+      // the events, usage-note delivery, and the result message are
+      // byte-identical to the sequential path for the same handler outputs.
+      const policyDecision = runtimePolicyAuditDecision("always_allow");
+      const outcomes = startBounded(
+        concurrentBatch.map(({ tool, call }) => async () => ({
+          tool,
+          call,
+          outcome: await invokeToolHandler(tool, call.input, params.context),
+        })),
+        MAX_CONCURRENT_TOOL_CALLS,
+      );
+      for (const pending of outcomes) {
+        const { tool, call, outcome } = await pending;
+        const recorded = recordToolOutcome({
+          tool,
+          call,
+          outcome,
+          policyDecision,
+          toolsWithDeliveredUsageNotes,
         });
-        continue;
+        yield recorded.event;
+        resultBlocks.push(recorded.block);
       }
-      const policy = effectiveToolPolicy(tool);
-      const approvalRequest =
-        policy === "needs_approval"
-          ? approvalRequestsByToolCallId.get(call.id)
-          : undefined;
-      const approvalGrant = approvalRequest
-        ? approvalGrantsByToolCallId.get(call.id)
-        : undefined;
-      if (
-        approvalRequest &&
-        !approvalGrant &&
-        params.toolApprovalMode !== "deny_unattended"
-      ) {
-        yield {
-          type: "error",
-          message: `Approval grant reservation missing for ${tool.name}.`,
-        };
-        return;
-      }
-      if (approvalGrant && !isStandingToolApprovalGrant(approvalGrant)) {
-        consumedApprovalIds.add(approvalGrant.approvalId);
-      }
-      const policyDecision = approvalGrant
-        ? approvalGrant.decision === "approved"
-          ? "approved_by_user"
-          : "denied"
-        : runtimePolicyAuditDecision(policy);
-      if (policy === "blocked") {
-        const output = {
-          error: TOOL_POLICY_BLOCKED_CODE,
-          message: `Tool ${tool.name} is blocked by runtime policy.`,
-          tool: tool.name,
-        };
-        const text = JSON.stringify(output);
-        yield {
-          type: "tool-result",
-          result: {
-            toolCallId: call.id,
-            output,
-            isError: true,
-            policyDecision: "blocked",
-          },
-        };
-        resultBlocks.push({
-          kind: "tool-result",
-          toolUseId: call.id,
-          content: tool.untrustedOutput
-            ? frameUntrustedToolResult(tool.name, text)
-            : text,
-          isError: true,
-        });
-        continue;
-      }
-      if (
-        approvalRequest &&
-        !approvalGrant &&
-        params.toolApprovalMode === "deny_unattended"
-      ) {
-        const output = {
-          error: "tool_approval_unattended_denied",
-          message: `Unattended runs cannot pause for permission to run ${tool.name}. The write was skipped.`,
-          tool: tool.name,
-        };
-        const text = JSON.stringify(output);
-        yield {
-          type: "tool-result",
-          result: {
-            toolCallId: call.id,
-            output,
-            isError: true,
-            policyDecision: "denied",
-          },
-        };
-        resultBlocks.push({
-          kind: "tool-result",
-          toolUseId: call.id,
-          content: tool.untrustedOutput
-            ? frameUntrustedToolResult(tool.name, text)
-            : text,
-          isError: true,
-        });
-        continue;
-      }
-      if (approvalGrant?.decision === "denied") {
-        const output = {
-          error: "tool_approval_denied",
-          message: `Permission to run ${tool.name} was denied by the user.`,
-          tool: tool.name,
-        };
-        const text = JSON.stringify(output);
-        yield {
-          type: "tool-result",
-          result: {
-            toolCallId: call.id,
-            output,
-            isError: true,
-            policyDecision: "denied",
-            approvalId: approvalGrant.approvalId,
-          },
-        };
-        resultBlocks.push({
-          kind: "tool-result",
-          toolUseId: call.id,
-          content: tool.untrustedOutput
-            ? frameUntrustedToolResult(tool.name, text)
-            : text,
-          isError: true,
-        });
-        continue;
-      }
-      if (approvalGrant?.consumed) {
-        const output =
-          approvalGrant.replayOutput ??
-          {
-            status: "already_executed",
-            message: `${tool.name} already ran successfully in this run.`,
+    } else {
+      for (const call of pendingToolCalls) {
+        const tool = params.registry.get(call.name);
+        if (!tool) {
+          const errMsg = `Tool not registered: ${call.name}`;
+          yield {
+            type: "tool-result",
+            result: { toolCallId: call.id, output: errMsg, isError: true },
           };
-        const text =
-          typeof output === "string" ? output : JSON.stringify(output);
-        yield {
-          type: "tool-result",
-          result: {
-            toolCallId: call.id,
-            output,
-            policyDecision: "approved_by_user",
-            approvalId: approvalGrant.approvalId,
-          },
-        };
-        resultBlocks.push({
-          kind: "tool-result",
-          toolUseId: call.id,
-          content: tool.untrustedOutput
-            ? frameUntrustedToolResult(tool.name, text)
-            : text,
-        });
-        continue;
-      }
-      // #497: tools flagged `untrustedOutput` (every MCP-backed tool) get
-      // their serialized output nonce-framed as DATA here — the model-visible
-      // boundary — while the yielded `tool-result` event keeps the raw output
-      // so persistence and structured consumers never see the markers. Error
-      // text is attacker-controlled through the same channel, so it is framed
-      // too.
-      try {
-        const output = await tool.handler(call.input, params.context);
-        const text = typeof output === "string" ? output : JSON.stringify(output);
-        const modelVisibleResult = tool.untrustedOutput
-          ? frameUntrustedToolResult(tool.name, text)
-          : text;
-        const usageNotes = tool.usageNotes?.trim();
-        const deliverUsageNotes = Boolean(
-          usageNotes && !toolsWithDeliveredUsageNotes.has(tool.name),
-        );
-        yield {
-          type: "tool-result",
-          result: {
-            toolCallId: call.id,
-            output,
-            ...(policyDecision ? { policyDecision } : {}),
-            ...(approvalGrant ? { approvalId: approvalGrant.approvalId } : {}),
-            ...(deliverUsageNotes ? { usageNotesDelivered: true } : {}),
-          },
-        };
-        resultBlocks.push({
-          kind: "tool-result",
-          toolUseId: call.id,
-          content:
-            usageNotes && deliverUsageNotes
-              ? appendToolUsageNotes(tool.name, modelVisibleResult, usageNotes)
-              : modelVisibleResult,
-        });
-        if (deliverUsageNotes) toolsWithDeliveredUsageNotes.add(tool.name);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const modelVisibleResult = tool.untrustedOutput
-          ? frameUntrustedToolResult(tool.name, msg)
-          : msg;
-        const usageNotes = tool.usageNotes?.trim();
-        const deliverUsageNotes = Boolean(
-          usageNotes && !toolsWithDeliveredUsageNotes.has(tool.name),
-        );
-        yield {
-          type: "tool-result",
-          result: {
-            toolCallId: call.id,
-            output: msg,
+          resultBlocks.push({
+            kind: "tool-result",
+            toolUseId: call.id,
+            content: errMsg,
             isError: true,
-            ...(policyDecision ? { policyDecision } : {}),
-            ...(approvalGrant ? { approvalId: approvalGrant.approvalId } : {}),
-            ...(deliverUsageNotes ? { usageNotesDelivered: true } : {}),
-          },
-        };
-        resultBlocks.push({
-          kind: "tool-result",
-          toolUseId: call.id,
-          content:
-            usageNotes && deliverUsageNotes
-              ? appendToolUsageNotes(tool.name, modelVisibleResult, usageNotes)
-              : modelVisibleResult,
-          isError: true,
+          });
+          continue;
+        }
+        const policy = effectiveToolPolicy(tool);
+        const approvalRequest =
+          policy === "needs_approval"
+            ? approvalRequestsByToolCallId.get(call.id)
+            : undefined;
+        const approvalGrant = approvalRequest
+          ? approvalGrantsByToolCallId.get(call.id)
+          : undefined;
+        if (
+          approvalRequest &&
+          !approvalGrant &&
+          params.toolApprovalMode !== "deny_unattended"
+        ) {
+          yield {
+            type: "error",
+            message: `Approval grant reservation missing for ${tool.name}.`,
+          };
+          return;
+        }
+        if (approvalGrant && !isStandingToolApprovalGrant(approvalGrant)) {
+          consumedApprovalIds.add(approvalGrant.approvalId);
+        }
+        const policyDecision = approvalGrant
+          ? approvalGrant.decision === "approved"
+            ? "approved_by_user"
+            : "denied"
+          : runtimePolicyAuditDecision(policy);
+        if (policy === "blocked") {
+          const output = {
+            error: TOOL_POLICY_BLOCKED_CODE,
+            message: `Tool ${tool.name} is blocked by runtime policy.`,
+            tool: tool.name,
+          };
+          const text = JSON.stringify(output);
+          yield {
+            type: "tool-result",
+            result: {
+              toolCallId: call.id,
+              output,
+              isError: true,
+              policyDecision: "blocked",
+            },
+          };
+          resultBlocks.push({
+            kind: "tool-result",
+            toolUseId: call.id,
+            content: tool.untrustedOutput
+              ? frameUntrustedToolResult(tool.name, text)
+              : text,
+            isError: true,
+          });
+          continue;
+        }
+        if (
+          approvalRequest &&
+          !approvalGrant &&
+          params.toolApprovalMode === "deny_unattended"
+        ) {
+          const output = {
+            error: "tool_approval_unattended_denied",
+            message: `Unattended runs cannot pause for permission to run ${tool.name}. The write was skipped.`,
+            tool: tool.name,
+          };
+          const text = JSON.stringify(output);
+          yield {
+            type: "tool-result",
+            result: {
+              toolCallId: call.id,
+              output,
+              isError: true,
+              policyDecision: "denied",
+            },
+          };
+          resultBlocks.push({
+            kind: "tool-result",
+            toolUseId: call.id,
+            content: tool.untrustedOutput
+              ? frameUntrustedToolResult(tool.name, text)
+              : text,
+            isError: true,
+          });
+          continue;
+        }
+        if (approvalGrant?.decision === "denied") {
+          const output = {
+            error: "tool_approval_denied",
+            message: `Permission to run ${tool.name} was denied by the user.`,
+            tool: tool.name,
+          };
+          const text = JSON.stringify(output);
+          yield {
+            type: "tool-result",
+            result: {
+              toolCallId: call.id,
+              output,
+              isError: true,
+              policyDecision: "denied",
+              approvalId: approvalGrant.approvalId,
+            },
+          };
+          resultBlocks.push({
+            kind: "tool-result",
+            toolUseId: call.id,
+            content: tool.untrustedOutput
+              ? frameUntrustedToolResult(tool.name, text)
+              : text,
+            isError: true,
+          });
+          continue;
+        }
+        if (approvalGrant?.consumed) {
+          const output =
+            approvalGrant.replayOutput ??
+            {
+              status: "already_executed",
+              message: `${tool.name} already ran successfully in this run.`,
+            };
+          const text =
+            typeof output === "string" ? output : JSON.stringify(output);
+          yield {
+            type: "tool-result",
+            result: {
+              toolCallId: call.id,
+              output,
+              policyDecision: "approved_by_user",
+              approvalId: approvalGrant.approvalId,
+            },
+          };
+          resultBlocks.push({
+            kind: "tool-result",
+            toolUseId: call.id,
+            content: tool.untrustedOutput
+              ? frameUntrustedToolResult(tool.name, text)
+              : text,
+          });
+          continue;
+        }
+        const outcome = await invokeToolHandler(
+          tool,
+          call.input,
+          params.context,
+        );
+        const recorded = recordToolOutcome({
+          tool,
+          call,
+          outcome,
+          policyDecision,
+          approvalGrant,
+          toolsWithDeliveredUsageNotes,
         });
-        if (deliverUsageNotes) toolsWithDeliveredUsageNotes.add(tool.name);
+        yield recorded.event;
+        resultBlocks.push(recorded.block);
       }
     }
     bedrockMessages.push({ role: "user", content: resultBlocks });
@@ -810,23 +825,169 @@ function runtimePolicyAuditDecision(
   }
 }
 
+/**
+ * #780: the calls a turn may run concurrently, or null when the turn must
+ * stay on the sequential path. Concurrency is reserved for a turn whose
+ * every call resolves to a registered `always_allow` tool — the read-shaped
+ * calls (#701) whose serial SaaS round trips the issue targets. Any
+ * approval-gated, blocked, or unregistered call keeps the whole turn
+ * sequential so approval pauses, denial receipts, replay of consumed grants,
+ * and their event ordering are untouched. A single call has nothing to
+ * overlap with and stays on the path it always took.
+ */
+function concurrentToolBatch(
+  calls: readonly ToolCall[],
+  registry: ToolRegistry,
+): Array<{ call: ToolCall; tool: Tool }> | null {
+  if (calls.length < 2) return null;
+  const batch: Array<{ call: ToolCall; tool: Tool }> = [];
+  for (const call of calls) {
+    const tool = registry.get(call.name);
+    if (!tool || effectiveToolPolicy(tool) !== "always_allow") return null;
+    batch.push({ call, tool });
+  }
+  return batch;
+}
+
+/**
+ * Starts `tasks` with at most `limit` in flight and returns one promise per
+ * task, in task order, so the caller can consume results in order no matter
+ * which finishes first. Each lane pulls the next unstarted task as soon as
+ * its current one settles — a slow first call never holds back the fifth.
+ * A rejecting task rejects only its own promise; the lane keeps draining.
+ */
+function startBounded<T>(
+  tasks: ReadonlyArray<() => Promise<T>>,
+  limit: number,
+): Promise<T>[] {
+  const pending = tasks.map((task) => {
+    let resolve: (value: T) => void = () => undefined;
+    let reject: (reason: unknown) => void = () => undefined;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { task, promise, resolve, reject };
+  });
+  const unstarted = [...pending];
+  const lane = async (): Promise<void> => {
+    for (let entry = unstarted.shift(); entry; entry = unstarted.shift()) {
+      try {
+        entry.resolve(await entry.task());
+      } catch (err) {
+        entry.reject(err);
+      }
+    }
+  };
+  for (let i = 0; i < Math.min(limit, pending.length); i++) void lane();
+  return pending.map((entry) => entry.promise);
+}
+
+type ToolHandlerOutcome =
+  | { ok: true; output: unknown; text: string }
+  | { ok: false; message: string };
+
+/**
+ * Runs a handler and settles its throw as an error outcome, never a
+ * rejection. Serializing the result happens inside the same guard: a return
+ * value `JSON.stringify` rejects (a bigint field, a cycle) is this call's
+ * error row, exactly as a handler throw is — never a crashed turn.
+ */
+async function invokeToolHandler(
+  tool: Tool,
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolHandlerOutcome> {
+  try {
+    const output = await tool.handler(input, context);
+    const text = typeof output === "string" ? output : JSON.stringify(output);
+    return { ok: true, output, text };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Turns a settled handler outcome into the `tool-result` event and the
+ * model-visible result block. #497: tools flagged `untrustedOutput` (every
+ * MCP-backed tool) get their serialized output nonce-framed as DATA here —
+ * the model-visible boundary — while the yielded event keeps the raw output
+ * so persistence and structured consumers never see the markers. Error text
+ * is attacker-controlled through the same channel, so it is framed too.
+ * Usage notes ride the tool's first result of the turn; both execution paths
+ * call this in tool_use order, so delivery is identical between them.
+ */
+function recordToolOutcome({
+  tool,
+  call,
+  outcome,
+  policyDecision,
+  approvalGrant,
+  toolsWithDeliveredUsageNotes,
+}: {
+  tool: Tool;
+  call: ToolCall;
+  outcome: ToolHandlerOutcome;
+  policyDecision: ToolPolicyAuditDecision | undefined;
+  approvalGrant?: ToolApprovalGrant;
+  toolsWithDeliveredUsageNotes: Set<string>;
+}): { event: AgentEvent; block: BedrockContentBlock } {
+  const text = outcome.ok ? outcome.text : outcome.message;
+  const modelVisibleResult = tool.untrustedOutput
+    ? frameUntrustedToolResult(tool.name, text)
+    : text;
+  const usageNotes = tool.usageNotes?.trim();
+  const deliverUsageNotes = Boolean(
+    usageNotes && !toolsWithDeliveredUsageNotes.has(tool.name),
+  );
+  if (deliverUsageNotes) toolsWithDeliveredUsageNotes.add(tool.name);
+  return {
+    event: {
+      type: "tool-result",
+      result: {
+        toolCallId: call.id,
+        output: outcome.ok ? outcome.output : outcome.message,
+        ...(outcome.ok ? {} : { isError: true }),
+        ...(policyDecision ? { policyDecision } : {}),
+        ...(approvalGrant ? { approvalId: approvalGrant.approvalId } : {}),
+        ...(deliverUsageNotes ? { usageNotesDelivered: true } : {}),
+      },
+    },
+    block: {
+      kind: "tool-result",
+      toolUseId: call.id,
+      content:
+        usageNotes && deliverUsageNotes
+          ? appendToolUsageNotes(tool.name, modelVisibleResult, usageNotes)
+          : modelVisibleResult,
+      ...(outcome.ok ? {} : { isError: true }),
+    },
+  };
+}
+
 function buildProviderRequestSnapshot({
   providerModelId,
   systemPrompt,
   volatileSystemSuffix,
   messages,
   tools,
+  contextLifecycle,
 }: {
   providerModelId: string;
   systemPrompt?: string;
   volatileSystemSuffix?: string;
   messages: BedrockMessage[];
   tools: ReturnType<ToolRegistry["list"]>;
+  contextLifecycle?: ProviderRequestSnapshot["contextLifecycle"];
 }): ProviderRequestSnapshot {
   return {
     providerModelId,
     systemPrompt,
     volatileSystemSuffix,
+    ...(contextLifecycle ? { contextLifecycle } : {}),
     messages: messages.map((message) => ({
       role: message.role,
       content: message.content.map((block) => {

@@ -1,0 +1,94 @@
+name: Classify changed paths
+
+# #812: the docs-only fast lane's decision, shared by ci.yml and
+# product-smoke.yml. Every heavy job there runs unless this reports
+# `docs_only` as exactly 'true', and the required-check summary jobs accept a
+# skipped heavy job only when it does. The decision comes from git alone —
+# never from labels, the PR title/body, or anything else an author types.
+#
+# Fail-safe by construction: any condition this job cannot verify — a non-PR
+# event, a base other than the default branch, a checkout that is not
+# GitHub's two-parent merge commit for the PR head, a git error — is logged
+# and classified as the full lane. The job does not fail on those, so a
+# classifier hiccup cannot turn the CI conclusion red and stall the review;
+# it just costs the PR the full gate it would have paid anyway.
+
+on:
+  workflow_call:
+    outputs:
+      docs_only:
+        description: "'true' only when every changed path is inert documentation"
+        value: ${{ jobs.classify.outputs.docs_only }}
+
+jobs:
+  classify:
+    name: classify changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      docs_only: ${{ steps.decide.outputs.docs_only }}
+    steps:
+      # Depth 2: on pull_request runs HEAD is GitHub's merge commit and the
+      # diff needs both of its parents. Nothing deeper is required.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      # Runs first, like the CVE gate's classifier: the allow/deny matrix is
+      # what decides whether the application gate runs, so it is proven on
+      # every run rather than trusted.
+      - name: Verify the classifier
+        run: bash .github/scripts/classify-docs-only.test.sh
+
+      - name: Classify the pull request diff
+        id: decide
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          full_lane() {
+            echo "full lane: $1"
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            printf '### Change classification\n\n**Full lane** — %s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          trap 'full_lane "classifier error at line $LINENO"' ERR
+
+          [ "$EVENT_NAME" = "pull_request" ] || full_lane "event is '$EVENT_NAME', not pull_request"
+          [ -n "$DEFAULT_BRANCH" ] && [ "$BASE_REF" = "$DEFAULT_BRANCH" ] \
+            || full_lane "base branch is '$BASE_REF', not the protected '$DEFAULT_BRANCH'"
+
+          # HEAD must be GitHub's merge commit for this exact PR head: two
+          # parents, the second being the PR head. Parent 1 is the base tip
+          # the merge was computed against, so parent1..HEAD is precisely the
+          # change set that would land — the same set as `origin/main...HEAD`
+          # would give, without needing history to find a merge base.
+          parents="$(git rev-list --parents -n 1 HEAD)"
+          read -r _head parent1 parent2 extra <<<"$parents"
+          [ -n "${parent2:-}" ] && [ -z "${extra:-}" ] \
+            || full_lane "HEAD $(git rev-parse --short HEAD) is not a two-parent merge commit"
+          [ "$parent2" = "$HEAD_SHA" ] \
+            || full_lane "merge commit parent 2 ($parent2) is not the PR head ($HEAD_SHA)"
+
+          diff_file="$(mktemp)"
+          git diff --name-only --no-renames -z "$parent1" HEAD > "$diff_file"
+          report="$(bash .github/scripts/classify-docs-only.sh < "$diff_file")"
+          rm -f "$diff_file"
+
+          echo "Classifying $parent1..HEAD (base tip..merge of PR head $HEAD_SHA):"
+          echo "$report"
+
+          decision="$(tail -n 1 <<<"$report")"
+          if [ "$decision" = "docs_only=true" ]; then
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+            lane="**Docs-only lane** — the application gate is skipped and its required checks report \`docs-only: skipped\`."
+          else
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            lane="**Full lane** — at least one changed path is outside the docs allowlist."
+          fi
+          printf '### Change classification\n\n%s\n\n```\n%s\n```\n' "$lane" "$report" >> "$GITHUB_STEP_SUMMARY"

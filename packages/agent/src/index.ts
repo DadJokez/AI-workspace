@@ -32,6 +32,7 @@ export {
 export {
   DEFAULT_MODEL_ID,
   MODEL_IDS,
+  MODEL_INVOCATIONS,
   MODEL_PURPOSES,
   MODELS,
   PLATFORM_MODEL_OVERRIDE_ID,
@@ -41,7 +42,14 @@ export {
   isValidModelId,
   isValidModelPurpose,
 } from "./models";
-export type { ModelId, ModelMetadata, ModelPurpose } from "./models";
+export type {
+  ModelId,
+  ModelInvocation,
+  ModelMetadata,
+  ModelPurpose,
+} from "./models";
+
+export { modelIdentityLine } from "./model-identity";
 
 export {
   RUN_BUDGET_RECEIPT_SCHEMA,
@@ -135,6 +143,38 @@ export type {
   ExactOutputSpec,
   LiteralContractOutcome,
 } from "./exact-output";
+
+export {
+  CLEARED_TOOL_RESULT_MARKER,
+  DEFAULT_KEEP_RECENT_TOOL_ROUNDS,
+  DEFAULT_TOOL_RESULT_CLEAR_TRIGGER_CHARS,
+  clearStaleToolResults,
+} from "./context-lifecycle";
+export type {
+  ClearStaleToolResultsOptions,
+  ClearStaleToolResultsOutcome,
+  ClearedToolResult,
+  ToolResultClearingReceipt,
+} from "./context-lifecycle";
+
+export {
+  THREAD_SUMMARY_INSTRUCTION,
+  THREAD_SUMMARY_MAX_ITEM_CHARS,
+  THREAD_SUMMARY_MAX_ITEMS,
+  THREAD_SUMMARY_SCHEMA,
+  buildSummarizerInput,
+  parseStoredThreadSummary,
+  parseThreadSummaryOutput,
+  renderThreadSummaryForPrompt,
+  serializeThreadSummary,
+} from "./thread-summary";
+export type {
+  SummarizableMessage,
+  SummarizerInput,
+  ThreadSummary,
+  ThreadSummaryCarryOver,
+  ThreadSummaryReference,
+} from "./thread-summary";
 
 export { extractAssistantSources, parseAssistantSources } from "./sources";
 export type { AssistantSource, AssistantSourceKind } from "./sources";

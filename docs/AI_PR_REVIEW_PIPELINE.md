@@ -77,6 +77,11 @@ GitHub Actions, and human review in this repository.
 - Codex Cloud has GitHub access for this repository.
 - `.github/workflows/merge-gate-audit.yml` re-verifies the full gate on every
   push to `main` and files a labeled incident issue on any violation (#479).
+- `.github/workflows/classify-changed-paths.yml` (reusable; called as the
+  `classify` job by `CI` and `Product Smoke`) decides the docs-only fast lane
+  from the PR diff alone. `.github/scripts/classify-docs-only.sh` holds the
+  allow/deny rules and `classify-docs-only.test.sh` the fixture matrix that
+  runs before every decision (#812, see below).
 
 ## Merge Protocol (#479, #667)
 
@@ -89,16 +94,21 @@ conversation resolution are *not* enabled.
 
 The eight required contexts (`gh api repos/DadJokez/AI-workspace/branches/main/protection`):
 
-| Context | Workflow |
-|---|---|
-| `lint + typecheck + build` | `ci.yml` |
-| `dependency CVE audit` | `ci.yml` |
-| `scoping integration (real Postgres)` | `ci.yml` |
-| `local browser smoke` | `product-smoke.yml` |
-| `authenticated browser smoke` | `product-smoke.yml` |
-| `browser smoke (desktop-chromium)` | `product-smoke.yml` |
-| `browser smoke (mobile-chromium)` | `product-smoke.yml` |
-| `Claude verdict` | `claude-verdict.yml` / `claude-code-review.yml` |
+| Context | Workflow | Reported by |
+|---|---|---|
+| `lint + typecheck + build` | `ci.yml` | summary of `lint + typecheck + build [full lane]` |
+| `dependency CVE audit` | `ci.yml` | summary of `dependency CVE audit [full lane]` |
+| `scoping integration (real Postgres)` | `ci.yml` | summary of `scoping integration (real Postgres) [full lane]` |
+| `local browser smoke` | `product-smoke.yml` | fan-in of the `browser smoke (…) [full lane]` legs and `core chat + CSV pipeline` |
+| `authenticated browser smoke` | `product-smoke.yml` | summary of `authenticated browser smoke [full lane]` |
+| `browser smoke (desktop-chromium)` | `product-smoke.yml` | summary of `browser smoke (desktop-chromium) [full lane]` |
+| `browser smoke (mobile-chromium)` | `product-smoke.yml` | summary of `browser smoke (mobile-chromium) [full lane]` |
+| `Claude verdict` | `claude-verdict.yml` / `claude-code-review.yml` | commit status |
+
+Since #812 every workflow context is the name of a small *summary* job that
+fans in its heavy `[full lane]` job. The heavy jobs were renamed so that
+exactly one check run per required name exists on every commit; see the
+docs-only fast lane below.
 
 Protection was restored 2026-07-21 after the plan re-upgrade. The original
 #479 root cause was the paid plan lapsing, which made GitHub *silently drop*
@@ -130,6 +140,52 @@ Consequences:
   silent one cannot. Its protection-presence canary runs unconditionally; the
   finer required-contexts and `enforce_admins` checks are best-effort, because
   `GITHUB_TOKEN` cannot be granted repo Administration read.
+
+## Docs-only fast lane (#812)
+
+A pull request whose every changed path is inert documentation skips the
+application gate and reaches a merge decision in about a minute; anything else
+pays the full gate exactly as before. The lane is decided by
+`.github/workflows/classify-changed-paths.yml`, called as the `classify` job by
+both `CI` and `Product Smoke`:
+
+- **The decision comes from git, never from the PR.** On a `pull_request` run
+  the checkout is GitHub's merge commit; the classifier diffs its first parent
+  (the base tip) against it with `--no-renames`, so renames and deletions show
+  both paths, and feeds the list to `.github/scripts/classify-docs-only.sh`.
+  Labels, titles, and bodies are author-controlled and are not consulted.
+- **The allowlist is narrow:** Markdown under `docs/` and the root `README.md`.
+  Deny rules run first: `CLAUDE.md`, `AGENTS.md`, and any `SKILL.md` (wherever
+  they live), anything under `.github/`, `.claude/`, or `.agents/`, and
+  `docs/PRODUCTION_DEPLOYMENT.md` (unit tests assert on its wording) are never
+  docs-only. Everything else — code, tests, fixtures, dependencies, infra,
+  scripts, specs, other root files — is the full lane. Extending the allowlist
+  means a rule plus a fixture in `classify-docs-only.test.sh`; the `classify`
+  job runs that matrix before every decision.
+- **Everything uncertain is the full lane:** a non-`pull_request` event
+  (pushes to `main` still run everything), a base other than the default
+  branch, a checkout that is not the two-parent merge commit of the PR head,
+  an empty diff, or any git/classifier error. The `classify` job logs the
+  reason, and its step summary lists every path with its verdict.
+- **Required check names are unchanged and unambiguous.** Each required
+  context is a summary job that `needs` its heavy `[full lane]` job and the
+  classifier. It passes on the heavy job's success, or on a skip the
+  classifier explicitly asked for (`docs-only: skipped`); a skip without that
+  verdict, a failure, or a cancellation is red. Because the heavy jobs carry a
+  different name, exactly one check run per required name exists on every
+  commit — there is no duplicate for GitHub to resolve. `infra synth` (not
+  required) is simply skipped.
+- **What a docs-only PR still gets:** the merge-conflict guard, the
+  `Claude verdict` gate, and the automatic Claude review of the exact head —
+  `CI` and `Product Smoke` both complete successfully, so `workflow_run` fires
+  as usual. What it skips: install, lint, typecheck, unit tests, mocked evals,
+  conformance, transcript replay, the Next.js build, the CVE audit,
+  real-Postgres scoping, CDK synth, and every Playwright lane. The push to
+  `main` after merge runs the full gate regardless, and the production
+  CodeBuild classifier still skips the deploy on its own docs-only rule.
+- **Audit:** `scripts/verify-pr-gate.sh` already accepts `skipped` check runs
+  (latest attempt per name), so the `[full lane]` skips do not trip the
+  merge-gate audit.
 
 ## Public-repository consequences (2026-07-25)
 

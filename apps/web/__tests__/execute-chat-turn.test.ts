@@ -2,8 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatThread, Database, Run } from "@ai-workspace/db";
 import { auditLog, chatMessages, runs, users } from "@ai-workspace/db";
 import type { AgentRuntime } from "@ai-workspace/agent-runtime";
-import { RUN_BUDGET_SCHEMA, type RunBudgetState } from "@ai-workspace/agent";
+import {
+  RUN_BUDGET_SCHEMA,
+  estimateUsageCostUsd,
+  type RunBudgetReceipt,
+  type RunBudgetState,
+  type TokenUsage,
+} from "@ai-workspace/agent";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
+import { resolveStoredRunBudget } from "@/lib/run-budget-policy";
 import type { ChatStreamEvent } from "@/lib/chat-stream-contract";
 import type { RuntimeModelSelection } from "@/lib/runtime-model-policy";
 
@@ -118,6 +125,12 @@ vi.mock("@/lib/tool-approvals", async (importOriginal) => {
 vi.mock("@/lib/thread-metadata", () => ({
   refreshThreadPresentationMetadata: vi.fn(async () => undefined),
 }));
+vi.mock("@/lib/thread-summary", () => ({
+  refreshThreadSummary: vi.fn(async () => ({
+    status: "unchanged",
+    reason: "nothing_pending",
+  })),
+}));
 vi.mock("@/lib/turn-context", () => ({
   buildTurnContext: vi.fn(({ messages }) => messages),
 }));
@@ -205,6 +218,7 @@ import { createProactiveRunNotification } from "@/lib/notifications";
 import { buildChatContextPack } from "@/lib/chat-context-pack";
 import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
 import { buildTurnContext } from "@/lib/turn-context";
+import { refreshThreadSummary } from "@/lib/thread-summary";
 import { builtinToolsForChatRoute } from "@/lib/runtime-builtin-tools";
 import { createArtifactsFromAssistantMessage } from "@/lib/workspace-artifacts";
 import { createDraftAppVersionsForThreadArtifacts } from "@/lib/apps";
@@ -1166,6 +1180,157 @@ describe("executeChatTurn — persist tail", () => {
         }),
       }),
     );
+  });
+
+  it("#848: a budget stop succeeds with a partial receipt and a ledger event naming the dimension", async () => {
+    // The loop's pre-invocation block sequence (loop.ts): notice text,
+    // partial receipt, cumulative usage, done — and no `error` event.
+    const runtime = {
+      name: "bedrock",
+      runTurn: async function* () {
+        yield { type: "text-delta", delta: "Stopped: reached the token budget." };
+        yield {
+          type: "budget",
+          receipt: {
+            schema: "comparative.run-budget-receipt.v1",
+            version: 1,
+            governingLayer: "organization",
+            limits: runBudget.envelope.limits,
+            consumed: {
+              tokens: 400_000,
+              usd: 3.25,
+              wallClockMs: 2_000,
+              toolIterations: 2,
+            },
+            reached: "tokens",
+            partial: true,
+          },
+        };
+        yield { type: "usage", tokensIn: 399_000, tokensOut: 1_000 };
+        yield { type: "done" };
+      },
+    } as unknown as AgentRuntime;
+    const { input, state } = inlineInput({ runtime });
+
+    await executeChatTurn(input);
+
+    expect(
+      state.runUpdates.find((update) => update.status === "failed"),
+    ).toBeUndefined();
+    expect(
+      state.runUpdates.find((update) => update.status === "succeeded")?.outputs,
+    ).toMatchObject({
+      budgetReceipt: { partial: true, reached: "tokens" },
+    });
+    expect(vi.mocked(appendRunEventBestEffort)).toHaveBeenCalledWith(
+      "chat-inline-event-error",
+      expect.objectContaining({
+        eventType: "run_completed",
+        status: "succeeded",
+        label: expect.stringContaining("partial"),
+        metadata: expect.objectContaining({
+          budget: { partial: true, reached: "tokens" },
+        }),
+      }),
+    );
+  });
+
+  it("#848: a run that fails after usage persists a receipt that agrees with that usage", async () => {
+    const runtime = {
+      name: "bedrock",
+      runTurn: async function* () {
+        yield { type: "text-delta", delta: "partial" };
+        yield { type: "usage", tokensIn: 11, tokensOut: 7 };
+        yield { type: "error", message: "provider exploded" };
+      },
+    } as unknown as AgentRuntime;
+    const { input, state } = inlineInput({ runtime });
+
+    await executeChatTurn(input);
+
+    const outputs = state.runUpdates.find(
+      (update) => update.status === "failed",
+    )?.outputs as { usage: TokenUsage; budgetReceipt: RunBudgetReceipt };
+    expect(outputs.usage).toMatchObject({ tokensIn: 11, tokensOut: 7 });
+    expect(outputs.budgetReceipt.partial).toBe(false);
+    expect(outputs.budgetReceipt.consumed.tokens).toBe(
+      outputs.usage.tokensIn + outputs.usage.tokensOut,
+    );
+    expect(outputs.budgetReceipt.consumed.usd).toBeCloseTo(
+      estimateUsageCostUsd("sonnet-4-6", outputs.usage),
+      12,
+    );
+  });
+
+  it("#848: an aborted stream persists an accurate receipt that seeds approval resume", async () => {
+    const { input, state } = workerInput();
+    let markUsageConsumed: (() => void) | undefined;
+    const usageConsumed = new Promise<void>((resolve) => {
+      markUsageConsumed = resolve;
+    });
+    input.runtime = {
+      name: "bedrock",
+      runTurn: async function* (turnInput: Record<string, unknown>) {
+        const signal = turnInput.signal as AbortSignal;
+        yield { type: "text-delta", delta: "partial" };
+        yield { type: "usage", tokensIn: 11, tokensOut: 7 };
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              const error = new Error("The operation was aborted.");
+              error.name = "AbortError";
+              reject(error);
+            },
+            { once: true },
+          );
+          markUsageConsumed?.();
+        });
+      },
+    } as unknown as AgentRuntime;
+
+    const execution = executeChatTurn(input);
+    await usageConsumed;
+    abortChatWorkerRuntime(input.runtimeAbort, "timeout");
+    await execution;
+
+    const outputs = state.runUpdates.find(
+      (update) => update.status === "failed",
+    )?.outputs as { usage: TokenUsage; budgetReceipt: RunBudgetReceipt };
+    expect(outputs.budgetReceipt.partial).toBe(false);
+    expect(outputs.budgetReceipt.consumed.tokens).toBe(
+      outputs.usage.tokensIn + outputs.usage.tokensOut,
+    );
+    expect(outputs.budgetReceipt.consumed.usd).toBeCloseTo(
+      estimateUsageCostUsd("sonnet-4-6", outputs.usage),
+      12,
+    );
+    expect(
+      resolveStoredRunBudget({
+        stored: runBudget,
+        priorReceipt: outputs.budgetReceipt,
+        lane: "tool-local",
+        triggerType: "chat",
+      }).consumed,
+    ).toEqual(outputs.budgetReceipt.consumed);
+  });
+
+  it("#848: the worker telemetry write carries the delta-recorded receipt, not zeros", async () => {
+    const { input, state } = workerInput();
+    await executeChatTurn(input);
+
+    const telemetryUpdate = state.runUpdates.find(
+      (update) =>
+        (update.outputs as { lifecycle?: string } | undefined)?.lifecycle ===
+        "provider_running",
+    );
+    expect(telemetryUpdate?.outputs).toMatchObject({
+      usage: { tokensIn: 11, tokensOut: 7 },
+      budgetReceipt: {
+        partial: false,
+        consumed: expect.objectContaining({ tokens: 18 }),
+      },
+    });
   });
 
   it("#713: a degraded provider mount is recorded on the run but does not fail it", async () => {
@@ -2251,5 +2416,57 @@ describe("executeChatTurn — literal output contract (#652/#644)", () => {
     expect(
       fixture.sent.find((event) => event.type === "persisted"),
     ).not.toMatchObject({ content: expect.anything() });
+  });
+});
+
+describe("executeChatTurn — rolling thread summary (#771)", () => {
+  const storedSummary = JSON.stringify({
+    schema: "thread-summary.v1",
+    coveredThroughMessageId: "m-4",
+    coveredMessageCount: 4,
+    updatedAt: "2026-09-04T01:00:00.000Z",
+    facts: ["Launch is planned for October."],
+    openItems: [],
+    decisions: [],
+    references: [],
+  });
+
+  it("hands the stored summary to the turn context and the receipt, then refreshes it user-scoped after persistence", async () => {
+    const { input } = inlineInput({
+      thread: { id: "thread-1", summary: storedSummary } as unknown as ChatThread,
+    });
+    await executeChatTurn(input);
+
+    expect(vi.mocked(buildTurnContext).mock.calls[0]?.[0]).toMatchObject({
+      threadSummary: expect.objectContaining({
+        coveredMessageCount: 4,
+        facts: ["Launch is planned for October."],
+      }),
+    });
+    expect(vi.mocked(buildChatContextPack).mock.calls[0]?.[0]).toMatchObject({
+      threadSummary: expect.objectContaining({ coveredMessageCount: 4 }),
+    });
+    expect(refreshThreadSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "user-1", threadId: "thread-1" }),
+    );
+  });
+
+  it("passes no summary for a thread without one and still schedules the refresh on the worker lane", async () => {
+    const { input } = workerInput();
+    await executeChatTurn(input);
+
+    expect(vi.mocked(buildTurnContext).mock.calls[0]?.[0]).toMatchObject({
+      threadSummary: null,
+    });
+    expect(vi.mocked(buildChatContextPack).mock.calls[0]?.[0]).toMatchObject({
+      threadSummary: null,
+    });
+    expect(refreshThreadSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not refresh the summary when the turn fails", async () => {
+    const { input } = inlineInput({ runtime: truncatedRuntime() });
+    await executeChatTurn(input);
+    expect(refreshThreadSummary).not.toHaveBeenCalled();
   });
 });

@@ -69,6 +69,12 @@ export type ChatContextItemFreshness =
 
 export type ChatContextItemVisibility = "hidden_prompt" | "receipt_only";
 
+export interface ChatContextThreadSummaryReceipt {
+  coveredMessageCount: number;
+  updatedAt: string;
+  chars: number;
+}
+
 export interface ChatContextItem {
   id: string;
   type:
@@ -79,6 +85,7 @@ export interface ChatContextItem {
     | "artifact_context"
     | "uploaded_file"
     | "recent_tool_evidence"
+    | "thread_summary"
     | "conversation_resource"
     | "selected_context"
     | "capability_graph"
@@ -149,6 +156,7 @@ export interface ChatContextReceipt {
     uploadedFilesInjected: boolean;
     uploadedFiles: ChatContextUploadedFile[];
     recentToolEvidence?: RecentToolEvidenceReceipt;
+    threadSummary?: ChatContextThreadSummaryReceipt;
     resources: ConversationResourceResolution | null;
     selectedContext?: ContextResourceManifest;
   };
@@ -231,10 +239,11 @@ export interface BuildChatContextPackInput {
   discoverableProviders?: readonly string[];
   deniedMcpProviders?: readonly string[];
   capabilityGraph?: CapabilityGraph;
-  modelId?: string;
   artifactContext?: string | null;
   uploadedFiles?: readonly ChatContextUploadedFile[];
   recentToolEvidenceReceipt?: RecentToolEvidenceReceipt;
+  /** Receipt for the rolling summary already rendered into `messages` (#771). */
+  threadSummary?: ChatContextThreadSummaryReceipt | null;
   resourceResolution?: ConversationResourceResolution;
   selectedContextManifest?: ContextResourceManifest;
   selectedContextPrompt?: string | null;
@@ -263,10 +272,10 @@ export function buildChatContextPack({
   discoverableProviders = [],
   deniedMcpProviders = [],
   capabilityGraph,
-  modelId,
   artifactContext,
   uploadedFiles = [],
   recentToolEvidenceReceipt,
+  threadSummary,
   resourceResolution,
   selectedContextManifest,
   selectedContextPrompt,
@@ -411,6 +420,23 @@ export function buildChatContextPack({
           },
         })
       : undefined;
+  const threadSummaryItem = threadSummary
+    ? contextItem({
+        id: "thread:summary",
+        type: "thread_summary",
+        label: `Background summary of ${threadSummary.coveredMessageCount} earlier message(s)`,
+        source: "chat_threads.summary",
+        owner: "system",
+        freshness: "recent_thread",
+        visibility: "hidden_prompt",
+        injected: true,
+        charCount: threadSummary.chars,
+        metadata: {
+          coveredMessageCount: threadSummary.coveredMessageCount,
+          updatedAt: threadSummary.updatedAt,
+        },
+      })
+    : undefined;
   const resourceItems =
     resourceResolution?.status === "selected"
       ? resourceResolution.selected.map((resource) =>
@@ -548,6 +574,7 @@ export function buildChatContextPack({
     ...artifactItems,
     ...uploadedFileItems,
     ...(recentToolEvidenceItem ? [recentToolEvidenceItem] : []),
+    ...(threadSummaryItem ? [threadSummaryItem] : []),
     ...resourceItems,
     ...selectedContextItems,
     ...(capabilityItem ? [capabilityItem] : []),
@@ -599,6 +626,7 @@ export function buildChatContextPack({
       ...(recentToolEvidenceReceipt
         ? { recentToolEvidence: recentToolEvidenceReceipt }
         : {}),
+      ...(threadSummary ? { threadSummary } : {}),
       resources: resourceResolution ?? null,
       ...(selectedContextManifest?.items.length
         ? { selectedContext: selectedContextManifest }
@@ -663,7 +691,6 @@ export function buildChatContextPack({
           reconnectRequiredProviders: receipt.tools.reconnectRequired,
           builtinTools: receipt.tools.builtinMounted,
           webAccess: receipt.tools.webAccess,
-          modelId,
           artifactContext: artifacts || null,
           vaultContextRequested,
         }),
@@ -823,6 +850,11 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
     lines.push(
       `- Historical tool evidence: ${succeeded} successful and ${failed} failed result(s) included; ` +
         `${evidence.omittedToolCallIds.length} omitted by the ${evidence.maxChars}-character budget.`,
+    );
+  }
+  if (receipt.work.threadSummary) {
+    lines.push(
+      `- Thread summary: background summary of ${receipt.work.threadSummary.coveredMessageCount} earlier message(s) included as data (updated ${receipt.work.threadSummary.updatedAt}); those messages are not shown in full.`,
     );
   }
   lines.push(

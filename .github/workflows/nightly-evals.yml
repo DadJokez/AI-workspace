@@ -24,10 +24,15 @@ jobs:
   behavior_evals:
     name: real-model behavior evals
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    # Run evals alone takes 26-34 min on green nights (#847); 50 keeps
+    # >=15 min margin inside the 3600 s OIDC session below.
+    timeout-minutes: 50
     permissions:
       id-token: write
       contents: read
+    outputs:
+      failing_cases: ${{ steps.evals.outputs.failing_cases }}
+      known_cases: ${{ steps.evals.outputs.known_cases }}
     steps:
       # Fail before checkout/install instead of producing a green run that did
       # no evaluation. The independent notification job also reports this
@@ -61,7 +66,7 @@ jobs:
 
       # OIDC only: no long-lived AWS keys or production application secrets.
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
           role-to-assume: ${{ vars.AWS_EVAL_ROLE_ARN }}
           aws-region: us-east-1
@@ -116,7 +121,7 @@ jobs:
 
       - name: Upload report
         if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: eval-report
           path: packages/evals/eval-reports/
@@ -127,24 +132,10 @@ jobs:
   browser_canary:
     name: app-backed real-model CSV canary
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       id-token: write
       contents: read
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: aihub
-          POSTGRES_PASSWORD: aihub_dev
-          POSTGRES_DB: aihub_nightly_eval
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U aihub -d aihub_nightly_eval"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
       DATABASE_URL: postgres://aihub:aihub_dev@127.0.0.1:5432/aihub_nightly_eval
     steps:
@@ -160,6 +151,11 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      - uses: ./.github/actions/local-postgres
+        with:
+          user: aihub
+          password: aihub_dev
+          database: aihub_nightly_eval
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
@@ -176,7 +172,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
           role-to-assume: ${{ vars.AWS_EVAL_ROLE_ARN }}
           aws-region: us-east-1
@@ -186,7 +182,10 @@ jobs:
           mask-aws-account-id: true
           unset-current-credentials: true
 
+      # Normally ~0.3 min; a step cap turns a hung install into a named step
+      # failure instead of a silent job cancel (#847).
       - name: Install Chromium
+        timeout-minutes: 10
         run: pnpm --filter @ai-workspace/web exec playwright install --with-deps chromium
 
       # Combines real Bedrock with the real browser, production preamble,
@@ -200,7 +199,7 @@ jobs:
 
       - name: Upload app-backed canary report
         if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nightly-real-model-csv-playwright-report
           path: apps/web/playwright-report/
@@ -224,10 +223,12 @@ jobs:
         env:
           BEHAVIOR_JOB_RESULT: ${{ needs.behavior_evals.result }}
           BROWSER_JOB_RESULT: ${{ needs.browser_canary.result }}
+          FAILING_CASES: ${{ needs.behavior_evals.outputs.failing_cases }}
+          KNOWN_CASES: ${{ needs.behavior_evals.outputs.known_cases }}
         with:
           script: |
             const title = "Nightly evals failing";
-            const body = `The nightly lanes ended with behavior evals **${process.env.BEHAVIOR_JOB_RESULT}** and browser/CSV canary **${process.env.BROWSER_JOB_RESULT}** on ${context.sha.slice(0,7)}. This includes fail-closed AWS/OIDC checks, real-model behavior regressions, the app-backed browser/CSV journey, and the $${process.env.NIGHTLY_EVAL_MAX_COST_USD} post-run cost tripwire. The lanes run independently so either still produces evidence when the other fails. If artifacts exist, download them for failing cases, screenshots, traces, and thread/run debug IDs. A hard timeout may stop that lane's report upload; the notification is intentionally independent so timeout still alerts:\n${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `The nightly lanes ended with behavior evals **${process.env.BEHAVIOR_JOB_RESULT}** and browser/CSV canary **${process.env.BROWSER_JOB_RESULT}** on ${context.sha.slice(0,7)}. This includes fail-closed AWS/OIDC checks, real-model behavior regressions, the app-backed browser/CSV journey, and the $${process.env.NIGHTLY_EVAL_MAX_COST_USD} post-run cost tripwire. The lanes run independently so either still produces evidence when the other fails. If artifacts exist, download them for failing cases, screenshots, traces, and thread/run debug IDs. A hard timeout may stop that lane's report upload; the notification is intentionally independent so timeout still alerts.\nFailing cases: ${process.env.FAILING_CASES || "(none reported — the behavior lane did not reach its summary: timeout, cancel, or infra error)"}\nKnown-red (non-blocking): ${process.env.KNOWN_CASES || "(none)"}\n${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             let labels = [];
             try {
               await github.rest.issues.getLabel({
