@@ -154,6 +154,8 @@ Consequences:
   commit is computed (observed on #899: two pushes 4 s apart, the first head
   got only the `pull_request_target` verdict run). That is not a cancel and
   there is nothing to rerun — the newer head carries the checks.
+  `gh run list --branch <branch> --json databaseId,headSha,status,conclusion`
+  shows every run per head SHA in one call.
 
 ## Docs-only fast lane (#812)
 
