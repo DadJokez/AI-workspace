@@ -186,7 +186,7 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
       appSecretName,
     );
     // Provisioned out of band (#849): a DATABASE_URL for the NOLOGIN-by-default
-    // `web_egress_policy_reader` role from migration 0049, which can SELECT
+    // `web_egress_policy_reader` role from migration 0050, which can SELECT
     // only the egress-policy columns of tools_catalog. The browser proxy is
     // the sole consumer; it must never receive the app secret.
     const browserProxyDbSecret = secretsmanager.Secret.fromSecretNameV2(
