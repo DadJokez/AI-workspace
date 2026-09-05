@@ -72,6 +72,20 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # #898: the migration guard (packages/db/scripts/migration-guard.mjs):
+      # journal consistency over the whole packages/db/drizzle folder, plus a
+      # deny-list scan of the migrations this PR adds or changes. It diffs
+      # against main, so main's tip is fetched here — one commit deep, inside
+      # this step only: a deeper checkout would slow every step of the job for
+      # a scan that takes milliseconds. The repo is public, so the fetch needs
+      # no credentials (persist-credentials is off above). A denied statement
+      # carrying a `-- migration-guard-allow:` marker passes here; it is the
+      # reviewer's cue for needs-rob (#891), never an auto-fail.
+      - name: Migration guard
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          pnpm --filter @ai-workspace/db migration:guard --base origin/main
+
       - name: Lint
         run: pnpm lint
 

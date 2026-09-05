@@ -13,6 +13,9 @@
   "scripts": {
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "migration:guard": "node scripts/migration-guard.mjs",
     "db:generate": "echo 'BLOCKED (#449): drizzle meta snapshots are intentionally frozen at 0023 while migrations run to 0035+. Migrations are handwritten SQL + a _journal.json entry \u2014 see packages/db/README.md. Running drizzle-kit generate/check against the stale meta emits WRONG output.' && exit 1",
     "db:migrate": "tsx src/migrate.ts",
     "db:studio": "drizzle-kit studio",
@@ -25,10 +28,12 @@
   "devDependencies": {
     "@eslint/js": "^9.15.0",
     "@types/node": "^22.9.0",
+    "@vitest/coverage-v8": "3.2.6",
     "drizzle-kit": "^0.28.1",
     "eslint": "^9.15.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
-    "typescript-eslint": "^8.16.0"
+    "typescript-eslint": "^8.16.0",
+    "vitest": "^3.2.6"
   }
 }
