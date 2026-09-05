@@ -71,7 +71,12 @@ if grep -qx 'reason=never-applied' <<<"$hold"; then
   latest_review=$(gh api "repos/$repo/pulls/$pr/reviews" --paginate --slurp \
     | jq -r '[.[][] | select(.user.login == "github-actions[bot]")]
              | sort_by(.submitted_at) | last | .body // ""')
-  if grep -qiE "needs[ -]rob|not clear[ -]to[ -]merge|stays rob|not posting the §7 sign-off|declin[a-z]* the §7 sign-off" \
+  #     A review that merely *mentions* the label (any review of the gate
+  #     machinery does) is not a ruling: the ruling phrase is read from the
+  #     review's first line, where the reviewer is instructed to put it.
+  review_first_line=$(head -n 1 <<<"$latest_review")
+  if grep -qiE "needs[ -]rob (applied|applies|hold)|human[ -]owned under" <<<"$review_first_line" \
+     || grep -qiE "not clear[ -]to[ -]merge|stays rob|not posting the §7 sign-off|declin[a-z]* the §7 sign-off" \
       <<<"$latest_review"; then
     echo "FAIL: the latest Claude review ruled PR #$pr human-owned (§7) but needs-rob was never applied"
     fail=1
