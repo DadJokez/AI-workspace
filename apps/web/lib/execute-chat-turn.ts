@@ -509,7 +509,7 @@ export async function executeChatTurn({
     ...selectedResourceImages,
   ]);
   // #771: the stored rolling summary (if any) leads the messages region as
-  // layer-7 background data; the receipt below tells the model it is there.
+  // layer-6 background data; the receipt below tells the model it is there.
   const threadSummary = parseStoredThreadSummary(thread.summary);
   const threadSummaryReceipt = threadSummary
     ? {

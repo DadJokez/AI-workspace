@@ -13,6 +13,7 @@ import {
   applyModelOverride,
   formatCaseSummary,
   formatCiOutcome,
+  formatModelHeader,
   parseRunArgs,
   resolveRunModels,
   selectSuites,
@@ -362,6 +363,61 @@ describe("--model qualification runs (#797 P2)", () => {
       candidateModelId: DEFAULT_MODEL_ID,
       judgeModelId: JUDGE_MODEL_ID,
     });
+  });
+
+  it("a bare run is judge-independent: no self-graded warning, independence ✅ (#880)", () => {
+    // #880: DEFAULT_MODEL_ID and JUDGE_MODEL_ID were both sonnet-4-5, so every
+    // nightly graded the candidate with itself. The judge now lives on a
+    // different model AND a different Bedrock id; a bare `pnpm eval` must not
+    // print the 🚨 line and the scorecard's first check must be green.
+    const models = resolveRunModels({});
+    expect(models.candidateModelId).toBe(DEFAULT_MODEL_ID);
+    expect(models.candidateModelId).not.toBe(models.judgeModelId);
+    expect(MODELS[models.candidateModelId].bedrockModelId).not.toBe(
+      MODELS[models.judgeModelId].bedrockModelId,
+    );
+
+    const header = formatModelHeader({ ...models, modelOverride: false, overriddenPins: 0 });
+    expect(header).toContain(`🧠 candidate: ${DEFAULT_MODEL_ID}`);
+    expect(header).toContain(`⚖️  judge: ${JUDGE_MODEL_ID}`);
+    expect(header).not.toContain("self-graded");
+    expect(header).not.toContain("--model overrides");
+
+    const card = buildScorecard({
+      ...models,
+      results: [capability([caseResult("a", true)])],
+      mock: true,
+      generationCostUsd: 0,
+    });
+    expect(card.bar.find((b) => b.id === "judge-independence")).toMatchObject({
+      ok: true,
+      detail: `judge ${JUDGE_MODEL_ID} pinned; candidate ${DEFAULT_MODEL_ID}`,
+    });
+  });
+
+  it("the header still shouts when the ids coincide, and names --model pins and the baseline", () => {
+    expect(
+      formatModelHeader({
+        candidateModelId: JUDGE_MODEL_ID,
+        judgeModelId: JUDGE_MODEL_ID,
+        modelOverride: false,
+        overriddenPins: 0,
+      }),
+    ).toContain("🚨 candidate and judge are the SAME model");
+
+    const qualification = formatModelHeader({
+      candidateModelId: "opus-4-7",
+      judgeModelId: JUDGE_MODEL_ID,
+      modelOverride: true,
+      overriddenPins: 2,
+      baseline: { modelId: DEFAULT_MODEL_ID, knownRedCaseIds: ["skill-faithfulness/x"] },
+      baselinePath: "eval-reports/r.json",
+    });
+    expect(qualification).toContain("--model overrides every suite default and 2 case-level pin(s)");
+    expect(qualification).toContain(
+      `📐 baseline: ${DEFAULT_MODEL_ID} from eval-reports/r.json (1 known-red)`,
+    );
+    expect(qualification).not.toContain("🚨");
   });
 
   it("overrides every suite default and every case-level pin", () => {
