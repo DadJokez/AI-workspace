@@ -1,3 +1,8 @@
+import {
+  instructionLayersLabel,
+  parseInstructionLayersReceipt,
+  type InstructionLayersReceipt,
+} from "@ai-workspace/agent";
 import type { RunEvent } from "@ai-workspace/db";
 import { type Database, runEvents } from "@ai-workspace/db";
 import { desc, eq } from "drizzle-orm";
@@ -489,6 +494,10 @@ function runEventActivityLabel(event: {
   }
   if (event.eventType !== "context_pack_assembled") return event.label;
   const receipt = contextReceiptFromMetadata(event.metadata);
+  // #438: turns that loaded the pinned prefix name every instruction layer;
+  // rows persisted before the layers receipt existed keep the Vault label.
+  const layers = parseInstructionLayersReceipt(receipt?.instructionLayers);
+  if (layers) return instructionLayersLabel(layers);
   const vault = isRecord(receipt?.vault) ? receipt.vault : null;
   const checked = vault?.checked === true;
   const injected = vault?.injected === true;
@@ -535,6 +544,9 @@ function runEventDetail(event: {
       ? receipt.contextItems
       : [];
     const parts = [
+      instructionLayersDetail(
+        parseInstructionLayersReceipt(receipt?.instructionLayers),
+      ),
       vaultDetail(vault),
       boolLabel(work?.artifactContextInjected, "artifact context"),
       boolLabel(work?.uploadedFilesInjected, "uploaded files"),
@@ -583,6 +595,22 @@ function runEventDetail(event: {
 function contextReceiptFromMetadata(metadata: unknown): Record<string, unknown> | null {
   const record = isRecord(metadata) ? metadata : null;
   return isRecord(record?.contextReceipt) ? record.contextReceipt : null;
+}
+
+function instructionLayersDetail(
+  layers: InstructionLayersReceipt | null,
+): string | null {
+  if (!layers) return null;
+  const org =
+    layers.org.status === "loaded"
+      ? `Org instructions: ${layers.org.items} approved (${layers.org.chars} chars)`
+      : "Org instructions: not configured";
+  const skill = layers.skill
+    ? `Skill pinned: ${layers.skill.name} (${layers.skill.chars} chars)`
+    : null;
+  return [`Precedence: ${layers.precedence}`, org, skill]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function vaultDetail(vault: Record<string, unknown> | null): string | null {
