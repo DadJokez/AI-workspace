@@ -59,6 +59,7 @@
     "smoke:browser:core": "pnpm --filter @ai-workspace/web smoke:browser:core",
     "smoke:browser:ui": "pnpm --filter @ai-workspace/web smoke:browser:ui",
     "smoke:prod": "node scripts/production-smoke.mjs",
-    "smoke:prod:auth": "pnpm --filter @ai-workspace/web smoke:prod:auth"
+    "smoke:prod:auth": "pnpm --filter @ai-workspace/web smoke:prod:auth",
+    "load:pilot": "node scripts/load/pilot-load.mjs"
   }
 }
