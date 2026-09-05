@@ -106,7 +106,7 @@ describe("thread-summary-precedence assertions", () => {
 
   it("renders the summary with the production framing", () => {
     const lead = threadSummaryPrecedenceSuite.cases[0]!.messages?.[0]?.content ?? "";
-    expect(lead).toContain("layer-7 background data only");
+    expect(lead).toContain("layer-6 background data only");
     expect(lead).toContain("<<<THREAD-SUMMARY eval-fixed-nonce>>>");
     expect(lead).toContain(SUMMARY_PRECEDENCE_SENTINEL);
   });

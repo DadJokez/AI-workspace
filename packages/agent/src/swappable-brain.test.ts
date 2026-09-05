@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BedrockRuntimeClient,
   type ConverseStreamCommand,
@@ -6,43 +6,31 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 import { RealBedrockClient } from "./clients";
 import { runAgentLoop } from "./loop";
-import { MODELS, isValidModelId, type ModelId, type ModelMetadata } from "./models";
+import {
+  DEFAULT_MODEL_ID,
+  MODELS,
+  PLATFORM_MODEL_OVERRIDE_ID,
+  isValidModelId,
+  type ModelId,
+} from "./models";
 import { ToolRegistry } from "./registry";
 import type { AgentEvent } from "./types";
 
 /**
- * #797 P1 exit test: a non-Anthropic Converse model that exists only as
- * registry metadata runs a full turn — tool round-trip included — through
- * the real Converse request builder with zero cache checkpoints, while an
- * Anthropic entry on the same path still gets them.
+ * #797 exit test, now on the real first non-Claude brain (P3): the `nova-pro`
+ * registry entry runs a full turn — tool round-trip included — through the
+ * real Converse request builder with zero cache checkpoints and a truthful
+ * registry-derived identity line, while an Anthropic entry on the same path
+ * still gets its checkpoints. P1 proved this with a test-only fake entry
+ * injected into `MODELS`; the real entry makes the same proof stronger
+ * because it exercises the Bedrock id and capability flags production will
+ * actually send.
  *
- * The entry is test-only: it is injected into `MODELS` for this file and never
- * added to `MODEL_IDS`, so `isValidModelId` rejects it and the enablement
- * gate (`apps/web/lib/model-registry.ts`) cannot enable it for any purpose.
+ * Enablement is not in this package: the entry has no `model_enablement`
+ * rows, so it is disabled for every purpose (pinned in
+ * `apps/web/__tests__/non-claude-brain.test.ts`).
  */
-const FAKE_ID = "test-nova-lite" as ModelId;
-const FAKE_MODEL: ModelMetadata = {
-  id: FAKE_ID,
-  bedrockModelId: "us.amazon.nova-lite-v1:0",
-  provider: "amazon",
-  family: "nova",
-  displayName: "Nova Lite",
-  brandedName: "Nova Lite",
-  providerDisplayName: "Amazon",
-  blurb: "Test-only non-Anthropic Converse entry (#797 P1).",
-  costPer1MInput: 0.066,
-  costPer1MOutput: 0.264,
-  cacheReadInputMultiplier: 1,
-  cacheWriteInputMultiplier: 1,
-  supportsToolUse: true,
-  supportsStreaming: true,
-  supportsVision: false,
-  supportsPromptCaching: false,
-  invocation: "converse",
-  contextWindow: 300_000,
-  defaultMaxTokens: 5_000,
-  recommendedFor: [],
-};
+const NOVA: ModelId = "nova-pro";
 
 type StreamChunk = Record<string, unknown>;
 
@@ -135,15 +123,7 @@ function countCachePoints(value: unknown): number {
   return 0;
 }
 
-describe("a non-Anthropic Converse registry entry runs a full turn (#797 P1)", () => {
-  beforeAll(() => {
-    (MODELS as Record<string, ModelMetadata>)[FAKE_ID] = FAKE_MODEL;
-  });
-
-  afterAll(() => {
-    delete (MODELS as Record<string, ModelMetadata>)[FAKE_ID];
-  });
-
+describe("the real non-Claude Converse entry runs a full turn (#797 P1 exit test, P3 entry)", () => {
   beforeEach(() => {
     vi.stubEnv("AWS_REGION", "us-east-1");
   });
@@ -153,17 +133,28 @@ describe("a non-Anthropic Converse registry entry runs a full turn (#797 P1)", (
     vi.unstubAllEnvs();
   });
 
-  it("is registered-but-unenablable: outside MODEL_IDS, so the enablement gate can never admit it", () => {
-    expect(MODELS[FAKE_ID]).toBe(FAKE_MODEL);
-    expect(isValidModelId(FAKE_ID)).toBe(false);
+  it("is a real registry entry that no default or platform pin points at", () => {
+    expect(isValidModelId(NOVA)).toBe(true);
+    expect(DEFAULT_MODEL_ID).not.toBe(NOVA);
+    expect(PLATFORM_MODEL_OVERRIDE_ID).not.toBe(NOVA);
+    expect(MODELS[NOVA]).toMatchObject({
+      bedrockModelId: "us.amazon.nova-pro-v1:0",
+      provider: "amazon",
+      family: "nova",
+      invocation: "converse",
+      supportsPromptCaching: false,
+    });
+    // Nova's documented output ceiling; the loop passes this straight to
+    // Converse, so exceeding it would be a validation error on every turn.
+    expect(MODELS[NOVA].defaultMaxTokens).toBeLessThanOrEqual(10_000);
   });
 
   it("completes a tool round-trip with zero cache blocks in every Converse request", async () => {
-    const { inputs, events } = await runFullTurn(FAKE_ID);
+    const { inputs, events } = await runFullTurn(NOVA);
 
     expect(inputs).toHaveLength(2);
     for (const input of inputs) {
-      expect(input.modelId).toBe(FAKE_MODEL.bedrockModelId);
+      expect(input.modelId).toBe(MODELS[NOVA].bedrockModelId);
       expect(countCachePoints(input)).toBe(0);
     }
     // ADR 0010 layering is intact without the checkpoints: stable prompt
@@ -176,6 +167,7 @@ describe("a non-Anthropic Converse registry entry runs a full turn (#797 P1)", (
       text: expect.stringContaining("Current date and time"),
     });
     expect(inputs[0]?.toolConfig?.tools).toHaveLength(1);
+    expect(inputs[0]?.inferenceConfig?.maxTokens).toBe(MODELS[NOVA].defaultMaxTokens);
 
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -194,14 +186,14 @@ describe("a non-Anthropic Converse registry entry runs a full turn (#797 P1)", (
   });
 
   it("reports the registry's provider model id in the Run Inspector snapshot", async () => {
-    const { events } = await runFullTurn(FAKE_ID);
+    const { events } = await runFullTurn(NOVA);
     const requests = events.filter(
       (event): event is Extract<AgentEvent, { type: "provider-request" }> =>
         event.type === "provider-request",
     );
     expect(requests).toHaveLength(2);
     for (const event of requests) {
-      expect(event.request.providerModelId).toBe(FAKE_MODEL.bedrockModelId);
+      expect(event.request.providerModelId).toBe(MODELS[NOVA].bedrockModelId);
     }
   });
 
@@ -218,16 +210,16 @@ describe("a non-Anthropic Converse registry entry runs a full turn (#797 P1)", (
     }
   });
 
-
-  it('stamps a registry-derived identity line ("…Nova Lite, made by Amazon") into the stable prompt', async () => {
-    // P1 exit criterion, second half: the cached stable prefix names the
+  it('stamps a registry-derived identity line ("…Nova Pro, made by Amazon") into the stable prompt', async () => {
+    // Exit criterion, second half: the cached stable prefix names the
     // registry vendor/brand, never a hardcoded Anthropic/Claude string.
-    const { inputs } = await runFullTurn(FAKE_ID);
+    const { inputs } = await runFullTurn(NOVA);
     const system = (inputs[0]?.system ?? [])
       .map((block) => ("text" in block && typeof block.text === "string" ? block.text : ""))
       .join("\n");
-    expect(system).toContain("You are powered by Nova Lite, made by Amazon.");
-    expect(system).toContain('answer "Nova Lite"');
+    expect(system).toContain("You are powered by Nova Pro, made by Amazon.");
+    expect(system).toContain('answer "Nova Pro"');
+    // No `olderModelExample` on the entry → the neutral wording.
     expect(system).toContain(" or an older model version");
     expect(system).not.toMatch(/Anthropic|Claude/);
   });

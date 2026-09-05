@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { JUDGE_MODEL_ID } from "./judge";
 import {
   baselineFromReport,
   buildScorecard,
@@ -66,7 +67,7 @@ function capability(name: string, results: CaseResult[]): CapabilityResult {
 
 const base = {
   candidateModelId: "opus-4-7",
-  judgeModelId: "sonnet-4-5",
+  judgeModelId: JUDGE_MODEL_ID,
   mock: false,
   generationCostUsd: 1,
 };
@@ -364,7 +365,7 @@ describe("renderScorecard", () => {
         ],
       }),
     );
-    expect(md).toContain("## Scorecard — candidate `opus-4-7` · judge `sonnet-4-5`");
+    expect(md).toContain(`## Scorecard — candidate \`opus-4-7\` · judge \`${JUDGE_MODEL_ID}\``);
     expect(md).toContain("| injection | ⚠️ known-red | 1 | 0 | 1 | 1/1 | 0/1 | – | – |");
     expect(md).toContain("➖ INCOMPLETE");
     expect(md).toContain("- ✅ judge is a different model from the candidate");

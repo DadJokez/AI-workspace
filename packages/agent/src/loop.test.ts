@@ -11,7 +11,7 @@ import {
   runAgentLoop,
 } from "./loop";
 import { modelIdentityLine } from "./model-identity";
-import { MODELS } from "./models";
+import { MODELS, type ModelId } from "./models";
 import { ToolRegistry } from "./registry";
 import { RUN_BUDGET_SCHEMA } from "./run-budget";
 import { toolCallFingerprint } from "./tool-approval";
@@ -1542,10 +1542,25 @@ describe("runAgentLoop max_tokens truncation", () => {
 });
 
 describe("model output caps", () => {
-  it("gives every model enough output room for a complete artifact", () => {
+  // Models whose documented output ceiling sits below the artifact floor.
+  // The registry may not exceed a ceiling (Converse rejects the request on
+  // every turn), so each one is listed here deliberately, held to exactly
+  // that ceiling. Whether the low cap disqualifies the model for
+  // artifact-heavy lanes is the qualification scorecard's call (#797 P3),
+  // not this test's — but adding a model here must be a conscious edit.
+  const DOCUMENTED_CEILING_BELOW_FLOOR: Partial<Record<ModelId, number>> = {
+    "nova-pro": 10_000,
+  };
+
+  it("gives every model enough output room for a complete artifact, or exactly its documented ceiling", () => {
     // 8192 truncated every HTML-app build mid-file (issue #320); keep the
     // floor high enough that a full artifact fits.
     for (const model of Object.values(MODELS)) {
+      const ceiling = DOCUMENTED_CEILING_BELOW_FLOOR[model.id];
+      if (ceiling !== undefined) {
+        expect(model.defaultMaxTokens).toBe(ceiling);
+        continue;
+      }
       expect(model.defaultMaxTokens).toBeGreaterThanOrEqual(16_000);
     }
   });

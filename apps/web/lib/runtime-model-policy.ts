@@ -218,6 +218,41 @@ export function resolveRuntimeModelSelection({
   });
 }
 
+/**
+ * Cross-provider failover is allowed only between qualified models (#797
+ * P3). Nothing persists a P2 scorecard verdict yet (`eval-reports/*.json`
+ * are local files or workflow artefacts), so the `model_enablement` row Rob
+ * writes after a green scorecard IS the qualification record and
+ * `qualifiedModelIds` is the lane's enablement set — the one place a
+ * persisted qualification store would plug in later.
+ *
+ * - A same-provider chain passes through unchanged; which models are in it
+ *   is the enablement gate's business, not this function's.
+ * - A hop that crosses providers must land on a qualified model, otherwise
+ *   the whole chain is rejected rather than truncated: a throttle must never
+ *   silently move a user onto an unqualified brain with a different identity
+ *   line, and a chain that could is a bug upstream, not something to paper
+ *   over per turn.
+ */
+export function resolveModelFailoverChain(
+  candidates: readonly ModelId[],
+  qualifiedModelIds: ReadonlySet<string>,
+): ModelId[] {
+  for (let index = 1; index < candidates.length; index += 1) {
+    const from = candidates[index - 1]!;
+    const to = candidates[index]!;
+    if (
+      MODELS[from].provider !== MODELS[to].provider &&
+      !qualifiedModelIds.has(to)
+    ) {
+      throw new Error(
+        `Failover chain ${candidates.join(" → ")} crosses providers into "${to}" (${MODELS[to].provider}), which is not qualified for this purpose (no enablement row).`,
+      );
+    }
+  }
+  return [...candidates];
+}
+
 export function applyRuntimeModelFailover(
   selection: RuntimeModelSelection,
   nextModelId: ModelId,
@@ -253,15 +288,20 @@ function directSelection({
   };
 }
 
+/**
+ * Provider-side spellings accepted for `RUNTIME_V2_DIRECT_MODEL_ID` and
+ * stored request ids. Bedrock ids are read from the registry (#797 P3) so a
+ * new Converse model needs no edit here; the short `claude-*` forms are
+ * legacy client vocabulary.
+ */
 const DIRECT_MODEL_ALIASES: Record<string, ModelId> = {
   "claude-haiku-4-5": "haiku-4-5",
   "claude-haiku-4-5-20251001": "haiku-4-5",
-  "us.anthropic.claude-haiku-4-5-20251001-v1:0": "haiku-4-5",
   "claude-sonnet-4-5": "sonnet-4-5",
   "claude-sonnet-4-5-20250929": "sonnet-4-5",
-  "us.anthropic.claude-sonnet-4-5-20250929-v1:0": "sonnet-4-5",
   "claude-sonnet-4-6": "sonnet-4-6",
-  "us.anthropic.claude-sonnet-4-6": "sonnet-4-6",
   "claude-opus-4-7": "opus-4-7",
-  "us.anthropic.claude-opus-4-7": "opus-4-7",
+  ...Object.fromEntries(
+    MODEL_IDS.map((id) => [MODELS[id].bedrockModelId, id] as const),
+  ),
 };
