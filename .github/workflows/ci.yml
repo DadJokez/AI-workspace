@@ -11,8 +11,13 @@ on:
 permissions:
   contents: read
 
+# #862: keyed by the head SHA, not the ref. A re-trigger of the same commit
+# still dedupes, but a new push never cancels a run whose required checks an
+# older commit is still reporting — GitHub surfaces a cancelled required job
+# as a failed check, which read as a false red during merge trains. Pushes to
+# main and every non-PR event fall back to github.sha.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:

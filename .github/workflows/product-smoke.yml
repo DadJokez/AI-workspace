@@ -25,8 +25,12 @@ on:
 permissions:
   contents: read
 
+# #862: keyed by the head SHA, not the ref, for the same reason as ci.yml — a
+# new push must not cancel a run an older commit's required checks still
+# report from. The event-name suffix stays so a scheduled or dispatched run
+# never collides with the push-to-main run of the same commit.
 concurrency:
-  group: product-smoke-${{ github.ref }}-${{ github.event_name }}
+  group: product-smoke-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
