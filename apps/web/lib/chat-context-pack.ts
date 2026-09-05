@@ -1,15 +1,19 @@
 import { randomUUID } from "node:crypto";
 import {
   buildExactOutputContract,
+  buildInstructionLayersReceipt,
   type AgentMessage,
+  type InstructionLayersReceipt,
 } from "@ai-workspace/agent";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
 import {
   PINNED_PRECEDENCE_NOTE,
   buildPinnedContextReceipt,
   renderPinnedActiveSkill,
+  renderPinnedOrgInstructions,
   type PinnedActiveSkill,
   type PinnedContextReceipt,
+  type PinnedOrgInstructions,
 } from "@/lib/pinned-context";
 import {
   renderCapabilitySummaryForPrompt,
@@ -81,6 +85,8 @@ export interface ChatContextItem {
     | "profile_fact"
     | "custom_instruction"
     | "vault_memory"
+    | "org_instructions"
+    | "skill_instructions"
     | "recent_message"
     | "artifact_context"
     | "uploaded_file"
@@ -173,6 +179,12 @@ export interface ChatContextReceipt {
   recommendations: Record<RecommendationType, number>;
   /** #416: hash + sources of the stable pinned prefix this turn ran under. */
   pinnedContext?: PinnedContextReceipt;
+  /**
+   * #438: which instruction layers loaded into that prefix, in precedence
+   * order. Present exactly when `pinnedContext` is (a lightweight turn with
+   * no system prompt loads no layers and says nothing rather than "pinned").
+   */
+  instructionLayers?: InstructionLayersReceipt;
   route?: {
     lane: ChatRuntimeRoute["lane"];
     routingMode: NonNullable<ChatRuntimeRoute["routingMode"]>;
@@ -260,6 +272,12 @@ export interface BuildChatContextPackInput {
    * the user message where a summarizer could rewrite or drop them.
    */
   activeSkill?: PinnedActiveSkill | null;
+  /**
+   * The admin-approved organization document (#438). `null`/absent means the
+   * layer is not configured: rendered and receipted as such, never stubbed.
+   * PR B of #438 supplies the loader; until then every caller leaves it unset.
+   */
+  orgInstructions?: PinnedOrgInstructions | null;
 }
 
 export function buildChatContextPack({
@@ -290,6 +308,7 @@ export function buildChatContextPack({
   },
   autonomyPreset = "interactive",
   activeSkill,
+  orgInstructions = null,
   forcePreamble = false,
   now = new Date(),
 }: BuildChatContextPackInput): ChatContextPack {
@@ -341,6 +360,41 @@ export function buildChatContextPack({
     checked: vaultContextRequested,
     injected: shouldRenderPreamble && vault.length > 0,
   });
+  const orgInstructionsItem = contextItem({
+    id: "org:standing-instructions",
+    type: "org_instructions",
+    label: orgInstructions
+      ? "Organization standing instructions"
+      : "Organization standing instructions: not configured",
+    source: "user_memory_items.org",
+    owner: "workspace",
+    freshness: "durable",
+    visibility:
+      orgInstructions && shouldRenderPreamble ? "hidden_prompt" : "receipt_only",
+    injected: Boolean(orgInstructions) && shouldRenderPreamble,
+    charCount: orgInstructions?.markdown.length ?? 0,
+    metadata: {
+      layer: "org",
+      status: orgInstructions ? "loaded" : "not_configured",
+      items: orgInstructions?.items ?? 0,
+    },
+  });
+  // An explicit activation always renders the preamble, so the pinned
+  // skill block is injected whenever this item exists.
+  const skillInstructionsItem = activeSkill
+    ? contextItem({
+        id: `skill:${activeSkill.id}:instructions`,
+        type: "skill_instructions",
+        label: `Active skill: ${activeSkill.name}`,
+        source: "skills.system_prompt",
+        owner: "user",
+        freshness: "durable",
+        visibility: "hidden_prompt",
+        injected: true,
+        charCount: activeSkill.systemPrompt.length,
+        metadata: { layer: "skill", skillId: activeSkill.id, slug: activeSkill.slug },
+      })
+    : undefined;
   const recentMessageItems = messages.map((message, index) =>
     contextItem({
       id: `thread:message:${index + 1}`,
@@ -568,6 +622,8 @@ export function buildChatContextPack({
     : undefined;
   const contextItems = [
     ...profileFacts,
+    orgInstructionsItem,
+    ...(skillInstructionsItem ? [skillInstructionsItem] : []),
     ...(customInstructions ? [customInstructions] : []),
     ...vaultMemory,
     ...recentMessageItems,
@@ -704,6 +760,8 @@ export function buildChatContextPack({
         // only; the pin is verified by hash stability in the receipt.
         "",
         PINNED_PRECEDENCE_NOTE,
+        "",
+        renderPinnedOrgInstructions(orgInstructions),
         ...(activeSkill ? ["", renderPinnedActiveSkill(activeSkill)] : []),
       ].join("\n")
     : undefined;
@@ -712,6 +770,13 @@ export function buildChatContextPack({
       systemPrompt,
       activeSkill,
     );
+    receipt.instructionLayers = buildInstructionLayersReceipt({
+      org: orgInstructions,
+      skill: activeSkill ?? null,
+      customInstructions: Boolean(user.customInstructions?.trim()),
+      vaultChecked: vaultContextRequested,
+      vaultMemories: countVaultMemoryItems(vault),
+    });
   }
   const volatileSystemSuffix = shouldRenderPreamble || exactOutputContract
     ? [
@@ -805,6 +870,12 @@ function renderContextReceiptForPrompt(receipt: ChatContextReceipt): string {
     `- Vault: ${receipt.vault.checked ? "checked" : "not checked"}; ` +
       `${receipt.vault.injected ? "approved memory injected" : "no approved memory injected"}.`,
   );
+  if (receipt.instructionLayers) {
+    lines.push(
+      `- Instruction layers (precedence ${receipt.instructionLayers.precedence}): ` +
+        `${formatInstructionLayers(receipt.instructionLayers)}.`,
+    );
+  }
   lines.push(
     `- Tools: connected ${formatList(receipt.tools.connected)}; approved ${formatList(
       receipt.tools.approved,
@@ -896,6 +967,23 @@ function contextResourcePromptSource(
 
 function formatList(values: readonly string[]): string {
   return values.length > 0 ? values.join(", ") : "none";
+}
+
+function formatInstructionLayers(layers: InstructionLayersReceipt): string {
+  const org =
+    layers.org.status === "loaded"
+      ? `org ${layers.org.items} approved instruction(s)`
+      : "org not configured";
+  const skill = layers.skill ? `skill ${layers.skill.name}` : "no active skill";
+  const custom = layers.personal.customInstructions
+    ? "custom instructions present"
+    : "no custom instructions";
+  const vault = !layers.personal.vaultChecked
+    ? "Vault not checked"
+    : layers.personal.vaultMemories === 0
+      ? "no approved Vault memory"
+      : `${layers.personal.vaultMemories} approved Vault memory item(s)`;
+  return `governance pinned; ${org}; ${skill}; ${custom}; ${vault}`;
 }
 
 function formatUploadedFileReceipt(

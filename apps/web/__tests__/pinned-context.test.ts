@@ -3,8 +3,9 @@ import {
   PINNED_PRECEDENCE_NOTE,
   buildPinnedContextReceipt,
   renderPinnedActiveSkill,
+  renderPinnedOrgInstructions,
 } from "@/lib/pinned-context";
-import { buildSummarizerInput } from "@ai-workspace/agent";
+import { buildSummarizerInput, instructionLayersLabel } from "@ai-workspace/agent";
 import { buildChatContextPack } from "@/lib/chat-context-pack";
 import type { UserMcpProviderStatus } from "@/lib/oauth/mcp-servers";
 
@@ -13,6 +14,12 @@ const SKILL = {
   slug: "weekly-status",
   name: "Weekly Status",
   systemPrompt: "Summarize my week. Never include customer names.",
+};
+
+const ORG = {
+  markdown:
+    "# Organization Standing Instructions\n- Fiscal year starts in July.\n- Cite Salesforce record IDs.",
+  items: 2,
 };
 
 const providerStatus: UserMcpProviderStatus = {
@@ -106,13 +113,17 @@ describe("pinned constraint layer (#416)", () => {
       }),
     );
     const noSkill = buildChatContextPack(packInput());
+    const orgApproved = buildChatContextPack(
+      packInput({ activeSkill: SKILL, orgInstructions: ORG }),
+    );
     const hashes = new Set([
       base.receipts[0]!.pinnedContext?.hash,
       editedSkill.receipts[0]!.pinnedContext?.hash,
       editedVault.receipts[0]!.pinnedContext?.hash,
       noSkill.receipts[0]!.pinnedContext?.hash,
+      orgApproved.receipts[0]!.pinnedContext?.hash,
     ]);
-    expect(hashes.size).toBe(4);
+    expect(hashes.size).toBe(5);
   });
 
   it("receipt hash matches a direct hash of the stable prefix", () => {
@@ -122,6 +133,119 @@ describe("pinned constraint layer (#416)", () => {
       SKILL,
     );
     expect(pack.receipts[0]!.pinnedContext?.hash).toBe(direct.hash);
+  });
+});
+
+describe("layered standing instructions (#438 P0)", () => {
+  it("states the precedence chain and rule in the stable prefix, org slot between note and skill", () => {
+    const pack = buildChatContextPack(packInput({ activeSkill: SKILL }));
+    const prompt = pack.prompt.systemPrompt!;
+    expect(prompt).toContain(PINNED_PRECEDENCE_NOTE);
+    expect(prompt).toContain(
+      "(3) organization standing instructions; (4) the active skill's operating instructions; (5) the user's custom instructions and approved personal (Vault) memory; (6) conversation history",
+    );
+    expect(prompt).toContain("Protected keys:");
+    const note = prompt.indexOf(PINNED_PRECEDENCE_NOTE);
+    const org = prompt.indexOf(renderPinnedOrgInstructions(null));
+    const skill = prompt.indexOf("<<<PINNED-ACTIVE-SKILL>>>");
+    expect(note).toBeGreaterThan(0);
+    expect(org).toBeGreaterThan(note);
+    expect(skill).toBeGreaterThan(org);
+    // The personal blocks still render (the rule, not block order, decides).
+    expect(prompt).toContain("User instructions: Prefer terse answers.");
+    expect(prompt).toContain("Personal context approved by the user:");
+  });
+
+  it("resolves the org layer to 'not configured' — no stub guidance — and receipts every layer", () => {
+    const pack = buildChatContextPack(packInput({ activeSkill: SKILL }));
+    expect(pack.prompt.systemPrompt).toContain(
+      "Organization standing instructions (layer 3): none configured for this workspace.",
+    );
+    expect(pack.prompt.systemPrompt).not.toContain("<<<PINNED-ORG-INSTRUCTIONS>>>");
+    const layers = pack.receipts[0]!.instructionLayers!;
+    expect(layers).toEqual({
+      schema: "instruction-layers.v1",
+      precedence: "governance > org > skill > personal > thread",
+      governance: "pinned",
+      org: { status: "not_configured" },
+      skill: {
+        id: "skill-1",
+        slug: "weekly-status",
+        name: "Weekly Status",
+        chars: SKILL.systemPrompt.length,
+      },
+      personal: { customInstructions: true, vaultChecked: true, vaultMemories: 1 },
+    });
+    expect(instructionLayersLabel(layers)).toBe(
+      "Instructions · Skill: Weekly Status · Custom instructions · 1 Vault memory · Org: not configured",
+    );
+    expect(pack.receipts[0]!.contextItems).toContainEqual(
+      expect.objectContaining({
+        id: "org:standing-instructions",
+        type: "org_instructions",
+        injected: false,
+        visibility: "receipt_only",
+      }),
+    );
+    expect(pack.receipts[0]!.contextItems).toContainEqual(
+      expect.objectContaining({
+        id: "skill:skill-1:instructions",
+        type: "skill_instructions",
+        injected: true,
+      }),
+    );
+    expect(pack.prompt.volatileSystemSuffix).toContain(
+      "- Instruction layers (precedence governance > org > skill > personal > thread): governance pinned; org not configured; skill Weekly Status; custom instructions present; 1 approved Vault memory item(s).",
+    );
+  });
+
+  it("pins an approved org document at layer 3 when one is supplied", () => {
+    const pack = buildChatContextPack(
+      packInput({ activeSkill: SKILL, orgInstructions: ORG }),
+    );
+    const prompt = pack.prompt.systemPrompt!;
+    expect(prompt).toContain("<<<PINNED-ORG-INSTRUCTIONS>>>");
+    expect(prompt).toContain(ORG.markdown);
+    expect(prompt.indexOf("<<<END-PINNED-ORG-INSTRUCTIONS>>>")).toBeLessThan(
+      prompt.indexOf("<<<PINNED-ACTIVE-SKILL>>>"),
+    );
+    expect(pack.receipts[0]!.instructionLayers?.org).toEqual({
+      status: "loaded",
+      items: 2,
+      chars: ORG.markdown.length,
+    });
+    expect(instructionLayersLabel(pack.receipts[0]!.instructionLayers!)).toContain(
+      "Org: 2 approved instructions",
+    );
+    expect(pack.receipts[0]!.contextItems).toContainEqual(
+      expect.objectContaining({
+        id: "org:standing-instructions",
+        injected: true,
+        visibility: "hidden_prompt",
+      }),
+    );
+  });
+
+  it("says nothing about layers when no system prompt renders", () => {
+    const pack = buildChatContextPack(
+      packInput({
+        user: { displayName: "Rob", customInstructions: null },
+        vaultMarkdown: null,
+        vaultContextRequested: false,
+        forcePreamble: false,
+        // Web access must be granted explicitly: an ungranted default is
+        // itself a reason to render the preamble.
+        webAccess: {
+          state: "granted",
+          source: "interactive_default",
+          policy: "admin_domain_denylist",
+          deniedDomainCount: 0,
+        },
+      }),
+    );
+    expect(pack.prompt.systemPrompt).toBeUndefined();
+    expect(pack.receipts[0]!.pinnedContext).toBeUndefined();
+    expect(pack.receipts[0]!.instructionLayers).toBeUndefined();
   });
 });
 

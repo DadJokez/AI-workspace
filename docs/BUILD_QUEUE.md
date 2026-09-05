@@ -328,7 +328,7 @@ Update 2026-09-04: #802 is built and waiting on Rob (item 9).
     snapshot), then a rolling `thread-summary.v1` document in
     `chat_threads.summary` (fire-and-forget after a successful turn,
     `resolveModelForPurpose("summaries")`, nonce-framed input and output,
-    `(id, user_id)`-scoped) rendered as layer-7 background data on the next
+    `(id, user_id)`-scoped) rendered as layer-6 background data on the next
     turn. No migration — the summary columns already existed and get their
     first writer. Both edits stay behind the ADR-0010 cache checkpoints.
     What remains on #771, deferred by #882: mid-run compaction of a single
