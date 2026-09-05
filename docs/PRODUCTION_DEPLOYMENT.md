@@ -26,7 +26,11 @@ this order:
 5. `infra/scripts/run-ecs-deploy-task.sh migrate` launches the migrator in the
    application VPC, waits for it to stop, and requires a zero container exit
    code. Database credentials are injected by the ECS execution role; they are
-   never materialized on the CodeBuild host.
+   never materialized on the CodeBuild host. The migrator sets
+   `lock_timeout = '10s'` and `statement_timeout = '5min'` before drizzle's
+   migration transaction, so a migration queued behind a long-running lock
+   fails the build within seconds — naming the timeout and the migration —
+   instead of stalling production until the 30-minute cap (#898).
 6. `infra/scripts/update-agentcore-stack.sh` synthesizes the current
    `AiWorkspaceAgentCoreSpikeStack` template and submits that template together
    with the commit-SHA image tag. It verifies the immutable ECR digest and
@@ -275,7 +279,12 @@ The script validates the tags exist in ECR, redeploys `AiWorkspaceEcsStack`
 with `ImageTag=<sha>`, and waits for the services to stabilize. It does NOT
 roll back database migrations — before rolling across a migration, confirm
 the expand/contract rule holds (older code must run against the newer
-schema); if it does not, revert the migration first.
+schema); if it does not, revert the migration first. CI's migration guard
+(`packages/db/scripts/migration-guard.mjs`, #898) enforces expand-only
+mechanically: a new migration carrying a drop, rename, type change,
+`SET NOT NULL`, or data update fails unless the statement carries a reviewed
+`-- migration-guard-allow:` marker, and a journal `when` that would make the
+migrator skip a file fails outright — see `packages/db/README.md`.
 
 For an infrastructure regression, revert the offending CDK change in source
 and deploy `AiWorkspaceEcsStack` from that revision before refreshing ECS. Do
