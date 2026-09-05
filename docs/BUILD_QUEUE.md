@@ -211,7 +211,8 @@ list):**
   issue's recommended option 2** under the 2026-09-05 delegation: `ci.yml`
   and `product-smoke.yml` key their `concurrency` group by head SHA; the diff
   is the `concurrency:` blocks only, no `permissions:` change (#699's rules).
-  Rob's sign-off is the merge. Either way, treat a `cancelled` required job
+  Rob's sign-off is the merge; the proof runs are in the PR body. Either
+  way, treat a `cancelled` required job
   as a rerun, not a red (`gh run view --json jobs` shows the conclusion;
   `gh pr checks` does not).
 - **#880 — the nightly is self-judged.** `DEFAULT_MODEL_ID` and
