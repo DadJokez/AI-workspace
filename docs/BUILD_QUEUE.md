@@ -207,13 +207,13 @@ list):**
 
 - **#862 — cancel-in-progress on PR refs makes merge-train timing a false
   red.** Two cases on 2026-09-03 (#857 build cancelled mid-`Build`, #858 CVE
-  audit cancelled during setup; same-SHA reruns green). Recommended option on
-  the issue: scope the `concurrency` group to the head SHA in `ci.yml` and
-  `product-smoke.yml`. **Workflow edit under #699's rules — the diff is the
-  `concurrency:` blocks only, no `permissions:` change; Rob picks the
-  option.** Until then, treat a `cancelled` required job as a rerun, not a
-  red (`gh run view --json jobs` shows the conclusion; `gh pr checks` does
-  not).
+  audit cancelled during setup; same-SHA reruns green). **PR #899 builds the
+  issue's recommended option 2** under the 2026-09-05 delegation: `ci.yml`
+  and `product-smoke.yml` key their `concurrency` group by head SHA; the diff
+  is the `concurrency:` blocks only, no `permissions:` change (#699's rules).
+  Rob's sign-off is the merge. Either way, treat a `cancelled` required job
+  as a rerun, not a red (`gh run view --json jobs` shows the conclusion;
+  `gh pr checks` does not).
 - **#880 — the nightly is self-judged.** `DEFAULT_MODEL_ID` and
   `JUDGE_MODEL_ID` are both `sonnet-4-5`, so judge assertions grade the
   candidate with itself (found by PR #879, which warns loudly but does not
