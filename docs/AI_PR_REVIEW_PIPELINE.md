@@ -149,6 +149,11 @@ Consequences:
   never as a red. Since #862 the `CI` and `Product Smoke` concurrency groups
   are keyed by head SHA, so a new push queues beside an older commit's run
   instead of cancelling it; only an identical-SHA re-trigger still dedupes.
+  Pushes only seconds apart are different again: GitHub creates no
+  `pull_request` run at all for a head that is superseded before its merge
+  commit is computed (observed on #899: two pushes 4 s apart, the first head
+  got only the `pull_request_target` verdict run). That is not a cancel and
+  there is nothing to rerun — the newer head carries the checks.
 
 ## Docs-only fast lane (#812)
 
