@@ -420,6 +420,13 @@ describe("--model qualification runs (#797 P2)", () => {
     expect(qualification).not.toContain("🚨");
   });
 
+  it("keeps the judge on its pinned Anthropic model when the candidate is the non-Claude brain (#797 P3)", () => {
+    const models = resolveRunModels({ modelId: "nova-pro" });
+    expect(models).toEqual({ candidateModelId: "nova-pro", judgeModelId: JUDGE_MODEL_ID });
+    expect(MODELS[models.candidateModelId].provider).toBe("amazon");
+    expect(MODELS[models.judgeModelId].provider).toBe("anthropic");
+  });
+
   it("overrides every suite default and every case-level pin", () => {
     const pinned: EvalSuite[] = [
       {

@@ -14,7 +14,8 @@
  *
  * Bedrock model IDs use cross-region inference profiles ("us." prefix) so
  * traffic spreads across regions automatically. If your deployment is locked
- * to a single region, swap to the unprefixed `anthropic.claude-*` IDs.
+ * to a single region, swap to the unprefixed provider IDs
+ * (`anthropic.claude-*`, `amazon.nova-*`).
  *
  * NOTE: verify the exact `bedrockModelId` strings against your Bedrock console
  * (Model access page) before first deploy — providers occasionally publish
@@ -26,6 +27,7 @@ export const MODEL_IDS = [
   "sonnet-4-5",
   "sonnet-4-6",
   "opus-4-7",
+  "nova-pro",
 ] as const;
 export type ModelId = (typeof MODEL_IDS)[number];
 
@@ -233,6 +235,57 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
       "multi-step planning",
       "hard reasoning",
       "authoring or refining recipe prompts",
+    ],
+  },
+  /**
+   * First non-Claude Converse brain (#797 P3). Registered so it can be
+   * qualified (`pnpm eval --model nova-pro`); it has no `model_enablement`
+   * rows, so it is disabled for every purpose until Rob writes them.
+   *
+   * Verified 2026-09-05 (read-only, account 351478076796, us-east-1):
+   * `aws bedrock list-inference-profiles` → `us.amazon.nova-pro-v1:0` ACTIVE
+   * (SYSTEM_DEFINED), backing `amazon.nova-pro-v1:0` (ON_DEMAND +
+   * INFERENCE_PROFILE; text/image/video in, text out, streaming). Context
+   * window and the 10k output ceiling come from the Nova user guide's model
+   * specifications table.
+   *
+   * PRICING UNVERIFIED — Rob to confirm. The Bedrock pricing page renders its
+   * tables client-side and could not be read on 2026-09-05; third-party
+   * mirrors agree on $0.80 / $3.20 per 1M list (cache reads at 75% off).
+   * The figures below apply the us.* +10% convention above to those list
+   * prices. Cache multipliers are moot while `supportsPromptCaching` is
+   * false: the Bedrock prompt-caching guide lists no Nova model in its
+   * explicit `cachePoint` table (Nova has implicit prefix caching only), so
+   * no checkpoints are emitted — the ADR 0010 stable-prefix layering still
+   * helps the implicit cache.
+   */
+  "nova-pro": {
+    id: "nova-pro",
+    bedrockModelId: "us.amazon.nova-pro-v1:0",
+    provider: "amazon",
+    family: "nova",
+    displayName: "Nova Pro",
+    brandedName: "Nova Pro",
+    providerDisplayName: "Amazon",
+    blurb: "Amazon's multimodal workhorse. Low cost, independent quota.",
+    costPer1MInput: 0.88,
+    costPer1MOutput: 3.52,
+    cacheReadInputMultiplier: 0.25,
+    cacheWriteInputMultiplier: 1,
+    supportsToolUse: true,
+    supportsStreaming: true,
+    supportsVision: true,
+    supportsPromptCaching: false,
+    invocation: "converse",
+    contextWindow: 300_000,
+    // Documented ceiling is 10k output tokens — below the 20–30k a full
+    // artifact build needs (#320). The qualification scorecard, not this
+    // entry, decides whether that disqualifies it for artifact-heavy lanes.
+    defaultMaxTokens: 10_000,
+    recommendedFor: [
+      "cost-sensitive chat and summarization",
+      "image and document understanding",
+      "quota-independent capacity once qualified",
     ],
   },
 };

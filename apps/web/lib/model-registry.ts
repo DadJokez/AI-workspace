@@ -9,6 +9,7 @@ import {
 } from "@ai-workspace/agent";
 import { modelEnablement, type Database } from "@ai-workspace/db";
 import { eq } from "drizzle-orm";
+import { resolveModelFailoverChain } from "@/lib/runtime-model-policy";
 
 /**
  * Enablement half of the model registry (#300). Metadata lives in
@@ -127,7 +128,14 @@ export function orderModelCandidatesForPurpose(
   const primary = enabled.includes(primaryModelId)
     ? primaryModelId
     : policyOrder[0]!;
-  return [primary, ...policyOrder.filter((id) => id !== primary)];
+  // #797 P3: every hop that crosses providers must land on a qualified model.
+  // The chain is built from `enabled` alone, so the guard holds by
+  // construction here; it is the contract a persisted qualification record
+  // would replace `enabled` in, without touching either lane.
+  return resolveModelFailoverChain(
+    [primary, ...policyOrder.filter((id) => id !== primary)],
+    new Set(enabled),
+  );
 }
 
 /**
