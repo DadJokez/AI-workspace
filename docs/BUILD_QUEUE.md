@@ -490,8 +490,8 @@ unattended.
   merging — merge = deploy.
 - **#890 — close or merge** (close = keep #885's action pins, merge =
   revert); #823 closes on Rob's sign-off of the state kept either way.
-- **#862 / #880 / #891** — Tier 0 open decisions (workflow concurrency; the
-  self-judged nightly; the `needs-rob` verdict gate).
+- **#880 / #891** — Tier 0 open decisions (the self-judged nightly; the
+  `needs-rob` verdict gate). #862 (workflow concurrency) is PR #899.
 - **CodeBuild `concurrentBuildLimit=1`** — pushes during a running build are
   dropped; three merges tonight needed a manual start. Infra, Rob.
 - **#893 — one live run per thread/schedule.** Unique partial index on
