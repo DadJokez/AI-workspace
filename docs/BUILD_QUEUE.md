@@ -7,7 +7,7 @@ closed, #797 P1–P3 + P5 and #438 P0 are built, and two sessions — the
 2026-09-03/04 overnight and the 2026-09-05 day — merged 34 PRs between
 2026-09-04 00:00Z and 20:38Z today (`git log origin/main --since=2026-09-04`).
 `main` is at `0d56d73` (PR #902). What is left is a Rob-gated migration stack
-(#872 → #870 → #905), three of the day's four gate PRs merged by 21:35Z (#901, #903, #907; #904 still in the gate), one new
+(#872 → #870 → #905), three of the day's four gate PRs merged by 21:35Z (#901, #903, #907), with #904 plus two later PRs (#909 pilot load harness, #908 this re-triage) still in the gate, one new
 security item (#906), and the rails the 2026-09-04 audit asked for.
 
 **Consumed by `/goal`** (`.claude/commands/goal.md`): an overnight session works
@@ -51,9 +51,9 @@ old or the queue is empty (goal.md Phase 2.1) — next check-in 2026-09-19.
   history, cadence-side in-flight guard).
 - **Tier C (#801):** #802 built as PR #872 (Rob, migration 0049); #807
   token-handler verification built as PR #903 (review clean 2026-09-05
-  20:45Z, in the gate).
+  20:45Z; merged 20:59Z).
 - **#438 layered instructions — P0 built:** PR #901 (precedence contract +
-  receipts, no schema change; review clean 20:36Z, in the gate) and PR #905
+  receipts, no schema change; merged 21:18Z) and PR #905
   (org-layer storage + admin edit, migration 0051; draft, Rob).
 - **Security spine:** #443 / #448 verified and closed; #873 (#868 proxy
   crash); ADR 0014 merged as #867 (#457's build stays Rob-gated); #844
@@ -81,7 +81,7 @@ old or the queue is empty (goal.md Phase 2.1) — next check-in 2026-09-19.
 3. **Finish the in-flight epic before opening the next** — the next epic is
    still viewer-identity apps (#801), not Governed Custom Agents (#736).
 4. **The strategic swing stays #801**, sequenced #802 → #803/#804 → #805 →
-   #806; #807's verification is in the gate (#903). Every step past #872 is
+   #806; #807's verification merged (#903, 20:59Z). Every step past #872 is
    blocked on Rob merging #872.
 5. **Security spine, one per cycle:** this cycle's is **#906** (the model
    enablement lookup fails open) — small, unattended-safe, and it must land
@@ -129,9 +129,10 @@ old or the queue is empty (goal.md Phase 2.1) — next check-in 2026-09-19.
 
 **Next session — work order (skip anything Rob-gated):**
 
-1. Land the four PRs in the gate — none carries a §7 item: #901 (#438 PR A),
-   #903 (#807, merged 20:59Z), #904 (#797 P3 + P5; in the gate), #907 (#880
-   judge → `haiku-4-5`, merged 21:35Z — tonight's nightly is the new baseline). Do not touch #905 (draft, Rob) or
+1. Land what is still in the gate — none carries a §7 item: #904 (#797 P3 + P5),
+   #909 (#696 pilot load harness, local measurement only), #908 (this re-triage).
+   Already merged today: #901 (#438 PR A, 21:18Z), #903 (#807, 20:59Z), #907 (#880
+   judge → `haiku-4-5`, 21:35Z — tonight's nightly is the new baseline). Do not touch #905 (draft, Rob) or
    the migration stack.
 2. **#906** — fail-closed enablement lookup (Security spine item; S).
 3. **First nightly after #907 = new baseline.** Read its red as
@@ -199,7 +200,7 @@ comes first next session.
    (Parked list).**
 4. **`#847` markers — lift when the bar is met (evals-only, tightening).**
    Three assertion-scoped `knownIssue: "#847"` markers remain
-   (`memory-injection.cases.ts:119`, `skill-faithfulness.cases.ts:357,366`)
+   (`memory-injection.cases.ts:116`, `skill-faithfulness.cases.ts:362,371`)
    and the issue is closed. Bar unchanged: 20 consecutive clean scheduled
    samples per marked assertion counted from #857 (2026-09-04) — at 5
    samples a night the bar is reachable by the 2026-09-07 nightly; count
@@ -282,7 +283,7 @@ in #872 and waits for Rob. Nothing past item 7 can start until #872 merges.
     server cache only if provider rate limits demand it. The two-session
     zero-shared-bytes test is mandatory. Verify #407's per viewer+app rate
     limit holds for multi-binding pages.
-12. **#807 — token-handler verification — PR #903 in the gate (review clean
+12. **#807 — token-handler verification — PR #903 merged 20:59Z (review clean
     20:45Z).** Token path map with `file:line` evidence, three new test files
     (app document carries binding ids only; serialized artifacts never carry
     the pinned query; post-build scan of every `.next/static` bundle for token
@@ -384,7 +385,7 @@ in #872 and waits for Rob. Nothing past item 7 can start until #872 merges.
 
 ### Tier F — #438 layered standing instructions
 
-27. **P0 — BUILT as two PRs.** **PR A #901** (in the gate, review clean):
+27. **P0 — BUILT as two PRs.** **PR A #901** (merged 21:18Z):
     one source for the layer contract (`packages/agent/src/instruction-layers.ts`),
     `governance > org > skill > personal > thread`, the rule in the stable
     prefix, the org slot resolving honestly to "not configured", the
