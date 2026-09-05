@@ -18,9 +18,10 @@ click is Rob's (#301/#302/#305).
   `bedrock:InvokeModel` (the `local-dev` user can). Production's ECS task role
   already grants `bedrock:InvokeModel*` on `*`, so production needs no IAM
   change for a new model; the **nightly eval role does** (step 8).
-- For step 5, real-model Bedrock spend: a full pack is ~30 minutes of wall
-  clock and a few dollars, drawn from the shared quota (#706). Runs are
-  Rob-dispatched; unattended agents build against `--mock` only.
+- For step 5, real-model Bedrock spend: the full pack on `nova-pro` was 16
+  minutes and $1.28 (about half of it the pinned Sonnet judge, which draws on
+  the shared quota, #706). Runs are Rob-dispatched; unattended agents build
+  against `--mock` only.
 - For step 6, write access to the production `model_enablement` table.
 
 ## 1. Verify the model on Bedrock (read-only)
@@ -205,9 +206,10 @@ not built (see the #797 P3 PR).
 
 ## Honest accounting
 
-Rehearsed on `nova-pro`: steps 1–2 took about 20 minutes, the mock and unit
-checks 10, the full qualification pack ran unattended for about 30. That is
-inside the hour for the developer's own time. "Zero code changes beyond the
+Rehearsed on `nova-pro` (2026-09-05): steps 1–2 took about 20 minutes, the
+mock and unit checks 10, and the full 146-case pack ran unattended for about
+16 minutes at $1.28 ($0.63 candidate + $0.65 judge) — verdict NOT QUALIFIED,
+on the injection spine. That is inside the hour for the developer's own time. "Zero code changes beyond the
 registry entry" holds for production code; you will still edit one test
 pin (the `/model` alias table), and whether the new model does anything at
 all in production depends on the platform pin and on Rob's rows.
