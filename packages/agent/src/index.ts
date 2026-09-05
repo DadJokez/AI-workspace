@@ -176,5 +176,23 @@ export type {
   ThreadSummaryReference,
 } from "./thread-summary";
 
+export {
+  INSTRUCTION_LAYER_ORDER,
+  INSTRUCTION_LAYERS_RECEIPT_SCHEMA,
+  INSTRUCTION_PRECEDENCE_CHAIN,
+  PINNED_PRECEDENCE_NOTE,
+  buildInstructionLayersReceipt,
+  instructionLayersLabel,
+  parseInstructionLayersReceipt,
+  renderPinnedActiveSkill,
+  renderPinnedOrgInstructions,
+} from "./instruction-layers";
+export type {
+  InstructionLayer,
+  InstructionLayersReceipt,
+  PinnedActiveSkill,
+  PinnedOrgInstructions,
+} from "./instruction-layers";
+
 export { extractAssistantSources, parseAssistantSources } from "./sources";
 export type { AssistantSource, AssistantSourceKind } from "./sources";

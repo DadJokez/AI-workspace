@@ -220,6 +220,86 @@ describe("runEventsToActivityEvents", () => {
     expect(events[0]?.detail).toContain("mounted tools: github");
     expect(events[0]?.detail).toContain("workspace_artifacts 1/1");
   });
+
+  it("names every instruction layer on turns that carry the #438 receipt", () => {
+    const events = runEventsToActivityEvents([
+      {
+        id: "evt_context",
+        sequence: 1,
+        eventType: "context_pack_assembled",
+        status: "succeeded",
+        label: "Assembled context pack",
+        toolCallId: null,
+        error: null,
+        metadata: {
+          contextReceipt: {
+            vault: {
+              checked: true,
+              injected: true,
+              approvedMemoryItems: 2,
+              approvedMemoryChars: 128,
+            },
+            instructionLayers: {
+              schema: "instruction-layers.v1",
+              precedence: "governance > org > skill > personal > thread",
+              governance: "pinned",
+              org: { status: "not_configured" },
+              skill: {
+                id: "skill-1",
+                slug: "weekly-status",
+                name: "Weekly Status",
+                chars: 48,
+              },
+              personal: {
+                customInstructions: false,
+                vaultChecked: true,
+                vaultMemories: 2,
+              },
+            },
+            contextItems: [],
+          },
+        },
+        occurredAt: new Date("2026-05-18T12:00:00Z"),
+      },
+    ]);
+
+    expect(events[0]).toEqual(
+      expect.objectContaining({
+        label:
+          "Instructions · Skill: Weekly Status · 2 Vault memories · Org: not configured",
+        category: "context",
+      }),
+    );
+    expect(events[0]?.detail).toContain(
+      "Precedence: governance > org > skill > personal > thread",
+    );
+    expect(events[0]?.detail).toContain("Org instructions: not configured");
+    expect(events[0]?.detail).toContain("Skill pinned: Weekly Status (48 chars)");
+    expect(events[0]?.detail).toContain("Vault checked: 2 approved memories");
+  });
+
+  it("keeps the Vault label for a malformed layers receipt", () => {
+    const events = runEventsToActivityEvents([
+      {
+        id: "evt_context",
+        sequence: 1,
+        eventType: "context_pack_assembled",
+        status: "succeeded",
+        label: "Assembled context pack",
+        toolCallId: null,
+        error: null,
+        metadata: {
+          contextReceipt: {
+            vault: { checked: true, injected: false, approvedMemoryItems: 0 },
+            instructionLayers: { schema: "instruction-layers.v1", org: "yes" },
+            contextItems: [],
+          },
+        },
+        occurredAt: new Date("2026-05-18T12:00:00Z"),
+      },
+    ]);
+    expect(events[0]?.label).toBe("Checked Vault · no approved memory");
+  });
 });
 
 /**
