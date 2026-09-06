@@ -54,6 +54,14 @@ function shortName(modelId: ModelId): string {
  * `opus` and `deep` would otherwise resolve to Opus 5 / Fable 5.1 and the
  * enablement gate would silently answer on the default. The parser itself
  * stays sync and pure; enablement is the caller's input, never a lookup here.
+ *
+ * Every alias resolves inside `modelIds`, the app default included: when the
+ * vocabulary omits it (a non-default `PLATFORM_MODEL_OVERRIDE_ID`, or an
+ * admin who enabled other tiers for chat but not the default), its short
+ * name is not pinned and the three role words — all anchored to "the brain
+ * you are on" — are absent, so `/model sonnet` / `/model quality` /
+ * `/model fast` get the usage message instead of a parse that the
+ * enablement gate would silently redirect to the pin.
  */
 function buildModelAliases(
   modelIds: readonly ModelId[],
@@ -72,6 +80,8 @@ function buildModelAliases(
       aliases[`${MODELS[id].family}-${short}`] = id;
     }
   }
+  if (!modelIds.includes(DEFAULT_MODEL_ID)) return aliases;
+
   const defaultShort = shortName(DEFAULT_MODEL_ID);
   aliases[defaultShort] = DEFAULT_MODEL_ID;
   if (MODELS[DEFAULT_MODEL_ID].family !== defaultShort) {

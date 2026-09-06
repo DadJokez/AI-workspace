@@ -239,6 +239,86 @@ describe("model slash command", () => {
     });
   });
 
+  describe("enabled vocabulary that omits the default", () => {
+    // A non-default `PLATFORM_MODEL_OVERRIDE_ID`, or an admin who enabled
+    // other tiers for chat but not sonnet-4-5. Nothing may resolve to the
+    // default: it would pass the route's parse check and the enablement gate
+    // would silently answer on the pin.
+    const OPUS_ONLY: ModelId[] = ["opus-4-7"];
+    const NO_ANTHROPIC: ModelId[] = ["glm-5"];
+    const shortNameOf = (id: ModelId) =>
+      MODELS[id].displayName.toLowerCase().replace(/[^a-z0-9]+/g, "-").split("-")[0]!;
+
+    it("does not pin the default's short name or any role word when only Opus is enabled", () => {
+      expect(DEFAULT_MODEL_ID).toBe("sonnet-4-5");
+      expect(modelCommandAliases(OPUS_ONLY)).toEqual({
+        auto: "auto",
+        autopilot: "auto",
+        default: "auto",
+        opus: "opus-4-7",
+        "opus-4-7": "opus-4-7",
+        "claude-opus": "opus-4-7",
+      });
+      for (const word of ["sonnet", "claude-sonnet", "sonnet-4-5", "quality", "fast", "deep"]) {
+        expect(parseModelCommand(`/model ${word} hi`, OPUS_ONLY)).toBeNull();
+      }
+      expect(parseModelCommand("/model opus hi", OPUS_ONLY)).toEqual({
+        override: { mode: "model", modelId: "opus-4-7", label: "opus" },
+        body: "hi",
+      });
+      expect(modelCommandUsageMessage(OPUS_ONLY)).toBe(
+        "Use /model opus, or /model auto followed by a message.",
+      );
+    });
+
+    it("has no role words at all when no model shares the default's vendor", () => {
+      expect(MODELS["glm-5"].provider).not.toBe(MODELS[DEFAULT_MODEL_ID].provider);
+      expect(modelCommandAliases(NO_ANTHROPIC)).toEqual({
+        auto: "auto",
+        autopilot: "auto",
+        default: "auto",
+        glm: "glm-5",
+        "glm-5": "glm-5",
+      });
+      for (const word of ["fast", "deep", "quality", "sonnet"]) {
+        expect(parseModelCommand(`/model ${word} hi`, NO_ANTHROPIC)).toBeNull();
+      }
+      expect(modelCommandUsageMessage(NO_ANTHROPIC)).toBe(
+        "Use /model glm, or /model auto followed by a message.",
+      );
+    });
+
+    it("accepts exactly the short names the usage message advertises, and resolves only inside the vocabulary", () => {
+      const registryShortNames = new Set(MODEL_IDS.map(shortNameOf));
+      const vocabularies: ModelId[][] = [
+        [...MODEL_IDS],
+        ENABLED_FOR_CHAT,
+        ["sonnet-4-5"],
+        OPUS_ONLY,
+        NO_ANTHROPIC,
+        ["haiku-4-5", "opus-4-7"],
+        ["nova-pro", "opus-4-7"],
+      ];
+      for (const modelIds of vocabularies) {
+        const aliases = modelCommandAliases(modelIds);
+        for (const target of Object.values(aliases)) {
+          expect(target === "auto" || modelIds.includes(target)).toBe(true);
+        }
+        const advertised = modelCommandUsageMessage(modelIds)
+          .match(/\/model ([a-z0-9]+)/g)!
+          .map((token) => token.slice("/model ".length))
+          .filter((name) => name !== "auto");
+        const accepted = Object.keys(aliases).filter((alias) =>
+          registryShortNames.has(alias),
+        );
+        expect(new Set(accepted)).toEqual(new Set(advertised));
+        for (const name of advertised) {
+          expect(parseModelCommand(`/model ${name} hi`, modelIds)).not.toBeNull();
+        }
+      }
+    });
+  });
+
   it("formats visible model command messages for chat history", () => {
     expect(
       buildModelCommandDisplayMessage(
