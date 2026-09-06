@@ -166,6 +166,33 @@ Rules the CLI enforces:
   baseline, not a regression signal** (2026-09-05: `sonnet-4-5` →
   `haiku-4-5`; a judge-only flip on a case is a calibration shift, not a
   model regression — read the judge's reason before filing).
+- **Changing a judge rubric.** A rubric is a test; rewording it can loosen
+  the test as easily as fix a judge false-FAIL, so a rubric change ships with
+  three measurements, all on real Bedrock, all pasted in the PR: (1) a
+  **same-answer replay** — `pnpm --filter @ai-workspace/evals exec tsx
+  src/judge-replay.ts --report <nightly.json> …` re-grades the stored answers
+  of the last Sonnet-judged and Haiku-judged nightlies under the old rubric
+  (`--rubrics old.json --receipts off`) and the new one, with judge
+  `haiku-4-5` *and* `sonnet-4-5`; the bar is that no answer Sonnet passed
+  under the old rubric fails under the new one with either judge, and the
+  answers that motivated the change now pass with both; (2) **negative
+  controls** — two or more answers per rubric that must FAIL (the claim
+  without the tool receipt, the wrong details, the invented result), graded
+  by both judges and pinned in
+  `packages/evals/src/cases/judge-rubric-controls.ts` +
+  `.recorded.json` via `judge-replay.ts --controls --record`, whose unit test
+  fails the moment the rubric text drifts from the recording; (3) a **live
+  re-run** of the affected suites with the changed cases at `repeat: 5`
+  (restored before merge), expecting 5/5 and no regression elsewhere. Judge
+  assertions on `connected-tools` cases tagged `write-boundary` also receive
+  the turn's **tool receipts** (calls, arguments, result previews,
+  nonce-framed as data) so "did the write happen" is judged from the
+  harness's record, not the answer's wording; a rubric in that family should
+  name the receipt as authoritative and list its FAIL conditions literally —
+  the judge is literal. Widening the receipt scope is itself a rubric change
+  and takes the same three measurements (the `provider-state` family was
+  tried and measurably worse: the "no tool ran" line turned a Sonnet-passed
+  pending-approval answer into a 5/5 Haiku FAIL).
 - Real-model qualification runs are **Rob-dispatched**: they draw on the
   shared Bedrock quota (#706). Unattended agents build and test against
   `--mock` only.

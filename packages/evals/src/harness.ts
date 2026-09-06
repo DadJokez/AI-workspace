@@ -17,9 +17,61 @@ import type {
   EvalSuite,
   TurnTranscript,
 } from "./types";
-import { EMPTY_USAGE, addUsage, runJudge } from "./judge";
+import {
+  EMPTY_USAGE,
+  type ToolReceipt,
+  addUsage,
+  runJudge,
+} from "./judge";
 
 const EVAL_MAX_TOKENS = 4_096;
+
+/**
+ * Which cases' judge assertions see the turn's tool receipts. The judge
+ * cannot see the transcript, so on a rubric that turns on whether a write
+ * happened it was guessing from the answer's wording alone (2026-09-06
+ * nightly: `calendar-confirmed-write` failed on "cannot verify the write
+ * occurred", a receipt the harness held the whole time). Receipts go to
+ * `write-boundary` cases in a `connected-tools` suite, and nowhere else:
+ * grounding and injection rubrics already carry their facts in
+ * `fixtureEvidence`, and on the `provider-state` family the block measurably
+ * hurt — with "none — no tool ran" in view, Haiku 4.5 failed a pending-
+ * approval answer Sonnet passes ("I can see your connection is active, but
+ * it's pending approval") 5/5, and passed it 5/5 without the block.
+ */
+export function judgeSeesToolReceipts(tags: readonly string[]): boolean {
+  return tags.includes("connected-tools") && tags.includes("write-boundary");
+}
+
+/**
+ * The turn's tool calls in call order, each paired with its result by call
+ * id — from the raw events, so the judge sees the arguments the model sent
+ * (`{}` for a no-argument tool) and the same 500-char output preview the
+ * report keeps.
+ */
+export function collectToolReceipts(
+  events: readonly AgentEvent[],
+): ToolReceipt[] {
+  const receipts: ToolReceipt[] = [];
+  const byCallId = new Map<string, ToolReceipt>();
+  for (const ev of events) {
+    if (ev.type === "tool-call") {
+      const receipt: ToolReceipt = {
+        tool: ev.call.name,
+        input: ev.call.input,
+        output: "(no result recorded)",
+      };
+      receipts.push(receipt);
+      byCallId.set(ev.call.id, receipt);
+    } else if (ev.type === "tool-result") {
+      const receipt = byCallId.get(ev.result.toolCallId);
+      if (!receipt) continue;
+      receipt.output = previewOutput(ev.result.output);
+      if (ev.result.isError) receipt.isError = true;
+    }
+  }
+  return receipts;
+}
 
 /**
  * Run one turn through the real agent loop and capture everything assertions
@@ -161,6 +213,7 @@ async function runOnce(
   judgeClient: BedrockClient,
   testCase: EvalCase,
   defaultModelId: EvalSuite["defaultModelId"],
+  judgeReceipts: boolean,
 ): Promise<SingleRunResult> {
   let transcript: TurnTranscript & TokenUsage;
   try {
@@ -174,6 +227,9 @@ async function runOnce(
     };
   }
 
+  const toolReceipts = judgeReceipts
+    ? collectToolReceipts(transcript.events)
+    : undefined;
   const assertions: AssertionResult[] = [];
   let judgeUsage = { ...EMPTY_USAGE };
   for (const assertion of testCase.assertions) {
@@ -194,6 +250,7 @@ async function runOnce(
           ...(testCase.fixtureEvidence ?? []),
           ...(assertion.referenceEvidence ?? []),
         ],
+        ...(toolReceipts ? { toolReceipts } : {}),
       });
       judgeUsage = addUsage(judgeUsage, verdict);
       assertions.push({
@@ -306,9 +363,18 @@ async function evaluateCase(
   const repeat = Math.max(1, Math.floor(testCase.repeat ?? 1));
   const passPolicy = testCase.passPolicy ?? "all";
 
+  const judgeReceipts = judgeSeesToolReceipts(metadata.tags);
   const runs: SingleRunResult[] = [];
   for (let i = 0; i < repeat; i++) {
-    runs.push(await runOnce(client, judgeClient, testCase, defaultModelId));
+    runs.push(
+      await runOnce(
+        client,
+        judgeClient,
+        testCase,
+        defaultModelId,
+        judgeReceipts,
+      ),
+    );
   }
 
   const passCount = runs.filter((run) => run.passed).length;
