@@ -103,6 +103,8 @@ export type {
   ConverseStreamParams,
   FakeBedrockClientOptions,
 } from "./clients";
+export { BedrockResponsesClient } from "./responses-client";
+export type { BedrockResponsesClientOptions } from "./responses-client";
 
 export {
   DEFAULT_MAX_TOOL_ITERATIONS,

@@ -2,9 +2,10 @@
  * Model registry (metadata half).
  *
  * Describes every model the product can represent: provider, family,
- * capabilities, cost, context window. Any Bedrock model behind the converse
- * API fits this shape — the `provider` field keeps the door open beyond
- * Anthropic without implementing anything else yet (#300).
+ * capabilities, cost, context window. Any Bedrock model behind the Converse
+ * API fits this shape, and so does any model behind Bedrock's
+ * OpenAI-compatible Responses API (`invocation: "responses"`, #660) — the
+ * `provider` field keeps the door open beyond Anthropic (#300).
  *
  * Enablement is NOT here: which models may serve which purpose/lane lives in
  * the `model_enablement` DB table (admin-editable later, #302), resolved via
@@ -28,6 +29,9 @@ export const MODEL_IDS = [
   "sonnet-4-6",
   "opus-4-7",
   "nova-pro",
+  "gpt-5-6-terra",
+  "gpt-5-6-sol",
+  "gpt-5-6-luna",
 ] as const;
 export type ModelId = (typeof MODEL_IDS)[number];
 
@@ -53,10 +57,10 @@ export type ModelPurpose = (typeof MODEL_PURPOSES)[number];
 
 /**
  * How requests reach the model (#797 P1). `converse` is the Bedrock Converse
- * API — the only route implemented today (`RealBedrockClient`). `responses`
- * is reserved for the Bedrock Mantle / Responses-shaped adapter (#660);
- * nothing dispatches on it yet, but every registry entry declares its route
- * so the adapter that lands behind it can select by metadata instead of by
+ * API; `responses` is Bedrock's OpenAI-compatible Responses API
+ * (`BedrockResponsesClient`, #660), which the OpenAI GPT entries need because
+ * Converse cannot reach them on this endpoint. `RealBedrockClient` dispatches
+ * on this field, so a registry entry selects its route by metadata, never by
  * model-id string matching.
  */
 export const MODEL_INVOCATIONS = ["converse", "responses"] as const;
@@ -286,6 +290,121 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
       "cost-sensitive chat and summarization",
       "image and document understanding",
       "quota-independent capacity once qualified",
+    ],
+  },
+  /**
+   * OpenAI GPT-5.6 on Bedrock (#660, #797 P4) — the first `responses`-route
+   * entries. Served through Bedrock's OpenAI-compatible Responses API on the
+   * `bedrock-runtime` endpoint (`BedrockResponsesClient`); Converse cannot
+   * reach them there. No `model_enablement` rows: disabled for every purpose
+   * until qualified and flipped by Rob. Three entries share one comment.
+   *
+   * Verified 2026-09-06 (read-only, account 351478076796, us-east-1):
+   * `aws bedrock get-foundation-model` → `openai.gpt-5.6-terra` ACTIVE,
+   * text+image in, text out, streaming, INFERENCE_PROFILE only;
+   * `list-inference-profiles` → `us.openai.gpt-5.6-{terra,sol,luna}` ACTIVE
+   * (SYSTEM_DEFINED). The `us.` geo profile is required on this endpoint
+   * (in-Region is Mantle-only) and keeps US residency like the Claude entries.
+   * Model ACCESS is not granted yet: `get-foundation-model-availability`
+   * reports IAM AUTHORIZED, entitlement and region AVAILABLE, but
+   * `agreementAvailability: NOT_AVAILABLE` for all three — the OpenAI
+   * third-party model agreement has not been accepted in this account
+   * (Bedrock console → Model access; Rob). Until then every request is a
+   * 403 "not available for this account" and nothing can be qualified.
+   *
+   * Pricing is read from each model card's "Geo CRIS, Short Context Window
+   * (272K)" row — already the regional rate (Global CRIS is 10% lower), so
+   * no +10% is applied on top. Beyond 272K input tokens Bedrock bills the
+   * "Long Context" tier at 2×; `contextWindow` declares the short tier the
+   * registry prices at, not the card's 1M, so cost accounting stays truthful
+   * (the loop's context lifecycle keeps transcripts far below it). Cache
+   * multipliers are the card's cache-read / cache-write columns (0.1× /
+   * 1.25×); `supportsPromptCaching` is false because that flag gates Converse
+   * `cachePoint` blocks and the Responses client sends no explicit cache
+   * markers in phase 1 — Bedrock's implicit caching still applies and the
+   * usage block's `cached_tokens` are counted at the cache-read rate.
+   * Output ceiling UNVERIFIED on the card; 32k matches the Claude entries and
+   * the artifact-build need (#320).
+   */
+  "gpt-5-6-terra": {
+    id: "gpt-5-6-terra",
+    bedrockModelId: "us.openai.gpt-5.6-terra",
+    provider: "openai",
+    family: "gpt",
+    displayName: "GPT-5.6 Terra",
+    brandedName: "GPT-5.6 Terra",
+    providerDisplayName: "OpenAI",
+    olderModelExample: "GPT-4",
+    blurb: "OpenAI's balanced production model. Code, content, extraction, agentic work.",
+    costPer1MInput: 2.2,
+    costPer1MOutput: 13.2,
+    cacheReadInputMultiplier: 0.1,
+    cacheWriteInputMultiplier: 1.25,
+    supportsToolUse: true,
+    supportsStreaming: true,
+    supportsVision: true,
+    supportsPromptCaching: false,
+    invocation: "responses",
+    contextWindow: 272_000,
+    defaultMaxTokens: 32_000,
+    recommendedFor: [
+      "general chat and writing",
+      "code generation and structured extraction",
+      "provider-independent capacity once qualified",
+    ],
+  },
+  "gpt-5-6-sol": {
+    id: "gpt-5-6-sol",
+    bedrockModelId: "us.openai.gpt-5.6-sol",
+    provider: "openai",
+    family: "gpt",
+    displayName: "GPT-5.6 Sol",
+    brandedName: "GPT-5.6 Sol",
+    providerDisplayName: "OpenAI",
+    olderModelExample: "GPT-4",
+    blurb: "OpenAI's most capable model. Frontier reasoning and agentic work.",
+    costPer1MInput: 4.4,
+    costPer1MOutput: 22,
+    cacheReadInputMultiplier: 0.1,
+    cacheWriteInputMultiplier: 1.25,
+    supportsToolUse: true,
+    supportsStreaming: true,
+    supportsVision: true,
+    supportsPromptCaching: false,
+    invocation: "responses",
+    contextWindow: 272_000,
+    defaultMaxTokens: 32_000,
+    recommendedFor: [
+      "multi-step planning",
+      "hard reasoning",
+      "provider-independent capacity once qualified",
+    ],
+  },
+  "gpt-5-6-luna": {
+    id: "gpt-5-6-luna",
+    bedrockModelId: "us.openai.gpt-5.6-luna",
+    provider: "openai",
+    family: "gpt",
+    displayName: "GPT-5.6 Luna",
+    brandedName: "GPT-5.6 Luna",
+    providerDisplayName: "OpenAI",
+    olderModelExample: "GPT-4",
+    blurb: "OpenAI's fast, affordable model. Classification, summarization, routing.",
+    costPer1MInput: 0.22,
+    costPer1MOutput: 1.32,
+    cacheReadInputMultiplier: 0.1,
+    cacheWriteInputMultiplier: 1.25,
+    supportsToolUse: true,
+    supportsStreaming: true,
+    supportsVision: true,
+    supportsPromptCaching: false,
+    invocation: "responses",
+    contextWindow: 272_000,
+    defaultMaxTokens: 32_000,
+    recommendedFor: [
+      "quick lookups",
+      "classification / routing",
+      "cost-sensitive summarization once qualified",
     ],
   },
 };
