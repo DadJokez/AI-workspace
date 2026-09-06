@@ -14,7 +14,10 @@ import {
   resolveAppActorRole,
 } from "@/lib/apps";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
-import { resolveAppPublication } from "@/lib/app-publication";
+import {
+  describeConnectorManifest,
+  resolveAppPublication,
+} from "@/lib/app-publication";
 import { listSharesForSubject } from "@/lib/shares";
 import { loadWorkspaceArtifactById } from "@/lib/workspace-artifacts";
 
@@ -73,6 +76,12 @@ export default async function ManageAppPage({
         app.ownerUserId,
       ).metadata
     : null;
+  // #802: the publish-time connector declaration — the only sources a live
+  // version can read through, each under the viewer's own connection.
+  const declaredSources =
+    publication?.dataMode === "live_via_viewer"
+      ? describeConnectorManifest(publication.connectorManifest)
+      : [];
 
   return (
     <section className="flex flex-col gap-6 px-6 py-6">
@@ -137,6 +146,21 @@ export default async function ManageAppPage({
             .
           </>
         ) : null}
+        {declaredSources.length > 0 ? (
+          <p className="mt-2">
+            Declared data sources (read as each viewer, through their own
+            connection):{" "}
+            {declaredSources.map((source, index) => (
+              <span key={source.catalogKey}>
+                {index > 0 ? ", " : null}
+                <code className="rounded bg-ink/5 px-1 py-0.5 text-ink">
+                  {source.providerLabel} · {source.toolName}
+                </code>
+              </span>
+            ))}
+            . The page cannot call any other connector.
+          </p>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-3">
@@ -191,6 +215,16 @@ export default async function ManageAppPage({
               Live data runs under each viewer&apos;s own connected account.
               This app never uses the author&apos;s connector for another
               viewer.
+              {declaredSources.length > 0 ? (
+                <>
+                  {" "}
+                  Recipients will be asked to connect:{" "}
+                  {declaredSources
+                    .map((source) => `${source.providerLabel} (${source.toolName})`)
+                    .join(", ")}
+                  .
+                </>
+              ) : null}
             </p>
           ) : null}
           <SharePanel

@@ -3,6 +3,7 @@ import {
   APP_PUBLICATION_SCHEMA,
   connectorManifestForBindings,
   createAppPublicationMetadata,
+  describeConnectorManifest,
   injectAppPublicationBadge,
   isBindingIncludedInPublication,
   parseRequestedPublicationMode,
@@ -12,10 +13,22 @@ import {
 
 const binding = {
   id: "pipeline",
-  provider: "salesforce" as const,
-  kind: "soql" as const,
-  query: "SELECT Id FROM Opportunity LIMIT 10",
+  provider: "salesforce",
+  toolName: "run_soql",
+  pinnedArgs: { soql: "SELECT Id FROM Opportunity LIMIT 10" },
   label: "Pipeline",
+};
+const issuesBinding = {
+  id: "issues",
+  provider: "github",
+  toolName: "list_issues",
+  pinnedArgs: { owner: "DadJokez", repo: "AI-workspace" },
+};
+const legacyBinding = {
+  id: "legacy",
+  provider: "salesforce",
+  kind: "soql",
+  query: "SELECT Id FROM Account LIMIT 5",
 };
 
 describe("app publication metadata", () => {
@@ -57,6 +70,15 @@ describe("app publication metadata", () => {
       isBindingIncludedInPublication(publication, {
         id: "undeclared",
         provider: "salesforce",
+        toolName: "run_soql",
+      }),
+    ).toBe(false);
+    // Same id on a different tool is a different declaration.
+    expect(
+      isBindingIncludedInPublication(publication, {
+        id: "pipeline",
+        provider: "salesforce",
+        toolName: "get_record",
       }),
     ).toBe(false);
     expect(
@@ -68,6 +90,67 @@ describe("app publication metadata", () => {
         audience: "private",
       }).connectorManifest,
     ).toEqual([]);
+  });
+
+  it("declares every (provider, tool) a version's bindings call, legacy SOQL included", () => {
+    const manifest = connectorManifestForBindings([
+      binding,
+      issuesBinding,
+      { ...binding, id: "pipeline-2" },
+    ]);
+    expect(manifest).toEqual([
+      {
+        provider: "salesforce",
+        toolName: "run_soql",
+        catalogKey: "salesforce:run_soql",
+        bindingIds: ["pipeline", "pipeline-2"],
+      },
+      {
+        provider: "github",
+        toolName: "list_issues",
+        catalogKey: "github:list_issues",
+        bindingIds: ["issues"],
+      },
+    ]);
+    expect(
+      createAppPublicationMetadata({
+        artifactMetadata: { dataBindings: [legacyBinding] },
+        dataMode: "live_via_viewer",
+        publishedAt: new Date(),
+        publishedByUserId: "user-1",
+        audience: "private",
+      }).connectorManifest,
+    ).toEqual([
+      {
+        provider: "salesforce",
+        toolName: "run_soql",
+        catalogKey: "salesforce:run_soql",
+        bindingIds: ["legacy"],
+      },
+    ]);
+  });
+
+  it("describes declared sources with the Settings card name", () => {
+    expect(
+      describeConnectorManifest(
+        connectorManifestForBindings([binding, issuesBinding]),
+      ),
+    ).toEqual([
+      {
+        provider: "salesforce",
+        providerLabel: "Salesforce",
+        toolName: "run_soql",
+        catalogKey: "salesforce:run_soql",
+        bindingCount: 1,
+      },
+      {
+        provider: "github",
+        providerLabel: "GitHub",
+        toolName: "list_issues",
+        catalogKey: "github:list_issues",
+        bindingCount: 1,
+      },
+    ]);
   });
 
   it("refuses live mode when there is no supported binding", () => {
@@ -100,15 +183,20 @@ describe("app publication metadata", () => {
 
   it("keeps pre-contract binding apps live through an explicit legacy fallback", () => {
     const resolved = resolveAppPublication(
-      { dataBindings: [binding] },
+      { dataBindings: [legacyBinding] },
       new Date("2026-01-01T00:00:00.000Z"),
       "legacy-owner",
     );
     expect(resolved.legacyInferred).toBe(true);
     expect(resolved.metadata.dataMode).toBe("live_via_viewer");
-    expect(resolved.metadata.connectorManifest).toEqual(
-      connectorManifestForBindings([binding]),
-    );
+    expect(resolved.metadata.connectorManifest).toEqual([
+      {
+        provider: "salesforce",
+        toolName: "run_soql",
+        catalogKey: "salesforce:run_soql",
+        bindingIds: ["legacy"],
+      },
+    ]);
   });
 });
 
@@ -137,5 +225,24 @@ describe("published app badge", () => {
     expect(html.indexOf("comparative-publication-badge")).toBeLessThan(
       html.indexOf("<main>"),
     );
+  });
+
+  it("names the declared sources on a live page, never the pinned arguments", () => {
+    const publication = createAppPublicationMetadata({
+      artifactMetadata: { dataBindings: [binding, issuesBinding] },
+      dataMode: "live_via_viewer",
+      publishedAt: new Date("2026-07-23T12:00:00.000Z"),
+      publishedByUserId: "user-1",
+      audience: "named",
+    });
+    const html = injectAppPublicationBadge("<html><body></body></html>", {
+      publication,
+      authorName: "Brittany",
+    });
+    expect(html).toContain(
+      "Live via your connections · Salesforce run_soql, GitHub list_issues",
+    );
+    expect(html).not.toContain("Opportunity");
+    expect(html).not.toContain("DadJokez");
   });
 });

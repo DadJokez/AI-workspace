@@ -26,13 +26,19 @@ describe("deriveBindingsFromTurnTools", () => {
       ],
     );
     expect(bindings.map((b) => b.id)).toEqual(["soql-1", "soql-2"]);
-    expect(bindings[0]).toMatchObject({
+    // Emitted on the generic #802 shape: a pinned read-tool call.
+    expect(bindings[0]).toEqual({
+      id: "soql-1",
       provider: "salesforce",
-      kind: "soql",
-      // validateReadOnlySoql injects the default LIMIT.
-      query: expect.stringMatching(/^SELECT Id FROM Account LIMIT \d+$/),
+      toolName: "run_soql",
+      pinnedArgs: {
+        // validateReadOnlySoql injects the default LIMIT.
+        soql: expect.stringMatching(/^SELECT Id FROM Account LIMIT \d+$/),
+      },
     });
-    expect(bindings[1]!.query).toBe("SELECT Id, Amount FROM Opportunity LIMIT 50");
+    expect(bindings[1]!.pinnedArgs).toEqual({
+      soql: "SELECT Id, Amount FROM Opportunity LIMIT 50",
+    });
   });
 
   it("skips failed calls, invalid SOQL, and duplicate queries", () => {
@@ -46,7 +52,9 @@ describe("deriveBindingsFromTurnTools", () => {
       [{ toolCallId: "bad", output: "boom", isError: true }],
     );
     expect(bindings).toHaveLength(1);
-    expect(bindings[0]!.query).toBe("SELECT Id FROM Contact LIMIT 5");
+    expect(bindings[0]!.pinnedArgs).toEqual({
+      soql: "SELECT Id FROM Contact LIMIT 5",
+    });
   });
 
   it("caps at MAX_DATA_BINDINGS and returns empty without calls", () => {
@@ -64,7 +72,7 @@ describe("deriveBindingsFromTurnTools", () => {
 describe("buildAppDataBootstrap", () => {
   it("carries app id and binding ids but never query text", () => {
     const script = buildAppDataBootstrap("app-123", [
-      { id: "soql-1", provider: "salesforce", kind: "soql", label: "Pipeline" },
+      { id: "soql-1", provider: "salesforce", toolName: "run_soql", label: "Pipeline" },
     ]);
     expect(script).toContain("app-123");
     expect(script).toContain("soql-1");
@@ -77,7 +85,7 @@ describe("buildAppDataBootstrap", () => {
       {
         id: "soql-1",
         provider: "salesforce",
-        kind: "soql",
+        toolName: "run_soql",
         label: "</script><script>alert(1)</script>",
       },
     ]);

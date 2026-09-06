@@ -215,6 +215,13 @@ Concrete example: user asks **"What PRs do I have open?"** in chat.
    renders the note for the shell and the evals; the
    `context_pack_assembled` receipt names which layers loaded
    ("Instructions · Skill: Weekly Status · 2 Vault memories · Org: not
+   configured"). The org layer reads "not configured" until #438 PR B lands
+   its storage. When a skill is pinned and custom instructions or approved
+   Vault memory render, the preamble states the skill-over-personal
+   conflict immediately above those personal blocks
+   (`renderSkillOverPersonalNote`, #911): the rule in the note alone did
+   not hold live, and neither did restating it inside the skill block or in
+   the volatile suffix — only the line adjacent to the personal text did.
    configured"). The org layer is the approved `scope = 'org'` rows of
    `user_memory_items` (admin-written through the Vault routes, read by
    every user); an org line that tries to change a protected key stays in
@@ -417,11 +424,23 @@ ECS service set; image rollback redeploys an earlier commit tag through CDK.
 | Workers | Separate ECS services for chat runs and Vault memory capture | Queue-backed dispatch if DB polling becomes limiting |
 | Ingress | Application Load Balancer, ACM cert, Route 53 record at `comparative.builtwithrobot.link` with `ai-workspace.builtwithrobot.link` retained as a legacy alias | WAF/rate rules |
 | Database | Existing RDS Postgres for fast cutover | RDS Proxy/Aurora and private DB posture |
-| Secrets | AWS Secrets Manager JSON secret `ai-workspace/production/app` | KMS rotation policy |
+| Secrets | AWS Secrets Manager JSON secrets: `ai-workspace/production/app` plus per-service least-privilege secrets (below) | KMS rotation policy |
 | Networking | Default VPC for current RDS compatibility | Dedicated VPC/private subnets |
 | Observability | CloudWatch logs/metrics/alarms, ALB health check on `/api/health` | Optional tracing |
 | Edge controls | Minimal | ALB + WAF/rate rules when public enterprise traffic begins |
 | IaC | CDK TypeScript in `infra/cdk` | Broaden to DB/proxy/edge resources |
+
+Secrets are split by blast radius. `ai-workspace/production/app` holds the
+application credentials (`DATABASE_URL`, `NEXTAUTH_SECRET`, OAuth client
+secrets, `OAUTH_ENCRYPTION_KEY`) and is mounted only into the web, worker,
+migrator, and smoke tasks. The Comparative Browser egress proxy instead reads
+`ai-workspace/production/browser-proxy-db`, whose single key `DATABASE_URL`
+carries the `web_egress_policy_reader` Postgres role: created `NOLOGIN` by
+migration `0050_web_egress_policy_reader`, enabled for login by an operator out
+of band, and granted `SELECT` on exactly `provider, tool_name, metadata` of
+`tools_catalog` (the admin denylist row) and nothing else. The proxy's
+Basic-auth pair lives in `ai-workspace/production/browser-proxy`. A compromised
+proxy therefore reads one policy row, not the database.
 
 ECS/Fargate is the AWS-native deployment for worker isolation, networking, IAM
 boundaries, observability, and enterprise-scale planning.

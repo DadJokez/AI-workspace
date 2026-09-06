@@ -19,6 +19,14 @@ Comparative's in-shell publish tier now provides:
 
 The internal API and database status still use the historical `deploy`/`deployed` vocabulary for compatibility. Product surfaces use **Publish**. No public-link audience, org-wide audience, service-principal credentials, independent hosting, or custom domains are introduced by this slice.
 
+### Generic read-tool bindings (#802, 2026-09-04)
+
+- A binding is `{ id, provider, toolName, pinnedArgs, label? }`: any `tools_catalog` **read** tool (action `read`, policy `always_allow`, enabled) with its arguments pinned at publish. The #407 `{ kind: "soql", query }` shape is still read and normalizes to `salesforce/run_soql`. The browser only ever submits a binding id; pinned arguments stay server-side (`apps/web/lib/app-data-bindings.ts`).
+- **Declaration enforcement per version:** publish pins each binding as an insert-only `app_version_data_bindings` row (migration 0049) inside the publish transaction; `GET /api/apps/[id]/data/[bindingId]` resolves the binding from the live version's rows and the publication manifest, so a page cannot call a connector outside its publish-time declaration. Versions published before 0049 fall back to their immutable artifact metadata.
+- **Fail-closed provider gate (publish time):** a live publication is refused unless every binding's provider has per-viewer credentials, a connect CTA, and per-viewer audit (`VIEWER_IDENTITY_BINDING_PROVIDERS`), the deployment can execute the provider, and the tool is an enabled always-allowed read tool. Sources without per-user identity (service-principal data lakes) therefore cannot be published live — snapshot or admin-approved service-backed only.
+- **Execution as the viewer:** viewer session → viewer's `oauth_tokens` → connector registry → attestation + tri-state policy → catalog read-only check → execute → `app_data_refresh` audit per viewer. Salesforce SOQL keeps the structured-rows executor; every other read tool mounts only that provider for the viewer over MCP and calls the pinned tool. Upstream error text never reaches the viewer or the audit row.
+- Pinned arguments are secret-scanned at publish alongside the HTML; the declared source list is shown in the page header badge and on the manage/share page.
+
 ---
 
 ## 0. Grounding: what Comparative already has

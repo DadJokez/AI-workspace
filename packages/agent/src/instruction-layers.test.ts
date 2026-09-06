@@ -9,6 +9,7 @@ import {
   parseInstructionLayersReceipt,
   renderPinnedActiveSkill,
   renderPinnedOrgInstructions,
+  renderSkillOverPersonalNote,
 } from "./instruction-layers";
 
 const SKILL = {
@@ -80,6 +81,42 @@ describe("layer renderers", () => {
     expect(hostile.split("<<<END-PINNED-ACTIVE-SKILL>>>").length - 1).toBe(1);
     expect(hostile).not.toContain("<<<PINNED-ORG-INSTRUCTIONS>>>");
     expect(hostile).toContain("[pinned-frame marker removed]");
+  });
+
+  it("renders the skill-over-personal conflict line only for personal sources actually present (#911)", () => {
+    // Nothing personal in the prompt → no conflict to name.
+    expect(
+      renderSkillOverPersonalNote({ customInstructions: false, vaultMemory: false }),
+    ).toBeNull();
+
+    const vaultLine = renderSkillOverPersonalNote({
+      customInstructions: false,
+      vaultMemory: true,
+    })!;
+    expect(vaultLine).toContain("(the user's approved Vault memory)");
+    expect(vaultLine).toContain("the skill instructions pinned in this prompt are layer 4");
+    expect(vaultLine).toContain("the skill's contract governs this task");
+    expect(vaultLine).toContain("noted but not applied");
+    expect(vaultLine).toContain(
+      "even when that preference names this task or situation specifically",
+    );
+    expect(vaultLine).toContain("Personal preferences apply only where the skill is silent.");
+    expect(
+      renderSkillOverPersonalNote({ customInstructions: true, vaultMemory: false }),
+    ).toContain("(the user's custom instructions)");
+    expect(
+      renderSkillOverPersonalNote({ customInstructions: true, vaultMemory: true }),
+    ).toContain("(the user's custom instructions and approved Vault memory)");
+
+    // Deterministic (#385/#416 cache discipline), marker-free, and it never
+    // touches a protected key.
+    expect(vaultLine).toBe(
+      renderSkillOverPersonalNote({ customInstructions: false, vaultMemory: true }),
+    );
+    expect(vaultLine).not.toMatch(/<<<[A-Z-]+>>>/);
+    expect(vaultLine).not.toMatch(/authorization|governance|identity|honesty|date/i);
+    // The skill block itself is untouched by the personal layer.
+    expect(renderPinnedActiveSkill(SKILL)).not.toContain("Precedence for this skill run");
   });
 
   it("renders an honest not-configured org line, never placeholder guidance", () => {
