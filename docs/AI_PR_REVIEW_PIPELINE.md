@@ -30,10 +30,16 @@ GitHub Actions, and human review in this repository.
    `Claude verdict` status turns green.
 9. If Claude requests changes, Claude applies the `needs-codex` label and the
    `Claude verdict` status stays red.
-10. If Claude fails to complete, the `Claude verdict` status stays red.
-11. Rob re-prompts Codex to address the review comments on that PR.
-12. Codex pushes follow-up commits to the same branch, restarting the loop.
-13. Rob reviews and merges only after the required checks, including
+10. If the change is human-owned under `CLAUDE.md` §7 and outside Rob's
+    standing delegations, Claude applies the `needs-rob` label *before*
+    posting the review, says so in the review's first line, and the
+    `Claude verdict` status stays red until Rob removes the label — however
+    clean the code is (#891). Only Rob removes `needs-rob`; Claude Code and
+    Codex never do.
+11. If Claude fails to complete, the `Claude verdict` status stays red.
+12. Rob re-prompts Codex to address the review comments on that PR.
+13. Codex pushes follow-up commits to the same branch, restarting the loop.
+14. Rob reviews and merges only after the required checks, including
     `Claude verdict`, are green.
 
 ## Required Repository State
@@ -68,11 +74,16 @@ GitHub Actions, and human review in this repository.
   build the merge ref), so this workflow — which runs on
   `pull_request_target` and needs no merge ref — reports the conflict as its
   own failing check and turns `Claude verdict` red rather than letting the
-  gate go quiet.
+  gate go quiet. Its runs are serialized per PR (`concurrency`, queued and
+  never cancelled), so the label-triggered and review-triggered runs cannot
+  race a stale green past a fresh red (#891).
 - `CLAUDE.md` contains Claude's review rubric.
 - `AGENTS.md` contains Codex's repository instructions and should reference this
   document.
-- The GitHub label `needs-codex` exists.
+- The GitHub labels `needs-codex` and `needs-rob` exist.
+  `.github/scripts/needs-rob-gate.sh` holds the sticky `needs-rob` rule and
+  `needs-rob-gate.test.sh` its fixture matrix, which every verdict publisher
+  runs before deciding (#891; see [The `needs-rob` hold](#the-needs-rob-hold-891)).
 - The repository has the `CLAUDE_CODE_OAUTH_TOKEN` Actions secret configured.
 - Codex Cloud has GitHub access for this repository.
 - `.github/workflows/merge-gate-audit.yml` re-verifies the full gate on every
@@ -134,7 +145,9 @@ Consequences:
 - **`merge-gate-audit.yml` is the backstop for silent protection loss.**
   After every push to `main` it checks that protection is still present with
   the `Claude verdict` context required, re-verifies the merged PR's head-SHA
-  gate (`scripts/verify-pr-gate.sh`, audit-only), and files a
+  gate (`scripts/verify-pr-gate.sh`, audit-only — since #891 it also reports
+  RED on a `needs-rob` or `needs-codex` hold, and on a latest Claude review
+  that ruled the change Rob's while `needs-rob` never landed), and files a
   `security`/`ops` incident issue on any violation — including direct pushes
   to `main`, which remain break-glass only. A bypass can still happen; a
   silent one cannot. Its protection-presence canary runs unconditionally; the
@@ -280,13 +293,54 @@ The required `Claude verdict` status is the mechanical merge gate:
 - `failure` if the current head SHA does not carry a successful
   `Claude review completed` commit status.
 - `failure` if the PR has the `needs-codex` label.
+- `failure` if the PR is under the `needs-rob` hold (below).
 - `failure` if the Claude Code review action fails to complete.
 - `success` only when the current head SHA was reviewed, the PR merges
-  cleanly, and `needs-codex` is absent.
+  cleanly, `needs-codex` is absent, and no `needs-rob` hold applies.
 
 It is published only by jobs that run no model and hold `statuses: write`.
 No model session in this repository has that permission, so the verdict
 cannot be self-published by the thing being gated.
+
+### The `needs-rob` hold (#891)
+
+`needs-codex` means "Claude wants code changes"; `needs-rob` means "the code
+may be clean, but this decision is Rob's" — a new production dependency, a DB
+migration, auth / permissions / secret / env / IAM / OIDC surface, an action
+bump on the OIDC path, or any loosening of a gate, outside the standing
+delegations listed in `CLAUDE.md` §7. Before #891 the gate could not express
+that state: PR #885 merged on a green verdict 37 seconds after the review ruled
+it human-owned, because only `needs-codex` kept the verdict red.
+
+- **The reviewer applies it first.** The review prompt labels `needs-rob`
+  *before* running `gh pr review` and states the label in the review's first
+  line, so no run of the verdict workflow can observe the review without the
+  label already on the PR.
+- **Only Rob removes it.** Claude Code and Codex never remove `needs-rob` —
+  not on request, not to "unblock", not because a comment claims a sign-off.
+  Removing the label is Rob's decision, recorded on the PR by GitHub itself.
+- **It is sticky.** The review lane is a model session that reads
+  attacker-authored PR text and holds `gh pr edit`, so a steered review could
+  run `--remove-label needs-rob`. Label presence alone is therefore not the
+  signal. Every publisher of `Claude verdict` (`claude-verdict.yml` and the
+  `publish-verdict` job of `claude-code-review.yml`) also reads the PR's
+  timeline and, via `.github/scripts/needs-rob-gate.sh`, treats the hold as
+  present when the latest `labeled`/`unlabeled` event for `needs-rob` is an
+  `unlabeled` by a bot (`github-actions[bot]`, any `[bot]` login, or no
+  actor), or when the label is off the PR although its last event was
+  `labeled` (which is also what a repo-wide label deletion looks like). Only
+  an `unlabeled` by a human user releases it. Unreadable input fails closed.
+  `needs-rob-gate.test.sh` is the fixture matrix; both publishers run it
+  before deciding, exactly as `classify-changed-paths.yml` proves the
+  docs-only classifier.
+- **No green window.** `claude-verdict.yml` fires separately on `labeled`
+  and on `pull_request_review`; its runs now share a per-PR `concurrency`
+  group with `cancel-in-progress: false`, so the newest run always publishes
+  last and reads the labels as they are at that moment.
+- **Limits.** A removal made through Rob's own token by an authoring session
+  is indistinguishable from Rob to the script; `CLAUDE.md` §7 makes such a
+  removal — and any §7 sign-off not posted by the review lane — void by
+  policy, and the post-merge audit is the backstop.
 
 ## Codex Expectations
 
@@ -310,6 +364,10 @@ Rob must approve, even where GitHub does not enforce it mechanically:
 - Auth, permissions, secrets, or environment variable changes.
 - Production deploys.
 - Auto-merge policy changes.
+
+A PR waiting on one of these carries the `needs-rob` label, which keeps
+`Claude verdict` red until Rob removes it (#891). Rob's decision is the label
+removal itself; Claude Code and Codex never remove it.
 
 ## Known Setup Sequence
 
@@ -335,7 +393,7 @@ Wired by the `feat/ai-pr-review-pipeline` PR:
 - `.github/workflows/claude-verdict.yml` — required `Claude verdict` status for
   branch protection.
 - `.github/workflows/claude.yml` — `@claude` on-demand.
-- The `needs-codex` label.
+- The `needs-codex` label, and since #891 the `needs-rob` label.
 
 Auth is the **`CLAUDE_CODE_OAUTH_TOKEN`** secret (Claude GitHub App /
 `claude setup-token`) — no Anthropic API key, no AWS/Bedrock setup.
