@@ -235,6 +235,7 @@ Key product tables:
 | `recommendations` | Explicit, dismissible suggestions for tools, Skills, Apps, or schedules |
 | `memory_capture_queue` | Queue for reviewing completed chat windows for memory suggestions |
 | `user_memory_items` | User-reviewed Vault memory items |
+| `org_instructions` | Admin-written organization standing instructions (layer 3); rows outlive their author |
 | `rate_limit_buckets` | Shared fixed-window limiter buckets |
 
 ---

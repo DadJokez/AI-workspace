@@ -14,7 +14,6 @@ interface Props {
 
 interface MemoryItem {
   id: string;
-  scope?: "user" | "org";
   status: "suggested" | "approved" | "dismissed" | "archived";
   category: string;
   categoryLabel: string;
@@ -33,10 +32,19 @@ interface MemoryItem {
   updatedAt: string;
 }
 
-/** Organization standing instructions (#438): read by everyone, edited by admins. */
-interface OrgInstructions {
+/**
+ * Organization standing instructions (#438): read by everyone, edited by
+ * admins. Their own table and routes — never Vault rows.
+ */
+interface OrgInstruction {
+  id: string;
+  content: string;
+  updatedAt: string;
+}
+
+interface OrgInstructionsResponse {
   approvedMarkdown: string;
-  approvedItems: MemoryItem[];
+  items: OrgInstruction[];
   canEdit: boolean;
 }
 
@@ -44,7 +52,6 @@ interface VaultMemoryResponse {
   approvedMarkdown: string;
   approvedItems: MemoryItem[];
   suggestions: MemoryItem[];
-  org?: OrgInstructions;
 }
 
 interface EditDraft {
@@ -69,7 +76,13 @@ export function MemorySettings({ userName, focusItemId }: Props) {
   const [approvedMarkdown, setApprovedMarkdown] = useState("");
   const [approvedItems, setApprovedItems] = useState<MemoryItem[]>([]);
   const [suggestions, setSuggestions] = useState<MemoryItem[]>([]);
-  const [org, setOrg] = useState<OrgInstructions | null>(null);
+  const [org, setOrg] = useState<OrgInstructionsResponse | null>(null);
+  const [orgError, setOrgError] = useState<string | null>(null);
+  const [orgAddOpen, setOrgAddOpen] = useState(false);
+  const [orgAddDraft, setOrgAddDraft] = useState("");
+  const [orgEditingId, setOrgEditingId] = useState<string>();
+  const [orgEditDraft, setOrgEditDraft] = useState("");
+  const [orgPendingId, setOrgPendingId] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
   const [actionPendingId, setActionPendingId] = useState<string>();
@@ -84,7 +97,6 @@ export function MemorySettings({ userName, focusItemId }: Props) {
   const [addBody, setAddBody] = useState("");
   const [addBusy, setAddBusy] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
-  const [addScope, setAddScope] = useState<"user" | "org">("user");
 
   async function addFact() {
     if (!addTitle.trim() || !addBody.trim()) return;
@@ -99,15 +111,13 @@ export function MemorySettings({ userName, focusItemId }: Props) {
           body: JSON.stringify({
             title: addTitle,
             bodyMd: addBody,
-            category: addScope === "org" ? "organization" : "personal_context",
-            scope: addScope,
+            category: "personal_context",
           }),
         },
         "Could not add the fact.",
       );
       setAddTitle("");
       setAddBody("");
-      setAddScope("user");
       setAddOpen(false);
       await loadVault();
     } catch (err) {
@@ -130,7 +140,6 @@ export function MemorySettings({ userName, focusItemId }: Props) {
       setApprovedMarkdown(data.approvedMarkdown ?? "");
       setApprovedItems(data.approvedItems ?? []);
       setSuggestions(data.suggestions ?? []);
-      setOrg(data.org ?? null);
       setError(undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -139,8 +148,73 @@ export function MemorySettings({ userName, focusItemId }: Props) {
     }
   }
 
+  async function loadOrgInstructions() {
+    try {
+      const data = await fetchJson<OrgInstructionsResponse>(
+        "/api/org-instructions",
+        undefined,
+        "Could not load organization instructions.",
+      );
+      setOrg(data);
+      setOrgError(null);
+    } catch (err) {
+      setOrgError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function addOrgInstruction() {
+    const content = orgAddDraft.trim();
+    if (!content) return;
+    setOrgPendingId("new");
+    setOrgError(null);
+    try {
+      await fetchJson(
+        "/api/org-instructions",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ content }),
+        },
+        "Could not add the instruction.",
+      );
+      setOrgAddDraft("");
+      setOrgAddOpen(false);
+      await loadOrgInstructions();
+    } catch (err) {
+      setOrgError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setOrgPendingId(undefined);
+    }
+  }
+
+  async function patchOrgInstruction(id: string, action: "edit" | "archive") {
+    setOrgPendingId(id);
+    setOrgError(null);
+    try {
+      await fetchJson(
+        `/api/org-instructions/${id}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            action === "edit" ? { action, content: orgEditDraft } : { action },
+          ),
+        },
+        "Could not update the instruction.",
+      );
+      setOrgEditingId(undefined);
+      await loadOrgInstructions();
+    } catch (err) {
+      setOrgError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setOrgPendingId(undefined);
+    }
+  }
+
   useEffect(() => {
     void loadVault();
+    void loadOrgInstructions();
   }, []);
 
   useEffect(() => {
@@ -232,10 +306,46 @@ export function MemorySettings({ userName, focusItemId }: Props) {
                 personal memory, below platform governance.
               </p>
             </div>
-            <span className="text-xs text-muted">
-              {org.approvedItems.length} approved
-            </span>
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="text-xs text-muted">
+                {org.items.length} approved
+              </span>
+              {org.canEdit ? (
+                <button
+                  type="button"
+                  onClick={() => setOrgAddOpen((v) => !v)}
+                  className="rounded-md border border-hairline px-2.5 py-1 text-xs text-ink hover:bg-subtle"
+                >
+                  {orgAddOpen ? "Cancel" : "Add instruction"}
+                </button>
+              ) : null}
+            </div>
           </div>
+          {orgError ? (
+            <div className="mb-3 rounded-md border border-danger/25 bg-danger-bg px-3 py-2 text-sm text-danger">
+              {orgError}
+            </div>
+          ) : null}
+          {orgAddOpen ? (
+            <div className="mb-3 flex flex-col gap-2 rounded-md border border-hairline p-3">
+              <textarea
+                value={orgAddDraft}
+                onChange={(e) => setOrgAddDraft(e.target.value)}
+                rows={3}
+                maxLength={4000}
+                placeholder="The instruction, as markdown (e.g. Always cite Salesforce record IDs when you mention an account.)"
+                className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-muted"
+              />
+              <button
+                type="button"
+                disabled={orgPendingId === "new" || !orgAddDraft.trim()}
+                onClick={() => void addOrgInstruction()}
+                className="self-start rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-canvas hover:opacity-90 disabled:opacity-50"
+              >
+                {orgPendingId === "new" ? "Saving…" : "Save instruction"}
+              </button>
+            </div>
+          ) : null}
           <div className="rounded-lg border border-hairline bg-canvas px-4 py-3">
             {org.approvedMarkdown.trim() ? (
               <div className="prose prose-sm max-w-none text-ink prose-headings:text-ink prose-p:text-ink prose-li:text-ink prose-strong:text-ink">
@@ -246,26 +356,27 @@ export function MemorySettings({ userName, focusItemId }: Props) {
             ) : (
               <p className="text-sm text-muted">
                 Not configured.
-                {org.canEdit
-                  ? " Use “Add a fact” and choose the organization scope."
-                  : ""}
+                {org.canEdit ? " Use “Add instruction” to write one." : ""}
               </p>
             )}
           </div>
-          {org.canEdit && org.approvedItems.length > 0 ? (
+          {org.canEdit && org.items.length > 0 ? (
             <div className="mt-2 grid gap-2">
-              {org.approvedItems.map((item) => (
-                <MemoryApprovedCard
+              {org.items.map((item) => (
+                <OrgInstructionCard
                   key={item.id}
                   item={item}
-                  editing={editingId === item.id}
-                  draft={draft}
-                  pending={actionPendingId === item.id}
-                  onDraftChange={setDraft}
-                  onEdit={() => startEdit(item)}
-                  onCancelEdit={() => setEditingId(undefined)}
-                  onSave={() => void patchMemory(item.id, "edit", draft)}
-                  onArchive={() => void patchMemory(item.id, "archive")}
+                  editing={orgEditingId === item.id}
+                  draft={orgEditDraft}
+                  pending={orgPendingId === item.id}
+                  onDraftChange={setOrgEditDraft}
+                  onEdit={() => {
+                    setOrgEditingId(item.id);
+                    setOrgEditDraft(item.content);
+                  }}
+                  onCancelEdit={() => setOrgEditingId(undefined)}
+                  onSave={() => void patchOrgInstruction(item.id, "edit")}
+                  onArchive={() => void patchOrgInstruction(item.id, "archive")}
                 />
               ))}
             </div>
@@ -312,19 +423,6 @@ export function MemorySettings({ userName, focusItemId }: Props) {
                 placeholder="The fact (e.g. I'm a supply-chain analyst on the Crossett team; I prefer concise, bulleted answers.)"
                 className="resize-y rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-muted"
               />
-              {org?.canEdit ? (
-                <label className="flex items-center gap-2 text-xs text-ink">
-                  <input
-                    type="checkbox"
-                    checked={addScope === "org"}
-                    onChange={(e) =>
-                      setAddScope(e.target.checked ? "org" : "user")
-                    }
-                  />
-                  Save as an organization standing instruction (applies to
-                  everyone; admins only)
-                </label>
-              ) : null}
               {addError ? (
                 <p className="text-xs text-danger">{addError}</p>
               ) : null}
@@ -437,6 +535,97 @@ export function MemorySettings({ userName, focusItemId }: Props) {
           ) : null}
         </>
       ) : null}
+    </div>
+  );
+}
+
+function OrgInstructionCard({
+  item,
+  editing,
+  draft,
+  pending,
+  onDraftChange,
+  onEdit,
+  onCancelEdit,
+  onSave,
+  onArchive,
+}: {
+  item: OrgInstruction;
+  editing: boolean;
+  draft: string;
+  pending: boolean;
+  onDraftChange: (draft: string) => void;
+  onEdit: () => void;
+  onCancelEdit: () => void;
+  onSave: () => void;
+  onArchive: () => void;
+}) {
+  return (
+    <div
+      data-testid="vault-org-instruction-card"
+      className="rounded-md border border-hairline bg-canvas px-3 py-2"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          {editing ? (
+            <textarea
+              value={draft}
+              onChange={(e) => onDraftChange(e.target.value)}
+              rows={4}
+              maxLength={4000}
+              className="min-h-24 w-full rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm leading-relaxed text-ink"
+            />
+          ) : (
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink [overflow-wrap:anywhere]">
+              {item.content}
+            </p>
+          )}
+          <p className="mt-2 text-2xs text-muted">
+            Updated {formatDate(item.updatedAt)}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {editing ? (
+            <>
+              <button
+                type="button"
+                onClick={onSave}
+                disabled={pending || !draft.trim()}
+                className="rounded-md bg-ink px-2.5 py-1 text-xs font-medium text-canvas hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={onCancelEdit}
+                disabled={pending}
+                className="rounded-md border border-hairline px-2.5 py-1 text-xs text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={onEdit}
+                disabled={pending}
+                className="rounded-md border border-hairline px-2 py-1 text-xs text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={onArchive}
+                disabled={pending}
+                className="rounded-md border border-hairline px-2 py-1 text-xs text-muted hover:bg-subtle hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Archive
+              </button>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,9 +1,9 @@
 import { UnauthorizedError } from "@ai-workspace/auth";
 import { getDb, userMemoryItems } from "@ai-workspace/db";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
 import {
-  memoryWriteCondition,
   normalizeMemoryCategory,
   serializeMemoryItem,
 } from "@/lib/vault-memory";
@@ -55,8 +55,9 @@ export async function PATCH(
     const rows = await db
       .update(userMemoryItems)
       .set(patch.value)
-      // #438: own personal rows for everyone; org rows for admins only.
-      .where(memoryWriteCondition(sessionUser, id))
+      .where(
+        and(eq(userMemoryItems.id, id), eq(userMemoryItems.userId, sessionUser.id)),
+      )
       .returning();
 
     const item = rows[0];

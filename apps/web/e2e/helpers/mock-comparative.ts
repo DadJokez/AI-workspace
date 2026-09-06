@@ -56,9 +56,9 @@ interface MockChatOptions {
     approvedMarkdown?: string;
     approvedItems?: MockMemoryItem[];
     suggestions?: MockMemoryItem[];
-    /** #438 organization layer; defaults to one item, read-only. */
-    org?: { approvedItems?: MockMemoryItem[]; canEdit?: boolean };
   };
+  /** #438 organization layer; defaults to one instruction, read-only. */
+  orgInstructions?: { items?: MockOrgInstruction[]; canEdit?: boolean };
   contextResources?: {
     results: unknown[];
     scopes?: unknown[];
@@ -149,9 +149,17 @@ export interface MockNotification {
   createdAt: string;
 }
 
+interface MockOrgInstruction {
+  id: string;
+  status: "approved" | "archived";
+  content: string;
+  authoredBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface MockMemoryItem {
   id: string;
-  scope?: "user" | "org";
   status: "suggested" | "approved" | "dismissed" | "archived";
   category: string;
   categoryLabel: string;
@@ -247,16 +255,14 @@ export const defaultVaultSuggestion = memoryItem({
   provenance: "user_cited",
 });
 
-const defaultOrgInstruction = memoryItem({
-  id: "memory-org-fiscal-year",
-  scope: "org",
+const defaultOrgInstruction: MockOrgInstruction = {
+  id: "org-instruction-fiscal-year",
   status: "approved",
-  category: "organization",
-  categoryLabel: "Organization",
-  title: "Fiscal year",
-  bodyMd: "Our fiscal year starts in July.",
-  suggestedBy: "admin",
-});
+  content: "Our fiscal year starts in July.",
+  authoredBy: "user-admin-e2e",
+  createdAt: now,
+  updatedAt: now,
+};
 
 export const defaultVaultApproved = memoryItem({
   id: "memory-approved-style",
@@ -333,11 +339,11 @@ export async function installMockComparativeApi(
     ...(options.vault?.suggestions ?? [defaultVaultSuggestion]),
   ];
   let orgItems = [
-    ...(options.vault?.org?.approvedItems ?? [defaultOrgInstruction]),
+    ...(options.orgInstructions?.items ?? [defaultOrgInstruction]),
   ];
   // Read-only by default so the personal-memory specs see the same cards
   // they always did; the admin spec opts into `canEdit: true`.
-  const orgCanEdit = options.vault?.org?.canEdit ?? false;
+  const orgCanEdit = options.orgInstructions?.canEdit ?? false;
   let approvedMarkdown =
     options.vault?.approvedMarkdown ??
     buildApprovedMarkdown(approvedItems);
@@ -521,6 +527,54 @@ export async function installMockComparativeApi(
       );
     }
 
+    if (path === "/api/org-instructions") {
+      if (request.method() === "POST") {
+        const body = await postJson(request);
+        const item: MockOrgInstruction = {
+          id: `org-instruction-${orgItems.length + 1}`,
+          status: "approved",
+          content: typeof body.content === "string" ? body.content : "",
+          authoredBy: "user-admin-e2e",
+          createdAt: now,
+          updatedAt: now,
+        };
+        orgItems = [...orgItems, item];
+        return json(route, { item }, 201);
+      }
+      return json(route, {
+        approvedMarkdown: buildOrgInstructionsMarkdown(orgItems),
+        items: orgItems,
+        canEdit: orgCanEdit,
+      });
+    }
+
+    const orgPatchMatch = /^\/api\/org-instructions\/([^/]+)$/.exec(path);
+    if (orgPatchMatch) {
+      if (request.method() !== "PATCH") {
+        return json(route, { error: "method_not_allowed" }, 405);
+      }
+      const id = decodeURIComponent(orgPatchMatch[1]!);
+      const body = await postJson(request);
+      const item = orgItems.find((candidate) => candidate.id === id);
+      if (!item) {
+        return json(route, { error: "org_instruction_not_found" }, 404);
+      }
+      if (body.action === "archive") {
+        orgItems = orgItems.filter((candidate) => candidate.id !== id);
+        return json(route, {
+          item: { ...item, status: "archived", updatedAt: now },
+        });
+      }
+      if (body.action === "edit" && typeof body.content === "string") {
+        const next = { ...item, content: body.content, updatedAt: now };
+        orgItems = orgItems.map((candidate) =>
+          candidate.id === id ? next : candidate,
+        );
+        return json(route, { item: next });
+      }
+      return json(route, { error: "invalid_action" }, 400);
+    }
+
     if (path === "/api/vault/memory") {
       if (request.method() === "POST") {
         const body = await postJson(request);
@@ -541,10 +595,6 @@ export async function installMockComparativeApi(
           bodyMd: typeof body.bodyMd === "string" ? body.bodyMd : "",
           approvedAt: now,
         });
-        if (body.scope === "org") {
-          orgItems = [...orgItems, { ...item, scope: "org" }];
-          return json(route, { item }, 201);
-        }
         approvedItems = [...approvedItems, item];
         approvedMarkdown = buildApprovedMarkdown(approvedItems);
         return json(route, { memory: item }, 201);
@@ -553,11 +603,6 @@ export async function installMockComparativeApi(
         approvedMarkdown,
         approvedItems,
         suggestions,
-        org: {
-          approvedMarkdown: buildApprovedMarkdown(orgItems),
-          approvedItems: orgItems,
-          canEdit: orgCanEdit,
-        },
       });
     }
 
@@ -1139,6 +1184,14 @@ export function memoryItem(
     updatedAt: now,
     ...overrides,
   };
+}
+
+function buildOrgInstructionsMarkdown(items: MockOrgInstruction[]) {
+  if (items.length === 0) return "";
+  return [
+    "# Organization Standing Instructions",
+    ...items.map((item) => item.content),
+  ].join("\n\n");
 }
 
 function buildApprovedMarkdown(items: MockMemoryItem[]) {

@@ -136,9 +136,9 @@ import {
 } from "@/lib/chat-worker-abort";
 import {
   loadApprovedOrgInstructions,
-  loadApprovedVaultMarkdown,
   recordOrgInstructionConflict,
-} from "@/lib/vault-memory";
+} from "@/lib/org-instructions";
+import { loadApprovedVaultMarkdown } from "@/lib/vault-memory";
 import {
   createArtifactsFromAssistantMessage,
   type WorkspaceArtifactSummary,

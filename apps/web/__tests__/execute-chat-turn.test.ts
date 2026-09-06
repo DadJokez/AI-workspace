@@ -164,6 +164,8 @@ vi.mock("@/lib/run-trace", () => ({
 }));
 vi.mock("@/lib/vault-memory", () => ({
   loadApprovedVaultMarkdown: vi.fn(async () => null),
+}));
+vi.mock("@/lib/org-instructions", () => ({
   loadApprovedOrgInstructions: vi.fn(async () => null),
   recordOrgInstructionConflict: vi.fn(async () => undefined),
 }));
@@ -221,7 +223,7 @@ import { buildChatContextPack } from "@/lib/chat-context-pack";
 import {
   loadApprovedOrgInstructions,
   recordOrgInstructionConflict,
-} from "@/lib/vault-memory";
+} from "@/lib/org-instructions";
 import { buildTurnToolDiscovery } from "@/lib/tool-discovery";
 import { buildTurnContext } from "@/lib/turn-context";
 import { refreshThreadSummary } from "@/lib/thread-summary";

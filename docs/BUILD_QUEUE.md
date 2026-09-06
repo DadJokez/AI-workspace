@@ -392,9 +392,12 @@ in #872 and waits for Rob. Nothing past item 7 can start until #872 merges.
     `context_pack_assembled` row naming every layer, the three hand-copied
     eval mirrors replaced by imports, and a judge-free eval case reproducing
     the production run `CBX-20260724-091510`. No schema change. **PR B #905**
-    (draft, `needs-rob`): org-layer storage as `user_memory_items.scope`
-    (`'user'|'org'`, additive migration **0051**), admin-only write on the
-    existing Vault surface, protected-key tripwire with receipt + audit row.
+    (draft, `needs-rob`): org-layer storage in a dedicated `org_instructions`
+    table (additive migration **0051**; `authored_by` → users ON DELETE SET
+    NULL, so offboarding the author never deletes the org layer — Rob's
+    2026-09-06 decision over the earlier `user_memory_items.scope` design),
+    admin-only write on `/api/org-instructions`, protected-key tripwire with
+    receipt + audit row.
     **Human-owned caveat (§7 migration): #905 merges LAST in the stack —
     after #872 (0049) and #870 (0050) — or their lower-`when` migrations skip
     silently in production (principle 7).** It carries `Closes #438` for the

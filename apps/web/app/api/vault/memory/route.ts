@@ -1,16 +1,12 @@
 import { UnauthorizedError } from "@ai-workspace/auth";
 import { getDb, userMemoryItems } from "@ai-workspace/db";
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { requireSession } from "@/lib/auth/requireSession";
 import {
-  ORG_INSTRUCTIONS_HEADING,
   buildVaultMarkdown,
-  loadOrgMemoryItems,
   loadUserMemoryItems,
   normalizeMemoryCategory,
   serializeMemoryItem,
-  type MemoryScope,
 } from "@/lib/vault-memory";
 
 export const dynamic = "force-dynamic";
@@ -24,37 +20,18 @@ const BODY_MAX = 2_000;
  * there's nothing to review. It injects into future turns like any approved
  * item. Closes the "add manual facts" gap and complements the onboarding
  * wizard's seeded role context.
- *
- * `scope: "org"` (#438) writes an organization standing instruction: same
- * table, same immediate approval (the admin is the reviewer), gated by the
- * existing `requireAdmin`. It loads for every user's turns at org authority.
  */
 export async function POST(req: Request) {
   try {
     const session = await requireSession();
     if ("error" in session) return session.error;
-    let actor = session.user;
+    const sessionUser = session.user;
 
-    let body: {
-      title?: string;
-      bodyMd?: string;
-      category?: string;
-      scope?: string;
-    };
+    let body: { title?: string; bodyMd?: string; category?: string };
     try {
       body = (await req.json()) as typeof body;
     } catch {
       return NextResponse.json({ error: "invalid_json" }, { status: 400 });
-    }
-
-    const scope = parseScope(body.scope);
-    if (!scope) {
-      return NextResponse.json({ error: "invalid_scope" }, { status: 400 });
-    }
-    if (scope === "org") {
-      const admin = await requireAdmin();
-      if ("error" in admin) return admin.error;
-      actor = admin.user;
     }
 
     const title = typeof body.title === "string" ? body.title.trim() : "";
@@ -83,21 +60,15 @@ export async function POST(req: Request) {
     const rows = await db
       .insert(userMemoryItems)
       .values({
-        userId: actor.id,
-        scope,
+        userId: sessionUser.id,
         status: "approved",
-        category: normalizeMemoryCategory(
-          body.category ?? (scope === "org" ? "organization" : "general"),
-        ),
+        category: normalizeMemoryCategory(body.category ?? "general"),
         title,
         bodyMd,
         confidence: 100,
-        reason:
-          scope === "org"
-            ? "Admin added this organization standing instruction."
-            : "User added this fact manually.",
-        suggestedBy: scope === "org" ? "admin" : "user",
-        approvedBy: actor.id,
+        reason: "User added this fact manually.",
+        suggestedBy: "user",
+        approvedBy: sessionUser.id,
         approvedAt: now,
       })
       .returning();
@@ -121,10 +92,9 @@ export async function GET() {
     const sessionUser = session.user;
 
     const db = getDb();
-    const [items, orgItems] = await Promise.all([
-      loadUserMemoryItems(db, sessionUser.id, ["approved", "suggested"]),
-      // Everyone reads the approved org document; only admins may edit it.
-      loadOrgMemoryItems(db, ["approved"]),
+    const items = await loadUserMemoryItems(db, sessionUser.id, [
+      "approved",
+      "suggested",
     ]);
     const approved = items.filter((item) => item.status === "approved");
     const suggestions = items.filter((item) => item.status === "suggested");
@@ -133,11 +103,6 @@ export async function GET() {
       approvedMarkdown: buildVaultMarkdown(approved),
       approvedItems: approved.map(serializeMemoryItem),
       suggestions: suggestions.map(serializeMemoryItem),
-      org: {
-        approvedMarkdown: buildVaultMarkdown(orgItems, ORG_INSTRUCTIONS_HEADING),
-        approvedItems: orgItems.map(serializeMemoryItem),
-        canEdit: sessionUser.role === "admin",
-      },
     });
   } catch (err) {
     if (err instanceof UnauthorizedError) {
@@ -145,10 +110,4 @@ export async function GET() {
     }
     throw err;
   }
-}
-
-function parseScope(value: unknown): MemoryScope | null {
-  if (value === undefined || value === "user") return "user";
-  if (value === "org") return "org";
-  return null;
 }

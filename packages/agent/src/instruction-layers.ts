@@ -77,7 +77,7 @@ export interface PinnedActiveSkill {
  * receipted honestly as such, never stubbed with placeholder guidance.
  */
 export interface PinnedOrgInstructions {
-  /** Approved org items rendered to markdown (Vault-shaped storage). */
+  /** Approved `org_instructions` rows rendered to one markdown document. */
   markdown: string;
   /** How many approved org items produced `markdown`. */
   items: number;
