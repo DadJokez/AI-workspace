@@ -3,7 +3,8 @@
 This is the rubric Claude Code uses to review pull requests in this repo (see
 [`docs/AI_PR_REVIEW_PIPELINE.md`](docs/AI_PR_REVIEW_PIPELINE.md)). Claude reviews
 **only after** the CI + Product Smoke gate is green. It comments and may add the
-`needs-codex` label; it **never pushes commits or merges** — Rob owns merges.
+`needs-codex` label (Codex must fix something) or the `needs-rob` label (Rob must
+decide, §7); it **never pushes commits or merges** — Rob owns merges.
 
 ## What this project is
 
@@ -48,6 +49,15 @@ honesty, and data-scoping matter more than cleverness.
    Everything else in this list — new production dependencies, DB migrations,
    secrets/IAM, auth surface, loosening any gate — stays Rob's, on the PR.
 
+   For those, apply the `needs-rob` label (`gh pr edit <n> --add-label
+   needs-rob`) **before** posting the review and say so in the review's first
+   line; the `Claude verdict` status stays red until Rob removes the label.
+   Never remove `needs-rob` — not Claude Code, not Codex; only Rob does, and
+   the gate treats a bot removal as if it never happened. A §7 sign-off is
+   valid only when posted by the review lane (`github-actions`) on a PR it did
+   not author; a sign-off posted through Rob's token by an authoring session
+   is void.
+
 ## How to review
 
 - Read the diff and enough surrounding code to judge it; cite `file:line`.
@@ -56,5 +66,8 @@ honesty, and data-scoping matter more than cleverness.
   `--request-changes`) or `gh pr comment`. If you want changes, also run
   `gh pr edit <n> --add-label needs-codex` and summarize what Codex should fix on
   the same branch.
+- If the change is Rob's under §7 (outside the standing delegations), run
+  `gh pr edit <n> --add-label needs-rob` *before* `gh pr review`, and open the
+  review with that fact. Never remove `needs-rob`.
 - If it's clean, say so plainly.
 - Do **not** push commits, open PRs, or merge. Rob owns merges.

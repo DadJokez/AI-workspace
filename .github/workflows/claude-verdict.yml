@@ -2,7 +2,11 @@ name: Claude Verdict
 
 # Publishes a commit status named `Claude verdict` for branch protection.
 # New PR commits are blocked until the automatic Claude review marks the exact
-# head SHA as reviewed; `needs-codex` keeps the verdict red.
+# head SHA as reviewed; `needs-codex` (Claude wants changes) and `needs-rob`
+# (human-owned under CLAUDE.md §7; only Rob removes it, #891) keep the verdict
+# red. `needs-rob` is sticky: .github/scripts/needs-rob-gate.sh reads the PR
+# timeline and still counts it as present when a bot — e.g. a steered review
+# session — was the one that removed it.
 #
 # This workflow runs on `pull_request_target`, so unlike CI and Product Smoke it
 # does not need a buildable merge ref — it is the one lane that still reports on
@@ -27,6 +31,16 @@ permissions:
   pull-requests: read
   issues: read
   statuses: write
+
+# One verdict lane per PR, queued rather than cancelled (#891). The reviewer
+# labels `needs-rob` and then posts its review; those two events start two
+# runs. Without a queue the review-triggered run could finish after the
+# label-triggered one and publish a stale green. Queued, the newest run always
+# publishes last and reads the latest labels; GitHub keeps one pending run per
+# group and replaces it with a newer one, which is the state we want anyway.
+concurrency:
+  group: claude-verdict-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: false
 
 jobs:
   # A PR with merge conflicts gets NO `CI` or `Product Smoke` runs at all —
@@ -93,6 +107,23 @@ jobs:
            github.event.pull_request != null) }}
     runs-on: ubuntu-latest
     steps:
+      # pull_request_target and pull_request_review run trusted base-branch
+      # workflow code. Check out the gate helper from the default branch too —
+      # never the PR head, and never the merge ref `github.sha` points at on
+      # pull_request_review, which contains PR-authored code.
+      - name: Checkout gate helper
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      # Runs first, like the docs-only classifier: the sticky-label matrix is
+      # what keeps a human-owned PR red, so it is proven on every run rather
+      # than trusted.
+      - name: Verify the needs-rob gate
+        run: bash .github/scripts/needs-rob-gate.test.sh
+
       - name: Publish Claude verdict
         env:
           GH_TOKEN: ${{ github.token }}
@@ -119,13 +150,25 @@ jobs:
           completed=$(gh api "repos/$REPO/commits/$SHA/status" \
             --jq '[.statuses[] | select(.context=="Claude review completed")][0].state // ""')
 
+          # Labels and the label timeline, read here rather than from the
+          # event payload so a queued run judges the PR as it is now. The
+          # timeline makes `needs-rob` sticky: a bot removal does not count.
+          labels_file=$(mktemp)
+          timeline_file=$(mktemp)
+          gh api "repos/$REPO/issues/$PR_NUMBER/labels" --paginate --slurp > "$labels_file"
+          gh api "repos/$REPO/issues/$PR_NUMBER/timeline" --paginate --slurp > "$timeline_file"
+          needs_rob=$(bash .github/scripts/needs-rob-gate.sh "$labels_file" "$timeline_file")
+          echo "$needs_rob"
+
           if [ "${CONFLICTING:-}" = "true" ]; then
             state="failure"
             description="Pull request has merge conflicts; CI cannot run"
-          elif gh api "repos/$REPO/issues/$PR_NUMBER/labels" --paginate --jq '.[].name' \
-              | grep -qx "needs-codex"; then
+          elif jq -e 'flatten(1) | any(.name == "needs-codex")' "$labels_file" >/dev/null; then
             state="failure"
             description="Claude requested changes; needs-codex is present"
+          elif [ "$(tail -n 1 <<<"$needs_rob")" = "needs_rob=present" ]; then
+            state="failure"
+            description="Human-owned (CLAUDE.md §7): needs-rob is present; only Rob removes it"
           elif [ "$completed" != "success" ]; then
             state="failure"
             description="Claude review has not passed for this commit"
