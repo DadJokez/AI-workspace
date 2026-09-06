@@ -28,6 +28,16 @@
  * enforcement point. The team layer (#438 P2) slots between org and skill
  * once the identity substrate exists; it is deliberately absent here rather
  * than named as an empty promise.
+ *
+ * Stating the rule once, in the note, was not enough (#911): with the note
+ * in place, sonnet-4-5 still let a situation-keyed Vault preference win the
+ * item count over the active skill's contract — and it kept doing so when
+ * the conflict was restated inside the skill block or in the volatile
+ * suffix. What held (5/5 live) was naming the conflict IMMEDIATELY BEFORE
+ * the personal text it applies to: when a skill is pinned and a personal
+ * source renders, the preamble puts `renderSkillOverPersonalNote` right
+ * above the custom-instructions / Vault blocks. Still deterministic: the
+ * line is a pure function of which personal sources are present.
  */
 
 export const INSTRUCTION_LAYER_ORDER = [
@@ -74,6 +84,18 @@ export interface PinnedOrgInstructions {
 }
 
 /**
+ * Which personal-layer (5) sources render in the same prompt as a pinned
+ * skill. Presence only — the conflict line names the sources the model is
+ * about to read; it never carries their content.
+ */
+export interface PinnedPersonalLayer {
+  /** The user's custom instructions render in this prompt. */
+  customInstructions: boolean;
+  /** Approved Vault memory renders in this prompt. */
+  vaultMemory: boolean;
+}
+
+/**
  * Deterministic framing markers. Content containing a literal marker is
  * rewritten (never silently truncated) so data cannot terminate the frame.
  */
@@ -89,6 +111,32 @@ function encodeReservedMarkers(text: string): string {
     .replaceAll(SKILL_END, MARKER_REPLACEMENT)
     .replaceAll(ORG_BEGIN, MARKER_REPLACEMENT)
     .replaceAll(ORG_END, MARKER_REPLACEMENT);
+}
+
+function personalLayerSources(personal: PinnedPersonalLayer): string | null {
+  if (personal.customInstructions && personal.vaultMemory) {
+    return "custom instructions and approved Vault memory";
+  }
+  if (personal.customInstructions) return "custom instructions";
+  if (personal.vaultMemory) return "approved Vault memory";
+  return null;
+}
+
+/**
+ * The skill-over-personal conflict, rendered by the preamble immediately
+ * above the personal blocks whenever a skill is pinned (#911). `null` when
+ * no personal source is in the prompt: there is no conflict to name and the
+ * prefix stays byte-identical to before. Platform text only — it names the
+ * sources, never their content, so it needs no marker encoding and carries
+ * no nonce; the wording is position-agnostic ("pinned in this prompt") so
+ * the same bytes serve the shell and the evals.
+ */
+export function renderSkillOverPersonalNote(
+  personal: PinnedPersonalLayer,
+): string | null {
+  const sources = personalLayerSources(personal);
+  if (!sources) return null;
+  return `Precedence for this skill run: the personal layer in this prompt (the user's ${sources}) is layer 5 guidance and the skill instructions pinned in this prompt are layer 4. Where the two conflict on how this skill's output is presented — number of items, bullet or list format, labels or sentinels, greeting or form of address, length, tone, or structure — the skill's contract governs this task and the personal preference is noted but not applied, even when that preference names this task or situation specifically. Personal preferences apply only where the skill is silent.`;
 }
 
 /**

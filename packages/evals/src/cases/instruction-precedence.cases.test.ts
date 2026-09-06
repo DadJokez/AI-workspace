@@ -3,9 +3,11 @@ import {
   PINNED_PRECEDENCE_NOTE,
   renderPinnedActiveSkill,
   renderPinnedOrgInstructions,
+  renderSkillOverPersonalNote,
 } from "@ai-workspace/agent";
 import type { TurnTranscript } from "../types";
 import {
+  CBX_PERSONAL_LAYER,
   CBX_RECEIPT_LABEL,
   CBX_SENTINELS,
   CBX_SKILL,
@@ -65,6 +67,43 @@ describe("instruction-precedence eval (#438, CBX-20260724-091510)", () => {
     expect(note).toBeGreaterThan(vault);
     expect(org).toBeGreaterThan(note);
     expect(skill).toBeGreaterThan(org);
+  });
+
+  it("states the #911 skill-over-personal conflict right above the Vault text, naming only the source this prompt renders", () => {
+    // The prompt has a Vault section and no custom instructions, so the
+    // line must name exactly that — the same input the preamble derives.
+    const line = renderSkillOverPersonalNote(CBX_PERSONAL_LAYER)!;
+    expect(line).toContain("(the user's approved Vault memory)");
+    expect(line).not.toContain("custom instructions and");
+    const at = CBX_SYSTEM_PROMPT.indexOf(line);
+    expect(at).toBeGreaterThan(0);
+    expect(at).toBeLessThan(CBX_SYSTEM_PROMPT.indexOf("Personal context approved by the user:"));
+    expect(CBX_SYSTEM_PROMPT.split("Precedence for this skill run").length - 1).toBe(1);
+  });
+
+  it("pins the skill's contract to an explicit Markdown marker, which the assertions require", () => {
+    expect(CBX_SKILL.systemPrompt).toContain('each starting with "- "');
+    for (const sentinel of CBX_SENTINELS) {
+      expect(CBX_SKILL.systemPrompt).toContain(`"- ${sentinel} …"`);
+    }
+  });
+
+  it("fails the 2026-09-06 nightly shape: two sentinel paragraphs, no markers, no third sentinel (#911)", () => {
+    const nightly = [
+      "CBX-ONE: Add a structured 30-60-90 day milestone framework with specific deliverables.",
+      "",
+      "CBX-TWO: Include dedicated time blocks for new hires to shadow team members.",
+    ].join("\n");
+    const results = new Map(runDeterministic(nightly));
+    expect(
+      results.get("all three skill sentinels are present, each opening exactly one bullet"),
+    ).toBe(false);
+    expect(
+      results.get(
+        "exactly three bullets — the skill's format beats the Vault's two-bullet preference",
+      ),
+    ).toBe(false);
+    expect(results.get("no prose outside the bullets (the CBX run added prose)")).toBe(false);
   });
 
   it("declares the receipt row the product renders for both layers", () => {
