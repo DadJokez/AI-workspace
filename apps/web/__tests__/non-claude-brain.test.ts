@@ -123,6 +123,85 @@ describe("nova-pro is registered but disabled by default (#797 P3)", () => {
   });
 });
 
+describe("the GPT-5.6 entries are registered but disabled by default (#660 / #797 P4)", () => {
+  const GPT: ModelId[] = ["gpt-5-6-terra", "gpt-5-6-sol", "gpt-5-6-luna"];
+
+  it("are responses-route registry entries that neither the default nor the platform pin points at", () => {
+    for (const id of GPT) {
+      expect(MODEL_IDS).toContain(id);
+      expect(DEFAULT_MODEL_ID).not.toBe(id);
+      expect(MODELS[id]).toMatchObject({
+        provider: "openai",
+        providerDisplayName: "OpenAI",
+        invocation: "responses",
+        supportsPromptCaching: false,
+      });
+      expect(MODELS[id].bedrockModelId).toMatch(/^us\.openai\.gpt-5\.6-/);
+    }
+  });
+
+  it("are enabled for no purpose without a model_enablement row", async () => {
+    const db = fakeDb(seededRows());
+    for (const purpose of MODEL_PURPOSES) {
+      const enabled = await enabledModelsForPurpose(db, purpose);
+      for (const id of GPT) {
+        expect(await isModelEnabled(db, id, purpose)).toBe(false);
+        expect(enabled).not.toContain(id);
+      }
+    }
+  });
+
+  it("cannot be selected for a turn without a row, even when explicitly requested by id or Bedrock id", () => {
+    for (const requestedModelId of ["gpt-5-6-terra", MODELS["gpt-5-6-terra"].bedrockModelId]) {
+      const selection = resolveRuntimeModelSelection({
+        requestedModelId,
+        route: directRoute,
+        runtimeName: "bedrock",
+        directModelId: undefined,
+        forceRequestedModel: true,
+        enabledModelIds: new Set(SEEDED),
+      });
+      expect(selection.modelId).not.toBe("gpt-5-6-terra");
+      expect(selection.reason).toBe("default_model_fallback");
+    }
+  });
+
+  it("keeps summaries, routing and memory-capture on Claude even when Terra is the chat brain", async () => {
+    const db = fakeDb(seededRows([{ modelId: "gpt-5-6-terra", purpose: "chat" }]));
+    expect(await enabledModelsForPurpose(db, "chat")).toContain("gpt-5-6-terra");
+    for (const purpose of ["summaries", "routing", "memory-capture"] as const) {
+      const resolved = await resolveModelForPurpose(db, purpose, {
+        preferred: "gpt-5-6-terra",
+      });
+      expect(MODELS[resolved].provider).toBe("anthropic");
+    }
+  });
+});
+
+describe("cross-provider failover chains (#797 P3)", () => {
+  it("leaves the Claude-only chain exactly as before", () => {
+    expect(
+      orderModelCandidatesForPurpose("chat", SEEDED, "sonnet-4-6"),
+    ).toEqual(["sonnet-4-6", "opus-4-7", "haiku-4-5"]);
+  });
+
+  it("never manufactures a hop into nova-pro without its row", () => {
+    expect(
+      orderModelCandidatesForPurpose("chat", SEEDED, "nova-pro"),
+    ).toEqual(["sonnet-4-6", "opus-4-7", "haiku-4-5"]);
+  });
+
+  it("adds nova-pro as the last (cheapest) hop once it is enabled for the purpose", () => {
+    expect(
+      orderModelCandidatesForPurpose(
+        "chat",
+        [...SEEDED, "nova-pro"],
+        "sonnet-4-6",
+      ),
+    ).toEqual(["sonnet-4-6", "opus-4-7", "haiku-4-5", "nova-pro"]);
+  });
+});
+
 describe("gpt-oss-120b is registered but disabled by default (#797)", () => {
   it("is a real registry entry that neither the default nor the platform pin points at", () => {
     expect(MODEL_IDS).toContain("gpt-oss-120b");
@@ -202,29 +281,5 @@ describe("gpt-oss-120b is registered but disabled by default (#797)", () => {
         "sonnet-4-6",
       ),
     ).toEqual(["sonnet-4-6", "opus-4-7", "haiku-4-5", "gpt-oss-120b"]);
-  });
-});
-
-describe("cross-provider failover chains (#797 P3)", () => {
-  it("leaves the Claude-only chain exactly as before", () => {
-    expect(
-      orderModelCandidatesForPurpose("chat", SEEDED, "sonnet-4-6"),
-    ).toEqual(["sonnet-4-6", "opus-4-7", "haiku-4-5"]);
-  });
-
-  it("never manufactures a hop into nova-pro without its row", () => {
-    expect(
-      orderModelCandidatesForPurpose("chat", SEEDED, "nova-pro"),
-    ).toEqual(["sonnet-4-6", "opus-4-7", "haiku-4-5"]);
-  });
-
-  it("adds nova-pro as the last (cheapest) hop once it is enabled for the purpose", () => {
-    expect(
-      orderModelCandidatesForPurpose(
-        "chat",
-        [...SEEDED, "nova-pro"],
-        "sonnet-4-6",
-      ),
-    ).toEqual(["sonnet-4-6", "opus-4-7", "haiku-4-5", "nova-pro"]);
   });
 });

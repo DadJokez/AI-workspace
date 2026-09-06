@@ -73,7 +73,7 @@ Field by field:
 | `cacheReadInputMultiplier` / `cacheWriteInputMultiplier` | the model's cache-read / cache-write rates relative to input; moot when caching is off |
 | `supportsPromptCaching` | `true` **only** if the model appears in the explicit `cachePoint` table of the [Bedrock prompt-caching guide](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html). Otherwise `false`: the loop then emits no checkpoints and the request stays valid. Nova is implicit-cache only |
 | `supportsToolUse` / `supportsStreaming` / `supportsVision` | the model card / step 1 modalities |
-| `invocation` | `converse` for this runbook. `responses` is reserved for the Mantle adapter (#660) |
+| `invocation` | `converse` for this runbook. `responses` routes the model through Bedrock's OpenAI-compatible Responses API (`BedrockResponsesClient`, #660) — the OpenAI GPT entries use it; see "Responses-route models" below |
 | `contextWindow` / `defaultMaxTokens` | the vendor's model-specification table. `defaultMaxTokens` is passed straight to Converse and must not exceed the documented output ceiling; note in the comment if it is below the 20–30k an artifact build needs (#320) |
 | `blurb` / `recommendedFor` | selector copy; only shown once the model is enabled |
 
@@ -208,6 +208,43 @@ foundation-model ids added there and the stack redeployed
 (`docs/EVAL_AUTOMATION_SETUP.md`). Until then the `model-identity` suite runs
 nightly on the incumbent only; a per-enabled-model fan-out is designed but
 not built (see the #797 P3 PR).
+
+## Responses-route models (`invocation: "responses"`, #660)
+
+The OpenAI GPT models on Bedrock are not reachable through Converse on the
+`bedrock-runtime` endpoint; their registry entries declare
+`invocation: "responses"` and `RealBedrockClient` sends them through
+`BedrockResponsesClient` (`packages/agent/src/responses-client.ts`) —
+Bedrock's OpenAI-compatible Responses API at
+`https://bedrock-runtime.<region>.amazonaws.com/openai/v1/responses`, SigV4-
+signed with the ambient AWS credentials, `store: false` on every request,
+client-side function calling only. Everything above still applies; the
+differences:
+
+- **Step 1.** The model card's "Programmatic Access" table gives the `us.`
+  geo profile to declare (`us.openai.gpt-5.6-terra`); in-Region ids are
+  Mantle-only. The bounded access probe is a signed HTTPS call, not
+  `aws bedrock-runtime converse` — the quickest is a one-off `tsx` script
+  that runs `runAgentLoop` on the entry with `BEDROCK_CLIENT=real` (the P4
+  PR body has one).
+- **Pricing.** The card's own pricing table is authoritative and already
+  regional (use the "Geo CRIS, Short Context" row as-is — no +10% on top).
+  Input beyond 272K tokens bills a 2× "Long Context" tier the registry does
+  not model; declare `contextWindow: 272_000`.
+- **`supportsPromptCaching`** stays `false`: the flag gates Converse
+  `cachePoint` blocks and the Responses client sends no explicit cache
+  markers. Implicit caching still applies; `cached_tokens` are reported as
+  cache reads.
+- **IAM.** Production needs no new action: the task role's
+  `bedrock:InvokeModel*` on `*` covers the inference profile, the foundation
+  models it routes to, and the `bedrock:InvokeModel` on
+  `arn:aws:bedrock:<region>:<account>:project/default` the Responses API
+  additionally authorizes. A least-privilege role must list all three. The
+  nightly role (step 8) needs the profile, the foundation-model ARNs, and
+  the default-project ARN.
+- **Qualification** is the same `pnpm eval --model <id>` command; the
+  harness needs no wiring because the dispatch is inside the client the
+  judge shares (the judge stays on Converse).
 
 ## Honest accounting
 

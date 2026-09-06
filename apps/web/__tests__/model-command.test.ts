@@ -68,12 +68,14 @@ describe("model slash command", () => {
         // Nova Pro is cheaper — because role words never cross vendors.
         nova: "nova-pro",
         "nova-pro": "nova-pro",
-        // #797: the open-weight OpenAI entry. Display-name slug equals its id;
-        // the short name is "gpt"; `<family>-<short>` derives to the odd but
-        // harmless "gpt-oss-gpt". Role words still stay within Claude.
-        gpt: "gpt-oss-120b",
-        "gpt-oss-120b": "gpt-oss-120b",
-        "gpt-oss-gpt": "gpt-oss-120b",
+        // #660 / #797 P4: the three GPT-5.6 entries share the short name
+        // `gpt`, which resolves to the last-registered of them (the default
+        // is not one of them). Role words still stay within the default's
+        // vendor.
+        "gpt-5-6-terra": "gpt-5-6-terra",
+        "gpt-5-6-sol": "gpt-5-6-sol",
+        "gpt-5-6-luna": "gpt-5-6-luna",
+        gpt: "gpt-5-6-luna",
       });
     });
 
