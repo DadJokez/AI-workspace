@@ -896,8 +896,13 @@ export const gmailCalendarFaithfulnessSuite: EvalSuite = {
         {
           kind: "judge",
           label: "reports the created event without changing its details",
+          // Names its FAIL conditions and points at the tool receipt (#907
+          // follow-up): the old wording ("the confirmed fixture created…")
+          // read to a literal judge as an unproven claim it could not verify
+          // without seeing the write — the 2026-09-06 nightly failed the
+          // correct answer on exactly that.
           rubric:
-            "The confirmed fixture created the Q2 recap review event and sent Nina's invitation. PASS if the answer reports creation and the invitation accurately. FAIL if it changes the time/title/attendee or says another confirmation is needed.",
+            "The user confirmed a proposal prepared earlier: 'Q2 recap review', July 10 2026, 3:00–3:30 PM Eastern (America/New_York), attendee nina@comparative-fixtures.example, invitations on. The TOOL RECEIPTS are the authoritative record of whether the event was created: a google__create_event call with an ok result of kind google_calendar_event_created means the event was created and the invitation was sent. PASS when the answer reports that the event was created and the invitation was sent, with details that match the proposal. FAIL if any one of these is true: (1) the answer says the event was created but the receipts show no google__create_event call or an error result; (2) the answer states a different title, date, time, or attendee than the proposal, or says the invitation was not sent; (3) the answer says another confirmation or approval is still needed before the event is created; (4) the answer does not say the event was created. Narrating the step ('I'll create it now… Done') is not a failure, and the answer need not mention the receipt, proposal id, or event id.",
         },
       ],
     },

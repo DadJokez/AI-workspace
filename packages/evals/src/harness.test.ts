@@ -6,7 +6,12 @@ import {
   type BedrockStreamEvent,
   type Tool,
 } from "@ai-workspace/agent";
-import { resolveKnownIssue, runSuite } from "./harness";
+import {
+  collectToolReceipts,
+  judgeSeesToolReceipts,
+  resolveKnownIssue,
+  runSuite,
+} from "./harness";
 import type { EvalSuite } from "./types";
 
 /**
@@ -768,5 +773,79 @@ describe("inconclusive judge samples (#895)", () => {
     expect(c.inconclusiveRuns).toBeUndefined();
     expect(c.assertions[0]).toMatchObject({ ok: true, judgeTruncated: true });
     expect(judge.calls).toBe(4);
+  });
+});
+
+/**
+ * Tool receipts reach the judge only on cases whose rubric turns on whether
+ * a tool ran (#907 follow-up); every other case's judge prompt is untouched.
+ */
+describe("tool receipts for the judge", () => {
+  const fixtureTool: Tool = {
+    name: "google__create_event",
+    policy: "always_allow",
+    description: "fixture",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => ({ kind: "google_calendar_event_created" }),
+  };
+  const judgeCase = (id: string, tags: string[]): EvalSuite["cases"][number] => ({
+    id,
+    description: "receipt gating",
+    tags,
+    input: "Create the event.",
+    tools: [fixtureTool],
+    assertions: [
+      {
+        kind: "judge",
+        label: "reports the write from the receipt",
+        rubric: "Was the event created?",
+      },
+    ],
+  });
+
+  it("gates on connected-tools plus write-boundary, and nothing else", () => {
+    expect(judgeSeesToolReceipts(["connected-tools", "write-boundary"])).toBe(true);
+    // provider-state is deliberately out: the block flipped a Sonnet-passed
+    // pending-approval answer to FAIL under Haiku (see judgeSeesToolReceipts).
+    expect(judgeSeesToolReceipts(["connected-tools", "provider-state"])).toBe(false);
+    expect(judgeSeesToolReceipts(["connected-tools", "grounding"])).toBe(false);
+    expect(judgeSeesToolReceipts(["write-boundary"])).toBe(false);
+    expect(judgeSeesToolReceipts([])).toBe(false);
+  });
+
+  it("pairs each call with its result by id, in call order", () => {
+    const receipts = collectToolReceipts([
+      { type: "tool-call", call: { id: "a", name: "first", input: { q: 1 } } },
+      { type: "tool-call", call: { id: "b", name: "second", input: {} } },
+      { type: "tool-result", result: { toolCallId: "b", output: "boom", isError: true } },
+      { type: "tool-result", result: { toolCallId: "a", output: { rows: [] } } },
+      { type: "tool-result", result: { toolCallId: "zzz", output: "orphan" } },
+    ]);
+    expect(receipts).toEqual([
+      { tool: "first", input: { q: 1 }, output: '{"rows":[]}' },
+      { tool: "second", input: {}, output: "boom", isError: true },
+    ]);
+  });
+
+  it("attaches the turn's receipts to the judge prompt on a gated case only", async () => {
+    const suite: EvalSuite = {
+      capability: "receipts",
+      defaultModelId: "haiku-4-5",
+      tags: ["connected-tools"],
+      cases: [
+        judgeCase("write-boundary", ["write-boundary"]),
+        judgeCase("grounding-only", ["grounding"]),
+      ],
+    };
+    const judge = new PassingJudgeClient();
+    await runSuite(suite, { client: new ToolCallingClient(), judgeClient: judge });
+
+    expect(judge.prompts).toHaveLength(2);
+    expect(judge.prompts[0]).toContain("TOOL RECEIPTS");
+    expect(judge.prompts[0]).toContain(
+      '1. google__create_event {"limit":3} → ok: {"kind":"google_calendar_event_created"}',
+    );
+    expect(judge.prompts[0]).toMatch(/<<<TOOL-RECEIPTS [0-9a-f-]{36}>>>/);
+    expect(judge.prompts[1]).not.toContain("TOOL RECEIPTS");
   });
 });
