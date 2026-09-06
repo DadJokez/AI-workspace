@@ -8,7 +8,9 @@ import {
   type ToolConfiguration,
 } from "@aws-sdk/client-bedrock-runtime";
 import type { DocumentType } from "@smithy/types";
+import type { ModelInvocation } from "./models";
 import type { BedrockToolConfig } from "./registry";
+import { BedrockResponsesClient } from "./responses-client";
 import type { TokenUsage } from "./types";
 
 /**
@@ -108,6 +110,13 @@ export interface ConverseStreamParams {
    * honor checkpoints gets the same request without them.
    */
   supportsPromptCaching: boolean;
+  /**
+   * The registry's `invocation` route (#660, #797 P4). `RealBedrockClient`
+   * sends `responses` models to Bedrock's OpenAI-compatible Responses API
+   * (`BedrockResponsesClient`) and everything else to Converse. Optional so
+   * the fakes and existing Converse callers are untouched; absent = converse.
+   */
+  invocation?: ModelInvocation;
   /**
    * Stable system text. Must be byte-identical across turns of a conversation
    * — it sits inside the prompt-cache prefix, and any per-request byte
@@ -378,8 +387,19 @@ function e2eUsageEvent(
   };
 }
 
+/**
+ * The real AWS client for every registry invocation route: Converse for
+ * `converse` models, Bedrock's OpenAI-compatible Responses API for
+ * `responses` models (#660). Dispatching here — on the metadata the loop
+ * already passes — is what lets both runtime lanes, the AgentCore container
+ * and the evals harness serve a GPT entry with no change of their own: they
+ * all hold one `RealBedrockClient`, and the judge (a Claude model) keeps
+ * going to Converse through the same object.
+ */
 export class RealBedrockClient implements BedrockClient {
   private readonly client: BedrockRuntimeClient;
+  private readonly region: string;
+  private responses?: BedrockResponsesClient;
 
   constructor() {
     const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
@@ -388,12 +408,18 @@ export class RealBedrockClient implements BedrockClient {
         "RealBedrockClient requires AWS_REGION or AWS_DEFAULT_REGION to be set.",
       );
     }
+    this.region = region;
     this.client = new BedrockRuntimeClient({ region });
   }
 
   async *converseStream(
     params: ConverseStreamParams,
   ): AsyncIterable<BedrockStreamEvent> {
+    if (params.invocation === "responses") {
+      this.responses ??= new BedrockResponsesClient({ region: this.region });
+      yield* this.responses.converseStream(params);
+      return;
+    }
     const messages: Message[] = params.messages.map((m) => ({
       role: m.role,
       content: m.content.map((b): ContentBlock => {

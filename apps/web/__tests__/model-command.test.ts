@@ -68,6 +68,14 @@ describe("model slash command", () => {
         // Nova Pro is cheaper — because role words never cross vendors.
         nova: "nova-pro",
         "nova-pro": "nova-pro",
+        // #660 / #797 P4: the three GPT-5.6 entries share the short name
+        // `gpt`, which resolves to the last-registered of them (the default
+        // is not one of them). Role words still stay within the default's
+        // vendor.
+        "gpt-5-6-terra": "gpt-5-6-terra",
+        "gpt-5-6-sol": "gpt-5-6-sol",
+        "gpt-5-6-luna": "gpt-5-6-luna",
+        gpt: "gpt-5-6-luna",
       });
     });
 
@@ -120,7 +128,7 @@ describe("model slash command", () => {
 
     it("lists every short name in the usage message", () => {
       expect(modelCommandUsageMessage()).toBe(
-        "Use /model haiku, /model sonnet, /model opus, /model nova, or /model auto followed by a message.",
+        "Use /model haiku, /model sonnet, /model opus, /model nova, /model gpt, or /model auto followed by a message.",
       );
     });
   });

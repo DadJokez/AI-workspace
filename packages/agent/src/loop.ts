@@ -339,6 +339,7 @@ export async function* runAgentLoop(
     const stream = client.converseStream({
       bedrockModelId: model.bedrockModelId,
       supportsPromptCaching: model.supportsPromptCaching,
+      invocation: model.invocation,
       systemPrompt,
       volatileSystemSuffix: iterationVolatileSystemSuffix,
       messages: lifecycle.messages,
