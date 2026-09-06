@@ -1550,6 +1550,11 @@ describe("model output caps", () => {
   // not this test's — but adding a model here must be a conscious edit.
   const DOCUMENTED_CEILING_BELOW_FLOOR: Partial<Record<ModelId, number>> = {
     "nova-pro": 10_000,
+    // #797 gaggle (2026-09-06): the Bedrock model cards' "Max output tokens".
+    "qwen3-32b": 8_000,
+    "qwen3-next-80b": 8_000,
+    "glm-4-7": 4_000,
+    "deepseek-v3-2": 8_000,
   };
 
   it("gives every model enough output room for a complete artifact, or exactly its documented ceiling", () => {

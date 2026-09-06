@@ -178,6 +178,64 @@ describe("the GPT-5.6 entries are registered but disabled by default (#660 / #79
   });
 });
 
+/** The 2026-09-06 gaggle (#797 P5): registered for qualification, no rows. */
+const GAGGLE: ModelId[] = [
+  "qwen3-32b",
+  "qwen3-next-80b",
+  "kimi-k2-5",
+  "glm-4-7",
+  "glm-5",
+  "nemotron-super-3-120b",
+  "deepseek-v3-2",
+  "sonnet-5",
+  "opus-5",
+  "fable-5-1",
+];
+
+describe("the 2026-09-06 gaggle is registered but disabled by default (#797 P5)", () => {
+  it.each(GAGGLE)(
+    "%s: registered, not the default, disabled for every purpose without a row, unselectable by id or Bedrock id",
+    async (id) => {
+      expect(MODEL_IDS).toContain(id);
+      expect(DEFAULT_MODEL_ID).not.toBe(id);
+      expect(MODELS[id].invocation).toBe("converse");
+      // Only Anthropic entries are in Bedrock's explicit `cachePoint` table;
+      // every other vendor's entry must say so or its requests are rejected.
+      expect(MODELS[id].supportsPromptCaching).toBe(
+        MODELS[id].provider === "anthropic",
+      );
+      const db = fakeDb(seededRows());
+      for (const purpose of MODEL_PURPOSES) {
+        expect(await isModelEnabled(db, id, purpose)).toBe(false);
+        expect(await enabledModelsForPurpose(db, purpose)).not.toContain(id);
+      }
+      for (const requestedModelId of [id, MODELS[id].bedrockModelId]) {
+        const selection = resolveRuntimeModelSelection({
+          requestedModelId,
+          route: directRoute,
+          runtimeName: "bedrock",
+          directModelId: undefined,
+          forceRequestedModel: true,
+          enabledModelIds: new Set(SEEDED),
+        });
+        expect(selection.modelId).not.toBe(id);
+        expect(selection.reason).toBe("default_model_fallback");
+      }
+    },
+  );
+
+  it("leaves every seeded failover chain byte-identical with ten more entries registered", () => {
+    expect(
+      orderModelCandidatesForPurpose("chat", SEEDED, "sonnet-4-6"),
+    ).toEqual(["sonnet-4-6", "opus-4-7", "haiku-4-5"]);
+    for (const purpose of MODEL_PURPOSES) {
+      for (const id of orderModelCandidatesForPurpose(purpose, SEEDED, "sonnet-4-6")) {
+        expect(SEEDED).toContain(id);
+      }
+    }
+  });
+});
+
 describe("cross-provider failover chains (#797 P3)", () => {
   it("leaves the Claude-only chain exactly as before", () => {
     expect(
@@ -205,7 +263,12 @@ describe("cross-provider failover chains (#797 P3)", () => {
 describe("gpt-oss-120b is registered but disabled by default (#797)", () => {
   it("is a real registry entry that neither the default nor the platform pin points at", () => {
     expect(MODEL_IDS).toContain("gpt-oss-120b");
-    expect(MODEL_IDS.at(-1)).toBe("gpt-oss-120b");
+    // Registered right after the GPT-5.6 trio (#917); the 2026-09-06 gaggle
+    // (#919) is registered after it, so the registry's last entry is Fable 5.1.
+    expect(MODEL_IDS.indexOf("gpt-oss-120b")).toBe(
+      MODEL_IDS.indexOf("gpt-5-6-luna") + 1,
+    );
+    expect(MODEL_IDS.at(-1)).toBe("fable-5-1");
     expect(DEFAULT_MODEL_ID).not.toBe("gpt-oss-120b");
     expect(MODELS["gpt-oss-120b"]).toMatchObject({
       // ON_DEMAND only — no `us.` inference profile exists for this model.

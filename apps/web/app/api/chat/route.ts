@@ -30,7 +30,11 @@ import {
   createChatStreamWriter,
   startChatStreamHeartbeat,
 } from "@/lib/chat-stream-contract";
-import { isModelEnabled, resolveModelForPurpose } from "@/lib/model-registry";
+import {
+  enabledModelsForPurpose,
+  isModelEnabled,
+  resolveModelForPurpose,
+} from "@/lib/model-registry";
 import {
   resolveDeclaredAttachmentCount,
   scanAttachmentsForSecrets,
@@ -184,10 +188,21 @@ export async function POST(req: Request) {
     );
   }
 
-  const modelCommand = parseModelCommand(body.message);
+  // #797 P5: the `/model` vocabulary is the enabled-for-chat vocabulary. A
+  // registered-but-disabled brain can neither be named here nor capture a
+  // shared short name or role word (`opus`, `deep`) from an enabled one and
+  // silently answer on the default; the enablement gate below stays the hard
+  // stop for the picker path. Fails open to the registry like every other
+  // enablement read.
+  const db = getDb();
+  const chatModelIds = await enabledModelsForPurpose(db, "chat");
+  const modelCommand = parseModelCommand(body.message, chatModelIds);
   if (isModelCommandInput(body.message) && !modelCommand) {
     return NextResponse.json(
-      { error: "invalid_model_command", message: modelCommandUsageMessage() },
+      {
+        error: "invalid_model_command",
+        message: modelCommandUsageMessage(chatModelIds),
+      },
       { status: 400 },
     );
   }
@@ -212,7 +227,10 @@ export async function POST(req: Request) {
   }
   if (modelCommand && !modelCommand.body.trim() && attachments.length === 0) {
     return NextResponse.json(
-      { error: "invalid_model_command", message: modelCommandUsageMessage() },
+      {
+        error: "invalid_model_command",
+        message: modelCommandUsageMessage(chatModelIds),
+      },
       { status: 400 },
     );
   }
@@ -253,7 +271,6 @@ export async function POST(req: Request) {
   // arbitrary request string must never reach the prompt.
   const userTimeZone = normalizeUserTimeZone(body.timeZone);
 
-  const db = getDb();
   const rate = await checkRateLimit(db, `chat:${sessionUser.id}`, limits);
   if (!rate.allowed) {
     await db.insert(auditLog).values({

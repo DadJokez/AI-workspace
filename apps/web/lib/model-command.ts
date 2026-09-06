@@ -31,30 +31,47 @@ function shortName(modelId: ModelId): string {
 
 /**
  * `/model <alias>` vocabulary, derived from the registry so adding a model
- * never needs a parallel hand table here (#797 P1). Per registered model:
+ * never needs a parallel hand table here (#797 P1). Per model in `modelIds`:
  * its id, its display-name slug, its bare short name, and
  * `<family>-<short>` (`claude-sonnet`) when the two differ. A short name
  * shared by several models resolves to the app default when it is one of
- * them, otherwise to the last-registered (newest) model. Three role words
+ * them, otherwise to the last-listed (newest) model. Three role words
  * follow the registry's own cost/capability ordering
  * (`apps/web/lib/model-registry.ts`): `fast` → cheapest, `deep` → highest
- * output price, `quality` → the app default. Enablement is not this parser's
- * concern — a disabled model resolves here exactly like a raw id and is
- * refused downstream by the enablement gate.
+ * output price, `quality` → the app default.
  *
  * Role words range only over models sharing the default model's vendor: a
  * role word means a cheaper or heavier lane of the brain you are on, never a
  * silent vendor swap (#797 P3 — a registered-but-disabled Nova Pro would
  * otherwise become `fast` by price). Crossing vendors is an explicit
  * `/model nova`.
+ *
+ * `modelIds` is the vocabulary. The default is the whole registry (the pure,
+ * enablement-blind table tests and the composer use); the chat route passes
+ * the models enabled for chat instead (#797 P5), so a registered-but-
+ * disabled brain can neither be named nor capture a shared short name or a
+ * role word from an enabled one — with ten disabled entries registered,
+ * `opus` and `deep` would otherwise resolve to Opus 5 / Fable 5.1 and the
+ * enablement gate would silently answer on the default. The parser itself
+ * stays sync and pure; enablement is the caller's input, never a lookup here.
+ *
+ * Every alias resolves inside `modelIds`, the app default included: when the
+ * vocabulary omits it (a non-default `PLATFORM_MODEL_OVERRIDE_ID`, or an
+ * admin who enabled other tiers for chat but not the default), its short
+ * name is not pinned and the three role words — all anchored to "the brain
+ * you are on" — are absent, so `/model sonnet` / `/model quality` /
+ * `/model fast` get the usage message instead of a parse that the
+ * enablement gate would silently redirect to the pin.
  */
-function buildModelAliases(): Record<string, ModelId | "auto"> {
+function buildModelAliases(
+  modelIds: readonly ModelId[],
+): Record<string, ModelId | "auto"> {
   const aliases: Record<string, ModelId | "auto"> = {
     auto: "auto",
     autopilot: "auto",
     default: "auto",
   };
-  for (const id of MODEL_IDS) {
+  for (const id of modelIds) {
     const short = shortName(id);
     aliases[id] = id;
     aliases[displayNameSlug(id)] = id;
@@ -63,6 +80,8 @@ function buildModelAliases(): Record<string, ModelId | "auto"> {
       aliases[`${MODELS[id].family}-${short}`] = id;
     }
   }
+  if (!modelIds.includes(DEFAULT_MODEL_ID)) return aliases;
+
   const defaultShort = shortName(DEFAULT_MODEL_ID);
   aliases[defaultShort] = DEFAULT_MODEL_ID;
   if (MODELS[DEFAULT_MODEL_ID].family !== defaultShort) {
@@ -72,7 +91,7 @@ function buildModelAliases(): Record<string, ModelId | "auto"> {
 
   const cost = (id: ModelId) =>
     MODELS[id].costPer1MInput + MODELS[id].costPer1MOutput;
-  const sameVendor = MODEL_IDS.filter(
+  const sameVendor = modelIds.filter(
     (id) => MODELS[id].provider === MODELS[DEFAULT_MODEL_ID].provider,
   );
   let cheapest: ModelId = DEFAULT_MODEL_ID;
@@ -89,18 +108,29 @@ function buildModelAliases(): Record<string, ModelId | "auto"> {
   return aliases;
 }
 
-const MODEL_ALIASES = buildModelAliases();
+const REGISTRY_ALIASES = buildModelAliases(MODEL_IDS);
 
-/** Registry-derived `/model` aliases; exported for tests and help text. */
-export function modelCommandAliases(): Readonly<Record<string, ModelId | "auto">> {
-  return MODEL_ALIASES;
+function aliasesFor(
+  modelIds: readonly ModelId[],
+): Record<string, ModelId | "auto"> {
+  return modelIds === MODEL_IDS ? REGISTRY_ALIASES : buildModelAliases(modelIds);
+}
+
+/** Registry-derived `/model` aliases over `modelIds`; exported for tests and help text. */
+export function modelCommandAliases(
+  modelIds: readonly ModelId[] = MODEL_IDS,
+): Readonly<Record<string, ModelId | "auto">> {
+  return aliasesFor(modelIds);
 }
 
 export function isModelCommandInput(input: string): boolean {
   return /^\/model(?:\s|$)/i.test(input.trimStart());
 }
 
-export function parseModelCommand(input: string): ParsedModelCommand | null {
+export function parseModelCommand(
+  input: string,
+  modelIds: readonly ModelId[] = MODEL_IDS,
+): ParsedModelCommand | null {
   const match = MODEL_COMMAND_RE.exec(input.trimStart());
   if (!match) return null;
 
@@ -108,7 +138,7 @@ export function parseModelCommand(input: string): ParsedModelCommand | null {
   const body = (match[2] ?? "").trimStart();
   if (!rawModel) return null;
 
-  const mapped = MODEL_ALIASES[rawModel];
+  const mapped = aliasesFor(modelIds)[rawModel];
   if (!mapped) return null;
 
   if (mapped === "auto") {
@@ -128,8 +158,10 @@ export function parseModelCommand(input: string): ParsedModelCommand | null {
   };
 }
 
-export function modelCommandUsageMessage(): string {
-  const shortNames = [...new Set(MODEL_IDS.map(shortName))];
+export function modelCommandUsageMessage(
+  modelIds: readonly ModelId[] = MODEL_IDS,
+): string {
+  const shortNames = [...new Set(modelIds.map(shortName))];
   return `Use ${shortNames.map((name) => `/model ${name}`).join(", ")}, or /model auto followed by a message.`;
 }
 

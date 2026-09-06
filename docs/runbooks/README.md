@@ -15,7 +15,7 @@ first execution should not also be the first draft.
 | [DSAR_RIGHT_TO_DELETE.md](./DSAR_RIGHT_TO_DELETE.md) | Answer a data-subject access or deletion request | **No** |
 | [RDS_NETWORK_PERIMETER.md](./RDS_NETWORK_PERIMETER.md) | Verify and recover the non-public RDS network boundary | **Yes, through the production deployment gate** |
 | [BEDROCK_QUOTA_HEADROOM.md](./BEDROCK_QUOTA_HEADROOM.md) | Respond before shared Sonnet quota exhaustion can starve production | **No** |
-| [ADD_A_CONVERSE_MODEL.md](./ADD_A_CONVERSE_MODEL.md) | Register, qualify and (Rob) enable a new Bedrock Converse model | **Partly — through qualification on `nova-pro` and `gpt-oss-120b`; the enablement flip never** |
+| [ADD_A_CONVERSE_MODEL.md](./ADD_A_CONVERSE_MODEL.md) | Register, qualify and (Rob) enable a new Bedrock Converse model | **Partly — through qualification on `nova-pro` (2026-09-05), `gpt-oss-120b` (2026-09-06) and seven of the ten-model gaggle of 2026-09-06 (three Claude 5.x entries are account-gated); the enablement flip never** |
 
 Related:
 

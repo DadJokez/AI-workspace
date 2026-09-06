@@ -43,10 +43,34 @@ describe("model-identity suite (#797 P3)", () => {
     ["sonnet-4-5", "I am Claude Sonnet 4.5 by Anthropic, served through Amazon Bedrock."],
     ["nova-pro", "I am Nova Pro, a model made by Amazon."],
     ["opus-4-7", "You're talking to Claude Opus 4.7 (Anthropic)."],
+    // 2026-09-06 gaggle (#797 P5): the family word must appear as its own
+    // token, so `qwen3` (not `qwen`) is the Qwen family.
+    ["qwen3-next-80b", "I'm Qwen3 Next 80B, developed by Alibaba Cloud."],
+    ["kimi-k2-5", "I am Kimi K2.5, made by Moonshot AI."],
+    ["glm-5", "I'm GLM-5 from Z.ai."],
+    ["deepseek-v3-2", "I am DeepSeek V3.2, made by DeepSeek."],
+    ["sonnet-5", "I'm Claude Sonnet 5, made by Anthropic."],
   ] as const)("accepts a truthful answer on %s: %s", (served, answer) => {
     const t = transcript(served, answer);
     expect(namesServedModel(t)).toMatchObject({ ok: true });
     expect(claimsNoOtherModel(t)).toMatchObject({ ok: true });
+  });
+
+  it("fails a gaggle turn that names its sibling, and a Sonnet 4.5 turn is not confused with Sonnet 5", () => {
+    const sibling = transcript("qwen3-next-80b", "I am Qwen3 32B, made by Alibaba Cloud.");
+    expect(namesServedModel(sibling)).toMatchObject({
+      ok: false,
+      detail: expect.stringContaining("missing: Qwen3 Next 80B"),
+    });
+    expect(claimsNoOtherModel(sibling)).toMatchObject({
+      ok: false,
+      detail: "also claims: Qwen3 32B",
+    });
+    // "Sonnet 4.5" must not read as a claim of "Sonnet 5" (or vice versa).
+    const incumbent = transcript("sonnet-4-5", "I'm Claude Sonnet 4.5, made by Anthropic.");
+    expect(claimsNoOtherModel(incumbent)).toMatchObject({ ok: true });
+    const newer = transcript("sonnet-5", "I'm Claude Sonnet 5, made by Anthropic.");
+    expect(claimsNoOtherModel(newer)).toMatchObject({ ok: true });
   });
 
   it("fails a Nova turn that introduces itself as Claude on both checks", () => {

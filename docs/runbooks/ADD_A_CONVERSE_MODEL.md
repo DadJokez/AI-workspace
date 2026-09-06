@@ -1,8 +1,11 @@
 # Runbook: add a Bedrock Converse model
 
-**Status: written; rehearsed on `nova-pro` (2026-09-05, #797 P3) and
-`gpt-oss-120b` (2026-09-06) through step 5. Steps 6–7 — the enablement flip —
-have never been executed.**
+**Status: written; rehearsed on `nova-pro` (2026-09-05, #797 P3),
+`gpt-oss-120b` (2026-09-06) and the ten-model gaggle of 2026-09-06 (#797 P5 —
+[`../models/QUALIFICATION_2026-09-06.md`](../models/QUALIFICATION_2026-09-06.md)):
+`nova-pro`, `gpt-oss-120b` and seven gaggle models through step 5; the three
+Claude 5.x entries stopped at step 1 on account access. Steps 6–7 — the
+enablement flip — have never been executed.**
 
 **Purpose.** Put a new Bedrock model behind Comparative as a registry entry,
 prove it with the qualification pack, and (Rob only) turn it on per purpose.
@@ -39,13 +42,17 @@ aws bedrock list-inference-profiles --region us-east-1 \
 ```
 
 The foundation model must list `INFERENCE_PROFILE` (or `ON_DEMAND`) and the
-profile must be `ACTIVE`. Some models have no `us.` profile at all
-(`openai.gpt-oss-120b-1:0` is `ON_DEMAND` only): then `bedrockModelId` is the
-bare foundation-model id, single-region, and the price is plain list with no
-+10% premium — say so in the entry comment. Then prove model access with one
-bounded call — an
-`AccessDeniedException` here means model access is not enabled in the Bedrock
-console (Rob), and nothing downstream will work:
+profile must be `ACTIVE`. Many models have no `us.` profile at all
+(`openai.gpt-oss-120b-1:0` is `ON_DEMAND` only, and so were Qwen, Kimi, GLM,
+Nemotron and DeepSeek on 2026-09-06): then `bedrockModelId` is the bare
+foundation-model id, single-region, and the price is plain list with no +10%
+premium (the +10% below is the `us.*` regional-endpoint premium only) — say
+so in the entry comment. Then prove model access with one bounded call — an
+`AccessDeniedException` here means model access is not enabled (Bedrock
+console, or for Marketplace-billed models an account-level grant AWS has to
+make — the Claude 5.x entries answered `<model> is not available for this
+account` on 2026-09-06), and nothing downstream will work. Record that as the
+model's result and stop; do not try to enable access from an unattended lane:
 
 ```bash
 aws bedrock-runtime converse --region us-east-1 \
@@ -56,6 +63,17 @@ aws bedrock-runtime converse --region us-east-1 \
 
 Record the `usage` block; it is your first cost datapoint.
 
+Three more bounded calls tell you what the registry entry must say before
+the pack spends anything: the same prompt with a `system` block; a trivial
+`toolSpec` (expect a `toolUse` block — the loop needs it); and the same with
+`toolChoice: {tool: {name}}` (the loop forces required tools that way). Add a
+`cachePoint` block to the system prompt if the model is not in the
+prompt-caching guide's table: the expected `AccessDeniedException … did not
+allow prompt caching` is the proof for `supportsPromptCaching: false`. Read
+the visible text of the tool-use answer too — DeepSeek V3.2 leaks a partial
+`<｜DSML｜function_calls` marker there, Nova Pro emits `<thinking>` blocks —
+that is a UX finding to carry into the PR, not a registry field.
+
 ## 2. Add the registry entry
 
 Everything the product knows about a model lives in one object in
@@ -65,11 +83,11 @@ Field by field:
 
 | Field | Where the value comes from |
 | --- | --- |
-| `bedrockModelId` | the `us.` inference-profile id from step 1 (the bare foundation-model id when no profile exists) |
-| `provider` / `family` | lowercase vendor and family words (`amazon` / `nova`); the family word is what the identity evals forbid other vendors' turns from claiming |
+| `bedrockModelId` | the `us.` inference-profile id from step 1, or the bare foundation-model id when the model has no geo profile |
+| `provider` / `family` | lowercase vendor and family words (`amazon` / `nova`); the family word is what the identity evals forbid other vendors' turns from claiming. The live check matches it as a whole token in the answer, so pick the word the model will actually say — `qwen3`, not `qwen`, for "Qwen3 Next 80B" |
 | `displayName` / `brandedName` / `providerDisplayName` | the name users see, the exact name the assistant answers with when asked what it is, and the vendor's brand spelling (`Amazon`, `Anthropic`, `OpenAI`). The runtime identity line is built **only** from these — never write a vendor into prompt text (#304) |
 | `olderModelExample` | optional; set it only when the family is known to misclaim an older version from training priors (Claude → "Claude 3.5") |
-| `costPer1MInput` / `costPer1MOutput` | Bedrock list price **+10%** for `us.*` profiles (the account pays regional-endpoint rates); plain list for a bare on-demand id. Cite the pricing page in the entry comment; if you could not read it, say `UNVERIFIED — Rob to confirm` in the comment and the PR |
+| `costPer1MInput` / `costPer1MOutput` | Bedrock list price **+10%** for `us.*` profiles (the account pays regional-endpoint rates); list price as-is for a bare in-region id. The pricing page renders client-side; the readable source is the Price List bulk file, `https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrock/current/us-east-1/index.json` (`products[*].attributes.model` + `terms.OnDemand`, skip `-mantle-`/`-batch`/`-flex` usage types). Marketplace-billed models (Claude 5.x) are not in it. Cite the source in the entry comment; if the model is in neither, say `UNVERIFIED — Rob to confirm` in the comment and the PR |
 | `cacheReadInputMultiplier` / `cacheWriteInputMultiplier` | the model's cache-read / cache-write rates relative to input; moot when caching is off |
 | `supportsPromptCaching` | `true` **only** if the model appears in the explicit `cachePoint` table of the [Bedrock prompt-caching guide](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html). Otherwise `false`: the loop then emits no checkpoints and the request stays valid. Nova is implicit-cache only |
 | `supportsToolUse` / `supportsStreaming` / `supportsVision` | the model card / step 1 modalities |
@@ -95,10 +113,18 @@ pnpm typecheck && pnpm test
 pnpm eval --mock --model <id>     # proves the CLI path; can never qualify
 ```
 
-One test **will** need a deliberate edit: `apps/web/__tests__/model-command.test.ts`
-pins the complete `/model` alias table, so add the new model's two aliases
-to the expected object. That is the only non-registry edit a new Converse
-model needs today.
+Two tests **will** need a deliberate edit: `apps/web/__tests__/model-command.test.ts`
+pins the complete whole-registry `/model` alias table, so add the new
+model's aliases to the expected object (a shared short name moves to the
+newest entry; `deep` follows the priciest same-vendor output — over the
+whole registry those may now be disabled models, which is fine: since #797
+P5 the chat route resolves `/model` against the models **enabled for chat**,
+so a registered-but-disabled entry can neither be named nor take `opus` or
+`deep` from an enabled one). If the documented output ceiling is below the
+16k artifact floor (#320), also add the model to
+`DOCUMENTED_CEILING_BELOW_FLOOR` in `packages/agent/src/loop.test.ts` — that
+edit is deliberate so a low cap is a conscious choice. Those are the only
+non-registry edits a new Converse model needs today.
 
 ## 3. Read the identity guarantees before you spend money
 
@@ -262,3 +288,20 @@ at $0.38 ($0.13 candidate + $0.25 judge) — verdict NOT QUALIFIED (119/147; 19
 CRITICAL, 9 HIGH misses, one known-red not red on the incumbent). Same
 shape as Nova: identity 3/3 and the cost tripwire pass, the injection spine
 does not.
+
+Rehearsed again on the ten-model gaggle (2026-09-06,
+[`../models/QUALIFICATION_2026-09-06.md`](../models/QUALIFICATION_2026-09-06.md)):
+catalog verification, the five-call probes and the ten registry entries took
+about 40 minutes of lane time; the seven models the account could invoke ran
+the full 147-case pack three at a time in **46 minutes wall clock** (10–31
+minutes each; DeepSeek slowest) for **$4.19 total** ($2.41 candidate +
+$1.78 Haiku judge, $0.34–$0.94 per model) — every one NOT QUALIFIED, every
+one identity-honest 3/3, the injection spine the dominant reason on all but
+GLM-5. The three Claude 5.x entries stopped at step 1: the account cannot
+invoke them yet. Two things the gaggle exposed that a single model did not:
+the `/model` short names and role words (`opus`, `deep`) would have drifted
+onto disabled entries, so the chat route now resolves them against the
+enabled set; and several deterministic assertions encode Claude's phrasing
+(honest answers from GLM-5, Qwen3 32B and DeepSeek missed the regex while
+the paired judge assertion passed), which is a rubric change to make under
+the #915 process, not a registry field.
