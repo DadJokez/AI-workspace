@@ -182,6 +182,7 @@ export {
   INSTRUCTION_PRECEDENCE_CHAIN,
   PINNED_PRECEDENCE_NOTE,
   buildInstructionLayersReceipt,
+  detectProtectedKeyConflicts,
   instructionLayersLabel,
   parseInstructionLayersReceipt,
   renderPinnedActiveSkill,

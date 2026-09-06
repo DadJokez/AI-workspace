@@ -149,4 +149,66 @@ test.describe("Vault memory", () => {
         .first(),
     ).toBeVisible();
   });
+
+  test("shows organization standing instructions and lets an admin add, edit, and archive one", async ({
+    page,
+    isMobile,
+  }) => {
+    await installMockComparativeApi(page, {
+      orgInstructions: { canEdit: true },
+    });
+    await gotoE2EChat(page);
+
+    await openSettingsSection(page, "Memory", isMobile);
+    const orgSection = page.getByTestId("vault-org-instructions");
+    await expect(orgSection).toContainText("Organization standing instructions");
+    await expect(orgSection).toContainText("Our fiscal year starts in July.");
+    await expect(orgSection).toContainText("1 approved");
+
+    await orgSection.getByRole("button", { name: "Add instruction" }).click();
+    await orgSection
+      .getByPlaceholder(/The instruction/i)
+      .fill("Always cite Salesforce record IDs.");
+    await orgSection.getByRole("button", { name: "Save instruction" }).click();
+    await expect(orgSection).toContainText("Always cite Salesforce record IDs.");
+    await expect(orgSection).toContainText("2 approved");
+
+    const card = orgSection
+      .getByTestId("vault-org-instruction-card")
+      .filter({ hasText: "Salesforce" });
+    await card.getByRole("button", { name: "Edit" }).click();
+    await card.getByRole("textbox").fill("Always cite Salesforce and NetSuite record IDs.");
+    await card.getByRole("button", { name: "Save" }).click();
+    await expect(orgSection).toContainText("Salesforce and NetSuite");
+
+    await orgSection
+      .getByTestId("vault-org-instruction-card")
+      .filter({ hasText: "fiscal year" })
+      .getByRole("button", { name: "Archive" })
+      .click();
+    await expect(orgSection).not.toContainText("Our fiscal year starts in July.");
+    await expect(orgSection).toContainText("1 approved");
+
+    // Personal counts are untouched by org writes.
+    await expect(page.getByText("1 approved · 1 suggested")).toBeVisible();
+  });
+
+  test("shows the organization document read-only to non-admins", async ({
+    page,
+    isMobile,
+  }) => {
+    await installMockComparativeApi(page);
+    await gotoE2EChat(page);
+
+    await openSettingsSection(page, "Memory", isMobile);
+    const orgSection = page.getByTestId("vault-org-instructions");
+    await expect(orgSection).toContainText("Our fiscal year starts in July.");
+    await expect(
+      orgSection.getByRole("button", { name: "Add instruction" }),
+    ).toHaveCount(0);
+    await expect(orgSection.getByTestId("vault-org-instruction-card")).toHaveCount(0);
+    // The personal "Add a fact" form carries no organization option.
+    await page.getByRole("button", { name: "Add a fact" }).click();
+    await expect(page.getByRole("checkbox")).toHaveCount(0);
+  });
 });

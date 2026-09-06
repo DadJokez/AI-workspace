@@ -1045,6 +1045,38 @@ export const userMemoryItems = pgTable(
 );
 
 /**
+ * Organization standing instructions (#438, layer 3): admin-written markdown
+ * that every user's turn loads at org authority, above personal memory and
+ * below platform governance. Deliberately NOT a `user_memory_items` scope:
+ * that table cascades on user deletion, and offboarding the authoring admin
+ * must never delete the organization's standing instructions. `authored_by`
+ * is provenance only (SET NULL on deletion). `status` reuses the Vault
+ * vocabulary: `approved` on write, `archived` to retire.
+ */
+export const orgInstructions = pgTable(
+  "org_instructions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    content: text("content").notNull(),
+    status: userMemoryStatusEnum("status").notNull().default("approved"),
+    authoredBy: uuid("authored_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    approvedIdx: index("org_instructions_approved_idx")
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'approved'`),
+  }),
+);
+
+/**
  * User-visible files produced by chat runs. Content is stored in Postgres for
  * the first product pass so artifacts survive container restarts and remain
  * scoped to the owning user; large binary/object storage can replace `content`
@@ -1992,6 +2024,8 @@ export type MemoryCaptureQueueItem = typeof memoryCaptureQueue.$inferSelect;
 export type NewMemoryCaptureQueueItem = typeof memoryCaptureQueue.$inferInsert;
 export type UserMemoryItem = typeof userMemoryItems.$inferSelect;
 export type NewUserMemoryItem = typeof userMemoryItems.$inferInsert;
+export type OrgInstruction = typeof orgInstructions.$inferSelect;
+export type NewOrgInstruction = typeof orgInstructions.$inferInsert;
 export type WorkspaceArtifact = typeof workspaceArtifacts.$inferSelect;
 export type NewWorkspaceArtifact = typeof workspaceArtifacts.$inferInsert;
 export type ArtifactReviewComment =

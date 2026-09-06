@@ -215,13 +215,20 @@ Concrete example: user asks **"What PRs do I have open?"** in chat.
    renders the note for the shell and the evals; the
    `context_pack_assembled` receipt names which layers loaded
    ("Instructions · Skill: Weekly Status · 2 Vault memories · Org: not
-   configured"). The org layer reads "not configured" until #438 PR B lands
-   its storage. When a skill is pinned and custom instructions or approved
+   configured"). When a skill is pinned and custom instructions or approved
    Vault memory render, the preamble states the skill-over-personal
    conflict immediately above those personal blocks
    (`renderSkillOverPersonalNote`, #911): the rule in the note alone did
    not hold live, and neither did restating it inside the skill block or in
    the volatile suffix — only the line adjacent to the personal text did.
+   The org layer is the approved rows of the dedicated `org_instructions`
+   table (admin-written through `/api/org-instructions`, read by every
+   user). It is deliberately not a Vault row: `user_memory_items.user_id`
+   cascades on user deletion, while `org_instructions.authored_by` is SET
+   NULL, so offboarding the authoring admin never deletes the layer. An org
+   line that tries to change a protected key stays in the document but is
+   void — the prompt carries a governance notice, the receipt a conflict
+   count, and `audit_log` a denied row attributed to the authoring admin.
 5. **BedrockRuntime** begins the streaming turn with stable base tools and the
    user's granted provider discovery catalog.
 6. **Model** searches/activates GitHub when needed; the runtime mounts GitHub MCP

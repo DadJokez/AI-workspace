@@ -273,6 +273,9 @@ Tables (`packages/db/src/schema.ts`). Grouped by concern:
 - `user_memory_items` — proposed/approved memory with source thread/message
   provenance; only `approved` items feed the Personal Context block into future
   turns.
+- `org_instructions` — admin-written organization standing instructions (#438,
+  layer 3), loaded into every user's turn; `authored_by` is provenance only
+  (SET NULL on user deletion), so the layer outlives its author.
 
 **Apps (J4)**
 - `workspace_artifacts` — chat-built HTML artifacts.
