@@ -224,3 +224,56 @@ describe("the real non-Claude Converse entry runs a full turn (#797 P1 exit test
     expect(system).not.toMatch(/Anthropic|Claude/);
   });
 });
+
+/** The seven invocable non-Anthropic entries of the 2026-09-06 gaggle (#797 P5). */
+const GAGGLE_NON_ANTHROPIC: ModelId[] = [
+  "qwen3-32b",
+  "qwen3-next-80b",
+  "kimi-k2-5",
+  "glm-4-7",
+  "glm-5",
+  "nemotron-super-3-120b",
+  "deepseek-v3-2",
+];
+
+describe("the 2026-09-06 gaggle's non-Anthropic entries take the same path (#797 P5)", () => {
+  beforeEach(() => {
+    vi.stubEnv("AWS_REGION", "us-east-1");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it.each(GAGGLE_NON_ANTHROPIC)(
+    "%s: tool round-trip with zero cache blocks, its documented output cap, and a registry-derived identity line",
+    async (id) => {
+      const model = MODELS[id];
+      expect(model.provider).not.toBe("anthropic");
+      expect(model.supportsPromptCaching).toBe(false);
+
+      const { inputs, events } = await runFullTurn(id);
+      expect(inputs).toHaveLength(2);
+      for (const input of inputs) {
+        expect(input.modelId).toBe(model.bedrockModelId);
+        expect(countCachePoints(input)).toBe(0);
+        expect(input.inferenceConfig?.maxTokens).toBe(model.defaultMaxTokens);
+      }
+      const system = (inputs[0]?.system ?? [])
+        .map((block) => ("text" in block && typeof block.text === "string" ? block.text : ""))
+        .join("\n");
+      expect(system).toContain(
+        `You are powered by ${model.brandedName}, made by ${model.providerDisplayName}.`,
+      );
+      expect(system).not.toMatch(/Anthropic|Claude/);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool-result",
+          result: expect.objectContaining({ output: { echoed: "pong" } }),
+        }),
+      );
+      expect(events.at(-1)).toEqual({ type: "done" });
+    },
+  );
+});

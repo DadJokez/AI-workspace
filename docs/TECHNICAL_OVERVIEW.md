@@ -108,8 +108,11 @@ some older code/columns still say `recipe_*` (e.g. the run ledger table was
 - Model enablement is purpose-scoped in the `model_enablement` table. The repo
   proves selection logic and seed state, not any later production-only admin
   changes; verify the table or run receipts before asserting live enablement.
-- The registry still defines Haiku 4.5, Sonnet 4.6, and Opus 4.7. Definition is
-  not proof of Bedrock account access or production enablement.
+- The registry (`packages/agent/src/models.ts`) defines the Claude tiers plus
+  the registered-but-disabled candidates from #797 (Nova Pro and the
+  2026-09-06 gaggle; scorecards in `docs/models/`). Definition is not proof
+  of Bedrock account access or production enablement — only Haiku 4.5,
+  Sonnet 4.6 and Opus 4.7 have seeded enablement rows.
 - Routing and model provenance are persisted on the run receipt. Do not pin an
   authority document to a transient `main` SHA; use the verified-as-of date and
   the deployment receipt for an exact production revision.
