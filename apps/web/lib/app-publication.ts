@@ -1,9 +1,12 @@
 import { toolsCatalog, type Database } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import {
+  bindingCatalogKey,
   parseDataBindings,
   type DataBinding,
 } from "@/lib/app-data-bindings";
+import { isReadOnlyCatalogEntry } from "@/lib/app-binding-providers";
+import { INTEGRATION_DISPLAY_NAMES } from "@/lib/settings-navigation";
 
 export const APP_PUBLICATION_SCHEMA = "app-publication.v1";
 
@@ -86,27 +89,56 @@ export function parseRequestedPublicationMode(
   return value === "snapshot" || value === "live_via_viewer" ? value : null;
 }
 
+/**
+ * The publish-time connector declaration: every (provider, tool) a version's
+ * bindings call, keyed to `tools_catalog`. The page can never call a
+ * connector outside this list — `isBindingIncludedInPublication` is checked
+ * on every fetch.
+ */
 export function connectorManifestForBindings(
   bindings: readonly DataBinding[],
 ): AppConnectorManifestEntry[] {
   const grouped = new Map<string, AppConnectorManifestEntry>();
   for (const binding of bindings) {
-    const toolName = binding.provider === "salesforce" ? "run_soql" : "";
-    if (!toolName) continue;
-    const catalogKey = `${binding.provider}:${toolName}`;
+    const catalogKey = bindingCatalogKey(binding);
     const existing = grouped.get(catalogKey);
     if (existing) {
       existing.bindingIds.push(binding.id);
     } else {
       grouped.set(catalogKey, {
         provider: binding.provider,
-        toolName,
+        toolName: binding.toolName,
         catalogKey,
         bindingIds: [binding.id],
       });
     }
   }
   return [...grouped.values()];
+}
+
+export interface DeclaredAppDataSource {
+  provider: string;
+  /** Settings → Integrations card name when known, else the provider slug. */
+  providerLabel: string;
+  toolName: string;
+  catalogKey: string;
+  bindingCount: number;
+}
+
+/** Human-readable declared source list for the app header and share dialog. */
+export function describeConnectorManifest(
+  manifest: readonly AppConnectorManifestEntry[],
+): DeclaredAppDataSource[] {
+  return manifest.map((entry) => ({
+    provider: entry.provider,
+    providerLabel:
+      INTEGRATION_DISPLAY_NAMES[
+        entry.provider as keyof typeof INTEGRATION_DISPLAY_NAMES
+      ] ?? entry.provider,
+    toolName: entry.toolName,
+    catalogKey: entry.catalogKey,
+    bindingCount: entry.bindingIds.length,
+  }));
 }
 
 export function createAppPublicationMetadata({
@@ -192,6 +224,11 @@ export function resolveAppPublication(
   };
 }
 
+/**
+ * Serve/fetch-time catalog check: every declared tool must still be an
+ * enabled, always-allowed READ tool. An admin disabling or reclassifying a
+ * tool after publish stops live data for that app immediately (fail closed).
+ */
 export async function isPublicationManifestEnabled(
   db: Database,
   publication: AppPublicationMetadata,
@@ -200,7 +237,11 @@ export async function isPublicationManifestEnabled(
   if (publication.connectorManifest.length === 0) return false;
   for (const entry of publication.connectorManifest) {
     const rows = await db
-      .select({ enabled: toolsCatalog.enabled })
+      .select({
+        enabled: toolsCatalog.enabled,
+        action: toolsCatalog.action,
+        policy: toolsCatalog.policy,
+      })
       .from(toolsCatalog)
       .where(
         and(
@@ -209,18 +250,20 @@ export async function isPublicationManifestEnabled(
         ),
       )
       .limit(1);
-    if (rows[0]?.enabled !== true) return false;
+    if (!isReadOnlyCatalogEntry(rows[0])) return false;
   }
   return true;
 }
 
+/** Declaration enforcement: the binding must be in the version's manifest. */
 export function isBindingIncludedInPublication(
   publication: AppPublicationMetadata,
-  binding: Pick<DataBinding, "id" | "provider">,
+  binding: Pick<DataBinding, "id" | "provider" | "toolName">,
 ): boolean {
   return publication.connectorManifest.some(
     (entry) =>
       entry.provider === binding.provider &&
+      entry.toolName === binding.toolName &&
       entry.bindingIds.includes(binding.id),
   );
 }
@@ -252,11 +295,21 @@ export function injectAppPublicationBadge(
         timeStyle: "short",
         timeZone: "UTC",
       }) + " UTC";
+  // Live pages name their declared sources in the header (the publish-time
+  // connector declaration), so a viewer can see exactly which of THEIR
+  // connections this page reads through.
+  const declaredSources = describeConnectorManifest(
+    publication.connectorManifest,
+  )
+    .map((source) => `${source.providerLabel} ${source.toolName}`)
+    .join(", ");
   const modeLabel =
     publication.dataMode === "snapshot"
       ? `Snapshot · Published ${timestamp} · publish a new version to refresh`
       : publication.dataMode === "live_via_viewer"
-        ? "Live via your connections"
+        ? declaredSources
+          ? `Live via your connections · ${declaredSources}`
+          : "Live via your connections"
         : "Service-backed";
   const badge = [
     '<aside id="comparative-publication-badge" aria-label="Comparative publication details"',

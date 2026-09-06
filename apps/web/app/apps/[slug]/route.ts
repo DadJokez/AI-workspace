@@ -7,11 +7,12 @@ import {
 } from "@/lib/admin-data-access";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { auditAppMutation, canActorOpenApp, getLiveAppVersion } from "@/lib/apps";
-import { parseDataBindings } from "@/lib/app-data-bindings";
+import { publicDataBinding } from "@/lib/app-data-bindings";
 import {
   buildAppDataBootstrap,
   injectAppDataBootstrap,
 } from "@/lib/app-data-bootstrap";
+import { loadAppVersionDataBindings } from "@/lib/app-version-bindings";
 import {
   injectAppPublicationBadge,
   isBindingIncludedInPublication,
@@ -117,7 +118,12 @@ export async function GET(
     },
   });
 
-  const bindings = parseDataBindings(artifact.metadata);
+  // The version's pinned declarations (#802) — the same list the data
+  // endpoint enforces against, so the page can only name bindings it can call.
+  const bindings = await loadAppVersionDataBindings(db, {
+    appVersionId: liveVersion?.id ?? null,
+    artifactMetadata: artifact.metadata,
+  });
   const publication = resolveAppPublication(
     artifact.metadata,
     liveVersion?.deployedAt ?? artifact.updatedAt,
@@ -144,18 +150,13 @@ export async function GET(
           artifact.content,
           buildAppDataBootstrap(
             app.id,
-            // Allowlist, never omit-the-secret: fields added to DataBinding
-            // later stay server-side unless deliberately exposed here.
+            // Allowlist, never omit-the-secret: `publicDataBinding` names the
+            // viewer-visible fields; pinned arguments stay server-side.
             bindings
               .filter((binding) =>
                 isBindingIncludedInPublication(publication, binding),
               )
-              .map((binding) => ({
-                id: binding.id,
-                provider: binding.provider,
-                kind: binding.kind,
-                ...(binding.label ? { label: binding.label } : {}),
-              })),
+              .map(publicDataBinding),
           ),
         )
       : artifact.content;

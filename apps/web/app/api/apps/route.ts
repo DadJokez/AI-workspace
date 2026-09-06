@@ -16,6 +16,7 @@ import {
 import { parseRequestedPublicationMode } from "@/lib/app-publication";
 import { loadWorkspaceArtifactForUser } from "@/lib/workspace-artifacts";
 import { parseDataBindings } from "@/lib/app-data-bindings";
+import { LiveBindingGateError } from "@/lib/app-binding-gate";
 import { capturePostHogEvent } from "@/lib/posthog-server";
 
 export const dynamic = "force-dynamic";
@@ -183,7 +184,11 @@ export async function POST(req: Request) {
     const message =
       error instanceof Error ? error.message : "Could not publish the app.";
     return NextResponse.json(
-      { error: "publish_failed", message },
+      {
+        error:
+          error instanceof LiveBindingGateError ? error.code : "publish_failed",
+        message,
+      },
       { status: 422 },
     );
   }

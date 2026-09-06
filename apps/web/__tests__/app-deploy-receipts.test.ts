@@ -163,4 +163,36 @@ describe("app deploy work receipts (#359)", () => {
       }),
     );
   });
+
+  it("names the offending binding when the #802 provider gate refuses a live publish", async () => {
+    const { LiveBindingGateError } = await import("@/lib/app-binding-gate");
+    deployAppVersion.mockRejectedValueOnce(
+      new LiveBindingGateError(
+        "lake-1",
+        "provider_not_viewer_identity",
+        'data-lake/query (binding "lake-1") cannot be published live: data-lake does not support per-viewer credentials, a connect prompt, and per-viewer audit. Publish this version as a snapshot instead.',
+      ),
+    );
+    const { POST } = await import("@/app/api/apps/[id]/deploy/route");
+    const response = await POST(request(), {
+      params: Promise.resolve({ id: "app-1" }),
+    });
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      error: "live_binding_not_publishable",
+      message: expect.stringContaining('binding "lake-1"'),
+    });
+    expect(appendRunEventBestEffort).toHaveBeenLastCalledWith(
+      "app-deploy-run-event-error",
+      expect.objectContaining({
+        eventType: "app_version_publish_failed",
+        status: "failed",
+        metadata: expect.objectContaining({
+          bindingId: "lake-1",
+          reason: "provider_not_viewer_identity",
+        }),
+      }),
+    );
+  });
 });

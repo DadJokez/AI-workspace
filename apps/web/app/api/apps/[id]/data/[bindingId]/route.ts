@@ -12,20 +12,14 @@ import {
   getLiveAppVersion,
 } from "@/lib/apps";
 import { loadWorkspaceArtifactById } from "@/lib/workspace-artifacts";
-import { findDataBinding } from "@/lib/app-data-bindings";
+import { loadAppVersionDataBindings } from "@/lib/app-version-bindings";
+import { executeAppDataBinding } from "@/lib/app-data-execution";
 import {
   isBindingIncludedInPublication,
   isPublicationManifestEnabled,
   resolveAppPublication,
 } from "@/lib/app-publication";
 import { checkRateLimit } from "@/lib/request-limits";
-import { resolveSalesforceConnection } from "@/lib/oauth/salesforce-token";
-import { buildSalesforceTurnContext } from "@/lib/salesforce/authorization";
-import {
-  queryReadOnlySoql,
-  SalesforceApiError,
-  validateReadOnlySoql,
-} from "@/lib/salesforce/api";
 
 export const dynamic = "force-dynamic";
 
@@ -37,19 +31,17 @@ const DATA_JSON_HEADERS = {
 } as const;
 
 /**
- * Live-data app refresh (#407). Executes a query PINNED on the deployed app
- * version under the REQUESTING VIEWER's own connection — never the author's.
- * Brittany sees Brittany's rows; Conner sees Conner's; a viewer with no
- * connection gets an honest connect prompt, never someone else's data.
+ * Live-data app refresh (#407, generalized in #802). Executes a read tool
+ * call PINNED on the deployed app version under the REQUESTING VIEWER's own
+ * connection — never the author's. Brittany sees Brittany's rows; Conner
+ * sees Conner's; a viewer with no connection gets an honest connect prompt,
+ * never someone else's data. The browser submits a binding id only.
  *
- * Guard order mirrors `buildUserMcpServers`, scoped to the viewer:
- *   auth → app exists → viewer may open → rate limit → pinned binding →
- *   re-validate read-only → viewer's SFDC connection → execute → audit.
- *
- * NOTE: deployed apps are served with `connect-src 'none'`, so no in-product
- * app can call this yet — the CSP relaxation + client Refresh wiring is a
- * separate, sandbox-boundary change awaiting sign-off. This endpoint is the
- * server foundation and is exercised directly by tests.
+ * Guard order, scoped to the viewer:
+ *   auth → app exists → viewer may open → rate limit → binding declared on
+ *   the LIVE version (server-side declaration enforcement) → manifest tools
+ *   still enabled read-only → viewer's own connection + attestation + policy
+ *   → execute → audit (per viewer).
  */
 export async function GET(
   req: Request,
@@ -117,7 +109,8 @@ export async function GET(
     );
   }
 
-  // Read the binding from the DEPLOYED version's immutable artifact (the pin).
+  // Resolve the binding from the DEPLOYED version's pinned declarations —
+  // a binding executes only if it belongs to the version being served.
   const liveVersion = await getLiveAppVersion(db, app);
   const artifactId = liveVersion?.artifactId ?? app.liveArtifactId;
   if (!artifactId) {
@@ -132,7 +125,12 @@ export async function GET(
       ).metadata
     : null;
   const binding = artifact
-    ? findDataBinding(artifact.metadata, bindingId)
+    ? (
+        await loadAppVersionDataBindings(db, {
+          appVersionId: liveVersion?.id ?? null,
+          artifactMetadata: artifact.metadata,
+        })
+      ).find((candidate) => candidate.id === bindingId) ?? null
     : null;
   if (
     !publication ||
@@ -154,113 +152,117 @@ export async function GET(
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
-  // Defense-in-depth: metadata is mutable-in-principle, so re-validate the
-  // pinned query is a single read-only SELECT before running it — never
-  // trust that mint-time validation is still intact.
-  let safeSoql: string;
-  try {
-    safeSoql = validateReadOnlySoql(binding.query);
-  } catch {
-    await auditAppMutation({
-      db,
-      actorUserId: sessionUser.id,
-      actionType: "app_data_denied",
-      appId: app.id,
-      appSlug: app.slug,
-      status: "failed",
-      error: "Pinned binding query failed read-only validation.",
-      metadata: { bindingId },
-    });
-    return NextResponse.json(
-      { error: "invalid_binding" },
-      { status: 422 },
-    );
-  }
+  // Execute as the VIEWER — the scoping boundary. Never the author.
+  const result = await executeAppDataBinding({
+    db,
+    viewerUserId: sessionUser.id,
+    binding,
+  });
+  const auditMetadata = {
+    bindingId,
+    provider: binding.provider,
+    toolName: binding.toolName,
+  };
 
-  // Resolve the VIEWER's own Salesforce connection — the scoping boundary.
-  const connection = await resolveSalesforceConnection(db, sessionUser.id);
-  if (connection.status !== "ready") {
-    await auditAppMutation({
-      db,
-      actorUserId: sessionUser.id,
-      actionType: "app_data_refresh",
-      appId: app.id,
-      appSlug: app.slug,
-      status: "succeeded",
-      metadata: { bindingId, outcome: `connection_${connection.status}` },
-    });
-    // 200 with an honest connect state — the app renders a "Connect
-    // Salesforce" prompt, never another viewer's data.
-    return NextResponse.json(
-      {
-        ok: false,
-        needsConnection: true,
-        provider: binding.provider,
-        connectionStatus: connection.status,
-      },
-      { status: 200, headers: DATA_JSON_HEADERS },
-    );
-  }
-
-  try {
-    const result = await queryReadOnlySoql(safeSoql, {
-      accessToken: connection.accessToken,
-      turnContext: buildSalesforceTurnContext({
-        userId: sessionUser.id,
-        instanceUrl: connection.instanceUrl,
-      }),
-    });
-    await auditAppMutation({
-      db,
-      actorUserId: sessionUser.id,
-      actionType: "app_data_refresh",
-      appId: app.id,
-      appSlug: app.slug,
-      status: "succeeded",
-      metadata: {
-        bindingId,
-        provider: binding.provider,
-        rowCount: result.records.length,
-      },
-    });
-    return NextResponse.json(
-      {
-        ok: true,
-        bindingId: binding.id,
-        provider: binding.provider,
-        records: result.records,
-        totalSize: result.totalSize,
-        done: result.done,
-      },
-      { status: 200, headers: DATA_JSON_HEADERS },
-    );
-  } catch (err) {
-    // NEVER surface the upstream error text: Salesforce INVALID_FIELD /
-    // MALFORMED_QUERY messages echo the submitted query verbatim, and the
-    // author's pinned SOQL must not reach a viewer's browser or the audit
-    // row (cross-org field-level security makes this the common failure).
-    // Only a status category survives.
-    const upstreamStatus =
-      err instanceof SalesforceApiError ? err.status : null;
-    await auditAppMutation({
-      db,
-      actorUserId: sessionUser.id,
-      actionType: "app_data_refresh",
-      appId: app.id,
-      appSlug: app.slug,
-      status: "failed",
-      error: upstreamStatus
-        ? `salesforce_error_${upstreamStatus}`
-        : "data_source_unreachable",
-      metadata: { bindingId, provider: binding.provider },
-    });
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "data_source_error",
-        message: "The data source could not be reached.",
-      },
-      { status: 502, headers: DATA_JSON_HEADERS },
-    );
+  switch (result.kind) {
+    case "invalid_binding": {
+      await auditAppMutation({
+        db,
+        actorUserId: sessionUser.id,
+        actionType: "app_data_denied",
+        appId: app.id,
+        appSlug: app.slug,
+        status: "failed",
+        error: "Pinned binding arguments failed read-only validation.",
+        metadata: auditMetadata,
+      });
+      return NextResponse.json({ error: "invalid_binding" }, { status: 422 });
+    }
+    case "denied": {
+      await auditAppMutation({
+        db,
+        actorUserId: sessionUser.id,
+        actionType: "app_data_denied",
+        appId: app.id,
+        appSlug: app.slug,
+        status: "denied",
+        error: result.reason,
+        metadata: auditMetadata,
+      });
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
+    case "needs_connection": {
+      await auditAppMutation({
+        db,
+        actorUserId: sessionUser.id,
+        actionType: "app_data_refresh",
+        appId: app.id,
+        appSlug: app.slug,
+        status: "succeeded",
+        metadata: {
+          ...auditMetadata,
+          outcome: `connection_${result.connectionStatus}`,
+        },
+      });
+      // 200 with an honest connect state — the app renders a "Connect
+      // <provider>" prompt, never another viewer's data.
+      return NextResponse.json(
+        {
+          ok: false,
+          needsConnection: true,
+          provider: binding.provider,
+          connectionStatus: result.connectionStatus,
+        },
+        { status: 200, headers: DATA_JSON_HEADERS },
+      );
+    }
+    case "source_error": {
+      // Only a status category survives: providers echo submitted arguments
+      // in their error text, and the author's pinned arguments must never
+      // reach a viewer's browser or the audit row.
+      await auditAppMutation({
+        db,
+        actorUserId: sessionUser.id,
+        actionType: "app_data_refresh",
+        appId: app.id,
+        appSlug: app.slug,
+        status: "failed",
+        error: result.category,
+        metadata: auditMetadata,
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "data_source_error",
+          message: "The data source could not be reached.",
+        },
+        { status: 502, headers: DATA_JSON_HEADERS },
+      );
+    }
+    case "ok": {
+      await auditAppMutation({
+        db,
+        actorUserId: sessionUser.id,
+        actionType: "app_data_refresh",
+        appId: app.id,
+        appSlug: app.slug,
+        status: "succeeded",
+        metadata: {
+          ...auditMetadata,
+          ...(result.rowCount !== undefined ? { rowCount: result.rowCount } : {}),
+        },
+      });
+      return NextResponse.json(
+        {
+          ok: true,
+          bindingId: binding.id,
+          provider: binding.provider,
+          toolName: binding.toolName,
+          data: result.data,
+          ...(result.legacyFields ?? {}),
+        },
+        { status: 200, headers: DATA_JSON_HEADERS },
+      );
+    }
   }
 }
