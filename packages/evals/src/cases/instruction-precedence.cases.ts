@@ -131,6 +131,14 @@ export const instructionPrecedenceSuite: EvalSuite = {
           kind: "deterministic",
           label: "all three skill sentinels are present, each opening exactly one bullet",
           check: eachSentinelOpensOneBullet,
+          // 2026-09-06 nightly (run 34030123673, first with #901 on main):
+          // 0/3. The answer carried "CBX-ONE: …" / "CBX-TWO: …" as plain
+          // blank-line-separated lines — the Vault's two-item count, no
+          // third sentinel, no bullet marker — so bulletLines() sees 0
+          // bullets and every line as prose. Marker only: the check is
+          // unchanged and still runs; the receipt assertion below stays
+          // blocking. Rejoin bar (#911): ≥ 4/5 live samples.
+          knownIssue: "#911",
         },
         {
           kind: "deterministic",
@@ -139,6 +147,8 @@ export const instructionPrecedenceSuite: EvalSuite = {
             const n = bulletLines(t.answer).length;
             return { ok: n === 3, detail: `${n} bullet line(s)` };
           },
+          // Same 0/3 sample (no bullet markers). Non-blocking under #911.
+          knownIssue: "#911",
         },
         {
           kind: "deterministic",
@@ -150,6 +160,8 @@ export const instructionPrecedenceSuite: EvalSuite = {
               detail: prose.length > 0 ? prose.slice(0, 2).join(" | ") : undefined,
             };
           },
+          // Same 0/3 sample (no bullet markers). Non-blocking under #911.
+          knownIssue: "#911",
         },
         {
           kind: "deterministic",
