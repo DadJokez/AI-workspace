@@ -1,4 +1,7 @@
-import type { PinnedOrgInstructions } from "@ai-workspace/agent";
+import {
+  detectProtectedKeyConflicts,
+  type PinnedOrgInstructions,
+} from "@ai-workspace/agent";
 import {
   type Database,
   type UserMemoryItem,
@@ -215,17 +218,26 @@ export async function loadOrgMemoryItems(
 }
 
 /**
+ * The pinned-layer input plus the approved rows that produced it, so a
+ * protected-key conflict can be attributed to the row's author. Only
+ * `markdown` and `items` reach the prompt and the receipt.
+ */
+export interface LoadedOrgInstructions extends PinnedOrgInstructions {
+  rows: readonly UserMemoryItem[];
+}
+
+/**
  * The single approved organization document for the pinned layer (#438),
  * or `null` when nothing is configured. Same prompt budget as the Vault.
  */
 export async function loadApprovedOrgInstructions(
   db: Database,
   maxChars = VAULT_MEMORY_MAX_PROMPT_CHARS,
-): Promise<PinnedOrgInstructions | null> {
+): Promise<LoadedOrgInstructions | null> {
   const rows = await loadOrgMemoryItems(db, ["approved"]);
   const markdown = buildVaultMarkdown(rows, ORG_INSTRUCTIONS_HEADING);
   if (!markdown) return null;
-  return { markdown: capForPrompt(markdown, maxChars), items: rows.length };
+  return { markdown: capForPrompt(markdown, maxChars), items: rows.length, rows };
 }
 
 /**
@@ -245,40 +257,83 @@ export function memoryWriteCondition(
 
 /**
  * #438 AC: an org document that tries to change protected keys loses to
- * the pinned layer (the prompt says so) AND the attempt is logged — one
- * denied audit row per turn that loaded the offending document, so the
+ * the pinned layer (the prompt says so) AND the attempt is logged, so the
  * conflict is visible on the admin audit surface, not only in the receipt.
+ * The denied row is attributed to the admin who wrote the offending row —
+ * one row per turn per author — never to the user whose turn happened to
+ * load the document; that user is recorded as `input.loadedForUserId`. A
+ * conflicting line that cannot be traced to an approved row (only possible
+ * when the prompt cap cut a bullet mid-line) is logged under a system actor.
  */
 export async function recordOrgInstructionConflict({
   db,
   runId,
-  userId,
+  loadedForUserId,
   threadId,
-  conflicts,
+  orgInstructions,
 }: {
   db: Database;
   runId: string;
-  userId: string;
+  loadedForUserId: string;
   threadId: string;
-  conflicts: readonly string[];
+  orgInstructions: LoadedOrgInstructions;
 }): Promise<void> {
   const now = new Date();
-  await db.insert(auditLog).values({
-    actorUserId: userId,
+  const base = {
     actionType: "instruction_layers.protected_key_conflict",
-    status: "denied",
+    status: "denied" as const,
     provider: "ai-hub",
     toolName: "org-instructions",
     runId,
     chatThreadId: threadId,
-    input: { layer: "org", conflicts: conflicts.slice(0, 5) },
     metadata: {
       precedence: "governance > org > skill > personal > thread",
       outcome: "pinned layer wins; conflicting org lines are void",
     },
     startedAt: now,
     completedAt: now,
-  });
+  };
+  const byAuthor = new Map<
+    string,
+    { orgItemIds: string[]; conflicts: string[] }
+  >();
+  for (const row of orgInstructions.rows) {
+    const rendered = renderMemoryBullet(row);
+    if (!orgInstructions.markdown.includes(rendered)) continue;
+    const conflicts = detectProtectedKeyConflicts(rendered);
+    if (conflicts.length === 0) continue;
+    const entry = byAuthor.get(row.userId) ?? { orgItemIds: [], conflicts: [] };
+    entry.orgItemIds.push(row.id);
+    entry.conflicts.push(...conflicts);
+    byAuthor.set(row.userId, entry);
+  }
+  await db.insert(auditLog).values(
+    byAuthor.size > 0
+      ? [...byAuthor].map(([authorUserId, { orgItemIds, conflicts }]) => ({
+          ...base,
+          actorUserId: authorUserId,
+          input: {
+            layer: "org",
+            conflicts: conflicts.slice(0, 5),
+            orgItemIds,
+            loadedForUserId,
+          },
+        }))
+      : [
+          {
+            ...base,
+            actorUserId: null,
+            input: {
+              layer: "org",
+              conflicts: detectProtectedKeyConflicts(
+                orgInstructions.markdown,
+              ).slice(0, 5),
+              loadedForUserId,
+            },
+            metadata: { ...base.metadata, actor: "system" },
+          },
+        ],
+  );
 }
 
 function capForPrompt(markdown: string, maxChars: number): string {

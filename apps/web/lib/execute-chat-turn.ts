@@ -14,7 +14,6 @@ import type {
 } from "@ai-workspace/agent-runtime";
 import {
   buildExactOutputContract,
-  detectProtectedKeyConflicts,
   evaluateLiteralContract,
   extractAssistantSources,
   extractPureEchoReply,
@@ -731,21 +730,20 @@ export async function executeChatTurn({
   const contextReceipt = contextPack.receipts[0]!;
   // #438: an org document that tries to change protected keys is void under
   // the pinned layer (the prompt says so); make the attempt auditable too —
-  // only for turns whose receipt shows the layer actually loaded.
+  // only for turns whose receipt shows the layer actually loaded. The row
+  // is attributed to the authoring admin, not to this turn's user.
   const orgLayer = contextReceipt.instructionLayers?.org;
-  const orgConflicts =
+  if (
     orgInstructions &&
     orgLayer?.status === "loaded" &&
     orgLayer.protectedKeyConflicts > 0
-      ? detectProtectedKeyConflicts(orgInstructions.markdown)
-      : [];
-  if (orgConflicts.length > 0) {
+  ) {
     await recordOrgInstructionConflict({
       db,
       runId,
-      userId,
+      loadedForUserId: userId,
       threadId: thread.id,
-      conflicts: orgConflicts,
+      orgInstructions,
     });
   }
   const initialGuardrailReceipt = buildGuardrailReceipt({
