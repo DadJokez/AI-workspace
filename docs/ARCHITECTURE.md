@@ -216,7 +216,12 @@ Concrete example: user asks **"What PRs do I have open?"** in chat.
    `context_pack_assembled` receipt names which layers loaded
    ("Instructions · Skill: Weekly Status · 2 Vault memories · Org: not
    configured"). The org layer reads "not configured" until #438 PR B lands
-   its storage.
+   its storage. When a skill is pinned and custom instructions or approved
+   Vault memory render, the preamble states the skill-over-personal
+   conflict immediately above those personal blocks
+   (`renderSkillOverPersonalNote`, #911): the rule in the note alone did
+   not hold live, and neither did restating it inside the skill block or in
+   the volatile suffix — only the line adjacent to the personal text did.
 5. **BedrockRuntime** begins the streaming turn with stable base tools and the
    user's granted provider discovery catalog.
 6. **Model** searches/activates GitHub when needed; the runtime mounts GitHub MCP

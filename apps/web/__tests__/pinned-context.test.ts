@@ -5,7 +5,11 @@ import {
   renderPinnedActiveSkill,
   renderPinnedOrgInstructions,
 } from "@/lib/pinned-context";
-import { buildSummarizerInput, instructionLayersLabel } from "@ai-workspace/agent";
+import {
+  buildSummarizerInput,
+  instructionLayersLabel,
+  renderSkillOverPersonalNote,
+} from "@ai-workspace/agent";
 import { buildChatContextPack } from "@/lib/chat-context-pack";
 import type { UserMcpProviderStatus } from "@/lib/oauth/mcp-servers";
 
@@ -154,6 +158,52 @@ describe("layered standing instructions (#438 P0)", () => {
     // The personal blocks still render (the rule, not block order, decides).
     expect(prompt).toContain("User instructions: Prefer terse answers.");
     expect(prompt).toContain("Personal context approved by the user:");
+  });
+
+  it("names the skill-over-personal conflict right above the personal blocks exactly when a skill is pinned and a personal source rendered (#911)", () => {
+    const bothSources = buildChatContextPack(packInput({ activeSkill: SKILL }));
+    const bothPrompt = bothSources.prompt.systemPrompt!;
+    const bothLine = renderSkillOverPersonalNote({
+      customInstructions: true,
+      vaultMemory: true,
+    })!;
+    expect(bothPrompt).toContain(bothLine);
+    // Adjacency is the mechanism: the line precedes the personal text and
+    // the skill block stays where it was, after the note and the org slot.
+    const line = bothPrompt.indexOf(bothLine);
+    expect(line).toBeLessThan(bothPrompt.indexOf("User instructions: Prefer terse answers."));
+    expect(line).toBeLessThan(bothPrompt.indexOf("Personal context approved by the user:"));
+    expect(line).toBeLessThan(bothPrompt.indexOf(PINNED_PRECEDENCE_NOTE));
+    expect(bothPrompt.split("Precedence for this skill run").length - 1).toBe(1);
+    expect(bothPrompt).toContain(renderPinnedActiveSkill(SKILL));
+
+    // Only the sources the preamble actually rendered are named.
+    const vaultOnly = buildChatContextPack(
+      packInput({ activeSkill: SKILL, user: { displayName: "Rob" } }),
+    );
+    expect(vaultOnly.prompt.systemPrompt).toContain(
+      renderSkillOverPersonalNote({ customInstructions: false, vaultMemory: true }),
+    );
+    expect(vaultOnly.prompt.systemPrompt).not.toContain(bothLine);
+
+    // Absent when no personal source is in the prompt, or when no skill is.
+    const noPersonal = buildChatContextPack(
+      packInput({
+        activeSkill: SKILL,
+        user: { displayName: "Rob", customInstructions: "   " },
+        vaultMarkdown: null,
+      }),
+    );
+    expect(noPersonal.prompt.systemPrompt).toContain("<<<END-PINNED-ACTIVE-SKILL>>>");
+    expect(noPersonal.prompt.systemPrompt).not.toContain("Precedence for this skill run");
+    expect(buildChatContextPack(packInput()).prompt.systemPrompt).not.toContain(
+      "Precedence for this skill run",
+    );
+
+    // Same source state → same bytes (the pin stays cacheable).
+    expect(bothSources.receipts[0]!.pinnedContext?.hash).toBe(
+      buildChatContextPack(packInput({ activeSkill: SKILL })).receipts[0]!.pinnedContext?.hash,
+    );
   });
 
   it("resolves the org layer to 'not configured' — no stub guidance — and receipts every layer", () => {

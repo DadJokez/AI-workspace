@@ -186,12 +186,14 @@ export {
   parseInstructionLayersReceipt,
   renderPinnedActiveSkill,
   renderPinnedOrgInstructions,
+  renderSkillOverPersonalNote,
 } from "./instruction-layers";
 export type {
   InstructionLayer,
   InstructionLayersReceipt,
   PinnedActiveSkill,
   PinnedOrgInstructions,
+  PinnedPersonalLayer,
 } from "./instruction-layers";
 
 export { extractAssistantSources, parseAssistantSources } from "./sources";

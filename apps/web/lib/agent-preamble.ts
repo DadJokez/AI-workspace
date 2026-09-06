@@ -6,6 +6,7 @@
  * Hidden from the user and not stored in `chat_messages.content`.
  */
 
+import { renderSkillOverPersonalNote } from "@ai-workspace/agent";
 import {
   INTEGRATION_DISPLAY_NAMES,
   SETTINGS_INTEGRATIONS_PATH,
@@ -61,6 +62,13 @@ interface PreambleInput {
   artifactContext?: string | null;
   /** True when the route intentionally checked approved Vault memory. */
   vaultContextRequested?: boolean;
+  /**
+   * True when an active skill is pinned later in the same stable prefix
+   * (#911). The personal blocks below are then introduced by the
+   * skill-over-personal conflict line — stated right above the text it
+   * applies to, which is where sonnet-4-5 actually honours it.
+   */
+  pinnedSkill?: boolean;
 }
 
 /**
@@ -97,6 +105,7 @@ export function buildAgentPreamble({
   webAccess,
   artifactContext,
   vaultContextRequested = false,
+  pinnedSkill = false,
 }: PreambleInput): string {
   const lines: string[] = [];
   const comingSoonSet = new Set(comingSoonProviders);
@@ -259,12 +268,23 @@ export function buildAgentPreamble({
   );
 
   const ci = user.customInstructions?.trim();
+  const vault = user.vaultMarkdown?.trim();
+  const skillOverPersonal = pinnedSkill
+    ? renderSkillOverPersonalNote({
+        customInstructions: Boolean(ci),
+        vaultMemory: Boolean(vault),
+      })
+    : null;
+  if (skillOverPersonal) {
+    lines.push("");
+    lines.push(skillOverPersonal);
+  }
+
   if (ci) {
     lines.push("");
     lines.push(`User instructions: ${ci}`);
   }
 
-  const vault = user.vaultMarkdown?.trim();
   if (vault) {
     lines.push("");
     lines.push(

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { renderSkillOverPersonalNote } from "@ai-workspace/agent";
 import { buildAgentPreamble } from "@/lib/agent-preamble";
 
 /**
@@ -161,6 +162,80 @@ describe("buildAgentPreamble artifact boundary", () => {
     expect(preamble).toContain(
       "return the complete finished file contents in a fenced code block",
     );
+  });
+});
+
+describe("buildAgentPreamble skill-over-personal conflict line (#911)", () => {
+  const personalPreamble = (overrides: {
+    pinnedSkill?: boolean;
+    customInstructions?: string | null;
+    vaultMarkdown?: string | null;
+  }) =>
+    buildAgentPreamble({
+      user: {
+        displayName: "Rob",
+        assistantName: null,
+        customInstructions: overrides.customInstructions ?? null,
+        vaultMarkdown: overrides.vaultMarkdown ?? null,
+      },
+      connectedProviders: [],
+      pinnedSkill: overrides.pinnedSkill ?? false,
+    });
+
+  it("introduces the personal blocks with the conflict line when a skill is pinned", () => {
+    const preamble = personalPreamble({
+      pinnedSkill: true,
+      customInstructions: "Prefer terse answers.",
+      vaultMarkdown: "- Approved fact: reviews happen Fridays.",
+    });
+    const line = renderSkillOverPersonalNote({
+      customInstructions: true,
+      vaultMemory: true,
+    })!;
+    expect(preamble).toContain(line);
+    const at = preamble.indexOf(line);
+    expect(at).toBeLessThan(preamble.indexOf("User instructions: Prefer terse answers."));
+    expect(at).toBeLessThan(preamble.indexOf("Personal context approved by the user:"));
+    expect(preamble.split("Precedence for this skill run").length - 1).toBe(1);
+  });
+
+  it("names only the personal sources that actually render", () => {
+    const vaultOnly = personalPreamble({
+      pinnedSkill: true,
+      vaultMarkdown: "- Approved fact: reviews happen Fridays.",
+    });
+    expect(vaultOnly).toContain(
+      renderSkillOverPersonalNote({ customInstructions: false, vaultMemory: true }),
+    );
+    const instructionsOnly = personalPreamble({
+      pinnedSkill: true,
+      customInstructions: "Prefer terse answers.",
+    });
+    expect(instructionsOnly).toContain(
+      renderSkillOverPersonalNote({ customInstructions: true, vaultMemory: false }),
+    );
+  });
+
+  it("stays silent when no skill is pinned or no personal source renders — same bytes as before", () => {
+    const noSkill = personalPreamble({
+      customInstructions: "Prefer terse answers.",
+      vaultMarkdown: "- Approved fact: reviews happen Fridays.",
+    });
+    expect(noSkill).not.toContain("Precedence for this skill run");
+    expect(noSkill).toBe(
+      personalPreamble({
+        pinnedSkill: false,
+        customInstructions: "Prefer terse answers.",
+        vaultMarkdown: "- Approved fact: reviews happen Fridays.",
+      }),
+    );
+    const noPersonal = personalPreamble({
+      pinnedSkill: true,
+      customInstructions: "   ",
+      vaultMarkdown: null,
+    });
+    expect(noPersonal).not.toContain("Precedence for this skill run");
+    expect(noPersonal).toBe(personalPreamble({ pinnedSkill: false, customInstructions: "   " }));
   });
 });
 
