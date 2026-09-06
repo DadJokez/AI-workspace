@@ -68,6 +68,12 @@ describe("model slash command", () => {
         // Nova Pro is cheaper — because role words never cross vendors.
         nova: "nova-pro",
         "nova-pro": "nova-pro",
+        // #797: the open-weight OpenAI entry. Display-name slug equals its id;
+        // the short name is "gpt"; `<family>-<short>` derives to the odd but
+        // harmless "gpt-oss-gpt". Role words still stay within Claude.
+        gpt: "gpt-oss-120b",
+        "gpt-oss-120b": "gpt-oss-120b",
+        "gpt-oss-gpt": "gpt-oss-120b",
       });
     });
 
@@ -120,7 +126,7 @@ describe("model slash command", () => {
 
     it("lists every short name in the usage message", () => {
       expect(modelCommandUsageMessage()).toBe(
-        "Use /model haiku, /model sonnet, /model opus, /model nova, or /model auto followed by a message.",
+        "Use /model haiku, /model sonnet, /model opus, /model nova, /model gpt, or /model auto followed by a message.",
       );
     });
   });
