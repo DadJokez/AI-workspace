@@ -82,6 +82,19 @@ describe("model slash command", () => {
         // Nova Pro is cheaper — because role words never cross vendors.
         nova: "nova-pro",
         "nova-pro": "nova-pro",
+        // #797: the open-weight OpenAI entry. Display-name slug equals its id;
+        // the short name is "gpt"; `<family>-<short>` derives to the odd but
+        // harmless "gpt-oss-gpt". Role words still stay within Claude.
+        gpt: "gpt-oss-120b",
+        "gpt-oss-120b": "gpt-oss-120b",
+        "gpt-oss-gpt": "gpt-oss-120b",
+        // #660 / #797 P4: the three GPT-5.6 entries share the short name
+        // `gpt`, which resolves to the last-registered short-name holder — now gpt-oss-120b (registered after the GPT-5.6 trio); all four stay disabled, so the alias is refused downstream (the default
+        // is not one of them). Role words still stay within the default's
+        // vendor.
+        "gpt-5-6-terra": "gpt-5-6-terra",
+        "gpt-5-6-sol": "gpt-5-6-sol",
+        "gpt-5-6-luna": "gpt-5-6-luna",
         // #797 P5 (2026-09-06 gaggle): each entry adds its id, slug and
         // short name; a shared short name goes to the newest entry and
         // `deep` to the priciest same-vendor output. Over the WHOLE registry
@@ -161,7 +174,7 @@ describe("model slash command", () => {
 
     it("lists every short name in the whole-registry usage message", () => {
       expect(modelCommandUsageMessage()).toBe(
-        "Use /model haiku, /model sonnet, /model opus, /model nova, /model qwen3, /model kimi, /model glm, /model nemotron, /model deepseek, /model fable, or /model auto followed by a message.",
+        "Use /model haiku, /model sonnet, /model opus, /model nova, /model gpt, /model qwen3, /model kimi, /model glm, /model nemotron, /model deepseek, /model fable, or /model auto followed by a message.",
       );
     });
   });

@@ -26,6 +26,12 @@ model: every recommendation is a recommendation, Rob decides, and no
   fable-5-1, sonnet-5, deepseek-v3-2, nemotron-super-3-120b, glm-4-7,
   qwen3-32b, opus-5. Nothing was skipped for budget; the three Claude 5.x
   entries were skipped because the account cannot invoke them (below).
+- **Not in this gaggle:** the four OpenAI entries that landed on `main` the
+  same day — the GPT-5.6 Terra / Sol / Luna trio (#917, `invocation:
+  "responses"`, model agreement not yet accepted, nothing runnable) and
+  `gpt-oss-120b` (#918, Converse, NOT QUALIFIED 119/147 — see the runbook's
+  honest accounting). With Nova Pro that makes fifteen registered-but-
+  disabled entries; the registry lists the four OpenAI ids before these ten.
 
 ## Summary
 

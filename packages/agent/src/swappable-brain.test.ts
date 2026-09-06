@@ -31,6 +31,8 @@ import type { AgentEvent } from "./types";
  * `apps/web/__tests__/non-claude-brain.test.ts`).
  */
 const NOVA: ModelId = "nova-pro";
+/** Second non-Claude brain (#797): open-weight, ON_DEMAND, no `us.` profile. */
+const GPT_OSS: ModelId = "gpt-oss-120b";
 
 type StreamChunk = Record<string, unknown>;
 
@@ -222,6 +224,40 @@ describe("the real non-Claude Converse entry runs a full turn (#797 P1 exit test
     // No `olderModelExample` on the entry → the neutral wording.
     expect(system).toContain(" or an older model version");
     expect(system).not.toMatch(/Anthropic|Claude/);
+  });
+
+  it("runs the OpenAI open-weight entry on the same path: bare on-demand id, no cache blocks, OpenAI identity line", async () => {
+    expect(isValidModelId(GPT_OSS)).toBe(true);
+    expect(DEFAULT_MODEL_ID).not.toBe(GPT_OSS);
+    expect(PLATFORM_MODEL_OVERRIDE_ID).not.toBe(GPT_OSS);
+    expect(MODELS[GPT_OSS]).toMatchObject({
+      bedrockModelId: "openai.gpt-oss-120b-1:0",
+      provider: "openai",
+      family: "gpt-oss",
+      invocation: "converse",
+      supportsPromptCaching: false,
+    });
+    // No documented output ceiling below the 128k window; 32k was accepted
+    // by Converse and clears the #320 artifact floor.
+    expect(MODELS[GPT_OSS].defaultMaxTokens).toBeGreaterThanOrEqual(16_000);
+
+    const { inputs, events } = await runFullTurn(GPT_OSS);
+    expect(inputs).toHaveLength(2);
+    for (const input of inputs) {
+      expect(input.modelId).toBe("openai.gpt-oss-120b-1:0");
+      expect(countCachePoints(input)).toBe(0);
+    }
+    expect(inputs[0]?.inferenceConfig?.maxTokens).toBe(MODELS[GPT_OSS].defaultMaxTokens);
+    expect(events).toContainEqual({ type: "text-delta", delta: "The tool said pong." });
+    expect(events.at(-1)).toEqual({ type: "done" });
+
+    const system = (inputs[0]?.system ?? [])
+      .map((block) => ("text" in block && typeof block.text === "string" ? block.text : ""))
+      .join("\n");
+    expect(system).toContain("You are powered by GPT-OSS 120B, made by OpenAI.");
+    expect(system).toContain('answer "GPT-OSS 120B"');
+    expect(system).toContain(" or an older model version");
+    expect(system).not.toMatch(/Anthropic|Claude|Amazon|Nova/);
   });
 });
 

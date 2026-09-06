@@ -1,10 +1,11 @@
 # Runbook: add a Bedrock Converse model
 
-**Status: written; rehearsed on `nova-pro` (2026-09-05, #797 P3) and on the
-ten-model gaggle of 2026-09-06 (#797 P5 —
+**Status: written; rehearsed on `nova-pro` (2026-09-05, #797 P3),
+`gpt-oss-120b` (2026-09-06) and the ten-model gaggle of 2026-09-06 (#797 P5 —
 [`../models/QUALIFICATION_2026-09-06.md`](../models/QUALIFICATION_2026-09-06.md)):
-seven models through step 5, three Claude 5.x entries stopped at step 1 on
-account access. Steps 6–7 — the enablement flip — have never been executed.**
+`nova-pro`, `gpt-oss-120b` and seven gaggle models through step 5; the three
+Claude 5.x entries stopped at step 1 on account access. Steps 6–7 — the
+enablement flip — have never been executed.**
 
 **Purpose.** Put a new Bedrock model behind Comparative as a registry entry,
 prove it with the qualification pack, and (Rob only) turn it on per purpose.
@@ -41,16 +42,17 @@ aws bedrock list-inference-profiles --region us-east-1 \
 ```
 
 The foundation model must list `INFERENCE_PROFILE` (or `ON_DEMAND`) and the
-profile must be `ACTIVE`. Most third-party models (Qwen, Kimi, GLM, Nemotron,
-DeepSeek on 2026-09-06) are `ON_DEMAND` in-region ids with **no** geo
-profile: declare the bare id, and note that list price applies to it (the
-+10% below is the `us.*` regional-endpoint premium only). Then prove model
-access with one bounded call — an `AccessDeniedException` here means model
-access is not enabled (Bedrock console, or for Marketplace-billed models an
-account-level grant AWS has to make — the Claude 5.x entries answered
-`<model> is not available for this account` on 2026-09-06), and nothing
-downstream will work. Record that as the model's result and stop; do not try
-to enable access from an unattended lane:
+profile must be `ACTIVE`. Many models have no `us.` profile at all
+(`openai.gpt-oss-120b-1:0` is `ON_DEMAND` only, and so were Qwen, Kimi, GLM,
+Nemotron and DeepSeek on 2026-09-06): then `bedrockModelId` is the bare
+foundation-model id, single-region, and the price is plain list with no +10%
+premium (the +10% below is the `us.*` regional-endpoint premium only) — say
+so in the entry comment. Then prove model access with one bounded call — an
+`AccessDeniedException` here means model access is not enabled (Bedrock
+console, or for Marketplace-billed models an account-level grant AWS has to
+make — the Claude 5.x entries answered `<model> is not available for this
+account` on 2026-09-06), and nothing downstream will work. Record that as the
+model's result and stop; do not try to enable access from an unattended lane:
 
 ```bash
 aws bedrock-runtime converse --region us-east-1 \
@@ -89,7 +91,7 @@ Field by field:
 | `cacheReadInputMultiplier` / `cacheWriteInputMultiplier` | the model's cache-read / cache-write rates relative to input; moot when caching is off |
 | `supportsPromptCaching` | `true` **only** if the model appears in the explicit `cachePoint` table of the [Bedrock prompt-caching guide](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html). Otherwise `false`: the loop then emits no checkpoints and the request stays valid. Nova is implicit-cache only |
 | `supportsToolUse` / `supportsStreaming` / `supportsVision` | the model card / step 1 modalities |
-| `invocation` | `converse` for this runbook. `responses` is reserved for the Mantle adapter (#660) |
+| `invocation` | `converse` for this runbook. `responses` routes the model through Bedrock's OpenAI-compatible Responses API (`BedrockResponsesClient`, #660) — the OpenAI GPT entries use it; see "Responses-route models" below |
 | `contextWindow` / `defaultMaxTokens` | the vendor's model-specification table. `defaultMaxTokens` is passed straight to Converse and must not exceed the documented output ceiling; note in the comment if it is below the 20–30k an artifact build needs (#320) |
 | `blurb` / `recommendedFor` | selector copy; only shown once the model is enabled |
 
@@ -233,6 +235,43 @@ foundation-model ids added there and the stack redeployed
 nightly on the incumbent only; a per-enabled-model fan-out is designed but
 not built (see the #797 P3 PR).
 
+## Responses-route models (`invocation: "responses"`, #660)
+
+The OpenAI GPT models on Bedrock are not reachable through Converse on the
+`bedrock-runtime` endpoint; their registry entries declare
+`invocation: "responses"` and `RealBedrockClient` sends them through
+`BedrockResponsesClient` (`packages/agent/src/responses-client.ts`) —
+Bedrock's OpenAI-compatible Responses API at
+`https://bedrock-runtime.<region>.amazonaws.com/openai/v1/responses`, SigV4-
+signed with the ambient AWS credentials, `store: false` on every request,
+client-side function calling only. Everything above still applies; the
+differences:
+
+- **Step 1.** The model card's "Programmatic Access" table gives the `us.`
+  geo profile to declare (`us.openai.gpt-5.6-terra`); in-Region ids are
+  Mantle-only. The bounded access probe is a signed HTTPS call, not
+  `aws bedrock-runtime converse` — the quickest is a one-off `tsx` script
+  that runs `runAgentLoop` on the entry with `BEDROCK_CLIENT=real` (the P4
+  PR body has one).
+- **Pricing.** The card's own pricing table is authoritative and already
+  regional (use the "Geo CRIS, Short Context" row as-is — no +10% on top).
+  Input beyond 272K tokens bills a 2× "Long Context" tier the registry does
+  not model; declare `contextWindow: 272_000`.
+- **`supportsPromptCaching`** stays `false`: the flag gates Converse
+  `cachePoint` blocks and the Responses client sends no explicit cache
+  markers. Implicit caching still applies; `cached_tokens` are reported as
+  cache reads.
+- **IAM.** Production needs no new action: the task role's
+  `bedrock:InvokeModel*` on `*` covers the inference profile, the foundation
+  models it routes to, and the `bedrock:InvokeModel` on
+  `arn:aws:bedrock:<region>:<account>:project/default` the Responses API
+  additionally authorizes. A least-privilege role must list all three. The
+  nightly role (step 8) needs the profile, the foundation-model ARNs, and
+  the default-project ARN.
+- **Qualification** is the same `pnpm eval --model <id>` command; the
+  harness needs no wiring because the dispatch is inside the client the
+  judge shares (the judge stays on Converse).
+
 ## Honest accounting
 
 Rehearsed on `nova-pro` (2026-09-05): steps 1–2 took about 20 minutes, the
@@ -242,6 +281,13 @@ on the injection spine. That is inside the hour for the developer's own time. "Z
 registry entry" holds for production code; you will still edit one test
 pin (the `/model` alias table), and whether the new model does anything at
 all in production depends on the platform pin and on Rob's rows.
+
+Rehearsed again on `gpt-oss-120b` (2026-09-06, Haiku judge, `--baseline` =
+that morning's nightly): the full 147-case pack ran unattended in 17 minutes
+at $0.38 ($0.13 candidate + $0.25 judge) — verdict NOT QUALIFIED (119/147; 19
+CRITICAL, 9 HIGH misses, one known-red not red on the incumbent). Same
+shape as Nova: identity 3/3 and the cost tripwire pass, the injection spine
+does not.
 
 Rehearsed again on the ten-model gaggle (2026-09-06,
 [`../models/QUALIFICATION_2026-09-06.md`](../models/QUALIFICATION_2026-09-06.md)):

@@ -123,6 +123,61 @@ describe("nova-pro is registered but disabled by default (#797 P3)", () => {
   });
 });
 
+describe("the GPT-5.6 entries are registered but disabled by default (#660 / #797 P4)", () => {
+  const GPT: ModelId[] = ["gpt-5-6-terra", "gpt-5-6-sol", "gpt-5-6-luna"];
+
+  it("are responses-route registry entries that neither the default nor the platform pin points at", () => {
+    for (const id of GPT) {
+      expect(MODEL_IDS).toContain(id);
+      expect(DEFAULT_MODEL_ID).not.toBe(id);
+      expect(MODELS[id]).toMatchObject({
+        provider: "openai",
+        providerDisplayName: "OpenAI",
+        invocation: "responses",
+        supportsPromptCaching: false,
+      });
+      expect(MODELS[id].bedrockModelId).toMatch(/^us\.openai\.gpt-5\.6-/);
+    }
+  });
+
+  it("are enabled for no purpose without a model_enablement row", async () => {
+    const db = fakeDb(seededRows());
+    for (const purpose of MODEL_PURPOSES) {
+      const enabled = await enabledModelsForPurpose(db, purpose);
+      for (const id of GPT) {
+        expect(await isModelEnabled(db, id, purpose)).toBe(false);
+        expect(enabled).not.toContain(id);
+      }
+    }
+  });
+
+  it("cannot be selected for a turn without a row, even when explicitly requested by id or Bedrock id", () => {
+    for (const requestedModelId of ["gpt-5-6-terra", MODELS["gpt-5-6-terra"].bedrockModelId]) {
+      const selection = resolveRuntimeModelSelection({
+        requestedModelId,
+        route: directRoute,
+        runtimeName: "bedrock",
+        directModelId: undefined,
+        forceRequestedModel: true,
+        enabledModelIds: new Set(SEEDED),
+      });
+      expect(selection.modelId).not.toBe("gpt-5-6-terra");
+      expect(selection.reason).toBe("default_model_fallback");
+    }
+  });
+
+  it("keeps summaries, routing and memory-capture on Claude even when Terra is the chat brain", async () => {
+    const db = fakeDb(seededRows([{ modelId: "gpt-5-6-terra", purpose: "chat" }]));
+    expect(await enabledModelsForPurpose(db, "chat")).toContain("gpt-5-6-terra");
+    for (const purpose of ["summaries", "routing", "memory-capture"] as const) {
+      const resolved = await resolveModelForPurpose(db, purpose, {
+        preferred: "gpt-5-6-terra",
+      });
+      expect(MODELS[resolved].provider).toBe("anthropic");
+    }
+  });
+});
+
 /** The 2026-09-06 gaggle (#797 P5): registered for qualification, no rows. */
 const GAGGLE: ModelId[] = [
   "qwen3-32b",
@@ -202,5 +257,92 @@ describe("cross-provider failover chains (#797 P3)", () => {
         "sonnet-4-6",
       ),
     ).toEqual(["sonnet-4-6", "opus-4-7", "haiku-4-5", "nova-pro"]);
+  });
+});
+
+describe("gpt-oss-120b is registered but disabled by default (#797)", () => {
+  it("is a real registry entry that neither the default nor the platform pin points at", () => {
+    expect(MODEL_IDS).toContain("gpt-oss-120b");
+    // Registered right after the GPT-5.6 trio (#917); the 2026-09-06 gaggle
+    // (#919) is registered after it, so the registry's last entry is Fable 5.1.
+    expect(MODEL_IDS.indexOf("gpt-oss-120b")).toBe(
+      MODEL_IDS.indexOf("gpt-5-6-luna") + 1,
+    );
+    expect(MODEL_IDS.at(-1)).toBe("fable-5-1");
+    expect(DEFAULT_MODEL_ID).not.toBe("gpt-oss-120b");
+    expect(MODELS["gpt-oss-120b"]).toMatchObject({
+      // ON_DEMAND only — no `us.` inference profile exists for this model.
+      bedrockModelId: "openai.gpt-oss-120b-1:0",
+      provider: "openai",
+      family: "gpt-oss",
+      providerDisplayName: "OpenAI",
+      invocation: "converse",
+      supportsPromptCaching: false,
+      supportsVision: false,
+    });
+  });
+
+  it("is enabled for no purpose without a model_enablement row", async () => {
+    const db = fakeDb(seededRows([{ modelId: "nova-pro", purpose: "chat" }]));
+    for (const purpose of MODEL_PURPOSES) {
+      expect(await isModelEnabled(db, "gpt-oss-120b", purpose)).toBe(false);
+      expect(await enabledModelsForPurpose(db, purpose)).not.toContain(
+        "gpt-oss-120b",
+      );
+    }
+  });
+
+  it("cannot be selected for a turn by id or Bedrock id without a row, and can with one", () => {
+    for (const requestedModelId of [
+      "gpt-oss-120b",
+      MODELS["gpt-oss-120b"].bedrockModelId,
+    ]) {
+      const base = {
+        requestedModelId,
+        route: directRoute,
+        runtimeName: "bedrock" as const,
+        directModelId: undefined,
+        forceRequestedModel: true,
+      };
+      const without = resolveRuntimeModelSelection({
+        ...base,
+        enabledModelIds: new Set([...SEEDED, "nova-pro"]),
+      });
+      expect(without.modelId).not.toBe("gpt-oss-120b");
+      expect(without.reason).toBe("default_model_fallback");
+      expect(
+        resolveRuntimeModelSelection({
+          ...base,
+          enabledModelIds: new Set([...SEEDED, "gpt-oss-120b"]),
+        }),
+      ).toMatchObject({
+        modelId: "gpt-oss-120b",
+        providerModelId: "openai.gpt-oss-120b-1:0",
+      });
+    }
+  });
+
+  it("keeps summaries, routing and memory-capture on Claude even when it is the chat brain", async () => {
+    const db = fakeDb(seededRows([{ modelId: "gpt-oss-120b", purpose: "chat" }]));
+    expect(await enabledModelsForPurpose(db, "chat")).toContain("gpt-oss-120b");
+    for (const purpose of ["summaries", "routing", "memory-capture"] as const) {
+      const resolved = await resolveModelForPurpose(db, purpose, {
+        preferred: "gpt-oss-120b",
+      });
+      expect(MODELS[resolved].provider).toBe("anthropic");
+    }
+  });
+
+  it("joins the failover chain last, and only with its own row", () => {
+    expect(
+      orderModelCandidatesForPurpose("chat", SEEDED, "gpt-oss-120b"),
+    ).toEqual(["sonnet-4-6", "opus-4-7", "haiku-4-5"]);
+    expect(
+      orderModelCandidatesForPurpose(
+        "chat",
+        [...SEEDED, "gpt-oss-120b"],
+        "sonnet-4-6",
+      ),
+    ).toEqual(["sonnet-4-6", "opus-4-7", "haiku-4-5", "gpt-oss-120b"]);
   });
 });
