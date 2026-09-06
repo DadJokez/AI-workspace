@@ -28,6 +28,8 @@ branch** → Rob merges.
 - Migrations are additive-only and CI checks it: `pnpm --filter @ai-workspace/db migration:guard`
   fails a new destructive statement without a `-- migration-guard-allow: <reason>` line above it,
   and a journal `when` that does not exceed its predecessor's (`packages/db/README.md`).
+- Never add or remove the `needs-rob` label. It marks a change Rob must decide
+  (`CLAUDE.md` §7) and keeps `Claude verdict` red until Rob removes it himself.
 - The PR summary must include: what changed, validation notes, and risks.
 - Address Claude's review on the existing PR branch (push follow-up commits) —
   never open a duplicate PR.

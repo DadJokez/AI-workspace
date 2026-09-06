@@ -749,6 +749,9 @@ export function buildChatContextPack({
           webAccess: receipt.tools.webAccess,
           artifactContext: artifacts || null,
           vaultContextRequested,
+          // #911: with a skill pinned below, the preamble states the
+          // skill-over-personal conflict right above the personal blocks.
+          pinnedSkill: Boolean(activeSkill),
         }),
         "",
         ...(capabilityGraph && hasCapabilityState

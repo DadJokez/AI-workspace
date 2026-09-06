@@ -1,37 +1,49 @@
 /**
- * Live-data app bindings (#407). A servable app artifact can carry, in its
- * (immutable, per-version) `workspaceArtifacts.metadata.dataBindings`, a list
- * of PINNED read-only queries. A deployed app's Refresh invokes a binding
- * *by id* through `GET /api/apps/[id]/data/[bindingId]`, which runs the
- * pinned query under the VIEWER's own connection — never the author's.
+ * Live-data app bindings (#407, generalized in #802). A servable app
+ * artifact can carry, in its (immutable, per-version)
+ * `workspaceArtifacts.metadata.dataBindings`, a list of PINNED read-only
+ * tool calls: any `tools_catalog` read tool plus the arguments fixed at
+ * publish time. A deployed app's Refresh invokes a binding *by id* through
+ * `GET /api/apps/[id]/data/[bindingId]`, which runs the pinned call under
+ * the VIEWER's own connection — never the author's.
  *
- * This module is a client-safe leaf: shape parsing, the query strings that
- * need secret-scanning at mint, and the client-facing scrub that hides raw
- * queries from viewers (the browser only ever needs the binding id). The
- * read-only SOQL enforcement lives in the server-only salesforce module and
- * is applied at both mint and fetch time.
+ * This module is a client-safe leaf: shape parsing, the strings that need
+ * secret-scanning at mint, and the client-facing scrub that hides pinned
+ * arguments from viewers (the browser only ever needs the binding id). The
+ * provider gate, catalog read-only check, and execution live server-side.
+ *
+ * Storage shapes accepted (both normalize to `DataBinding`):
+ *   generic (#802): { id, provider, toolName, pinnedArgs, label? }
+ *   legacy  (#407): { id, provider: "salesforce", kind: "soql", query, label? }
+ * The legacy shape keeps working unchanged — it is read as
+ * `salesforce/run_soql` with `pinnedArgs: { soql: query }`.
  */
-
-/** The only provider/kind with a read query runner today (#407 v1). */
-export const SUPPORTED_BINDING_PROVIDERS = ["salesforce"] as const;
-export type DataBindingProvider = (typeof SUPPORTED_BINDING_PROVIDERS)[number];
 
 export interface DataBinding {
   id: string;
-  provider: DataBindingProvider;
-  kind: "soql";
-  /** The pinned query. Server-only — never serialized to app viewers. */
-  query: string;
+  /** `tools_catalog.provider` slug, e.g. "salesforce", "github". */
+  provider: string;
+  /** `tools_catalog.tool_name` of a READ tool, e.g. "run_soql", "list_issues". */
+  toolName: string;
+  /** Arguments pinned at publish. Server-only — never serialized to viewers. */
+  pinnedArgs: Record<string, unknown>;
   /** Optional human label for the bound dataset (safe to expose). */
   label?: string;
 }
 
-/** The client-safe view of a binding: everything except the raw query. */
-export type PublicDataBinding = Omit<DataBinding, "query">;
+/** The client-safe view of a binding: everything except the pinned arguments. */
+export type PublicDataBinding = Omit<DataBinding, "pinnedArgs">;
+
+/** Legacy #407 SOQL bindings normalize onto this catalog tool. */
+export const LEGACY_SOQL_PROVIDER = "salesforce";
+export const LEGACY_SOQL_TOOL_NAME = "run_soql";
 
 export const MAX_DATA_BINDINGS = 12;
-const MAX_BINDINGS = MAX_DATA_BINDINGS;
+const MAX_ID_CHARS = 64;
 const MAX_LABEL_CHARS = 120;
+/** Bound on serialized pinned arguments; a SOQL query fits comfortably. */
+export const MAX_PINNED_ARGS_CHARS = 16_000;
+const CATALOG_SLUG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -39,19 +51,60 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function isSupportedProvider(value: unknown): value is DataBindingProvider {
-  return (
-    typeof value === "string" &&
-    (SUPPORTED_BINDING_PROVIDERS as readonly string[]).includes(value)
-  );
+function isCatalogSlug(value: unknown): value is string {
+  return typeof value === "string" && CATALOG_SLUG_RE.test(value);
+}
+
+function normalizeBinding(row: Record<string, unknown>): DataBinding | null {
+  const { id, provider, label } = row;
+  if (typeof id !== "string" || id.length === 0 || id.length > MAX_ID_CHARS) {
+    return null;
+  }
+  if (!isCatalogSlug(provider)) return null;
+
+  let toolName: string;
+  let pinnedArgs: Record<string, unknown>;
+  if (row.kind === "soql") {
+    // Legacy #407 shape: a pinned SOQL SELECT on the viewer's Salesforce.
+    if (provider !== LEGACY_SOQL_PROVIDER) return null;
+    const query = row.query;
+    if (typeof query !== "string" || query.trim().length === 0) return null;
+    toolName = LEGACY_SOQL_TOOL_NAME;
+    pinnedArgs = { soql: query };
+  } else {
+    if (!isCatalogSlug(row.toolName)) return null;
+    const args = asRecord(row.pinnedArgs);
+    if (!args) return null;
+    toolName = row.toolName;
+    pinnedArgs = args;
+  }
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(pinnedArgs);
+  } catch {
+    return null;
+  }
+  if (typeof serialized !== "string" || serialized.length > MAX_PINNED_ARGS_CHARS) {
+    return null;
+  }
+  return {
+    id,
+    provider,
+    toolName,
+    pinnedArgs,
+    ...(typeof label === "string" && label.length > 0
+      ? { label: label.slice(0, MAX_LABEL_CHARS) }
+      : {}),
+  };
 }
 
 /**
  * Parse and validate the `dataBindings` in artifact metadata. Fails closed:
  * any malformed entry is dropped rather than trusted, duplicate ids collapse
  * to the first, and an over-long list is truncated. Returns [] when absent.
- * This validates SHAPE only — read-only SOQL enforcement is applied
- * separately (server-only) at mint and fetch.
+ * This validates SHAPE only — the provider gate, the catalog read-only
+ * check, and per-tool argument re-validation are applied separately
+ * (server-only) at publish and fetch.
  */
 export function parseDataBindings(metadata: unknown): DataBinding[] {
   const record = asRecord(metadata);
@@ -63,71 +116,58 @@ export function parseDataBindings(metadata: unknown): DataBinding[] {
   for (const entry of raw) {
     const row = asRecord(entry);
     if (!row) continue;
-    const { id, provider, kind, query, label } = row;
-    if (
-      typeof id !== "string" ||
-      id.length === 0 ||
-      !isSupportedProvider(provider) ||
-      kind !== "soql" ||
-      typeof query !== "string" ||
-      query.trim().length === 0 ||
-      seen.has(id)
-    ) {
-      continue;
-    }
-    seen.add(id);
-    bindings.push({
-      id,
-      provider,
-      kind,
-      query,
-      ...(typeof label === "string" && label.length > 0
-        ? { label: label.slice(0, MAX_LABEL_CHARS) }
-        : {}),
-    });
-    if (bindings.length >= MAX_BINDINGS) break;
+    const binding = normalizeBinding(row);
+    if (!binding || seen.has(binding.id)) continue;
+    seen.add(binding.id);
+    bindings.push(binding);
+    if (bindings.length >= MAX_DATA_BINDINGS) break;
   }
   return bindings;
 }
 
-/** Find one binding by id (after shape validation). */
-export function findDataBinding(
-  metadata: unknown,
-  bindingId: string,
-): DataBinding | null {
-  return (
-    parseDataBindings(metadata).find((binding) => binding.id === bindingId) ??
-    null
+/** Stable `provider:toolName` key matching `tools_catalog` rows. */
+export function bindingCatalogKey(
+  binding: Pick<DataBinding, "provider" | "toolName">,
+): string {
+  return `${binding.provider}:${binding.toolName}`;
+}
+
+/**
+ * The strings that must pass the mint/publish secret scan — pinned
+ * arguments in metadata otherwise bypass the scan that only covers artifact
+ * HTML content. Serialized so nested string values are covered too.
+ */
+export function bindingScanStrings(metadata: unknown): string[] {
+  return parseDataBindings(metadata).map((binding) =>
+    JSON.stringify(binding.pinnedArgs),
   );
 }
 
 /**
- * The query strings that must pass the mint/deploy secret scan — a SOQL
- * string in metadata otherwise bypasses the scan that only covers artifact
- * HTML content today.
+ * The allowlisted viewer-facing view of one binding. Never spread the
+ * binding — a future server-side field can't silently leak the way
+ * `pinnedArgs` would.
  */
-export function bindingQueryStrings(metadata: unknown): string[] {
-  return parseDataBindings(metadata).map((binding) => binding.query);
+export function publicDataBinding(binding: DataBinding): PublicDataBinding {
+  return {
+    id: binding.id,
+    provider: binding.provider,
+    toolName: binding.toolName,
+    ...(binding.label !== undefined ? { label: binding.label } : {}),
+  };
 }
 
 /**
- * Client-facing metadata: strips every binding's raw `query` so a viewer
- * (who invokes bindings by id) never receives the author's query text.
- * Returns the metadata unchanged when it carries no bindings.
+ * Client-facing metadata: strips every binding's pinned arguments so a
+ * viewer (who invokes bindings by id) never receives the author's query or
+ * arguments. Returns the metadata unchanged when it carries no bindings.
  */
 export function scrubBindingsForClient(
   metadata: Record<string, unknown> | null,
 ): Record<string, unknown> | null {
   if (!metadata || !Array.isArray(metadata.dataBindings)) return metadata;
-  // Allowlist the fields a viewer may see — never spread the binding, so a
-  // future field can't silently leak the way `query` would.
-  const publicBindings: PublicDataBinding[] = parseDataBindings(metadata).map(
-    (binding) => ({
-      id: binding.id,
-      provider: binding.provider,
-      kind: binding.kind,
-      ...(binding.label !== undefined ? { label: binding.label } : {}),
-    }),
-  );
-  return { ...metadata, dataBindings: publicBindings };
+  return {
+    ...metadata,
+    dataBindings: parseDataBindings(metadata).map(publicDataBinding),
+  };
 }

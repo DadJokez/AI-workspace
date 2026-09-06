@@ -41,6 +41,10 @@ jobs:
       - name: Verify the classifier
         run: bash .github/scripts/classify-docs-only.test.sh
 
+      - name: needs-rob gate fixtures (#891)
+        # The verdict publishers run this suite against main's copy of the script;
+        # this unprivileged PR-time run covers the PR's own copy (review finding on #900).
+        run: bash .github/scripts/needs-rob-gate.test.sh
       - name: Classify the pull request diff
         id: decide
         env:

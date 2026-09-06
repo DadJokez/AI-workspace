@@ -24,9 +24,14 @@ import {
 import { findCredentialShapedContent } from "@/lib/secret-scan";
 export { findCredentialShapedContent };
 import {
-  bindingQueryStrings,
+  bindingScanStrings,
   parseDataBindings,
 } from "@/lib/app-data-bindings";
+import {
+  checkLiveBindingsPublishable,
+  LiveBindingGateError,
+} from "@/lib/app-binding-gate";
+import { pinAppVersionDataBindings } from "@/lib/app-version-bindings";
 import {
   createAppPublicationMetadata,
   stampAppPublicationMetadata,
@@ -34,9 +39,9 @@ import {
 } from "@/lib/app-publication";
 
 /**
- * Secret-scan an app artifact's HTML content AND its #407 data-binding
- * queries — a credential smuggled into a pinned SOQL string in metadata
- * would otherwise bypass the content-only scan.
+ * Secret-scan an app artifact's HTML content AND its data bindings' pinned
+ * arguments (#407/#802) — a credential smuggled into a pinned query or
+ * argument in metadata would otherwise bypass the content-only scan.
  */
 export function scanArtifactForSecrets(artifact: {
   content: string;
@@ -44,8 +49,8 @@ export function scanArtifactForSecrets(artifact: {
 }): string[] {
   return [
     ...findCredentialShapedContent(artifact.content),
-    ...bindingQueryStrings(artifact.metadata).flatMap((query) =>
-      findCredentialShapedContent(query),
+    ...bindingScanStrings(artifact.metadata).flatMap((pinned) =>
+      findCredentialShapedContent(pinned),
     ),
   ];
 }
@@ -643,8 +648,36 @@ export async function deployAppVersion({
     acceptedProposalMetadata ?? artifact.metadata,
     publication,
   );
+  // #802 fail-closed provider gate: a live publication may only declare
+  // providers with per-viewer credentials + connect prompt + audit, and only
+  // enabled always-allowed READ tools. Checked here, at the single publish
+  // choke point, so the viewer-identity default cannot erode per provider.
+  const bindings = parseDataBindings(acceptedProposalMetadata ?? artifact.metadata);
+  if (dataMode === "live_via_viewer") {
+    const gate = await checkLiveBindingsPublishable(db, bindings);
+    if (!gate.ok) {
+      await auditAppMutation({
+        db,
+        actorUserId,
+        actionType: "app_publish_denied_binding_gate",
+        appId: app.id,
+        appSlug: app.slug,
+        status: "denied",
+        error: gate.reason,
+        metadata: { appVersionId: version.id, bindingId: gate.bindingId },
+      });
+      throw new LiveBindingGateError(gate.bindingId, gate.reason, gate.message);
+    }
+  }
 
   return db.transaction(async (tx) => {
+    // Pin the version's binding declarations (insert-only; immutable per
+    // version). Pinned in every mode so a later live republish of this same
+    // version serves exactly the bindings it was published with.
+    await pinAppVersionDataBindings(tx, {
+      appVersionId: version.id,
+      bindings,
+    });
     await tx
       .update(appVersions)
       .set({ status: "reverted" })
@@ -1321,6 +1354,7 @@ export async function auditAppMutation({
     | "app_draft_failed_secret_scan"
     | "app_deploy_denied"
     | "app_deploy_failed_secret_scan"
+    | "app_publish_denied_binding_gate"
     | "app_edit_denied"
     | "app_open_denied"
     | "app_data_refresh"

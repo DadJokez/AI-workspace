@@ -1,5 +1,7 @@
 import type { ToolCall, ToolResult } from "@ai-workspace/agent";
 import {
+  LEGACY_SOQL_PROVIDER,
+  LEGACY_SOQL_TOOL_NAME,
   MAX_DATA_BINDINGS,
   type DataBinding,
   type PublicDataBinding,
@@ -48,11 +50,13 @@ export function deriveBindingsFromTurnTools(
     }
     if (seen.has(query)) continue;
     seen.add(query);
+    // Emitted on the generic #802 shape; ids keep the `soql-N` contract the
+    // run_soql usage notes promise page authors.
     bindings.push({
       id: `soql-${bindings.length + 1}`,
-      provider: "salesforce",
-      kind: "soql",
-      query,
+      provider: LEGACY_SOQL_PROVIDER,
+      toolName: LEGACY_SOQL_TOOL_NAME,
+      pinnedArgs: { soql: query },
     });
     if (bindings.length >= MAX_DATA_BINDINGS) break;
   }

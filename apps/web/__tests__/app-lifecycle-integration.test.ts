@@ -930,3 +930,116 @@ describe("app lifecycle stateful paths", () => {
     );
   });
 });
+
+describe("live publication provider gate and binding pins (#802)", () => {
+  const issuesBinding = {
+    id: "issues",
+    provider: "github",
+    toolName: "list_issues",
+    pinnedArgs: { owner: "DadJokez", repo: "AI-workspace" },
+  };
+
+  function installGateMocks(db: unknown) {
+    installMocks(db, ownerSession);
+    vi.doMock("@/lib/oauth/mcp-servers", () => ({
+      isMcpProviderExecutionConfigured: () => true,
+    }));
+  }
+
+  it("refuses a live publish whose binding targets a non-read tool, audits it, and writes nothing", async () => {
+    const { db, state } = createDbMock();
+    const app = makeApp({ liveVersionId: null, liveArtifactId: null, status: "draft" });
+    const version = makeVersion({ sourceThreadId: null });
+    state.selectQueue = [
+      [], // active shares
+      [{ enabled: true, action: "write", policy: "needs_approval" }], // catalog row
+    ];
+    installGateMocks(db);
+    loadWorkspaceArtifactById.mockResolvedValue(
+      makeArtifact({ metadata: { dataBindings: [issuesBinding] } }),
+    );
+
+    const { deployAppVersion } = await import("@/lib/apps");
+    const { LiveBindingGateError } = await import("@/lib/app-binding-gate");
+    await expect(
+      deployAppVersion({
+        db: db as never,
+        app,
+        version,
+        actorUserId: ownerSession.id,
+        dataMode: "live_via_viewer",
+      }),
+    ).rejects.toBeInstanceOf(LiveBindingGateError);
+
+    expect(state.insertValues).toContainEqual(
+      expect.objectContaining({
+        actionType: "app_publish_denied_binding_gate",
+        status: "denied",
+        error: "tool_not_read_only",
+        metadata: expect.objectContaining({ bindingId: "issues" }),
+      }),
+    );
+    // Nothing was published: no status flip, no pinned rows.
+    expect(state.updateSets).toEqual([]);
+    expect(state.insertValues).not.toContainEqual(
+      expect.arrayContaining([expect.objectContaining({ bindingId: "issues" })]),
+    );
+  });
+
+  it("pins the version's bindings (insert-only) and declares them in the live manifest", async () => {
+    const { db, state } = createDbMock();
+    const app = makeApp({ liveVersionId: null, liveArtifactId: null, status: "draft" });
+    const version = makeVersion({ sourceThreadId: null });
+    const updated = makeApp({
+      liveVersionId: version.id,
+      liveArtifactId: version.artifactId,
+    });
+    state.selectQueue = [
+      [], // active shares
+      [{ enabled: true, action: "read", policy: "always_allow" }], // catalog row
+    ];
+    state.returningQueue = [[updated]];
+    installGateMocks(db);
+    loadWorkspaceArtifactById.mockResolvedValue(
+      makeArtifact({ metadata: { dataBindings: [issuesBinding] } }),
+    );
+
+    const { deployAppVersion } = await import("@/lib/apps");
+    const result = await deployAppVersion({
+      db: db as never,
+      app,
+      version,
+      actorUserId: ownerSession.id,
+      dataMode: "live_via_viewer",
+    });
+
+    expect(result.liveVersionId).toBe(version.id);
+    expect(state.insertValues).toContainEqual([
+      {
+        appVersionId: version.id,
+        bindingId: "issues",
+        provider: "github",
+        toolName: "list_issues",
+        pinnedArgs: { owner: "DadJokez", repo: "AI-workspace" },
+        label: null,
+      },
+    ]);
+    expect(state.updateSets).toContainEqual(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          appPublication: expect.objectContaining({
+            dataMode: "live_via_viewer",
+            connectorManifest: [
+              {
+                provider: "github",
+                toolName: "list_issues",
+                catalogKey: "github:list_issues",
+                bindingIds: ["issues"],
+              },
+            ],
+          }),
+        }),
+      }),
+    );
+  });
+});

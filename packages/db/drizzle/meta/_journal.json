@@ -346,6 +346,13 @@
       "breakpoints": true
     },
     {
+      "idx": 49,
+      "version": "7",
+      "when": 1788494400000,
+      "tag": "0049_app_version_data_bindings",
+      "breakpoints": true
+    },
+    {
       "idx": 50,
       "version": "7",
       "when": 1788494460000,

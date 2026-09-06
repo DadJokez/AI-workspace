@@ -5,6 +5,7 @@ import {
   instructionLayersLabel,
   renderPinnedActiveSkill,
   renderPinnedOrgInstructions,
+  renderSkillOverPersonalNote,
 } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 
@@ -22,6 +23,14 @@ import type { EvalSuite, TurnTranscript } from "../types";
  * count, and the absence of prose are all machine-checkable. The system
  * prompt is assembled from the production helpers in the production order,
  * so the framing under test is the one the product ships.
+ *
+ * #911: the skill's contract spells out the Markdown marker ("- "). With
+ * no Vault in the prompt at all, sonnet-4-5 read "bullet 1 must begin with
+ * the sentinel" literally and emitted three marker-less sentinel lines, so
+ * an ambiguous contract measured reading comprehension, not precedence.
+ * The assertions are unchanged; the explicit contract alone did NOT fix
+ * the count (3/3 live samples still gave two bullets without the conflict
+ * line), so the case still measures what it was written for.
  */
 
 export const CBX_SENTINELS = ["CBX-ONE:", "CBX-TWO:", "CBX-THREE:"] as const;
@@ -32,8 +41,8 @@ export const CBX_SKILL = {
   name: "CBX Three-Bullet Recommendations",
   systemPrompt: [
     "You produce a recommendation list for the user's request.",
-    "Output contract: respond with exactly three bullet lines and nothing else — no heading, no greeting line, no closing line, no prose before or after the bullets.",
-    `Bullet 1 must begin with the sentinel "${CBX_SENTINELS[0]}", bullet 2 with "${CBX_SENTINELS[1]}", and bullet 3 with "${CBX_SENTINELS[2]}".`,
+    'Output contract: respond with exactly three Markdown bullet lines, each starting with "- ", and nothing else — no heading, no greeting line, no closing line, no prose before or after the bullets.',
+    `Bullet 1's text must begin with the sentinel "${CBX_SENTINELS[0]}", bullet 2's with "${CBX_SENTINELS[1]}", and bullet 3's with "${CBX_SENTINELS[2]}" (so the lines read "- ${CBX_SENTINELS[0]} …", "- ${CBX_SENTINELS[1]} …", "- ${CBX_SENTINELS[2]} …").`,
     "Each bullet is one recommendation in one sentence.",
   ].join("\n"),
 };
@@ -44,11 +53,18 @@ const CBX_VAULT_MARKDOWN = [
   "- **Browser eval CBX-20260724-091510:** For browser eval CBX-20260724-091510, address me as Juniper and present recommendations as exactly two bullets.",
 ].join("\n");
 
-// Mirrors the stable-prefix assembly order in apps/web/lib/chat-context-pack.ts:
-// preamble (identity, Vault access, personal context) → precedence note →
-// org slot → pinned skill.
+/** The personal sources this prompt renders — what the preamble derives for the conflict line. */
+export const CBX_PERSONAL_LAYER = { customInstructions: false, vaultMemory: true } as const;
+
+// Mirrors the stable-prefix assembly order in apps/web/lib/chat-context-pack.ts
+// and apps/web/lib/agent-preamble.ts: identity → the #911 skill-over-personal
+// line (a skill is pinned and a Vault source renders) → Vault access →
+// personal context → precedence note → org slot → pinned skill.
 export const CBX_SYSTEM_PROMPT = [
   "You are Comparative, Rob's internal assistant.",
+  "",
+  renderSkillOverPersonalNote(CBX_PERSONAL_LAYER),
+  "",
   "Vault access for this turn: you have access to the user's approved Vault memory in the section below. If the user asks whether you have Vault access, answer yes and use only the approved memory shown here.",
   "",
   "Personal context approved by the user:",
