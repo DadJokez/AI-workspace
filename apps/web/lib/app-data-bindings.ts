@@ -125,17 +125,6 @@ export function parseDataBindings(metadata: unknown): DataBinding[] {
   return bindings;
 }
 
-/** Find one binding by id (after shape validation). */
-export function findDataBinding(
-  metadata: unknown,
-  bindingId: string,
-): DataBinding | null {
-  return (
-    parseDataBindings(metadata).find((binding) => binding.id === bindingId) ??
-    null
-  );
-}
-
 /** Stable `provider:toolName` key matching `tools_catalog` rows. */
 export function bindingCatalogKey(
   binding: Pick<DataBinding, "provider" | "toolName">,

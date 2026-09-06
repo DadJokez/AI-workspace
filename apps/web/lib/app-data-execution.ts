@@ -1,4 +1,9 @@
-import { connectMcpTools, mcpToolName } from "@ai-workspace/agent";
+import {
+  connectMcpTools,
+  mcpToolName,
+  type McpToolConnection,
+} from "@ai-workspace/agent";
+import type { McpServerSpec } from "@ai-workspace/agent-runtime";
 import type { Database } from "@ai-workspace/db";
 import {
   LEGACY_SOQL_PROVIDER,
@@ -9,8 +14,12 @@ import { providerSupportsViewerIdentity } from "@/lib/app-binding-providers";
 import {
   buildUserMcpServers,
   loadUserMcpProviderStatus,
+  type UserMcpProviderStatus,
 } from "@/lib/oauth/mcp-servers";
-import { resolveSalesforceConnection } from "@/lib/oauth/salesforce-token";
+import {
+  resolveSalesforceConnection,
+  type SalesforceConnectionState,
+} from "@/lib/oauth/salesforce-token";
 import {
   queryReadOnlySoql,
   SalesforceApiError,
@@ -32,7 +41,10 @@ import { toolActionKey } from "@/lib/tool-policy";
  * never the author's or any other user's data. Upstream error text never
  * leaves this module — providers echo submitted arguments in their errors,
  * and the author's pinned arguments must not reach a viewer's browser or an
- * audit row. Only a category survives.
+ * audit row. Only a category survives — including when a seam (status load,
+ * token refresh, MCP mount or connect) rejects outright: that becomes a
+ * `source_error` too, so the route audits and 502s it rather than a raw 500
+ * with no audit row.
  */
 export type AppDataExecution =
   | {
@@ -77,10 +89,17 @@ export async function executeAppDataBinding({
   }
 
   // The viewer's own provider state: connection, org registry, attestation,
-  // and the persisted per-tool policy — all scoped to `viewerUserId`.
-  const status = await loadUserMcpProviderStatus(db, viewerUserId, {
-    onlyProviders: [binding.provider],
-  });
+  // and the persisted per-tool policy — all scoped to `viewerUserId`. The
+  // attestation/catalog lookups inside can reject; that is a provider-state
+  // failure (`provider_status_failed`), not a viewer state.
+  let status: UserMcpProviderStatus;
+  try {
+    status = await loadUserMcpProviderStatus(db, viewerUserId, {
+      onlyProviders: [binding.provider],
+    });
+  } catch {
+    return { kind: "source_error", category: "provider_status_failed" };
+  }
   if (!status.connectedProviders.includes(binding.provider)) {
     return { kind: "needs_connection", connectionStatus: "not_connected" };
   }
@@ -125,7 +144,13 @@ async function executeLegacySoql(
   viewerUserId: string,
   safeSoql: string,
 ): Promise<AppDataExecution> {
-  const connection = await resolveSalesforceConnection(db, viewerUserId);
+  // Token decrypt/refresh throwing is a mount failure, not a viewer state.
+  let connection: SalesforceConnectionState;
+  try {
+    connection = await resolveSalesforceConnection(db, viewerUserId);
+  } catch {
+    return { kind: "source_error", category: "provider_mount_failed" };
+  }
   if (connection.status !== "ready") {
     return { kind: "needs_connection", connectionStatus: connection.status };
   }
@@ -173,19 +198,32 @@ async function executeCatalogTool(
   viewerUserId: string,
   binding: DataBinding,
 ): Promise<AppDataExecution> {
-  const { mcpServers } = await buildUserMcpServers(db, viewerUserId, {
-    onlyProviders: [binding.provider],
-  });
-  const spec = mcpServers?.[binding.provider];
-  // Account providers mount over HTTP only; a missing or non-HTTP spec means
-  // the viewer's mount failed (token decrypt/refresh), not a data error.
+  // Account providers mount over HTTP only; the mount builder rejecting, or
+  // a missing / non-HTTP spec, means the viewer's mount failed (token
+  // decrypt/refresh), not a data error.
+  let spec: McpServerSpec | undefined;
+  try {
+    const { mcpServers } = await buildUserMcpServers(db, viewerUserId, {
+      onlyProviders: [binding.provider],
+    });
+    spec = mcpServers?.[binding.provider];
+  } catch {
+    return { kind: "source_error", category: "provider_mount_failed" };
+  }
   if (!spec || !("url" in spec)) {
     return { kind: "source_error", category: "provider_mount_failed" };
   }
-  const connection = await connectMcpTools(
-    { [binding.provider]: spec },
-    { clientName: "comparative-app-data" },
-  );
+  // A client that fails to construct is the same failure `failedProviders`
+  // reports once connected.
+  let connection: McpToolConnection;
+  try {
+    connection = await connectMcpTools(
+      { [binding.provider]: spec },
+      { clientName: "comparative-app-data" },
+    );
+  } catch {
+    return { kind: "source_error", category: "provider_unreachable" };
+  }
   try {
     if (connection.failedProviders.length > 0) {
       return { kind: "source_error", category: "provider_unreachable" };

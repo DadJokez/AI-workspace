@@ -312,3 +312,50 @@ describe("executeAppDataBinding — generic catalog read tool via MCP", () => {
     expect(close).toHaveBeenCalled();
   });
 });
+
+describe("executeAppDataBinding — seam rejections become categories", () => {
+  // Every seam the executor mounts through can reject (attestation lookup
+  // down, token refresh throwing, MCP client failing to construct). Each must
+  // become a `source_error` category — the route audits and 502s those —
+  // never a raw rejection, and never the thrown text.
+  const thrown = new Error(`upstream: ${JSON.stringify(githubBinding.pinnedArgs)}`);
+
+  it("reports a provider-status load failure as provider_status_failed", async () => {
+    loadUserMcpProviderStatus.mockRejectedValueOnce(thrown);
+    const result = await execute(githubBinding);
+    expect(result).toEqual({ kind: "source_error", category: "provider_status_failed" });
+    expect(buildUserMcpServers).not.toHaveBeenCalled();
+    expect(resolveSalesforceConnection).not.toHaveBeenCalled();
+  });
+
+  it("reports a Salesforce token resolution failure as provider_mount_failed", async () => {
+    resolveSalesforceConnection.mockRejectedValueOnce(
+      new Error(`refresh failed for ${soqlBinding.pinnedArgs.soql}`),
+    );
+    const result = await execute(soqlBinding);
+    expect(result).toEqual({ kind: "source_error", category: "provider_mount_failed" });
+    expect(JSON.stringify(result)).not.toContain("Secret_Margin__c");
+    expect(queryReadOnlySoql).not.toHaveBeenCalled();
+  });
+
+  it("reports an MCP mount rejection as provider_mount_failed", async () => {
+    loadUserMcpProviderStatus.mockResolvedValue(
+      readyStatus("github", "list_pull_requests"),
+    );
+    buildUserMcpServers.mockRejectedValueOnce(thrown);
+    const result = await execute(githubBinding);
+    expect(result).toEqual({ kind: "source_error", category: "provider_mount_failed" });
+    expect(connectMcpTools).not.toHaveBeenCalled();
+  });
+
+  it("reports an MCP connect rejection as provider_unreachable", async () => {
+    loadUserMcpProviderStatus.mockResolvedValue(
+      readyStatus("github", "list_pull_requests"),
+    );
+    connectMcpTools.mockRejectedValueOnce(thrown);
+    const result = await execute(githubBinding);
+    expect(result).toEqual({ kind: "source_error", category: "provider_unreachable" });
+    expect(JSON.stringify(result)).not.toContain("DadJokez");
+    expect(handler).not.toHaveBeenCalled();
+  });
+});

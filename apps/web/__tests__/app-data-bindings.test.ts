@@ -3,7 +3,6 @@ import {
   MAX_PINNED_ARGS_CHARS,
   bindingCatalogKey,
   bindingScanStrings,
-  findDataBinding,
   parseDataBindings,
   publicDataBinding,
   scrubBindingsForClient,
@@ -85,16 +84,7 @@ describe("parseDataBindings", () => {
   });
 });
 
-describe("findDataBinding / bindingScanStrings / bindingCatalogKey", () => {
-  it("finds by id and returns null for a miss", () => {
-    const meta = { dataBindings: [genericBinding, legacyBinding] };
-    expect(findDataBinding(meta, "open-prs")?.pinnedArgs).toEqual(
-      genericBinding.pinnedArgs,
-    );
-    expect(findDataBinding(meta, "pipeline")?.toolName).toBe("run_soql");
-    expect(findDataBinding(meta, "missing")).toBeNull();
-  });
-
+describe("bindingScanStrings / bindingCatalogKey", () => {
   it("serializes pinned arguments (nested strings included) for the secret scan", () => {
     const strings = bindingScanStrings({
       dataBindings: [
