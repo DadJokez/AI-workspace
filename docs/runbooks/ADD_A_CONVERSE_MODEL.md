@@ -1,7 +1,8 @@
 # Runbook: add a Bedrock Converse model
 
-**Status: written; rehearsed once on `nova-pro` (2026-09-05, #797 P3) through
-step 5. Steps 6–7 — the enablement flip — have never been executed.**
+**Status: written; rehearsed on `nova-pro` (2026-09-05, #797 P3) and
+`gpt-oss-120b` (2026-09-06) through step 5. Steps 6–7 — the enablement flip —
+have never been executed.**
 
 **Purpose.** Put a new Bedrock model behind Comparative as a registry entry,
 prove it with the qualification pack, and (Rob only) turn it on per purpose.
@@ -38,7 +39,11 @@ aws bedrock list-inference-profiles --region us-east-1 \
 ```
 
 The foundation model must list `INFERENCE_PROFILE` (or `ON_DEMAND`) and the
-profile must be `ACTIVE`. Then prove model access with one bounded call — an
+profile must be `ACTIVE`. Some models have no `us.` profile at all
+(`openai.gpt-oss-120b-1:0` is `ON_DEMAND` only): then `bedrockModelId` is the
+bare foundation-model id, single-region, and the price is plain list with no
++10% premium — say so in the entry comment. Then prove model access with one
+bounded call — an
 `AccessDeniedException` here means model access is not enabled in the Bedrock
 console (Rob), and nothing downstream will work:
 
@@ -60,11 +65,11 @@ Field by field:
 
 | Field | Where the value comes from |
 | --- | --- |
-| `bedrockModelId` | the `us.` inference-profile id from step 1 |
+| `bedrockModelId` | the `us.` inference-profile id from step 1 (the bare foundation-model id when no profile exists) |
 | `provider` / `family` | lowercase vendor and family words (`amazon` / `nova`); the family word is what the identity evals forbid other vendors' turns from claiming |
 | `displayName` / `brandedName` / `providerDisplayName` | the name users see, the exact name the assistant answers with when asked what it is, and the vendor's brand spelling (`Amazon`, `Anthropic`, `OpenAI`). The runtime identity line is built **only** from these — never write a vendor into prompt text (#304) |
 | `olderModelExample` | optional; set it only when the family is known to misclaim an older version from training priors (Claude → "Claude 3.5") |
-| `costPer1MInput` / `costPer1MOutput` | Bedrock list price **+10%** for `us.*` profiles (the account pays regional-endpoint rates). Cite the pricing page in the entry comment; if you could not read it, say `UNVERIFIED — Rob to confirm` in the comment and the PR |
+| `costPer1MInput` / `costPer1MOutput` | Bedrock list price **+10%** for `us.*` profiles (the account pays regional-endpoint rates); plain list for a bare on-demand id. Cite the pricing page in the entry comment; if you could not read it, say `UNVERIFIED — Rob to confirm` in the comment and the PR |
 | `cacheReadInputMultiplier` / `cacheWriteInputMultiplier` | the model's cache-read / cache-write rates relative to input; moot when caching is off |
 | `supportsPromptCaching` | `true` **only** if the model appears in the explicit `cachePoint` table of the [Bedrock prompt-caching guide](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html). Otherwise `false`: the loop then emits no checkpoints and the request stays valid. Nova is implicit-cache only |
 | `supportsToolUse` / `supportsStreaming` / `supportsVision` | the model card / step 1 modalities |
@@ -250,3 +255,10 @@ on the injection spine. That is inside the hour for the developer's own time. "Z
 registry entry" holds for production code; you will still edit one test
 pin (the `/model` alias table), and whether the new model does anything at
 all in production depends on the platform pin and on Rob's rows.
+
+Rehearsed again on `gpt-oss-120b` (2026-09-06, Haiku judge, `--baseline` =
+that morning's nightly): the full 147-case pack ran unattended in 17 minutes
+at $0.38 ($0.13 candidate + $0.25 judge) — verdict NOT QUALIFIED (119/147; 19
+CRITICAL, 9 HIGH misses, one known-red not red on the incumbent). Same
+shape as Nova: identity 3/3 and the cost tripwire pass, the injection spine
+does not.

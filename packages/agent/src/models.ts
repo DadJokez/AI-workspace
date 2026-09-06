@@ -32,6 +32,7 @@ export const MODEL_IDS = [
   "gpt-5-6-terra",
   "gpt-5-6-sol",
   "gpt-5-6-luna",
+  "gpt-oss-120b",
 ] as const;
 export type ModelId = (typeof MODEL_IDS)[number];
 
@@ -405,6 +406,59 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
       "quick lookups",
       "classification / routing",
       "cost-sensitive summarization once qualified",
+    ],
+  },
+  /**
+   * First open-weight, non-Claude Converse brain (#797). Registered so it can
+   * be qualified (`pnpm eval --model gpt-oss-120b`); it has no
+   * `model_enablement` rows, so it is disabled for every purpose until Rob
+   * writes them.
+   *
+   * Verified 2026-09-06 (read-only, account 351478076796, us-east-1):
+   * `aws bedrock get-foundation-model --model-identifier openai.gpt-oss-120b-1:0`
+   * → ACTIVE, `inferenceTypesSupported: ["ON_DEMAND"]`, TEXT in / TEXT out,
+   * streaming true. There is NO `us.` cross-region inference profile for this
+   * model (`list-inference-profiles` returns none), so — unlike every other
+   * entry — `bedrockModelId` is the bare on-demand id, and the price below is
+   * the plain list price with no regional-endpoint premium.
+   *
+   * Pricing verified on the Bedrock pricing page (2026-09-06, on-demand,
+   * US East): $0.15 / $0.60 per 1M input / output. No cache pricing is
+   * published for OpenAI models and the prompt-caching guide lists none in
+   * its `cachePoint` table, so `supportsPromptCaching` is false and the cache
+   * multipliers are moot (kept at 1). Context window 128,000 from the Bedrock
+   * "OpenAI models" page; no separate output ceiling is documented, and a
+   * 32k `maxTokens` was accepted by Converse on 2026-09-06, so the cap
+   * matches the Claude entries and clears the #320 artifact floor.
+   *
+   * Converse returns the model's chain of thought as structured
+   * `reasoningContent` blocks (not `<thinking>` text); the loop already
+   * routes those to reasoning events, so they never reach the visible answer.
+   */
+  "gpt-oss-120b": {
+    id: "gpt-oss-120b",
+    bedrockModelId: "openai.gpt-oss-120b-1:0",
+    provider: "openai",
+    family: "gpt-oss",
+    displayName: "GPT-OSS 120B",
+    brandedName: "GPT-OSS 120B",
+    providerDisplayName: "OpenAI",
+    blurb: "OpenAI's open-weight reasoning model. Very low cost, text only.",
+    costPer1MInput: 0.15,
+    costPer1MOutput: 0.6,
+    cacheReadInputMultiplier: 1,
+    cacheWriteInputMultiplier: 1,
+    supportsToolUse: true,
+    supportsStreaming: true,
+    supportsVision: false,
+    supportsPromptCaching: false,
+    invocation: "converse",
+    contextWindow: 128_000,
+    defaultMaxTokens: 32_000,
+    recommendedFor: [
+      "cost-sensitive chat and summarization",
+      "coding and math reasoning",
+      "quota-independent capacity once qualified",
     ],
   },
 };

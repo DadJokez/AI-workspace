@@ -201,3 +201,85 @@ describe("cross-provider failover chains (#797 P3)", () => {
     ).toEqual(["sonnet-4-6", "opus-4-7", "haiku-4-5", "nova-pro"]);
   });
 });
+
+describe("gpt-oss-120b is registered but disabled by default (#797)", () => {
+  it("is a real registry entry that neither the default nor the platform pin points at", () => {
+    expect(MODEL_IDS).toContain("gpt-oss-120b");
+    expect(MODEL_IDS.at(-1)).toBe("gpt-oss-120b");
+    expect(DEFAULT_MODEL_ID).not.toBe("gpt-oss-120b");
+    expect(MODELS["gpt-oss-120b"]).toMatchObject({
+      // ON_DEMAND only — no `us.` inference profile exists for this model.
+      bedrockModelId: "openai.gpt-oss-120b-1:0",
+      provider: "openai",
+      family: "gpt-oss",
+      providerDisplayName: "OpenAI",
+      invocation: "converse",
+      supportsPromptCaching: false,
+      supportsVision: false,
+    });
+  });
+
+  it("is enabled for no purpose without a model_enablement row", async () => {
+    const db = fakeDb(seededRows([{ modelId: "nova-pro", purpose: "chat" }]));
+    for (const purpose of MODEL_PURPOSES) {
+      expect(await isModelEnabled(db, "gpt-oss-120b", purpose)).toBe(false);
+      expect(await enabledModelsForPurpose(db, purpose)).not.toContain(
+        "gpt-oss-120b",
+      );
+    }
+  });
+
+  it("cannot be selected for a turn by id or Bedrock id without a row, and can with one", () => {
+    for (const requestedModelId of [
+      "gpt-oss-120b",
+      MODELS["gpt-oss-120b"].bedrockModelId,
+    ]) {
+      const base = {
+        requestedModelId,
+        route: directRoute,
+        runtimeName: "bedrock" as const,
+        directModelId: undefined,
+        forceRequestedModel: true,
+      };
+      const without = resolveRuntimeModelSelection({
+        ...base,
+        enabledModelIds: new Set([...SEEDED, "nova-pro"]),
+      });
+      expect(without.modelId).not.toBe("gpt-oss-120b");
+      expect(without.reason).toBe("default_model_fallback");
+      expect(
+        resolveRuntimeModelSelection({
+          ...base,
+          enabledModelIds: new Set([...SEEDED, "gpt-oss-120b"]),
+        }),
+      ).toMatchObject({
+        modelId: "gpt-oss-120b",
+        providerModelId: "openai.gpt-oss-120b-1:0",
+      });
+    }
+  });
+
+  it("keeps summaries, routing and memory-capture on Claude even when it is the chat brain", async () => {
+    const db = fakeDb(seededRows([{ modelId: "gpt-oss-120b", purpose: "chat" }]));
+    expect(await enabledModelsForPurpose(db, "chat")).toContain("gpt-oss-120b");
+    for (const purpose of ["summaries", "routing", "memory-capture"] as const) {
+      const resolved = await resolveModelForPurpose(db, purpose, {
+        preferred: "gpt-oss-120b",
+      });
+      expect(MODELS[resolved].provider).toBe("anthropic");
+    }
+  });
+
+  it("joins the failover chain last, and only with its own row", () => {
+    expect(
+      orderModelCandidatesForPurpose("chat", SEEDED, "gpt-oss-120b"),
+    ).toEqual(["sonnet-4-6", "opus-4-7", "haiku-4-5"]);
+    expect(
+      orderModelCandidatesForPurpose(
+        "chat",
+        [...SEEDED, "gpt-oss-120b"],
+        "sonnet-4-6",
+      ),
+    ).toEqual(["sonnet-4-6", "opus-4-7", "haiku-4-5", "gpt-oss-120b"]);
+  });
+});
