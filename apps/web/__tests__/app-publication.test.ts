@@ -240,8 +240,9 @@ describe("published app badge", () => {
       authorName: "Brittany",
     });
     expect(html).toContain(
-      "Live via your connections · Salesforce run_soql, GitHub list_issues",
+      "Live data — shown with your access",
     );
+    expect(html).toContain("Data is fetched with your access (Salesforce run_soql, GitHub list_issues). Others may see different numbers.");
     expect(html).not.toContain("Opportunity");
     expect(html).not.toContain("DadJokez");
   });

@@ -997,6 +997,12 @@ export function ChatClient({
             }
             branchPending={branchPending || currentRunActive}
             onAddressArtifactReview={addressArtifactReviewComments}
+            onMakeArtifactLive={(artifact) => send(
+              "Convert the attached HTML artifact into a live app using viewer-scoped connected data. Remove embedded connected records and sensitive data from the file; render through comparativeData.refreshWidget with the artifact's pinned read bindings. Keep the same filename. Do not publish or change sharing permissions.",
+              undefined, undefined, undefined, undefined, undefined, undefined,
+              [{ reference: { version: 1, kind: "artifact", resourceId: artifact.id },
+                label: artifact.filename, description: "Live-data conversion", sourceLabel: "Artifacts" }],
+            )}
             onOpenThread={openThread}
             onUnreadChange={setUnreadNotifications}
           />

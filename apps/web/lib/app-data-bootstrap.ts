@@ -4,9 +4,9 @@ import {
   LEGACY_SOQL_TOOL_NAME,
   MAX_DATA_BINDINGS,
   type DataBinding,
-  type PublicDataBinding,
 } from "@/lib/app-data-bindings";
 import { validateReadOnlySoql } from "@/lib/salesforce/api";
+export { buildAppDataBootstrap, injectAppDataBootstrap } from "@/lib/app-data-client-bootstrap";
 
 /**
  * Live-data app client wiring (#407, second half). Server-only:
@@ -61,48 +61,4 @@ export function deriveBindingsFromTurnTools(
     if (bindings.length >= MAX_DATA_BINDINGS) break;
   }
   return bindings;
-}
-
-/**
- * The injected script: a data-only contract for model-authored pages.
- * `window.__COMPARATIVE_APP__` carries the app id and the SCRUBBED binding
- * list (never query text), and `window.comparativeData.refresh(bindingId)`
- * fetches the viewer-scoped endpoint with the viewer's own session cookie.
- * JSON is serialized with `<` escaped so author-controlled labels can never
- * break out of the script element.
- */
-export function buildAppDataBootstrap(
-  appId: string,
-  bindings: readonly PublicDataBinding[],
-): string {
-  const payload = JSON.stringify({ appId, bindings }).replace(/</g, "\\u003c");
-  return [
-    "<script>",
-    `window.__COMPARATIVE_APP__ = ${payload};`,
-    "window.comparativeData = {",
-    "  refresh: function (bindingId) {",
-    "    var app = window.__COMPARATIVE_APP__;",
-    "    return fetch('/api/apps/' + app.appId + '/data/' + encodeURIComponent(bindingId), {",
-    "      credentials: 'same-origin',",
-    "      headers: { accept: 'application/json' }",
-    "    }).then(function (res) {",
-    "      return res.json().then(function (body) { return body; });",
-    "    });",
-    "  }",
-    "};",
-    "</script>",
-  ].join("\n");
-}
-
-/**
- * Insert the bootstrap so it runs before any page script: after the opening
- * <head> tag when one exists, otherwise prepended to the document.
- */
-export function injectAppDataBootstrap(html: string, bootstrap: string): string {
-  const headOpen = /<head[^>]*>/i.exec(html);
-  if (headOpen) {
-    const at = headOpen.index + headOpen[0].length;
-    return `${html.slice(0, at)}\n${bootstrap}${html.slice(at)}`;
-  }
-  return `${bootstrap}\n${html}`;
 }

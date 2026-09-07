@@ -1,4 +1,6 @@
 import { mcpToolName } from "@ai-workspace/agent";
+import { authoringUsageNotes } from "@/lib/app-data-authoring-guidance";
+import { providerSupportsViewerIdentity } from "@/lib/app-binding-providers";
 import type { Database } from "@ai-workspace/db";
 import { oauthTokens } from "@ai-workspace/db";
 import type { McpServerSpec } from "@ai-workspace/agent-runtime";
@@ -79,7 +81,7 @@ const GOOGLE_TOOL_USAGE_NOTES: Record<string, string> = {
 
 const SALESFORCE_TOOL_USAGE_NOTES: Record<string, string> = {
   run_soql:
-    "If you now build an HTML page from these Salesforce rows, embed the fetched rows as the labeled initial render and wire a Refresh control to window.comparativeData.refresh(bindingId). Runtime binding ids appear in window.__COMPARATIVE_APP__.bindings in query order (soql-1, soql-2, and so on). Re-render from the returned JSON; when needsConnection is true, tell the viewer to connect their own Salesforce account in Settings instead of presenting stale data as live. Each viewer sees only what their own Salesforce access allows.",
+    "For a live HTML page, do not embed these Salesforce rows as initial or fallback data. Discover the run_soql bindings in window.__COMPARATIVE_APP__.bindings (soql-1, soql-2, and so on) and render through window.comparativeData.refreshWidget using the viewer's returned records. An unconnected viewer gets a Connect prompt, never the author's rows. Only embed a labeled snapshot when the user explicitly asks for a static snapshot.",
 };
 
 const MCP_PROVIDER_CONFIG: Record<string, McpProviderConfig> = {
@@ -548,21 +550,19 @@ export async function buildUserMcpServers(
       INTEGRATION_DISPLAY_NAMES[
         row.provider as keyof typeof INTEGRATION_DISPLAY_NAMES
       ];
+    const runtimePolicies = runtimeToolPoliciesForProvider(status.toolPolicyDecisions ?? {}, row.provider);
     out[row.provider] = {
       type: "http",
       url: endpoint.url,
       headers,
       ...resolvedToolPolicy,
-      toolPolicies: runtimeToolPoliciesForProvider(
-        status.toolPolicyDecisions ?? {},
-        row.provider,
-      ),
+      toolPolicies: runtimePolicies,
       // The endpoint may add a tool after this catalog snapshot. Keep that
       // tool usable during this transition, but never classify it as allowed.
       defaultToolPolicy: "needs_approval",
-      ...(providerConfig.usageNotesByTool
-        ? { usageNotesByTool: providerConfig.usageNotesByTool }
-        : {}),
+      usageNotesByTool: providerSupportsViewerIdentity(row.provider)
+        ? authoringUsageNotes(runtimePolicies, providerConfig.usageNotesByTool)
+        : providerConfig.usageNotesByTool,
       // #713: canonical Settings card name, so degraded-mount prompt guidance
       // quotes the same integration name the visible UI renders (#649).
       ...(displayName ? { displayName } : {}),
