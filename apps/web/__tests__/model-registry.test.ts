@@ -59,6 +59,12 @@ describe("isModelEnabled", () => {
 });
 
 describe("resolveModelForPurpose", () => {
+  it("keeps the production platform pin even if GLM-5 has a routing row", async () => {
+    const db = fakeDb([{ modelId: "glm-5", purpose: "routing" }]);
+    expect(await resolveModelForPurpose(db, "routing", { preferred: "glm-5" })).toBe("sonnet-4-5");
+    expect(await isModelEnabled(db, "glm-5", "routing")).toBe(false);
+  });
+
   it("supersedes persisted preferences for every internal purpose", async () => {
     const db = fakeDb([
       { modelId: "haiku-4-5", purpose: "memory-capture" },
