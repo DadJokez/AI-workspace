@@ -87,27 +87,36 @@ export function buildAppDataBootstrap(
   var providerNames = ${providerNames};
   var connectUrl = ${JSON.stringify(APP_DATA_CONNECT_URL)};
   var pending = new WeakMap();
-  function error(message) {
-    return { state: 'error', ok: false, scopedMessage: message };
+  function error(message, code, legacyMessage) {
+    return { state: 'error', ok: false, scopedMessage: message,
+      error: code || 'refresh_failed', message: legacyMessage || message };
   }
   async function refresh(bindingId) {
     if (!app.bindings.some(function (binding) { return binding.id === bindingId; })) {
-      return error('This data is unavailable.');
+      return error('This data is unavailable.', 'not_found');
     }
     try {
       var res = await fetch('/api/apps/' + encodeURIComponent(app.appId) + '/data/' + encodeURIComponent(bindingId), {
         credentials: 'same-origin', cache: 'no-store', headers: { accept: 'application/json' }
       });
       if (!res.ok) {
-        return error(res.status === 401 ? 'Sign in to refresh this data.' :
-          res.status === 429 ? 'Too many refreshes. Try again shortly.' : 'This data could not be refreshed.');
+        // Preserve known legacy fields without trusting an upstream error body.
+        var codes = { 401: 'unauthorized', 404: 'not_found', 422: 'invalid_binding',
+          429: 'rate_limited', 502: 'data_source_error' };
+        var message = res.status === 401 ? 'Sign in to refresh this data.' :
+          res.status === 429 ? 'Too many refreshes. Try again shortly.' : 'This data could not be refreshed.';
+        return error(message, codes[res.status],
+          res.status === 502 ? 'The data source could not be reached.' : message);
       }
       var body = await res.json();
       if (body.state === 'ok' && body.ok === true && typeof body.fetchedAt === 'string' &&
           Number.isFinite(Date.parse(body.fetchedAt)) && Object.prototype.hasOwnProperty.call(body, 'data')) return body;
       if (body.state === 'needs_connection' && typeof body.provider === 'string') {
+        var statuses = ['not_connected', 'connector_disabled', 'pending_approval',
+          'reconnect_required', 'temporarily_unavailable', 'execution_not_configured', 'unsupported_provider'];
         return { state: 'needs_connection', ok: false, needsConnection: true,
-          provider: body.provider, connectUrl: connectUrl };
+          provider: body.provider, connectUrl: connectUrl,
+          connectionStatus: statuses.includes(body.connectionStatus) ? body.connectionStatus : 'not_connected' };
       }
       return error('This data could not be refreshed.');
     } catch (_) {

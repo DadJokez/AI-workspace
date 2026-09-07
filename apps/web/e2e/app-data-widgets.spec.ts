@@ -125,3 +125,27 @@ test("older in-flight responses cannot resurrect data after a newer connection f
   await expect(page.locator("#pipeline")).toHaveText("Connect Salesforce");
   await expect(page.locator("#pipeline time")).toHaveCount(0);
 });
+
+test("legacy refresh fields remain safe for previously authored pages", async ({ page }) => {
+  let response: { status?: number; json: Record<string, unknown> } = {
+    json: { state: "needs_connection", provider: "github", connectionStatus: "reconnect_required",
+      connectUrl: "https://untrusted.example.test", message: "PRIVATE UPSTREAM" },
+  };
+  await page.route("**/api/apps/demo/data/*", (route) => route.fulfill(response));
+  await openWidgets(page);
+  const read = () => page.evaluate(() => (window as unknown as {
+    comparativeData: { refresh: (id: string) => Promise<Record<string, unknown>> };
+  }).comparativeData.refresh("issues"));
+  expect(await read()).toEqual({ state: "needs_connection", ok: false, needsConnection: true,
+    provider: "github", connectionStatus: "reconnect_required", connectUrl: "/chat?open=settings&section=integrations" });
+  response.json.connectionStatus = "PRIVATE UPSTREAM";
+  expect(await read()).toMatchObject({ connectionStatus: "not_connected" });
+  for (const [status, error] of [[401, "unauthorized"], [404, "not_found"], [422, "invalid_binding"],
+    [429, "rate_limited"], [502, "data_source_error"], [503, "refresh_failed"]] as const) {
+    response = { status, json: { error: "PRIVATE UPSTREAM", message: "PRIVATE UPSTREAM" } };
+    const result = await read();
+    expect(result).toMatchObject({ state: "error", ok: false, error, message: expect.any(String), scopedMessage: expect.any(String) });
+    if (status === 502) expect(result.message).toBe("The data source could not be reached.");
+    expect(JSON.stringify(result)).not.toContain("PRIVATE UPSTREAM");
+  }
+});

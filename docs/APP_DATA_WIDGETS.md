@@ -24,6 +24,10 @@ Authentication middleware may return 401 without the binding contract;
 the client normalizes that into a sign-in message for the affected widget.
 Legacy success fields (`records`, `totalSize`, `done`) remain available for
 existing Salesforce pages alongside `data`.
+The client retains known legacy error codes/messages and an allowlisted
+`connectionStatus`. It derives error fields from HTTP status, never copies
+an upstream error body, and normalizes unknown connection states to
+`not_connected`. New consumers should use the tri-state contract.
 
 ## Rendering
 
