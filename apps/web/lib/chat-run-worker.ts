@@ -15,7 +15,10 @@ import {
   type ConversationResourceResolution,
 } from "@/lib/conversation-resources";
 import { appendRunEventBestEffort } from "@/lib/run-events";
-import { resolveModelCandidatesForPurpose } from "@/lib/model-registry";
+import {
+  resolveModelCandidatesForPurpose,
+  type ModelEnablementFallback,
+} from "@/lib/model-registry";
 import { createProactiveRunNotification } from "@/lib/notifications";
 import {
   abortChatWorkerRuntime,
@@ -507,14 +510,28 @@ async function executeClaimedChatRun({
   const thread = threadRows[0];
   if (!thread) throw new Error("Chat thread was not found for queued run.");
 
+  let enablementFallback: ModelEnablementFallback | undefined;
   const modelCandidates = await resolveModelCandidatesForPurpose(
     db,
     runtimeRoute.lane,
     {
       preferred: run.modelId,
+      onUnavailable: (receipt) => {
+        enablementFallback = receipt;
+      },
     },
   );
   const modelId = modelCandidates[0]!;
+  if (enablementFallback) {
+    await appendRunEventBestEffort("chat-run-event-error", {
+      db,
+      runId: run.id,
+      eventType: "model_enablement_fallback",
+      status: "info",
+      label: enablementFallback.message,
+      metadata: { enablementFallback },
+    });
+  }
 
   const runtimeAbort = new AbortController();
   const externalAbort = () =>

@@ -260,6 +260,24 @@ describe("cross-provider failover chains (#797 P3)", () => {
   });
 });
 
+describe("GLM-5 routing-only enablement (#923)", () => {
+  it("honors an explicit routing row without enabling any other purpose", async () => {
+    const db = fakeDb(seededRows([{ modelId: "glm-5", purpose: "routing" }]));
+    expect(await resolveModelForPurpose(db, "routing", { preferred: "glm-5" })).toBe("glm-5");
+    for (const purpose of MODEL_PURPOSES.filter((p) => p !== "routing")) {
+      expect(await isModelEnabled(db, "glm-5", purpose)).toBe(false);
+      expect(await resolveModelForPurpose(db, purpose, { preferred: "glm-5" })).not.toBe("glm-5");
+      expect(orderModelCandidatesForPurpose(purpose, await enabledModelsForPurpose(db, purpose), "glm-5")).not.toContain("glm-5");
+    }
+  });
+
+  it("does not retain routing permission after the row is removed and the cache invalidated", async () => {
+    expect(await resolveModelForPurpose(fakeDb(seededRows([{ modelId: "glm-5", purpose: "routing" }])), "routing", { preferred: "glm-5" })).toBe("glm-5");
+    invalidateModelEnablementCache();
+    expect(await resolveModelForPurpose(fakeDb(seededRows()), "routing", { preferred: "glm-5" })).not.toBe("glm-5");
+  });
+});
+
 describe("gpt-oss-120b is registered but disabled by default (#797)", () => {
   it("is a real registry entry that neither the default nor the platform pin points at", () => {
     expect(MODEL_IDS).toContain("gpt-oss-120b");

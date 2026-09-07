@@ -10,6 +10,8 @@ import {
 } from "./context-lifecycle";
 import { modelIdentityLine } from "./model-identity";
 import { MODELS, type ModelId } from "./models";
+import { ProviderOutputFilter } from "./provider-output";
+import { withToolHistory } from "./tool-history-config";
 import {
   RunBudgetTracker,
   type RunBudgetDimension,
@@ -273,6 +275,7 @@ export async function* runAgentLoop(
   // A tool round is not a completed answer. After the final allowed round,
   // give the model one tool-free synthesis step so the turn cannot silently
   // "succeed" on a trailing tool result (#612).
+  let emittedVisibleText = false;
   for (let iter = 0; iter <= maxToolIterations; iter++) {
     if (params.signal?.aborted) {
       yield { type: "error", message: "aborted" };
@@ -314,7 +317,7 @@ export async function* runAgentLoop(
       }
     }
 
-    const toolConfig =
+    const toolConfig = withToolHistory(
       synthesisOnly
         ? undefined
         : baseToolConfig && iter === 0 && requiredToolName
@@ -322,7 +325,9 @@ export async function* runAgentLoop(
               ...baseToolConfig,
               toolChoice: { tool: { name: requiredToolName } },
             }
-          : baseToolConfig;
+          : baseToolConfig,
+      bedrockMessages,
+    );
     const iterationVolatileSystemSuffix = synthesisOnly
       ? [volatileSystemSuffix, TOOL_LIMIT_SYNTHESIS_INSTRUCTION]
           .filter(Boolean)
@@ -357,7 +362,11 @@ export async function* runAgentLoop(
         systemPrompt,
         volatileSystemSuffix: iterationVolatileSystemSuffix,
         messages: lifecycle.messages,
-        tools: synthesisOnly ? [] : tools,
+        tools: (toolConfig?.tools ?? []).map(({ toolSpec }) => ({
+          name: toolSpec.name,
+          description: toolSpec.description,
+          inputSchema: toolSpec.inputSchema.json,
+        })),
         ...(lifecycle.receipt.cleared.length > 0
           ? { contextLifecycle: lifecycle.receipt }
           : {}),
@@ -366,6 +375,11 @@ export async function* runAgentLoop(
 
     const assistantBlocks: BedrockContentBlock[] = [];
     let pendingText = "";
+    let receivedText = false;
+    const outputFilter = new ProviderOutputFilter(
+      model.provider !== "anthropic",
+      !emittedVisibleText,
+    );
     const reasoningBlocks = new Map<
       number,
       { text: string; signature: string; redactedParts: string[] }
@@ -379,8 +393,13 @@ export async function* runAgentLoop(
         return;
       }
       if (ev.type === "text-delta") {
-        pendingText += ev.text;
-        yield { type: "text-delta", delta: ev.text };
+        receivedText ||= ev.text.trim().length > 0;
+        const text = outputFilter.push(ev.text);
+        pendingText += text;
+        if (text) {
+          emittedVisibleText = true;
+          yield { type: "text-delta", delta: text };
+        }
       } else if (ev.type === "reasoning-text-delta") {
         const block = reasoningBlocks.get(ev.blockIndex) ?? {
           text: "",
@@ -458,6 +477,20 @@ export async function* runAgentLoop(
       }
     }
 
+    const finalText = outputFilter.finish();
+    pendingText += finalText;
+    if (finalText) {
+      emittedVisibleText = true;
+      yield { type: "text-delta", delta: finalText };
+    }
+    if (receivedText && !pendingText.trim() && !pendingToolCalls.length) {
+      yield {
+        type: "error",
+        message: "The model returned provider markup without a visible answer. Please retry.",
+      };
+      return;
+    }
+
     for (const [, block] of [...reasoningBlocks].sort(
       ([left], [right]) => left - right,
     )) {
@@ -504,6 +537,18 @@ export async function* runAgentLoop(
         type: "error",
         message:
           "The model requested another tool after the tool-step limit was reached.",
+      };
+      return;
+    }
+    const unavailableCall = pendingToolCalls.find(
+      (call) =>
+        params.registry.has(call.name) &&
+        !tools.some((tool) => tool.name === call.name),
+    );
+    if (unavailableCall) {
+      yield {
+        type: "error",
+        message: `Tool unavailable in this step: ${unavailableCall.name}`,
       };
       return;
     }
@@ -981,7 +1026,7 @@ function buildProviderRequestSnapshot({
   systemPrompt?: string;
   volatileSystemSuffix?: string;
   messages: BedrockMessage[];
-  tools: ReturnType<ToolRegistry["list"]>;
+  tools: Array<Pick<Tool, "name" | "description" | "inputSchema">>;
   contextLifecycle?: ProviderRequestSnapshot["contextLifecycle"];
 }): ProviderRequestSnapshot {
   return {

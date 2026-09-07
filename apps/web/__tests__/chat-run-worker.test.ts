@@ -95,6 +95,28 @@ beforeEach(() => {
 });
 
 describe("processQueuedChatRun", () => {
+  it("records the default fallback when the worker's enablement read fails", async () => {
+    const receipt = {
+      reason: "model_enablement_unavailable" as const,
+      message: "Model enablement unavailable — using the default",
+      purpose: "durable-local" as const,
+      modelId: "sonnet-4-6" as const,
+    };
+    vi.mocked(resolveModelCandidatesForPurpose).mockImplementationOnce(async (_db, _purpose, options) => {
+      options?.onUnavailable?.(receipt);
+      return ["sonnet-4-6"];
+    });
+    await processQueuedChatRun({ db: fakeDb(claimedRun()), runId: "run-1" });
+    expect(appendRunEventBestEffort).toHaveBeenCalledWith("chat-run-event-error", expect.objectContaining({
+      eventType: "model_enablement_fallback",
+      label: receipt.message,
+      metadata: { enablementFallback: receipt },
+    }));
+    expect(vi.mocked(executeChatTurn).mock.calls[0]![0]).toMatchObject({
+      modelId: "sonnet-4-6", modelCandidates: ["sonnet-4-6"],
+    });
+  });
+
   it("re-validates the stored model against the registry at turn time (#442 drift fix)", async () => {
     const run = claimedRun();
     const db = fakeDb(run);
@@ -108,6 +130,7 @@ describe("processQueuedChatRun", () => {
       "durable-local",
       {
         preferred: "sonnet-4-6",
+        onUnavailable: expect.any(Function),
       },
     );
     expect(executeChatTurn).toHaveBeenCalledTimes(1);

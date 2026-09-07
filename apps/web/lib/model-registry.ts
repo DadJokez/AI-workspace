@@ -21,11 +21,9 @@ import { resolveModelFailoverChain } from "@/lib/runtime-model-policy";
  * temporary platform model override is the one exception: while active it
  * supersedes persisted enablement without rewriting those records.
  *
- * Fail-open on infrastructure errors: if the table is unreachable (fresh dev
- * db, mocked test db, transient outage) every registry model counts as
- * enabled and a warning is logged — a broken enablement lookup must degrade
- * to pre-registry behavior, never brick chat. Fail-open covers DB *errors*
- * only; a reachable table with rows is authoritative.
+ * On infrastructure errors only the platform default may serve. A reachable
+ * table remains authoritative, including an empty result. Failed reads share
+ * the normal cache TTL so an outage cannot flood the DB or warning log.
  */
 
 const CACHE_TTL_MS = 30_000;
@@ -36,12 +34,25 @@ const COST_OPTIMIZED_PURPOSES = new Set<ModelPurpose>([
   "memory-capture",
 ]);
 
-let cache: { byPurpose: Map<string, Set<string>>; loadedAt: number } | null =
+let cache: { byPurpose: Map<string, Set<string>> | null; loadedAt: number } | null =
   null;
+const warnedUnavailablePurposes = new Set<ModelPurpose>();
+
+export interface ModelEnablementFallback {
+  reason: "model_enablement_unavailable";
+  message: string;
+  purpose: ModelPurpose;
+  modelId: ModelId;
+}
+
+interface EnablementReadOptions {
+  onUnavailable?: (receipt: ModelEnablementFallback) => void;
+}
 
 /** Admin mutations (#302) call this so changes apply without a redeploy. */
 export function invalidateModelEnablementCache(): void {
   cache = null;
+  warnedUnavailablePurposes.clear();
 }
 
 async function loadEnablement(
@@ -65,30 +76,43 @@ async function loadEnablement(
       byPurpose.set(row.purpose, set);
     }
     cache = { byPurpose, loadedAt: Date.now() };
+    warnedUnavailablePurposes.clear();
     return byPurpose;
-  } catch (err) {
-    process.stderr.write(
-      `[model-enablement-load-error] ${JSON.stringify({
-        message: err instanceof Error ? err.message : String(err),
-      })}\n`,
-    );
+  } catch {
+    cache = { byPurpose: null, loadedAt: Date.now() };
     return null;
   }
 }
 
 /**
  * Registry model ids enabled for a purpose, in registry order. The temporary
- * platform override wins for every purpose. Otherwise, fail open to all
- * registry models when the table is unreachable.
+ * platform override wins for every purpose. Otherwise, only the default is
+ * available when the table cannot be read.
  */
 export async function enabledModelsForPurpose(
   db: Database,
   purpose: ModelPurpose,
+  options: EnablementReadOptions = {},
 ): Promise<ModelId[]> {
   if (PLATFORM_MODEL_OVERRIDE_ID) return [PLATFORM_MODEL_OVERRIDE_ID];
 
   const byPurpose = await loadEnablement(db);
-  if (byPurpose === null) return [...MODEL_IDS];
+  if (byPurpose === null) {
+    const receipt: ModelEnablementFallback = {
+      reason: "model_enablement_unavailable",
+      message: "Model enablement unavailable — using the default",
+      purpose,
+      modelId: DEFAULT_MODEL_ID,
+    };
+    if (!warnedUnavailablePurposes.has(purpose)) {
+      warnedUnavailablePurposes.add(purpose);
+      process.stderr.write(
+        `[model-enablement-load-error] ${JSON.stringify(receipt)}\n`,
+      );
+    }
+    options.onUnavailable?.(receipt);
+    return [DEFAULT_MODEL_ID];
+  }
   const enabled = byPurpose.get(purpose) ?? new Set<string>();
   return MODEL_IDS.filter((id) => enabled.has(id));
 }
@@ -146,9 +170,9 @@ export function orderModelCandidatesForPurpose(
 export async function resolveModelCandidatesForPurpose(
   db: Database,
   purpose: ModelPurpose,
-  options: { preferred?: string | null } = {},
+  options: { preferred?: string | null } & EnablementReadOptions = {},
 ): Promise<ModelId[]> {
-  const enabled = await enabledModelsForPurpose(db, purpose);
+  const enabled = await enabledModelsForPurpose(db, purpose, options);
   const preferred = options.preferred?.trim().toLowerCase();
   const preferredModel =
     preferred && isValidModelId(preferred) && enabled.includes(preferred)
@@ -179,7 +203,7 @@ export async function resolveModelCandidatesForPurpose(
 export async function resolveModelForPurpose(
   db: Database,
   purpose: ModelPurpose,
-  options: { preferred?: string | null } = {},
+  options: { preferred?: string | null } & EnablementReadOptions = {},
 ): Promise<ModelId> {
   return (await resolveModelCandidatesForPurpose(db, purpose, options))[0]!;
 }

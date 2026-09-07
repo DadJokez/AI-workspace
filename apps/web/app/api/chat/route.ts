@@ -32,6 +32,7 @@ import {
 } from "@/lib/chat-stream-contract";
 import {
   enabledModelsForPurpose,
+  type ModelEnablementFallback,
   isModelEnabled,
   resolveModelForPurpose,
 } from "@/lib/model-registry";
@@ -192,10 +193,14 @@ export async function POST(req: Request) {
   // registered-but-disabled brain can neither be named here nor capture a
   // shared short name or role word (`opus`, `deep`) from an enabled one and
   // silently answer on the default; the enablement gate below stays the hard
-  // stop for the picker path. Fails open to the registry like every other
-  // enablement read.
+  // stop for the picker path. An unavailable table allows only the default.
   const db = getDb();
-  const chatModelIds = await enabledModelsForPurpose(db, "chat");
+  let enablementFallback: ModelEnablementFallback | undefined;
+  const chatModelIds = await enabledModelsForPurpose(db, "chat", {
+    onUnavailable: (receipt) => {
+      enablementFallback = receipt;
+    },
+  });
   const modelCommand = parseModelCommand(body.message, chatModelIds);
   if (isModelCommandInput(body.message) && !modelCommand) {
     return NextResponse.json(
@@ -976,6 +981,7 @@ export async function POST(req: Request) {
         executionMode: runtimeRoute.executionMode,
         modelOverride,
         modelPreferenceSource: modelPreference.source,
+        ...(enablementFallback ? { enablementFallback } : {}),
         runtimeRoute,
         routeReceipt,
         runBudget: runBudgetEnvelopeForEvent(runBudget),

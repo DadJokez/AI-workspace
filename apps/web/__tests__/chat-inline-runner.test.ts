@@ -35,6 +35,7 @@ vi.mock("@/lib/run-events", () => ({
 import { streamInlineChatRun } from "@/lib/chat-inline-runner";
 import { executeChatTurn } from "@/lib/execute-chat-turn";
 import { appendRunEventBestEffort } from "@/lib/run-events";
+import { enabledModelsForPurpose } from "@/lib/model-registry";
 
 function fakeDb(updates: Array<Record<string, unknown>>): Database {
   return {
@@ -94,6 +95,24 @@ beforeEach(() => {
 });
 
 describe("streamInlineChatRun crash discipline (#443)", () => {
+  it("carries an outage into the model selection receipt", async () => {
+    const receipt = {
+      reason: "model_enablement_unavailable" as const,
+      message: "Model enablement unavailable — using the default",
+      purpose: "tool-local" as const,
+      modelId: "sonnet-4-6" as const,
+    };
+    vi.mocked(enabledModelsForPurpose).mockImplementationOnce(async (_db, _purpose, options) => {
+      options?.onUnavailable?.(receipt);
+      return ["sonnet-4-6"];
+    });
+    await streamInlineChatRun(inlineArgs(fakeDb([])));
+    expect(vi.mocked(executeChatTurn).mock.calls[0]![0]).toMatchObject({
+      modelId: "sonnet-4-6",
+      lane: { modelSelection: { enablementFallback: receipt } },
+    });
+  });
+
   it("marks the run failed and rethrows when the pipeline throws", async () => {
     vi.mocked(executeChatTurn).mockRejectedValueOnce(
       new Error("context assembly exploded"),

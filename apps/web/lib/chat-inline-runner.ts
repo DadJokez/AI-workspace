@@ -8,6 +8,7 @@ import type { ConversationResourceResolution } from "@/lib/conversation-resource
 import {
   enabledModelsForPurpose,
   orderModelCandidatesForPurpose,
+  type ModelEnablementFallback,
 } from "@/lib/model-registry";
 import { appendRunEventBestEffort } from "@/lib/run-events";
 import { resolveRuntimeModelSelection } from "@/lib/runtime-model-policy";
@@ -93,7 +94,12 @@ export async function streamInlineChatRun({
   };
   const runtimeName = resolveRuntimeName(route);
   // #300: this turn may only use models enabled for its lane's purpose.
-  const enabledModelIds = await enabledModelsForPurpose(db, route.lane);
+  let enablementFallback: ModelEnablementFallback | undefined;
+  const enabledModelIds = await enabledModelsForPurpose(db, route.lane, {
+    onUnavailable: (receipt) => {
+      enablementFallback = receipt;
+    },
+  });
   const modelSelection = resolveRuntimeModelSelection({
     requestedModelId: modelId,
     route,
@@ -102,6 +108,9 @@ export async function streamInlineChatRun({
     forceRequestedModel,
     enabledModelIds: new Set(enabledModelIds),
   });
+  if (enablementFallback) {
+    modelSelection.enablementFallback = enablementFallback;
+  }
   const modelCandidates = orderModelCandidatesForPurpose(
     route.lane,
     enabledModelIds,

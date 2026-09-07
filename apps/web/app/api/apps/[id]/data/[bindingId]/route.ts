@@ -14,6 +14,7 @@ import {
 import { loadWorkspaceArtifactById } from "@/lib/workspace-artifacts";
 import { loadAppVersionDataBindings } from "@/lib/app-version-bindings";
 import { executeAppDataBinding } from "@/lib/app-data-execution";
+import { APP_DATA_CONNECT_URL, appDataError } from "@/lib/app-data-response";
 import {
   isBindingIncludedInPublication,
   isPublicationManifestEnabled,
@@ -57,7 +58,10 @@ export async function GET(
   const app = appRows[0];
   // 404 (not 403) on missing OR unauthorized — never leak app existence.
   if (!app) {
-    return NextResponse.json({ error: "not_found" }, { status: 404 });
+    return NextResponse.json(
+      appDataError("not_found", "This data is unavailable."),
+      { status: 404, headers: DATA_JSON_HEADERS },
+    );
   }
   if (!(await canActorOpenApp(db, app, sessionUser))) {
     await auditAppMutation({
@@ -70,7 +74,10 @@ export async function GET(
       error: "Viewer cannot open this app.",
       metadata: { bindingId },
     });
-    return NextResponse.json({ error: "not_found" }, { status: 404 });
+    return NextResponse.json(
+      appDataError("not_found", "This data is unavailable."),
+      { status: 404, headers: DATA_JSON_HEADERS },
+    );
   }
 
   await auditAdminDataAccess({
@@ -93,13 +100,14 @@ export async function GET(
   if (!limit.allowed) {
     return NextResponse.json(
       {
-        error: "rate_limited",
+        ...appDataError("rate_limited", "Too many refreshes. Try again shortly."),
         message: "Too many refreshes. Try again shortly.",
         retryAfterSeconds: limit.retryAfterSeconds,
       },
       {
         status: 429,
         headers: {
+          ...DATA_JSON_HEADERS,
           "Retry-After": String(limit.retryAfterSeconds),
           "X-RateLimit-Limit": String(limit.limit),
           "X-RateLimit-Remaining": String(limit.remaining),
@@ -114,7 +122,10 @@ export async function GET(
   const liveVersion = await getLiveAppVersion(db, app);
   const artifactId = liveVersion?.artifactId ?? app.liveArtifactId;
   if (!artifactId) {
-    return NextResponse.json({ error: "not_found" }, { status: 404 });
+    return NextResponse.json(
+      appDataError("not_found", "This data is unavailable."),
+      { status: 404, headers: DATA_JSON_HEADERS },
+    );
   }
   const artifact = await loadWorkspaceArtifactById({ db, artifactId });
   const publication = artifact
@@ -149,7 +160,10 @@ export async function GET(
       error: "Published app does not have an enabled live-via-viewer manifest.",
       metadata: { bindingId },
     });
-    return NextResponse.json({ error: "not_found" }, { status: 404 });
+    return NextResponse.json(
+      appDataError("not_found", "This data is unavailable."),
+      { status: 404, headers: DATA_JSON_HEADERS },
+    );
   }
 
   // Execute as the VIEWER — the scoping boundary. Never the author.
@@ -158,6 +172,7 @@ export async function GET(
     viewerUserId: sessionUser.id,
     binding,
   });
+  const fetchedAt = result.kind === "ok" ? new Date().toISOString() : undefined;
   const auditMetadata = {
     bindingId,
     provider: binding.provider,
@@ -176,7 +191,10 @@ export async function GET(
         error: "Pinned binding arguments failed read-only validation.",
         metadata: auditMetadata,
       });
-      return NextResponse.json({ error: "invalid_binding" }, { status: 422 });
+      return NextResponse.json(
+        appDataError("invalid_binding", "This data widget is not configured correctly."),
+        { status: 422, headers: DATA_JSON_HEADERS },
+      );
     }
     case "denied": {
       await auditAppMutation({
@@ -189,7 +207,10 @@ export async function GET(
         error: result.reason,
         metadata: auditMetadata,
       });
-      return NextResponse.json({ error: "not_found" }, { status: 404 });
+      return NextResponse.json(
+        appDataError("not_found", "This data is unavailable."),
+        { status: 404, headers: DATA_JSON_HEADERS },
+      );
     }
     case "needs_connection": {
       await auditAppMutation({
@@ -208,10 +229,12 @@ export async function GET(
       // <provider>" prompt, never another viewer's data.
       return NextResponse.json(
         {
+          state: "needs_connection",
           ok: false,
           needsConnection: true,
           provider: binding.provider,
           connectionStatus: result.connectionStatus,
+          connectUrl: APP_DATA_CONNECT_URL,
         },
         { status: 200, headers: DATA_JSON_HEADERS },
       );
@@ -232,8 +255,7 @@ export async function GET(
       });
       return NextResponse.json(
         {
-          ok: false,
-          error: "data_source_error",
+          ...appDataError("data_source_error", "The data source could not be reached."),
           message: "The data source could not be reached.",
         },
         { status: 502, headers: DATA_JSON_HEADERS },
@@ -254,12 +276,14 @@ export async function GET(
       });
       return NextResponse.json(
         {
+          ...(result.legacyFields ?? {}),
+          state: "ok",
           ok: true,
           bindingId: binding.id,
           provider: binding.provider,
           toolName: binding.toolName,
           data: result.data,
-          ...(result.legacyFields ?? {}),
+          fetchedAt,
         },
         { status: 200, headers: DATA_JSON_HEADERS },
       );
