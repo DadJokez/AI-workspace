@@ -447,7 +447,7 @@ describe("token-handler discipline for deployed apps (#807)", () => {
     // The injected bootstrap is the allowlisted public view of the binding —
     // id, provider, tool, label — resolved from the LIVE version's pinned rows.
     expect(html).toContain(`"bindings":[${JSON.stringify(PUBLIC_BINDING)}]`);
-    expect(html).toContain("/api/apps/' + app.appId + '/data/'");
+    expect(html).toContain("/api/apps/' + encodeURIComponent(app.appId) + '/data/'");
     expect(queries).toContainEqual({
       table: "app_version_data_bindings",
       where: { appVersionId: ["version-live"] },
@@ -619,11 +619,13 @@ describe("token-handler discipline for deployed apps (#807)", () => {
     expect(res.status).toBe(200);
     const bodyText = await res.text();
     expect(JSON.parse(bodyText)).toEqual({
+      state: "ok",
       ok: true,
       bindingId: "open-issues",
       provider: "github",
       toolName: "list_issues",
       data: { issues: [{ number: 802, title: "Generic read bindings" }] },
+      fetchedAt: expect.any(String),
     });
     expectNoCredentialMaterial(bodyText, "binding response");
     expect(res.headers.get("cache-control")).toBe("private, no-store");
@@ -681,10 +683,12 @@ describe("token-handler discipline for deployed apps (#807)", () => {
     expect(prompt.status).toBe(200);
     const promptText = await prompt.text();
     expect(JSON.parse(promptText)).toEqual({
+      state: "needs_connection",
       ok: false,
       needsConnection: true,
       provider: "salesforce",
       connectionStatus: "reconnect_required",
+      connectUrl: "/chat?open=settings&section=integrations",
     });
     expectNoCredentialMaterial(promptText, "connect prompt");
     expect(fetchMock).not.toHaveBeenCalled();
@@ -697,10 +701,12 @@ describe("token-handler discipline for deployed apps (#807)", () => {
     expect(unconnected.status).toBe(200);
     const unconnectedText = await unconnected.text();
     expect(JSON.parse(unconnectedText)).toEqual({
+      state: "needs_connection",
       ok: false,
       needsConnection: true,
       provider: "salesforce",
       connectionStatus: "not_connected",
+      connectUrl: "/chat?open=settings&section=integrations",
     });
     expectNoCredentialMaterial(unconnectedText, "unconnected prompt");
     expectViewerScopedTokenLookups();
@@ -723,8 +729,10 @@ describe("token-handler discipline for deployed apps (#807)", () => {
     expect(failure.status).toBe(502);
     const failureText = await failure.text();
     expect(JSON.parse(failureText)).toEqual({
+      state: "error",
       ok: false,
       error: "data_source_error",
+      scopedMessage: "The data source could not be reached.",
       message: "The data source could not be reached.",
     });
     expectNoCredentialMaterial(failureText, "upstream failure");

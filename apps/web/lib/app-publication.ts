@@ -307,21 +307,23 @@ export function injectAppPublicationBadge(
     publication.dataMode === "snapshot"
       ? `Snapshot · Published ${timestamp} · publish a new version to refresh`
       : publication.dataMode === "live_via_viewer"
-        ? declaredSources
-          ? `Live via your connections · ${declaredSources}`
-          : "Live via your connections"
+        ? "Live data — shown with your access"
         : "Service-backed";
+  const tooltip = publication.dataMode === "live_via_viewer"
+    ? `Data is fetched with your access${declaredSources ? ` (${declaredSources})` : ""}. Others may see different numbers.`
+    : modeLabel;
   const badge = [
+    '<style>[data-theme="dark"] #comparative-publication-badge{color-scheme:dark}</style>',
     '<aside id="comparative-publication-badge" aria-label="Comparative publication details"',
-    ' style="box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:12px;',
+    ' style="box-sizing:border-box;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;',
     "width:100%;min-height:34px;padding:8px 12px;border-bottom:1px solid rgba(127,127,127,.3);",
-    "background:#101114;color:#f5f5f4;font:12px/1.4 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;",
-    'letter-spacing:0;position:relative;z-index:2147483647">',
+    "background:var(--surface,Canvas);color:var(--text,CanvasText);font:12px/1.4 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;",
+    'letter-spacing:0;position:sticky;top:0;z-index:2147483647">',
     '<span style="font-weight:650;white-space:nowrap">Comparative</span>',
-    `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#b8bcc7">${escapeHtml(
+    `<span tabindex="0" title="${escapeHtml(tooltip)}" aria-label="${escapeHtml(tooltip)}" style="min-width:0;overflow-wrap:anywhere">${escapeHtml(
       modeLabel,
     )}</span>`,
-    `<span style="white-space:nowrap;color:#b8bcc7">By ${escapeHtml(authorName)}</span>`,
+    `<span style="min-width:0;overflow-wrap:anywhere">By ${escapeHtml(authorName)}</span>`,
     "</aside>",
   ].join("");
   const bodyOpen = /<body[^>]*>/i.exec(html);
