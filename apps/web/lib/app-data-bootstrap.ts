@@ -7,6 +7,8 @@ import {
   type PublicDataBinding,
 } from "@/lib/app-data-bindings";
 import { validateReadOnlySoql } from "@/lib/salesforce/api";
+import { APP_DATA_CONNECT_URL } from "@/lib/app-data-response";
+import { INTEGRATION_DISPLAY_NAMES } from "@/lib/settings-navigation";
 
 /**
  * Live-data app client wiring (#407, second half). Server-only:
@@ -76,20 +78,89 @@ export function buildAppDataBootstrap(
   bindings: readonly PublicDataBinding[],
 ): string {
   const payload = JSON.stringify({ appId, bindings }).replace(/</g, "\\u003c");
+  const providerNames = JSON.stringify(INTEGRATION_DISPLAY_NAMES);
   return [
     "<script>",
     `window.__COMPARATIVE_APP__ = ${payload};`,
-    "window.comparativeData = {",
-    "  refresh: function (bindingId) {",
-    "    var app = window.__COMPARATIVE_APP__;",
-    "    return fetch('/api/apps/' + app.appId + '/data/' + encodeURIComponent(bindingId), {",
-    "      credentials: 'same-origin',",
-    "      headers: { accept: 'application/json' }",
-    "    }).then(function (res) {",
-    "      return res.json().then(function (body) { return body; });",
-    "    });",
-    "  }",
-    "};",
+    `(function () {
+  var app = window.__COMPARATIVE_APP__;
+  var providerNames = ${providerNames};
+  var connectUrl = ${JSON.stringify(APP_DATA_CONNECT_URL)};
+  var pending = new WeakMap();
+  function error(message, code, legacyMessage) {
+    return { state: 'error', ok: false, scopedMessage: message,
+      error: code || 'refresh_failed', message: legacyMessage || message };
+  }
+  async function refresh(bindingId) {
+    if (!app.bindings.some(function (binding) { return binding.id === bindingId; })) {
+      return error('This data is unavailable.', 'not_found');
+    }
+    try {
+      var res = await fetch('/api/apps/' + encodeURIComponent(app.appId) + '/data/' + encodeURIComponent(bindingId), {
+        credentials: 'same-origin', cache: 'no-store', headers: { accept: 'application/json' }
+      });
+      if (!res.ok) {
+        // Preserve known legacy fields without trusting an upstream error body.
+        var codes = { 401: 'unauthorized', 404: 'not_found', 422: 'invalid_binding',
+          429: 'rate_limited', 502: 'data_source_error' };
+        var message = res.status === 401 ? 'Sign in to refresh this data.' :
+          res.status === 429 ? 'Too many refreshes. Try again shortly.' : 'This data could not be refreshed.';
+        return error(message, codes[res.status],
+          res.status === 502 ? 'The data source could not be reached.' : message);
+      }
+      var body = await res.json();
+      if (body.state === 'ok' && body.ok === true && typeof body.fetchedAt === 'string' &&
+          Number.isFinite(Date.parse(body.fetchedAt)) && Object.prototype.hasOwnProperty.call(body, 'data')) return body;
+      if (body.state === 'needs_connection' && typeof body.provider === 'string') {
+        var statuses = ['not_connected', 'connector_disabled', 'pending_approval',
+          'reconnect_required', 'temporarily_unavailable', 'execution_not_configured', 'unsupported_provider'];
+        return { state: 'needs_connection', ok: false, needsConnection: true,
+          provider: body.provider, connectUrl: connectUrl,
+          connectionStatus: statuses.includes(body.connectionStatus) ? body.connectionStatus : 'not_connected' };
+      }
+      return error('This data could not be refreshed.');
+    } catch (_) {
+      return error('This data could not be refreshed.');
+    }
+  }
+  async function refreshWidget(bindingId, element, renderData) {
+    // Clear first: neither stale viewer data nor mint-time data is a fallback.
+    var request = {};
+    pending.set(element, request);
+    element.replaceChildren();
+    element.setAttribute('aria-busy', 'true');
+    var result = await refresh(bindingId);
+    if (pending.get(element) !== request) return result;
+    try {
+      if (result.state === 'ok') {
+        var content = await renderData(result.data);
+        if (pending.get(element) !== request) return result;
+        if (!(content instanceof Node) && typeof content !== 'string') throw new Error('Invalid widget content');
+        var time = document.createElement('time');
+        time.dateTime = result.fetchedAt;
+        time.textContent = 'Fetched ' + new Date(result.fetchedAt).toLocaleString();
+        time.style.cssText = 'display:block;font:12px/1.5 system-ui;letter-spacing:0;margin-top:8px';
+        element.replaceChildren(content, time);
+      } else if (result.state === 'needs_connection') {
+        var link = document.createElement('a');
+        link.href = result.connectUrl;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = 'Connect ' + (providerNames[result.provider] || result.provider);
+        element.replaceChildren(link);
+      } else {
+        element.textContent = result.scopedMessage;
+      }
+    } catch (_) {
+      result = error('This data widget could not be displayed.');
+      if (pending.get(element) === request) element.textContent = result.scopedMessage;
+    } finally {
+      if (pending.get(element) === request) element.removeAttribute('aria-busy');
+    }
+    return result;
+  }
+  window.comparativeData = { refresh: refresh, refreshWidget: refreshWidget };
+})();`,
     "</script>",
   ].join("\n");
 }

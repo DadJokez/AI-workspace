@@ -157,13 +157,17 @@ describe("GET /api/apps/[id]/data/[bindingId]", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toMatchObject({
+      state: "ok",
       ok: true,
       bindingId: "pipeline",
       provider: "salesforce",
       toolName: "run_soql",
       records: [{ Id: "006xxx" }],
       data: { records: [{ Id: "006xxx" }] },
+      fetchedAt: expect.any(String),
     });
+    expect(Date.parse(body.fetchedAt)).toBeGreaterThan(Date.now() - 10_000);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
 
     // Declaration enforcement: bindings come from the live version's pins.
     expect(loadAppVersionDataBindings).toHaveBeenCalledWith(
@@ -245,10 +249,12 @@ describe("GET /api/apps/[id]/data/[bindingId]", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({
+      state: "needs_connection",
       ok: false,
       needsConnection: true,
       provider: "salesforce",
       connectionStatus: "not_connected",
+      connectUrl: "/chat?open=settings&section=integrations",
     });
     expect(auditAppMutation).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -268,7 +274,10 @@ describe("GET /api/apps/[id]/data/[bindingId]", () => {
     executeAppDataBinding.mockResolvedValue({ kind: "invalid_binding" });
     const res = await callRoute();
     expect(res.status).toBe(422);
-    expect(await res.json()).toEqual({ error: "invalid_binding" });
+    expect(await res.json()).toEqual({
+      state: "error", ok: false, error: "invalid_binding",
+      scopedMessage: "This data widget is not configured correctly.",
+    });
   });
 
   it("404s and audits a policy denial", async () => {
@@ -295,8 +304,10 @@ describe("GET /api/apps/[id]/data/[bindingId]", () => {
     const res = await callRoute();
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({
+      state: "error",
       ok: false,
       error: "data_source_error",
+      scopedMessage: "The data source could not be reached.",
       message: "The data source could not be reached.",
     });
     expect(auditAppMutation).toHaveBeenCalledWith(
@@ -316,5 +327,21 @@ describe("GET /api/apps/[id]/data/[bindingId]", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toBe("42");
     expect(executeAppDataBinding).not.toHaveBeenCalled();
+  });
+
+  it("keeps connected and unconnected providers independent for the same viewer", async () => {
+    const githubBinding = { id: "issues", provider: "github", toolName: "list_issues", pinnedArgs: {} };
+    loadAppVersionDataBindings.mockResolvedValue([binding, githubBinding]);
+    executeAppDataBinding.mockImplementation(async ({ binding: selected }) => selected.provider === "salesforce"
+      ? { kind: "ok", data: { total: 42 } }
+      : { kind: "needs_connection", connectionStatus: "not_connected" });
+    const [salesforce, github] = await Promise.all([callRoute(), callRoute("issues")]);
+    expect(await salesforce.json()).toMatchObject({ state: "ok", data: { total: 42 }, fetchedAt: expect.any(String) });
+    expect(await github.json()).toEqual({
+      state: "needs_connection", ok: false, needsConnection: true,
+      provider: "github", connectionStatus: "not_connected",
+      connectUrl: "/chat?open=settings&section=integrations",
+    });
+    for (const [input] of executeAppDataBinding.mock.calls) expect(input.viewerUserId).toBe(viewer.id);
   });
 });

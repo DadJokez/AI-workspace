@@ -120,8 +120,10 @@ async function expectCleanSourceError(
   expect(res.status).toBe(502);
   const body = await res.json();
   expect(body).toEqual({
+    state: "error",
     ok: false,
     error: "data_source_error",
+    scopedMessage: "The data source could not be reached.",
     message: "The data source could not be reached.",
   });
   expect(auditAppMutation).toHaveBeenCalledTimes(1);
