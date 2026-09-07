@@ -75,6 +75,10 @@ if grep -qx 'reason=never-applied' <<<"$hold"; then
   #     machinery does) is not a ruling: the ruling phrase is read from the
   #     review's first line, where the reviewer is instructed to put it.
   review_first_line=$(head -n 1 <<<"$latest_review")
+  # Ignore a negated ownership phrase, not the whole line: a separate positive
+  # ruling must still block. Strip Markdown emphasis before matching (#928).
+  review_first_line=$(printf '%s\n' "$review_first_line" | tr '[:upper:]' '[:lower:]' \
+    | sed -E "s/[*\`]+//g; s/(^|[^[:alnum:]_])(not|nothing( here)? is|isn't|no longer)[[:space:]]+human[ -]owned under/\1/g")
   if grep -qiE "needs[ -]rob (applied|applies|hold)|human[ -]owned under" <<<"$review_first_line" \
      || grep -qiE "not clear[ -]to[ -]merge|stays rob|not posting the §7 sign-off|declin[a-z]* the §7 sign-off" \
       <<<"$latest_review"; then
