@@ -89,6 +89,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Merge audit regression tests
+        run: bash scripts/verify-pr-gate.test.sh
+
       - name: Typecheck
         run: pnpm typecheck
 
