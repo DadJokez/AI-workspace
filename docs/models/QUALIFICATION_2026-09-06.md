@@ -32,6 +32,11 @@ model: every recommendation is a recommendation, Rob decides, and no
   `gpt-oss-120b` (#918, Converse, NOT QUALIFIED 119/147 — see the runbook's
   honest accounting). With Nova Pro that makes fifteen registered-but-
   disabled entries; the registry lists the four OpenAI ids before these ten.
+- **Follow-up (#920):** after Rob accepted the OpenAI and Anthropic 5.x
+  agreements the six frontier entries (GPT-5.6 trio + the three Claude 5.x
+  rows below) were re-probed for forty minutes — still not invocable, same
+  message, `agreementAvailability: AVAILABLE`. The record is
+  [`QUALIFICATION_2026-09-06_frontier.md`](./QUALIFICATION_2026-09-06_frontier.md).
 
 ## Summary
 
