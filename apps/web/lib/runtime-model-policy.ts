@@ -8,6 +8,7 @@ import {
 } from "@ai-workspace/agent";
 import type { RuntimeName } from "@ai-workspace/agent-runtime";
 import type { ChatRuntimeRoute } from "@/lib/chat-routing";
+import type { ModelEnablementFallback } from "@/lib/model-registry";
 
 export interface RuntimeModelSelection {
   requestedModelId: string;
@@ -23,6 +24,7 @@ export interface RuntimeModelSelection {
     | "availability_failover"
     | "platform_model_override";
   ignoredDirectModelId?: string;
+  enablementFallback?: ModelEnablementFallback;
   failover?: {
     fromModelId: ModelId;
     attempt: number;
