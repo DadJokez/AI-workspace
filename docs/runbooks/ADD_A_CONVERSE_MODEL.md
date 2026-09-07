@@ -52,7 +52,14 @@ so in the entry comment. Then prove model access with one bounded call — an
 console, or for Marketplace-billed models an account-level grant AWS has to
 make — the Claude 5.x entries answered `<model> is not available for this
 account` on 2026-09-06), and nothing downstream will work. Record that as the
-model's result and stop; do not try to enable access from an unattended lane:
+model's result and stop; do not try to enable access from an unattended lane.
+Do not trust `aws bedrock get-foundation-model-availability` as the proof
+either: on 2026-09-06 all six frontier entries showed `agreementAvailability:
+AVAILABLE` plus AUTHORIZED / AVAILABLE / AVAILABLE for forty minutes while
+every runtime call kept refusing with the same message (#920,
+[`../models/QUALIFICATION_2026-09-06_frontier.md`](../models/QUALIFICATION_2026-09-06_frontier.md)).
+The bounded call below is the only proof; after an agreement lands, re-probe
+it every five minutes for up to forty minutes before writing the model off:
 
 ```bash
 aws bedrock-runtime converse --region us-east-1 \
@@ -251,8 +258,12 @@ differences:
   geo profile to declare (`us.openai.gpt-5.6-terra`); in-Region ids are
   Mantle-only. The bounded access probe is a signed HTTPS call, not
   `aws bedrock-runtime converse` — the quickest is a one-off `tsx` script
-  that runs `runAgentLoop` on the entry with `BEDROCK_CLIENT=real` (the P4
-  PR body has one).
+  that runs `runAgentLoop` on the entry with `BEDROCK_CLIENT=real` (the #920
+  qualification PR body has one: plain, system + tool, and forced
+  `requiredToolName` turns; run it from `packages/evals` so
+  `@ai-workspace/agent` resolves). The refusal shape is `HTTP 403` with the
+  same "not available for this account" text Converse gives, and it carries
+  the request id a support case asks for.
 - **Pricing.** The card's own pricing table is authoritative and already
   regional (use the "Geo CRIS, Short Context" row as-is — no +10% on top).
   Input beyond 272K tokens bills a 2× "Long Context" tier the registry does
