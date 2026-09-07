@@ -1182,7 +1182,7 @@ class ToolLimitClient implements BedrockClient {
 }
 
 describe("runAgentLoop tool iteration limit", () => {
-  it("adds one tool-free synthesis step after the final allowed tool round", async () => {
+  it("adds synthesis with history-only schemas after the final allowed tool round", async () => {
     const client = new ToolLimitClient();
     const registry = new ToolRegistry();
     registry.register({
@@ -1224,7 +1224,13 @@ describe("runAgentLoop tool iteration limit", () => {
     expect(client.captured).toHaveLength(3);
     expect(client.captured[0]?.toolConfig).toBeDefined();
     expect(client.captured[1]?.toolConfig).toBeDefined();
-    expect(client.captured[2]?.toolConfig).toBeUndefined();
+    expect(client.captured[2]?.toolConfig?.tools).toEqual([
+      expect.objectContaining({ toolSpec: expect.objectContaining({
+        name: "lookup",
+        description: expect.stringContaining("Unavailable for execution"),
+      }) }),
+    ]);
+    expect(client.captured[2]?.toolConfig?.toolChoice).toBeUndefined();
     expect(client.captured[2]?.volatileSystemSuffix).toContain(
       "reached this turn's tool-step limit",
     );
