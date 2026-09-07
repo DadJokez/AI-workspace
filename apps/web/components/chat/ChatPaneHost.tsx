@@ -25,6 +25,7 @@ interface ChatPaneHostProps {
   onOpenRunInspector: (runId: string) => void;
   onBranchArtifact: (artifact: WorkspaceArtifactSummary) => void;
   branchPending: boolean;
+  onMakeArtifactLive: (artifact: WorkspaceArtifactSummary) => Promise<boolean>;
   onAddressArtifactReview: (input: {
     artifact: WorkspaceArtifactSummary;
     comments: ArtifactReviewSelection[];
@@ -45,6 +46,7 @@ export function ChatPaneHost({
   onOpenRunInspector,
   onBranchArtifact,
   branchPending,
+  onMakeArtifactLive,
   onAddressArtifactReview,
   onOpenThread,
   onUnreadChange,
@@ -74,6 +76,7 @@ export function ChatPaneHost({
         onOpenRunInspector={onOpenRunInspector}
         onBranchArtifact={onBranchArtifact}
         branchPending={branchPending}
+        onMakeArtifactLive={onMakeArtifactLive}
         focusReviewCommentId={rightPane.focusReviewCommentId}
         onAddressArtifactReview={onAddressArtifactReview}
       />

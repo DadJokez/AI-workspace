@@ -2,6 +2,10 @@
 
 import { Icon } from "@ai-workspace/umber/components/media/Icon";
 import { fetchJson } from "@/lib/client-api";
+import { parseDataBindings, publicDataBinding } from "@/lib/app-data-bindings";
+import { buildUnconnectedAppPreview } from "@/lib/app-data-client-bootstrap";
+import { readConnectedDataWarning } from "@/lib/app-data-authoring-warning";
+import { INTEGRATION_DISPLAY_NAMES } from "@/lib/settings-navigation";
 import {
   computeArtifactLineDiff,
   createTextReviewAnchor,
@@ -28,6 +32,7 @@ interface ArtifactPreviewContentProps {
   onClose?: () => void;
   onBranch?: (artifact: WorkspaceArtifactSummary) => void;
   branchPending?: boolean;
+  onMakeLive?: (artifact: WorkspaceArtifactSummary) => Promise<boolean>;
   focusReviewCommentId?: string;
   onAddressComments?: (
     comments: ArtifactReviewSelection[],
@@ -57,6 +62,7 @@ export function ArtifactPreviewContent({
   onClose,
   onBranch,
   branchPending,
+  onMakeLive,
   focusReviewCommentId,
   onAddressComments,
 }: ArtifactPreviewContentProps) {
@@ -65,6 +71,9 @@ export function ArtifactPreviewContent({
   const [error, setError] = useState<string | undefined>();
   const [reviewMode, setReviewMode] =
     useState<ArtifactReviewMode>("preview");
+  const [unconnectedPreview, setUnconnectedPreview] = useState(false);
+  const [converting, setConverting] = useState(false);
+  const [conversionError, setConversionError] = useState<string>();
   const [versionSet, setVersionSet] =
     useState<WorkspaceArtifactVersionSet | null>(null);
   const [versionError, setVersionError] = useState<string | undefined>();
@@ -81,15 +90,30 @@ export function ArtifactPreviewContent({
   const [anchorToReveal, setAnchorToReveal] =
     useState<ArtifactReviewAnchor>();
   const sourceRef = useRef<HTMLPreElement>(null);
+  const currentArtifactIdRef = useRef(artifact.id);
+  currentArtifactIdRef.current = artifact.id;
   const activeArtifact = detail ?? artifact;
   const content = detail ? displayContent(detail) : "";
   const sourceAvailable = isTextReviewFormat(activeArtifact);
+  const connectedDataWarning = readConnectedDataWarning(activeArtifact.metadata);
+  const previewBindings = useMemo(() => {
+    const raw = activeArtifact.metadata?.dataBindings;
+    return parseDataBindings({ dataBindings: Array.isArray(raw) ? raw.map((binding) => (
+      binding && typeof binding === "object" ? { ...binding, pinnedArgs: {} } : binding
+    )) : [] }).map(publicDataBinding);
+  }, [activeArtifact.metadata]);
+  const previewContent = useMemo(() => unconnectedPreview
+    ? buildUnconnectedAppPreview(content, previewBindings) : content,
+  [content, previewBindings, unconnectedPreview]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(undefined);
     setDetail(null);
+    setUnconnectedPreview(false);
+    setConverting(false);
+    setConversionError(undefined);
 
     fetchJson<ArtifactDetailResponse>(
       `/api/workspace/artifacts/${artifact.id}`,
@@ -331,6 +355,37 @@ export function ArtifactPreviewContent({
         ) : null}
       </header>
 
+      {connectedDataWarning ? (
+        <div role="status" className="border-b border-hairline bg-subtle px-3 py-2 text-xs text-ink">
+          <p>This file may contain embedded {connectedDataWarning.providers.map((provider) => INTEGRATION_DISPLAY_NAMES[provider as keyof typeof INTEGRATION_DISPLAY_NAMES] || provider).join(", ")} data. Live bindings do not remove embedded copies.</p>
+          {onMakeLive && reviewComments?.permissions.canAddress ? (
+            <button type="button" disabled={converting} className="mt-2 text-xs font-medium underline disabled:opacity-40"
+              onClick={async () => {
+                const requestedArtifactId = activeArtifact.id;
+                setConverting(true);
+                setConversionError(undefined);
+                try {
+                  const accepted = await onMakeLive(activeArtifact);
+                  if (!accepted && currentArtifactIdRef.current === requestedArtifactId) setConversionError("Could not start the conversion. Try again.");
+                } catch {
+                  if (currentArtifactIdRef.current === requestedArtifactId) setConversionError("Could not start the conversion. Try again.");
+                } finally {
+                  if (currentArtifactIdRef.current === requestedArtifactId) setConverting(false);
+                }
+              }}>
+              {converting ? "Starting conversion..." : "Make live in chat"}
+            </button>
+          ) : null}
+          {conversionError ? <p role="alert" className="mt-1 text-danger">{conversionError}</p> : null}
+        </div>
+      ) : null}
+      {previewBindings.length > 0 ? (
+        <label className="flex items-center gap-2 border-b border-hairline px-3 py-2 text-xs text-ink">
+          <input type="checkbox" checked={unconnectedPreview} onChange={(event) => setUnconnectedPreview(event.target.checked)} />
+          Preview as unconnected viewer
+        </label>
+      ) : null}
+
       <ArtifactReviewToolbar
         artifact={activeArtifact}
         mode={reviewMode}
@@ -397,8 +452,8 @@ export function ArtifactPreviewContent({
         ) : previewKind === "html" ? (
           <iframe
             title={activeArtifact.title}
-            sandbox="allow-scripts allow-forms"
-            srcDoc={content}
+            sandbox={unconnectedPreview ? "allow-scripts" : "allow-scripts allow-forms"}
+            srcDoc={previewContent}
             className="h-full min-h-[720px] w-full border-0 bg-white"
           />
         ) : previewKind === "markdown" ? (

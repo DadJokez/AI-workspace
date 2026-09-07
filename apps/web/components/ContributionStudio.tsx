@@ -47,6 +47,7 @@ interface ContributionStudioProps {
   onOpenRunInspector: (runId: string) => void;
   onBranchArtifact?: (artifact: WorkspaceArtifactSummary) => void;
   branchPending?: boolean;
+  onMakeArtifactLive?: (artifact: WorkspaceArtifactSummary) => Promise<boolean>;
   focusReviewCommentId?: string;
   onAddressArtifactReview?: (input: {
     artifact: WorkspaceArtifactSummary;
@@ -79,6 +80,7 @@ export function ContributionStudio({
   onOpenRunInspector,
   onBranchArtifact,
   branchPending,
+  onMakeArtifactLive,
   focusReviewCommentId,
   onAddressArtifactReview,
 }: ContributionStudioProps) {
@@ -153,6 +155,13 @@ export function ContributionStudio({
     if (accepted && window.matchMedia("(max-width: 767px)").matches) {
       onClose();
     }
+    return accepted;
+  }
+
+  async function makeArtifactLive(selectedArtifact: WorkspaceArtifactSummary) {
+    if (!onMakeArtifactLive) return false;
+    const accepted = await onMakeArtifactLive(selectedArtifact);
+    if (accepted && window.matchMedia("(max-width: 767px)").matches) onClose();
     return accepted;
   }
 
@@ -246,6 +255,7 @@ export function ContributionStudio({
               artifact={model.previewArtifact}
               onBranch={onBranchArtifact}
               branchPending={branchPending}
+              onMakeLive={onMakeArtifactLive ? makeArtifactLive : undefined}
               focusReviewCommentId={focusReviewCommentId}
               onAddressComments={
                 onAddressArtifactReview ? addressArtifactReview : undefined
