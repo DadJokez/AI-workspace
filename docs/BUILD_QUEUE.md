@@ -1,4 +1,4 @@
-# Build Queue — re-triaged 2026-09-07 (written 01:55Z)
+# Build Queue — re-triaged 2026-09-07 (written 01:28Z)
 
 Prioritized, dependency-ordered queue of open work, rewritten at the end of
 the 2026-09-05/06 delegated session so the next agent starts from one page.
@@ -12,7 +12,7 @@ works this queue top-down, skipping anything whose dependencies aren't merged
 to `main` or that is Rob-gated. Re-triage when this file is more than ~2 weeks
 old or the queue is empty — next check-in 2026-09-21.
 
-## State on 2026-09-07 01:55Z
+## State on 2026-09-07 01:28Z
 
 - **`main` is `39fa562` (#927) and deployed** — CodeBuild `ai-workspace-build`
   SUCCEEDED for that SHA at 00:34Z. No open PRs.
