@@ -42,10 +42,12 @@ import { threadSummaryInjectionSuite } from "./cases/thread-summary-injection.ca
 import { threadSummaryPrecedenceSuite } from "./cases/thread-summary-precedence.cases";
 import { modelIdentitySuite } from "./cases/model-identity.cases";
 import { instructionPrecedenceSuite } from "./cases/instruction-precedence.cases";
+import { providerCompatibilitySuite } from "./cases/provider-compatibility.cases";
 import { estimateUsageCostUsd } from "./benchmarks/model-routing";
 import { JUDGE_INCONCLUSIVE_NOTE, JUDGE_MODEL_ID } from "./judge";
 
 export const SUITES: EvalSuite[] = [
+  providerCompatibilitySuite,
   modelIdentitySuite,
   foundationalChatSuite,
   fileResourceGroundingSuite,
