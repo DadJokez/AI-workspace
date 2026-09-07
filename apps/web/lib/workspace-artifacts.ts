@@ -12,7 +12,8 @@ import {
   type WorkspaceArtifactVersionTarget,
 } from "@/lib/artifact-revisions";
 import { scrubBindingsForClient } from "@/lib/app-data-bindings";
-import { deriveBindingsFromTurnTools } from "@/lib/app-data-bootstrap";
+import { deriveAuthoringBindings } from "@/lib/app-data-authoring";
+import { artifactDataMetadata, connectedDataProviders } from "@/lib/app-data-authoring-warning";
 import { computeLineDelta } from "@/lib/artifact-diff";
 import {
   type OutputProposalContext,
@@ -123,7 +124,8 @@ export async function createArtifactsFromAssistantMessage({
       targetArtifact || separateFromArtifact ? undefined : documentCreationIntent,
   });
   if (parsed.length === 0) return [];
-  const derivedBindings = deriveBindingsFromTurnTools(
+  const derivedBindings = await deriveAuthoringBindings(
+    db,
     turnToolCalls,
     turnToolResults,
   );
@@ -168,10 +170,9 @@ export async function createArtifactsFromAssistantMessage({
               artifactKey: version.artifactKey,
               originalFilename: artifact.filename,
               versionNumber: version.versionNumber,
-              // #407: pin the turn's live-data bindings on servable HTML only.
-              ...(derivedBindings.length > 0 &&
-              artifact.mimeType === "text/html"
-                ? { dataBindings: derivedBindings }
+              ...(artifact.mimeType === "text/html"
+                ? artifactDataMetadata(artifact.content, derivedBindings, connectedDataProviders(turnToolCalls, turnToolResults),
+                    version.supersedesArtifactId ? plan.priorMetadataById.get(version.supersedesArtifactId) : undefined)
                 : {}),
               // #359: revision line-delta for the work receipt (+N −N).
               ...(() => {
@@ -520,6 +521,7 @@ async function planArtifactVersions({
   planned: Array<{ artifact: ParsedArtifact; version: PlannedArtifactVersion }>;
   /** Prior content by artifact id, for revision line-delta counts (#359). */
   priorContentById: Map<string, string>;
+  priorMetadataById: Map<string, unknown>;
 }> {
   const scope =
     targetArtifact?.artifactGroupId
@@ -543,6 +545,7 @@ async function planArtifactVersions({
       separateFromArtifact,
     }),
     priorContentById: new Map(priorRows.map((row) => [row.id, row.content])),
+    priorMetadataById: new Map(priorRows.map((row) => [row.id, row.metadata])),
   };
 }
 

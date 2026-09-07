@@ -24,6 +24,13 @@ function minimalPreamble(overrides: { assistantName?: string | null } = {}) {
 }
 
 describe("buildAgentPreamble identity grounding", () => {
+  it("grounds live authoring only when a supported connected provider is mounted", () => {
+    expect(minimalPreamble()).not.toContain("Live connected-data HTML apps");
+    const preamble = buildAgentPreamble({ user: { displayName: "Rob", customInstructions: null }, connectedProviders: ["google"] });
+    expect(preamble).toContain("Live connected-data HTML apps use Comparative's viewer-scoped bindings");
+    expect(preamble).toContain("not browser SDKs, client-side OAuth, API keys");
+    expect(preamble).toContain("Creating the artifact does not publish it");
+  });
   it("names the real product and defaults the assistant name to it", () => {
     const preamble = minimalPreamble();
     expect(preamble).toContain(
