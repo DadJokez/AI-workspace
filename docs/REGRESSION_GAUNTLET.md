@@ -44,6 +44,29 @@ checks the deployed public surface.
 
 ## Bug To Regression Rule
 
+### Fact typography and semantic boundaries
+
+Prose fact comparisons use `cases/fact-text.ts`: U+00A0 and U+202F become
+ordinary spaces; U+2011 becomes an ASCII hyphen; CRLF becomes LF; one final
+LF is ignored. Apply this rule equally to every model and expected fact.
+Do not collapse other whitespace, normalize arbitrary punctuation, repair
+numbers/dates, or apply it to credentials, identifiers, injection sentinels,
+tool arguments, or exact-output contracts. The exact-output suite retains
+its own existing transport rule; user-requested bytes remain significant.
+
+Missing-source/price/connection/search/memory disclosures are semantic
+boundaries, not keyword spelling tests. Their short judge rubrics name
+explicit FAIL conditions; `semantic-boundaries.ts` contains positive and
+negative controls for each. Real Haiku and Sonnet verdicts are recorded by
+`judge-replay.ts --controls --record` and pinned alongside the original
+calendar controls. Exact facts, tool calls, authorization and sentinel
+checks remain deterministic. Changing any of these rubrics still requires
+same-answer replay, both judges, and a live five-sample check below.
+
+Calendar time-label checks compare the supplied UTC instant and its local
+wall-clock representation with the named zone. A UTC clock copied unchanged
+under `America/New_York` must fail, even if a qualitative judge accepts it.
+
 Every bug that reaches Rob should become one of these before the fix merges:
 
 1. A unit/contract test when the bug is deterministic code behavior.

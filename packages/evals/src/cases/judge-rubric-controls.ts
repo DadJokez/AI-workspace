@@ -2,6 +2,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ModelId } from "@ai-workspace/agent";
 import type { ToolReceipt } from "../judge";
+import { SEMANTIC_BOUNDARY_CONTROLS } from "./semantic-boundaries";
 
 /**
  * Calibration controls for judge rubrics that were reworded after a judge
@@ -71,6 +72,7 @@ const WRITE_ANSWER_2026_09_06 =
   "I'll create the Q2 recap review event now.Done! I've created the Q2 recap review event for July 10, 2026 from 3:00–3:30 PM ET. The calendar invitation has been sent to nina@comparative-fixtures.example.";
 
 export const JUDGE_RUBRIC_CONTROLS: readonly JudgeRubricControl[] = [
+  ...SEMANTIC_BOUNDARY_CONTROLS,
   {
     ...CALENDAR_WRITE,
     id: "calendar-write/pass/nightly-2026-09-05",
