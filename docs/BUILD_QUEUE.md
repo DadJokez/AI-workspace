@@ -98,6 +98,39 @@ old or the queue is empty — next check-in 2026-09-21.
 Two well-tested PRs beat four thin ones; when context runs low, stop and
 write the summary.
 
+## Product proposals — 2026-09-08 02:51Z (gap analysis vs the AI Daily Brief AI-native episode of 2026-09-06)
+
+Seven items Rob asked to have written up and queued after mapping the
+episode's practices against what is on `main`. They sit **after** the work
+order above, not in it: none is queue work until Rob picks it, and each issue
+names its Rob-owned lines. Order reflects dependency, then leverage.
+
+1. **#932 — outcome capture + case minting.** First, because 2, 4 and 5
+   consume its outcomes. The episode's "comprehensive output tracing" and
+   the input to its "standing evaluation apparatus".
+2. **#943 — earned autonomy.** Per-(skill, tool) ladder that promotes on
+   track record and demotes on the first rejection, inside the preset
+   ceiling. L1↔L3 works today; the unattended L2 rung needs #773.
+3. **#412 → #495 — skills governance**, re-tiered from parked: versioning,
+   blast-radius vetting, namespacing, then eval-gated publishing. After
+   #438 P1 (#925). The episode's "skills, not prompts, shared with governance".
+4. **#944 — model day-one report.** Detect new Bedrock models, probe access,
+   run the pack under a cap, report $ per accepted deliverable. P0 needs
+   read-only IAM on the eval role (Rob).
+5. **#945 — adoption and impact dashboard.** Aggregate-only admin view:
+   who adopted, what sticks, cost per accepted deliverable, who is
+   underserved. Per-user visibility policy is Rob's call first.
+6. **#946 — [EPIC] Watchers.** One-sentence standing agents that propose,
+   never act: W1 compile-from-chat → W2 "My watchers" → W3 = #620 inbox.
+   Default caps are Rob's numbers before W1.
+7. **Decision, not build:** enable routing per purpose (#923), then lift the
+   platform pin (#880 option 2). Built and unused.
+
+From the same analysis, deliberately **not** proposed: an org "intelligence
+layer" index (Comparative scopes live, per user, by design); an AgentCore
+Gateway spike and "job contracts" were discussed and not filed (Rob paused
+feature exploration on 2026-09-08).
+
 ## Waiting on AWS (not queue work)
 
 - **#920 — frontier model access.** Case 178874379300896. When any of the
