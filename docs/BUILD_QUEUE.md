@@ -12,7 +12,22 @@ works this queue top-down, skipping anything whose dependencies aren't merged
 to `main` or that is Rob-gated. Re-triage when this file is more than ~2 weeks
 old or the queue is empty — next check-in 2026-09-21.
 
-## State on 2026-09-07 01:28Z
+## Current checkpoint: 2026-09-09 20:56Z
+
+- Main `ed76346` (#949 security patches) is deployed; authenticated production
+  smoke passed, including health, uploads, chat/artifacts, export and AgentCore.
+- #922 / PR #936 has complete live evidence, but still needs current-head
+  CI/Product Smoke and independent review. The broad pack is 79/81, not a green
+  qualification claim; remaining failures are disclosed under #950 and #860.
+  Full evidence: `docs/models/EVAL_FIELD_2026-09-07.md`.
+- Rob's active order remains **#922/#936 -> #925 -> #924 -> #803 -> #806**.
+  #925 is P1; P2 remains gated by #413's identity substrate. No model-enablement
+  rows or production defaults were changed during the evaluator work.
+- #942 is partially addressed by retained repeat evidence; keep it open for
+  its remaining acceptance review. Keep #935 open for authenticated route
+  verification and #937 open for the observed mobile upload-chooser failure.
+
+## Historical state on 2026-09-07 01:28Z
 
 - **`main` is `39fa562` (#927) and deployed** — CodeBuild `ai-workspace-build`
   SUCCEEDED for that SHA at 00:34Z. No open PRs.
@@ -74,7 +89,7 @@ old or the queue is empty — next check-in 2026-09-21.
    `toolConfig` with tool-bearing history; strip provider reasoning/markup
    from visible output; trim the leading space. Product loop change → eval
    cases required (`docs/REGRESSION_GAUNTLET.md`).
-5. **#922 — in progress, PR #936 draft.** Meaning-based deterministic checks,
+5. **#922 — in progress, PR #936 awaiting current-head gates/review.** Meaning-based deterministic checks,
    Unicode-normalised exact facts, the thread-summary precedence case. Must
    not change any verdict on the pinned controls without saying so.
    Current evidence and remaining validation: `docs/models/EVAL_FIELD_2026-09-07.md`.
