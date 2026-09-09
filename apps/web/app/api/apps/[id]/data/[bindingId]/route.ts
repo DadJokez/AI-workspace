@@ -20,7 +20,7 @@ import {
   isPublicationManifestEnabled,
   resolveAppPublication,
 } from "@/lib/app-publication";
-import { checkRateLimit } from "@/lib/request-limits";
+import { checkRateLimit, type RateLimitResult } from "@/lib/request-limits";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +30,26 @@ const DATA_JSON_HEADERS = {
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
 } as const;
+
+function rateLimitedResponse(limit: RateLimitResult) {
+  return NextResponse.json(
+    {
+      ...appDataError("rate_limited", "Too many refreshes. Try again shortly."),
+      message: "Too many refreshes. Try again shortly.",
+      retryAfterSeconds: limit.retryAfterSeconds,
+    },
+    {
+      status: 429,
+      headers: {
+        ...DATA_JSON_HEADERS,
+        "Retry-After": String(limit.retryAfterSeconds),
+        "X-RateLimit-Limit": String(limit.limit),
+        "X-RateLimit-Remaining": String(limit.remaining),
+        "X-RateLimit-Reset": limit.resetAt.toISOString(),
+      },
+    },
+  );
+}
 
 /**
  * Live-data app refresh (#407, generalized in #802). Executes a read tool
@@ -41,7 +61,8 @@ const DATA_JSON_HEADERS = {
  * Guard order, scoped to the viewer:
  *   auth → app exists → viewer may open → rate limit → binding declared on
  *   the LIVE version (server-side declaration enforcement) → manifest tools
- *   still enabled read-only → viewer's own connection + attestation + policy
+ *   still enabled read-only → viewer/provider budget across apps → viewer's
+ *   own connection + attestation + policy
  *   → execute → audit (per viewer).
  */
 export async function GET(
@@ -98,23 +119,7 @@ export async function GET(
     `app-data:${sessionUser.id}:${app.id}`,
   );
   if (!limit.allowed) {
-    return NextResponse.json(
-      {
-        ...appDataError("rate_limited", "Too many refreshes. Try again shortly."),
-        message: "Too many refreshes. Try again shortly.",
-        retryAfterSeconds: limit.retryAfterSeconds,
-      },
-      {
-        status: 429,
-        headers: {
-          ...DATA_JSON_HEADERS,
-          "Retry-After": String(limit.retryAfterSeconds),
-          "X-RateLimit-Limit": String(limit.limit),
-          "X-RateLimit-Remaining": String(limit.remaining),
-          "X-RateLimit-Reset": limit.resetAt.toISOString(),
-        },
-      },
-    );
+    return rateLimitedResponse(limit);
   }
 
   // Resolve the binding from the DEPLOYED version's pinned declarations —
@@ -165,6 +170,14 @@ export async function GET(
       { status: 404, headers: DATA_JSON_HEADERS },
     );
   }
+
+  // One viewer cannot bypass the provider budget by opening another app or
+  // binding. Use the same existing rate policy; never a browser-supplied key.
+  const providerLimit = await checkRateLimit(
+    db,
+    `app-data-provider:${sessionUser.id}:${binding.provider}`,
+  );
+  if (!providerLimit.allowed) return rateLimitedResponse(providerLimit);
 
   // Execute as the VIEWER — the scoping boundary. Never the author.
   const result = await executeAppDataBinding({

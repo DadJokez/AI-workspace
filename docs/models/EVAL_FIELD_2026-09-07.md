@@ -4,7 +4,9 @@ Baseline: `686b43c` (#933). Production model/enablement and product prompts
 are unchanged. The September 9 revision also changes shared runtime JSON
 envelope handling. This is not qualification or permission to enable another model.
 
-**Live validation complete; current-head CI and independent review pending.**
+**Merged in #936 as `0549abe`; deployment and authenticated production smoke passed.**
+Required CI/Product Smoke and independent Claude review were green on the exact
+PR head `ec19183` before merge. Deployment evidence is on #936; #922 is closed.
 The original #935 timezone failure has a runtime fix, not an assertion exception.
 The broader regression pack still has two disclosed failures; this report is
 not a green model qualification scorecard.
