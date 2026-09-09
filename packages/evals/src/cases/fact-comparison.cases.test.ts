@@ -47,6 +47,7 @@ describe("calendar timezone labels", () => {
     { ...correct, timeZone: "UTC" },
     { ...correct, utcStart: "2026-07-10T15:00:00Z" },
     { ...correct, localStart: "2026-07-11T15:00" },
+    { ...correct, localStart: "2026\u201107\u201110T15:00" },
     null,
     [],
   ])("rejects missing, shifted or mislabeled instants: %j", (value) => expect(matches(value)).toBe(false));

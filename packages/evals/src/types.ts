@@ -160,6 +160,20 @@ export type Assertion =
  * without an open issue.
  */
 
+export interface SampleResult extends TokenUsage {
+  sampleId: string;
+  modelId: ModelId;
+  passed: boolean;
+  assertions: AssertionResult[];
+  answer: string;
+  toolCalls: string[];
+  toolResults: CaseResult["toolResults"];
+  judgeUsage: TokenUsage;
+  errored?: string;
+  /** Retention-only redaction/truncation; never re-grade altered evidence as raw output. */
+  evidenceTransformed?: boolean;
+}
+
 export interface CaseResult extends TokenUsage {
   caseId: string;
   description: string;
@@ -195,6 +209,8 @@ export interface CaseResult extends TokenUsage {
   runs?: number;
   passCount?: number;
   passPolicy?: "all" | "majority";
+  /** Per-repeat evidence, including losing samples when majority passes. Usage above already includes these. */
+  samples?: SampleResult[];
   /**
    * #895: how many runs had a judge assertion that was inconclusive (judge
    * output cut at the cap with no readable verdict, twice). Those runs count

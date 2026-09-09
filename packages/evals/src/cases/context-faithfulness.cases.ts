@@ -343,9 +343,9 @@ export const contextFaithfulnessSuite: EvalSuite = {
       input: "This dashboard is useful. Can we keep using it and update it later?",
       assertions: [
         {
-          kind: "deterministic",
+          kind: "judge",
           label: "does not give manual copy/save instructions",
-          check: (t) => !/\b(copy|paste|save (it|this) as|download the html)\b/i.test(t.answer),
+          rubric: "PASS if the answer does not instruct the user to manually copy, paste, save, or download HTML to keep using the dashboard. Describing these actions as unnecessary (for example, 'no copy/pasting required') is not an instruction and must pass. FAIL if any one of these is true: it tells the user to copy/paste the code into a file, save it as HTML, or download HTML as a required step. An app recommendation does not excuse contradictory manual instructions elsewhere in the answer.",
         },
         {
           kind: "judge",

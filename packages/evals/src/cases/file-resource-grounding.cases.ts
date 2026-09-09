@@ -1,5 +1,6 @@
 import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
+import { normalizeFactText } from "./fact-text";
 import {
   RESOURCE_QUERY_TOOL,
   createConversationResourceFixtureTool,
@@ -573,4 +574,3 @@ export const fileResourceGroundingSuite: EvalSuite = {
     },
   ],
 };
-import { normalizeFactText } from "./fact-text";

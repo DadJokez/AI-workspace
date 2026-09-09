@@ -5,7 +5,6 @@ import {
 } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 import { semanticBoundary } from "./semantic-boundaries";
-import { normalizeFactText } from "./fact-text";
 import {
   CALENDAR_CREATE_TOOL,
   CALENDAR_LIST_TOOL,
@@ -915,7 +914,7 @@ export const gmailCalendarFaithfulnessSuite: EvalSuite = {
           label: "labels UTC and local calendar times consistently",
           check: ({ answer }) => {
             try {
-              const value = JSON.parse(normalizeFactText(answer));
+              const value = JSON.parse(answer);
               return value !== null && !Array.isArray(value) &&
                 Object.keys(value).sort().join(",") === "localStart,timeZone,utcStart" &&
                 value.localStart === "2026-07-10T15:00" &&

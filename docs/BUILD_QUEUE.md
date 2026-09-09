@@ -58,7 +58,7 @@ old or the queue is empty — next check-in 2026-09-21.
 
 ## Work order for the next session (skip anything Rob-gated)
 
-1. **#928 — merge-audit false positive (S).** Edit step 2c of
+1. **#928 — completed; PR #930 merged.** Historical scope: edit step 2c of
    `scripts/verify-pr-gate.sh` to ignore negated "human-owned under"; add
    the two real first lines (#913, #915) as fixtures that must PASS and the
    #885 text as one that must FAIL. Gate-script change → the reviewer will
@@ -68,23 +68,24 @@ old or the queue is empty — next check-in 2026-09-21.
    link. Red → per-case triage in a comment (which suite, judge or
    deterministic, same failure as 09-06 or new); rubric changes only via
    `judge-replay.ts` ×2 judges + controls + live 5/5.
-3. **#906 — fail-closed model-enablement lookup (S; security spine).**
+3. **#906 — completed.** Fail-closed model-enablement lookup (security spine).
    No §7 surface.
-4. **#921 — runtime fixes for non-Claude brains (H).** Always send
+4. **#921 — completed.** Runtime fixes for non-Claude brains. Always send
    `toolConfig` with tool-bearing history; strip provider reasoning/markup
    from visible output; trim the leading space. Product loop change → eval
    cases required (`docs/REGRESSION_GAUNTLET.md`).
-5. **#922 — level the eval field (M).** Meaning-based deterministic checks,
+5. **#922 — in progress, PR #936 draft.** Meaning-based deterministic checks,
    Unicode-normalised exact facts, the thread-summary precedence case. Must
    not change any verdict on the pinned controls without saying so.
-6. **#923 — GLM-5 for the routing purpose (M).** Repeat-sampled run, then
-   Rob decides the `model_enablement` row — never write it unattended.
+   Current evidence and remaining validation: `docs/models/EVAL_FIELD_2026-09-07.md`.
+6. **#923 — qualification task closed.** GLM-5 routing evidence is recorded;
+   this status is not permission to write a `model_enablement` row.
 7. **#925 — #438 P1 (M).** Precedence contract for scheduled/triggered
    skill runs + per-skill standing notes; Settings explainer copy.
 8. **#924 — deploy rails R1 + R6 (M).** Pre-migrate RDS snapshot inside the
    build and a never-silently-undeployed retrigger. Pipeline + IAM →
    describe the IAM delta at the top of the PR body; Rob releases.
-9. **Tier C — #803 → #804 → #805 → #806**, now unblocked. Caveats stand:
+9. **Tier C — #803 → #806**; #804 and #805 are closed. Caveats stand:
    the live-via-viewer default flip (#803) and anything that *blocks* data
    leaving a thread (#804) are DESCRIBED in the PR body for Rob, built
    behind an off-by-default flag, never flipped unattended; #805 is
