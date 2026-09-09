@@ -624,6 +624,18 @@ export function buildChatContextPack({
     ...profileFacts,
     orgInstructionsItem,
     ...(skillInstructionsItem ? [skillInstructionsItem] : []),
+    ...(activeSkill?.standingNotes?.trim() ? [contextItem({
+      id: `skill:${activeSkill.id}:standing-notes`,
+      type: "skill_instructions",
+      label: `Standing notes: ${activeSkill.name}`,
+      source: "skills.standing_notes",
+      owner: "user",
+      freshness: "durable",
+      visibility: "hidden_prompt",
+      injected: true,
+      charCount: activeSkill.standingNotes.trim().length,
+      metadata: { layer: "skill_notes", skillId: activeSkill.id },
+    })] : []),
     ...(customInstructions ? [customInstructions] : []),
     ...vaultMemory,
     ...recentMessageItems,
@@ -977,7 +989,9 @@ function formatInstructionLayers(layers: InstructionLayersReceipt): string {
     layers.org.status === "loaded"
       ? `org ${layers.org.items} approved instruction(s)`
       : "org not configured";
-  const skill = layers.skill ? `skill ${layers.skill.name}` : "no active skill";
+  const skill = layers.skill
+    ? `skill ${layers.skill.name}${layers.skill.standingNotesChars ? "; skill standing notes loaded" : ""}${layers.skill.source === "scheduled" || layers.skill.source === "github_event" ? `; activation ${layers.skill.source}` : ""}`
+    : "no active skill";
   const custom = layers.personal.customInstructions
     ? "custom instructions present"
     : "no custom instructions";

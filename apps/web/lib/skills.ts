@@ -185,19 +185,11 @@ export function canRunSkill(
 }
 
 /**
- * The skill's instructions become the turn's user message; the existing
- * worker pipeline (context build, MCP mount, audit, artifacts, timeline)
- * handles everything downstream exactly like a chat turn.
+ * Only the execution request belongs in the summarizable message stream.
+ * createSkillRun snapshots the operating instructions into the pinned layer.
  */
-export function buildSkillTurnPrompt(
-  skill: Pick<Skill, "name" | "systemPrompt">,
-): string {
-  return [
-    `You are running the saved skill "${skill.name}".`,
-    "Follow these instructions and produce the result directly in this thread:",
-    "",
-    skill.systemPrompt,
-  ].join("\n");
+export function buildSkillTurnPrompt(): string {
+  return "Run the saved skill using the available conversation and event context.";
 }
 
 /**
@@ -341,8 +333,8 @@ export function buildGitHubSkillDisplayMessage(
  * (`triggerType: "scheduled"`, on cadence or from the schedule's "Run now"
  * action — `scheduleFire` records which, on the run's inputs/event/audit
  * metadata; #780). Creates the target thread when none is given, inserts the
- * materialized prompt as the user message, and queues a `runs` row whose
- * inputs satisfy the worker's chat-run contract.
+ * display message, and queues a `runs` row whose inputs pin the skill's
+ * instruction snapshot separately from the summarizable execution request.
  */
 export async function createSkillRun({
   db,
@@ -393,8 +385,8 @@ export async function createSkillRun({
   }
 
   const prompt = githubEvent
-    ? `${buildSkillTurnPrompt(skill)}\n\n${githubEvent.promptContext}`
-    : buildSkillTurnPrompt(skill);
+    ? `${buildSkillTurnPrompt()}\n\n${githubEvent.promptContext}`
+    : buildSkillTurnPrompt();
   const displayMessage = githubEvent
     ? buildGitHubSkillDisplayMessage(githubEvent)
     : buildSkillDisplayMessage(skill);
@@ -436,6 +428,14 @@ export async function createSkillRun({
         runBudget,
         skillId: skill.id,
         skillSlug: skill.slug,
+        activeSkillPrompt: {
+          id: skill.id,
+          slug: skill.slug,
+          name: skill.name,
+          systemPrompt: skill.systemPrompt,
+          standingNotes: skill.standingNotes,
+          source: triggerType === "skill" ? "user-explicit" : triggerType,
+        },
         ...scheduleMarker,
         ...(githubEvent
           ? {

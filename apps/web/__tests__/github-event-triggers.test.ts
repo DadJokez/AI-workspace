@@ -297,10 +297,7 @@ describe("GitHub webhook security boundary", () => {
     })!;
     const firstDisplay = buildGitHubSkillDisplayMessage(firstEvent);
     const secondDisplay = buildGitHubSkillDisplayMessage(secondEvent);
-    const secondPrompt = `${buildSkillTurnPrompt({
-      name: "Review PR",
-      systemPrompt: "Summarize the review.",
-    })}\n\n${buildGitHubEventPromptContext(secondEvent, "second-delivery")}`;
+    const secondPrompt = `${buildSkillTurnPrompt()}\n\n${buildGitHubEventPromptContext(secondEvent, "second-delivery")}`;
 
     const secondTurnContext = buildTurnContext({
       messages: [

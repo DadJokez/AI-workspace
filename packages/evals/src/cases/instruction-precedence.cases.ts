@@ -120,7 +120,7 @@ function eachSentinelOpensOneBullet(t: TurnTranscript) {
   };
 }
 
-export const instructionPrecedenceSuite: EvalSuite = {
+const chatPrecedenceSuite: EvalSuite = {
   capability: "instruction-precedence",
   defaultModelId: DEFAULT_MODEL_ID,
   defaultSeverity: "high",
@@ -179,5 +179,28 @@ export const instructionPrecedenceSuite: EvalSuite = {
         },
       ],
     },
+  ],
+};
+
+export const instructionPrecedenceSuite: EvalSuite = {
+  ...chatPrecedenceSuite,
+  cases: [
+    ...chatPrecedenceSuite.cases,
+    ...(["scheduled", "github_event"] as const).map((source) => ({
+      ...chatPrecedenceSuite.cases[0]!,
+      id: `${source}-skill-format-beats-vault-preference`,
+      description: `${source} skill activation pins the same output contract above personal preferences`,
+      systemPrompt: CBX_SYSTEM_PROMPT.replace(
+        renderPinnedActiveSkill(CBX_SKILL),
+        renderPinnedActiveSkill({ ...CBX_SKILL, source }),
+      ),
+      contextReceipts: [instructionLayersLabel(buildInstructionLayersReceipt({
+        org: null,
+        skill: { ...CBX_SKILL, source },
+        customInstructions: false,
+        vaultChecked: true,
+        vaultMemories: 1,
+      }))],
+    })),
   ],
 };

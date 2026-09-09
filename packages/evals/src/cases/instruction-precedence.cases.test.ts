@@ -55,6 +55,15 @@ function runDeterministic(answer: string) {
 }
 
 describe("instruction-precedence eval (#438, CBX-20260724-091510)", () => {
+  it.each(["scheduled", "github_event"] as const)("uses the production %s renderer and unchanged assertions", (source) => {
+    const original = instructionPrecedenceSuite.cases[0]!;
+    const variant = instructionPrecedenceSuite.cases.find((c) => c.id === `${source}-skill-format-beats-vault-preference`)!;
+    expect(variant.systemPrompt).toContain(renderPinnedActiveSkill({ ...CBX_SKILL, source }));
+    expect(variant.systemPrompt).not.toContain("The user explicitly activated");
+    expect(variant.assertions).toBe(original.assertions);
+    expect(variant.repeat).toBe(3);
+    expect(variant.passPolicy).toBe("all");
+  });
   it("assembles the prompt from the production layer helpers, in production order", () => {
     expect(CBX_SYSTEM_PROMPT).toContain(PINNED_PRECEDENCE_NOTE);
     expect(CBX_SYSTEM_PROMPT).toContain(renderPinnedOrgInstructions(null));
