@@ -36,6 +36,25 @@ export const EXACT_OUTPUT_CONTRACT = [
   "Approved memory and other context may supply facts, but they never relax or alter this output contract.",
 ].join(" ");
 
+/** Conservative: explicit JSON-only requests, never a requested code block. */
+export function requestsBareJson(text: string): boolean {
+  return /\b(?:return|output|reply|respond|provide|give)\s+(?:with\s+)?(?:only|just)\s+(?:(?:this|an?|exact|valid|raw|inline|strict)\s+)*json\b/i.test(text) &&
+    !/```|\b(?:fenc(?:e|ed)|code block|markdown)\b/i.test(text);
+}
+
+/** Strip only a complete JSON envelope; never repair, reserialize, or invent data. */
+export function unwrapJsonFence(answer: string): string {
+  const match = /^\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```\s*$/i.exec(answer);
+  if (!match) return answer;
+  const body = match[1]!;
+  try {
+    const value: unknown = JSON.parse(body);
+    return value !== null && typeof value === "object" ? body : answer;
+  } catch {
+    return answer;
+  }
+}
+
 // Truthful by construction: memory capture is enqueued after every
 // successful turn and only produces approval-gated suggestions, so the model
 // can obey a demanded literal without claiming or disclaiming a save
@@ -75,8 +94,8 @@ interface DemandedReplyLiteral {
  * A demanded exact reply whose literal is explicitly delimited: quoted,
  * backticked, or everything after a colon. Undelimited tails ("reply exactly
  * ACK and also …") stay unextracted on purpose — only an unambiguous literal
- * may be machine-enforced. List/JSON/code contracts are prompt-prose only
- * for now (#652 follow-up).
+ * may be machine-enforced. Lists and code contracts remain prompt-prose;
+ * JSON-only replies separately support validated fence removal above.
  */
 function findDemandedReplyLiteral(
   text: string,

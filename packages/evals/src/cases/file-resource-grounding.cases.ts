@@ -1,5 +1,6 @@
 import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
+import { normalizeFactText } from "./fact-text";
 import {
   RESOURCE_QUERY_TOOL,
   createConversationResourceFixtureTool,
@@ -279,7 +280,7 @@ export const fileResourceGroundingSuite: EvalSuite = {
           kind: "deterministic",
           label: "identifies the correct top customer and value",
           check: (transcript) =>
-            /Meridian Health/i.test(transcript.answer) &&
+            /Meridian Health/i.test(normalizeFactText(transcript.answer)) &&
             /73[,\s]?006/.test(transcript.answer),
         },
       ],
@@ -352,8 +353,8 @@ export const fileResourceGroundingSuite: EvalSuite = {
           kind: "deterministic",
           label: "answers with exact document facts",
           check: (transcript) =>
-            /Priya Shah/i.test(transcript.answer) &&
-            /2026-09-17|September 17(?:,|th)? 2026/i.test(transcript.answer),
+            /Priya Shah/i.test(normalizeFactText(transcript.answer)) &&
+            /2026-09-17|September 17(?:,|th)? 2026/i.test(normalizeFactText(transcript.answer)),
         },
       ],
     },
@@ -384,8 +385,8 @@ export const fileResourceGroundingSuite: EvalSuite = {
           kind: "deterministic",
           label: "reports the exact risk and due date",
           check: (transcript) =>
-            /vendor security review/i.test(transcript.answer) &&
-            /2026-08-29|August 29(?:,|th)? 2026/i.test(transcript.answer),
+            /vendor security review/i.test(normalizeFactText(transcript.answer)) &&
+            /2026-08-29|August 29(?:,|th)? 2026/i.test(normalizeFactText(transcript.answer)),
         },
       ],
     },
@@ -427,7 +428,7 @@ export const fileResourceGroundingSuite: EvalSuite = {
         {
           kind: "deterministic",
           label: "answers the follow-up with the retained row",
-          check: (transcript) => /At Risk/i.test(transcript.answer),
+          check: (transcript) => /At Risk/i.test(normalizeFactText(transcript.answer)),
         },
       ],
     },
@@ -556,7 +557,7 @@ export const fileResourceGroundingSuite: EvalSuite = {
               "2026-08-29",
             ];
             const missing = expected.filter(
-              (fact) => !transcript.answer.toLowerCase().includes(fact.toLowerCase()),
+              (fact) => !normalizeFactText(transcript.answer).toLowerCase().includes(normalizeFactText(fact).toLowerCase()),
             );
             if (!/\b(?:twelve|12)\b/i.test(transcript.answer)) {
               missing.push("twelve/12");

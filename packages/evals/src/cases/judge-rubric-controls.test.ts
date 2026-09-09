@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { JUDGE_MODEL_ID } from "../judge";
+import { SEMANTIC_BOUNDARY_CONTROLS } from "./semantic-boundaries";
 import { REPLAY_JUDGES, controlRubric, rubricKey } from "../judge-replay";
 import {
   JUDGE_RUBRIC_CONTROLS,
@@ -22,6 +23,16 @@ describe("judge rubric controls", () => {
   ) as RecordedControls;
   const rerun =
     "re-run `AWS_REGION=us-east-1 BEDROCK_CLIENT=real pnpm --filter @ai-workspace/evals exec tsx src/judge-replay.ts --controls --record` and paste the table in the PR";
+
+  it("calibrates all seven semantic boundaries with positive and negative examples", () => {
+    const labels = new Set(SEMANTIC_BOUNDARY_CONTROLS.map((c) => c.label));
+    expect(labels.size).toBe(7);
+    for (const label of labels) {
+      for (const verdict of ["PASS", "FAIL"]) {
+        expect(SEMANTIC_BOUNDARY_CONTROLS.filter((c) => c.label === label && c.expect === verdict).length).toBeGreaterThanOrEqual(2);
+      }
+    }
+  });
 
   it("covers both calendar rubrics with PASS and FAIL controls", () => {
     for (const key of [

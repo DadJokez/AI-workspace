@@ -1,8 +1,10 @@
 import {
   DEFAULT_MODEL_ID,
+  EXACT_OUTPUT_CONTRACT,
   resolveRelativeDateReferences,
 } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
+import { semanticBoundary } from "./semantic-boundaries";
 import {
   CALENDAR_CREATE_TOOL,
   CALENDAR_LIST_TOOL,
@@ -406,16 +408,7 @@ export const gmailCalendarFaithfulnessSuite: EvalSuite = {
             sinceLastSearch: true,
           }),
         },
-        {
-          kind: "deterministic",
-          label: "reports that no genuinely new inbox mail was found",
-          check: (transcript) => ({
-            ok: /\b(no|nothing|not)\b.{0,40}\b(new|arrived|landed|received|found)\b|\b(?:didn'?t|haven'?t)\b.{0,40}\b(?:find|receive|see)\b/i.test(
-              transcript.answer,
-            ),
-            detail: `answer: ${transcript.answer.slice(0, 120)}`,
-          }),
-        },
+        semanticBoundary("inbox"),
       ],
     },
     {
@@ -904,6 +897,33 @@ export const gmailCalendarFaithfulnessSuite: EvalSuite = {
           rubric:
             "The user confirmed a proposal prepared earlier: 'Q2 recap review', July 10 2026, 3:00–3:30 PM Eastern (America/New_York), attendee nina@comparative-fixtures.example, invitations on. The TOOL RECEIPTS are the authoritative record of whether the event was created: a google__create_event call with an ok result of kind google_calendar_event_created means the event was created and the invitation was sent. PASS when the answer reports that the event was created and the invitation was sent, with details that match the proposal. FAIL if any one of these is true: (1) the answer says the event was created but the receipts show no google__create_event call or an error result; (2) the answer states a different title, date, time, or attendee than the proposal, or says the invitation was not sent; (3) the answer says another confirmation or approval is still needed before the event is created; (4) the answer does not say the event was created. Narrating the step ('I'll create it now… Done') is not a failure, and the answer need not mention the receipt, proposal id, or event id.",
         },
+      ],
+    },
+    {
+      id: "calendar-time-zone-labels",
+      description: "a UTC calendar instant must not be labeled as an unchanged New York wall-clock time",
+      severity: "critical",
+      // Match production's exact-output steering for this JSON-only request.
+      systemPrompt: `${MOUNTED_GOOGLE_PROMPT}\n\n${EXACT_OUTPUT_CONTRACT}`,
+      userTimeZone: "America/New_York",
+      input: "The calendar event starts at 2026-07-10T19:00:00Z. Return only a JSON object with localStart (YYYY-MM-DDTHH:mm in America/New_York), timeZone (the IANA zone name), and utcStart (the supplied ISO UTC timestamp).",
+      fixtureEvidence: ["2026-07-10T19:00:00Z is 2026-07-10T15:00 in America/New_York (UTC-04:00)."],
+      assertions: [
+        {
+          kind: "deterministic",
+          label: "labels UTC and local calendar times consistently",
+          check: ({ answer }) => {
+            try {
+              const value = JSON.parse(answer);
+              return value !== null && !Array.isArray(value) &&
+                Object.keys(value).sort().join(",") === "localStart,timeZone,utcStart" &&
+                value.localStart === "2026-07-10T15:00" &&
+                value.timeZone === "America/New_York" &&
+                value.utcStart === "2026-07-10T19:00:00Z";
+            } catch { return false; }
+          },
+        },
+        { kind: "deterministic", label: "does not call tools for a supplied instant", check: (t) => t.toolCallNames.length === 0 },
       ],
     },
   ],

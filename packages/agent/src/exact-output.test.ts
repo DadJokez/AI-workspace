@@ -5,7 +5,26 @@ import {
   extractPureEchoReply,
   EXACT_OUTPUT_CONTRACT,
   EXACT_OUTPUT_MEMORY_ACK,
+  requestsBareJson,
+  unwrapJsonFence,
 } from "./exact-output";
+
+describe("JSON-only framing", () => {
+  it.each(["Return only a JSON object with localStart.", "Respond with only valid JSON.", "Give just inline JSON."])("recognizes %s", (request) => {
+    expect(requestsBareJson(request)).toBe(true);
+  });
+  it.each(["Explain JSON", "Return only JSON in a fenced code block", "Return only JSON and a Markdown explanation", "Return only ```json"])("does not reduce %s", (request) => {
+    expect(requestsBareJson(request)).toBe(false);
+  });
+  it("preserves values, key order, and whitespace inside a valid envelope", () => {
+    const body = '{ "zone": "America/New_York", "value": "\\u2011" }';
+    expect(unwrapJsonFence(`\`\`\`json\n${body}\n\`\`\``)).toBe(body);
+    expect(unwrapJsonFence("```\n[1,2]\n```\n")).toBe("[1,2]");
+  });
+  it.each(['```json\n{"x":}\n```', 'Here:\n```json\n{}\n```', '```json\n{}\n```\nExplanation', '```json\n{}', '```json\n{}\n```\n```json\n{}\n```', '```json\nnull\n```', '{"x":1}'])("leaves invalid, ambiguous, or already bare output untouched: %s", (answer) => {
+    expect(unwrapJsonFence(answer)).toBe(answer);
+  });
+});
 
 describe("buildExactOutputContract", () => {
   it.each([

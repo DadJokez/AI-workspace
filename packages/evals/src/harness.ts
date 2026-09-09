@@ -23,6 +23,7 @@ import {
   addUsage,
   runJudge,
 } from "./judge";
+import { retainSample } from "./sample-evidence";
 
 const EVAL_MAX_TOKENS = 4_096;
 
@@ -244,6 +245,7 @@ async function runOnce(
       });
     } else {
       const verdict = await runJudge(judgeClient, {
+        candidateModelId: testCase.modelId ?? defaultModelId,
         rubric: assertion.rubric,
         answer: transcript.answer,
         referenceEvidence: [
@@ -400,8 +402,23 @@ async function evaluateCase(
 
   // Only surface repeat metadata for repeated cases so repeat=1 reports stay
   // byte-for-byte identical to the original single-sample format.
-  const repeatMeta =
-    repeat > 1 ? { runs: repeat, passCount, passPolicy } : {};
+  const repeatMeta = repeat > 1 ? {
+    runs: repeat,
+    passCount,
+    passPolicy,
+    samples: runs.map((run, index) => retainSample({
+      sampleId: `${debugIds.runId}:sample:${index + 1}`,
+      modelId,
+      passed: run.passed,
+      assertions: run.assertions,
+      answer: run.transcript?.answer ?? "",
+      toolCalls: run.transcript?.toolCallNames ?? [],
+      toolResults: run.transcript ? summarizeToolResults(run.transcript.toolResults) : [],
+      ...sumUsage([run]),
+      judgeUsage: run.judgeUsage,
+      ...(run.errored ? { errored: run.errored } : {}),
+    })),
+  } : {};
 
   const knownIssue = passed ? undefined : resolveKnownIssue(runs);
 

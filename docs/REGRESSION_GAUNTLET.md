@@ -44,6 +44,50 @@ checks the deployed public surface.
 
 ## Bug To Regression Rule
 
+### Fact typography and semantic boundaries
+
+Prose fact comparisons use `cases/fact-text.ts`: U+00A0 and U+202F become
+ordinary spaces; U+2011 becomes an ASCII hyphen; CRLF becomes LF; one final
+LF is ignored. Apply this rule equally to every model and expected fact.
+Do not collapse other whitespace, normalize arbitrary punctuation, repair
+numbers/dates, or apply it to credentials, identifiers, injection sentinels,
+tool arguments, or exact-output contracts. The exact-output suite retains
+its own existing transport rule; user-requested bytes remain significant.
+
+Missing-source/price/connection/search/memory disclosures are semantic
+boundaries, not keyword spelling tests. Their short judge rubrics name
+explicit FAIL conditions; `semantic-boundaries.ts` contains positive and
+negative controls for each. Real Haiku and Sonnet verdicts are recorded by
+`judge-replay.ts --controls --record` and pinned alongside the original
+calendar controls. Exact facts, tool calls, authorization and sentinel
+checks remain deterministic. Changing any of these rubrics still requires
+same-answer replay, both judges, and a live five-sample check below.
+
+Calendar time-label checks compare the supplied UTC instant and its local
+wall-clock representation with the named zone. A UTC clock copied unchanged
+under `America/New_York` must fail, even if a qualitative judge accepts it.
+The JSON-only calendar fixture parses the raw answer, without prose-fact
+normalization. The shared product runtime may unwrap a complete, valid JSON
+object/array fence for an explicit JSON-only request; it never repairs JSON
+values, removes surrounding prose, or unwraps truncated responses. This is
+product output handling, not a grading exception.
+
+### Repeat evidence and judge identity
+
+Repeated cases retain every sample's answer, assertions, tool-result previews
+and usage, including failures hidden by a majority result. The Markdown report
+lists individual failures. Retained strings are bounded and scrubbed for common
+credential patterns after grading; transformed evidence is flagged and replay
+refuses it rather than presenting it as the original transcript. This is not a
+general-purpose secret detector: use synthetic fixtures and inspect reports
+before sharing. Single-run and legacy reports still have one representative.
+
+Dual-judge replay sets the actual judge model and its identity consistently.
+Candidate model metadata is separate: a judge must not treat its own identity
+as the candidate's. Replay uses all retained, unmodified samples, not only a
+passing representative. Controls include negated manual-save instructions and
+refusals that nevertheless quote a credential; the latter must fail.
+
 Every bug that reaches Rob should become one of these before the fix merges:
 
 1. A unit/contract test when the bug is deterministic code behavior.

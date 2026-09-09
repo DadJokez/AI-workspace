@@ -11,6 +11,7 @@ import {
 import { modelIdentityLine } from "./model-identity";
 import { MODELS, type ModelId } from "./models";
 import { ProviderOutputFilter } from "./provider-output";
+import { requestsBareJson, unwrapJsonFence } from "./exact-output";
 import { withToolHistory } from "./tool-history-config";
 import {
   RunBudgetTracker,
@@ -375,6 +376,8 @@ export async function* runAgentLoop(
 
     const assistantBlocks: BedrockContentBlock[] = [];
     let pendingText = "";
+    // Hold small JSON-only answers until their envelope can be validated.
+    let holdJson = currentTurn?.role === "user" && requestsBareJson(currentTurn.content);
     let receivedText = false;
     const outputFilter = new ProviderOutputFilter(
       model.provider !== "anthropic",
@@ -396,6 +399,13 @@ export async function* runAgentLoop(
         receivedText ||= ev.text.trim().length > 0;
         const text = outputFilter.push(ev.text);
         pendingText += text;
+        if (holdJson && pendingText.length > 65_536) {
+          holdJson = false;
+          emittedVisibleText = true;
+          yield { type: "text-delta", delta: pendingText };
+          continue;
+        }
+        if (holdJson) continue;
         if (text) {
           emittedVisibleText = true;
           yield { type: "text-delta", delta: text };
@@ -436,6 +446,13 @@ export async function* runAgentLoop(
           blockIndex: ev.blockIndex,
         };
       } else if (ev.type === "tool-use") {
+        if (holdJson) {
+          holdJson = false;
+          if (pendingText) {
+            emittedVisibleText = true;
+            yield { type: "text-delta", delta: pendingText };
+          }
+        }
         pendingToolCalls.push({ id: ev.id, name: ev.name, input: ev.input });
         yield {
           type: "tool-call",
@@ -477,9 +494,21 @@ export async function* runAgentLoop(
       }
     }
 
+    if (params.signal?.aborted) {
+      yield { type: "error", message: "aborted" };
+      return;
+    }
     const finalText = outputFilter.finish();
     pendingText += finalText;
-    if (finalText) {
+    if (holdJson) {
+      if (stopReason === "end_turn" && pendingToolCalls.length === 0) {
+        pendingText = unwrapJsonFence(pendingText);
+      }
+      if (pendingText) {
+        emittedVisibleText = true;
+        yield { type: "text-delta", delta: pendingText };
+      }
+    } else if (finalText) {
       emittedVisibleText = true;
       yield { type: "text-delta", delta: finalText };
     }

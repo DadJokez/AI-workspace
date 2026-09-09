@@ -429,6 +429,7 @@ describe("eval harness wiring", () => {
     expect(pass.runs).toBeUndefined();
     expect(pass.passCount).toBeUndefined();
     expect(pass.passPolicy).toBeUndefined();
+    expect(pass.samples).toBeUndefined();
   });
 
   function scriptedSuite(
@@ -473,6 +474,8 @@ describe("eval harness wiring", () => {
     expect(result.failed).toBe(1);
     // Representative transcript is a losing run: its assertions show the failure.
     expect(c.assertions.some((a) => !a.ok)).toBe(true);
+    expect(c.samples?.map((sample) => sample.passed)).toEqual([true, true, false, true, true]);
+    expect(c.samples?.[2]?.assertions.some((a) => !a.ok)).toBe(true);
   });
 
   it("passPolicy 'all' passes only when every run passes", async () => {
@@ -494,6 +497,11 @@ describe("eval harness wiring", () => {
     );
     expect(pass.results[0]!.passCount).toBe(3);
     expect(pass.results[0]!.passed).toBe(true);
+    const samples = pass.results[0]!.samples!;
+    expect(samples.map((sample) => sample.passed)).toEqual([true, false, true, false, true]);
+    expect(new Set(samples.map((sample) => sample.sampleId)).size).toBe(5);
+    expect(samples.every((sample) => sample.answer.includes("hello world"))).toBe(true);
+    expect(samples[1]!.assertions.some((a) => !a.ok)).toBe(true);
 
     const fail = await runSuite(
       scriptedSuite("maj-fail", [true, false, false, false, true], "majority"),
@@ -538,6 +546,8 @@ describe("eval harness wiring", () => {
     expect(one.inputTokens).toBeGreaterThan(0);
     expect(many.inputTokens).toBe(one.inputTokens * 3);
     expect(many.tokensOut).toBe(one.tokensOut * 3);
+    expect(many.samples?.reduce((total, sample) => total + sample.tokensOut, 0)).toBe(many.tokensOut);
+    expect(many.samples?.reduce((total, sample) => total + sample.inputTokens, 0)).toBe(many.inputTokens);
   });
 
   it("passes optional multi-turn conversation history to the model", async () => {

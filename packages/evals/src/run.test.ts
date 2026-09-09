@@ -459,7 +459,7 @@ describe("--model qualification runs (#797 P2)", () => {
           .filter((b): b is { kind: "text"; text: string } => b.kind === "text")
           .map((b) => b.text)
           .join("\n");
-        const judge = text.startsWith("RUBRIC:");
+        const judge = text.includes("RUBRIC:");
         calls.push({ bedrockModelId: params.bedrockModelId, judge });
         yield { type: "text-delta", text: judge ? "PASS\nfine" : "candidate answer" };
         yield { type: "stop", reason: "end_turn" };

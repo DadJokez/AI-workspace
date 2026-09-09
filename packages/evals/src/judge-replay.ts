@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import {
   MODELS,
   type BedrockClient,
-  type ConverseStreamParams,
   type ModelId,
   getBedrockClient,
 } from "@ai-workspace/agent";
@@ -16,7 +15,7 @@ import {
   type RecordedControls,
 } from "./cases/judge-rubric-controls";
 import { judgeSeesToolReceipts } from "./harness";
-import { JUDGE_MODEL_ID, type ToolReceipt, runJudge } from "./judge";
+import { type ToolReceipt, runJudge } from "./judge";
 import { SUITES } from "./run";
 import type { CapabilityResult, CaseResult } from "./types";
 
@@ -43,23 +42,6 @@ import type { CapabilityResult, CaseResult } from "./types";
  */
 
 export const REPLAY_JUDGES: readonly ModelId[] = ["haiku-4-5", "sonnet-4-5"];
-
-/** A client that sends the judge prompt to `modelId` instead of the pin. */
-export function judgeClientFor(
-  modelId: ModelId,
-  base: BedrockClient,
-): BedrockClient {
-  if (modelId === JUDGE_MODEL_ID) return base;
-  const model = MODELS[modelId];
-  return {
-    converseStream: (params: ConverseStreamParams) =>
-      base.converseStream({
-        ...params,
-        bedrockModelId: model.bedrockModelId,
-        supportsPromptCaching: model.supportsPromptCaching,
-      }),
-  };
-}
 
 export function rubricKey(
   capability: string,
@@ -108,6 +90,7 @@ export function receiptsFromReport(
 
 export interface ReplayVerdict {
   source: string;
+  sampleId?: string;
   capability: string;
   caseId: string;
   label: string;
@@ -115,6 +98,15 @@ export interface ReplayVerdict {
   pass: boolean;
   reason: string;
   costUsd: number;
+}
+
+/** Legacy reports contain only a representative; new reports retain every sample. */
+export function reportSamples(result: CaseResult) {
+  if (!result.samples) return [{ ...result, sampleId: undefined }];
+  if (result.samples.some((sample) => sample.evidenceTransformed)) {
+    throw new Error(`${result.caseId}: redacted or truncated sample evidence cannot be replayed as the original answer`);
+  }
+  return result.samples;
 }
 
 interface ReplayArgs {
@@ -186,7 +178,7 @@ async function judgeWith(
 ): Promise<ReplayVerdict[]> {
   return Promise.all(
     judges.map(async (judge) => {
-      const verdict = await runJudge(judgeClientFor(judge, base), input);
+      const verdict = await runJudge(base, input, judge);
       return {
         ...meta,
         judge,
@@ -218,37 +210,41 @@ async function replayReports(
         if (assertions.length === 0) continue;
         const withReceipts =
           args.receipts === "auto" && judgeSeesToolReceipts(result.tags);
-        for (const assertion of assertions) {
-          const overrideKey = rubricKey(
-            capability.capability,
-            result.caseId,
-            assertion.label,
-          );
-          const rubric = args.rubricOverrides[overrideKey] ?? assertion.rubric;
-          verdicts.push(
-            ...(await judgeWith(
-              base,
-              args.judges,
-              {
-                rubric,
-                answer: result.answer,
-                referenceEvidence: [
-                  ...result.fixtureEvidence,
-                  ...assertion.referenceEvidence,
-                ],
-                ...(withReceipts
-                  ? { toolReceipts: receiptsFromReport(result) }
-                  : {}),
-              },
-              {
-                source: reportPath,
-                capability: capability.capability,
-                caseId: result.caseId,
-                label: assertion.label,
-              },
-            )),
-          );
-          process.stderr.write(".");
+        for (const sample of reportSamples(result)) {
+          for (const assertion of assertions) {
+            const overrideKey = rubricKey(
+              capability.capability,
+              result.caseId,
+              assertion.label,
+            );
+            const rubric = args.rubricOverrides[overrideKey] ?? assertion.rubric;
+            verdicts.push(
+              ...(await judgeWith(
+                base,
+                args.judges,
+                {
+                  rubric,
+                  candidateModelId: sample.modelId,
+                  answer: sample.answer,
+                  referenceEvidence: [
+                    ...result.fixtureEvidence,
+                    ...assertion.referenceEvidence,
+                  ],
+                  ...(withReceipts
+                    ? { toolReceipts: receiptsFromReport(sample) }
+                    : {}),
+                },
+                {
+                  source: reportPath,
+                  sampleId: sample.sampleId,
+                  capability: capability.capability,
+                  caseId: result.caseId,
+                  label: assertion.label,
+                },
+              )),
+            );
+            process.stderr.write(".");
+          }
         }
       }
     }
@@ -281,6 +277,7 @@ async function replayControls(
         args.judges,
         {
           rubric: controlRubric(control),
+          candidateModelId: control.candidateModelId,
           answer: control.answer,
           toolReceipts: control.toolReceipts,
         },
@@ -301,7 +298,7 @@ async function replayControls(
 function renderTable(verdicts: readonly ReplayVerdict[]): string {
   const rows = verdicts.map(
     (v) =>
-      `| ${v.source} | ${v.capability}/${v.caseId} | ${v.label} | ${v.judge} | ${v.pass ? "PASS" : "FAIL"} | ${v.reason.replace(/\|/g, "\\|").slice(0, 160)} |`,
+      `| ${v.source}${v.sampleId ? ` (${v.sampleId})` : ""} | ${v.capability}/${v.caseId} | ${v.label} | ${v.judge} | ${v.pass ? "PASS" : "FAIL"} | ${v.reason.replace(/\|/g, "\\|").slice(0, 160)} |`,
   );
   const cost = verdicts.reduce((sum, v) => sum + v.costUsd, 0);
   return [

@@ -1,5 +1,7 @@
 import { DEFAULT_MODEL_ID, type Tool } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
+import { semanticBoundary } from "./semantic-boundaries";
+import { normalizeFactText } from "./fact-text";
 
 const SYSTEM_PROMPT = [
   "You are Comparative, an internal work assistant.",
@@ -54,7 +56,7 @@ export function claimsCompletedEmailSend(answer: string): boolean {
 
 function includesEvery(transcript: TurnTranscript, values: readonly string[]) {
   const missing = values.filter(
-    (value) => !transcript.answer.toLowerCase().includes(value.toLowerCase()),
+    (value) => !normalizeFactText(transcript.answer).toLowerCase().includes(normalizeFactText(value).toLowerCase()),
   );
   return {
     ok: missing.length === 0,
@@ -146,14 +148,7 @@ export const foundationalChatSuite: EvalSuite = {
         "No renewal price is supplied",
       ],
       assertions: [
-        {
-          kind: "deterministic",
-          label: "states that the requested price is unavailable",
-          check: (transcript) =>
-            /(not provided|isn'?t provided|not included|not established|not specified|unavailable|unknown|don'?t know|do not know|need the price|missing|no pric(?:e|ing)(?: information)?|(?:does not|doesn'?t) (?:include|provide|state|establish) (?:the )?(?:renewal )?price|don'?t have (?:any )?(?:information|details?) (?:about|on) (?:the )?(?:renewal )?price|do not have (?:any )?(?:information|details?) (?:about|on) (?:the )?(?:renewal )?price)/i.test(
-              transcript.answer,
-            ),
-        },
+        semanticBoundary("price"),
         {
           kind: "deterministic",
           label: "does not invent a currency amount",
@@ -208,7 +203,7 @@ export const foundationalChatSuite: EvalSuite = {
           label: "uses the corrected project and date",
           check: (transcript) =>
             /Orion/i.test(transcript.answer) &&
-            /October 18(?:,|th)? 2026/i.test(transcript.answer),
+            /October 18(?:,|th)? 2026/i.test(normalizeFactText(transcript.answer)),
         },
         {
           kind: "judge",
@@ -273,8 +268,8 @@ export const foundationalChatSuite: EvalSuite = {
           kind: "deterministic",
           label: "shows both conflicting dates",
           check: (transcript) =>
-            /September 18(?:,|th)? 2026/i.test(transcript.answer) &&
-            /September 21(?:,|st)? 2026/i.test(transcript.answer),
+            /September 18(?:,|th)? 2026/i.test(normalizeFactText(transcript.answer)) &&
+            /September 21(?:,|st)? 2026/i.test(normalizeFactText(transcript.answer)),
         },
         {
           kind: "deterministic",

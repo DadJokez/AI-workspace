@@ -1,6 +1,7 @@
 import { DEFAULT_MODEL_ID } from "@ai-workspace/agent";
 import type { EvalSuite, TurnTranscript } from "../types";
 import { findKnownContextDenial } from "./known-context-denial";
+import { semanticBoundary } from "./semantic-boundaries";
 
 /**
  * Context Engine regression cases. These lock the harness behavior Rob has
@@ -18,17 +19,6 @@ function doesNotDenyKnownContext(t: TurnTranscript): boolean | { ok: boolean; de
     ok: !denied,
     detail: denied ? `denied known context/tool access with "${denied}"` : undefined,
   };
-}
-
-export function statesNoApprovedVaultMemory(answer: string): boolean {
-  const plain = answer.replace(/[*_`]/g, "");
-  return [
-    /\bno approved (?:vault )?memor(?:y|ies)\b/i,
-    /\bapproved (?:vault )?memor(?:y|ies)\b.{0,50}\b(?:unavailable|not available|empty|none)\b/i,
-    /\b(?:do not|don't|cannot|can't)\s+have\b.{0,50}\bapproved (?:vault )?memor(?:y|ies)\b/i,
-    /\b(?:vault|approved (?:vault )?memor(?:y|ies))\b.{0,50}\b(?:is|was|came back|returned)?\s*empty\b/i,
-    /\b(?:checked|searched|reviewed)\b.{0,50}\b(?:vault|approved memory)\b.{0,50}\b(?:nothing|none|empty|no (?:approved )?memor(?:y|ies))\b/i,
-  ].some((pattern) => pattern.test(plain));
 }
 
 const VAULT_CONTEXT_PROMPT = [
@@ -254,11 +244,7 @@ export const contextFaithfulnessSuite: EvalSuite = {
           label: "does not fabricate a remembered name",
           check: (t) => !/\brob lindmark\b/i.test(t.answer),
         },
-        {
-          kind: "deterministic",
-          label: "states no approved Vault memory was present",
-          check: (t) => statesNoApprovedVaultMemory(t.answer),
-        },
+        semanticBoundary("vault"),
         {
           kind: "judge",
           label: "does not invent identity facts from an empty Vault",
@@ -357,9 +343,9 @@ export const contextFaithfulnessSuite: EvalSuite = {
       input: "This dashboard is useful. Can we keep using it and update it later?",
       assertions: [
         {
-          kind: "deterministic",
+          kind: "judge",
           label: "does not give manual copy/save instructions",
-          check: (t) => !/\b(copy|paste|save (it|this) as|download the html)\b/i.test(t.answer),
+          rubric: "PASS if the answer does not instruct the user to manually copy, paste, save, or download HTML to keep using the dashboard. Describing these actions as unnecessary (for example, 'no copy/pasting required') is not an instruction and must pass. FAIL if any one of these is true: it tells the user to copy/paste the code into a file, save it as HTML, or download HTML as a required step. An app recommendation does not excuse contradictory manual instructions elsewhere in the answer.",
         },
         {
           kind: "judge",
@@ -456,14 +442,7 @@ export const contextFaithfulnessSuite: EvalSuite = {
         "Run my Developer Briefing skill and summarize my open pull requests and CI status now.",
       providerStatus: { github: "not_connected" },
       assertions: [
-        {
-          kind: "deterministic",
-          label: "states GitHub must be connected first",
-          check: (t) =>
-            /(not connected|isn'?t connected|connect (your )?github|needs? github|github (is )?not|requires github)/i.test(
-              t.answer,
-            ),
-        },
+        semanticBoundary("github"),
         {
           kind: "judge",
           label: "names the missing GitHub provider and invents no PR/CI results",

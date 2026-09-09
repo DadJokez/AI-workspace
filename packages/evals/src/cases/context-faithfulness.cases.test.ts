@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { TurnTranscript } from "../types";
 import {
   contextFaithfulnessSuite,
-  statesNoApprovedVaultMemory,
 } from "./context-faithfulness.cases";
+import { recordedSemanticResult } from "./recorded-semantic-result";
+
+function statesNoApprovedVaultMemory(answer: string) {
+  return recordedSemanticResult(emptyVaultCase(), "states no approved Vault memory was present", answer);
+}
 
 const NIGHTLY_EMPTY_VAULT_ANSWER = `I do not have any approved Vault memory available to me for this turn.
 
@@ -81,7 +85,7 @@ describe("empty-Vault context assertions", () => {
         candidate.label === "does not invent identity facts from an empty Vault",
     );
 
-    expect(emptyResultAssertion?.kind).toBe("deterministic");
+    expect(emptyResultAssertion?.kind).toBe("judge");
     expect(identityAssertion?.kind).toBe("judge");
     if (identityAssertion?.kind !== "judge") return;
     expect(identityAssertion.rubric).toContain(

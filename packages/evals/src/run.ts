@@ -587,6 +587,12 @@ function writeReport(
         md.push(
           `  - Repeats: ${c.passCount ?? 0}/${c.runs} runs passed (policy: ${c.passPolicy ?? "all"})`,
         );
+        for (const sample of c.samples ?? []) {
+          md.push(`  - Sample ${sample.sampleId}: ${sample.passed ? "PASS" : sample.errored ? "ERROR" : "NOT PASSED"}${sample.evidenceTransformed ? " (evidence redacted/truncated; not replayable)" : ""}`);
+          for (const assertion of sample.assertions.filter((a) => !a.ok)) {
+            md.push(`    - ${describeFailedAssertion(assertion)}`);
+          }
+        }
       }
       if (c.inconclusiveRuns) {
         md.push(

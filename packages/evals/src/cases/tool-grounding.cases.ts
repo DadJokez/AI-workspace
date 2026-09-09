@@ -9,6 +9,7 @@ import {
   githubFixtureRepo,
 } from "../fixtures/github";
 import { findKnownContextDenial } from "./known-context-denial";
+import { semanticBoundary } from "./semantic-boundaries";
 
 const GITHUB_PR_TOOL = "github__list_pull_requests";
 const GITHUB_ISSUE_TOOL = "github__search_issues";
@@ -267,14 +268,7 @@ export const toolGroundingSuite: EvalSuite = {
           label: "called the issue search tool",
           check: calledGitHubIssueTool,
         },
-        {
-          kind: "deterministic",
-          label: "states that no matching issue was found",
-          check: (t) =>
-            /(no(?:\s+(?:matching|open|closed|relevant|such))*\s+(?:issues?|results?|matches)|didn'?t find|did not find|zero)/i.test(
-              t.answer,
-            ),
-        },
+        semanticBoundary("issues"),
         {
           kind: "deterministic",
           label: "does not invent the known issue or fake PR sentinels",
