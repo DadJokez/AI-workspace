@@ -12,12 +12,12 @@ works this queue top-down, skipping anything whose dependencies aren't merged
 to `main` or that is Rob-gated. Re-triage when this file is more than ~2 weeks
 old or the queue is empty — next check-in 2026-09-21.
 
-## Current checkpoint: 2026-09-09 20:56Z
+## Current checkpoint: 2026-09-09 22:01Z
 
-- Main `ed76346` (#949 security patches) is deployed; authenticated production
+- Main `0549abe` (#936 evaluator calibration/runtime JSON handling) is deployed; authenticated production
   smoke passed, including health, uploads, chat/artifacts, export and AgentCore.
-- #922 / PR #936 has complete live evidence, but still needs current-head
-  CI/Product Smoke and independent review. The broad pack is 79/81, not a green
+- #922 is closed after #936's green required checks and independent Claude
+  review. The broad pack is 79/81, not a green
   qualification claim; remaining failures are disclosed under #950 and #860.
   Full evidence: `docs/models/EVAL_FIELD_2026-09-07.md`.
 - Rob's active order remains **#922/#936 -> #925 -> #924 -> #803 -> #806**.
@@ -26,6 +26,11 @@ old or the queue is empty — next check-in 2026-09-21.
 - #942 is partially addressed by retained repeat evidence; keep it open for
   its remaining acceptance review. Keep #935 open for authenticated route
   verification and #937 open for the observed mobile upload-chooser failure.
+- #925's nullable notes-column decision, #924's snapshot/retrigger IAM changes,
+  and #803's publication-default/sweep decision remain Rob-gated, with questions
+  already on their issues. The safe #806 slice adds per-viewer/provider budgets
+  while retaining `no-store`. Browser caching and its identity/revocation
+  contract are deferred; #806 must remain open after this partial slice.
 
 ## Historical state on 2026-09-07 01:28Z
 
@@ -89,7 +94,7 @@ old or the queue is empty — next check-in 2026-09-21.
    `toolConfig` with tool-bearing history; strip provider reasoning/markup
    from visible output; trim the leading space. Product loop change → eval
    cases required (`docs/REGRESSION_GAUNTLET.md`).
-5. **#922 — in progress, PR #936 awaiting current-head gates/review.** Meaning-based deterministic checks,
+5. **#922 — completed; PR #936 merged and deployed.** Meaning-based deterministic checks,
    Unicode-normalised exact facts, the thread-summary precedence case. Must
    not change any verdict on the pinned controls without saying so.
    Current evidence and remaining validation: `docs/models/EVAL_FIELD_2026-09-07.md`.

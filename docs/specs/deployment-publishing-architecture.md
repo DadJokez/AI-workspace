@@ -27,6 +27,26 @@ The internal API and database status still use the historical `deploy`/`deployed
 - **Execution as the viewer:** viewer session → viewer's `oauth_tokens` → connector registry → attestation + tri-state policy → catalog read-only check → execute → `app_data_refresh` audit per viewer. Salesforce SOQL keeps the structured-rows executor; every other read tool mounts only that provider for the viewer over MCP and calls the pinned tool. Upstream error text never reaches the viewer or the audit row.
 - Pinned arguments are secret-scanned at publish alongside the HTML; the declared source list is shown in the page header badge and on the manage/share page.
 
+### View-time request budgets (#806 partial implementation, 2026-09-09)
+
+- The data route retains `private, no-store`: no response cache or cross-request
+  coalescing is introduced. Browser stale-while-revalidate remains deferred until
+  viewer identity, account switching and permission/revocation invalidation are
+  defined; the cache-key and invalidation acceptance in #806 is not complete.
+- Every binding request consumes the existing Postgres-backed viewer/app budget.
+  After resolving the enabled live manifest, it also consumes a viewer/provider
+  budget shared across apps and bindings. Both use the existing request policy
+  (default 30 requests per 60 seconds); no new environment setting is added.
+- Exhausting either bucket returns a non-cacheable 429 with `Retry-After` and
+  rate-limit headers before connector execution. A limiter-store failure also
+  prevents execution. Other viewers and providers have independent buckets.
+- This limits Comparative app-data refresh requests, not all uses of a provider
+  across chat or other products, and is not an exact upstream API-call quota.
+  Some tools may perform more than one upstream call per execution.
+- Route tests cover multi-binding accounting, cross-app provider exhaustion,
+  independent concurrent viewers, provider isolation and store failure. Existing
+  publication, connection, attestation and tool-policy checks remain in force.
+
 ---
 
 ## 0. Grounding: what Comparative already has
