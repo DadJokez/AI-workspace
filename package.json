@@ -22,7 +22,7 @@
       "exceljs>unzipper": "0.12.1",
       "fast-uri": "^3.1.6",
       "fastify": "^5.12.1",
-      "hono": "^4.12.34",
+      "hono": "^4.13.5",
       "ip-address": "^10.3.1",
       "js-yaml": "^4.3.1",
       "nanoid": "3.3.18",
@@ -30,7 +30,7 @@
       "postcss-selector-parser": "^6.1.3",
       "prismjs": "1.30.0",
       "qs": "^6.16.0",
-      "sharp": "0.35.3",
+      "sharp": "0.35.4",
       "sqlite3": "-",
       "uuid": "^11.1.1"
     },
