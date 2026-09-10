@@ -4,12 +4,12 @@ set -euo pipefail
 DECISION_FILE=${1:-/tmp/ai-workspace-deploy-decision.env}
 
 write_decision() {
-  printf 'SKIP_PRODUCTION_DEPLOY=%s\n' "$1" > "$DECISION_FILE"
+  printf 'SKIP_PRODUCTION_DEPLOY=%s\nMIGRATIONS_CHANGED=%s\n' "$1" "${2:-1}" > "$DECISION_FILE"
 }
 
 require_deploy() {
   echo "full deploy required: $1"
-  write_decision 0
+  write_decision 0 "${2:-1}"
   exit 0
 }
 
@@ -68,8 +68,10 @@ fi
 
 echo "Changed paths:"
 docs_only=1
+migrations_changed=0
 for path in "${changed_paths[@]}"; do
   printf ' - %s\n' "$path"
+  case "$path" in packages/db/drizzle/*) migrations_changed=1 ;; esac
   case "$path" in
     docs/*|README.md|AGENTS.md|CLAUDE.md)
       ;;
@@ -80,8 +82,8 @@ for path in "${changed_paths[@]}"; do
 done
 
 if (( docs_only == 0 )); then
-  require_deploy "one or more changed paths affect the product or deployment"
+  require_deploy "one or more changed paths affect the product or deployment" "$migrations_changed"
 fi
 
-write_decision 1
+write_decision 1 0
 echo "docs-only: deployment skipped"

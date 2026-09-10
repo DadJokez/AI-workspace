@@ -1,7 +1,8 @@
 # Skill Instruction Precedence
 
-Implementation for #925 / #438 P1, in review. Production deployment remains
-pending. Approval: Rob accepted the nullable standing-notes migration in chat;
+Implementation for #925 / #438 P1 shipped in #952 as `47f2ef3`. Production
+deployment and authenticated smoke were verified 2026-09-10 01:11Z. Approval:
+Rob accepted the nullable standing-notes migration and released the PR hold;
 the scope and exact quote are recorded on #925.
 
 ## Runtime contract
@@ -54,7 +55,9 @@ runs. It does not promise the deferred team layer or new authoring controls.
   and sentinel assertions. This is model-framing evidence, not a claim that the
   evaluator drove a live production scheduler. Raw report is preserved at
   `~/code/comparative-worktree-audit/925-precedence-live.json`.
-- Before merge: exact-head CI/Product Smoke and independent Claude review, plus
-  available pre-migration RDS snapshot. Deployment must show migration success
-  and authenticated production smoke on the merged SHA. No production notes
-  are seeded by the migration.
+- Exact-head CI/Product Smoke and independent Claude review passed before merge.
+  Snapshot `pre-migrate-0052-20260910t003953z` was available before merging.
+  CodeBuild `73b4a4e0-d8d5-4bb9-b864-fddc079c9ae6` succeeded for the merged SHA;
+  migrator task `7e0179feefac40268af115f15222daed` and authenticated smoke task
+  `7e8f03bfe8ba4cc98af3791f91cda94b` both exited 0. No production notes were
+  seeded. Full receipt is on #925 and #952.

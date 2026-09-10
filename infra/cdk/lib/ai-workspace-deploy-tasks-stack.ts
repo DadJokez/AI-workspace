@@ -219,6 +219,31 @@ export class AiWorkspaceDeployTasksStack extends cdk.Stack {
               resources: ["*"],
             }),
             new iam.PolicyStatement({
+              actions: ["rds:CreateDBSnapshot", "rds:DescribeDBSnapshots"],
+              resources: [
+                this.formatArn({
+                  service: "rds", resource: "db",
+                  resourceName: databaseInstanceIdentifier,
+                  arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
+                }),
+                this.formatArn({
+                  service: "rds", resource: "snapshot",
+                  resourceName: "pre-migrate-*",
+                  arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
+                }),
+              ],
+            }),
+            new iam.PolicyStatement({
+              actions: ["rds:AddTagsToResource"],
+              resources: [
+                this.formatArn({
+                  service: "rds", resource: "snapshot",
+                  resourceName: "pre-migrate-*",
+                  arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
+                }),
+              ],
+            }),
+            new iam.PolicyStatement({
               actions: ["rds:ModifyDBInstance"],
               resources: [
                 cdk.Stack.of(this).formatArn({

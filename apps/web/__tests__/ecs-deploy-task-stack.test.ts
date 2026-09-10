@@ -147,6 +147,16 @@ describe("AiWorkspaceDeployTasksStack", () => {
     expect(JSON.stringify(statements)).not.toContain(
       "ec2:AuthorizeSecurityGroupIngress",
     );
+    const snapshots = statements.find((statement) =>
+      Array.isArray(statement.Action) && statement.Action.includes("rds:CreateDBSnapshot"),
+    );
+    expect(snapshots?.Action).toEqual(["rds:CreateDBSnapshot", "rds:DescribeDBSnapshots"]);
+    expect(snapshots?.Resource).toHaveLength(2);
+    expect(JSON.stringify(snapshots?.Resource)).toContain(":db:ai-workspace-db");
+    expect(JSON.stringify(snapshots?.Resource)).toContain(":snapshot:pre-migrate-*");
+    const tags = statements.find((statement) => statement.Action === "rds:AddTagsToResource");
+    expect(JSON.stringify(tags?.Resource)).toContain(":snapshot:pre-migrate-*");
+    expect(JSON.stringify(statements)).not.toContain("rds:DeleteDBSnapshot");
     const passRole = statements.find(
       (statement) => statement.Action === "iam:PassRole",
     );

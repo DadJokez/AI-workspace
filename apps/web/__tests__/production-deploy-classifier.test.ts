@@ -42,7 +42,7 @@ describe("classify-production-deploy.sh", () => {
     const result = classify(repo, previous, current);
 
     expect(result.status).toBe(0);
-    expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=1\n");
+    expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=1\nMIGRATIONS_CHANGED=0\n");
     expect(result.stdout).toContain("docs-only: deployment skipped");
     expect(result.stdout).toContain(
       `Comparing commits: previous=${previous} current=${current}`,
@@ -59,7 +59,7 @@ describe("classify-production-deploy.sh", () => {
     const result = classify(repo, previous, current);
 
     expect(result.status).toBe(0);
-    expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=0\n");
+    expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=0\nMIGRATIONS_CHANGED=0\n");
     expect(result.stdout).toContain("apps/web/app.ts");
   });
 
@@ -76,7 +76,7 @@ describe("classify-production-deploy.sh", () => {
 
     const result = classify(repo, previous, current);
 
-    expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=0\n");
+    expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=0\nMIGRATIONS_CHANGED=0\n");
     expect(result.stdout).toContain("one or more changed paths");
   });
 
@@ -87,7 +87,7 @@ describe("classify-production-deploy.sh", () => {
 
     const result = classify(repo, previous, current, { webhookEvent: "" });
 
-    expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=0\n");
+    expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=0\nMIGRATIONS_CHANGED=1\n");
     expect(result.stdout).toContain("not triggered by a push webhook");
   });
 
@@ -97,7 +97,7 @@ describe("classify-production-deploy.sh", () => {
 
     const result = classify(repo, "0".repeat(40), current);
 
-    expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=0\n");
+    expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=0\nMIGRATIONS_CHANGED=1\n");
     expect(result.stdout).toContain("has no previous commit");
   });
 
@@ -109,7 +109,7 @@ describe("classify-production-deploy.sh", () => {
 
     const result = classify(repo, "f".repeat(40), current, { pathPrefix });
 
-    expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=0\n");
+    expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=0\nMIGRATIONS_CHANGED=1\n");
     expect(result.stdout).toContain("previous commit could not be fetched");
     expect(result.stderr).toContain("Authentication failed");
   });
@@ -128,7 +128,7 @@ describe("classify-production-deploy.sh", () => {
       invalidField === "current" ? "not-a-sha" : current,
     );
 
-    expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=0\n");
+    expect(result.decision).toBe("SKIP_PRODUCTION_DEPLOY=0\nMIGRATIONS_CHANGED=1\n");
     expect(result.stdout).toContain(reason);
   });
 
@@ -151,6 +151,20 @@ describe("classify-production-deploy.sh", () => {
     expect(buildspec.indexOf("Skipping deployment for docs-only change")).toBeLessThan(
       buildspec.indexOf("Running database migrations"),
     );
+  });
+
+  it("requires a snapshot for migration and journal changes", () => {
+    const repo = createRepo();
+    const previous = commitFiles(repo, { "docs/guide.md": "before\n" });
+    const current = commitFiles(repo, { "packages/db/drizzle/0052_notes.sql": "ALTER TABLE skills ADD COLUMN notes text;\n" });
+    expect(classify(repo, previous, current).decision).toBe("SKIP_PRODUCTION_DEPLOY=0\nMIGRATIONS_CHANGED=1\n");
+  });
+
+  it("takes the snapshot after perimeter reconciliation and before migration", () => {
+    const buildspec = readFileSync(join(ROOT, "buildspec.yml"), "utf8");
+    expect(buildspec.indexOf("snapshot-rds-before-migrate.sh")).toBeGreaterThan(buildspec.indexOf("reconcile-rds-perimeter.sh --apply"));
+    expect(buildspec.indexOf("snapshot-rds-before-migrate.sh")).toBeLessThan(buildspec.indexOf("run-ecs-deploy-task.sh migrate"));
+    expect(buildspec).toContain('${MIGRATIONS_CHANGED:-1}');
   });
 });
 
