@@ -21,7 +21,7 @@ if [[ "${CODEBUILD_WEBHOOK_TRIGGER:-}" != "branch/main" ]]; then
   require_deploy "webhook target was not branch/main"
 fi
 
-previous_commit=${CODEBUILD_WEBHOOK_PREV_COMMIT:-}
+previous_commit=${DEPLOYED_COMMIT:-${CODEBUILD_WEBHOOK_PREV_COMMIT:-}}
 current_commit=${CODEBUILD_RESOLVED_SOURCE_VERSION:-}
 sha_pattern='^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$'
 

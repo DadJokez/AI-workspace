@@ -12,7 +12,7 @@ works this queue top-down, skipping anything whose dependencies aren't merged
 to `main` or that is Rob-gated. Re-triage when this file is more than ~2 weeks
 old or the queue is empty — next check-in 2026-09-21.
 
-## Current checkpoint: 2026-09-10 01:17Z
+## Current checkpoint: 2026-09-10 01:49Z
 
 - Main `47f2ef3` (#952 skill precedence / #925) is deployed; authenticated production
   smoke passed, including health, uploads, chat/artifacts, export and AgentCore.
@@ -32,8 +32,11 @@ old or the queue is empty — next check-in 2026-09-21.
   implementation behind a disabled flag only: no production default flip or
   existing-app transition. #925 passed independent review and deployed with
   an available pre-migration snapshot, migration exit 0 and authenticated smoke.
-  #924 is in progress on `goal/924-deploy-rails`: local R1 snapshot tests pass;
-  R6 retrigger, full gate, independent review and deployment remain pending.
+  #924 is implemented on `goal/924-deploy-rails`: snapshot and retrigger rails,
+  deployed-source ancestry guard, full local gate and 51 targeted tests pass.
+  Read-only live AWS inventory validation observed all 712 builds and the
+  exact successful current-main build without starting anything. CI, independent
+  review, reviewed IAM bootstrap and production acceptance remain pending.
 - The #806 request-budget slice shipped in #951, retaining `no-store`. Rob
   explicitly deferred caching and its identity/revocation contract; #806 stays
   open for that future decision, not unattended implementation.

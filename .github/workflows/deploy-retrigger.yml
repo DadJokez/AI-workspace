@@ -1,0 +1,65 @@
+name: Deploy Retrigger
+
+on:
+  push:
+    branches: [main]
+
+# Different pushed SHAs must not replace one another as pending Actions jobs.
+concurrency:
+  group: deploy-retrigger-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      receipt: ${{ steps.receipt.outputs.json }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .nvmrc
+      - uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: arn:aws:iam::351478076796:role/ai-workspace-deploy-retrigger
+          aws-region: us-east-1
+          allowed-account-ids: "351478076796"
+          role-duration-seconds: 3600
+          role-session-name: deploy-retrigger-${{ github.run_id }}
+          unset-current-credentials: true
+      - name: Observe webhook or start missing build
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: node infra/scripts/deploy-retrigger.mjs retrigger "$SOURCE_SHA" /tmp/deploy-retrigger.json
+      - name: Publish receipt
+        id: receipt
+        run: printf 'json=%s\n' "$(cat /tmp/deploy-retrigger.json)" >> "$GITHUB_OUTPUT"
+
+  receipt:
+    needs: reconcile
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        env:
+          RECEIPT: ${{ needs.reconcile.outputs.receipt }}
+          RESULT: ${{ needs.reconcile.result }}
+        with:
+          script: |
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const receipt = process.env.RECEIPT ? JSON.parse(process.env.RECEIPT) : null;
+            const body = receipt
+              ? `Deploy retrigger: ${receipt.action} build \`${receipt.buildId}\` for \`${receipt.sha}\` (${receipt.status}). This is a build receipt, not deployment verification. [Action](${run}).`
+              : `Deploy retrigger ${process.env.RESULT}: no verified build receipt. Operator follow-up required. [Action logs](${run}).`;
+            await github.rest.repos.createCommitComment({ ...context.repo, commit_sha: context.sha, body });

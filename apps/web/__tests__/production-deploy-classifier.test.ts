@@ -91,6 +91,15 @@ describe("classify-production-deploy.sh", () => {
     expect(result.stdout).toContain("not triggered by a push webhook");
   });
 
+  it("does not hide a missed migration behind a later docs-only push", () => {
+    const repo = createRepo();
+    const deployed = commitFiles(repo, { "README.md": "before\n" });
+    const previous = commitFiles(repo, { "packages/db/drizzle/0053_test.sql": "SELECT 1;\n" });
+    const current = commitFiles(repo, { "README.md": "after\n" });
+    expect(classify(repo, previous, current, { deployed }).decision)
+      .toBe("SKIP_PRODUCTION_DEPLOY=0\nMIGRATIONS_CHANGED=1\n");
+  });
+
   it("requires a deploy for an initial push without a previous SHA", () => {
     const repo = createRepo();
     const current = commitFiles(repo, { "docs/guide.md": "after\n" });
@@ -195,7 +204,8 @@ function classify(
   {
     webhookEvent = "PUSH",
     pathPrefix,
-  }: { webhookEvent?: string; pathPrefix?: string } = {},
+    deployed = "",
+  }: { webhookEvent?: string; pathPrefix?: string; deployed?: string } = {},
 ) {
   const decisionPath = join(repo, "decision.env");
   const result = spawnSync("bash", [SCRIPT_PATH, decisionPath], {
@@ -210,6 +220,7 @@ function classify(
       CODEBUILD_WEBHOOK_EVENT: webhookEvent,
       CODEBUILD_WEBHOOK_TRIGGER: "branch/main",
       CODEBUILD_WEBHOOK_PREV_COMMIT: previous,
+      DEPLOYED_COMMIT: deployed,
       CODEBUILD_RESOLVED_SOURCE_VERSION: current,
     },
   });

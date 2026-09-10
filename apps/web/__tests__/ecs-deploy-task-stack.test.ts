@@ -109,7 +109,7 @@ describe("AiWorkspaceDeployTasksStack", () => {
       ),
     ).toMatchObject({
       Effect: "Allow",
-      Resource: { Ref: "AWS::StackId" },
+      Resource: expect.arrayContaining([{ Ref: "AWS::StackId" }]),
     });
     const listStackResources = statements.find(
       (statement) =>
@@ -176,6 +176,27 @@ describe("AiWorkspaceDeployTasksStack", () => {
         DeployTaskSubnetIds: expect.any(Object),
       }),
     );
+  });
+
+  it("limits retrigger OIDC trust to main and grants only parent-project build access", () => {
+    const roles = Object.entries(template.Resources).filter(([id]) => id.startsWith("DeployRetriggerRole"));
+    const role = roles.find(([, resource]) => resource.Type === "AWS::IAM::Role")?.[1];
+    const trust = JSON.stringify(role?.Properties?.AssumeRolePolicyDocument);
+    expect(trust).toContain("token.actions.githubusercontent.com:aud");
+    expect(trust).toContain("sts.amazonaws.com");
+    expect(trust).toContain("repo:DadJokez/AI-workspace:ref:refs/heads/main");
+    expect(trust).toContain("repo:DadJokez@23159363/AI-workspace@1224105845:ref:refs/heads/main");
+    expect(trust).not.toContain("pull_request");
+    expect(trust).not.toContain("StringLike");
+    expect(trust).not.toContain("githubusercontent.com:workflow");
+    const policy = roles.find(([, resource]) => resource.Type === "AWS::IAM::Policy")?.[1];
+    const statements = policy?.Properties?.PolicyDocument?.Statement ?? [];
+    expect(statements.flatMap((s) => s.Action ?? [])).toEqual([
+      "codebuild:StartBuild", "codebuild:ListBuildsForProject", "codebuild:BatchGetProjects", "codebuild:BatchGetBuilds",
+    ]);
+    expect(JSON.stringify(statements[0]?.Resource)).toContain("project/ai-workspace-build");
+    expect(JSON.stringify(statements[1]?.Resource)).toContain("build/ai-workspace-build:*");
+    expect(resourcesOfType(template, "AWS::IAM::OIDCProvider")).toHaveLength(0);
   });
 });
 

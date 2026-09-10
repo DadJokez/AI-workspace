@@ -149,6 +149,32 @@ export class AiWorkspaceDeployTasksStack extends cdk.Stack {
       "aiWorkspace:codeBuildRoleArn",
       "",
     );
+    const retriggerRole = new iam.Role(this, "DeployRetriggerRole", {
+      roleName: "ai-workspace-deploy-retrigger",
+      assumedBy: new iam.FederatedPrincipal(
+        this.formatArn({ service: "iam", region: "", resource: "oidc-provider",
+          resourceName: "token.actions.githubusercontent.com" }),
+        { StringEquals: {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": [
+            "repo:DadJokez/AI-workspace:ref:refs/heads/main",
+            "repo:DadJokez@23159363/AI-workspace@1224105845:ref:refs/heads/main",
+          ],
+        } },
+        "sts:AssumeRoleWithWebIdentity",
+      ),
+      maxSessionDuration: cdk.Duration.hours(1),
+    });
+    retriggerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["codebuild:StartBuild", "codebuild:ListBuildsForProject", "codebuild:BatchGetProjects"],
+      resources: [this.formatArn({ service: "codebuild", resource: "project",
+        resourceName: "ai-workspace-build" })],
+    }));
+    retriggerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["codebuild:BatchGetBuilds"],
+      resources: [this.formatArn({ service: "codebuild", resource: "build",
+        resourceName: "ai-workspace-build:*" })],
+    }));
     if (codeBuildRoleArn) {
       const codeBuildRole = iam.Role.fromRoleArn(
         this,
@@ -188,7 +214,8 @@ export class AiWorkspaceDeployTasksStack extends cdk.Stack {
             }),
             new iam.PolicyStatement({
               actions: ["cloudformation:DescribeStacks"],
-              resources: [this.stackId],
+              resources: [this.stackId, ...[ecsStackName, "AiWorkspaceAgentCoreSpikeStack"].map((name) =>
+                this.formatArn({ service: "cloudformation", resource: "stack", resourceName: `${name}/*` }))],
             }),
             new iam.PolicyStatement({
               actions: ["cloudformation:ListStackResources"],

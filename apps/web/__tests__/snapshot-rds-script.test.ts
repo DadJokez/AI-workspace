@@ -9,7 +9,7 @@ const script = fileURLToPath(new URL("../../../infra/scripts/snapshot-rds-before
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
-function run(overrides: Record<string, string> = {}) {
+function run(overrides: Record<string, string | undefined> = {}) {
   const dir = mkdtempSync(join(tmpdir(), "snapshot-test-"));
   dirs.push(dir);
   writeFileSync(join(dir, "aws"), `#!/usr/bin/env bash
@@ -52,4 +52,15 @@ it("rejects invalid source identifiers before calling AWS", () => {
   const result = run({ COMMIT_TAG: "main" });
   expect(result.status).not.toBe(0);
   expect(result.calls).toBe("");
+});
+it.each([
+  { Encrypted: false }, { DBInstanceIdentifier: "other-db" },
+  { DBSnapshotIdentifier: "pre-migrate-wrong-98" },
+])("rejects an available but unsafe recovery point: %j", (override) => {
+  const result = run({ SNAPSHOT_RESPONSE: JSON.stringify({ DBSnapshots: [{
+    Status: "available", Encrypted: true, DBInstanceIdentifier: "ai-workspace-db",
+    DBSnapshotIdentifier: `pre-migrate-${"a".repeat(12)}-98`, ...override,
+  }] }) });
+  expect(result.status).not.toBe(0);
+  expect(result.stdout).not.toContain('"kind":"pre-migrate-snapshot"');
 });
