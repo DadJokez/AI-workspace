@@ -912,6 +912,7 @@ export async function POST(req: Request) {
               slug: activatedSkill.skill.slug,
               name: activatedSkill.skill.name,
               systemPrompt: activatedSkill.skill.systemPrompt,
+              standingNotes: activatedSkill.skill.standingNotes,
             },
           }
         : {}),
@@ -1144,6 +1145,7 @@ export async function POST(req: Request) {
                 slug: activatedSkill.skill.slug,
                 name: activatedSkill.skill.name,
                 systemPrompt: activatedSkill.skill.systemPrompt,
+                standingNotes: activatedSkill.skill.standingNotes,
               }
             : undefined,
           signal: req.signal,

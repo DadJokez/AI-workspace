@@ -17,6 +17,14 @@ test.skip(
 );
 
 test.describe("settings modal", () => {
+  test("explains instruction precedence for chat and unattended skills", async ({ page, isMobile }) => {
+    await installMockComparativeApi(page);
+    await gotoE2EChat(page);
+    const dialog = await openSettingsSection(page, "Instructions", isMobile);
+    await expect(dialog.getByText(/Instruction priority: platform safeguards/)).toBeVisible();
+    await expect(dialog.getByText(/skill standing notes, active skill instructions/)).toBeVisible();
+    await expect(dialog.getByText(/same order applies to scheduled and event-triggered skills/)).toBeVisible();
+  });
   test("opens over mounted chat, traps focus, and restores chat state", async ({
     page,
     isMobile,

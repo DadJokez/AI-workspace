@@ -110,11 +110,38 @@ afterEach(() => {
   dbHooks = {};
   vi.doUnmock("@/lib/oauth/mcp-servers");
   vi.doUnmock("@/lib/skills-naming-gate");
+  vi.doUnmock("@/lib/run-events");
+  vi.doUnmock("@/lib/chat-run-worker");
   vi.resetModules();
   vi.unstubAllGlobals();
 });
 
 describe("skills helpers", () => {
+  it.each(["skill", "scheduled", "github_event"] as const)("enqueues %s with hidden pinned instructions and unchanged autonomy", async (triggerType) => {
+    const inserted: Array<Record<string, unknown>> = [];
+    dbHooks.onInsertValues = (values) => inserted.push(values);
+    dbHooks.insertReturning = [{ id: "new-id" }];
+    installDbMock();
+    vi.doMock("@/lib/run-events", () => ({ appendRunEventWithNextSequence: vi.fn() }));
+    vi.doMock("@/lib/chat-run-worker", () => ({ startInProcessChatRunWorker: vi.fn() }));
+    const { getDb } = await import("@ai-workspace/db");
+    const { createSkillRun } = await import("@/lib/skills");
+    const skill = { id: "skill-1", slug: "private-brief", name: "Brief", systemPrompt: "Exactly three bullets.", standingNotes: "Use Atlas.", modelId: "sonnet-4-5", mcpProviders: [], isStarter: false };
+    await createSkillRun({
+      db: getDb(), actorUserId: owner.id, skill: skill as never, triggerType,
+      ...(triggerType === "github_event" ? { githubEvent: {
+        triggerId: "trigger-1", deliveryId: "delivery-1", eventType: "issues", eventAction: "opened",
+        repository: "owner/repo", summary: "Issue opened", promptContext: "<<<GITHUB-EVENT-DATA>>> event data",
+      } } : {}),
+    });
+    const run = inserted.find((v) => v.inputs)!;
+    const inputs = run.inputs as Record<string, unknown>;
+    expect(inputs.activeSkillPrompt).toEqual({ id: skill.id, slug: skill.slug, name: skill.name, systemPrompt: skill.systemPrompt, standingNotes: skill.standingNotes, source: triggerType === "skill" ? "user-explicit" : triggerType });
+    expect(inputs.prompt).not.toContain(skill.systemPrompt);
+    expect(inputs.prompt).not.toContain(skill.standingNotes);
+    if (triggerType !== "skill") expect(inputs.autonomyPreset).toBe("unattended");
+    expect(inserted.find((v) => v.role === "user")?.content).not.toContain(skill.systemPrompt);
+  });
   it("slugifies names into url-safe slugs", async () => {
     const { slugifySkillName } = await import("@/lib/skills");
     expect(slugifySkillName("Morning Briefing")).toBe("morning-briefing");
@@ -122,14 +149,12 @@ describe("skills helpers", () => {
     expect(slugifySkillName("!!!")).toBe("skill");
   });
 
-  it("builds the turn prompt around the skill's instructions", async () => {
+  it("keeps saved instructions out of the summarizable turn prompt", async () => {
     const { buildSkillTurnPrompt } = await import("@/lib/skills");
-    const prompt = buildSkillTurnPrompt({
-      name: "Weekly Status",
-      systemPrompt: "Summarize my week.",
-    });
-    expect(prompt).toContain('saved skill "Weekly Status"');
-    expect(prompt).toContain("Summarize my week.");
+    const prompt = buildSkillTurnPrompt();
+    expect(prompt).toContain("Run the saved skill");
+    expect(prompt).not.toContain("Summarize my week.");
+    expect(prompt).not.toContain("Weekly Status");
   });
 
   it("keeps only the user's request in the model-visible message (#416)", async () => {
@@ -465,6 +490,7 @@ describe("PATCH /api/skills/[id]", () => {
           name: "Briefing",
           description: "Updated",
           systemPrompt: "Brief me with more detail.",
+          standingNotes: "Unreviewed client-supplied notes must not be persisted.",
           modelId: "sonnet-4-5",
           mcpProviders: [],
         }),
@@ -474,6 +500,7 @@ describe("PATCH /api/skills/[id]", () => {
 
     expect(res.status).toBe(200);
     expect(updates).toHaveLength(1);
+    expect(updates[0]).not.toHaveProperty("standingNotes");
     expect(updates[0]).toMatchObject({
       description: "Updated",
       modelId: "haiku-4-5",

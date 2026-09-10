@@ -56,6 +56,22 @@ function packInput(overrides: Record<string, unknown> = {}) {
 }
 
 describe("pinned constraint layer (#416)", () => {
+  it.each(["scheduled", "github_event"] as const)("pins and receipts %s notes without leaking them into messages", (source) => {
+    const activeSkill = { ...SKILL, source, standingNotes: "Use project Atlas." };
+    const pack = buildChatContextPack(packInput({ activeSkill, orgInstructions: ORG }));
+    const prompt = pack.prompt.systemPrompt!;
+    expect(prompt.indexOf(ORG.markdown)).toBeLessThan(prompt.indexOf(activeSkill.standingNotes));
+    expect(prompt.indexOf(activeSkill.standingNotes)).toBeLessThan(prompt.indexOf(SKILL.systemPrompt));
+    expect(prompt.indexOf(renderSkillOverPersonalNote({ customInstructions: true, vaultMemory: true })!)).toBeLessThan(prompt.indexOf("Prefer terse answers."));
+    expect(JSON.stringify(pack.prompt.messages)).not.toContain(activeSkill.standingNotes);
+    expect(pack.receipts[0]!.instructionLayers?.skill).toMatchObject({ source, standingNotesChars: 18 });
+    expect(pack.receipts[0]!.contextItems).toContainEqual(expect.objectContaining({ source: "skills.standing_notes", injected: true }));
+    const changed = buildChatContextPack(packInput({ activeSkill: { ...activeSkill, standingNotes: "Use project Beta." }, orgInstructions: ORG }));
+    expect(changed.receipts[0]!.pinnedContext?.hash).not.toBe(pack.receipts[0]!.pinnedContext?.hash);
+    const unrelated = buildChatContextPack(packInput());
+    expect(unrelated.prompt.systemPrompt).not.toContain("Use project Atlas.");
+    expect(unrelated.receipts[0]!.instructionLayers?.skill).toBeNull();
+  });
   it("renders the skill deterministically and encodes reserved markers", () => {
     const a = renderPinnedActiveSkill(SKILL);
     const b = renderPinnedActiveSkill(SKILL);
@@ -146,7 +162,7 @@ describe("layered standing instructions (#438 P0)", () => {
     const prompt = pack.prompt.systemPrompt!;
     expect(prompt).toContain(PINNED_PRECEDENCE_NOTE);
     expect(prompt).toContain(
-      "(3) organization standing instructions; (4) the active skill's operating instructions; (5) the user's custom instructions and approved personal (Vault) memory; (6) conversation history",
+      "(3) organization standing instructions; (3a) the active skill's standing notes; (4) the active skill's operating instructions; (5) the user's custom instructions and approved personal (Vault) memory; (6) conversation history",
     );
     expect(prompt).toContain("Protected keys:");
     const note = prompt.indexOf(PINNED_PRECEDENCE_NOTE);
@@ -215,7 +231,7 @@ describe("layered standing instructions (#438 P0)", () => {
     const layers = pack.receipts[0]!.instructionLayers!;
     expect(layers).toEqual({
       schema: "instruction-layers.v1",
-      precedence: "governance > org > skill > personal > thread",
+      precedence: "governance > org > skill_notes > skill > personal > thread",
       governance: "pinned",
       org: { status: "not_configured" },
       skill: {
@@ -223,6 +239,8 @@ describe("layered standing instructions (#438 P0)", () => {
         slug: "weekly-status",
         name: "Weekly Status",
         chars: SKILL.systemPrompt.length,
+        source: "user-explicit",
+        standingNotesChars: 0,
       },
       personal: { customInstructions: true, vaultChecked: true, vaultMemories: 1 },
     });
@@ -245,7 +263,7 @@ describe("layered standing instructions (#438 P0)", () => {
       }),
     );
     expect(pack.prompt.volatileSystemSuffix).toContain(
-      "- Instruction layers (precedence governance > org > skill > personal > thread): governance pinned; org not configured; skill Weekly Status; custom instructions present; 1 approved Vault memory item(s).",
+      "- Instruction layers (precedence governance > org > skill_notes > skill > personal > thread): governance pinned; org not configured; skill Weekly Status; custom instructions present; 1 approved Vault memory item(s).",
     );
   });
 

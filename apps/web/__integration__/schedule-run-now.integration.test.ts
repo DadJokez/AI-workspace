@@ -86,6 +86,7 @@ suite("schedule Run now (real Postgres, real handler)", () => {
         name: "Weekly status",
         ownerUserId: alice.id,
         systemPrompt: "Draft the weekly status.",
+        standingNotes: "Use the approved project names.",
         modelId: "sonnet-4-6",
         mcpProviders: [],
       })
@@ -158,8 +159,14 @@ suite("schedule Run now (real Postgres, real handler)", () => {
       scheduleId,
       scheduleFire: "manual",
       autonomyPreset: "unattended",
+      activeSkillPrompt: expect.objectContaining({
+        systemPrompt: "Draft the weekly status.",
+        standingNotes: "Use the approved project names.",
+        source: "scheduled",
+      }),
       runBudget: expect.objectContaining({ envelope: expect.anything() }),
     });
+    expect((run!.inputs as { prompt: string }).prompt).not.toContain("Draft the weekly status.");
 
     const [queuedEvent] = await db
       .select()

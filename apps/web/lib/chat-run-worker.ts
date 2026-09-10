@@ -874,7 +874,15 @@ function sanitizeActiveSkillPrompt(value: unknown): PinnedActiveSkill | null {
   ) {
     return null;
   }
-  return { id: v.id, slug: v.slug, name: v.name, systemPrompt: v.systemPrompt };
+  return {
+    id: v.id,
+    slug: v.slug,
+    name: v.name,
+    systemPrompt: v.systemPrompt,
+    standingNotes: typeof v.standingNotes === "string" ? v.standingNotes : null,
+    source: v.source === "scheduled" || v.source === "github_event"
+      ? v.source : "user-explicit",
+  };
 }
 
 function sanitizeUploadedFiles(value: unknown): ChatContextUploadedFile[] {

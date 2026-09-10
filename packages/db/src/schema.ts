@@ -499,6 +499,8 @@ export const skills = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     systemPrompt: text("system_prompt").notNull(),
+    /** Read-only standing guidance, below org policy and above this skill's contract. */
+    standingNotes: text("standing_notes"),
     /** Logical model tier the dispatcher respects. */
     modelId: text("model_id").notNull(),
     /** Provider slugs (e.g. ["github"]); mounting is still gated per-run. */

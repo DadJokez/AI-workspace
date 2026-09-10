@@ -163,6 +163,19 @@ describe("processQueuedChatRun", () => {
     });
   });
 
+  it.each(["scheduled", "github_event"] as const)("pins %s skill context without making the run interactive", async (source) => {
+    const skill = { id: "skill-1", slug: "briefing", name: "Briefing", systemPrompt: "Three bullets", standingNotes: "Use Atlas", source };
+    const run = claimedRun({
+      triggerType: source,
+      inputs: { ...claimedRun().inputs as object, activeSkillPrompt: skill, autonomyPreset: "unattended" },
+    });
+    await processQueuedChatRun({ db: fakeDb(run), runId: "run-1" });
+    const turn = vi.mocked(executeChatTurn).mock.calls[0]![0];
+    expect(turn.activeSkillPrompt).toEqual(skill);
+    expect(turn.interactive).toBe(false);
+    expect(turn.prompt).not.toContain(skill.systemPrompt);
+  });
+
   it("carries authoritative consumption into an approval resume", async () => {
     const envelope = {
       schema: "comparative.run-budget.v1" as const,

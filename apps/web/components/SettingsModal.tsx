@@ -481,6 +481,14 @@ export function SettingsModal({
                     title="Instructions"
                     description="Set the context Comparative should carry into each new conversation."
                   />
+                  <p className="text-sm text-muted">
+                    Instruction priority: platform safeguards, organization policy,
+                    skill standing notes, active skill instructions, your preferences
+                    and approved memory, then conversation history. Earlier layers
+                    take priority when guidance conflicts. No instruction can bypass
+                    permissions or approvals. The same order applies to scheduled
+                    and event-triggered skills.
+                  </p>
                   <Field
                     label="How should Comparative work with you?"
                     htmlFor="settings-instructions"

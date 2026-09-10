@@ -12,9 +12,9 @@ works this queue top-down, skipping anything whose dependencies aren't merged
 to `main` or that is Rob-gated. Re-triage when this file is more than ~2 weeks
 old or the queue is empty — next check-in 2026-09-21.
 
-## Current checkpoint: 2026-09-09 22:01Z
+## Current checkpoint: 2026-09-09 22:58Z
 
-- Main `0549abe` (#936 evaluator calibration/runtime JSON handling) is deployed; authenticated production
+- Main `fc7c2aa` (#951 viewer/provider request budgets) is deployed; authenticated production
   smoke passed, including health, uploads, chat/artifacts, export and AgentCore.
 - #922 is closed after #936's green required checks and independent Claude
   review. The broad pack is 79/81, not a green
@@ -26,11 +26,15 @@ old or the queue is empty — next check-in 2026-09-21.
 - #942 is partially addressed by retained repeat evidence; keep it open for
   its remaining acceptance review. Keep #935 open for authenticated route
   verification and #937 open for the observed mobile upload-chooser failure.
-- #925's nullable notes-column decision, #924's snapshot/retrigger IAM changes,
-  and #803's publication-default/sweep decision remain Rob-gated, with questions
-  already on their issues. The safe #806 slice adds per-viewer/provider budgets
-  while retaining `no-store`. Browser caching and its identity/revocation
-  contract are deferred; #806 must remain open after this partial slice.
+- Rob approved #925's nullable notes-column migration and #924's narrowly scoped
+  snapshot/retrigger IAM changes in chat ("Ya I'm good if you're good"); the
+  original quote and scope are recorded on each issue. #803 is approved for
+  implementation behind a disabled flag only: no production default flip or
+  existing-app transition. #925 implementation is in validation on
+  `goal/925-skill-precedence`; independent review and deployment remain pending.
+- The #806 request-budget slice shipped in #951, retaining `no-store`. Rob
+  explicitly deferred caching and its identity/revocation contract; #806 stays
+  open for that future decision, not unattended implementation.
 
 ## Historical state on 2026-09-07 01:28Z
 
