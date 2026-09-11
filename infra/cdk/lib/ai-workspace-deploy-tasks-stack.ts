@@ -166,14 +166,10 @@ export class AiWorkspaceDeployTasksStack extends cdk.Stack {
       maxSessionDuration: cdk.Duration.hours(1),
     });
     retriggerRole.addToPolicy(new iam.PolicyStatement({
-      actions: ["codebuild:StartBuild", "codebuild:ListBuildsForProject", "codebuild:BatchGetProjects"],
+      // BatchGetBuilds authorizes against the project, not individual build ARNs.
+      actions: ["codebuild:StartBuild", "codebuild:ListBuildsForProject", "codebuild:BatchGetProjects", "codebuild:BatchGetBuilds"],
       resources: [this.formatArn({ service: "codebuild", resource: "project",
         resourceName: "ai-workspace-build" })],
-    }));
-    retriggerRole.addToPolicy(new iam.PolicyStatement({
-      actions: ["codebuild:BatchGetBuilds"],
-      resources: [this.formatArn({ service: "codebuild", resource: "build",
-        resourceName: "ai-workspace-build:*" })],
     }));
     if (codeBuildRoleArn) {
       const codeBuildRole = iam.Role.fromRoleArn(
