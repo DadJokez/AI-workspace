@@ -227,7 +227,9 @@ The new `ai-workspace-deploy-retrigger` role is CDK-owned by
 Trust requires audience `sts.amazonaws.com` and the exact main-branch subject
 (classic or immutable repository identity). It grants StartBuild,
 ListBuildsForProject and BatchGetProjects only on the parent project, and
-BatchGetBuilds only on that project's builds. No secrets, IAM mutation, child
+BatchGetBuilds only on that project's builds. AWS authorizes `BatchGetBuilds`
+against the project ARN, not a build ARN; test the deployed role, not only an
+operator identity. No secrets, IAM mutation, child
 build launches, or GitHub writes are granted to the AWS job. The receipt job
 has contents-write but no AWS identity or checkout. Like any main-trusted
 deployment role, it must be protected by main's review gate; it is not usable

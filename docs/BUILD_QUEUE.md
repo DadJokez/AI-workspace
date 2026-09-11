@@ -12,7 +12,7 @@ works this queue top-down, skipping anything whose dependencies aren't merged
 to `main` or that is Rob-gated. Re-triage when this file is more than ~2 weeks
 old or the queue is empty — next check-in 2026-09-21.
 
-## Current checkpoint: 2026-09-10 01:49Z
+## Current checkpoint: 2026-09-11 00:31Z
 
 - Main `47f2ef3` (#952 skill precedence / #925) is deployed; authenticated production
   smoke passed, including health, uploads, chat/artifacts, export and AgentCore.
@@ -32,11 +32,13 @@ old or the queue is empty — next check-in 2026-09-21.
   implementation behind a disabled flag only: no production default flip or
   existing-app transition. #925 passed independent review and deployed with
   an available pre-migration snapshot, migration exit 0 and authenticated smoke.
-  #924 is implemented on `goal/924-deploy-rails`: snapshot and retrigger rails,
-  deployed-source ancestry guard, full local gate and 51 targeted tests pass.
-  Read-only live AWS inventory validation observed all 712 builds and the
-  exact successful current-main build without starting anything. CI, independent
-  review, reviewed IAM bootstrap and production acceptance remain pending.
+  #924 merged as `5d32233` (#953) after green CI, independent Claude review and
+  Rob's label release. Reviewed IAM bootstrap preserved the existing image.
+  Its production build is in progress. The first Deploy Retrigger run
+  (34546592722) failed: `BatchGetBuilds` requires the project ARN, not a build ARN;
+  the live IAM simulator confirms implicit deny. A scoped follow-up corrects
+  the policy and regression test. Keep #924 open until live acceptance passes;
+  local inventory checks with an operator identity did not validate the new role.
 - The #806 request-budget slice shipped in #951, retaining `no-store`. Rob
   explicitly deferred caching and its identity/revocation contract; #806 stays
   open for that future decision, not unattended implementation.

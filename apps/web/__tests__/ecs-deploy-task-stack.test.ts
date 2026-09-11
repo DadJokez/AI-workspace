@@ -195,7 +195,12 @@ describe("AiWorkspaceDeployTasksStack", () => {
       "codebuild:StartBuild", "codebuild:ListBuildsForProject", "codebuild:BatchGetProjects", "codebuild:BatchGetBuilds",
     ]);
     expect(JSON.stringify(statements[0]?.Resource)).toContain("project/ai-workspace-build");
-    expect(JSON.stringify(statements[1]?.Resource)).toContain("build/ai-workspace-build:*");
+    const buildRead = statements.find((s) => [s.Action].flat().includes("codebuild:BatchGetBuilds"));
+    // AWS authorizes BatchGetBuilds on project resources, despite returning build records.
+    expect(buildRead?.Resource).toEqual(statements[0]?.Resource);
+    expect(JSON.stringify(buildRead?.Resource)).toContain("project/ai-workspace-build");
+    expect(JSON.stringify(statements)).not.toContain("build/ai-workspace-build:*");
+    expect(statements).toHaveLength(1);
     expect(resourcesOfType(template, "AWS::IAM::OIDCProvider")).toHaveLength(0);
   });
 });
