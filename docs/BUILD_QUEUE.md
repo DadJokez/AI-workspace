@@ -12,9 +12,9 @@ works this queue top-down, skipping anything whose dependencies aren't merged
 to `main` or that is Rob-gated. Re-triage when this file is more than ~2 weeks
 old or the queue is empty — next check-in 2026-09-21.
 
-## Current checkpoint: 2026-09-09 22:58Z
+## Current checkpoint: 2026-09-10 01:49Z
 
-- Main `fc7c2aa` (#951 viewer/provider request budgets) is deployed; authenticated production
+- Main `47f2ef3` (#952 skill precedence / #925) is deployed; authenticated production
   smoke passed, including health, uploads, chat/artifacts, export and AgentCore.
 - #922 is closed after #936's green required checks and independent Claude
   review. The broad pack is 79/81, not a green
@@ -30,8 +30,13 @@ old or the queue is empty — next check-in 2026-09-21.
   snapshot/retrigger IAM changes in chat ("Ya I'm good if you're good"); the
   original quote and scope are recorded on each issue. #803 is approved for
   implementation behind a disabled flag only: no production default flip or
-  existing-app transition. #925 implementation is in validation on
-  `goal/925-skill-precedence`; independent review and deployment remain pending.
+  existing-app transition. #925 passed independent review and deployed with
+  an available pre-migration snapshot, migration exit 0 and authenticated smoke.
+  #924 is implemented on `goal/924-deploy-rails`: snapshot and retrigger rails,
+  deployed-source ancestry guard, full local gate and 51 targeted tests pass.
+  Read-only live AWS inventory validation observed all 712 builds and the
+  exact successful current-main build without starting anything. CI, independent
+  review, reviewed IAM bootstrap and production acceptance remain pending.
 - The #806 request-budget slice shipped in #951, retaining `no-store`. Rob
   explicitly deferred caching and its identity/revocation contract; #806 stays
   open for that future decision, not unattended implementation.

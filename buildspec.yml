@@ -22,9 +22,11 @@ phases:
       - |
         set -euo pipefail
         DEPLOY_DECISION_FILE=/tmp/ai-workspace-deploy-decision.env
+        node infra/scripts/deploy-retrigger.mjs guard "$CODEBUILD_RESOLVED_SOURCE_VERSION" /tmp/deployed-baseline.env
+        . /tmp/deployed-baseline.env
         if ! ./infra/scripts/classify-production-deploy.sh "$DEPLOY_DECISION_FILE"; then
           echo "Deployment classifier failed; defaulting to a full deploy."
-          printf 'SKIP_PRODUCTION_DEPLOY=0\n' > "$DEPLOY_DECISION_FILE"
+          printf 'SKIP_PRODUCTION_DEPLOY=0\nMIGRATIONS_CHANGED=1\n' > "$DEPLOY_DECISION_FILE"
         fi
         . "$DEPLOY_DECISION_FILE"
         if [[ "$SKIP_PRODUCTION_DEPLOY" == "1" ]]; then
@@ -92,6 +94,11 @@ phases:
           exit 0
         fi
         echo Waiting for native ARM AgentCore image build...
+        if [[ "${CODEBUILD_BUILD_SUCCEEDING:-0}" != "1" ]]; then
+          echo "Earlier build phase failed; refusing deployment."
+          exit 1
+        fi
+        node infra/scripts/deploy-retrigger.mjs guard "$COMMIT_TAG"
         ./infra/scripts/agentcore-image-build.sh wait "$AGENTCORE_BUILD_ID"
         echo Pushing the Docker images...
         docker push $REPOSITORY_URI:latest
@@ -106,6 +113,10 @@ phases:
         ./infra/scripts/deploy-ecs-deploy-tasks-stack.sh
         echo Closing and verifying the production RDS perimeter...
         ./infra/scripts/reconcile-rds-perimeter.sh --apply
+        if [[ "${MIGRATIONS_CHANGED:-1}" != "0" ]]; then
+          echo Taking and verifying the pre-migration RDS snapshot...
+          ./infra/scripts/snapshot-rds-before-migrate.sh
+        fi
         echo Running database migrations inside the VPC...
         ./infra/scripts/run-ecs-deploy-task.sh migrate
         # AgentCore pins the image digest per runtime version. Update the CDK

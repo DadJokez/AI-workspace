@@ -23,7 +23,11 @@ this order:
    worker, and deploy-task security-group sources, removes only the historical
    `0.0.0.0/0` Postgres rule, and makes the RDS instance non-public. Any other
    unexpected Postgres ingress stops the deployment for operator review.
-5. `infra/scripts/run-ecs-deploy-task.sh migrate` launches the migrator in the
+5. When the deployed-to-current range includes `packages/db/drizzle/` (or
+   classification is uncertain), `snapshot-rds-before-migrate.sh` creates
+   `pre-migrate-<sha12>-<build-number>`, waits for availability, and verifies
+   the exact snapshot belongs to the production database and is encrypted.
+   It emits a JSON receipt before `run-ecs-deploy-task.sh migrate` launches the migrator in the
    application VPC, waits for it to stop, and requires a zero container exit
    code. Database credentials are injected by the ECS execution role; they are
    never materialized on the CodeBuild host. The migrator sets
@@ -37,8 +41,11 @@ this order:
    records the source-template SHA-256 plus the monotonic CodeBuild sequence in
    the stack parameters.
 7. The parent `ai-workspace-build` project is single-flight
-   (`concurrentBuildLimit=1`), so an older build cannot deploy after a newer
-   build. The dedicated child is independently single-flight, so the parent
+   (`concurrentBuildLimit=1`). This prevents overlapping builds, but does NOT
+   guarantee source-commit order for late starts. Before classification and
+   again before production writes, `deploy-retrigger.mjs guard` requires the
+   current source to descend from both deployed ECS and AgentCore image SHAs.
+   Stale/divergent sources and unverified stack states fail closed. The dedicated child is independently single-flight, so the parent
    never consumes the only slot needed by its child. The recorded deployment
    sequence is a receipt and defense-in-depth check: it rejects an
    already-superseded build, but it is not itself an atomic lock.
@@ -86,9 +93,13 @@ source-only while image updates appeared successful.
 
 ## CodeBuild source checkout
 
-The docs-only classifier compares `CODEBUILD_WEBHOOK_PREV_COMMIT` with the
-resolved `main` commit before any install, image build, migration, CDK, ECS, or
-smoke work begins. The CodeBuild project must therefore retain full Git history
+The build first reads stable ECS `ImageTag` and AgentCore `AgentImageTag`
+parameters and verifies their ancestry against the checked-out SHA on main.
+The docs-only classifier compares that deployed baseline with the resolved
+commit, not merely the previous webhook SHA. A partial deployment uses the
+older component's baseline. A docs-only push therefore cannot hide an earlier
+missed runtime or migration change. Manual/retriggered builds conservatively
+perform the full deployment and snapshot. The CodeBuild project must retain full Git history
 (`gitCloneDepth=0`), including the previous commit from multi-commit pushes.
 Reconcile and verify that setting with:
 
@@ -188,6 +199,55 @@ aws codebuild batch-get-projects \
 The expected value is `1`. The project is tracked for full infrastructure-as-code
 ownership separately; until then, this setting is part of the production
 deployment contract.
+
+## Missing webhook recovery (#924)
+
+`Deploy Retrigger` runs on every push to main with per-SHA concurrency (no
+pending-SHA replacement). After a two-minute webhook grace period it inspects
+the parent project's complete build inventory. An exact-SHA queued/running or
+successful build is recorded without starting a duplicate. A known failed,
+stopped or timed-out run requires operator review, not automatic retries.
+When another source is running, the Action waits up to 40 minutes for the
+single-flight slot. It checks `concurrentBuildLimit=1` before starting and uses
+an exact SHA and idempotency token, with no buildspec/environment overrides.
+An API error, start race, malformed receipt, or timeout fails visibly; a separate
+job comments the receipt or failure on the pushed commit. A build receipt is
+NOT a deployment-success claim: CodeBuild completion, ECS/AgentCore receipts
+and authenticated production smoke still need verification.
+
+AWS does not guarantee queue ordering. If a newer commit deploys first, an
+older build fails the ancestry guard instead of rolling production backward.
+Do not retry that stale source; verify the newer SHA's deployment and record
+the supersession. The serial-merge rule remains in force. Explicit operator
+rollback uses the separately reviewed rollback script, not the forward-build
+path. Manual changes to production must not overlap CodeBuild.
+
+The new `ai-workspace-deploy-retrigger` role is CDK-owned by
+`AiWorkspaceDeployTasksStack` and imports the existing GitHub OIDC provider.
+Trust requires audience `sts.amazonaws.com` and the exact main-branch subject
+(classic or immutable repository identity). It grants StartBuild,
+ListBuildsForProject and BatchGetProjects only on the parent project, and
+BatchGetBuilds only on that project's builds. No secrets, IAM mutation, child
+build launches, or GitHub writes are granted to the AWS job. The receipt job
+has contents-write but no AWS identity or checkout. Like any main-trusted
+deployment role, it must be protected by main's review gate; it is not usable
+from PR workflows. Existing eval-role trust is unchanged.
+
+### First rollout / bootstrap
+
+The role and build-role DescribeStacks/snapshot permissions must exist before
+the new guard and Action can work. After CI, independent review and Rob's
+release, deploy the reviewed `AiWorkspaceDeployTasksStack` from the PR while
+CodeBuild is idle, preserving its CURRENT `ImageTag` parameter (do not point
+deploy tasks at the unbuilt PR SHA). Inspect the CDK diff first. This is a
+one-time, explicitly approved IAM bootstrap, not a routine bypass of main.
+Then merge, verify the SHA-matching build, snapshot/migrator/smoke receipts,
+and the Action's build receipt. If the workflow runs before bootstrap, it
+fails visibly; rerun it only after the role exists. No production bootstrap
+or live acceptance is claimed merely because unit tests pass.
+
+Snapshots are retained; this role has no DeleteDBSnapshot permission. Inspect
+storage growth and handle retention through the operator's backup policy.
 
 ## Operations alarms
 
