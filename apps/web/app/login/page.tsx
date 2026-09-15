@@ -3,6 +3,7 @@ import { AlphaBadge } from "@/components/AlphaBadge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ThinkingOrb } from "@/components/ThinkingOrb";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { sanitizeCallbackUrl } from "@/lib/auth/callback-url";
 import { enabledAuthProviders } from "@/lib/auth/nextauth";
 import { LoginForm } from "./LoginForm";
 
@@ -83,15 +84,4 @@ function ErrorMessage({ code }: { code: string }) {
       {message}
     </div>
   );
-}
-
-/**
- * Only allow same-origin paths as a callback. Prevents an attacker from
- * crafting `/login?callbackUrl=https://evil.example` and bouncing the user
- * off-site after sign-in.
- */
-function sanitizeCallbackUrl(raw: string | undefined): string | null {
-  if (!raw) return null;
-  if (!raw.startsWith("/") || raw.startsWith("//")) return null;
-  return raw;
 }

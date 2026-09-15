@@ -49,7 +49,7 @@ for (const canAddress of [true, false]) {
     const preview = studio.frameLocator("iframe");
     await expect(preview.locator("#issues")).toHaveText("Not published");
     await studio.getByRole("checkbox", { name: "Preview as unconnected viewer" }).check();
-    await expect(preview.getByRole("link", { name: "Connect GitHub" })).toBeVisible();
+    await expect(preview.locator("#issues")).toHaveText("GitHub connection required.");
     expect(dataRequests).toEqual([]);
     await expect(studio.locator("iframe")).toHaveAttribute("sandbox", "allow-scripts");
     await studio.getByRole("checkbox", { name: "Preview as unconnected viewer" }).uncheck();

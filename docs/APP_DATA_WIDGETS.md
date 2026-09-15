@@ -56,7 +56,7 @@ malformed-response, and HTTP failures into `error`. New widgets should use
 
 The helper clears the target **before** fetching, shows only returned data,
 appends a local-time freshness label with an ISO `time[datetime]`, or renders
-the provider connection link/scoped error. It also catches renderer failures
+the provider connection-required state/scoped error. It also catches renderer failures
 and ignores older in-flight responses after a newer refresh has started.
 Renderers return one Node or plain text (optionally via a Promise), including
 empty-data branches. Arrays and undefined are invalid; strings are not parsed
@@ -64,7 +64,7 @@ as HTML. Build a detached list/table or DocumentFragment and return its root;
 do not mutate the widget or other containers in the callback. Never use `innerHTML` for upstream text, inline
 builder data as fallback, or run a page-wide fallback on one failed widget.
 
-The connection link opens Settings > Integrations in another tab so the
+The trusted app shell's **Manage data connections** link opens Settings > Integrations in another tab so the
 viewer can connect and return to refresh the app. It uses a fixed same-origin
 path, not an upstream-supplied URL. The persistent publication badge explains
 that others may see different numbers; it supports light/dark themes and
@@ -73,6 +73,27 @@ wraps on narrow screens.
 Existing authored pages that call `refresh` retain their own rendering
 responsibility. These changes do not silently rewrite previously published
 HTML or change its data mode.
+
+### Document isolation
+
+Published HTML runs in an opaque-origin iframe with `sandbox="allow-scripts"`,
+never with `allow-same-origin`. Inline scripts, styles, and embedded images
+remain usable, but direct network requests, workspace DOM/storage access,
+forms and popups are blocked. The trusted shell handles only declared binding
+IDs for the current app through a source-checked MessageChannel bridge.
+The frame cannot choose an app ID, URL, method, credentials or provider arguments.
+Existing server-side viewer authorization and binding checks remain mandatory.
+The broker rejects redirects, bounds concurrent requests, and times out reads.
+
+Direct version-preview and Studio grant documents also have an enforcing
+CSP sandbox, so opening their URL outside an iframe does not remove isolation.
+Studio grant previews have no direct fetch/XHR/WebSocket access. Private
+multi-file sandbox grants return 503 with an explicit isolation-upgrade message.
+Their assets require grant cookies that opaque-origin documents cannot send.
+They require a separate isolated hosting design; the preview must not regain
+workspace-origin privileges or weaken cookie policy to support them.
+Restoring that capability is tracked in [#955](https://github.com/DadJokez/AI-workspace/issues/955).
+The trusted grant-token exchange page is separate from generated content.
 
 ## Authoring safeguards (#804)
 
@@ -124,6 +145,9 @@ The live-sharing default (#803), credentials, IAM and environment are unchanged.
 - `e2e/app-data-widgets.spec.ts`: actual injected client in desktop/mobile
   Chromium; both themes, freshness, network/JSON/auth failures, and racing
   refreshes. Provider responses are fixtures, not live third-party accounts.
+- `e2e/generated-page-isolation.spec.ts`: real browser origin/storage/network
+  boundaries, declared-binding success, forged-message rejection, script
+  serialization, direct previews, and the private asset-cookie boundary.
 - `__tests__/app-data-authoring.test.ts` and `e2e/app-data-authoring.spec.ts`:
   catalog-filtered minting, metadata scrubbing, warning provenance, scoped
   conversion, and a network-blocked unconnected preview on desktop/mobile.

@@ -12,21 +12,9 @@ import {
   resolveAppActorRole,
 } from "@/lib/apps";
 import { loadWorkspaceArtifactById } from "@/lib/workspace-artifacts";
+import { GENERATED_DOCUMENT_CSP } from "@/lib/isolated-app-document";
 
 export const dynamic = "force-dynamic";
-
-const PREVIEW_CSP = [
-  "default-src 'none'",
-  "script-src 'unsafe-inline'",
-  "style-src 'unsafe-inline'",
-  "img-src data: blob:",
-  "font-src data:",
-  "media-src data: blob:",
-  "connect-src 'none'",
-  "form-action 'none'",
-  "base-uri 'none'",
-  "frame-ancestors 'self'",
-].join("; ");
 
 export async function GET(
   req: Request,
@@ -79,7 +67,7 @@ export async function GET(
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",
-      "content-security-policy": PREVIEW_CSP,
+      "content-security-policy": GENERATED_DOCUMENT_CSP,
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
       "cache-control": "private, no-store",

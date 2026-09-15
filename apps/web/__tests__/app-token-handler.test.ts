@@ -386,9 +386,8 @@ function expectSandboxCsp(csp: Record<string, string[]>) {
   expect(csp["form-action"]).toEqual(["'none'"]);
   expect(csp["base-uri"]).toEqual(["'none'"]);
   expect(csp["frame-ancestors"]).toEqual(["'self'"]);
-  // No frame-src directive: nested browsing contexts fall back to
-  // default-src 'none', so the page cannot frame a provider either.
-  expect(csp["frame-src"]).toBeUndefined();
+  // The trusted shell frames the opaque srcdoc, never a provider page.
+  expect(csp["frame-src"]).toEqual(["'self'"]);
   for (const [name, values] of Object.entries(csp)) {
     for (const value of values) {
       expect(value, `${name} ${value}`).not.toContain("*");
@@ -446,8 +445,9 @@ describe("token-handler discipline for deployed apps (#807)", () => {
     expectNoCredentialMaterial(html, "app document");
     // The injected bootstrap is the allowlisted public view of the binding —
     // id, provider, tool, label — resolved from the LIVE version's pinned rows.
-    expect(html).toContain(`"bindings":[${JSON.stringify(PUBLIC_BINDING)}]`);
-    expect(html).toContain("/api/apps/' + encodeURIComponent(app.appId) + '/data/'");
+    expect(html).toContain(JSON.stringify(`"bindings":[${JSON.stringify(PUBLIC_BINDING)}]`).slice(1, -1));
+    expect(html).toContain('sandbox="allow-scripts"');
+    expect(html).toContain("/api/apps/' + encodeURIComponent(appId) + '/data/'");
     expect(queries).toContainEqual({
       table: "app_version_data_bindings",
       where: { appVersionId: ["version-live"] },
@@ -460,13 +460,16 @@ describe("token-handler discipline for deployed apps (#807)", () => {
     expect(res.headers.get("referrer-policy")).toBe("no-referrer");
   });
 
-  it("confines a live-data app to same-origin fetch and nothing else", async () => {
+  it("confines same-origin fetch to the trusted binding broker", async () => {
     const res = await serveApp();
     const csp = parseCsp(res.headers.get("content-security-policy"));
 
     expectSandboxCsp(csp);
-    // The one relaxation (#407): the page may call its own data endpoint.
     expect(csp["connect-src"]).toEqual(["'self'"]);
+    const html = await res.text();
+    expect(html).toContain('sandbox="allow-scripts"');
+    expect(html).toContain("connect-src 'none'");
+    expect(html).toContain("event.source !== frame.contentWindow");
   });
 
   it("keeps a snapshot app fully closed — no network at all", async () => {
@@ -612,7 +615,7 @@ describe("token-handler discipline for deployed apps (#807)", () => {
     const html = await (await serveApp()).text();
     expectNoCredentialMaterial(html, "app document");
     expect(html).toContain(
-      `"bindings":[${JSON.stringify({ id: "open-issues", provider: "github", toolName: "list_issues", label: "Open triage" })}]`,
+      JSON.stringify(`"bindings":[${JSON.stringify({ id: "open-issues", provider: "github", toolName: "list_issues", label: "Open triage" })}]`).slice(1, -1),
     );
 
     const res = await fetchBinding("open-issues");

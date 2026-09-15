@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { buildAppDataBootstrap, injectAppDataBootstrap } from "../lib/app-data-bootstrap";
 import { injectAppPublicationBadge, type AppPublicationMetadata } from "../lib/app-publication";
 import type { AppDataResponse } from "../lib/app-data-response";
+import { buildIsolatedAppDocument, isolatedAppShellCsp } from "../lib/isolated-app-document";
 
 const fetchedAt = "2026-09-07T01:00:00.000Z";
 const bindings = [
@@ -25,12 +26,16 @@ async function openWidgets(page: Page, theme = "light") {
     <section id="issues">OTHER VIEWER DATA MUST DISAPPEAR</section></main></body></html>`,
     buildAppDataBootstrap("demo", bindings),
   ), { publication, authorName: "Brittany" });
-  await page.route("https://app-data.example.test/widgets", (route) => route.fulfill({ contentType: "text/html; charset=utf-8", body: html }));
+  await page.route("https://app-data.example.test/widgets", (route) => route.fulfill({
+    contentType: "text/html; charset=utf-8",
+    headers: { "content-security-policy": isolatedAppShellCsp(true) },
+    body: buildIsolatedAppDocument(html, "demo", bindings),
+  }));
   await page.goto("https://app-data.example.test/widgets");
 }
 
 async function refresh(page: Page, id: string) {
-  return page.evaluate(async (bindingId) => {
+  return page.frameLocator("#app").locator("body").evaluate(async (_, bindingId) => {
     const client = (window as unknown as { comparativeData: {
       refreshWidget: (id: string, element: Element, render: (data: unknown) => string) => Promise<AppDataResponse>;
     } }).comparativeData;
@@ -47,12 +52,13 @@ for (const theme of ["light", "dark"]) {
     await openWidgets(page, theme);
     await refresh(page, "pipeline");
     await refresh(page, "issues");
-    await expect(page.locator("#pipeline")).toContainText('"total":42');
-    await expect(page.locator("#pipeline time")).toHaveAttribute("datetime", fetchedAt);
-    await expect(page.getByRole("link", { name: "Connect GitHub" })).toHaveAttribute("href", "/chat?open=settings&section=integrations");
-    await expect(page.locator("#issues time")).toHaveCount(0);
-    await expect(page.locator("body")).not.toContainText("MUST DISAPPEAR");
-    const badge = page.locator("#comparative-publication-badge");
+    await expect(page.frameLocator("#app").locator("#pipeline")).toContainText('"total":42');
+    await expect(page.frameLocator("#app").locator("#pipeline time")).toHaveAttribute("datetime", fetchedAt);
+    await expect(page.frameLocator("#app").locator("#issues")).toHaveText("GitHub connection required.");
+    await expect(page.getByRole("link", { name: "Manage data connections" })).toHaveAttribute("href", "/chat?open=settings&section=integrations");
+    await expect(page.frameLocator("#app").locator("#issues time")).toHaveCount(0);
+    await expect(page.frameLocator("#app").locator("body")).not.toContainText("MUST DISAPPEAR");
+    const badge = page.frameLocator("#app").locator("#comparative-publication-badge");
     await expect(badge).toContainText("Live data — shown with your access");
     await expect(badge.locator("[title]")).toHaveAttribute("title", /Others may see different numbers/);
     const layout = await badge.evaluate((el) => ({
@@ -79,10 +85,10 @@ test("a failed refresh removes previous data without affecting a sibling", async
   failed = true;
   const result = await refresh(page, "pipeline");
   expect(result.state).toBe("error");
-  await expect(page.locator("#pipeline")).toHaveText("This data could not be refreshed.");
-  await expect(page.locator("#pipeline time")).toHaveCount(0);
-  await expect(page.locator("#issues")).toContainText('"total":42');
-  await expect(page.locator("body")).not.toContainText("PRIVATE UPSTREAM");
+  await expect(page.frameLocator("#app").locator("#pipeline")).toHaveText("This data could not be refreshed.");
+  await expect(page.frameLocator("#app").locator("#pipeline time")).toHaveCount(0);
+  await expect(page.frameLocator("#app").locator("#issues")).toContainText('"total":42');
+  await expect(page.frameLocator("#app").locator("body")).not.toContainText("PRIVATE UPSTREAM");
 });
 
 for (const failure of ["network", "invalid-json", "invalid-timestamp", "unauthenticated"]) {
@@ -96,10 +102,10 @@ for (const failure of ["network", "invalid-json", "invalid-timestamp", "unauthen
     await openWidgets(page);
     const result = await refresh(page, "pipeline");
     expect(result.state).toBe("error");
-    await expect(page.locator("#pipeline")).not.toContainText("BUILDER");
-    await expect(page.locator("#pipeline")).not.toContainText("leaked");
-    await expect(page.locator("#pipeline time")).toHaveCount(0);
-    await expect(page.locator("#pipeline")).not.toHaveAttribute("aria-busy");
+    await expect(page.frameLocator("#app").locator("#pipeline")).not.toContainText("BUILDER");
+    await expect(page.frameLocator("#app").locator("#pipeline")).not.toContainText("leaked");
+    await expect(page.frameLocator("#app").locator("#pipeline time")).toHaveCount(0);
+    await expect(page.frameLocator("#app").locator("#pipeline")).not.toHaveAttribute("aria-busy");
   });
 }
 
@@ -117,13 +123,13 @@ test("older in-flight responses cannot resurrect data after a newer connection f
   });
   await openWidgets(page);
   const older = refresh(page, "pipeline");
-  await expect(page.locator("#pipeline")).toBeEmpty();
-  await expect(page.locator("#pipeline")).toHaveAttribute("aria-busy", "true");
+  await expect(page.frameLocator("#app").locator("#pipeline")).toBeEmpty();
+  await expect(page.frameLocator("#app").locator("#pipeline")).toHaveAttribute("aria-busy", "true");
   await refresh(page, "pipeline");
   release();
   await older;
-  await expect(page.locator("#pipeline")).toHaveText("Connect Salesforce");
-  await expect(page.locator("#pipeline time")).toHaveCount(0);
+  await expect(page.frameLocator("#app").locator("#pipeline")).toHaveText("Salesforce connection required.");
+  await expect(page.frameLocator("#app").locator("#pipeline time")).toHaveCount(0);
 });
 
 test("legacy refresh fields remain safe for previously authored pages", async ({ page }) => {
@@ -133,7 +139,7 @@ test("legacy refresh fields remain safe for previously authored pages", async ({
   };
   await page.route("**/api/apps/demo/data/*", (route) => route.fulfill(response));
   await openWidgets(page);
-  const read = () => page.evaluate(() => (window as unknown as {
+  const read = () => page.frameLocator("#app").locator("body").evaluate(() => (window as unknown as {
     comparativeData: { refresh: (id: string) => Promise<Record<string, unknown>> };
   }).comparativeData.refresh("issues"));
   expect(await read()).toEqual({ state: "needs_connection", ok: false, needsConnection: true,

@@ -11,23 +11,11 @@ import {
 } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { hashGrantToken, StudioBrowserError } from "@/lib/studio-browser";
+import { STUDIO_PREVIEW_CSP } from "@/lib/isolated-app-document";
 
 const GRANT_COOKIE_PREFIX = "cmp_studio_browser_";
 const MAX_SANDBOX_RESPONSE_BYTES = 5 * 1024 * 1024;
 const SANDBOX_TIMEOUT_MS = 8_000;
-
-const PREVIEW_CSP = [
-  "default-src 'none'",
-  "script-src 'unsafe-inline' 'self'",
-  "style-src 'unsafe-inline' 'self'",
-  "img-src data: blob: 'self'",
-  "font-src data: 'self'",
-  "media-src data: blob: 'self'",
-  "connect-src 'self'",
-  "form-action 'none'",
-  "base-uri 'self'",
-  "frame-ancestors 'none'",
-].join("; ");
 
 export interface StudioBrowserGrantContext {
   grant: typeof studioBrowserGrants.$inferSelect;
@@ -155,6 +143,8 @@ export async function loadStudioBrowserGrantPayload({
   assertGrantActive(context, now);
   const path = normalizeGrantPath(pathSegments);
   const { grant } = context;
+
+  assertStudioPreviewIsolation(grant.targetKind);
 
   if (grant.targetKind === "artifact") {
     if (path !== "/") throw targetMissing();
@@ -335,6 +325,18 @@ export function normalizeGrantPath(pathSegments: string[]): string {
   return `/${safe.join("/")}`;
 }
 
+export function assertStudioPreviewIsolation(targetKind: string): void {
+  // Keep the existing proxy guards, but do not serve multi-file applications
+  // until their documents and asset credentials have an isolated origin (#955).
+  if (targetKind === "sandbox") {
+    throw new StudioBrowserError(
+      "browser_sandbox_isolation_required",
+      "Private sandbox previews are temporarily unavailable while browser isolation is upgraded. Self-contained app and artifact previews remain available.",
+      503,
+    );
+  }
+}
+
 export function isTrustedSandboxHostname(hostname: string): boolean {
   const suffix = (
     process.env.STUDIO_SANDBOX_DNS_SUFFIX ?? ".comparative.internal"
@@ -441,7 +443,7 @@ function injectGrantBase(html: string, grantId: string, path: string): string {
 function responseHeaders(contentType: string): Headers {
   return new Headers({
     "content-type": contentType,
-    "content-security-policy": PREVIEW_CSP,
+    "content-security-policy": STUDIO_PREVIEW_CSP,
     "cache-control": "private, no-store",
     "referrer-policy": "no-referrer",
     "x-content-type-options": "nosniff",

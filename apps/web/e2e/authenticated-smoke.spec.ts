@@ -366,9 +366,9 @@ test.describe("authenticated product smoke", () => {
       "connect-src 'none'",
     );
     await expect(
-      page.getByRole("heading", { name: "Auth Smoke Previous" }),
+      page.frameLocator("#app").getByRole("heading", { name: "Auth Smoke Previous" }),
     ).toBeVisible();
-    const badge = page.getByRole("complementary", {
+    const badge = page.frameLocator("#app").getByRole("complementary", {
       name: "Comparative publication details",
     });
     await expect(badge).toContainText("Comparative");
