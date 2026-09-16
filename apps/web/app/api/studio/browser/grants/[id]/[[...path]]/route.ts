@@ -57,6 +57,9 @@ async function serve(
       headers: payload.headers,
     });
   } catch (error) {
+    if (error instanceof StudioBrowserError && error.code === "browser_sandbox_isolation_required") {
+      return unavailable(503, error.message);
+    }
     return unavailable(error instanceof StudioBrowserError ? error.status : 500);
   }
 }
@@ -76,8 +79,8 @@ function readCookie(header: string | null, name: string): string | undefined {
   return undefined;
 }
 
-function unavailable(status = 404) {
-  return new NextResponse("This Browser preview is unavailable.", {
+function unavailable(status = 404, message = "This Browser preview is unavailable.") {
+  return new NextResponse(message, {
     status,
     headers: {
       "content-type": "text/plain; charset=utf-8",

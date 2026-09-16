@@ -6,7 +6,8 @@ import { INTEGRATION_DISPLAY_NAMES } from "@/lib/settings-navigation";
  * The injected script: a data-only contract for model-authored pages.
  * `window.__COMPARATIVE_APP__` carries the app id and the SCRUBBED binding
  * list (never query text), and `window.comparativeData.refresh(bindingId)`
- * fetches the viewer-scoped endpoint with the viewer's own session cookie.
+ * asks the trusted parent to fetch a declared viewer-scoped binding. The
+ * generated document itself never gets workspace-origin network access.
  * JSON is serialized with `<` escaped so author-controlled labels can never
  * break out of the script element.
  */
@@ -25,6 +26,17 @@ export function buildAppDataBootstrap(
   var providerNames = ${providerNames};
   var connectUrl = ${JSON.stringify(APP_DATA_CONNECT_URL)};
   var pending = new WeakMap();
+  function requestBinding(bindingId) {
+    return new Promise(function (resolve, reject) {
+      if (window.parent === window) { reject(new Error('Missing app host')); return; }
+      var channel = new MessageChannel();
+      var timeout = setTimeout(function () { channel.port1.close(); reject(new Error('Refresh timed out')); }, 35000);
+      channel.port1.onmessage = function (event) {
+        clearTimeout(timeout); channel.port1.close(); resolve(event.data);
+      };
+      window.parent.postMessage({ type: 'comparative:data:refresh', bindingId: bindingId }, '*', [channel.port2]);
+    });
+  }
   function error(message, code, legacyMessage) {
     return { state: 'error', ok: false, scopedMessage: message,
       error: code || 'refresh_failed', message: legacyMessage || message };
@@ -36,10 +48,9 @@ export function buildAppDataBootstrap(
     }
     ${previewUnconnected ? "return { state: 'needs_connection', ok: false, needsConnection: true, provider: binding.provider, connectionStatus: 'not_connected', connectUrl: connectUrl };" : ""}
     try {
-      var res = await fetch('/api/apps/' + encodeURIComponent(app.appId) + '/data/' + encodeURIComponent(bindingId), {
-        credentials: 'same-origin', cache: 'no-store', headers: { accept: 'application/json' }
-      });
-      if (!res.ok) {
+      var res = await requestBinding(bindingId);
+      if (!res || typeof res.status !== 'number') return error('This data could not be refreshed.');
+      if (res.status < 200 || res.status >= 300) {
         // Preserve known legacy fields without trusting an upstream error body.
         var codes = { 401: 'unauthorized', 404: 'not_found', 422: 'invalid_binding',
           429: 'rate_limited', 502: 'data_source_error' };
@@ -48,7 +59,8 @@ export function buildAppDataBootstrap(
         return error(message, codes[res.status],
           res.status === 502 ? 'The data source could not be reached.' : message);
       }
-      var body = await res.json();
+      var body = res.body;
+      if (!body || typeof body !== 'object') return error('This data could not be refreshed.');
       if (body.state === 'ok' && body.ok === true && typeof body.fetchedAt === 'string' &&
           Number.isFinite(Date.parse(body.fetchedAt)) && Object.prototype.hasOwnProperty.call(body, 'data')) return body;
       if (body.state === 'needs_connection' && typeof body.provider === 'string') {
@@ -82,12 +94,7 @@ export function buildAppDataBootstrap(
         time.style.cssText = 'display:block;font:12px/1.5 system-ui;letter-spacing:0;margin-top:8px';
         element.replaceChildren(content, time);
       } else if (result.state === 'needs_connection') {
-        var link = document.createElement('a');
-        link.href = result.connectUrl;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        link.textContent = 'Connect ' + (providerNames[result.provider] || result.provider);
-        element.replaceChildren(link);
+        element.textContent = (providerNames[result.provider] || result.provider) + ' connection required.';
       } else {
         element.textContent = result.scopedMessage;
       }

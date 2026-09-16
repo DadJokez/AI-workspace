@@ -20,36 +20,9 @@ import {
   resolveAppPublication,
 } from "@/lib/app-publication";
 import { loadWorkspaceArtifactById } from "@/lib/workspace-artifacts";
+import { buildIsolatedAppDocument, isolatedAppShellCsp } from "@/lib/isolated-app-document";
 
 export const dynamic = "force-dynamic";
-
-/**
- * Serve a deployed app behind workspace sign-in. This is the J4 SSO seam in
- * its thinnest form: the workspace session *is* the app's auth, and the CSP
- * confines the document to a self-contained page — inline script/style only,
- * no network egress, no external resources, no framing by other origins.
- */
-const APP_CSP = [
-  "default-src 'none'",
-  "script-src 'unsafe-inline'",
-  "style-src 'unsafe-inline'",
-  "img-src data: blob:",
-  "font-src data:",
-  "media-src data: blob:",
-  "connect-src 'none'",
-  "form-action 'none'",
-  "base-uri 'none'",
-  "frame-ancestors 'self'",
-].join("; ");
-
-// Live-data apps (#407, Rob-approved 2026-07-18): ONLY a binding-bearing app
-// gets same-origin fetch — so it can call its own viewer-scoped data
-// endpoint — and nothing else changes. Apps without bindings keep the fully
-// closed sandbox above, byte-identical.
-const APP_CSP_WITH_DATA = APP_CSP.replace(
-  "connect-src 'none'",
-  "connect-src 'self'",
-);
 
 export async function GET(
   req: Request,
@@ -144,19 +117,16 @@ export async function GET(
       { status: 503 },
     );
   }
+  const publicBindings = publication.dataMode === "live_via_viewer"
+    ? bindings.filter((binding) => isBindingIncludedInPublication(publication, binding)).map(publicDataBinding)
+    : [];
   const withRuntime =
     publication.dataMode === "live_via_viewer"
       ? injectAppDataBootstrap(
           artifact.content,
           buildAppDataBootstrap(
             app.id,
-            // Allowlist, never omit-the-secret: `publicDataBinding` names the
-            // viewer-visible fields; pinned arguments stay server-side.
-            bindings
-              .filter((binding) =>
-                isBindingIncludedInPublication(publication, binding),
-              )
-              .map(publicDataBinding),
+            publicBindings,
           ),
         )
       : artifact.content;
@@ -165,14 +135,11 @@ export async function GET(
     authorName: rows[0]?.ownerName ?? "Comparative user",
   });
 
-  return new NextResponse(body, {
+  return new NextResponse(buildIsolatedAppDocument(body, app.id, publicBindings), {
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",
-      "content-security-policy":
-        publication.dataMode === "live_via_viewer"
-          ? APP_CSP_WITH_DATA
-          : APP_CSP,
+      "content-security-policy": isolatedAppShellCsp(publicBindings.length > 0),
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
       "cache-control": "private, no-store",

@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { Database } from "@ai-workspace/db";
 import {
+  assertStudioPreviewIsolation,
+  loadStudioBrowserGrantPayload,
+  type StudioBrowserGrantContext,
   isTrustedSandboxHostname,
   normalizeGrantPath,
   rewriteSandboxRedirect,
@@ -10,6 +14,42 @@ import { studioBrowserGrantUrl } from "@/lib/studio-browser";
 const grantId = "00000000-0000-4000-8000-000000000710";
 
 describe("Studio Browser grants", () => {
+  it("fails closed for private multi-file previews without disabling self-contained previews", () => {
+    expect(() => assertStudioPreviewIsolation("sandbox")).toThrow(/temporarily unavailable/);
+    expect(() => assertStudioPreviewIsolation("artifact")).not.toThrow();
+    expect(() => assertStudioPreviewIsolation("app")).not.toThrow();
+  });
+  it("rejects private sandbox delivery before DB or upstream access", async () => {
+    const now = new Date("2026-09-15T00:00:00Z");
+    const expiresAt = new Date(now.getTime() + 60_000);
+    const context = {
+      grant: { targetKind: "sandbox", expiresAt, revokedAt: null },
+      session: { status: "ready", expiresAt },
+    } as StudioBrowserGrantContext;
+    const fetchImpl = vi.fn();
+    await expect(loadStudioBrowserGrantPayload({
+      db: {} as Database, context, pathSegments: [], search: "", method: "GET", now, fetchImpl,
+    })).rejects.toMatchObject({ status: 503, code: "browser_sandbox_isolation_required" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+  it("delivers self-contained artifacts with an enforcing opaque-origin policy", async () => {
+    const now = new Date("2026-09-15T00:00:00Z");
+    const expiresAt = new Date(now.getTime() + 60_000);
+    const context = {
+      grant: { id: grantId, targetKind: "artifact", expiresAt, revokedAt: null, userId: "viewer", threadId: "thread", targetResourceId: "artifact" },
+      session: { id: "session", status: "ready", expiresAt },
+    } as StudioBrowserGrantContext;
+    const db = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ id: "artifact", content: "<h1>Preview</h1>", mimeType: "text/html" }] }) }) }),
+      insert: () => ({ values: vi.fn() }),
+    } as unknown as Database;
+    const payload = await loadStudioBrowserGrantPayload({ db, context, pathSegments: [], search: "", method: "GET", now });
+    expect(payload.status).toBe(200);
+    expect(payload.body).toContain("<h1>Preview</h1>");
+    expect(payload.headers.get("content-security-policy")).toContain("sandbox allow-scripts;");
+    expect(payload.headers.get("content-security-policy")).toContain("connect-src 'none'");
+    expect(payload.headers.get("content-security-policy")).not.toContain("allow-same-origin");
+  });
   it("keeps bearer grants in a fragment that never reaches request logs", () => {
     const value = studioBrowserGrantUrl(
       "https://comparative.example",
