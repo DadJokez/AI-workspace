@@ -130,6 +130,29 @@ old or the queue is empty — next check-in 2026-09-21.
 Two well-tested PRs beat four thin ones; when context runs low, stop and
 write the summary.
 
+## Koch firewall track — 2026-11-13 01:22Z (epic #970)
+
+Rob asked for a plan to move Comparative inside the Koch firewall with Terraform instead of CDK, a
+GitOps deploy, and a path from 10 to 10,000 users. Plan of record:
+[`docs/roadmap/KOCH_FIREWALL_PLAN.md`](roadmap/KOCH_FIREWALL_PLAN.md). This track is the main work
+order from here; the September work order above continues only where it does not conflict.
+
+Buildable now, in order, with no input from Koch:
+
+1. **#972** configuration contract, then **#973** proxy-aware egress and provider switches.
+2. **#974** Terraform foundation → **#975** network and data → **#976** platform, services,
+   observability → **#977** AgentCore spike (run the spike early; it is the main technical unknown).
+3. **#978** build-once pipeline → **#979** plan on PR, apply on merge.
+4. **#982** Ping OIDC and **#983** account lifecycle and admin scope (parallel with 2–3).
+5. **#981** firewall rehearsal, once 1–3 are in.
+
+Rob-run: **#980** (cutover of the personal account; closes #467 and #697), **#971** (Koch intake),
+**#985** (Koch landing). Later: **#984** (Microsoft 365 connector), **#986** (scale ladder; start a
+tier only when its trigger is near).
+
+Every issue in this track changes IAM, network, secrets, auth or schema somewhere: lanes build and
+open PRs, apply `needs-rob`, and never run `terraform apply` or a cutover step.
+
 ## Product proposals — 2026-09-08 02:51Z (gap analysis vs the AI Daily Brief AI-native episode of 2026-09-06)
 
 Seven items Rob asked to have written up and queued after mapping the
