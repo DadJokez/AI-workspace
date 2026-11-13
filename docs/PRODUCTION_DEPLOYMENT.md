@@ -296,6 +296,12 @@ fewer live tasks than the stack's autoscaling `minCapacity`; both read the same
 floor. It treats missing data as breaching — a service with no tasks stops
 publishing the metric entirely, which is precisely the outage to page on.
 
+The November 2026 idle-cost profile uses a **one-task** web floor (maximum four)
+and two aligned web/ALB zones, `us-east-1c` and `us-east-1e`. This keeps the app
+online but deliberately trades away the previous two-task redundancy. Chat,
+memory, and browser-proxy workers remain running. See
+[IDLE_COST_RUNBOOK.md](IDLE_COST_RUNBOOK.md) for live changes and restoration.
+
 The CDK alarms send to the `ai-workspace-ops-alerts` topic by name. Run
 `setup-ops-alarms.sh` first (or at least once) so the topic and its confirmed
 email subscription exist; CloudWatch accepts the action ARN either way, but a

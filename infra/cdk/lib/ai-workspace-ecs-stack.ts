@@ -6,6 +6,7 @@ import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as ecsPatterns from "aws-cdk-lib/aws-ecs-patterns";
+import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as route53 from "aws-cdk-lib/aws-route53";
@@ -42,8 +43,11 @@ const WORKER_TASK_SIZE = {
  * The production availability floor for the web service. Autoscaling's
  * minCapacity and the #568 liveness alarm threshold both read this constant so
  * the alarm cannot silently drift away from the declared floor.
+ * Rob's idle-cost profile retains autoscaling but accepts single-task
+ * availability until active development resumes.
  */
-const WEB_MIN_TASK_COUNT = 2;
+const WEB_MIN_TASK_COUNT = 1;
+const WEB_AVAILABILITY_ZONES = ["us-east-1c", "us-east-1e"];
 const CLUSTER_NAME = "ai-workspace-prod";
 const WEB_SERVICE_NAME = "ai-workspace-web";
 const BROWSER_PROXY_SERVICE_NAME = "ai-workspace-browser-proxy";
@@ -542,7 +546,10 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
           publicLoadBalancer: true,
           assignPublicIp: true,
           securityGroups: [webSecurityGroup],
-          taskSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+          taskSubnets: {
+            subnetType: ec2.SubnetType.PUBLIC,
+            availabilityZones: WEB_AVAILABILITY_ZONES,
+          },
           domainName: serviceRecordDomainName,
           domainZone: hostedZone,
           certificate,
@@ -552,6 +559,14 @@ export class AiWorkspaceEcsStack extends cdk.Stack {
           minHealthyPercent: 100,
         },
       );
+    // Keep web placement and enabled ALB zones identical. The default VPC
+    // spans six zones, each adding a billed public IPv4 address to the ALB.
+    const cfnLoadBalancer = webService.loadBalancer.node
+      .defaultChild as elbv2.CfnLoadBalancer;
+    cfnLoadBalancer.subnets = vpc.selectSubnets({
+      subnetType: ec2.SubnetType.PUBLIC,
+      availabilityZones: WEB_AVAILABILITY_ZONES,
+    }).subnetIds;
     webService.loadBalancer.setAttribute("access_logs.s3.enabled", "true");
     webService.loadBalancer.setAttribute(
       "access_logs.s3.bucket",
