@@ -28,6 +28,10 @@ Line references were read from the code on that commit. They drift; re-read the 
 7. **Migrations** are handwritten SQL plus a journal entry (ADR 0008). Next free number is `0053`. The
    journal `when` must be greater than the previous entry's (`1788994109000` for `0052`), or the migration
    silently never runs. They must pass `packages/db/scripts/migration-guard.mjs` (expand-only).
+   Several WPs carry a migration and can be built in parallel (WP-02, WP-06, WP-17, WP-18). Numbers named
+   in this spec are provisional: immediately before merge, rebase onto `main`, take the next free number,
+   and re-stamp `when` so it is greater than the last entry on `main`. A branch authored earlier but
+   merged later is the case that fails silently.
 8. **Honesty spine.** Any WP that can remove a capability (a connector, web search, analytics) must also
    remove it from the model's capability statement and add an eval case proving the assistant does not
    claim it.
