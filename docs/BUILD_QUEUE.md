@@ -201,6 +201,10 @@ feature exploration on 2026-09-08).
 
 ## Deliberately parked (do not start without a conscious call)
 
+- #964 sleep/wake cost-reduction proposal: #965 proof -> #966 safe lifecycle ->
+  #967 optional deep-sleep ingress -> #968 release evidence. Planning only;
+  proposed $25 proof budget and production changes require approval. See
+  [SLEEP_WAKE_SPEC.md](SLEEP_WAKE_SPEC.md); reconcile #963 before rollout.
 - #736 Governed Custom Agents (+#745–#748) — after Tier C is underway.
 - #811 Studio Browser general navigation + persistent sessions.
 - #491–#493 perimeter/identity/accountable-runtime epics — pull items only
