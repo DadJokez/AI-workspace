@@ -3,6 +3,9 @@
 Plan of record, 2026-11-13 01:22Z. Epic **#970**. Written from `main` @ `04ae5d7`, a full read of `infra/`, the
 pipeline, the auth/DB/worker code, and a read-only look at the live account. Nothing here is built yet.
 
+Implementation detail for coding agents — twenty work packages with files, interfaces, tests and
+acceptance — is in [`KOCH_MIGRATION_SPEC.md`](KOCH_MIGRATION_SPEC.md).
+
 ## 0. Decisions and open items
 
 Rob's answers in chat on 2026-11-12:
