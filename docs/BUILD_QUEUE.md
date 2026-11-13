@@ -134,7 +134,9 @@ write the summary.
 
 Rob asked for a plan to move Comparative inside the Koch firewall with Terraform instead of CDK, a
 GitOps deploy, and a path from 10 to 10,000 users. Plan of record:
-[`docs/roadmap/KOCH_FIREWALL_PLAN.md`](roadmap/KOCH_FIREWALL_PLAN.md). This track is the main work
+[`docs/roadmap/KOCH_FIREWALL_PLAN.md`](roadmap/KOCH_FIREWALL_PLAN.md). **Build from
+[`docs/roadmap/KOCH_MIGRATION_SPEC.md`](roadmap/KOCH_MIGRATION_SPEC.md)**: one work package (WP-01 to
+WP-20) per pull request, with its rules in §0. This track is the main work
 order from here; the September work order above continues only where it does not conflict.
 
 Buildable now, in order, with no input from Koch:
