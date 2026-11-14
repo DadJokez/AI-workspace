@@ -21,9 +21,13 @@ afterAll(() => {
  */
 describe("AiWorkspaceEcsStack alarms", () => {
   let alarms: CloudFormationResource[];
+  let resources: CloudFormationResource[];
 
   beforeAll(() => {
-    alarms = synthAlarms();
+    resources = synthResources();
+    alarms = resources.filter(
+      (resource) => resource.Type === "AWS::CloudWatch::Alarm",
+    );
   }, 300_000);
 
   function alarm(name: string) {
@@ -105,7 +109,7 @@ describe("AiWorkspaceEcsStack alarms", () => {
     );
   });
 
-  it("alarms below the two-task web availability floor with missing data breaching (#568)", () => {
+  it("alarms below the idle-cost web availability floor with missing data breaching (#568)", () => {
     expect(alarm("ai-workspace-web-below-task-floor")).toMatchObject({
       AlarmActions: [opsTopicArn],
       OKActions: [opsTopicArn],
@@ -127,6 +131,30 @@ describe("AiWorkspaceEcsStack alarms", () => {
     // The threshold tracks the service floor, so it cannot drift from the
     // autoscaling minCapacity the stack declares.
     expect(properties.Threshold).toBe(webServiceMinCapacity());
+    expect(properties.Threshold).toBe(1);
+  });
+
+  it("keeps the web service in the same two enabled zones as its load balancer", () => {
+    const lb = resources.find(
+      (resource) => resource.Type === "AWS::ElasticLoadBalancingV2::LoadBalancer",
+    );
+    const web = resources.find(
+      (resource) => resource.Type === "AWS::ECS::Service" &&
+        resource.Properties?.ServiceName === "ai-workspace-web",
+    );
+    const scaling = resources.find(
+      (resource) => resource.Type === "AWS::ApplicationAutoScaling::ScalableTarget",
+    );
+    const subnets = ["subnet-0ad7f1f0027d97361", "subnet-00a7c1a09f0f94130"];
+    expect(lb?.Properties?.Subnets).toHaveLength(2);
+    expect(lb?.Properties?.Subnets).toEqual(expect.arrayContaining(subnets));
+    expect(web?.Properties?.NetworkConfiguration).toMatchObject({
+      AwsvpcConfiguration: { Subnets: lb?.Properties?.Subnets },
+    });
+    expect(scaling?.Properties).toMatchObject({
+      MinCapacity: 1,
+      MaxCapacity: 4,
+    });
   });
 
   it("keeps the unhealthy-host settings the retired script duplicate used", () => {
@@ -170,7 +198,7 @@ function webServiceMinCapacity(): number {
   return Number(match![1]);
 }
 
-function synthAlarms(): CloudFormationResource[] {
+function synthResources(): CloudFormationResource[] {
   const outputDir = mkdtempSync(join(tmpdir(), "ecs-cdk-synth-"));
   tempDirs.push(outputDir);
   const result = spawnSync(
@@ -202,9 +230,7 @@ function synthAlarms(): CloudFormationResource[] {
   const template = JSON.parse(
     readFileSync(join(outputDir, "AiWorkspaceEcsStack.template.json"), "utf8"),
   ) as { Resources: Record<string, CloudFormationResource> };
-  return Object.values(template.Resources).filter(
-    (resource) => resource.Type === "AWS::CloudWatch::Alarm",
-  );
+  return Object.values(template.Resources);
 }
 
 interface CloudFormationResource {
