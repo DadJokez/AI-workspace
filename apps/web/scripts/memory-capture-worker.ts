@@ -1,5 +1,8 @@
 import { getDb } from "@ai-workspace/db";
+import { assertDeploymentConfig } from "../lib/deployment-config";
 import { runMemoryCaptureWorkerLoop } from "../lib/memory-capture";
+
+assertDeploymentConfig();
 
 const workerId =
   process.env.MEMORY_CAPTURE_WORKER_ID ??

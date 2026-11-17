@@ -334,29 +334,28 @@ describe("callSalesforceTool", () => {
     );
     const signedContext = signSalesforceTurnContext(toolContext.turnContext);
     const response = await handleSalesforceMcpRequest(
-      new Request(
-        "https://comparative.builtwithrobot.link/api/mcp/salesforce",
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: "Bearer fixture-token",
-            [SALESFORCE_MCP_RELAY_HEADER]: salesforceMcpRelayToken(),
-            [SALESFORCE_MCP_CONTEXT_HEADER]: signedContext,
-          },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "tools/call",
-            params: {
-              name: "run_soql",
-              arguments: {
-                soql: "SELECT Id, AccountName FROM Opportunity",
-              },
-            },
-          }),
+      // No NEXTAUTH_URL is set here, so the facade's public host is the
+      // non-production default.
+      new Request("http://localhost:3000/api/mcp/salesforce", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer fixture-token",
+          [SALESFORCE_MCP_RELAY_HEADER]: salesforceMcpRelayToken(),
+          [SALESFORCE_MCP_CONTEXT_HEADER]: signedContext,
         },
-      ),
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "run_soql",
+            arguments: {
+              soql: "SELECT Id, AccountName FROM Opportunity",
+            },
+          },
+        }),
+      }),
     );
     const body = (await response.json()) as {
       result: {

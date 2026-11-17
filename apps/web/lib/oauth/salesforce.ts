@@ -1,4 +1,4 @@
-import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
+import { PUBLIC_BASE_URL } from "@/lib/deployment-config";
 
 export const SALESFORCE_PROVIDER = "salesforce";
 export const SALESFORCE_CLIENT_ID = process.env.SALESFORCE_CLIENT_ID ?? "";

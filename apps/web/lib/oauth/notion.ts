@@ -1,4 +1,4 @@
-import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
+import { PUBLIC_BASE_URL } from "@/lib/deployment-config";
 
 export const NOTION_PROVIDER = "notion";
 export const NOTION_CLIENT_ID = process.env.NOTION_CLIENT_ID ?? "";
