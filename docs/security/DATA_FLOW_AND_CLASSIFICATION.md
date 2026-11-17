@@ -71,8 +71,8 @@ flowchart LR
 |---|---|---|---|---|---|---|
 | User identity, email, display name, role, preferences | Confidential | Postgres `users` | HTTPS; DB TLS required | RDS storage encryption is currently disabled | Persists with user; deprovision/purge pending #460 | Browser, SES for sign-in mail |
 | JWT session cookie | Restricted | Browser cookie; signed by NextAuth | HTTPS | Browser cookie; no DB session row | Session lifetime / secret rotation | NextAuth application only |
-| Magic-link verification token | Restricted | Hashed token in `verification_tokens` | HTTPS + SES | SHA-256 hash in Postgres; underlying RDS volume unencrypted | Single-use, 15-minute expiry; expired rows swept opportunistically | Amazon SES |
-| Invitation token and recipient | Restricted token; Confidential email | Postgres `invitations` | HTTPS + SES | Plain random invite token in Postgres; underlying RDS volume unencrypted | Expiry/revoke/accept state; row retention pending #460 | Amazon SES |
+| Magic-link verification token | Restricted | Hashed token in `verification_tokens` | HTTPS + SES | SHA-256 hash in Postgres; underlying RDS volume encrypted (reading of 2026-11-13) | Single-use, 15-minute expiry; expired rows swept opportunistically | Amazon SES |
+| Invitation token and recipient | Restricted token; Confidential email | Postgres `invitations` | HTTPS + SES | Plain random invite token in Postgres; underlying RDS volume encrypted (reading of 2026-11-13) | Expiry/revoke/accept state; row retention pending #460 | Amazon SES |
 | Chat threads and messages | Confidential | Postgres `chat_threads`, `chat_messages` | HTTPS/SSE; DB TLS; AWS API TLS | RDS storage encryption disabled | Until lifecycle action; approved window pending #460 | Bedrock/AgentCore; browser |
 | Uploaded files and generated artifacts/apps | Confidential unless the content is separately approved for public release | Postgres `workspace_artifacts` and app tables | Base64 in HTTPS request; DB TLS; AWS API TLS | Content stored in Postgres; RDS storage encryption disabled | Version rows persist; hard-delete policy pending #460 | Bedrock/AgentCore; authorized browser viewers |
 | Vault memory and capture queue | Confidential | Postgres `user_memory_items`, `memory_capture_queue` | DB TLS; AWS API TLS | RDS storage encryption disabled | User can review/archive; purge window pending #460 | Bedrock memory-capture turn; owner browser |
@@ -153,11 +153,11 @@ disconnect remains #692.
   application sends HSTS, `nosniff`, `Referrer-Policy`, and `X-Frame-Options`
   on every response and a report-only CSP (#693); only the deployed-app
   sandbox routes enforce a CSP.
-- The production database URL requires TLS. The current RDS storage volume is
-  not encrypted (`StorageEncrypted: false`, verified 2026-07-25), so
-  user-content-at-rest encryption is a release blocker for an enterprise data
-  boundary. Tracked in #689; it needs a snapshot-copy-restore window, not a
-  setting change.
+- The production database URL requires TLS. The RDS storage volume is
+  encrypted, as read from the live instance on 2026-11-13 (a point-in-time
+  reading; it was unencrypted when verified on 2026-07-25, tracked in #689).
+  Which KMS key encrypts it is not recorded here, and the instance is not yet
+  under IaC.
 - The instance is non-public. Postgres ingress is limited to the CDK-owned web,
   worker, and one-off deploy-task security groups. Because the instance
   predates the stack, `infra/scripts/reconcile-rds-perimeter.sh` enforces and
@@ -186,7 +186,7 @@ lands:
   Disconnect immediately scrubs local token material and leaves revocation
   metadata for audit, but does not yet revoke the grant at the provider or
   rotate credentials automatically (#692);
-- RDS automated backups retain one day in the pilot;
+- RDS automated backups retain seven days in the pilot (reading of 2026-11-13);
 - a user deletion or legal-hold request requires a documented, reviewed
   operator procedure and privacy/legal approval. The manual procedure is
   written up in

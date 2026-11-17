@@ -24,9 +24,12 @@ $ aws rds describe-db-instances --region us-east-1 \
   "backup": 1, "delprot": false }
 ```
 
-Read that carefully before drilling: **backup retention is one day.** The
-recovery window is 24 hours. Anything discovered on day two is not recoverable
-from automated backups.
+That capture is historical. A reading of the live instance on 2026-11-13
+(recorded in `docs/roadmap/KOCH_FIREWALL_PLAN.md` §1) showed storage encrypted,
+not publicly accessible, **seven days** of backup retention and deletion
+protection on. Both are point-in-time readings: re-run the command above before
+drilling and work from what it returns. The recovery window is the
+`backup` value in days.
 
 ## Prerequisites
 
@@ -108,7 +111,7 @@ aws rds delete-db-snapshot --db-snapshot-identifier "drill-$STAMP"
 ```
 
 **Do not skip this.** A forgotten drill instance is both a recurring cost and a
-second unencrypted copy of all user data. Confirm deletion completed.
+second copy of all user data. Confirm deletion completed.
 
 ### 6. Record the result
 
@@ -124,9 +127,9 @@ Stated plainly so nobody reads a successful drill as more than it is:
   restarting ECS tasks, and re-running the authenticated smoke are not
   exercised here. That path is only exercised for real during the #689
   encryption cutover.
-- **No point-in-time recovery test.** PITR within the one-day window is a
+- **No point-in-time recovery test.** PITR within the retention window is a
   different mechanic than snapshot restore.
-- **Nothing about the 24-hour retention limit.** The drill proves restore
+- **Nothing about the retention limit.** The drill proves restore
   works; it does not make the window longer. Raising `BackupRetentionPeriod`
   is a Rob-gated cost decision.
 - **No automation.** Every step above is manual. There is no scheduled drill

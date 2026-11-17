@@ -170,8 +170,9 @@ rollout.
    audit/run continuity, and application smoke before cutover. The mechanics
    and the verification queries are in
    [DB restore rehearsal](../runbooks/DB_RESTORE_REHEARSAL.md).
-5. The pilot is single-AZ with one day of automated backups and no deletion
-   protection, and **the restore has never been rehearsed** — the runbook
+5. The pilot is single-AZ with seven days of automated backups and deletion
+   protection on (reading of 2026-11-13), and **the restore has never been
+   rehearsed** — the runbook
    above is written but unexecuted, so restore duration and achievable RPO are
    both unmeasured. Treat untested recovery as SEV-1 uncertainty and open an
    AWS support case when needed.

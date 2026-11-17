@@ -52,9 +52,9 @@ this order:
 8. `cdk deploy AiWorkspaceEcsStack --require-approval never --exclusively`
    reconciles the checked-in stack with CloudFormation.
 9. The commit-SHA `ImageTag` parameter produces new task definitions, and the
-   CloudFormation update rolls all three ECS services. There is no redundant
+   CloudFormation update rolls all four ECS services. There is no redundant
    second forced deployment.
-10. `aws ecs wait services-stable` confirms all three services remain stable
+10. `aws ecs wait services-stable` confirms all four services remain stable
    before the deployment receipt is recorded.
 11. The build log records JSON receipts for migration, AgentCore, and ECS. The AgentCore
    receipt contains the commit SHA, image digest and tag, stack status,
@@ -330,7 +330,7 @@ infrastructure and deploy-contract change (it would break any manual
 `:latest` deploy path) and belongs to Rob — tracked in #449. Enabling
 `scanOnPush` on `ai-workspace` is the same conversation.
 
-For an image-only regression, one command rolls all three services to a
+For an image-only regression, one command rolls all four services to a
 previously built commit:
 
 ```bash
