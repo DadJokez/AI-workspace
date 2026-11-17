@@ -246,6 +246,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@4.4.3)
+      '@smithy/node-http-handler':
+        specifier: 4.7.7
+        version: 4.7.7
       '@smithy/types':
         specifier: ^4.14.1
         version: 4.14.3
