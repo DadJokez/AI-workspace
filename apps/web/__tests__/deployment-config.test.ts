@@ -82,6 +82,19 @@ describe("deployment config", () => {
     expect(isAllowedAppHost("")).toBe(false);
   });
 
+  it("resolves stored app-relative URLs against the public origin", async () => {
+    vi.stubEnv("NEXTAUTH_URL", "https://comparative.example");
+    vi.stubEnv("INTERNAL_BASE_URL", "http://internal.example:8080");
+
+    const { resolveAppRelativeUrl } = await import("@/lib/deployment-config");
+    expect(resolveAppRelativeUrl("/api/mcp/google")).toBe(
+      "https://comparative.example/api/mcp/google",
+    );
+    expect(resolveAppRelativeUrl("https://mcp.example/mcp")).toBe(
+      "https://mcp.example/mcp",
+    );
+  });
+
   it("refuses the internal host when no internal address is configured", async () => {
     vi.stubEnv("NEXTAUTH_URL", "https://comparative.example");
     vi.stubEnv("INTERNAL_BASE_URL", "");
