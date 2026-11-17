@@ -1,5 +1,4 @@
-const DEFAULT_BASE_URL = "https://comparative.builtwithrobot.link";
-const baseUrl = normalizeBaseUrl(process.env.SMOKE_BASE_URL ?? DEFAULT_BASE_URL);
+const baseUrl = normalizeBaseUrl(requiredSmokeBaseUrl());
 const timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS ?? 10_000);
 
 const checks = [
@@ -111,4 +110,15 @@ function assertStatus(response, expected, label) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function requiredSmokeBaseUrl() {
+  const value = process.env.SMOKE_BASE_URL?.trim();
+  if (!value) {
+    console.error(
+      "SMOKE_BASE_URL is required: set it to the origin of the deployment to smoke-test.",
+    );
+    process.exit(1);
+  }
+  return value;
 }

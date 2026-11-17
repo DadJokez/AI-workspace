@@ -142,6 +142,7 @@ pnpm build
 pnpm smoke:browser
 pnpm smoke:browser:auth
 pnpm smoke:browser:core
+export SMOKE_BASE_URL=https://<deployment-origin>   # required; there is no default
 pnpm smoke:prod
 pnpm smoke:prod:auth
 pnpm smoke:prod:auth -- --resource-matrix

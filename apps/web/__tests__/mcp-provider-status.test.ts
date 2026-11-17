@@ -119,6 +119,45 @@ describe("MCP provider status", () => {
     });
   });
 
+  it("hands the runtime the internal facade address while browser redirects stay public", async () => {
+    vi.stubEnv("NEXTAUTH_URL", "https://comparative.example");
+    vi.stubEnv("INTERNAL_BASE_URL", "http://internal.example:8080");
+    vi.stubEnv(
+      "OAUTH_ENCRYPTION_KEY",
+      Buffer.alloc(32, 8).toString("base64"),
+    );
+    mockAttestations();
+    const { encryptSecret } = await import("@/lib/oauth/crypto");
+    const { buildUserMcpServers } = await import("@/lib/oauth/mcp-servers");
+    const { GOOGLE_REDIRECT_URI } = await import("@/lib/oauth/google");
+
+    const result = await buildUserMcpServers(
+      dbWithOauthRows([
+        {
+          provider: "notion",
+          accessToken: encryptSecret("notion-access-token"),
+          expiresAt: null,
+        },
+      ]),
+      "user-1",
+    );
+
+    // The relay header proves the internal address still counts as first-party.
+    expect(result.mcpServers?.notion).toMatchObject({
+      type: "http",
+      url: "http://internal.example:8080/api/mcp/notion",
+      headers: {
+        Authorization: "Bearer notion-access-token",
+        "X-Comparative-MCP-Relay": relayToken(
+          Buffer.alloc(32, 8).toString("base64"),
+        ),
+      },
+    });
+    expect(GOOGLE_REDIRECT_URI).toBe(
+      "https://comparative.example/api/oauth/google/callback",
+    );
+  });
+
   it("mounts Notion with the delegated bearer token when an endpoint is configured", async () => {
     vi.stubEnv("NOTION_MCP_ENDPOINT_URL", "https://notion-mcp.example/mcp");
     vi.stubEnv(

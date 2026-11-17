@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
+import { PUBLIC_BASE_URL } from "@/lib/deployment-config";
 import { storeOAuthConnection } from "@/lib/oauth/connection";
 import {
   GITHUB_CLIENT_ID,
   GITHUB_PROVIDER,
   GITHUB_REDIRECT_URI,
   GITHUB_TOKEN_URL,
-  PUBLIC_BASE_URL,
   STATE_COOKIE,
 } from "@/lib/oauth/github";
 

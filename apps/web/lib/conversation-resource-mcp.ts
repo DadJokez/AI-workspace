@@ -13,7 +13,7 @@ import {
   resourceMcpRelayToken,
   verifyConversationResourceTurnContext,
 } from "@/lib/conversation-resource-authorization";
-import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
+import { isAllowedAppHost, PUBLIC_BASE_URL } from "@/lib/deployment-config";
 import { threadBranchHasPinnedResource } from "@/lib/thread-branches";
 
 const MCP_PROTOCOL_VERSION = "2025-11-25";
@@ -372,7 +372,7 @@ function validateSameOrigin(req: Request): Response | null {
   const host = (
     firstHeaderValue(req.headers.get("host")) ?? requestUrl.host
   ).toLowerCase();
-  if (host !== expected.host.toLowerCase()) {
+  if (!isAllowedAppHost(host)) {
     return jsonRpcError(
       null,
       -32000,
@@ -381,10 +381,7 @@ function validateSameOrigin(req: Request): Response | null {
     );
   }
   const forwardedHost = firstHeaderValue(req.headers.get("x-forwarded-host"));
-  if (
-    forwardedHost &&
-    forwardedHost.toLowerCase() !== expected.host.toLowerCase()
-  ) {
+  if (forwardedHost && !isAllowedAppHost(forwardedHost)) {
     return jsonRpcError(
       null,
       -32000,

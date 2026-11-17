@@ -1,6 +1,9 @@
 import { getDb } from "@ai-workspace/db";
 import { runChatRunWorkerLoop } from "../lib/chat-run-worker";
+import { assertDeploymentConfig } from "../lib/deployment-config";
 import { runSchedulerLoop } from "../lib/schedules/scheduler";
+
+assertDeploymentConfig();
 
 const workerId =
   process.env.CHAT_RUN_WORKER_ID ??

@@ -18,7 +18,7 @@ import {
   CONVERSATION_RESOURCE_MCP_PATH,
   type ConversationResourceResolution,
 } from "@/lib/conversation-resources";
-import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
+import { serverCallbackBaseUrl } from "@/lib/deployment-config";
 import { threadBranchHasPinnedResource } from "@/lib/thread-branches";
 
 export const CONVERSATION_RESOURCE_PROVIDER = "resources";
@@ -51,7 +51,7 @@ export function buildConversationResourceMcpServer({
     type: "http",
     url: new URL(
       CONVERSATION_RESOURCE_MCP_PATH,
-      PUBLIC_BASE_URL,
+      serverCallbackBaseUrl(),
     ).toString(),
     headers: {
       [RESOURCE_MCP_RELAY_HEADER]: resourceMcpRelayToken(),

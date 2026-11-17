@@ -1,4 +1,4 @@
-import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
+import { PUBLIC_BASE_URL } from "@/lib/deployment-config";
 
 export const GOOGLE_PROVIDER = "google";
 export const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? "";
