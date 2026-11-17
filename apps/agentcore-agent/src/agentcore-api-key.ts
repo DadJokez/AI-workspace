@@ -2,6 +2,7 @@ import {
   BedrockAgentCoreClient,
   GetResourceApiKeyCommand,
 } from "@aws-sdk/client-bedrock-agentcore";
+import { awsSdkProxyConfig } from "@ai-workspace/agent/outbound-proxy";
 
 interface ApiKeyClient {
   send(command: GetResourceApiKeyCommand): Promise<{ apiKey?: string }>;
@@ -80,9 +81,10 @@ async function loadApiKey({
 }): Promise<string> {
   const identity =
     client ??
-    (new BedrockAgentCoreClient(
-      region ? { region } : {},
-    ) as unknown as ApiKeyClient);
+    (new BedrockAgentCoreClient({
+      ...(region ? { region } : {}),
+      ...awsSdkProxyConfig(),
+    }) as unknown as ApiKeyClient);
   let response: { apiKey?: string };
   try {
     response = await identity.send(

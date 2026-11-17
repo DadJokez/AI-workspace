@@ -3,6 +3,7 @@ import {
   InvokeAgentRuntimeCommand,
 } from "@aws-sdk/client-bedrock-agentcore";
 import type { AgentEvent } from "@ai-workspace/agent";
+import { awsSdkProxyConfig } from "@ai-workspace/agent/outbound-proxy";
 
 import {
   NEXT_TURN_RUNTIME_CAPABILITIES,
@@ -47,7 +48,10 @@ export class AgentCoreRuntime implements AgentRuntime {
     this.opts = opts;
     this.client =
       opts.client ??
-      new BedrockAgentCoreClient(opts.region ? { region: opts.region } : {});
+      new BedrockAgentCoreClient({
+        ...(opts.region ? { region: opts.region } : {}),
+        ...awsSdkProxyConfig(),
+      });
   }
 
   async *runTurn(input: TurnInput): AsyncIterable<AgentEvent> {

@@ -9,6 +9,7 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 import type { DocumentType } from "@smithy/types";
 import { resolveBedrockModelId, type ModelInvocation } from "./models";
+import { awsSdkProxyConfig } from "./outbound-proxy";
 import type { BedrockToolConfig } from "./registry";
 import { BedrockResponsesClient } from "./responses-client";
 import type { TokenUsage } from "./types";
@@ -409,7 +410,10 @@ export class RealBedrockClient implements BedrockClient {
       );
     }
     this.region = region;
-    this.client = new BedrockRuntimeClient({ region });
+    this.client = new BedrockRuntimeClient({
+      region,
+      ...awsSdkProxyConfig(),
+    });
   }
 
   async *converseStream(
