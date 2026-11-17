@@ -1,5 +1,8 @@
 # AWS setup — first time
 
+> The Terraform references below ("PR #8") are historical. Production deploys with CDK today; the
+> Terraform plan of record is [`docs/roadmap/KOCH_FIREWALL_PLAN.md`](docs/roadmap/KOCH_FIREWALL_PLAN.md).
+
 You need this once, on your laptop, before flipping the chat over to real Bedrock. Total time: 30–60 min if you've never used AWS.
 
 After step 7, your local `pnpm dev` with `BEDROCK_CLIENT=real` will call AWS Claude. None of this deploys anything yet — that's PR #8 (Terraform).
