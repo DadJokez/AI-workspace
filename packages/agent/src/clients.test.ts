@@ -315,6 +315,26 @@ describe("RealBedrockClient prompt caching", () => {
     ]);
   });
 
+  it("sends the deployment's inference-profile prefix, and the registry id when none is set", async () => {
+    const send = async () => {
+      const inputs = stubSend();
+      await collect(
+        new RealBedrockClient().converseStream({
+          bedrockModelId: "us.anthropic.claude-sonnet-4-6",
+          supportsPromptCaching: false,
+          messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
+          maxTokens: 100,
+        }),
+      );
+      return inputs[0]?.modelId;
+    };
+
+    expect(await send()).toBe("us.anthropic.claude-sonnet-4-6");
+    vi.restoreAllMocks();
+    vi.stubEnv("BEDROCK_INFERENCE_PROFILE_PREFIX", "eu.");
+    expect(await send()).toBe("eu.anthropic.claude-sonnet-4-6");
+  });
+
   it("emits no cachePoint anywhere for a model without prompt caching (#797)", async () => {
     const inputs = stubSend();
     const client = new RealBedrockClient();

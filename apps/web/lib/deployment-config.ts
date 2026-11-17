@@ -97,6 +97,15 @@ export function serverCallbackBaseUrl(): string {
   return INTERNAL_BASE_URL ?? PUBLIC_BASE_URL;
 }
 
+/**
+ * Stored URLs that point at this app are kept as a path (`/api/mcp/google`)
+ * so the row is valid in any deployment. Resolve one for display; absolute
+ * URLs pass through.
+ */
+export function resolveAppRelativeUrl(value: string): string {
+  return value.startsWith("/") ? `${PUBLIC_BASE_URL}${value}` : value;
+}
+
 /** True for the public host and, when configured, the internal host. */
 export function isAllowedAppHost(host: string): boolean {
   const candidate = host.trim().toLowerCase();

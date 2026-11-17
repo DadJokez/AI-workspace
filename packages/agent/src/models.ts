@@ -20,10 +20,39 @@
  * in-region ON_DEMAND id with no geo profile (the GPT-OSS, Qwen / Kimi /
  * GLM / Nemotron / DeepSeek entries) declare that bare id.
  *
+ * The "us." prefix is the registry's spelling, not a deployment fact:
+ * `resolveBedrockModelId` swaps it for `BEDROCK_INFERENCE_PROFILE_PREFIX` at
+ * the send site. Prices below are for the "us." profile; other prefixes are
+ * priced differently, and #944's cost work owns that.
+ *
  * NOTE: verify the exact `bedrockModelId` strings against your Bedrock console
  * (Model access page) before first deploy — providers occasionally publish
  * new dated revisions.
  */
+
+const REGISTRY_PROFILE_PREFIX = "us.";
+const INFERENCE_PROFILE_PREFIXES = ["", "us.", "global.", "eu."];
+
+/**
+ * The id to send to Bedrock for a registry `bedrockModelId`. Ids the registry
+ * spells with the "us." geo prefix take the deployment's prefix instead; bare
+ * in-region ids are returned unchanged.
+ */
+export function resolveBedrockModelId(
+  bedrockModelId: string,
+  prefix: string = process.env.BEDROCK_INFERENCE_PROFILE_PREFIX ??
+    REGISTRY_PROFILE_PREFIX,
+): string {
+  if (!INFERENCE_PROFILE_PREFIXES.includes(prefix)) {
+    throw new Error(
+      `BEDROCK_INFERENCE_PROFILE_PREFIX must be one of ${INFERENCE_PROFILE_PREFIXES.map(
+        (value) => JSON.stringify(value),
+      ).join(", ")}; got ${JSON.stringify(prefix)}`,
+    );
+  }
+  if (!bedrockModelId.startsWith(REGISTRY_PROFILE_PREFIX)) return bedrockModelId;
+  return prefix + bedrockModelId.slice(REGISTRY_PROFILE_PREFIX.length);
+}
 
 export const MODEL_IDS = [
   "haiku-4-5",
@@ -261,7 +290,7 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
    * qualified (`pnpm eval --model nova-pro`); it has no `model_enablement`
    * rows, so it is disabled for every purpose until Rob writes them.
    *
-   * Verified 2026-09-05 (read-only, account 351478076796, us-east-1):
+   * Verified 2026-09-05 (read-only, the personal sandbox account, us-east-1):
    * `aws bedrock list-inference-profiles` → `us.amazon.nova-pro-v1:0` ACTIVE
    * (SYSTEM_DEFINED), backing `amazon.nova-pro-v1:0` (ON_DEMAND +
    * INFERENCE_PROFILE; text/image/video in, text out, streaming). Context
@@ -314,7 +343,7 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
    * reach them there. No `model_enablement` rows: disabled for every purpose
    * until qualified and flipped by Rob. Three entries share one comment.
    *
-   * Verified 2026-09-06 (read-only, account 351478076796, us-east-1):
+   * Verified 2026-09-06 (read-only, the personal sandbox account, us-east-1):
    * `aws bedrock get-foundation-model` → `openai.gpt-5.6-terra` ACTIVE,
    * text+image in, text out, streaming, INFERENCE_PROFILE only;
    * `list-inference-profiles` → `us.openai.gpt-5.6-{terra,sol,luna}` ACTIVE
@@ -428,7 +457,7 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
    * `model_enablement` rows, so it is disabled for every purpose until Rob
    * writes them.
    *
-   * Verified 2026-09-06 (read-only, account 351478076796, us-east-1):
+   * Verified 2026-09-06 (read-only, the personal sandbox account, us-east-1):
    * `aws bedrock get-foundation-model --model-identifier openai.gpt-oss-120b-1:0`
    * → ACTIVE, `inferenceTypesSupported: ["ON_DEMAND"]`, TEXT in / TEXT out,
    * streaming true. There is NO `us.` cross-region inference profile for this
@@ -482,7 +511,7 @@ export const MODELS: Record<ModelId, ModelMetadata> = {
    * Rob writes rows; the scorecards are in
    * `docs/models/QUALIFICATION_2026-09-06.md`.
    *
-   * Verified read-only 2026-09-06 (account 351478076796, us-east-1) with
+   * Verified read-only 2026-09-06 (the personal sandbox account, us-east-1) with
    * `aws bedrock get-foundation-model` + `list-inference-profiles`: the seven
    * non-Anthropic models are ON_DEMAND in-region ids with no geo (`us.`)
    * profile, so the bare id is declared and list price applies (no +10%

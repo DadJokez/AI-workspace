@@ -7,6 +7,7 @@ import {
 import { asc, count, eq, isNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { resolveAppRelativeUrl } from "@/lib/deployment-config";
 import { Metric, StatusBadge, titleize } from "@/app/admin/ui";
 import { WebEgressPolicyForm } from "@/app/admin/tools/WebEgressPolicyForm";
 import {
@@ -171,7 +172,7 @@ export default async function AdminToolsPage() {
                       ) : null}
                       {server.endpointUrl ? (
                         <div className="mt-1 max-w-2xl truncate font-mono text-2xs text-muted">
-                          {server.endpointUrl}
+                          {resolveAppRelativeUrl(server.endpointUrl)}
                         </div>
                       ) : null}
                     </td>

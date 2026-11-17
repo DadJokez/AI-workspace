@@ -283,6 +283,7 @@ describe("migration guard: historical census", () => {
       "0048_connector_lifecycle_governance.sql:5 UPDATE",
       "0048_connector_lifecycle_governance.sql:7 SET NOT NULL",
       "0048_connector_lifecycle_governance.sql:26 UPDATE",
+      "0053_relative_mcp_endpoint_urls.sql:6 UPDATE [allowed]",
     ]);
   });
 });
