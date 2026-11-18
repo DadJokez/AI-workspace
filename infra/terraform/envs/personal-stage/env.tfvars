@@ -51,3 +51,29 @@ state_kms_key_arn = "REPLACE_ME_STATE_KMS_KEY_ARN"
 eval_model_ids                = ["REPLACE_ME_EVAL_MODEL_ID"]
 eval_inference_profile_prefix = "us."
 eval_inference_regions        = ["us-east-1", "us-east-2", "us-west-2"]
+
+# --- 10-network --------------------------------------------------------------
+
+# The sandbox profile: a VPC of its own with one NAT gateway, no interface
+# endpoints and a public load balancer.
+network_mode  = "create"
+firewall_mode = false
+egress        = "nat"
+
+# Range of the new VPC, a /16. It must stay clear of every network this VPC
+# will be peered or routed with; changing it after the first apply replaces
+# the VPC.
+vpc_cidr = "10.64.0.0/16"
+
+# Two zones: a load balancer and a database subnet group each need two.
+az_count = 2
+
+# The load balancer is public, as production's is today, so it takes HTTPS
+# from anywhere. An internal load balancer lists the corporate ranges instead.
+internal_alb      = false
+alb_ingress_cidrs = ["0.0.0.0/0"]
+
+# Zone ids (not names) AgentCore Browser supports in us-east-1. These are the
+# migration spec's values and were not checked against AWS; check them before
+# the first apply.
+agentcore_az_ids = ["use1-az1", "use1-az2", "use1-az4"]
