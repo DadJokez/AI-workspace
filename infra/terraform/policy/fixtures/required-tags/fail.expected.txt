@@ -1,0 +1,2 @@
+[required-tags] aws_sns_topic.bare is missing tags: app, cost-center, data-class, env, managed-by, owner, repo
+[required-tags] aws_sns_topic.ops is missing tags: data-class, owner

@@ -1,0 +1,2 @@
+[s3-block-public-access] aws_s3_bucket.artifacts has no aws_s3_bucket_public_access_block in its module
+[s3-block-public-access] aws_s3_bucket_public_access_block.logs does not set restrict_public_buckets = true

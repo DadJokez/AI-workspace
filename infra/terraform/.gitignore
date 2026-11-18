@@ -1,0 +1,7 @@
+.terraform/
+*.tfplan
+*.tfstate*
+*_override.tf
+# Modules are not root modules: the lock file `terraform test` leaves there is
+# not the one any stack uses.
+modules/**/.terraform.lock.hcl

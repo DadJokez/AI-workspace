@@ -1,0 +1,205 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.17.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "aws_db_instance.main",
+      "mode": "managed",
+      "type": "aws_db_instance",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "identifier": "cmp-fixture-db",
+          "storage_encrypted": false,
+          "tags_all": {
+            "app": "comparative",
+            "env": "fixture",
+            "owner": "platform",
+            "cost-center": "fixture",
+            "data-class": "internal",
+            "managed-by": "terraform",
+            "repo": "example-owner/example-repo"
+          }
+        },
+        "after_unknown": {
+          "tags_all": {}
+        }
+      }
+    },
+    {
+      "address": "aws_cloudwatch_log_group.web",
+      "mode": "managed",
+      "type": "aws_cloudwatch_log_group",
+      "name": "web",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "/comparative/fixture/web",
+          "kms_key_id": null,
+          "tags_all": {
+            "app": "comparative",
+            "env": "fixture",
+            "owner": "platform",
+            "cost-center": "fixture",
+            "data-class": "internal",
+            "managed-by": "terraform",
+            "repo": "example-owner/example-repo"
+          }
+        },
+        "after_unknown": {
+          "tags_all": {}
+        }
+      }
+    },
+    {
+      "address": "aws_secretsmanager_secret.app",
+      "mode": "managed",
+      "type": "aws_secretsmanager_secret",
+      "name": "app",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "comparative/fixture/app",
+          "kms_key_id": null,
+          "tags_all": {
+            "app": "comparative",
+            "env": "fixture",
+            "owner": "platform",
+            "cost-center": "fixture",
+            "data-class": "internal",
+            "managed-by": "terraform",
+            "repo": "example-owner/example-repo"
+          }
+        },
+        "after_unknown": {
+          "tags_all": {}
+        }
+      }
+    },
+    {
+      "address": "aws_ecr_repository.app",
+      "mode": "managed",
+      "type": "aws_ecr_repository",
+      "name": "app",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "cmp-fixture-app",
+          "encryption_configuration": [
+            {
+              "encryption_type": "AES256"
+            }
+          ],
+          "tags_all": {
+            "app": "comparative",
+            "env": "fixture",
+            "owner": "platform",
+            "cost-center": "fixture",
+            "data-class": "internal",
+            "managed-by": "terraform",
+            "repo": "example-owner/example-repo"
+          }
+        },
+        "after_unknown": {
+          "tags_all": {}
+        }
+      }
+    },
+    {
+      "address": "aws_s3_bucket.artifacts",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "artifacts",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "cmp-fixture-artifacts",
+          "tags_all": {
+            "app": "comparative",
+            "env": "fixture",
+            "owner": "platform",
+            "cost-center": "fixture",
+            "data-class": "internal",
+            "managed-by": "terraform",
+            "repo": "example-owner/example-repo"
+          }
+        },
+        "after_unknown": {
+          "tags_all": {}
+        }
+      }
+    },
+    {
+      "address": "aws_s3_bucket_public_access_block.artifacts",
+      "mode": "managed",
+      "type": "aws_s3_bucket_public_access_block",
+      "name": "artifacts",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "block_public_acls": true,
+          "block_public_policy": true,
+          "ignore_public_acls": true,
+          "restrict_public_buckets": true
+        },
+        "after_unknown": {
+          "bucket": true
+        }
+      }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_s3_bucket.artifacts",
+          "mode": "managed",
+          "type": "aws_s3_bucket",
+          "name": "artifacts",
+          "provider_config_key": "aws"
+        },
+        {
+          "address": "aws_s3_bucket_public_access_block.artifacts",
+          "mode": "managed",
+          "type": "aws_s3_bucket_public_access_block",
+          "name": "artifacts",
+          "provider_config_key": "aws",
+          "expressions": {
+            "bucket": {
+              "references": [
+                "aws_s3_bucket.artifacts.id",
+                "aws_s3_bucket.artifacts"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}
