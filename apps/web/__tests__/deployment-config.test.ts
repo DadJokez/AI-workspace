@@ -122,6 +122,89 @@ describe("deployment config", () => {
     ).toEqual(["NEXTAUTH_URL must be an absolute http(s) URL"]);
   });
 
+  it("offers every connector when the list is unset or blank", () => {
+    const all = ["github", "notion", "google", "salesforce"];
+    expect(readDeploymentConfig({}).enabledConnectorProviders).toEqual(all);
+    expect(
+      readDeploymentConfig({ ENABLED_CONNECTOR_PROVIDERS: "  " })
+        .enabledConnectorProviders,
+    ).toEqual(all);
+  });
+
+  it("offers exactly the listed connectors", () => {
+    const config = readDeploymentConfig({
+      ENABLED_CONNECTOR_PROVIDERS: " Salesforce, github ,",
+    });
+    expect(config.enabledConnectorProviders).toEqual(["github", "salesforce"]);
+    expect(config.problems).toEqual([]);
+  });
+
+  it("reports an unknown connector name and does not offer it", () => {
+    const config = readDeploymentConfig({
+      ENABLED_CONNECTOR_PROVIDERS: "github,microsoft",
+    });
+    expect(config.enabledConnectorProviders).toEqual(["github"]);
+    expect(config.problems).toEqual([
+      "ENABLED_CONNECTOR_PROVIDERS names unknown providers: microsoft",
+    ]);
+  });
+
+  it("keeps URL fetch unless it is explicitly turned off", () => {
+    expect(readDeploymentConfig({}).webFetchEnabled).toBe(true);
+    expect(readDeploymentConfig({ WEB_FETCH_ENABLED: "1" }).webFetchEnabled).toBe(
+      true,
+    );
+    expect(readDeploymentConfig({ WEB_FETCH_ENABLED: "0" }).webFetchEnabled).toBe(
+      false,
+    );
+    const typo = readDeploymentConfig({ WEB_FETCH_ENABLED: "false" });
+    expect(typo.webFetchEnabled).toBe(true);
+    expect(typo.problems).toEqual(["WEB_FETCH_ENABLED must be 0 or 1"]);
+  });
+
+  it("has analytics off by default and on only with a token and host", () => {
+    expect(readDeploymentConfig({}).analytics).toBeNull();
+    expect(
+      readDeploymentConfig({
+        POSTHOG_PROJECT_TOKEN: "phc_test",
+        POSTHOG_HOST: "https://us.i.posthog.com",
+      }).analytics,
+    ).toBeNull();
+    expect(
+      readDeploymentConfig({
+        ANALYTICS_PROVIDER: "posthog",
+        POSTHOG_PROJECT_TOKEN: "phc_test",
+        POSTHOG_HOST: "https://us.i.posthog.com/",
+      }).analytics,
+    ).toEqual({
+      provider: "posthog",
+      token: "phc_test",
+      host: "https://us.i.posthog.com",
+    });
+  });
+
+  it("reports incomplete or unknown analytics settings", () => {
+    expect(
+      readDeploymentConfig({ ANALYTICS_PROVIDER: "posthog" }).problems,
+    ).toEqual([
+      "POSTHOG_PROJECT_TOKEN is required when ANALYTICS_PROVIDER=posthog",
+      "POSTHOG_HOST must be an absolute http(s) URL when ANALYTICS_PROVIDER=posthog",
+    ]);
+    expect(
+      readDeploymentConfig({ ANALYTICS_PROVIDER: "mixpanel" }).problems,
+    ).toEqual(["ANALYTICS_PROVIDER must be none or posthog"]);
+  });
+
+  it("answers 404 for a connector that is turned off", async () => {
+    vi.stubEnv("NEXTAUTH_URL", "https://comparative.example");
+    vi.stubEnv("ENABLED_CONNECTOR_PROVIDERS", "github,salesforce");
+
+    const config = await import("@/lib/deployment-config");
+    expect(config.disabledConnectorResponse("github")).toBeNull();
+    expect(config.disabledConnectorResponse("google")?.status).toBe(404);
+    expect(config.isConnectorProviderEnabled("notion")).toBe(false);
+  });
+
   it("names every problem in one error", () => {
     expect(() =>
       assertDeploymentConfig({

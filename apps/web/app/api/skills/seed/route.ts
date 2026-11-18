@@ -3,7 +3,8 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
 import { auditSkillMutation } from "@/lib/skills";
-import { STARTER_SKILLS } from "@/lib/starter-skills";
+import { SUPPORTED_MCP_PROVIDERS } from "@/lib/oauth/mcp-servers";
+import { seedableStarterSkills, STARTER_SKILLS } from "@/lib/starter-skills";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,12 @@ export async function POST() {
   const created: string[] = [];
   const skipped: string[] = [];
 
+  const seedable = seedableStarterSkills(SUPPORTED_MCP_PROVIDERS);
   for (const starter of STARTER_SKILLS) {
+    if (!seedable.includes(starter)) {
+      skipped.push(starter.slug);
+      continue;
+    }
     const existing = await db
       .select({ id: skills.id })
       .from(skills)

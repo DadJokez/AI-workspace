@@ -19,9 +19,6 @@ vi.mock("posthog-node", () => ({
   },
 }));
 
-const originalToken = process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
-const originalHost = process.env.NEXT_PUBLIC_POSTHOG_HOST;
-
 async function loadCapture() {
   const module = await import("@/lib/posthog-server");
   return module.capturePostHogEvent;
@@ -31,22 +28,13 @@ describe("capturePostHogEvent", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN = "phc_test";
-    process.env.NEXT_PUBLIC_POSTHOG_HOST = "https://analytics.example.test";
+    vi.stubEnv("ANALYTICS_PROVIDER", "posthog");
+    vi.stubEnv("POSTHOG_PROJECT_TOKEN", "phc_test");
+    vi.stubEnv("POSTHOG_HOST", "https://analytics.example.test");
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
-    if (originalToken === undefined) {
-      delete process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
-    } else {
-      process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN = originalToken;
-    }
-    if (originalHost === undefined) {
-      delete process.env.NEXT_PUBLIC_POSTHOG_HOST;
-    } else {
-      process.env.NEXT_PUBLIC_POSTHOG_HOST = originalHost;
-    }
     vi.restoreAllMocks();
   });
 
@@ -77,18 +65,23 @@ describe("capturePostHogEvent", () => {
     });
   });
 
-  it("is a no-op when analytics is not configured", async () => {
-    vi.stubEnv("NODE_ENV", "development");
-    delete process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("builds no client and sends nothing when analytics is off", async () => {
+    vi.stubEnv("ANALYTICS_PROVIDER", "none");
     const capture = await loadCapture();
 
-    capture({ distinctId: "user-1", event: "chat_turn_submitted" });
     capture({ distinctId: "user-1", event: "chat_turn_submitted" });
 
     expect(posthog.construct).not.toHaveBeenCalled();
     expect(posthog.capture).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("is off by default, even with a token present", async () => {
+    vi.stubEnv("ANALYTICS_PROVIDER", "");
+    const capture = await loadCapture();
+
+    capture({ distinctId: "user-1", event: "chat_turn_submitted" });
+
+    expect(posthog.construct).not.toHaveBeenCalled();
   });
 
   it("never lets analytics failures break the product action", async () => {

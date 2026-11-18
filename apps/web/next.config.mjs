@@ -22,9 +22,9 @@ const agentCoreEndpoint = `bedrock-agentcore.${process.env.AWS_REGION ?? "us-eas
  *     Next.js inlines its bootstrap + flight payload, and app/layout.tsx
  *     inlines the pre-paint theme script. Dropping it needs a nonce threaded
  *     through middleware (follow-up, not this PR).
- *   - PostHog is same-origin: the `/ingest/*` rewrites below proxy it, and
- *     instrumentation-client.ts sets `api_host: "/ingest"`, so no posthog.com
- *     origin appears here.
+ *   - PostHog is same-origin: the `/ingest/*` route handler
+ *     (app/ingest/[...path]/route.ts) proxies it, and instrumentation-client.ts
+ *     sets `api_host: "/ingest"`, so no posthog.com origin appears here.
  *   - `data:`/`blob:` images and media: artifact previews render base64 data
  *     URLs and downloads go through URL.createObjectURL.
  *   - fonts are local woff2 under /app/fonts (no Google Fonts egress).
@@ -131,22 +131,6 @@ const nextConfig = {
     return [
       { source: "/:path*", headers: securityHeaders },
       { source: "/apps/:slug", headers: deployedAppHeaders },
-    ];
-  },
-  async rewrites() {
-    return [
-      {
-        source: "/ingest/static/:path*",
-        destination: "https://us-assets.i.posthog.com/static/:path*",
-      },
-      {
-        source: "/ingest/array/:path*",
-        destination: "https://us-assets.i.posthog.com/array/:path*",
-      },
-      {
-        source: "/ingest/:path*",
-        destination: "https://us.i.posthog.com/:path*",
-      },
     ];
   },
   skipTrailingSlashRedirect: true,

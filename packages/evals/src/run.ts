@@ -43,6 +43,7 @@ import { threadSummaryPrecedenceSuite } from "./cases/thread-summary-precedence.
 import { modelIdentitySuite } from "./cases/model-identity.cases";
 import { instructionPrecedenceSuite } from "./cases/instruction-precedence.cases";
 import { providerCompatibilitySuite } from "./cases/provider-compatibility.cases";
+import { deploymentCapabilityHonestySuite } from "./cases/deployment-capability-honesty.cases";
 import { estimateUsageCostUsd } from "./benchmarks/model-routing";
 import { JUDGE_INCONCLUSIVE_NOTE, JUDGE_MODEL_ID } from "./judge";
 
@@ -72,6 +73,7 @@ export const SUITES: EvalSuite[] = [
   threadSummaryInjectionSuite,
   threadSummaryPrecedenceSuite,
   instructionPrecedenceSuite,
+  deploymentCapabilityHonestySuite,
 ];
 
 export interface RunArgs {

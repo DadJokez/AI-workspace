@@ -8,6 +8,10 @@
 
 import { renderSkillOverPersonalNote } from "@ai-workspace/agent";
 import {
+  FULL_DEPLOYMENT_CAPABILITIES,
+  type DeploymentCapabilities,
+} from "@/lib/deployment-capabilities";
+import {
   INTEGRATION_DISPLAY_NAMES,
   SETTINGS_INTEGRATIONS_PATH,
   integrationConnectPath,
@@ -49,6 +53,12 @@ interface PreambleInput {
   reconnectRequiredProviders?: readonly string[];
   /** Built-in non-account tools mounted for this turn, such as public URL fetch. */
   builtinTools?: readonly string[];
+  /**
+   * What the deployment offers at all. Defaults to everything; a deployment
+   * that removes a connector or a web tool passes what is left, and the
+   * statement below stops mentioning what is gone.
+   */
+  deployment?: DeploymentCapabilities;
   webAccess?: {
     state: "granted" | "not_granted";
     source: "interactive_default" | "skill_declaration" | "not_declared";
@@ -102,6 +112,7 @@ export function buildAgentPreamble({
   comingSoonProviders = [],
   reconnectRequiredProviders = [],
   builtinTools = [],
+  deployment = FULL_DEPLOYMENT_CAPABILITIES,
   webAccess,
   artifactContext,
   vaultContextRequested = false,
@@ -153,15 +164,20 @@ export function buildAgentPreamble({
         lines.push(`- ${tool}`);
       }
     }
-    lines.push(
-      "When the user provides a public URL and asks what is on it, call the URL fetch tool before answering. If the tool returns an error, surface that exact error instead of guessing page contents.",
-    );
     if (builtinTools.includes("web__fetch_url")) {
+      lines.push(
+        "When the user provides a public URL and asks what is on it, call the URL fetch tool before answering. If the tool returns an error, surface that exact error instead of guessing page contents.",
+      );
       lines.push(
         "Web evidence discipline: a fetch result with `truncated: true` is partial evidence. Retry the same URL with a larger `maxBytes` before relying on another source or drawing completeness conclusions. When the user names an authoritative source, describe fields as official, verified, or complete only when fetched evidence from that source supports each field. Secondary sources may fill gaps only when those values are clearly labeled secondary or unverified; they never silently replace the named source. For structured artifacts such as calendars and tables, trace every date, time, and location to fetched evidence, omit or visibly mark unavailable fields, and include the source URLs and any remaining verification gaps.",
       );
     }
     lines.push("");
+  } else if (!deployment.webSearch && !deployment.webFetch) {
+    lines.push(
+      "Web access: this deployment has no public web tools — no web search and no URL fetch. Do not offer to search the web or open a web page, and never claim to have done so. If the user asks for either, say plainly that web access is not available here.",
+      "",
+    );
   } else if (webAccess?.state === "not_granted") {
     lines.push(
       `Web access: not granted for this unattended run. No public web tool is mounted because the skill did not declare \`web_access: true\`. The active admin policy is "${webAccess.policy}". Do not claim to have searched or fetched the web.`,
@@ -260,11 +276,20 @@ export function buildAgentPreamble({
     );
   }
 
+  if (deployment.disabledConnectors.length > 0) {
+    lines.push("");
+    lines.push(
+      `Connectors not offered in this deployment: ${deployment.disabledConnectors
+        .map((provider) => PROVIDER_DISPLAY_NAMES[provider] ?? provider)
+        .join(", ")}. They cannot be connected here. If the user asks to use one, say plainly that it is not available in this deployment; do not send them to Settings for it.`,
+    );
+  }
+
   lines.push("");
   lines.push(
     // Real Settings navigation, from the same constants the Settings UI
     // renders, so guidance can never point at a page that does not exist (#649).
-    `Tool connection navigation: work tool connections are managed in ${SETTINGS_INTEGRATIONS_PATH} — each service there has a Connect button (for GitHub: ${integrationConnectPath("github")}). When telling the user where to connect a tool that is not connected, cite exactly that visible path. Never invent settings pages or section names that are not stated here.`,
+    `Tool connection navigation: work tool connections are managed in ${SETTINGS_INTEGRATIONS_PATH} — each service there has a Connect button${deployment.connectors.includes("github") ? ` (for GitHub: ${integrationConnectPath("github")})` : ""}. When telling the user where to connect a tool that is not connected, cite exactly that visible path. Never invent settings pages or section names that are not stated here.`,
   );
 
   const ci = user.customInstructions?.trim();
@@ -311,7 +336,7 @@ export function buildAgentPreamble({
     "Always prefer using mounted or model-available connected tools over suggesting CLI commands, environment variables, or manual workarounds. The callable connected tools support both reads AND writes (creating issues, opening pull requests, creating repositories, etc.) — call them directly when the user asks for those operations.",
   );
   lines.push(
-    "Tool selection: call a mounted tool when the answer depends on current public information or this user's connected account data. Prefer the connected first-party provider for the user's work data; use web search for current public information. Connected account tools represent the user's data, not the assistant's own state or plans: respect the grammatical subject, and treat questions addressed to 'you' or 'your' as conversational unless the user explicitly asks about their own account or requests an action. Do not call a tool for greetings, casual conversation, or self-contained writing and reasoning based only on context already in the prompt.",
+    `Tool selection: call a mounted tool when the answer depends on current public information or this user's connected account data. Prefer the connected first-party provider for the user's work data${deployment.webSearch ? "; use web search for current public information" : ""}. Connected account tools represent the user's data, not the assistant's own state or plans: respect the grammatical subject, and treat questions addressed to 'you' or 'your' as conversational unless the user explicitly asks about their own account or requests an action. Do not call a tool for greetings, casual conversation, or self-contained writing and reasoning based only on context already in the prompt.`,
   );
   lines.push("");
   lines.push(

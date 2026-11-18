@@ -1,9 +1,19 @@
 import type { Metadata, Viewport } from "next";
+import { connection } from "next/server";
 import localFont from "next/font/local";
 import { AlphaBadge } from "@/components/AlphaBadge";
 import { CommandPaletteProvider } from "@/components/CommandPalette";
 import { PostHogPageView } from "@/components/PostHogPageView";
 import { UiPreferencesSync } from "@/components/UiPreferencesSync";
+import {
+  ANALYTICS,
+  ENABLED_CONNECTOR_PROVIDERS,
+} from "@/lib/deployment-config";
+import { POSTHOG_INGEST_PATH } from "@/lib/posthog-ingest";
+import {
+  PUBLIC_RUNTIME_CONFIG_ELEMENT_ID,
+  serializePublicRuntimeConfig,
+} from "@/lib/public-runtime-config";
 import "./globals.css";
 
 const geist = localFont({
@@ -103,11 +113,23 @@ function BuiltByMark() {
   );
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Deployment settings are read per request, never frozen in at build time.
+  await connection();
+  const runtimeConfig = serializePublicRuntimeConfig({
+    analytics: ANALYTICS
+      ? {
+          provider: ANALYTICS.provider,
+          token: ANALYTICS.token,
+          apiHost: POSTHOG_INGEST_PATH,
+        }
+      : null,
+    connectors: [...ENABLED_CONNECTOR_PROVIDERS],
+  });
   return (
     <html
       lang="en"
@@ -123,6 +145,11 @@ export default function RootLayout({
             the site alone. */}
         <meta name="darkreader-lock" />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        <script
+          id={PUBLIC_RUNTIME_CONFIG_ELEMENT_ID}
+          type="application/json"
+          dangerouslySetInnerHTML={{ __html: runtimeConfig }}
+        />
       </head>
       <body className="bg-canvas text-ink antialiased">
         <PostHogPageView />

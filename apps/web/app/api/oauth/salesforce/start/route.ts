@@ -1,7 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
-import { PUBLIC_BASE_URL } from "@/lib/deployment-config";
+import {
+  disabledConnectorResponse,
+  PUBLIC_BASE_URL,
+} from "@/lib/deployment-config";
 import { STATE_TTL_SECONDS } from "@/lib/oauth/github";
 import {
   SALESFORCE_AUTHORIZE_URL,
@@ -21,6 +24,8 @@ function chatRedirect(params: Record<string, string>) {
 }
 
 export async function GET() {
+  const disabled = disabledConnectorResponse("salesforce");
+  if (disabled) return disabled;
   const session = await requireSession();
   if ("error" in session) return session.error;
   if (!SALESFORCE_CLIENT_ID) {

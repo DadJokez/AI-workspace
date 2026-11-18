@@ -39,6 +39,7 @@ import {
   contextResourceStateLabel,
   type ContextResourceManifest,
 } from "@/lib/context-shelf";
+import { deploymentCapabilities } from "@/lib/deployment-capabilities";
 
 export interface ChatContextUser {
   displayName: string;
@@ -758,6 +759,7 @@ export function buildChatContextPack({
           ),
           reconnectRequiredProviders: receipt.tools.reconnectRequired,
           builtinTools: receipt.tools.builtinMounted,
+          deployment: deploymentCapabilities(),
           webAccess: receipt.tools.webAccess,
           artifactContext: artifacts || null,
           vaultContextRequested,

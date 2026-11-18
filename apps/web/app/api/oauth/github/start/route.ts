@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
+import { disabledConnectorResponse } from "@/lib/deployment-config";
 import { requireSession } from "@/lib/auth/requireSession";
 import {
   GITHUB_AUTHORIZE_URL,
@@ -17,6 +18,8 @@ export const dynamic = "force-dynamic";
  * Sets a short-lived signed state cookie and redirects to GitHub's authorize URL.
  */
 export async function GET() {
+  const disabled = disabledConnectorResponse("github");
+  if (disabled) return disabled;
   const session = await requireSession();
   if ("error" in session) return session.error;
   const state = randomBytes(32).toString("base64url");
