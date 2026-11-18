@@ -62,6 +62,15 @@ describe("buildResponsesRequest", () => {
     expect(JSON.stringify(request)).not.toMatch(/cachePoint|cache_control/);
   });
 
+  it("sends the deployment's inference-profile prefix", () => {
+    vi.stubEnv("BEDROCK_INFERENCE_PROFILE_PREFIX", "global.");
+    try {
+      expect(buildResponsesRequest(BASE).model).toBe("global.openai.gpt-5.6-terra");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("maps a tool round-trip losslessly: function tools (strict:false), forced tool_choice, function_call + function_call_output by call id", () => {
     const request = buildResponsesRequest({
       ...BASE,

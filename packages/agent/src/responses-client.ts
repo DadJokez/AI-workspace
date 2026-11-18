@@ -10,6 +10,7 @@ import type {
   BedrockStreamEvent,
   ConverseStreamParams,
 } from "./clients";
+import { resolveBedrockModelId } from "./models";
 
 /**
  * Bedrock's OpenAI-compatible Responses API behind the `BedrockClient` seam
@@ -117,7 +118,7 @@ export function buildResponsesRequest(
   );
   const forcedTool = params.toolConfig?.toolChoice?.tool.name;
   return {
-    model: params.bedrockModelId,
+    model: resolveBedrockModelId(params.bedrockModelId),
     ...(instructions ? { instructions } : {}),
     input: params.messages.flatMap(toInputItems),
     ...(tools && tools.length > 0 ? { tools } : {}),

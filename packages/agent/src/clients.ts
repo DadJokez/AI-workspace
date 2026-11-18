@@ -8,7 +8,7 @@ import {
   type ToolConfiguration,
 } from "@aws-sdk/client-bedrock-runtime";
 import type { DocumentType } from "@smithy/types";
-import type { ModelInvocation } from "./models";
+import { resolveBedrockModelId, type ModelInvocation } from "./models";
 import type { BedrockToolConfig } from "./registry";
 import { BedrockResponsesClient } from "./responses-client";
 import type { TokenUsage } from "./types";
@@ -192,7 +192,7 @@ export class FakeBedrockClient implements BedrockClient {
     const reply =
       this.prefix +
       `you said: ${userText.length > 200 ? userText.slice(0, 200) + "…" : userText}` +
-      `\n(model: ${params.bedrockModelId})`;
+      `\n(model: ${resolveBedrockModelId(params.bedrockModelId)})`;
 
     let i = 0;
     while (i < reply.length) {
@@ -495,7 +495,7 @@ export class RealBedrockClient implements BedrockClient {
     }
 
     const command = new ConverseStreamCommand({
-      modelId: params.bedrockModelId,
+      modelId: resolveBedrockModelId(params.bedrockModelId),
       system: system.length > 0 ? system : undefined,
       messages,
       toolConfig,
