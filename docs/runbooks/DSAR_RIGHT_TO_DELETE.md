@@ -96,7 +96,7 @@ change). Deletion is manual SQL, and it is irreversible.
    Salesforce) separately because local disconnect does not yet call the
    provider revocation API (#692).
 3. **Take a snapshot** of `ai-workspace-db` before the delete. This is your
-   only undo, and automated backups retain **one day**
+   only undo you control; automated backups retain seven days as of 2026-11-13
    (`docs/runbooks/DB_RESTORE_REHEARSAL.md`).
 4. **Delete the `users` row inside a transaction.** Foreign keys do the rest:
    most user-owned tables are `ON DELETE CASCADE`, and `audit_log.actor_user_id`

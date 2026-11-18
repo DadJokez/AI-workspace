@@ -20,6 +20,7 @@ an IT reviewer) understands the reasoning without archaeology.
 | [0012](./0012-two-execution-lanes.md) | Two execution lanes (inline + durable worker) | Accepted — mechanism under revision ([#442](https://github.com/DadJokez/AI-workspace/issues/442)) |
 | [0013](./0013-durable-conversation-resources.md) | Uploaded files are durable, thread-scoped conversation resources | Accepted |
 | [0014](./0014-tamper-evident-audit-log.md) | Tamper-evident `audit_log` via a per-row hash chain | Proposed — design only ([#457](https://github.com/DadJokez/AI-workspace/issues/457)) |
+| [0015](./0015-koch-landing-zone-contract.md) | Koch landing-zone contract: answers, defaults and the variables they set | Proposed — Koch answers pending ([#971](https://github.com/DadJokez/AI-workspace/issues/971)) |
 
 0007–0012 were added 2026-07-19, promoting shipped decisions that had lived
 only in specs/memory (prompted by the [self-review](../reviews/REPO-SELF-REVIEW-2026-07-19.md)
