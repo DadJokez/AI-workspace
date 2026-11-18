@@ -1,8 +1,6 @@
 # 20-data: the PostgreSQL instance, an optional RDS Proxy, the secrets and the
 # buckets of one environment.
 
-data "aws_partition" "current" {}
-
 data "aws_caller_identity" "current" {
   lifecycle {
     postcondition {
@@ -21,6 +19,10 @@ data "aws_ssm_parameter" "secrets_kms_key_arn" {
   name = "/comparative/${var.env}/00-foundation/kms/secrets_arn"
 }
 
+data "aws_ssm_parameter" "workload_boundary_arn" {
+  name = "/comparative/${var.env}/00-foundation/iam/workload_boundary_arn"
+}
+
 data "aws_ssm_parameter" "data_subnet_ids" {
   name = "/comparative/${var.env}/10-network/data_subnet_ids"
 }
@@ -30,10 +32,6 @@ data "aws_ssm_parameter" "db_security_group_id" {
 }
 
 locals {
-  # 00-foundation names the workload boundary <name_prefix>-workload-boundary
-  # and does not publish its ARN.
-  permissions_boundary_arn = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:policy/${var.name_prefix}-workload-boundary"
-
   parameters = {
     "db/endpoint"                 = module.data.db_address
     "db/port"                     = tostring(module.data.db_port)
@@ -60,7 +58,7 @@ module "data" {
 
   data_kms_key_arn         = data.aws_ssm_parameter.data_kms_key_arn.insecure_value
   secrets_kms_key_arn      = data.aws_ssm_parameter.secrets_kms_key_arn.insecure_value
-  permissions_boundary_arn = local.permissions_boundary_arn
+  permissions_boundary_arn = data.aws_ssm_parameter.workload_boundary_arn.insecure_value
 
   engine_version             = var.db_engine_version
   instance_class             = var.db_instance_class
