@@ -13,7 +13,8 @@ import {
   skills,
   users,
 } from "@ai-workspace/db";
-import { and, eq, isNull, lt, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import type { GitHubEventIngestMode } from "@/lib/deployment-config";
 import { checkRateLimit } from "@/lib/request-limits";
 import { canActorRunSkill } from "@/lib/shares";
 import {
@@ -264,6 +265,32 @@ export function eventTriggerKind(
   return null;
 }
 
+/**
+ * Webhook event types that GitHub's repository events feed also carries.
+ * `workflow_run` is not one of them: the feed has no Actions events, so a
+ * failed-CI trigger cannot be served by polling.
+ */
+export const POLLABLE_GITHUB_EVENT_TYPES = ["pull_request_review"] as const;
+
+/**
+ * Why a trigger cannot receive events under this deployment's ingest mode, or
+ * null when it can. Shown to the owner as written.
+ */
+export function eventTriggerUnavailableReason(
+  trigger: Pick<EventTrigger, "eventType">,
+  mode: GitHubEventIngestMode,
+): string | null {
+  if (
+    mode === "webhook" ||
+    (POLLABLE_GITHUB_EVENT_TYPES as readonly string[]).includes(
+      trigger.eventType,
+    )
+  ) {
+    return null;
+  }
+  return "Failed-CI triggers are not available in this deployment. It reads GitHub events from the repository's events feed, and that feed does not include workflow runs.";
+}
+
 export function matchesGitHubEventTrigger(
   trigger: Pick<
     EventTrigger,
@@ -350,11 +377,18 @@ export async function processGitHubWebhookEvent({
   db,
   deliveryId,
   event,
+  scope,
   now = new Date(),
 }: {
   db: Database;
   deliveryId: string;
   event: NormalizedGitHubEvent;
+  /**
+   * Poll mode: the event was read with one user's token, so it may reach only
+   * these triggers, and only while that user owns them. A webhook delivery is
+   * signed by the repository and carries no scope.
+   */
+  scope?: { userId: string; triggerIds: string[] };
   now?: Date;
 }): Promise<GitHubWebhookProcessResult> {
   const candidates = await db
@@ -373,6 +407,12 @@ export async function processGitHubWebhookEvent({
         eq(eventTriggers.eventType, event.eventType),
         eq(eventTriggers.enabled, true),
         isNull(eventTriggers.deletedAt),
+        ...(scope
+          ? [
+              eq(eventTriggers.userId, scope.userId),
+              inArray(eventTriggers.id, scope.triggerIds),
+            ]
+          : []),
       ),
     );
   const matched = candidates.filter(({ trigger }) =>

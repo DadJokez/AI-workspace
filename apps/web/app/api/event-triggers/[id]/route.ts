@@ -2,6 +2,8 @@ import { auditLog, eventTriggers, getDb } from "@ai-workspace/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
+import { GITHUB_EVENT_INGEST_MODE } from "@/lib/deployment-config";
+import { eventTriggerUnavailableReason } from "@/lib/github-event-triggers";
 
 export const dynamic = "force-dynamic";
 
@@ -34,9 +36,39 @@ export async function PATCH(req: Request, context: RouteContext) {
   const enabled = (body as { enabled: boolean }).enabled;
   const db = getDb();
   const now = new Date();
+  if (enabled && GITHUB_EVENT_INGEST_MODE === "poll") {
+    const existing = await db
+      .select({ eventType: eventTriggers.eventType })
+      .from(eventTriggers)
+      .where(
+        and(
+          eq(eventTriggers.id, id),
+          eq(eventTriggers.userId, sessionUser.id),
+          isNull(eventTriggers.deletedAt),
+        ),
+      )
+      .limit(1);
+    const unavailable = existing[0]
+      ? eventTriggerUnavailableReason(existing[0], GITHUB_EVENT_INGEST_MODE)
+      : null;
+    if (unavailable) {
+      return NextResponse.json(
+        { error: "event_trigger_unavailable", message: unavailable },
+        { status: 409 },
+      );
+    }
+  }
   const rows = await db
     .update(eventTriggers)
-    .set({ enabled, lastError: enabled ? null : undefined, updatedAt: now })
+    .set({
+      enabled,
+      lastError: enabled ? null : undefined,
+      // Resuming starts the poll-mode cursor over, so events from the pause
+      // are not replayed.
+      pollState: enabled ? null : undefined,
+      pollNextAt: enabled ? null : undefined,
+      updatedAt: now,
+    })
     .where(
       and(
         eq(eventTriggers.id, id),

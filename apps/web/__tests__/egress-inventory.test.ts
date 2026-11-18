@@ -129,6 +129,21 @@ describe("egress inventory follows the deployment", () => {
     expect(hosts(none).filter((host) => /github/.test(host))).toEqual([]);
   });
 
+  it("sends the chat worker to the GitHub API only when event triggers poll", () => {
+    const pollingWorkers = (githubEventPolling: boolean) =>
+      buildEgressInventory({ ...REFERENCE_EGRESS_SETTINGS, githubEventPolling })
+        .filter(
+          (entry) =>
+            entry.host === "api.github.com" &&
+            entry.services.includes("chat-worker"),
+        )
+        .map((entry) => entry.enabledWhen);
+    expect(pollingWorkers(false)).toEqual([]);
+    expect(pollingWorkers(true)).toEqual([
+      "github in ENABLED_CONNECTOR_PROVIDERS and GITHUB_EVENT_INGEST_MODE=poll",
+    ]);
+  });
+
   it("keeps GitHub's web and API hosts for sign-in when the connector is off", () => {
     const signInOnly = buildEgressInventory({
       ...REFERENCE_EGRESS_SETTINGS,

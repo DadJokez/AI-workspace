@@ -1,6 +1,7 @@
 import {
   auditLog,
   chatThreads,
+  type Database,
   eventTriggers,
   getDb,
   skills,
@@ -8,12 +9,18 @@ import {
 import { and, count, desc, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
+import { verifyGitHubRepositoryEventAccess } from "@/lib/github-event-poller";
 import {
   eventTriggerKind,
+  eventTriggerUnavailableReason,
+  type GitHubEventTriggerInput,
   parseGitHubEventTriggerInput,
 } from "@/lib/github-event-triggers";
 import { ensureGitHubRepositoryWebhook } from "@/lib/github-webhook-subscriptions";
-import { PUBLIC_BASE_URL } from "@/lib/deployment-config";
+import {
+  GITHUB_EVENT_INGEST_MODE,
+  PUBLIC_BASE_URL,
+} from "@/lib/deployment-config";
 import { checkRateLimit } from "@/lib/request-limits";
 import { canActorRunSkill } from "@/lib/shares";
 
@@ -59,6 +66,10 @@ export async function GET(req: Request) {
     triggers: rows.map((row) => ({
       ...row,
       kind: eventTriggerKind(row),
+      unavailableReason: eventTriggerUnavailableReason(
+        row,
+        GITHUB_EVENT_INGEST_MODE,
+      ),
     })),
   });
 }
@@ -135,22 +146,10 @@ export async function POST(req: Request) {
     );
   }
 
-  const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
-  if (!webhookSecret) {
-    return NextResponse.json(
-      {
-        error: "webhook_not_configured",
-        message: "GitHub event triggers are not configured yet.",
-      },
-      { status: 503 },
-    );
-  }
-  const subscription = await ensureGitHubRepositoryWebhook({
+  const subscription = await subscribeToRepositoryEvents({
     db,
     userId: sessionUser.id,
-    repository: parsed.input.repository,
-    webhookUrl: `${PUBLIC_BASE_URL}/api/webhooks/github`,
-    secret: webhookSecret,
+    input: parsed.input,
   });
   if (!subscription.ok) {
     return NextResponse.json(
@@ -203,8 +202,7 @@ export async function POST(req: Request) {
         action: created.action,
         filters: created.filters,
         threadMode: created.threadMode,
-        githubHookId: subscription.hookId,
-        githubHookCreated: subscription.created,
+        ...subscription.audit,
       },
       startedAt: now,
       completedAt: now,
@@ -216,4 +214,71 @@ export async function POST(req: Request) {
     { trigger: { ...trigger, kind: eventTriggerKind(trigger) } },
     { status: 201 },
   );
+}
+
+/**
+ * Makes sure events for the repository can reach this deployment before the
+ * trigger is saved. Webhook mode installs the repository webhook with the
+ * owner's token. Poll mode installs nothing: it refuses an event type the
+ * events feed does not carry, and checks that the owner's token can read the
+ * feed the chat worker will poll.
+ */
+async function subscribeToRepositoryEvents({
+  db,
+  userId,
+  input,
+}: {
+  db: Database;
+  userId: string;
+  input: GitHubEventTriggerInput;
+}): Promise<
+  | { ok: true; audit: Record<string, unknown> }
+  | { ok: false; status: number; error: string; message: string }
+> {
+  if (GITHUB_EVENT_INGEST_MODE === "poll") {
+    const unavailable = eventTriggerUnavailableReason(
+      input,
+      GITHUB_EVENT_INGEST_MODE,
+    );
+    if (unavailable) {
+      return {
+        ok: false,
+        status: 409,
+        error: "event_trigger_unavailable",
+        message: unavailable,
+      };
+    }
+    const access = await verifyGitHubRepositoryEventAccess({
+      db,
+      userId,
+      repository: input.repository,
+    });
+    return access.ok ? { ok: true, audit: { ingestMode: "poll" } } : access;
+  }
+
+  const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    return {
+      ok: false,
+      status: 503,
+      error: "webhook_not_configured",
+      message: "GitHub event triggers are not configured yet.",
+    };
+  }
+  const subscription = await ensureGitHubRepositoryWebhook({
+    db,
+    userId,
+    repository: input.repository,
+    webhookUrl: `${PUBLIC_BASE_URL}/api/webhooks/github`,
+    secret: webhookSecret,
+  });
+  return subscription.ok
+    ? {
+        ok: true,
+        audit: {
+          githubHookId: subscription.hookId,
+          githubHookCreated: subscription.created,
+        },
+      }
+    : subscription;
 }

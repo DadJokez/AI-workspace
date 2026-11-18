@@ -73,6 +73,7 @@ pnpm dev          # http://localhost:3000
 | `GITHUB_AUTH_CLIENT_ID` / `GITHUB_AUTH_CLIENT_SECRET` | GitHub OAuth App for sign-in |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Separate GitHub OAuth App for per-user MCP tokens |
 | `GITHUB_WEBHOOK_SECRET` | HMAC secret for signed GitHub repository events; injected into the web task only |
+| `GITHUB_EVENT_INGEST_MODE` | `webhook` (default) or `poll`. In `poll` the chat worker reads repository event feeds with each trigger owner's token, the webhook route returns 404 and `GITHUB_WEBHOOK_SECRET` is not needed; failed-CI triggers are unavailable |
 | `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` | Notion OAuth integration token app for `/api/oauth/notion/*` |
 | `NOTION_API_VERSION` | Notion API version header for OAuth token exchange; defaults to `2026-03-11` |
 | `NOTION_MCP_ENDPOINT_URL` | Optional override for a compatible Comparative-owned Notion MCP gateway. Empty uses the first-party `/api/mcp/notion` endpoint. Do not point this at hosted Notion MCP. |

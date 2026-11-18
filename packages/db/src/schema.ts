@@ -603,6 +603,13 @@ export const eventTriggers = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     lastFiredAt: timestamp("last_fired_at", { withTimezone: true }),
     lastError: text("last_error"),
+    // Poll mode only (GITHUB_EVENT_INGEST_MODE=poll). `poll_state` is the feed
+    // cursor (ETag, the first-poll floor, events already handled); the claim
+    // pair is the same lease the scheduler uses.
+    pollState: jsonb("poll_state"),
+    pollNextAt: timestamp("poll_next_at", { withTimezone: true }),
+    pollClaimedAt: timestamp("poll_claimed_at", { withTimezone: true }),
+    pollClaimedBy: text("poll_claimed_by"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

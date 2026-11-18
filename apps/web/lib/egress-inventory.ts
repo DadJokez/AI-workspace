@@ -10,6 +10,7 @@ import {
   CONNECTOR_PROVIDERS,
   ENABLED_CONNECTOR_PROVIDERS,
   GITHUB_API_URL,
+  GITHUB_EVENT_INGEST_MODE,
   GITHUB_WEB_URL,
   INTERNAL_BASE_URL,
   WEB_FETCH_ENABLED,
@@ -80,6 +81,8 @@ export interface EgressSettings {
   githubSignIn: boolean;
   githubWebHost: string;
   githubApiHost: string;
+  /** Event triggers read repository event feeds (GITHUB_EVENT_INGEST_MODE=poll). */
+  githubEventPolling: boolean;
   /**
    * Connector MCP servers on a host other than this app, by connector. GitHub
    * is absent when the deployment has no GitHub MCP server.
@@ -241,6 +244,17 @@ export function buildEgressInventory(settings: EgressSettings): EgressEntry[] {
         viaProxy: false,
       },
     );
+  }
+  if (connector("github") && settings.githubEventPolling) {
+    entries.push({
+      host: settings.githubApiHost,
+      purpose:
+        "GitHub REST API: repository event feeds and pull requests, read for event triggers",
+      services: TOKEN_REFRESH,
+      enabledWhen:
+        "github in ENABLED_CONNECTOR_PROVIDERS and GITHUB_EVENT_INGEST_MODE=poll",
+      viaProxy: true,
+    });
   }
   for (const [provider, host] of Object.entries(settings.externalMcpHosts)) {
     if (!connector(provider)) continue;
@@ -432,6 +446,7 @@ function deploymentEgressSettings(): EgressSettings {
     githubSignIn: enabledAuthProviders().includes("github"),
     githubWebHost: hostOf(GITHUB_WEB_URL),
     githubApiHost: hostOf(GITHUB_API_URL),
+    githubEventPolling: GITHUB_EVENT_INGEST_MODE === "poll",
     externalMcpHosts,
     salesforceLoginHost: hostOf(SALESFORCE_LOGIN_URL),
     webSearch: isWebSearchConfigured(),
@@ -465,6 +480,7 @@ export const REFERENCE_EGRESS_SETTINGS: EgressSettings = {
   githubSignIn: true,
   githubWebHost: hostOf(DEFAULT_GITHUB.webUrl),
   githubApiHost: hostOf(DEFAULT_GITHUB.apiUrl),
+  githubEventPolling: true,
   externalMcpHosts: DEFAULT_GITHUB.mcpUrl
     ? { github: hostOf(DEFAULT_GITHUB.mcpUrl) }
     : {},
