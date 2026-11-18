@@ -19,6 +19,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    setupFiles: ["./vitest.setup.ts"],
     include: ["__integration__/**/*.integration.test.ts"],
     // Scoping tests share one database; serialize files to keep seeds
     // deterministic.

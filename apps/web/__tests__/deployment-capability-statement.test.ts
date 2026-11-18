@@ -29,6 +29,7 @@ function preamble(
 const KOCH: DeploymentCapabilities = {
   connectors: ["github", "salesforce"],
   disabledConnectors: ["notion", "google"],
+  connectorsWithoutChatTools: [],
   webSearch: false,
   webFetch: false,
 };
@@ -42,6 +43,7 @@ describe("capability statement follows the deployment", () => {
     expect(full).toContain("use web search for current public information");
     expect(full).toContain("(for GitHub: Settings → Integrations");
     expect(full).not.toContain("Connectors not offered in this deployment");
+    expect(full).not.toContain("have no chat tools here");
     expect(full).not.toContain("this deployment has no public web tools");
   });
 
@@ -88,6 +90,17 @@ describe("capability statement follows the deployment", () => {
     });
     expect(text).not.toContain("(for GitHub:");
     expect(text).toContain("each service there has a Connect button.");
+  });
+
+  it("says a connector with no MCP server has no chat tools", () => {
+    const text = preamble({ ...KOCH, connectorsWithoutChatTools: ["github"] });
+    expect(text).toContain(
+      "Connectors that can be linked in this deployment but have no chat tools here: GitHub.",
+    );
+    expect(text).toContain(
+      "do not tell them that connecting one will let you use it",
+    );
+    expect(preamble(KOCH)).not.toContain("have no chat tools here");
   });
 });
 
@@ -145,9 +158,30 @@ describe("built-in web tools follow the deployment", () => {
     expect(deploymentCapabilities()).toEqual({
       connectors: ["github", "salesforce"],
       disabledConnectors: ["notion", "google"],
+      connectorsWithoutChatTools: [],
       webSearch: false,
       webFetch: false,
     });
+  });
+
+  it("reports GitHub as having no chat tools when its MCP URL is empty", async () => {
+    vi.stubEnv("GITHUB_MCP_URL", "");
+    const { deploymentCapabilities } = await import(
+      "@/lib/deployment-capabilities"
+    );
+    expect(deploymentCapabilities().connectorsWithoutChatTools).toEqual([
+      "github",
+    ]);
+    expect(deploymentCapabilities().connectors).toContain("github");
+  });
+
+  it("does not report it when the GitHub connector is off altogether", async () => {
+    vi.stubEnv("GITHUB_MCP_URL", "");
+    vi.stubEnv("ENABLED_CONNECTOR_PROVIDERS", "salesforce");
+    const { deploymentCapabilities } = await import(
+      "@/lib/deployment-capabilities"
+    );
+    expect(deploymentCapabilities().connectorsWithoutChatTools).toEqual([]);
   });
 });
 

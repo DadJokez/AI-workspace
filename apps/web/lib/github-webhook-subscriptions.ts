@@ -3,11 +3,11 @@ import {
   oauthTokens,
 } from "@ai-workspace/db";
 import { and, eq, isNull } from "drizzle-orm";
+import { GITHUB_API_URL } from "@/lib/deployment-config";
 import { decryptSecret } from "@/lib/oauth/crypto";
 import { integrationConnectPath } from "@/lib/settings-navigation";
 import { loadActiveToolAttestations } from "@/lib/tool-attestations";
 
-const GITHUB_API = "https://api.github.com";
 const GITHUB_API_VERSION = "2022-11-28";
 const REQUIRED_EVENTS = ["pull_request_review", "workflow_run"] as const;
 const MAX_HOOK_PAGES = 100;
@@ -215,7 +215,7 @@ function githubRequest(
   method = "GET",
   body?: Record<string, unknown>,
 ): Promise<Response> {
-  return fetchImpl(`${GITHUB_API}${path}`, {
+  return fetchImpl(`${GITHUB_API_URL}${path}`, {
     method,
     headers: {
       Accept: "application/vnd.github+json",
@@ -238,8 +238,14 @@ function nextGitHubApiPath(linkHeader: string | null): string | null | undefined
   if (!match) return null;
   try {
     const url = new URL(match[1]!);
-    if (url.origin !== GITHUB_API) return null;
-    return `${url.pathname}${url.search}`;
+    // GitHub Enterprise Server serves its API under a path (`/api/v3`), which
+    // `githubRequest` adds back.
+    const api = new URL(GITHUB_API_URL);
+    const apiPath = api.pathname.replace(/\/+$/, "");
+    if (url.origin !== api.origin || !url.pathname.startsWith(`${apiPath}/`)) {
+      return null;
+    }
+    return `${url.pathname.slice(apiPath.length)}${url.search}`;
   } catch {
     return null;
   }

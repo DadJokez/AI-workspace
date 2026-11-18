@@ -103,7 +103,10 @@ export type {
   ConverseStreamParams,
   FakeBedrockClientOptions,
 } from "./clients";
-export { BedrockResponsesClient } from "./responses-client";
+export {
+  BedrockResponsesClient,
+  responsesEndpointHost,
+} from "./responses-client";
 export type { BedrockResponsesClientOptions } from "./responses-client";
 
 export {

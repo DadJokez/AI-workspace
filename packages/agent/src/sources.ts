@@ -25,12 +25,27 @@ interface SourceToolResult {
   isError?: boolean;
 }
 
+/** Where a GitHub deployment serves its pages and its REST API. */
+export interface GitHubHosts {
+  webUrl: string;
+  apiUrl: string;
+}
+
+/** github.com. A GitHub Enterprise deployment passes its own hosts instead. */
+export const GITHUB_DOT_COM: GitHubHosts = {
+  webUrl: "https://github.com",
+  apiUrl: "https://api.github.com",
+};
+
 interface GitHubContext {
   toolCallId: string;
   toolName: string;
   owner?: string;
   repo?: string;
   ref?: string;
+  web: URL;
+  api: URL;
+  webUrlPattern: RegExp;
 }
 
 interface SourceCandidate {
@@ -45,8 +60,7 @@ type GitHubWalkMode = "wrapper" | "entity";
 const MAX_SOURCES = 20;
 const MAX_WALK_DEPTH = 7;
 const MAX_TITLE_LENGTH = 180;
-const GITHUB_URL_RE =
-  /https:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\/[^\s)\]}>"']*)?/gi;
+const GITHUB_REPO_PATH_RE_SOURCE = String.raw`\/[\w.-]+\/[\w.-]+(?:\/[^\s)\]}>"']*)?`;
 const GITHUB_RESULT_COLLECTION_KEYS = new Set([
   "pullRequests",
   "pull_requests",
@@ -78,12 +92,21 @@ const GITHUB_RESULT_ITEM_KEYS = new Set([
 export function extractAssistantSources({
   toolCalls = [],
   toolResults = [],
+  github = GITHUB_DOT_COM,
 }: {
   toolCalls?: readonly SourceToolCall[];
   toolResults?: readonly SourceToolResult[];
+  github?: GitHubHosts;
 }): AssistantSource[] {
   const callsById = new Map(toolCalls.map((call) => [call.id, call]));
   const candidates: SourceCandidate[] = [];
+  const web = new URL(github.webUrl);
+  const api = new URL(github.apiUrl);
+  const webUrlPattern = new RegExp(
+    web.origin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+      GITHUB_REPO_PATH_RE_SOURCE,
+    "gi",
+  );
 
   for (const result of toolResults) {
     if (result.isError) continue;
@@ -105,6 +128,9 @@ export function extractAssistantSources({
         stringValue(input.ref) ??
         stringValue(input.branch) ??
         stringValue(input.sha),
+      web,
+      api,
+      webUrlPattern,
     };
     collectGitHubSources(
       result.output,
@@ -190,8 +216,11 @@ function collectGitHubSources(
       );
       return;
     }
-    for (const match of value.matchAll(GITHUB_URL_RE)) {
-      const url = safeGitHubWebUrl(match[0].replace(/[.,;:!?]+$/, ""));
+    for (const match of value.matchAll(context.webUrlPattern)) {
+      const url = safeGitHubWebUrl(
+        match[0].replace(/[.,;:!?]+$/, ""),
+        context,
+      );
       if (url) addCandidate(candidates, context, url, titleFromUrl(url));
     }
     return;
@@ -304,7 +333,7 @@ function githubUrlFromRecord(
   for (const key of ["html_url", "htmlUrl", "web_url", "webUrl", "url"]) {
     const raw = stringValue(value[key]);
     if (!raw) continue;
-    const direct = safeGitHubWebUrl(raw);
+    const direct = safeGitHubWebUrl(raw, context);
     if (direct) return direct;
     const converted = githubApiUrlToWebUrl(raw, context);
     if (converted) return converted;
@@ -322,25 +351,45 @@ function githubApiUrlToWebUrl(
   } catch {
     return undefined;
   }
-  if (parsed.protocol !== "https:" || parsed.hostname !== "api.github.com") {
-    return undefined;
-  }
+  const apiPath = pathUnderGitHubApi(parsed, context);
+  if (apiPath === undefined) return undefined;
   const match = /^\/repos\/([^/]+)\/([^/]+)\/(pulls|issues|contents)\/(.+)$/.exec(
-    parsed.pathname,
+    apiPath,
   );
   if (!match) return undefined;
   const owner = match[1]!;
   const repo = match[2]!;
   const kind = match[3]!;
   const rest = match[4]!;
-  if (kind === "pulls") return `https://github.com/${owner}/${repo}/pull/${rest}`;
-  if (kind === "issues") return `https://github.com/${owner}/${repo}/issues/${rest}`;
+  const webOrigin = context.web.origin;
+  if (kind === "pulls") return `${webOrigin}/${owner}/${repo}/pull/${rest}`;
+  if (kind === "issues") return `${webOrigin}/${owner}/${repo}/issues/${rest}`;
   return githubFileUrl(decodeURIComponent(rest), {
     ...context,
     owner,
     repo,
     ref: parsed.searchParams.get("ref") ?? context.ref,
   });
+}
+
+/**
+ * The path below the REST API base, or undefined for a URL that is not an API
+ * URL. GitHub Enterprise Server serves its API on the web host under a path
+ * (`/api/v3`), so the host alone does not tell the two apart.
+ */
+function pathUnderGitHubApi(
+  parsed: URL,
+  context: GitHubContext,
+): string | undefined {
+  const base = context.api.pathname.replace(/\/+$/, "");
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.hostname !== context.api.hostname ||
+    !parsed.pathname.startsWith(`${base}/`)
+  ) {
+    return undefined;
+  }
+  return parsed.pathname.slice(base.length);
 }
 
 function githubFileUrl(
@@ -357,7 +406,7 @@ function githubFileUrl(
     .join("/");
   if (!safePath) return undefined;
   const ref = encodeURIComponent(context.ref ?? "HEAD");
-  return `https://github.com/${encodeURIComponent(context.owner)}/${encodeURIComponent(context.repo)}/blob/${ref}/${safePath}`;
+  return `${context.web.origin}/${encodeURIComponent(context.owner)}/${encodeURIComponent(context.repo)}/blob/${ref}/${safePath}`;
 }
 
 function titleFromRecord(
@@ -383,20 +432,25 @@ function titleFromUrl(url: string): string {
   }
 }
 
-function safeGitHubWebUrl(value: string): string | undefined {
+function safeGitHubWebUrl(
+  value: string,
+  context: GitHubContext,
+): string | undefined {
   let parsed: URL;
   try {
     parsed = new URL(value);
   } catch {
     return undefined;
   }
+  const host = context.web.hostname;
   if (
     parsed.protocol !== "https:" ||
-    !["github.com", "www.github.com"].includes(parsed.hostname.toLowerCase())
+    ![host, `www.${host}`].includes(parsed.hostname.toLowerCase()) ||
+    pathUnderGitHubApi(parsed, context) !== undefined
   ) {
     return undefined;
   }
-  parsed.hostname = "github.com";
+  parsed.hostname = host;
   parsed.hash = "";
   return parsed.toString();
 }

@@ -7,6 +7,7 @@ import {
   MAGIC_LINK_MAX_AGE_SECONDS,
   sendMagicLinkEmail,
 } from "@/lib/magic-link-email";
+import { githubProviderEndpoints } from "@/lib/auth/github-provider-endpoints";
 import { createNextAuthAdapter } from "@/lib/auth/nextauth-adapter";
 import {
   authRequestContext,
@@ -15,6 +16,7 @@ import {
   type AuthDenialReason,
   type AuthSignInPhase,
 } from "@/lib/auth/auth-audit";
+import { GITHUB_API_URL, GITHUB_WEB_URL } from "@/lib/deployment-config";
 import { ensureUser, findPendingInvitation } from "@/lib/users";
 
 /**
@@ -199,6 +201,7 @@ function buildProviders(): NextAuthOptions["providers"] {
         // magic-link-first tester with OAuthAccountNotLinked. The invite
         // gate in `signIn` still applies.
         allowDangerousEmailAccountLinking: true,
+        ...githubProviderEndpoints(GITHUB_WEB_URL, GITHUB_API_URL),
       }),
     );
   }

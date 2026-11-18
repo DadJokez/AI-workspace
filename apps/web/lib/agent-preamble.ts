@@ -285,6 +285,15 @@ export function buildAgentPreamble({
     );
   }
 
+  if (deployment.connectorsWithoutChatTools.length > 0) {
+    lines.push("");
+    lines.push(
+      `Connectors that can be linked in this deployment but have no chat tools here: ${deployment.connectorsWithoutChatTools
+        .map((provider) => PROVIDER_DISPLAY_NAMES[provider] ?? provider)
+        .join(", ")}. You cannot read, search or act on them in chat, whether or not the user has linked an account. If the user asks, say so plainly, and do not tell them that connecting one will let you use it.`,
+    );
+  }
+
   lines.push("");
   lines.push(
     // Real Settings navigation, from the same constants the Settings UI

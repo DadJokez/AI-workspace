@@ -13,6 +13,7 @@
     "browser:egress-proxy": "tsx scripts/browser-egress-proxy.ts",
     "memory:backfill": "tsx scripts/backfill-memory-captures.ts",
     "audit:retention": "tsx scripts/audit-retention.ts",
+    "egress:inventory": "tsx scripts/egress-inventory.ts",
     "audit:canceled-run-results": "tsx scripts/audit-canceled-run-results.ts",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
