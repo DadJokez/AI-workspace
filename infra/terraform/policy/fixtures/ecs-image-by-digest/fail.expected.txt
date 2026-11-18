@@ -1,0 +1,1 @@
+[ecs-image-by-digest] module.web.module.task.aws_ecs_task_definition.this: container "web" runs image "111122223333.dkr.ecr.us-east-1.amazonaws.com/cmp-fixture-app:web-latest", which is not given by digest

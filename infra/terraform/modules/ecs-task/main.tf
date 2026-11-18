@@ -71,6 +71,7 @@ locals {
 }
 
 resource "aws_cloudwatch_log_group" "this" {
+  #checkov:skip=CKV_AWS_338:30-day retention is the specified value for service logs, as in production today
   name              = var.log_group_name
   retention_in_days = 30
   kms_key_id        = var.kms_logs_arn
@@ -155,6 +156,7 @@ resource "aws_iam_role_policy" "task" {
 # --- task definition ------------------------------------------------------------
 
 resource "aws_ecs_task_definition" "this" {
+  #checkov:skip=CKV_AWS_336:Production's tasks have a writable root filesystem today; whether the images run read-only is untested
   family                   = local.family
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"

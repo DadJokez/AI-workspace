@@ -191,6 +191,13 @@ resource "aws_iam_policy" "workload_boundary" {
         Action   = "rds-db:connect"
         Resource = "*"
       },
+      {
+        # Invitation email. The web task's own policy names the one identity.
+        Sid      = "SendEmail"
+        Effect   = "Allow"
+        Action   = "ses:SendEmail"
+        Resource = "arn:${local.partition}:ses:*:${var.account_id}:identity/*"
+      },
     ]
   })
 }

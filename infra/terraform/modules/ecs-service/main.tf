@@ -53,6 +53,10 @@ resource "aws_service_discovery_service" "this" {
       ttl  = 60
     }
   }
+
+  # ECS reports each task's health to Cloud Map, so a task that fails its
+  # container health check leaves the name.
+  health_check_custom_config {}
 }
 
 # --- the service ----------------------------------------------------------------
