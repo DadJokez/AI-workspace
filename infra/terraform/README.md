@@ -15,7 +15,9 @@ tf.sh                the one way to run a stack
 check.sh             static checks, the same commands CI runs
 bootstrap/           one-time per account: state bucket and its KMS key
 modules/ci-identity/ GitHub OIDC provider, plan/apply/image-push/evals roles, workload boundary
+modules/network/     VPC (built or adopted), endpoints, security groups, optional stand-in proxy
 stacks/00-foundation/ KMS keys, ECR repositories, the ci-identity module, SSM outputs
+stacks/10-network/   the network module, SSM outputs
 envs/<env>/          backend.hcl, env.tfvars, release.auto.tfvars
 policy/              Conftest rules and their fixtures
 ```
@@ -120,6 +122,53 @@ Two properties to keep:
 `manage_account_singletons` is true in exactly one environment per account. That environment owns the
 per-account resources: the evals role, and the GitHub OIDC provider once `create_oidc_provider` is true.
 While another owner holds the provider (today the CDK eval stack), it is looked up instead.
+
+## What 10-network creates
+
+Applied after `00-foundation` (it reads the logs key from SSM):
+
+```bash
+./tf.sh personal-stage 10-network plan
+./tf.sh personal-stage 10-network apply
+```
+
+`network_mode` chooses between a VPC built here and one a landing zone supplies; `firewall_mode` and
+`egress` move together.
+
+| | `create`, `egress = "nat"` (sandbox) | `create`, `egress = "proxy"` (rehearsal) | `adopt` |
+|---|---|---|---|
+| VPC, subnets, routes, flow logs | built: a /16 with one /20 app and one /20 data subnet per zone | built, as left | supplied: `vpc_id`, `app_subnet_ids`, `data_subnet_ids`, `public_subnet_ids` |
+| Public subnets | one per zone | none when `internal_alb` is true | supplied when the load balancer is public |
+| Way out of the app subnets | default route to one NAT gateway | none: the proxy and the endpoints only | the landing zone's routing |
+| S3 gateway endpoint | yes | yes | the landing zone's |
+| Interface endpoints | none | one per entry of `interface_endpoints`, private DNS on | as left, in the supplied app subnets |
+| Security groups and rules | yes | yes | yes |
+
+- **Zones.** A VPC built here uses the first `az_count` zones of `agentcore_az_ids` (zone ids, not
+  names), so every app subnet can carry the AgentCore Browser. In adopt mode `agentcore_subnet_ids` is
+  the supplied app subnets that lie in one of those zones.
+- **Security groups.** `alb`, `web`, `worker`, `browser_proxy`, `studio_browser`, `agent_runtime`,
+  `deploy_task`, `db`, plus `endpoints` in firewall mode. Every rule is its own
+  `aws_vpc_security_group_*_rule` resource, declared in `modules/network/security_groups.tf`; a rule
+  between two groups is written once and becomes the egress rule of one and the ingress rule of the
+  other. Only the load balancer takes ingress from address ranges (`alb_ingress_cidrs`), and
+  `0.0.0.0/0` is refused there unless `internal_alb` is false.
+- **Proxy.** With `egress = "proxy"`, exactly one of two things is set. `proxy_url` with `proxy_cidrs`
+  names the organisation's proxy; the groups that use it may reach its port in those ranges only.
+  `create_standin_proxy` builds a stand-in for a rehearsal: one Fargate task running squid (a public
+  image pinned by digest) that lets through the hosts in `proxy_allowlist` and nothing else, logs every
+  request to `/comparative/<env>/standin-proxy`, sits in the one subnet that has a NAT route, and is
+  reachable only from the groups that use a proxy. Its private DNS namespace needs Route 53
+  permissions the apply role holds only with `manage_public_edge`.
+- **Published to SSM** under `/comparative/<env>/10-network/`: `vpc_id`, `app_subnet_ids`,
+  `data_subnet_ids`, `public_subnet_ids`, `agentcore_subnet_ids`, `sg/<group>_id` for the eight
+  workload groups, `proxy_url`, `no_proxy`. SSM cannot hold an empty value, so the subnet lists are
+  JSON arrays (read them with `jsondecode`; an empty list is `[]`) and `proxy_url` is the word `none`
+  when there is no proxy.
+- **`no_proxy`** is the private DNS names of the interface endpoints, the regional S3 names (S3 goes
+  through the gateway endpoint), `.<region>.elb.amazonaws.com` (which covers an internal load
+  balancer's own name; a custom internal DNS name is not covered), `169.254.170.2`, `localhost`,
+  `127.0.0.1` and the VPC resolver's address.
 
 ## Checks
 
