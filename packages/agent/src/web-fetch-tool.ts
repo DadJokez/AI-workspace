@@ -159,6 +159,9 @@ async function fetchPublicUrl({
     try {
       response = await requestImpl(current, {
         maxBytes,
+        // Pins the connection to the addresses checked above. Behind a
+        // forward proxy (outbound-proxy.ts) Node does not consult it: the
+        // proxy resolves the name, and the check above is the guard.
         lookup: createPublicLookup(lookupImpl, webFetchGuardError),
       });
     } catch (err) {

@@ -3,7 +3,7 @@ import {
   MODEL_IDS,
   MODELS,
   type ModelId,
-} from "@ai-workspace/agent";
+} from "@ai-workspace/agent/models";
 
 export type ChatModelOverride =
   | { mode: "model"; modelId: ModelId; label: string }

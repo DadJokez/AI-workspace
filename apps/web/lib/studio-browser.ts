@@ -24,6 +24,7 @@ import {
   parsePublicHttpUrl,
   publicUrlReceipt,
 } from "@ai-workspace/agent/public-url-policy";
+import { awsSdkProxyConfig } from "@ai-workspace/agent/outbound-proxy";
 import { Browser } from "bedrock-agentcore/browser";
 import { and, eq, inArray, lt, or } from "drizzle-orm";
 import { loadThreadMessagesWithRunActivity } from "@/lib/thread-messages";
@@ -466,7 +467,10 @@ function createAgentCoreBrowserProvider(): StudioBrowserProvider {
   const proxyHost = process.env.AGENTCORE_BROWSER_PROXY_HOST!;
   const proxyPort = Number(process.env.AGENTCORE_BROWSER_PROXY_PORT ?? "3128");
   const proxySecretArn = process.env.AGENTCORE_BROWSER_PROXY_SECRET_ARN!;
-  const client = new BedrockAgentCoreClient({ region });
+  const client = new BedrockAgentCoreClient({
+    region,
+    ...awsSdkProxyConfig(),
+  });
 
   async function invoke(
     browserIdentifier: string,

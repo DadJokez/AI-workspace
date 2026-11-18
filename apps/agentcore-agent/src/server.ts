@@ -8,6 +8,7 @@ import {
   createAgentCoreApiKeyProvider,
   readWorkloadAccessToken,
 } from "./agentcore-api-key";
+import { logOutboundProxyOnce } from "@ai-workspace/agent/outbound-proxy";
 
 /**
  * Amazon Bedrock AgentCore Runtime service contract
@@ -140,6 +141,7 @@ function readBody(
   });
 }
 
+logOutboundProxyOnce();
 server.listen(PORT, () => {
   process.stderr.write(
     `[agentcore-agent] listening on :${PORT} (POST /invocations, GET /ping)\n`,

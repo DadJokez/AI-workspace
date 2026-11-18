@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./models": "./src/models.ts",
+    "./outbound-proxy": "./src/outbound-proxy.ts",
     "./registry": "./src/registry.ts",
     "./public-url-policy": "./src/public-url-policy.ts",
     "./sources": "./src/sources.ts",
@@ -25,6 +26,7 @@
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1048.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@smithy/node-http-handler": "4.7.7",
     "@smithy/types": "^4.14.1",
     "@types/json-schema": "^7.0.15"
   },
