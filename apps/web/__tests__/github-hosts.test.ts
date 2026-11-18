@@ -108,6 +108,26 @@ describe("GitHub host settings", () => {
     // An enterprise token is never sent to the github.com MCP server.
     expect(noMcp.github.mcpUrl).toBeNull();
   });
+
+  it("treat the github.com API address GitHub Actions sets on its runners as the default", () => {
+    const ambient = readDeploymentConfig({
+      GITHUB_API_URL: "https://api.github.com",
+    });
+    expect(ambient.problems).toEqual([]);
+    expect(ambient.github).toEqual(readDeploymentConfig({}).github);
+    expect(ambient.github.mcpUrl).not.toBeNull();
+  });
+
+  it("still refuse an enterprise API address set on its own", () => {
+    const apiOnly = readDeploymentConfig({
+      GITHUB_API_URL: ENTERPRISE.GITHUB_API_URL,
+    });
+    expect(apiOnly.problems).toEqual([
+      "GITHUB_WEB_URL and GITHUB_API_URL must be set together",
+      "GITHUB_MCP_URL must be set, or empty, when GITHUB_WEB_URL and GITHUB_API_URL are set",
+    ]);
+    expect(apiOnly.github.mcpUrl).toBeNull();
+  });
 });
 
 describe("GitHub addresses with the settings unset", () => {

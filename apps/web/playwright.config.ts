@@ -71,6 +71,11 @@ export default defineConfig({
           MEMORY_CAPTURE_IN_PROCESS_SCHEDULER: "0",
           GITHUB_WEBHOOK_SECRET: "playwright-github-webhook-secret",
           GITHUB_AUTH_CLIENT_ID: "playwright-local-client",
+          // GitHub Actions sets GITHUB_API_URL on its runners; on a GitHub
+          // Enterprise runner that value would configure the app under test.
+          GITHUB_WEB_URL: "https://github.com",
+          GITHUB_API_URL: "https://api.github.com",
+          GITHUB_MCP_URL: "https://api.githubcopilot.com/mcp/",
           GITHUB_AUTH_CLIENT_SECRET: "playwright-local-secret",
         },
       },

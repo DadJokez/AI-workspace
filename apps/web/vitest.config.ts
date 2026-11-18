@@ -14,6 +14,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    setupFiles: ["./vitest.setup.ts"],
     include: ["__tests__/**/*.test.ts"],
     // #695: report-only coverage (no thresholds). Run via `pnpm test:coverage`.
     // Source dirs only, so Next.js output (.next/), static assets (public/,
