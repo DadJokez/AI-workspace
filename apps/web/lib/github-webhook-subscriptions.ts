@@ -12,14 +12,16 @@ const GITHUB_API_VERSION = "2022-11-28";
 const REQUIRED_EVENTS = ["pull_request_review", "workflow_run"] as const;
 const MAX_HOOK_PAGES = 100;
 
+export interface GitHubTriggerAccessError {
+  ok: false;
+  status: number;
+  error: string;
+  message: string;
+}
+
 export type GitHubWebhookSubscriptionResult =
   | { ok: true; hookId: number; created: boolean }
-  | {
-      ok: false;
-      status: number;
-      error: string;
-      message: string;
-    };
+  | GitHubTriggerAccessError;
 
 interface GitHubHook {
   id: number;
@@ -47,6 +49,30 @@ export async function ensureGitHubRepositoryWebhook({
     return { ok: true, hookId: 293, created: true };
   }
 
+  const access = await resolveGitHubTriggerAccess({ db, userId });
+  if (!access.ok) return access;
+  return ensureGitHubRepositoryWebhookWithToken({
+    accessToken: access.accessToken,
+    repository,
+    webhookUrl,
+    secret,
+    fetchImpl,
+  });
+}
+
+/**
+ * The owner's own GitHub token, and only while they hold an unexpired
+ * connection and the administrative approval a repository trigger needs. Both
+ * ways of receiving events go through this: installing the webhook, and each
+ * poll in poll mode, so a revoked approval stops a trigger in either.
+ */
+export async function resolveGitHubTriggerAccess({
+  db,
+  userId,
+}: {
+  db: Database;
+  userId: string;
+}): Promise<{ ok: true; accessToken: string } | GitHubTriggerAccessError> {
   const [tokenRows, attestations] = await Promise.all([
     db
       .select({
@@ -99,9 +125,8 @@ export async function ensureGitHubRepositoryWebhook({
     };
   }
 
-  let accessToken: string;
   try {
-    accessToken = decryptSecret(tokenRow.accessToken);
+    return { ok: true, accessToken: decryptSecret(tokenRow.accessToken) };
   } catch {
     return {
       ok: false,
@@ -110,14 +135,6 @@ export async function ensureGitHubRepositoryWebhook({
       message: "Reconnect GitHub before adding this trigger.",
     };
   }
-
-  return ensureGitHubRepositoryWebhookWithToken({
-    accessToken,
-    repository,
-    webhookUrl,
-    secret,
-    fetchImpl,
-  });
 }
 
 export async function ensureGitHubRepositoryWebhookWithToken({
@@ -208,12 +225,13 @@ export async function ensureGitHubRepositoryWebhookWithToken({
   }
 }
 
-function githubRequest(
+export function githubRequest(
   fetchImpl: typeof fetch,
   accessToken: string,
   path: string,
   method = "GET",
   body?: Record<string, unknown>,
+  extraHeaders: Record<string, string> = {},
 ): Promise<Response> {
   return fetchImpl(`${GITHUB_API_URL}${path}`, {
     method,
@@ -223,13 +241,20 @@ function githubRequest(
       "Content-Type": "application/json",
       "X-GitHub-Api-Version": GITHUB_API_VERSION,
       "User-Agent": "Comparative",
+      ...extraHeaders,
     },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(10_000),
   });
 }
 
-function nextGitHubApiPath(linkHeader: string | null): string | null | undefined {
+/**
+ * The `rel="next"` page as a path under the configured API: undefined when
+ * there is no next page, null when the link is malformed or points elsewhere.
+ */
+export function nextGitHubApiPath(
+  linkHeader: string | null,
+): string | null | undefined {
   if (!linkHeader) return undefined;
   const segments = linkHeader.split(",");
   const next = segments.find((segment) => /;\s*rel="next"\s*$/.test(segment));
@@ -280,7 +305,7 @@ function githubRepositoryError(status: number): GitHubWebhookSubscriptionResult 
   return githubUnavailable();
 }
 
-function githubUnavailable(): GitHubWebhookSubscriptionResult {
+export function githubUnavailable(): GitHubTriggerAccessError {
   return {
     ok: false,
     status: 502,

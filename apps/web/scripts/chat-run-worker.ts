@@ -1,7 +1,11 @@
 import { logOutboundProxyOnce } from "@ai-workspace/agent/outbound-proxy";
 import { getDb } from "@ai-workspace/db";
 import { runChatRunWorkerLoop } from "../lib/chat-run-worker";
-import { assertDeploymentConfig } from "../lib/deployment-config";
+import {
+  assertDeploymentConfig,
+  GITHUB_EVENT_INGEST_MODE,
+} from "../lib/deployment-config";
+import { runGitHubEventPollerLoop } from "../lib/github-event-poller";
 import { runSchedulerLoop } from "../lib/schedules/scheduler";
 
 assertDeploymentConfig();
@@ -58,3 +62,22 @@ runSchedulerLoop({
   );
   process.exitCode = 1;
 });
+
+// Poll mode only: with no public address for GitHub to post to, this process
+// also reads the events feed of each repository that has an event trigger.
+if (GITHUB_EVENT_INGEST_MODE === "poll") {
+  runGitHubEventPollerLoop({
+    db,
+    workerId,
+    signal: controller.signal,
+  }).catch((err) => {
+    process.stderr.write(
+      `[github-event-poller-fatal] ${JSON.stringify({
+        workerId,
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      })}\n`,
+    );
+    process.exitCode = 1;
+  });
+}

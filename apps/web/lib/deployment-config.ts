@@ -22,6 +22,9 @@ export const CONNECTOR_PROVIDERS = [
 const ANALYTICS_PROVIDERS = ["none", "posthog"] as const;
 type AnalyticsProvider = (typeof ANALYTICS_PROVIDERS)[number];
 
+const GITHUB_EVENT_INGEST_MODES = ["webhook", "poll"] as const;
+export type GitHubEventIngestMode = (typeof GITHUB_EVENT_INGEST_MODES)[number];
+
 export type DeploymentConfig = {
   publicBaseUrl: string | null;
   internalBaseUrl: string | null;
@@ -37,6 +40,8 @@ export type DeploymentConfig = {
     /** Null when this deployment has no GitHub MCP server to mount. */
     mcpUrl: string | null;
   };
+  /** How GitHub events reach event triggers. */
+  githubEventIngestMode: GitHubEventIngestMode;
   problems: string[];
 };
 
@@ -119,6 +124,20 @@ export function readDeploymentConfig(env: Env): DeploymentConfig {
     if (token && host) analytics = { provider: "posthog", token, host };
   }
 
+  // A typo must not silently pick a mode: it is reported, and webhook (today's
+  // behaviour) stays in force.
+  const rawIngestMode = env.GITHUB_EVENT_INGEST_MODE?.trim().toLowerCase();
+  let githubEventIngestMode: GitHubEventIngestMode = "webhook";
+  if (rawIngestMode) {
+    if (
+      (GITHUB_EVENT_INGEST_MODES as readonly string[]).includes(rawIngestMode)
+    ) {
+      githubEventIngestMode = rawIngestMode as GitHubEventIngestMode;
+    } else {
+      problems.push("GITHUB_EVENT_INGEST_MODE must be webhook or poll");
+    }
+  }
+
   return {
     publicBaseUrl,
     internalBaseUrl,
@@ -127,6 +146,7 @@ export function readDeploymentConfig(env: Env): DeploymentConfig {
     webFetchEnabled: rawWebFetch !== "0",
     analytics,
     github: readGitHubHosts(env, problems),
+    githubEventIngestMode,
     problems,
   };
 }
@@ -288,6 +308,14 @@ export const GITHUB_API_URL: string = config.github.apiUrl;
  * connector can still be linked but mounts no tools in chat.
  */
 export const GITHUB_MCP_URL: string | null = config.github.mcpUrl;
+
+/**
+ * `webhook`: GitHub posts events to this app, which needs a public address.
+ * `poll`: the chat worker reads each repository's events feed with the trigger
+ * owner's token, and the webhook route answers 404.
+ */
+export const GITHUB_EVENT_INGEST_MODE: GitHubEventIngestMode =
+  config.githubEventIngestMode;
 
 /** True for the public host and, when configured, the internal host. */
 export function isAllowedAppHost(host: string): boolean {

@@ -1,5 +1,6 @@
 import { getDb } from "@ai-workspace/db";
 import { NextResponse } from "next/server";
+import { GITHUB_EVENT_INGEST_MODE } from "@/lib/deployment-config";
 import {
   normalizeGitHubWebhookEvent,
   processGitHubWebhookEvent,
@@ -14,6 +15,11 @@ const MAX_WEBHOOK_BYTES = 1024 * 1024;
 const SUPPORTED_EVENTS = new Set(["pull_request_review", "workflow_run"]);
 
 export async function POST(req: Request) {
+  // Poll mode has no webhook receiver: the route answers as if it did not
+  // exist, before reading the request.
+  if (GITHUB_EVENT_INGEST_MODE === "poll") {
+    return new Response(null, { status: 404 });
+  }
   const db = getDb();
   const deliveryId = cleanHeader(req.headers.get("x-github-delivery"), 200);
   const eventType = cleanHeader(req.headers.get("x-github-event"), 80);

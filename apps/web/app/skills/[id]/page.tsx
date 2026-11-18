@@ -21,7 +21,11 @@ import {
 import { listScheduleRunHistory } from "@/lib/schedules/run-history";
 import { SKILL_WEB_ACCESS_DECLARATION } from "@/lib/skill-tool-declarations";
 import { canActorAccessSkill, listSharesForSubject } from "@/lib/shares";
-import { eventTriggerKind } from "@/lib/github-event-triggers";
+import { GITHUB_EVENT_INGEST_MODE } from "@/lib/deployment-config";
+import {
+  eventTriggerKind,
+  eventTriggerUnavailableReason,
+} from "@/lib/github-event-triggers";
 import { EventTriggerPanel } from "@/components/skills/EventTriggerPanel";
 import { SchedulePanel } from "@/components/skills/SchedulePanel";
 import { SharePanel } from "@/components/skills/SharePanel";
@@ -223,7 +227,15 @@ export default async function SkillDetailPage({
               enabled: trigger.enabled,
               lastFiredAt: trigger.lastFiredAt?.toISOString() ?? null,
               lastError: trigger.lastError,
+              unavailableReason: eventTriggerUnavailableReason(
+                trigger,
+                GITHUB_EVENT_INGEST_MODE,
+              ),
             }))}
+            failedCiUnavailableReason={eventTriggerUnavailableReason(
+              { eventType: "workflow_run" },
+              GITHUB_EVENT_INGEST_MODE,
+            )}
           />
         </div>
       ) : null}

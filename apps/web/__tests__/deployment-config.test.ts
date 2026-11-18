@@ -122,6 +122,36 @@ describe("deployment config", () => {
     ).toEqual(["NEXTAUTH_URL must be an absolute http(s) URL"]);
   });
 
+  it("receives GitHub events by webhook unless told to poll", async () => {
+    expect(readDeploymentConfig({}).githubEventIngestMode).toBe("webhook");
+    expect(
+      readDeploymentConfig({ GITHUB_EVENT_INGEST_MODE: "  " })
+        .githubEventIngestMode,
+    ).toBe("webhook");
+    expect(
+      readDeploymentConfig({ GITHUB_EVENT_INGEST_MODE: "webhook" }).problems,
+    ).toEqual([]);
+
+    const poll = readDeploymentConfig({ GITHUB_EVENT_INGEST_MODE: " Poll " });
+    expect(poll.githubEventIngestMode).toBe("poll");
+    expect(poll.problems).toEqual([]);
+
+    vi.stubEnv("GITHUB_EVENT_INGEST_MODE", "poll");
+    const config = await import("@/lib/deployment-config");
+    expect(config.GITHUB_EVENT_INGEST_MODE).toBe("poll");
+  });
+
+  it("reports an unknown ingest mode and stays on webhook", () => {
+    const config = readDeploymentConfig({ GITHUB_EVENT_INGEST_MODE: "pull" });
+    expect(config.githubEventIngestMode).toBe("webhook");
+    expect(config.problems).toEqual([
+      "GITHUB_EVENT_INGEST_MODE must be webhook or poll",
+    ]);
+    expect(() =>
+      assertDeploymentConfig({ GITHUB_EVENT_INGEST_MODE: "pull" }),
+    ).toThrow("GITHUB_EVENT_INGEST_MODE must be webhook or poll");
+  });
+
   it("offers every connector when the list is unset or blank", () => {
     const all = ["github", "notion", "google", "salesforce"];
     expect(readDeploymentConfig({}).enabledConnectorProviders).toEqual(all);

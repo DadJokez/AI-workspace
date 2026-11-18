@@ -21,11 +21,15 @@ interface EventTriggerRow {
   enabled: boolean;
   lastFiredAt: string | null;
   lastError: string | null;
+  /** Why this trigger cannot receive events in this deployment, if it cannot. */
+  unavailableReason: string | null;
 }
 
 interface EventTriggerPanelProps {
   skillId: string;
   triggers: EventTriggerRow[];
+  /** Why a failed-CI trigger cannot be added in this deployment, if it cannot. */
+  failedCiUnavailableReason: string | null;
 }
 
 function describeKind(kind: TriggerKind | null): string {
@@ -37,6 +41,7 @@ function describeKind(kind: TriggerKind | null): string {
 export function EventTriggerPanel({
   skillId,
   triggers,
+  failedCiUnavailableReason,
 }: EventTriggerPanelProps) {
   const router = useRouter();
   const [repository, setRepository] = useState("");
@@ -153,6 +158,11 @@ export function EventTriggerPanel({
                     : ""}
                   {!trigger.enabled ? " · paused" : ""}
                 </span>
+                {trigger.unavailableReason ? (
+                  <span className="block text-danger">
+                    Not running: {trigger.unavailableReason}
+                  </span>
+                ) : null}
                 {trigger.lastError ? (
                   <span className="block truncate text-danger">
                     Last error: {trigger.lastError}
@@ -211,7 +221,15 @@ export function EventTriggerPanel({
             onChange={(event) => setKind(event.target.value as TriggerKind)}
           >
             <option value="pull_request_review">Pull request review</option>
-            <option value="workflow_run_failure">Failed CI run</option>
+            <option
+              value="workflow_run_failure"
+              disabled={failedCiUnavailableReason !== null}
+              title={failedCiUnavailableReason ?? undefined}
+            >
+              {failedCiUnavailableReason
+                ? "Failed CI run (not available)"
+                : "Failed CI run"}
+            </option>
           </select>
         </label>
         {kind === "pull_request_review" ? (

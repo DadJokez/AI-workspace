@@ -37,6 +37,7 @@ STS), which the network stack's VPC endpoint list owns.
 | `email.<region>.amazonaws.com` | SES: sign-in links and invitation email | yes | INVITE_EMAIL_PROVIDER=ses |
 | `github.com` | GitHub OAuth token exchange (connector and sign-in) | yes | github in ENABLED_CONNECTOR_PROVIDERS or in AUTH_PROVIDERS |
 | `api.github.com` | GitHub REST API: sign-in profile, webhook subscriptions | yes | github in ENABLED_CONNECTOR_PROVIDERS or in AUTH_PROVIDERS |
+| `api.github.com` | GitHub REST API: repository event feeds and pull requests, read for event triggers | yes | github in ENABLED_CONNECTOR_PROVIDERS and GITHUB_EVENT_INGEST_MODE=poll |
 | `api.githubcopilot.com` | GitHub MCP server: the connector's tools | yes | github in ENABLED_CONNECTOR_PROVIDERS and GITHUB_MCP_URL not empty |
 | `oauth2.googleapis.com` | Google OAuth token exchange and refresh | yes | google in ENABLED_CONNECTOR_PROVIDERS |
 | `gmail.googleapis.com` | Gmail API | yes | google in ENABLED_CONNECTOR_PROVIDERS |
@@ -60,6 +61,7 @@ STS), which the network stack's VPC endpoint list owns.
 | `169.254.170.2` | Container platform: task role credentials (plain HTTP, link-local) | no | always |
 | `<this app>` | This app: connector MCP facades, resource tools and run callbacks | yes | always (INTERNAL_BASE_URL moves it off the proxy) |
 | `bedrock-agentcore.<region>.amazonaws.com` | AgentCore: runtime invocation, browser sessions, stored API keys | no | AGENTCORE_RUNTIME_ARN set or AGENTCORE_BROWSER_ENABLED=1 |
+| `api.github.com` | GitHub REST API: repository event feeds and pull requests, read for event triggers | yes | github in ENABLED_CONNECTOR_PROVIDERS and GITHUB_EVENT_INGEST_MODE=poll |
 | `api.githubcopilot.com` | GitHub MCP server: the connector's tools | yes | github in ENABLED_CONNECTOR_PROVIDERS and GITHUB_MCP_URL not empty |
 | `oauth2.googleapis.com` | Google OAuth token exchange and refresh | yes | google in ENABLED_CONNECTOR_PROVIDERS |
 | `login.salesforce.com` | Salesforce OAuth token exchange and refresh | yes | salesforce in ENABLED_CONNECTOR_PROVIDERS |

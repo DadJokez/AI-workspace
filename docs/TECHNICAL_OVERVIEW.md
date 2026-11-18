@@ -227,7 +227,10 @@ prompt is framed as *data, not instructions*. Attachments, artifacts, provider
 records, web results, and generic MCP tool results use source-specific or
 nonce-delimited boundaries; forged marker families are stripped before model
 delivery. Signed GitHub webhooks carry the same data-not-instructions treatment
-before their content reaches a model.
+before their content reaches a model, and so do events read from a repository's
+events feed when `GITHUB_EVENT_INGEST_MODE=poll` (a deployment GitHub cannot
+reach): the poller hands them to the webhook pipeline, scoped to the triggers
+of the user whose token read them.
 
 **Per-turn context guardrails:** `buildTurnContext(...)` applies three deterministic
 limits — `CHAT_RECENT_MESSAGE_LIMIT` (history count), `CHAT_CONTEXT_CHAR_LIMIT`

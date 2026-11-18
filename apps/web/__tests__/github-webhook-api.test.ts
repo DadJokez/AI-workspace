@@ -153,6 +153,17 @@ describe("POST /api/webhooks/github", () => {
     });
   });
 
+  it("does not exist in poll mode, even for a correctly signed delivery", async () => {
+    vi.stubEnv("GITHUB_EVENT_INGEST_MODE", "poll");
+    installMocks();
+    const { POST } = await import("@/app/api/webhooks/github/route");
+    const response = await POST(requestFor(JSON.stringify(payload)));
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("");
+    expect(calls).toHaveLength(0);
+  });
+
   it("accepts GitHub ping without creating a run", async () => {
     installMocks();
     const { POST } = await import("@/app/api/webhooks/github/route");

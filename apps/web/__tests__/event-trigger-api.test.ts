@@ -12,6 +12,7 @@ const session: SessionUser = {
 
 let currentSession: SessionUser | null = session;
 let updateRows: Array<Record<string, unknown>> = [];
+let selectRows: Array<Record<string, unknown>> = [];
 const updates: Array<Record<string, unknown>> = [];
 const inserts: Array<Record<string, unknown>> = [];
 
@@ -28,6 +29,11 @@ function installMocks() {
       ...actual,
       getDb: () =>
         ({
+          select: () => ({
+            from: () => ({
+              where: () => ({ limit: async () => selectRows }),
+            }),
+          }),
           update: () => ({
             set: (values: Record<string, unknown>) => {
               updates.push(values);
@@ -59,12 +65,14 @@ function patchRequest(enabled: unknown) {
 beforeEach(() => {
   currentSession = session;
   updateRows = [];
+  selectRows = [];
   updates.length = 0;
   inserts.length = 0;
 });
 
 afterEach(() => {
   vi.resetModules();
+  vi.unstubAllEnvs();
 });
 
 describe("/api/event-triggers/[id]", () => {
@@ -143,6 +151,58 @@ describe("/api/event-triggers/[id]", () => {
       actorUserId: USER_ID,
       actionType: "event_trigger_delete",
     });
+  });
+
+  it("starts the poll cursor over when a trigger is resumed", async () => {
+    updateRows = [
+      { id: TRIGGER_ID, userId: USER_ID, eventType: "pull_request_review" },
+    ];
+    installMocks();
+    const { PATCH } = await import("@/app/api/event-triggers/[id]/route");
+
+    const response = await PATCH(patchRequest(true), {
+      params: Promise.resolve({ id: TRIGGER_ID }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(updates[0]).toMatchObject({
+      enabled: true,
+      pollState: null,
+      pollNextAt: null,
+    });
+  });
+
+  it("refuses to resume a failed-CI trigger in poll mode and says why", async () => {
+    vi.stubEnv("GITHUB_EVENT_INGEST_MODE", "poll");
+    selectRows = [{ eventType: "workflow_run" }];
+    installMocks();
+    const { PATCH } = await import("@/app/api/event-triggers/[id]/route");
+
+    const response = await PATCH(patchRequest(true), {
+      params: Promise.resolve({ id: TRIGGER_ID }),
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "event_trigger_unavailable",
+      message: expect.stringContaining("does not include workflow runs"),
+    });
+    expect(updates).toHaveLength(0);
+  });
+
+  it("still lets a failed-CI trigger be paused in poll mode", async () => {
+    vi.stubEnv("GITHUB_EVENT_INGEST_MODE", "poll");
+    selectRows = [{ eventType: "workflow_run" }];
+    updateRows = [{ id: TRIGGER_ID, userId: USER_ID, eventType: "workflow_run" }];
+    installMocks();
+    const { PATCH } = await import("@/app/api/event-triggers/[id]/route");
+
+    const response = await PATCH(patchRequest(false), {
+      params: Promise.resolve({ id: TRIGGER_ID }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(updates[0]).toMatchObject({ enabled: false });
   });
 
   it("rejects malformed enable state", async () => {
