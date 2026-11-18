@@ -128,11 +128,15 @@ runtime substrate; Comparative is the enterprise control plane.
 links are the universal tester path; GitHub OAuth is an optional secondary
 provider. `AUTH_PROVIDERS` controls which are exposed.
 
-**Enterprise target:** PingOne / PingFederate OIDC through the same auth seam.
-The `users` table, `getSessionUser()`, and canonical user UUID remain stable;
-the existing `ping_subject` column can hold the OIDC subject. The provider
-itself is not shipped yet, so do not describe this as a configuration-only
-cutover until the implementation and migration behavior are reviewed.
+**Enterprise target:** PingOne / PingFederate OIDC through the same auth seam
+(`AUTH_PROVIDERS=pingone`, off by default). The `users` table,
+`getSessionUser()`, and canonical user UUID remain stable; `ping_subject`
+holds `pingone:<sub>`. The identity provider's groups claim gates access
+(`OIDC_REQUIRED_GROUP`) and sets the admin role at each sign-in
+(`OIDC_ADMIN_GROUP`); existing magic-link users move over only through the
+opt-in adoption rule (`OIDC_ADOPT_EMAIL_USERS`). The provider is built and
+tested against a local mock issuer, not yet against a real Ping tenant, so do
+not describe the cutover as configuration-only until that has been done.
 
 In both cases:
 - `session.user.id` is the canonical `users.id` UUID (set in JWT callback via `token.userId = dbUser.id`).

@@ -52,8 +52,11 @@ Written from the next-auth config (`lib/auth/nextauth.ts`) through
 | Surface | Action type | Written in |
 | --- | --- | --- |
 | Sign-in success | `auth_sign_in` | `lib/auth/nextauth.ts` (`events.signIn`) |
-| Sign-in denied by the invite gate — both providers, both magic-link phases | `auth_sign_in_denied` | `lib/auth/nextauth.ts` (`callbacks.signIn`) |
+| Sign-in denied by the gate — every provider, both magic-link phases. `error` holds the reason code: `not_invited`, `missing_email`, `unsupported_provider`, `email_in_use` (GitHub address belongs to another identity), `magic_link_domain_not_allowed`, `magic_link_sunset`, and for OIDC `invalid_subject`, `groups_claim_unreadable`, `required_group_missing`, `provisioning_failed` | `auth_sign_in_denied` | `lib/auth/nextauth.ts` (`callbacks.signIn`) |
 | Sign-out | `auth_sign_out` | `lib/auth/nextauth.ts` (`events.signOut`) |
+| Magic link sent (one row per link issued; the link is not recorded) | `auth_magic_link_requested` | `lib/auth/nextauth.ts` (`sendVerificationRequest`) |
+| OIDC sign-in adopted an existing magic-link user (`OIDC_ADOPT_EMAIL_USERS=1`) | `auth_identity_adopted` | `lib/auth/nextauth.ts` (`evaluateOidcSignIn`) |
+| OIDC sign-in changed a role from the groups claim; metadata holds the before/after pair | `auth_role_synced` | `lib/auth/nextauth.ts` (`evaluateOidcSignIn`) |
 
 Rows carry the DB user id (success, sign-out) or the attempted address
 (denial, same class of data as `invite.*`), the provider id, and the

@@ -1,8 +1,9 @@
 import type { NextAuthOptions } from "next-auth";
 import type { EmailConfig } from "next-auth/providers/email";
 import GitHubProvider from "next-auth/providers/github";
+import type { OAuthConfig } from "next-auth/providers/oauth";
 import { getDb, users, type Database } from "@ai-workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, like, not, sql } from "drizzle-orm";
 import {
   MAGIC_LINK_MAX_AGE_SECONDS,
   sendMagicLinkEmail,
@@ -16,8 +17,36 @@ import {
   type AuthDenialReason,
   type AuthSignInPhase,
 } from "@/lib/auth/auth-audit";
-import { GITHUB_API_URL, GITHUB_WEB_URL } from "@/lib/deployment-config";
+import {
+  oidcAccessDenial,
+  provisionOidcUser,
+  readOidcClaims,
+} from "@/lib/auth/oidc-sign-in";
+import { SIGN_IN_DENIAL_MESSAGES } from "@/lib/auth/sign-in-denial";
+import {
+  GITHUB_API_URL,
+  GITHUB_WEB_URL,
+  MAGIC_LINK,
+  OIDC,
+  OIDC_ENABLED,
+  OIDC_SUBJECT_PREFIX,
+  PUBLIC_BASE_URL,
+  SESSION_MAX_AGE_SECONDS,
+  SESSION_UPDATE_AGE_SECONDS,
+  magicLinksAvailable,
+  parseAuthProviders,
+  type AuthProviderId,
+  type OidcConfig,
+} from "@/lib/deployment-config";
 import { ensureUser, findPendingInvitation } from "@/lib/users";
+
+export {
+  KNOWN_AUTH_PROVIDERS,
+  SESSION_MAX_AGE_SECONDS,
+  SESSION_UPDATE_AGE_SECONDS,
+  parseAuthProviders,
+  type AuthProviderId,
+} from "@/lib/deployment-config";
 
 /**
  * NextAuth v4 configuration.
@@ -29,23 +58,26 @@ import { ensureUser, findPendingInvitation } from "@/lib/users";
  *     session strategy stays "jwt".
  *   - Providers are gated by the AUTH_PROVIDERS env allowlist (default
  *     "github,email"). Magic links are the universal tester path; GitHub
- *     OAuth is the optional secondary. "pingone" (enterprise OIDC) joins the
- *     known list when that cutover lands.
- *   - `signIn` is the security gate for BOTH providers: only allow first-ever
- *     signup, an existing user, or an email with a pending invitation. For
- *     magic links the gate runs at REQUEST time (`email.verificationRequest`)
- *     so strangers never receive a link, and again at link-click time.
+ *     OAuth is the optional secondary; "pingone" is enterprise OIDC.
+ *   - `signIn` is the security gate for EVERY provider. GitHub and magic
+ *     links: only allow first-ever signup, an existing user, or an email with
+ *     a pending invitation. OIDC: the identity provider's groups claim decides
+ *     (`lib/auth/oidc-sign-in.ts`); invitations are not consulted. For magic
+ *     links the gate runs at REQUEST time (`email.verificationRequest`) so
+ *     strangers never receive a link, and again at link-click time.
  *   - The magic-link token is hashed by next-auth core (SHA-256 of
  *     token+NEXTAUTH_SECRET) before storage, expires after 15 minutes, and is
  *     single-use (adapter deletes on read).
- *   - GitHub sets `allowDangerousEmailAccountLinking` deliberately: the app's
- *     identity anchor is the (invite-gated) email address, and a user created
- *     via magic link must still be able to use the GitHub button. GitHub's
- *     returned address is the account's primary email.
+ *   - An OAuth or OIDC identity is matched on its subject and never linked to
+ *     an existing user by address: neither provider sets
+ *     `allowDangerousEmailAccountLinking`. A GitHub sign-in whose address
+ *     already belongs to a user with another identity is refused. The one
+ *     address-based link is OIDC adoption, off unless the deployment opts in
+ *     (`provisionOidcUser`).
  *   - Provider GitHub OAuth here is separate from the per-user GitHub
  *     MCP-token flow at /api/oauth/github/* — different scopes, purposes.
- *   - Sessions carry an explicit 24h idle expiry (SESSION_MAX_AGE_SECONDS)
- *     rather than next-auth's 30-day default.
+ *   - Sessions carry an explicit idle expiry (SESSION_MAX_AGE_SECONDS, 24h
+ *     unless the deployment sets it) rather than next-auth's 30-day default.
  *   - Sign-in, sign-in-denied and sign-out are appended to the audit ledger
  *     (`lib/auth/auth-audit.ts`); no token material is ever recorded.
  */
@@ -59,38 +91,19 @@ const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET;
 // route handler if the values are missing when an actual auth attempt
 // happens. Silent here keeps test output uncluttered.
 
-export const KNOWN_AUTH_PROVIDERS = ["github", "email"] as const;
-export type AuthProviderId = (typeof KNOWN_AUTH_PROVIDERS)[number];
-
-/**
- * Parse the AUTH_PROVIDERS allowlist (comma-separated). Unset/blank means the
- * default "github,email". Unknown ids are dropped with a warning so "pingone"
- * can be staged in configs before the provider exists — but an allowlist that
- * names ONLY unknown providers yields an empty list (fail closed: a typo'd
- * cutover disables sign-in visibly rather than silently re-enabling GitHub).
- */
-export function parseAuthProviders(raw: string | undefined): AuthProviderId[] {
-  const source = raw?.trim() ? raw : "github,email";
-  const requested = source
-    .split(",")
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean);
-  const unknown = requested.filter(
-    (entry) => !(KNOWN_AUTH_PROVIDERS as readonly string[]).includes(entry),
-  );
-  if (unknown.length > 0) {
-    console.warn(
-      `AUTH_PROVIDERS contains unknown provider(s) ignored: ${unknown.join(", ")}`,
-    );
-  }
-  return KNOWN_AUTH_PROVIDERS.filter((id) => requested.includes(id));
-}
-
 const enabledProviders = parseAuthProviders(process.env.AUTH_PROVIDERS);
 
-/** Provider ids enabled for this deployment — drives the login page UI. */
-export function enabledAuthProviders(): AuthProviderId[] {
-  return [...enabledProviders];
+/**
+ * Provider ids a person can sign in with right now — drives the login page
+ * UI. Magic links drop out once MAGIC_LINK_SUNSET passes, and OIDC is absent
+ * while its settings are incomplete.
+ */
+export function enabledAuthProviders(now: Date = new Date()): AuthProviderId[] {
+  return enabledProviders.filter((id) => {
+    if (id === "email") return magicLinksAvailable(now);
+    if (id === "pingone") return OIDC !== null;
+    return true;
+  });
 }
 
 /**
@@ -135,6 +148,22 @@ export function magicLinkRateLimitKey(
 }
 
 /**
+ * MAGIC_LINK_ALLOWED_DOMAINS: true when the address's domain is on the list,
+ * or when there is no list. The whole domain must match, case-insensitively:
+ * `example.com` admits neither `sub.example.com` nor `evil-example.com`. An
+ * address with anything but one `@` is refused, so the domain compared is the
+ * domain mail would go to.
+ */
+export function magicLinkDomainAllowed(
+  email: string,
+  allowedDomains: readonly string[] | null = MAGIC_LINK.allowedDomains,
+): boolean {
+  if (allowedDomains === null) return true;
+  const parts = email.trim().toLowerCase().split("@");
+  return parts.length === 2 && allowedDomains.includes(parts[1]!);
+}
+
+/**
  * The email provider config is hand-rolled (not `EmailProvider(...)`) because
  * `next-auth/providers/email` requires nodemailer at module load and we send
  * through the SES SigV4 core instead — no nodemailer, no SDK dependency.
@@ -151,34 +180,133 @@ function magicLinkProvider(): EmailConfig {
     maxAge: MAGIC_LINK_MAX_AGE_SECONDS,
     options: {},
     async sendVerificationRequest({ identifier, url, expires }) {
+      // Reached only after the gate allowed the request, so the ledger holds
+      // one row per link actually issued. The link itself is never recorded.
+      await recordAuthEvent({
+        action: "auth_magic_link_requested",
+        authProvider: "email",
+        email: identifier,
+        request: await authRequestContext(),
+      });
       await sendMagicLinkEmail({ to: identifier, url, expires });
     },
   };
 }
 
+type OidcClaims = Record<string, unknown>;
+
 /**
- * Shared invite gate: an email may sign in when it belongs to an existing
- * user, when the users table is empty (first-signer bootstrap, same rule as
- * GitHub), or when it holds a pending unexpired invitation. Used by the
- * GitHub path (after its own by-subject match) and by both phases of the
- * magic-link flow.
+ * Generic OIDC through next-auth's built-in OAuth support: discovery from the
+ * issuer, authorization code flow with PKCE, state and nonce, and the ID token
+ * verified against the issuer's keys by openid-client before any claim is
+ * read. The client secret is read here, from the environment, and nowhere
+ * else.
  */
-async function emailAllowedToSignIn(
+function oidcProvider(oidc: OidcConfig): OAuthConfig<OidcClaims> {
+  return {
+    id: "pingone",
+    name: oidc.displayName,
+    type: "oauth",
+    wellKnown: `${oidc.issuer}/.well-known/openid-configuration`,
+    idToken: true,
+    checks: ["pkce", "state", "nonce"],
+    authorization: { params: { scope: oidc.scopes } },
+    clientId: oidc.clientId,
+    clientSecret: process.env.OIDC_CLIENT_SECRET ?? "",
+    userinfo: {
+      /**
+       * The verified ID token is the claim set. Only when it carries no
+       * groups claim is userinfo asked, and only that one claim is taken from
+       * the answer: identity (`sub`, `email`, `email_verified`) always comes
+       * from the signed token. A userinfo answer for another subject, or no
+       * answer, leaves the claim absent, which the gate treats as unreadable.
+       */
+      async request({ tokens, client }) {
+        // next-auth types the token set as plain parameters; at runtime it is
+        // openid-client's TokenSet, whose `claims()` is the payload of the ID
+        // token it has just validated.
+        const claims = (
+          tokens as unknown as { claims(): OidcClaims }
+        ).claims();
+        if (
+          Object.hasOwn(claims, oidc.groupsClaim) ||
+          !tokens.access_token ||
+          !client.issuer.metadata.userinfo_endpoint
+        ) {
+          return claims;
+        }
+        try {
+          const userinfo: OidcClaims = await client.userinfo(
+            tokens.access_token,
+          );
+          if (
+            userinfo.sub !== claims.sub ||
+            !Object.hasOwn(userinfo, oidc.groupsClaim)
+          ) {
+            return claims;
+          }
+          return { ...claims, [oidc.groupsClaim]: userinfo[oidc.groupsClaim] };
+        } catch {
+          return claims;
+        }
+      },
+    },
+    /**
+     * Must not throw: next-auth logs the whole claim set when it does. Claims
+     * that do not make an identity get a subject no user can have, and the
+     * `signIn` gate, which reads the same claims, refuses and audits them.
+     */
+    profile(claims) {
+      const read = readOidcClaims(claims, oidc);
+      return read.ok
+        ? {
+            id: read.identity.subject,
+            email: read.identity.email,
+            name: read.identity.displayName,
+          }
+        : { id: OIDC_SUBJECT_PREFIX, email: null, name: null };
+    },
+  };
+}
+
+async function userExistsWithEmail(
   db: Database,
-  email: string,
+  address: string,
+  options: { includeOidcUsers: boolean },
 ): Promise<boolean> {
-  const address = email.trim().toLowerCase();
+  const sameAddress = sql`lower(${users.email}) = ${address}`;
   const existing = await db
     .select({ id: users.id })
     .from(users)
-    .where(sql`lower(${users.email}) = ${address}`)
+    .where(
+      options.includeOidcUsers
+        ? sameAddress
+        : and(
+            sameAddress,
+            not(like(users.pingSubject, `${OIDC_SUBJECT_PREFIX}%`)),
+          ),
+    )
     .limit(1);
-  if (existing[0]) return true;
+  return existing[0] !== undefined;
+}
 
-  const counts = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(users);
-  if ((counts[0]?.count ?? 0) === 0) return true;
+/**
+ * May an address with no user yet create one? Yes when the users table is
+ * empty (first-signer bootstrap) or when it holds a pending unexpired
+ * invitation. The bootstrap is off whenever OIDC is enabled: there the
+ * identity provider's groups decide who gets in and who is an admin, so an
+ * empty table must not admit whoever arrives first by another route.
+ */
+async function newAddressAllowedToSignIn(
+  db: Database,
+  address: string,
+): Promise<boolean> {
+  if (!OIDC_ENABLED) {
+    const counts = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(users);
+    if ((counts[0]?.count ?? 0) === 0) return true;
+  }
 
   const invite = await findPendingInvitation(address);
   return invite != null;
@@ -193,33 +321,20 @@ function buildProviders(): NextAuthOptions["providers"] {
         clientSecret: GITHUB_CLIENT_SECRET ?? "",
         // `read:user user:email` is the default scope; it's enough for us to
         // read the GitHub `id`, `name`, and primary verified `email`.
-        //
-        // Deliberate: with the adapter present, a user first created via
-        // magic link (ping_subject = email:<addr>) has no GitHub account row
-        // to match, so next-auth must be allowed to attach the GitHub
-        // identity by email — otherwise the GitHub button breaks for every
-        // magic-link-first tester with OAuthAccountNotLinked. The invite
-        // gate in `signIn` still applies.
-        allowDangerousEmailAccountLinking: true,
         ...githubProviderEndpoints(GITHUB_WEB_URL, GITHUB_API_URL),
       }),
     );
   }
-  if (enabledProviders.includes("email")) {
+  // Registration is decided once, at load; the gate re-checks the sunset on
+  // every request so a long-running server stops honouring links on time.
+  if (enabledProviders.includes("email") && magicLinksAvailable()) {
     providers.push(magicLinkProvider());
+  }
+  if (enabledProviders.includes("pingone") && OIDC) {
+    providers.push(oidcProvider(OIDC));
   }
   return providers;
 }
-
-/**
- * Explicit session lifetime instead of next-auth's 30-day default. This is an
- * IDLE expiry: the cookie/JWT is re-issued while the tab is in use (at most
- * once per `updateAge`) and dies 24h after the last request. An absolute cap
- * and per-user revocation both need a token-version column on `users`, i.e. a
- * migration — deliberately out of scope here.
- */
-export const SESSION_MAX_AGE_SECONDS = 24 * 60 * 60;
-export const SESSION_UPDATE_AGE_SECONDS = 60 * 60;
 
 type SignInParams = Parameters<
   NonNullable<NonNullable<NextAuthOptions["callbacks"]>["signIn"]>
@@ -233,12 +348,20 @@ interface SignInDecision {
 }
 
 /**
- * Gate sign-up. Allow when:
- *   1. The `users` table is empty — first signer becomes admin.
- *   2. A user row already exists for this identity (GitHub subject or
- *      email address).
+ * OIDC sign-ins whose gate created the user. next-auth hands the same
+ * `account` object to the `signIn` callback and to the `signIn` event, and by
+ * the time it computes `isNewUser` the row already exists.
+ */
+const oidcNewUserSignIns = new WeakSet<object>();
+
+/**
+ * Gate sign-up. For GitHub and magic links, allow when:
+ *   1. The `users` table is empty — first signer becomes admin (off whenever
+ *      OIDC is enabled).
+ *   2. A user row already exists for this identity: the GitHub subject, or
+ *      for a magic link the email address.
  *   3. There's a pending, unexpired invitation for this email.
- * Otherwise: deny.
+ * Otherwise: deny. OIDC has its own rules (`evaluateOidcSignIn`).
  *
  * For the email provider this runs TWICE: at link-request time
  * (`email.verificationRequest === true` — deny means the stranger never
@@ -266,13 +389,40 @@ async function evaluateSignIn({
       ?.trim()
       .toLowerCase();
     if (!address) return { allowed: false, reason: "missing_email", phase };
+    // Both restrictions hold at both phases: a link issued before the sunset
+    // or before the list was tightened is refused when it is clicked. They
+    // run after the route's rate limit and read nothing about any account,
+    // and the request phase answers every refusal with the same neutral copy,
+    // so neither the rule nor an account's existence can be probed.
+    if (!magicLinksAvailable()) {
+      return {
+        allowed: false,
+        email: address,
+        phase,
+        reason: "magic_link_sunset",
+      };
+    }
+    if (!magicLinkDomainAllowed(address)) {
+      return {
+        allowed: false,
+        email: address,
+        phase,
+        reason: "magic_link_domain_not_allowed",
+      };
+    }
     // Same gate for the request phase (email.verificationRequest) and
     // the callback phase — the callback's token validity/single-use is
     // already enforced by next-auth core + the adapter by this point.
     // The response copy is neutral, but an allowed request still includes
     // SES latency while a denied request does not. That low-sensitivity
     // timing signal is accepted for this invite-only tester phase.
-    const allowed = await emailAllowedToSignIn(db, address);
+    //
+    // An OIDC user is not "an existing user" here: a magic link must never
+    // sign someone in as an identity the identity provider gates. Such an
+    // address needs an invitation like any other and gets its own user.
+    const allowed =
+      (await userExistsWithEmail(db, address, { includeOidcUsers: false })) ||
+      (await newAddressAllowedToSignIn(db, address));
     return {
       allowed,
       email: address,
@@ -296,7 +446,14 @@ async function evaluateSignIn({
       .limit(1);
     if (existing[0]) return { allowed: true, email: ghEmail };
 
-    const allowed = await emailAllowedToSignIn(db, ghEmail);
+    // A GitHub identity is never attached to an existing user by address.
+    // Someone who first signed in by magic link keeps using magic links.
+    const address = ghEmail.trim().toLowerCase();
+    if (await userExistsWithEmail(db, address, { includeOidcUsers: true })) {
+      return { allowed: false, email: ghEmail, reason: "email_in_use" };
+    }
+
+    const allowed = await newAddressAllowedToSignIn(db, ghEmail);
     return {
       allowed,
       email: ghEmail,
@@ -304,14 +461,79 @@ async function evaluateSignIn({
     };
   }
 
+  if (account?.provider === "pingone" && OIDC) {
+    return evaluateOidcSignIn(db, OIDC, account, profile);
+  }
+
   return { allowed: false, reason: "unsupported_provider" };
+}
+
+/**
+ * The OIDC gate: read the claims, apply OIDC_REQUIRED_GROUP, then find or
+ * create the user and sync role and groups. The user row is written here, in
+ * the gate, so that next-auth afterwards finds it by subject and never falls
+ * back to its own lookup by address.
+ */
+async function evaluateOidcSignIn(
+  db: Database,
+  oidc: OidcConfig,
+  account: NonNullable<SignInParams["account"]>,
+  profile: SignInParams["profile"],
+): Promise<SignInDecision> {
+  const claims = readOidcClaims(profile, oidc);
+  if (!claims.ok) return { allowed: false, reason: claims.reason };
+  const { identity } = claims;
+  if (identity.subject !== account.providerAccountId) {
+    return { allowed: false, reason: "invalid_subject" };
+  }
+
+  const denial = oidcAccessDenial(identity, oidc);
+  if (denial) return { allowed: false, email: identity.email, reason: denial };
+
+  try {
+    const result = await provisionOidcUser(db, identity, oidc);
+    if (result.created) oidcNewUserSignIns.add(account);
+    if (result.adopted || result.roleChange) {
+      const request = await authRequestContext();
+      if (result.adopted) {
+        await recordAuthEvent({
+          action: "auth_identity_adopted",
+          actorUserId: result.user.id,
+          authProvider: account.provider,
+          request,
+        });
+      }
+      if (result.roleChange) {
+        await recordAuthEvent({
+          action: "auth_role_synced",
+          actorUserId: result.user.id,
+          authProvider: account.provider,
+          roleChange: result.roleChange,
+          request,
+        });
+      }
+    }
+    return { allowed: true, email: identity.email };
+  } catch (error) {
+    // Name only: a driver error's message can echo row values.
+    console.error(
+      `[auth] OIDC user provisioning failed: ${
+        error instanceof Error ? error.name : "unknown error"
+      }`,
+    );
+    return {
+      allowed: false,
+      email: identity.email,
+      reason: "provisioning_failed",
+    };
+  }
 }
 
 export const authOptions: NextAuthOptions = {
   providers: buildProviders(),
-  // Required by the email provider; also puts GitHub OAuth on the adapter
-  // path (attached unconditionally so behavior never depends on which
-  // allowlist combination is active). Sessions remain JWT regardless.
+  // Required by the email provider; also puts OAuth on the adapter path
+  // (attached unconditionally so behavior never depends on which allowlist
+  // combination is active). Sessions remain JWT regardless.
   adapter: createNextAuthAdapter(),
   session: {
     strategy: "jwt",
@@ -337,7 +559,8 @@ export const authOptions: NextAuthOptions = {
         action: "auth_sign_in",
         actorUserId: user?.id ?? null,
         authProvider: account?.provider ?? null,
-        isNewUser,
+        isNewUser:
+          account && oidcNewUserSignIns.has(account) ? true : isNewUser,
         request: await authRequestContext(),
       });
     },
@@ -354,42 +577,53 @@ export const authOptions: NextAuthOptions = {
   },
   callbacks: {
     /**
-     * The invite gate (see `evaluateSignIn`). Every denial is appended to the
+     * The sign-in gate (see `evaluateSignIn`). Every denial is appended to the
      * audit ledger — that record is the point of the gate for an access
      * review. Denials at the magic-link REQUEST phase are reachable by
      * unauthenticated callers, so they are bounded by the same per-email rate
      * limit that already caps that endpoint (5 / 15 min, see
      * `magicLinkRateLimit`) and by audit retention.
+     *
+     * A refusal the person can act on comes back as a redirect to the login
+     * page carrying its reason code; the page turns the code into a sentence.
+     * Magic-link refusals never do: they must all look alike.
      */
     async signIn(params) {
       const decision = await evaluateSignIn(params);
-      if (!decision.allowed) {
-        await recordAuthEvent({
-          action: "auth_sign_in_denied",
-          authProvider: params.account?.provider ?? null,
-          email: decision.email,
-          reason: decision.reason,
-          phase: decision.phase,
-          request: await authRequestContext(),
-        });
-      }
-      return decision.allowed;
+      if (decision.allowed) return true;
+      await recordAuthEvent({
+        action: "auth_sign_in_denied",
+        authProvider: params.account?.provider ?? null,
+        email: decision.email,
+        reason: decision.reason,
+        phase: decision.phase,
+        request: await authRequestContext(),
+      });
+      const { reason } = decision;
+      const explained =
+        reason !== undefined &&
+        Object.hasOwn(SIGN_IN_DENIAL_MESSAGES, reason) &&
+        (params.account?.provider === "pingone" || reason === "email_in_use");
+      return explained
+        ? `${PUBLIC_BASE_URL}/login?error=AccessDenied&reason=${reason}`
+        : false;
     },
 
     /**
      * Stamp our DB-side claims onto the JWT.
      *
      * Sign-in (`account` present):
-     *   - email provider: the adapter flow has already resolved/created the
-     *     users row — `user.id` is our DB uuid; re-read it for the role.
+     *   - email and pingone: the row already exists by now (the adapter flow
+     *     resolved or created it; for OIDC the gate did) — `user.id` is our
+     *     DB uuid; re-read it for the role.
      *   - github: run `ensureUser` keyed by the GitHub subject, exactly as
      *     before the adapter existed.
      * Refresh (no `account`): re-read by `ghSub` (GitHub-originated tokens)
-     * or by `userId` (magic-link-originated tokens) so role changes take
-     * effect without a fresh sign-in.
+     * or by `userId` (magic-link- and OIDC-originated tokens) so role changes
+     * take effect without a fresh sign-in.
      */
     async jwt({ token, account, profile, user }) {
-      if (account?.provider === "email") {
+      if (account?.provider === "email" || account?.provider === "pingone") {
         const row = user?.id ? await findUserById(user.id) : null;
         if (row) {
           token.userId = row.id;
@@ -405,7 +639,7 @@ export const authOptions: NextAuthOptions = {
         : (token.ghSub as string | undefined);
 
       if (!ghSub && token.userId) {
-        // Magic-link session refresh: no external subject on the token.
+        // Magic-link or OIDC session refresh: no external subject on the token.
         const row = await findUserById(token.userId);
         if (row) {
           token.role = row.role;

@@ -71,8 +71,10 @@ some older code/columns still say `recipe_*` (e.g. the run ledger table was
 - **Identity (Layer 1):** NextAuth v4 with JWT sessions and an invite gate.
   **Email magic links** are the universal tester path; **GitHub OAuth** is an
   optional secondary provider. `AUTH_PROVIDERS` controls the deployment
-  allowlist. **PingOne/PingFederate OIDC is planned, not shipped**; the
-  `users.ping_subject` column can hold its subject when that cutover lands.
+  allowlist. **OIDC (PingOne/PingFederate or any other issuer) is built and
+  off by default** (`AUTH_PROVIDERS=pingone`): group claims gate access and
+  the admin role, and `users.ping_subject` holds `pingone:<sub>`. It has not
+  been run against a real Ping tenant yet.
 - **Model runtime:** **AWS Bedrock** (`converseStream`) for fast chat + interactive
   tool turns; **Amazon Bedrock AgentCore** for durable/worker lanes (Skill runs,
   scheduled runs, event-triggered runs) executed session-isolated in the org's own

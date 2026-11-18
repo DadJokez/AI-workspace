@@ -1,7 +1,8 @@
 import { auditLog, getDb, users } from "@ai-workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { OIDC, OIDC_SUBJECT_PREFIX } from "@/lib/deployment-config";
 
 export const dynamic = "force-dynamic";
 
@@ -41,10 +42,23 @@ export async function PATCH(
 
   const db = getDb();
   const prior = await db
-    .select({ role: users.role })
+    .select({
+      role: users.role,
+      oidcUser: sql<boolean>`starts_with(${users.pingSubject}, ${OIDC_SUBJECT_PREFIX})`,
+    })
     .from(users)
     .where(eq(users.id, id))
     .limit(1);
+
+  // With OIDC_ADMIN_GROUP set, an OIDC user's role is whatever the identity
+  // provider's group says at each sign-in. A change made here would be undone
+  // at that user's next sign-in, so it is refused and never half-applies.
+  if (OIDC?.adminGroup && prior[0]?.oidcUser) {
+    return NextResponse.json(
+      { error: "role_managed_by_identity_provider" },
+      { status: 409 },
+    );
+  }
   const updated = await db
     .update(users)
     .set({ role: body.role })

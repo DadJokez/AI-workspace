@@ -269,4 +269,24 @@ describe("[...nextauth] POST wrapper — magic-link rate limit", () => {
     expect(checkRateLimit).not.toHaveBeenCalled();
     expect(nextAuthHandler).toHaveBeenCalledTimes(1);
   });
+
+  it("rate limits an address outside MAGIC_LINK_ALLOWED_DOMAINS like any other, before the gate can refuse it", async () => {
+    vi.stubEnv("MAGIC_LINK_ALLOWED_DOMAINS", "example.com");
+    armCountingRateLimiter();
+    const { POST } = await loadRoute();
+
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      const res = await POST(signinEmailRequest("probe@elsewhere.example"), ctx);
+      statuses.push(res.status);
+    }
+
+    // The domain rule lives in the signIn gate, behind this wrapper: the
+    // first five requests reach next-auth, the rest never do.
+    expect(statuses).toEqual([200, 200, 200, 200, 200, 429, 429]);
+    expect(nextAuthHandler).toHaveBeenCalledTimes(5);
+    expect(checkRateLimit.mock.calls[0]![1]).toBe(
+      "magic-link-email:probe@elsewhere.example",
+    );
+  });
 });

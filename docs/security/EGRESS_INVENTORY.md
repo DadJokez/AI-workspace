@@ -37,6 +37,7 @@ STS), which the network stack's VPC endpoint list owns.
 | `email.<region>.amazonaws.com` | SES: sign-in links and invitation email | yes | INVITE_EMAIL_PROVIDER=ses |
 | `github.com` | GitHub OAuth token exchange (connector and sign-in) | yes | github in ENABLED_CONNECTOR_PROVIDERS or in AUTH_PROVIDERS |
 | `api.github.com` | GitHub REST API: sign-in profile, webhook subscriptions | yes | github in ENABLED_CONNECTOR_PROVIDERS or in AUTH_PROVIDERS |
+| `<OIDC issuer>` | OIDC sign-in: discovery document, signing keys, token exchange, userinfo | yes | pingone in AUTH_PROVIDERS |
 | `api.github.com` | GitHub REST API: repository event feeds and pull requests, read for event triggers | yes | github in ENABLED_CONNECTOR_PROVIDERS and GITHUB_EVENT_INGEST_MODE=poll |
 | `api.githubcopilot.com` | GitHub MCP server: the connector's tools | yes | github in ENABLED_CONNECTOR_PROVIDERS and GITHUB_MCP_URL not empty |
 | `oauth2.googleapis.com` | Google OAuth token exchange and refresh | yes | google in ENABLED_CONNECTOR_PROVIDERS |
@@ -101,6 +102,7 @@ STS), which the network stack's VPC endpoint list owns.
 | Host | Purpose | Via proxy | Enabled when |
 |---|---|---|---|
 | `github.com` | GitHub sign-in and consent pages, links to cited sources | no | github in ENABLED_CONNECTOR_PROVIDERS or in AUTH_PROVIDERS |
+| `<OIDC issuer>` | OIDC sign-in page | no | pingone in AUTH_PROVIDERS |
 | `accounts.google.com` | Google consent page | no | google in ENABLED_CONNECTOR_PROVIDERS |
 | `mail.google.com` | Links to Gmail threads in answers | no | google in ENABLED_CONNECTOR_PROVIDERS |
 | `console.cloud.google.com` | Admin link to the Google OAuth test-user list | no | google in ENABLED_CONNECTOR_PROVIDERS |

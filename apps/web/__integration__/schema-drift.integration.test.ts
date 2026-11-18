@@ -35,12 +35,14 @@ interface DrizzleTableMeta {
 }
 
 /**
- * Index entries are either columns or SQL expressions; this repo's only
- * expression form is `sql\`${t.col} DESC\``, whose column rides inside the SQL
- * query chunks (index ordering does not show up in pg_index's column list, so
- * the bare column name is the right comparison key). Duck-typed rather than
- * instanceof because the workspace can resolve more than one drizzle-orm
- * module instance.
+ * Index entries are either columns or SQL expressions. An ordered column,
+ * `sql\`${t.col} DESC\``, carries its column inside the SQL query chunks
+ * (index ordering does not show up in pg_index's column list, so the bare
+ * column name is the right comparison key). A computed key such as
+ * `sql\`lower(${t.col})\`` has text before its column; Postgres stores no
+ * column for it, and both sides report it as `<expression>`. Duck-typed
+ * rather than instanceof because the workspace can resolve more than one
+ * drizzle-orm module instance.
  */
 function indexedColumnName(entry: unknown): string {
   if (entry && typeof entry === "object") {
@@ -48,6 +50,10 @@ function indexedColumnName(entry: unknown): string {
     if (typeof name === "string") return name;
     const chunks = (entry as { queryChunks?: unknown[] }).queryChunks;
     if (Array.isArray(chunks)) {
+      const leadingText = (chunks[0] as { value?: unknown } | undefined)?.value;
+      if (Array.isArray(leadingText) && leadingText.join("").trim() !== "") {
+        return "<expression>";
+      }
       for (const chunk of chunks) {
         const chunkName =
           chunk && typeof chunk === "object"
@@ -147,13 +153,13 @@ suite("schema drift gate (drizzle schema.ts <-> migrated Postgres)", () => {
         i.relname as index_name,
         ix.indisunique as is_unique,
         ix.indisprimary as is_primary,
-        string_agg(a.attname, ',' order by k.ord) as cols
+        string_agg(coalesce(a.attname, '<expression>'), ',' order by k.ord) as cols
       from pg_index ix
       join pg_class i on i.oid = ix.indexrelid
       join pg_class t on t.oid = ix.indrelid
       join pg_namespace n on n.oid = t.relnamespace
       cross join lateral unnest(ix.indkey) with ordinality as k(attnum, ord)
-      join pg_attribute a on a.attrelid = t.oid and a.attnum = k.attnum
+      left join pg_attribute a on a.attrelid = t.oid and a.attnum = k.attnum
       where n.nspname = 'public'
       group by t.relname, i.relname, ix.indisunique, ix.indisprimary
     `)) as unknown as PgIndexRow[];

@@ -5,21 +5,32 @@ import { ThinkingOrb } from "@/components/ThinkingOrb";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
 import { sanitizeCallbackUrl } from "@/lib/auth/callback-url";
 import { enabledAuthProviders } from "@/lib/auth/nextauth";
+import { signInDenialMessage } from "@/lib/auth/sign-in-denial";
+import { OIDC } from "@/lib/deployment-config";
 import { LoginForm } from "./LoginForm";
 
 export const dynamic = "force-dynamic";
 
 interface Props {
-  searchParams: Promise<{ callbackUrl?: string; error?: string }>;
+  searchParams: Promise<{
+    callbackUrl?: string;
+    error?: string;
+    reason?: string;
+  }>;
 }
 
 export default async function LoginPage({ searchParams }: Props) {
   const sessionUser = await getSessionUser();
-  const { callbackUrl, error } = await searchParams;
+  const { callbackUrl, error, reason } = await searchParams;
   if (sessionUser) {
     const target = sanitizeCallbackUrl(callbackUrl) ?? "/chat";
     redirect(target);
   }
+
+  const providers = enabledAuthProviders();
+  // With single sign-on as the only way in, access is not by invitation.
+  const ssoOnly =
+    providers.length > 0 && providers.every((id) => id === "pingone");
 
   return (
     <div className="relative flex min-h-dvh w-full items-center justify-center bg-canvas px-6 text-ink">
@@ -46,28 +57,50 @@ export default async function LoginPage({ searchParams }: Props) {
 
         <LoginForm
           callbackUrl={sanitizeCallbackUrl(callbackUrl) ?? "/chat"}
-          providers={enabledAuthProviders()}
+          providers={providers}
+          ssoLabel={OIDC?.displayName ?? null}
         />
 
-        {error ? <ErrorMessage code={error} /> : null}
+        {error ? (
+          <ErrorMessage
+            code={error}
+            reason={reason}
+            oauthProvider={
+              providers.includes("pingone") ? "the sign-in provider" : "GitHub"
+            }
+          />
+        ) : null}
 
-        <p className="pt-6 text-center text-2xs text-muted">
-          Access is invite-only. Ask an admin to invite your email.
-        </p>
+        {ssoOnly ? null : (
+          <p className="pt-6 text-center text-2xs text-muted">
+            Access is invite-only. Ask an admin to invite your email.
+          </p>
+        )}
       </div>
     </div>
   );
 }
 
-function ErrorMessage({ code }: { code: string }) {
+function ErrorMessage({
+  code,
+  reason,
+  oauthProvider,
+}: {
+  code: string;
+  reason?: string;
+  oauthProvider: string;
+}) {
   // NextAuth surfaces a small, fixed set of error codes via ?error=... on
   // the redirect back to the sign-in page. Map the common ones to plain
-  // English; fall back to the raw code so we never silently eat one.
+  // English; fall back to the raw code so we never silently eat one. A
+  // refusal by our own gate may add a reason code, shown only when known.
+  const denial = code === "AccessDenied" ? signInDenialMessage(reason) : null;
   const message =
-    code === "AccessDenied"
+    denial ??
+    (code === "AccessDenied"
       ? "This account isn't authorized. Ask an admin to invite your email."
       : code === "OAuthSignin" || code === "OAuthCallback"
-        ? "Couldn't reach GitHub. Try again in a moment."
+        ? `Couldn't reach ${oauthProvider}. Try again in a moment.`
         : code === "Verification"
           ? "That sign-in link is invalid or has expired. Request a new one."
           : code === "EmailSignin"
@@ -78,7 +111,7 @@ function ErrorMessage({ code }: { code: string }) {
                 ? "That sign-in method is linked to a different account."
                 : code === "Configuration"
                   ? "Sign-in is misconfigured. Contact an admin."
-                  : `Sign-in failed (${code}).`;
+                  : `Sign-in failed (${code}).`);
   return (
     <div className="mt-4 rounded-md border border-hairline bg-canvas px-3 py-2 text-xs text-ink">
       {message}

@@ -126,6 +126,68 @@ describe("buildAuthAuditRow", () => {
   });
 });
 
+describe("buildAuthAuditRow: WP-17 events", () => {
+  it("records a magic-link request against the address it was sent to", () => {
+    expect(
+      buildAuthAuditRow({
+        action: "auth_magic_link_requested",
+        authProvider: "email",
+        email: "Tester@Example.com",
+      }),
+    ).toMatchObject({
+      actorUserId: null,
+      actionType: "auth_magic_link_requested",
+      status: "succeeded",
+      input: { email: "tester@example.com" },
+      error: null,
+    });
+  });
+
+  it("records an adoption and a role sync against the user, with the role pair", () => {
+    const actorUserId = "11111111-1111-4111-8111-111111111111";
+    expect(
+      buildAuthAuditRow({
+        action: "auth_identity_adopted",
+        actorUserId,
+        authProvider: "pingone",
+      }),
+    ).toMatchObject({
+      actorUserId,
+      actionType: "auth_identity_adopted",
+      status: "succeeded",
+      input: null,
+      metadata: { schema: "auth-event.v1", authProvider: "pingone" },
+    });
+    expect(
+      buildAuthAuditRow({
+        action: "auth_role_synced",
+        actorUserId,
+        authProvider: "pingone",
+        roleChange: { from: "admin", to: "user" },
+      }).metadata,
+    ).toEqual({
+      schema: "auth-event.v1",
+      authProvider: "pingone",
+      previousRole: "admin",
+      newRole: "user",
+    });
+  });
+
+  it.each([
+    "email_in_use",
+    "magic_link_domain_not_allowed",
+    "magic_link_sunset",
+    "invalid_subject",
+    "groups_claim_unreadable",
+    "required_group_missing",
+    "provisioning_failed",
+  ] as const)("records a %s denial as a denied row carrying the reason code", (reason) => {
+    expect(
+      buildAuthAuditRow({ action: "auth_sign_in_denied", reason }),
+    ).toMatchObject({ status: "denied", error: reason });
+  });
+});
+
 describe("recordAuthEvent", () => {
   it("appends the built row", async () => {
     const values = vi.fn().mockResolvedValue(undefined);
@@ -160,5 +222,20 @@ describe("recordAuthEvent", () => {
     // The raw error object can echo row values in some drivers.
     expect(spy.mock.calls[0]).toHaveLength(1);
     spy.mockRestore();
+  });
+
+  it("fails open when the ledger cannot be reached at all", async () => {
+    vi.stubEnv("DATABASE_URL", "");
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      recordAuthEvent({ action: "auth_magic_link_requested" }),
+    ).resolves.toBeUndefined();
+
+    expect(spy).toHaveBeenCalledWith(
+      "[auth-audit] failed to record auth_magic_link_requested: DATABASE_URL must be set",
+    );
+    spy.mockRestore();
+    vi.unstubAllEnvs();
   });
 });
