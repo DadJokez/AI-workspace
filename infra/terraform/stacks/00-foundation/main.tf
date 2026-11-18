@@ -39,9 +39,25 @@ locals {
     }
   }
 
+  # CloudWatch alarms publish to the ops alert topic of 60-observability, which
+  # is encrypted with the logs key. An alarm that cannot use the key fails to
+  # notify without any error in the plan or the apply.
+  key_policy_alarms = {
+    Sid       = "CloudWatchAlarmsToOpsTopic"
+    Effect    = "Allow"
+    Principal = { Service = "cloudwatch.amazonaws.com" }
+    Action    = ["kms:Decrypt", "kms:GenerateDataKey*"]
+    Resource  = "*"
+    Condition = {
+      StringEquals = {
+        "kms:EncryptionContext:aws:sns:topicArn" = "arn:${local.partition}:sns:${var.aws_region}:${var.account_id}:${var.name_prefix}-ops-alerts"
+      }
+    }
+  }
+
   symmetric_keys = {
     data    = { description = "data at rest: database, buckets, images", statements = [local.key_policy_root] }
-    logs    = { description = "log groups", statements = [local.key_policy_root, local.key_policy_logs] }
+    logs    = { description = "log groups and the ops alert topic", statements = [local.key_policy_root, local.key_policy_logs, local.key_policy_alarms] }
     secrets = { description = "Secrets Manager secrets", statements = [local.key_policy_root] }
   }
 

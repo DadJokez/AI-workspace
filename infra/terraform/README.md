@@ -21,20 +21,22 @@ modules/network/     VPC (built or adopted), endpoints, security groups, optiona
 modules/data/        database, optional RDS Proxy, secrets, buckets
 modules/ecs-task/    one Fargate task definition with its log group and two roles
 modules/ecs-service/ ecs-task plus the service, optional Cloud Map name and autoscaling
+modules/observability/ ops alert topic, alarms, log metric filters, dashboard
 stacks/00-foundation/ KMS keys, ECR repositories, the ci-identity module, SSM outputs
 stacks/10-network/   the network module, SSM outputs
 stacks/20-data/      the data module, SSM outputs
 stacks/30-platform/  ECS cluster, private namespace, load balancer, SSM outputs
 stacks/35-deploy-tasks/ migrator and smoke task definitions, SSM outputs
 stacks/40-services/  the four services, SSM outputs
+stacks/60-observability/ the observability module, SSM outputs
 envs/<env>/          backend.hcl, env.tfvars, release.auto.tfvars
 policy/              Conftest rules and their fixtures
 ```
 
 Apply order for a new environment: `00-foundation`, `10-network`, `20-data`, `30-platform`,
-`35-deploy-tasks`, `50-agentcore`, `40-services`, `60-observability`. `50-agentcore` and
-`60-observability` are later work packages and do not exist yet; `40-services` cannot be planned until
-`50-agentcore` has been applied (see "What 40-services creates").
+`35-deploy-tasks`, `50-agentcore`, `40-services`, `60-observability`. `50-agentcore` is a later work
+package and does not exist yet; `40-services` cannot be planned until `50-agentcore` has been applied
+(see "What 40-services creates"), and `60-observability` reads what `40-services` publishes.
 
 Versions: Terraform `~> 1.17`, AWS provider `~> 6.73`. `modules/data` also needs `hashicorp/random`
 `~> 3.7` for its ephemeral password; the module declares that itself, so `versions.tf.tmpl` is unchanged
@@ -66,9 +68,9 @@ Stacks do not read each other's state: a stack publishes what others need to SSM
 These commands change AWS. They are run by the account owner with administrator credentials, never by CI.
 
 1. In `envs/personal-stage/env.tfvars`, replace the `REPLACE_ME` values for `account_id`, `tags`,
-   `github_*` and `eval_model_ids`, and those under the `30-platform` and `40-services` headings
-   (`domain_name`, `certificate_arn`, `invite_email_*`, `bedrock_model_ids`): `tf.sh` runs no stack
-   while one remains. The numeric GitHub ids come from
+   `github_*` and `eval_model_ids`, and those under the `30-platform`, `40-services` and
+   `60-observability` headings (`domain_name`, `certificate_arn`, `invite_email_*`, `bedrock_model_ids`,
+   `alert_emails`, the quota in `quota_alarm_models`): `tf.sh` runs no stack while one remains. The numeric GitHub ids come from
    `gh api repos/<owner>/<repo> --jq '{repository_id: .id, owner_id: .owner.id}'`.
 2. Create the state bucket and its key with local state, then move that state into the bucket:
 
@@ -109,7 +111,9 @@ That GitHub environment, and its protection rules, are created in the repository
 ## What 00-foundation creates
 
 - KMS keys `data`, `logs`, `secrets` (rotation on) and an asymmetric `signing` key
-  (`ECC_NIST_P256`, `SIGN_VERIFY`) for release images.
+  (`ECC_NIST_P256`, `SIGN_VERIFY`) for release images. The policy of the `logs` key lets CloudWatch
+  Logs use it for the log groups under `/comparative/<env>/`, and CloudWatch alarms for the topic
+  `<name_prefix>-ops-alerts` of `60-observability`.
 - ECR repositories `<name_prefix>-app` and `<name_prefix>-agent`: immutable tags, scan on push, KMS
   encryption, lifecycle (untagged images expire after 7 days; the last 60 images are kept per release
   tag prefix `web-`, `worker-`, `memory-worker-`, `migrator-`, `agent-`).
@@ -467,10 +471,69 @@ other two keep 100 %. Autoscaling owns the number of web tasks: Terraform sets i
   run sessions on the AgentCore Browser, and read the browser-proxy credentials those sessions use.
   The browser proxy has no AWS permission.
 - **Published to SSM** under `/comparative/<env>/40-services/`: `service/web_name`,
-  `service/chat_worker_name`, `service/memory_worker_name`, `service/browser_proxy_name`.
+  `service/chat_worker_name`, `service/memory_worker_name`, `service/browser_proxy_name`,
+  `log_group/chat_worker_name`, `log_group/memory_worker_name`.
 
 The apply role may need Route 53 permissions here too: the browser proxy's Cloud Map service is created
 in the private namespace. See "What the apply role cannot do" under `30-platform`.
+
+## What 60-observability creates
+
+Applied last (it reads the logs key from `00-foundation`, the cluster and the load balancer from
+`30-platform`, and the service names and two log groups from `40-services`):
+
+```bash
+./tf.sh personal-stage 60-observability plan
+./tf.sh personal-stage 60-observability apply
+```
+
+- **Topic.** `<name_prefix>-ops-alerts`, encrypted with the logs key, with one email subscription per
+  address in `alert_emails`. AWS sends each address a confirmation email; nothing is delivered to it
+  until its owner confirms, and Terraform cannot confirm for them.
+- **Alarms**, each `<name_prefix>-<alarm>`, each notifying the topic when it fires and when it clears.
+  The values are the ones production runs with (`infra/cdk/lib/ai-workspace-ecs-stack.ts` and
+  `infra/scripts/setup-ops-alarms.sh`):
+
+  | Alarm | Metric | Fires when | Missing data |
+  |---|---|---|---|
+  | `web-below-task-floor` | `AWS/ECS` `LiveTaskCount`, minimum, web service | below `web_min` for 3 of 3 minutes | breaching |
+  | `browser-proxy-unavailable` | same, browser-proxy service | below 1 for 3 of 3 minutes | breaching |
+  | `chat-worker-no-running-tasks` | same, chat-worker service | below 1 for 3 of 3 minutes | breaching |
+  | `memory-worker-no-running-tasks` | same, memory-worker service | below 1 for 3 of 3 minutes | breaching |
+  | `web-unhealthy-hosts` | `AWS/ApplicationELB` `UnHealthyHostCount`, maximum, web target group | at least 1 for 3 of 3 minutes | not breaching |
+  | `web-5xx` | `HTTPCode_Target_5XX_Count`, sum, web target group | at least 5 in 5 minutes | not breaching |
+  | `load-balancer-5xx` | `HTTPCode_ELB_5XX_Count`, sum, load balancer | at least 5 in 5 minutes | not breaching |
+  | `memory-capture-failures` | `MemoryCaptureFailures`, sum | at least 1 in 20 minutes | not breaching |
+  | `run-failure-burst` | `RunFailedCount`, sum | at least 3 in 15 minutes | not breaching |
+  | `bedrock-<model>-token-headroom` | `AWS/Bedrock`: input + cache-write + `output_burndown` x output tokens, summed over a rolling day | at least 80 % of `daily_quota` | not breaching |
+
+- **Log metric filters**, both writing to the namespace `Comparative/<env>/Workers` (the environment is
+  in the namespace because a log-derived metric has no dimensions):
+  - `memory-capture-failures` on the memory worker's log group: `MemoryCaptureFailures` counts lines
+    with `memory-capture-error` or `memory-capture-worker-fatal`.
+  - `run-failed-events` on the chat worker's log group: `RunFailedCount` counts lines with
+    `[chat-run-worker-error]`.
+- **Quota alarms.** One per entry of `quota_alarm_models`. A Bedrock quota and the `AWS/Bedrock`
+  metrics belong to the account, not the environment: list the models in one environment per account
+  and set `quota_alarm_models = []` in the others. Check each `daily_quota` against Service Quotas
+  before the first apply.
+- **Dashboard.** `<name_prefix>-ops`: the metric of every alarm, with the alarm's statistic and
+  period, and per watched model the quota expression against its threshold.
+- **Published to SSM** under `/comparative/<env>/60-observability/`: `sns/ops_topic_arn`.
+
+There is no queue-depth alarm: the application publishes no metric for it yet.
+
+After the first apply, confirm each subscription, then prove that an alarm reaches a person. The topic
+is encrypted, and an alarm that may not use the key fails to notify without any error:
+
+```bash
+aws cloudwatch set-alarm-state --alarm-name cmp-personal-stage-run-failure-burst \
+  --state-value ALARM --state-reason "delivery test"
+```
+
+The alarm returns to its real state at its next evaluation. If no email arrives, read the alarm's
+history (`aws cloudwatch describe-alarm-history`) for a failed action, and the statement
+`CloudWatchAlarmsToOpsTopic` of the logs key in `00-foundation`.
 
 ## A release
 
@@ -497,8 +560,12 @@ each followed by its own scripts, `tests/*.sh`:
   credentials, empty state, nothing contacted), reads the plan as JSON and fails if a secret value is
   in it or would reach the state. Given a path, it checks that plan JSON instead:
   `no_secret_in_plan.sh plan.json`.
-- `stacks/35-deploy-tasks/tests/deploy_tasks.sh` and `stacks/40-services/tests/services.sh` check what
-  those stacks plan inside their modules, which a stack's test file cannot see. They run the stack's
+- `modules/observability/tests/policy_on_plan.sh` plans `modules/observability/tests/plan` the same
+  way and runs every rule of `policy/` against that plan; it also requires the topic to carry a
+  customer-managed key, which no rule covers.
+- `stacks/35-deploy-tasks/tests/deploy_tasks.sh`, `stacks/40-services/tests/services.sh` and
+  `stacks/60-observability/tests/observability.sh` check what those stacks plan inside their modules,
+  which a stack's test file cannot see. They run the stack's
   test file once more with `terraform test -json -verbose`, which prints every run's plan, and check
   those plans with `jq` through `plan_checks.sh`. `services.sh` is also the release test: its first run
   applies against the mocked provider, the next plans with only the three images changed, and the

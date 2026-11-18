@@ -274,6 +274,9 @@ locals {
     "service/chat_worker_name"   = module.chat_worker.service_name
     "service/memory_worker_name" = module.memory_worker.service_name
     "service/browser_proxy_name" = module.browser_proxy.service_name
+    # The two log groups 60-observability puts metric filters on.
+    "log_group/chat_worker_name"   = module.chat_worker.log_group_name
+    "log_group/memory_worker_name" = module.memory_worker.log_group_name
   }
 }
 
@@ -466,9 +469,9 @@ module "browser_proxy" {
 # --- Published outputs -------------------------------------------------------
 
 # Downstream stacks read these with aws_ssm_parameter data sources; there is no
-# terraform_remote_state. Service names, not secrets.
+# terraform_remote_state. Service and log group names, not secrets.
 resource "aws_ssm_parameter" "published" {
-  #checkov:skip=CKV2_AWS_34:Service names, not secrets; plain String so any downstream stack can read them
+  #checkov:skip=CKV2_AWS_34:Service and log group names, not secrets; plain String so any downstream stack can read them
   for_each = local.parameters
 
   name  = "/comparative/${var.env}/40-services/${each.key}"
