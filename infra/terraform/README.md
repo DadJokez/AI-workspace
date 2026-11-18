@@ -544,6 +544,73 @@ In `40-services` such a change touches task definitions and services only: a new
 definition is registered, each service moves to it, and the previous revision is deregistered after the
 service is steady.
 
+### How a release is made
+
+`.github/workflows/build-release.yml` runs on every push to `main` that can change an image (not on
+documentation, and not on the merge of a release itself). It assumes `<name_prefix>-image-push` and, for
+each of `web`, `worker`, `memory-worker`, `migrator` (amd64, repository `<name_prefix>-app`) and `agent`
+(arm64, repository `<name_prefix>-agent`):
+
+1. builds the image and pushes it as `<component>-<commit sha>`, the tag prefixes the lifecycle rules of
+   `00-foundation` keep. A re-run of the same commit finds the tag and reuses its digest;
+2. writes an SBOM (SPDX JSON) of the pushed digest and scans the digest. A critical or high
+   vulnerability that has a fix fails the image unless `.github/release-vulnerability-allowlist.yaml`
+   exempts it, and an exemption ends on its `expired_at` date;
+3. attaches the SBOM to the digest as a signed attestation and signs the digest, both with the `signing`
+   key. A signature therefore also says that the digest passed the scan. It carries the annotations
+   `release_id` and `component`, and no transparency log is used: verification needs the key alone,
+
+   ```bash
+   cosign verify --key awskms:///<signing_key_arn> --insecure-ignore-tlog=true \
+     -a release_id=<commit sha> -a component=web <repository>@sha256:<digest>
+   ```
+
+Signatures and attestations are stored as OCI referrers of the digest, not under tags of their own
+(cosign 3 writes no `sha256-<digest>.sig` tag), so the lifecycle policy has no rule for them: ECR is
+documented to remove the referrers of an image when it expires the image. This was not exercised
+against ECR when the workflow was written. After the first release, confirm it once:
+
+```bash
+aws ecr list-images --repository-name <name_prefix>-app --filter tagStatus=TAGGED   # only <component>-<sha> tags
+aws ecr start-lifecycle-policy-preview --repository-name <name_prefix>-app
+aws ecr get-lifecycle-policy-preview --repository-name <name_prefix>-app            # no signature or SBOM of a kept image
+```
+
+If the first command lists a `sha256-…` tag, the registry did not accept the referrers and cosign fell
+back to a tag, which an immutable repository refuses to update. If the preview selects referrers of an
+image that is kept, the untagged rule would delete signatures after 7 days. Either result means the
+lifecycle policy in `stacks/00-foundation/main.tf` has to change before releases are relied on.
+
+The last job writes `release.json` and `release.auto.tfvars` (artifact `release-personal-stage`) and
+opens or updates the pull request `release(personal-stage): <short sha>` from the branch
+`release/personal-stage`, whose only change is the release file. `.github/workflows/release-checks.yml`
+then verifies on that pull request that it changes nothing else and that every digest is signed for a
+commit on `main`. That check is evidence for the reviewer; the pull request still needs every required
+check.
+
+One-time setup, in the repository settings:
+
+| Kind | Name | Value |
+|---|---|---|
+| Variable | `RELEASE_AWS_REGION` | `aws_region` of the environment |
+| Variable | `RELEASE_IMAGE_PUSH_ROLE_ARN` | output `image_push_role_arn` of `00-foundation` |
+| Variable | `RELEASE_SIGNING_KEY_ARN` | output `signing_key_arn` |
+| Variable | `RELEASE_APP_REPOSITORY_URL` | SSM parameter `ecr/app_repo_url` |
+| Variable | `RELEASE_AGENT_REPOSITORY_URL` | SSM parameter `ecr/agent_repo_url` |
+| Variable | `RELEASE_VERIFY_ROLE_ARN` | output `tf_plan_role_arn` (read-only; verifies signatures on the release pull request) |
+| Variable | `RELEASE_BOT_CLIENT_ID` | client id of the GitHub App that opens the release pull request |
+| Secret | `RELEASE_BOT_PRIVATE_KEY` | a private key of that App |
+
+These are repository variables, not variables of a GitHub environment: a job that names an environment
+presents a different OIDC subject, which the image-push role refuses. `RELEASE_BASE_IMAGE_REGISTRY` and
+`RELEASE_PNPM_REGISTRY` are optional mirrors for the image builds.
+
+The GitHub App is installed on this repository only, with the repository permissions Contents and Pull
+requests (read and write). The pull request is opened with its installation token because GitHub starts
+no workflow for a pull request opened with the workflow's own `GITHUB_TOKEN`, and the required checks
+would then never report. Until the App exists, leave `RELEASE_BOT_CLIENT_ID` unset: the workflow stops
+after uploading the artifact and a human opens the pull request from it.
+
 ## Checks
 
 ```bash

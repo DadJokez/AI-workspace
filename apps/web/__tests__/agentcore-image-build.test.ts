@@ -148,7 +148,16 @@ describe("agentcore-image-build.sh", () => {
       parentBuildspec.indexOf("Pushing the Docker images"),
     );
     expect(armBuildspec).toContain('test "$(uname -m)" = "aarch64"');
-    expect(dockerfile).toContain("public.ecr.aws/docker/library/node");
+    // The registry is a build argument so that a mirror can replace it. Its
+    // default is still the public ECR copy, never Docker Hub, and the image
+    // is taken by digest.
+    expect(dockerfile).toContain(
+      "ARG BASE_IMAGE_REGISTRY=public.ecr.aws/docker/library\n",
+    );
+    expect(dockerfile).toMatch(/^ARG NODE_IMAGE_DIGEST=sha256:[0-9a-f]{64}$/m);
+    expect(dockerfile.match(/^FROM .*$/gm)).toEqual([
+      "FROM ${BASE_IMAGE_REGISTRY}/node:${NODE_VERSION}@${NODE_IMAGE_DIGEST}",
+    ]);
   });
 });
 

@@ -1,0 +1,604 @@
+name: Build Release
+
+# Build once (docs/roadmap/KOCH_MIGRATION_SPEC.md, WP-14). A push to main
+# builds the five images of that commit, pushes each to ECR, and for each
+# digest writes an SBOM, scans it, and signs it with the KMS signing key of
+# infra/terraform/stacks/00-foundation. The last job proposes the release:
+# a pull request that replaces envs/personal-stage/release.auto.tfvars with
+# the five digests. Nothing here deploys; merging that pull request does not
+# either until the apply workflow exists.
+#
+# Production still deploys through CodeBuild (buildspec.yml). This workflow
+# builds beside it and touches nothing it uses.
+#
+# Trust boundary. The image-push role trusts the OIDC subject
+# `repo:<owner>/<repo>:ref:refs/heads/main` and nothing else, so this workflow
+# runs on pushes to main (and a manual run on main) only: never on a pull
+# request, never on a fork. Two consequences to keep:
+#   - the build job must not name a GitHub environment. That would change the
+#     subject to `...:environment:<name>` and the role would refuse it. Its
+#     settings are therefore repository variables, not environment variables;
+#   - no long-lived credential is used. AWS access is the OIDC role; the
+#     release pull request is opened by a GitHub App installation token.
+#
+# Repository variables (all from `./tf.sh personal-stage 00-foundation output`
+# and the SSM parameters ecr/app_repo_url and ecr/agent_repo_url):
+#   RELEASE_AWS_REGION            region of the ECR repositories and the key
+#   RELEASE_IMAGE_PUSH_ROLE_ARN   output image_push_role_arn
+#   RELEASE_SIGNING_KEY_ARN       output signing_key_arn
+#   RELEASE_APP_REPOSITORY_URL    <account>.dkr.ecr.<region>.amazonaws.com/<name_prefix>-app
+#   RELEASE_AGENT_REPOSITORY_URL  <account>.dkr.ecr.<region>.amazonaws.com/<name_prefix>-agent
+# Optional:
+#   RELEASE_BASE_IMAGE_REGISTRY   mirror that replaces public.ecr.aws/docker/library
+#   RELEASE_PNPM_REGISTRY         npm registry mirror for the image builds
+#   RELEASE_BOT_CLIENT_ID         client id of the GitHub App that opens the
+#                                 release pull request (with the secret
+#                                 RELEASE_BOT_PRIVATE_KEY). Unset, the release
+#                                 file is an artifact and a human opens the
+#                                 pull request.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# No workflow-wide grant: each job takes only what it needs.
+permissions: {}
+
+# One run per commit: a re-trigger of the same commit waits for the first and
+# then finds its images already pushed. Runs of different commits are
+# independent; the release job orders their pull-request updates itself.
+concurrency:
+  group: build-release-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  classify:
+    name: decide whether to build
+    # A manual run can be started from any branch; only main may build.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+    steps:
+      # Full history: the diff needs the commit main pointed at before the push.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The rules decide whether a commit is released, so they are proven on
+      # every run rather than trusted.
+      - name: Verify the classifiers
+        run: |
+          bash .github/scripts/classify-docs-only.test.sh
+          bash .github/scripts/classify-release-build.test.sh
+
+      # .github/workflows/classify-changed-paths.yml cannot be reused here: it
+      # classifies pull requests and reports every other event as the full
+      # lane. The same rule script judges the paths of this push instead.
+      - name: Classify the pushed commits
+        id: decide
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          build() {
+            echo "build: $1"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            printf '### Release build\n\n**Building** — %s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          # Anything this step cannot verify builds: an unneeded image set
+          # costs minutes, a skipped one leaves a commit unreleased.
+          trap 'build "classifier error at line $LINENO"' ERR
+
+          [ "$EVENT_NAME" = "push" ] || build "event is '$EVENT_NAME', not push"
+          [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
+            || build "the push has no previous commit to compare with"
+          git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
+            || build "previous commit $BEFORE is not in this history"
+
+          diff_file="$(mktemp)"
+          git diff --name-only --no-renames -z "$BEFORE" "$GITHUB_SHA" > "$diff_file"
+          report="$(bash .github/scripts/classify-release-build.sh < "$diff_file")"
+          rm -f "$diff_file"
+
+          echo "Classifying $BEFORE..$GITHUB_SHA:"
+          echo "$report"
+
+          decision="$(tail -n 1 <<<"$report")"
+          if [ "$decision" = "build=false" ]; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            lane="**Not building** — only documentation or release files changed."
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            lane="**Building** — at least one changed path can change an image."
+          fi
+          # shellcheck disable=SC2016 # the backticks are Markdown, not a command
+          printf '### Release build\n\n%s\n\n```\n%s\n```\n' "$lane" "$report" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: build ${{ matrix.component }}
+    needs: classify
+    if: needs.classify.outputs.build == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    # The only job that talks to AWS, so the only one that may request an OIDC
+    # token.
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      # One failed image fails the release, but the others still report.
+      fail-fast: false
+      matrix:
+        include:
+          - component: web
+            dockerfile: apps/web/Dockerfile
+            target: runtime
+            platform: linux/amd64
+            runner: ubuntu-latest
+            repository_url_variable: RELEASE_APP_REPOSITORY_URL
+          - component: worker
+            dockerfile: apps/web/Dockerfile
+            target: worker
+            platform: linux/amd64
+            runner: ubuntu-latest
+            repository_url_variable: RELEASE_APP_REPOSITORY_URL
+          - component: memory-worker
+            dockerfile: apps/web/Dockerfile
+            target: memory-worker
+            platform: linux/amd64
+            runner: ubuntu-latest
+            repository_url_variable: RELEASE_APP_REPOSITORY_URL
+          - component: migrator
+            dockerfile: apps/web/Dockerfile
+            target: migrator
+            platform: linux/amd64
+            runner: ubuntu-latest
+            repository_url_variable: RELEASE_APP_REPOSITORY_URL
+          # AgentCore requires linux/arm64. A native arm64 runner, as
+          # buildspec.agentcore.yml uses today: no QEMU emulation.
+          - component: agent
+            dockerfile: apps/agentcore-agent/Dockerfile
+            target: ""
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            repository_url_variable: RELEASE_AGENT_REPOSITORY_URL
+    env:
+      COMPONENT: ${{ matrix.component }}
+      AWS_REGION: ${{ vars.RELEASE_AWS_REGION }}
+      IMAGE_PUSH_ROLE_ARN: ${{ vars.RELEASE_IMAGE_PUSH_ROLE_ARN }}
+      SIGNING_KEY_ARN: ${{ vars.RELEASE_SIGNING_KEY_ARN }}
+      REPOSITORY_URL: ${{ vars[matrix.repository_url_variable] }}
+      BASE_IMAGE_REGISTRY: ${{ vars.RELEASE_BASE_IMAGE_REGISTRY }}
+      PNPM_REGISTRY: ${{ vars.RELEASE_PNPM_REGISTRY }}
+      # Immutable repositories: <component>-<full sha>, never `latest`. The
+      # prefixes are the ones the ECR lifecycle rules of 00-foundation keep.
+      IMAGE_TAG: ${{ matrix.component }}-${{ github.sha }}
+    steps:
+      - name: Check the repository variables
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in AWS_REGION IMAGE_PUSH_ROLE_ARN SIGNING_KEY_ARN REPOSITORY_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is empty: set the repository variable it comes from (see the header of build-release.yml)"
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ]
+          [[ "$REPOSITORY_URL" =~ ^[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com(\.cn)?/[a-z0-9._/-]+$ ]] || {
+            echo "::error::the repository URL is not <account>.dkr.ecr.<region>.amazonaws.com/<repository>"
+            exit 1
+          }
+          {
+            echo "REGISTRY=${REPOSITORY_URL%%/*}"
+            echo "REPOSITORY_NAME=${REPOSITORY_URL#*/}"
+            echo "SIGNING_KEY=awskms:///$SIGNING_KEY_ARN"
+          } >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # OIDC only: no long-lived AWS keys.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: ${{ vars.RELEASE_IMAGE_PUSH_ROLE_ARN }}
+          aws-region: ${{ vars.RELEASE_AWS_REGION }}
+
+      # docker, buildx, trivy and cosign all read the credential this stores.
+      - name: Log in to ECR
+        run: |
+          set -euo pipefail
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$REGISTRY"
+
+      # Idempotent: tags are immutable, so a second build of the same commit
+      # could not be pushed. A re-run finds the tag and reuses its digest.
+      - name: Look for the image of this commit
+        id: existing
+        run: |
+          set -euo pipefail
+          if digest="$(aws ecr describe-images --region "$AWS_REGION" \
+            --repository-name "$REPOSITORY_NAME" --image-ids "imageTag=$IMAGE_TAG" \
+            --query 'imageDetails[0].imageDigest' --output text 2> describe.err)"; then
+            echo "found $IMAGE_TAG at $digest"
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          elif grep -q ImageNotFoundException describe.err; then
+            echo "$IMAGE_TAG is not in the repository yet"
+            echo "digest=" >> "$GITHUB_OUTPUT"
+          else
+            cat describe.err >&2
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.existing.outputs.digest == ''
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # An empty build argument would replace the Dockerfile's default, so
+      # only the mirrors that are configured are passed.
+      - name: Collect build arguments
+        id: args
+        if: steps.existing.outputs.digest == ''
+        run: |
+          set -euo pipefail
+          {
+            echo "build_args<<BUILD_ARGS_END"
+            [ -z "$BASE_IMAGE_REGISTRY" ] || echo "BASE_IMAGE_REGISTRY=$BASE_IMAGE_REGISTRY"
+            [ -z "$PNPM_REGISTRY" ] || echo "PNPM_REGISTRY=$PNPM_REGISTRY"
+            echo "BUILD_ARGS_END"
+          } >> "$GITHUB_OUTPUT"
+
+      # provenance and sbom are off so that the pushed digest is the image
+      # manifest itself, not an index that wraps it with BuildKit attestations:
+      # the SBOM and the signature are attached to that digest below.
+      # The BuildKit cache is the GitHub Actions cache, one scope per image.
+      # Caches written on main are not writable from pull requests.
+      - name: Build and push
+        id: build
+        if: steps.existing.outputs.digest == ''
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          platforms: ${{ matrix.platform }}
+          build-args: ${{ steps.args.outputs.build_args }}
+          tags: ${{ env.REPOSITORY_URL }}:${{ env.IMAGE_TAG }}
+          push: true
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=release-${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.component }}
+
+      # Everything after this step names the image by digest, never by tag.
+      - name: Resolve the image reference
+        env:
+          EXISTING_DIGEST: ${{ steps.existing.outputs.digest }}
+          BUILT_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          digest="${EXISTING_DIGEST:-$BUILT_DIGEST}"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "::error::no digest for $IMAGE_TAG (got '$digest')"
+            exit 1
+          }
+          echo "IMAGE_REF=$REPOSITORY_URL@$digest" >> "$GITHUB_ENV"
+          echo "$IMAGE_TAG is $REPOSITORY_URL@$digest"
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.76.2
+
+      - name: Generate the SBOM (SPDX JSON)
+        run: |
+          set -euo pipefail
+          trivy image --quiet --format spdx-json --output sbom.spdx.json "$IMAGE_REF"
+
+      - name: Upload the SBOM
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom-${{ matrix.component }}
+          path: sbom.spdx.json
+          if-no-files-found: error
+          overwrite: true
+
+      # The gate: no critical or high vulnerability that has a fix. An entry
+      # of the allowlist exempts one finding until its expiry date.
+      - name: Scan for vulnerabilities
+        run: |
+          set -euo pipefail
+          trivy image --quiet --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed \
+            --ignorefile .github/release-vulnerability-allowlist.yaml \
+            --format json --output scan.json "$IMAGE_REF"
+
+      - name: Upload the scan result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scan-${{ matrix.component }}
+          path: scan.json
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Fail on fixable critical or high vulnerabilities
+        run: |
+          set -euo pipefail
+          count="$(jq '[.Results[]?.Vulnerabilities[]?] | length' scan.json)"
+          {
+            echo "### Vulnerability scan: $COMPONENT"
+            echo
+            echo "$count fixable critical or high finding(s) outside the allowlist."
+            if [ "$count" != 0 ]; then
+              echo
+              echo "| Severity | Id | Package | Installed | Fixed in | Where |"
+              echo "|---|---|---|---|---|---|"
+              jq -r '.Results[]? | .Target as $target | .Vulnerabilities[]?
+                | "| \(.Severity) | \(.VulnerabilityID) | \(.PkgName) | \(.InstalledVersion) | \(.FixedVersion) | \($target) |"' scan.json
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$count" != 0 ]; then
+            echo "::error::$count fixable critical or high vulnerabilities in $COMPONENT; the image is not signed"
+            exit 1
+          fi
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+
+      # Signed only after the scan passed, so a signature also says "this
+      # digest passed the gate". Both the SBOM attestation and the signature
+      # are stored in the repository as OCI referrers of the digest; neither
+      # needs a tag.
+      #
+      # No transparency log: the signing config names no Rekor and no
+      # timestamp service, so nothing about these images leaves the account,
+      # and verification needs the key alone (`--insecure-ignore-tlog`), which
+      # also works where the public Sigstore services cannot be reached.
+      #
+      # The annotations bind the signature to this commit and component.
+      # Signing again would add a second signature, so a re-run verifies first.
+      - name: Attach the SBOM and sign the digest
+        run: |
+          set -euo pipefail
+          cosign signing-config create --out "$RUNNER_TEMP/signing-config.json"
+          key=(--key "$SIGNING_KEY")
+          verify=("${key[@]}" --insecure-ignore-tlog=true)
+          claims=(-a "release_id=$GITHUB_SHA" -a "component=$COMPONENT")
+
+          if cosign verify-attestation "${verify[@]}" --type spdxjson "$IMAGE_REF" > /dev/null 2>&1; then
+            echo "the SBOM attestation is already attached"
+          else
+            cosign attest --yes "${key[@]}" --signing-config "$RUNNER_TEMP/signing-config.json" \
+              --type spdxjson --predicate sbom.spdx.json "$IMAGE_REF"
+          fi
+
+          if cosign verify "${verify[@]}" "${claims[@]}" "$IMAGE_REF" > /dev/null 2>&1; then
+            echo "the digest is already signed for this release"
+          else
+            cosign sign --yes "${key[@]}" --signing-config "$RUNNER_TEMP/signing-config.json" \
+              "${claims[@]}" "$IMAGE_REF"
+          fi
+
+          # The proof the release job relies on: both verify from the registry.
+          cosign verify-attestation "${verify[@]}" --type spdxjson "$IMAGE_REF" > /dev/null
+          cosign verify "${verify[@]}" "${claims[@]}" "$IMAGE_REF" > /dev/null
+          echo "signed and attested: $IMAGE_REF"
+
+      - name: Record the image
+        run: |
+          set -euo pipefail
+          jq -n --arg component "$COMPONENT" --arg ref "$IMAGE_REF" --arg tag "$IMAGE_TAG" \
+            '{component: $component, ref: $ref, tag: $tag,
+              sbom_artifact: "sbom-\($component)", scan_artifact: "scan-\($component)"}' > image.json
+          cat image.json
+
+      - name: Upload the image record
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-${{ matrix.component }}
+          path: image.json
+          if-no-files-found: error
+          overwrite: true
+
+  release:
+    name: release pull request
+    # Runs only when all five images were built, scanned and signed.
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The workflow token only reads. The pull request is written with the
+    # installation token of the release bot, which is scoped below.
+    permissions:
+      contents: read
+    # One update of the release branch at a time. A queued older update that a
+    # newer one replaces is no loss: the newer release supersedes it.
+    concurrency:
+      group: release-pull-request
+      cancel-in-progress: false
+    env:
+      # The environment a new release is proposed for.
+      RELEASE_ENV: personal-stage
+      BASE_BRANCH: ${{ github.event.repository.default_branch }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      # Full history, all branches: the steps below read main, the release
+      # branch and the commits since the previous release.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Name the release file and branch
+        run: |
+          {
+            echo "RELEASE_FILE=infra/terraform/envs/$RELEASE_ENV/release.auto.tfvars"
+            echo "RELEASE_BRANCH=release/$RELEASE_ENV"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify the release file writer
+        run: bash .github/scripts/release-tfvars.test.sh
+
+      - name: Download the image records
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: image-*
+          path: ${{ runner.temp }}/images
+
+      # release.json is the record of this release; the tfvars file is derived
+      # from it and refused unless every image is given by digest.
+      - name: Write release.json and the release file
+        run: |
+          set -euo pipefail
+          mkdir release
+          jq -s --arg id "$GITHUB_SHA" \
+            '{release_id: $id, images: (map({(.component): del(.component)}) | add)}' \
+            "$RUNNER_TEMP"/images/*/image.json > release/release.json
+          bash .github/scripts/release-tfvars.sh write "$RELEASE_ENV" release/release.json \
+            > release/release.auto.tfvars
+          cat release/release.json release/release.auto.tfvars
+
+      - name: Upload the release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ env.RELEASE_ENV }}
+          path: release/
+          if-no-files-found: error
+          overwrite: true
+
+      # Releases only move forward. Builds of different commits finish in any
+      # order, so a run whose commit is already contained in the release on
+      # main, or in a newer one already proposed, proposes nothing.
+      - name: Decide whether to propose this release
+        id: decide
+        run: |
+          set -euo pipefail
+          release_id_in() { # git object of a release file -> its release id, or nothing
+            { git show "$1" 2>/dev/null || true; } \
+              | sed -n 's/^release_id *= *"\([0-9a-f]\{40\}\)"$/\1/p' | head -n 1
+          }
+          contains() { # is commit $2 contained in commit $1?
+            git cat-file -e "$1^{commit}" 2>/dev/null && git merge-base --is-ancestor "$2" "$1"
+          }
+
+          previous="$(release_id_in "origin/$BASE_BRANCH:$RELEASE_FILE")"
+          proposed="$(release_id_in "origin/$RELEASE_BRANCH:$RELEASE_FILE")"
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+
+          propose=true
+          if [ -n "$previous" ] && contains "$previous" "$GITHUB_SHA"; then
+            reason="$BASE_BRANCH already releases $previous, which contains this commit"
+            propose=false
+          elif [ -n "$proposed" ] && [ "$proposed" != "$GITHUB_SHA" ] && contains "$proposed" "$GITHUB_SHA"; then
+            reason="$RELEASE_BRANCH already proposes the newer release $proposed"
+            propose=false
+          else
+            reason="release $GITHUB_SHA follows ${previous:-no earlier release}"
+          fi
+          echo "propose=$propose" >> "$GITHUB_OUTPUT"
+          echo "$reason"
+          printf '### Release %s\n\n%s\n' "${GITHUB_SHA:0:7}" "$reason" >> "$GITHUB_STEP_SUMMARY"
+
+      # Commit subjects are text other people wrote: they go into a file, in
+      # a code block, and never into a command line.
+      - name: Write the pull request body
+        if: steps.decide.outputs.propose == 'true'
+        env:
+          PREVIOUS: ${{ steps.decide.outputs.previous }}
+        run: |
+          set -euo pipefail
+          {
+            echo "Release \`$GITHUB_SHA\` for \`$RELEASE_ENV\`, built by [this run]($RUN_URL)."
+            echo
+            echo "The only change is \`$RELEASE_FILE\`: the release id and the five images, each by digest. Every digest was scanned (no fixable critical or high vulnerability outside the allowlist) and then signed with the release signing key; its SBOM is attached to it in the registry."
+            echo
+            echo "| Component | Image | SBOM | Scan |"
+            echo "|---|---|---|---|"
+            jq -r '.images | to_entries[]
+              | "| \(.key) | `\(.value.ref)` | `\(.value.sbom_artifact)` | `\(.value.scan_artifact)` |"' release/release.json
+            echo
+            echo "SBOM and scan results are the artifacts of [the build run]($RUN_URL) named in the table."
+            echo
+            if [ -n "$PREVIOUS" ] && git cat-file -e "$PREVIOUS^{commit}" 2>/dev/null; then
+              echo "Commits since the previous release \`$PREVIOUS\`:"
+              echo
+              echo '```'
+              git log --no-merges --max-count=200 --format='%h %s' "$PREVIOUS..$GITHUB_SHA" | tr -d '`'
+              echo '```'
+            else
+              echo "This is the first release of this environment."
+            fi
+          } > "$RUNNER_TEMP/body.md"
+          cat "$RUNNER_TEMP/body.md"
+
+      # The default GITHUB_TOKEN is not used to open the pull request: GitHub
+      # starts no workflow for a pull request it opens, so CI, Product Smoke
+      # and Claude verdict would never report and the pull request could not
+      # merge. An App installation token starts them like any author's push.
+      # The token is limited to this repository and to these two permissions.
+      - name: Create the release bot token
+        id: bot
+        if: steps.decide.outputs.propose == 'true' && vars.RELEASE_BOT_CLIENT_ID != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      # One commit on top of the released commit, made through the API so
+      # that no git credential is stored on the runner, and one update of the
+      # branch, so an open pull request never sees an empty diff.
+      - name: Open or update the release pull request
+        if: steps.decide.outputs.propose == 'true' && vars.RELEASE_BOT_CLIENT_ID != ''
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          title="release($RELEASE_ENV): ${GITHUB_SHA:0:7}"
+
+          tree="$(jq -n --arg base "$(git rev-parse "$GITHUB_SHA^{tree}")" --arg path "$RELEASE_FILE" \
+            --rawfile content release/release.auto.tfvars \
+            '{base_tree: $base, tree: [{path: $path, mode: "100644", type: "blob", content: $content}]}' \
+            | gh api "repos/$GH_REPO/git/trees" --input - --jq .sha)"
+          commit="$(jq -n --arg message "$title" --arg tree "$tree" --arg parent "$GITHUB_SHA" \
+            '{message: $message, tree: $tree, parents: [$parent]}' \
+            | gh api "repos/$GH_REPO/git/commits" --input - --jq .sha)"
+
+          if gh api "repos/$GH_REPO/git/ref/heads/$RELEASE_BRANCH" > /dev/null 2>&1; then
+            jq -n --arg sha "$commit" '{sha: $sha, force: true}' \
+              | gh api -X PATCH "repos/$GH_REPO/git/refs/heads/$RELEASE_BRANCH" --input - > /dev/null
+          else
+            jq -n --arg ref "refs/heads/$RELEASE_BRANCH" --arg sha "$commit" '{ref: $ref, sha: $sha}' \
+              | gh api "repos/$GH_REPO/git/refs" --input - > /dev/null
+          fi
+
+          number="$(gh pr list --head "$RELEASE_BRANCH" --base "$BASE_BRANCH" --state open \
+            --json number --jq '.[0].number // empty')"
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --head "$RELEASE_BRANCH" --base "$BASE_BRANCH" \
+              --title "$title" --body-file "$RUNNER_TEMP/body.md"
+          fi
+
+      - name: Explain how to open the pull request by hand
+        if: steps.decide.outputs.propose == 'true' && vars.RELEASE_BOT_CLIENT_ID == ''
+        run: |
+          {
+            echo
+            echo "No release bot is configured (\`RELEASE_BOT_CLIENT_ID\` is unset), so no pull request was opened."
+            echo "Download the artifact \`release-$RELEASE_ENV\`, replace \`$RELEASE_FILE\` with its \`release.auto.tfvars\`"
+            echo "on the branch \`$RELEASE_BRANCH\`, and open the pull request yourself."
+          } >> "$GITHUB_STEP_SUMMARY"

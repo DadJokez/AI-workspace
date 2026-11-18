@@ -4,9 +4,23 @@
 # runs Node 20 (buildspec.yml) because its console-owned image lacks 24 — that
 # host only drives docker/cdk and is tracked in #467.
 ARG NODE_VERSION=24-alpine
+# The base image is pinned by digest: a tag can be moved to another image, a
+# digest cannot. This is the multi-platform index public.ecr.aws served for
+# node:24-alpine on 2026-11-18; Docker ignores the tag once a digest is given,
+# so change NODE_VERSION and NODE_IMAGE_DIGEST together, and raise the digest
+# to take base-image security fixes.
+ARG NODE_IMAGE_DIGEST=sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5
+# A registry mirror that carries the same image replaces the public registry.
+ARG BASE_IMAGE_REGISTRY=public.ecr.aws/docker/library
 
-FROM public.ecr.aws/docker/library/node:${NODE_VERSION} AS base
+FROM ${BASE_IMAGE_REGISTRY}/node:${NODE_VERSION}@${NODE_IMAGE_DIGEST} AS base
+# An npm registry mirror, for networks that cannot reach registry.npmjs.org.
+# Unset, nothing changes: pnpm and corepack use their defaults.
+ARG PNPM_REGISTRY=""
 RUN corepack enable
+RUN if [ -n "$PNPM_REGISTRY" ]; then \
+      COREPACK_NPM_REGISTRY="$PNPM_REGISTRY" pnpm config set registry "$PNPM_REGISTRY"; \
+    fi
 WORKDIR /repo
 
 FROM base AS deps
@@ -61,7 +75,7 @@ CMD ["pnpm", "--filter", "@ai-workspace/web", "worker:chat-runs"]
 FROM worker AS memory-worker
 CMD ["pnpm", "--filter", "@ai-workspace/web", "worker:memory-capture"]
 
-FROM public.ecr.aws/docker/library/node:${NODE_VERSION} AS runtime
+FROM ${BASE_IMAGE_REGISTRY}/node:${NODE_VERSION}@${NODE_IMAGE_DIGEST} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000

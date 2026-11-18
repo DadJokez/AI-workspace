@@ -1,0 +1,139 @@
+name: Release Checks
+
+# Two checks around the release file envs/<env>/release.auto.tfvars
+# (docs/roadmap/KOCH_MIGRATION_SPEC.md, WP-14):
+#
+#   - `release script tests` runs the fixtures of the scripts that decide
+#     what is built and what a release may contain, on every pull request
+#     that changes them.
+#   - `release is signed` runs on a pull request from a `release/<env>`
+#     branch. It passes only if the change is exactly one release file, every
+#     image in it is given by digest, the release id is a commit on main, and
+#     every digest carries a signature of the release signing key for that
+#     release.
+#
+# Neither replaces a required check. A release pull request still needs CI,
+# Product Smoke and Claude verdict like any other; these are evidence for the
+# reviewer. Not required checks: the path filter means they do not report on
+# most pull requests, and making one required is Rob's decision.
+#
+# `release is signed` reads the registry and the public half of the signing
+# key with the read-only plan role, which any ref of this repository may
+# assume. A pull request from a fork gets no OIDC token, so the check fails
+# there, which is the right answer for a release from a fork.
+#
+# Repository variables: RELEASE_AWS_REGION and RELEASE_SIGNING_KEY_ARN (as in
+# build-release.yml) and RELEASE_VERIFY_ROLE_ARN (output tf_plan_role_arn of
+# 00-foundation).
+on:
+  pull_request:
+    paths:
+      - "infra/terraform/envs/*/release.auto.tfvars"
+      - ".github/scripts/release-tfvars.sh"
+      - ".github/scripts/release-tfvars.test.sh"
+      - ".github/scripts/classify-release-build.sh"
+      - ".github/scripts/classify-release-build.test.sh"
+      - ".github/scripts/classify-docs-only.sh"
+      - ".github/workflows/build-release.yml"
+      - ".github/workflows/release-checks.yml"
+
+# No workflow-wide grant: each job takes only what it needs.
+permissions: {}
+
+concurrency:
+  group: release-checks-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  script-tests:
+    name: release script tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Release build classifier fixtures
+        run: bash .github/scripts/classify-release-build.test.sh
+
+      - name: Release file fixtures
+        run: bash .github/scripts/release-tfvars.test.sh
+
+  verify-release:
+    name: release is signed
+    # The branch name only selects the job; it is never passed to a shell.
+    if: startsWith(github.head_ref, 'release/') && github.base_ref == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.RELEASE_AWS_REGION }}
+      SIGNING_KEY_ARN: ${{ vars.RELEASE_SIGNING_KEY_ARN }}
+      VERIFY_ROLE_ARN: ${{ vars.RELEASE_VERIFY_ROLE_ARN }}
+    steps:
+      - name: Check the repository variables
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in AWS_REGION SIGNING_KEY_ARN VERIFY_ROLE_ARN; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is empty: set the repository variable it comes from (see the header of release-checks.yml)"
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ]
+
+      # Full history: the release id must be found on the base branch. HEAD is
+      # GitHub's merge commit of the pull request; its first parent is the tip
+      # of the base branch the merge was computed against.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The script that verifies is the base branch's copy, not the pull
+      # request's: a release pull request cannot bring its own verifier.
+      - name: Take the verifier from the base branch
+        run: |
+          set -euo pipefail
+          git show "HEAD^1:.github/scripts/release-tfvars.sh" > "$RUNNER_TEMP/release-tfvars.sh"
+
+      # OIDC only: no long-lived AWS keys. Read-only role.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: ${{ vars.RELEASE_VERIFY_ROLE_ARN }}
+          aws-region: ${{ vars.RELEASE_AWS_REGION }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+
+      # The change that would land is first parent..HEAD: the tip of the base
+      # branch against the merge of the pull request into it.
+      - name: Verify the release
+        run: |
+          set -euo pipefail
+          parents="$(git rev-list --parents -n 1 HEAD)"
+          read -r _merge base head extra <<<"$parents"
+          [ -n "${head:-}" ] && [ -z "${extra:-}" ] || {
+            echo "::error::HEAD is not the two-parent merge commit of a pull request"
+            exit 1
+          }
+          # Log in to the registries the release names. A host that is not an
+          # ECR registry gets no login, and the verifier refuses the release.
+          git diff "$base" HEAD -- 'infra/terraform/envs/*/release.auto.tfvars' \
+            | grep -oE '[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com(\.cn)?' \
+            | sort -u > "$RUNNER_TEMP/registries.txt" || true
+          while IFS= read -r registry; do
+            aws ecr get-login-password --region "$AWS_REGION" \
+              | docker login --username AWS --password-stdin "$registry"
+          done < "$RUNNER_TEMP/registries.txt"
+          SIGNING_KEY="awskms:///$SIGNING_KEY_ARN" \
+            bash "$RUNNER_TEMP/release-tfvars.sh" verify "$base" HEAD
