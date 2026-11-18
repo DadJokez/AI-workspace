@@ -34,6 +34,7 @@ import {
   type ChatContextWebAccessReceipt,
 } from "@/lib/chat-context-pack";
 import { loadUserCapabilityGraph } from "@/lib/capability-graph";
+import { GITHUB_API_URL, GITHUB_WEB_URL } from "@/lib/deployment-config";
 import { buildToolAuditRows } from "@/lib/audit-tool-events";
 import {
   buildAutonomyReceipt,
@@ -1927,7 +1928,11 @@ async function persistChatTurnResult({
   let recommendations: PersistedRecommendation[] = [];
   let sources =
     terminalStatus === "succeeded"
-      ? extractAssistantSources({ toolCalls, toolResults })
+      ? extractAssistantSources({
+          toolCalls,
+          toolResults,
+          github: { webUrl: GITHUB_WEB_URL, apiUrl: GITHUB_API_URL },
+        })
       : [];
   const skippedWriteCount = countUnattendedWriteDenials(toolResults);
   const autonomyReceipt = buildAutonomyReceipt(

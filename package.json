@@ -49,6 +49,7 @@
     "test:coverage": "pnpm -r test:coverage && node scripts/coverage-summary.mjs",
     "audit:prod": "pnpm audit --prod",
     "audit:retention": "pnpm --filter @ai-workspace/web audit:retention",
+    "egress:inventory": "pnpm --filter @ai-workspace/web egress:inventory",
     "start": "pnpm --filter @ai-workspace/web start",
     "eval": "pnpm --filter @ai-workspace/evals eval",
     "eval:core": "pnpm --filter @ai-workspace/evals eval:core",

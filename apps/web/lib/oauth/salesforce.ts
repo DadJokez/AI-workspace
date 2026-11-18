@@ -5,8 +5,9 @@ export const SALESFORCE_CLIENT_ID = process.env.SALESFORCE_CLIENT_ID ?? "";
 
 // login.salesforce.com for production orgs; override for sandboxes
 // (test.salesforce.com) or a My Domain host.
+export const SALESFORCE_DEFAULT_LOGIN_URL = "https://login.salesforce.com";
 export const SALESFORCE_LOGIN_URL = (
-  process.env.SALESFORCE_LOGIN_URL ?? "https://login.salesforce.com"
+  process.env.SALESFORCE_LOGIN_URL ?? SALESFORCE_DEFAULT_LOGIN_URL
 ).replace(/\/+$/, "");
 
 export const SALESFORCE_REDIRECT_URI = `${PUBLIC_BASE_URL}/api/oauth/salesforce/callback`;

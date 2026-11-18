@@ -109,6 +109,11 @@ export async function resolveAwsCredentials(): Promise<AwsCredentials> {
   };
 }
 
+/** The SES v2 API host for a region. */
+export function sesEndpointHost(region: string): string {
+  return `email.${region}.amazonaws.com`;
+}
+
 export async function sendSesEmail(input: {
   region: string;
   from: string;
@@ -118,7 +123,7 @@ export async function sendSesEmail(input: {
   html: string;
 }): Promise<{ provider: "ses"; messageId: string | null }> {
   const credentials = await resolveAwsCredentials();
-  const host = `email.${input.region}.amazonaws.com`;
+  const host = sesEndpointHost(input.region);
   const path = "/v2/email/outbound-emails";
   const endpoint = `https://${host}${path}`;
   const payload = JSON.stringify({

@@ -3,7 +3,10 @@
  * comes from the environment so the same build runs in any account or network.
  */
 
+import { GITHUB_DOT_COM } from "@ai-workspace/agent/sources";
+
 const LOCAL_BASE_URL = "http://localhost:3000";
+const GITHUB_DOT_COM_MCP_URL = "https://api.githubcopilot.com/mcp/";
 const NEXT_BUILD_PHASE = "phase-production-build";
 
 type Env = Record<string, string | undefined>;
@@ -26,6 +29,14 @@ export type DeploymentConfig = {
   webFetchEnabled: boolean;
   /** Null when analytics is off or its settings are incomplete. */
   analytics: { provider: "posthog"; token: string; host: string } | null;
+  github: {
+    /** Sign-in, OAuth consent and repository pages. */
+    webUrl: string;
+    /** REST API base, without a trailing slash. */
+    apiUrl: string;
+    /** Null when this deployment has no GitHub MCP server to mount. */
+    mcpUrl: string | null;
+  };
   problems: string[];
 };
 
@@ -115,8 +126,66 @@ export function readDeploymentConfig(env: Env): DeploymentConfig {
     // Anything but an explicit 0 keeps the tool, so a typo cannot remove it.
     webFetchEnabled: rawWebFetch !== "0",
     analytics,
+    github: readGitHubHosts(env, problems),
     problems,
   };
+}
+
+/**
+ * Unset or blank web and API URLs mean github.com.
+ *
+ * GITHUB_MCP_URL is the one variable where unset and empty differ. Unset
+ * (undefined) means the github.com default. Set but blank means this
+ * deployment has no GitHub MCP server, so the connector mounts no tools. A
+ * test that wants the default must leave the variable undefined
+ * (`vi.stubEnv("GITHUB_MCP_URL", undefined)`) and not stub it to "".
+ *
+ * A GitHub Enterprise deployment has to name all three: left to a default, an
+ * enterprise token would be sent to a github.com host.
+ */
+function readGitHubHosts(
+  env: Env,
+  problems: string[],
+): DeploymentConfig["github"] {
+  const rawWeb = env.GITHUB_WEB_URL?.trim();
+  const rawApi = env.GITHUB_API_URL?.trim();
+  const rawMcp = env.GITHUB_MCP_URL?.trim();
+
+  let webUrl = GITHUB_DOT_COM.webUrl;
+  if (rawWeb) {
+    const parsed = parseBaseUrl(rawWeb);
+    if (parsed) webUrl = parsed;
+    else problems.push("GITHUB_WEB_URL must be an absolute http(s) URL");
+  }
+  let apiUrl = GITHUB_DOT_COM.apiUrl;
+  if (rawApi) {
+    const parsed = parseBaseUrl(rawApi);
+    if (parsed) apiUrl = parsed;
+    else problems.push("GITHUB_API_URL must be an absolute http(s) URL");
+  }
+  let mcpUrl: string | null = GITHUB_DOT_COM_MCP_URL;
+  if (rawMcp === "") {
+    mcpUrl = null;
+  } else if (rawMcp) {
+    // Kept as written: a trailing slash is part of an MCP endpoint's path.
+    if (parseBaseUrl(rawMcp)) mcpUrl = rawMcp;
+    else {
+      problems.push("GITHUB_MCP_URL must be an absolute http(s) URL or empty");
+    }
+  }
+
+  if (rawWeb || rawApi) {
+    if (!rawWeb || !rawApi) {
+      problems.push("GITHUB_WEB_URL and GITHUB_API_URL must be set together");
+    }
+    if (rawMcp === undefined) {
+      problems.push(
+        "GITHUB_MCP_URL must be set, or empty, when GITHUB_WEB_URL and GITHUB_API_URL are set",
+      );
+      mcpUrl = null;
+    }
+  }
+  return { webUrl, apiUrl, mcpUrl };
 }
 
 function parseBaseUrl(value: string): string | null {
@@ -207,6 +276,18 @@ export const WEB_FETCH_ENABLED: boolean = config.webFetchEnabled;
  * runtime: nothing about analytics is baked into the image.
  */
 export const ANALYTICS: DeploymentConfig["analytics"] = config.analytics;
+
+/** GitHub in the browser: sign-in, OAuth consent and repository pages. */
+export const GITHUB_WEB_URL: string = config.github.webUrl;
+
+/** GitHub REST API base, without a trailing slash. */
+export const GITHUB_API_URL: string = config.github.apiUrl;
+
+/**
+ * GitHub MCP endpoint, or null when the deployment has none. With null the
+ * connector can still be linked but mounts no tools in chat.
+ */
+export const GITHUB_MCP_URL: string | null = config.github.mcpUrl;
 
 /** True for the public host and, when configured, the internal host. */
 export function isAllowedAppHost(host: string): boolean {

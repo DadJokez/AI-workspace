@@ -9,6 +9,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { decryptSecret } from "./crypto";
 import { INTEGRATION_DISPLAY_NAMES } from "@/lib/settings-navigation";
 import {
+  GITHUB_MCP_URL,
   isConnectorProviderEnabled,
   serverCallbackBaseUrl,
 } from "@/lib/deployment-config";
@@ -88,8 +89,10 @@ const SALESFORCE_TOOL_USAGE_NOTES: Record<string, string> = {
 };
 
 const ALL_MCP_PROVIDER_CONFIG: Record<string, McpProviderConfig> = {
+  // No endpoint when the deployment has no GitHub MCP server: the connector
+  // then reports `execution_not_configured` and mounts nothing.
   github: {
-    endpoint: { url: "https://api.githubcopilot.com/mcp/" },
+    ...(GITHUB_MCP_URL ? { endpoint: { url: GITHUB_MCP_URL } } : {}),
     usageNotesByTool: GITHUB_TOOL_USAGE_NOTES,
   },
   notion: notionMcpConfig(process.env.NOTION_MCP_ENDPOINT_URL),
@@ -148,7 +151,12 @@ export function getMcpProviderExecutionStatus(
 }
 
 export function isMcpProviderExecutionConfigured(provider: string): boolean {
-  return Boolean(MCP_PROVIDER_CONFIG[provider]?.endpoint);
+  return mcpProviderEndpointUrl(provider) !== null;
+}
+
+/** Where a provider's tools are served from, or null when it mounts none. */
+export function mcpProviderEndpointUrl(provider: string): string | null {
+  return MCP_PROVIDER_CONFIG[provider]?.endpoint?.url ?? null;
 }
 
 /**

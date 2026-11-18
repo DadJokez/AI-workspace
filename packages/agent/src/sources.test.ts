@@ -241,6 +241,76 @@ describe("extractAssistantSources", () => {
   });
 });
 
+describe("extractAssistantSources on GitHub Enterprise hosts", () => {
+  const github = {
+    webUrl: "https://ghe.example",
+    apiUrl: "https://ghe.example/api/v3",
+  };
+  const call = {
+    id: "call-file",
+    provider: "github",
+    toolName: "get_file_contents",
+    input: { owner: "platform", repo: "portal", ref: "main" },
+  };
+
+  it("links to the enterprise host from web, API and file results", () => {
+    expect(
+      extractAssistantSources({
+        github,
+        toolCalls: [call],
+        toolResults: [
+          {
+            toolCallId: "call-file",
+            provider: "github",
+            toolName: "get_file_contents",
+            output: {
+              items: [
+                { title: "Web", html_url: "https://ghe.example/platform/portal/pull/7" },
+                {
+                  title: "Api",
+                  url: "https://ghe.example/api/v3/repos/platform/portal/issues/9",
+                },
+                { path: "docs/README.md" },
+              ],
+              content: [
+                { type: "text", text: "See https://ghe.example/platform/portal/pull/8." },
+              ],
+            },
+          },
+        ],
+      }).map((source) => source.url),
+    ).toEqual([
+      "https://ghe.example/platform/portal/pull/8",
+      "https://ghe.example/platform/portal/pull/7",
+      "https://ghe.example/platform/portal/issues/9",
+      "https://ghe.example/platform/portal/blob/main/docs/README.md",
+    ]);
+  });
+
+  it("does not cite github.com links or raw API addresses", () => {
+    expect(
+      extractAssistantSources({
+        github,
+        toolCalls: [{ ...call, toolName: "list_issues" }],
+        toolResults: [
+          {
+            toolCallId: "call-file",
+            provider: "github",
+            toolName: "list_issues",
+            output: {
+              items: [
+                { title: "Public", html_url: "https://github.com/platform/portal/pull/7" },
+                { title: "Public API", url: "https://api.github.com/repos/platform/portal/issues/9" },
+                { title: "Raw API", url: "https://ghe.example/api/v3/repos/platform/portal" },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toEqual([]);
+  });
+});
+
 describe("parseAssistantSources", () => {
   it("validates persisted source metadata without allowing active URLs", () => {
     expect(

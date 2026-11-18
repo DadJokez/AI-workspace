@@ -3,8 +3,10 @@ import { createHash, randomUUID } from "node:crypto";
 import type { GoogleTurnContext } from "./write-authorization";
 import { createGoogleEventProposal } from "./write-authorization";
 
-const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
-const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
+export const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
+/** Gmail in the browser: where a thread link in a tool result opens. */
+export const GMAIL_WEB_URL = "https://mail.google.com";
+export const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
 const MAX_RESULT_CHARS = 32_000;
 const GOOGLE_CONTENT_MARKER_RE =
   /<<<(?:END-)?GOOGLE-(?:MAIL|CALENDAR)-CONTENT [^>\n]{1,128}>>>/g;
@@ -956,7 +958,7 @@ function encodeHeader(value: string): string {
 }
 
 function gmailThreadLink(threadId: string): string {
-  return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
+  return `${GMAIL_WEB_URL}/mail/u/0/#all/${encodeURIComponent(threadId)}`;
 }
 
 function htmlToText(value: string): string {

@@ -24,7 +24,7 @@ import {
 
 export const WEB_SEARCH_TOOL_NAME = "web__search";
 
-const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
+export const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
 const DEFAULT_RESULT_COUNT = 5;
 const MAX_RESULT_COUNT = 10;
 /** Brave caps queries at 400 chars; longer input is truncated with a note. */

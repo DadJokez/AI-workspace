@@ -16,6 +16,8 @@ smoke re-checked).
   recovery, and post-incident steps.
 - [Data flow and classification](./DATA_FLOW_AND_CLASSIFICATION.md): data
   classes, stores, encryption, retention, and egress inventory.
+- [Egress inventory](./EGRESS_INVENTORY.md): every outbound destination by
+  service, generated from the code by `pnpm egress:inventory`.
 - [Audit surfaces](../AUDIT_SURFACES.md): action-level source of truth for the
   append-only application audit ledger.
 - [Production deployment](../PRODUCTION_DEPLOYMENT.md): deploy verification
