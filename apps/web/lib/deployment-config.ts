@@ -161,7 +161,10 @@ export function readDeploymentConfig(env: Env): DeploymentConfig {
  * (`vi.stubEnv("GITHUB_MCP_URL", undefined)`) and not stub it to "".
  *
  * A GitHub Enterprise deployment has to name all three: left to a default, an
- * enterprise token would be sent to a github.com host.
+ * enterprise token would be sent to a github.com host. "Enterprise" means a
+ * value that differs from github.com, not merely a variable being present:
+ * GitHub Actions sets GITHUB_API_URL itself on every runner, and that ambient
+ * github.com value must not read as a half-finished enterprise configuration.
  */
 function readGitHubHosts(
   env: Env,
@@ -194,7 +197,9 @@ function readGitHubHosts(
     }
   }
 
-  if (rawWeb || rawApi) {
+  const enterprise =
+    webUrl !== GITHUB_DOT_COM.webUrl || apiUrl !== GITHUB_DOT_COM.apiUrl;
+  if (enterprise) {
     if (!rawWeb || !rawApi) {
       problems.push("GITHUB_WEB_URL and GITHUB_API_URL must be set together");
     }
