@@ -151,3 +151,23 @@ agentcore_browser_enabled = true
 # differ from the application's defaults, for web and both workers. Never a
 # secret value: those are fields of the app secret.
 extra_environment = {}
+
+# --- 60-observability --------------------------------------------------------
+
+# Who receives the alarms. AWS sends each address a confirmation email, and
+# nothing is delivered to it until its owner confirms.
+alert_emails = ["REPLACE_ME_ALERT_EMAIL"]
+
+# Bedrock models whose daily token quota is watched; an alarm fires at 80 % of
+# daily_quota. model_id is the ModelId dimension of the AWS/Bedrock metrics
+# (the inference profile id), daily_quota the account's tokens-per-day quota
+# for it in Service Quotas, output_burndown the quota tokens one output token
+# costs. The first entry is what production watches today. The second is the
+# model chat defaults to: its quota was never recorded, so it is a placeholder,
+# and its model_id should be checked against the metrics the account emits.
+# The quota belongs to the account: a second environment of the same account
+# sets quota_alarm_models = [].
+quota_alarm_models = [
+  { model_id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0", daily_quota = 5400000, output_burndown = 5 },
+  { model_id = "us.anthropic.claude-sonnet-4-6", daily_quota = "REPLACE_ME_DAILY_TOKEN_QUOTA", output_burndown = 5 },
+]

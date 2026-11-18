@@ -197,8 +197,16 @@ run "baseline" {
   assert {
     condition = toset(keys(aws_ssm_parameter.published)) == toset([
       "service/web_name", "service/chat_worker_name", "service/memory_worker_name", "service/browser_proxy_name",
+      "log_group/chat_worker_name", "log_group/memory_worker_name",
     ])
-    error_message = "the stack publishes the four service names"
+    error_message = "the stack publishes the four service names and the two log groups that carry metric filters"
+  }
+  assert {
+    condition = (
+      aws_ssm_parameter.published["log_group/chat_worker_name"].value == "/comparative/unit/chat-worker" &&
+      aws_ssm_parameter.published["log_group/memory_worker_name"].value == "/comparative/unit/memory-worker"
+    )
+    error_message = "the log group parameters hold the names of the workers' log groups"
   }
   assert {
     condition = (
