@@ -13,7 +13,7 @@ import {
   parseGitHubEventTriggerInput,
 } from "@/lib/github-event-triggers";
 import { ensureGitHubRepositoryWebhook } from "@/lib/github-webhook-subscriptions";
-import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
+import { PUBLIC_BASE_URL } from "@/lib/deployment-config";
 import { checkRateLimit } from "@/lib/request-limits";
 import { canActorRunSkill } from "@/lib/shares";
 

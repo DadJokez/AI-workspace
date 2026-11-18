@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
-import { PUBLIC_BASE_URL, STATE_TTL_SECONDS } from "@/lib/oauth/github";
+import { PUBLIC_BASE_URL } from "@/lib/deployment-config";
+import { STATE_TTL_SECONDS } from "@/lib/oauth/github";
 import {
   GOOGLE_AUTHORIZE_URL,
   GOOGLE_CLIENT_ID,

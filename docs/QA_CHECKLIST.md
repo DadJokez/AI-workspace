@@ -184,7 +184,7 @@ model), `[REPLAY]` = `pnpm transcripts:replay` (deterministic, offline),
 - Browser smoke is now Playwright-backed: run `pnpm smoke:browser`.
 - Authenticated browser smoke uses a local NextAuth JWT and disposable Postgres fixtures: run `pnpm smoke:browser:auth`.
 - Local browser smoke includes mocked signed-in chat feature flows at `/e2e/chat`: image upload payloads, artifact collapse/preview/menu, tool activity receipts, slash skill execution, chat transcript download, tab isolation, retry recovery, chat shell guardrails, persona/admin gating, Tools connection state, Settings saves, and Vault memory approval.
-- Production public smoke is now script-backed: run `pnpm smoke:prod`.
+- Production public smoke is now script-backed: run `SMOKE_BASE_URL=<deployment-origin> pnpm smoke:prod`.
 - Use `PLAYWRIGHT_BASE_URL` to point browser smoke at an already-running app.
 - Use `SMOKE_BASE_URL` to point production smoke at a preview or alternate deployed URL.
 - The auth model is GitHub OAuth through NextAuth. Browser automation against deployed pages needs a signed-in session; API-level tests should seed or mock auth instead of assuming anonymous access.

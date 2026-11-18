@@ -19,14 +19,13 @@ import {
 import { partitionResourceToolResults } from "./production-resource-smoke-results";
 import { queryConversationResource } from "@/lib/conversation-resource-content";
 
-const DEFAULT_BASE_URL = "https://comparative.builtwithrobot.link";
 const SMOKE_USER_ID = "00000000-0000-4000-8000-000000000206";
 const SMOKE_GH_SUB = "comparative-production-smoke";
 const SMOKE_EMAIL = "comparative-smoke@example.com";
 const SMOKE_NAME = "Comparative Smoke";
 
 const resourceMatrixEnabled = process.argv.includes("--resource-matrix");
-const baseUrl = normalizeBaseUrl(process.env.SMOKE_BASE_URL ?? DEFAULT_BASE_URL);
+const baseUrl = normalizeBaseUrl(requiredSmokeBaseUrl());
 const timeoutMs = Number(
   process.env.SMOKE_AUTH_TIMEOUT_MS ??
     (resourceMatrixEnabled ? 180_000 : 90_000),
@@ -1155,3 +1154,14 @@ main()
     );
     process.exit(1);
   });
+
+function requiredSmokeBaseUrl() {
+  const value = process.env.SMOKE_BASE_URL?.trim();
+  if (!value) {
+    console.error(
+      "SMOKE_BASE_URL is required: set it to the origin of the deployment to smoke-test.",
+    );
+    process.exit(1);
+  }
+  return value;
+}

@@ -8,7 +8,7 @@ import { and, eq, isNull } from "drizzle-orm";
 
 import { decryptSecret } from "./crypto";
 import { INTEGRATION_DISPLAY_NAMES } from "@/lib/settings-navigation";
-import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
+import { serverCallbackBaseUrl } from "@/lib/deployment-config";
 import {
   NOTION_MCP_PATH,
   NOTION_MCP_RELAY_HEADER,
@@ -91,11 +91,11 @@ const MCP_PROVIDER_CONFIG: Record<string, McpProviderConfig> = {
   },
   notion: notionMcpConfig(process.env.NOTION_MCP_ENDPOINT_URL),
   google: {
-    endpoint: { url: new URL(GOOGLE_MCP_PATH, PUBLIC_BASE_URL).toString() },
+    endpoint: { url: new URL(GOOGLE_MCP_PATH, serverCallbackBaseUrl()).toString() },
     usageNotesByTool: GOOGLE_TOOL_USAGE_NOTES,
   },
   salesforce: {
-    endpoint: { url: new URL(SALESFORCE_MCP_PATH, PUBLIC_BASE_URL).toString() },
+    endpoint: { url: new URL(SALESFORCE_MCP_PATH, serverCallbackBaseUrl()).toString() },
     usageNotesByTool: SALESFORCE_TOOL_USAGE_NOTES,
   },
 };
@@ -666,7 +666,7 @@ function notionMcpConfig(rawUrl: string | undefined): McpProviderConfig {
   const value = rawUrl?.trim();
   const endpoint = value
     ? parseMcpEndpoint(value)
-    : { url: new URL(NOTION_MCP_PATH, PUBLIC_BASE_URL).toString() };
+    : { url: new URL(NOTION_MCP_PATH, serverCallbackBaseUrl()).toString() };
   if (!endpoint) return { unavailableReason: "invalid_endpoint_url" };
   try {
     const url = new URL(endpoint.url);
@@ -682,7 +682,7 @@ function notionMcpConfig(rawUrl: string | undefined): McpProviderConfig {
 function isFirstPartyNotionMcpEndpoint(rawUrl: string): boolean {
   try {
     const actual = new URL(rawUrl);
-    const expected = new URL(NOTION_MCP_PATH, PUBLIC_BASE_URL);
+    const expected = new URL(NOTION_MCP_PATH, serverCallbackBaseUrl());
     return (
       actual.origin === expected.origin &&
       actual.pathname === expected.pathname
@@ -695,7 +695,7 @@ function isFirstPartyNotionMcpEndpoint(rawUrl: string): boolean {
 function isFirstPartyGoogleMcpEndpoint(rawUrl: string): boolean {
   try {
     const actual = new URL(rawUrl);
-    const expected = new URL(GOOGLE_MCP_PATH, PUBLIC_BASE_URL);
+    const expected = new URL(GOOGLE_MCP_PATH, serverCallbackBaseUrl());
     return (
       actual.origin === expected.origin &&
       actual.pathname === expected.pathname
@@ -708,7 +708,7 @@ function isFirstPartyGoogleMcpEndpoint(rawUrl: string): boolean {
 function isFirstPartySalesforceMcpEndpoint(rawUrl: string): boolean {
   try {
     const actual = new URL(rawUrl);
-    const expected = new URL(SALESFORCE_MCP_PATH, PUBLIC_BASE_URL);
+    const expected = new URL(SALESFORCE_MCP_PATH, serverCallbackBaseUrl());
     return (
       actual.origin === expected.origin &&
       actual.pathname === expected.pathname

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
-import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
+import { PUBLIC_BASE_URL } from "@/lib/deployment-config";
 import { storeOAuthConnection } from "@/lib/oauth/connection";
 import {
   GOOGLE_CLIENT_ID,

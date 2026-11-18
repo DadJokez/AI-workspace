@@ -1,6 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { NOTION_API_VERSION } from "@/lib/oauth/notion";
-import { PUBLIC_BASE_URL } from "@/lib/oauth/github";
+import { isAllowedAppHost, PUBLIC_BASE_URL } from "@/lib/deployment-config";
 
 export const NOTION_MCP_PATH = "/api/mcp/notion";
 export const NOTION_MCP_RELAY_HEADER = "X-Comparative-MCP-Relay";
@@ -101,17 +101,14 @@ function validateSameOrigin(req: Request): Response | null {
   const host = (
     firstHeaderValue(req.headers.get("host")) ?? requestUrl.host
   ).toLowerCase();
-  if (host !== expected.host.toLowerCase()) {
+  if (!isAllowedAppHost(host)) {
     return jsonRpcError(null, -32000, "Notion MCP host is not allowed.", {
       status: 403,
     });
   }
 
   const forwardedHost = firstHeaderValue(req.headers.get("x-forwarded-host"));
-  if (
-    forwardedHost &&
-    forwardedHost.toLowerCase() !== expected.host.toLowerCase()
-  ) {
+  if (forwardedHost && !isAllowedAppHost(forwardedHost)) {
     return jsonRpcError(
       null,
       -32000,
