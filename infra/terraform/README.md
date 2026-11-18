@@ -4,8 +4,9 @@ Infrastructure for Comparative, built beside the CDK app in `infra/cdk/` until t
 order: [`docs/roadmap/KOCH_FIREWALL_PLAN.md`](../../docs/roadmap/KOCH_FIREWALL_PLAN.md) §4 and
 [`docs/roadmap/KOCH_MIGRATION_SPEC.md`](../../docs/roadmap/KOCH_MIGRATION_SPEC.md) Part B.
 
-Nothing here is applied by a pull request. A human applies `bootstrap/` and `00-foundation`; the
-pipeline (later work packages) applies the other stacks.
+Nothing here is applied by a pull request. A human applies `bootstrap/`, `00-foundation` and, as things
+stand, `20-data` (see "What the apply role cannot do" below); the pipeline (later work packages) applies
+the other stacks.
 
 ## Layout
 
@@ -17,14 +18,18 @@ bootstrap/           one-time per account: state bucket and its KMS key
 modules/ci-identity/ GitHub OIDC provider, plan/apply/image-push/evals roles, workload boundary
 modules/network/     VPC (built or adopted), endpoints, security groups, optional stand-in proxy
 stacks/00-foundation/ KMS keys, ECR repositories, the ci-identity module, SSM outputs
+modules/data/        database, optional RDS Proxy, secrets, buckets
 stacks/10-network/   the network module, SSM outputs
+stacks/20-data/      the data module, SSM outputs
 envs/<env>/          backend.hcl, env.tfvars, release.auto.tfvars
 policy/              Conftest rules and their fixtures
 ```
 
-Versions: Terraform `~> 1.17`, AWS provider `~> 6.73`. `.terraform.lock.hcl` is committed for
-`linux_amd64`, `linux_arm64` and `darwin_arm64`. After changing the provider version, regenerate it in
-each root module (`stacks/*`, `bootstrap`):
+Versions: Terraform `~> 1.17`, AWS provider `~> 6.73`. `modules/data` also needs `hashicorp/random`
+`~> 3.7` for its ephemeral password; the module declares that itself, so `versions.tf.tmpl` is unchanged
+and only `stacks/20-data` locks it. `.terraform.lock.hcl` is committed for `linux_amd64`, `linux_arm64`
+and `darwin_arm64`. After changing a provider version, regenerate it in each root module (`stacks/*`,
+`bootstrap`):
 
 ```bash
 terraform providers lock -platform=linux_amd64 -platform=linux_arm64 -platform=darwin_arm64
@@ -170,6 +175,170 @@ Applied after `00-foundation` (it reads the logs key from SSM):
   balancer's own name; a custom internal DNS name is not covered), `169.254.170.2`, `localhost`,
   `127.0.0.1` and the VPC resolver's address.
 
+## What 20-data creates
+
+Applied after `10-network` (it reads the data subnets, the database security group and two KMS keys from
+SSM):
+
+```bash
+./tf.sh personal-stage 20-data plan
+./tf.sh personal-stage 20-data apply
+./tf.sh personal-stage 20-data output
+```
+
+- **Database.** `<name_prefix>-db`: PostgreSQL 16 on gp3, 20 GB growing to `db_max_allocated_storage`,
+  encrypted with the data key, in the data subnets with the `db` security group, never public. Deletion
+  protection is on, and deleting the instance leaves the snapshot `<name_prefix>-db-final`. Automated
+  backups are kept `db_backup_days`; Performance Insights is on with the 7-day retention that carries
+  no charge. The parameter group sets `rds.force_ssl = 1` and `log_min_duration_statement`.
+- **Master password.** RDS creates and rotates it in a secret of its own, encrypted with the secrets
+  key. Terraform never sees it; the stack outputs that secret's ARN.
+- **Restore.** `db_restore_snapshot_id` seeds a new instance from a snapshot and is ignored afterwards.
+  Set it before the first apply, with `db_name` and `db_master_username` equal to the snapshot's: both
+  are fixed when the instance is created, and a different value plans a replacement.
+- **RDS Proxy.** Off. `enable_rds_proxy = true` adds a proxy that requires TLS, its role under
+  `/comparative/<env>/` with the workload boundary, the two rules that let it reach the instance inside
+  the `db` group, and one more secret shell, `comparative/<env>/db-proxy-auth`
+  (`{"username": "...", "password": "..."}` of the database login the proxy connects with). The stack
+  outputs `db_proxy_endpoint`; `db/endpoint` in SSM stays the instance.
+- **Secrets**, all encrypted with the secrets key, each with a resource policy that refuses every other
+  account:
+
+  | Secret | Value |
+  |---|---|
+  | `comparative/<env>/app` | none from Terraform; a human writes it (fields below) |
+  | `comparative/<env>/browser-proxy-db` | none from Terraform; a human writes `{"DATABASE_URL": "..."}` |
+  | `comparative/<env>/browser-proxy` | generated: `{"username": "comparative-browser", "password": "<48 letters and digits>"}` |
+
+  The generated password comes from an ephemeral resource and is sent through a write-only argument, so
+  it is in neither the plan nor the state. To rotate it, raise `secret_string_wo_version` in
+  `modules/data/secrets.tf`, apply, and restart the web and browser-proxy services.
+- **Buckets.** `<name_prefix>-alb-logs-<account>-<region>`: S3-managed encryption (the only kind load
+  balancer log delivery supports), objects expire after 30 days, and a policy that lets this account's
+  load balancers in this region write under `AWSLogs/<account>/`. The load balancer is therefore
+  configured with this bucket and **no prefix**. `<name_prefix>-artifacts-<account>-<region>`:
+  encrypted with the data key, versioned, unused for now. Both block all public access.
+- **Published to SSM** under `/comparative/<env>/20-data/`: `db/endpoint` (the instance's host name,
+  without the port), `db/port`, `db/instance_id`, `secret/app_arn`, `secret/browser_proxy_arn`,
+  `secret/browser_proxy_db_arn`, `bucket/alb_logs`, `bucket/artifacts`.
+
+### What the apply role cannot do
+
+`<name_prefix>-tf-apply` holds secret metadata permissions on `comparative/<env>/*` only. This stack
+needs more in three places, so a human with administrator credentials applies it until the role is
+extended in `00-foundation`, which is the owner's decision:
+
+- writing the browser-proxy value (`secretsmanager:PutSecretValue`) and, on every later plan or apply,
+  finding that version again (`secretsmanager:ListSecretVersionIds`);
+- letting RDS create the master secret, which RDS names itself, outside `comparative/<env>/`;
+- changing a secret's description or key (`secretsmanager:UpdateSecret`).
+
+### After the first apply of 20-data
+
+The database has one login, the master user, and two of the three secrets are empty. Services cannot
+start until these steps are done. The account owner runs them; they change AWS and the database.
+
+The application does not use the master user. It gets a role of its own that owns the database. That
+role needs `CREATEROLE`: migration `0050_web_egress_policy_reader` issues `CREATE ROLE`, and PostgreSQL
+refuses that statement to a role without the right even when the role already exists. The egress proxy gets
+`web_egress_policy_reader`, the role that migration defines: created here with a password so that it
+can log in, and granted its three columns by the migration when the migrator first runs.
+
+1. Open a shell that can reach the database: in an app subnet, with the `deploy_task` security group,
+   under your own identity (for example an AWS CloudShell VPC environment), with `aws`, `jq` and `psql`.
+   A task role under `/comparative/<env>/` cannot do this: the workload boundary does not cover the
+   master secret.
+
+   ```bash
+   ENV_NAME=personal-stage
+   DB_NAME=comparative        # db_name in env.tfvars
+   DB_HOST=$(aws ssm get-parameter --name /comparative/$ENV_NAME/20-data/db/endpoint \
+     --query Parameter.Value --output text)
+   ```
+
+2. Generate the two passwords and create the roles as the master user. The master secret's ARN is the
+   stack output `db_master_user_secret_arn`.
+
+   ```bash
+   MASTER=$(aws secretsmanager get-secret-value --secret-id "<db_master_user_secret_arn>" \
+     --query SecretString --output text)
+   new_password() {
+     aws secretsmanager get-random-password --password-length 40 --exclude-punctuation \
+       --query RandomPassword --output text
+   }
+   APP_PASSWORD=$(new_password)
+   READER_PASSWORD=$(new_password)
+
+   PGPASSWORD=$(jq -r .password <<<"$MASTER") psql \
+     "host=$DB_HOST port=5432 dbname=$DB_NAME user=$(jq -r .username <<<"$MASTER") sslmode=require" \
+     -v ON_ERROR_STOP=1 -v app_password="$APP_PASSWORD" -v reader_password="$READER_PASSWORD" <<'SQL'
+   CREATE ROLE comparative_app LOGIN CREATEROLE PASSWORD :'app_password';
+   GRANT comparative_app TO CURRENT_USER;
+   ALTER DATABASE :"DBNAME" OWNER TO comparative_app;
+   CREATE ROLE web_egress_policy_reader LOGIN PASSWORD :'reader_password';
+   SQL
+   ```
+
+3. Write the two secrets. `app-secret.json` is a file you fill in with the fields listed below; delete
+   it afterwards.
+
+   ```bash
+   # The DATABASE_URL field of app-secret.json:
+   echo "postgresql://comparative_app:$APP_PASSWORD@$DB_HOST:5432/$DB_NAME?sslmode=require"
+
+   aws secretsmanager put-secret-value --secret-id comparative/$ENV_NAME/app \
+     --secret-string file://app-secret.json
+
+   aws secretsmanager put-secret-value --secret-id comparative/$ENV_NAME/browser-proxy-db \
+     --secret-string "$(jq -n --arg url \
+       "postgresql://web_egress_policy_reader:$READER_PASSWORD@$DB_HOST:5432/$DB_NAME?sslmode=require" \
+       '{DATABASE_URL: $url}')"
+
+   rm -f app-secret.json
+   unset MASTER APP_PASSWORD READER_PASSWORD
+   ```
+
+A database restored from a snapshot already has its roles. Step 2 is then `ALTER ROLE ... PASSWORD` for
+the two roles, and whichever role `DATABASE_URL` names must be able to run the migrations.
+
+### Fields of the app secret
+
+`comparative/<env>/app` is one JSON object of string values. The services read each field by name, and a
+task whose definition names a missing field does not start, so every field of the first list is present
+even when its feature is unused (an empty string is a value).
+
+Always present, sixteen fields:
+
+```
+DATABASE_URL
+NEXTAUTH_SECRET
+GITHUB_AUTH_CLIENT_ID
+GITHUB_AUTH_CLIENT_SECRET
+GITHUB_CLIENT_ID
+GITHUB_CLIENT_SECRET
+NOTION_CLIENT_ID
+NOTION_CLIENT_SECRET
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+SALESFORCE_CLIENT_ID
+SALESFORCE_CLIENT_SECRET
+OAUTH_ENCRYPTION_KEY
+WEB_SEARCH_PROVIDER
+BRAVE_SEARCH_API_KEY
+GITHUB_WEBHOOK_SECRET
+```
+
+The first fifteen go to the web service and both workers, `GITHUB_WEBHOOK_SECRET` to the web service
+only. They are the names production uses today (`infra/cdk/lib/ai-workspace-ecs-stack.ts`:
+`APP_SECRET_FIELDS` and the web container's secrets).
+
+Present only when the feature is on:
+
+```
+OIDC_CLIENT_SECRET       when the pingone sign-in provider is enabled
+POSTHOG_PROJECT_TOKEN    when ANALYTICS_PROVIDER is posthog
+```
+
 ## Checks
 
 ```bash
@@ -178,6 +347,12 @@ infra/terraform/check.sh policy      # one step
 ```
 
 Needs `terraform`, `tflint`, `conftest` and `jq`. No credentials, no state, no AWS calls.
+
+The `test` step runs `terraform test` in every module and then the module's own scripts,
+`modules/<module>/tests/*.sh`. There is one: `modules/data/tests/no_secret_in_plan.sh` plans
+`modules/data/tests/plan` for real (placeholder credentials, empty state, nothing contacted), reads the
+plan as JSON and fails if a secret value is in it or would reach the state. Given a path, it checks
+that plan JSON instead: `no_secret_in_plan.sh plan.json`.
 `.github/workflows/terraform-ci.yml` runs the same steps plus a Checkov config scan.
 
 ### Policy rules

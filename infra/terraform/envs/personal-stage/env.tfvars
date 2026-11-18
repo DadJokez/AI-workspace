@@ -77,3 +77,27 @@ alb_ingress_cidrs = ["0.0.0.0/0"]
 # migration spec's values and were not checked against AWS; check them before
 # the first apply.
 agentcore_az_ids = ["use1-az1", "use1-az2", "use1-az4"]
+
+# --- 20-data -----------------------------------------------------------------
+
+# The cheapest profile: one small instance, no standby, a week of backups.
+db_instance_class        = "db.t4g.micro"
+db_multi_az              = false
+db_max_allocated_storage = 100
+db_backup_days           = 7
+
+# The migration spec's value for production's version; it was not checked
+# against AWS. With the full version pinned here, an automatic minor upgrade by
+# RDS shows as a difference until this value is raised to match; "16" follows
+# the minor versions instead.
+db_engine_version = "16.13"
+
+# Statements slower than one second are logged.
+db_log_min_duration_statement = 1000
+
+# A new, empty database. To restore instead, set db_restore_snapshot_id before
+# the first apply and make these two the snapshot's database name and master
+# user: both are fixed at creation, and a different value plans a
+# replacement of the instance.
+db_name            = "comparative"
+db_master_username = "comparative_admin"
