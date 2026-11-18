@@ -1,0 +1,82 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.17.2",
+  "variables": {
+    "internal_alb": {
+      "value": false
+    }
+  },
+  "resource_changes": [
+    {
+      "address": "aws_vpc_security_group_ingress_rule.alb_https",
+      "mode": "managed",
+      "type": "aws_vpc_security_group_ingress_rule",
+      "name": "alb_https",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "cidr_ipv4": "0.0.0.0/0",
+          "cidr_ipv6": null,
+          "from_port": 443,
+          "to_port": 443,
+          "ip_protocol": "tcp",
+          "tags_all": {
+            "app": "comparative",
+            "env": "fixture",
+            "owner": "platform",
+            "cost-center": "fixture",
+            "data-class": "internal",
+            "managed-by": "terraform",
+            "repo": "example-owner/example-repo"
+          }
+        },
+        "after_unknown": {
+          "security_group_id": true,
+          "tags_all": {}
+        }
+      }
+    },
+    {
+      "address": "aws_vpc_security_group_ingress_rule.web_from_vpc",
+      "mode": "managed",
+      "type": "aws_vpc_security_group_ingress_rule",
+      "name": "web_from_vpc",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "cidr_ipv4": "10.0.0.0/16",
+          "cidr_ipv6": null,
+          "from_port": 443,
+          "to_port": 443,
+          "ip_protocol": "tcp",
+          "tags_all": {
+            "app": "comparative",
+            "env": "fixture",
+            "owner": "platform",
+            "cost-center": "fixture",
+            "data-class": "internal",
+            "managed-by": "terraform",
+            "repo": "example-owner/example-repo"
+          }
+        },
+        "after_unknown": {
+          "security_group_id": true,
+          "tags_all": {}
+        }
+      }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": []
+    }
+  }
+}

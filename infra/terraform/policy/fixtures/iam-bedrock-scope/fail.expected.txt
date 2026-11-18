@@ -1,0 +1,3 @@
+[iam-bedrock-scope] aws_iam_policy.any_model allows "bedrock:Invoke*" on Resource "*"
+[iam-bedrock-scope] aws_iam_policy.any_model allows "bedrock:InvokeModel" on Resource "*"
+[iam-bedrock-scope] aws_iam_role_policy.everything allows action "bedrock:*", which grants every Bedrock action

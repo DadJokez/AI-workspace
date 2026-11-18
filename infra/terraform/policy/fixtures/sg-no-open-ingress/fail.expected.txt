@@ -1,0 +1,4 @@
+[sg-no-open-ingress] aws_security_group.worker allows ingress from ::/0
+[sg-no-open-ingress] aws_security_group_rule.db_open allows ingress from 0.0.0.0/0
+[sg-no-open-ingress] aws_vpc_security_group_ingress_rule.alb_https allows ingress from 0.0.0.0/0
+[sg-no-open-ingress] aws_vpc_security_group_ingress_rule.web_https allows ingress from 0.0.0.0/0

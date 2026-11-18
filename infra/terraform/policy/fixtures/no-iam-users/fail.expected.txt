@@ -1,0 +1,2 @@
+[no-iam-users] aws_iam_access_key.deployer: IAM users and access keys are not allowed
+[no-iam-users] aws_iam_user.deployer: IAM users and access keys are not allowed

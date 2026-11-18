@@ -1,0 +1,76 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.17.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "aws_sns_topic.ops",
+      "mode": "managed",
+      "type": "aws_sns_topic",
+      "name": "ops",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "cmp-fixture-ops",
+          "tags_all": {
+            "app": "comparative",
+            "env": "fixture",
+            "owner": "platform",
+            "cost-center": "fixture",
+            "data-class": "internal",
+            "managed-by": "terraform",
+            "repo": "example-owner/example-repo"
+          }
+        },
+        "after_unknown": {
+          "tags_all": {}
+        }
+      }
+    },
+    {
+      "address": "aws_sns_topic.late",
+      "mode": "managed",
+      "type": "aws_sns_topic",
+      "name": "late",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "cmp-fixture-late"
+        },
+        "after_unknown": {
+          "tags_all": true
+        }
+      }
+    },
+    {
+      "address": "aws_kms_alias.data",
+      "mode": "managed",
+      "type": "aws_kms_alias",
+      "name": "data",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "alias/cmp-fixture-data"
+        },
+        "after_unknown": {}
+      }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": []
+    }
+  }
+}

@@ -1,0 +1,5 @@
+[encryption-at-rest] aws_cloudwatch_log_group.web has no kms_key_id
+[encryption-at-rest] aws_db_instance.main does not set storage_encrypted = true
+[encryption-at-rest] aws_ecr_repository.app is not encrypted with KMS
+[encryption-at-rest] aws_s3_bucket.artifacts has no aws_s3_bucket_server_side_encryption_configuration in its module
+[encryption-at-rest] aws_secretsmanager_secret.app has no kms_key_id

@@ -1,0 +1,30 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.17.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "aws_iam_role_policy.invoke",
+      "mode": "managed",
+      "type": "aws_iam_role_policy",
+      "name": "invoke",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "invoke",
+          "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": \"bedrock:InvokeModelWithResponseStream\", \"Resource\": [\"arn:aws:bedrock:us-east-1::foundation-model/example.model-a-v1:0\"]}, {\"Effect\": \"Allow\", \"Action\": [\"logs:PutLogEvents\"], \"Resource\": \"*\"}, {\"Effect\": \"Deny\", \"Action\": \"bedrock:*\", \"Resource\": \"*\"}]}"
+        },
+        "after_unknown": {}
+      }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": []
+    }
+  }
+}

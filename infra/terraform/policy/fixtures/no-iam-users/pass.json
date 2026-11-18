@@ -1,0 +1,41 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.17.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "aws_iam_role.task",
+      "mode": "managed",
+      "type": "aws_iam_role",
+      "name": "task",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "cmp-fixture-task",
+          "assume_role_policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": \"sts:AssumeRole\"}]}",
+          "tags_all": {
+            "app": "comparative",
+            "env": "fixture",
+            "owner": "platform",
+            "cost-center": "fixture",
+            "data-class": "internal",
+            "managed-by": "terraform",
+            "repo": "example-owner/example-repo"
+          }
+        },
+        "after_unknown": {
+          "tags_all": {}
+        }
+      }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": []
+    }
+  }
+}
