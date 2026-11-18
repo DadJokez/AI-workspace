@@ -5,8 +5,8 @@ order: [`docs/roadmap/KOCH_FIREWALL_PLAN.md`](../../docs/roadmap/KOCH_FIREWALL_P
 [`docs/roadmap/KOCH_MIGRATION_SPEC.md`](../../docs/roadmap/KOCH_MIGRATION_SPEC.md) Part B.
 
 Nothing here is applied by a pull request. A human applies `bootstrap/`, `00-foundation` and, as things
-stand, `20-data` (see "What the apply role cannot do" below); the pipeline (later work packages) applies
-the other stacks.
+stand, `20-data` and `30-platform` (see the two sections "What the apply role cannot do" below); the
+pipeline (later work packages) applies the other stacks.
 
 ## Layout
 
@@ -14,16 +14,27 @@ the other stacks.
 versions.tf.tmpl     canonical versions.tf; every stacks/*/versions.tf is a byte-for-byte copy
 tf.sh                the one way to run a stack
 check.sh             static checks, the same commands CI runs
+plan_checks.sh       helper of the stack tests: reads what a stack plans inside its modules
 bootstrap/           one-time per account: state bucket and its KMS key
 modules/ci-identity/ GitHub OIDC provider, plan/apply/image-push/evals roles, workload boundary
 modules/network/     VPC (built or adopted), endpoints, security groups, optional stand-in proxy
-stacks/00-foundation/ KMS keys, ECR repositories, the ci-identity module, SSM outputs
 modules/data/        database, optional RDS Proxy, secrets, buckets
+modules/ecs-task/    one Fargate task definition with its log group and two roles
+modules/ecs-service/ ecs-task plus the service, optional Cloud Map name and autoscaling
+stacks/00-foundation/ KMS keys, ECR repositories, the ci-identity module, SSM outputs
 stacks/10-network/   the network module, SSM outputs
 stacks/20-data/      the data module, SSM outputs
+stacks/30-platform/  ECS cluster, private namespace, load balancer, SSM outputs
+stacks/35-deploy-tasks/ migrator and smoke task definitions, SSM outputs
+stacks/40-services/  the four services, SSM outputs
 envs/<env>/          backend.hcl, env.tfvars, release.auto.tfvars
 policy/              Conftest rules and their fixtures
 ```
+
+Apply order for a new environment: `00-foundation`, `10-network`, `20-data`, `30-platform`,
+`35-deploy-tasks`, `50-agentcore`, `40-services`, `60-observability`. `50-agentcore` and
+`60-observability` are later work packages and do not exist yet; `40-services` cannot be planned until
+`50-agentcore` has been applied (see "What 40-services creates").
 
 Versions: Terraform `~> 1.17`, AWS provider `~> 6.73`. `modules/data` also needs `hashicorp/random`
 `~> 3.7` for its ephemeral password; the module declares that itself, so `versions.tf.tmpl` is unchanged
@@ -55,7 +66,9 @@ Stacks do not read each other's state: a stack publishes what others need to SSM
 These commands change AWS. They are run by the account owner with administrator credentials, never by CI.
 
 1. In `envs/personal-stage/env.tfvars`, replace the `REPLACE_ME` values for `account_id`, `tags`,
-   `github_*` and `eval_model_ids`. The numeric GitHub ids come from
+   `github_*` and `eval_model_ids`, and those under the `30-platform` and `40-services` headings
+   (`domain_name`, `certificate_arn`, `invite_email_*`, `bedrock_model_ids`): `tf.sh` runs no stack
+   while one remains. The numeric GitHub ids come from
    `gh api repos/<owner>/<repo> --jq '{repository_id: .id, owner_id: .owner.id}'`.
 2. Create the state bucket and its key with local state, then move that state into the bucket:
 
@@ -112,9 +125,11 @@ That GitHub environment, and its protection rules, are created in the repository
 
 - `<name_prefix>-workload-boundary`: the permissions boundary every role under `/comparative/<env>/`
   must carry. Later stacks set it on each role they create and extend it, in `00-foundation`, when a
-  workload needs something it does not allow.
+  workload needs something it does not allow. It was extended once that way: `ses:SendEmail` from this
+  account's identities, for the web service's invitation email.
 - SSM parameters `kms/data_arn`, `kms/logs_arn`, `kms/secrets_arn`, `ecr/app_repo_url`,
-  `ecr/agent_repo_url` under `/comparative/<env>/00-foundation/`.
+  `ecr/agent_repo_url` and `iam/workload_boundary_arn` under `/comparative/<env>/00-foundation/`. Every
+  stack that creates a role reads the boundary from the last one.
 
 Two properties to keep:
 
@@ -339,6 +354,133 @@ OIDC_CLIENT_SECRET       when the pingone sign-in provider is enabled
 POSTHOG_PROJECT_TOKEN    when ANALYTICS_PROVIDER is posthog
 ```
 
+A field of the second list reaches the web service only when it is also named in
+`optional_app_secret_fields` (`env.tfvars`, read by `40-services`).
+
+## What 30-platform creates
+
+Applied after `20-data` (it reads the VPC, the subnets and the `alb` security group from `10-network` and
+the access-log bucket from `20-data`):
+
+```bash
+./tf.sh personal-stage 30-platform plan
+./tf.sh personal-stage 30-platform apply
+./tf.sh personal-stage 30-platform output
+```
+
+- **Cluster.** `<name_prefix>-cluster`. Container Insights is off; `container_insights = true` turns it
+  on.
+- **Namespace.** The Cloud Map private DNS namespace `internal_namespace` in the environment's VPC.
+  Services that register a name are reached as `<service>.<namespace>`.
+- **Load balancer.** `<name_prefix>-alb`: public in the public subnets, or with `internal_alb = true`
+  internal in the app subnets. It drops invalid header fields, writes access logs to the bucket of
+  `20-data` (no prefix), and is protected against deletion when `alb_deletion_protection` is true.
+  - HTTPS on 443 with the policy `ELBSecurityPolicy-TLS13-1-2-2021-06`, forwarding to the web target
+    group.
+  - HTTP on 80 answering with a 301 to HTTPS, on a public load balancer only.
+  - Target group `<name_prefix>-web`: task IPs on HTTP 3000; health check `/api/health` expecting 200
+    every 30 s with a 10 s timeout, 2 successes to be healthy and 3 failures to be unhealthy; 30 s of
+    draining.
+- **Certificate and DNS.** One of two ways:
+  - `certificate_arn` names an existing ACM certificate for `domain_name`. DNS stays with its owner: the
+    stack outputs `alb_dns_name` for the record that must point at the load balancer.
+  - `route53_zone_id` names the hosted zone of `domain_name`. The stack then creates the alias record
+    and, when `certificate_arn` is not set, requests the certificate and validates it through the zone.
+- **WAF.** `waf_acl_arn` associates an existing regional web ACL with the load balancer.
+- **Published to SSM** under `/comparative/<env>/30-platform/`: `cluster_arn`, `cluster_name`,
+  `namespace_id`, `alb_arn`, `alb_dns_name`, `alb_arn_suffix`, `tg/web_arn`, `tg/web_arn_suffix`,
+  `base_url` (`https://<domain_name>`).
+
+### What the apply role cannot do
+
+Cloud Map creates a private hosted zone for the namespace, and Route 53 authorises that against the
+caller. `<name_prefix>-tf-apply` holds Route 53 permissions only with `manage_public_edge = true`, which
+also grants ACM and WAF. Until the owner decides between turning that on and giving the role a narrower
+Route 53 statement in `00-foundation`, a human with administrator credentials applies this stack. The
+same holds for `route53_zone_id` and `waf_acl_arn`, by design: those need `manage_public_edge`.
+
+## What 35-deploy-tasks creates
+
+Applied after `30-platform` (it reads the base URL from it, the app secret from `20-data` and two keys
+and the boundary from `00-foundation`), and again with every release:
+
+```bash
+./tf.sh personal-stage 35-deploy-tasks plan
+./tf.sh personal-stage 35-deploy-tasks apply
+```
+
+Two task definitions without a service, each with a log group and its two roles:
+
+| Task | Image | Command | Receives |
+|---|---|---|---|
+| `<name_prefix>-migrator` | `image_migrator` | the image's own | secret `DATABASE_URL` |
+| `<name_prefix>-smoke` | `image_worker` | `pnpm --filter @ai-workspace/web smoke:prod:auth` | `SMOKE_BASE_URL` (`internal_base_url` when set, otherwise the base URL of `30-platform`), `SMOKE_RUN_ID` (`release_id`); secrets `DATABASE_URL`, `NEXTAUTH_SECRET` |
+
+Neither task role has any AWS permission. The pipeline runs each with `ecs run-task` in the app subnets
+with the `deploy_task` security group (both published by `10-network`), using the ARN published here.
+
+**Published to SSM** under `/comparative/<env>/35-deploy-tasks/`: `taskdef/migrator_arn`,
+`taskdef/smoke_arn`. Each ARN carries its revision, so both change with every release.
+
+## What 40-services creates
+
+Applied after `50-agentcore`, and again with every release:
+
+```bash
+./tf.sh personal-stage 40-services plan
+./tf.sh personal-stage 40-services apply
+```
+
+It reads `runtime_arn`, `browser_id` and `browser_arn` from `/comparative/<env>/50-agentcore/`. That
+stack is a later work package; until it has been applied in the environment, this one fails at plan
+with a missing-parameter error. There is no switch to run without them.
+
+| Service | Image | Command | CPU / memory | Tasks | Network |
+|---|---|---|---|---|---|
+| `web` | `image_web` | the image's own | 512 / 1024 | `web_min` to `web_max`, scaling at 60 % CPU (60 s out, 300 s in) | port 3000 behind the web target group; `web` security group |
+| `chat-worker` | `image_worker` | `pnpm --filter @ai-workspace/web worker:chat-runs` | 256 / 512 | `chat_worker_count` | `worker` security group |
+| `memory-worker` | `image_memory_worker` | `pnpm --filter @ai-workspace/web worker:memory-capture` | 256 / 512 | 1 | `worker` security group |
+| `browser-proxy` | `image_worker` | `pnpm --filter @ai-workspace/web browser:egress-proxy` | 256 / 512 | 1 | port 3128, `browser-proxy.<namespace>`, TCP container health check; `browser_proxy` security group |
+
+Every service runs in the app subnets without a public IP, rolls a failed deployment back, and makes an
+apply wait until it is steady. The two workers may drop to no healthy task during a deployment; the
+other two keep 100 %. Autoscaling owns the number of web tasks: Terraform sets it once, at `web_min`.
+
+- **Environment.** Web and both workers get the common set (`NODE_ENV`, `AWS_REGION`, `BEDROCK_CLIENT`,
+  `RUNTIME`, `RUNTIME_V2_ENABLED`, `RUNTIME_V2_DIRECT_MODEL_ID`, `NEXTAUTH_URL`,
+  `LEGACY_HOST_REDIRECT_FROM`, `HOSTNAME`, `PORT`, `BEDROCK_INFERENCE_PROFILE_PREFIX`),
+  `INTERNAL_BASE_URL` when `internal_base_url` is set, `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` when
+  `10-network` publishes a proxy, then `extra_environment`, then what the service sets for itself. A
+  later value replaces an earlier one, so `extra_environment` cannot change a service's own settings.
+  `extra_environment` is where the switches of the configuration contract go (`WEB_SEARCH_PROVIDER`,
+  `ENABLED_CONNECTOR_PROVIDERS`, `AUTH_PROVIDERS`, ...). The browser proxy gets `NODE_ENV`,
+  `AWS_REGION` and `BROWSER_PROXY_PORT` only.
+- **Secrets.** Always a reference (`<secret ARN>:<field>::`), never a value. Web and both workers read
+  the first fifteen fields of the app secret (see "Fields of the app secret"); web also reads
+  `GITHUB_WEBHOOK_SECRET` and the fields named in `optional_app_secret_fields`. The browser proxy reads
+  `DATABASE_URL` from `comparative/<env>/browser-proxy-db` and its user name and password from
+  `comparative/<env>/browser-proxy`, and never the app secret.
+- **Permissions.** Web, chat-worker and memory-worker may invoke the models in `bedrock_model_ids`:
+  the inference profile `<bedrock_inference_profile_prefix><id>` in the home region and the foundation
+  model in each region of `bedrock_inference_regions`, as a list of ARNs without a wildcard. Web and
+  chat-worker may invoke the AgentCore runtime. Web may also send email from `invite_email_identity`,
+  run sessions on the AgentCore Browser, and read the browser-proxy credentials those sessions use.
+  The browser proxy has no AWS permission.
+- **Published to SSM** under `/comparative/<env>/40-services/`: `service/web_name`,
+  `service/chat_worker_name`, `service/memory_worker_name`, `service/browser_proxy_name`.
+
+The apply role may need Route 53 permissions here too: the browser proxy's Cloud Map service is created
+in the private namespace. See "What the apply role cannot do" under `30-platform`.
+
+## A release
+
+`envs/<env>/release.auto.tfvars` holds `release_id` and the five images of a release, each by digest
+(`<account>.dkr.ecr.<region>.amazonaws.com/<repository>@sha256:<digest>`; a tag is refused). A deploy
+changes that file and nothing else, then applies `35-deploy-tasks`, `50-agentcore` and `40-services`.
+In `40-services` such a change touches task definitions and services only: a new revision of each task
+definition is registered, each service moves to it, and the previous revision is deregistered after the
+service is steady.
+
 ## Checks
 
 ```bash
@@ -348,11 +490,21 @@ infra/terraform/check.sh policy      # one step
 
 Needs `terraform`, `tflint`, `conftest` and `jq`. No credentials, no state, no AWS calls.
 
-The `test` step runs `terraform test` in every module and then the module's own scripts,
-`modules/<module>/tests/*.sh`. There is one: `modules/data/tests/no_secret_in_plan.sh` plans
-`modules/data/tests/plan` for real (placeholder credentials, empty state, nothing contacted), reads the
-plan as JSON and fails if a secret value is in it or would reach the state. Given a path, it checks
-that plan JSON instead: `no_secret_in_plan.sh plan.json`.
+The `test` step runs `terraform test` in every module and in every stack that has a `tests/` directory,
+each followed by its own scripts, `tests/*.sh`:
+
+- `modules/data/tests/no_secret_in_plan.sh` plans `modules/data/tests/plan` for real (placeholder
+  credentials, empty state, nothing contacted), reads the plan as JSON and fails if a secret value is
+  in it or would reach the state. Given a path, it checks that plan JSON instead:
+  `no_secret_in_plan.sh plan.json`.
+- `stacks/35-deploy-tasks/tests/deploy_tasks.sh` and `stacks/40-services/tests/services.sh` check what
+  those stacks plan inside their modules, which a stack's test file cannot see. They run the stack's
+  test file once more with `terraform test -json -verbose`, which prints every run's plan, and check
+  those plans with `jq` through `plan_checks.sh`. `services.sh` is also the release test: its first run
+  applies against the mocked provider, the next plans with only the three images changed, and the
+  check fails if anything but a task definition or a service would change.
+
+A stack's tests supply what earlier stacks publish to SSM, so they need no state either.
 `.github/workflows/terraform-ci.yml` runs the same steps plus a Checkov config scan.
 
 ### Policy rules
@@ -364,6 +516,7 @@ the expected messages, all carrying the rule's id.
 | Rule | Rejects |
 |---|---|
 | `ecs-no-public-ip` | an ECS service with `assign_public_ip = true` |
+| `ecs-image-by-digest` | an ECS task definition with a container whose image is not given by digest |
 | `sg-no-open-ingress` | security-group ingress from `0.0.0.0/0` or `::/0` |
 | `encryption-at-rest` | unencrypted RDS; a bucket without an encryption configuration; a log group, secret or ECR repository without a KMS key |
 | `required-tags` | a taggable resource missing `app`, `env`, `owner`, `cost-center`, `data-class`, `managed-by` or `repo` |

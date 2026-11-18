@@ -59,6 +59,8 @@ locals {
     "kms/secrets_arn"    = aws_kms_key.symmetric["secrets"].arn
     "ecr/app_repo_url"   = aws_ecr_repository.this["app"].repository_url
     "ecr/agent_repo_url" = aws_ecr_repository.this["agent"].repository_url
+    # Every stack that creates a role sets this boundary on it.
+    "iam/workload_boundary_arn" = module.ci_identity.workload_boundary_policy_arn
   }
 }
 

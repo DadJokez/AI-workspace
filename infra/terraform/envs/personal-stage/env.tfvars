@@ -101,3 +101,53 @@ db_log_min_duration_statement = 1000
 # replacement of the instance.
 db_name            = "comparative"
 db_master_username = "comparative_admin"
+
+# --- 30-platform -------------------------------------------------------------
+
+# Services are reached inside the VPC as <service>.<namespace>. Production's
+# CDK stack holds comparative.internal in the same account, so this
+# environment takes a name of its own.
+internal_namespace = "personal-stage.comparative.internal"
+
+# Stage is rebuilt freely, so its load balancer may be deleted. Every other
+# environment sets true.
+alb_deletion_protection = false
+
+# The name users reach this environment at; the base URL is https://<name>.
+domain_name = "REPLACE_ME_DOMAIN_NAME"
+
+# An ACM certificate for domain_name that already exists in this region. The
+# other way is to delete this line and set route53_zone_id to the hosted zone
+# of domain_name: the stack then requests and validates the certificate and
+# creates the DNS record itself, which the apply role can do only with
+# manage_public_edge = true (above).
+certificate_arn = "REPLACE_ME_CERTIFICATE_ARN"
+
+# --- 40-services -------------------------------------------------------------
+
+# One web task, growing to two under load; one task of each worker.
+web_min           = 1
+web_max           = 2
+chat_worker_count = 1
+
+# Invitation email goes out through SES from an identity that is already
+# verified in this account and region.
+invite_email_provider = "ses"
+invite_email_from     = "REPLACE_ME_INVITE_EMAIL_FROM"
+invite_email_identity = "REPLACE_ME_SES_IDENTITY"
+
+# The services may invoke exactly these models: the inference profile
+# <prefix><id> in aws_region and the foundation model in each routed region.
+# Fill bedrock_model_ids with every foundation-model id the application can
+# select, without the prefix.
+bedrock_model_ids                = ["REPLACE_ME_BEDROCK_MODEL_ID"]
+bedrock_inference_profile_prefix = "us."
+bedrock_inference_regions        = ["us-east-1", "us-east-2", "us-west-2"]
+
+# The web service offers the AgentCore Browser that 50-agentcore creates.
+agentcore_browser_enabled = true
+
+# The switches of the configuration contract (migration spec, section 2) that
+# differ from the application's defaults, for web and both workers. Never a
+# secret value: those are fields of the app secret.
+extra_environment = {}

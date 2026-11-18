@@ -1,6 +1,15 @@
-# Image digests of the release deployed to personal-stage. The release
-# workflow replaces this whole file; nothing else belongs in it.
+# The release deployed to personal-stage: its id and its five images, each by
+# digest. The release workflow replaces this whole file; nothing else belongs
+# in it, and a deploy changes nothing else.
 #
-# PLACEHOLDER: no release has been cut for this environment yet, so the file
-# sets nothing. The stacks that consume a release (35, 40, 50) and the build
-# workflow that writes it do not exist yet.
+# No release has been cut for this environment yet, so the file sets nothing
+# and 35-deploy-tasks and 40-services cannot be planned. The first release
+# writes these six values (the stacks refuse an image given by tag):
+#
+# release_id = "<commit sha>"
+#
+# image_web           = "<account>.dkr.ecr.us-east-1.amazonaws.com/cmp-personal-stage-app@sha256:<digest>"
+# image_worker        = "<account>.dkr.ecr.us-east-1.amazonaws.com/cmp-personal-stage-app@sha256:<digest>"
+# image_memory_worker = "<account>.dkr.ecr.us-east-1.amazonaws.com/cmp-personal-stage-app@sha256:<digest>"
+# image_migrator      = "<account>.dkr.ecr.us-east-1.amazonaws.com/cmp-personal-stage-app@sha256:<digest>"
+# image_agent         = "<account>.dkr.ecr.us-east-1.amazonaws.com/cmp-personal-stage-agent@sha256:<digest>"

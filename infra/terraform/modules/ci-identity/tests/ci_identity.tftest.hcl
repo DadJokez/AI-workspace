@@ -309,6 +309,18 @@ run "apply_role_iam_is_fenced_to_the_environment_path_and_boundary" {
     ])
     error_message = "the boundary must not allow IAM or STS actions"
   }
+  assert {
+    condition = one([
+      for s in jsondecode(aws_iam_policy.workload_boundary.policy).Statement : s
+      if length([for action in flatten([s.Action]) : action if startswith(action, "ses:")]) > 0
+      ]) == {
+      Sid      = "SendEmail"
+      Effect   = "Allow"
+      Action   = "ses:SendEmail"
+      Resource = "arn:aws:ses:*:111122223333:identity/*"
+    }
+    error_message = "the boundary allows sending email from this account's identities, and no other SES action"
+  }
 }
 
 run "apply_role_cannot_read_secret_values" {

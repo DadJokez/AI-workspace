@@ -72,7 +72,7 @@ jobs:
       - name: tflint
         run: infra/terraform/check.sh lint
 
-      - name: terraform test (modules, mocked provider)
+      - name: terraform test (modules and stacks, mocked provider)
         run: infra/terraform/check.sh test
 
       - name: conftest (rules against their fixtures)

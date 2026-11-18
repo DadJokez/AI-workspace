@@ -1,0 +1,41 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.17.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "module.web.module.task.aws_ecs_task_definition.this",
+      "mode": "managed",
+      "type": "aws_ecs_task_definition",
+      "name": "this",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "family": "cmp-fixture-web",
+          "container_definitions": "[{\"name\":\"web\",\"image\":\"111122223333.dkr.ecr.us-east-1.amazonaws.com/cmp-fixture-app@sha256:0000000000000000000000000000000000000000000000000000000000000001\",\"essential\":true},{\"name\":\"sidecar\",\"image\":\"111122223333.dkr.ecr.us-east-1.amazonaws.com/cmp-fixture-app:sidecar-1@sha256:0000000000000000000000000000000000000000000000000000000000000001\",\"essential\":false}]",
+          "tags_all": {
+            "app": "comparative",
+            "env": "fixture",
+            "owner": "platform",
+            "cost-center": "fixture",
+            "data-class": "internal",
+            "managed-by": "terraform",
+            "repo": "example-owner/example-repo"
+          }
+        },
+        "after_unknown": {
+          "tags_all": {}
+        }
+      }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": []
+    }
+  }
+}

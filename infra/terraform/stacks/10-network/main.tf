@@ -1,27 +1,16 @@
 # 10-network: the VPC (built or adopted), its endpoints, the security groups of
 # every workload, and the optional stand-in proxy of a rehearsal environment.
 
-data "aws_partition" "current" {}
-
-data "aws_caller_identity" "current" {
-  lifecycle {
-    postcondition {
-      condition     = self.account_id == var.account_id
-      error_message = "The credentials in use belong to another account than var.account_id."
-    }
-  }
-}
-
 # An ARN, not a secret: insecure_value keeps it readable in the plan.
 data "aws_ssm_parameter" "logs_kms_key_arn" {
   name = "/comparative/${var.env}/00-foundation/kms/logs_arn"
 }
 
-locals {
-  # 00-foundation names the workload boundary <name_prefix>-workload-boundary
-  # and does not publish its ARN.
-  permissions_boundary_arn = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:policy/${var.name_prefix}-workload-boundary"
+data "aws_ssm_parameter" "workload_boundary_arn" {
+  name = "/comparative/${var.env}/00-foundation/iam/workload_boundary_arn"
+}
 
+locals {
   # SSM cannot store an empty value. Lists are published as JSON (an empty list
   # is "[]"), and an absent proxy as the word "none".
   parameters = merge(
@@ -68,7 +57,7 @@ module "network" {
   agentcore_az_ids    = var.agentcore_az_ids
 
   logs_kms_key_arn         = data.aws_ssm_parameter.logs_kms_key_arn.insecure_value
-  permissions_boundary_arn = local.permissions_boundary_arn
+  permissions_boundary_arn = data.aws_ssm_parameter.workload_boundary_arn.insecure_value
 }
 
 # --- Published outputs -------------------------------------------------------

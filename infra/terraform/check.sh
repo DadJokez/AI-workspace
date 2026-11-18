@@ -47,11 +47,12 @@ step_lint() {
   tflint --recursive --config="$root/.tflint.hcl"
 }
 
-# `terraform test` per module, then the module's own test scripts
-# (modules/<module>/tests/*.sh) for what a test file cannot express.
+# `terraform test` per module and per stack that has tests, then its own test
+# scripts (tests/*.sh) for what a test file cannot express.
 step_test() {
   local dir script
-  for dir in modules/*/; do
+  for dir in modules/*/ stacks/*/; do
+    [ -d "${dir}tests" ] || continue
     echo "== test ${dir%/}"
     terraform -chdir="$dir" init -backend=false -input=false >/dev/null
     terraform -chdir="$dir" test
