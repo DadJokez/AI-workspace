@@ -217,6 +217,20 @@ export const STARTER_SKILLS: readonly StarterSkill[] = [
   },
 ];
 
+/**
+ * Starters this deployment can seed. One that needs a connector the deployment
+ * does not offer could never run here, so it is left out.
+ */
+export function seedableStarterSkills(
+  supportedProviders: readonly string[],
+): StarterSkill[] {
+  return STARTER_SKILLS.filter((starter) =>
+    starter.mcpProviders.every((provider) =>
+      supportedProviders.includes(provider),
+    ),
+  );
+}
+
 export function canonicalizeStarterSkill<
   T extends {
     slug: string;

@@ -1,4 +1,5 @@
 import { PostHog } from "posthog-node";
+import { ANALYTICS } from "@/lib/deployment-config";
 
 interface PostHogEvent {
   distinctId: string;
@@ -7,28 +8,14 @@ interface PostHogEvent {
 }
 
 let client: PostHog | undefined;
-let warnedAboutMissingToken = false;
 
+/** Undefined when analytics is off: no client is built and nothing is sent. */
 function getPostHogClient(): PostHog | undefined {
-  const token = process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
-  if (!token) {
-    if (
-      process.env.NODE_ENV === "development" &&
-      !warnedAboutMissingToken
-    ) {
-      warnedAboutMissingToken = true;
-      console.warn(
-        "[posthog] analytics disabled: NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN is not configured",
-      );
-    }
-    return undefined;
-  }
+  if (!ANALYTICS) return undefined;
 
   if (!client) {
-    client = new PostHog(token, {
-      host:
-        process.env.NEXT_PUBLIC_POSTHOG_HOST ??
-        "https://us.i.posthog.com",
+    client = new PostHog(ANALYTICS.token, {
+      host: ANALYTICS.host,
       flushAt: 1,
       flushInterval: 0,
     });

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { fetchJson } from "@/lib/client-api";
 import { connectErrorNotice } from "@/lib/connect-error-copy";
+import { readPublicRuntimeConfig } from "@/lib/public-runtime-config";
 import {
   INTEGRATION_DISPLAY_NAMES,
   SETTINGS_INTEGRATIONS_LABEL,
@@ -230,7 +231,20 @@ export function IntegrationsSettings() {
     ? connectErrorNotice(oauthNotice.provider, oauthNotice.error)
     : undefined;
 
-  const cards = INTEGRATIONS.map((integration): IntegrationCardState => {
+  // A connector this deployment has turned off has no card at all. Cards for
+  // integrations that are not built yet ("coming soon") are unaffected.
+  const [offeredConnectors] = useState(
+    () => readPublicRuntimeConfig()?.connectors ?? null,
+  );
+  const integrations = INTEGRATIONS.filter(
+    (integration) =>
+      !integration.real ||
+      offeredConnectors === null ||
+      offeredConnectors.includes(integration.id),
+  );
+  const firstConnectable = integrations.find((integration) => integration.real);
+
+  const cards = integrations.map((integration): IntegrationCardState => {
     const detail = oauthStatus.providerDetails?.[integration.id];
     const connected =
       detail?.connected === true || oauthStatus[integration.id] === true;
@@ -285,12 +299,12 @@ export function IntegrationsSettings() {
       ) : null}
 
       <div className="flex flex-col gap-5">
-        {!loading && connectedCards.length === 0 ? (
+        {!loading && connectedCards.length === 0 && firstConnectable ? (
           <EmptyState
             title="Connect your first integration"
             description="Connected work tools let Comparative answer with your real projects, documents, and activity."
-            actionLabel={`Connect ${INTEGRATION_DISPLAY_NAMES.github}`}
-            actionHref="/api/oauth/github/start"
+            actionLabel={`Connect ${firstConnectable.name}`}
+            actionHref={`/api/oauth/${firstConnectable.id}/start`}
           />
         ) : null}
         {connectedCards.length > 0 ? (

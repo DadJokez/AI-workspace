@@ -8,7 +8,10 @@ import { and, eq, isNull } from "drizzle-orm";
 
 import { decryptSecret } from "./crypto";
 import { INTEGRATION_DISPLAY_NAMES } from "@/lib/settings-navigation";
-import { serverCallbackBaseUrl } from "@/lib/deployment-config";
+import {
+  isConnectorProviderEnabled,
+  serverCallbackBaseUrl,
+} from "@/lib/deployment-config";
 import {
   NOTION_MCP_PATH,
   NOTION_MCP_RELAY_HEADER,
@@ -84,7 +87,7 @@ const SALESFORCE_TOOL_USAGE_NOTES: Record<string, string> = {
     "For a live HTML page, do not embed these Salesforce rows as initial or fallback data. Discover the run_soql bindings in window.__COMPARATIVE_APP__.bindings (soql-1, soql-2, and so on) and render through window.comparativeData.refreshWidget using the viewer's returned records. An unconnected viewer gets a Connect prompt, never the author's rows. Only embed a labeled snapshot when the user explicitly asks for a static snapshot.",
 };
 
-const MCP_PROVIDER_CONFIG: Record<string, McpProviderConfig> = {
+const ALL_MCP_PROVIDER_CONFIG: Record<string, McpProviderConfig> = {
   github: {
     endpoint: { url: "https://api.githubcopilot.com/mcp/" },
     usageNotesByTool: GITHUB_TOOL_USAGE_NOTES,
@@ -101,8 +104,20 @@ const MCP_PROVIDER_CONFIG: Record<string, McpProviderConfig> = {
 };
 
 /**
- * Provider slugs Comparative knows how to connect/configure. A provider may be
- * connectable before it is executable in the current deployment.
+ * The one place a deployment's connector list is applied: a provider left out
+ * of ENABLED_CONNECTOR_PROVIDERS has no config here, so it is unsupported and
+ * unmountable for every consumer below.
+ */
+const MCP_PROVIDER_CONFIG: Record<string, McpProviderConfig> =
+  Object.fromEntries(
+    Object.entries(ALL_MCP_PROVIDER_CONFIG).filter(([provider]) =>
+      isConnectorProviderEnabled(provider),
+    ),
+  );
+
+/**
+ * Provider slugs this deployment offers to connect/configure. A provider may
+ * be connectable before it is executable in the current deployment.
  */
 export const SUPPORTED_MCP_PROVIDERS = Object.keys(MCP_PROVIDER_CONFIG);
 
@@ -245,6 +260,10 @@ export async function loadUserMcpProviderStatus(
       providerAvailability: {},
     };
   }
+
+  // A grant stored for a provider this deployment has since turned off is not
+  // a connection: it is never refreshed, reported or mounted.
+  rows = rows.filter((row) => SUPPORTED_MCP_PROVIDERS.includes(row.provider));
 
   let googleConnection: GoogleConnectionState | null = null;
   if (
@@ -440,9 +459,10 @@ export async function buildUserMcpServers(
 
   rows = rows.filter(
     (row) =>
-      row.provider === "google" ||
-      row.provider === "salesforce" ||
-      isActiveOAuthToken(row),
+      SUPPORTED_MCP_PROVIDERS.includes(row.provider) &&
+      (row.provider === "google" ||
+        row.provider === "salesforce" ||
+        isActiveOAuthToken(row)),
   );
 
   if (options?.onlyProviders) {

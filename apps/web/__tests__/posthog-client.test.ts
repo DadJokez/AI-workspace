@@ -10,22 +10,40 @@ vi.mock("posthog-js", () => ({
   },
 }));
 
-const originalToken = process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
+const getElementById = vi.hoisted(() => vi.fn());
+
+function stubRuntimeConfig(config: unknown) {
+  getElementById.mockReturnValue(
+    config === undefined ? null : { textContent: JSON.stringify(config) },
+  );
+  vi.stubGlobal("document", { getElementById });
+}
 
 describe("PostHog browser instrumentation", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN = "phc_test";
+    stubRuntimeConfig({
+      analytics: { provider: "posthog", token: "phc_test", apiHost: "/ingest" },
+      connectors: [],
+    });
   });
 
   afterEach(() => {
-    if (originalToken === undefined) {
-      delete process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
-    } else {
-      process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN = originalToken;
-    }
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("stays uninitialised when the deployment has analytics off", async () => {
+    stubRuntimeConfig({ analytics: null, connectors: [] });
+    await import("../instrumentation-client");
+    expect(posthog.init).not.toHaveBeenCalled();
+  });
+
+  it("stays uninitialised when the page carries no runtime config", async () => {
+    stubRuntimeConfig(undefined);
+    await import("../instrumentation-client");
+    expect(posthog.init).not.toHaveBeenCalled();
   });
 
   it("captures page and explicit product events without page content", async () => {
@@ -97,14 +115,5 @@ describe("PostHog browser instrumentation", () => {
     });
     expect(JSON.stringify(capture)).not.toContain(token);
     expect(JSON.stringify(capture)).not.toContain("referr");
-  });
-
-  it("does not initialize without a project token", async () => {
-    delete process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    await import("../instrumentation-client");
-
-    expect(posthog.init).not.toHaveBeenCalled();
   });
 });

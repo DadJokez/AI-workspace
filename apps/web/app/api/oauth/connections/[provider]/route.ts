@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
+import { CONNECTOR_PROVIDERS } from "@/lib/deployment-config";
 import { revokeOAuthConnection } from "@/lib/oauth/connection";
-import { SUPPORTED_MCP_PROVIDERS } from "@/lib/oauth/mcp-servers";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,9 @@ export async function DELETE(
   if ("error" in session) return session.error;
 
   const { provider } = await params;
-  if (!SUPPORTED_MCP_PROVIDERS.includes(provider)) {
+  // Any known connector, enabled or not: a user can always revoke a grant
+  // they gave, including one for a connector this deployment has turned off.
+  if (!(CONNECTOR_PROVIDERS as readonly string[]).includes(provider)) {
     return NextResponse.json({ error: "unsupported_provider" }, { status: 400 });
   }
 

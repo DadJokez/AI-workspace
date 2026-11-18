@@ -1,15 +1,14 @@
 import posthog from "posthog-js";
 import { sanitizePostHogCapture } from "@/lib/posthog-privacy";
+import { readPublicRuntimeConfig } from "@/lib/public-runtime-config";
 
-if (!process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN) {
-  if (process.env.NODE_ENV === "development") {
-    console.warn(
-      "[posthog] analytics disabled: NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN is not configured",
-    );
-  }
-} else {
-  posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN, {
-    api_host: "/ingest",
+// Analytics is a deployment setting read from the page, not from the bundle:
+// with it off, PostHog is never initialised and nothing is sent.
+const analytics = readPublicRuntimeConfig()?.analytics;
+
+if (analytics?.provider === "posthog") {
+  posthog.init(analytics.token, {
+    api_host: analytics.apiHost,
     ui_host: "https://us.posthog.com",
     defaults: "2026-05-30",
     autocapture: false,

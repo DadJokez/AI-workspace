@@ -4,11 +4,11 @@ import { requireSession } from "@/lib/auth/requireSession";
 import {
   getMcpProviderExecutionStatus,
   loadUserMcpProviderStatus,
+  SUPPORTED_MCP_PROVIDERS,
 } from "@/lib/oauth/mcp-servers";
 
 export const dynamic = "force-dynamic";
 
-type Provider = "github" | "notion" | "google" | "salesforce";
 type ProviderConnectionStatus =
   | "not_connected"
   | "ready"
@@ -19,7 +19,9 @@ type ProviderConnectionStatus =
   | "connected_execution_not_configured";
 
 /**
- * GET /api/oauth/status — per-provider connection booleans for the caller.
+ * GET /api/oauth/status — per-provider connection booleans for the caller,
+ * for the connectors this deployment offers. A provider the deployment has
+ * turned off is absent from both maps.
  */
 export async function GET() {
   const session = await requireSession();
@@ -29,21 +31,18 @@ export async function GET() {
   const db = getDb();
 
   const providerStatus = await loadUserMcpProviderStatus(db, sessionUser.id);
-  const details = {
-    github: providerDetails("github", providerStatus.providerAvailability?.github),
-    notion: providerDetails("notion", providerStatus.providerAvailability?.notion),
-    google: providerDetails("google", providerStatus.providerAvailability?.google),
-    salesforce: providerDetails(
-      "salesforce",
-      providerStatus.providerAvailability?.salesforce,
-    ),
-  };
-  const status: Record<Provider, boolean> = {
-    github: details.github.connected,
-    notion: details.notion.connected,
-    google: details.google.connected,
-    salesforce: details.salesforce.connected,
-  };
+  const details = Object.fromEntries(
+    SUPPORTED_MCP_PROVIDERS.map((provider) => [
+      provider,
+      providerDetails(provider, providerStatus.providerAvailability?.[provider]),
+    ]),
+  );
+  const status = Object.fromEntries(
+    SUPPORTED_MCP_PROVIDERS.map((provider) => [
+      provider,
+      details[provider]!.connected,
+    ]),
+  );
 
   return NextResponse.json({
     ...status,
@@ -52,7 +51,7 @@ export async function GET() {
 }
 
 function providerDetails(
-  provider: Provider,
+  provider: string,
   availability:
     | NonNullable<
         Awaited<ReturnType<typeof loadUserMcpProviderStatus>>["providerAvailability"]

@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
-import { PUBLIC_BASE_URL } from "@/lib/deployment-config";
+import {
+  disabledConnectorResponse,
+  PUBLIC_BASE_URL,
+} from "@/lib/deployment-config";
 import { storeOAuthConnection } from "@/lib/oauth/connection";
 import {
   SALESFORCE_CLIENT_ID,
@@ -34,6 +37,8 @@ function settingsRedirect(_req: Request, params: Record<string, string>) {
 }
 
 export async function GET(req: Request) {
+  const disabled = disabledConnectorResponse("salesforce");
+  if (disabled) return disabled;
   const session = await requireSession();
   if ("error" in session) return session.error;
   const sessionUser = session.user;

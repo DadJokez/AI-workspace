@@ -9,6 +9,7 @@ const session: SessionUser = {
 };
 
 let providerAvailability: Record<string, Record<string, unknown>> = {};
+let supportedProviders: string[] = [];
 
 function installMocks() {
   vi.doMock("@/lib/auth/getSessionUser", () => ({
@@ -24,11 +25,13 @@ function installMocks() {
   vi.doMock("@/lib/oauth/mcp-servers", () => ({
     getMcpProviderExecutionStatus: () => ({ executionConfigured: true }),
     loadUserMcpProviderStatus: async () => ({ providerAvailability }),
+    SUPPORTED_MCP_PROVIDERS: supportedProviders,
   }));
 }
 
 beforeEach(() => {
   providerAvailability = {};
+  supportedProviders = ["github", "notion", "google", "salesforce"];
 });
 
 afterEach(() => {
@@ -70,6 +73,25 @@ describe("GET /api/oauth/status", () => {
         },
       },
     });
+  });
+
+  it("leaves out a connector the deployment does not offer", async () => {
+    supportedProviders = ["github", "salesforce"];
+    providerAvailability = { github: readyAvailability() };
+    installMocks();
+    const { GET } = await import("@/app/api/oauth/status/route");
+
+    const body = (await (await GET()).json()) as {
+      providerDetails: Record<string, unknown>;
+    } & Record<string, unknown>;
+
+    expect(Object.keys(body.providerDetails).sort()).toEqual([
+      "github",
+      "salesforce",
+    ]);
+    expect(body).toMatchObject({ github: true, salesforce: false });
+    expect(body).not.toHaveProperty("google");
+    expect(body).not.toHaveProperty("notion");
   });
 
   it("reports an under-scoped Google grant as requiring reconnect", async () => {

@@ -25,6 +25,7 @@ import {
   searchGoogleMailThreads,
   type GoogleMailMessageReference,
 } from "@/lib/google/api";
+import { isConnectorProviderEnabled } from "@/lib/deployment-config";
 import { resolveGoogleConnection } from "@/lib/oauth/google-token";
 import { artifactPromptContent } from "@/lib/artifact-context";
 import {
@@ -78,17 +79,20 @@ export async function searchContextResources({
     reason: "token_refresh_failed" as const,
     grantedScopes: [],
   }));
-  const scopes = [
-    {
-      scope: "google_mail" as const,
-      label: "Gmail",
-      description: "Search mail threads",
-      available: google.ready,
-      ...(!google.ready
-        ? { unavailableReason: googleScopeUnavailableReason(google.status) }
-        : {}),
-    },
-  ];
+  // No Gmail scope at all when the deployment does not offer the connector.
+  const scopes = isConnectorProviderEnabled("google")
+    ? [
+        {
+          scope: "google_mail" as const,
+          label: "Gmail",
+          description: "Search mail threads",
+          available: google.ready,
+          ...(!google.ready
+            ? { unavailableReason: googleScopeUnavailableReason(google.status) }
+            : {}),
+        },
+      ]
+    : [];
 
   if (scope === "google_mail") {
     if (!google.ready) return { results: [], scopes };

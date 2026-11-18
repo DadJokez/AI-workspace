@@ -2,6 +2,7 @@ import type { Database } from "@ai-workspace/db";
 import { oauthTokens } from "@ai-workspace/db";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
+import { isConnectorProviderEnabled } from "@/lib/deployment-config";
 import { decryptSecret, encryptSecret } from "./crypto";
 import {
   SALESFORCE_CLIENT_ID,
@@ -64,6 +65,11 @@ export async function resolveSalesforceConnection(
   userId: string,
   now: Date = new Date(),
 ): Promise<SalesforceConnectionState> {
+  // A connector this deployment has turned off is never connected: a grant
+  // stored earlier is not read, refreshed or used.
+  if (!isConnectorProviderEnabled(SALESFORCE_PROVIDER)) {
+    return { status: "not_connected", connected: false, ready: false };
+  }
   const rows = await db
     .select({
       accessToken: oauthTokens.accessToken,
