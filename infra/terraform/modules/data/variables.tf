@@ -120,3 +120,9 @@ variable "enable_rds_proxy" {
   type        = bool
   default     = false
 }
+
+variable "disposable" {
+  description = "True = the data of an environment that is thrown away whole (a firewall rehearsal): no deletion protection and no final snapshot, secrets deleted without a recovery window, buckets emptied on destroy. Never true where the data matters."
+  type        = bool
+  default     = false
+}

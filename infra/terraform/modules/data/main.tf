@@ -70,16 +70,21 @@ resource "aws_db_instance" "this" {
 
   backup_retention_period = var.backup_days
   copy_tags_to_snapshot   = true
-  deletion_protection     = true
+  # Off only for the throwaway database of a rehearsal (var.disposable).
+  # Written as a conditional, not !var.disposable: Checkov (CKV_AWS_293)
+  # evaluates this form and not the negation.
+  deletion_protection = var.disposable ? false : true
 
   # 7 days is the retention Performance Insights does not charge for.
   performance_insights_enabled          = true
   performance_insights_retention_period = 7
   performance_insights_kms_key_id       = var.data_kms_key_arn
 
-  snapshot_identifier       = var.restore_snapshot_id
-  skip_final_snapshot       = false
-  final_snapshot_identifier = "${var.name_prefix}-db-final"
+  snapshot_identifier = var.restore_snapshot_id
+  # A disposable database leaves no snapshot: a second rehearsal's destroy
+  # would fail on the name the first one left.
+  skip_final_snapshot       = var.disposable
+  final_snapshot_identifier = var.disposable ? null : "${var.name_prefix}-db-final"
 
   lifecycle {
     # The snapshot seeds a new instance only. Changing or clearing the variable

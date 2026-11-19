@@ -1,8 +1,8 @@
 name: Terraform CI
 
 # Static checks for infra/terraform: formatting, validation, lint, a config
-# scan, the Conftest rules against their fixtures, the module tests and the
-# fixtures of the pipeline scripts.
+# scan, the Conftest rules against their fixtures, the module tests, the
+# fixtures of the pipeline scripts and the firewall rehearsal's dry run.
 #
 # This workflow holds no cloud credentials and never reads state: it requests
 # no OIDC token (no `id-token` permission), configures no AWS credentials and
@@ -81,6 +81,12 @@ jobs:
 
       - name: pipeline scripts (fixtures)
         run: infra/terraform/check.sh scripts
+
+      # Plans every stack of envs/personal-rehearsal with `terraform test`
+      # against a mocked AWS provider (no credentials, no state) and prints the
+      # rehearsal's task commands. Not a real plan: see scripts/rehearsal.sh.
+      - name: firewall rehearsal dry run (rehearsal.sh --plan-only)
+        run: infra/terraform/check.sh rehearsal
 
       - name: Config scan (Checkov)
         uses: bridgecrewio/checkov-action@3f0caf0c3aa9f56ade6b49f6e60b63aaeafb75a3 # v12.3141.0

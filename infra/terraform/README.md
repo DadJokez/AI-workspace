@@ -32,6 +32,7 @@ stacks/40-services/  the four services, SSM outputs
 stacks/50-agentcore/ the agentcore module, SSM outputs
 stacks/60-observability/ the observability module, SSM outputs
 envs/<env>/          backend.hcl, env.tfvars, release.auto.tfvars
+                     (personal-stage; personal-rehearsal, the firewall rehearsal's)
 policy/              Conftest rules and their fixtures
 scripts/             what the plan and apply workflows run, each with its fixtures (*.test.sh)
 ```
@@ -244,6 +245,10 @@ SSM):
 - **Published to SSM** under `/comparative/<env>/20-data/`: `db/endpoint` (the instance's host name,
   without the port), `db/port`, `db/instance_id`, `secret/app_arn`, `secret/browser_proxy_arn`,
   `secret/browser_proxy_db_arn`, `bucket/alb_logs`, `bucket/artifacts`.
+- **Disposable data.** `data_disposable = true`, for an environment that is created and destroyed
+  whole (only `personal-rehearsal`), turns off what keeps data through a destroy: deletion protection
+  and the final snapshot of the instance, the 30-day recovery window of the secrets (their names would
+  stay taken), and the refusal to delete a bucket that holds objects. It is false everywhere else.
 
 ### What the apply role cannot do
 
@@ -798,10 +803,155 @@ Two things the workflows rely on that are not true yet:
   needs that environment's plan role to read the building environment's key and registry. WP-20 settles
   this for `personal-prod`.
 
+## Firewall rehearsal
+
+`envs/personal-rehearsal` is the firewall profile in the personal account, created for a rehearsal and
+destroyed after it (migration spec, WP-19; firewall plan, step 4). `scripts/rehearsal.sh` stands it up,
+runs the checks from inside the VPC, reports what left the VPC and how, and tears it down. The pipeline
+never plans or applies it: its committed files carry placeholders, and `terraform-apply.yml` deploys
+`personal-stage` only.
+
+| | `personal-rehearsal` |
+|---|---|
+| Network | built here, `firewall_mode = true`, `egress = "proxy"`: no internet route from the app subnets, the interface endpoints of `10-network` for AWS |
+| Proxy | the stand-in (`create_standin_proxy = true`): squid allowing `proxy_allowlist` and nothing else, logging every request |
+| Load balancer | internal (`internal_alb = true`), reachable from the VPC's range only |
+| AgentCore | runtime and Studio Browser in the VPC (`agentcore_network_mode = "VPC"`), web search off |
+| Switches | `ENABLED_CONNECTOR_PROVIDERS=salesforce,github`, `ANALYTICS_PROVIDER=none`, `GITHUB_EVENT_INGEST_MODE=poll`, `WEB_FETCH_ENABLED=0`; `WEB_SEARCH_PROVIDER=none` in the app secret |
+| `INTERNAL_BASE_URL` | `https://<the internal load balancer's DNS name>`, written by `up` |
+| Sizes | two zones (the least a load balancer and a DB subnet group accept), database in one (`db_multi_az = false`), `db.t4g.micro`, one task of each service, one day of backups |
+| Data | a new, empty database; `data_disposable = true` so that `down` removes everything |
+
+`WEB_FETCH_ENABLED=0` is not part of the spec's switch set: the URL fetch tool reaches any public host,
+which an allowlisting proxy cannot express, so the inventory would put `*` on the proxy list. Whether
+Koch allows any host through its proxy is the open egress answer.
+
+### The allowlist
+
+`proxy_allowlist` in `env.tfvars` is generated, never edited: `rehearsal.sh allowlist` runs
+`pnpm egress:inventory --allowlist` (`apps/web/lib/egress-inventory.ts`) with this environment's settings
+(its `extra_environment`, region, email provider, web search, AgentCore runtime and browser, an internal
+URL) and nothing of the caller's own environment, turns `*.example.com` into squid's `.example.com`,
+drops a host such a domain covers, and rewrites the block between the `BEGIN` and `END` markers.
+`rehearsal.sh allowlist --check` fails while the block differs from the inventory; it needs the
+application's dependencies (`pnpm install`), so it runs where they are installed, not in Terraform CI.
+`scripts/fixtures/rehearsal/egress-allowlist.json` is the inventory's output the committed block was
+generated from; `rehearsal.test.sh` checks the block against it.
+
+### Running a rehearsal (Rob)
+
+Every command below changes AWS. Run them with administrator credentials for the personal account,
+from a machine with `aws`, `terraform`, `conftest` and `jq`.
+
+1. On that machine only, fill in the `REPLACE_ME` values of `envs/personal-rehearsal/env.tfvars` and
+   `backend.hcl` (mostly personal-stage's values; `domain_name` needs an ACM certificate in the region,
+   `invite_email_*` a verified SES identity), and copy the release to rehearse:
+   `cp envs/personal-stage/release.auto.tfvars envs/personal-rehearsal/`. Keep these copies off `main`.
+2. `scripts/rehearsal.sh up`. It applies `00-foundation`, `10-network` and `20-data`, then stops (exit
+   3) until the app secret and the browser-proxy database secret have values: do "After the first apply
+   of 20-data" with `ENV_NAME=personal-rehearsal`, with `WEB_SEARCH_PROVIDER` set to `none` in the app
+   secret, and run `up` again. It then applies `30-platform`, writes `internal_base_url`, applies
+   `35-deploy-tasks`, runs the migrator, and applies `50-agentcore`, `40-services` and
+   `60-observability`. Each stack goes through `stack.sh apply` (plan, Conftest, apply of that plan).
+3. `REHEARSAL_EMAIL=<address> scripts/rehearsal.sh run`. The address is the one the magic-link check
+   asks a sign-in link for; in the SES sandbox it must be verified.
+4. `scripts/rehearsal.sh report`, at least ten minutes after `run` ended (flow logs arrive in
+   aggregation windows of up to ten minutes). It writes `docs/security/FIREWALL_REHEARSAL_<date>.md`.
+5. `scripts/rehearsal.sh down`. Terraform asks to confirm each stack's destroy. The state bucket is not a
+   stack and stays, with this environment's (empty) state files. The KMS keys of `00-foundation` are
+   scheduled for deletion after their 30-day window; AgentCore's own log groups under
+   `/aws/bedrock-agentcore/` are not Terraform's and stay.
+
+The report goes into a docs pull request, and every failure in it becomes an issue.
+
+### The checks
+
+`run` starts each check as an ECS task from the smoke task definition of `35-deploy-tasks` (worker image,
+app subnets, `deploy_task` security group, no public IP) with `run-task.sh`, which takes the overrides in
+`TASK_OVERRIDES`.
+
+| Check | How |
+|---|---|
+| Magic-link request; SES leaves through the proxy | `node` posts to `/api/auth/signin/email` on the internal URL; `report` requires an allowed request to `email.<region>.amazonaws.com` in the proxy log. Run first, while the users table is empty and any address may ask for a link |
+| Authenticated smoke | the task as it is: `smoke:prod:auth` against `SMOKE_BASE_URL` (the internal URL); it includes a durable AgentCore run |
+| Eval gate | `pnpm eval --gate` with `BEDROCK_CLIENT=real`, as the chat-worker's task role (Bedrock through the endpoint). The harness calls Bedrock itself; it takes no URL |
+| Durable AgentCore run with an MCP facade tool call, scheduled run, event trigger in poll mode, Studio Browser start and stop | **not run**: the application has no entry point that runs them inside the VPC. They are reported as not run, and the report's result is at best INCOMPLETE |
+
+`report` lists, for the run window: each check's result; every host requested at the stand-in proxy,
+allowed or denied, and whether `proxy_allowlist` has it; every REJECT in the flow logs from an app
+subnet; every flow from an app subnet to an address outside the VPC that is not S3's (the gateway
+endpoint), which is a connection that ignored the proxy; and the hosts the inventory lists that nothing
+used. The result is FAIL with any failed check, denied host or direct connection, INCOMPLETE with a
+check not run, and PASS otherwise. No account id or network interface id is written.
+
+### The dry run
+
+`rehearsal.sh --plan-only` is the acceptance check, run by `check.sh rehearsal` in Terraform CI. It needs
+no credentials. For each stack, in the apply order, it copies the stack and the modules to a temporary
+directory and runs `terraform test` with one plan run (`scripts/fixtures/rehearsal/<stack>.tftest.hcl`)
+against a mocked AWS provider, with `envs/personal-rehearsal/env.tfvars` and, in place of its
+placeholders and of what `up` learns from AWS, `scripts/fixtures/rehearsal/plan-only.tfvars`. Each plan
+then goes through the Conftest rules and `plan-report.sh`. It also prints the command of every check,
+what `report` reads, and the destroy order.
+
+What that does not prove, compared with a real `terraform plan`:
+
+- Nothing is read from AWS. The fixtures stand in for what earlier stacks publish to SSM, for data
+  sources (zones, the S3 prefix list) and for computed attributes. A real plan of a new environment is
+  impossible anyway: each stack's SSM inputs exist only after the stacks before it are applied.
+- The mocked provider does not merge `default_tags` into `tags_all`; the dry run does that merge itself
+  before Conftest, as the provider would.
+- `terraform test` gives a plan's resource changes but not its configuration, so the two rules that read
+  the configuration (`encryption-at-rest` and `s3-block-public-access`, for a bucket's companion
+  resources) see no buckets there. `modules/data`'s own tests cover those resources.
+- Values known only after apply (ARNs in policies, for one) stay unknown, as in any first plan.
+
+### Cost of a rehearsal day
+
+From the WP-09 figures (interface endpoint about $7.30 per endpoint per zone per month; one NAT gateway
+about $33 per month plus data), recomputed per day. The other lines are us-east-1 on-demand prices that
+were not checked against the AWS price list when this was written (2026-11-19); check them before relying
+on the total.
+
+| Item | Per day |
+|---|---|
+| 15 interface endpoints × 2 zones | about $7.20 |
+| NAT gateway of the stand-in proxy, and its public address | about $1.20, plus $0.045 per GB |
+| Fargate: web (0.5 vCPU, 1 GB) and four 0.25 vCPU / 0.5 GB tasks (two workers, browser proxy, stand-in proxy) | about $1.80 |
+| Internal load balancer | about $0.60 |
+| `db.t4g.micro`, one zone, 20 GB gp3 | about $0.45 |
+| KMS keys, secrets, logs and metrics | about $0.50 |
+| **Total** | **about $12**, plus Bedrock tokens of the eval gate and the smoke, AgentCore usage and data processing |
+
+The endpoints are three fifths of it, and they are billed by the hour: `down` on the same day as `up`
+keeps a rehearsal near that figure.
+
+### Looking at the UI (optional, not set up)
+
+Nothing outside the VPC reaches the internal load balancer, and there is no bastion. A person can
+forward a local port through a throwaway task with ECS Exec and Session Manager (the `ssmmessages`
+endpoint exists in firewall mode). That needs a task role with the four `ssmmessages:` channel actions,
+which no role has today (the workload boundary allows them); creating one is an IAM decision. With such a
+role, and the Session Manager plugin installed locally:
+
+```bash
+aws ecs run-task --cluster <30-platform/cluster_arn> --launch-type FARGATE --enable-execute-command \
+  --task-definition <35-deploy-tasks/taskdef/smoke_arn> \
+  --network-configuration 'awsvpcConfiguration={subnets=[<app subnet ids>],securityGroups=[<sg/deploy_task_id>],assignPublicIp=DISABLED}' \
+  --overrides '{"taskRoleArn": "<role with ssmmessages>", "containerOverrides": [{"name": "smoke", "command": ["sleep", "3600"]}]}'
+aws ecs describe-tasks --cluster <cluster> --tasks <task arn> --query 'tasks[0].containers[0].runtimeId'
+aws ssm start-session --target ecs:<cluster name>_<task id>_<runtime id> \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters '{"host": ["<alb_dns_name>"], "portNumber": ["443"], "localPortNumber": ["8443"]}'
+```
+
+Then map `domain_name` to `127.0.0.1` in the local hosts file and open `https://<domain_name>:8443`; the
+certificate is for that name. Stop the task afterwards.
+
 ## Checks
 
 ```bash
-infra/terraform/check.sh             # fmt, versions, validate, lint, test, policy, scripts
+infra/terraform/check.sh             # fmt, versions, validate, lint, test, policy, scripts, rehearsal
 infra/terraform/check.sh policy      # one step
 ```
 
@@ -837,9 +987,13 @@ A stack's tests supply what earlier stacks publish to SSM, so they need no state
 The `scripts` step runs the fixtures of the pipeline's scripts, `scripts/*.test.sh`: `affected.sh`
 (which pairs a change plans and applies), `plan-report.sh` (summary, stateful-replace detector and
 fingerprint, against plan JSON in `scripts/fixtures/`), `stack.sh` (what an apply applies and refuses,
-with a stand-in `terraform`) and `stateful-replace-allowed.sh`. `run-task.sh` and `snapshot-db.sh`
+with a stand-in `terraform`), `rehearsal.sh` (every subcommand, with stand-ins for `terraform`,
+`conftest`, `aws` and `pnpm`) and `stateful-replace-allowed.sh`. `run-task.sh` and `snapshot-db.sh`
 call AWS; their tests are `apps/web/__tests__/terraform-run-task-script.test.ts` and
 `terraform-snapshot-db-script.test.ts`, against a stubbed `aws`, in the unit suite.
+
+The `rehearsal` step is the firewall rehearsal's dry run, `scripts/rehearsal.sh --plan-only` (see
+"Firewall rehearsal").
 
 `.github/workflows/terraform-ci.yml` runs the same steps plus a Checkov config scan.
 

@@ -1,0 +1,21 @@
+{
+  "proxyHosts": [
+    "*.force.com",
+    "*.salesforce.com",
+    "api.github.com",
+    "api.githubcopilot.com",
+    "email.us-east-1.amazonaws.com",
+    "github.com",
+    "login.salesforce.com"
+  ],
+  "noProxy": [
+    "127.0.0.1",
+    "169.254.170.2",
+    "bedrock-agentcore.us-east-1.amazonaws.com",
+    "bedrock-runtime.us-east-1.amazonaws.com",
+    "internal.invalid",
+    "localhost",
+    "logs.us-east-1.amazonaws.com",
+    "secretsmanager.us-east-1.amazonaws.com"
+  ]
+}
