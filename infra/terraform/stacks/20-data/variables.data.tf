@@ -57,4 +57,11 @@ variable "data_disposable" {
   description = "True only in an environment that is created and destroyed whole, such as a firewall rehearsal: no deletion protection, no final snapshot, no secret recovery window, buckets emptied on destroy."
   type        = bool
   default     = false
+
+  # A copied tfvars line must not strip a real database of its protection:
+  # only an environment named for a rehearsal may be disposable.
+  validation {
+    condition     = !var.data_disposable || endswith(var.env, "-rehearsal")
+    error_message = "data_disposable may be true only in an environment whose name ends in -rehearsal."
+  }
 }
