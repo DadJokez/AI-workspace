@@ -3,8 +3,9 @@
 # in it, and a deploy changes nothing else.
 #
 # No release has been cut for this environment yet, so the file sets nothing
-# and 35-deploy-tasks and 40-services cannot be planned. The first release
-# writes these six values (the stacks refuse an image given by tag):
+# and 35-deploy-tasks, 50-agentcore and 40-services cannot be planned. The
+# first release writes these six values (the stacks refuse an image given by
+# tag):
 #
 # release_id = "<commit sha>"
 #

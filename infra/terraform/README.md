@@ -21,6 +21,7 @@ modules/network/     VPC (built or adopted), endpoints, security groups, optiona
 modules/data/        database, optional RDS Proxy, secrets, buckets
 modules/ecs-task/    one Fargate task definition with its log group and two roles
 modules/ecs-service/ ecs-task plus the service, optional Cloud Map name and autoscaling
+modules/agentcore/   AgentCore runtime, web-search credential provider, Studio Browser, their roles
 modules/observability/ ops alert topic, alarms, log metric filters, dashboard
 stacks/00-foundation/ KMS keys, ECR repositories, the ci-identity module, SSM outputs
 stacks/10-network/   the network module, SSM outputs
@@ -28,6 +29,7 @@ stacks/20-data/      the data module, SSM outputs
 stacks/30-platform/  ECS cluster, private namespace, load balancer, SSM outputs
 stacks/35-deploy-tasks/ migrator and smoke task definitions, SSM outputs
 stacks/40-services/  the four services, SSM outputs
+stacks/50-agentcore/ the agentcore module, SSM outputs
 stacks/60-observability/ the observability module, SSM outputs
 envs/<env>/          backend.hcl, env.tfvars, release.auto.tfvars
 policy/              Conftest rules and their fixtures
@@ -35,9 +37,9 @@ scripts/             what the plan and apply workflows run, each with its fixtur
 ```
 
 Apply order for a new environment: `00-foundation`, `10-network`, `20-data`, `30-platform`,
-`35-deploy-tasks`, `50-agentcore`, `40-services`, `60-observability`. `50-agentcore` is a later work
-package and does not exist yet; `40-services` cannot be planned until `50-agentcore` has been applied
-(see "What 40-services creates"), and `60-observability` reads what `40-services` publishes.
+`35-deploy-tasks`, `50-agentcore`, `40-services`, `60-observability`. `40-services` cannot be planned
+until `50-agentcore` has been applied (see "What 40-services creates"), and `60-observability` reads
+what `40-services` publishes.
 
 Versions: Terraform `~> 1.17`, AWS provider `~> 6.73`. `modules/data` also needs `hashicorp/random`
 `~> 3.7` for its ephemeral password; the module declares that itself, so `versions.tf.tmpl` is unchanged
@@ -430,6 +432,69 @@ with the `deploy_task` security group (both published by `10-network`), using th
 release. `snapshot_keep_days` (from `env.tfvars`) is how long the apply workflow keeps the
 `pre-migrate-*` database snapshots it takes before a release's migrations.
 
+## What 50-agentcore creates
+
+Applied after `35-deploy-tasks` and before `40-services` (it reads the agentcore subnets, two security
+groups and the proxy from `10-network`, two secrets from `20-data`, and the secrets key and the boundary
+from `00-foundation`), and again with every release:
+
+```bash
+./tf.sh personal-stage 50-agentcore plan
+./tf.sh personal-stage 50-agentcore apply
+```
+
+- **Runtime.** `<name_prefix>_agent` with dashes as underscores (AgentCore names allow no dash), running
+  `image_agent` (linux/arm64, by digest) over HTTP. `agentcore_network_mode` is `PUBLIC` in the sandbox,
+  as production's runtime is today, or `VPC`: the runtime then sits in `agentcore_subnet_ids` with the
+  `agent_runtime` security group, and receives `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` when
+  `10-network` publishes a proxy. A `PUBLIC` runtime is outside the VPC and gets no proxy. Its environment
+  is otherwise `BEDROCK_CLIENT=real`, `AWS_DEFAULT_REGION`, `WEB_SEARCH_PROVIDER`,
+  `BEDROCK_INFERENCE_PROFILE_PREFIX`, and `BRAVE_SEARCH_CREDENTIAL_PROVIDER` with web search on. A release
+  changes only the container image.
+- **No endpoint resource.** The chat worker invokes the runtime's `DEFAULT` endpoint: the application
+  sends a qualifier only when `AGENTCORE_QUALIFIER` is set, and no service sets it. AgentCore keeps
+  `DEFAULT` on the latest version.
+- **Runtime role** `<name_prefix>-agent-runtime`, under `/comparative/<env>/` with the workload
+  boundary, assumable by AgentCore for this account and region only: pull from the agent repository,
+  invoke the models of `bedrock_model_ids` (the same ARNs as the services of `40-services`, never `*`),
+  write logs under `/aws/bedrock-agentcore/`. With web search, also `bedrock-agentcore:GetResourceApiKey`
+  on the default workload identity directory, the runtime's own workload identity, the default token
+  vault and the one credential provider. Unlike the CDK runtime role it has no `aws-marketplace` grant,
+  which the boundary does not allow either.
+- **Web search.** `agentcore_web_search_provider = "brave"` creates the API key credential provider
+  `<name_prefix>-brave-search` pointing at the field `BRAVE_SEARCH_API_KEY` of `comparative/<env>/app`;
+  Terraform never reads the key. `"none"` creates neither the provider nor the permission, and the agent
+  offers no web search tool. Keep it in step with `WEB_SEARCH_PROVIDER` of the services.
+- **Studio Browser** `<name_prefix>_studio_browser`, with request signing on, as production's. With
+  `agentcore_browser_network_mode = "VPC"` (as production's) it sits in `agentcore_subnet_ids` with the
+  `studio_browser` security group, which reaches only the browser proxy and DNS; `PUBLIC` leaves only the
+  session's proxy setting between the browser and the internet. Its execution role
+  `<name_prefix>-studio-browser` may read `comparative/<env>/browser-proxy` and nothing else.
+- **Logs.** AgentCore creates the runtime's log groups under `/aws/bedrock-agentcore/runtimes/` itself,
+  as it does today: they are not under `/comparative/<env>/`, so the logs key does not encrypt them and
+  this stack sets no retention on them.
+- **Published to SSM** under `/comparative/<env>/50-agentcore/`: `runtime_arn`, `browser_id`,
+  `browser_arn`.
+
+### Not yet proven against AWS
+
+The configuration plans; none of it has been applied. These are open until a human has applied the
+stack in a scratch environment (migration spec, WP-13 step 1):
+
+- that the runtime reaches READY in `VPC` mode with the arm64 image, reaches Bedrock, the AgentCore data
+  plane, ECR and CloudWatch Logs through the interface endpoints alone, and the MCP facades through the
+  internal load balancer; whether it needs network-interface permissions of its own (none are granted;
+  AgentCore is expected to use its service-linked role);
+- that a new `image_agent` updates the runtime in place and creates a new version that `DEFAULT`
+  follows;
+- that the browser works in `VPC` mode in the zones of `agentcore_az_ids` with signing on;
+- that the credential provider reads the key from the app secret, which is encrypted with the secrets
+  key, and with whose permission. If AgentCore reads it as the caller, the apply role (denied
+  `secretsmanager:GetSecretValue`) cannot create the provider and a human applies this stack; if as the
+  runtime role, that role needs read of a secret that holds every application secret, which is the
+  owner's decision and is not granted here;
+- that Bedrock accepts the runtime role's model calls without an `aws-marketplace` grant.
+
 ## What 40-services creates
 
 Applied after `50-agentcore`, and again with every release:
@@ -439,9 +504,9 @@ Applied after `50-agentcore`, and again with every release:
 ./tf.sh personal-stage 40-services apply
 ```
 
-It reads `runtime_arn`, `browser_id` and `browser_arn` from `/comparative/<env>/50-agentcore/`. That
-stack is a later work package; until it has been applied in the environment, this one fails at plan
-with a missing-parameter error. There is no switch to run without them.
+It reads `runtime_arn`, `browser_id` and `browser_arn` from `/comparative/<env>/50-agentcore/`. Until
+`50-agentcore` has been applied in the environment, this one fails at plan with a missing-parameter
+error. There is no switch to run without them.
 
 | Service | Image | Command | CPU / memory | Tasks | Network |
 |---|---|---|---|---|---|
@@ -752,13 +817,20 @@ each followed by its own scripts, `tests/*.sh`:
 - `modules/observability/tests/policy_on_plan.sh` plans `modules/observability/tests/plan` the same
   way and runs every rule of `policy/` against that plan; it also requires the topic to carry a
   customer-managed key, which no rule covers.
-- `stacks/35-deploy-tasks/tests/deploy_tasks.sh`, `stacks/40-services/tests/services.sh` and
-  `stacks/60-observability/tests/observability.sh` check what those stacks plan inside their modules,
-  which a stack's test file cannot see. They run the stack's
+- `modules/agentcore/tests/policy_on_plan.sh` plans `modules/agentcore/tests/plan` the same way and
+  runs every rule of `policy/` against that plan; it also fails if the runtime role allows any
+  `bedrock:` or `bedrock-agentcore:` action on `Resource: "*"` (`iam-bedrock-scope` covers only model
+  invocation). `agentcore.tftest.hcl` asserts the same of the web-search policy, which a plan shows only
+  after apply.
+- `stacks/35-deploy-tasks/tests/deploy_tasks.sh`, `stacks/40-services/tests/services.sh`,
+  `stacks/50-agentcore/tests/agentcore.sh` and `stacks/60-observability/tests/observability.sh` check
+  what those stacks plan inside their modules, which a stack's test file cannot see. They run the stack's
   test file once more with `terraform test -json -verbose`, which prints every run's plan, and check
-  those plans with `jq` through `plan_checks.sh`. `services.sh` is also the release test: its first run
-  applies against the mocked provider, the next plans with only the three images changed, and the
-  check fails if anything but a task definition or a service would change.
+  those plans with `jq` through `plan_checks.sh`. `services.sh` and `agentcore.sh` are also the release
+  tests: their first run applies against the mocked provider, the next plans with only the release's
+  images changed, and the check fails if anything but a task definition or a service (in `50-agentcore`:
+  the runtime) would change. Whether AWS updates the runtime in place is not something a mocked plan can
+  show; see "Not yet proven against AWS".
 
 A stack's tests supply what earlier stacks publish to SSM, so they need no state either.
 

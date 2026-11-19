@@ -20,7 +20,7 @@
 #   anything else                  nothing (README, checks, policy fixtures,
 #                                  bootstrap/, which a human applies)
 # A pair whose environment or stack directory does not exist at <head> is
-# left out: it cannot be planned (50-agentcore does not exist yet).
+# left out: it cannot be planned.
 #
 # stdout: one line per pair, `<env>\t<stack>\t<kind>`, environments sorted,
 #         stacks in apply order. <kind> is `release` when only the release

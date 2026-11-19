@@ -45,8 +45,9 @@ stack_with 20-data data
 stack_with 30-platform
 stack_with 35-deploy-tasks ecs-task
 stack_with 40-services ecs-service
+stack_with 50-agentcore agentcore
 stack_with 60-observability observability
-for module in ci-identity network data ecs-task ecs-service observability unused; do
+for module in ci-identity network data ecs-task ecs-service agentcore observability unused; do
   mkdir -p "$root/modules/$module/tests"
   : > "$root/modules/$module/main.tf"
 done
@@ -74,16 +75,16 @@ T=infra/terraform
 
 echo "affected.sh:"
 
-check "a release affects 35-deploy-tasks and 40-services of that environment only" \
-  'personal-stage\t35-deploy-tasks\trelease\npersonal-stage\t40-services\trelease' \
+check "a release affects 35-deploy-tasks, 50-agentcore and 40-services of that environment only, 50 before 40" \
+  'personal-stage\t35-deploy-tasks\trelease\npersonal-stage\t50-agentcore\trelease\npersonal-stage\t40-services\trelease' \
   "$T/envs/personal-stage/release.auto.tfvars"
 
 check "env.tfvars affects every stack of that environment" \
-  'personal-stage\t00-foundation\tinfra\npersonal-stage\t10-network\tinfra\npersonal-stage\t20-data\tinfra\npersonal-stage\t30-platform\tinfra\npersonal-stage\t35-deploy-tasks\tinfra\npersonal-stage\t40-services\tinfra\npersonal-stage\t60-observability\tinfra' \
+  'personal-stage\t00-foundation\tinfra\npersonal-stage\t10-network\tinfra\npersonal-stage\t20-data\tinfra\npersonal-stage\t30-platform\tinfra\npersonal-stage\t35-deploy-tasks\tinfra\npersonal-stage\t50-agentcore\tinfra\npersonal-stage\t40-services\tinfra\npersonal-stage\t60-observability\tinfra' \
   "$T/envs/personal-stage/env.tfvars"
 
 check "backend.hcl affects every stack of that environment" \
-  'personal-prod\t00-foundation\tinfra\npersonal-prod\t10-network\tinfra\npersonal-prod\t20-data\tinfra\npersonal-prod\t30-platform\tinfra\npersonal-prod\t35-deploy-tasks\tinfra\npersonal-prod\t40-services\tinfra\npersonal-prod\t60-observability\tinfra' \
+  'personal-prod\t00-foundation\tinfra\npersonal-prod\t10-network\tinfra\npersonal-prod\t20-data\tinfra\npersonal-prod\t30-platform\tinfra\npersonal-prod\t35-deploy-tasks\tinfra\npersonal-prod\t50-agentcore\tinfra\npersonal-prod\t40-services\tinfra\npersonal-prod\t60-observability\tinfra' \
   "$T/envs/personal-prod/backend.hcl"
 
 check "a stack change affects that stack in every environment" \
@@ -102,15 +103,19 @@ check "ci-identity affects 00-foundation" \
   'personal-prod\t00-foundation\tinfra\npersonal-stage\t00-foundation\tinfra' \
   "$T/modules/ci-identity/main.tf"
 
+check "agentcore affects 50-agentcore" \
+  'personal-prod\t50-agentcore\tinfra\npersonal-stage\t50-agentcore\tinfra' \
+  "$T/modules/agentcore/main.tf"
+
 check "a module nothing uses affects nothing (its tests' references are not uses)" '' \
   "$T/modules/unused/main.tf"
 
 check "a release and a module change together: release, infra and both" \
-  'personal-prod\t40-services\tinfra\npersonal-stage\t35-deploy-tasks\trelease\npersonal-stage\t40-services\tboth' \
+  'personal-prod\t40-services\tinfra\npersonal-stage\t35-deploy-tasks\trelease\npersonal-stage\t50-agentcore\trelease\npersonal-stage\t40-services\tboth' \
   "$T/envs/personal-stage/release.auto.tfvars" "$T/modules/ecs-service/main.tf"
 
 check "tf.sh affects every pair" \
-  "$(for e in personal-prod personal-stage; do for s in 00-foundation 10-network 20-data 30-platform 35-deploy-tasks 40-services 60-observability; do printf '%s\\t%s\\tinfra\\n' "$e" "$s"; done; done | sed '$ s/\\n$//')" \
+  "$(for e in personal-prod personal-stage; do for s in 00-foundation 10-network 20-data 30-platform 35-deploy-tasks 50-agentcore 40-services 60-observability; do printf '%s\\t%s\\tinfra\\n' "$e" "$s"; done; done | sed '$ s/\\n$//')" \
   "$T/tf.sh"
 
 check "documentation, checks, policy, scripts and bootstrap affect nothing" '' \
@@ -125,10 +130,11 @@ check "an environment or stack that no longer exists is left out" '' \
 
 check "no change, no pair" ''
 
-mkdir -p "$root/stacks/50-agentcore"
-check "50-agentcore, once it exists, is released and ordered before 40-services" \
-  'personal-stage\t35-deploy-tasks\trelease\npersonal-stage\t50-agentcore\trelease\npersonal-stage\t40-services\trelease' \
+rm -r "$root/stacks/50-agentcore"
+check "a release stack that does not exist is left out" \
+  'personal-stage\t35-deploy-tasks\trelease\npersonal-stage\t40-services\trelease' \
   "$T/envs/personal-stage/release.auto.tfvars"
+stack_with 50-agentcore agentcore
 
 mkdir -p "$root/stacks/45-new"
 out=$(printf '%s\0' "$T/stacks/10-network/main.tf" | bash "$script" "$root" 2>&1)
@@ -149,12 +155,11 @@ else
 fi
 
 # The real tree: every stack directory is in the apply order, and a release of
-# personal-stage plans the release stacks that exist.
+# personal-stage plans its three release stacks, 50-agentcore before
+# 40-services.
 out=$(printf '%s\0' "$T/envs/personal-stage/release.auto.tfvars" | bash "$script" 2>&1)
 status=$?
-expected=$(printf 'personal-stage\t35-deploy-tasks\trelease\n')
-[ -d "$here/../stacks/50-agentcore" ] && expected+=$(printf '\npersonal-stage\t50-agentcore\trelease')
-expected+=$(printf '\npersonal-stage\t40-services\trelease')
+expected=$(printf 'personal-stage\t35-deploy-tasks\trelease\npersonal-stage\t50-agentcore\trelease\npersonal-stage\t40-services\trelease')
 if [ "$status" = 0 ] && [ "$out" = "$expected" ]; then
   ok "the real tree: a personal-stage release affects its release stacks"
 else

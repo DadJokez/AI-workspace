@@ -12,9 +12,9 @@ name: Terraform Apply
 #      deployed successfully, snapshot the database (pre-migrate-<sha12>-<run>)
 #      and delete such snapshots older than snapshot_keep_days;
 #   4. run the migrator task and require exit code 0;
-#   5. apply 50-agentcore (once it exists), then 40-services: Terraform waits
-#      for steady state, and the circuit breaker rolls a bad task set back,
-#      which fails the apply;
+#   5. apply 50-agentcore, then 40-services: Terraform waits for steady
+#      state, and the circuit breaker rolls a bad task set back, which fails
+#      the apply;
 #   6. run the smoke task; when it fails, open a pull request that reverts the
 #      merged commit (never merged automatically) and fail;
 #   7. record a GitHub deployment (task terraform-apply) with the release, the
